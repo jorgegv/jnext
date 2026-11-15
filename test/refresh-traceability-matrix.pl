@@ -290,6 +290,9 @@ my @SUBSYS = (
     # GH #455). Filed under their parent's scope.
     ['### Companion POSIX-only suite — `test/sdcard/sdcard_posix_test.cpp`',
      'sdcard_posix_test'],
+    # SDW rows: the SD card's write journal (--sdcard-writes, GH #470).
+    ['### Companion write-journal suite — `test/sdcard/sdcard_writes_test.cpp`',
+     'sdcard_writes_test'],
     ['## NMI Source Pipeline — `test/nmi/nmi_test.cpp`', 'nmi_test'],
     # GH #22 — the debugger's raster/ULA-fetch indicator. Its own `##` section
     # rather than a companion of `## VideoTiming`: it derives from BOTH
@@ -358,8 +361,16 @@ my @SUBSYS = (
      'nmi_integration_test'],
     ['### Companion integration suite — `test/input/input_integration_test.cpp`',
      'input_integration_test'],
+    # GPA-03, moved out of input_integration_test: it needs a joystick the SDL port
+    # does not map (`# os: native`, GH #460).
+    ['### Companion native-only suite — `test/input/input_integration_native_test.cpp`',
+     'input_integration_native_test'],
     ['### Companion integration suite — `test/uart/uart_integration_test.cpp`',
      'uart_integration_test'],
+    # ESP-01..04, moved out of uart_integration_test: a live ESP needs a worker thread
+    # (`# os: native`, GH #460).
+    ['### Companion native-only suite — `test/uart/uart_integration_native_test.cpp`',
+     'uart_integration_native_test'],
     # JOY-15..22 and PI-*, moved out of uart_integration_test into a POSIX-only
     # suite (FIFO/pty cables, the NextPi link, QEMU; GH #214).
     ['### Companion POSIX-only suite — `test/uart/uart_posix_test.cpp`',
@@ -393,6 +404,7 @@ my %PLAN_DOC = (
     'ctc_interrupts_test'         => 'CTC-INTERRUPTS',
     'uart_test'                   => 'UART-I2C',
     'uart_integration_test'       => 'UART-I2C',
+    'uart_integration_native_test' => 'UART-I2C',
     'uart_posix_test'             => 'UART-I2C',
     'nextpi_test'                 => 'UART-I2C',
     'nextreg_test'                => 'NEXTREG',
@@ -400,6 +412,7 @@ my %PLAN_DOC = (
     'port_test'                   => 'IO-PORT-DISPATCH',
     'input_test'                  => 'INPUT',
     'input_integration_test'      => 'INPUT',
+    'input_integration_native_test' => 'INPUT',
     'floating_bus_test'           => 'FLOATING-BUS',
     'videotiming_test'            => 'VIDEOTIMING',
     'contention_test'             => 'CONTENTION',
@@ -430,6 +443,7 @@ my %TOMBSTONE = (
     'rewind_test'   => '(jnext-internal)',
     'sdcard_test'   => '(SD SPI spec)',
     'sdcard_posix_test' => '(SD SPI spec)',
+    'sdcard_writes_test' => '(SD SPI spec; journal format: developer guide)',
     # The ESP-01 is a THIRD-PARTY module hanging off the Next's UART 0 header.
     # The Next-side wire is VHDL (`zxnext.vhd:1611-1612` drives o_UART0_TX from
     # uart0_tx_esp; `:3381` labels the channel "uart 0 (esp)"), but nothing
@@ -971,6 +985,7 @@ my %NO_MATRIX_SECTION = (
     'halt_batch_equiv_test'   => 'cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal)',
     'halt_batch_periph_test'  => 'cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_observer_test'=> 'cycle-batching equivalence with an ESP-01 or a debugger client attached (GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
+    'halt_batch_observer_native_test'=> 'cycle-batching equivalence with an ESP-01 attached (GH #489): the rows that need a live ESP worker thread; batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'call_stack_fetch_test'   => 'debugger call-stack tracker fed from the CPU\'s M1 fetch buffer (GH #489): frames through the emulator path; the oracle is Z80/Z80N instruction semantics and the interrupt response, the tracker itself being jnext-internal',
     'halt_batch_boot_test'    => 'cycle-batching equivalence on the NextZXOS cold boot (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_corpus_1_test'=> 'cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal)',
@@ -984,6 +999,7 @@ my %NO_MATRIX_SECTION = (
     'raster_poll_batch_test'  => 'raster-poll batch equivalence (GH #496): the batch off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal); each row cites the hardware behaviour a batched window must not move in its own source',
     'raster_poll_batch_refuse_test' => 'raster-poll batch gates and refusals (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'raster_poll_batch_observer_test' => 'raster-poll batch with an ESP-01 or a debugger client attached (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
+    'raster_poll_batch_observer_native_test' => 'raster-poll batch with an ESP-01 attached and the debugger window open (GH #496): the row that needs a live ESP worker thread; batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'raster_poll_batch_boot_test' => 'raster-poll batch on the NextZXOS Guide viewer (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'raster_poll_batch_switch_test' => 'the raster-poll batch\'s switch (GH #496): jnext-internal configuration, no hardware counterpart',
     'costly_optimizations_test' => 'the costly-optimisation registry parser (GH #496): a host-side command-line value list, no hardware counterpart',
@@ -997,12 +1013,15 @@ my %NO_MATRIX_SECTION = (
     'sdcard_file_add_linux_test' => 'SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
+    'minimal_card_test'       => 'the minimal NextZXOS card builder (GH #458): a synthetic MS-FAT32-spec distribution and a zlib zip built in the test, the card read back with ChaN FatFs (host SD-image tool, jnext-internal; the FPGA core has no counterpart)',
+    'sha256_test'             => 'SHA-256 of every backend (OpenSSL, BCrypt, the portable WebAssembly one; host utility): NIST FIPS 180-2 Appendix B and the NIST CSRC SHA-2 example as oracles, coreutils sha256sum for the rest; the FPGA core has no counterpart',
     'sdcard_provisioner_posix_test' => 'PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side)',
     'snapshot_test'           => 'the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file',
     'sd_identity_test'        => 'the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces',
     'jns_host_path_linux_test' => 'GH #401: a non-UTF-8 host path is written with U+FFFD and never aborts a .jns save; jnext-internal host behaviour, the FPGA core has no counterpart',
     'sd_no_digest_linux_test' => 'GH #396: no whole-card read on .jns save/probe/load or a warm-start hit, measured by Linux /proc/self/io rchar; jnext-internal host behaviour (a UI-thread stall), the FPGA core has no counterpart',
     'video_recorder_cmd_test' => 'FFmpeg command-line construction (host encoder)',
+    'video_recorder_cmd_native_test' => 'FFmpeg recording through a stand-in child process (host encoder, split out of video_recorder_cmd_test, GH #460)',
 
     # ── Guest-firmware surfaces jnext stands in for ──────────────────
     # The oracle is the NextZXOS/esxDOS API contract and jnext's own trap
@@ -1042,6 +1061,7 @@ my %NO_MATRIX_SECTION = (
     'tick_stats_test'      => 'host tick accounting for the status bar',
     'speed_report_test'    => 'host speed-percentage reporting',
     'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
+    'emulator_boot_native_test' => 'host cold-boot of a live emulated ESP-01 (threaded; split out of emulator_boot_test, GH #460; no VHDL oracle)',
     'video_recorder_posix_test' => 'GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle',
     'quick_snapshot_posix_test' => 'GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle',
     'pgo_map_parse_test'        => 'GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle',
@@ -1115,18 +1135,23 @@ my %NO_MATRIX_SECTION = (
     'sdcard_dialog_test'  => 'SD-card/NextPi download dialog through a dropped network (host GUI, GH #358)',
     'sdcard_upgrade_box_test' => 'SDL message box offering a newer NextZXOS image (host UI, GH #476)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
+    'sdl_app_tick_test' => 'SdlApp::tick() host frame-loop iteration (host UI, GH #462)',
+    'web_api_test' => 'browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465)',
+    'browser_policy_test' => 'browser page rAF callback gate and refusals (host UI, GH #463)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
     # jnext-internal contracts. `cli_options_test` is checked against the man
     # page by `make cli-check`, which is its own two-way gate.
     'cli_options_test'              => 'CLI flag table vs the man page (see `make cli-check`)',
+    'cli_options_native_test'       => 'CLI rows that run the built jnext binary (split out of cli_options_test, GH #460; see `make cli-check`)',
     'ay_cache_test'                 => 'AY output / TurboSound mix caches vs an always-recompute reference (GH #440; equivalence of two implementations, VHDL cited in the suite header)',
     'log_test'                      => 'jnext logging façade (spdlog wiring)',
     'log_gate_test'                 => 'jnext log-level gating',
     'profiler_test'                 => 'jnext profiler output format (a developer tool)',
     'app_config_test'               => 'jnext.conf schema/precedence (host settings file)',
     'config_keys_test'              => 'the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle)',
+    'warm_start_card_test'          => 'warm-start digest key and stepped recording against the real card (GH #464, jnext-internal); no FPGA counterpart',
     'warm_start_test'               => 'warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify',
     'preferences_apply_test'        => 'Preferences dialog wiring (host GUI)',
     'preferences_apply_policy_test' => 'Preferences apply/revert policy (host GUI)',

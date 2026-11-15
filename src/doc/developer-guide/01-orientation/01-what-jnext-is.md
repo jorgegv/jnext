@@ -34,7 +34,7 @@ Pentagon. The rule: a bit `boot.c` writes the same whatever `config.ini` says
 takes the firmware's value; a config-dependent bit stays on, except the 48K AY.
 The Next itself is untouched.
 
-Per-machine geometry lives in `MachineTiming` (`src/core/emulator_config.h:565`)
+Per-machine geometry lives in `MachineTiming` (`src/core/emulator_config.h:573`)
 and is derived from `zxula_timing.vhd`: a 48K frame is 448 pixels × 312 lines,
 while 128K, +3 and Next frames are 456 × 311. Underneath all of it, everything
 is counted in 28 MHz master cycles (`MASTER_CLOCK_HZ`) — the same master clock
@@ -122,7 +122,9 @@ All three drive the same `Emulator` and differ only in what surrounds it.
   kept only for audio output. The debugger (`src/debugger/`) hangs off this
   frontend.
 - **SDL-only** — `src/platform/sdl_app.*`, the fallback when `ENABLE_QT_UI=OFF`.
-  Window, input and audio all go through SDL3.
+  Window, input and audio all go through SDL3. It is also the frontend of the
+  browser build, driven by the page one frame at a time
+  ([5.6](../05-building/06-the-browser-build.md)).
 - **Headless** — `src/platform/headless_app.cpp`, selected at run time by
   `--headless` in either build. It opens no window, no audio device and no host
   input, runs uncapped instead of paced to real time, and schedules everything

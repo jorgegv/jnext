@@ -13,6 +13,7 @@ BUILD_DIR_GUI_PGO_GEN := build/gui-release-pgo-gen
 PGO_PROFILE_DIR       := build/gui-release-pgo-profile
 BUILD_DIR_WIN_RELEASE := build/win-release
 BUILD_DIR_WIN_SDL_RELEASE := build/win-sdl-release
+BUILD_DIR_WASM_UNIT_TEST := build/wasm-unit-test
 BUILD_DIR_WIN_QT5_RELEASE := build/win-qt5-release
 BUILD_DIR_QT5_CHECK   := build/qt5-check
 BUILD_DIR_WIN32_SDL_RELEASE := build/win32-sdl-release
@@ -202,7 +203,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -211,7 +212,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions flatpak-prefetch z88dk-gdb skoolkit ghidra
+       package-contract-test minimal-image-test flatpak-prefetch packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web package-web web-package-test wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build regression-wasm
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -520,7 +521,7 @@ gui-release-clean:
 gui-clean: gui-debug-clean gui-release-clean
 
 # Remove all build directories (sdl/gui + unit-test; build/ takes the rest with it)
-clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
+clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean wasm-core-clean
 
 # Build the stall capture's x64 stack helper (a test tool, never packaged): build/wine-stack/wine-stack-x64.exe
 wine-stack-x64:
@@ -605,6 +606,128 @@ ghidra:
 	@# once per machine into ~/.cache/jnext/tools (test/provision-ghidra.sh), and a
 	@# JDK 25 (java-25-openjdk-devel) to run it, which the row checks.
 	bash test/provision-ghidra.sh
+
+# Provide the pinned Emscripten SDK 6.0.13 in the user cache
+emsdk:
+	@# The WebAssembly build needs emcc at ONE exact version, which Fedora does not
+	@# package. test/provision-emsdk.sh downloads the three archives (emsdk, the
+	@# release, node), verifies all three sha256 before unpacking, installs into
+	@# ~/.cache/jnext/tools/emsdk-6.0.13 and builds the SDL3/zlib/libpng ports. A
+	@# no-op once stamped; needs the network once (about 345 MB).
+	bash test/provision-emsdk.sh
+
+# Provide the pinned Playwright and its Chromium headless shell in the user cache
+playwright:
+	@# The browser smoke test drives a headless Chromium through playwright-core on
+	@# emsdk's node. test/provision-playwright.sh downloads both archives, verifies
+	@# both sha256 before unpacking and installs into ~/.cache/jnext/tools/playwright-<V>.
+	@# A no-op once stamped; needs the network once (about 135 MB).
+	bash test/provision-playwright.sh
+
+# Build the SDL-only core for WebAssembly into build/wasm-core and check it under node
+wasm-core: emsdk
+	@# The same commands locally and in CI (a prerequisite of `regression-wasm`). Only `jnext` and
+	@# `sha256_test` are built: the rest of the test tree is not yet ported. The
+	@# toolchain file is used directly (no emcmake, no emsdk_env.sh); node is the
+	@# SDK's own, as the cross-compiling emulator. A cache configured with Qt, the
+	@# debugger or another SDK is reconfigured by the guard.
+	@# A configure that failed leaves a cache the guard accepts but no Makefile.
+	@E=$$(bash test/provision-emsdk.sh --print-path) && \
+	{ [ -f build/wasm-core/Makefile ] || rm -rf build/wasm-core; } && \
+	bash test/cmake-configure-guard.sh build/wasm-core \
+		"CMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
+		"CMAKE_BUILD_TYPE=Release" \
+		"ENABLE_QT_UI=OFF" \
+		"ENABLE_DEBUGGER=OFF" \
+		"ENABLE_TESTS=ON" \
+		-- \
+		"-S" "." \
+		"-DCMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
+		"-DCMAKE_CROSSCOMPILING_EMULATOR=$$(ls -d $$E/node/*/bin/node)" \
+		"-DCMAKE_BUILD_TYPE=Release" \
+		"-DENABLE_QT_UI=OFF" \
+		"-DENABLE_DEBUGGER=OFF" \
+		"-DENABLE_TESTS=ON" && \
+	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext sha256_test && \
+	bash test/wasm-core-check.sh build/wasm-core
+
+# Run the SDL-only unit suites built for WebAssembly, under node
+unit-test-wasm: unit-test-wasm-build sdcard-image
+	@# The same suite set `unit-test-sdl` runs, as Emscripten modules run by the
+	@# SDK's own node through test/node-run.sh. What node cannot stand in for (no
+	@# processes, threads or listening sockets) is declared absent with `# os:` in
+	@# test/unit-tests.conf, never skipped. JNEXT_UNIT_TEST_JOBS: one node process
+	@# per CPU, since each holds its own wasm memory. JNEXT_SUITE_TIMEOUT: the
+	@# emulation-heavy suites (rewind_test, tap_loader_test) take about 250 s of
+	@# wall time under node on a loaded host, against 300 s by default.
+	@JNEXT_TEST_RUNNER="bash $(CURDIR)/test/node-run.sh" JNEXT_UNIT_TEST_JOBS=$(JOBS) JNEXT_SUITE_TIMEOUT=1200 \
+		bash test/run-unit-tests.sh $(BUILD_DIR_WASM_UNIT_TEST)
+
+# Configure + build the WebAssembly SDL-only test tree (prerequisite for unit-test-wasm)
+unit-test-wasm-build: emsdk
+	@# Configured as wasm-core is, in a tree of its own with JNEXT_ENABLE_LTO=OFF
+	@# (the Windows precedent: the unit suites need no cross-TU inlining, and an LTO
+	@# link of the whole core per suite would be about 130 times the cost). All
+	@# targets are built, the test executables included.
+	@E=$$(bash test/provision-emsdk.sh --print-path) && \
+	{ [ -f $(BUILD_DIR_WASM_UNIT_TEST)/Makefile ] || rm -rf $(BUILD_DIR_WASM_UNIT_TEST); } && \
+	bash test/cmake-configure-guard.sh $(BUILD_DIR_WASM_UNIT_TEST) \
+		"CMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
+		"CMAKE_BUILD_TYPE=Release" \
+		"ENABLE_QT_UI=OFF" \
+		"ENABLE_DEBUGGER=OFF" \
+		"ENABLE_TESTS=ON" \
+		"JNEXT_ENABLE_LTO=OFF" \
+		-- \
+		"-S" "." \
+		"-DCMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
+		"-DCMAKE_CROSSCOMPILING_EMULATOR=$$(ls -d $$E/node/*/bin/node)" \
+		"-DCMAKE_BUILD_TYPE=Release" \
+		"-DENABLE_QT_UI=OFF" \
+		"-DENABLE_DEBUGGER=OFF" \
+		"-DENABLE_TESTS=ON" \
+		"-DJNEXT_ENABLE_LTO=OFF" && \
+	$(CMAKE) --build $(BUILD_DIR_WASM_UNIT_TEST) -j$(JOBS)
+
+# Build the browser frontend jnext-<version>.js/.wasm into build/wasm-core
+wasm-web: wasm-core
+	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext_web
+
+# Zip the browser build into build/wasm-core/jnext-<ver>-web.zip (js + wasm, example pages, licences, source link)
+package-web: wasm-web
+	@# Names come from version.yaml through CMake and the script. NEVER a NextZXOS image
+	@# (copyrighted: the page fetches it from SpecNext); package-web.sh verifies its own zip.
+	@E=$$(bash test/provision-emsdk.sh --print-path) && \
+	bash packaging/web/package-web.sh build/wasm-core "$$E"
+
+# Contract-test packaging/web/package-web.sh (50 rows) on fake trees - hermetic, no emsdk
+web-package-test:
+	@bash test/packaging/web-package-test.sh
+
+# Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
+wasm-browser-test: wasm-web package-web playwright sdl-release sdcard-image
+	@# BRW-01..34, WBI-PW-01..08, WEBAPI-01..31, WEBPKG-BR-01, WIDGET-01..17, BCARD-01..25 (the card flow, the poster and the wording of the pick path's refusals), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# native oracle; sdcard-image provides the distribution image the run turns into the
+	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
+	bash test/browser/browser-smoke.sh build/wasm-core
+
+# Run the regression suite's screenshot rows against the WebAssembly jnext under node
+regression-wasm: wasm-core unit-test-sdl-build sdcard-image
+	@# `regression.sh --platform` against build/wasm-core: jnext.js, linked for node
+	@# (NODERAWFS, so it sees the host SD clone and writes the PNG to a host path), is
+	@# run by the SDK's own node through test/node-run.sh --jnext. There is no Qt
+	@# build for the web, so the one tree stands for both. The native helper tools
+	@# and the jnext that derives the SD master come from the SDL unit-test tree. Every
+	@# screenshot row is compared at tolerance 0 against the committed native
+	@# reference; functional rows run only where `os=` names emscripten (none yet),
+	@# the rest are printed absent by name. A full run takes the host lock like
+	@# `make regression`; ROWS="a b" runs named rows. It is not stamped.
+	JNEXT_TARGET_BUILD=build/wasm-core JNEXT_TARGET_SDL_BUILD=build/wasm-core \
+		TEST_BIN_DIR=$(BUILD_DIR_SDL_UNIT_TEST)/test bash test/00regression/regression.sh --platform $(ROWS)
+
+# Remove the WebAssembly build directory
+wasm-core-clean:
+	rm -rf build/wasm-core
 
 # Run the full regression test suite (screenshot + functional tests)
 regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb skoolkit ghidra
@@ -825,7 +948,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test sdcard-image
+unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card-selftest traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test sdcard-image
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -864,6 +987,9 @@ unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text
 	@# roots, ~4 s, no compiler and no packaging toolchain. The half that actually
 	@# builds rpm/deb/win packages (~4 min) stays in `make package-test`, run as its
 	@# own parallel job in ci.yml.
+	@# minimal-image-test is a prerequisite for the same reason: no CMake suite behind it,
+	@# and hermetic apart from the cached distribution image. Linux-only (sfdisk), so it is
+	@# not a prerequisite of unit-test-sdl or unit-test-win.
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
@@ -1039,6 +1165,20 @@ lint-ascii-text:
 	@# `unit-test` and `regression`, like lint-thread-detach.
 	@bash test/lint-ascii-text.sh
 
+# Fail if a user-facing text describes making, serving or hosting an SD card (GH #458)
+lint-user-docs-card:
+	@# NextZXOS is SpecNext's copyrighted software and only specnext.com hosts it, so
+	@# the user guide, man page, README, FEATURES, the Unreleased ChangeLog entry and
+	@# the web package's README must carry no recipe, example URL or page option for a
+	@# card or image (owner, 2026-11-15). Banned shapes plus the three statements of
+	@# user guide 10.4; the developer guide is out of scope on purpose. A prerequisite
+	@# of docs-check, so it runs on every `make unit-test` and `make regression`.
+	@bash test/lint-user-docs-card.sh
+
+# Self-test lint-user-docs-card: each banned pattern fails, the developer guide is out of scope
+lint-user-docs-card-selftest:
+	@bash test/lint-user-docs-card-selftest.sh
+
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:
 	@# A missing ripgrep is a hard FAILURE here, like every other missing test tool.
@@ -1128,6 +1268,15 @@ cmake-guard-selftest:
 # Benchmark the 5 canonical workloads (non-PGO build; BENCH_BUILD=gui-release benches the shipped PGO one)
 bench:
 	@JNEXT_BENCH_BUILD=$(BENCH_BUILD) bash test/bench/bench.sh
+
+# Run the browser bench over the regression NEX set in the host's Chrome (also at 2x CPU throttle) and Firefox
+bench-web: wasm-web playwright sdl-release sdcard-image
+	@# The shipped jnext.mount() page, one wasm instance per program, pinned to the fastest
+	@# physical cores. Writes test/bench/web-baseline-<sha>.txt. Needs a quiet host (it waits
+	@# for load <= 1.5 at each pass start). Optional: CONFIGS=chrome,chrome-x2,firefox
+	@# SET=<program,...> W= M= PROFILE=<program,...> WEB_BUILD=<dir>. No gate or CI step
+	@# depends on it: a speed bound would measure the host.
+	@WEB_BUILD="$(WEB_BUILD)" bash test/bench/web/browser-bench.sh build/wasm-core
 
 # Run the GH #276 hot-latch interleaved A/B (needs a baseline binary)
 bench-hotlatch:
@@ -1297,7 +1446,17 @@ cli-check: unit-test-build
 	@# off unit-test-build rather than off docs-check — docs-check deliberately
 	@# needs no compiler. `make unit-test` runs the same suite via
 	@# test/unit-tests.conf, so it is covered by both entry points.
-	@./build/test/cli_options_test
+	@#
+	@# Two suites make up the family: cli_options_test (the table, the man page,
+	@# the parser) and cli_options_native_test (the rows that run the built
+	@# jnext, among them CLI-BIN-04, the binary's --help against the table). The
+	@# second is split out because a WebAssembly module starts no processes; both
+	@# run here, so the split leaves this gate as strong as it was.
+	@./build/test/cli_options_test && ./build/test/cli_options_native_test
+	@# The browser build's JavaScript options are the same kind of seam: web_api_test
+	@# diffs the WEB_OPTIONS table and the refusal functions against the man page's
+	@# THE BROWSER BUILD section in both directions.
+	@./build/test/web_api_test
 
 # The `.jns` JSON Schema: generated from the field declarations (GH #27 S2)
 SCHEMA_GEN     := ./build/tools/gen-snapshot-schema/gen-snapshot-schema
@@ -1311,6 +1470,7 @@ docs-check:
 	@# its own remediation line: sharing one shell block let a mkdocs-missing
 	@# failure print "run 'make docs-man'", which cannot fix it.
 	@rc=0; \
+	 $(MAKE) --no-print-directory lint-user-docs-card || rc=1; \
 	 $(MAKE) --no-print-directory docs-man-check || rc=1; \
 	 $(MAKE) --no-print-directory docs-userguide-check || rc=1; \
 	 $(MAKE) --no-print-directory docs-devguide-check || rc=1; \
@@ -2046,6 +2206,10 @@ packaging-selftest:
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
+# Test tools/make-minimal-card (15 rows) against the cached distribution image and a synthetic zip - Linux only; needs mtools + sfdisk + python3
+minimal-image-test: unit-test-build
+	@bash test/minimal-card-test.sh
+
 # Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s
-package-contract-test:
+package-contract-test: web-package-test
 	@bash test/packaging/packaging-test.sh --contracts-only

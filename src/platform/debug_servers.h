@@ -73,8 +73,10 @@ public:
     /// Headless: the waiting budget.
     static jnext::dbg::PumpBudget headless_wait_budget();
 
+#ifndef __EMSCRIPTEN__
 private:
     std::unique_ptr<jnext::remote::dzrp::DzrpServer> dzrp_;
     std::unique_ptr<jnext::remote::gdb::GdbServer>   gdb_;
     std::unique_ptr<jnext::remote::zrcp::ZrcpServer> zrcp_;
+#endif
 };

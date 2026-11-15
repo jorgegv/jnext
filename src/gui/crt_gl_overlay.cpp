@@ -132,8 +132,7 @@ void CrtGlOverlay::paintGL() {
 
     crtemu_present(crt_, static_cast<CRTEMU_U64>(now_us() - t0_us_),
                    abgr_.data(), frame_w_, frame_h_,
-                   0xffffffffu /* no colour modulation */,
-                   0xff000000u /* black outside the curved screen */);
+                   crt_shader::PRESENT_MODULATE, crt_shader::PRESENT_BORDER);
     emit presented();
 }
 

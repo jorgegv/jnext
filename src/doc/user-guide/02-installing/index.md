@@ -5,6 +5,9 @@ your system from the latest release:
 
 **<https://github.com/jorgegv/jnext/releases/latest>**
 
+To put JNEXT in a web page there is nothing to install on your computer: the web
+zip and how to host it are in [chapter 10](../10-web-page/index.md).
+
 ## Trying a build before it is released
 
 Every change that reaches the `main` branch is built automatically, and the
@@ -26,6 +29,7 @@ are untested development builds, for people helping to check a fix.
     | macOS, Intel | `jnext-macos-x64-dmg` |
     | Fedora / RHEL | `jnext-linux-rpm` |
     | Any Linux (Flatpak) | `jnext-linux-flatpak` |
+    | A web page | `jnext-web-zip` |
     | Source code | `jnext-source-zip` |
 
     The `jnext-windows-*-sdl-zip` artifacts are reduced builds without the Qt

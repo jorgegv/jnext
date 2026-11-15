@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JNEXT widget</title>
+</head>
+<body>
+<div class="jnext-widget" data-file="" data-poster="" data-card-source="auto"></div>
+<script>
+  // Demo helper, not part of the snippet: the program may come from the query string (?file=URL).
+  (function () {
+    var q = new URLSearchParams(location.search), el = document.querySelector('.jnext-widget');
+    if (q.get('file')) el.setAttribute('data-file', q.get('file'));
+  })();
+</script>
+<script src="jnext-widget.js"></script>
+</body>
+</html>

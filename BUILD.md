@@ -164,7 +164,8 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 | `make package-rpm` / `package-deb` | Fedora/RHEL `.rpm` / Debian/Ubuntu `.deb` |
 | `make package-win` | Windows `.zip` (exe + bundled Qt6/SDL3 DLLs + plugins) |
 | `make package-flatpak` / `package-src` | Flatpak bundle / source tarball |
-| `make package-test` | Build every package (except macOS) and check each artifact |
+| `make package-web` | Browser build zip, `jnext-<ver>-web.zip` (js + wasm, example pages, licences) |
+| `make package-test` | Build every package (except macOS, Flatpak and the browser zip) and check each artifact |
 
 **Clean / housekeeping**
 
@@ -311,7 +312,8 @@ Packages are the recommended way for end users to install JNEXT (see the main
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + the KDE runtime) |
 | `make package-win` | Windows `.zip` (cross-compiled with Fedora MinGW — see below) |
 | `make package-src` | source tarball |
-| `make package-test` | build every package above (except macOS) and check each artifact |
+| `make package-web` | browser build zip `jnext-<ver>-web.zip` (needs the Emscripten SDK, provisioned automatically) |
+| `make package-test` | build every package above (except macOS, Flatpak and the browser zip) and check each artifact |
 
 Every packaged binary is a **PGO build**, like `gui-release`: each package
 target runs `tools/pgo-build.sh`, which instruments, trains and rebuilds in
@@ -392,7 +394,7 @@ make regression     # screenshot comparisons + functional tests, headless
 tool is an error to fix, not a row to skip. The tools the suites use are the
 `test` job's `dnf install` list in `.github/workflows/ci.yml` (the reference set:
 ImageMagick, Xvfb, xdotool, python3 with PyYAML and jsonschema, unzip, ripgrep,
-ffmpeg, mtools and dosfstools, rpm-build, libspectrum-devel, pandoc, mkdocs-material,
+ffmpeg, mtools and dosfstools, util-linux (sfdisk), rpm-build, libspectrum-devel, pandoc, mkdocs-material,
 graphviz, perl modules, dbus-daemon, ...). `color_scheme_test` starts a private
 `dbus-daemon` to serve a mock desktop portal (GH #363), so its portal rows fail
 without it. The one tool that is not a package, the `z88dk-gdb`

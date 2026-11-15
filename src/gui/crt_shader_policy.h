@@ -32,6 +32,35 @@ constexpr Style style_from_int(int v) {
     return (v >= 0 && v < STYLE_COUNT) ? static_cast<Style>(v) : STYLE_DEFAULT;
 }
 
+/// What the display shows after start-up: the shader, the soft scanlines or nothing.
+enum class Effect { Off, Scanlines, Shader };
+
+/// The one start-up rule, shared by the Qt window (MainWindow::apply_startup_config and
+/// its runtime-failure path) and the browser build. The shader wins over the scanlines;
+/// a shader that cannot run (`shader_ok` false) continues as the scanlines when the style
+/// is the soft one ("Soft scanlines") or when the plain scanlines are also asked, else
+/// the display is plain.
+constexpr Effect resolve(bool filter, bool shader, Style style, bool shader_ok) {
+    if (shader && shader_ok) return Effect::Shader;
+    if (filter || (shader && style == Style::Lite)) return Effect::Scanlines;
+    return Effect::Off;
+}
+
+/// A GL viewport rectangle (origin bottom-left).
+struct GlRect { int x, y, w, h; };
+
+/// SDL's letterbox rectangle (origin top-left, output pixels) as a GL viewport on a
+/// drawing buffer `out_h` rows high: the filtered picture then occupies exactly the
+/// rectangle the unfiltered one does.
+constexpr GlRect gl_viewport(int x, int y, int w, int h, int out_h) {
+    return GlRect{x, out_h - y - h, w, h};
+}
+
+/// The colour modulation and the colour outside the curved screen the display passes
+/// to crtemu_present(): no modulation, black.
+inline constexpr uint32_t PRESENT_MODULATE = 0xffffffffu;
+inline constexpr uint32_t PRESENT_BORDER   = 0xff000000u;
+
 /// The largest integer scale at which NATIVE_W x DISPLAY_H fits a physical
 /// pw x ph, never below 1. This is the fullscreen rule EmulatorWidget::prescale()
 /// has always used (G104 Phase 7: an integer scale keeps the pixels square);

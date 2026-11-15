@@ -17,7 +17,8 @@
 // the network does; false aborts with "cancelled by user"; no body byte for the
 // stall timeout ends the attempt). The whole-file #ifdef pair keeps
 // file(GLOB_RECURSE) in src/core/CMakeLists.txt correct on every platform: exactly
-// one twin has content per build.
+// one of the three twins (this one, _win, _web for WebAssembly) has content per
+// build.
 //
 // The transfer runs on libcurl's MULTI interface. curl_easy_perform with an
 // XFERINFO callback is called often while data flows but slows to about one call
@@ -27,7 +28,7 @@
 // the loop wakes every tick. (A file:// URL, a test seam and the Flatpak build's
 // source, is read by libcurl inside one curl_multi_perform call: no ticks,
 // nothing to cancel, and it needs none.)
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 
 #include "core/sdcard_provisioner.h"
 #include "core/log.h"

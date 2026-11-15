@@ -3,6 +3,7 @@
 #include "core/saveable.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
+#include <algorithm>
 #include <cstring>
 
 Ram::Ram(size_t size_bytes) : data_(size_bytes, 0) {}

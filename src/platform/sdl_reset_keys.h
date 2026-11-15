@@ -29,7 +29,7 @@ static_assert(host_modifier::kGuiBits ==
 /// whatever else is held, neither resets, and F4 quits through SDL_EVENT_QUIT,
 /// the event a window close raises, so it takes the normal quit path
 /// (SdlInput::poll() -> on_quit; SDL delivers an event pushed during a poll on
-/// the next one, i.e. the next iteration of SdlApp::run()).
+/// the next one, i.e. the next iteration of SdlApp::tick()).
 ///
 /// `chords` is the tracker SdlApp feeds every key event first, so a whole
 /// Alt+F4 delivered in one poll batch still counts as Alt held, which

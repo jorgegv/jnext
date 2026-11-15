@@ -158,6 +158,35 @@ bool read_directory(std::ifstream& f, const ReadGeom& g, uint32_t start_cluster,
     std::vector<uint8_t> dir;
     if (!read_chain(f, g, start_cluster, dir)) return false;
 
+    for (const Fat32Entry& e : fat32_parse_dir(dir)) {
+        Fat32Node node;
+        node.name   = e.name;
+        node.is_dir = e.is_dir;
+        node.attr   = e.attr;
+        node.wdate  = e.wdate;
+        node.wtime  = e.wtime;
+
+        if (e.is_dir) {
+            if (e.cluster >= 2) {
+                if (!read_directory(f, g, e.cluster, node.children, depth + 1))
+                    return false;
+            }
+        } else if (e.size > 0) {
+            if (e.cluster < 2) return false;
+            std::vector<uint8_t> raw;
+            if (!read_chain(f, g, e.cluster, raw)) return false;
+            if (raw.size() < e.size) return false;
+            node.data.assign(raw.begin(), raw.begin() + e.size);
+        }
+        out.push_back(std::move(node));
+    }
+    return true;
+}
+
+} // namespace
+
+std::vector<Fat32Entry> fat32_parse_dir(const std::vector<uint8_t>& dir) {
+    std::vector<Fat32Entry> out;
     std::string lfn_acc; // accumulated long name (reversed slot order)
     bool have_lfn = false;
 
@@ -185,33 +214,18 @@ bool read_directory(std::ifstream& f, const ReadGeom& g, uint32_t start_cluster,
 
         if (name == "." || name == "..") continue;
 
-        const bool is_dir = (attr & ATTR_DIRECTORY) != 0;
-        const uint32_t cl = (static_cast<uint32_t>(rd_u16(e + 20)) << 16) |
-                            rd_u16(e + 26);
-        const uint32_t size = rd_u32(e + 28);
-
-        Fat32Node node;
-        node.name   = name;
-        node.is_dir = is_dir;
-
-        if (is_dir) {
-            if (cl >= 2) {
-                if (!read_directory(f, g, cl, node.children, depth + 1))
-                    return false;
-            }
-        } else if (size > 0) {
-            if (cl < 2) return false;
-            std::vector<uint8_t> raw;
-            if (!read_chain(f, g, cl, raw)) return false;
-            if (raw.size() < size) return false;
-            node.data.assign(raw.begin(), raw.begin() + size);
-        }
-        out.push_back(std::move(node));
+        Fat32Entry ent;
+        ent.name    = name;
+        ent.is_dir  = (attr & ATTR_DIRECTORY) != 0;
+        ent.cluster = (static_cast<uint32_t>(rd_u16(e + 20)) << 16) | rd_u16(e + 26);
+        ent.size    = rd_u32(e + 28);
+        ent.attr    = attr;
+        ent.wtime   = rd_u16(e + 22);
+        ent.wdate   = rd_u16(e + 24);
+        out.push_back(std::move(ent));
     }
-    return true;
+    return out;
 }
-
-} // namespace
 
 bool fat32_find_partition(const std::string& image_path, uint32_t& part_lba_out) {
     std::ifstream f(image_path, std::ios::binary);
@@ -285,7 +299,7 @@ void fat32_tree_upsert(Fat32Tree& tree, const std::string& path,
         for (auto& n : *level)
             if (n.is_dir && ieq(n.name, parts[i])) { dir = &n; break; }
         if (!dir) {
-            Fat32Node nd; nd.name = parts[i]; nd.is_dir = true;
+            Fat32Node nd; nd.name = parts[i]; nd.is_dir = true; nd.attr = 0;
             level->push_back(std::move(nd));
             dir = &level->back();
         }

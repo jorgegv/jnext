@@ -106,13 +106,15 @@
 //                  why, "URL: <the address asked for>", what happens next, for each
 //                  state of the partial (01-03), a download that is no zip (04),
 //                  the shape itself (05) and the sandbox note coming last (06).
-//   PROV-RETRY-01..12  GH #497 - a failed attempt (transport error, or a body that
+//   PROV-RETRY-01..20  GH #497 - a failed attempt (transport error, or a body that
 //                  does not unzip) is retried up to 3 more times, waiting 2 s, 4 s, 8 s:
 //                  success on the 2nd / 3rd attempt (02, 03), giving up after the limit
 //                  with the error of the last attempt (04, 05, 11), a kept partial
 //                  surviving into the next attempt (06), the cancel not retried (07),
 //                  retries=0 (08), the first-wait env seam (09), the DEFAULT options
-//                  retrying 3 times (10), the retry note on stderr (12).
+//                  retrying 3 times (10), the retry note on stderr (12); an HTTP 4xx answer is a
+//                  permanent refusal and is not retried (13), except 429 (15) and 408 (16); 503 and 500 are (14, 19);
+//                  400 and 499, the edges of 4xx, are not (18, 20); the 206 without a range is (17).
 //   PROV-UNZIP-01  Extract a STORED entry from a crafted zip.
 //   PROV-UNZIP-02  Extract a DEFLATED entry from a crafted zip.
 //   PROV-UNZIP-03  Missing entry → false.
@@ -2560,6 +2562,47 @@ void test_retry_rows() {
               text.find("\nRetry 1 of 3 in 2 s...\n") != std::string::npos &&   // the terminal line, not the log record's copy
               text.find("\nRetry 2 of 3 in 4 s...\n") != std::string::npos &&
               text.find("Retry 3 of 3") == std::string::npos && text.find("stub: no network") != std::string::npos, text);
+    }
+    {   // 13-20: an HTTP 4xx answer is a refusal, asking again only delays it (RFC 9110 15.5); 408, 429 and 5xx are transient
+        auto http = [&](long status) {
+            return [&, status](const std::string&, const std::string&, const sdcard::ProgressFn&, std::string& err) {
+                ++calls;
+                err = sdcard::http_status_reason(status);
+                return false;
+            };
+        };
+        const auto r404 = run(http(404));
+        check("PROV-RETRY-13", "an HTTP 404 answer is a permanent refusal: one attempt, no wait, the 404 reported",
+              r404.status == sdcard::ProvisionStatus::Failed && calls == 1 && waits.empty() &&
+              r404.error.find("(HTTP 404)") != std::string::npos, r404.error);
+        const auto r503 = run(http(503));
+        check("PROV-RETRY-14", "an HTTP 503 answer is transient: 4 attempts, waits 2 s, 4 s, 8 s",
+              r503.status == sdcard::ProvisionStatus::Failed && calls == 4 && waits == w3 &&
+              r503.error.find("(HTTP 503)") != std::string::npos, r503.error);
+        const auto r429 = run(http(429));
+        check("PROV-RETRY-15", "an HTTP 429 answer is transient: 4 attempts, waits 2 s, 4 s, 8 s",
+              r429.status == sdcard::ProvisionStatus::Failed && calls == 4 && waits == w3 &&
+              r429.error.find("(HTTP 429)") != std::string::npos, r429.error);
+        const auto r206 = run([&](const std::string&, const std::string&, const sdcard::ProgressFn&, std::string& err) {
+            ++calls; err = "unexpected partial content (HTTP 206)"; return false; });
+        check("PROV-RETRY-17", "the 'unexpected partial content (HTTP 206)' failure is not a refusal: 4 attempts, waits 2 s, 4 s, 8 s",
+              r206.status == sdcard::ProvisionStatus::Failed && calls == 4 && waits == w3, r206.error);
+        const auto r400 = run(http(400));
+        check("PROV-RETRY-18", "an HTTP 400 answer (the lowest 4xx) is permanent: one attempt, no wait",
+              r400.status == sdcard::ProvisionStatus::Failed && calls == 1 && waits.empty() &&
+              r400.error.find("(HTTP 400)") != std::string::npos, r400.error);
+        const auto r500 = run(http(500));
+        check("PROV-RETRY-19", "an HTTP 500 answer (the lowest 5xx) is transient: 4 attempts, waits 2 s, 4 s, 8 s",
+              r500.status == sdcard::ProvisionStatus::Failed && calls == 4 && waits == w3 &&
+              r500.error.find("(HTTP 500)") != std::string::npos, r500.error);
+        const auto r499 = run(http(499));
+        check("PROV-RETRY-20", "an HTTP 499 answer (the highest 4xx) is permanent: one attempt, no wait",
+              r499.status == sdcard::ProvisionStatus::Failed && calls == 1 && waits.empty() &&
+              r499.error.find("(HTTP 499)") != std::string::npos, r499.error);
+        const auto r408 = run(http(408));
+        check("PROV-RETRY-16", "an HTTP 408 answer is transient: 4 attempts, waits 2 s, 4 s, 8 s",
+              r408.status == sdcard::ProvisionStatus::Failed && calls == 4 && waits == w3 &&
+              r408.error.find("(HTTP 408)") != std::string::npos, r408.error);
     }
     jtp::set_env("JNEXT_SDCARD_RETRY_BACKOFF_MS", "0");   // back to the suite's no-wait setting
     clean();

@@ -304,6 +304,11 @@ public:
     EsxdosStubState esxdos_stub_state() const;
     void restore_esxdos_stub_state(EsxdosStubState state);
 
+    /// Discard everything kept for the card in its write journal (sectors and the
+    /// stand-in's file) and the stand-in's in-memory file. False when no journal
+    /// is bound to the card.
+    bool forget_card_writes();
+
     /// Load a raw binary file into RAM at `org` and set PC to `pc`.
     /// Called after init() when --inject is used.  Returns true on success.
     bool inject_binary(const std::string& path, uint16_t org, uint16_t pc);
@@ -347,15 +352,39 @@ public:
     /// synthetic init(), which is what `--load` has always done.
     ///
     /// Non-destructive to THIS emulator: a recording runs on its own freshly
-    /// constructed Emulator (see record_warm_start_state), because a cold boot
+    /// constructed Emulator (see begin_warm_start_recording), because a cold boot
     /// has to start from power-on state and a re-init() of a machine that has
     /// already been init()ed once does not (GH #234 §10.2). All this does to
     /// `this` is measure its state-stream length.
     bool ensure_warm_start_state();
 
+    /// Progress of a resumable warm-start preparation (see prepare_warm_start).
+    struct WarmStartProgress {
+        enum class Status { Ready, Recording, Unavailable };
+        Status   status       = Status::Unavailable;
+        bool     from_cache   = false;   ///< Ready because a cached recording was restored
+        uint32_t frames_done  = 0;
+        uint32_t frames_total = kWarmStartT4Units / kWarmStartUnitsPer50HzFrame;  ///< the recipe's length in 50 Hz frames
+    };
+
+    /// ensure_warm_start_state(), resumable: runs at most `max_frames` frames
+    /// of a recording per call, so a frontend that must keep painting (the
+    /// browser) can spread the boot over several ticks. `Recording` = call
+    /// again; `Ready` / `Unavailable` = ensure's true / false. ensure_warm_start_state()
+    /// is a loop over this, and completes a recording begun with smaller steps.
+    WarmStartProgress prepare_warm_start(uint32_t max_frames);
+
     /// Forget the process-wide record of the last warm-start validation, as a
     /// new process would have it (tests only).
     static void reset_warm_start_memo_for_test();
+
+    /// Install `rec` as the recording in progress, so prepare_warm_start() steps it
+    /// (tests only: a recorder that never commits a machine type needs no firmware).
+    void set_warm_start_recorder_for_test(std::unique_ptr<Emulator> rec) {
+        warm_start_recorder_ = std::move(rec);
+        warm_start_recorded_frames_ = 0;
+        warm_start_recorded_units_ = 0;
+    }
 
     /// The recorded state, empty until ensure_warm_start_state() succeeds.
     const std::vector<uint8_t>& warm_start_state() const { return warm_start_state_; }
@@ -789,7 +818,7 @@ public:
     /// `timer_fastloading_active()` (timer/timer.c:198) is
     /// `tape_is_playing() || phantom_typist_is_active()`: it sprints only
     /// while something is LOADING, never because a tape is merely in the
-    /// deck. The platform layer (SdlApp::run, QtApp::on_frame_tick) reads
+    /// deck. The platform layer (SdlApp::tick, QtApp::on_frame_tick) reads
     /// this and skips its frame-rate delay while true; once it clears the
     /// platform re-engages normal 50 Hz pacing (and re-resumes audio output).
     ///
@@ -2247,9 +2276,24 @@ private:
     /// verdict belongs to the card, not to the run.
     std::string warm_start_failed_image_;
 
-    /// Boot the firmware in place and serialise the result. Returns false,
-    /// having logged why, when the boot does not land on a NextZXOS.
-    bool record_warm_start_state(std::vector<uint8_t>& out);
+    /// Start a recording: a freshly constructed Emulator at power-on state,
+    /// initialised for the boot. False, having logged why, when it cannot.
+    bool begin_warm_start_recording();
+
+    /// Serialise the finished boot into `out`. Returns false, having logged
+    /// why, when the boot does not land on the Command Line (the capture check).
+    bool finish_warm_start_recording(std::vector<uint8_t>& out, uint64_t writes);
+
+    /// The recording in progress (see prepare_warm_start), and its frames.
+    std::unique_ptr<Emulator> warm_start_recorder_;
+    uint32_t warm_start_recorded_frames_ = 0;
+    /// Emulated time the recording has run, in kWarmStartUnitsPer50HzFrame units.
+    uint32_t warm_start_recorded_units_ = 0;
+    /// `SdCardDevice::host_write_generation()` when it began, and the
+    /// generation its SHA-256 key describes (digest mode only).
+    uint64_t warm_start_begin_gen_ = 0;
+    uint64_t warm_start_ref_gen_   = 0;
+    bool     warm_start_digest_mode_ = false;
 public:
     /// The configuration the warm-start recording boots with: `live` minus
     /// everything about THIS load and every host OUTPUT (files, sockets,

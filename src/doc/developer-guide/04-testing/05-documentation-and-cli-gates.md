@@ -182,7 +182,10 @@ the OPTIONS section of `doc/man/jnext.1.md` in both directions:
   unenumerable in the first place, and it would re-open the gap invisibly,
   because such a flag appears neither in the table nor in this check.
 - `CLI-BIN-01` runs the real binary end to end, proving that the table drives
-  the actual parser rather than only this test.
+  the actual parser rather than only this test. It, and every row that starts
+  the built `jnext` as a child process (among them `CLI-BIN-04`, the binary's
+  `--help` against the table), is in `cli_options_native_test`, a second suite
+  because the WebAssembly build starts no process.
 - `CLI-NUM-05` gives every option that takes a value the argument `x` and fails
   on any crash, so a future flag parsed with a throwing call is caught without
   anyone listing it.
@@ -190,8 +193,9 @@ the OPTIONS section of `doc/man/jnext.1.md` in both directions:
   accepts its bounds, and that its case table covers every numeric option in
   `cli::OPTIONS`.
 
-The suite runs both as `make cli-check`, a prerequisite of `make regression`,
-and as a declared row of `test/unit-tests.conf`. It hangs off `unit-test-build`
+The two suites run both as `make cli-check` (which runs `cli_options_test` and
+then `cli_options_native_test`), a prerequisite of `make regression`, and as
+declared rows of `test/unit-tests.conf`. It hangs off `unit-test-build`
 rather than off `docs-check`, because the table is C++ and `docs-check`
 deliberately needs no compiler.
 

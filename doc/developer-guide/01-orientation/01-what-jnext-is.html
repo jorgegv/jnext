@@ -1968,6 +1968,8 @@
       
         
       
+        
+      
     
     
     
@@ -2144,6 +2146,34 @@
     
   
     5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/06-the-browser-build.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.6 The browser build
   
 
     
@@ -3012,7 +3042,7 @@ them; no CTC, no 0xEFF7), NR 0x84 bit 0 clear on the 48K (AY) and bit 2 on the
 Pentagon. The rule: a bit <code>boot.c</code> writes the same whatever <code>config.ini</code> says
 takes the firmware's value; a config-dependent bit stays on, except the 48K AY.
 The Next itself is untouched.</p>
-<p>Per-machine geometry lives in <code>MachineTiming</code> (<code>src/core/emulator_config.h:565</code>)
+<p>Per-machine geometry lives in <code>MachineTiming</code> (<code>src/core/emulator_config.h:573</code>)
 and is derived from <code>zxula_timing.vhd</code>: a 48K frame is 448 pixels × 312 lines,
 while 128K, +3 and Next frames are 456 × 311. Underneath all of it, everything
 is counted in 28 MHz master cycles (<code>MASTER_CLOCK_HZ</code>) — the same master clock
@@ -3113,7 +3143,9 @@ looking at when they hit a breakpoint mid-screen.</p>
   kept only for audio output. The debugger (<code>src/debugger/</code>) hangs off this
   frontend.</li>
 <li><strong>SDL-only</strong> — <code>src/platform/sdl_app.*</code>, the fallback when <code>ENABLE_QT_UI=OFF</code>.
-  Window, input and audio all go through SDL3.</li>
+  Window, input and audio all go through SDL3. It is also the frontend of the
+  browser build, driven by the page one frame at a time
+  (<a href="../05-building/06-the-browser-build.html">5.6</a>).</li>
 <li><strong>Headless</strong> — <code>src/platform/headless_app.cpp</code>, selected at run time by
   <code>--headless</code> in either build. It opens no window, no audio device and no host
   input, runs uncapped instead of paced to real time, and schedules everything

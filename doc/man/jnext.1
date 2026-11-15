@@ -146,6 +146,24 @@ Cancel as the default.
 \f[B]\-\-sdcard\f[R] \f[I]FILE\f[R]
 Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]).
 Optional; see \f[B]SD CARD AND ROMS\f[R].
+A ZIP archive is not an image and is refused (exit status 1): unzip it
+first.
+The WebAssembly build extracts the single \f[CR].img\f[R] inside one.
+.TP
+\f[B]\-\-sdcard\-sha256\f[R] \f[I]HEX\f[R]
+The SHA\-256 of the \f[B]\-\-sdcard\f[R] image, as the caller has
+already checked it.
+The warm\-start recording is keyed on it instead of on the image\(cqs
+size and modification time.
+\f[B]jnext\f[R] does not hash the image: \f[I]HEX\f[R] must describe the
+file as it is.
+The browser build uses this option, because its page rewrites the card
+into memory on every visit (so the time changes) and has already checked
+the hash.
+\f[I]HEX\f[R] is 64 hexadecimal digits, in either case.
+Requires \f[B]\-\-sdcard\f[R].
+A recording taken after \f[B]jnext\f[R] has written to the card in this
+run is used, but not cached.
 .TP
 \f[B]\-\-sdcard\-download\-confirm\f[R]
 Skip the download prompt for the default\-location image and proceed.
@@ -177,6 +195,40 @@ Open the SD image read\-only, so the host file is never modified.
 The emulated machine sees a write\-protected card: writes are rejected
 with the SD write\-error token rather than silently discarded.
 Use it when a run must not disturb an image other runs share.
+.TP
+\f[B]\-\-sdcard\-writes\f[R] \f[I]FILE\f[R]
+Keep the writes the emulated machine makes to the SD card in
+\f[I]FILE\f[R], not in the image: the image is opened read\-only and
+never changes, and \f[I]FILE\f[R]\(cqs sectors are laid over it whenever
+the card is mounted, so the writes survive the next run.
+\f[I]FILE\f[R] belongs to one image, identified by its
+\f[B]\-\-sdcard\-sha256\f[R] digest or else by its size and modification
+time: a \f[I]FILE\f[R] made against another image is refused (exit
+status 1), and so is a file that is not a \f[B]jnext\f[R] SD\-writes
+file.
+It is created at the first write and holds only the sectors the machine
+wrote (516 bytes each) and the one file jnext\(cqs esxDOS stand\-in
+keeps for a directly loaded NEX (see \f[B]esxDOS calls from a directly
+loaded NEX\f[R]), stored when the program closes it and handed back to
+the stand\-in at the next start, whatever the program: it belongs to the
+card, not to the NEX that wrote it.
+Excludes \f[B]\-\-sdcard\-readonly\f[R] and
+\f[B]\-\-sdcard\-file\-add\f[R].
+A recording of the warm start is keyed on the image and on
+\f[I]FILE\f[R]\(cqs sectors, so it is taken again after the machine has
+written one; the stand\-in\(cqs file is not card state and does not
+change it.
+Files read from the image by the host (the ROMs, a snapshot\(cqs card
+identity) do not see the writes.
+See \f[B]SD CARD AND ROMS\f[R].
+.TP
+\f[B]\-\-sdcard\-writes\-reset\f[R]
+Discard the writes kept in the \f[B]\-\-sdcard\-writes\f[R]
+\f[I]FILE\f[R] before the card is mounted, the stand\-in\(cqs file
+included, so the run starts on the image as it is.
+Requires \f[B]\-\-sdcard\-writes\f[R].
+A file that is not a \f[B]jnext\f[R] SD\-writes file is refused, never
+removed.
 .TP
 \f[B]\-\-sdcard\-file\-add\f[R] \f[I]FILE\f[R]
 Copy host \f[I]FILE\f[R] \(em a file, or a directory with everything in
@@ -229,10 +281,11 @@ firmware on it, a recording that will not load back \(em \f[B]jnext\f[R]
 says so on standard error and falls back to the machine it has always
 assembled.
 .PP
-The recording is keyed by the SD image\(cqs size and modification time,
-the machine type, the state format and the recording procedure, and it
-is also dropped when \f[B]jnext\f[R] itself writes to the image, so it
-invalidates itself whenever any of those change.
+The recording is keyed by the SD image\(cqs size and modification time
+(or by the \f[B]\-\-sdcard\-sha256\f[R] digest), the machine type, the
+state format and the recording procedure, and it is also dropped when
+\f[B]jnext\f[R] itself writes to the image, so it invalidates itself
+whenever any of those change.
 The image\(cqs contents are not read: an image replaced or edited from
 outside with the same size and the same modification time
 (\f[CR]cp \-p\f[R], \f[CR]touch \-r\f[R]) is served the old recording.
@@ -314,7 +367,8 @@ together.
 \f[CR]soft\f[R], \f[CR]tv\f[R] and \f[CR]pc\f[R] need the GPU shader; a
 build without it refuses them (exit status 1) and offers \f[CR]off\f[R]
 and \f[CR]scanlines\f[R].
-Qt window only: elsewhere \f[B]jnext\f[R] warns and ignores it.
+The Qt window and the browser build: elsewhere \f[B]jnext\f[R] warns and
+ignores it.
 .TP
 \f[B]\-\-speed\f[R] \f[I]PERCENT\f[R]
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
@@ -387,6 +441,14 @@ Wins over the saved GUI preference for this run.
 Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
 The GUI equivalent is \f[I]Release captured mouse with\f[R] under
 \f[B]Settings > Preferences > Input\f[R], which applies live.
+.TP
+\f[B]\-\-touch\-keyboard\f[R] \f[I]MODE\f[R]
+Browser build only: when the on\-screen Spectrum keyboard is shown.
+\f[CR]auto\f[R] (default) shows it on a phone or tablet (a device whose
+main pointer is a finger), \f[CR]on\f[R] always, \f[CR]off\f[R] never.
+A page can also show or hide it while it runs (see \f[B]The touch
+keyboard\f[R]).
+Accepted, with a warning, and ignored by every other build.
 .TP
 \f[B]\-\-joy\-uart\-rx\f[R] \f[I]FILE\f[R]
 Attach \f[I]FILE\f[R] as a serial byte source on the joystick\-port UART
@@ -632,6 +694,7 @@ While on, the tape deck stops in the silent gap between two blocks when
 no program is reading the tape, and resumes when one does, so tapes
 whose BASIC loader is slow between blocks load in real time.
 It does nothing in fast load mode.
+A \f[CR].wav\f[R] has no blocks and is never paused.
 Off, the deck runs straight through, as a real one does (a TZX \(lqstop
 the tape if in 48K mode\(rq block now stops only on a 48K machine, as
 the TZX specification says, whatever this setting is).
@@ -886,8 +949,8 @@ to +24 dB.
 .TP
 \f[B]\-\-rzx\-play\f[R] \f[I]FILE\f[R]
 Play back an RZX recording from the start of the run.
-Works the same in the GUI, the SDL\-only build and under
-\f[B]\-\-headless\f[R].
+Works the same in the GUI, the SDL\-only build, under
+\f[B]\-\-headless\f[R] and in a browser page.
 A recording that fails to load is logged, and \f[B]jnext\f[R] then exits
 non\-zero.
 The machine starts exactly as it does for \f[B]\-\-load\f[R]
@@ -920,6 +983,8 @@ The file is written when \f[B]jnext\f[R] exits (or, in the GUI, at
 \f[B]File > Stop RZX Recording\f[R]).
 Works the same in the GUI, the SDL\-only build and under
 \f[B]\-\-headless\f[R].
+A browser page refuses it and records from JavaScript (see THE BROWSER
+BUILD).
 While recording, a tape loads in real time: a fast load skips the ROM
 loader, which a recording cannot replay.
 The snapshot is an SZX on the 128K, Pentagon and +3 and a 48K SNA on the
@@ -1554,16 +1619,16 @@ The Qt window.
 .TP
 \f[CR]startup.crt_filter\f[R] \f[I]true|false\f[R]
 The software scanlines effect; \f[B]\-\-crt scanlines\f[R].
-The Qt window.
+The Qt window and the browser build.
 .TP
 \f[CR]startup.crt_shader\f[R] \f[I]true|false\f[R]
 The GPU CRT shader; \f[B]\-\-crt\f[R].
-The Qt window.
+The Qt window and the browser build.
 .TP
 \f[CR]startup.crt_shader_style\f[R] \f[I]0..2\f[R]
 The shader\(cqs look: 0 is \f[CR]tv\f[R], 1 is \f[CR]pc\f[R], 2 is
 \f[CR]soft\f[R]; \f[B]\-\-crt\f[R].
-The Qt window.
+The Qt window and the browser build.
 .TP
 \f[CR]startup.silent\f[R] \f[I]true|false\f[R]
 Start with the sound muted; \f[B]\-\-silent\f[R].
@@ -1777,7 +1842,8 @@ without data) is kept (\f[CR]sn\-emulator.zip.part\f[R]) and continues
 on the next run.
 A download that fails, or whose file is no zip, is retried up to three
 times, after 2, 4 and 8 seconds, each retry noted on the terminal and in
-the download window; Cancel is not retried.
+the download window; Cancel is not retried, nor is a refusal by the
+server (HTTP 4xx, except 408 and 429).
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 .PP
 When the default card is of an older NextZXOS distribution than the one
@@ -1807,6 +1873,9 @@ boots NextZXOS mutates the image the next run reads.
 For a reproducible run, either pass \f[B]\-\-sdcard\-readonly\f[R], or
 give it a private copy (\f[CR]cp \-\-reflink=auto\f[R] is instant and
 costs no space on a copy\-on\-write filesystem).
+A third way is \f[B]\-\-sdcard\-writes\f[R] \f[I]FILE\f[R]: the image is
+then never written, and the machine\(cqs writes are kept in
+\f[I]FILE\f[R] and laid over it on every run.
 .PP
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
@@ -2038,7 +2107,9 @@ a NEX that keeps its own file open (below);
 one file kept in memory: the program can create it, write it, and read
 it back under the same name, which is enough for a high\-score or
 settings file.
-It is never written to disk and is gone when jnext exits;
+It is never written to a host file and is gone when jnext exits, unless
+\f[B]\-\-sdcard\-writes\f[R] is given: the file is then kept in that
+file when the program closes it, and the next run starts with it;
 .IP \(bu 2
 \f[CR]run NAME.nex\f[R] (\f[CR]M_EXECCMD\f[R]), which loads another NEX
 file from the same directory;
@@ -3826,6 +3897,222 @@ The magic debug port logs writes to a configurable port to stderr as
 hex, decimal, ASCII or line\-buffered text.
 Enable it with \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R] and
 \f[B]\-\-magic\-port\-mode\f[R] \f[I]MODE\f[R].
+.SH THE BROWSER BUILD
+The same emulator, built for WebAssembly, runs inside a web page.
+The page loads one script, \f[CR]jnext\-VERSION.js\f[R] (with
+\f[CR]jnext\-VERSION.wasm\f[R] beside it), which defines one global,
+\f[CR]jnext\f[R]; \f[B]jnext.mount\f[R](\f[I]container\f[R],
+\f[I]options\f[R]) puts a player in a DOM element and returns a promise
+for it.
+Every option of \f[B]mount\f[R] is a command\-line flag or a
+\f[B]\-\-set\f[R] key, so what the page asks for is what the command
+line would ask for; the player\(cqs \f[CR]argv\f[R] property shows that
+command line.
+A browser page loads \f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R]
+and \f[CR].wav\f[R] programs, \f[CR].rzx\f[R] recordings and
+\f[CR].jns\f[R], \f[CR].sna\f[R], \f[CR].szx\f[R] and \f[CR].z80\f[R]
+snapshots; a snapshot or a recording runs on the machine it was made on.
+A \f[CR].wav\f[R] plays in real time, as from a cassette, and only while
+the machine runs: \f[CR]pause()\f[R] or a hidden tab stops the tape
+where it is.
+.PP
+NextZXOS, the operating system of the ZX Spectrum Next, is SpecNext\(cqs
+copyrighted software.
+JNEXT does not ship, host or serve it, and neither does a page.
+The player makes its SD card in the visitor\(cqs browser from the
+official distribution zip on specnext.com, which the page cannot name or
+replace: when specnext.com allows the page to read the file, the page
+downloads it; otherwise the player shows a link to download it from
+specnext.com and a button to choose the downloaded file.
+Either way the card the browser makes is kept in the browser\(cqs cache
+for that site, checked against its SHA\-256 on every visit, and the
+downloaded file itself is not kept.
+Nothing is downloaded or built until the visitor clicks the player: the
+click is also what starts the machine, because browsers allow sound only
+after a click.
+The page must be a secure context: \f[CR]https://\f[R],
+\f[CR]http://localhost\f[R] or \f[CR]http://127.0.0.1\f[R].
+.PP
+The CRT effect of the desktop window is available too, off by default: a
+page asks for it with the option \f[B]\-\-crt\f[R] \f[I]EFFECT\f[R] (in
+\f[CR]args\f[R]) or the three \f[CR]startup.crt_*\f[R] settings (in
+\f[CR]set\f[R]), and gets the same five looks with the same parameters.
+It runs on the page\(cqs WebGL, so it needs a browser with WebGL, and
+the soft scanlines show their lines only when the picture is at least
+twice 640x512 device pixels, as on the desktop.
+If the shader cannot run, the player logs one line starting
+\f[CR]CRT effect:\f[R] and carries on: with the software scanlines for
+\f[CR]soft\f[R] (or when \f[CR]scanlines\f[R] was also asked), with the
+plain picture otherwise.
+.SS JavaScript options
+.TP
+\f[CR]card\f[R] \f[I]{source}\f[R]
+Not a jnext setting: how the page gets NextZXOS\(cqs SD card.
+\f[CR]source\f[R] is \f[CR]\(aqauto\(aq\f[R] (the default: fetch the
+official file from specnext.com when it allows the page to read it,
+otherwise ask the visitor to download it and choose it),
+\f[CR]\(aqfetch\(aq\f[R] (only fetch; a failure is an error) or
+\f[CR]\(aqpick\(aq\f[R] (always ask the visitor).
+The SD card reaches the emulator as \f[B]\-\-sdcard\f[R] and
+\f[B]\-\-sdcard\-sha256\f[R], set by the page layer; the page never
+names the card.
+.TP
+\f[CR]poster\f[R] \f[I]URL\f[R]
+Not a jnext setting: a picture, a screenshot of the program, shown in
+the player area before the click so the player is not black on load.
+The emulator replaces it when the visitor starts the player.
+Without it nothing is shown there.
+.TP
+\f[CR]file\f[R] \f[I]URL | {url} | {data, name}\f[R]
+\f[B]\-\-load\f[R].
+The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R],
+\f[CR].wav\f[R], a \f[CR].rzx\f[R] recording, or a \f[CR].jns\f[R],
+\f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] snapshot); without
+it the machine boots to the NextZXOS menu.
+.TP
+\f[CR]keepWrites\f[R] \f[I]boolean\f[R]
+\f[B]\-\-sdcard\-writes\f[R], with a file the page manages: what the
+program writes to the card (saves, high scores) is kept in the
+visitor\(cqs browser (IndexedDB) and is there at the next visit.
+Off by default.
+The record is keyed by the card\(cqs SHA\-256 and the page\(cqs path, so
+another card or another page has its own, and it holds only the sectors
+written, never the card.
+The page can clear it with \f[CR]resetCard()\f[R], or with
+\f[CR]args: [\(aq\-\-sdcard\-writes\-reset\(aq]\f[R] for one start.
+The file a NEX loaded with \f[CR]file\f[R] saves through esxDOS is kept
+too: JNEXT\(cqs own stand\-in answers those calls (see \f[B]esxDOS calls
+from a directly loaded NEX\f[R]) and keeps one file, which belongs to
+the page\(cqs card and the file name, not to the program, so a changed
+NEX on the same page reads the old save, as on a real Next.
+Files written to a host directory a page names with
+\f[CR]args: [\(aq\-\-esxdos\-stub\-root\(aq, ...]\f[R] live in the
+page\(cqs memory only.
+.TP
+\f[CR]machine\f[R] \f[I]string\f[R]
+\f[B]\-\-machine\f[R].
+.TP
+\f[CR]touchKeyboard\f[R] \f[I]string\f[R]
+\f[B]\-\-touch\-keyboard\f[R]: \f[CR]\(aqauto\(aq\f[R] (default; the
+on\-screen keyboard is shown on a phone or tablet),
+\f[CR]\(aqon\(aq\f[R] or \f[CR]\(aqoff\(aq\f[R].
+.TP
+\f[CR]muted\f[R] \f[I]boolean\f[R]
+\f[CR]startup.silent\f[R]: no audio device for the session.
+.TP
+\f[CR]set\f[R] \f[I]{\(lqsection.key\(rq: value}\f[R]
+One \f[B]\-\-set\f[R] \f[I]section.key=value\f[R] per entry, sorted by
+key.
+.TP
+\f[CR]args\f[R] \f[I]array of strings\f[R]
+Further command\-line arguments, appended last, so they win over
+everything above.
+.TP
+\f[CR]width\f[R], \f[CR]height\f[R] \f[I]number | CSS length\f[R]
+Not a jnext setting: the box the player fills in the page.
+.TP
+\f[CR]wasmUrl\f[R] \f[I]string\f[R]
+Not a jnext setting: where the page serves the \f[CR].wasm\f[R] file
+from.
+.TP
+\f[CR]onProgress\f[R], \f[CR]onReady\f[R], \f[CR]onError\f[R] \f[I]function\f[R]
+Not a jnext setting: functions of the page, called with
+\f[CR](phase, fraction)\f[R] while the SD card is fetched
+(\f[CR]download\f[R]) or made from a file the visitor chose
+(\f[CR]build\f[R]), when the page is waiting for that file
+(\f[CR]choose\f[R]), while the first boot is recorded
+(\f[CR]warm\-start\f[R]) or restored (\f[CR]restore\f[R]), when the
+program is in the machine and a frame has been shown, and with a message
+on every failure.
+.SS The player
+\f[CR]state\f[R] is \f[CR]waiting\f[R], \f[CR]starting\f[R],
+\f[CR]running\f[R], \f[CR]paused\f[R], \f[CR]exited\f[R] or
+\f[CR]destroyed\f[R]; \f[CR]ready\f[R] is a promise for the first ready.
+\f[CR]pause()\f[R] and \f[CR]resume()\f[R] stop and restart the frame
+loop.
+\f[CR]reset(kind)\f[R] restarts the program (\f[CR]\(aqprogram\(aq\f[R],
+the default; with no program it powers on again), powers the machine on
+again (\f[CR]\(aqhard\(aq\f[R]) or resets it (\f[CR]\(aqsoft\(aq\f[R]).
+\f[CR]load(file)\f[R] loads another program while the machine runs.
+\f[CR]saveSnapshot()\f[R] resolves to the bytes of a \f[CR].jns\f[R]
+snapshot of the running machine (\f[B]\-\-snapshot\-compression\f[R]
+applies), for the page to offer as a download or give back to
+\f[CR]load()\f[R] as \f[CR]{data, name}\f[R].
+\f[CR]startRzxRecording()\f[R] starts an RZX recording of the machine as
+it is now (not on a ZX Spectrum Next: give the player another
+\f[CR]machine\f[R]); \f[CR]stopRzxRecording()\f[R] ends it and resolves
+to the file\(cqs bytes, for the page to offer as a download or give back
+to \f[CR]load()\f[R] as \f[CR]{data, name}\f[R].
+A reset or a \f[CR]load()\f[R] ends the recording early, and
+\f[CR]stopRzxRecording()\f[R] still returns it, and until it is called
+no new recording can start; \f[CR]destroy()\f[R] drops one that was not
+stopped.
+While a recording plays, every port read comes from the file: the keys
+do nothing until it ends.
+\f[CR]setVolume(v)\f[R] sets the master output level, \f[CR]0\f[R] to
+\f[CR]1\f[R].
+\f[CR]destroy()\f[R] stops the machine and removes the player (it waits
+until the saves of \f[B]keepWrites\f[R] are stored).
+\f[CR]resetCard()\f[R] discards the saves kept by \f[CR]keepWrites\f[R]
+(the saved file included) and restarts the program; it needs that
+option, and resolves when the program is running again.
+\f[CR]showKeyboard(on)\f[R] shows (\f[CR]true\f[R]) or hides
+(\f[CR]false\f[R]) the on\-screen keyboard, whatever
+\f[B]\-\-touch\-keyboard\f[R] says; the page\(cqs call wins, before or
+after the start, and anything but a boolean throws.
+\f[CR]keyboardVisible\f[R] tells whether it is shown.
+.SS The touch keyboard
+The on\-screen Spectrum Next keyboard is for devices with no keyboard.
+It sits at the bottom of the player\(cqs box, which keeps the size the
+page gave it; the screen above it shrinks by the keyboard\(cqs height.
+It is built on the first time it is shown, so a page that never shows it
+has the DOM it would have without it.
+.PP
+Its keys are typed as the keys of a PC keyboard are: through the same
+path, so what the program sees is what a physical keyboard gives.
+A key goes down when a finger lands on it and up when the finger lifts;
+several fingers hold several keys, for chords and for games.
+Tapping a key never moves the keyboard focus off the screen.
+.PP
+There are two layouts, chosen by the width of the box and followed when
+it changes: below 504 CSS pixels the 40 keys of the 48K keyboard, in
+four rows (every other key of the Next is Caps Shift or Symbol Shift
+plus a key, as on a 48K), and from 504 pixels on the Next\(cqs 58 keys,
+in five rows, with the sixteen extra keys (Delete, Edit, Break, Graph,
+Extend, the cursor keys and the rest).
+Its height is at most 45% of the box.
+.PP
+Caps Shift and Symbol Shift latch: a quick tap (under half a second,
+with no other key pressed meanwhile) leaves the shift waiting, shown as
+pressed, and the next key is typed with it; a tap on a waiting shift
+cancels it.
+A shift held longer, or held while another key is pressed, is an
+ordinary hold and does not wait.
+Each key has an accessible name, and the shifts report
+\f[CR]aria\-pressed\f[R].
+.SS Not available in the browser
+A page has no processes, sockets or terminal, so these are refused with
+a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],
+\f[B]\-\-nextpi\-release\f[R], \f[B]\-\-nextpi\-qemu\f[R],
+\f[B]\-\-nextpi\-audio\f[R], \f[B]\-\-nextpi\-qemu\-args\f[R],
+\f[B]\-\-esp\f[R], \f[B]\-\-esp\-allow\f[R],
+\f[B]\-\-esp\-listen\-address\f[R],
+\f[B]\-\-esp\-delayed\-disassociate\-frames\f[R],
+\f[B]\-\-esp\-delayed\-associate\-frames\f[R],
+\f[B]\-\-esp\-ip\-address\f[R], \f[B]\-\-esp\-ip\-address\-after\f[R],
+\f[B]\-\-record\f[R], \f[B]\-\-dzrp\-port\f[R], \f[B]\-\-gdb\-port\f[R],
+\f[B]\-\-zrcp\-port\f[R], \f[B]\-\-debug\-listen\-address\f[R],
+\f[B]\-\-script\f[R], \f[B]\-\-script\-key\f[R],
+\f[B]\-\-record\-script\f[R], \f[B]\-\-map\f[R],
+\f[B]\-\-annotations\f[R], \f[B]\-\-import\-skoolkit\f[R],
+\f[B]\-\-import\-ghidra\f[R], \f[B]\-\-headless\f[R] (it would block the
+tab for ever) and \f[B]\-\-rzx\-record\f[R] (a page records from
+JavaScript, see The player).
+The settings of the refused flags are refused when given as set entries
+too: \f[CR]esp.enabled\f[R], \f[CR]esp.allowed_hosts\f[R],
+\f[CR]nextpi.enabled\f[R], \f[CR]nextpi.dir\f[R],
+\f[CR]nextpi.release\f[R], \f[CR]nextpi.qemu_binary\f[R],
+\f[CR]nextpi.audio\f[R], \f[CR]nextpi.qemu_args\f[R].
 .SH EXAMPLES
 Boot NextZXOS / the TBBlue firmware (the default machine is
 \f[CR]next\f[R]):
@@ -4013,9 +4300,10 @@ The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a
 \f[CR].nex\f[R] starts from, one file per machine type, around 100 KB
 each.
 Written on the first such load with a given SD image and re\-recorded
-whenever the image\(cqs size or modification time changes, or JNEXT
-writes to it, or the machine type, the state format or the recording
-procedure changes \- see \f[B]\-\-warm\-start\-regenerate\f[R].
+whenever the image\(cqs size or modification time (or
+\f[B]\-\-sdcard\-sha256\f[R] digest) changes, or JNEXT writes to it, or
+the machine type, the state format or the recording procedure changes \-
+see \f[B]\-\-warm\-start\-regenerate\f[R].
 Deleting it costs one cold boot, nothing else.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img\f[R]

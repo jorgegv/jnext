@@ -7,9 +7,12 @@ Everything JNEXT keeps for you lives under `~/.jnext`.
 | `~/.jnext/jnext.conf`                      | GUI configuration, INI format. Written by **Settings > Preferences** (chapter 4); also holds the debugger window layout. |
 | `~/.jnext/sdcard/cspect-next-1gb-fixed.img` | The SD-card image used when `--sdcard` is not given.                             |
 | `~/.jnext/sdcard/cspect-next-1gb.img`      | The canonical distribution image the one above is produced from.                  |
-| `~/.jnext/warm-start/`                     | The recorded NextZXOS machine a `.nex` load starts from ([5. Running programs](../05-running-programs/index.md)). One file per machine type, about 100 KB. Deleting it costs one cold boot. |
+| `~/.jnext/warm-start/`                     | The recorded NextZXOS machine a `.nex` load starts from ([5. Running programs](../05-running-programs/index.md)). One file per machine type, about 100 KB, valid for one SD image (its size and modification time, or the `--sdcard-sha256` digest you gave). Deleting it costs one cold boot. |
 | `~/.jnext/snapshots/`                      | Where **File ▸ Quick Save Snapshot** writes and **Quick Load Snapshot** reads the newest `.jns` ([5.9 Snapshots](../05-running-programs/09-snapshots.md#quick-save-and-quick-load)). Created on the first save. Quick Save keeps the newest 20 files it made (`--quick-snapshot-keep`). |
 | `~/.jnext/screenshots/`                    | Where **File ▸ Quick Screenshot** writes, unless Preferences says otherwise ([5.3 Display](../05-running-programs/03-display.md)). Created on the first capture. |
+
+In a web page JNEXT keeps only the SD card it made and the warm-start recording, in the
+browser's storage for the page's origin ([10.4](../10-web-page/04-the-image-and-what-the-browser-keeps.md)).
 
 Beside a program you load, JNEXT also reads the debugger's files when they are
 there: `NAME.sld` or `NAME.sld.txt` (a source map) and, for a `.nex`,

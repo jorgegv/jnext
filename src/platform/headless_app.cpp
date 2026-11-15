@@ -5,7 +5,9 @@
 #include "platform/re_export_at_exit.h"   // GH #389
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
+#ifndef __EMSCRIPTEN__
 #include "platform/recording_info.h"   // GH #26 WP6
+#endif
 #include "platform/rzx_startup.h"
 #include "platform/quit_signal.h"   // GH #364
 #include "core/log.h"
@@ -88,6 +90,7 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     }
     // GH #26 WP4 — the scripts, after the servers and before the machine runs:
     // a script that does not load is a startup failure (exit 1, §6.5).
+#ifndef __EMSCRIPTEN__
     {
         jnext::script::ScriptHostOptions so;
         so.map_file = config_.map_file;
@@ -102,6 +105,7 @@ bool HeadlessApp::init(int argc, char* argv[]) {
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
     }
+#endif
 
     running_ = true;
     Log::platform()->info("Headless mode initialized");
@@ -680,7 +684,9 @@ void HeadlessApp::run() {
             }
             config_.source_map_file.clear();
             // GH #346 - the scripts held back for the program's maps.
+#ifndef __EMSCRIPTEN__
             if (!script_host_.program_loaded()) exit_code_ = 1;
+#endif
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {
             --load_countdown_;
@@ -900,6 +906,7 @@ void HeadlessApp::run() {
         // GH #26 WP4 — a script's verdict (§6.3): `exit n`, a stop or failed
         // assert (3), a run-time error (1). The first code wins, and it never
         // hides an earlier failure behind a 0.
+#ifndef __EMSCRIPTEN__
         if (script_host_.exit_requested()) {
             const int code = script_host_.exit_code();
             Log::platform()->info("script requested exit {}", code);
@@ -907,6 +914,7 @@ void HeadlessApp::run() {
             running_ = false;
             continue;
         }
+#endif
 
         // --benchmark: stop after exactly N frames and report.
         if (benchmark_frames_ > 0 && ++bench_frames_done >= benchmark_frames_) {
@@ -1046,10 +1054,12 @@ void HeadlessApp::run() {
             // GH #26 WP4 (§7.3) — the watchdog fired before a script reached
             // its verdict: an `exit` / `compare_scr` that never ran, or a
             // deferred action still queued, is a failed run, never a 0.
+#ifndef __EMSCRIPTEN__
             if (const std::size_t n = script_host_.unreached_verdicts()) {
                 Log::platform()->error("SCRIPT: {} deferred actions never ran - exiting 3", n);
                 if (exit_code_ == 0) exit_code_ = 3;
             }
+#endif
             running_ = false;
         } else if (exit_countdown_.pending()) {
             exit_countdown_.tick(emulator_.video_timing().refresh_60hz());

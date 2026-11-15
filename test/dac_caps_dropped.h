@@ -35,6 +35,32 @@ struct DacCapsDropped {
         if (active) ::syscall(SYS_capset, &hdr, saved);
     }
 };
+#elif defined(__EMSCRIPTEN__)
+#include <cstdio>
+
+// A WebAssembly module cannot change its host process's capabilities, so drop()
+// drops nothing: it reports whether the RUNNER did (test/node-run.sh starts node
+// without them when it is root). Under NODERAWFS /proc/self/status is the host's,
+// and `self` is node. True iff neither CAP_DAC_OVERRIDE (1) nor
+// CAP_DAC_READ_SEARCH (2) is in the effective set; otherwise the caller's own
+// refusal arm SKIPs, loudly.
+struct DacCapsDropped {
+    bool drop() {
+        std::FILE* f = std::fopen("/proc/self/status", "r");
+        if (!f) return false;
+        char line[256];
+        bool found = false;
+        unsigned long long eff = 0;
+        while (std::fgets(line, sizeof line, f)) {
+            if (std::sscanf(line, "CapEff: %llx", &eff) == 1) {
+                found = true;
+                break;
+            }
+        }
+        std::fclose(f);
+        return found && (eff & ((1ull << 1) | (1ull << 2))) == 0;
+    }
+};
 #else
 struct DacCapsDropped {
     bool drop() { return false; }

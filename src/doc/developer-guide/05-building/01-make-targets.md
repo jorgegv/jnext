@@ -66,7 +66,7 @@ to keep that combination building.
 `make unit-test` builds `build/` and runs every declared subsystem suite, and
 `make regression` runs the screenshot and functional suite headless. Between
 them they pull in a set of structural gates as prerequisites —
-`lint-assertions`, `lint-makefile-help`, `lint-thread-detach`, `lint-ascii-text`, `cli-check`,
+`lint-assertions`, `lint-makefile-help`, `lint-thread-detach`, `lint-ascii-text`, `lint-user-docs-card`, `cli-check`,
 `docs-check` (which includes `docs-devguide-cites-check`),
 `traceability-check` and friends — which is deliberate: it puts those checks in
 your inner loop instead of leaving them for CI to discover. `make regression`
@@ -111,7 +111,7 @@ bundled into that test tree only, never into a zip), the SDL-only exe, and the
 native helpers from the SDL unit-test tree. `make regression-macos` is its macOS
 twin (CI `macos-regression`).
 `ROWS="..."` names rows. Neither is stamped; see
-[the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine).
+[the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-windows-under-wine-and-webassembly-under-node).
 
 `make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5` builds that
 package, unpacks the artifact (never installs it) and runs the screenshots plus
@@ -129,6 +129,69 @@ reported row ID against the suite's *source files*; the SD image is reached by
 absolute path through `JNEXT_TEST_SD_IMAGE`. A bundle (executables, the MinGW
 DLLs `packaging/windows/bundle-dlls.sh` copies, the manifest, the harness and
 the sources it reads) is feasible, but it is its own piece of work.
+
+`make unit-test-wasm` runs the same SDL-only suites as WebAssembly under node. It
+is two steps like the Windows one: `unit-test-wasm-build` configures and builds
+`build/wasm-unit-test` (the `wasm-core` configuration with LTO off, every target)
+and the run step feeds each suite to `test/node-run.sh`. The runner uses the node
+the tree was configured with, never one from `PATH`; fixes the locale and removes
+the display variables; gives each run a private `TMPDIR`, because Emscripten's
+`getpid()` is the constant 42 and dozens of suites name their scratch files after
+it; as root (the CI container) drops CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH
+with `setpriv`, as the wine runner does; and forwards TERM and INT and returns
+node's exit status. What node cannot stand in for (processes, threads, listening
+sockets) is declared absent with `# os: native`, and the run names every absent
+suite in its NOTICE. It needs the SD image like the other two.
+
+`make regression-wasm` runs the regression suite's screenshot rows against
+`build/wasm-core/jnext.js` under node (`wasm-core` is a prerequisite, so the WCORE
+rows run first; the native helpers and the host `jnext` that derives the SD master
+come from the SDL unit-test tree). Every screenshot must equal the committed
+native reference pixel for pixel. `ROWS="..."` names rows; a full run takes the
+host lock like `make regression`; it is not stamped.
+
+`make emsdk` provides the pinned Emscripten SDK (6.0.13) in the user cache,
+`~/.cache/jnext/tools/emsdk-6.0.13`, through `test/provision-emsdk.sh`: it
+downloads three archives (the emsdk installer, the SDK release and the node it
+bundles), verifies the sha256 of all three before it unpacks any of them,
+installs them and builds the SDL3, zlib and libpng ports. It is a no-op once the
+provisioner's stamp is there, and a directory without the stamp is replaced, not
+trusted. `make wasm-core` depends on it, configures `build/wasm-core` with the
+SDK's CMake toolchain file, builds `jnext.js`/`jnext.wasm` and the `sha256_test`
+suite, and runs `test/wasm-core-check.sh` under the SDK's node: the module
+reports its version, imports no (shared) memory, catches an exception,
+refuses the flags and `--set` keys the browser build cannot honour, and runs the
+SHA-256 suite on its portable backend. `make clean` removes the tree.
+
+`make wasm-web` builds the browser frontend, `jnext_web`, in the same
+`build/wasm-core` tree (one compile of every library, a second link). Its output
+carries the version in its name, `jnext-<version>.js` and `.wasm`, read from
+`version.yaml` through CMake's project version, so a page never loads a stale
+build. `make playwright` provides the pinned Playwright and its Chromium
+headless shell in `~/.cache/jnext/tools/playwright-1.65.0`, through
+`test/provision-playwright.sh`: it downloads `playwright-core` (the npm package,
+which has no dependencies and no test runner) and the headless shell its
+`browsers.json` names, verifies the sha256 of both before it unpacks either,
+and is a no-op once stamped. The scripts run on the SDK's own node, so there is
+no second node. `make wasm-browser-test` builds the browser frontend, provides
+Playwright and the SD image, builds the native SDL release build (the oracle), then runs
+`test/browser/browser-smoke.sh`: it builds the 40 MiB minimal NextZXOS card from
+the cached distribution image into a scratch directory under `~/tmp`, makes the
+native oracle screenshots, and runs every spec through the harness. The card is
+copyrighted content: it is handed to the page only by the harness's request
+handler, is never committed, uploaded or traced (Playwright tracing, HAR and
+video stay off), and is deleted when the run ends. The script takes more specs
+as `file:count` arguments, each printing PASS/FAIL rows and a `Total:` line whose
+count the script pins, so the JavaScript API rows run in the same target. `make package-web` is
+also a prerequisite: the run ends by serving the extracted `jnext-<version>-web.zip` alone and
+booting the example page from it ([5.3](03-packaging-and-release.md#the-browser-package)).
+
+`make bench-web` is the browser counterpart of `make bench`: the regression NEX set in
+the host's Chrome, Chrome at 2x CPU throttle and Firefox, written to
+`test/bench/web-baseline-<sha>.txt` ([5.5](05-performance-and-optimisation.md#the-browser-build)).
+No gate or CI step runs it.
+
+The browser build as a whole, with its CMake arms and tests, is [5.6](06-the-browser-build.md).
 
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
@@ -161,10 +224,10 @@ covers, what it does not, and why the gate was declined.
 
 ## Packaging and version
 
-`package-src`, `package-rpm`, `package-deb`, `package-flatpak`, `package-macos`
-and the five `package-win*` variants each build one distributable.
-`package-test` builds them all except macOS and Flatpak (the `flatpak` CI job builds
-that) and then asserts their contents,
+`package-src`, `package-rpm`, `package-deb`, `package-flatpak`, `package-macos`,
+`package-web` and the five `package-win*` variants each build one distributable.
+`package-test` builds them all except macOS, Flatpak (the `flatpak` CI job builds
+that) and the browser zip (the `browser` leg builds and boots it) and then asserts their contents,
 while `package-contract-test` runs only the hermetic script contract suites.
 `version` prints the current version, and `bump-patch` / `bump-minor` /
 `bump-major` bump it, commit, and tag. [5.3](03-packaging-and-release.md) covers

@@ -66,8 +66,8 @@ nothing at the sides, which is how it was noticed.
   fractional device pixel ratio the two can differ by one physical pixel, because
   widget geometry is in whole logical pixels.
 
-Not in scope: user-supplied or adjustable shader parameters, a CLI flag, the SDL-only
-frontend (it has no CRT filter of any kind today), Qt 5 builds. Note that the 640x256
+Not in scope: user-supplied or adjustable shader parameters, a CLI flag, the native SDL-only
+frontend (it has no CRT filter of any kind today; the browser build has one, below), Qt 5 builds. Note that the 640x256
 framebuffer is the core's clipped window onto a taller natural frame (`video/timing.h`);
 rows outside it never reach any display filter.
 
@@ -154,7 +154,7 @@ Soft scanlines, TV and PC entries have none, like the Scale entries in the same 
 
 ## Testing
 
-* `test/gui/crt_shader_policy_test.cpp` (14 rows, no Qt, no GL; part of the SDL-only
+* `test/gui/crt_shader_policy_test.cpp` (18 rows, no Qt, no GL; part of the SDL-only
   set): the style numbers against crtemu's own enum, out-of-range fallback, the
   fullscreen scale on several screens and degenerate sizes, and the byte-level pixel
   conversion (the red/blue swap that would otherwise ship invisibly wrong).
@@ -176,3 +176,24 @@ Soft scanlines, TV and PC entries have none, like the Scale entries in the same 
   TV and PC, curvature; the Lite style (now the Soft scanlines choice) filled the viewport. Re-do this by eye on
   Linux and Windows before a release: `QOpenGLWidget` composition differs per
   platform and no host here has been exercised other than macOS.
+
+## The browser build
+
+The browser build (an SDL frontend compiled for WebAssembly) runs the same shader, with the same
+parameters, from the same settings: `--crt` and `startup.crt_filter`, `startup.crt_shader`,
+`startup.crt_shader_style` (the `WEB` bit of those three keys), reachable from the JavaScript API
+through `set` or `args`. Off by default.
+
+- **Design.** crtemu runs in C++ on SDL's own WebGL 1 context (a canvas holds one), in the same
+  host-loader mode, so it keeps patch 4. `BrowserCrt` draws the frame in place of SDL's draw,
+  in SDL's letterbox rectangle; the effect is fixed per run. The rule for which effect shows,
+  and what a shader that cannot run falls back to, is `crt_shader::resolve()`, shared with the
+  Qt window. Two patches to crtemu were needed (8: the wrap enums in the host-loader arm; 9:
+  the viewport size, which was wrong for a viewport not at the origin).
+- **Rejected.** A WebGL 2 / GLSL ES 3.00 port (crtemu already has a GLSL ES 1.00 arm and SDL's
+  context is WebGL 1). A JS-side post-process on a second canvas (a second hand-kept copy of the
+  GLSL, an extra copy per frame, the settings re-plumbed into JS). A second WebGL context (SDL
+  refuses one per canvas). crtemu's direct-link SDL branch (loses patch 4, diverges from the
+  desktop). A new `crt` mount option (the existing keys are the interface).
+- **Testing.** BCRT-01 to BCRT-13 (`test/browser/crt.mjs`) pin structure the vendored GLSL fixes
+  exactly, not reference images, which are not portable between WebGL implementations.

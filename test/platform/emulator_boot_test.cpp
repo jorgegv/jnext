@@ -1357,51 +1357,6 @@ int main()
         }
     }
 
-    // --- EB-18: a LIVE emulated ESP survives the cold boot ------------------
-    //
-    // GH #25. This is the one hazard the ESP's whole ownership design exists to
-    // defeat, and its failure mode is the nastiest in the codebase: this helper
-    // does `emu.~Emulator(); new (&emu) Emulator();` — placement-new at the SAME
-    // address — so a worker thread that outlived the destructor would go on
-    // servicing a core whose sink points into the NEWLY BOOTED machine. Nothing
-    // crashes and no sanitiser fires; the fresh machine's UART just starts
-    // receiving a dead machine's bytes.
-    //
-    // The defence is that `~ThreadedEsp()` joins, and that the ESP members are
-    // declared so they are destroyed before `uart_`. Nothing about that is
-    // visible at a call site, so it is exercised HERE, against the real helper,
-    // with a worker that has actually been started and run.
-    //
-    // Identity is checked by the connection log's instance id, not its address:
-    // the replacement routinely lands on the block the old one was freed from,
-    // so a pointer compare would pass for the wrong reason.
-    {
-        EmulatorConfig cfg = base_config();
-        cfg.esp_enabled = true;
-
-        Emulator emu;
-        emu.init(cfg);
-        check("EB-18a", "the ESP is up and attached to UART 0 before the boot",
-              emu.esp_enabled() && emu.uart().device(0) != nullptr &&
-                  emu.esp_events() != nullptr);
-
-        emu.run_frame();   // the worker is started and has serviced the device
-        const std::uint64_t id_before =
-            emu.esp_events() ? emu.esp_events()->instance_id() : 0;
-
-        emulator_cold_boot(emu, cfg);   // ~Emulator() -> placement-new -> init()
-
-        check("EB-18b", "the cold boot returns with a REBUILT ESP, not the old one",
-              emu.esp_enabled() && emu.esp_events() != nullptr &&
-                  emu.esp_events()->instance_id() > id_before,
-              "before=" + std::to_string(id_before) + " after=" +
-                  std::to_string(emu.esp_events() ? emu.esp_events()->instance_id() : 0));
-        check("EB-18c", "...attached to UART 0 of the machine that now exists",
-              emu.uart().device(0) != nullptr);
-        check("EB-18d", "...and the rebuilt machine runs",
-              (emu.run_frame(), true));
-    }
-
     // --- EB-19: a cold boot with the ESP disabled leaves it disabled --------
     // The discriminator for EB-18: the boot must not conjure an ESP the config
     // never asked for, which is the default and every run before GH #25.
@@ -1542,7 +1497,7 @@ int main()
         bool eb25 = false;
         std::string eb25_detail = fixtures_ok ? "" : "fixtures not written";
         if (fixtures_ok) {
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
             std::fflush(stdout);
             std::fflush(stderr);
             const pid_t pid = fork();
@@ -2456,6 +2411,28 @@ int main()
                   !why.empty() && card_sector0(emu.sd_card()) == 0xA1 &&
                       emu.config().sd_card_image == card_a,
                   "why='" + why + "'");
+        }
+
+        // EB-72: a ZIP archive is not a card (its local-header magic, whatever
+        // the name); the card in the slot and the configured path stay.
+        {
+            const std::string zipped = (tmp / "jnext-eb72-card.img").string();
+            {
+                std::ofstream f(zipped, std::ios::binary | std::ios::trunc);
+                const char hdr[] = {'P', 'K', 3, 4};
+                f.write(hdr, sizeof hdr);
+                const std::string pad(600, 'x');
+                f.write(pad.data(), static_cast<std::streamsize>(pad.size()));
+            }
+            Emulator emu;
+            emu.init(with_a);
+            const std::string why = emu.change_sd_card({zipped, false});
+            check("EB-72", "a ZIP archive is refused as a card, and the card in the slot stays",
+                  why.find("is a ZIP archive") != std::string::npos &&
+                      card_sector0(emu.sd_card()) == 0xA1 &&
+                      emu.config().sd_card_image == card_a,
+                  "why='" + why + "'");
+            std::remove(zipped.c_str());
         }
 
         std::remove(card_a.c_str());

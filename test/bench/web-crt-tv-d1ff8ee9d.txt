@@ -1,0 +1,369 @@
+# jnext browser benchmark (make bench-web)
+# date:   2026-11-14 00:31:34 UTC
+# host:   kessel, AMD Ryzen AI 5 340 w/ Radeon 840M
+# commit: d1ff8ee9dbb3b14b76d0934f5dba1a8ca2b15e42
+# build:  /home/jorgegv/tmp/worktrees/jnext/rev-epic469/build/wasm-core (jnext-1.2.20), emsdk 6.0.13
+# core set: 0,1,3 (fastest class, one logical CPU per physical core)
+# chrome:  157.0.8103.50 (/usr/bin/google-chrome), args: --mute-audio --autoplay-policy=no-user-gesture-required --use-angle=gl-egl
+# firefox: Mozilla Firefox 159.0.1
+# firefox mode: MOZ_HEADLESS=1 on a private Xvfb display (xvfb-run -d): WebGL on the GPU
+# webgl renderer chrome: ANGLE (AMD, AMD Radeon 840M Graphics (radeonsi krackan1 ACO), OpenGL ES 3.2)
+# webgl renderer chrome-x2: ANGLE (AMD, AMD Radeon 840M Graphics (radeonsi krackan1 ACO), OpenGL ES 3.2)
+# webgl renderer firefox: Radeon R9 200 Series, or similar
+# user agent chrome: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36
+# user agent chrome-x2: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36
+# user agent firefox: Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0
+# EXPERIMENT: extra jnext arguments: --crt tv (not the shipped default)
+# window: W=250 warm-up frames, M=600 frames or 60 s; box 640x512; machine next; one wasm instance per cell
+# pass chrome: load1 at start 0.88, at end 0.73; calibration median 58.10 ms
+# pass chrome-x2: load1 at start 0.73, at end 0.85; calibration median 116.50 ms, unthrottled median 58.10 ms
+# pass firefox: load1 at start 0.85, at end 0.85; calibration median 92.00 ms
+# performance.now() resolution observed (median over cells): 0.1000 ms
+# programs: 49 (acceptance: beanbros beast blue celeste celeste2 contention_test copper_demo dsl_demo dsl_demo_buggy floating_bus_test joy_uart_demo layer2_320x256_test layer2_640x256_test lores_demo magic_bp_demo magic_port_demo menu odemo palette_demo parallax red santaspressie shift show512 sprite_anchor_test sprite_scaling_test stencil_test test01l2empty test02layer2 test03sprite test04tilemap test05print test06keyb test07joystick test09videoint test10tilemapper tilemap_demo trainyard-express halt_idle_35)
+
+WEBBENCH config=chrome program=beanbros verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=7.537 audio_ms_per_frame=0.047 p50=7.300 p95=8.200 max=13.300 headroom=2.47 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=beast verdict=PASS reason=- frames=600 wall_s=10.316 refresh=58.147 emu_fps=58.16 shown_fps=58.06 ms_per_frame=3.602 audio_ms_per_frame=0.044 p50=3.600 p95=4.200 max=7.300 headroom=4.09 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=blue verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=7.649 audio_ms_per_frame=0.050 p50=7.400 p95=8.300 max=10.800 headroom=2.44 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=celeste verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=7.185 audio_ms_per_frame=0.051 p50=7.000 p95=7.900 max=9.000 headroom=2.56 speed=28 calib_ms=58.10 runs=1
+WEBBENCH config=chrome program=celeste2 verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=7.165 audio_ms_per_frame=0.050 p50=6.900 p95=7.900 max=11.100 headroom=2.56 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=contention_test verdict=PASS reason=- frames=600 wall_s=12.155 refresh=49.360 emu_fps=49.36 shown_fps=49.36 ms_per_frame=5.005 audio_ms_per_frame=0.053 p50=4.900 p95=5.600 max=7.800 headroom=3.62 speed=28 calib_ms=57.90 runs=1
+WEBBENCH config=chrome program=copper_demo verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=3.242 audio_ms_per_frame=0.066 p50=3.200 p95=3.600 max=5.000 headroom=5.63 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=dsl_demo verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.140 audio_ms_per_frame=0.062 p50=3.000 p95=3.600 max=4.900 headroom=5.63 speed=28 calib_ms=58.00 runs=2
+WEBBENCH config=chrome program=dsl_demo_buggy verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.198 audio_ms_per_frame=0.058 p50=3.100 p95=3.600 max=4.700 headroom=5.63 speed=28 calib_ms=57.90 runs=3
+WEBBENCH config=chrome program=floating_bus_test verdict=PASS reason=- frames=600 wall_s=12.153 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.163 audio_ms_per_frame=0.063 p50=3.100 p95=3.500 max=4.900 headroom=5.79 speed=28 calib_ms=57.90 runs=4
+WEBBENCH config=chrome program=joy_uart_demo verdict=INVALID reason=host_got_busier would=PASS frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=6.795 audio_ms_per_frame=0.054 p50=6.600 p95=7.400 max=10.700 headroom=2.74 speed=28 calib_ms=81.90 runs=4
+WEBBENCH config=chrome program=layer2_320x256_test verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=3.112 audio_ms_per_frame=0.064 p50=3.000 p95=3.500 max=4.800 headroom=5.79 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=layer2_640x256_test verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.282 audio_ms_per_frame=0.068 p50=3.200 p95=3.700 max=5.200 headroom=5.48 speed=28 calib_ms=58.00 runs=2
+WEBBENCH config=chrome program=lores_demo verdict=PASS reason=- frames=600 wall_s=12.168 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=2.990 audio_ms_per_frame=0.068 p50=2.900 p95=3.400 max=4.400 headroom=5.96 speed=28 calib_ms=58.10 runs=3
+WEBBENCH config=chrome program=magic_bp_demo verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=3.082 audio_ms_per_frame=0.063 p50=3.000 p95=3.500 max=4.700 headroom=5.79 speed=28 calib_ms=58.00 runs=4
+WEBBENCH config=chrome program=magic_port_demo verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=3.176 audio_ms_per_frame=0.060 p50=3.100 p95=3.600 max=4.800 headroom=5.63 speed=28 calib_ms=58.20 runs=1
+WEBBENCH config=chrome program=menu verdict=INVALID reason=host_got_busier would=PASS frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=7.592 audio_ms_per_frame=0.046 p50=7.300 p95=8.200 max=11.600 headroom=2.47 speed=28 calib_ms=82.00 runs=4
+WEBBENCH config=chrome program=odemo verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=3.751 audio_ms_per_frame=0.060 p50=3.600 p95=4.300 max=6.100 headroom=4.71 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=palette_demo verdict=PASS reason=- frames=600 wall_s=12.153 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.446 audio_ms_per_frame=0.070 p50=3.400 p95=3.900 max=5.000 headroom=5.19 speed=28 calib_ms=58.00 runs=2
+WEBBENCH config=chrome program=parallax verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=6.837 audio_ms_per_frame=0.051 p50=6.600 p95=7.500 max=12.300 headroom=2.70 speed=28 calib_ms=58.00 runs=3
+WEBBENCH config=chrome program=red verdict=PASS reason=- frames=600 wall_s=12.165 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=7.624 audio_ms_per_frame=0.047 p50=7.400 p95=8.300 max=11.500 headroom=2.44 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=santaspressie verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.403 audio_ms_per_frame=0.057 p50=3.300 p95=4.100 max=5.100 headroom=4.94 speed=14 calib_ms=58.10 runs=1
+WEBBENCH config=chrome program=shift verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=7.751 audio_ms_per_frame=0.051 p50=7.500 p95=8.400 max=11.800 headroom=2.41 speed=28 calib_ms=58.70 runs=1
+WEBBENCH config=chrome program=show512 verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=6.565 audio_ms_per_frame=0.049 p50=6.400 p95=7.200 max=9.600 headroom=2.81 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=sprite_anchor_test verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=3.105 audio_ms_per_frame=0.059 p50=3.000 p95=3.700 max=4.400 headroom=5.48 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=sprite_scaling_test verdict=PASS reason=- frames=600 wall_s=12.153 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.147 audio_ms_per_frame=0.059 p50=3.000 p95=3.600 max=5.000 headroom=5.63 speed=28 calib_ms=62.60 runs=1
+WEBBENCH config=chrome program=stencil_test verdict=PASS reason=- frames=600 wall_s=12.164 refresh=49.360 emu_fps=49.33 shown_fps=49.33 ms_per_frame=3.957 audio_ms_per_frame=0.064 p50=3.900 p95=4.400 max=6.600 headroom=4.60 speed=28 calib_ms=58.00 runs=2
+WEBBENCH config=chrome program=test01l2empty verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=5.062 audio_ms_per_frame=0.058 p50=4.900 p95=5.700 max=8.200 headroom=3.55 speed=28 calib_ms=57.90 runs=3
+WEBBENCH config=chrome program=test02layer2 verdict=PASS reason=- frames=600 wall_s=12.148 refresh=49.360 emu_fps=49.39 shown_fps=49.31 ms_per_frame=5.083 audio_ms_per_frame=0.051 p50=4.900 p95=5.700 max=9.500 headroom=3.55 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=test03sprite verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=6.676 audio_ms_per_frame=0.052 p50=6.400 p95=7.400 max=9.900 headroom=2.74 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=test04tilemap verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=7.181 audio_ms_per_frame=0.053 p50=7.000 p95=7.900 max=11.400 headroom=2.56 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=test05print verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=7.327 audio_ms_per_frame=0.053 p50=7.100 p95=8.100 max=11.100 headroom=2.50 speed=28 calib_ms=58.40 runs=1
+WEBBENCH config=chrome program=test06keyb verdict=PASS reason=- frames=600 wall_s=12.168 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=7.299 audio_ms_per_frame=0.049 p50=7.100 p95=7.900 max=11.000 headroom=2.56 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=test07joystick verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=7.113 audio_ms_per_frame=0.049 p50=6.900 p95=7.800 max=10.600 headroom=2.60 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=test09videoint verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=5.997 audio_ms_per_frame=0.055 p50=5.800 p95=6.700 max=9.000 headroom=3.02 speed=28 calib_ms=58.10 runs=1
+WEBBENCH config=chrome program=test10tilemapper verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=7.239 audio_ms_per_frame=0.049 p50=7.000 p95=7.900 max=10.900 headroom=2.56 speed=28 calib_ms=58.20 runs=1
+WEBBENCH config=chrome program=tilemap_demo verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=4.125 audio_ms_per_frame=0.064 p50=4.000 p95=4.700 max=6.400 headroom=4.31 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=trainyard-express verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=7.631 audio_ms_per_frame=0.051 p50=7.400 p95=8.300 max=10.600 headroom=2.44 speed=28 calib_ms=58.00 runs=1
+WEBBENCH config=chrome program=halt_idle_35 verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=2.770 audio_ms_per_frame=0.067 p50=2.700 p95=3.200 max=4.300 headroom=6.33 speed=3.5 calib_ms=57.90 runs=1
+WEBBENCH config=chrome program=TX-1696 verdict=PASS reason=- frames=600 wall_s=12.132 refresh=49.360 emu_fps=49.46 shown_fps=49.37 ms_per_frame=5.076 audio_ms_per_frame=0.055 p50=4.900 p95=5.800 max=9.300 headroom=3.49 speed=28 calib_ms=58.00 runs=2 informative=1
+WEBBENCH config=chrome program=bloaters verdict=PASS reason=- frames=600 wall_s=12.154 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=4.724 audio_ms_per_frame=0.053 p50=4.600 p95=5.400 max=7.200 headroom=3.75 speed=14 calib_ms=58.00 runs=1 informative=1
+WEBBENCH config=chrome program=hott verdict=PASS reason=- frames=600 wall_s=12.157 refresh=49.360 emu_fps=49.35 shown_fps=49.35 ms_per_frame=6.101 audio_ms_per_frame=0.053 p50=5.900 p95=6.800 max=9.300 headroom=2.98 speed=28 calib_ms=58.20 runs=1 informative=1
+WEBBENCH config=chrome program=lom verdict=PASS reason=- frames=600 wall_s=12.155 refresh=49.360 emu_fps=49.36 shown_fps=49.36 ms_per_frame=5.759 audio_ms_per_frame=0.053 p50=5.600 p95=6.400 max=9.000 headroom=3.17 speed=28 calib_ms=58.00 runs=1 informative=1
+WEBBENCH config=chrome program=nextoid verdict=PASS reason=- frames=600 wall_s=12.155 refresh=49.360 emu_fps=49.36 shown_fps=49.36 ms_per_frame=4.656 audio_ms_per_frame=0.055 p50=4.500 p95=6.000 max=10.600 headroom=3.38 speed=14 calib_ms=58.00 runs=1 informative=1
+WEBBENCH config=chrome program=night-knight-demo verdict=PASS reason=- frames=600 wall_s=12.154 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.271 audio_ms_per_frame=0.062 p50=3.100 p95=3.800 max=8.800 headroom=5.33 speed=28>14 calib_ms=58.10 runs=1 informative=1
+WEBBENCH config=chrome program=revivalsurvival verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=6.987 audio_ms_per_frame=0.054 p50=6.700 p95=7.700 max=11.400 headroom=2.63 speed=28 calib_ms=58.10 runs=2 informative=1
+WEBBENCH config=chrome program=warhawk verdict=PASS reason=- frames=600 wall_s=12.156 refresh=49.360 emu_fps=49.36 shown_fps=49.36 ms_per_frame=6.626 audio_ms_per_frame=0.052 p50=6.400 p95=7.200 max=8.500 headroom=2.81 speed=28 calib_ms=58.10 runs=1 informative=1
+WEBBENCH config=chrome program=ctc_dac_28 verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=4.180 audio_ms_per_frame=0.065 p50=4.100 p95=4.700 max=6.600 headroom=4.31 speed=28 calib_ms=57.90 runs=1 informative=1
+WEBBENCH config=chrome program=halt_idle_28 verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=3.161 audio_ms_per_frame=0.065 p50=3.100 p95=3.600 max=5.000 headroom=5.63 speed=28 calib_ms=58.00 runs=2 informative=1
+WEBBENCH config=chrome-x2 program=beanbros verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=14.192 audio_ms_per_frame=0.056 p50=14.100 p95=14.700 max=18.000 headroom=1.38 speed=28 calib_ms=116.30 runs=1
+WEBBENCH config=chrome-x2 program=beast verdict=PASS reason=- frames=600 wall_s=10.316 refresh=58.147 emu_fps=58.16 shown_fps=58.16 ms_per_frame=5.535 audio_ms_per_frame=0.048 p50=5.400 p95=6.200 max=10.600 headroom=2.77 speed=28 calib_ms=116.30 runs=1
+WEBBENCH config=chrome-x2 program=blue verdict=PASS reason=- frames=600 wall_s=12.165 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=14.887 audio_ms_per_frame=0.055 p50=14.700 p95=15.500 max=20.300 headroom=1.31 speed=28 calib_ms=116.70 runs=1
+WEBBENCH config=chrome-x2 program=celeste verdict=PASS reason=- frames=600 wall_s=12.148 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=13.309 audio_ms_per_frame=0.053 p50=13.100 p95=13.800 max=21.800 headroom=1.47 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=celeste2 verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=13.361 audio_ms_per_frame=0.048 p50=13.200 p95=14.000 max=17.800 headroom=1.45 speed=28 calib_ms=116.60 runs=1
+WEBBENCH config=chrome-x2 program=contention_test verdict=PASS reason=- frames=600 wall_s=12.159 refresh=49.360 emu_fps=49.35 shown_fps=49.35 ms_per_frame=9.196 audio_ms_per_frame=0.056 p50=9.100 p95=9.800 max=13.400 headroom=2.07 speed=28 calib_ms=116.50 runs=1
+WEBBENCH config=chrome-x2 program=copper_demo verdict=PASS reason=- frames=600 wall_s=12.153 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=4.115 audio_ms_per_frame=0.056 p50=4.000 p95=4.600 max=7.300 headroom=4.40 speed=28 calib_ms=116.30 runs=1
+WEBBENCH config=chrome-x2 program=dsl_demo verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=4.015 audio_ms_per_frame=0.058 p50=3.900 p95=4.500 max=7.000 headroom=4.50 speed=28 calib_ms=116.30 runs=1
+WEBBENCH config=chrome-x2 program=dsl_demo_buggy verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.953 audio_ms_per_frame=0.046 p50=3.900 p95=4.500 max=6.600 headroom=4.50 speed=28 calib_ms=116.50 runs=1
+WEBBENCH config=chrome-x2 program=floating_bus_test verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=4.045 audio_ms_per_frame=0.057 p50=4.000 p95=4.600 max=7.400 headroom=4.40 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=joy_uart_demo verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=12.483 audio_ms_per_frame=0.051 p50=12.300 p95=13.100 max=17.600 headroom=1.55 speed=28 calib_ms=116.60 runs=1
+WEBBENCH config=chrome-x2 program=layer2_320x256_test verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=4.010 audio_ms_per_frame=0.060 p50=3.900 p95=4.600 max=6.900 headroom=4.40 speed=28 calib_ms=117.60 runs=1
+WEBBENCH config=chrome-x2 program=layer2_640x256_test verdict=PASS reason=- frames=600 wall_s=12.168 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=4.173 audio_ms_per_frame=0.050 p50=4.100 p95=4.600 max=6.500 headroom=4.40 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=lores_demo verdict=PASS reason=- frames=600 wall_s=12.153 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.717 audio_ms_per_frame=0.068 p50=3.600 p95=4.100 max=6.100 headroom=4.94 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=magic_bp_demo verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.995 audio_ms_per_frame=0.059 p50=3.800 p95=4.600 max=8.300 headroom=4.40 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=magic_port_demo verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.974 audio_ms_per_frame=0.057 p50=3.900 p95=4.500 max=6.800 headroom=4.50 speed=28 calib_ms=116.30 runs=1
+WEBBENCH config=chrome-x2 program=menu verdict=PASS reason=- frames=600 wall_s=12.164 refresh=49.360 emu_fps=49.33 shown_fps=49.33 ms_per_frame=14.615 audio_ms_per_frame=0.052 p50=14.400 p95=15.300 max=22.000 headroom=1.32 speed=28 calib_ms=116.90 runs=1
+WEBBENCH config=chrome-x2 program=odemo verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=4.816 audio_ms_per_frame=0.047 p50=4.700 p95=5.300 max=8.600 headroom=3.82 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=palette_demo verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=4.403 audio_ms_per_frame=0.058 p50=4.200 p95=5.000 max=9.100 headroom=4.05 speed=28 calib_ms=116.50 runs=1
+WEBBENCH config=chrome-x2 program=parallax verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=12.626 audio_ms_per_frame=0.050 p50=12.500 p95=13.200 max=16.100 headroom=1.53 speed=28 calib_ms=116.50 runs=1
+WEBBENCH config=chrome-x2 program=red verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=14.419 audio_ms_per_frame=0.057 p50=14.300 p95=15.000 max=21.800 headroom=1.35 speed=28 calib_ms=116.60 runs=1
+WEBBENCH config=chrome-x2 program=santaspressie verdict=PASS reason=- frames=600 wall_s=12.165 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=5.419 audio_ms_per_frame=0.056 p50=5.200 p95=6.000 max=9.500 headroom=3.38 speed=14 calib_ms=116.70 runs=1
+WEBBENCH config=chrome-x2 program=shift verdict=PASS reason=- frames=600 wall_s=12.165 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=14.709 audio_ms_per_frame=0.055 p50=14.500 p95=15.300 max=23.100 headroom=1.32 speed=28 calib_ms=116.50 runs=1
+WEBBENCH config=chrome-x2 program=show512 verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=12.255 audio_ms_per_frame=0.055 p50=12.100 p95=12.900 max=23.400 headroom=1.57 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=sprite_anchor_test verdict=PASS reason=- frames=600 wall_s=12.165 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=4.028 audio_ms_per_frame=0.055 p50=3.900 p95=4.600 max=6.700 headroom=4.40 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=sprite_scaling_test verdict=PASS reason=- frames=600 wall_s=12.154 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.931 audio_ms_per_frame=0.059 p50=3.800 p95=4.500 max=6.300 headroom=4.50 speed=28 calib_ms=116.30 runs=1
+WEBBENCH config=chrome-x2 program=stencil_test verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=5.087 audio_ms_per_frame=0.052 p50=5.000 p95=5.500 max=6.600 headroom=3.68 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=test01l2empty verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=9.179 audio_ms_per_frame=0.054 p50=9.000 p95=9.700 max=14.900 headroom=2.09 speed=28 calib_ms=116.50 runs=1
+WEBBENCH config=chrome-x2 program=test02layer2 verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=9.369 audio_ms_per_frame=0.049 p50=9.200 p95=9.900 max=12.000 headroom=2.05 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=test03sprite verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=12.468 audio_ms_per_frame=0.048 p50=12.300 p95=13.000 max=18.400 headroom=1.56 speed=28 calib_ms=116.40 runs=1
+WEBBENCH config=chrome-x2 program=test04tilemap verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=13.637 audio_ms_per_frame=0.056 p50=13.500 p95=14.200 max=20.700 headroom=1.43 speed=28 calib_ms=117.60 runs=1
+WEBBENCH config=chrome-x2 program=test05print verdict=PASS reason=- frames=600 wall_s=12.162 refresh=49.360 emu_fps=49.33 shown_fps=49.33 ms_per_frame=13.782 audio_ms_per_frame=0.056 p50=13.700 p95=14.300 max=17.700 headroom=1.42 speed=28 calib_ms=117.10 runs=1
+WEBBENCH config=chrome-x2 program=test06keyb verdict=PASS reason=- frames=600 wall_s=12.165 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=13.820 audio_ms_per_frame=0.056 p50=13.700 p95=14.500 max=21.100 headroom=1.40 speed=28 calib_ms=117.00 runs=1
+WEBBENCH config=chrome-x2 program=test07joystick verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=13.715 audio_ms_per_frame=0.058 p50=13.600 p95=14.300 max=17.300 headroom=1.42 speed=28 calib_ms=116.60 runs=1
+WEBBENCH config=chrome-x2 program=test09videoint verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=11.166 audio_ms_per_frame=0.054 p50=11.000 p95=11.800 max=17.900 headroom=1.72 speed=28 calib_ms=116.50 runs=1
+WEBBENCH config=chrome-x2 program=test10tilemapper verdict=PASS reason=- frames=600 wall_s=12.165 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=13.601 audio_ms_per_frame=0.051 p50=13.500 p95=14.100 max=17.100 headroom=1.44 speed=28 calib_ms=116.50 runs=1
+WEBBENCH config=chrome-x2 program=tilemap_demo verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=5.318 audio_ms_per_frame=0.056 p50=5.100 p95=5.900 max=9.500 headroom=3.43 speed=28 calib_ms=116.60 runs=1
+WEBBENCH config=chrome-x2 program=trainyard-express verdict=PASS reason=- frames=600 wall_s=12.163 refresh=49.360 emu_fps=49.33 shown_fps=49.33 ms_per_frame=14.643 audio_ms_per_frame=0.053 p50=14.400 p95=15.400 max=25.000 headroom=1.32 speed=28 calib_ms=116.70 runs=1
+WEBBENCH config=chrome-x2 program=halt_idle_35 verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.406 audio_ms_per_frame=0.054 p50=3.300 p95=3.900 max=6.200 headroom=5.19 speed=3.5 calib_ms=117.70 runs=1
+WEBBENCH config=chrome-x2 program=TX-1696 verdict=PASS reason=- frames=600 wall_s=12.158 refresh=49.360 emu_fps=49.35 shown_fps=49.35 ms_per_frame=9.099 audio_ms_per_frame=0.055 p50=9.000 p95=9.700 max=14.100 headroom=2.09 speed=28 calib_ms=116.80 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=bloaters verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=8.497 audio_ms_per_frame=0.054 p50=8.400 p95=9.200 max=13.400 headroom=2.20 speed=14 calib_ms=116.50 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=hott verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=11.289 audio_ms_per_frame=0.053 p50=11.100 p95=11.900 max=15.800 headroom=1.70 speed=28 calib_ms=116.30 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=lom verdict=PASS reason=- frames=600 wall_s=12.161 refresh=49.360 emu_fps=49.34 shown_fps=49.34 ms_per_frame=10.615 audio_ms_per_frame=0.052 p50=10.500 p95=11.200 max=14.800 headroom=1.81 speed=28 calib_ms=116.30 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=nextoid verdict=PASS reason=- frames=600 wall_s=12.137 refresh=49.360 emu_fps=49.43 shown_fps=49.35 ms_per_frame=7.913 audio_ms_per_frame=0.055 p50=8.500 p95=9.300 max=16.100 headroom=2.18 speed=14 calib_ms=116.40 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=night-knight-demo verdict=PASS reason=- frames=600 wall_s=12.143 refresh=49.360 emu_fps=49.41 shown_fps=49.41 ms_per_frame=4.330 audio_ms_per_frame=0.058 p50=4.100 p95=4.900 max=16.300 headroom=4.13 speed=28>14 calib_ms=116.60 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=revivalsurvival verdict=PASS reason=- frames=600 wall_s=12.162 refresh=49.360 emu_fps=49.33 shown_fps=49.33 ms_per_frame=12.538 audio_ms_per_frame=0.049 p50=12.400 p95=13.200 max=16.800 headroom=1.53 speed=28 calib_ms=116.60 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=warhawk verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=12.641 audio_ms_per_frame=0.057 p50=12.400 p95=13.500 max=17.500 headroom=1.50 speed=28 calib_ms=116.70 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=ctc_dac_28 verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=5.681 audio_ms_per_frame=0.059 p50=5.500 p95=6.300 max=8.900 headroom=3.22 speed=28 calib_ms=117.10 runs=1 informative=1
+WEBBENCH config=chrome-x2 program=halt_idle_28 verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.930 audio_ms_per_frame=0.053 p50=3.800 p95=4.400 max=6.100 headroom=4.60 speed=28 calib_ms=116.60 runs=1 informative=1
+WEBBENCH config=firefox program=beanbros verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=7.873 audio_ms_per_frame=0.057 p50=8.000 p95=9.000 max=12.000 headroom=2.25 speed=28 calib_ms=63.00 runs=1
+WEBBENCH config=firefox program=beast verdict=FAIL reason=- frames=600 wall_s=10.317 refresh=58.147 emu_fps=58.16 shown_fps=57.38 ms_per_frame=3.447 audio_ms_per_frame=0.035 p50=3.000 p95=5.000 max=7.000 headroom=3.44 speed=28 calib_ms=97.00 runs=3
+WEBBENCH config=firefox program=blue verdict=PASS reason=- frames=600 wall_s=12.151 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=9.127 audio_ms_per_frame=0.057 p50=9.000 p95=10.000 max=15.000 headroom=2.03 speed=28 calib_ms=94.00 runs=1
+WEBBENCH config=firefox program=celeste verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=7.927 audio_ms_per_frame=0.053 p50=8.000 p95=9.000 max=12.000 headroom=2.25 speed=28 calib_ms=94.00 runs=1
+WEBBENCH config=firefox program=celeste2 verdict=PASS reason=- frames=600 wall_s=12.168 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=8.497 audio_ms_per_frame=0.063 p50=8.000 p95=10.000 max=12.000 headroom=2.03 speed=28 calib_ms=94.00 runs=1
+WEBBENCH config=firefox program=contention_test verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=5.720 audio_ms_per_frame=0.072 p50=5.000 p95=7.000 max=9.000 headroom=2.89 speed=28 calib_ms=93.00 runs=1
+WEBBENCH config=firefox program=copper_demo verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=3.575 audio_ms_per_frame=0.053 p50=3.000 p95=4.000 max=6.000 headroom=5.06 speed=28 calib_ms=93.00 runs=1
+WEBBENCH config=firefox program=dsl_demo verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=3.337 audio_ms_per_frame=0.077 p50=3.000 p95=4.000 max=6.000 headroom=5.06 speed=28 calib_ms=91.00 runs=1
+WEBBENCH config=firefox program=dsl_demo_buggy verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=3.418 audio_ms_per_frame=0.085 p50=3.000 p95=4.000 max=5.000 headroom=5.06 speed=28 calib_ms=91.00 runs=1
+WEBBENCH config=firefox program=floating_bus_test verdict=PASS reason=- frames=600 wall_s=12.153 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.465 audio_ms_per_frame=0.098 p50=3.000 p95=4.000 max=6.000 headroom=5.06 speed=28 calib_ms=92.00 runs=1
+WEBBENCH config=firefox program=joy_uart_demo verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=8.260 audio_ms_per_frame=0.067 p50=8.000 p95=9.000 max=14.000 headroom=2.25 speed=28 calib_ms=89.00 runs=1
+WEBBENCH config=firefox program=layer2_320x256_test verdict=PASS reason=- frames=600 wall_s=12.151 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=3.407 audio_ms_per_frame=0.067 p50=3.000 p95=4.000 max=6.000 headroom=5.06 speed=28 calib_ms=94.00 runs=1
+WEBBENCH config=firefox program=layer2_640x256_test verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=3.545 audio_ms_per_frame=0.085 p50=3.000 p95=5.000 max=6.000 headroom=4.05 speed=28 calib_ms=90.00 runs=1
+WEBBENCH config=firefox program=lores_demo verdict=PASS reason=- frames=600 wall_s=12.169 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=3.253 audio_ms_per_frame=0.068 p50=3.000 p95=4.000 max=6.000 headroom=5.06 speed=28 calib_ms=93.00 runs=1
+WEBBENCH config=firefox program=magic_bp_demo verdict=PASS reason=- frames=600 wall_s=12.153 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.370 audio_ms_per_frame=0.077 p50=3.000 p95=4.000 max=8.000 headroom=5.06 speed=28 calib_ms=90.00 runs=1
+WEBBENCH config=firefox program=magic_port_demo verdict=PASS reason=- frames=600 wall_s=12.132 refresh=49.360 emu_fps=49.46 shown_fps=49.37 ms_per_frame=3.442 audio_ms_per_frame=0.085 p50=3.000 p95=4.000 max=7.000 headroom=5.06 speed=28 calib_ms=92.00 runs=1
+WEBBENCH config=firefox program=menu verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=8.265 audio_ms_per_frame=0.075 p50=8.000 p95=9.000 max=14.000 headroom=2.25 speed=28 calib_ms=89.00 runs=1
+WEBBENCH config=firefox program=odemo verdict=PASS reason=- frames=600 wall_s=12.168 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=4.190 audio_ms_per_frame=0.078 p50=4.000 p95=5.000 max=7.000 headroom=4.05 speed=28 calib_ms=93.00 runs=1
+WEBBENCH config=firefox program=palette_demo verdict=PASS reason=- frames=600 wall_s=12.151 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=3.735 audio_ms_per_frame=0.062 p50=4.000 p95=5.000 max=8.000 headroom=4.05 speed=28 calib_ms=92.00 runs=1
+WEBBENCH config=firefox program=parallax verdict=PASS reason=- frames=600 wall_s=12.168 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=8.178 audio_ms_per_frame=0.043 p50=8.000 p95=9.000 max=11.000 headroom=2.25 speed=28 calib_ms=90.00 runs=1
+WEBBENCH config=firefox program=red verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=8.312 audio_ms_per_frame=0.058 p50=8.000 p95=9.000 max=13.000 headroom=2.25 speed=28 calib_ms=90.00 runs=1
+WEBBENCH config=firefox program=santaspressie verdict=PASS reason=- frames=600 wall_s=12.151 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=4.227 audio_ms_per_frame=0.080 p50=4.000 p95=5.000 max=6.000 headroom=4.05 speed=14 calib_ms=93.00 runs=1
+WEBBENCH config=firefox program=shift verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=9.452 audio_ms_per_frame=0.063 p50=9.000 p95=11.000 max=14.000 headroom=1.84 speed=28 calib_ms=90.00 runs=1
+WEBBENCH config=firefox program=show512 verdict=PASS reason=- frames=600 wall_s=12.151 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=6.657 audio_ms_per_frame=0.060 p50=6.000 p95=8.000 max=10.000 headroom=2.53 speed=28 calib_ms=91.00 runs=1
+WEBBENCH config=firefox program=sprite_anchor_test verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=3.338 audio_ms_per_frame=0.058 p50=3.000 p95=4.000 max=6.000 headroom=5.06 speed=28 calib_ms=94.00 runs=1
+WEBBENCH config=firefox program=sprite_scaling_test verdict=PASS reason=- frames=600 wall_s=12.166 refresh=49.360 emu_fps=49.32 shown_fps=49.32 ms_per_frame=3.425 audio_ms_per_frame=0.095 p50=3.000 p95=4.000 max=7.000 headroom=5.06 speed=28 calib_ms=91.00 runs=1
+WEBBENCH config=firefox program=stencil_test verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=4.093 audio_ms_per_frame=0.052 p50=4.000 p95=5.000 max=7.000 headroom=4.05 speed=28 calib_ms=92.00 runs=1
+WEBBENCH config=firefox program=test01l2empty verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=4.908 audio_ms_per_frame=0.068 p50=5.000 p95=6.000 max=9.000 headroom=3.38 speed=28 calib_ms=96.00 runs=1
+WEBBENCH config=firefox program=test02layer2 verdict=PASS reason=- frames=600 wall_s=12.152 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=5.473 audio_ms_per_frame=0.057 p50=5.000 p95=7.000 max=8.000 headroom=2.89 speed=28 calib_ms=92.00 runs=1
+WEBBENCH config=firefox program=test03sprite verdict=PASS reason=- frames=600 wall_s=12.168 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=7.668 audio_ms_per_frame=0.090 p50=7.000 p95=9.000 max=12.000 headroom=2.25 speed=28 calib_ms=90.00 runs=1
+WEBBENCH config=firefox program=test04tilemap verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=7.850 audio_ms_per_frame=0.067 p50=8.000 p95=9.000 max=12.000 headroom=2.25 speed=28 calib_ms=92.00 runs=1
+WEBBENCH config=firefox program=test05print verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=8.637 audio_ms_per_frame=0.037 p50=8.000 p95=10.000 max=14.000 headroom=2.03 speed=28 calib_ms=95.00 runs=1
+WEBBENCH config=firefox program=test06keyb verdict=PASS reason=- frames=600 wall_s=12.152 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=7.795 audio_ms_per_frame=0.068 p50=8.000 p95=9.000 max=12.000 headroom=2.25 speed=28 calib_ms=96.00 runs=1
+WEBBENCH config=firefox program=test07joystick verdict=PASS reason=- frames=600 wall_s=12.132 refresh=49.360 emu_fps=49.46 shown_fps=49.37 ms_per_frame=8.283 audio_ms_per_frame=0.062 p50=8.000 p95=9.000 max=15.000 headroom=2.25 speed=28 calib_ms=95.00 runs=1
+WEBBENCH config=firefox program=test09videoint verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=6.177 audio_ms_per_frame=0.048 p50=6.000 p95=7.000 max=10.000 headroom=2.89 speed=28 calib_ms=90.00 runs=1
+WEBBENCH config=firefox program=test10tilemapper verdict=PASS reason=- frames=600 wall_s=12.158 refresh=49.360 emu_fps=49.35 shown_fps=49.35 ms_per_frame=8.050 audio_ms_per_frame=0.048 p50=8.000 p95=9.000 max=12.000 headroom=2.25 speed=28 calib_ms=92.00 runs=1
+WEBBENCH config=firefox program=tilemap_demo verdict=PASS reason=- frames=600 wall_s=12.151 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=4.160 audio_ms_per_frame=0.078 p50=4.000 p95=5.000 max=6.000 headroom=4.05 speed=28 calib_ms=94.00 runs=1
+WEBBENCH config=firefox program=trainyard-express verdict=PASS reason=- frames=600 wall_s=12.133 refresh=49.360 emu_fps=49.45 shown_fps=49.37 ms_per_frame=8.287 audio_ms_per_frame=0.072 p50=8.000 p95=9.000 max=16.000 headroom=2.25 speed=28 calib_ms=93.00 runs=1
+WEBBENCH config=firefox program=halt_idle_35 verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=3.082 audio_ms_per_frame=0.037 p50=3.000 p95=4.000 max=6.000 headroom=5.06 speed=3.5 calib_ms=100.00 runs=1
+WEBBENCH config=firefox program=TX-1696 verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=5.665 audio_ms_per_frame=0.073 p50=5.000 p95=7.000 max=11.000 headroom=2.89 speed=28 calib_ms=93.00 runs=1 informative=1
+WEBBENCH config=firefox program=bloaters verdict=PASS reason=- frames=600 wall_s=12.169 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=4.988 audio_ms_per_frame=0.063 p50=5.000 p95=6.000 max=7.000 headroom=3.38 speed=14 calib_ms=96.00 runs=1 informative=1
+WEBBENCH config=firefox program=hott verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=7.267 audio_ms_per_frame=0.052 p50=7.000 p95=8.000 max=10.000 headroom=2.53 speed=28 calib_ms=94.00 runs=1 informative=1
+WEBBENCH config=firefox program=lom verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=6.182 audio_ms_per_frame=0.060 p50=6.000 p95=7.000 max=10.000 headroom=2.89 speed=28 calib_ms=92.00 runs=1 informative=1
+WEBBENCH config=firefox program=nextoid verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=4.830 audio_ms_per_frame=0.057 p50=5.000 p95=6.000 max=11.000 headroom=3.38 speed=14 calib_ms=97.00 runs=1 informative=1
+WEBBENCH config=firefox program=night-knight-demo verdict=PASS reason=- frames=600 wall_s=12.154 refresh=49.360 emu_fps=49.37 shown_fps=49.37 ms_per_frame=3.477 audio_ms_per_frame=0.073 p50=3.000 p95=4.000 max=7.000 headroom=5.06 speed=28>14 calib_ms=93.00 runs=1 informative=1
+WEBBENCH config=firefox program=revivalsurvival verdict=PASS reason=- frames=600 wall_s=12.134 refresh=49.360 emu_fps=49.45 shown_fps=49.37 ms_per_frame=7.747 audio_ms_per_frame=0.058 p50=8.000 p95=9.000 max=15.000 headroom=2.25 speed=28 calib_ms=88.00 runs=1 informative=1
+WEBBENCH config=firefox program=warhawk verdict=PASS reason=- frames=600 wall_s=12.168 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=8.213 audio_ms_per_frame=0.048 p50=8.000 p95=9.000 max=12.000 headroom=2.25 speed=28 calib_ms=94.00 runs=1 informative=1
+WEBBENCH config=firefox program=ctc_dac_28 verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=4.657 audio_ms_per_frame=0.067 p50=4.000 p95=6.000 max=8.000 headroom=3.38 speed=28 calib_ms=93.00 runs=1 informative=1
+WEBBENCH config=firefox program=halt_idle_28 verdict=PASS reason=- frames=600 wall_s=12.151 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=3.420 audio_ms_per_frame=0.058 p50=3.000 p95=4.000 max=6.000 headroom=5.06 speed=28 calib_ms=92.00 runs=1 informative=1
+
+WEBPACE config=chrome program=beanbros multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=1
+WEBPACE config=chrome program=beast multi_tick_cb_s=0.10 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=blue multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=celeste multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=celeste2 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=contention_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=copper_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=dsl_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=dsl_demo_buggy multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=floating_bus_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=layer2_320x256_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=layer2_640x256_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=lores_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=magic_bp_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=magic_port_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=odemo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=palette_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=parallax multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=red multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=santaspressie multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=shift multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=show512 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=sprite_anchor_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=sprite_scaling_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=stencil_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test01l2empty multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test02layer2 multi_tick_cb_s=0.00 two_frame_ticks_s=0.08 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test03sprite multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test04tilemap multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test05print multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test06keyb multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test07joystick multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test09videoint multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=test10tilemapper multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=tilemap_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=trainyard-express multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=halt_idle_35 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=TX-1696 multi_tick_cb_s=0.00 two_frame_ticks_s=0.08 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=bloaters multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=hott multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=lom multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=nextoid multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=night-knight-demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=revivalsurvival multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=warhawk multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=ctc_dac_28 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=halt_idle_28 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=beanbros multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=98
+WEBPACE config=chrome-x2 program=beast multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=blue multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=121
+WEBPACE config=chrome-x2 program=celeste multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=69
+WEBPACE config=chrome-x2 program=celeste2 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=77
+WEBPACE config=chrome-x2 program=contention_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=1
+WEBPACE config=chrome-x2 program=copper_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=dsl_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=dsl_demo_buggy multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=floating_bus_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=joy_uart_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=50
+WEBPACE config=chrome-x2 program=layer2_320x256_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=layer2_640x256_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=lores_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=magic_bp_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=magic_port_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=menu multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=110
+WEBPACE config=chrome-x2 program=odemo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=palette_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=parallax multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=55
+WEBPACE config=chrome-x2 program=red multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=107
+WEBPACE config=chrome-x2 program=santaspressie multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=shift multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=104
+WEBPACE config=chrome-x2 program=show512 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=51
+WEBPACE config=chrome-x2 program=sprite_anchor_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=sprite_scaling_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=stencil_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=test01l2empty multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=test02layer2 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=test03sprite multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=57
+WEBPACE config=chrome-x2 program=test04tilemap multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=85
+WEBPACE config=chrome-x2 program=test05print multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=88
+WEBPACE config=chrome-x2 program=test06keyb multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=89
+WEBPACE config=chrome-x2 program=test07joystick multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=91
+WEBPACE config=chrome-x2 program=test09videoint multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=22
+WEBPACE config=chrome-x2 program=test10tilemapper multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=87
+WEBPACE config=chrome-x2 program=tilemap_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=trainyard-express multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=109
+WEBPACE config=chrome-x2 program=halt_idle_35 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=TX-1696 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=1
+WEBPACE config=chrome-x2 program=bloaters multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=1
+WEBPACE config=chrome-x2 program=hott multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.08 fill_events=0 audio_gaps=19
+WEBPACE config=chrome-x2 program=lom multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=3
+WEBPACE config=chrome-x2 program=nextoid multi_tick_cb_s=0.00 two_frame_ticks_s=0.08 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=night-knight-demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=1
+WEBPACE config=chrome-x2 program=revivalsurvival multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=53
+WEBPACE config=chrome-x2 program=warhawk multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=56
+WEBPACE config=chrome-x2 program=ctc_dac_28 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=halt_idle_28 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=beanbros multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=beast multi_tick_cb_s=0.78 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=blue multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=2
+WEBPACE config=firefox program=celeste multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=celeste2 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=contention_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=copper_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=dsl_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=dsl_demo_buggy multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=floating_bus_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=joy_uart_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=1
+WEBPACE config=firefox program=layer2_320x256_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=layer2_640x256_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=lores_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=magic_bp_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=magic_port_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.08 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=menu multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=odemo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=palette_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=parallax multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=red multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=1
+WEBPACE config=firefox program=santaspressie multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=shift multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=2
+WEBPACE config=firefox program=show512 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=sprite_anchor_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=sprite_scaling_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=stencil_test multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test01l2empty multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test02layer2 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test03sprite multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test04tilemap multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test05print multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test06keyb multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test07joystick multi_tick_cb_s=0.00 two_frame_ticks_s=0.08 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test09videoint multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=test10tilemapper multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=tilemap_demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=trainyard-express multi_tick_cb_s=0.00 two_frame_ticks_s=0.08 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=halt_idle_35 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=TX-1696 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=bloaters multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=hott multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=lom multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=nextoid multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=night-knight-demo multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=revivalsurvival multi_tick_cb_s=0.00 two_frame_ticks_s=0.08 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=warhawk multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=ctc_dac_28 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=halt_idle_28 multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+
+# | program | chrome | chrome-x2 | firefox |
+# |---|---|---|---|
+# | beanbros | PASS 7.54 ms/f 49.3/49.4 p95 8.2 x28 | PASS 14.19 ms/f 49.3/49.4 p95 14.7 x28 | PASS 7.87 ms/f 49.4/49.4 p95 9.0 x28 |
+# | beast | PASS 3.60 ms/f 58.2/58.1 p95 4.2 x28 | PASS 5.53 ms/f 58.2/58.1 p95 6.2 x28 | FAIL 3.45 ms/f 58.2/58.1 p95 5.0 x28 |
+# | blue | PASS 7.65 ms/f 49.3/49.4 p95 8.3 x28 | PASS 14.89 ms/f 49.3/49.4 p95 15.5 x28 | PASS 9.13 ms/f 49.4/49.4 p95 10.0 x28 |
+# | celeste | PASS 7.19 ms/f 49.3/49.4 p95 7.9 x28 | PASS 13.31 ms/f 49.4/49.4 p95 13.8 x28 | PASS 7.93 ms/f 49.4/49.4 p95 9.0 x28 |
+# | celeste2 | PASS 7.17 ms/f 49.3/49.4 p95 7.9 x28 | PASS 13.36 ms/f 49.4/49.4 p95 14.0 x28 | PASS 8.50 ms/f 49.3/49.4 p95 10.0 x28 |
+# | contention_test | PASS 5.01 ms/f 49.4/49.4 p95 5.6 x28 | PASS 9.20 ms/f 49.3/49.4 p95 9.8 x28 | PASS 5.72 ms/f 49.4/49.4 p95 7.0 x28 |
+# | copper_demo | PASS 3.24 ms/f 49.4/49.4 p95 3.6 x28 | PASS 4.12 ms/f 49.4/49.4 p95 4.6 x28 | PASS 3.58 ms/f 49.4/49.4 p95 4.0 x28 |
+# | dsl_demo | PASS 3.14 ms/f 49.3/49.4 p95 3.6 x28 | PASS 4.01 ms/f 49.4/49.4 p95 4.5 x28 | PASS 3.34 ms/f 49.3/49.4 p95 4.0 x28 |
+# | dsl_demo_buggy | PASS 3.20 ms/f 49.3/49.4 p95 3.6 x28 | PASS 3.95 ms/f 49.3/49.4 p95 4.5 x28 | PASS 3.42 ms/f 49.4/49.4 p95 4.0 x28 |
+# | floating_bus_test | PASS 3.16 ms/f 49.4/49.4 p95 3.5 x28 | PASS 4.04 ms/f 49.4/49.4 p95 4.6 x28 | PASS 3.46 ms/f 49.4/49.4 p95 4.0 x28 |
+# | joy_uart_demo | INVALID (host_got_busier; would PASS) 6.79 ms/f 49.4/49.4 | PASS 12.48 ms/f 49.3/49.4 p95 13.1 x28 | PASS 8.26 ms/f 49.4/49.4 p95 9.0 x28 |
+# | layer2_320x256_test | PASS 3.11 ms/f 49.3/49.4 p95 3.5 x28 | PASS 4.01 ms/f 49.4/49.4 p95 4.6 x28 | PASS 3.41 ms/f 49.4/49.4 p95 4.0 x28 |
+# | layer2_640x256_test | PASS 3.28 ms/f 49.3/49.4 p95 3.7 x28 | PASS 4.17 ms/f 49.3/49.4 p95 4.6 x28 | PASS 3.54 ms/f 49.4/49.4 p95 5.0 x28 |
+# | lores_demo | PASS 2.99 ms/f 49.3/49.4 p95 3.4 x28 | PASS 3.72 ms/f 49.4/49.4 p95 4.1 x28 | PASS 3.25 ms/f 49.3/49.4 p95 4.0 x28 |
+# | magic_bp_demo | PASS 3.08 ms/f 49.4/49.4 p95 3.5 x28 | PASS 4.00 ms/f 49.3/49.4 p95 4.6 x28 | PASS 3.37 ms/f 49.4/49.4 p95 4.0 x28 |
+# | magic_port_demo | PASS 3.18 ms/f 49.3/49.4 p95 3.6 x28 | PASS 3.97 ms/f 49.3/49.4 p95 4.5 x28 | PASS 3.44 ms/f 49.5/49.4 p95 4.0 x28 |
+# | menu | INVALID (host_got_busier; would PASS) 7.59 ms/f 49.4/49.4 | PASS 14.61 ms/f 49.3/49.4 p95 15.3 x28 | PASS 8.27 ms/f 49.4/49.4 p95 9.0 x28 |
+# | odemo | PASS 3.75 ms/f 49.4/49.4 p95 4.3 x28 | PASS 4.82 ms/f 49.4/49.4 p95 5.3 x28 | PASS 4.19 ms/f 49.3/49.4 p95 5.0 x28 |
+# | palette_demo | PASS 3.45 ms/f 49.4/49.4 p95 3.9 x28 | PASS 4.40 ms/f 49.4/49.4 p95 5.0 x28 | PASS 3.73 ms/f 49.4/49.4 p95 5.0 x28 |
+# | parallax | PASS 6.84 ms/f 49.3/49.4 p95 7.5 x28 | PASS 12.63 ms/f 49.3/49.4 p95 13.2 x28 | PASS 8.18 ms/f 49.3/49.4 p95 9.0 x28 |
+# | red | PASS 7.62 ms/f 49.3/49.4 p95 8.3 x28 | PASS 14.42 ms/f 49.3/49.4 p95 15.0 x28 | PASS 8.31 ms/f 49.4/49.4 p95 9.0 x28 |
+# | santaspressie | PASS 3.40 ms/f 49.3/49.4 p95 4.1 x14 | PASS 5.42 ms/f 49.3/49.4 p95 6.0 x14 | PASS 4.23 ms/f 49.4/49.4 p95 5.0 x14 |
+# | shift | PASS 7.75 ms/f 49.3/49.4 p95 8.4 x28 | PASS 14.71 ms/f 49.3/49.4 p95 15.3 x28 | PASS 9.45 ms/f 49.3/49.4 p95 11.0 x28 |
+# | show512 | PASS 6.56 ms/f 49.4/49.4 p95 7.2 x28 | PASS 12.25 ms/f 49.3/49.4 p95 12.9 x28 | PASS 6.66 ms/f 49.4/49.4 p95 8.0 x28 |
+# | sprite_anchor_test | PASS 3.11 ms/f 49.3/49.4 p95 3.7 x28 | PASS 4.03 ms/f 49.3/49.4 p95 4.6 x28 | PASS 3.34 ms/f 49.4/49.4 p95 4.0 x28 |
+# | sprite_scaling_test | PASS 3.15 ms/f 49.4/49.4 p95 3.6 x28 | PASS 3.93 ms/f 49.4/49.4 p95 4.5 x28 | PASS 3.42 ms/f 49.3/49.4 p95 4.0 x28 |
+# | stencil_test | PASS 3.96 ms/f 49.3/49.4 p95 4.4 x28 | PASS 5.09 ms/f 49.4/49.4 p95 5.5 x28 | PASS 4.09 ms/f 49.4/49.4 p95 5.0 x28 |
+# | test01l2empty | PASS 5.06 ms/f 49.4/49.4 p95 5.7 x28 | PASS 9.18 ms/f 49.4/49.4 p95 9.7 x28 | PASS 4.91 ms/f 49.3/49.4 p95 6.0 x28 |
+# | test02layer2 | PASS 5.08 ms/f 49.4/49.4 p95 5.7 x28 | PASS 9.37 ms/f 49.4/49.4 p95 9.9 x28 | PASS 5.47 ms/f 49.4/49.4 p95 7.0 x28 |
+# | test03sprite | PASS 6.68 ms/f 49.4/49.4 p95 7.4 x28 | PASS 12.47 ms/f 49.4/49.4 p95 13.0 x28 | PASS 7.67 ms/f 49.3/49.4 p95 9.0 x28 |
+# | test04tilemap | PASS 7.18 ms/f 49.4/49.4 p95 7.9 x28 | PASS 13.64 ms/f 49.4/49.4 p95 14.2 x28 | PASS 7.85 ms/f 49.4/49.4 p95 9.0 x28 |
+# | test05print | PASS 7.33 ms/f 49.4/49.4 p95 8.1 x28 | PASS 13.78 ms/f 49.3/49.4 p95 14.3 x28 | PASS 8.64 ms/f 49.4/49.4 p95 10.0 x28 |
+# | test06keyb | PASS 7.30 ms/f 49.3/49.4 p95 7.9 x28 | PASS 13.82 ms/f 49.3/49.4 p95 14.5 x28 | PASS 7.79 ms/f 49.4/49.4 p95 9.0 x28 |
+# | test07joystick | PASS 7.11 ms/f 49.4/49.4 p95 7.8 x28 | PASS 13.71 ms/f 49.4/49.4 p95 14.3 x28 | PASS 8.28 ms/f 49.5/49.4 p95 9.0 x28 |
+# | test09videoint | PASS 6.00 ms/f 49.4/49.4 p95 6.7 x28 | PASS 11.17 ms/f 49.3/49.4 p95 11.8 x28 | PASS 6.18 ms/f 49.4/49.4 p95 7.0 x28 |
+# | test10tilemapper | PASS 7.24 ms/f 49.4/49.4 p95 7.9 x28 | PASS 13.60 ms/f 49.3/49.4 p95 14.1 x28 | PASS 8.05 ms/f 49.4/49.4 p95 9.0 x28 |
+# | tilemap_demo | PASS 4.13 ms/f 49.4/49.4 p95 4.7 x28 | PASS 5.32 ms/f 49.4/49.4 p95 5.9 x28 | PASS 4.16 ms/f 49.4/49.4 p95 5.0 x28 |
+# | trainyard-express | PASS 7.63 ms/f 49.4/49.4 p95 8.3 x28 | PASS 14.64 ms/f 49.3/49.4 p95 15.4 x28 | PASS 8.29 ms/f 49.5/49.4 p95 9.0 x28 |
+# | halt_idle_35 | PASS 2.77 ms/f 49.4/49.4 p95 3.2 x3.5 | PASS 3.41 ms/f 49.3/49.4 p95 3.9 x3.5 | PASS 3.08 ms/f 49.3/49.4 p95 4.0 x3.5 |
+# | TX-1696 | PASS 5.08 ms/f 49.5/49.4 p95 5.8 x28 | PASS 9.10 ms/f 49.3/49.4 p95 9.7 x28 | PASS 5.67 ms/f 49.4/49.4 p95 7.0 x28 |
+# | bloaters | PASS 4.72 ms/f 49.4/49.4 p95 5.4 x14 | PASS 8.50 ms/f 49.4/49.4 p95 9.2 x14 | PASS 4.99 ms/f 49.3/49.4 p95 6.0 x14 |
+# | hott | PASS 6.10 ms/f 49.4/49.4 p95 6.8 x28 | PASS 11.29 ms/f 49.3/49.4 p95 11.9 x28 | PASS 7.27 ms/f 49.4/49.4 p95 8.0 x28 |
+# | lom | PASS 5.76 ms/f 49.4/49.4 p95 6.4 x28 | PASS 10.61 ms/f 49.3/49.4 p95 11.2 x28 | PASS 6.18 ms/f 49.4/49.4 p95 7.0 x28 |
+# | nextoid | PASS 4.66 ms/f 49.4/49.4 p95 6.0 x14 | PASS 7.91 ms/f 49.4/49.4 p95 9.3 x14 | PASS 4.83 ms/f 49.3/49.4 p95 6.0 x14 |
+# | night-knight-demo | PASS 3.27 ms/f 49.4/49.4 p95 3.8 x28>14 | PASS 4.33 ms/f 49.4/49.4 p95 4.9 x28>14 | PASS 3.48 ms/f 49.4/49.4 p95 4.0 x28>14 |
+# | revivalsurvival | PASS 6.99 ms/f 49.3/49.4 p95 7.7 x28 | PASS 12.54 ms/f 49.3/49.4 p95 13.2 x28 | PASS 7.75 ms/f 49.4/49.4 p95 9.0 x28 |
+# | warhawk | PASS 6.63 ms/f 49.4/49.4 p95 7.2 x28 | PASS 12.64 ms/f 49.3/49.4 p95 13.5 x28 | PASS 8.21 ms/f 49.3/49.4 p95 9.0 x28 |
+# | ctc_dac_28 | PASS 4.18 ms/f 49.4/49.4 p95 4.7 x28 | PASS 5.68 ms/f 49.3/49.4 p95 6.3 x28 | PASS 4.66 ms/f 49.4/49.4 p95 6.0 x28 |
+# | halt_idle_28 | PASS 3.16 ms/f 49.3/49.4 p95 3.6 x28 | PASS 3.93 ms/f 49.3/49.4 p95 4.4 x28 | PASS 3.42 ms/f 49.4/49.4 p95 4.0 x28 |
+# acceptance: 114/117 cells PASS; not PASS: chrome/joy_uart_demo=INVALID chrome/menu=INVALID firefox/beast=FAIL

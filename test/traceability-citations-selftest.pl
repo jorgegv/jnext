@@ -3533,6 +3533,26 @@ check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it p
     check('SELF-215', 'DUP-IDS: when the generator cannot list the planned rows, the gate REFUSES rather than checking none (GH #243)',
           scalar($rc_x == 2 && $out_x =~ /--planned-ids failed \(exit 2\)/),
           "exit $rc_x; output: $out_x");
+
+    # A bare number is a row ID only as the first argument of a call (GH #460). The
+    # same number as one element of a table of VALUES, in two suites, is no collision;
+    # a named ID or an S-number in a table is still an ID; and a number asserted as a
+    # row in two suites IS a collision, so the narrowing did not blind the gate.
+    $build_dup->();
+    $put->($src_of{layer2_test}[0],        "const char* v[] = { \"x\", \"1.5\", \"3.50\" };\n");
+    $put->($src_of{window_scale_test}[0],  "static const Case t[] = { {\"--n\", {\"1.5\", \"3.50\"}} };\n");
+    my ($rc_v, $out_v) = $run_dup->();
+    check('SELF-240', 'DUP-IDS: a bare number listed as a VALUE in two suites is not an ID, so no collision (GH #460)',
+          scalar($rc_v == 0 && $out_v =~ /OK — 0 ids across/),
+          "exit $rc_v; output: $out_v");
+
+    $build_dup->();
+    $put->($src_of{layer2_test}[0],        "check(\"7.7\", \"d\", ok);\nconst char* v[] = { \"S1.01\" };\n");
+    $put->($src_of{window_scale_test}[0],  "check(  \"7.7\", \"d\", ok);\nstatic const Case t[] = { {\"S1.01\", 0} };\n");
+    my ($rc_n, $out_n) = $run_dup->();
+    check('SELF-241', 'DUP-IDS: THE CONTROL — a number asserted as the first argument of check() and an S-number in a table, in two suites, are both REFUSED',
+          scalar($rc_n == 2 && $out_n =~ /7\.7: layer2_test, window_scale_test/ && $out_n =~ /S1\.01: layer2_test, window_scale_test/),
+          "exit $rc_n; output: $out_n");
 }
 
 # ── A row with a check() is not a skip (owner, 2026-10-06) ──────────
@@ -3805,7 +3825,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 239;
+my $EXPECTED_ROWS = 241;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

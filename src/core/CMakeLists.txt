@@ -72,7 +72,9 @@ target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOU
 # moved here from src/platform so the debugger backend's CAP-01 `screenshot()`
 # can call them: the backend sits BELOW the platform layer and may not reach up
 # into it (the same rule that routes CTL-15's load through a registered driver).
-find_package(PNG REQUIRED)
+if(NOT EMSCRIPTEN)
+    find_package(PNG REQUIRED)
+endif()
 target_link_libraries(jnext_core PUBLIC
     jnext_input jnext_peripheral jnext_debug jnext_profiler
     jnext_cpu jnext_memory jnext_video jnext_audio jnext_port
@@ -85,6 +87,8 @@ target_link_libraries(jnext_core PUBLIC
 # whole-file-#ifdef'd so the GLOB above stays platform-correct.
 if(WIN32)
     target_link_libraries(jnext_core PUBLIC winhttp bcrypt)
+elseif(EMSCRIPTEN)
+    # no network library: sdcard_provisioner_net_web.cpp is self-contained
 else()
     target_link_libraries(jnext_core PUBLIC CURL::libcurl OpenSSL::Crypto)
 endif()

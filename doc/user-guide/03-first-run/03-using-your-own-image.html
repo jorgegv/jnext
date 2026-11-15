@@ -4153,6 +4153,225 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../10-web-page/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10. JNEXT in a web page
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    10. JNEXT in a web page
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-web-page/01-a-page-with-a-game.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.1 A page with a game
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-web-page/02-options-and-the-player.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.2 Options and the player
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-web-page/03-itch-and-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.3 On itch.io, and what the browser build does not do
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-web-page/04-the-image-and-what-the-browser-keeps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.4 NextZXOS, the SD card, and what the browser keeps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-web-page/05-two-ways-to-embed.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.5 Two ways to embed JNEXT, your own page or the widget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -4190,6 +4409,15 @@ exactly as they would on a real card, so two runs sharing one image are not
 independent once one of them has written.</p>
 <p>Add <code>--sdcard-readonly</code> when a run must not disturb the image: the emulated
 machine then sees a write-protected card and the host file is never touched.</p>
+<p>To keep the image pristine and still let the machine save, use
+<code>--sdcard-writes FILE</code>: the image is opened read-only and what the machine writes
+goes to <em>FILE</em>, which is laid over the image every time the card is mounted, so the
+saves survive the next run. <em>FILE</em> belongs to that image (its <code>--sdcard-sha256</code>, else
+its size and modification time) and is refused for another one; delete it, or add
+<code>--sdcard-writes-reset</code>, to start from the image again. It holds only the sectors the
+machine wrote, so it stays small, plus the one file that JNEXT's esxDOS stand-in keeps
+for a NEX loaded directly (see "Running programs"): that file is stored when the
+program closes it and is there at the next run.</p>
 <h2 id="changing-the-card-while-jnext-runs">Changing the card while JNEXT runs<a class="headerlink" href="#changing-the-card-while-jnext-runs" title="Permanent link">&para;</a></h2>
 <p><strong>File &gt; Insert SD Card Image</strong> puts a different card in the running machine,
 and <strong>File &gt; Eject SD Card</strong> takes it out. Nothing is reset, so you keep what

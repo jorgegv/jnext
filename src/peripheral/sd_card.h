@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <memory>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -8,6 +9,7 @@
 #include <vector>
 #include <fstream>
 #include "peripheral/spi.h"
+#include "peripheral/sd_write_journal.h"
 
 class StateWriter;
 class StateReader;
@@ -338,6 +340,9 @@ private:
     uint64_t file_size_ = 0;
     // Mount properties (not protocol state: not in describe_state()).
     bool read_only_ = false;      // write-protected: CMD24 never touches file_
+    // The image has a write journal (--sdcard-writes): the file is opened
+    // read-only, reads see the journal over it and CMD24 appends to it.
+    std::shared_ptr<sd_write_journal::Journal> journal_;
     std::string path_;            // mounted image, for the stream reopen
     std::uint64_t stream_write_attempts_ = 0;
 

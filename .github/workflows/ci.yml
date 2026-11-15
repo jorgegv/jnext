@@ -83,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        leg: [build-matrix, unit, unit-win, regression, regression-win]
+        leg: [build-matrix, unit, unit-win, regression, regression-win, regression-wasm, unit-wasm, browser]
     runs-on: ubuntu-latest
     # Same fedora:44 container release.yml builds the rpm and Windows artifacts
     # in, and the same distro the maintainer develops on. That is the point: the
@@ -160,10 +160,19 @@ jobs:
             qt6-qtbase-devel qt6-qtsvg-devel libspectrum-devel \
             ImageMagick xorg-x11-server-Xvfb openbox xdotool python3 python3-pyyaml python3-jsonschema unzip diffutils \
             ripgrep ffmpeg-free bc file xxd dbus-daemon \
-            mtools dosfstools rpm-build \
+            mtools dosfstools rpm-build util-linux zip \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
             perl-interpreter perl-FindBin perl-File-Temp perl-File-Find perl-PathTools \
-            mesa-dri-drivers mesa-libGL java-25-openjdk-devel
+            mesa-dri-drivers mesa-libGL java-25-openjdk-devel \
+            nss nspr atk at-spi2-atk alsa-lib libXcomposite libXdamage libXfixes libXrandr libXi \
+            mesa-libgbm libxkbcommon libdrm
+          # nss ... libdrm (the last line): the shared libraries the pinned Chromium headless
+          # shell of `make wasm-browser-test` links (`ldd` on it), declared rather than
+          # inherited. The browser comes from test/provision-playwright.sh, like the SDK.
+          # util-linux: sfdisk, for test/minimal-card-test.sh (the bare
+          # fedora:44 has only util-linux-core).
+          # zip: package-web.sh's writer (the browser leg builds the web zip through
+          # wasm-browser-test; the unit leg runs web-package-test through make unit-test).
           # mtools + dosfstools are the FOREIGN validators the GH #269
           # sdcard-file-add-func row reads the SD image back with (mdir,
           # mcopy, fsck.vfat). They are not a convenience: jnext writes FAT32
@@ -311,9 +320,10 @@ jobs:
 
       # The unit leg needs it for sd_rom_extractor_test, the regression leg
       # for every row that boots NextZXOS; the build matrix runs nothing. The
-      # unit-win leg needs it for sd_rom_extractor_test too, and on a miss
-      # `make unit-test-win` provisions it itself (the `sdcard-image` target),
-      # since that leg builds no PGO binary.
+      # regression-wasm leg boots it in every screenshot row. The
+      # unit-win and unit-wasm legs need it for sd_rom_extractor_test too, and on
+      # a miss `make unit-test-win` / `make unit-test-wasm` provision it
+      # themselves (the `sdcard-image` target), since those legs build no PGO binary.
       - name: Cache NextZXOS SD-card image
         if: matrix.leg != 'build-matrix'
         id: sdcache
@@ -358,6 +368,28 @@ jobs:
           LANG=C make clean
           LANG=C make gui-release
 
+      # The Emscripten SDK 6.0.13 (about 1.4 GB with its ports), provisioned by
+      # `make wasm-core` itself (test/provision-emsdk.sh) from three sha256-pinned
+      # archives, so a hit only skips the downloads. The key carries the version
+      # and the three pin prefixes: a bump changes it and a stale entry is never
+      # reused (an entry without the provisioner's stamp is replaced anyway).
+      - name: Cache the Emscripten SDK
+        if: matrix.leg == 'regression-wasm' || matrix.leg == 'unit-wasm' || matrix.leg == 'browser'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/jnext/tools/emsdk-6.0.13
+          key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora44
+
+      # playwright-core and the Chromium headless shell (about 135 MB), provisioned by
+      # `make wasm-browser-test` itself (test/provision-playwright.sh), pinned by two
+      # sha256, so a hit only skips the downloads. The key carries the pin prefixes.
+      - name: Cache Playwright
+        if: matrix.leg == 'browser'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/jnext/tools/playwright-1.65.0
+          key: playwright-1.65.0-315247c5-18352d22-fedora44
+
       # Link rot only shows up at BUILD time and only in the combinations the
       # default build does not exercise: CMake derives static-link order from
       # the declared dependency graph, so a target that under-declares still
@@ -368,6 +400,56 @@ jobs:
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
         if: matrix.leg == 'build-matrix'
         run: LANG=C make build-matrix
+
+      # The regression suite's screenshot rows against the SDL-only core built for
+      # WebAssembly and run under node (GH #461). `make regression-wasm` has
+      # `make wasm-core` as a prerequisite (the pinned Emscripten SDK, jnext.js/
+      # jnext.wasm, the SHA-256 suite and test/wasm-core-check.sh), so that is not
+      # a step of its own. Every screenshot row must equal the committed native
+      # reference pixel for pixel; the functional rows run only where their `os=`
+      # tag names emscripten. The host's own jnext (SDL unit-test tree) derives the
+      # SD master, as under wine. BLOCKING, like regression-win.
+      - name: make regression-wasm (the screenshot rows as WebAssembly under node)
+        if: matrix.leg == 'regression-wasm'
+        run: LANG=C make regression-wasm
+
+      # GH #460. The same SDL-only suites as unit-win, built as WebAssembly in
+      # their own tree (LTO off) and run one per CPU under the SDK's node through
+      # test/node-run.sh. Suites whose subject the browser build compiles out or
+      # refuses (the debugger servers, the script engine, the ESP-01 and NextPi,
+      # the SD downloader) are declared absent by `# os: native` in
+      # test/unit-tests.conf (cross-checked both ways, never skipped) and named in
+      # the run's NOTICE. As root, node-run.sh drops CAP_DAC_OVERRIDE with setpriv
+      # (util-linux, in the container), as wine-run.sh does. BLOCKING, like unit-win.
+      # tap_loader_test peaks at about 1.5 GB of resident memory under node (the rest
+      # stay under 0.5 GB), so JNEXT_UNIT_TEST_JOBS (one per CPU) needs a runner with
+      # a few GB free.
+      - name: make unit-test-wasm (the SDL-only suites as WebAssembly under node)
+        if: matrix.leg == 'unit-wasm'
+        run: LANG=C make unit-test-wasm
+
+      # The browser frontend (GH #463): builds jnext-<version>.js/.wasm, the native SDL
+      # oracle, the run-time minimal card from the cached distribution image (kept in
+      # ~/tmp/jnext-browser-smoke.* and deleted by the script; the failure-artifact step below
+      # uploads only fixed paths that cannot reach it), and runs the BRW rows in the pinned
+      # headless Chromium. The JavaScript API rows join the same target. BLOCKING.
+      - name: make wasm-browser-test (the browser frontend in headless Chromium)
+        if: matrix.leg == 'browser'
+        run: LANG=C make wasm-browser-test
+
+      # The browser package `make wasm-browser-test` built, verified and booted
+      # (package-web is its prerequisite). One exact glob: it cannot reach the
+      # run-time NextZXOS card, which lives in a scratch directory under ~/tmp.
+      # Success-only on purpose. NEVER widen the path.
+      - name: Upload the web zip
+        if: matrix.leg == 'browser'
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-web-zip
+          path: build/wasm-core/jnext-*-web.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
 
       # No JNEXT_TEST_JOBS: the suite's lanes default to the runner's CPUs and
       # its timing-sensitive rows run in their own quiet phase (GH #295), so

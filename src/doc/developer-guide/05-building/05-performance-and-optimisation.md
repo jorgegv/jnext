@@ -381,7 +381,13 @@ binaries. To compare binaries, run them **interleaved**:
   core (`taskset -c N`);
 - rotate the order of the variants each round, so none is always first;
 - give every run its own reflinked clone of the SD master, so no run sees
-  another's writes;
+  another's writes, **and its own `JNEXT_CONFIG_DIR`**, primed by one unmeasured
+  run of the first NEX workload. The warm-start cache is keyed on the image's
+  size and modification time, and a fresh clone has a new time: without a private
+  config directory the first NEX run misses the cache and times a NextZXOS cold
+  boot inside its window (copper-demo: 4.67 s against 2.81 to 2.90 s on a hit),
+  and it replaces your own cache with one keyed to a clone that is deleted at
+  the end. `bench.sh` does both;
 - wrap each run in `perf stat -e instructions:u,cycles:u`. Cycles are less
   sensitive to frequency changes than wall time, and instructions say whether
   the code or only its speed changed;
@@ -407,11 +413,188 @@ move a ratio by several points.
 RelWithDebInfo build keeps (they cost 5.8% in Release, so Release does not);
 on a Release binary use `perf record --call-graph dwarf`.
 
+## The browser build
+
+The browser build (`jnext-<version>.js`, 5.2) has its own bench, `make bench-web`.
+It answers a different question from `make bench`: not how fast the core is, but
+whether the page a visitor loads keeps up. Nothing here is a gate. No test and no
+CI step asserts a speed, because a bound on a speed measures the host; the
+numbers live in a committed results file and on the issue that asked.
+
+**What runs.** Every program of `test/00regression/nex` plus
+`test/bench/nex/halt_idle_35.nex` is the acceptance set, 39 programs, read from
+the directories at run time and never pinned. The eight NEX of
+`test/nex-nonworking` and the other two bench NEX are measured and reported but
+do not count. Each program is started as `--machine next --load <nex>`, with no
+keys, at the speed it sets itself, as the native and node tables measured it.
+Each runs in a fresh page, in one wasm instance, through `jnext.mount()` and the
+build's own `jnext-<version>.js`, so the path measured is the embedder's: the
+image cache, the warm start, the pacing grid.
+
+**Three configurations.** `chrome` is the host's Google Chrome (headless, muted,
+`--use-angle=gl-egl` so that WebGL runs on the GPU as a visitor's does; headless
+Chrome's own default is SwiftShader, software WebGL), driven through the pinned
+`playwright-core`; `chrome-x2` is the same with the CDP CPU throttle at 2x, re-sent
+after every navigation; `firefox` is the host's Firefox with a profile of its own,
+driven by the page itself (the page asks the driver's server for its next program,
+posts the result and navigates to itself). Firefox runs with `MOZ_HEADLESS=1` on a private
+Xvfb display (`xvfb-run -d`, `-noreset`): a headless Firefox 159 with no display connection gives
+no canvas a WebGL context of any version or attributes (measured with a static page), so
+jnext's page falls back to SDL's 2D canvas, while the same Firefox given the Xvfb display has
+WebGL. The renderer depends on the route, and the results header records both the route
+(`# firefox mode:`) and the renderer: the default route draws WebGL on the GPU; `FIREFOX_MODE=headed`
+(a headed Firefox on that display) draws through the X display, which is Mesa software
+(llvmpipe), and `FIREFOX_MODE=headless` (`--headless`, no Xvfb, no DISPLAY) has no WebGL at all.
+A cell whose WebGL renderer is software (llvmpipe, SwiftShader, softpipe) is INVALID
+(`software_renderer`): a visitor's browser draws on a GPU. The whole bench, node, servers and browsers, runs under `taskset` on the
+fastest physical cores, derived as `bench.sh` derives its core. The page is
+served from `127.0.0.1` by an allow-list: the build's two files, the page, the NEX
+directories and the run's minimal card. The card is built at run time into a
+scratch directory under `~/tmp` and deleted at the end; it is never committed or
+served from the repository.
+
+**One cell.** A cell is one program in one configuration. The page calibrates
+(a fixed integer loop of about 50 ms, three times, the median), mounts, waits for
+the `ready` event, runs 250 warm-up frames and then measures a window of 600
+frames or 60 s. The measurement is made from outside the module by two wrappers
+installed before it loads: `requestAnimationFrame` (Emscripten schedules every
+main-loop iteration through the global one, so each callback is one run of the
+frontend's tick; its cost is timed and the emulator frames it ran are read from
+the module's frame counter before and after) and the Web Audio script processor
+handler SDL installs. Two read-only exports give the frame period in
+milliseconds and the effective CPU speed in MHz (`jnext_web_frame_period_ms`,
+`jnext_web_cpu_mhz`, test seams like `jnext_web_frame`). The arithmetic is in
+`test/bench/web/bench-stats.mjs`, which has its own rows (WBENCH-01 to
+WBENCH-12, run by `make wasm-browser-test` on synthetic data).
+
+**Verdict.** Full speed is the program's own refresh, `1000 / frame period`:
+50.08 Hz for 48K timing, 49.36 Hz for 128K and +3 timing, 58.15 Hz for a 60 Hz
+program. A literal 50 fps is above full speed for most of the set. A cell is
+PASS when both the emulated rate (`frames / wall time`) and the shown rate
+(callbacks that ran at least one frame, per second: the browser composites once
+per callback) reach 0.99 x refresh. A cell is INVALID, with the reason in the
+results file, when the load failed, there is no WebGL context, the frame period
+changed in the window, the 60 s cap ended it early, the audio context was not
+running, the calibration says the throttle was not in effect (the x2 calibration
+must be 1.8 to 2.2 times the unthrottled one) or the host got busier (a cell's
+calibration above 1.10 times the pass median; on a laptop whose clock steps
+between two states this also catches a slow state, and such a cell is run again,
+up to three rounds, until one run is valid; the reference is a median, so a pass
+whose majority sits in the slow state flags nothing). A FAIL within 5% of the refresh,
+or a PASS with less than 10% headroom (frame period over the 95th percentile of
+the callback cost), is run twice more and the majority counts.
+
+**Quiet host.** Each pass waits, bounded at 30 minutes, for a 1-minute load of at
+most 1.5, and records the load at its start and end; a pass that never got quiet
+is marked `LOADED` and counts for nothing. One host-wide lock (`~/.cache/jnext/bench.lock`,
+shared by every worktree) keeps two benches from overlapping.
+
+**Running it.** `make bench-web` runs the three passes and writes
+`test/bench/web-baseline-<sha>.txt`: a header (date, host, commit, browser
+versions, WebGL renderers, core set, window, the load at each pass start and
+end), one `WEBBENCH` line per cell, a `WEBPACE` line per cell (the pacing
+counters, below) and the table as comments. Variables:
+`CONFIGS=chrome,chrome-x2,firefox`, `SET=<program,...>`, `W=` and `M=` (warm-up and
+window frames), `PROFILE=<program,...>`, `WEB_BUILD=<dir>`, `RESULTS=<file>` (write
+there instead of into the tree: use it for every trial run), `RAW_DIR=<dir>` (each
+cell's raw callbacks as JSON), `NO_REPEAT=1`, `QUIET_WAIT=0` (do not wait for a quiet
+host; the pass is marked LOADED and counts for nothing), `FIREFOX_MODE=xvfb|headed|headless`,
+`JNEXT_BENCH_CHROME=<binary>` and `BENCH_CHROME_ARGS=<flags>`. One bench runs at a
+time on the host: both bench scripts take the lock `~/.cache/jnext/bench.lock`, shared
+by every worktree, and wait for it. Ctrl-C or TERM stops the whole run (the driver
+kills its browsers; the scratch directory, the browser profile included, is removed).
+With `PROFILE=` the
+Chrome cells named run under the CPU profiler around the window and the run
+prints each one's self-time top 20 and a split into core, render, audio, upload
+and present, and JavaScript glue; the profile files are copied to `PROFILE_DIR`.
+For function names use a profiling build in a scratch directory: configure
+`make wasm-core`'s tree with `-DCMAKE_EXE_LINKER_FLAGS=--profiling-funcs`, build
+`jnext_web` and pass it as `WEB_BUILD`. It is never committed or shipped.
+
+**Pacing counters.** The module exports `jnext_web_pacing_counter(i)` (a test seam):
+the callbacks that ran 0, 1, 2 and 3 or more ticks, the ticks that ran 0, 1, 2 and 3
+or more frames, and the audio fill events (the device callback had to manufacture
+samples). The page reads them at the start and the end of the window and the driver
+writes a `WEBPACE` line per cell: multi-tick callbacks per second, two-frame ticks per
+second, zero-frame ticks per second, fill events. They say WHY a cell fails the shown
+rate: a callback with two ticks and a tick with two frames both present two frames and
+show one picture, a tick with no frame holds one.
+
+**What it cannot tell you.** Headless Chrome and Firefox composite and play audio
+as the host's drivers do, which is not a visitor's machine: the results file
+records the WebGL renderer each browser used. Firefox clamps `performance.now()`
+(the file records the resolution observed), so its per-callback costs are
+quantised and only their sum is exact; its verdict rests on the frame counts and
+the wall clock.
+
 ## What has been measured
 
 The numbers below are each from their own issue, on the development host; the
 detail lives in the documents named.
 
+- **The browser build (2026-11-09).** Host: Ryzen AI 5 340, the three fastest
+  physical cores, quiet (1-minute load at most 1.5 at each pass start); Chrome
+  156.0.8078.79 on the GPU (ANGLE over OpenGL ES, `--use-angle=gl-egl`: headless
+  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 (`MOZ_HEADLESS=1` on a
+  private Xvfb display, GPU WebGL; this first results file did not yet record the route), emsdk
+  6.0.13, node 24.19.0. Core against native: the same core under node ran a
+  median 1.97 times slower than native (2026-11-07, 46 NEX programs, range 1.86
+  to 2.14). In the browser, every one of the 39 acceptance programs emulates at
+  its own full speed (emulated rate at least 0.998 of the refresh) in Chrome,
+  Chrome at 2x CPU throttle and Firefox; the heaviest costs 8.3 ms per frame in
+  Chrome and 14.3 ms at 2x, against a 20.26 ms frame. The shown rate does not
+  keep up: the main loop runs on `requestAnimationFrame`, 60 Hz here, so some
+  callbacks run two frames and show one picture; shown/refresh has a median of
+  0.88 in Chrome and at 2x and 0.94 in Firefox, and 1 of 117 cells reaches 0.99.
+  The cost per frame is not what limits it; the callback pacing is. The results
+  file is `test/bench/web-baseline-<sha>.txt`; a Chrome profile of the heavy
+  programs puts 71 to 78% of the busy time in the emulator core (the Z80 and
+  `Emulator::run_frame`), and of `beast` 33% in the renderer and 27% in clock
+  reads.
+
+- **Browser frame pacing (2026-11-09).** The same host, the same 39 acceptance
+  programs and the same verdict (emulated AND shown rate at least 0.99 x the
+  program's own refresh), one change at a time. Median of shown/refresh, and the
+  cells that PASS (of 39):
+
+  | step | Chrome | Chrome at 2x | Firefox |
+  |---|---|---|---|
+  | before (first table) | 0.877, 0 | 0.879, 0 | 0.938, 1 |
+  | one grid tick per callback | 0.984, 4 | 0.979, 2 | 0.983, 1 |
+  | + audio device buffer 1024 frames | 1.000, 38 (1 busy) | 0.999, 18 (20 out of the band, see below) | 0.999, 38 |
+  | + exact fractional grid | 1.000, 39 | 0.999, 29 | 1.000, 39 |
+  | + the desktop frontend's deadline (final tree) | 1.000, 39 | 1.000, 39 (one session) | 1.000, 39 |
+
+  In the last row the three Chrome cells flagged by the busy witness and the sixteen
+  Firefox cells that overlapped another browser session on the host were measured
+  again on the quiet host (`web-baseline-<sha>-rerun-*.txt`): all PASS. The smallest
+  shown/refresh in that table is 0.995 (Firefox), 0.999 (Chrome and Chrome at 2x).
+  Audio underruns: 0 in the last three rows. A second session on the same tree
+  (`web-baseline-<sha>-x2-subset.txt`, four programs, quiet by the bench's rule but with
+  some background load: 1-minute load 1.3 to 2.0) did not reproduce the 2x column: blue
+  showed 98.2%, menu 97.8% and shift 94.7% of the pictures, and Firefox's beast 99.2%.
+  The emulation itself stayed at full speed and there were no underruns, so the spread
+  at 2x is the margin the three heaviest programs have, and it moves with background load.
+  The owner accepted that edge (the Chrome-at-2x cells at the margin, about three programs
+  under load) as the target achieved.
+
+  The pacing counters show why. Before: about 11% of the callbacks ran two ticks.
+  One grid tick per callback removed those; what was left (0.8 to 1.1 two-frame
+  ticks and 1.4 to 1.7 zero-frame ticks per second) came from the audio pacer: the
+  42.7 ms device buffer made its sawtooth reach its guards, and the whole-millisecond
+  grid ran 1.3% fast. With the 21.3 ms buffer the two-frame ticks went to 0 (audio
+  fill events went from 9 in the first of these tables to 0), and with the exact grid
+  the zero-frame ticks went to 0 too. At 2x the ten heaviest programs (a tick of 14 to
+  16 ms against a 16.7 ms display frame) still showed 0.81 to 0.99 after that: the
+  main thread is nearly saturated, and a tick that overran its period reported a sleep
+  of 0, which restarted the browser loop's grid at the end of that tick, so the grid
+  kept losing its place and the audio pacer doubled ticks. The last row's change (the
+  desktop frontend's tick now reports the distance to an absolute deadline, 1 ms at
+  least, as the Qt window's scheduler does; it is the same `SdlApp::tick()` the
+  browser loop calls) keeps the grid across an overrun, and those ten cells pass.
+  In the second row the 20 "out of the band" cells were the bench's own error (its
+  unthrottled calibration reference was skewed by the laptop's slow CPU state), fixed
+  for the third.
 - **Task 27 (2026-07): LTO.** Turning LTO on for Release — a 17-line CMake
   change — gave **+34.5%** on boot-nextzxos and +17.4% on bifrost, more than
   all the hand-tuned hot spots of that task together; the task as a whole took

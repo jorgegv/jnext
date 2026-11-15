@@ -38,6 +38,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include "../row_id.h"
@@ -74,8 +75,8 @@ std::string make_tmp_dir() {
 void rm_rf(const std::string& dir) {
     // Shallow by construction: nothing here creates sub-directories except
     // auto_screenshot_path's own target, which is removed by name first.
-    std::string cmd = "rm -rf '" + dir + "'";
-    if (system(cmd.c_str()) != 0) { /* best effort */ }
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);   // best effort; no shell, so no `rm` needed
 }
 
 bool exists(const std::string& p) { struct stat st{}; return ::stat(p.c_str(), &st) == 0; }

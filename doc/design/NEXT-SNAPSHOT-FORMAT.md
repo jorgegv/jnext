@@ -2864,7 +2864,7 @@ left in `~/.jnext` where the next run replaces it.
 
 **Omit `--rtc` — on the golden run and on every run compared against it.**
 Three separate agents rediscovered this the hard way, each time reading the
-resulting diff as a migration fault. `Emulator::record_warm_start_state()`
+resulting diff as a migration fault. `Emulator::begin_warm_start_recording()`
 carries `--rtc` into the recording boot *deliberately* — it copies `config_`
 into `boot_cfg` and clears only the per-load and per-host fields, with the
 reason stated at `emulator.cpp:7417` ("the SD image, `--rtc`, the machine type

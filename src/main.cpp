@@ -3,6 +3,8 @@
 #include "core/cli_options.h"
 #include "core/log.h"
 #include "core/program_archive.h"
+#include "core/warm_start_cache.h"
+#include "peripheral/sd_write_journal.h"
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
@@ -29,6 +31,7 @@
 #include "video/renderer.h"
 #include "version.h"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cerrno>
 #include <climits>
@@ -37,6 +40,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -75,6 +79,16 @@
 #include "gui/qt_ctrl_is_command.h"   // GH #417 debugger-key --set
 #else
 #include "platform/sdl_app.h"
+#ifdef JNEXT_BROWSER
+#include "platform/browser_frontend.h"
+#include "platform/browser_page.h"
+#endif
+#endif
+
+#ifdef __EMSCRIPTEN__
+// The card extracted from a zipped --sdcard (about 40 MiB): removed when the run
+// ends, since the process scratch directory's destructor never runs under Emscripten.
+static std::string g_extracted_sd_card;
 #endif
 
 static void crash_handler(int sig) {
@@ -289,6 +303,10 @@ int main(int argc, char* argv[]) {
     bool        sdcard_download_confirm = false;
     bool        sdcard_readonly = false;
     bool        warm_start_regenerate = false;
+    std::string sdcard_sha256_arg;     // --sdcard-sha256 as given
+    bool        sdcard_sha256_given = false;
+    std::string sdcard_writes_file;    // --sdcard-writes FILE
+    bool        sdcard_writes_reset = false;
     bool        sdcard_download_force   = false;
     std::string sdcard_upgrade_arg;          // --sdcard-upgrade MODE ("" = not given)
     bool        sdcard_cli_given        = false; // --sdcard on the command line (not the Preferences path)
@@ -393,7 +411,9 @@ int main(int argc, char* argv[]) {
     // NextPi under QEMU. Owned here, by the process, rather than by the
     // Emulator: a hard reset rebuilds the Emulator and must not reboot the Pi
     // (core/pi_qemu.h). Reset explicitly before spdlog shuts down.
+#ifndef __EMSCRIPTEN__
     std::unique_ptr<PiQemu> pi_qemu;
+#endif
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -637,6 +657,21 @@ int main(int argc, char* argv[]) {
             const char* const* v = &argv[i + 1];
             i += opt->arity;
 
+#ifdef __EMSCRIPTEN__
+            // The browser build has no processes, sockets or script host: a
+            // flag that needs one is refused with its reason, never ignored.
+            if (const char* why = cli::browser_refusal(opt->id)) {
+                fprintf(stderr, "%s: %s\n", arg.c_str(), why);
+                return 1;
+            }
+#ifdef JNEXT_BROWSER
+            if (const char* why = browser_page::option_refusal(opt->id)) {
+                fprintf(stderr, "%s: %s\n", arg.c_str(), why);
+                return 1;
+            }
+#endif
+#endif
+
             switch (opt->id) {
             case cli::OptId::LogLevel:
                 Log::parse_levels(v[0]);
@@ -713,6 +748,16 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::WarmStartRegenerate:
                 warm_start_regenerate = true;
+                break;
+            case cli::OptId::SdcardSha256:
+                sdcard_sha256_arg = v[0];
+                sdcard_sha256_given = true;
+                break;
+            case cli::OptId::SdcardWrites:
+                sdcard_writes_file = v[0];
+                break;
+            case cli::OptId::SdcardWritesReset:
+                sdcard_writes_reset = true;
                 break;
             case cli::OptId::DelayedScreenshot:
                 screenshot_file = v[0];
@@ -1213,6 +1258,21 @@ int main(int argc, char* argv[]) {
                 mouse_release_set = true;
                 note_given(config_keys::KeyId::InputMouseRelease, arg);
                 break;
+            case cli::OptId::TouchKeyboard: {
+                cli::TouchKeyboard tk;
+                if (!cli::parse_touch_keyboard(v[0], tk)) {
+                    std::fprintf(stderr,
+                        "Unknown --touch-keyboard value: %s (valid: auto, on, off)\n", v[0]);
+                    return 1;
+                }
+#ifdef JNEXT_BROWSER
+                browser_frontend::set_touch_keyboard(static_cast<int>(tk));
+#else
+                std::fprintf(stderr,
+                    "warning: --touch-keyboard has no effect outside a browser page; ignoring.\n");
+#endif
+                break;
+            }
             case cli::OptId::JoyUartRx:
                 joy_uart_rx_file = v[0];
                 break;
@@ -1381,6 +1441,12 @@ int main(int argc, char* argv[]) {
                 const config_keys::Key& info = config_keys::info(a.id);
                 const std::string key = std::string(info.section) + "." +
                     (a.id == config_keys::KeyId::DebuggerKey ? a.family_name : std::string(info.name));
+#ifdef __EMSCRIPTEN__
+                if (const char* why = config_keys::browser_refusal(info)) {
+                    fprintf(stderr, "--set %s: %s\n", key.c_str(), why);
+                    return 1;
+                }
+#endif
                 note_given(a.id, "--set " + key);
                 apply_assignment(a);
                 break;
@@ -1464,6 +1530,14 @@ int main(int argc, char* argv[]) {
         }
         load_file = positional_file;
     }
+#ifdef JNEXT_BROWSER
+    if (!load_file.empty()) {
+        if (const char* why = browser_page::program_refusal(load_file)) {
+            fprintf(stderr, "--load %s: %s\n", load_file.c_str(), why);
+            return 1;
+        }
+    }
+#endif
 
     // GH #392 - a program inside a .zip archive: extract the one program to a
     // file of its own extension, and carry on with that path, so every check
@@ -1666,6 +1740,12 @@ int main(int argc, char* argv[]) {
                     "it exists to write the image.\n");
             return 1;
         }
+        if (!sdcard_writes_file.empty()) {
+            fprintf(stderr,
+                    "--sdcard-file-add cannot be combined with --sdcard-writes: "
+                    "it writes the image itself.\n");
+            return 1;
+        }
         // The closed set is "the program to run": --load, the bare file name
         // (already folded into load_file above) and --inject. Every OTHER flag
         // is inert here simply because no machine starts, and enumerating
@@ -1718,6 +1798,31 @@ int main(int argc, char* argv[]) {
     // GH #420 - a --set / --source-dir list goes to the session copy, like the other Qt keys.
     if (source_dirs_text)
         qt_assignments.push_back({ config_keys::KeyId::PathsSourceDirs, {}, *source_dirs_text });
+
+    // --sdcard-sha256: 64 hex digits, and a claim about the --sdcard file the
+    // CLI names (never a default image chosen later), so both are checked now.
+    std::string sdcard_sha256_norm;
+    if (sdcard_sha256_given) {
+        std::array<uint8_t, 32> dg{};
+        if (!warm_start::parse_sha256_hex(sdcard_sha256_arg, dg)) {
+            fprintf(stderr, "--sdcard-sha256: '%s' is not a SHA-256 (64 hex digits)\n",
+                    sdcard_sha256_arg.c_str());
+            return 1;
+        }
+        // All zeros is the cache header's "no digest": it would silently fall
+        // back to a size-only key. No file has that SHA-256.
+        if (dg == std::array<uint8_t, 32>{}) {
+            fprintf(stderr, "--sdcard-sha256: all zeros is not the SHA-256 of any file\n");
+            return 1;
+        }
+        if (sd_card_image.empty()) {
+            fprintf(stderr, "--sdcard-sha256 needs --sdcard: it describes that file\n");
+            return 1;
+        }
+        sdcard_sha256_norm = sdcard_sha256_arg;
+        for (auto& c : sdcard_sha256_norm)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
 
     // Task 66 (Configurability) — load saved GUI preferences once, early
     // enough to seed the SD-card resolution below. Only ever done for the
@@ -1801,6 +1906,18 @@ int main(int argc, char* argv[]) {
         opts.auto_confirm    = sdcard_download_confirm;
         opts.force_download  = sdcard_download_force;
         opts.download        = sdcard::default_http_download;
+#ifdef __EMSCRIPTEN__
+        // The browser cannot download an image and has no terminal to ask on
+        // (a stdin read there is window.prompt()): decline without reading
+        // stdin. A page supplies the card with --sdcard.
+        opts.confirm  = [](const std::string&) {
+            Log::emulator()->error("SD-card image: the WebAssembly build cannot download "
+                                   "one; give --sdcard FILE (a web page provides it)");
+            return false;
+        };
+        opts.progress = sdcard::make_cli_progress();
+        opts.busy     = sdcard::cli_busy;
+#else
 #ifdef ENABLE_QT_UI
         // GUI helper owns a single temporary QApplication spanning both the
         // confirm prompt and the progress dialog (torn down when it leaves
@@ -1834,6 +1951,7 @@ int main(int argc, char* argv[]) {
         // command --sdcard-file-add never ask (they log how to upgrade).
         if (!headless && sdcard_file_add_count == 0) opts.upgrade = sdcard::sdl_offer_upgrade;
 #endif
+#endif   // __EMSCRIPTEN__
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
@@ -1873,6 +1991,68 @@ int main(int argc, char* argv[]) {
                 "Use --sdcard-download-confirm to confirm download without asking.\n");
             return 1;
         }
+    }
+
+    // A ZIP archive is not an SD card. The firmware would read garbage and the
+    // ROM extractor would fail without saying why. The browser build is given
+    // the page's download as a zip and extracts its single .img (the zip's
+    // SHA-256 stands for its member); every other build refuses.
+    if (program_archive::is_archive_path(sd_card_image)) {
+#ifdef __EMSCRIPTEN__
+        std::string extracted, member, why;
+        if (!program_archive::extract_single_sd_image(sd_card_image, extracted, why, &member)) {
+            fprintf(stderr, "--sdcard %s: %s.\n", sd_card_image.c_str(), why.c_str());
+            return 1;
+        }
+        Log::emulator()->info("SD card image: using {} from {}",
+                              program_archive::display_name(member), sd_card_image);
+        std::error_code rm_ec;
+        std::filesystem::remove(sd_card_image, rm_ec);   // the page keeps the original
+        sd_card_image = extracted;
+        g_extracted_sd_card = extracted;
+#else
+        fprintf(stderr, "--sdcard %s: is a ZIP archive, not an SD card image; unzip it first\n",
+                sd_card_image.c_str());
+        return 1;
+#endif
+    }
+
+    // --sdcard-writes: the guest's writes go to FILE and the image is never
+    // written. Bound here, after resolution and after a browser zip has been
+    // extracted, so it is the card that will be mounted; FILE records that
+    // card's identity: the --sdcard-sha256 digest when given, else size + mtime.
+    if (sdcard_writes_reset && sdcard_writes_file.empty()) {
+        fprintf(stderr, "--sdcard-writes-reset needs --sdcard-writes FILE\n");
+        return 1;
+    }
+    if (!sdcard_writes_file.empty()) {
+        if (sdcard_readonly) {
+            fprintf(stderr, "--sdcard-writes cannot be combined with --sdcard-readonly: "
+                            "a write-protected card has no writes to keep.\n");
+            return 1;
+        }
+        sd_write_journal::Binding binding;
+        std::error_code bind_ec;
+        binding.bytes = std::filesystem::file_size(sd_card_image, bind_ec);
+        if (!bind_ec && !sdcard_sha256_norm.empty()) {
+            warm_start::parse_sha256_hex(sdcard_sha256_norm, binding.sha256);
+        } else if (!bind_ec) {
+            const auto t = std::filesystem::last_write_time(sd_card_image, bind_ec);
+            binding.mtime = static_cast<int64_t>(t.time_since_epoch().count());
+        }
+        if (bind_ec) {
+            fprintf(stderr, "--sdcard-writes: cannot stat the SD image %s: %s\n",
+                    sd_card_image.c_str(), bind_ec.message().c_str());
+            return 1;
+        }
+        std::string why;
+        if (!sd_write_journal::bind(sd_card_image, sdcard_writes_file, binding,
+                                    sdcard_writes_reset, why)) {
+            fprintf(stderr, "--sdcard-writes: %s\n", why.c_str());
+            return 1;
+        }
+        Log::emulator()->info("SD card writes are kept in {}; the image is not written",
+                              sdcard_writes_file);
     }
 
     // ---------------------------------------------------------------------
@@ -1973,6 +2153,8 @@ int main(int argc, char* argv[]) {
         using config_keys::KeyId;
 #ifdef ENABLE_QT_UI
         const uint8_t running = headless ? config_keys::HEADLESS : config_keys::QT;
+#elif defined(JNEXT_BROWSER)
+        const uint8_t running = headless ? config_keys::HEADLESS : static_cast<uint8_t>(config_keys::SDL | config_keys::WEB);
 #else
         const uint8_t running = headless ? config_keys::HEADLESS : config_keys::SDL;
 #endif
@@ -2053,6 +2235,7 @@ int main(int argc, char* argv[]) {
     }();
     const MachineType startup_machine = emulator_startup_machine(
         load_file.empty() ? rzx_play_file : load_file, configured_machine, machine_type_set);
+#ifndef __EMSCRIPTEN__
     {
         bool gui = false, saved_enabled = false;
         nextpi::ProvisionOptions popts;
@@ -2189,8 +2372,21 @@ int main(int argc, char* argv[]) {
         }
     }
 
+#endif
+
+#ifdef JNEXT_BROWSER
+    // The page's loop outlives main(): these are captured by reference by the
+    // emulator's callbacks and read by the loop's teardown.
+    // (A lambda cannot name a static in its capture list, so the locals are
+    // references to them; a reference captured by reference binds the object.)
+    static AudioRecorder audio_recorder_static;
+    static DacTraceRecorder dac_trace_recorder_static;
+    AudioRecorder& audio_recorder = audio_recorder_static;
+    DacTraceRecorder& dac_trace_recorder = dac_trace_recorder_static;
+#else
     AudioRecorder audio_recorder;
     DacTraceRecorder dac_trace_recorder;
+#endif
 
     // Helper lambda: configure and run any app object with the common interface.
     auto configure_and_run = [&](auto& app) -> int {
@@ -2199,6 +2395,10 @@ int main(int argc, char* argv[]) {
         cfg.type = configured_machine;
         cfg.sd_card_image = sd_card_image;
         cfg.sd_card_readonly = sdcard_readonly;
+        if (!sdcard_sha256_norm.empty()) {
+            cfg.sd_card_sha256     = sdcard_sha256_norm;
+            cfg.sd_card_sha256_for = sd_card_image;   // the (extracted) card it describes
+        }
         cfg.warm_start_regenerate = warm_start_regenerate;
         // Propagate --load path to EmulatorConfig so the boot-ROM auto-load
         // gate (Emulator::init) can distinguish "firmware boot" from
@@ -2299,7 +2499,9 @@ int main(int argc, char* argv[]) {
         cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
         cfg.joy_uart_fifo            = joy_uart_fifo;
         cfg.joy_uart_pty             = joy_uart_pty;
+#ifndef __EMSCRIPTEN__
         if (pi_qemu) pi_qemu->link_config(cfg);   // NextPi, started before the app below
+#endif
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -2560,7 +2762,7 @@ int main(int argc, char* argv[]) {
                                     audio_recorder.last_error());
                 return 1;
             }
-            cfg.audio_capture_callback = [&audio_recorder](const int16_t* samples,
+            cfg.audio_capture_callback = [&](const int16_t* samples,
                                                            int count) {
                 audio_recorder.capture(samples, count);
             };
@@ -2572,7 +2774,7 @@ int main(int argc, char* argv[]) {
                 audio_recorder.stop();
                 return 1;
             }
-            cfg.dac_write_callback = [&dac_trace_recorder]
+            cfg.dac_write_callback = [&]
                                      (uint64_t tstate, int channel, uint8_t value) {
                 dac_trace_recorder.capture(tstate, channel, value);
             };
@@ -2638,6 +2840,25 @@ int main(int argc, char* argv[]) {
             app.set_when_slow_prefer(when_slow_prefer);
             app.set_mouse_release_method(mouse_release);   // GH #365
             if (speed_percent_set) app.set_speed_percent(speed_percent);
+#ifdef JNEXT_BROWSER
+            // The CRT effect (--crt, startup.crt_*): the three values in the order given, the
+            // later one winning; off unless asked. One line when the shader cannot run.
+            bool crt_filter = false, crt_shader_on = false;
+            int crt_style = static_cast<int>(crt_shader::STYLE_DEFAULT);
+            for (const config_keys::Assignment& a : qt_assignments) {
+                if (a.id == config_keys::KeyId::StartupCrtFilter) crt_filter = a.text == "true";
+                else if (a.id == config_keys::KeyId::StartupCrtShader) crt_shader_on = a.text == "true";
+                else if (a.id == config_keys::KeyId::StartupCrtShaderStyle) crt_style = std::atoi(a.text.c_str());
+            }
+            if (crt_filter || crt_shader_on) {
+                std::string why;
+                const crt_shader::Style style = crt_shader::style_from_int(crt_style);
+                const crt_shader::Effect e = app.display().set_crt(crt_filter, crt_shader_on, style, why);
+                if (!why.empty())
+                    Log::platform()->warn("CRT effect: {}; the display continues {}.", why,
+                                          e == crt_shader::Effect::Scanlines ? "with the scanlines" : "without it");
+            }
+#endif
         }
 #endif
 
@@ -2774,10 +2995,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Capture requests are part of the CLI contract: if one cannot start
-        // or finalize, an otherwise-clean run must not report success.
-        bool capture_ok = true;
-
         // Start video recording if requested (after init, before run).
         // A start failure aborts the run RIGHT HERE (GH #86), exactly like
         // the --wav-record/--dac-trace start blocks above: running the whole
@@ -2798,52 +3015,83 @@ int main(int argc, char* argv[]) {
         // Set up RZX playback or recording. Every frontend starts them at the
         // top of run(), not in init() — see platform/rzx_startup.h.
         if (!rzx_play_file.empty()) {
+#ifdef JNEXT_BROWSER
+            // A page has no run() (browser_frontend runs tick() from the page's loop), and its
+            // program is the pending load: that is what fires ready, counts as applied, is what
+            // reset('program') restarts, and makes a file that fails to load reject ready. Delay
+            // 0 = before the first frame, where the desktop's run() pre-step plays it.
+            app.set_pending_load(rzx_play_file, 0);
+#else
             app.set_rzx_play(rzx_play_file);
+#endif
         }
         if (!rzx_record_file.empty()) {
             app.set_rzx_record(rzx_record_file);
         }
 
+        // The run's teardown: recorders, app.shutdown() and the exit status.
+        // A function of its own because the browser frontend runs it from the
+        // page's loop, after main() has returned.
+        auto finish = [&, record_file]() -> int {
+            // Capture requests are part of the CLI contract: if one cannot start
+            // or finalize, an otherwise-clean run must not report success.
+            bool capture_ok = true;
+#ifdef __EMSCRIPTEN__
+            if (!g_extracted_sd_card.empty()) {
+                std::error_code rm_ec;
+                std::filesystem::remove(g_extracted_sd_card, rm_ec);
+                g_extracted_sd_card.clear();
+            }
+#endif
+
+            // Stop recording before shutdown (encodes the MP4).
+            if (app.emulator().video_recorder().is_recording()) {
+                capture_ok = app.emulator().stop_recording() && capture_ok;
+            }
+            // GH #86: a stop whose result was discarded (MainWindow::closeEvent)
+            // is latched per output path — see VideoRecorder::output_failed().
+            if (!record_file.empty() &&
+                app.emulator().video_recorder().output_failed(record_file)) {
+                capture_ok = false;
+            }
+
+            if (audio_recorder.is_recording()) {
+                app.emulator().mixer().set_capture_callback({});
+                const bool audio_ok = audio_recorder.stop();
+                capture_ok = audio_ok && capture_ok;
+                if (!audio_ok) {
+                    Log::audio()->error("Failed to finalize WAV recording: {}",
+                                        audio_recorder.last_error());
+                }
+            }
+            if (dac_trace_recorder.is_recording()) {
+                app.emulator().dac().set_write_callback({});
+                const bool trace_ok = dac_trace_recorder.stop();
+                capture_ok = capture_ok && trace_ok;
+                if (!trace_ok) {
+                    Log::audio()->error("Failed to finalize DAC trace: {}",
+                                        dac_trace_recorder.last_error());
+                }
+            }
+
+            app.shutdown();
+            // shutdown() decides the status: a --delayed-screenshot that was
+            // requested and never written exits non-zero, so a CI script cannot
+            // mistake a missing PNG for success. A capture-finalize failure makes
+            // an otherwise-clean run exit 1, but never replaces the app's own
+            // non-zero code with a less specific one.
+            if (app.exit_code() != 0) return app.exit_code();
+            return capture_ok ? 0 : 1;
+        };
+
+#ifdef JNEXT_BROWSER
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, SdlApp>) {
+            browser_frontend::run(app, std::move(finish));
+            return 0;
+        }
+#endif
         app.run();
-
-        // Stop recording before shutdown (encodes the MP4).
-        if (app.emulator().video_recorder().is_recording()) {
-            capture_ok = app.emulator().stop_recording() && capture_ok;
-        }
-        // GH #86: a stop whose result was discarded (MainWindow::closeEvent)
-        // is latched per output path — see VideoRecorder::output_failed().
-        if (!record_file.empty() &&
-            app.emulator().video_recorder().output_failed(record_file)) {
-            capture_ok = false;
-        }
-
-        if (audio_recorder.is_recording()) {
-            app.emulator().mixer().set_capture_callback({});
-            const bool audio_ok = audio_recorder.stop();
-            capture_ok = audio_ok && capture_ok;
-            if (!audio_ok) {
-                Log::audio()->error("Failed to finalize WAV recording: {}",
-                                    audio_recorder.last_error());
-            }
-        }
-        if (dac_trace_recorder.is_recording()) {
-            app.emulator().dac().set_write_callback({});
-            const bool trace_ok = dac_trace_recorder.stop();
-            capture_ok = capture_ok && trace_ok;
-            if (!trace_ok) {
-                Log::audio()->error("Failed to finalize DAC trace: {}",
-                                    dac_trace_recorder.last_error());
-            }
-        }
-
-        app.shutdown();
-        // shutdown() decides the status: a --delayed-screenshot that was
-        // requested and never written exits non-zero, so a CI script cannot
-        // mistake a missing PNG for success. A capture-finalize failure makes
-        // an otherwise-clean run exit 1, but never replaces the app's own
-        // non-zero code with a less specific one.
-        if (app.exit_code() != 0) return app.exit_code();
-        return capture_ok ? 0 : 1;
+        return finish();
     };
 
     // GH #364: take SIGINT/SIGTERM over BEFORE any frontend's SDL_Init, so SDL
@@ -2909,11 +3157,25 @@ int main(int argc, char* argv[]) {
         result = configure_and_run(*app);
 #else
         auto app = std::make_unique<SdlApp>();
+#ifdef JNEXT_BROWSER
+        browser_frontend::prepare();
+#endif
         result = configure_and_run(*app);
+#ifdef JNEXT_BROWSER
+        if (browser_frontend::active()) (void)app.release();   // the page's loop owns it now
+#endif
 #endif
     }
 
+#ifndef __EMSCRIPTEN__
     pi_qemu.reset();   // stop QEMU while logging still works
+#endif
+#ifdef JNEXT_BROWSER
+    // The loop still logs, and spdlog::shutdown() drops every registered logger: one first
+    // touched inside the loop would then be built fresh, without its --log-level (and, for the
+    // peripheral loggers that fall back to spdlog::stderr_color_mt, without --log-file).
+    if (browser_frontend::active()) return result;
+#endif
     spdlog::shutdown();
     // GH #364: the signal decides the status (128+N, WIFSIGNALED) even when
     // result is non-zero; the error behind it has been logged already.

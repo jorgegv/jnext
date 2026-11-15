@@ -1877,6 +1877,8 @@
       
         
       
+        
+      
     
     
     
@@ -2155,6 +2157,34 @@
     
   
     5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-the-browser-build.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.6 The browser build
   
 
     
@@ -3046,7 +3076,7 @@ to keep that combination building.</p>
 <p><code>make unit-test</code> builds <code>build/</code> and runs every declared subsystem suite, and
 <code>make regression</code> runs the screenshot and functional suite headless. Between
 them they pull in a set of structural gates as prerequisites —
-<code>lint-assertions</code>, <code>lint-makefile-help</code>, <code>lint-thread-detach</code>, <code>lint-ascii-text</code>, <code>cli-check</code>,
+<code>lint-assertions</code>, <code>lint-makefile-help</code>, <code>lint-thread-detach</code>, <code>lint-ascii-text</code>, <code>lint-user-docs-card</code>, <code>cli-check</code>,
 <code>docs-check</code> (which includes <code>docs-devguide-cites-check</code>),
 <code>traceability-check</code> and friends — which is deliberate: it puts those checks in
 your inner loop instead of leaving them for CI to discover. <code>make regression</code>
@@ -3089,7 +3119,7 @@ bundled into that test tree only, never into a zip), the SDL-only exe, and the
 native helpers from the SDL unit-test tree. <code>make regression-macos</code> is its macOS
 twin (CI <code>macos-regression</code>).
 <code>ROWS="..."</code> names rows. Neither is stamped; see
-<a href="../04-testing/03-the-regression-suite.html#platform-runs-macos-and-windows-under-wine">the regression suite</a>.</p>
+<a href="../04-testing/03-the-regression-suite.html#platform-runs-macos-windows-under-wine-and-webassembly-under-node">the regression suite</a>.</p>
 <p><code>make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5</code> builds that
 package, unpacks the artifact (never installs it) and runs the screenshots plus
 17 functional rows against the <code>jnext</code> inside it; <code>release.yml</code> runs it after
@@ -3105,6 +3135,63 @@ reported row ID against the suite's <em>source files</em>; the SD image is reach
 absolute path through <code>JNEXT_TEST_SD_IMAGE</code>. A bundle (executables, the MinGW
 DLLs <code>packaging/windows/bundle-dlls.sh</code> copies, the manifest, the harness and
 the sources it reads) is feasible, but it is its own piece of work.</p>
+<p><code>make unit-test-wasm</code> runs the same SDL-only suites as WebAssembly under node. It
+is two steps like the Windows one: <code>unit-test-wasm-build</code> configures and builds
+<code>build/wasm-unit-test</code> (the <code>wasm-core</code> configuration with LTO off, every target)
+and the run step feeds each suite to <code>test/node-run.sh</code>. The runner uses the node
+the tree was configured with, never one from <code>PATH</code>; fixes the locale and removes
+the display variables; gives each run a private <code>TMPDIR</code>, because Emscripten's
+<code>getpid()</code> is the constant 42 and dozens of suites name their scratch files after
+it; as root (the CI container) drops CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH
+with <code>setpriv</code>, as the wine runner does; and forwards TERM and INT and returns
+node's exit status. What node cannot stand in for (processes, threads, listening
+sockets) is declared absent with <code># os: native</code>, and the run names every absent
+suite in its NOTICE. It needs the SD image like the other two.</p>
+<p><code>make regression-wasm</code> runs the regression suite's screenshot rows against
+<code>build/wasm-core/jnext.js</code> under node (<code>wasm-core</code> is a prerequisite, so the WCORE
+rows run first; the native helpers and the host <code>jnext</code> that derives the SD master
+come from the SDL unit-test tree). Every screenshot must equal the committed
+native reference pixel for pixel. <code>ROWS="..."</code> names rows; a full run takes the
+host lock like <code>make regression</code>; it is not stamped.</p>
+<p><code>make emsdk</code> provides the pinned Emscripten SDK (6.0.13) in the user cache,
+<code>~/.cache/jnext/tools/emsdk-6.0.13</code>, through <code>test/provision-emsdk.sh</code>: it
+downloads three archives (the emsdk installer, the SDK release and the node it
+bundles), verifies the sha256 of all three before it unpacks any of them,
+installs them and builds the SDL3, zlib and libpng ports. It is a no-op once the
+provisioner's stamp is there, and a directory without the stamp is replaced, not
+trusted. <code>make wasm-core</code> depends on it, configures <code>build/wasm-core</code> with the
+SDK's CMake toolchain file, builds <code>jnext.js</code>/<code>jnext.wasm</code> and the <code>sha256_test</code>
+suite, and runs <code>test/wasm-core-check.sh</code> under the SDK's node: the module
+reports its version, imports no (shared) memory, catches an exception,
+refuses the flags and <code>--set</code> keys the browser build cannot honour, and runs the
+SHA-256 suite on its portable backend. <code>make clean</code> removes the tree.</p>
+<p><code>make wasm-web</code> builds the browser frontend, <code>jnext_web</code>, in the same
+<code>build/wasm-core</code> tree (one compile of every library, a second link). Its output
+carries the version in its name, <code>jnext-&lt;version&gt;.js</code> and <code>.wasm</code>, read from
+<code>version.yaml</code> through CMake's project version, so a page never loads a stale
+build. <code>make playwright</code> provides the pinned Playwright and its Chromium
+headless shell in <code>~/.cache/jnext/tools/playwright-1.65.0</code>, through
+<code>test/provision-playwright.sh</code>: it downloads <code>playwright-core</code> (the npm package,
+which has no dependencies and no test runner) and the headless shell its
+<code>browsers.json</code> names, verifies the sha256 of both before it unpacks either,
+and is a no-op once stamped. The scripts run on the SDK's own node, so there is
+no second node. <code>make wasm-browser-test</code> builds the browser frontend, provides
+Playwright and the SD image, builds the native SDL release build (the oracle), then runs
+<code>test/browser/browser-smoke.sh</code>: it builds the 40 MiB minimal NextZXOS card from
+the cached distribution image into a scratch directory under <code>~/tmp</code>, makes the
+native oracle screenshots, and runs every spec through the harness. The card is
+copyrighted content: it is handed to the page only by the harness's request
+handler, is never committed, uploaded or traced (Playwright tracing, HAR and
+video stay off), and is deleted when the run ends. The script takes more specs
+as <code>file:count</code> arguments, each printing PASS/FAIL rows and a <code>Total:</code> line whose
+count the script pins, so the JavaScript API rows run in the same target. <code>make package-web</code> is
+also a prerequisite: the run ends by serving the extracted <code>jnext-&lt;version&gt;-web.zip</code> alone and
+booting the example page from it (<a href="03-packaging-and-release.html#the-browser-package">5.3</a>).</p>
+<p><code>make bench-web</code> is the browser counterpart of <code>make bench</code>: the regression NEX set in
+the host's Chrome, Chrome at 2x CPU throttle and Firefox, written to
+<code>test/bench/web-baseline-&lt;sha&gt;.txt</code> (<a href="05-performance-and-optimisation.html#the-browser-build">5.5</a>).
+No gate or CI step runs it.</p>
+<p>The browser build as a whole, with its CMake arms and tests, is <a href="06-the-browser-build.html">5.6</a>.</p>
 <p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
 proves.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
@@ -3162,10 +3249,10 @@ update rather than on a stale image.
 <a href="../01-orientation/03-the-rules-that-shape-the-code.html">1.3</a> explains what it
 covers, what it does not, and why the gate was declined.</p>
 <h2 id="packaging-and-version">Packaging and version<a class="headerlink" href="#packaging-and-version" title="Permanent link">&para;</a></h2>
-<p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>, <code>package-macos</code>
-and the five <code>package-win*</code> variants each build one distributable.
-<code>package-test</code> builds them all except macOS and Flatpak (the <code>flatpak</code> CI job builds
-that) and then asserts their contents,
+<p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>, <code>package-macos</code>,
+<code>package-web</code> and the five <code>package-win*</code> variants each build one distributable.
+<code>package-test</code> builds them all except macOS, Flatpak (the <code>flatpak</code> CI job builds
+that) and the browser zip (the <code>browser</code> leg builds and boots it) and then asserts their contents,
 while <code>package-contract-test</code> runs only the hermetic script contract suites.
 <code>version</code> prints the current version, and <code>bump-patch</code> / <code>bump-minor</code> /
 <code>bump-major</code> bump it, commit, and tag. <a href="03-packaging-and-release.html">5.3</a> covers

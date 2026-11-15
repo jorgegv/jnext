@@ -11,7 +11,10 @@
 #include "core/program_archive.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
+#include "core/program_archive.h"
 #include "core/warm_start_cache.h"
+#include "core/sha256.h"
+#include "peripheral/sd_write_journal.h"
 #include "core/sna_saver.h"
 #include "core/snapshot_machine.h"
 #include "core/sna_loader.h"
@@ -117,9 +120,64 @@ void Emulator::render_framebuffer_now()
     ++framebuffer_generation_;   // GH #428
 }
 
+namespace {
+
+/// The write generation at which a (path, SHA-256) pair was FIRST mounted in
+/// this process. A digest describes the file only until jnext writes to it
+/// (`--sdcard-sha256`): once the generation has moved, a recording is neither
+/// restored from nor stored under that digest.
+struct DigestBaseline {
+    bool                    valid = false;
+    std::string             path;
+    std::array<uint8_t, 32> digest{};
+    uint64_t                gen = 0;
+};
+DigestBaseline g_digest_baseline;
+
+/// The digest bound to the mounted image, when `cfg` carries one for it.
+bool digest_for_image(const EmulatorConfig& cfg, std::array<uint8_t, 32>& d)
+{
+    if (cfg.sd_card_sha256.empty() || cfg.sd_card_image.empty() ||
+        cfg.sd_card_sha256_for != cfg.sd_card_image)
+        return false;
+    if (!warm_start::parse_sha256_hex(cfg.sd_card_sha256, d)) return false;
+    // All zeros is the cache header's "no digest": a caller that fills the
+    // config directly must not get a silent size-only key from it.
+    return d != std::array<uint8_t, 32>{};
+}
+
+/// The warm-start key of a card with a write journal: the digest field becomes
+/// SHA-256(base || J), `base` the image's own digest (all zero on the desktop
+/// key) and J the SHA-256 over every journaled sector, ascending, as
+/// (sector u32 LE, 512 bytes). NextZXOS keeps FAT and directory state in RAM,
+/// so a recording is only valid on the card contents it was taken on. An empty
+/// journal leaves the key as it is.
+void fold_journal_into_key(const sd_write_journal::Journal& j,
+                           std::array<uint8_t, 32>& digest)
+{
+    if (j.empty()) return;
+    std::vector<uint8_t> all;
+    j.for_each_sorted([&](uint32_t sector, const uint8_t* data) {
+        for (int i = 0; i < 4; ++i) all.push_back(static_cast<uint8_t>(sector >> (8 * i)));
+        all.insert(all.end(), data, data + sd_write_journal::kSectorBytes);
+    });
+    std::array<uint8_t, 32> jd{};
+    if (!warm_start::parse_sha256_hex(sdcard::sha256_hex(all), jd)) return;
+    std::vector<uint8_t> both(digest.begin(), digest.end());
+    both.insert(both.end(), jd.begin(), jd.end());
+    std::array<uint8_t, 32> out{};
+    if (warm_start::parse_sha256_hex(sdcard::sha256_hex(both), out)) digest = out;
+}
+
+}  // namespace
+
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    // A recording in progress belongs to the configuration it began under: an
+    // in-place init() (a reset, a machine change) must not let it finish under
+    // the new one's key.
+    warm_start_recorder_.reset();
     audio_off_ = config_.silent;   // GH #452: the device cluster tests this copy, which a HALT batch may raise for one call
     poll_stop_();                  // GH #496: a raster-poll observation never outlives the machine it watched
     // GH #395 - automatic tape play/stop is a host deck setting; a polling run
@@ -1958,10 +2016,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     }
                     return true;
                 }
-                case 0x9B:  // F_CLOSE
+                case 0x9B: { // F_CLOSE
+                    // A write-open file is kept in the card's write journal (when one is
+                    // bound), so it outlives the session: a failed host write is EIO.
+                    const bool was_write = esxdos_stub_file_open_ && esxdos_stub_file_write_;
                     esxdos_stub_file_open_ = false;
+                    if (was_write) {
+                        const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+                        if (journal && !journal->commit_file(esxdos_stub_filename_, esxdos_stub_file_)) {
+                            Log::emulator()->error("esxdos stub: could not keep '{}' in the SD "
+                                                   "write journal", esxdos_stub_filename_);
+                            set_a_and_carry(0x06, true); // EIO
+                            return true;
+                        }
+                    }
                     set_a_and_carry(0x00, false); // success
                     return true;
+                }
                 case 0x9D: { // F_READ
                     const uint8_t handle = static_cast<uint8_t>(r.AF >> 8);
                     if (!esxdos_stub_file_open_ || esxdos_stub_file_write_ ||
@@ -7331,6 +7402,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     if (!preserve_memory && !cfg.sd_card_image.empty()) {
         if (sd_card_.mount(cfg.sd_card_image, cfg.sd_card_readonly)) {
             Log::emulator()->info("SD card image mounted: '{}'", cfg.sd_card_image);
+            std::array<uint8_t, 32> dg{};
+            if (digest_for_image(cfg, dg) &&
+                !(g_digest_baseline.valid && g_digest_baseline.path == cfg.sd_card_image &&
+                  g_digest_baseline.digest == dg)) {
+                g_digest_baseline = {true, cfg.sd_card_image, dg,
+                                     SdCardDevice::host_write_generation()};
+            }
         } else {
             Log::emulator()->warn("could not mount SD card image: '{}'", cfg.sd_card_image);
         }
@@ -7559,6 +7637,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // accumulated histogram.
     if (cfg.profile && !preserve_memory && !profiler_.active()) {
         profiler_.init();
+    }
+
+    // The file the esxDOS stand-in kept in the card's write journal in an earlier
+    // session (a page reload, a second run) is the stand-in's file again. A live
+    // session's own file, closed or not, is never replaced.
+    if (esxdos_stub_filename_.empty()) {
+        const auto journal = sd_write_journal::for_image(cfg.sd_card_image);
+        if (journal) {
+            if (auto kept = journal->kept_file()) {
+                esxdos_stub_filename_ = std::move(kept->name);
+                esxdos_stub_file_ = std::move(kept->data);
+                esxdos_stub_file_pos_ = 0;
+                esxdos_stub_file_open_ = false;
+                esxdos_stub_file_write_ = false;
+            }
+        }
     }
 
     // GH #276 B2 — a RESET is a machine transition too. `soft_reset()` routes
@@ -7942,7 +8036,7 @@ bool Emulator::warm_start_capture_ready(std::string& why) const
     return true;
 }
 
-bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
+bool Emulator::begin_warm_start_recording()
 {
     // A RECORDING IS A COLD BOOT, and it must be one on a machine that has
     // never been anything else.
@@ -8003,28 +8097,25 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
         Log::emulator()->error("warm start: the recording boot could not initialise");
         return false;
     }
+    warm_start_recorder_ = std::move(rec);
+    warm_start_recorded_frames_ = 0;
+    warm_start_recorded_units_ = 0;
+    return true;
+}
 
-    // The recipe runs in emulated time (see kWarmStartUnitsPer50HzFrame): the
-    // firmware switches the refresh rate from config.ini during the boot, so
-    // the units one frame adds are read each frame.
-    uint32_t units  = 0;
-    uint32_t frames = 0;
-    std::string why;
-    while (!rec->warm_start_recipe_done()) {
-        const uint32_t before = units;
-        rec->run_frame();
-        ++frames;
-        units += warm_start_frame_units(rec->video_timing().refresh_60hz());
-        if (warm_start_recipe_tick(*rec, before, units) &&
-            !rec->nextzxos_resident(why)) {
-            Log::emulator()->error("{}", rec->warm_start_refusal_message(frames, why));
-            return false;
-        }
-    }
+bool Emulator::finish_warm_start_recording(std::vector<uint8_t>& out, uint64_t writes)
+{
+    // The recorder is spent whatever the verdict: a failure latches the image
+    // in the caller, and a success is serialised below.
+    std::unique_ptr<Emulator> rec = std::move(warm_start_recorder_);
+    const uint32_t frames = warm_start_recorded_frames_;
+    warm_start_recorded_frames_ = 0;
+    warm_start_recorded_units_ = 0;
 
     // The capture check decides, whether the recipe finished or gave up: a
     // recipe that stopped waiting leaves a machine this refuses, and says what
     // the state is.
+    std::string why;
     if (!rec->warm_start_capture_ready(why)) {
         Log::emulator()->error(
             "warm start: NextZXOS could not be brought to its Command Line ({}; the "
@@ -8052,8 +8143,9 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
         return false;
     }
 
-    Log::emulator()->info("warm start: recorded a NextZXOS-resident machine ({} KB, {} frames)",
-                          (bytes + 512) / 1024, frames);
+    Log::emulator()->info("warm start: recorded a NextZXOS-resident machine ({} KB, {} frames); "
+                          "the boot wrote {} sector(s) to the card",
+                          (bytes + 512) / 1024, frames, writes);
     return true;
 }
 
@@ -8092,114 +8184,239 @@ WarmStartMemo g_warm_start_memo;
 void Emulator::reset_warm_start_memo_for_test()
 {
     g_warm_start_memo = WarmStartMemo{};
+    g_digest_baseline = DigestBaseline{};
 }
 
 bool Emulator::ensure_warm_start_state()
 {
-    // In-memory hit (GH #396): valid only while jnext has not written to a
-    // card since the state was recorded or validated.
-    if (!warm_start_state_.empty() &&
-        warm_start_gen_ != SdCardDevice::host_write_generation()) {
-        Log::emulator()->info("warm start: jnext wrote to the SD card since this "
-                              "state was taken - discarding it");
-        warm_start_state_.clear();
+    for (;;) {
+        const WarmStartProgress p = prepare_warm_start(kWarmStartT4Units);
+        if (p.status != WarmStartProgress::Status::Recording)
+            return p.status == WarmStartProgress::Status::Ready;
     }
-    if (!warm_start_state_.empty()) return true;
-    if (!config_.sd_card_image.empty() &&
-        warm_start_failed_image_ == config_.sd_card_image) {
-        // The verdict is latched per image (see the member's doc comment), but
-        // the ANNOUNCEMENT is not. Every load that silently gets the synthetic
-        // machine is a load whose result the user cannot explain, and with the
-        // warm start now the behaviour rather than an option there is no flag
-        // on the command line to remind them it was even attempted. So the
-        // latch short-circuits the recording boot, not the sentence.
-        Log::emulator()->error(
-            "warm start: this SD image was already refused earlier in this session - "
-            "this load falls back to the synthetic machine");
-        return false;
-    }
+}
 
-    if (config_.type != MachineType::ZXN_ISSUE2) {
-        // NOT an error, and deliberately quiet. The warm start is the default
-        // for a Next; on a 48K/128K/+3 there is no firmware to record, so
-        // there is nothing being refused and nothing the user did wrong. When
-        // this was a flag the user had typed, saying so on `warn` was right —
-        // they had asked for something that does not exist. Now that every
-        // `--load` comes through here, the same line would print on every
-        // legacy-machine run forever, which is how a log stops being read.
-        Log::emulator()->debug(
-            "warm start: not applicable on the {} - only the Next boots firmware, so "
-            "there is nothing to record",
-            machine_type_str(config_.type));
-        return false;
-    }
-    if (config_.sd_card_image.empty()) {
-        Log::emulator()->error("warm start: no SD image is mounted, so there is no "
-                               "firmware to boot - this load falls back to the "
-                               "synthetic machine, which is NOT what hardware does");
-        return false;
-    }
+Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
+{
+    static_assert(kWarmStartT4Units / kWarmStartUnitsPer50HzFrame == 760,
+                  "WarmStartProgress::frames_total default");
+    using Status = WarmStartProgress::Status;
+    WarmStartProgress prog;
+    prog.frames_total = kWarmStartT4Units / kWarmStartUnitsPer50HzFrame;
+    auto unavailable = [&](uint32_t done) {
+        prog.status = Status::Unavailable;
+        prog.frames_done = done;
+        return prog;
+    };
 
+    std::array<uint8_t, 32> digest{};
     warm_start::Identity id;
     id.machine_type   = static_cast<uint8_t>(config_.type);
     id.format_version = warm_start::kFormatVersion;
     id.recording_version = warm_start::kRecordingVersion;
+
+    // The key of the mounted card: size + mtime, or - in digest mode
+    // (`--sdcard-sha256`, bound to this very path) - size + the caller's
+    // digest, with the mtime never read.
+    // A card with a write journal (--sdcard-writes) is never written itself:
+    // its key is exact (the journal is read live) and folds the journal in.
+    const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+    auto read_key = [&](warm_start::Identity& k) {
+        bool ok;
+        if (digest_for_image(config_, digest)) {
+            std::error_code ec;
+            k.sd_image_bytes = std::filesystem::file_size(config_.sd_card_image, ec);
+            k.sd_image_mtime = 0;
+            k.sd_image_sha256 = digest;
+            ok = !ec;
+        } else {
+            k.sd_image_sha256 = {};
+            ok = stat_sd_image_key(config_.sd_card_image, k.sd_image_bytes,
+                                   k.sd_image_mtime);
+        }
+        if (ok && journal) fold_journal_into_key(*journal, k.sd_image_sha256);
+        return ok;
+    };
+    auto fail_stat = [&]() {
+        Log::emulator()->error("warm start: cannot stat SD image '{}' - this load "
+                               "falls back to the synthetic machine",
+                               config_.sd_card_image);
+        warm_start_state_.clear();
+        warm_start_failed_image_ = config_.sd_card_image;
+        return unavailable(0);
+    };
+
+    if (!warm_start_recorder_) {
+        // In-memory hit (GH #396): valid only while jnext has not written to a
+        // card since the state was recorded or validated.
+        if (!warm_start_state_.empty() &&
+            warm_start_gen_ != SdCardDevice::host_write_generation()) {
+            Log::emulator()->info("warm start: jnext wrote to the SD card since this "
+                                  "state was taken - discarding it");
+            warm_start_state_.clear();
+        }
+        if (!warm_start_state_.empty()) {
+            prog.status = Status::Ready;
+            prog.frames_done = prog.frames_total;
+            return prog;
+        }
+        if (!config_.sd_card_image.empty() &&
+            warm_start_failed_image_ == config_.sd_card_image) {
+            // The verdict is latched per image (see the member's doc comment), but
+            // the ANNOUNCEMENT is not. Every load that silently gets the synthetic
+            // machine is a load whose result the user cannot explain, and with the
+            // warm start now the behaviour rather than an option there is no flag
+            // on the command line to remind them it was even attempted. So the
+            // latch short-circuits the recording boot, not the sentence.
+            Log::emulator()->error(
+                "warm start: this SD image was already refused earlier in this session - "
+                "this load falls back to the synthetic machine");
+            return unavailable(0);
+        }
+
+        if (config_.type != MachineType::ZXN_ISSUE2) {
+            // NOT an error, and deliberately quiet. The warm start is the default
+            // for a Next; on a 48K/128K/+3 there is no firmware to record, so
+            // there is nothing being refused and nothing the user did wrong. When
+            // this was a flag the user had typed, saying so on `warn` was right —
+            // they had asked for something that does not exist. Now that every
+            // `--load` comes through here, the same line would print on every
+            // legacy-machine run forever, which is how a log stops being read.
+            Log::emulator()->debug(
+                "warm start: not applicable on the {} - only the Next boots firmware, so "
+                "there is nothing to record",
+                machine_type_str(config_.type));
+            return unavailable(0);
+        }
+        if (config_.sd_card_image.empty()) {
+            Log::emulator()->error("warm start: no SD image is mounted, so there is no "
+                                   "firmware to boot - this load falls back to the "
+                                   "synthetic machine, which is NOT what hardware does");
+            return unavailable(0);
+        }
+
+
+        {
+            StateWriter measure;
+            save_state(measure);
+            id.plain_bytes = measure.position();
+        }
+        // GH #396 (owner, 2026-10-22): the key is the image's (size, mtime) plus
+        // jnext's own write generation, NOT a content digest. The whole-image
+        // SHA-256 this replaced cost 0.6-1.2 s per GB on the UI thread at every
+        // cold boot that loads a program (the Emulator, and so the in-memory
+        // state, dies with each one). ACCEPTED RESIDUAL: an image replaced or
+        // edited from outside with the SAME size and the SAME mtime (`cp -p`,
+        // `touch -r` of another image) serves a recording of a different card
+        // while reporting success. `--warm-start-regenerate` is the escape hatch.
+        if (!read_key(id)) {
+            const WarmStartProgress r = fail_stat();
+            return r;
+        }
+
+        const uint64_t gen_now = SdCardDevice::host_write_generation();
+        const bool digest_mode = id.has_sha256() && !journal;
+        const bool baseline_ok = digest_mode && g_digest_baseline.valid &&
+                                 g_digest_baseline.path == config_.sd_card_image &&
+                                 g_digest_baseline.digest == digest;
+        // `--sdcard-sha256` describes the file only until jnext writes to it.
+        const bool stale = baseline_ok && g_digest_baseline.gen != gen_now;
+
+        if (config_.warm_start_regenerate) {
+            Log::emulator()->info("warm start: --warm-start-regenerate - ignoring any "
+                                  "cached state and taking a fresh recording");
+        } else if (stale) {
+            Log::emulator()->info("warm start: jnext has written to the SD card since "
+                                  "its SHA-256 was checked - recording again, and not "
+                                  "caching the result");
+        } else if (!journal && g_warm_start_memo.valid &&
+                   g_warm_start_memo.path == config_.sd_card_image &&
+                   g_warm_start_memo.bytes == id.sd_image_bytes &&
+                   g_warm_start_memo.mtime == id.sd_image_mtime &&
+                   g_warm_start_memo.gen != gen_now) {
+            Log::emulator()->info("warm start: jnext wrote to this SD image since the "
+                                  "recording was validated - recording again");
+        } else {
+            std::string why;
+            if (warm_start::load(id, warm_start_state_, why)) {
+                warm_start_gen_ = SdCardDevice::host_write_generation();
+                g_warm_start_memo = {true, config_.sd_card_image, id.sd_image_bytes,
+                                     id.sd_image_mtime, warm_start_gen_};
+                Log::emulator()->info("warm start: restored a recorded NextZXOS machine "
+                                      "from {} ({} KB)",
+                                      warm_start::cache_path(id.machine_type),
+                                      (warm_start_state_.size() + 512) / 1024);
+                prog.status = Status::Ready;
+                prog.from_cache = true;
+                return prog;
+            }
+            Log::emulator()->info("warm start: {}", why);
+        }
+
+        warm_start_begin_gen_   = gen_now;
+        warm_start_ref_gen_     = baseline_ok ? g_digest_baseline.gen : gen_now;
+        warm_start_digest_mode_ = digest_mode;
+        if (!begin_warm_start_recording()) {
+            warm_start_state_.clear();
+            warm_start_failed_image_ = config_.sd_card_image;
+            return unavailable(0);
+        }
+    }
+
+    // Step the recording in emulated time (see kWarmStartUnitsPer50HzFrame): the
+    // firmware switches the refresh rate from config.ini during the boot, so the
+    // units one frame adds are read each frame. The recipe is driven by the
+    // machine's state, so it ends when warm_start_recipe_done() (it always does,
+    // within about 2000 frames at 50 Hz); kWarmStartT4Units is only the nominal
+    // length behind the progress figure. The rest runs once the recipe is done.
+    if (max_frames == 0) max_frames = 1;
+    Emulator& rec = *warm_start_recorder_;
+    for (uint32_t f = 0; f < max_frames && !rec.warm_start_recipe_done(); ++f) {
+        const uint32_t before = warm_start_recorded_units_;
+        rec.run_frame();
+        ++warm_start_recorded_frames_;
+        warm_start_recorded_units_ += warm_start_frame_units(rec.video_timing().refresh_60hz());
+        std::string why;
+        if (warm_start_recipe_tick(rec, before, warm_start_recorded_units_) &&
+            !rec.nextzxos_resident(why)) {
+            Log::emulator()->error("{}", rec.warm_start_refusal_message(
+                                             warm_start_recorded_frames_, why));
+            const uint32_t done = warm_start_recorded_frames_;
+            warm_start_recorder_.reset();
+            warm_start_recorded_frames_ = 0;
+            warm_start_recorded_units_ = 0;
+            warm_start_state_.clear();
+            warm_start_failed_image_ = config_.sd_card_image;
+            return unavailable(done);
+        }
+    }
+    prog.frames_done = warm_start_recorded_frames_;
+    if (!rec.warm_start_recipe_done()) {
+        // The nominal length is not a deadline: a slow card runs past it, and the
+        // figure stays at the total until the recipe is done.
+        if (prog.frames_done > prog.frames_total) prog.frames_done = prog.frames_total;
+        prog.status = Status::Recording;
+        return prog;
+    }
+
+    const uint64_t gen_end = SdCardDevice::host_write_generation();
+    // The recording is complete: what was cacheable is decided by the card's
+    // generation now against the one its digest describes.
+    const bool cacheable = !warm_start_digest_mode_ || gen_end == warm_start_ref_gen_;
+    if (!finish_warm_start_recording(warm_start_state_, gen_end - warm_start_begin_gen_)) {
+        warm_start_state_.clear();
+        warm_start_failed_image_ = config_.sd_card_image;
+        return unavailable(prog.frames_done);
+    }
+
+    // The identity is rebuilt here, not carried: the machine and card are the
+    // ones the recording began on (change_sd_card() drops the recorder).
+    id.plain_bytes = 0;
     {
         StateWriter measure;
         save_state(measure);
         id.plain_bytes = measure.position();
     }
-    // GH #396 (owner, 2026-10-22): the key is the image's (size, mtime) plus
-    // jnext's own write generation, NOT a content digest. The whole-image
-    // SHA-256 this replaced cost 0.6-1.2 s per GB on the UI thread at every
-    // cold boot that loads a program (the Emulator, and so the in-memory
-    // state, dies with each one). ACCEPTED RESIDUAL: an image replaced or
-    // edited from outside with the SAME size and the SAME mtime (`cp -p`,
-    // `touch -r` of another image) serves a recording of a different card
-    // while reporting success. `--warm-start-regenerate` is the escape hatch.
-    uint64_t key_bytes = 0;
-    int64_t  key_mtime = 0;
-    if (!stat_sd_image_key(config_.sd_card_image, key_bytes, key_mtime)) {
-        Log::emulator()->error("warm start: cannot stat SD image '{}' - this load "
-                               "falls back to the synthetic machine",
-                               config_.sd_card_image);
-        warm_start_failed_image_ = config_.sd_card_image;
-        return false;
-    }
-    id.sd_image_bytes = key_bytes;
-    id.sd_image_mtime = key_mtime;
-
-    if (config_.warm_start_regenerate) {
-        Log::emulator()->info("warm start: --warm-start-regenerate - ignoring any "
-                              "cached state and taking a fresh recording");
-    } else if (g_warm_start_memo.valid &&
-               g_warm_start_memo.path == config_.sd_card_image &&
-               g_warm_start_memo.bytes == key_bytes &&
-               g_warm_start_memo.mtime == key_mtime &&
-               g_warm_start_memo.gen != SdCardDevice::host_write_generation()) {
-        Log::emulator()->info("warm start: jnext wrote to this SD image since the "
-                              "recording was validated - recording again");
-    } else {
-        std::string why;
-        if (warm_start::load(id, warm_start_state_, why)) {
-            warm_start_gen_ = SdCardDevice::host_write_generation();
-            g_warm_start_memo = {true, config_.sd_card_image, key_bytes, key_mtime,
-                                 warm_start_gen_};
-            Log::emulator()->info("warm start: restored a recorded NextZXOS machine "
-                                  "from {} ({} KB)",
-                                  warm_start::cache_path(id.machine_type),
-                                  (warm_start_state_.size() + 512) / 1024);
-            return true;
-        }
-        Log::emulator()->info("warm start: {}", why);
-    }
-
-    if (!record_warm_start_state(warm_start_state_)) {
-        warm_start_state_.clear();
-        warm_start_failed_image_ = config_.sd_card_image;
-        return false;
-    }
-
     // The recording came off a DIFFERENT Emulator, so the length it produced
     // is asserted here rather than assumed. It cannot differ today — every
     // Emulator constructs the same fixed-size Ram — but the length is the
@@ -8213,23 +8430,25 @@ bool Emulator::ensure_warm_start_state()
             warm_start_state_.size(), id.plain_bytes);
         warm_start_state_.clear();
         warm_start_failed_image_ = config_.sd_card_image;
-        return false;
+        return unavailable(prog.frames_done);
     }
 
     // The key is read AFTER the recording, never before: if the recording boot
     // ever wrote to the card, the stored key must match the card it leaves.
-    if (!stat_sd_image_key(config_.sd_card_image, id.sd_image_bytes,
-                           id.sd_image_mtime)) {
-        Log::emulator()->error("warm start: cannot stat SD image '{}' - this load "
-                               "falls back to the synthetic machine",
-                               config_.sd_card_image);
-        warm_start_state_.clear();
-        warm_start_failed_image_ = config_.sd_card_image;
-        return false;
+    if (!read_key(id)) {
+        const WarmStartProgress r = fail_stat();
+        return r;
     }
-    warm_start_gen_ = SdCardDevice::host_write_generation();
+    warm_start_gen_ = gen_end;
     g_warm_start_memo = {true, config_.sd_card_image, id.sd_image_bytes,
                          id.sd_image_mtime, warm_start_gen_};
+    prog.status = Status::Ready;
+
+    if (!cacheable) {
+        Log::emulator()->info("warm start: recorded but not cached: the card no longer "
+                              "has the checked SHA-256");
+        return prog;
+    }
 
     std::string why;
     if (!warm_start::store(id, warm_start_state_, why)) {
@@ -8251,7 +8470,7 @@ bool Emulator::ensure_warm_start_state()
                               sz_ec ? 0u : static_cast<unsigned>((on_disk + 512) / 1024),
                               (warm_start_state_.size() + 512) / 1024);
     }
-    return true;
+    return prog;
 }
 
 bool Emulator::init_for_load_from_file()
@@ -8597,6 +8816,8 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
             why = "'" + change.image + "' is not a file";
         else if (!std::ifstream(change.image, std::ios::binary).is_open())
             why = "cannot open '" + change.image + "'";
+        else if (program_archive::is_archive_path(change.image))
+            why = "'" + change.image + "' is a ZIP archive, not an SD card image; unzip it first";
     }
     if (!why.empty()) {
         Log::emulator()->error("SD card change refused: {}", why);
@@ -8624,6 +8845,7 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
     // The warm start is a booted machine recorded off a card; the rewind ring
     // holds the SD state machine of the old one, but not its contents.
     warm_start_state_.clear();
+    warm_start_recorder_.reset();   // a recording of the card that just left must not finish
     warm_start_failed_image_.clear();
     if (rewind_buffer_) rewind_buffer_->clear();
     return why;
@@ -8641,6 +8863,15 @@ void Emulator::restore_esxdos_stub_state(EsxdosStubState state)
     esxdos_stub_file_pos_ = 0;
     esxdos_stub_file_open_ = false;
     esxdos_stub_file_write_ = false;
+}
+
+bool Emulator::forget_card_writes()
+{
+    const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+    if (!journal) return false;
+    journal->clear();
+    restore_esxdos_stub_state({});
+    return true;
 }
 
 void Emulator::restore_ay_registers(const uint8_t regs[16], uint8_t selected)
@@ -15662,7 +15893,7 @@ void Emulator::debug_latch_magic_(uint16_t pc)
 
 EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
 {
-    // See record_warm_start_state() for why each of the first group goes.
+    // See begin_warm_start_recording() for why each of the first group goes.
     EmulatorConfig boot_cfg       = live;
     boot_cfg.load_file            = "";
     boot_cfg.inject_file          = "";
@@ -15688,7 +15919,7 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.pi_uart_tcp_port     = 0;
     boot_cfg.pi_audio = nullptr;   // one consumer of the Pi's sound
     // The recorder's clock is a constant, not the host's or the user's: see
-    // record_warm_start_state(). 2026-07-10 08:55:00, a Friday.
+    // begin_warm_start_recording(). 2026-07-10 08:55:00, a Friday.
     boot_cfg.rtc_fixed = true;
     boot_cfg.rtc_fixed_tm = std::tm{};
     boot_cfg.rtc_fixed_tm.tm_year = kWarmStartRtcYear - 1900;

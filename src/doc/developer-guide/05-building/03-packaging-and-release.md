@@ -16,8 +16,10 @@ you read it; it is not a replacement for it.
 | `make package-win-sdl` / `package-win32-sdl` | SDL-only Windows zips — repo-internal validation legs, not published |
 | `make package-flatpak` | Flatpak bundle, in `build/flatpak-release/` |
 | `make package-macos` | macOS `.dmg` — Darwin only; prints a SKIP and exits cleanly elsewhere. `MACOS_DEPLOYMENT_TARGET=15.0` pins the minimum macOS and gates the `.dmg` on it; `MACPORTS_PREFIX=/opt/local` takes the dependencies from MacPorts (the Intel build) instead of Homebrew |
-| `make package-test` | builds every package except macOS and Flatpak and **asserts its contents** (a missing tool fails) |
-| `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain |
+| `make package-web` | the browser build as `jnext-<ver>-web.zip` in `build/wasm-core/`: the `.js` and `.wasm`, the example pages, the licence texts. Needs the Emscripten SDK (built by `make wasm-web`) |
+| `make package-test` | builds every package except macOS, Flatpak and the browser zip and **asserts its contents** (a missing tool fails) |
+| `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain; it also runs `make web-package-test` |
+| `make web-package-test` | the contract suite of `packaging/web/package-web.sh` (WEBPKG-01 to WEBPKG-50), on fake trees, hermetic |
 
 The rpm, deb, Flatpak and macOS packaging builds (including the rpm spec and the
 Debian `rules`) configure with `-DJNEXT_WERROR=OFF`; the Windows zips keep the
@@ -260,3 +262,136 @@ product, which is a genuinely different thing from the automatic staleness
 gates — see [5.4](04-continuous-integration.md) and
 [4.5](../04-testing/05-documentation-and-cli-gates.md) for what those gates do
 and do not prove.
+
+## The minimal NextZXOS image
+
+The browser build does not use the 1 GB distribution SD image. It makes a small boot
+card, a 40 MiB FAT32 volume with 512-byte clusters that holds only what NextZXOS needs
+to reach its menu and to warm-start a program, from the official NextZXOS distribution
+zip. NextZXOS is SpecNext's copyrighted software, and only specnext.com hosts it: the
+card is made on the machine that needs it (the visitor's browser; the developer's own
+machine for tests) and is never published or hosted, by JNEXT or anyone else.
+
+One C++ implementation makes it, `minimal_card::Builder` (`src/core/minimal_card.h`),
+used by the page (compiled to WebAssembly, fed the zip as a stream) and by the native
+developer tool `make-minimal-card` (`tools/make-minimal-card/`, built in every native
+tree, not installed and not packaged). The tool replaced an earlier mtools shell script: there is no
+mtools, `sfdisk`, root or hard link in the way any more, and it runs wherever JNEXT builds.
+
+```bash
+make-minimal-card [--unpinned] [--expect-zip-sha256 HEX] <INPUT> <card.img>
+```
+
+It is built with the rest of the tree, as `build/tools/make-minimal-card/make-minimal-card`
+(likewise in the SDL and Windows trees).
+
+`INPUT` is the distribution zip, the `cspect-next-1gb.img` inside it, or `-` for the zip
+on standard input. The kind is read from the content (`PK\3\4` is a zip, an MBR
+signature at byte 510 is an image); anything else is refused. On success the last
+line is `<card.img>: <bytes> bytes, sha256 <hex>` and the exit status is 0; a refusal
+exits 1 with the reason on standard error and leaves the destination untouched or
+uncreated; a usage error exits 2. An existing destination is never overwritten.
+
+On your own download of the official zip, for local development and tests:
+
+```bash
+make-minimal-card ~/Downloads/sn-emulator-26.11.zip ~/tmp/nextzxos-minimal.img
+curl -s <the zip's URL> | make-minimal-card - ~/tmp/nextzxos-minimal.img
+```
+
+The second form is the one manual check against the real file, with no zip on disk. Keep
+what you make under `~/tmp` and delete it when you are done: it is copyrighted NextZXOS
+content, and it is never committed, attached to an issue or a package, uploaded, served to
+anyone, or hosted anywhere.
+
+**Pinned by default.** The distribution this release accepts is identified by
+`minimal_card::kDistribution`, right after `kDistroUrl`'s constants in `sdcard_provisioner.cpp` (declared in `minimal_card.h`): the file
+name, the zip's size and SHA-256, the inflated image's SHA-256 and the SHA-256 of the
+card it must produce, plus a recipe number. The zip or image digest is checked before
+anything is written, and the card digest after; a wrong one is refused and no usable output
+remains. `--unpinned` skips every pinned digest and prints the card's: it exists for the
+synthetic fixtures of the tests and is not for real distributions. `--expect-zip-sha256 HEX`
+is test tooling: it replaces the pinned zip digest (and drops the size check) with the digest
+of a zip made at run time from the image, and the pinned card digest still applies; the
+`minimal-sdcard-image-func` regression row uses it.
+
+**One pass.** The builder reads the zip once, from byte 0, in the order it is stored: the
+image is its first entry, the inflated image is read by offset, and a directory is parsed
+when its whole chain has gone by. A distribution whose layout would need a second pass (a
+directory's contents stored before the directory) is refused with a message naming the
+cluster; it is not worked around. Its memory is bounded: about 3 MB of heap for the 26.11
+distribution, under 50 MiB before any refusal (the FAT copy is capped at 16 MiB and the
+boot set at 32 MiB), and the card itself is a file (MEMFS in the browser, not the wasm
+heap).
+
+The boot set (`TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `LICENSE.md`, `README.md`)
+is copied with the source's own spelling and metadata, and JNEXT's two patches (the
+`config.ini` and the doubled `zx81.rom`) are the functions the SD provisioner uses, not
+copies. The output is reproducible and the same bytes on every platform: no clock, the source's directory order, spelling, write times and R/H/S/A attributes, volume serial `4A4E5854`, hidden sectors 63.
+
+**A new distribution.** A release that moves to a new distribution changes `kDistroUrl`
+and all of `kDistribution` in one commit: the size, the zip digest and the image digest
+from your own download, the card digest from `make-minimal-card` on it, and the recipe
+number only if the builder changed what it writes. The tests (MINIMG-01 and the
+`minimal-sdcard-image-func` regression row) fail on a partial update.
+
+Tests: `minimal_card_test` (`MCARD-01..16` and `18..27`, on a synthetic distribution built in the test; `MCARD-17`, recipe 3 unchanged, is in `fat32_image_test`; every tree, the wasm one included), the
+`make minimal-image-test` shell suite (15 rows: the tool on the cached image and on a synthetic zip, read back with mtools, sfdisk and python's zipfile) and the `minimal-sdcard-image-func` regression row,
+which boots the card to the NextZXOS menu and warm-starts a NEX, both compared with the
+full card's references.
+
+## The browser package
+
+`make package-web` zips the output of `make wasm-web` as
+`build/wasm-core/jnext-<ver>-web.zip`, through `packaging/web/package-web.sh`. The
+zip has one top directory, `jnext-<ver>-web/`, and 24 files:
+
+- `jnext-<ver>.js` and `jnext-<ver>.wasm`: two files, not one, because a page
+  author hosts them and GitHub serves a release asset as `octet-stream`, so the
+  asset is the zip; the build does not use `SINGLE_FILE`;
+- the four example pages `plain.html`, `itch-host.html`, `itch-game.html` and
+  `widget.html`; the first three load nothing but `jnext-<ver>.js`, `widget.html`
+  loads `jnext-widget.js`, the ready-made widget (`web/jnext-widget.js.in`, configured
+  with the version like the pages, so that it can load `jnext-<ver>.js` from beside itself);
+- `README.txt` (from `packaging/web/README.txt.in`, with the link to the source
+  of exactly that version), `LICENSE` and `CREDITS.md`;
+- `licenses/`: the licence texts of the libraries linked into `jnext_web`
+  (Emscripten, musl, libc++, libc++abi, libunwind, compiler-rt, SDL3, zlib, libpng
+  from the Emscripten SDK; spdlog, nlohmann-json, zot, FatFs, crtemu from `third_party`).
+  The script's header records the link set and when it was measured; a library
+  linked later needs a line in the `manifest` function, and no test can see that.
+
+Every name comes from `version.yaml` (through CMake for the build output, through
+the script for the rest), and the script takes exact names, never a glob, because
+a build directory keeps the previous versions' `jnext-<old>.js`. It refuses a
+non-Release tree, a missing or ambiguous licence source, a malformed
+`version.yaml` and a missing date source.
+
+The packaging is deterministic: the entry time is `SOURCE_DATE_EPOCH`, else the commit
+time of `HEAD`, never the current time; the script forces `TZ=UTC` (Info-ZIP
+stores local DOS time), file mode 0644, names sorted under `LC_ALL=C`, and
+`zip -X -D` (no uid/gid, no directory entries). The same build output gives the same
+zip bytes whatever the caller's time zone, umask, locale or file times. The
+compiled `.wasm` can differ between build machines, and so can the zip;
+identical WebAssembly across machines is not a goal.
+
+**No NextZXOS image is ever in the package.** It is copyrighted; the page fetches
+it from the host the page author names. After writing the zip the script reads it
+back with CPython's `zipfile` (`--verify`, which also runs on its own) and deletes
+it if anything is wrong: the entry names must equal the list exactly, a name
+ending in `.img` or `.mmc` is refused at any depth, no entry may be a symlink,
+every entry must equal its source byte for byte, and each file has a size cap read
+from the zip's central directory (the `.wasm` at most 16 MiB, against the 40 MiB
+minimal card), so an image embedded raw into the module or renamed into the package
+is refused. An image deliberately compressed and embedded into the module is out of
+scope, and so is a zip whose central directory lies.
+
+It is built on every push: the `browser` leg of the `test` job runs `make
+wasm-browser-test`, which has `package-web` as a prerequisite and ends with the row
+WEBPKG-BR-01, which serves only the extracted zip and boots `plain.html` from it
+(see [5.4](04-continuous-integration.md)); and `release.yml` has a `web` job that
+runs the same target. It is not a `package-test` row: that would need a second
+Emscripten SDK restore and a second wasm build in the `package` job, for what the
+browser leg and `web-package-test` already prove (the Flatpak's SDK is the same
+case). `make web-package-test` runs in `make unit-test` through
+`package-contract-test`.

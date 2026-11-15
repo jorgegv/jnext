@@ -1,6 +1,7 @@
 #include "core/sdcard_provisioner.h"
 #include "core/fat32_image.h"
 #include "core/log.h"
+#include "core/minimal_card.h"
 
 #include <zlib.h>
 
@@ -31,6 +32,27 @@ const char* const kLegacyDistribution = "sn-emulator-24.11.zip";
 const char* const kDeclinedSuffix = ".distro-declined";
 const char* const kZx81Rom16kSha256 =
     "c294e4b60a0eba85c02a3d8b37f77de6c4516d873682dcf333813bd392d82aac";
+}  // namespace sdcard
+
+// The one distribution this release accepts for the browser's minimal card (GH #458), next to
+// the URL it is downloaded from (the URL is written once, in kDistroUrl above). A release that
+// moves to a new distribution changes kDistroUrl and ALL of this in one commit: the size and the
+// two input SHA-256s come from the developer's own download, card_sha256 from
+// `make-minimal-card --unpinned` on it (recipe stays unless the builder's output changed).
+// MCARD-16 and `make minimal-image-test` fail on a partial update.
+namespace minimal_card {
+const Pins kDistribution = {
+    sdcard::kDistroUrl,
+    "sn-emulator-26.11.zip",
+    70286227ull,
+    "81fe97d37ef4e373643b4d399c22ab2acca631c02a778e8d01e136e0c7c5d2d6",
+    "144d503e976e2b802d41e304375f362b8b854bd94ede7d78a7f3885271994fd7",
+    "82c4b0d65361f73a3bd6868d9a812d172d65407c9bc9a0f972942bb566184a37",
+    1,
+};
+}  // namespace minimal_card
+
+namespace sdcard {
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -502,6 +524,14 @@ std::string http_status_reason(long status) {
     else if (status == 401 || status == 403) words = "the server refused access";
     else if (status >= 500 && status <= 599) words = "the server reported an error";
     return std::string(words) + " (HTTP " + std::to_string(status) + ")";
+}
+
+// True when `err` ends in "(HTTP NNN)" with NNN a 4xx other than 408 (timeout) and 429 (rate limit).
+static bool permanent_http_refusal(const std::string& err) {
+    const size_t p = err.rfind("(HTTP ");
+    if (p == std::string::npos || err.back() != ')') return false;
+    const long st = std::strtol(err.c_str() + p + 6, nullptr, 10);
+    return st >= 400 && st <= 499 && st != 408 && st != 429;
 }
 
 std::string fetch_failure(const std::string& what, const std::string& url,
@@ -1170,7 +1200,8 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         // instead of the zip) "downloads" fine and only fails to unzip. Either
         // failure is retried up to opts.retries more times, waiting
         // 2 s, then twice that, ... between them. A user cancel is
-        // not retried. A kept partial is continued by the next attempt (GH #358).
+        // not retried; neither is an HTTP 4xx answer (not 408/429): the server refused,
+        // asking again only delays the same failure. A kept partial is continued by the next attempt (GH #358).
         const SleepFn sleep = opts.sleep ? opts.sleep : SleepFn(real_sleep_ms);
         unsigned backoff_ms = 2000;
         if (const char* e = std::getenv("JNEXT_SDCARD_RETRY_BACKOFF_MS"); e && *e)
@@ -1193,7 +1224,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                   : "nothing was kept, so the next start downloads it from the beginning";
                 why = fetch_failure("download failed", distro_url, err, next) + sandbox_network_note(opts);
             }
-            if (err == "cancelled by user" || attempt >= opts.retries) break;
+            if (err == "cancelled by user" || attempt >= opts.retries || permanent_http_refusal(err)) break;
             const unsigned wait_ms = backoff_ms << attempt;
             const std::string note = "Download attempt " + std::to_string(attempt + 1) + " failed: " + err +
                                      "\nRetry " + std::to_string(attempt + 1) + " of " +

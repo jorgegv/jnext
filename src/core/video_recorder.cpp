@@ -37,6 +37,11 @@ int run_native(const std::string& cmd)
     // the POSIX branch below puts `>/dev/null 2>&1` in the command string —
     // so the rule has no functional effect here whichever way it is spelled.
     return win_run_hidden(cmd);
+#elif defined(__EMSCRIPTEN__)
+    // No processes in a browser: ffmpeg cannot run, so the call fails (non-zero)
+    // exactly like a missing ffmpeg. `--record` is also refused at the CLI.
+    (void)cmd;
+    return -1;
 #else
     // EXTERNAL PROCESSES RUN UNDER `LANG=C` (CLAUDE.md). A shell assignment
     // prefix applies it to this command only, without touching jnext's own

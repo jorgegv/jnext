@@ -517,6 +517,44 @@ int main() {
               bad.empty(), bad);
     }
 
+    // SETK-24 (GH #459): the browser build refuses --set of exactly the keys whose
+    // dedicated flag it refuses (cli::browser_refusal): the eight esp.* / nextpi.* ones.
+    {
+        const std::set<std::string> want = {
+            "esp.enabled", "esp.allowed_hosts", "nextpi.enabled", "nextpi.dir",
+            "nextpi.release", "nextpi.qemu_binary", "nextpi.audio", "nextpi.qemu_args",
+        };
+        std::set<std::string> got;
+        std::string bad;
+        for (const config_keys::Key& k : config_keys::KEYS) {
+            const bool refused = config_keys::browser_refusal(k) != nullptr;
+            if (refused) got.insert(full_name(k));
+            const std::string sec = k.section;
+            if ((sec == "esp" || sec == "nextpi") && !refused) bad += full_name(k) + " not refused ";
+        }
+        if (got != want) bad += "refused set differs";
+        check("SETK-24", "the keys refused by the browser build are exactly the 8 esp.* and nextpi.* ones, "
+                         "and every key of those two sections is among them", bad.empty(), bad);
+    }
+
+    // SETK-CRT-01: the browser build runs the CRT effect, so exactly the three startup.crt_*
+    // keys carry the WEB frontend bit, together with the Qt one. They do NOT carry the SDL bit:
+    // the native SDL-only frontend does not run the effect and must keep warning that the keys
+    // have no effect there.
+    {
+        const std::set<std::string> want = { "startup.crt_filter", "startup.crt_shader", "startup.crt_shader_style" };
+        std::set<std::string> got;
+        std::string bad;
+        for (const config_keys::Key& k : config_keys::KEYS) {
+            if (!(k.frontends & config_keys::WEB)) continue;
+            got.insert(full_name(k));
+            if (k.frontends != (config_keys::QT | config_keys::WEB)) bad += full_name(k) + " not QT|WEB ";
+        }
+        if (got != want) bad += "WEB set differs";
+        check("SETK-CRT-01", "exactly startup.crt_filter, crt_shader and crt_shader_style have the WEB bit, each as QT|WEB (no SDL)",
+              bad.empty(), bad);
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", g_total, g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

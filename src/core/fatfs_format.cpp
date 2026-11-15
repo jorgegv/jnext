@@ -52,7 +52,7 @@ const char* fr_str(FRESULT r) {
 
 bool fat32_format_and_populate(const std::string& image_path, uint32_t part_lba,
                                uint32_t total_sectors, const Fat32Tree& tree,
-                               std::string& err) {
+                               std::string& err, const Fat32WriteOptions& opts) {
     constexpr uint8_t kDrive = 0; // FatFs volume "0:"
 
     if (!fatfs_glue::attach(kDrive, image_path, part_lba, total_sectors, err))
@@ -72,13 +72,16 @@ bool fat32_format_and_populate(const std::string& image_path, uint32_t part_lba,
     parm.n_fat   = 2;
     parm.align   = 0;    // let FatFs choose data alignment
     parm.n_root  = 0;    // ignored for FAT32
-    parm.au_size = 8192; // 8 KB clusters (>= 65525 clusters -> valid FAT32)
+    parm.au_size = opts.au_size; // 8 KB for the 1 GB image (>= 65525 clusters -> valid FAT32)
 
     std::vector<uint8_t> work(64 * 1024); // larger buffer -> faster FAT init
     FRESULT fr = f_mkfs("0:", &parm, work.data(),
                         static_cast<UINT>(work.size()));
     if (fr != FR_OK) {
-        err = std::string("f_mkfs failed: ") + fr_str(fr);
+        // FM_FAT32 is refused when the volume would have too few clusters (ff.c f_mkfs).
+        err = fr == FR_MKFS_ABORTED
+                  ? std::string("the card has too few clusters for FAT32 (f_mkfs aborted)")
+                  : std::string("f_mkfs failed: ") + fr_str(fr);
         return false;
     }
 
@@ -95,6 +98,20 @@ bool fat32_format_and_populate(const std::string& image_path, uint32_t part_lba,
     //    the SFN-based sd_rom_extractor lookups.
     bool ok = true;
     std::string where;
+    // The source's R/H/S/A bits and write time (a card that keeps its distribution's own).
+    auto meta = [&](const Fat32Node& n, const std::string& path) {
+        FILINFO fi{};
+        fi.fdate = n.wdate;
+        fi.ftime = n.wtime;
+        FRESULT r = f_utime(path.c_str(), &fi);
+        if (r == FR_OK)
+            r = f_chmod(path.c_str(), static_cast<BYTE>(n.attr & (AM_RDO | AM_HID | AM_SYS | AM_ARC)),
+                        AM_RDO | AM_HID | AM_SYS | AM_ARC);
+        if (r != FR_OK) {
+            ok = false;
+            where = "metadata of " + path + ": " + fr_str(r);
+        }
+    };
     std::function<void(const std::vector<Fat32Node>&, const std::string&)> emit =
         [&](const std::vector<Fat32Node>& nodes, const std::string& prefix) {
             if (!ok) return;
@@ -109,6 +126,7 @@ bool fat32_format_and_populate(const std::string& image_path, uint32_t part_lba,
                     }
                     emit(n.children, path);
                     if (!ok) return;
+                    if (opts.apply_meta) { meta(n, path); if (!ok) return; }
                 } else {
                     FIL fp{};
                     FRESULT r = f_open(&fp, path.c_str(),
@@ -132,6 +150,7 @@ bool fat32_format_and_populate(const std::string& image_path, uint32_t part_lba,
                         where = "f_write " + path + ": " + fr_str(r != FR_OK ? r : rc);
                         return;
                     }
+                    if (opts.apply_meta) { meta(n, path); if (!ok) return; }
                 }
             }
         };

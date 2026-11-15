@@ -42,7 +42,6 @@ CACHE="$PROJECT_DIR/build/$BENCH_BUILD/CMakeCache.txt"
 # embedded boot ROM now — no SD image lives there (GH #75/#77), so a fixture
 # path under the repo is no longer a thing to point at.
 SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"
-LOCK_FILE="$SCRIPT_DIR/.lock"
 REPEATS=5
 SPREAD_LIMIT_PCT=5.0
 
@@ -110,20 +109,27 @@ trap 'bench_cleanup; exit 143' TERM
 
 SD_IMAGE="$BENCH_RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
 mkdir -p "$BENCH_RUN_DIR/sdcard" || die "cannot create $BENCH_RUN_DIR/sdcard"
+# A PRIVATE config directory, removed with the run directory. The warm-start cache lives under it
+# (warm-start/warm-start-m<N>.jwss) and is keyed on the SD image's size and mtime; the clone above
+# has a new mtime, so with the user's own config the first NEX workload would (a) miss the cache
+# and time a NextZXOS cold boot inside its measured window, and (b) replace the user's cache with
+# one keyed to a clone deleted at the end. A private directory shares and overwrites nothing; the
+# priming run below records the cache before anything is measured.
+export JNEXT_CONFIG_DIR="$BENCH_RUN_DIR/config"
+mkdir -p "$JNEXT_CONFIG_DIR" || die "cannot create $JNEXT_CONFIG_DIR"
 if   cp --reflink=always "$SD_MASTER" "$SD_IMAGE" 2>/dev/null; then sd_mode=reflink
 elif cp --reflink=auto   "$SD_MASTER" "$SD_IMAGE" 2>/dev/null; then sd_mode=copy
 else die "cannot clone the SD master $SD_MASTER to $SD_IMAGE"
 fi
 echo "bench: SD image: private $sd_mode clone of $SD_MASTER"
 
-# --- Serialise: one benchmark at a time, machine-wide for this repo ---
+# --- Serialise: one benchmark at a time, host-wide (bench-lock.sh: a lock in the user's cache,
+# shared by every worktree, not one beside the scripts) ---
 # A real blocking flock, not a process scan: several agents may run overnight
 # and a poisoned benchmark is the exact failure mode that corrupted TASK27A.
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-    echo "bench: another benchmark holds $LOCK_FILE — waiting for it to finish..."
-    flock 200
-fi
+# shellcheck source=bench-lock.sh
+source "$SCRIPT_DIR/bench-lock.sh"
+bench_take_lock || die "cannot take the benchmark lock"
 
 # --- Core selection: fastest class, lowest-numbered core, DERIVED ---
 # Pass 1: find the fastest core class. Pass 2: lowest-numbered core in it.
@@ -196,6 +202,20 @@ WORKLOADS=(
 
 any_void=0
 
+# One unmeasured priming run: it loads the first NEX workload once so the warm-start cache of this
+# run's private config directory exists before the first measured run (see JNEXT_CONFIG_DIR above).
+prime_load=""
+for spec in "${WORKLOADS[@]}"; do
+    IFS='|' read -r _n _m l _f <<< "$spec"
+    [[ -n "$l" ]] && { prime_load=$l; break; }
+done
+[[ -n "$prime_load" && -f "$PROJECT_DIR/$prime_load" ]] || die "no NEX workload to prime the warm start with"
+taskset -c "$CORE" "$BIN" --headless --machine next --sdcard "$SD_IMAGE" \
+    --load "$PROJECT_DIR/$prime_load" --delayed-automatic-exit-frames 1 >/dev/null 2>&1 200>&- \
+    || die "the warm-start priming run failed"
+emit "# warm start: primed (private config dir)"
+emit ""
+
 for spec in "${WORKLOADS[@]}"; do
     IFS='|' read -r name machine load frames <<< "$spec"
 
@@ -214,7 +234,7 @@ for spec in "${WORKLOADS[@]}"; do
     bench_lines=()
     fps_list=()
     for (( run=1; run<=REPEATS; run++ )); do
-        line=$(taskset -c "$CORE" "$BIN" "${args[@]}" 2>/dev/null | grep '^BENCH ' || true)
+        line=$(taskset -c "$CORE" "$BIN" "${args[@]}" 2>/dev/null 200>&- | grep '^BENCH ' || true)
         if [[ -z "$line" ]]; then
             die "workload $name run $run produced no BENCH line — aborting (harness fault)"
         fi

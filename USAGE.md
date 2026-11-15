@@ -61,6 +61,11 @@ the two can never disagree. For building jnext from source, see
 - [SCRIPTING](#scripting)
 - [REMOTE DEBUGGING (ZRCP)](#remote-debugging-zrcp)
 - [MAGIC BREAKPOINT AND MAGIC PORT](#magic-breakpoint-and-magic-port)
+- [THE BROWSER BUILD](#the-browser-build)
+  - [JavaScript options](#javascript-options)
+  - [The player](#the-player)
+  - [The touch keyboard](#the-touch-keyboard)
+  - [Not available in the browser](#not-available-in-the-browser)
 - [EXAMPLES](#examples)
 - [FILES](#files)
 - [EXIT STATUS](#exit-status)
@@ -210,6 +215,18 @@ are unaffected either way.
 
 **--sdcard** *FILE*  
 Mount SD-card image *FILE* (`.img`). Optional; see **SD CARD AND ROMS**.
+A ZIP archive is not an image and is refused (exit status 1): unzip it
+first. The WebAssembly build extracts the single `.img` inside one.
+
+**--sdcard-sha256** *HEX*  
+The SHA-256 of the **--sdcard** image, as the caller has already checked
+it. The warm-start recording is keyed on it instead of on the image’s
+size and modification time. **jnext** does not hash the image: *HEX*
+must describe the file as it is. The browser build uses this option,
+because its page rewrites the card into memory on every visit (so the
+time changes) and has already checked the hash. *HEX* is 64 hexadecimal
+digits, in either case. Requires **--sdcard**. A recording taken after
+**jnext** has written to the card in this run is used, but not cached.
 
 **--sdcard-download-confirm**  
 Skip the download prompt for the default-location image and proceed.
@@ -235,6 +252,32 @@ Open the SD image read-only, so the host file is never modified. The
 emulated machine sees a write-protected card: writes are rejected with
 the SD write-error token rather than silently discarded. Use it when a
 run must not disturb an image other runs share.
+
+**--sdcard-writes** *FILE*  
+Keep the writes the emulated machine makes to the SD card in *FILE*, not
+in the image: the image is opened read-only and never changes, and
+*FILE*’s sectors are laid over it whenever the card is mounted, so the
+writes survive the next run. *FILE* belongs to one image, identified by
+its **--sdcard-sha256** digest or else by its size and modification
+time: a *FILE* made against another image is refused (exit status 1),
+and so is a file that is not a **jnext** SD-writes file. It is created
+at the first write and holds only the sectors the machine wrote (516
+bytes each) and the one file jnext’s esxDOS stand-in keeps for a
+directly loaded NEX (see **esxDOS calls from a directly loaded NEX**),
+stored when the program closes it and handed back to the stand-in at the
+next start, whatever the program: it belongs to the card, not to the NEX
+that wrote it. Excludes **--sdcard-readonly** and **--sdcard-file-add**.
+A recording of the warm start is keyed on the image and on *FILE*’s
+sectors, so it is taken again after the machine has written one; the
+stand-in’s file is not card state and does not change it. Files read
+from the image by the host (the ROMs, a snapshot’s card identity) do not
+see the writes. See **SD CARD AND ROMS**.
+
+**--sdcard-writes-reset**  
+Discard the writes kept in the **--sdcard-writes** *FILE* before the
+card is mounted, the stand-in’s file included, so the run starts on the
+image as it is. Requires **--sdcard-writes**. A file that is not a
+**jnext** SD-writes file is refused, never removed.
 
 **--sdcard-file-add** *FILE*  
 Copy host *FILE* — a file, or a directory with everything in it — into
@@ -274,17 +317,17 @@ card with no firmware on it, a recording that will not load back —
 **jnext** says so on standard error and falls back to the machine it has
 always assembled.
 
-The recording is keyed by the SD image’s size and modification time, the
-machine type, the state format and the recording procedure, and it is
-also dropped when **jnext** itself writes to the image, so it
-invalidates itself whenever any of those change. The image’s contents
-are not read: an image replaced or edited from outside with the same
-size and the same modification time (`cp -p`, `touch -r`) is served the
-old recording. Use this option to force the issue in that case, and
-after replacing `TBBLUE.FW` or NextZXOS on the card. It applies to
-`.nex` files on the Next only: the other machine types run no firmware,
-and snapshots and tapes are loaded by mechanisms a firmware-resident
-machine does not have.
+The recording is keyed by the SD image’s size and modification time (or
+by the **--sdcard-sha256** digest), the machine type, the state format
+and the recording procedure, and it is also dropped when **jnext**
+itself writes to the image, so it invalidates itself whenever any of
+those change. The image’s contents are not read: an image replaced or
+edited from outside with the same size and the same modification time
+(`cp -p`, `touch -r`) is served the old recording. Use this option to
+force the issue in that case, and after replacing `TBBLUE.FW` or
+NextZXOS on the card. It applies to `.nex` files on the Next only: the
+other machine types run no firmware, and snapshots and tapes are loaded
+by mechanisms a firmware-resident machine does not have.
 
 The recording is made on your machine from the image you mounted, and is
 never shipped with **jnext**: it contains NextZXOS and DivMMC ROM
@@ -341,8 +384,8 @@ choices of the **Preferences** CRT effect pop-up. The same as setting
 `startup.crt_filter`, `startup.crt_shader` and
 `startup.crt_shader_style` together. `soft`, `tv` and `pc` need the GPU
 shader; a build without it refuses them (exit status 1) and offers `off`
-and `scanlines`. Qt window only: elsewhere **jnext** warns and ignores
-it.
+and `scanlines`. The Qt window and the browser build: elsewhere
+**jnext** warns and ignores it.
 
 **--speed** *PERCENT*  
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x. Clamped
@@ -405,6 +448,13 @@ is the ZX BREAK key whenever the mouse is not captured, and
 preference for this run. Interactive (SDL/Qt) frontends only; inert
 under **--headless**. The GUI equivalent is *Release captured mouse
 with* under **Settings \> Preferences \> Input**, which applies live.
+
+**--touch-keyboard** *MODE*  
+Browser build only: when the on-screen Spectrum keyboard is shown.
+`auto` (default) shows it on a phone or tablet (a device whose main
+pointer is a finger), `on` always, `off` never. A page can also show or
+hide it while it runs (see **The touch keyboard**). Accepted, with a
+warning, and ignored by every other build.
 
 **--joy-uart-rx** *FILE*  
 Attach *FILE* as a serial byte source on the joystick-port UART RX pin —
@@ -600,10 +650,11 @@ Turn automatic tape play/stop on (the default) or off for this run,
 overriding the saved GUI preference. While on, the tape deck stops in
 the silent gap between two blocks when no program is reading the tape,
 and resumes when one does, so tapes whose BASIC loader is slow between
-blocks load in real time. It does nothing in fast load mode. Off, the
-deck runs straight through, as a real one does (a TZX “stop the tape if
-in 48K mode” block now stops only on a 48K machine, as the TZX
-specification says, whatever this setting is).
+blocks load in real time. It does nothing in fast load mode. A `.wav`
+has no blocks and is never paused. Off, the deck runs straight through,
+as a real one does (a TZX “stop the tape if in 48K mode” block now stops
+only on a 48K machine, as the TZX specification says, whatever this
+setting is).
 
 **--tape-save** *FILE*  
 Save to tape, appending to *FILE*; its extension picks the format. A
@@ -816,24 +867,25 @@ Set host gain for Specdrum, Soundrive and Covox DAC audio from -24 dB to
 
 **--rzx-play** *FILE*  
 Play back an RZX recording from the start of the run. Works the same in
-the GUI, the SDL-only build and under **--headless**. A recording that
-fails to load is logged, and **jnext** then exits non-zero. The machine
-starts exactly as it does for **--load** *FILE*, so the two spellings
-replay identically, and so do **File \> Load NEX File…** and **File \>
-Play RZX Recording** in the GUI. The recording brings its own snapshot
-of the machine, so it cannot be combined with **--rzx-record**, with
-**--load** or **--inject** of another program, or with a second RZX
-file. It plays on the machine it was recorded on, whatever machine is
-configured: a recording **jnext** makes names its machine, and one from
-another emulator is judged by its embedded snapshot (an SNA’s size, an
-SZX’s machine ID, a `.z80`’s hardware mode). A recording that names none
-— one **jnext** 1.0.0 or earlier made with an SNA snapshot, or one whose
-snapshot is of a machine **jnext** does not emulate — plays on the
-configured machine. An explicit **--machine** given with the recording
-wins, and **jnext** warns when it disagrees with the recording, which
-then goes out of step; a recording played from the GUI’s menus always
-gets its own machine. The recording’s machine stays selected afterwards,
-in the GUI’s **Machine \> Machine Type** too, as if chosen there.
+the GUI, the SDL-only build, under **--headless** and in a browser page.
+A recording that fails to load is logged, and **jnext** then exits
+non-zero. The machine starts exactly as it does for **--load** *FILE*,
+so the two spellings replay identically, and so do **File \> Load NEX
+File…** and **File \> Play RZX Recording** in the GUI. The recording
+brings its own snapshot of the machine, so it cannot be combined with
+**--rzx-record**, with **--load** or **--inject** of another program, or
+with a second RZX file. It plays on the machine it was recorded on,
+whatever machine is configured: a recording **jnext** makes names its
+machine, and one from another emulator is judged by its embedded
+snapshot (an SNA’s size, an SZX’s machine ID, a `.z80`’s hardware mode).
+A recording that names none — one **jnext** 1.0.0 or earlier made with
+an SNA snapshot, or one whose snapshot is of a machine **jnext** does
+not emulate — plays on the configured machine. An explicit **--machine**
+given with the recording wins, and **jnext** warns when it disagrees
+with the recording, which then goes out of step; a recording played from
+the GUI’s menus always gets its own machine. The recording’s machine
+stays selected afterwards, in the GUI’s **Machine \> Machine Type** too,
+as if chosen there.
 
 **--rzx-record** *FILE*  
 Record input to an RZX file from the start of the run — or, with
@@ -841,11 +893,12 @@ Record input to an RZX file from the start of the run — or, with
 machine, so the snapshot the file carries is the program, and playback
 replays it. The file is written when **jnext** exits (or, in the GUI, at
 **File \> Stop RZX Recording**). Works the same in the GUI, the SDL-only
-build and under **--headless**. While recording, a tape loads in real
-time: a fast load skips the ROM loader, which a recording cannot replay.
-The snapshot is an SZX on the 128K, Pentagon and +3 and a 48K SNA on the
-48K. The file names the machine it was recorded on, which **--rzx-play**
-then uses.
+build and under **--headless**. A browser page refuses it and records
+from JavaScript (see THE BROWSER BUILD). While recording, a tape loads
+in real time: a fast load skips the ROM loader, which a recording cannot
+replay. The snapshot is an SZX on the 128K, Pentagon and +3 and a 48K
+SNA on the 48K. The file names the machine it was recorded on, which
+**--rzx-play** then uses.
 
 **Recording is not available on a ZX Spectrum Next, which is jnext’s
 default machine, so this needs an explicit --machine 48k, 128k, pentagon
@@ -1358,14 +1411,15 @@ Qt window and the SDL-only build.
 The window scale; **--scale**. The Qt window.
 
 `startup.crt_filter` *true\|false*  
-The software scanlines effect; **--crt scanlines**. The Qt window.
+The software scanlines effect; **--crt scanlines**. The Qt window and
+the browser build.
 
 `startup.crt_shader` *true\|false*  
-The GPU CRT shader; **--crt**. The Qt window.
+The GPU CRT shader; **--crt**. The Qt window and the browser build.
 
 `startup.crt_shader_style` *0..2*  
 The shader’s look: 0 is `tv`, 1 is `pc`, 2 is `soft`; **--crt**. The Qt
-window.
+window and the browser build.
 
 `startup.silent` *true\|false*  
 Start with the sound muted; **--silent**. All frontends.
@@ -1544,7 +1598,8 @@ connection, or 30 seconds without data) is kept (`sn-emulator.zip.part`)
 and continues on the next run. A download that fails, or whose file is
 no zip, is retried up to three times, after 2, 4 and 8 seconds, each
 retry noted on the terminal and in the download window; Cancel is not
-retried. An explicit **--sdcard** always wins over both.
+retried, nor is a refusal by the server (HTTP 4xx, except 408 and 429).
+An explicit **--sdcard** always wins over both.
 
 When the default card is of an older NextZXOS distribution than the one
 jnext downloads now, jnext tells you a newer one is available, and in
@@ -1566,7 +1621,9 @@ runs sharing one image are therefore not independent: a run that boots
 NextZXOS mutates the image the next run reads. For a reproducible run,
 either pass **--sdcard-readonly**, or give it a private copy
 (`cp --reflink=auto` is instant and costs no space on a copy-on-write
-filesystem).
+filesystem). A third way is **--sdcard-writes** *FILE*: the image is
+then never written, and the machine’s writes are kept in *FILE* and laid
+over it on every run.
 
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
@@ -1763,8 +1820,10 @@ at the next reset or soft reset. It answers:
   that keeps its own file open (below);
 - one file kept in memory: the program can create it, write it, and read
   it back under the same name, which is enough for a high-score or
-  settings file. It is never written to disk and is gone when jnext
-  exits;
+  settings file. It is never written to a host file and is gone when
+  jnext exits, unless **--sdcard-writes** is given: the file is then
+  kept in that file when the program closes it, and the next run starts
+  with it;
 - `run NAME.nex` (`M_EXECCMD`), which loads another NEX file from the
   same directory;
 - the error message query (`M_GETERR`, with `B`=1): the text NextZXOS
@@ -3087,6 +3146,189 @@ The magic debug port logs writes to a configurable port to stderr as
 hex, decimal, ASCII or line-buffered text. Enable it with
 **--magic-port** *PORT* and **--magic-port-mode** *MODE*.
 
+## THE BROWSER BUILD
+
+The same emulator, built for WebAssembly, runs inside a web page. The
+page loads one script, `jnext-VERSION.js` (with `jnext-VERSION.wasm`
+beside it), which defines one global, `jnext`;
+**jnext.mount**(*container*, *options*) puts a player in a DOM element
+and returns a promise for it. Every option of **mount** is a
+command-line flag or a **--set** key, so what the page asks for is what
+the command line would ask for; the player’s `argv` property shows that
+command line. A browser page loads `.nex`, `.tap`, `.tzx` and `.wav`
+programs, `.rzx` recordings and `.jns`, `.sna`, `.szx` and `.z80`
+snapshots; a snapshot or a recording runs on the machine it was made on.
+A `.wav` plays in real time, as from a cassette, and only while the
+machine runs: `pause()` or a hidden tab stops the tape where it is.
+
+NextZXOS, the operating system of the ZX Spectrum Next, is SpecNext’s
+copyrighted software. JNEXT does not ship, host or serve it, and neither
+does a page. The player makes its SD card in the visitor’s browser from
+the official distribution zip on specnext.com, which the page cannot
+name or replace: when specnext.com allows the page to read the file, the
+page downloads it; otherwise the player shows a link to download it from
+specnext.com and a button to choose the downloaded file. Either way the
+card the browser makes is kept in the browser’s cache for that site,
+checked against its SHA-256 on every visit, and the downloaded file
+itself is not kept. Nothing is downloaded or built until the visitor
+clicks the player: the click is also what starts the machine, because
+browsers allow sound only after a click. The page must be a secure
+context: `https://`, `http://localhost` or `http://127.0.0.1`.
+
+The CRT effect of the desktop window is available too, off by default: a
+page asks for it with the option **--crt** *EFFECT* (in `args`) or the
+three `startup.crt_*` settings (in `set`), and gets the same five looks
+with the same parameters. It runs on the page’s WebGL, so it needs a
+browser with WebGL, and the soft scanlines show their lines only when
+the picture is at least twice 640x512 device pixels, as on the desktop.
+If the shader cannot run, the player logs one line starting
+`CRT effect:` and carries on: with the software scanlines for `soft` (or
+when `scanlines` was also asked), with the plain picture otherwise.
+
+### JavaScript options
+
+`card` *{source}*  
+Not a jnext setting: how the page gets NextZXOS’s SD card. `source` is
+`'auto'` (the default: fetch the official file from specnext.com when it
+allows the page to read it, otherwise ask the visitor to download it and
+choose it), `'fetch'` (only fetch; a failure is an error) or `'pick'`
+(always ask the visitor). The SD card reaches the emulator as
+**--sdcard** and **--sdcard-sha256**, set by the page layer; the page
+never names the card.
+
+`poster` *URL*  
+Not a jnext setting: a picture, a screenshot of the program, shown in
+the player area before the click so the player is not black on load. The
+emulator replaces it when the visitor starts the player. Without it
+nothing is shown there.
+
+`file` *URL \| {url} \| {data, name}*  
+**--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, a `.rzx`
+recording, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot); without it
+the machine boots to the NextZXOS menu.
+
+`keepWrites` *boolean*  
+**--sdcard-writes**, with a file the page manages: what the program
+writes to the card (saves, high scores) is kept in the visitor’s browser
+(IndexedDB) and is there at the next visit. Off by default. The record
+is keyed by the card’s SHA-256 and the page’s path, so another card or
+another page has its own, and it holds only the sectors written, never
+the card. The page can clear it with `resetCard()`, or with
+`args: ['--sdcard-writes-reset']` for one start. The file a NEX loaded
+with `file` saves through esxDOS is kept too: JNEXT’s own stand-in
+answers those calls (see **esxDOS calls from a directly loaded NEX**)
+and keeps one file, which belongs to the page’s card and the file name,
+not to the program, so a changed NEX on the same page reads the old
+save, as on a real Next. Files written to a host directory a page names
+with `args: ['--esxdos-stub-root', ...]` live in the page’s memory only.
+
+`machine` *string*  
+**--machine**.
+
+`touchKeyboard` *string*  
+**--touch-keyboard**: `'auto'` (default; the on-screen keyboard is shown
+on a phone or tablet), `'on'` or `'off'`.
+
+`muted` *boolean*  
+`startup.silent`: no audio device for the session.
+
+`set` *{“section.key”: value}*  
+One **--set** *section.key=value* per entry, sorted by key.
+
+`args` *array of strings*  
+Further command-line arguments, appended last, so they win over
+everything above.
+
+`width`, `height` *number \| CSS length*  
+Not a jnext setting: the box the player fills in the page.
+
+`wasmUrl` *string*  
+Not a jnext setting: where the page serves the `.wasm` file from.
+
+`onProgress`, `onReady`, `onError` *function*  
+Not a jnext setting: functions of the page, called with
+`(phase, fraction)` while the SD card is fetched (`download`) or made
+from a file the visitor chose (`build`), when the page is waiting for
+that file (`choose`), while the first boot is recorded (`warm-start`) or
+restored (`restore`), when the program is in the machine and a frame has
+been shown, and with a message on every failure.
+
+### The player
+
+`state` is `waiting`, `starting`, `running`, `paused`, `exited` or
+`destroyed`; `ready` is a promise for the first ready. `pause()` and
+`resume()` stop and restart the frame loop. `reset(kind)` restarts the
+program (`'program'`, the default; with no program it powers on again),
+powers the machine on again (`'hard'`) or resets it (`'soft'`).
+`load(file)` loads another program while the machine runs.
+`saveSnapshot()` resolves to the bytes of a `.jns` snapshot of the
+running machine (**--snapshot-compression** applies), for the page to
+offer as a download or give back to `load()` as `{data, name}`.
+`startRzxRecording()` starts an RZX recording of the machine as it is
+now (not on a ZX Spectrum Next: give the player another `machine`);
+`stopRzxRecording()` ends it and resolves to the file’s bytes, for the
+page to offer as a download or give back to `load()` as `{data, name}`.
+A reset or a `load()` ends the recording early, and `stopRzxRecording()`
+still returns it, and until it is called no new recording can start;
+`destroy()` drops one that was not stopped. While a recording plays,
+every port read comes from the file: the keys do nothing until it ends.
+`setVolume(v)` sets the master output level, `0` to `1`. `destroy()`
+stops the machine and removes the player (it waits until the saves of
+**keepWrites** are stored). `resetCard()` discards the saves kept by
+`keepWrites` (the saved file included) and restarts the program; it
+needs that option, and resolves when the program is running again.
+`showKeyboard(on)` shows (`true`) or hides (`false`) the on-screen
+keyboard, whatever **--touch-keyboard** says; the page’s call wins,
+before or after the start, and anything but a boolean throws.
+`keyboardVisible` tells whether it is shown.
+
+### The touch keyboard
+
+The on-screen Spectrum Next keyboard is for devices with no keyboard. It
+sits at the bottom of the player’s box, which keeps the size the page
+gave it; the screen above it shrinks by the keyboard’s height. It is
+built on the first time it is shown, so a page that never shows it has
+the DOM it would have without it.
+
+Its keys are typed as the keys of a PC keyboard are: through the same
+path, so what the program sees is what a physical keyboard gives. A key
+goes down when a finger lands on it and up when the finger lifts;
+several fingers hold several keys, for chords and for games. Tapping a
+key never moves the keyboard focus off the screen.
+
+There are two layouts, chosen by the width of the box and followed when
+it changes: below 504 CSS pixels the 40 keys of the 48K keyboard, in
+four rows (every other key of the Next is Caps Shift or Symbol Shift
+plus a key, as on a 48K), and from 504 pixels on the Next’s 58 keys, in
+five rows, with the sixteen extra keys (Delete, Edit, Break, Graph,
+Extend, the cursor keys and the rest). Its height is at most 45% of the
+box.
+
+Caps Shift and Symbol Shift latch: a quick tap (under half a second,
+with no other key pressed meanwhile) leaves the shift waiting, shown as
+pressed, and the next key is typed with it; a tap on a waiting shift
+cancels it. A shift held longer, or held while another key is pressed,
+is an ordinary hold and does not wait. Each key has an accessible name,
+and the shifts report `aria-pressed`.
+
+### Not available in the browser
+
+A page has no processes, sockets or terminal, so these are refused with
+a message that says so: **--nextpi**, **--nextpi-dir**,
+**--nextpi-release**, **--nextpi-qemu**, **--nextpi-audio**,
+**--nextpi-qemu-args**, **--esp**, **--esp-allow**,
+**--esp-listen-address**, **--esp-delayed-disassociate-frames**,
+**--esp-delayed-associate-frames**, **--esp-ip-address**,
+**--esp-ip-address-after**, **--record**, **--dzrp-port**,
+**--gdb-port**, **--zrcp-port**, **--debug-listen-address**,
+**--script**, **--script-key**, **--record-script**, **--map**,
+**--annotations**, **--import-skoolkit**, **--import-ghidra**,
+**--headless** (it would block the tab for ever) and **--rzx-record** (a
+page records from JavaScript, see The player). The settings of the
+refused flags are refused when given as set entries too: `esp.enabled`,
+`esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`, `nextpi.release`,
+`nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`.
+
 ## EXAMPLES
 
 Boot NextZXOS / the TBBlue firmware (the default machine is `next`):
@@ -3225,10 +3467,10 @@ keeps the newest 20 files it made (see **--quick-snapshot-keep**).
 The recorded NextZXOS-resident machine a **--load** of a `.nex` starts
 from, one file per machine type, around 100 KB each. Written on the
 first such load with a given SD image and re-recorded whenever the
-image’s size or modification time changes, or JNEXT writes to it, or the
-machine type, the state format or the recording procedure changes - see
-**--warm-start-regenerate**. Deleting it costs one cold boot, nothing
-else.
+image’s size or modification time (or **--sdcard-sha256** digest)
+changes, or JNEXT writes to it, or the machine type, the state format or
+the recording procedure changes - see **--warm-start-regenerate**.
+Deleting it costs one cold boot, nothing else.
 
 `~/.jnext/sdcard/cspect-next-1gb-fixed.img`  
 The default SD-card image, used when **--sdcard** is not given.

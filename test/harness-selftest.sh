@@ -29,7 +29,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=404  # 400 -> 404: HS-184a..d (a sed block closed without ';' fails the preflight sed lint, with its control; a clone without distribution sidecars fails sdcard-provision, with its control; macOS CI run 43653903261, GH #476).  # 396 -> 400: HS-88i..j (nproc = 2 overlaps; the getconf fallback), HS-88k..l (a multi-line FAIL row carries the time on its first line; review of GH #494).  # 394 -> 396: HS-88g..h (the per-suite wall time on the PASS and FAIL rows; GH #494).  # 392 -> 394: HS-88e..f (GH #494: the default job cap is one suite per CPU; an explicit 0 is still no cap).  # 379 -> 392 (merge of main v1.2.36): main's +13 since v1.2.35 (330 -> 343, below) added to this branch's +49 over main (330 -> 379).  # 341 -> 343: HS-183a..b (the self-check decoy is pinned: its record from the stub, and the no-decoy fault; review H1, GH #487).  # 338 -> 341: HS-182a..j added (the capture of a 32-bit exe: the exe found by a per-runner marker, a debugger-free stack helper, a self-check with a decoy and a survival clause, wine 11.20 measurements; GH #487) and HS-98c, HS-98d, HS-98j, HS-98k, HS-98m, HS-98x, HS-99j retired: they pinned the exact command-line / name-only process match and the winedbg attach session, which are gone. Real winedbg prints NO command line under a process, so the exact match never fired on real wine (the stub printed lines real winedbg does not), and its attach kills a 32-bit process; HS-182c/d replace them. HS-99s keeps the listing half, HS-182j the helper half.  # 333 -> 338: HS-180d..e (the PE check, its two sub-conditions apart) and HS-181a..c (an unpacked package gets no MinGW sysroot on its wine PATH, decided by wine-run.sh --jnext from the absent CMakeCache.txt; GH #487).  # 330 -> 333: HS-180a..c (a cache-less dir, an unpacked Windows package, takes its target OS from its jnext.exe PE header and is refused otherwise; GH #487).  # 377 -> 379: HS-177c (the next run after a distribution re-derive touches nothing), HS-178 (an unreadable kDistroUrl is a FAIL).  # 375 -> 377: HS-177a..b (the default master of another distribution is replaced).  # 374 -> 375: HS-176 (pgo-train honours the candidate-card override).  # 373 -> 374: HS-175d (sd_card_sidecars: a row's own copy of the clone gets the sidecars).  # 370 -> 373: HS-175a..c (the run's SD clone carries .distro and a declined sidecar for the default distribution, so a GUI row never meets the upgrade offer).  # 367 -> 370: HS-174a..c (the legacy name for a raw with no .distro; the seam's offline derive names the raw's own distribution; a .distro that is not a file name is not a verified raw).  # 361 -> 367: main's HS-69p..u (bound= tag) merged with this branch's +HS-171/172/173 rows.  # 328 -> 330: HS-69t (a killed tagged row names its own bound), HS-69u (the real conf's bound= tag reaches the driver's array and exceeds the row's inner bound).  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 358 -> 361: HS-173a..c (menu_index on synthetic menu files).  # 344 -> 358: HS-172a..k (the boot-ready helper: @bf expansion with the measured shift, shift 0 byte-identical, K, a malformed or unmeasurable shift is a fault, the default master pins its commit frame, bf_jds).  # 342 -> 344: HS-171s..t (the seam gate keeps a witnessed card with a missing or wrong recipe sidecar; a raw with a mismatching sidecar is not verified).  # 332 -> 342: HS-171i..r (a candidate card is never deleted or replaced by a download; ".." and "//" "/./" path refusals; the kept-PNG directory is created by the driver; the two leak guards).  # 324 -> 332: HS-171a..h (the candidate-card seams JNEXT_REGRESSION_SD_STATE_DIR and JNEXT_REGRESSION_SHOTS_DIR: refusals, the master in the seam dir, kept failing screenshots).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=450  # 442 -> 450 (merge of main v1.2.44): epic 442 + main +8 since the last merge (396 -> 404); recounted from the file.  # 438 -> 442 (merge of main v1.2.41): epic 438 + main +4 since the last merge (392 -> 396, HS-184a..d); recounted from the file.  # 436 -> 438: HS-189a..b (the WebAssembly sdcard-provision row: the default card takes the pinned commit frame without a probe; a candidate card is refused). The epic's bench rows were renumbered HS-171a..b -> HS-190a..b, HS-172a..c -> HS-185a..c, HS-173 -> HS-186, HS-174 -> HS-187, HS-175 -> HS-188 (they collided with main's IDs); histories below use the old numbers for those rows.  # 392 -> 436 (merge of main v1.2.39 into the epic): base 324, main +68, epic +44; recounted from the file.  # 367 -> 368: HS-185c (a zombie reads as gone: PID 1 of the CI container never reaps; CI 42712797516).  # 366 -> 367: HS-188 (no bare background child in a script that holds the bench lock).  # 365 -> 366: HS-187 (the bench lock descriptor does not leak into children).  # 362 -> 365: HS-185a..b (run-bounded.sh delivers INT and TERM to the bench driver) and HS-186 (one host-wide bench lock).  # 360 -> 362: HS-190a..b (bench.sh runs under a private JNEXT_CONFIG_DIR after one unmeasured priming run; GH #468).  # 358 -> 360: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI), merged from main onto the epic's 358 (recounted: base 314, main 324 = +10, epic 350 = +36).  # 350 -> 358: the main side, merged onto the epic's 350 (recounted from the file): 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 344 -> 350: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07). 343 -> 344: HS-166n (screenshots.sh calls shot_wall_bound). 339 -> 343: HS-166j..m (the wasm run settings: SHOT_WALL_FACTOR and JNEXT_NATIVE plumbing, the wall-bound formula). 330 -> 339: HS-166a..i (GH #461: the emscripten platform run, its opt-in os= grammar and pin, the .js + .wasm binary check, node-run.sh --jnext). 315 -> 330: HS-162a..j (GH #460: the emscripten target OS, `# os: native`, the emulator-led add_test() and NAME.js + NAME.wasm) and HS-163a..e (test/node-run.sh) added. 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)  # 379 -> 392 (merge of main v1.2.36): main's +13 since v1.2.35 (330 -> 343, below) added to this branch's +49 over main (330 -> 379).  # 341 -> 343: HS-183a..b (the self-check decoy is pinned: its record from the stub, and the no-decoy fault; review H1, GH #487).  # 338 -> 341: HS-182a..j added (the capture of a 32-bit exe: the exe found by a per-runner marker, a debugger-free stack helper, a self-check with a decoy and a survival clause, wine 11.20 measurements; GH #487) and HS-98c, HS-98d, HS-98j, HS-98k, HS-98m, HS-98x, HS-99j retired: they pinned the exact command-line / name-only process match and the winedbg attach session, which are gone. Real winedbg prints NO command line under a process, so the exact match never fired on real wine (the stub printed lines real winedbg does not), and its attach kills a 32-bit process; HS-182c/d replace them. HS-99s keeps the listing half, HS-182j the helper half.  # 333 -> 338: HS-180d..e (the PE check, its two sub-conditions apart) and HS-181a..c (an unpacked package gets no MinGW sysroot on its wine PATH, decided by wine-run.sh --jnext from the absent CMakeCache.txt; GH #487).  # 330 -> 333: HS-180a..c (a cache-less dir, an unpacked Windows package, takes its target OS from its jnext.exe PE header and is refused otherwise; GH #487).  # 377 -> 379: HS-177c (the next run after a distribution re-derive touches nothing), HS-178 (an unreadable kDistroUrl is a FAIL).  # 375 -> 377: HS-177a..b (the default master of another distribution is replaced).  # 374 -> 375: HS-176 (pgo-train honours the candidate-card override).  # 373 -> 374: HS-175d (sd_card_sidecars: a row's own copy of the clone gets the sidecars).  # 370 -> 373: HS-175a..c (the run's SD clone carries .distro and a declined sidecar for the default distribution, so a GUI row never meets the upgrade offer).  # 367 -> 370: HS-174a..c (the legacy name for a raw with no .distro; the seam's offline derive names the raw's own distribution; a .distro that is not a file name is not a verified raw).  # 361 -> 367: main's HS-69p..u (bound= tag) merged with this branch's +HS-171/172/173 rows.  # 328 -> 330: HS-69t (a killed tagged row names its own bound), HS-69u (the real conf's bound= tag reaches the driver's array and exceeds the row's inner bound).  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 358 -> 361: HS-173a..c (menu_index on synthetic menu files).  # 344 -> 358: HS-172a..k (the boot-ready helper: @bf expansion with the measured shift, shift 0 byte-identical, K, a malformed or unmeasurable shift is a fault, the default master pins its commit frame, bf_jds).  # 342 -> 344: HS-171s..t (the seam gate keeps a witnessed card with a missing or wrong recipe sidecar; a raw with a mismatching sidecar is not verified).  # 332 -> 342: HS-171i..r (a candidate card is never deleted or replaced by a download; ".." and "//" "/./" path refusals; the kept-PNG directory is created by the driver; the two leak guards).  # 324 -> 332: HS-171a..h (the candidate-card seams JNEXT_REGRESSION_SD_STATE_DIR and JNEXT_REGRESSION_SHOTS_DIR: refusals, the master in the seam dir, kept failing screenshots).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)  # 392 -> 396: HS-184a..d (a sed block closed without ';' fails the preflight sed lint, with its control; a clone without distribution sidecars fails sdcard-provision, with its control; macOS CI run 43653903261, GH #476).  # 379 -> 392 (merge of main v1.2.36): main's +13 since v1.2.35 (330 -> 343, below) added to this branch's +49 over main (330 -> 379).  # 341 -> 343: HS-183a..b (the self-check decoy is pinned: its record from the stub, and the no-decoy fault; review H1, GH #487).  # 338 -> 341: HS-182a..j added (the capture of a 32-bit exe: the exe found by a per-runner marker, a debugger-free stack helper, a self-check with a decoy and a survival clause, wine 11.20 measurements; GH #487) and HS-98c, HS-98d, HS-98j, HS-98k, HS-98m, HS-98x, HS-99j retired: they pinned the exact command-line / name-only process match and the winedbg attach session, which are gone. Real winedbg prints NO command line under a process, so the exact match never fired on real wine (the stub printed lines real winedbg does not), and its attach kills a 32-bit process; HS-182c/d replace them. HS-99s keeps the listing half, HS-182j the helper half.  # 333 -> 338: HS-180d..e (the PE check, its two sub-conditions apart) and HS-181a..c (an unpacked package gets no MinGW sysroot on its wine PATH, decided by wine-run.sh --jnext from the absent CMakeCache.txt; GH #487).  # 330 -> 333: HS-180a..c (a cache-less dir, an unpacked Windows package, takes its target OS from its jnext.exe PE header and is refused otherwise; GH #487).  # 377 -> 379: HS-177c (the next run after a distribution re-derive touches nothing), HS-178 (an unreadable kDistroUrl is a FAIL).  # 375 -> 377: HS-177a..b (the default master of another distribution is replaced).  # 374 -> 375: HS-176 (pgo-train honours the candidate-card override).  # 373 -> 374: HS-175d (sd_card_sidecars: a row's own copy of the clone gets the sidecars).  # 370 -> 373: HS-175a..c (the run's SD clone carries .distro and a declined sidecar for the default distribution, so a GUI row never meets the upgrade offer).  # 367 -> 370: HS-174a..c (the legacy name for a raw with no .distro; the seam's offline derive names the raw's own distribution; a .distro that is not a file name is not a verified raw).  # 361 -> 367: main's HS-69p..u (bound= tag) merged with this branch's +HS-171/172/173 rows.  # 328 -> 330: HS-69t (a killed tagged row names its own bound), HS-69u (the real conf's bound= tag reaches the driver's array and exceeds the row's inner bound).  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 358 -> 361: HS-173a..c (menu_index on synthetic menu files).  # 344 -> 358: HS-172a..k (the boot-ready helper: @bf expansion with the measured shift, shift 0 byte-identical, K, a malformed or unmeasurable shift is a fault, the default master pins its commit frame, bf_jds).  # 342 -> 344: HS-171s..t (the seam gate keeps a witnessed card with a missing or wrong recipe sidecar; a raw with a mismatching sidecar is not verified).  # 332 -> 342: HS-171i..r (a candidate card is never deleted or replaced by a download; ".." and "//" "/./" path refusals; the kept-PNG directory is created by the driver; the two leak guards).  # 324 -> 332: HS-171a..h (the candidate-card seams JNEXT_REGRESSION_SD_STATE_DIR and JNEXT_REGRESSION_SHOTS_DIR: refusals, the master in the seam dir, kept failing screenshots).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)  # 400 -> 404: HS-184a..d (a sed block closed without ';' fails the preflight sed lint, with its control; a clone without distribution sidecars fails sdcard-provision, with its control; macOS CI run 43653903261, GH #476).  # 396 -> 400: HS-88i..j (nproc = 2 overlaps; the getconf fallback), HS-88k..l (a multi-line FAIL row carries the time on its first line; review of GH #494).  # 394 -> 396: HS-88g..h (the per-suite wall time on the PASS and FAIL rows; GH #494).  # 392 -> 394: HS-88e..f (GH #494: the default job cap is one suite per CPU; an explicit 0 is still no cap).  # 379 -> 392 (merge of main v1.2.36): main's +13 since v1.2.35 (330 -> 343, below) added to this branch's +49 over main (330 -> 379).  # 341 -> 343: HS-183a..b (the self-check decoy is pinned: its record from the stub, and the no-decoy fault; review H1, GH #487).  # 338 -> 341: HS-182a..j added (the capture of a 32-bit exe: the exe found by a per-runner marker, a debugger-free stack helper, a self-check with a decoy and a survival clause, wine 11.20 measurements; GH #487) and HS-98c, HS-98d, HS-98j, HS-98k, HS-98m, HS-98x, HS-99j retired: they pinned the exact command-line / name-only process match and the winedbg attach session, which are gone. Real winedbg prints NO command line under a process, so the exact match never fired on real wine (the stub printed lines real winedbg does not), and its attach kills a 32-bit process; HS-182c/d replace them. HS-99s keeps the listing half, HS-182j the helper half.  # 333 -> 338: HS-180d..e (the PE check, its two sub-conditions apart) and HS-181a..c (an unpacked package gets no MinGW sysroot on its wine PATH, decided by wine-run.sh --jnext from the absent CMakeCache.txt; GH #487).  # 330 -> 333: HS-180a..c (a cache-less dir, an unpacked Windows package, takes its target OS from its jnext.exe PE header and is refused otherwise; GH #487).  # 377 -> 379: HS-177c (the next run after a distribution re-derive touches nothing), HS-178 (an unreadable kDistroUrl is a FAIL).  # 375 -> 377: HS-177a..b (the default master of another distribution is replaced).  # 374 -> 375: HS-176 (pgo-train honours the candidate-card override).  # 373 -> 374: HS-175d (sd_card_sidecars: a row's own copy of the clone gets the sidecars).  # 370 -> 373: HS-175a..c (the run's SD clone carries .distro and a declined sidecar for the default distribution, so a GUI row never meets the upgrade offer).  # 367 -> 370: HS-174a..c (the legacy name for a raw with no .distro; the seam's offline derive names the raw's own distribution; a .distro that is not a file name is not a verified raw).  # 361 -> 367: main's HS-69p..u (bound= tag) merged with this branch's +HS-171/172/173 rows.  # 328 -> 330: HS-69t (a killed tagged row names its own bound), HS-69u (the real conf's bound= tag reaches the driver's array and exceeds the row's inner bound).  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 358 -> 361: HS-173a..c (menu_index on synthetic menu files).  # 344 -> 358: HS-172a..k (the boot-ready helper: @bf expansion with the measured shift, shift 0 byte-identical, K, a malformed or unmeasurable shift is a fault, the default master pins its commit frame, bf_jds).  # 342 -> 344: HS-171s..t (the seam gate keeps a witnessed card with a missing or wrong recipe sidecar; a raw with a mismatching sidecar is not verified).  # 332 -> 342: HS-171i..r (a candidate card is never deleted or replaced by a download; ".." and "//" "/./" path refusals; the kept-PNG directory is created by the driver; the two leak guards).  # 324 -> 332: HS-171a..h (the candidate-card seams JNEXT_REGRESSION_SD_STATE_DIR and JNEXT_REGRESSION_SHOTS_DIR: refusals, the master in the seam dir, kept failing screenshots).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1445,6 +1445,177 @@ out=$(run_preflight_sed_i dirty); rc=$?
 check "HS-170b" "a bare sed -i FAILS the preflight, not just the lint (BSD sed rejects it)" 1 $rc \
     "$out" "a test script runs a bare in-place sed" "Fail: 1"
 
+# ---- bench.sh: a private config dir and one priming run (HS-190a/b) ----
+# Oracle: the warm-start cache is keyed on the SD image's size and mtime (warm_start_cache.cpp), and
+# the bench's reflinked clone has a new mtime, so with the user's own JNEXT_CONFIG_DIR the first NEX
+# workload timed a cold boot inside its window and replaced the user's cache (baseline-2d2e86c7e.txt,
+# copper-demo run 1 4.667 s against 2.81-2.90 s). Fixture: a copy of bench.sh in a scratch repo with a
+# stub jnext that logs the config dir and argv of every invocation.
+BH_FIX="$T/bench171"; BH_LOG="$BH_FIX/calls.log"
+rm -rf "$BH_FIX"; mkdir -p "$BH_FIX/test/bench/nex" "$BH_FIX/test/00regression/nex" "$BH_FIX/test/00regression/tap" "$BH_FIX/build/gui-release-non-pgo"
+cp "$PROJECT_DIR/test/bench/bench.sh" "$PROJECT_DIR/test/bench/bench-lock.sh" "$BH_FIX/test/bench/"
+for f in test/00regression/nex/copper_demo.nex test/00regression/nex/beast.nex test/00regression/tap/bifrost.tap \
+         test/bench/nex/halt_idle_35.nex test/bench/nex/halt_idle_28.nex test/bench/nex/ctc_dac_28.nex; do : > "$BH_FIX/$f"; done
+printf 'CMAKE_BUILD_TYPE:STRING=Release\n' > "$BH_FIX/build/gui-release-non-pgo/CMakeCache.txt"
+cat > "$BH_FIX/build/gui-release-non-pgo/jnext" <<'STUB'
+#!/usr/bin/env bash
+printf 'cfg=%s args=%s\n' "${JNEXT_CONFIG_DIR:-UNSET}" "$*" >> "$BH_LOG"
+if [[ " $* " == *" --benchmark "* ]]; then
+    echo "BENCH workload=x frames=1 wall=1.000 fps=100.0 tstates_per_sec=1 tstates_per_frame=1 cpu=3.5MHz core=0@1kHz build=Release"
+fi
+STUB
+chmod +x "$BH_FIX/build/gui-release-non-pgo/jnext"
+printf 'sd' > "$BH_FIX/sd.img"
+git -C "$BH_FIX" init -q && git -C "$BH_FIX" add -A && git -C "$BH_FIX" -c user.name=t -c user.email=t@t commit -qm fixture
+out=$(BH_LOG="$BH_LOG" JNEXT_TEST_SD_IMAGE="$BH_FIX/sd.img" timeout --kill-after=5s 120s bash "$BH_FIX/test/bench/bench.sh" 2>&1); rc=$?
+calls=$(wc -l < "$BH_LOG")
+bad_cfg=$(grep -vc "^cfg=$HOME/.jnext/runs/bench-[^ /]*/config args=" "$BH_LOG" || true)
+cfg_dir=$(sed -n 's/^cfg=\([^ ]*\) args=.*/\1/p' "$BH_LOG" | sort -u)
+res="rc=$rc calls=$calls bad_cfg=$bad_cfg dirs=$(wc -l <<<"$cfg_dir") gone=$([[ -n "$cfg_dir" && ! -e "$cfg_dir" ]] && echo yes || echo NO)"
+check "HS-190a" "every jnext the bench starts sees ONE private JNEXT_CONFIG_DIR under its run dir (never the user's), gone afterwards" 0 0 "$res" \
+    "rc=0" "calls=41" "bad_cfg=0" "dirs=1" "gone=yes"
+first=$(head -1 "$BH_LOG"); second=$(sed -n 2p "$BH_LOG")
+res="first_load=$([[ "$first" == *" --load "*copper_demo.nex* ]] && echo yes || echo NO) first_benchmark=$([[ "$first" == *" --benchmark "* ]] && echo YES || echo no)"
+res+=" second_benchmark=$([[ "$second" == *" --benchmark "* ]] && echo yes || echo NO) unmeasured=$(grep -vc -e '--benchmark' "$BH_LOG" || true)"
+res+=" header=$(grep -c '^# warm start: primed' "$BH_FIX/test/bench/baseline-"*.txt || true)"
+check "HS-190b" "the first invocation is the one unmeasured priming run (--load, no --benchmark) and the only one; the header says so" 0 0 "$res" \
+    "first_load=yes" "first_benchmark=no" "second_benchmark=yes" "unmeasured=1" "header=1"
+
+# ---- the bench driver gets INT and TERM; one host-wide bench lock (HS-185a/b, HS-186) ----
+# Oracle (review of the browser bench, 2026-11-09): `timeout` runs its child in a process group of its own,
+# which a terminal's SIGINT never reaches, and bash defers a trap until the foreground child ends: Ctrl-C
+# was ignored until a multi-hour run finished, and a TERM left Firefox and Xvfb running with the scratch
+# directory they keep writing into. run-bounded.sh runs the command in the background and forwards the
+# signal. Fixture: a stub driver that starts a detached grandchild (its own process group, as Firefox is)
+# and kills it on INT/TERM, as the real driver does. NOTE: run-bounded.sh is probed here under
+# `env --default-signal`, so both signals arrive; in the real chain bash ignores SIGINT in a command it starts with
+# `&`, so a terminal's Ctrl-C reaches the driver through browser-bench.sh's own cleanup (it forwards TERM to the
+# background run-bounded.sh): that chain is what the live checks of the review exercised.
+RB_FIX="$T/runbounded"; rm -rf "$RB_FIX"; mkdir -p "$RB_FIX"
+cat > "$RB_FIX/stub.sh" <<'STUB'
+#!/usr/bin/env bash
+setsid sleep 300 &
+gc=$!
+echo "$gc" > "$RB_PIDFILE"
+echo "$$" > "$RB_PIDFILE.stub"
+trap 'kill -TERM "$gc" 2>/dev/null; exit 143' TERM INT
+wait
+STUB
+# "No child left" means no process still RUNNING: a zombie runs nothing, and `kill -0` succeeds on one. In a CI
+# container PID 1 is `tail -f /dev/null`, which never reaps, so the killed grandchild of the stub stays a zombie for
+# ever (CI run 42712797516: HS-185a/b failed on an idle host; the host's systemd reaps it at once, so no local
+# run could see it). This row is Linux-only, so /proc/<pid>/stat is there: state Z, or no file, is gone.
+pid_running() {   # pid_running <pid>
+    local s; s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+    s=${s##*) }                       # past "(comm) ": comm may hold spaces and parentheses
+    [[ "${s%% *}" != Z ]]
+}
+rb_probe() {   # rb_probe <INT|TERM> -> "exit=<n> prompt=<y|n> grandchild=<gone|ALIVE>"
+    local sig=$1 pidf="$RB_FIX/gc.$1" t0 rc=0
+    rm -f "$pidf"
+    RB_PIDFILE="$pidf" env --default-signal=INT --default-signal=TERM setsid bash "$PROJECT_DIR/test/bench/web/run-bounded.sh" 120 bash "$RB_FIX/stub.sh" >/dev/null 2>&1 &
+    local rbpid=$!
+    local i; for i in $(seq 1 50); do [[ -s "$pidf" ]] && break; sleep 0.1; done
+    t0=$SECONDS
+    kill -"$sig" "$rbpid" 2>/dev/null
+    for i in $(seq 1 60); do kill -0 "$rbpid" 2>/dev/null || break; sleep 0.1; done
+    local alive=n; kill -0 "$rbpid" 2>/dev/null && alive=y
+    # a wrapper that ignored the signal is KILLED before the wait: a missing forward must fail this row by name,
+    # not hang the whole suite until its bound
+    [[ $alive == y ]] && kill -KILL "$rbpid" 2>/dev/null
+    wait "$rbpid" 2>/dev/null; rc=$?
+    local gc; gc=$(cat "$pidf" 2>/dev/null || echo 0)
+    local gcs=gone; pid_running "$gc" && { gcs=ALIVE; kill -KILL "$gc" 2>/dev/null; }
+    [[ $alive == y ]] && kill -KILL "$(cat "$pidf.stub" 2>/dev/null || echo 0)" 2>/dev/null
+    echo "exit=$rc prompt=$([[ $alive == n && $((SECONDS - t0)) -le 6 ]] && echo y || echo n) grandchild=$gcs"
+}
+res=$(rb_probe INT)
+check "HS-185a" "SIGINT to run-bounded.sh reaches the command: the wrapper exits 130 within seconds and the command's detached child is gone" 0 0 "$res" \
+    "exit=130" "prompt=y" "grandchild=gone"
+res=$(rb_probe TERM)
+check "HS-185b" "SIGTERM likewise: exit 143, prompt, no child left (a TERM used to orphan Firefox and Xvfb for hours)" 0 0 "$res" \
+    "exit=143" "prompt=y" "grandchild=gone"
+
+# The reader itself (HS-185c): a zombie reads as gone, a live process as running, a missing one as gone. The zombie is
+# made on purpose: a child that exits under a parent (an exec'd `sleep`) that never reaps it, as PID 1 of a CI container.
+ZB="$T/zombie"; rm -rf "$ZB"; mkdir -p "$ZB"
+bash -c 'bash -c "echo \$\$ > \"$1/z\"" & echo $$ > "$1/p"; exec sleep 8' _ "$ZB" &
+zb_parent=$!
+for i in $(seq 1 50); do [[ -s "$ZB/z" && -s "$ZB/p" ]] && break; sleep 0.1; done
+sleep 0.3
+zpid=$(cat "$ZB/z" 2>/dev/null || echo 0); lpid=$(cat "$ZB/p" 2>/dev/null || echo 0)
+res="zombie_kill0=$(kill -0 "$zpid" 2>/dev/null && echo alive || echo gone)"
+res+=" zombie=$(pid_running "$zpid" && echo RUNNING || echo gone)"
+res+=" live=$(pid_running "$lpid" && echo running || echo GONE)"
+res+=" missing=$(pid_running 2147483646 && echo RUNNING || echo gone)"
+kill -KILL "$zb_parent" 2>/dev/null; wait "$zb_parent" 2>/dev/null
+check "HS-185c" "pid_running reads a zombie (state Z) as gone although kill -0 succeeds on it, a live process as running, a missing one as gone" 0 0 "$res" \
+    "zombie_kill0=alive" "zombie=gone" "live=running" "missing=gone"
+
+# One lock for the whole host: two copies of the scripts (two worktrees) share it, because it lives under
+# the user's cache and not beside the scripts. Fixture: two directories with their own bench-lock.sh; A holds
+# the lock, B must wait (and say so), then proceed when A is done.
+LK_FIX="$T/benchlock"; rm -rf "$LK_FIX"; mkdir -p "$LK_FIX/a" "$LK_FIX/b"
+cp "$PROJECT_DIR/test/bench/bench-lock.sh" "$LK_FIX/a/"; cp "$PROJECT_DIR/test/bench/bench-lock.sh" "$LK_FIX/b/"
+printf 'source "$1/bench-lock.sh"; bench_take_lock; echo got-lock; sleep "$2"\n' > "$LK_FIX/run.sh"
+bash "$LK_FIX/run.sh" "$LK_FIX/a" 4 >"$LK_FIX/a.out" 2>&1 &
+lk_a=$!
+for i in $(seq 1 30); do grep -q got-lock "$LK_FIX/a.out" 2>/dev/null && break; sleep 0.1; done
+out=$(timeout --kill-after=2s 1.5s bash "$LK_FIX/run.sh" "$LK_FIX/b" 0 2>&1); rc=$?
+res="blocked_rc=$rc says_waiting=$([[ "$out" == *"waiting for it to finish"* ]] && echo yes || echo NO) b_got=$([[ "$out" == *got-lock* ]] && echo YES || echo no)"
+wait "$lk_a" 2>/dev/null
+out=$(timeout --kill-after=2s 5s bash "$LK_FIX/run.sh" "$LK_FIX/b" 0 2>&1); rc=$?
+res+=" after_rc=$rc after_got=$([[ "$out" == *got-lock* ]] && echo yes || echo NO)"
+check "HS-186" "the bench lock is host-wide: a second copy of the scripts waits while the first holds it, and proceeds once it is released" 0 0 "$res" \
+    "blocked_rc=124" "says_waiting=yes" "b_got=no" "after_rc=0" "after_got=yes"
+
+# The lock descriptor must not leak into the bench's children (HS-187). Oracle (review of the browser bench,
+# round 3): a Firefox group started after the driver was told to stop kept its Xvfb alive, re-parented, with the
+# inherited fd 200 open, so the lock stayed held and every later bench on the host waited for ever. bench_spawn
+# starts a child without the descriptor. Fixture: the lock taken, a stub child started through bench_spawn that
+# starts a detached grandchild; no process of that tree may hold the lock file open, while the caller does.
+LKS_FIX="$T/lockleak"; rm -rf "$LKS_FIX"; mkdir -p "$LKS_FIX"
+cat > "$LKS_FIX/stub.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$$" > "$LK_PIDS/child"
+setsid sleep 60 &
+echo "$!" > "$LK_PIDS/grandchild"
+wait
+STUB
+cat > "$LKS_FIX/run.sh" <<'RUN'
+source "$PROJECT_DIR/test/bench/bench-lock.sh"
+bench_take_lock
+bench_spawn bash "$LK_PIDS/../stub.sh"
+for i in $(seq 1 50); do [[ -s "$LK_PIDS/grandchild" ]] && break; sleep 0.1; done
+lock=$(readlink -f "$HOME/.cache/jnext/bench.lock")
+holds() { local f; for f in /proc/"$1"/fd/*; do [[ "$(readlink -f "$f" 2>/dev/null)" == "$lock" ]] && return 0; done; return 1; }
+res="self=$(holds $$ && echo holds || echo NO)"
+for w in child grandchild; do res+=" $w=$(holds "$(cat "$LK_PIDS/$w" 2>/dev/null || echo 0)" && echo HOLDS || echo free)"; done
+echo "$res"
+kill -KILL "$BENCH_CHILD_PID" "$(cat "$LK_PIDS/grandchild")" 2>/dev/null
+RUN
+mkdir -p "$LKS_FIX/pids"
+res=$(LK_PIDS="$LKS_FIX/pids" PROJECT_DIR="$PROJECT_DIR" timeout --kill-after=2s 20s bash "$LKS_FIX/run.sh" 2>&1)
+check "HS-187" "a child started with bench_spawn, and its detached grandchild, do not hold the bench lock file open (only the script that took it does)" 0 0 "$res" \
+    "self=holds" "child=free" "grandchild=free"
+
+# Lint (HS-188): a script that holds the bench lock starts no background child except through bench_spawn
+# (which closes the lock descriptor). A bare `cmd &` would inherit fd 200 and, if it outlived the script, hold the
+# lock for every later bench on the host (HS-187 pins bench_spawn itself; this pins that it is the only way).
+bg_leaks() {   # bg_leaks <file...> -> "file:line" of every code line that ends in a lone `&`
+    local f
+    for f in "$@"; do
+        grep -nE '(^|[^&])&[[:space:]]*$' "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|${f##*/}:|"
+    done
+}
+LK_SCRIPTS=$(grep -lE 'source .*bench-lock\.sh' "$PROJECT_DIR"/test/bench/*.sh "$PROJECT_DIR"/test/bench/web/*.sh | sort)
+mkdir -p "$T/bglint"
+printf 'source bench-lock.sh\nbench_take_lock\nsleep 1 &\n' > "$T/bglint/bad.sh"
+printf 'source bench-lock.sh\nbench_take_lock\nbench_spawn sleep 1\n[[ a == b ]] && echo x\n# sleep 1 &\n' > "$T/bglint/good.sh"
+res="scripts=$(wc -w <<<"$LK_SCRIPTS") leaks=[$(bg_leaks $LK_SCRIPTS | tr '\n' ' ')] bad_found=$(bg_leaks "$T/bglint/bad.sh" | wc -l) good_found=$(bg_leaks "$T/bglint/good.sh" | wc -l)"
+check "HS-188" "no script that takes the bench lock starts a bare background child (only bench_spawn does); the lint sees a bare '&' and ignores '&&', comments and bench_spawn" 0 0 "$res" \
+    "scripts=2" "leaks=[]" "bad_found=1" "good_found=0"
+
 # Where the run LIVES must not decide the verdict. The lint's patterns once saw
 # absolute paths, so its own `mktemp -d` translation unit, or a source root under a
 # directory ending in `qt`, matched the Qt pattern: HS-49a failed once on
@@ -1659,6 +1830,7 @@ CLEANUP_SCRIPTS=("$HARNESS"
                  "$PROJECT_DIR/test/bench/bench.sh"
                  "$PROJECT_DIR/test/bench/ab-hotlatch.sh"
                  "$PROJECT_DIR/test/bench/perf-attach.sh"
+                 "$PROJECT_DIR/test/bench/web/browser-bench.sh"
                  "$PROJECT_DIR/test/00regression/test-functions.inc")
 
 # (a) each script handles INT and TERM at all.
@@ -2658,6 +2830,99 @@ left=$(find "$XC2" -mindepth 3 2>/dev/null | head -3)
 check "HS-101" "provision-ghidra.sh with a wrong JNEXT_GHIDRA_SHA256 refuses (exit 1), names the mismatch and installs nothing, scratch removed (GH #389)" 1 $([[ $rc -eq 1 && -z "$left" ]] && echo 1 || echo 99) \
     "$out"$'\n'"left:[$left]" "SHA-256 MISMATCH" "expected $BADSHA" "left:[]"
 
+# provision-emsdk.sh (GH #459) pins THREE archives and verifies each before it unpacks any: a wrong
+# sha256 on the emsdk archive, on the release or on node is refused (exit 1), names the mismatch and
+# leaves nothing in the cache. Fake file:// archives; for b and c the earlier pins are the fakes' real
+# sha256, so the check failing is the one under test.
+EM="$T/prov-emsdk"; mkdir -p "$EM"
+printf 'fake emsdk\n' > "$EM/emsdk.tar.gz"; printf 'fake release\n' > "$EM/release.tar.xz"; printf 'fake node\n' > "$EM/node.tar.xz"
+EM_OK=$(sha256sum "$EM/emsdk.tar.gz" | cut -d' ' -f1)
+EM_REL_OK=$(sha256sum "$EM/release.tar.xz" | cut -d' ' -f1)
+EM_NODE_OK=$(sha256sum "$EM/node.tar.xz" | cut -d' ' -f1)
+for which in a b c; do
+    case $which in
+        a) em=$BADSHA; rel=$EM_REL_OK; nod=$EM_NODE_OK; what="the emsdk archive" ;;
+        b) em=$EM_OK;  rel=$BADSHA;    nod=$EM_NODE_OK; what="the release tarball" ;;
+        c) em=$EM_OK;  rel=$EM_REL_OK; nod=$BADSHA;     what="the node tarball" ;;
+    esac
+    XCE="$T/prov-cache-em-$which"
+    out=$(XDG_CACHE_HOME="$XCE" JNEXT_EMSDK_URL="file://$EM/emsdk.tar.gz" JNEXT_EMSDK_SHA256=$em \
+          JNEXT_EMSDK_RELEASE_URL="file://$EM/release.tar.xz" JNEXT_EMSDK_RELEASE_SHA256=$rel \
+          JNEXT_EMSDK_NODE_URL="file://$EM/node.tar.xz" JNEXT_EMSDK_NODE_SHA256=$nod \
+          bash "$PROJECT_DIR/test/provision-emsdk.sh" 2>&1); rc=$?
+    left=$(find "$XCE" -mindepth 3 ! -name "*.lock" 2>/dev/null | head -3)
+    badpin=$em; [[ $which == b ]] && badpin=$rel; [[ $which == c ]] && badpin=$nod
+    case $which in
+        a) hs_id=HS-158a ;; b) hs_id=HS-158b ;; c) hs_id=HS-158c ;;
+    esac
+    check "$hs_id" "provision-emsdk.sh with a wrong sha256 for $what refuses (exit 1), names the mismatch and installs nothing, scratch removed (GH #459)" 1 $([[ $rc -eq 1 && -z "$left" ]] && echo 1 || echo 99) \
+        "$out"$'\n'"left:[$left]" "SHA-256 MISMATCH" "expected $badpin" "left:[]"
+done
+
+# provision-emsdk.sh (GH #459 review): the install is built in place, so a run that waited for the lock
+# re-resolves and uses the tree the other run stamped instead of installing over it. Here the test holds
+# the lock, starts the provisioner with unreachable URLs, then plants a stamped fake tree and releases the
+# lock: the provisioner must print "using" and exit 0 without a download (a copy that skips the re-resolve
+# goes on to the unreachable download and exits 1).
+XL="$T/prov-cache-em-lock"; mkdir -p "$XL/jnext/tools"
+EMT="$XL/jnext/tools/emsdk-6.0.13"
+exec 8>"$XL/jnext/tools/emsdk-6.0.13.lock"; flock 8
+( XDG_CACHE_HOME="$XL" JNEXT_EMSDK_URL="file://$T/none.tgz" JNEXT_EMSDK_SHA256=aa \
+  JNEXT_EMSDK_RELEASE_URL="file://$T/none.xz" JNEXT_EMSDK_RELEASE_SHA256=bb \
+  JNEXT_EMSDK_NODE_URL="file://$T/none2.xz" JNEXT_EMSDK_NODE_SHA256=cc \
+  bash "$PROJECT_DIR/test/provision-emsdk.sh" > "$T/prov-lock.out" 2>&1; echo $? > "$T/prov-lock.rc" ) &
+LOCKPID=$!
+sleep 1
+mkdir -p "$EMT/upstream/emscripten"; printf '#!/bin/sh\n' > "$EMT/upstream/emscripten/emcc"; chmod +x "$EMT/upstream/emscripten/emcc"
+printf 'emsdk 6.0.13 aa bb cc\n' > "$EMT/.jnext-provisioned"
+flock -u 8; exec 8>&-
+wait $LOCKPID
+out=$(cat "$T/prov-lock.out"); rc=$(cat "$T/prov-lock.rc")
+check "HS-159" "provision-emsdk.sh re-resolves once it holds the lock: a tree stamped meanwhile is used (exit 0), nothing is downloaded or removed (GH #459)" 0 $rc "$out" "emsdk: using $EMT"
+[[ -x "$EMT/upstream/emscripten/emcc" ]] || { echo "HS-159: the stamped tree was removed"; fail=$((fail + 1)); }
+
+# provision-playwright.sh (GH #463) pins TWO archives and verifies each before it unpacks either: a wrong
+# sha256 on playwright-core or on the headless shell is refused (exit 2), names the mismatch and leaves
+# nothing in the cache. Fake file:// archives; for b the first pin is the fake's real sha256.
+PW="$T/prov-pw"; mkdir -p "$PW"
+printf 'fake playwright\n' > "$PW/pw.tgz"; printf 'fake browser\n' > "$PW/browser.zip"
+PW_OK=$(sha256sum "$PW/pw.tgz" | cut -d' ' -f1)
+PW_BR_OK=$(sha256sum "$PW/browser.zip" | cut -d' ' -f1)
+for which in a b; do
+    case $which in
+        a) pw=$BADSHA; br=$PW_BR_OK; what="playwright-core"; badpin=$BADSHA ;;
+        b) pw=$PW_OK;  br=$BADSHA;   what="the Chromium headless shell"; badpin=$BADSHA ;;
+    esac
+    XCP="$T/prov-cache-pw-$which"
+    out=$(XDG_CACHE_HOME="$XCP" JNEXT_PLAYWRIGHT_URL="file://$PW/pw.tgz" JNEXT_PLAYWRIGHT_SHA256=$pw \
+          JNEXT_PLAYWRIGHT_BROWSER_URL="file://$PW/browser.zip" JNEXT_PLAYWRIGHT_BROWSER_SHA256=$br \
+          bash "$PROJECT_DIR/test/provision-playwright.sh" 2>&1); rc=$?
+    left=$(find "$XCP" -mindepth 3 ! -name "*.lock" 2>/dev/null | head -3)
+    case $which in a) hs_id=HS-160a ;; b) hs_id=HS-160b ;; esac
+    check "$hs_id" "provision-playwright.sh with a wrong sha256 for $what refuses (exit 2), names the mismatch and installs nothing, scratch removed (GH #463)" 2 $([[ $rc -eq 2 && -z "$left" ]] && echo 2 || echo 99) \
+        "$out"$'\n'"left:[$left]" "SHA-256 MISMATCH" "expected $badpin" "left:[]"
+done
+
+# provision-playwright.sh (GH #463): like the emsdk one, a run that waited for the lock re-resolves and
+# uses the tree the other run stamped. The test holds the lock, starts the provisioner with unreachable
+# URLs, plants a stamped fake tree and releases the lock: it must print "using" and exit 0.
+PL="$T/prov-cache-pw-lock"; mkdir -p "$PL/jnext/tools"
+PWT="$PL/jnext/tools/playwright-1.65.0"
+exec 8>"$PL/jnext/tools/playwright-1.65.0.lock"; flock 8
+( XDG_CACHE_HOME="$PL" JNEXT_PLAYWRIGHT_URL="file://$T/none.tgz" JNEXT_PLAYWRIGHT_SHA256=aa \
+  JNEXT_PLAYWRIGHT_BROWSER_URL="file://$T/none.zip" JNEXT_PLAYWRIGHT_BROWSER_SHA256=bb \
+  bash "$PROJECT_DIR/test/provision-playwright.sh" > "$T/prov-pwlock.out" 2>&1; echo $? > "$T/prov-pwlock.rc" ) &
+LOCKPID=$!
+sleep 1
+mkdir -p "$PWT/chromium/chrome-headless-shell-linux64"
+printf '#!/bin/sh\n' > "$PWT/chromium/chrome-headless-shell-linux64/chrome-headless-shell"; chmod +x "$PWT/chromium/chrome-headless-shell-linux64/chrome-headless-shell"
+printf 'playwright 1.65.0 aa 158.0.8127.18 bb\n' > "$PWT/.jnext-provisioned"
+flock -u 8; exec 8>&-
+wait $LOCKPID
+out=$(cat "$T/prov-pwlock.out"); rc=$(cat "$T/prov-pwlock.rc")
+check "HS-161" "provision-playwright.sh re-resolves once it holds the lock: a tree stamped meanwhile is used (exit 0), nothing is downloaded or removed (GH #463)" 0 $rc "$out" "playwright: using $PWT"
+[[ -x "$PWT/chromium/chrome-headless-shell-linux64/chrome-headless-shell" ]] || { echo "HS-161: the stamped tree was removed"; fail=$((fail + 1)); }
+
 # ---------------- the harness's git keeps the user's own config (GH #295) ----------------
 # The suite points XDG_CONFIG_HOME at a scratch dir for Qt, and git resolves
 # its global excludes file through it: on the main checkout a file ignored only
@@ -2879,6 +3144,165 @@ out=$(JNEXT_UNIT_TEST_JOBS=0 run_harness); rc=$?
 first_line=$(grep -E 'pinned_test.* FAIL ' <<<"$out" | head -1)
 check "HS-88k" "a multi-line FAIL row (rows vs pin) ends its FIRST line with the wall time" 1 $rc "$out" "pinned_test" "pins 4"
 check "HS-88l" "...the time is on that first line, not after the explanation" 0 $([[ "$first_line" =~ Skipped:\ +0\ \([0-9]+\ s\)$ ]] && echo 0 || echo 1) "first line: $first_line" "first line"
+
+# ---------------- WebAssembly under node (GH #460) ----------------
+# An Emscripten build run by node: JNEXT_TARGET_OS=emscripten, every add_test() led by
+# the cross-compiling emulator CMake read from the cache (CMAKE_CROSSCOMPILING_EMULATOR),
+# and a suite that is NAME.js + NAME.wasm, neither executable. `# os: native` is the class
+# of Linux, macOS and Windows: everything but emscripten. The oracle is the harness
+# contract (CLAUDE.md, the test manifests), and the add_test() format of a real wasm tree
+# (an emulator-prefixed line, read from build/wasm-unit-test).
+wasm_cache() {   # wasm_cache <os> [emulator] — the fake tree's cache, with a cross emulator
+    cache ON ON "$1"
+    [[ -z "${2:-}" ]] || echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$2" >> "$T/build/CMakeCache.txt"
+}
+wasm_suite() {   # wasm_suite <name> <rows> — NAME.js (a non-executable script) + NAME.wasm
+    stub "$1" "$2" 0
+    mv "$T/build/test/$1" "$T/build/test/$1.js"
+    chmod 644 "$T/build/test/$1.js"
+    : > "$T/build/test/$1.wasm"
+}
+wasm_register() {   # wasm_register <name...> — add_test(<n>s "/x/node" "<n>.js"), sources = the .js
+    : > "$T/build/test/CTestTestfile.cmake"; : > "$T/sources.tsv"
+    local n
+    for n in "$@"; do
+        echo "add_test(${n}s \"/x/node\" \"$T/build/test/$n.js\")" >> "$T/build/test/CTestTestfile.cmake"
+        printf '%s\t%s\n' "$n" "$T/build/test/$n.js" >> "$T/sources.tsv"
+    done
+}
+# The runner of these rows plays node: it is handed the .js and executes it with bash.
+printf '#!/usr/bin/env bash\necho "runner ran $*" >"%s/runner.log"\nexec bash "$@"\n' "$T" > "$T/wasm-runner.sh"
+chmod +x "$T/wasm-runner.sh"
+run_wasm() { JNEXT_TEST_RUNNER="$T/wasm-runner.sh" run_harness; }
+
+wasm_suite good_test 10
+wasm_cache emscripten /x/node
+wasm_register good_test
+manifest "good_test 10"
+out=$(run_wasm); rc=$?
+check "HS-162a" "an emscripten tree: the emulator-led add_test(), a NAME.js that is not executable and a NAME.wasm run, and the config line names the OS" 0 $rc "$out" \
+    "good_test" "Total: 10" "os=emscripten"
+rm -f "$T/runner.log"
+out=$(run_wasm); rc=$?
+runner_log=$(cat "$T/runner.log" 2>/dev/null || true)
+check "HS-162b" "the runner is handed NAME.js, the .js path of the suite, not the emulator and not the bare name" 0 $([[ "$runner_log" == "runner ran $T/build/test/good_test.js" ]] && echo 0 || echo 1) "$runner_log" "runner ran"
+rm -f "$T/build/test/good_test.wasm"
+out=$(run_wasm); rc=$?
+check "HS-162c" "an emscripten suite whose .wasm is missing is not built: a refusal naming the .wasm" 2 $rc "$out" "REFUSES TO RUN" "NOT built" "good_test.wasm"
+: > "$T/build/test/good_test.wasm"
+
+wasm_suite other_test 5
+wasm_register good_test other_test
+sed -i 's|^add_test(other_tests "/x/node" |add_test(other_tests |' "$T/build/test/CTestTestfile.cmake"
+manifest "good_test 10" "other_test 5"
+out=$(run_wasm); rc=$?
+check "HS-162d" "a cache naming a cross emulator and an add_test() line without it is a refusal naming that suite, not a guess at the suite word" 2 $rc "$out" \
+    "REFUSES TO RUN" "other_tests" "cross-compiling emulator" "which argument is the suite"
+
+wasm_register good_test other_test
+manifest "good_test 10" "# os: native" "?other_test 5"
+out=$(run_wasm); rc=$?
+check "HS-162e" "an '# os: native' suite registered on emscripten is a refusal" 2 $rc "$out" \
+    "REFUSES TO RUN" "other_test" "gates it to"
+
+wasm_register good_test
+manifest "good_test 10" "# os: native" "?other_test 5"
+out=$(run_wasm); rc=$?
+check "HS-162f" "an '# os: native' suite absent on emscripten is expected: NOTICE naming it and the OS, not silence" 0 $rc "$out" \
+    "NOTICE" "gated out" "other_test" "os=emscripten" "Suites: 1 pass, 0 fail"
+
+manifest "good_test 10" "# os: posix" "?other_test 5"
+out=$(run_wasm); rc=$?
+check "HS-162h" "an '# os: posix' suite absent on emscripten is expected: NOTICE naming it (posix does not include emscripten)" 0 $rc "$out" \
+    "NOTICE" "gated out" "other_test" "os=emscripten"
+wasm_register good_test other_test
+out=$(run_wasm); rc=$?
+check "HS-162i" "...and one registered there is a refusal" 2 $rc "$out" "REFUSES TO RUN" "other_test" "gates it to"
+
+# native on the other OSes (Windows here): owed, so absent is a refusal and registered runs.
+rm -f "$T/build/test/"*.js "$T/build/test/"*.wasm
+stub good_test 10 0; stub other_test 5 0
+register good_test
+cache ON ON windows
+manifest "good_test 10" "# os: native" "?other_test 5"
+out=$(run_harness); rc=$?
+check "HS-162g" "an '# os: native' suite absent on windows is a refusal: native includes windows" 2 $rc "$out" \
+    "REFUSES TO RUN" "other_test" "NOT registered by CMake"
+mv "$T/build/test/good_test" "$T/build/test/good_test.exe"; mv "$T/build/test/other_test" "$T/build/test/other_test.exe"
+: > "$T/build/test/CTestTestfile.cmake"; : > "$T/sources.tsv"
+for n in good_test other_test; do
+    echo "add_test(${n}s \"$T/build/test/$n.exe\")" >> "$T/build/test/CTestTestfile.cmake"
+    printf '%s\t%s\n' "$n" "$T/build/test/$n.exe" >> "$T/sources.tsv"
+done
+out=$(run_harness); rc=$?
+check "HS-162j" "...and the control: registered on windows it runs" 0 $rc "$out" "Total: 15" "os=windows"
+rm -f "$T/build/test/good_test.exe" "$T/build/test/other_test.exe"
+
+# ---- test/node-run.sh: the runner behind make unit-test-wasm ----
+NR="$T/nr"; mkdir -p "$NR/build/test" "$NR/bin"
+NODE_RUN="$PROJECT_DIR/test/node-run.sh"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$#" "$@" > "%s/argv.txt"\nexit 7\n' "$NR" > "$NR/node"
+chmod +x "$NR/node"
+echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$NR/node" > "$NR/build/CMakeCache.txt"
+: > "$NR/build/test/x.js"; : > "$NR/build/test/x.wasm"
+out=$(timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" "a b" c 2>&1); rc=$?
+argv=$(tr '\n' '|' < "$NR/argv.txt" 2>/dev/null || true)
+check "HS-163a" "node-run.sh hands the .js and the arguments to the cache's node intact (3 words: the module, 'a b', c) and returns its exit status" 7 $rc "$argv" \
+    "3|$NR/build/test/x.js|a b|c|"
+
+cat > "$NR/node" <<EOS
+#!/usr/bin/env bash
+n=\$(cat "$NR/count" 2>/dev/null || echo 0); echo \$((n + 1)) > "$NR/count"
+env > "$NR/env.\$n"
+echo "\$TMPDIR" >> "$NR/tmps"
+[[ -d "\$TMPDIR" ]] && echo exists >> "$NR/during"
+exit 0
+EOS
+rm -f "$NR/count" "$NR/tmps" "$NR/during" "$NR"/env.*
+DISPLAY=:99 WAYLAND_DISPLAY=wayland-99 LC_ALL=es_ES.UTF-8 LANG=es_ES.UTF-8 \
+    timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" >/dev/null 2>&1; rc=$?
+DISPLAY=:99 WAYLAND_DISPLAY=wayland-99 LC_ALL=es_ES.UTF-8 LANG=es_ES.UTF-8 \
+    timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" >/dev/null 2>&1; rc2=$?
+env_ok=1
+for f in "$NR"/env.0 "$NR"/env.1; do
+    if ! { grep -qx 'LC_ALL=C' "$f" && grep -qx 'LANG=C' "$f" && ! grep -q '^DISPLAY=' "$f" && ! grep -q '^WAYLAND_DISPLAY=' "$f"; }; then env_ok=0; fi
+done
+t1=$(sed -n 1p "$NR/tmps" 2>/dev/null || true); t2=$(sed -n 2p "$NR/tmps" 2>/dev/null || true)
+priv_ok=0
+[[ -n "$t1" && -n "$t2" && "$t1" != "$t2" && ! -e "$t1" && ! -e "$t2" && "$(grep -c exists "$NR/during" 2>/dev/null)" == 2 ]] && priv_ok=1
+check "HS-163b" "node-run.sh runs node with LC_ALL=C LANG=C and no DISPLAY / WAYLAND_DISPLAY, in a private TMPDIR that exists during the run, differs per run and is gone after" 0 $(( rc == 0 && rc2 == 0 && env_ok == 1 && priv_ok == 1 ? 0 : 1 )) \
+    "rc=$rc rc2=$rc2 env_ok=$env_ok priv_ok=$priv_ok t1=$t1 t2=$t2"
+
+printf '#!/usr/bin/env bash\ntouch "%s/path-node-ran"\n' "$NR" > "$NR/bin/node"; chmod +x "$NR/bin/node"
+rm -f "$NR/path-node-ran"
+echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$NR/no-such-node" > "$NR/build/CMakeCache.txt"
+out=$(PATH="$NR/bin:/usr/bin:/bin" timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" 2>&1); rc=$?
+check "HS-163c" "node-run.sh with a missing cache emulator exits 2 naming CMAKE_CROSSCOMPILING_EMULATOR and never runs a node found on PATH" 2 $rc \
+    "$out"$([[ -e "$NR/path-node-ran" ]] && echo " PATH-NODE-RAN") "CMAKE_CROSSCOMPILING_EMULATOR"
+[[ ! -e "$NR/path-node-ran" ]] || { echo "HS-163c: a node from PATH ran"; fail=$((fail + 1)); }
+echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$NR/node" > "$NR/build/CMakeCache.txt"
+rm -f "$NR/build/test/x.wasm"
+out=$(timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" 2>&1); rc=$?
+check "HS-163d" "node-run.sh with no NAME.wasm beside the .js exits 2 naming it" 2 $rc "$out" "x.wasm"
+: > "$NR/build/test/x.wasm"
+
+cat > "$NR/node" <<EOS
+#!/usr/bin/env bash
+echo "\$TMPDIR" > "$NR/term-tmp"
+trap 'echo term > "$NR/term-marker"; exit 143' TERM
+echo ready > "$NR/ready"
+for ((i = 0; i < 300; i++)); do sleep 0.1; done
+exit 0
+EOS
+rm -f "$NR/term-marker" "$NR/ready" "$NR/term-tmp"
+bash "$NODE_RUN" "$NR/build/test/x.js" >/dev/null 2>&1 &
+rpid=$!
+for ((i = 0; i < 100; i++)); do [[ -e "$NR/ready" ]] && break; sleep 0.1; done
+kill -TERM "$rpid" 2>/dev/null
+rc=0; wait "$rpid" || rc=$?
+tt=$(cat "$NR/term-tmp" 2>/dev/null || true)
+check "HS-163e" "TERM sent to node-run.sh reaches node (its trap writes the marker), the runner exits with node's status 143 and removes the private TMPDIR" 143 $rc \
+    "marker=$(cat "$NR/term-marker" 2>/dev/null) gone=$([[ -n "$tt" && ! -e "$tt" ]] && echo yes || echo no)" "marker=term" "gone=yes"
 
 # ---------------------------------------------------------------------------
 # GH #319: regression.sh --platform (macOS / wine runs), the os= tag grammar and
@@ -3129,8 +3553,8 @@ cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regressio
 cp "$PROJECT_DIR/test/regression-stamp.sh" "$PL/test/"
 printf '# expect: 2\nshot-a\nshot-b\n' > "$PLT/regression_tests.conf"
 printf 'touch "%s/lint-ran"\nfor lint_n in 1 2 3 4 5 6 7; do CURRENT_ROW="lint-$lint_n"; pass_row; done\n' "$PLM" > "$PLT/scripts/00-preflight-lint.sh"
-printf 'CURRENT_ROW=sdcard-provision; pass_row\n' > "$PLT/scripts/01-sdcard-provision.sh"
-printf 'ORDERED_TESTS=(shot-a shot-b)\nfor shot_n in shot-a shot-b; do CURRENT_ROW=$shot_n; pass_row; done\n' > "$PLT/scripts/screenshots.sh"
+printf 'echo "jnext_native=${JNEXT_NATIVE:-unset}"\nCURRENT_ROW=sdcard-provision; pass_row\n' > "$PLT/scripts/01-sdcard-provision.sh"
+printf 'echo "shot_wall_factor=${SHOT_WALL_FACTOR:-unset}"\nORDERED_TESTS=(shot-a shot-b)\nfor shot_n in shot-a shot-b; do CURRENT_ROW=$shot_n; pass_row; done\n' > "$PLT/scripts/screenshots.sh"
 printf 'if want adm-a-func; then begin_func adm-a-func; pass_row; fi\n' > "$PLT/scripts/adm-a-func.sh"
 printf 'if want adm-b-func; then begin_func adm-b-func; pass_row; fi\n' > "$PLT/scripts/adm-b-func.sh"
 printf 'if want abs-c-func; then touch "%s/ran-abs-c"; begin_func abs-c-func; pass_row; fi\n' "$PLM" > "$PLT/scripts/abs-c-func.sh"
@@ -3144,7 +3568,7 @@ sg_pl() { git -C "$PL" -c user.name=t -c user.email=t@t "$@" >/dev/null 2>&1; }
 sg_pl init -q; sg_pl add -A; sg_pl commit -qm fixture --allow-empty
 pl_run() {   # pl_run <regression.sh args...>
     rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
-    ( cd "$PL" && HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bq" JNEXT_TARGET_SDL_BUILD="$PL/bs" TEST_BIN_DIR="$PL/helpers" \
+    ( cd "$PL" && SHOT_WALL_FACTOR=9 HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bq" JNEXT_TARGET_SDL_BUILD="$PL/bs" TEST_BIN_DIR="$PL/helpers" \
       JNEXT_REGRESSION_LOCK_FILE="$T/pl.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
       JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
       JNEXT_TEST_JOBS=1 timeout --kill-after=5s 120s bash "$PLT/regression.sh" "$@" 2>&1 )
@@ -3154,6 +3578,7 @@ out=$(pl_run --platform); rc=$?; out+=$'\n'"$(pl_marks)"
 check "HS-95a" "a full platform run starts only the admitted rows and reports provision + screenshots + admitted (5/5), no lints" 0 $rc "$out" \
     "[adm-a-func]" "[adm-b-func]" "5/5 declared tests reported" "abs_ran=0 lint_ran=0"
 check "HS-95b" "...and prints the absent row by name" 0 $rc "$out" "absent: abs-c-func" "1 declared absent on macos"
+check "HS-166j" "a macOS platform run has SHOT_WALL_FACTOR=1 although the caller exported 9 (the wasm widening cannot leak)" 0 $rc "$out" "shot_wall_factor=1"
 # an admitted row that reports nothing
 cp "$PLT/scripts/adm-b-func.sh" "$T/adm-b.good"
 printf 'if want adm-b-func; then :; fi\n' > "$PLT/scripts/adm-b-func.sh"
@@ -3210,7 +3635,7 @@ plw_serve() {   # plw_serve <serve behaviour> [<--jnext behaviour; default: the 
 }
 plw_run() {
     rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
-    ( cd "$PL" && PATH="$T/plwin-bin:$PATH" HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bw" JNEXT_TARGET_SDL_BUILD="$PL/bsw" TEST_BIN_DIR="$PL/helpers" \
+    ( cd "$PL" && SHOT_WALL_FACTOR=9 PATH="$T/plwin-bin:$PATH" HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bw" JNEXT_TARGET_SDL_BUILD="$PL/bsw" TEST_BIN_DIR="$PL/helpers" \
       JNEXT_REGRESSION_LOCK_FILE="$T/pl.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
       JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
       JNEXT_TEST_JOBS=1 timeout --kill-after=5s 120s bash "$PLT/regression.sh" --platform "$@" 2>&1 )
@@ -3219,6 +3644,7 @@ plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \
 out=$(plw_run); rc=$?
 kill "$(cat "$T/expl.pid")" 2>/dev/null || true
 check "HS-95f" "a windows platform run whose recorded wine desktop process survives the run passes" 0 $rc "$out" "[abs-c-func]"
+check "HS-166k" "a windows platform run has SHOT_WALL_FACTOR=1 (caller exported 9) and the host's own jnext as JNEXT_NATIVE" 0 $rc "$out" "shot_wall_factor=1" "jnext_native=$PL/jnext"
 cp "$PLT/scripts/adm-a-func.sh" "$T/adm-a.good"
 printf 'if want adm-a-func; then begin_func adm-a-func; kill "$(cat "%s/expl.pid")"; sleep 0.3; pass_row; fi\n' "$T" > "$PLT/scripts/adm-a-func.sh"
 plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \"$T/expl.pid\""
@@ -3231,6 +3657,68 @@ check "HS-95h" "a --serve that cannot provide the desktop keeper is a harness fa
 # the CI container has no procps-ng (GH #295): wine-run.sh must not call pgrep / pkill
 n=$(grep -v '^[[:space:]]*#' "$PROJECT_DIR/test/wine-run.sh" | grep -cE '\b(pgrep|pkill)\b' || true)
 check "HS-95i" "wine-run.sh needs no procps-ng (no pgrep / pkill call; the CI container lacks it)" 0 $((n == 0 ? 0 : 1)) "calls=$n" "calls=0"
+
+# GH #461: the WebAssembly platform run. The oracle is the harness contract (the os= grammar and the
+# per-OS pins of GH #319, where emscripten is OPT-IN: it runs a row only when the tag names it).
+plat_tree "$T/pt-wasm" emscripten emscripten
+out=$(run_plat "$T/pt-wasm" "$REG_FUNC"); rc=$?
+check "HS-166a" "an emscripten platform preflight on the real manifests runs 0 functional rows and declares every one absent" 0 $rc "$out" \
+    "platform emscripten: 0 functional rows run, $fn_total declared absent"
+# one untagged row opts in, keeping its macos and windows admission so no other pin moves
+retag "$T/wasm-one.conf" magic-bp-func "os=linux,macos,windows,emscripten"
+sed -i 's/^# expect-emscripten: 0$/# expect-emscripten: 1/' "$T/wasm-one.conf"
+out=$(run_plat "$T/pt-wasm" "$T/wasm-one.conf"); rc=$?
+out_mac=$(run_plat "$T/pt-mac" "$T/wasm-one.conf")
+out_win=$(run_plat "$T/pt-ok" "$T/wasm-one.conf")
+check "HS-166b" "emscripten runs exactly the row whose tag names it (untagged rows stay absent); macos and windows runs are unchanged" 0 $rc \
+    "$out | $out_mac | $out_win" "platform emscripten: 1 functional rows run, $(( fn_total - 1 )) declared absent" \
+    "platform macos: $fn_mac functional rows run" "platform windows: $fn_win functional rows run"
+grep -v '^# expect-emscripten:' "$T/wasm-one.conf" > "$T/wasm-nopin.conf"
+out=$(run_plat "$T/pt-wasm" "$T/wasm-nopin.conf"); rc=$?
+check "HS-166c" "a row that names emscripten without the '# expect-emscripten: N' pin is a refusal" 2 $rc "$out" "HARNESS FAULT" "No '# expect-emscripten: N' pin"
+sed 's/^# expect-emscripten: 1$/# expect-emscripten: 2/' "$T/wasm-one.conf" > "$T/wasm-hi.conf"
+out=$(run_plat "$T/pt-wasm" "$T/wasm-hi.conf"); rc=$?
+check "HS-166d" "an emscripten pin one too high is a refusal naming it" 2 $rc "$out" "HARNESS FAULT" "expect-emscripten: 2"
+out=$(run_plat "$T/pt-wasm" "$REG_FUNC" magic-bp-func); rc=$?
+check "HS-166e" "a named untagged row on an emscripten run is refused as absent" 2 $rc "$out" "HARNESS FAULT" "declared absent on emscripten"
+# the stub platform run (HS-95 shape) on emscripten trees: neither jnext.js nor jnext.wasm is executable
+for pe_d in pe1 pe2; do
+    mkdir -p "$PL/$pe_d"
+    printf 'JNEXT_TARGET_OS:INTERNAL=emscripten\n' > "$PL/$pe_d/CMakeCache.txt"
+    : > "$PL/$pe_d/jnext.js"; : > "$PL/$pe_d/jnext.wasm"; chmod 644 "$PL/$pe_d/jnext.js" "$PL/$pe_d/jnext.wasm"
+done
+pe_run() {
+    rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
+    ( cd "$PL" && SHOT_WALL_FACTOR=9 HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/pe1" JNEXT_TARGET_SDL_BUILD="$PL/pe2" TEST_BIN_DIR="$PL/helpers" \
+      JNEXT_REGRESSION_LOCK_FILE="$T/pl.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
+      JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
+      JNEXT_TEST_JOBS=1 timeout --kill-after=5s 120s bash "$PLT/regression.sh" --platform "$@" 2>&1 )
+}
+out=$(pe_run); rc=$?; out+=$'\n'"$(pl_marks)"
+check "HS-166f" "the control: a complete emscripten tree (non-executable .js and .wasm) runs: provision + screenshots, every functional row absent by name" 0 $rc "$out" \
+    "(Qt: $PL/pe1/jnext.js, SDL-only: $PL/pe2/jnext.js)" "3/3 declared tests reported" "absent: adm-a-func" "absent: abs-c-func" "abs_ran=0 lint_ran=0"
+check "HS-166l" "an emscripten platform run sets SHOT_WALL_FACTOR=4 (caller exported 9) and the SDL unit-test tree's jnext as JNEXT_NATIVE" 0 $rc "$out" "shot_wall_factor=4" "jnext_native=$PL/jnext"
+SW=$(HOME="$T/plfix" bash -c 'source "$1/test/00regression/test-functions.inc"; echo "$(SHOT_WALL_FACTOR=4 shot_wall_bound 125) $(unset SHOT_WALL_FACTOR; shot_wall_bound 125)"' _ "$PROJECT_DIR" 2>&1 | tail -1)
+check "HS-166m" "the screenshot wall bound is (exit_delay + 5) * 4 * SHOT_WALL_FACTOR: 2080 s at factor 4, 520 s with it unset, for a 125 s exit delay" 0 $(( ${#SW} > 0 ? 0 : 1 )) "$SW" "2080 520"
+n=$(grep -c 'wall_timeout=$(shot_wall_bound "$exit_delay")' "$PROJECT_DIR/test/00regression/scripts/screenshots.sh" || true)
+check "HS-166n" "screenshots.sh takes its timeout bound from shot_wall_bound (one call, no hand-written formula)" 0 $((n == 1 ? 0 : 1)) "calls=$n" "calls=1"
+mv "$PL/pe2/jnext.wasm" "$PL/pe2/jnext.wasm.away"
+out=$(pe_run); rc=$?
+check "HS-166g" "an emscripten tree whose jnext.wasm is missing is a harness fault naming the .wasm" 2 $rc "$out" "HARNESS FAULT" "not built" "pe2/jnext.wasm"
+mv "$PL/pe2/jnext.wasm.away" "$PL/pe2/jnext.wasm"
+rm -f "$PL/pe2/jnext.js"
+out=$(pe_run); rc=$?
+check "HS-166h" "...and one whose jnext.js is missing names the .js (both files are checked, in both trees)" 2 $rc "$out" "HARNESS FAULT" "not built" "pe2/jnext.js"
+# node-run.sh --jnext: the build tree is the .js's own directory; PATH is never trusted
+mkdir -p "$NR/jbuild"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$#" "$@" > "%s/jargv.txt"\necho "stdin=$(cat)" > "%s/jstdin.txt"\nexit 5\n' "$NR" "$NR" > "$NR/jnode"
+chmod +x "$NR/jnode"
+echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$NR/jnode" > "$NR/jbuild/CMakeCache.txt"
+: > "$NR/jbuild/jnext.js"; : > "$NR/jbuild/jnext.wasm"
+out=$(echo "hello row" | PATH=/nonexistent /usr/bin/timeout --kill-after=5s 60s /bin/bash "$NODE_RUN" --jnext "$NR/jbuild/jnext.js" --headless "a b" 2>&1); rc=$?
+check "HS-166i" "node-run.sh --jnext with an empty PATH: the arguments and stdin reach node, its status 5 comes back" 5 $rc \
+    "$out argv=$(tr '\n' '|' < "$NR/jargv.txt" 2>/dev/null) $(cat "$NR/jstdin.txt" 2>/dev/null)" \
+    "argv=3|$NR/jbuild/jnext.js|--headless|a b|" "stdin=hello row"
 
 # GH #383: the stalled process's state is saved by a watchdog while it is alive, never at TERM.
 # The oracle is the runner's contract (wine-run.sh header) and what REAL wine and winedbg do,
@@ -4002,6 +4490,22 @@ check "HS-172j" "the probe boots the RUN's card: a candidate (seam) run reports 
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=100 -- bfneg-func); rc=$?
 check "HS-172k" "a frame that the shift would make negative (commit 100, shift -372, bf 150) is a harness fault naming it, never a negative or wrapped frame" 2 $rc "$out" \
     "gives a negative frame"
+# HS-189: the WebAssembly build has no debugger, so its sdcard-provision row cannot run the commit probe.
+# On the default card it takes BOOT_DEFAULT_COMMIT (the number the native run pins); on a candidate card
+# (the seam) it FAILS instead of assuming it. The REAL 01-sdcard-provision.sh runs standalone with
+# JNEXT_TARGET_OS=emscripten against the seam fixture's fake jnext; FAKE_PROBE_NONE=1 makes any probe
+# call fail the row ("never committed"), so a pass proves none ran.
+em_provision() {   # em_provision <VAR=value ...>
+    rm -rf "$T/em-home"; mkdir -p "$T/em-home"
+    ( cd "$SQ" && env HOME="$T/em-home" JNEXT="$T/seam-jnext" JNEXT_TARGET_OS=emscripten FAKE_PROBE_NONE=1 "$@" \
+        timeout --kill-after=5s 60s bash "$SQT/scripts/01-sdcard-provision.sh" 2>&1 )
+}
+out=$(em_provision); rc=$?
+check "HS-189a" "an emscripten sdcard-provision on the default card takes the pinned commit frame 472, runs no probe and passes" 0 $rc "$out" \
+    "the boot anchor is the default card's pinned commit frame 472 (boot-relative frames shift by 0)" "Pass: 1"
+out=$(em_provision JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf"); rc=$?
+check "HS-189b" "an emscripten sdcard-provision on a candidate card (the seam) FAILS saying its commit frame cannot be measured without a debugger, never assuming 472" 1 $rc "$out" \
+    "cannot be measured without a debugger" "Fail: 1"
 
 # HS-175: the run's SD clone carries the master's distribution sidecar, and "do not ask again" for the
 # default distribution when the master is another one, so a GUI row is never blocked by the upgrade offer.

@@ -81,7 +81,7 @@ wine. This is a documented local check, not a CI step.
 
 ## The jobs in `ci.yml`
 
-**`test`** is the main job: one definition, a matrix of five legs that run in
+**`test`** is the main job: one definition, a matrix of six legs that run in
 parallel on runners of their own. Every leg installs the same
 dependency set and checks out the repository with submodules; then
 
@@ -95,7 +95,31 @@ dependency set and checks out the repository with submodules; then
   `make unit-test-win`: the SDL-only suites as Windows executables under wine. It
   builds no PGO binary, so on an SD-image cache miss `make unit-test-win`
   provisions the image itself (`make sdcard-image`);
-- **`regression`** runs `make clean && make gui-release` and `make regression`.
+- **`unit-wasm`** runs `make unit-test-wasm`: the SDL-only suites as WebAssembly
+  under node, in the same SDK cache as `regression-wasm`. It builds no PGO binary, so on an
+  SD-image cache miss the target provisions the image itself. Run as root in the
+  container, the runner drops CAP_DAC_OVERRIDE with `setpriv` (util-linux);
+- **`regression`** runs `make clean && make gui-release` and `make regression`;
+- **`regression-wasm`** runs `make regression-wasm`: the regression suite's
+  screenshot rows against the SDL-only core built for WebAssembly and run under
+  node (`make wasm-core`, with its WCORE rows, is a prerequisite, so the leg has no
+  step of its own for it). It uses the SD-image cache, as every leg that boots
+  NextZXOS does. The Emscripten SDK is provisioned by the target itself
+  (`test/provision-emsdk.sh`, pinned by three sha256) into
+  `~/.cache/jnext/tools/emsdk-6.0.13`, which the leg caches under a key carrying
+  the version and the pins, so a hit only skips the downloads;
+- **`browser`** runs `make wasm-browser-test`: the browser frontend in the pinned
+  Chromium headless shell (rows BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08 for the image and
+  the warm start, WEBAPI-01 to WEBAPI-29 for the JavaScript API, WIDGET-01 to WIDGET-17 for the widget, WBW-01 to WBW-17 for the kept writes, TKB-01 to TKB-17 for the on-screen keyboard, and WBENCH-01 to WBENCH-12, the arithmetic of the browser bench;
+  [5.6](06-the-browser-build.md)). Besides the emsdk cache it caches Playwright
+  (`~/.cache/jnext/tools/playwright-1.65.0`, keyed by the version and the two pin
+  prefixes) and uses the SD-image cache: the run turns the cached distribution
+  image into a minimal card in a scratch directory that is deleted at the end,
+  and the leg's one artifact step uploads exactly `build/wasm-core/jnext-*-web.zip`,
+  which cannot carry it. The run also builds the browser package (`make package-web`
+  is a prerequisite of `wasm-browser-test`, so there is no step of its own), and its
+  row WEBPKG-BR-01 boots the extracted zip; the zip is uploaded as `jnext-web-zip`.
+  The dnf list carries the shared libraries the headless shell links, and `zip`.
 
 They used to be steps of one job, so the 28-minute build matrix and the
 regression ran back to back although neither uses the other's output. Each leg
@@ -181,6 +205,7 @@ and compression is off since the packages are already compressed.
 | `jnext-windows-x86-sdl-zip` | `jnext-<v>-windows-x86-sdl.zip` | `package` (repo-internal, not a release asset) |
 | `jnext-linux-rpm` | `jnext-<v>-1.x86_64.rpm` | `package` |
 | `jnext-source-zip` | `jnext-<v>-src.zip` | `package` |
+| `jnext-web-zip` | `jnext-<v>-web.zip` | `test` (`browser` leg) |
 | `jnext-macos-arm64-dmg` | `jnext-<v>-macos-arm64.dmg` | `macos` |
 | `jnext-macos-x64-dmg` | `jnext-<v>-macos-x64.dmg` | `macos-intel` |
 | `jnext-linux-flatpak` | `jnext-<v>-x86_64.flatpak` | `flatpak` |
@@ -230,7 +255,9 @@ container's own library package names into the dependency list, so a deb built
 in one release's container is uninstallable on the next. `rpm` builds in the
 pinned Fedora container, so that its dependencies are Fedora-native. Then `src`,
 `windows` (three zips from one Fedora container), `flatpak` (one line, calling
-`flatpak-build.yml`), `macos` and `macos-intel`.
+`flatpak-build.yml`), `web` (`make package-web` in a Fedora container: the browser
+zip, with the Emscripten SDK cache of the `test` job and no SD image, since the
+zip never holds one) `macos` and `macos-intel`.
 Finally **`publish`** attaches everything to a GitHub Release, gated on
 `if: success() && needs.gate.outputs.publish == 'true'`.
 

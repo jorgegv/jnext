@@ -1,0 +1,24 @@
+# jnext browser benchmark (make bench-web)
+# date:   2026-11-14 00:43:01 UTC
+# host:   kessel, AMD Ryzen AI 5 340 w/ Radeon 840M
+# commit: d1ff8ee9dbb3b14b76d0934f5dba1a8ca2b15e42
+# build:  /home/jorgegv/tmp/worktrees/jnext/rev-epic469/build/wasm-core (jnext-1.2.20), emsdk 6.0.13
+# core set: 0,1,3 (fastest class, one logical CPU per physical core)
+# chrome:  n/a (/usr/bin/google-chrome), args: --mute-audio --autoplay-policy=no-user-gesture-required --use-angle=gl-egl
+# firefox: Mozilla Firefox 159.0.1
+# firefox mode: MOZ_HEADLESS=1 on a private Xvfb display (xvfb-run -d): WebGL on the GPU
+# webgl renderer firefox: Radeon R9 200 Series, or similar
+# user agent firefox: Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0
+# window: W=250 warm-up frames, M=600 frames or 60 s; box 640x512; machine next; one wasm instance per cell
+# pass firefox: load1 at start 1.25, at end 1.13; calibration median 59.00 ms
+# performance.now() resolution observed (median over cells): 1.0000 ms
+# programs: 1 (acceptance: beast)
+
+WEBBENCH config=firefox program=beast verdict=FAIL reason=- frames=600 wall_s=10.319 refresh=58.147 emu_fps=58.15 shown_fps=57.08 ms_per_frame=4.365 audio_ms_per_frame=0.063 p50=3.000 p95=16.000 max=19.000 headroom=1.07 speed=28 calib_ms=59.00 runs=3
+
+WEBPACE config=firefox program=beast multi_tick_cb_s=1.07 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=12
+
+# | program | firefox |
+# |---|---|
+# | beast | FAIL 4.37 ms/f 58.1/58.1 p95 16.0 x28 |
+# acceptance: 0/1 cells PASS; not PASS: firefox/beast=FAIL

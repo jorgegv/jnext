@@ -162,10 +162,12 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(_jnext_target_os macos)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(_jnext_target_os windows)
+elseif(EMSCRIPTEN)
+    set(_jnext_target_os emscripten)
 else()
     string(TOLOWER "${CMAKE_SYSTEM_NAME}" _jnext_target_os)
 endif()
-set(JNEXT_TARGET_OS "${_jnext_target_os}" CACHE INTERNAL "Target OS (linux|macos|windows) for the unit-test harness")
+set(JNEXT_TARGET_OS "${_jnext_target_os}" CACHE INTERNAL "Target OS (linux|macos|windows|emscripten) for the unit-test harness")
 option(STATIC_BUILD    "Link statically (requires static SDL3/Qt6 builds)" OFF)
 # macOS packaging only (`make package-macos`); see the APPLE block further down.
 option(MACOS_APP_BUNDLE "Build a relocatable jnext.app bundle (macOS packaging)" OFF)
@@ -192,6 +194,21 @@ if(WIN32 AND (NOT ENABLE_QT_UI OR JNEXT_FORCE_QT5))
     add_compile_definitions(_WIN32_WINNT=0x0601 WINVER=0x0601)
 endif()
 
+# WebAssembly (Emscripten) build: the SDL-only core, run in a browser or under
+# node (`make wasm-core`, toolchain from test/provision-emsdk.sh).
+if(EMSCRIPTEN)
+    if(ENABLE_QT_UI OR ENABLE_DEBUGGER)
+        message(FATAL_ERROR "The Emscripten build is the SDL-only configuration: "
+                            "configure with -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF")
+    endif()
+    # Wasm exceptions in every TU and the link (before spdlog is added): without
+    # them a caught throw aborts the module.
+    add_compile_options(-fwasm-exceptions)
+    add_link_options(-fwasm-exceptions)
+    # The default 64 KB stack is below the 256 KB frame the frame gate allows,
+    # and the default 16 MB memory is fixed.
+    add_link_options(-sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2MB)
+endif()
 find_package(SDL3 REQUIRED)
 # One resolved SDL3 target name for the whole tree (GH #57). SDL3's own
 # SDL3Config.cmake always defines the SDL3::SDL3 alias, pointing at whichever
@@ -205,14 +222,26 @@ if(STATIC_BUILD AND TARGET SDL3::SDL3-static)
 else()
     set(JNEXT_SDL3_TARGET SDL3::SDL3)
 endif()
-find_package(ZLIB REQUIRED)
+if(EMSCRIPTEN)
+    # The sysroot's default libpng.a is the Emscripten-SJLJ variant, which does
+    # not link with Wasm exceptions; the port flags make emcc pick the variant
+    # that matches the exception model.
+    add_library(ZLIB::ZLIB INTERFACE IMPORTED)
+    set_target_properties(ZLIB::ZLIB PROPERTIES
+        INTERFACE_COMPILE_OPTIONS "-sUSE_ZLIB=1" INTERFACE_LINK_OPTIONS "-sUSE_ZLIB=1")
+    add_library(PNG::PNG INTERFACE IMPORTED)
+    set_target_properties(PNG::PNG PROPERTIES
+        INTERFACE_COMPILE_OPTIONS "-sUSE_LIBPNG=1" INTERFACE_LINK_OPTIONS "-sUSE_LIBPNG=1")
+else()
+    find_package(ZLIB REQUIRED)
+endif()
 # curl/OpenSSL back the SD-card provisioner's download + SHA-256 on POSIX
 # only. Windows uses OS-native WinHTTP + BCrypt instead (GH #108 Phase B:
 # src/core/sdcard_provisioner_net_win.cpp), so the Windows packages ship no
 # curl/OpenSSL DLLs — fedora's libcrypto-3 imports PathCchRemoveFileSpec
 # (Windows 8+), which was the single import keeping the SDL-only bundle off
 # Windows 7.
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     find_package(CURL REQUIRED)
     find_package(OpenSSL REQUIRED)
 endif()
@@ -241,9 +270,11 @@ add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 
 # GH #418: -Wall -Wextra on every first-party C++ target (and Objective-C++),
-# -Werror too unless JNEXT_WERROR=OFF. Packaging builds pass OFF: a release must
-# not fail on a warning a distro's newer compiler adds, which no gate of ours
-# runs. add_compile_options() initialises the COMPILE_OPTIONS of every target
+# -Werror too unless JNEXT_WERROR=OFF. The recipes that build with a distribution's
+# own compiler (rpm, deb, Flatpak, macOS) pass OFF: a release must not fail on a
+# warning a distro's newer compiler adds, which no gate of ours runs. The Windows
+# zips and `make package-web` (the pinned emsdk) keep it ON: their toolchains are
+# the ones the gate tests. add_compile_options() initialises the COMPILE_OPTIONS of every target
 # created AFTER it, here and in every subdirectory added after it (src/*, tools/,
 # test/, and jnext_web on the WebAssembly epic), so nobody lists targets. spdlog
 # and zot_tzx are created above and never get it; the third-party C inside our
@@ -376,11 +407,15 @@ add_subdirectory(src/esp01)
 # GH #287 — the debugger protocol servers' shared socket transport (arch §3.1,
 # `jnext_remote`). Over esp01's public socket seam and the jnext_debug backend;
 # no toolkit, so it is built in every configuration (arch §3.2).
-add_subdirectory(src/remote)
+if(NOT EMSCRIPTEN)   # the browser build has no sockets to serve on
+    add_subdirectory(src/remote)
+endif()
 # GH #26 — the debugger scripting language (arch §3.1, `jnext_script`): lexer,
 # parser, load-time checks and the expression compiler library. Over the
 # jnext_debug facade only; no toolkit, so built in every configuration (§3.2).
-add_subdirectory(src/script)
+if(NOT EMSCRIPTEN)   # no --script in the browser build
+    add_subdirectory(src/script)
+endif()
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)
@@ -389,6 +424,8 @@ add_subdirectory(src/save)
 # so it has to exist wherever the test tree does. It links jnext_save alone and
 # costs about a second.
 add_subdirectory(tools/gen-snapshot-schema)
+# The minimal-card builder tool (GH #458); the browser build skips it.
+add_subdirectory(tools/make-minimal-card)
 
 # GH #108 Phase A — Qt major selection, decided ONCE here and consumed by
 # src/gui and src/debugger (find_package(Qt${JNEXT_QT_MAJOR})) and the WIN32
@@ -443,6 +480,16 @@ if(ENABLE_QT_UI)
 endif()
 
 add_executable(jnext src/main.cpp)
+
+# The Emscripten `jnext` is the node build (`make regression-wasm`, the WCORE
+# rows): NODERAWFS gives it the host filesystem (the SD image, the PNG written
+# to a host path) instead of a private MEMFS, and EXIT_RUNTIME flushes stdio and
+# runs the static destructors at exit, as natively. The browser build is the
+# separate jnext_web target below, whose options these per-target ones do not
+# reach.
+if(EMSCRIPTEN)
+    target_link_options(jnext PRIVATE -sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1)
+endif()
 
 # GH #308 -- stack-frame gate. No production function may need a frame over
 # 256 KiB. jnext relies on MinGW's default 2 MB main-thread reserve on Windows
@@ -596,6 +643,54 @@ target_link_libraries(jnext PRIVATE
     jnext_profiler
     ${JNEXT_SDL3_TARGET})
 target_include_directories(jnext PRIVATE src "${CMAKE_BINARY_DIR}/generated")
+
+# Browser frontend (E14): the same program with the requestAnimationFrame loop
+# of src/platform/browser_frontend.cpp, linked beside the node `jnext` in the
+# same tree (one compile of every library). The output names carry the version
+# (jnext-<version>.js/.wasm) so a page never loads a stale build.
+if(EMSCRIPTEN)
+    add_executable(jnext_web src/main.cpp src/platform/browser_frontend.cpp
+                   src/platform/web/web_controller.cpp src/platform/web/card_builder_web.cpp)
+    set_target_properties(jnext_web PROPERTIES OUTPUT_NAME "jnext-${PROJECT_VERSION}")
+    target_compile_definitions(jnext_web PRIVATE JNEXT_BROWSER=1)
+    target_link_libraries(jnext_web PRIVATE
+        jnext_core jnext_cpu jnext_memory
+        jnext_video jnext_audio jnext_port
+        jnext_peripheral jnext_input
+        jnext_platform jnext_save jnext_debug
+        jnext_profiler
+        ${JNEXT_SDL3_TARGET})
+    target_include_directories(jnext_web PRIVATE src "${CMAKE_BINARY_DIR}/generated")
+    target_link_options(jnext_web PRIVATE
+        -sENVIRONMENT=web -sMODULARIZE=1 -sEXPORT_NAME=createJnextModule
+        -sINVOKE_RUN=0 -sEXIT_RUNTIME=0
+        -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain,IDBFS,UTF8ToString,stringToNewUTF8,HEAPU8
+        -sEXPORTED_FUNCTIONS=_main,_malloc,_free
+        -lidbfs.js
+        # The JavaScript API (GH #465), appended after the emulator's own code, in this
+        # order: the image helpers, the touch keyboard, then jnext.mount() (which calls them).
+        # SHELL: keeps each flag with its file (CMake de-duplicates a repeated bare option).
+        "SHELL:--extern-post-js ${CMAKE_SOURCE_DIR}/web/jnext-image.js"
+        "SHELL:--extern-post-js ${CMAKE_SOURCE_DIR}/web/jnext-touch-keyboard.js"
+        "SHELL:--extern-post-js ${CMAKE_BINARY_DIR}/web/jnext_api.js")
+    configure_file(web/jnext_api.js.in "${CMAKE_BINARY_DIR}/web/jnext_api.js" @ONLY)
+    set_property(TARGET jnext_web APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_SOURCE_DIR}/web/jnext-image.js" "${CMAKE_SOURCE_DIR}/web/jnext-touch-keyboard.js"
+        "${CMAKE_BINARY_DIR}/web/jnext_api.js")
+    # The example pages, beside the .js/.wasm they load.
+    foreach(page plain itch-host itch-game widget)
+        configure_file(web/examples/${page}.html.in "${CMAKE_BINARY_DIR}/${page}.html" @ONLY)
+    endforeach()
+    # The ready-made widget, which loads jnext-<ver>.js from beside itself.
+    configure_file(web/jnext-widget.js.in "${CMAKE_BINARY_DIR}/jnext-widget.js" @ONLY)
+    if(JNEXT_FRAME_GATE)
+        target_compile_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})
+        target_link_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})
+    endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(jnext_web PRIVATE -Werror=switch)
+    endif()
+endif()
 
 # Force a non-executable stack — general hardening; jnext never needs an
 # executable stack. (Historically this also silenced a GNU ld warning about

@@ -1,0 +1,56 @@
+# jnext browser benchmark (make bench-web)
+# session: a second, independent measurement of the final tree (6e61e333b) by the reviewer, subset blue menu shift beast, all three configs, quiet by the bench's rule (load at pass start 1.28 / 1.35 / 1.41, ending 2.00 at the end of the chrome-x2 pass: some background load); committed beside the main file as the observed spread
+# date:   2026-11-09 20:53:10 UTC
+# host:   kessel, AMD Ryzen AI 5 340 w/ Radeon 840M
+# commit: 6e61e333bc196b5e352bc7d9cf94b1c5f8bbf776
+# build:  /home/jorgegv/tmp/worktrees/jnext/rev-gh468/build/wasm-core (jnext-1.2.20), emsdk 6.0.13
+# core set: 0,1,3 (fastest class, one logical CPU per physical core)
+# chrome:  156.0.8078.79 (/usr/bin/google-chrome), args: --mute-audio --autoplay-policy=no-user-gesture-required --use-angle=gl-egl
+# firefox: Mozilla Firefox 159.0
+# firefox mode: MOZ_HEADLESS=1 on a private Xvfb display (xvfb-run -d): WebGL on the GPU
+# webgl renderer chrome: ANGLE (AMD, AMD Radeon 840M Graphics (radeonsi krackan1 ACO), OpenGL ES 3.2)
+# webgl renderer chrome-x2: ANGLE (AMD, AMD Radeon 840M Graphics (radeonsi krackan1 ACO), OpenGL ES 3.2)
+# webgl renderer firefox: Radeon R9 200 Series, or similar
+# user agent chrome: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36
+# user agent chrome-x2: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36
+# user agent firefox: Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0
+# window: W=250 warm-up frames, M=600 frames or 60 s; box 640x512; machine next; one wasm instance per cell
+# pass chrome: load1 at start 1.28, at end 1.35; calibration median 59.20 ms
+# pass chrome-x2: load1 at start 1.35, at end 2.00; calibration median 118.80 ms, unthrottled median 59.20 ms
+# pass firefox: load1 at start 1.41, at end 1.08; calibration median 101.00 ms
+# performance.now() resolution observed (median over cells): 0.1000 ms
+# programs: 4 (acceptance: beast blue menu shift)
+
+WEBBENCH config=chrome program=beast verdict=PASS reason=- frames=600 wall_s=10.316 refresh=58.147 emu_fps=58.16 shown_fps=58.16 ms_per_frame=3.458 audio_ms_per_frame=0.041 p50=3.100 p95=5.400 max=6.300 headroom=3.18 speed=28 calib_ms=58.80 runs=1
+WEBBENCH config=chrome program=blue verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=10.786 audio_ms_per_frame=0.053 p50=9.400 p95=15.100 max=20.400 headroom=1.34 speed=28 calib_ms=59.20 runs=1
+WEBBENCH config=chrome program=menu verdict=PASS reason=- frames=600 wall_s=12.157 refresh=49.360 emu_fps=49.36 shown_fps=49.36 ms_per_frame=11.145 audio_ms_per_frame=0.050 p50=9.600 p95=15.100 max=25.200 headroom=1.34 speed=28 calib_ms=60.00 runs=1
+WEBBENCH config=chrome program=shift verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=8.012 audio_ms_per_frame=0.047 p50=7.700 p95=9.200 max=13.300 headroom=2.20 speed=28 calib_ms=60.00 runs=1
+WEBBENCH config=chrome-x2 program=beast verdict=PASS reason=- frames=600 wall_s=10.300 refresh=58.147 emu_fps=58.25 shown_fps=58.16 ms_per_frame=5.780 audio_ms_per_frame=0.054 p50=5.700 p95=6.400 max=9.500 headroom=2.69 speed=28 calib_ms=120.10 runs=1
+WEBBENCH config=chrome-x2 program=blue verdict=FAIL reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=48.48 ms_per_frame=17.889 audio_ms_per_frame=0.071 p50=17.800 p95=20.500 max=34.700 headroom=0.99 speed=28 calib_ms=119.80 runs=3
+WEBBENCH config=chrome-x2 program=menu verdict=FAIL reason=- frames=600 wall_s=12.143 refresh=49.360 emu_fps=49.41 shown_fps=48.26 ms_per_frame=16.925 audio_ms_per_frame=0.068 p50=16.800 p95=19.000 max=35.000 headroom=1.07 speed=28 calib_ms=120.30 runs=3
+WEBBENCH config=chrome-x2 program=shift verdict=FAIL reason=- frames=600 wall_s=12.172 refresh=49.360 emu_fps=49.29 shown_fps=46.75 ms_per_frame=16.102 audio_ms_per_frame=0.068 p50=15.500 p95=26.500 max=49.700 headroom=0.76 speed=28 calib_ms=119.70 runs=3
+WEBBENCH config=firefox program=beast verdict=PASS reason=- frames=600 wall_s=10.318 refresh=58.147 emu_fps=58.15 shown_fps=57.67 ms_per_frame=3.268 audio_ms_per_frame=0.037 p50=3.000 p95=4.000 max=10.000 headroom=4.30 speed=28 calib_ms=62.00 runs=1
+WEBBENCH config=firefox program=blue verdict=PASS reason=- frames=600 wall_s=12.150 refresh=49.360 emu_fps=49.38 shown_fps=49.38 ms_per_frame=8.478 audio_ms_per_frame=0.058 p50=8.000 p95=10.000 max=21.000 headroom=2.03 speed=28 calib_ms=108.00 runs=1
+WEBBENCH config=firefox program=menu verdict=PASS reason=- frames=600 wall_s=12.167 refresh=49.360 emu_fps=49.31 shown_fps=49.31 ms_per_frame=8.482 audio_ms_per_frame=0.082 p50=8.000 p95=11.000 max=13.000 headroom=1.84 speed=28 calib_ms=69.00 runs=2
+WEBBENCH config=firefox program=shift verdict=PASS reason=- frames=600 wall_s=12.149 refresh=49.360 emu_fps=49.39 shown_fps=49.39 ms_per_frame=10.223 audio_ms_per_frame=0.052 p50=10.000 p95=12.000 max=25.000 headroom=1.69 speed=28 calib_ms=101.00 runs=1
+
+WEBPACE config=chrome program=beast multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome program=blue multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=30
+WEBPACE config=chrome program=menu multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=35
+WEBPACE config=chrome program=shift multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=beast multi_tick_cb_s=0.00 two_frame_ticks_s=0.10 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=chrome-x2 program=blue multi_tick_cb_s=0.00 two_frame_ticks_s=0.91 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=72
+WEBPACE config=chrome-x2 program=menu multi_tick_cb_s=0.00 two_frame_ticks_s=1.15 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=89
+WEBPACE config=chrome-x2 program=shift multi_tick_cb_s=0.00 two_frame_ticks_s=2.55 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=120
+WEBPACE config=firefox program=beast multi_tick_cb_s=0.48 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=0
+WEBPACE config=firefox program=blue multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=2
+WEBPACE config=firefox program=menu multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=3
+WEBPACE config=firefox program=shift multi_tick_cb_s=0.00 two_frame_ticks_s=0.00 zero_frame_ticks_s=0.00 fill_events=0 audio_gaps=7
+
+# | program | chrome | chrome-x2 | firefox |
+# |---|---|---|---|
+# | beast | PASS 3.46 ms/f 58.2/58.1 p95 5.4 x28 | PASS 5.78 ms/f 58.3/58.1 p95 6.4 x28 | PASS 3.27 ms/f 58.2/58.1 p95 4.0 x28 |
+# | blue | PASS 10.79 ms/f 49.4/49.4 p95 15.1 x28 | FAIL 17.89 ms/f 49.4/49.4 p95 20.5 x28 | PASS 8.48 ms/f 49.4/49.4 p95 10.0 x28 |
+# | menu | PASS 11.14 ms/f 49.4/49.4 p95 15.1 x28 | FAIL 16.93 ms/f 49.4/49.4 p95 19.0 x28 | PASS 8.48 ms/f 49.3/49.4 p95 11.0 x28 |
+# | shift | PASS 8.01 ms/f 49.4/49.4 p95 9.2 x28 | FAIL 16.10 ms/f 49.3/49.4 p95 26.5 x28 | PASS 10.22 ms/f 49.4/49.4 p95 12.0 x28 |
+# acceptance: 9/12 cells PASS; not PASS: chrome-x2/blue=FAIL chrome-x2/menu=FAIL chrome-x2/shift=FAIL

@@ -1877,6 +1877,8 @@
       
         
       
+        
+      
     
     
     
@@ -2177,6 +2179,34 @@
     
   
     5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-the-browser-build.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.6 The browser build
   
 
     
@@ -3104,10 +3134,11 @@ build through <code>make unit-test-sdl</code>. The other two, Qt without the deb
 SDL with it, are not used in practice and remain build-only. CI runs both
 targets.</p>
 <p>The configurations are about <em>what</em> is built; the suites also run on three
-operating systems. The SDL-only set runs natively on Linux
+operating systems and under node. The SDL-only set runs natively on Linux
 (<code>make unit-test-sdl</code>), natively on macOS (the same target, with Homebrew's GNU
 tools first on <code>PATH</code>), and as MinGW-built Windows executables under wine
-(<code>make unit-test-win</code>). Which suites each OS owes is declared by <code># os:</code> in
+(<code>make unit-test-win</code>), and as WebAssembly modules under node
+(<code>make unit-test-wasm</code>). Which suites each OS owes is declared by <code># os:</code> in
 <code>test/unit-tests.conf</code> (<a href="../04-testing/02-declared-suites-and-pinned-counts.html">4.2</a>).
 The Qt and debugger suites run on Linux only, and the regression suite, the
 documentation gates and the traceability matrix are Linux-only by design: they
@@ -3129,6 +3160,36 @@ For the same reason the target <em>refuses</em> to build on a <code>build/</code
 has configured by hand with either flag off, rather than handing back a binary
 that is not what it claims to be. If you hit that refusal, <code>make clean</code> and
 retry.</p>
+<p><code>build/wasm-core</code> is the WebAssembly build (<code>make wasm-core</code>): Release, the
+Emscripten toolchain file of the SDK that <code>make emsdk</code> provides, and only the
+SDL-only configuration, so CMake refuses it with <code>ENABLE_QT_UI</code> or
+<code>ENABLE_DEBUGGER</code> on. <code>make wasm-core</code> builds the <code>jnext</code> and <code>sha256_test</code> targets
+only. <code>jnext</code> there is the node build: it links with <code>-sNODERAWFS=1
+-sENVIRONMENT=node -sEXIT_RUNTIME=1</code>, so it sees the host filesystem (what
+<code>make regression-wasm</code> needs), and its size is not the browser's, which is
+<code>jnext_web</code>'s. The
+configuration differs from the native SDL-only one in a few places: no
+curl/OpenSSL (the SD-card provisioner's web twin,
+<code>sdcard_provisioner_net_web.cpp</code>, has a portable SHA-256 and never downloads),
+no <code>jnext_remote</code> or <code>jnext_script</code>, NextPi compiled out, no process spawning,
+<code>-fwasm-exceptions</code> in every translation unit and the link, a 2 MB stack and
+growable memory, and the flags and <code>--set</code> keys that need a process, a socket
+or the script host refused with a message (<code>cli::browser_refusal</code>). zlib and
+libpng come from the SDK's ports (<code>-sUSE_ZLIB=1</code>, <code>-sUSE_LIBPNG=1</code>), which pick
+the libpng variant that matches the exception model.</p>
+<p><code>build/wasm-unit-test</code> (<code>make unit-test-wasm-build</code>) is the same configuration
+with <code>JNEXT_ENABLE_LTO=OFF</code> and every target built, the test executables
+included; the Windows test tree is the precedent (the suites need no cross-TU
+inlining, and an LTO link of the whole core per suite would cost about a hundred
+times as much). Its test executables link with an 8 MB stack as the Windows ones
+do, with <code>-sSTACK_OVERFLOW_CHECK=2</code> (a release module has no stack guard, so an
+overflow would silently overwrite static data) and <code>-sEXIT_RUNTIME=1</code> (static
+destructors, <code>atexit</code> and a stdio flush at exit, as natively) and a link at <code>-O1</code>
+(the objects stay <code>-O3</code>; skipping the final wasm-opt pass turns a link of up to two
+minutes into one second with no measurable cost in run time), all in
+<code>test/CMakeLists.txt</code>; <code>jnext</code> keeps its own link options.</p>
+<p>The browser build as a whole, with its CMake arms, its tests and its image
+handling: <a href="06-the-browser-build.html">5.6</a>.</p>
 <h2 id="dev-build-versus-release-build">Dev build versus release build<a class="headerlink" href="#dev-build-versus-release-build" title="Permanent link">&para;</a></h2>
 <p>With no <code>-DCMAKE_BUILD_TYPE</code> given, CMake here defaults to <strong>RelWithDebInfo</strong>
 instead of to the empty build type. An unoptimised <code>build/jnext</code> measured 5.8×

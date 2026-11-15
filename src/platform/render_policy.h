@@ -44,7 +44,7 @@ constexpr uint64_t NOTHING_UPLOADED = ~uint64_t{0};
 /// when the emulator wrote it (`generation` differs from the generation last
 /// uploaded), when the target it is drawn into changed (size, scale,
 /// fullscreen, pixel ratio, an exposed window: `target_changed`), or when
-/// nothing has been uploaded yet. Used by EmulatorWidget (Qt) and SdlApp::run.
+/// nothing has been uploaded yet. Used by EmulatorWidget (Qt) and SdlApp::tick.
 constexpr bool upload_needed(uint64_t generation, uint64_t last_uploaded,
                              bool target_changed)
 {

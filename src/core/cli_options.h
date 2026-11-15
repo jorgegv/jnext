@@ -58,6 +58,9 @@ enum class OptId {
     SdcardFileDest,
     SdcardFileForce,
     WarmStartRegenerate,
+    SdcardSha256,
+    SdcardWrites,
+    SdcardWritesReset,
     DelayedScreenshot,
     DelayedScreenshotTime,
     DelayedScreenshotFrames,
@@ -126,6 +129,7 @@ enum class OptId {
     Joy1Device,
     Joy2Device,
     MouseRelease,
+    TouchKeyboard,
     JoyUartRx,
     JoyUartRxDelayFrames,
     JoyUartConnector,
@@ -315,6 +319,34 @@ inline constexpr Option OPTIONS[] = {
       "recording of a real firmware boot (nextboot.rom -> TBBLUE.FW\n"
       "-> NextZXOS) by default; use this after changing the firmware\n"
       "or NextZXOS on the card." },
+    { "--sdcard-sha256", 1, Doc::Documented, OptId::SdcardSha256,
+      "HEX",
+      "The SHA-256 of the --sdcard image, as the caller has already\n"
+      "checked it. The warm-start recording is keyed on it instead\n"
+      "of on the image's size and modification time. jnext does not\n"
+      "hash the image: HEX must describe the file as it is. The\n"
+      "browser build uses this flag, because its page rewrites the\n"
+      "card into memory on every visit and has already checked the\n"
+      "hash. Needs --sdcard. A recording taken after jnext has\n"
+      "written to the card in this run is used, but not cached." },
+    { "--sdcard-writes", 1, Doc::Documented, OptId::SdcardWrites,
+      "FILE",
+      "Keep the guest's writes to the SD card in FILE instead of\n"
+      "the image: the image is opened read-only and never changes,\n"
+      "and FILE's sectors are laid over it whenever the card is\n"
+      "mounted, so the writes survive the next run. FILE belongs to\n"
+      "one image (its --sdcard-sha256, else its size and\n"
+      "modification time): one made against another image is\n"
+      "refused. Created at the first write. Also keeps the one\n"
+      "file the esxDOS stand-in holds for a directly loaded NEX,\n"
+      "stored when the program closes it. Excludes\n"
+      "--sdcard-readonly and --sdcard-file-add." },
+    { "--sdcard-writes-reset", 0, Doc::Documented, OptId::SdcardWritesReset,
+      "",
+      "Discard the writes kept in the --sdcard-writes FILE (the\n"
+      "stand-in's file included) before the card is mounted. Needs\n"
+      "--sdcard-writes. A file that is\n"
+      "not a jnext SD-writes file is refused, never removed." },
     // GH #417 - the three Startup settings that have a menu of their own
     // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every
     // other jnext.conf setting is reached with --set.
@@ -331,7 +363,7 @@ inline constexpr Option OPTIONS[] = {
       "EFFECT",
       "CRT effect for this run: off, scanlines, soft, tv or pc\n"
       "(the Preferences pop-up's choices; soft, tv and pc need\n"
-      "the GPU shader). Qt window only" },
+      "the GPU shader). Qt window and browser build" },
     { "--speed", 1, Doc::Documented, OptId::Speed,
       "PERCENT",
       "Emulator speed as % (50=half, 100=normal, 200=2x, 400=4x)" },
@@ -366,6 +398,11 @@ inline constexpr Option OPTIONS[] = {
       "Alt+Cmd in the Qt GUI on macOS), 'middle-click' or 'esc'.\n"
       "The middle click or Esc is not passed to the program.\n"
       "Wins over the saved GUI preference for this run" },
+    { "--touch-keyboard", 1, Doc::Documented, OptId::TouchKeyboard,
+      "MODE",
+      "Browser page: the on-screen Spectrum keyboard. 'auto'\n"
+      "(default): shown on a phone or tablet; 'on': always;\n"
+      "'off': never. No effect outside a browser page" },
     // GH #251 — a serial cable in a joystick socket, whose bytes reach the guest
     // through the NR 0x0B I/O-mode mux rather than either UART header. It exists
     // because nothing on the command line could put a byte on that pin, so a
@@ -1001,6 +1038,49 @@ inline const Option* find(const char* name) {
     return nullptr;
 }
 
+// --touch-keyboard (browser page only): when the on-screen keyboard is shown. The page reads the
+// numbers (jnext_web_touch_keyboard), so they are fixed: 0 auto, 1 on, 2 off.
+enum class TouchKeyboard : int { Auto = 0, On = 1, Off = 2 };
+inline bool parse_touch_keyboard(const char* s, TouchKeyboard& out) {
+    if (!s) return false;
+    if (std::strcmp(s, "auto") == 0) { out = TouchKeyboard::Auto; return true; }
+    if (std::strcmp(s, "on") == 0)   { out = TouchKeyboard::On;   return true; }
+    if (std::strcmp(s, "off") == 0)  { out = TouchKeyboard::Off;  return true; }
+    return false;
+}
+
+// Why a spelling is refused by the BROWSER (WebAssembly) build, or nullptr when
+// it is accepted. One line of plain ASCII, naming what the browser lacks. The
+// function is compiled in every build so the native suites test it; only the
+// browser build's main() calls it, before the option's handler runs, and
+// `--set` derives its refusals from it through config_keys (Key::flag).
+// `--no-esp` and `--no-nextpi` are NOT refused: they ask for the only state
+// there is. The debugger-side options that jnext_debug alone serves (--wav-record,
+// --source-map, --export-*) and the joystick UART endpoints (no thread, socket
+// or process of their own) stay accepted.
+inline const char* browser_refusal(OptId id) {
+    switch (id) {
+    case OptId::Nextpi: case OptId::NextpiDir: case OptId::NextpiRelease:
+    case OptId::NextpiQemu: case OptId::NextpiAudio: case OptId::NextpiQemuArgs:
+        return "not available in the browser build (NextPi needs a QEMU process)";
+    case OptId::Esp: case OptId::EspAllow: case OptId::EspListenAddress:
+    case OptId::EspDelayedDisassociateFrames: case OptId::EspDelayedAssociateFrames:
+    case OptId::EspIpAddress: case OptId::EspIpAddressAfter:
+        return "not available in the browser build (the ESP-01 needs host sockets)";
+    case OptId::Record:
+        return "not available in the browser build (video recording needs an ffmpeg process)";
+    case OptId::DzrpPort: case OptId::GdbPort: case OptId::ZrcpPort:
+    case OptId::DebugListenAddress:
+        return "not available in the browser build (the debugger servers need to listen on TCP)";
+    case OptId::Script: case OptId::ScriptKey: case OptId::RecordScript:
+    case OptId::Map: case OptId::Annotations:
+    case OptId::ImportSkoolkit: case OptId::ImportGhidra:
+        return "not available in the browser build (the script host is not part of it)";
+    default:
+        return nullptr;
+    }
+}
+
 // Find the value of `id` without running the real parse loop (GH #235).
 //
 // Needed for exactly one reason: `--log-file` decides where the FIRST log line
@@ -1133,10 +1213,13 @@ inline bool parse_int(const char* s, long lo, long hi, long& out) {
 inline bool parse_hex16(const char* s, uint16_t& out) {
     if (s == nullptr) return false;
     if (!std::isxdigit(static_cast<unsigned char>(s[0]))) return false;
+    // A 0x/0X prefix must be followed by a hex digit. glibc's strtoul stops after
+    // the 0 of a bare "0x" (the trailing-junk check below then refuses it), but
+    // Emscripten's musl consumes both characters and would read it as 0.
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X') &&
+        !std::isxdigit(static_cast<unsigned char>(s[2]))) return false;
     char* end = nullptr;
     errno = 0;
-    // Base 16 itself accepts the 0x/0X prefix; a bare "0x" stops after the 0
-    // and is refused by the trailing-junk check.
     const unsigned long v = std::strtoul(s, &end, 16);
     if (errno != 0 || *end != '\0' || v > 0xFFFFUL) return false;
     out = static_cast<uint16_t>(v);

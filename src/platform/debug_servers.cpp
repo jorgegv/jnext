@@ -1,9 +1,11 @@
 #include "platform/debug_servers.h"
 
 #include "core/log.h"
+#ifndef __EMSCRIPTEN__
 #include "remote/dzrp/dzrp_server.h"
 #include "remote/gdb/rsp_server.h"
 #include "remote/zrcp/zrcp_server.h"
+#endif
 
 using jnext::dbg::PumpBudget;
 using jnext::dbg::ServiceHint;
@@ -14,6 +16,12 @@ DebugServers::DebugServers() = default;
 DebugServers::~DebugServers() = default;
 
 bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
+#ifdef __EMSCRIPTEN__
+    // The refused --dzrp-port / --gdb-port / --zrcp-port are never set: no server.
+    (void)dbg;
+    (void)cfg;
+    return true;
+#else
     if (cfg.dzrp_port >= 0) {
         auto s = std::make_unique<jnext::remote::dzrp::DzrpServer>(dbg);
         // `open()` logs `dzrp: listening on <addr>:<port>` — the BOUND port,
@@ -61,6 +69,7 @@ bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
         zrcp_ = std::move(s);
     }
     return true;
+#endif
 }
 
 PumpBudget DebugServers::frame_loop_budget(bool paused, const ServiceHint& last) {

@@ -4,7 +4,8 @@ JNEXT is C++17, built with CMake 3.16 or newer. Linux is the development host,
 and everything in this chapter assumes it. The other two platforms are not
 built natively here: Windows is cross-compiled from Linux using the MinGW
 toolchain the maintainer's distribution packages, and macOS has to be built on
-a Mac.
+a Mac. A fourth target, the browser, is cross-compiled with a pinned
+Emscripten SDK: [5.6](06-the-browser-build.md).
 
 ## What you need
 
@@ -65,3 +66,4 @@ tree: it is where `build/jnext` and every test binary end up.
 - [5.3 Packaging and release](03-packaging-and-release.md)
 - [5.4 Continuous integration](04-continuous-integration.md)
 - [5.5 Performance and optimisation](05-performance-and-optimisation.md)
+- [5.6 The browser build](06-the-browser-build.md)

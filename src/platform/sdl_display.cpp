@@ -1,6 +1,14 @@
 #include "sdl_display.h"
+#include <algorithm>
 #include "core/log.h"
 #include "platform/window_title.h"
+#ifdef __EMSCRIPTEN__
+#include "platform/browser_crt.h"
+#endif
+
+// Out of line: BrowserCrt is incomplete in the header.
+SdlDisplay::SdlDisplay() = default;
+SdlDisplay::~SdlDisplay() { shutdown(); }
 
 bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     native_w_ = native_w;
@@ -14,8 +22,32 @@ bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     // shown by default (SDL_WINDOW_SHOWN is gone). Centring is a separate,
     // best-effort call — a window manager may place the window itself, which
     // was equally true of SDL2's SDL_WINDOWPOS_CENTERED hint.
+#ifdef __EMSCRIPTEN__
+    // The `dummy` video driver (the unit suites under node, which have no page and no GL)
+    // creates a plain window like any native build does; only a real browser driver gets
+    // the canvas treatment below.
+    const char* video_driver = SDL_GetCurrentVideoDriver();
+    if (video_driver && SDL_strcmp(video_driver, "dummy") == 0) {
+        window_ = SDL_CreateWindow(JNEXT_WINDOW_TITLE,
+            native_w * scale_, display_h * scale_, 0);
+    } else {
+        // The page owns the canvas size and the document title: no title (SDL
+        // would set document.title), follow CSS resizes and render at device
+        // pixels. The window is created OpenGL ES 2 from the start, as the renderer
+        // wants it: otherwise SDL_CreateRenderer destroys and recreates the window,
+        // and on a HiDPI display the SDL Emscripten port sets the canvas CSS size
+        // to 1x1 in between, so the new window reads "no CSS controls the size"
+        // and a 640x512 box became 1280x1024 CSS pixels at a device pixel ratio of 2.
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        window_ = SDL_CreateWindow(nullptr, native_w * scale_, display_h * scale_,
+            SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_OPENGL);
+    }
+#else
     window_ = SDL_CreateWindow(JNEXT_WINDOW_TITLE,
         native_w * scale_, display_h * scale_, 0);
+#endif
     if (!window_) {
         Log::platform()->error("SDL_CreateWindow: {}", SDL_GetError());
         return false;
@@ -65,13 +97,47 @@ bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     return true;
 }
 
-void SdlDisplay::upload_frame(const uint32_t* pixels, int w, int /*h*/) {
+crt_shader::Effect SdlDisplay::set_crt(bool filter, bool shader, crt_shader::Style style, std::string& why) {
+    bool built = false;
+#ifdef __EMSCRIPTEN__
+    if (shader) {
+        crt_ = BrowserCrt::create(renderer_, style, why);
+        built = crt_ != nullptr;
+    }
+#else
+    if (shader) why = "the shader is not available in this build";
+#endif
+    crt_effect_ = crt_shader::resolve(filter, shader, style, built);
+    return crt_effect_;
+}
+
+void SdlDisplay::upload_frame(const uint32_t* pixels, int w, [[maybe_unused]] int h) {
+#ifdef __EMSCRIPTEN__
+    if (crt_effect_ == crt_shader::Effect::Shader) {
+        crt_->present(renderer_, pixels, w, h);   // draws the frame itself: nothing for SDL to do
+        return;
+    }
+#endif
     SDL_UpdateTexture(texture_, nullptr, pixels, w * sizeof(uint32_t));
     SDL_RenderClear(renderer_);
     SDL_RenderTexture(renderer_, texture_, nullptr, nullptr);
+    if (crt_effect_ == crt_shader::Effect::Scanlines) {
+        // The Qt overlay's rule: 25% black on the odd rows of the 640x512 logical screen.
+        constexpr int MAX_ROWS = 256;
+        SDL_FRect rows[MAX_ROWS];
+        const int n = std::min(display_h_ / 2, MAX_ROWS);
+        for (int k = 0; k < n; ++k)
+            rows[k] = SDL_FRect{ 0.f, static_cast<float>(2 * k + 1), static_cast<float>(native_w_), 1.f };
+        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 64);
+        SDL_RenderFillRects(renderer_, rows, n);
+    }
 }
 
 void SdlDisplay::present() {
+#ifdef __EMSCRIPTEN__
+    if (crt_effect_ == crt_shader::Effect::Shader) return;   // the browser shows the buffer itself
+#endif
     SDL_RenderPresent(renderer_);
 }
 
@@ -86,6 +152,10 @@ void SdlDisplay::toggle_fullscreen() {
 }
 
 void SdlDisplay::set_scale(int scale) {
+#ifdef __EMSCRIPTEN__
+    (void)scale;   // the page owns the canvas size
+    return;
+#endif
     if (scale < 2) scale = 2;
     if (scale > 4) scale = 4;
     scale_ = scale;
@@ -98,6 +168,9 @@ void SdlDisplay::set_scale(int scale) {
 }
 
 void SdlDisplay::shutdown() {
+#ifdef __EMSCRIPTEN__
+    crt_.reset();   // crtemu's GL objects go while the context (the renderer's) is alive
+#endif
     if (texture_)  { SDL_DestroyTexture(texture_);   texture_  = nullptr; }
     if (renderer_) { SDL_DestroyRenderer(renderer_); renderer_ = nullptr; }
     if (window_)   { SDL_DestroyWindow(window_);     window_   = nullptr; }

@@ -2,7 +2,9 @@
 #include "platform/quick_snapshot_chord.h"
 #include "platform/cli_delay.h"
 #include "platform/pointer_capture.h"
+#include "platform/frame_deadline.h"
 #include <SDL3/SDL.h>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -16,7 +18,9 @@
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
 #include "platform/pok_trainers.h"
+#ifndef __EMSCRIPTEN__
 #include "script/script_host.h"
+#endif
 #include "video/renderer.h"
 #include "input/gamepad_host.h"
 #include "input/mouse_dispatcher.h"
@@ -25,9 +29,24 @@ class SdlApp {
 public:
     bool init(int argc, char* argv[]);
     void run();
+
+    /// One iteration of the frame loop: what run() used to hold inline. It
+    /// never sleeps; `sleep_ms` is always written and receives the pacing
+    /// sleep this iteration asks for before the next one (0 = none: fastload,
+    /// a Video catch-up, a cold-boot or exit iteration, or no time left).
+    /// Returns false when the loop must end (a quit signal, a window close,
+    /// an automatic or script exit). run() is: while (tick(ms)) sleep ms; and
+    /// the last sleep too.
+    bool tick(uint32_t& sleep_ms);
     void shutdown();
 
     Emulator& emulator() { return emulator_; }
+    SdlDisplay& display() { return display_; }
+
+#ifdef __EMSCRIPTEN__
+    /// The browser ended the pointer lock itself (Escape): follow it.
+    void release_mouse_capture() { set_mouse_captured(false); }
+#endif
 
     /// Set emulator config before calling init().
     void set_config(const EmulatorConfig& cfg) { config_ = cfg; config_set_ = true; }
@@ -63,6 +82,16 @@ public:
 
     /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
     void set_pending_load(const std::string& file, int delay_frames);
+
+    /// GH #465 - the file of a load still waiting to be applied, or "" when none is.
+    std::string pending_load_file() const { return load_countdown_ >= 0 ? load_file_ : std::string(); }
+
+    /// GH #465 - called from tick() right after a pending load was applied, for both
+    /// outcomes: (file, true) when the program is in the machine, (file, false) when
+    /// the load failed. The browser page's controller uses it to say "ready".
+    void set_on_load_applied(std::function<void(const std::string&, bool)> cb) {
+        on_load_applied_ = std::move(cb);
+    }
 
     /// Schedule a screenshot after `delay_frames` frames. `layer_mask` is a
     /// Renderer::LayerMask bitmask (--delayed-screenshot-layers), armed on the
@@ -106,6 +135,23 @@ public:
     /// a vsynced present cannot cap the speed at the display's refresh.
     void set_speed_percent(int percent);
     double speed_multiplier() const { return speed_multiplier_; }
+    /// Test seam for the pacing (GH #468): the clock the frame deadline reads, in microseconds, and the sleep run()
+    /// performs. Defaults: SDL_GetTicksNS() / 1000 and SDL_Delay(). tick() only READS the clock and never sleeps, so a
+    /// suite that drives both sees the pacing grid without depending on how fast the host runs a tick.
+    void set_pacing_time_for_test(std::function<int64_t()> now_us, std::function<void(uint32_t)> sleep_ms) {
+        pacing_now_us_ = std::move(now_us);
+        pacing_sleep_ms_ = std::move(sleep_ms);
+    }
+    /// The frame period the loop paces on, in microseconds and NOT rounded to whole
+    /// milliseconds: the machine's video period scaled by --speed (the sleep in tick()
+    /// rounds the same quantity to whole ms). The browser frame loop advances its grid by it.
+    int64_t effective_frame_period_us() const {
+        return static_cast<int64_t>(1000.0 * emulator_.frame_period_ms() / speed_multiplier_ + 0.5);
+    }
+#ifdef __EMSCRIPTEN__
+    /// Browser bench diagnostics: the device-boundary fill window since the last call.
+    audio_fill::StatsWindow take_audio_fill_stats() { return audio_.take_fill_stats(); }
+#endif
     /// --rzx-play / --rzx-record. Acted on at the start of run(), so they may
     /// be called before or after init() (see emulator_start_rzx()).
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
@@ -138,7 +184,9 @@ private:
     // GH #26 WP4 — `--script` / `--script-key` / `--map` (script/script_host.h).
     // Declared AFTER debugger_ so it is destroyed FIRST: its engine and its
     // listener detach from the Debugger they were started on.
+#ifndef __EMSCRIPTEN__
     jnext::script::ScriptHost script_host_;
+#endif
     /// The cold boot itself — what `LoopDriver::cold_boot` runs for a client's
     /// `reset(Hard)`, which brackets it with its own capture. cold_boot() is
     /// this plus the begin/done pair.
@@ -146,7 +194,7 @@ private:
     bool       running_ = false;
 
     /// GH #321 — Alt+Shift+F5 / Alt+Shift+F9. Save runs from the key callback (between
-    /// frames); Load is serviced in run() beside the NEX load request.
+    /// frames); Load is serviced in tick() beside the NEX load request.
     void quick_save();
     bool quick_load();   // true when it cold-booted
     bool quick_save_requested_ = false;
@@ -181,14 +229,14 @@ private:
 
     /// Issue #122 — host key events go through the issue-#120 minimum-hold
     /// latch instead of straight into the matrix. SDL_PollEvent() and the frame
-    /// loop are the SAME loop iteration (run()), so a key event can only land
+    /// loop are the SAME loop iteration (tick()), so a key event can only land
     /// BETWEEN two run_frame() calls — the identical sampling window that made
     /// the Qt frontend drop keystrokes, and for the identical reason.
     ///
     /// BOTH the policy and the DISPATCH live in platform/host_key_latch.h, and
     /// both are unit-tested (host_key_latch_test, rows HKL-* and RT-*). SdlApp
     /// supplies only the three call sites: on_host_key() in the input_.on_key
-    /// callback, on_tick_end() after the frame loop in run(), and attach() in
+    /// callback, on_tick_end() after the frame loop in tick(), and attach() in
     /// init() plus cold_boot()'s rewire_host hook.
     host_key_latch::Router<Keyboard, SDL_Scancode> key_router_;
 
@@ -201,6 +249,7 @@ private:
     // Pending --load state
     std::string load_file_;
     int         load_countdown_ = -1;    // -1 = no pending load
+    std::function<void(const std::string&, bool)> on_load_applied_;   // see set_on_load_applied()
     bool        source_map_watch_ = false;   // --source-map attached pending (a tape): GH #344
 
     // Pending --delayed-pok-frames request (GH #381); empty when not given.
@@ -223,6 +272,13 @@ private:
 
     // Last frame-pacing period logged (ms); logs only on a 50/60 Hz change.
     uint32_t    last_frame_ms_ = 0;
+    // The exact, fractional frame deadline (GH #9 / #468): the sleep to the next tick is whole ms, the grid is not.
+    frame_deadline::Scheduler frame_sched_;
+    bool        frame_sched_anchored_ = false;
+    std::function<int64_t()>        pacing_now_us_;     // empty: the SDL clock
+    std::function<void(uint32_t)>   pacing_sleep_ms_;   // empty: SDL_Delay
+    int64_t pacing_now_us() const;
+    void    pacing_sleep(uint32_t ms) const;
 
     // --tape-realtime (see set_tape_realtime()).
     bool        tape_realtime_ = false;

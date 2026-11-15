@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # coverage-frontends-func (GH #388): --coverage starts memory coverage in EVERY
 # loop owner. The three owners each call apply_startup_coverage() after hosting the
 # debugger backend (platform/coverage_startup.h) and log_coverage_summary() at exit;
-# cli_options_test CLI-COV-01 and debugger_backend_test HOST-COV-01 reach only the
+# cli_options_native_test CLI-COV-01 and debugger_backend_test HOST-COV-01 reach only the
 # headless one, so a Qt or SDL owner that forgot the call passed everything.
 #
 # THE MEASUREMENT. Each frontend runs 20 frames with --coverage and must log the

@@ -31,5 +31,3 @@ zesarux_*.idx
 # rather than the places it has bitten so far.
 __pycache__/
 
-# Task 27 T1 benchmark harness lock (runtime artifact)
-test/bench/.lock

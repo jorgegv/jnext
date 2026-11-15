@@ -212,6 +212,14 @@ struct EmulatorConfig {
     // and for testing the recording path itself.
     bool warm_start_regenerate = false;
 
+    // `--sdcard-sha256`: the SHA-256 (64 lowercase hex digits) the CALLER has
+    // checked `sd_card_sha256_for` against. When it names the mounted image,
+    // the warm-start key is this digest instead of the image's mtime (the
+    // browser build rewrites the card on every visit). jnext never hashes the
+    // file. Bound to a path so a live card change cannot inherit it.
+    std::string sd_card_sha256;
+    std::string sd_card_sha256_for;
+
     // GH #395 - automatic tape play/stop (Tape menu, Preferences,
     // --tape-auto-play / --no-tape-auto-play). Default ON.
     bool tape_auto_play = true;

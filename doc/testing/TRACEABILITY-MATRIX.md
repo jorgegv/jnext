@@ -44,7 +44,8 @@ mentions them, so a test can no longer be absent from this document.
 | Contention                                 |   178 |  178 |    0 |    0 |       0 |          0 |
 | LoRes                                      |   101 |  101 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    94 |   94 |    0 |    0 |       0 |          0 |
-| Companion: sdcard_posix_test               |     5 |    5 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_posix_test               |     7 |    7 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_writes_test              |    28 |   28 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -63,13 +64,15 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   379 |  379 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
-| Companion: input_integration_test          |    65 |   65 |    0 |    0 |       0 |          0 |
-| Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_test          |    64 |   64 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_native_test   |     1 |    1 |    0 |    0 |       0 |          0 |
+| Companion: uart_integration_test           |    38 |   38 |    0 |    0 |       0 |          0 |
+| Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6232 | 6232 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6262 | 6262 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6232**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5717**. Rows the 203 suites declared in `test/unit-tests.conf` run live: **16398**.
+Rows the sections above carry: **6262**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5747**. Rows the 217 suites declared in `test/unit-tests.conf` run live: **16596**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -81,14 +84,14 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 155 suites (10765 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 166 suites (10933 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
 | `fuse_z80_test` | 1356 | data-driven FUSE runner, no per-row IDs |
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `rewind_call_stack_test` | 20 | debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger |
-| `esxdos_stub_test` | 334 | esxDOS API surface + jnext trap policy, not core logic |
+| `esxdos_stub_test` | 342 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 13 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
 | `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
 | `video_recorder_posix_test` | 7 | GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle |
@@ -99,10 +102,13 @@ These 155 suites (10765 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_file_add_test` | 150 | FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_file_add_posix_test` | 13 | rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_file_add_linux_test` | 1 | SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
-| `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
-| `sdcard_provisioner_test` | 173 | jnext SD-image download/patch policy (host side) |
+| `fat32_image_test` | 17 | FAT32 on-disk format (host image reader) |
+| `sdcard_provisioner_test` | 181 | jnext SD-image download/patch policy (host side) |
+| `sha256_test` | 15 | SHA-256 of every backend (OpenSSL, BCrypt, the portable WebAssembly one; host utility): NIST FIPS 180-2 Appendix B and the NIST CSRC SHA-2 example as oracles, coreutils sha256sum for the rest; the FPGA core has no counterpart |
+| `minimal_card_test` | 26 | the minimal NextZXOS card builder (GH #458): a synthetic MS-FAT32-spec distribution and a zlib zip built in the test, the card read back with ChaN FatFs (host SD-image tool, jnext-internal; the FPGA core has no counterpart) |
 | `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
-| `warm_start_test` | 94 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
+| `warm_start_test` | 116 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
+| `warm_start_card_test` | 4 | warm-start digest key and stepped recording against the real card (GH #464, jnext-internal); no FPGA counterpart |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `sd_identity_test` | 31 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sd_no_digest_linux_test` | 5 | GH #396: no whole-card read on .jns save/probe/load or a warm-start hit, measured by Linux /proc/self/io rchar; jnext-internal host behaviour (a UI-thread stall), the FPGA core has no counterpart |
@@ -116,7 +122,8 @@ These 155 suites (10765 live rows) have no VHDL-derived plan row to map, so they
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 14 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 129 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 126 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_native_test` | 4 | host cold-boot of a live emulated ESP-01 (threaded; split out of emulator_boot_test, GH #460; no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `fullscreen_sync_test` | 11 | macOS full-screen state sync and window size lock (GH #404, host GUI, no VHDL oracle) |
 | `recent_files_test` | 17 | File > Recent Files list logic and load-dialog seed (GH #406, host GUI, no VHDL oracle) |
@@ -128,29 +135,36 @@ These 155 suites (10765 live rows) have no VHDL-derived plan row to map, so they
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 182 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `sdl_app_tick_test` | 12 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
+| `browser_policy_test` | 29 | browser page rAF callback gate and refusals (host UI, GH #463) |
+| `web_api_test` | 26 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
 | `sdcard_upgrade_box_test` | 3 | SDL message box offering a newer NextZXOS image (host UI, GH #476) |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 63 | CLI flag table vs the man page (see `make cli-check`) |
-| `config_keys_test` | 28 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
-| `video_recorder_cmd_test` | 54 | FFmpeg command-line construction (host encoder) |
+| `cli_options_test` | 42 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_native_test` | 26 | CLI rows that run the built jnext binary (split out of cli_options_test, GH #460; see `make cli-check`) |
+| `config_keys_test` | 30 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
+| `video_recorder_cmd_test` | 46 | FFmpeg command-line construction (host encoder) |
+| `video_recorder_cmd_native_test` | 8 | FFmpeg recording through a stand-in child process (host encoder, split out of video_recorder_cmd_test, GH #460) |
 | `nex_loader_test` | 157 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 117 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
 | `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
 | `tap_loader_test` | 80 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
-| `program_archive_test` | 71 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
+| `program_archive_test` | 76 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
 | `halt_batch_equiv_test` | 23 | cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal) |
 | `halt_batch_periph_test` | 38 | cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `raster_poll_batch_test` | 13 | raster-poll batch equivalence (GH #496): the batch off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal); each row cites the hardware behaviour a batched window must not move in its own source |
 | `raster_poll_batch_refuse_test` | 15 | raster-poll batch gates and refusals (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
-| `raster_poll_batch_observer_test` | 2 | raster-poll batch with an ESP-01 or a debugger client attached (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
+| `raster_poll_batch_observer_test` | 1 | raster-poll batch with an ESP-01 or a debugger client attached (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
+| `raster_poll_batch_observer_native_test` | 1 | raster-poll batch with an ESP-01 attached and the debugger window open (GH #496): the row that needs a live ESP worker thread; batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `raster_poll_batch_boot_test` | 1 | raster-poll batch on the NextZXOS Guide viewer (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `raster_poll_batch_switch_test` | 3 | the raster-poll batch's switch (GH #496): jnext-internal configuration, no hardware counterpart |
 | `costly_optimizations_test` | 6 | the costly-optimisation registry parser (GH #496): a host-side command-line value list, no hardware counterpart |
-| `halt_batch_observer_test` | 16 | cycle-batching equivalence with an ESP-01 or a debugger client attached (GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
+| `halt_batch_observer_test` | 13 | cycle-batching equivalence with an ESP-01 or a debugger client attached (GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
+| `halt_batch_observer_native_test` | 3 | cycle-batching equivalence with an ESP-01 attached (GH #489): the rows that need a live ESP worker thread; batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `call_stack_fetch_test` | 14 | debugger call-stack tracker fed from the CPU's M1 fetch buffer (GH #489): frames through the emulator path; the oracle is Z80/Z80N instruction semantics and the interrupt response, the tracker itself being jnext-internal |
 | `halt_batch_boot_test` | 2 | cycle-batching equivalence on the NextZXOS cold boot (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_1_test` | 6 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
@@ -193,7 +207,7 @@ These 155 suites (10765 live rows) have no VHDL-derived plan row to map, so they
 | `script_events_test` | 153 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
 | `zrcp_adapter_test` | 231 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
-| `crt_shader_policy_test` | 14 | OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI) |
+| `crt_shader_policy_test` | 18 | OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI) |
 | `app_config_test` | 176 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
@@ -1028,223 +1042,223 @@ Notes and rationale: [SPRITES-TEST-PLAN-DESIGN.md](SPRITES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| G1.AT-01 | 4-byte write auto-advances to next sprite attr0 (639-664) | sprites.vhd:639-664 | pass | test/sprites/sprites_test.cpp:296 |
-| G1.AT-02 | 5-byte write advances past attr4 to next sprite (639-664) | sprites.vhd:639-664 | pass | test/sprites/sprites_test.cpp:314 |
-| G1.AT-03 | 0x303B d(6:0) selects sprite slot (655-657) | sprites.vhd:655-657 | pass | test/sprites/sprites_test.cpp:326 |
-| G1.AT-04 | 0x303B d(7) sets pattern MSB; d(6:0)=slot select (735-736,655) | sprites.vhd:735-736 | pass | test/sprites/sprites_test.cpp:343 |
-| G1.AT-05 | attr2=0xAF -> paloff=A, xm=1, ym=1, rot=1, xmsb=1 (381) | sprites.vhd:381 | pass | test/sprites/sprites_test.cpp:353 |
-| G1.AT-06 | attr4=0xED -> H=1 N6=1 type=1 xs=01 ys=10 ymsb=1 (437) | sprites.vhd:437 | pass | test/sprites/sprites_test.cpp:370 |
-| G1.AT-07 | sprite index 127 addressable (655) | sprites.vhd:655 | pass | test/sprites/sprites_test.cpp:386 |
-| G1.AT-08 | NR 0x34 mirror path writes attr byte to selected slot (704-715) | sprites.vhd:704-715 | pass | test/sprites/sprites_test.cpp:396 |
-| G1.AT-09 | NR 0x34 sprite-number write lands in slot 5 (600-602) | sprites.vhd:600-602 | pass | test/sprites/sprites_test.cpp:406 |
-| G1.AT-10 | mirror_inc wraps slot 127->0 (603-605) | sprites.vhd:603-605 | pass | test/sprites/sprites_test.cpp:419 |
-| G1.AT-11 | legacy set_attr_slot moves the 0x57 cursor unconditionally (helper semantics, not the sprites.vhd:653-654 tie) | sprites.vhd:653-654 | pass | test/sprites/sprites_test.cpp:435 |
-| G1.AT-13 | NR 0x09 b4 sprite_tie syncs attr_index to mirror sprite_num (sprites.vhd:594-612,653-654) | sprites.vhd:594-612,653-654 | pass | test/sprites/sprites_test.cpp:471 |
-| G1.AT-14 | NR 0x35-0x39 must not auto-increment sprite slot (zxnext.vhd:4916, mirror_inc gated on bit 6) | zxnext.vhd:4916 | pass | test/sprites/sprites_test.cpp:498 |
-| G1.AT-15 | NR 0x75-0x79 must increment slot after every byte (zxnext.vhd:4916, sprites.vhd:603-605) | zxnext.vhd:4916, sprites.vhd:603-605 | pass | test/sprites/sprites_test.cpp:536 |
-| G1.AT-22 | port 0x303B write re-bases mirror_sprite_q under sprite_tie: slot in 6:0, pattern_index(7) in bit 7 (sprites.vhd:607-609,655-657) | sprites.vhd:607-609,655-657 | pass | test/sprites/sprites_test.cpp:699 |
-| G1.AT-23 | port 0x57 slot advance re-bases mirror_sprite_q under sprite_tie (bit 7 from pattern_index(7)); non-boundary writes do not (sprites.vhd:607-609,639,658-663) | sprites.vhd:607-609,639,658-663 | pass | test/sprites/sprites_test.cpp:736 |
-| G1.AT-24 | tie clear: port 0x303B / port 0x57 advance leave mirror_sprite_q alone (sprites.vhd:607-609 gate) | sprites.vhd:607-609 | pass | test/sprites/sprites_test.cpp:766 |
-| G2.PL-01 | 256-byte upload into pattern 0 observable via render (sprites.vhd:728-744) | sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:820 |
-| G2.PL-02 | Pattern index 63 writable and readable (sprites.vhd:728-744) | sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:835 |
-| G2.PL-03 | auto-increment crosses pattern 0->1 boundary (sprites.vhd:738) | sprites.vhd:738 | pass | test/sprites/sprites_test.cpp:854 |
-| G2.PL-04 | 0x303B bit7 -> half-pattern offset 128 (736) | sprites.vhd:736 | pass | test/sprites/sprites_test.cpp:876 |
-| G2.PL-05 | Pattern RAM top does not wrap to 0, 14-bit mask (sprites.vhd:738) | sprites.vhd:738 | pass | test/sprites/sprites_test.cpp:897 |
-| G2.PL-09 | tie clear: NR 0x34 must not touch pattern_index(7) — NR 0x75 inc then reads back b7=0 and a later tie-set sync stays in the low half-pattern (sprites.vhd:728-741,603-605,733-734) | sprites.vhd:728-741,603-605,733-734 | pass | test/sprites/sprites_test.cpp:995 |
-| G2.PL-10 | tie set: NR 0x34 re-bases pattern_index incl. bit 7 (mirror b7 → pattern_index(7)); NR 0x75 inc reads it back (sprites.vhd:733-734,603-605) | sprites.vhd:733-734,603-605 | pass | test/sprites/sprites_test.cpp:1023 |
-| G3.PX-01 | 8bpp opaque pixel 0x42 at (0,0) (sprites.vhd:968,971) | sprites.vhd:968,971 | pass | test/sprites/sprites_test.cpp:1054 |
-| G3.PX-02 | 8bpp paloff +3 on upper nibble 0x15->0x45 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1068 |
-| G3.PX-03 | 8bpp paloff upper nibble wraps mod 16 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1082 |
-| G3.PX-04 | 4bpp even col -> upper nibble + paloff (sprites.vhd:967-968) | sprites.vhd:967-968 | pass | test/sprites/sprites_test.cpp:1100 |
-| G3.PX-05 | 4bpp odd col -> lower nibble + paloff (sprites.vhd:967) | sprites.vhd:967 | pass | test/sprites/sprites_test.cpp:1114 |
-| G3.PX-06 | 4bpp N6 selects high half of pattern bank (sprites.vhd:962-964) | sprites.vhd:962-964 | pass | test/sprites/sprites_test.cpp:1133 |
-| G3.TR-01 | 8bpp pattern byte == transp -> not written (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1147 |
-| G3.TR-02 | 4bpp transparent upper nibble; lower nibble still writes (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1167 |
-| G3.TR-03 | Transparency compare is on palette index, not ARGB (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1194 |
-| G3.TR-04 | 8bpp transparency compares pre-palette-offset byte (971,968) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1212 |
-| G3.PA-01 | 4bpp: paloff replaces upper nibble; result 0xC5 at col 0 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1228 |
-| G3.PA-02 | opaque write marks line buffer (sprites.vhd:969) — observed as pixel set | sprites.vhd:969 | pass | test/sprites/sprites_test.cpp:1244 |
-| G4.XY-01 | Sprite (0,0) fills cols 0..15 on line 0 (sprites.vhd:796-799) | sprites.vhd:796-799 | pass | test/sprites/sprites_test.cpp:1272 |
-| G4.XY-02 | X MSB: attr2(0)=1 -> x=256+attr0 (sprites.vhd:799) | sprites.vhd:799 | pass | test/sprites/sprites_test.cpp:1284 |
-| G4.XY-03 | attr3(6)=0 forces y_msb=0 regardless (sprites.vhd:796) | sprites.vhd:796 | pass | test/sprites/sprites_test.cpp:1303 |
-| G4.XY-04 | attr3(6)=1 + attr4(0)=1 + attr1=0x00 → spr_cur_y = 256 (9-bit Y, MSB from the 5th attribute byte; sprites.vhd:796-797) | sprites.vhd:796-797 | pass | test/sprites/sprites_test.cpp:1331 |
-| G4.XY-05 | x=319 renders at col 319 (sprites.vhd:822,855-860) | sprites.vhd:822,855-860 | pass | test/sprites/sprites_test.cpp:1347 |
-| G4.XY-06 | x=320 1x scale produces zero pixels (sprites.vhd:822,855) | sprites.vhd:822,855 | pass | test/sprites/sprites_test.cpp:1364 |
-| G4.XY-07 | 2x scale from x=300 draws 300..319 (sprites.vhd:919-927) | sprites.vhd:919-927 | pass | test/sprites/sprites_test.cpp:1386 |
-| G5.VIS-01 | visible + on-scanline renders (sprites.vhd:842,917) | sprites.vhd:842,917 | pass | test/sprites/sprites_test.cpp:1444 |
-| G5.VIS-02 | attr3(7)=0 -> sprite skipped (sprites.vhd:842,848) | sprites.vhd:842,848 | pass | test/sprites/sprites_test.cpp:1455 |
-| G5.VIS-03 | Scanline outside sprite Y -> skipped (sprites.vhd:842,918) | sprites.vhd:842,918 | pass | test/sprites/sprites_test.cpp:1466 |
-| G5.VIS-04 | x=320, 1x scale -> zero pixels (sprites.vhd:822,855) | sprites.vhd:822,855 | pass | test/sprites/sprites_test.cpp:1479 |
-| G5.VIS-05 | Invisible anchor -> relative child invisible (sprites.vhd:917,784) | sprites.vhd:917,784 | pass | test/sprites/sprites_test.cpp:1501 |
-| G6.CL-01 | Reset clip defaults pass (50,50) pixel (sprites.vhd:1055-1060) | sprites.vhd:1055-1060 | pass | test/sprites/sprites_test.cpp:1523 |
-| G6.CL-02 | clip_x1=0x1F -> x_s=0x3F; cols <0x3F clipped (sprites.vhd:1055) | sprites.vhd:1055 | pass | test/sprites/sprites_test.cpp:1543 |
-| G6.CL-03 | clip_x2=0x3F -> x_e=0x5F; cols >0x5F clipped (sprites.vhd:1056) | sprites.vhd:1056 | pass | test/sprites/sprites_test.cpp:1568 |
-| G6.CL-04 | over_border=1 draws at y=200 (sprites.vhd:1044-1048) | sprites.vhd:1044-1048 | pass | test/sprites/sprites_test.cpp:1583 |
-| G6.CL-05 | over_border clip: x1*2=0x80 -> x=0x60 fully clipped (1049-1053) | sprites.vhd:1049-1053 | pass | test/sprites/sprites_test.cpp:1604 |
-| G6.CL-06 | Pixel at col 10 outside clip (x_s>10) suppressed (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:1620 |
-| G6.CL-07 | Pixel inside clip emitted (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:1633 |
-| G7.PR-01 | zero_on_top=0: higher-index sprite wins overlap (sprites.vhd:972) | sprites.vhd:972 | pass | test/sprites/sprites_test.cpp:1657 |
-| G7.PR-02 | zero_on_top=1: lower-index sprite wins overlap (sprites.vhd:972) | sprites.vhd:972 | pass | test/sprites/sprites_test.cpp:1673 |
-| G7.PR-03 | Line buffer occupancy does not leak between scanlines (sprites.vhd:1023-1033) | sprites.vhd:1023-1033 | pass | test/sprites/sprites_test.cpp:1693 |
-| G7.PR-04 | Collision bit set irrespective of zero_on_top (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:1710 |
-| G9.MI-01 | Plain render: col i has pattern byte (i+1) (sprites.vhd:811-820) | sprites.vhd:811-820 | pass | test/sprites/sprites_test.cpp:1742 |
-| G9.MI-02 | X-mirror: col 0 has byte 16, col 15 has byte 1 (sprites.vhd:813,817-820) | sprites.vhd:813,817-820 | pass | test/sprites/sprites_test.cpp:1756 |
-| G9.MI-03 | Y-mirror row 0 reads pattern row 15 (sprites.vhd:811) | sprites.vhd:811 | pass | test/sprites/sprites_test.cpp:1776 |
-| G9.MI-04 | X+Y mirror = 180 degrees (sprites.vhd:811,813) | sprites.vhd:811,813 | pass | test/sprites/sprites_test.cpp:1793 |
-| G9.RO-01 | Rotate swaps pattern row/col indices (sprites.vhd:816) | sprites.vhd:816 | pass | test/sprites/sprites_test.cpp:1816 |
-| G9.RO-02 | rotate=1 alone activates effective x-mirror (sprites.vhd:813) | sprites.vhd:813 | pass | test/sprites/sprites_test.cpp:1836 |
-| G9.RO-03 | rotate=1, xmirror=0 → x_mirr_eff=1 → pattern pointer steps by -16 per column (240,224,…,0) (sprites.vhd:813,816,817) | sprites.vhd:813,816,817 | pass | test/sprites/sprites_test.cpp:1891 |
-| G9.RO-04 | rotate=1, xmirror=1 → x_mirr_eff=0 → pattern pointer steps by +16 per column (0,16,…,240) (sprites.vhd:813,816,819) | sprites.vhd:813,816,819 | pass | test/sprites/sprites_test.cpp:1905 |
-| G10.SC-01 | 1x X: 16 px, col i -> byte i+1 (sprites.vhd:907-908) | sprites.vhd:907-908 | pass | test/sprites/sprites_test.cpp:1943 |
-| G10.SC-02 | 2x X: cols 0-1 byte 1; cols 2-3 byte 2; last col 31 byte 16 (sprites.vhd:909) | sprites.vhd:909 | pass | test/sprites/sprites_test.cpp:1955 |
-| G10.SC-03 | 4x X: 64 px, byte 1 repeats in 0..3 (sprites.vhd:911) | sprites.vhd:911 | pass | test/sprites/sprites_test.cpp:1970 |
-| G10.SC-04 | 8x X: 128 px, byte 1 in 0..7 (sprites.vhd:913) | sprites.vhd:913 | pass | test/sprites/sprites_test.cpp:1984 |
-| G10.SC-05 | Y 2x: lines 0,1 both show row 0 (sprites.vhd:808) | sprites.vhd:808 | pass | test/sprites/sprites_test.cpp:2002 |
-| G10.SC-06 | Y 4x: rows repeat 4x (sprites.vhd:809) | sprites.vhd:809 | pass | test/sprites/sprites_test.cpp:2021 |
-| G10.SC-07 | Y 8x: rows repeat 8x (sprites.vhd:810) | sprites.vhd:810 | pass | test/sprites/sprites_test.cpp:2041 |
-| G10.SC-08 | attr3(6)=0 forces 1x scale regardless of attr4 (sprites.vhd:907,919) | sprites.vhd:907,919 | pass | test/sprites/sprites_test.cpp:2057 |
-| G10.SC-09 | 4x by 2x covers 64x32 rectangle (sprites.vhd:807-810,907-915) | sprites.vhd:807-810,907-915 | pass | test/sprites/sprites_test.cpp:2074 |
-| G10.SC-10 | 2x scale from x=300 stops at x=319 (sprites.vhd:921) | sprites.vhd:921 | pass | test/sprites/sprites_test.cpp:2088 |
-| G11.OB-01 | over_border=0, y=200 -> not emitted (sprites.vhd:1055-1067) | sprites.vhd:1055-1067 | pass | test/sprites/sprites_test.cpp:2115 |
-| G11.OB-02 | over_border=1 -> sprite at y=200 emitted (sprites.vhd:1044-1048) | sprites.vhd:1044-1048 | pass | test/sprites/sprites_test.cpp:2126 |
-| G11.OB-03 | over_border=1 + border_clip_en=1 applies clip window (1049-1053) | sprites.vhd:1049-1053 | pass | test/sprites/sprites_test.cpp:2151 |
-| G11.OB-04 | over_border=0: y>=224 suppressed (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:2172 |
-| G12.AN-01 | Anchor latches (x,y); relative draws at anchor+off (sprites.vhd:929-936,760-773) | sprites.vhd:929-936,760-773 | pass | test/sprites/sprites_test.cpp:2194 |
-| G12.AN-02 | Type1 anchor inherits xscale to relative (sprites.vhd:937-942) | sprites.vhd:937-942 | pass | test/sprites/sprites_test.cpp:2210 |
-| G12.AN-03 | Type0 anchor does not inherit scale (sprites.vhd:943-948) | sprites.vhd:943-948 | pass | test/sprites/sprites_test.cpp:2230 |
-| G12.AN-04 | 4-byte sprite does not overwrite anchor state (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2244 |
-| G12.AN-05 | anchor_vis=0 -> relatives invisible (sprites.vhd:932,784) | sprites.vhd:932,784 | pass | test/sprites/sprites_test.cpp:2272 |
-| G12.RE-01 | Relative at anchor+(10,5) (sprites.vhd:760-773) | sprites.vhd:760-773 | pass | test/sprites/sprites_test.cpp:2283 |
-| G12.RE-02 | Invisible anchor propagates to relative (sprites.vhd:784) | sprites.vhd:784 | pass | test/sprites/sprites_test.cpp:2308 |
-| G12.RE-03 | Rel attr2(0)=0 -> direct paloff (sprites.vhd:775) | sprites.vhd:775 | pass | test/sprites/sprites_test.cpp:2324 |
-| G12.RE-04 | Rel attr2(0)=1 -> anchor+rel paloff (sprites.vhd:775) | sprites.vhd:775 | pass | test/sprites/sprites_test.cpp:2342 |
-| G12.RE-05 | Anchor rotate swaps rel offset axes (sprites.vhd:760-761) | sprites.vhd:760-761 | pass | test/sprites/sprites_test.cpp:2358 |
-| G12.RE-06 | Anchor xmirror negates rel X offset (762) | sprites.vhd:762 | pass | test/sprites/sprites_test.cpp:2375 |
-| G12.RE-07 | Anchor ymirror negates rel Y offset (sprites.vhd:763) | sprites.vhd:763 | pass | test/sprites/sprites_test.cpp:2390 |
-| G12.RE-08 | Anchor xscale=01 doubles rel X (sprites.vhd:764-765) | sprites.vhd:764-765 | pass | test/sprites/sprites_test.cpp:2404 |
-| G12.RE-09 | Anchor yscale=10 quadruples rel Y (sprites.vhd:770) | sprites.vhd:770 | pass | test/sprites/sprites_test.cpp:2418 |
-| G12.RE-10 | Anchor xscale=11 x8 rel X offset (sprites.vhd:767) | sprites.vhd:767 | pass | test/sprites/sprites_test.cpp:2431 |
-| G12.RT-01 | Type0 rel uses own xmirror flag (sprites.vhd:782-783) | sprites.vhd:782-783 | pass | test/sprites/sprites_test.cpp:2451 |
-| G12.RT-02 | Type1 rel xmirror = anchor XOR rel (sprites.vhd:783) | sprites.vhd:783 | pass | test/sprites/sprites_test.cpp:2472 |
-| G12.RT-03 | Type1 rel rotate = anchor XOR rel (sprites.vhd:783) | sprites.vhd:783 | pass | test/sprites/sprites_test.cpp:2497 |
-| G12.RT-04 | Type1 rel inherits anchor xscale (sprites.vhd:786) | sprites.vhd:786 | pass | test/sprites/sprites_test.cpp:2518 |
-| G12.RP-01 | Rel pattern 5 (no add) -> renders pattern 5 (sprites.vhd:803-804) | sprites.vhd:803-804 | pass | test/sprites/sprites_test.cpp:2533 |
-| G12.RP-02 | Rel attr4(0)=1 -> anchor_pattern+rel_pattern (sprites.vhd:803) | sprites.vhd:803 | pass | test/sprites/sprites_test.cpp:2546 |
-| G12.RP-03 | Rel effective N6 = anchor_h AND rel.byte4(5) (785,802) | sprites.vhd:802 | pass | test/sprites/sprites_test.cpp:2591 |
-| G12.RP-04 | 4bpp anchor -> rel renders 4bpp; 8bpp anchor -> rel 8bpp (785) | sprites.vhd:785 | pass | test/sprites/sprites_test.cpp:2634 |
-| G12.NG-01 | Rel with no prior anchor inherits anchor_vis=0 (893-897) | sprites.vhd:893-897 | pass | test/sprites/sprites_test.cpp:2657 |
-| G12.NG-02 | Second anchor replaces first (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2671 |
-| G12.NG-03 | 4-byte sprite between anchor and rel preserves anchor (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2685 |
-| G13.CO-01 | Non-overlap: collision bit 0 (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2710 |
-| G13.CO-02 | Overlap sets collision bit (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2724 |
-| G13.CO-03 | Collision fires even with zero_on_top=1 (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2739 |
-| G13.CO-04 | Transparent sprite's pixels do not collide (sprites.vhd:971,991) | sprites.vhd:971,991 | pass | test/sprites/sprites_test.cpp:2755 |
-| G13.CO-05 | Read clears status (sprites.vhd:986-988) | sprites.vhd:986-988 | pass | test/sprites/sprites_test.cpp:2771 |
-| G13.CO-06 | Collision sticky until read (sprites.vhd:986-991) | sprites.vhd:986-991 | pass | test/sprites/sprites_test.cpp:2790 |
-| G13.OT-01 | Few sprites: overtime bit 0 (sprites.vhd:977) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2804 |
-| G13.OT-02 | 128 visible anchors -> overtime bit 1 (977) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2823 |
-| G13.OT-03 | Overtime fires without collision (sprites.vhd:977 independent of :991) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2843 |
-| G13.OT-04 | Overtime and collision both set (977,991) | sprites.vhd:990-991 | pass | test/sprites/sprites_test.cpp:2861 |
-| G13.SR-01 | Status bits 7:2 are zero (sprites.vhd:975-995) | sprites.vhd:975-995 | pass | test/sprites/sprites_test.cpp:2878 |
-| G13.SR-02 | Read captures then clears (sprites.vhd:986-988) | sprites.vhd:986-988 | pass | test/sprites/sprites_test.cpp:2895 |
-| G13.SR-03 | Repeated collisions keep bit set until read (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2911 |
-| G14.RST-01 | anchor_vis=0 at reset -> first rel invisible (sprites.vhd:888,784) | sprites.vhd:888,784 | pass | test/sprites/sprites_test.cpp:2940 |
-| G14.RST-02 | spr_cur_index resets to 0 (sprites.vhd:876,898) | sprites.vhd:876,898 | pass | test/sprites/sprites_test.cpp:2952 |
-| G14.RST-03 | status register zero after reset (sprites.vhd:982-984) | sprites.vhd:982-984 | pass | test/sprites/sprites_test.cpp:2959 |
-| G14.RST-04 | mirror_sprite_q (attr_slot) zero after reset (sprites.vhd:598-599,614) | sprites.vhd:598-599,614 | pass | test/sprites/sprites_test.cpp:2968 |
-| G14.RST-05 | Line buffer usable immediately after reset (sprites.vhd:534-550) | sprites.vhd:534-550 | pass | test/sprites/sprites_test.cpp:2981 |
-| G14.RST-06 | attr_index/pattern_index zero after reset (sprites.vhd:651-652,731-732) | sprites.vhd:651-652,731-732 | pass | test/sprites/sprites_test.cpp:3010 |
-| G15.NG-01 | attr3(5:0) is 6 bits; pattern 1 reachable, 65 not (sprites.vhd:804) | sprites.vhd:804 | pass | test/sprites/sprites_test.cpp:3041 |
-| G15.NG-02 | Off-screen sprite (500,500) writes nothing (sprites.vhd:842) | sprites.vhd:842 | pass | test/sprites/sprites_test.cpp:3055 |
-| G15.NG-03 | (0,0) with no ext byte renders 1x (sprites.vhd:796,907,919) | sprites.vhd:796,907,919 | pass | test/sprites/sprites_test.cpp:3066 |
-| G15.NG-04 | paloff upper-nibble wraps mod 16 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:3079 |
-| G15.NG-05 | All-transparent sprite: zero pixels, no collision (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:3095 |
-| G15.NG-07 | Negative rel offset wraps 9-bit, off-screen (762,772) | sprites.vhd:762 | pass | test/sprites/sprites_test.cpp:3124 |
-| G16.OVF-01 | Mid-frame attribute writes that fit in cap render correctly even when followed by an overflowing tail (>cap) | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3614 |
-| G16.OVF-02 | Overflow warn fires exactly once per frame and resets at next `start_frame | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3645 |
-| G16.OVF-03 | Z80N-DMA streaming 32 byte-rewrites/scanline × 256 lines = 8192 writes — boundary case, every write must replay | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3728 |
-| G06.NR70-01 | NR 0x70 b5:4 L2 resolution flip mid-frame must reroute L2 width | zxnext.vhd:7400-7470, layer2.vhd:128 | pass | test/sprites/sprites_test.cpp:4331 |
-| G17.PSL-PAT-08 | Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap; in-cap writes still apply | sprites.vhd:561-572, sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:4251 |
-| G1.AT-18 | NR 0x34 must not move the port-0x57 cursor with sprite_tie clear (sprites.vhd:653 gate) | sprites.vhd:653 | pass | test/sprites/sprites_test.cpp:586 |
-| G1.AT-19 | NR 0x34 re-bases the port-0x57 cursor to slot<<3 under sprite_tie (sprites.vhd:653-654) | sprites.vhd:653-654 | pass | test/sprites/sprites_test.cpp:612 |
-| G1.AT-20 | NR 0x75-0x79 inc must not move the port-0x57 cursor with sprite_tie clear (sprites.vhd:603-606,653) | sprites.vhd:603-606,653 | pass | test/sprites/sprites_test.cpp:637 |
-| G1.AT-21 | NR 0x75-0x79 inc re-bases the port-0x57 cursor under sprite_tie (sprites.vhd:603-606,653-654) | sprites.vhd:603-606,653-654 | pass | test/sprites/sprites_test.cpp:664 |
-| G2.PL-06 | NR 0x34 re-bases pattern_index under sprite_tie (sprites.vhd:600-602,733-734) | sprites.vhd:600-602,733-734 | pass | test/sprites/sprites_test.cpp:928 |
-| G2.PL-07 | NR 0x34 must not touch pattern_index with sprite_tie clear (sprites.vhd:733-734 gate) | sprites.vhd:733-734 | pass | test/sprites/sprites_test.cpp:946 |
-| G2.PL-08 | NR 0x75-0x79 inc re-bases pattern_index under sprite_tie (sprites.vhd:603-606,733-734) | sprites.vhd:603-606,733-734 | pass | test/sprites/sprites_test.cpp:963 |
-| G4.XY-08 | G104 Phase 5: each 320-grid sprite pixel writes both line[2x] and line[2x+1] (sprites.vhd:1004,1017,1037 i_CLK_7) | sprites.vhd:1004,1017,1037 | pass | test/sprites/sprites_test.cpp:1421 |
-| G16.PSL-01a | rewind restores baseline (slot 0 cleared) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3164 |
-| G16.PSL-01b | apply_changes_for_line(0) restores write [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3170 |
-| G16.PSL-02a | Line 0: baseline visible (X=10, Y=20) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3209 |
-| G16.PSL-02b | Lines 1..99: still baseline (X=10, Y=20) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3221 |
-| G16.PSL-02c | Line 100: mid-frame write applied (X=200, Y=200) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3230 |
-| G16.PSL-02d | Lines 101..255: post-write state retained [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3241 |
-| G16.PSL-03a | After rewind: slot 0 X back to 0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3273 |
-| G16.PSL-03b | Lines 0..49: slot 0 X = 0 (baseline) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3278 |
-| G16.PSL-03c | Line 50: slot 0 X = 50 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3283 |
-| G16.PSL-03d | Lines 51..149: slot 0 X = 50 (carried) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3288 |
-| G16.PSL-03e | Line 150: slot 0 X = 150 (second write) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3293 |
-| G16.PSL-04a | Write logged (count > 0) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3306 |
-| G16.PSL-04b | After reset: change_log_size == 0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3311 |
-| G16.PSL-05a | rewind restores baseline X=42 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3340 |
-| G16.PSL-05b | start_frame clears log [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3347 |
-| G16.PSL-06 | log saturates at MAX_CHANGES_PER_FRAME [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3363 |
-| G16.PSL-07a | Lines 0..99: byte4 == 0x00 (baseline) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3403 |
-| G16.PSL-07b | Line 100: byte4 replayed (0xD0) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3410 |
-| G16.PSL-07c | Lines 101..255: byte4 carries 0xD0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3417 |
-| G16.PSL-08a | Lines 0..49: NR-0x75-path writes not yet visible [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3456 |
-| G16.PSL-08b | Line 50: write_attr_byte mid-frame replayed [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3465 |
-| G16.PSL-09a | Render line 20: sprite pixel at X=10 (baseline) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3525 |
-| G16.PSL-09b | Render line 20: NO sprite pixel at X=200 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3529 |
-| G16.PSL-09c | Render line 100: sprite pixel at X=200 (mid-frame) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3536 |
-| G16.PSL-09d | Render line 100: NO sprite pixel at X=10 (sprite moved) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3540 |
-| G16.OVF-01a | Cap-overflow: writes-that-fit replay (X=180 visible) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3614 |
-| G16.OVF-01b | Cap-overflow: writes-past-cap dropped (X=10 NOT visible) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3618 |
-| G16.OVF-01c | Cap-overflow: change-log saturated at cap [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3622 |
-| G16.OVF-02a | At-cap (no overflow yet): zero warns [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3645 |
-| G16.OVF-02b | First overflow: exactly one warn fired [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3652 |
-| G16.OVF-02c | Same-frame overflow: still exactly one warn (once-per-frame) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3660 |
-| G16.OVF-02d | After start_frame: log cleared, warn flag cleared [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3672 |
-| G16.OVF-02e | Second-frame overflow re-fires warn (clears at start_frame) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3678 |
-| G16.OVF-03a | AT cap (32×256=8192): no overflow warn [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3728 |
-| G16.OVF-03b | AT cap: every write logged [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3732 |
-| G16.OVF-03c | AT cap: per-line replay produces last-logged X=31 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3746 |
-| G17.PSL-PAT-01a | pre-frame pattern write survives rewind (no log entries) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3786 |
-| G17.PSL-PAT-01b | render sees pre-frame pattern byte 0x77 at sprite px 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3804 |
-| G17.PSL-PAT-02a | Line 0: baseline pattern byte 0xAA at sprite px 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3868 |
-| G17.PSL-PAT-02b | Line 99: still baseline pattern byte 0xAA at sprite px 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3877 |
-| G17.PSL-PAT-02c | Line 100: post-write pattern byte 0xBB at sprite px 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3886 |
-| G17.PSL-PAT-02d | Line 200: pattern byte still 0xBB (carried) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3895 |
-| G17.PSL-PAT-03a | Line 0 sprite px = baseline 0x33 (pre-mid-frame pattern) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3936 |
-| G17.PSL-PAT-03b | Line 5: tall sprite px = baseline 0x33 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3970 |
-| G17.PSL-PAT-03c | Line 20: tall sprite px = post-rewrite 0x66 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3979 |
-| G17.PSL-PAT-04a | Pattern write logged (count > 0) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3993 |
-| G17.PSL-PAT-04b | After reset: pattern_change_log_size == 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3999 |
-| G17.PSL-PAT-05 | log saturates at MAX_PATTERN_CHANGES_PER_FRAME [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4017 |
-| G17.PSL-PAT-06a | attr log has one mid-frame entry [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4052 |
-| G17.PSL-PAT-06b | pattern log has one mid-frame entry [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4056 |
-| G17.PSL-PAT-06c | Line 0: attribute X = baseline 0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4065 |
-| G17.PSL-PAT-06d | Line 29: still baseline X=0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4072 |
-| G17.PSL-PAT-06e | Line 30: attribute X = 200 (mid-frame attr write) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4079 |
-| G17.PSL-PAT-06f | Line 60: attribute X still 200 (pattern-only mid-frame) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4097 |
-| G17.PSL-PAT-06g | Line 60: rendered pixel uses post-rewrite pattern byte 0x99 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4136 |
-| G17.PSL-PAT-07a | Both writes logged (visible + vblank) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4174 |
-| G17.PSL-PAT-07b | Catch-up: pattern[0]=0xAA in next-frame baseline [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4212 |
-| G17.PSL-PAT-07c | Catch-up: pattern[1]=0xBB in next-frame baseline (vblank entry flushed) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4216 |
-| G17.PSL-PAT-08a | AT cap: zero overflow warns | — | pass | test/sprites/sprites_test.cpp:4251 |
-| G17.PSL-PAT-08b | Pattern overflow: log saturated at cap | — | pass | test/sprites/sprites_test.cpp:4260 |
-| G17.PSL-PAT-08c | Pattern overflow: exactly one warn (once-per-frame) | — | pass | test/sprites/sprites_test.cpp:4265 |
-| G17.PSL-PAT-09a | 8200 writes: ALL logged (none dropped) | — | pass | test/sprites/sprites_test.cpp:4300 |
-| G17.PSL-PAT-09b | 8200 writes: zero overflow warns | — | pass | test/sprites/sprites_test.cpp:4305 |
-| G06.NR70-01a | start_frame baseline captures resolution + paloff | — | pass | test/sprites/sprites_test.cpp:4331 |
-| G06.NR70-01b | two NR 0x70 writes appended to log | — | pass | test/sprites/sprites_test.cpp:4344 |
-| G06.NR70-01c | rewind_to_baseline restores resolution to baseline 0 | — | pass | test/sprites/sprites_test.cpp:4351 |
-| G06.NR70-01d | line 0 (no change applied): resolution == baseline 0 (256x192) | — | pass | test/sprites/sprites_test.cpp:4358 |
-| G06.NR70-01e | line 99 (just before first flip): still 256x192 | — | pass | test/sprites/sprites_test.cpp:4364 |
-| G06.NR70-01f | line 100 (first flip): resolution == 1 (320x256), is_wide()==true | — | pass | test/sprites/sprites_test.cpp:4370 |
-| G06.NR70-01g | line 101 (held): still 320x256 | — | pass | test/sprites/sprites_test.cpp:4377 |
-| G06.NR70-01h | line 150 (second flip): resolution == 2 (640x256), paloff==5 | — | pass | test/sprites/sprites_test.cpp:4383 |
-| G06.NR70-01i | NR 0x70 change log capped at MAX_CHANGES_PER_FRAME | — | pass | test/sprites/sprites_test.cpp:4396 |
+| G1.AT-01 | 4-byte write auto-advances to next sprite attr0 (639-664) | sprites.vhd:639-664 | pass | test/sprites/sprites_test.cpp:294 |
+| G1.AT-02 | 5-byte write advances past attr4 to next sprite (639-664) | sprites.vhd:639-664 | pass | test/sprites/sprites_test.cpp:312 |
+| G1.AT-03 | 0x303B d(6:0) selects sprite slot (655-657) | sprites.vhd:655-657 | pass | test/sprites/sprites_test.cpp:324 |
+| G1.AT-04 | 0x303B d(7) sets pattern MSB; d(6:0)=slot select (735-736,655) | sprites.vhd:735-736 | pass | test/sprites/sprites_test.cpp:341 |
+| G1.AT-05 | attr2=0xAF -> paloff=A, xm=1, ym=1, rot=1, xmsb=1 (381) | sprites.vhd:381 | pass | test/sprites/sprites_test.cpp:351 |
+| G1.AT-06 | attr4=0xED -> H=1 N6=1 type=1 xs=01 ys=10 ymsb=1 (437) | sprites.vhd:437 | pass | test/sprites/sprites_test.cpp:368 |
+| G1.AT-07 | sprite index 127 addressable (655) | sprites.vhd:655 | pass | test/sprites/sprites_test.cpp:384 |
+| G1.AT-08 | NR 0x34 mirror path writes attr byte to selected slot (704-715) | sprites.vhd:704-715 | pass | test/sprites/sprites_test.cpp:394 |
+| G1.AT-09 | NR 0x34 sprite-number write lands in slot 5 (600-602) | sprites.vhd:600-602 | pass | test/sprites/sprites_test.cpp:404 |
+| G1.AT-10 | mirror_inc wraps slot 127->0 (603-605) | sprites.vhd:603-605 | pass | test/sprites/sprites_test.cpp:417 |
+| G1.AT-11 | legacy set_attr_slot moves the 0x57 cursor unconditionally (helper semantics, not the sprites.vhd:653-654 tie) | sprites.vhd:653-654 | pass | test/sprites/sprites_test.cpp:433 |
+| G1.AT-13 | NR 0x09 b4 sprite_tie syncs attr_index to mirror sprite_num (sprites.vhd:594-612,653-654) | sprites.vhd:594-612,653-654 | pass | test/sprites/sprites_test.cpp:469 |
+| G1.AT-14 | NR 0x35-0x39 must not auto-increment sprite slot (zxnext.vhd:4916, mirror_inc gated on bit 6) | zxnext.vhd:4916 | pass | test/sprites/sprites_test.cpp:496 |
+| G1.AT-15 | NR 0x75-0x79 must increment slot after every byte (zxnext.vhd:4916, sprites.vhd:603-605) | zxnext.vhd:4916, sprites.vhd:603-605 | pass | test/sprites/sprites_test.cpp:534 |
+| G1.AT-22 | port 0x303B write re-bases mirror_sprite_q under sprite_tie: slot in 6:0, pattern_index(7) in bit 7 (sprites.vhd:607-609,655-657) | sprites.vhd:607-609,655-657 | pass | test/sprites/sprites_test.cpp:697 |
+| G1.AT-23 | port 0x57 slot advance re-bases mirror_sprite_q under sprite_tie (bit 7 from pattern_index(7)); non-boundary writes do not (sprites.vhd:607-609,639,658-663) | sprites.vhd:607-609,639,658-663 | pass | test/sprites/sprites_test.cpp:734 |
+| G1.AT-24 | tie clear: port 0x303B / port 0x57 advance leave mirror_sprite_q alone (sprites.vhd:607-609 gate) | sprites.vhd:607-609 | pass | test/sprites/sprites_test.cpp:764 |
+| G2.PL-01 | 256-byte upload into pattern 0 observable via render (sprites.vhd:728-744) | sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:818 |
+| G2.PL-02 | Pattern index 63 writable and readable (sprites.vhd:728-744) | sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:833 |
+| G2.PL-03 | auto-increment crosses pattern 0->1 boundary (sprites.vhd:738) | sprites.vhd:738 | pass | test/sprites/sprites_test.cpp:852 |
+| G2.PL-04 | 0x303B bit7 -> half-pattern offset 128 (736) | sprites.vhd:736 | pass | test/sprites/sprites_test.cpp:874 |
+| G2.PL-05 | Pattern RAM top does not wrap to 0, 14-bit mask (sprites.vhd:738) | sprites.vhd:738 | pass | test/sprites/sprites_test.cpp:895 |
+| G2.PL-09 | tie clear: NR 0x34 must not touch pattern_index(7) — NR 0x75 inc then reads back b7=0 and a later tie-set sync stays in the low half-pattern (sprites.vhd:728-741,603-605,733-734) | sprites.vhd:728-741,603-605,733-734 | pass | test/sprites/sprites_test.cpp:993 |
+| G2.PL-10 | tie set: NR 0x34 re-bases pattern_index incl. bit 7 (mirror b7 → pattern_index(7)); NR 0x75 inc reads it back (sprites.vhd:733-734,603-605) | sprites.vhd:733-734,603-605 | pass | test/sprites/sprites_test.cpp:1021 |
+| G3.PX-01 | 8bpp opaque pixel 0x42 at (0,0) (sprites.vhd:968,971) | sprites.vhd:968,971 | pass | test/sprites/sprites_test.cpp:1052 |
+| G3.PX-02 | 8bpp paloff +3 on upper nibble 0x15->0x45 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1066 |
+| G3.PX-03 | 8bpp paloff upper nibble wraps mod 16 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1080 |
+| G3.PX-04 | 4bpp even col -> upper nibble + paloff (sprites.vhd:967-968) | sprites.vhd:967-968 | pass | test/sprites/sprites_test.cpp:1098 |
+| G3.PX-05 | 4bpp odd col -> lower nibble + paloff (sprites.vhd:967) | sprites.vhd:967 | pass | test/sprites/sprites_test.cpp:1112 |
+| G3.PX-06 | 4bpp N6 selects high half of pattern bank (sprites.vhd:962-964) | sprites.vhd:962-964 | pass | test/sprites/sprites_test.cpp:1131 |
+| G3.TR-01 | 8bpp pattern byte == transp -> not written (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1145 |
+| G3.TR-02 | 4bpp transparent upper nibble; lower nibble still writes (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1165 |
+| G3.TR-03 | Transparency compare is on palette index, not ARGB (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1192 |
+| G3.TR-04 | 8bpp transparency compares pre-palette-offset byte (971,968) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1210 |
+| G3.PA-01 | 4bpp: paloff replaces upper nibble; result 0xC5 at col 0 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1226 |
+| G3.PA-02 | opaque write marks line buffer (sprites.vhd:969) — observed as pixel set | sprites.vhd:969 | pass | test/sprites/sprites_test.cpp:1242 |
+| G4.XY-01 | Sprite (0,0) fills cols 0..15 on line 0 (sprites.vhd:796-799) | sprites.vhd:796-799 | pass | test/sprites/sprites_test.cpp:1270 |
+| G4.XY-02 | X MSB: attr2(0)=1 -> x=256+attr0 (sprites.vhd:799) | sprites.vhd:799 | pass | test/sprites/sprites_test.cpp:1282 |
+| G4.XY-03 | attr3(6)=0 forces y_msb=0 regardless (sprites.vhd:796) | sprites.vhd:796 | pass | test/sprites/sprites_test.cpp:1301 |
+| G4.XY-04 | attr3(6)=1 + attr4(0)=1 + attr1=0x00 → spr_cur_y = 256 (9-bit Y, MSB from the 5th attribute byte; sprites.vhd:796-797) | sprites.vhd:796-797 | pass | test/sprites/sprites_test.cpp:1329 |
+| G4.XY-05 | x=319 renders at col 319 (sprites.vhd:822,855-860) | sprites.vhd:822,855-860 | pass | test/sprites/sprites_test.cpp:1345 |
+| G4.XY-06 | x=320 1x scale produces zero pixels (sprites.vhd:822,855) | sprites.vhd:822,855 | pass | test/sprites/sprites_test.cpp:1362 |
+| G4.XY-07 | 2x scale from x=300 draws 300..319 (sprites.vhd:919-927) | sprites.vhd:919-927 | pass | test/sprites/sprites_test.cpp:1384 |
+| G5.VIS-01 | visible + on-scanline renders (sprites.vhd:842,917) | sprites.vhd:842,917 | pass | test/sprites/sprites_test.cpp:1442 |
+| G5.VIS-02 | attr3(7)=0 -> sprite skipped (sprites.vhd:842,848) | sprites.vhd:842,848 | pass | test/sprites/sprites_test.cpp:1453 |
+| G5.VIS-03 | Scanline outside sprite Y -> skipped (sprites.vhd:842,918) | sprites.vhd:842,918 | pass | test/sprites/sprites_test.cpp:1464 |
+| G5.VIS-04 | x=320, 1x scale -> zero pixels (sprites.vhd:822,855) | sprites.vhd:822,855 | pass | test/sprites/sprites_test.cpp:1477 |
+| G5.VIS-05 | Invisible anchor -> relative child invisible (sprites.vhd:917,784) | sprites.vhd:917,784 | pass | test/sprites/sprites_test.cpp:1499 |
+| G6.CL-01 | Reset clip defaults pass (50,50) pixel (sprites.vhd:1055-1060) | sprites.vhd:1055-1060 | pass | test/sprites/sprites_test.cpp:1521 |
+| G6.CL-02 | clip_x1=0x1F -> x_s=0x3F; cols <0x3F clipped (sprites.vhd:1055) | sprites.vhd:1055 | pass | test/sprites/sprites_test.cpp:1541 |
+| G6.CL-03 | clip_x2=0x3F -> x_e=0x5F; cols >0x5F clipped (sprites.vhd:1056) | sprites.vhd:1056 | pass | test/sprites/sprites_test.cpp:1566 |
+| G6.CL-04 | over_border=1 draws at y=200 (sprites.vhd:1044-1048) | sprites.vhd:1044-1048 | pass | test/sprites/sprites_test.cpp:1581 |
+| G6.CL-05 | over_border clip: x1*2=0x80 -> x=0x60 fully clipped (1049-1053) | sprites.vhd:1049-1053 | pass | test/sprites/sprites_test.cpp:1602 |
+| G6.CL-06 | Pixel at col 10 outside clip (x_s>10) suppressed (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:1618 |
+| G6.CL-07 | Pixel inside clip emitted (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:1631 |
+| G7.PR-01 | zero_on_top=0: higher-index sprite wins overlap (sprites.vhd:972) | sprites.vhd:972 | pass | test/sprites/sprites_test.cpp:1655 |
+| G7.PR-02 | zero_on_top=1: lower-index sprite wins overlap (sprites.vhd:972) | sprites.vhd:972 | pass | test/sprites/sprites_test.cpp:1671 |
+| G7.PR-03 | Line buffer occupancy does not leak between scanlines (sprites.vhd:1023-1033) | sprites.vhd:1023-1033 | pass | test/sprites/sprites_test.cpp:1691 |
+| G7.PR-04 | Collision bit set irrespective of zero_on_top (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:1708 |
+| G9.MI-01 | Plain render: col i has pattern byte (i+1) (sprites.vhd:811-820) | sprites.vhd:811-820 | pass | test/sprites/sprites_test.cpp:1740 |
+| G9.MI-02 | X-mirror: col 0 has byte 16, col 15 has byte 1 (sprites.vhd:813,817-820) | sprites.vhd:813,817-820 | pass | test/sprites/sprites_test.cpp:1754 |
+| G9.MI-03 | Y-mirror row 0 reads pattern row 15 (sprites.vhd:811) | sprites.vhd:811 | pass | test/sprites/sprites_test.cpp:1774 |
+| G9.MI-04 | X+Y mirror = 180 degrees (sprites.vhd:811,813) | sprites.vhd:811,813 | pass | test/sprites/sprites_test.cpp:1791 |
+| G9.RO-01 | Rotate swaps pattern row/col indices (sprites.vhd:816) | sprites.vhd:816 | pass | test/sprites/sprites_test.cpp:1814 |
+| G9.RO-02 | rotate=1 alone activates effective x-mirror (sprites.vhd:813) | sprites.vhd:813 | pass | test/sprites/sprites_test.cpp:1834 |
+| G9.RO-03 | rotate=1, xmirror=0 → x_mirr_eff=1 → pattern pointer steps by -16 per column (240,224,…,0) (sprites.vhd:813,816,817) | sprites.vhd:813,816,817 | pass | test/sprites/sprites_test.cpp:1889 |
+| G9.RO-04 | rotate=1, xmirror=1 → x_mirr_eff=0 → pattern pointer steps by +16 per column (0,16,…,240) (sprites.vhd:813,816,819) | sprites.vhd:813,816,819 | pass | test/sprites/sprites_test.cpp:1903 |
+| G10.SC-01 | 1x X: 16 px, col i -> byte i+1 (sprites.vhd:907-908) | sprites.vhd:907-908 | pass | test/sprites/sprites_test.cpp:1941 |
+| G10.SC-02 | 2x X: cols 0-1 byte 1; cols 2-3 byte 2; last col 31 byte 16 (sprites.vhd:909) | sprites.vhd:909 | pass | test/sprites/sprites_test.cpp:1953 |
+| G10.SC-03 | 4x X: 64 px, byte 1 repeats in 0..3 (sprites.vhd:911) | sprites.vhd:911 | pass | test/sprites/sprites_test.cpp:1968 |
+| G10.SC-04 | 8x X: 128 px, byte 1 in 0..7 (sprites.vhd:913) | sprites.vhd:913 | pass | test/sprites/sprites_test.cpp:1982 |
+| G10.SC-05 | Y 2x: lines 0,1 both show row 0 (sprites.vhd:808) | sprites.vhd:808 | pass | test/sprites/sprites_test.cpp:2000 |
+| G10.SC-06 | Y 4x: rows repeat 4x (sprites.vhd:809) | sprites.vhd:809 | pass | test/sprites/sprites_test.cpp:2019 |
+| G10.SC-07 | Y 8x: rows repeat 8x (sprites.vhd:810) | sprites.vhd:810 | pass | test/sprites/sprites_test.cpp:2039 |
+| G10.SC-08 | attr3(6)=0 forces 1x scale regardless of attr4 (sprites.vhd:907,919) | sprites.vhd:907,919 | pass | test/sprites/sprites_test.cpp:2055 |
+| G10.SC-09 | 4x by 2x covers 64x32 rectangle (sprites.vhd:807-810,907-915) | sprites.vhd:807-810,907-915 | pass | test/sprites/sprites_test.cpp:2072 |
+| G10.SC-10 | 2x scale from x=300 stops at x=319 (sprites.vhd:921) | sprites.vhd:921 | pass | test/sprites/sprites_test.cpp:2086 |
+| G11.OB-01 | over_border=0, y=200 -> not emitted (sprites.vhd:1055-1067) | sprites.vhd:1055-1067 | pass | test/sprites/sprites_test.cpp:2113 |
+| G11.OB-02 | over_border=1 -> sprite at y=200 emitted (sprites.vhd:1044-1048) | sprites.vhd:1044-1048 | pass | test/sprites/sprites_test.cpp:2124 |
+| G11.OB-03 | over_border=1 + border_clip_en=1 applies clip window (1049-1053) | sprites.vhd:1049-1053 | pass | test/sprites/sprites_test.cpp:2149 |
+| G11.OB-04 | over_border=0: y>=224 suppressed (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:2170 |
+| G12.AN-01 | Anchor latches (x,y); relative draws at anchor+off (sprites.vhd:929-936,760-773) | sprites.vhd:929-936,760-773 | pass | test/sprites/sprites_test.cpp:2192 |
+| G12.AN-02 | Type1 anchor inherits xscale to relative (sprites.vhd:937-942) | sprites.vhd:937-942 | pass | test/sprites/sprites_test.cpp:2208 |
+| G12.AN-03 | Type0 anchor does not inherit scale (sprites.vhd:943-948) | sprites.vhd:943-948 | pass | test/sprites/sprites_test.cpp:2228 |
+| G12.AN-04 | 4-byte sprite does not overwrite anchor state (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2242 |
+| G12.AN-05 | anchor_vis=0 -> relatives invisible (sprites.vhd:932,784) | sprites.vhd:932,784 | pass | test/sprites/sprites_test.cpp:2270 |
+| G12.RE-01 | Relative at anchor+(10,5) (sprites.vhd:760-773) | sprites.vhd:760-773 | pass | test/sprites/sprites_test.cpp:2281 |
+| G12.RE-02 | Invisible anchor propagates to relative (sprites.vhd:784) | sprites.vhd:784 | pass | test/sprites/sprites_test.cpp:2306 |
+| G12.RE-03 | Rel attr2(0)=0 -> direct paloff (sprites.vhd:775) | sprites.vhd:775 | pass | test/sprites/sprites_test.cpp:2322 |
+| G12.RE-04 | Rel attr2(0)=1 -> anchor+rel paloff (sprites.vhd:775) | sprites.vhd:775 | pass | test/sprites/sprites_test.cpp:2340 |
+| G12.RE-05 | Anchor rotate swaps rel offset axes (sprites.vhd:760-761) | sprites.vhd:760-761 | pass | test/sprites/sprites_test.cpp:2356 |
+| G12.RE-06 | Anchor xmirror negates rel X offset (762) | sprites.vhd:762 | pass | test/sprites/sprites_test.cpp:2373 |
+| G12.RE-07 | Anchor ymirror negates rel Y offset (sprites.vhd:763) | sprites.vhd:763 | pass | test/sprites/sprites_test.cpp:2388 |
+| G12.RE-08 | Anchor xscale=01 doubles rel X (sprites.vhd:764-765) | sprites.vhd:764-765 | pass | test/sprites/sprites_test.cpp:2402 |
+| G12.RE-09 | Anchor yscale=10 quadruples rel Y (sprites.vhd:770) | sprites.vhd:770 | pass | test/sprites/sprites_test.cpp:2416 |
+| G12.RE-10 | Anchor xscale=11 x8 rel X offset (sprites.vhd:767) | sprites.vhd:767 | pass | test/sprites/sprites_test.cpp:2429 |
+| G12.RT-01 | Type0 rel uses own xmirror flag (sprites.vhd:782-783) | sprites.vhd:782-783 | pass | test/sprites/sprites_test.cpp:2449 |
+| G12.RT-02 | Type1 rel xmirror = anchor XOR rel (sprites.vhd:783) | sprites.vhd:783 | pass | test/sprites/sprites_test.cpp:2470 |
+| G12.RT-03 | Type1 rel rotate = anchor XOR rel (sprites.vhd:783) | sprites.vhd:783 | pass | test/sprites/sprites_test.cpp:2495 |
+| G12.RT-04 | Type1 rel inherits anchor xscale (sprites.vhd:786) | sprites.vhd:786 | pass | test/sprites/sprites_test.cpp:2516 |
+| G12.RP-01 | Rel pattern 5 (no add) -> renders pattern 5 (sprites.vhd:803-804) | sprites.vhd:803-804 | pass | test/sprites/sprites_test.cpp:2531 |
+| G12.RP-02 | Rel attr4(0)=1 -> anchor_pattern+rel_pattern (sprites.vhd:803) | sprites.vhd:803 | pass | test/sprites/sprites_test.cpp:2544 |
+| G12.RP-03 | Rel effective N6 = anchor_h AND rel.byte4(5) (785,802) | sprites.vhd:802 | pass | test/sprites/sprites_test.cpp:2589 |
+| G12.RP-04 | 4bpp anchor -> rel renders 4bpp; 8bpp anchor -> rel 8bpp (785) | sprites.vhd:785 | pass | test/sprites/sprites_test.cpp:2632 |
+| G12.NG-01 | Rel with no prior anchor inherits anchor_vis=0 (893-897) | sprites.vhd:893-897 | pass | test/sprites/sprites_test.cpp:2655 |
+| G12.NG-02 | Second anchor replaces first (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2669 |
+| G12.NG-03 | 4-byte sprite between anchor and rel preserves anchor (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2683 |
+| G13.CO-01 | Non-overlap: collision bit 0 (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2708 |
+| G13.CO-02 | Overlap sets collision bit (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2722 |
+| G13.CO-03 | Collision fires even with zero_on_top=1 (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2737 |
+| G13.CO-04 | Transparent sprite's pixels do not collide (sprites.vhd:971,991) | sprites.vhd:971,991 | pass | test/sprites/sprites_test.cpp:2753 |
+| G13.CO-05 | Read clears status (sprites.vhd:986-988) | sprites.vhd:986-988 | pass | test/sprites/sprites_test.cpp:2769 |
+| G13.CO-06 | Collision sticky until read (sprites.vhd:986-991) | sprites.vhd:986-991 | pass | test/sprites/sprites_test.cpp:2788 |
+| G13.OT-01 | Few sprites: overtime bit 0 (sprites.vhd:977) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2802 |
+| G13.OT-02 | 128 visible anchors -> overtime bit 1 (977) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2821 |
+| G13.OT-03 | Overtime fires without collision (sprites.vhd:977 independent of :991) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2841 |
+| G13.OT-04 | Overtime and collision both set (977,991) | sprites.vhd:990-991 | pass | test/sprites/sprites_test.cpp:2859 |
+| G13.SR-01 | Status bits 7:2 are zero (sprites.vhd:975-995) | sprites.vhd:975-995 | pass | test/sprites/sprites_test.cpp:2876 |
+| G13.SR-02 | Read captures then clears (sprites.vhd:986-988) | sprites.vhd:986-988 | pass | test/sprites/sprites_test.cpp:2893 |
+| G13.SR-03 | Repeated collisions keep bit set until read (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2909 |
+| G14.RST-01 | anchor_vis=0 at reset -> first rel invisible (sprites.vhd:888,784) | sprites.vhd:888,784 | pass | test/sprites/sprites_test.cpp:2938 |
+| G14.RST-02 | spr_cur_index resets to 0 (sprites.vhd:876,898) | sprites.vhd:876,898 | pass | test/sprites/sprites_test.cpp:2950 |
+| G14.RST-03 | status register zero after reset (sprites.vhd:982-984) | sprites.vhd:982-984 | pass | test/sprites/sprites_test.cpp:2957 |
+| G14.RST-04 | mirror_sprite_q (attr_slot) zero after reset (sprites.vhd:598-599,614) | sprites.vhd:598-599,614 | pass | test/sprites/sprites_test.cpp:2966 |
+| G14.RST-05 | Line buffer usable immediately after reset (sprites.vhd:534-550) | sprites.vhd:534-550 | pass | test/sprites/sprites_test.cpp:2979 |
+| G14.RST-06 | attr_index/pattern_index zero after reset (sprites.vhd:651-652,731-732) | sprites.vhd:651-652,731-732 | pass | test/sprites/sprites_test.cpp:3008 |
+| G15.NG-01 | attr3(5:0) is 6 bits; pattern 1 reachable, 65 not (sprites.vhd:804) | sprites.vhd:804 | pass | test/sprites/sprites_test.cpp:3039 |
+| G15.NG-02 | Off-screen sprite (500,500) writes nothing (sprites.vhd:842) | sprites.vhd:842 | pass | test/sprites/sprites_test.cpp:3053 |
+| G15.NG-03 | (0,0) with no ext byte renders 1x (sprites.vhd:796,907,919) | sprites.vhd:796,907,919 | pass | test/sprites/sprites_test.cpp:3064 |
+| G15.NG-04 | paloff upper-nibble wraps mod 16 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:3077 |
+| G15.NG-05 | All-transparent sprite: zero pixels, no collision (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:3093 |
+| G15.NG-07 | Negative rel offset wraps 9-bit, off-screen (762,772) | sprites.vhd:762 | pass | test/sprites/sprites_test.cpp:3122 |
+| G16.OVF-01 | Mid-frame attribute writes that fit in cap render correctly even when followed by an overflowing tail (>cap) | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3612 |
+| G16.OVF-02 | Overflow warn fires exactly once per frame and resets at next `start_frame | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3643 |
+| G16.OVF-03 | Z80N-DMA streaming 32 byte-rewrites/scanline × 256 lines = 8192 writes — boundary case, every write must replay | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3726 |
+| G06.NR70-01 | NR 0x70 b5:4 L2 resolution flip mid-frame must reroute L2 width | zxnext.vhd:7400-7470, layer2.vhd:128 | pass | test/sprites/sprites_test.cpp:4329 |
+| G17.PSL-PAT-08 | Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap; in-cap writes still apply | sprites.vhd:561-572, sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:4249 |
+| G1.AT-18 | NR 0x34 must not move the port-0x57 cursor with sprite_tie clear (sprites.vhd:653 gate) | sprites.vhd:653 | pass | test/sprites/sprites_test.cpp:584 |
+| G1.AT-19 | NR 0x34 re-bases the port-0x57 cursor to slot<<3 under sprite_tie (sprites.vhd:653-654) | sprites.vhd:653-654 | pass | test/sprites/sprites_test.cpp:610 |
+| G1.AT-20 | NR 0x75-0x79 inc must not move the port-0x57 cursor with sprite_tie clear (sprites.vhd:603-606,653) | sprites.vhd:603-606,653 | pass | test/sprites/sprites_test.cpp:635 |
+| G1.AT-21 | NR 0x75-0x79 inc re-bases the port-0x57 cursor under sprite_tie (sprites.vhd:603-606,653-654) | sprites.vhd:603-606,653-654 | pass | test/sprites/sprites_test.cpp:662 |
+| G2.PL-06 | NR 0x34 re-bases pattern_index under sprite_tie (sprites.vhd:600-602,733-734) | sprites.vhd:600-602,733-734 | pass | test/sprites/sprites_test.cpp:926 |
+| G2.PL-07 | NR 0x34 must not touch pattern_index with sprite_tie clear (sprites.vhd:733-734 gate) | sprites.vhd:733-734 | pass | test/sprites/sprites_test.cpp:944 |
+| G2.PL-08 | NR 0x75-0x79 inc re-bases pattern_index under sprite_tie (sprites.vhd:603-606,733-734) | sprites.vhd:603-606,733-734 | pass | test/sprites/sprites_test.cpp:961 |
+| G4.XY-08 | G104 Phase 5: each 320-grid sprite pixel writes both line[2x] and line[2x+1] (sprites.vhd:1004,1017,1037 i_CLK_7) | sprites.vhd:1004,1017,1037 | pass | test/sprites/sprites_test.cpp:1419 |
+| G16.PSL-01a | rewind restores baseline (slot 0 cleared) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3162 |
+| G16.PSL-01b | apply_changes_for_line(0) restores write [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3168 |
+| G16.PSL-02a | Line 0: baseline visible (X=10, Y=20) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3207 |
+| G16.PSL-02b | Lines 1..99: still baseline (X=10, Y=20) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3219 |
+| G16.PSL-02c | Line 100: mid-frame write applied (X=200, Y=200) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3228 |
+| G16.PSL-02d | Lines 101..255: post-write state retained [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3239 |
+| G16.PSL-03a | After rewind: slot 0 X back to 0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3271 |
+| G16.PSL-03b | Lines 0..49: slot 0 X = 0 (baseline) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3276 |
+| G16.PSL-03c | Line 50: slot 0 X = 50 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3281 |
+| G16.PSL-03d | Lines 51..149: slot 0 X = 50 (carried) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3286 |
+| G16.PSL-03e | Line 150: slot 0 X = 150 (second write) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3291 |
+| G16.PSL-04a | Write logged (count > 0) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3304 |
+| G16.PSL-04b | After reset: change_log_size == 0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3309 |
+| G16.PSL-05a | rewind restores baseline X=42 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3338 |
+| G16.PSL-05b | start_frame clears log [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3345 |
+| G16.PSL-06 | log saturates at MAX_CHANGES_PER_FRAME [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3361 |
+| G16.PSL-07a | Lines 0..99: byte4 == 0x00 (baseline) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3401 |
+| G16.PSL-07b | Line 100: byte4 replayed (0xD0) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3408 |
+| G16.PSL-07c | Lines 101..255: byte4 carries 0xD0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3415 |
+| G16.PSL-08a | Lines 0..49: NR-0x75-path writes not yet visible [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3454 |
+| G16.PSL-08b | Line 50: write_attr_byte mid-frame replayed [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3463 |
+| G16.PSL-09a | Render line 20: sprite pixel at X=10 (baseline) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3523 |
+| G16.PSL-09b | Render line 20: NO sprite pixel at X=200 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3527 |
+| G16.PSL-09c | Render line 100: sprite pixel at X=200 (mid-frame) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3534 |
+| G16.PSL-09d | Render line 100: NO sprite pixel at X=10 (sprite moved) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3538 |
+| G16.OVF-01a | Cap-overflow: writes-that-fit replay (X=180 visible) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3612 |
+| G16.OVF-01b | Cap-overflow: writes-past-cap dropped (X=10 NOT visible) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3616 |
+| G16.OVF-01c | Cap-overflow: change-log saturated at cap [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3620 |
+| G16.OVF-02a | At-cap (no overflow yet): zero warns [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3643 |
+| G16.OVF-02b | First overflow: exactly one warn fired [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3650 |
+| G16.OVF-02c | Same-frame overflow: still exactly one warn (once-per-frame) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3658 |
+| G16.OVF-02d | After start_frame: log cleared, warn flag cleared [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3670 |
+| G16.OVF-02e | Second-frame overflow re-fires warn (clears at start_frame) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3676 |
+| G16.OVF-03a | AT cap (32×256=8192): no overflow warn [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3726 |
+| G16.OVF-03b | AT cap: every write logged [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3730 |
+| G16.OVF-03c | AT cap: per-line replay produces last-logged X=31 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3744 |
+| G17.PSL-PAT-01a | pre-frame pattern write survives rewind (no log entries) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3784 |
+| G17.PSL-PAT-01b | render sees pre-frame pattern byte 0x77 at sprite px 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3802 |
+| G17.PSL-PAT-02a | Line 0: baseline pattern byte 0xAA at sprite px 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3866 |
+| G17.PSL-PAT-02b | Line 99: still baseline pattern byte 0xAA at sprite px 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3875 |
+| G17.PSL-PAT-02c | Line 100: post-write pattern byte 0xBB at sprite px 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3884 |
+| G17.PSL-PAT-02d | Line 200: pattern byte still 0xBB (carried) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3893 |
+| G17.PSL-PAT-03a | Line 0 sprite px = baseline 0x33 (pre-mid-frame pattern) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3934 |
+| G17.PSL-PAT-03b | Line 5: tall sprite px = baseline 0x33 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3968 |
+| G17.PSL-PAT-03c | Line 20: tall sprite px = post-rewrite 0x66 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3977 |
+| G17.PSL-PAT-04a | Pattern write logged (count > 0) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3991 |
+| G17.PSL-PAT-04b | After reset: pattern_change_log_size == 0 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:3997 |
+| G17.PSL-PAT-05 | log saturates at MAX_PATTERN_CHANGES_PER_FRAME [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4015 |
+| G17.PSL-PAT-06a | attr log has one mid-frame entry [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4050 |
+| G17.PSL-PAT-06b | pattern log has one mid-frame entry [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4054 |
+| G17.PSL-PAT-06c | Line 0: attribute X = baseline 0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4063 |
+| G17.PSL-PAT-06d | Line 29: still baseline X=0 [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4070 |
+| G17.PSL-PAT-06e | Line 30: attribute X = 200 (mid-frame attr write) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4077 |
+| G17.PSL-PAT-06f | Line 60: attribute X still 200 (pattern-only mid-frame) [sprites.vhd:327-470] | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:4095 |
+| G17.PSL-PAT-06g | Line 60: rendered pixel uses post-rewrite pattern byte 0x99 [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4134 |
+| G17.PSL-PAT-07a | Both writes logged (visible + vblank) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4172 |
+| G17.PSL-PAT-07b | Catch-up: pattern[0]=0xAA in next-frame baseline [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4210 |
+| G17.PSL-PAT-07c | Catch-up: pattern[1]=0xBB in next-frame baseline (vblank entry flushed) [sprites.vhd:561-572] | sprites.vhd:561-572 | pass | test/sprites/sprites_test.cpp:4214 |
+| G17.PSL-PAT-08a | AT cap: zero overflow warns | — | pass | test/sprites/sprites_test.cpp:4249 |
+| G17.PSL-PAT-08b | Pattern overflow: log saturated at cap | — | pass | test/sprites/sprites_test.cpp:4258 |
+| G17.PSL-PAT-08c | Pattern overflow: exactly one warn (once-per-frame) | — | pass | test/sprites/sprites_test.cpp:4263 |
+| G17.PSL-PAT-09a | 8200 writes: ALL logged (none dropped) | — | pass | test/sprites/sprites_test.cpp:4298 |
+| G17.PSL-PAT-09b | 8200 writes: zero overflow warns | — | pass | test/sprites/sprites_test.cpp:4303 |
+| G06.NR70-01a | start_frame baseline captures resolution + paloff | — | pass | test/sprites/sprites_test.cpp:4329 |
+| G06.NR70-01b | two NR 0x70 writes appended to log | — | pass | test/sprites/sprites_test.cpp:4342 |
+| G06.NR70-01c | rewind_to_baseline restores resolution to baseline 0 | — | pass | test/sprites/sprites_test.cpp:4349 |
+| G06.NR70-01d | line 0 (no change applied): resolution == baseline 0 (256x192) | — | pass | test/sprites/sprites_test.cpp:4356 |
+| G06.NR70-01e | line 99 (just before first flip): still 256x192 | — | pass | test/sprites/sprites_test.cpp:4362 |
+| G06.NR70-01f | line 100 (first flip): resolution == 1 (320x256), is_wide()==true | — | pass | test/sprites/sprites_test.cpp:4368 |
+| G06.NR70-01g | line 101 (held): still 320x256 | — | pass | test/sprites/sprites_test.cpp:4375 |
+| G06.NR70-01h | line 150 (second flip): resolution == 2 (640x256), paloff==5 | — | pass | test/sprites/sprites_test.cpp:4381 |
+| G06.NR70-01i | NR 0x70 change log capped at MAX_CHANGES_PER_FRAME | — | pass | test/sprites/sprites_test.cpp:4394 |
 
 ## Tilemap — `test/tilemap/tilemap_test.cpp`
 
@@ -2844,13 +2858,13 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:308 |
 | GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:357 |
 | GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:450 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:1669 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1698 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1729 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:1537 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1566 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1597 |
 | TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2517 |
 | TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2545 |
-| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1775 |
-| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1814 |
+| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1643 |
+| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1682 |
 | PI-01 | the Raspberry Pi link carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): host bytes reach port 0x143B on UART 1, the guest's UART 1 bytes reach the host, and UART 0 hears nothing | zxnext.vhd:2278-2281 | pass | test/uart/uart_posix_test.cpp:594 |
 | PI-02 | NR 0xA0 bits 5:4 gate the Pi link both ways (zxnext.vhd:2278-2281): with 0x00, 0x10 or 0x20 the Pi is not heard and does not hear, and the loss is counted; 0x30 then carries traffic again | zxnext.vhd:2278-2281 | pass | test/uart/uart_posix_test.cpp:652 |
 | PI-03 | with the Pi link attached, a UART 1 transmission goes to the Pi only — UART 1's unattached loopback is off, so the guest does not read its own byte back | — | pass | test/uart/uart_posix_test.cpp:680 |
@@ -3271,8 +3285,8 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | KBD-19 | CS+SYM, rows 0,7 AND = 0x1C | membrane.vhd:251 | pass | test/input/input_test.cpp:311 |
 | KBD-20 | no rows selected = 0x1F | membrane.vhd:242-251 | pass | test/input/input_test.cpp:320 |
 | KBD-21 | all rows, single Z = 0x1D | membrane.vhd:251 | pass | test/input/input_test.cpp:330 |
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:189 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:213 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:190 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:214 |
 | KBDHYS-01 | CS held one extra scan after release (membrane.vhd:178, 188-191, 232) | membrane.vhd:178,188-191,232 | pass | test/input/input_test.cpp:374 |
 | KBDHYS-02 | CS pressed across 3 scans reads pressed each scan (membrane.vhd:190) | membrane.vhd:190 | pass | test/input/input_test.cpp:395 |
 | KBDHYS-03 | the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback (membrane.vhd:253 vs :183-186) | membrane.vhd:253 | pass | test/input/input_test.cpp:428 |
@@ -3429,40 +3443,40 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:3185 |
 | NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3203 |
 | NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:3221 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:238 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:259 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:278 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:342 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1233 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1251 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:239 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:260 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:279 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:343 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1234 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1252 |
 | JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:3295 |
 | JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3334 |
 | JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3378 |
 | FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3418 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:995 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:650 |
-| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1821 |
-| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1840 |
-| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1872 |
-| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2101 |
-| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2124 |
-| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2138 |
-| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2160 |
-| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2216 |
-| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2236 |
-| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2252 |
-| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2287 |
-| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2326 |
-| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2352 |
-| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2410 |
-| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2427 |
-| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2443 |
-| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2467 |
-| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2489 |
-| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2504 |
-| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2531 |
-| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2551 |
-| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2618 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:996 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:651 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1779 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1798 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1830 |
+| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2059 |
+| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2082 |
+| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2096 |
+| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2118 |
+| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2174 |
+| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2194 |
+| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2210 |
+| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2245 |
+| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2284 |
+| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2310 |
+| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2368 |
+| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2385 |
+| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2401 |
+| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2425 |
+| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2447 |
+| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2462 |
+| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2489 |
+| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2509 |
+| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2576 |
 | FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3451 |
 | FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3479 |
 | EXTC-08a | LEFT folds to CAPS SHIFT + 5 (row 3 col 4) | — | pass | test/input/input_test.cpp:552 |
@@ -4637,11 +4651,48 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| SDP-IOERR-01 | transient host write error: CMD24 answers 0x0D with no busy byte, the card still reads sectors 1 and 4, and the rejected block never lands in the file afterwards (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:178 |
-| SDP-IOERR-03 | after a failed host write the card recovered read-write, not degraded to read-only: the next CMD24 is accepted (0x05) and its block is in the file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:217 |
-| SDP-IOERR-02 | persistent host write error: CMD24 answers 0x0D and the card still reads sectors 1 and 2 while the failure lasts | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:241 |
-| SDP-IOERR-04 | host write error on an image that can no longer be opened for writing: the card degrades to read-only, so the next CMD24 is refused (0x0D, no further stream write) and reads still return the original bytes | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:298 |
-| SDP-IOERR-05 | host write error with the image gone (neither reopen works): the card ends unmounted, and a later mount() works and reads | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:331 |
+| SDP-IOERR-01 | transient host write error: CMD24 answers 0x0D with no busy byte, the card still reads sectors 1 and 4, and the rejected block never lands in the file afterwards (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:181 |
+| SDP-IOERR-03 | after a failed host write the card recovered read-write, not degraded to read-only: the next CMD24 is accepted (0x05) and its block is in the file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:220 |
+| SDP-IOERR-02 | persistent host write error: CMD24 answers 0x0D and the card still reads sectors 1 and 2 while the failure lasts | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:244 |
+| SDP-IOERR-04 | host write error on an image that can no longer be opened for writing: the card degrades to read-only, so the next CMD24 is refused (0x0D, no further stream write) and reads still return the original bytes | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:301 |
+| SDP-IOERR-05 | host write error with the image gone (neither reopen works): the card ends unmounted, and a later mount() works and reads | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:334 |
+| SDP-SDW-01 | a journal append that really fails (RLIMIT_FSIZE) answers 0x0D, the file keeps its last whole length and the sector still reads its earlier content (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:383 |
+| SDP-SDW-02 | a kept-file append that really fails (RLIMIT_FSIZE) returns false, FILE keeps its last whole length (no torn tail) and the earlier kept file is still the kept one | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:416 |
+
+### Companion write-journal suite — `test/sdcard/sdcard_writes_test.cpp`
+
+> Citations in this section are the declared tombstone `(SD SPI spec; journal format: developer guide)`: this suite has no VHDL counterpart to cite.
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| SDW-01 | journal mode: CMD24 is accepted (0x05) and read back by CMD17, the image file is byte-identical and no write reached its stream (SD spec 7.3.3.1) | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:263 |
+| SDW-02 | after one write the journal file is exactly the 64-byte header and one 516-byte record, as the format table lays them out | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:271 |
+| SDW-03 | a new device on the rebound journal (a reload) reads the written sector from the journal and its neighbours from the image | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:295 |
+| SDW-04 | CMD18 across three sectors with only the middle one journaled returns image, journal, image | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:311 |
+| SDW-05 | SDSC card, CMD16 block length 16: a read inside a journaled sector returns that slice of the written bytes, and one inside another sector the image's | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:335 |
+| SDW-06 | a sector written twice: the second copy wins on read-back and after a remount, and the remount compacts the file to one record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:369 |
+| SDW-07 | a journal bound to another digest is refused at bind; the reason names both digests and --sdcard-writes-reset, and the file is untouched | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:392 |
+| SDW-08 | desktop binding: after the image's mtime moves its journal is refused, the reason naming the mtime, and the file is untouched | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:409 |
+| SDW-10 | a file that is not a journal (wrong magic) is refused at bind with and without reset, never removed or written | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:420 |
+| SDW-09 | a trailing partial record is dropped, the whole records before it are served, and the next append lands right after the last whole record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:453 |
+| SDW-11 | reset at bind and clear() both remove the file and the image's bytes are served again; clear() runs the hook once and bind does not run it | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:490 |
+| SDW-12 | the persist hook runs once per committed write and never for a refused write (past the end: R1 PARAMETER_ERROR 0x40, no data phase) or a read | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:516 |
+| SDW-16 | host_write_generation() grows by one per committed journal write and not for a refused one | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:522 |
+| SDW-13 | in journal mode a write past the end of the image is refused at the command (R1 PARAMETER_ERROR 0x40, SD spec 7.3.1.4) and adds no record (the file is never created) | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:542 |
+| SDW-14 | two devices mounting the bound image share one journal: a write through one is read through the other | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:562 |
+| SDW-15 | a live SD change to another image mounts it without a journal (its writes reach its own file); remounting the bound image restores journal mode | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:591 |
+| SDW-17 | an image bound under one spelling of its path (dir/../x.img) and mounted under another is still in journal mode: the write reads back and the image file is byte-identical | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:614 |
+| SDW-18 | SDSC card in journal mode: CMD24 at byte 7*512+8 (not a block boundary, WRITE_BL_MISALIGN = 0) is refused at the command (R1 ADDRESS_ERROR 0x20, SD spec 7.3.1.4) and adds no record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:634 |
+| SDW-19 | commit_file on a journal with no file creates FILE = header + one kept-file record (0xFFFFFFFF, L, n, name, bytes), as the format table lays it out | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:661 |
+| SDW-20 | a fresh bind of that FILE (a reload) gives the kept file back (name and bytes); no sector is journaled (empty()) and every sector reads the image | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:673 |
+| SDW-21 | sector 9, file v1, file v2, sector 9 again: a rebind serves the second sector copy and v2, and compacts FILE to one sector record then one kept-file record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:705 |
+| SDW-22 | a kept-file record of another name supersedes the earlier one (one file per journal): after a reload only the later name is kept and FILE is compacted to the sector record then that one kept-file record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:717 |
+| SDW-23 | a trailing kept-file record that runs past EOF (or is cut inside its marker/length head) is dropped, the earlier records are served, FILE is cut back to the last whole record, and the next commit appends there | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:759 |
+| SDW-24 | a complete kept-file record with n > L-2, or with L < 2, refuses the bind as not an SD-writes file and leaves FILE untouched; with reset (the file has a journal's header) the bind discards it and succeeds | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:796 |
+| SDW-25 | the persist hook runs once per commit_file; an identical (name, bytes) re-commit appends nothing and runs no hook; clear() removes FILE and the kept file, hook +1 | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:820 |
+| SDW-26 | bind(reset) on a FILE holding a sector record and a kept-file record discards both: FILE is gone, no kept file, the image's bytes are served | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:848 |
+| SDW-27 | with only a kept-file record, for_each_sorted calls its function zero times and empty() is true (the warm-start key never sees the file) | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:863 |
+| SDW-28 | a binding of 2^32 sectors (2 TiB) is refused (sector 0xFFFFFFFF is the kept-file marker), naming the size; one sector less binds | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:879 |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 
@@ -6523,71 +6574,78 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:189 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:213 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:238 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:259 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:278 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:342 |
-| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:466 |
-| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:485 |
-| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:518 |
-| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:558 |
-| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:590 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:650 |
-| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:705 |
-| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:763 |
-| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:819 |
-| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:876 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:995 |
-| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1035 |
-| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1055 |
-| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1076 |
-| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1104 |
-| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1127 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1233 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1251 |
-| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1329 |
-| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1344 |
-| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1358 |
-| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1373 |
-| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1388 |
-| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1399 |
-| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-03 | assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1 | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1468 |
-| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1468 |
-| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1468 |
-| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1821 |
-| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1840 |
-| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1872 |
-| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2101 |
-| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2124 |
-| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2138 |
-| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2160 |
-| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2216 |
-| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2236 |
-| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2252 |
-| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2287 |
-| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2326 |
-| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2352 |
-| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2410 |
-| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2427 |
-| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2443 |
-| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2467 |
-| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2489 |
-| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2504 |
-| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2531 |
-| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2551 |
-| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2618 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:190 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:214 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:239 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:260 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:279 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:343 |
+| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:467 |
+| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:486 |
+| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:519 |
+| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:559 |
+| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:591 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:651 |
+| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:706 |
+| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:764 |
+| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:820 |
+| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:877 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:996 |
+| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1036 |
+| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1056 |
+| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1077 |
+| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1105 |
+| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1128 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1234 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1252 |
+| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1330 |
+| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1345 |
+| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1359 |
+| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1374 |
+| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1389 |
+| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1400 |
+| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1437 |
+| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1437 |
+| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1437 |
+| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1437 |
+| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1439 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1779 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1798 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1830 |
+| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2059 |
+| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2082 |
+| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2096 |
+| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2118 |
+| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2174 |
+| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2194 |
+| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2210 |
+| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2245 |
+| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2284 |
+| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2310 |
+| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2368 |
+| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2385 |
+| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2401 |
+| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2425 |
+| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2447 |
+| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2462 |
+| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2489 |
+| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2509 |
+| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2576 |
+
+### Companion native-only suite — `test/input/input_integration_native_test.cpp`
+
+Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| GPA-03 | assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1 | — | pass | test/input/input_integration_native_test.cpp:86 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
@@ -6614,29 +6672,36 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | DEV-03 | Uart::detach_device restores loopback and clears the device's RxSink — a detached channel behaves exactly like one that never had a device [uart_device.h lifetime contract] | — | pass | test/uart/uart_integration_test.cpp:754 |
 | DEV-05 | An attached UartDevice takes precedence over on_tx_byte: the device receives the byte and the observer hook is suppressed, so exactly one consumer sees it [uart.cpp deliver_tx_byte] | — | pass | test/uart/uart_integration_test.cpp:790 |
 | DEV-04 | UartDevice attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) backends each see only their own channel's TX [zxnext.vhd:3343-3344; uart.vhd tx_wr gated on uart_select_r bit 6] | zxnext.vhd:3343-3344, uart.vhd | pass | test/uart/uart_integration_test.cpp:825 |
-| ESP-01 | guest TX on UART 0 egresses to the REAL emulated ESP-01, which parses the AT line and answers — not to the channel's loopback [zxnext.vhd:1611-1612, :3381 UART 0 = ESP] | zxnext.vhd:1611-1612,3381 | pass | test/uart/uart_integration_test.cpp:852 |
-| ESP-02 | the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:884 |
-| ESP-03 | NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO device reset — the attached ESP keeps its state across it; nextsync's recovery path is a v1.1 extension point (design doc §4.2) [zxnext.vhd:5119, :1579; nextreg.txt:48] | zxnext.vhd:5119,1579 | pass | test/uart/uart_integration_test.cpp:934 |
-| ESP-04 | with no ESP backend attached, UART 0 keeps its loopback: the guest's own bytes come back and nothing answers them | — | pass | test/uart/uart_integration_test.cpp:959 |
-| JOY-01 | zxnext.vhd:3340 — while the joystick UART mux owns UART 0, `uart0_rx` selects `joy_uart_rx` and the ESP's own RX pin is not selected, so its bytes are lost; with the mux off they arrive | zxnext.vhd:3340 | pass | test/uart/uart_integration_test.cpp:993 |
-| JOY-02 | zxnext.vhd:3343 — while the joystick UART mux owns UART 0 the module-facing TX pin is held idle, so a transmitted byte reaches neither the ESP nor a loopback into the channel's own RX FIFO; with the mux off the ESP receives normally | zxnext.vhd:3343 | pass | test/uart/uart_integration_test.cpp:1027 |
-| JOY-03 | zxnext.vhd:3340-3341 — NR 0x0B bit 0 selects WHICH channel the joystick connector takes, so with bit 0 = 1 the UART 1 pins are shadowed and the ESP on UART 0 keeps both directions | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:1059 |
-| JOY-04 | GH #251 — a serial source attached with --joy-uart-rx arrives on the channel NR 0x0B bit 0 selects, through the same zxnext.vhd:3340-3341 mux the guest reads at port 0x143B | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:1082 |
-| JOY-05 | zxnext.vhd:3538 — `joy_uart_rx` is read from i_JOY_LEFT(5) or i_JOY_RIGHT(5) according to NR 0x0B bit 4, so a cable in the other socket is a pin the machine is not looking at and its bytes are lost rather than delivered | zxnext.vhd:3538 | pass | test/uart/uart_integration_test.cpp:1113 |
-| JOY-06 | GH #251 — --joy-uart-rx-delay-frames N holds the stream for N COMPLETE frames (counted at the once-per-frame end seam) and releases it in the (N+1)th | — | pass | test/uart/uart_integration_test.cpp:1140 |
-| JOY-07 | GH #251 — JoyUartSource paces delivery at one byte per UartChannel::byte_transfer_ticks() (the same clock the ESP RX path uses), and stops when the stream is exhausted | — | pass | test/uart/uart_integration_test.cpp:1181 |
-| JOY-08 | GH #251 — read_joy_uart_source_file refuses a missing file AND an empty one (a source that sends nothing tests nothing), and reads a real one whole | — | pass | test/uart/uart_integration_test.cpp:1222 |
-| JOY-09 | zxnext.vhd:3341,3344 — the joystick UART mux isolates UART 1 exactly as it isolates UART 0: with NR 0x0B bit 0 = 1 the Pi backend is neither heard nor spoken to and nothing loops back, and with the mux off both directions return | zxnext.vhd:3341,3344 | pass | test/uart/uart_integration_test.cpp:1275 |
-| JOY-10 | GH #251 — JoyUartSource's cursor rides in the emulator state stream, so a rewind puts the cable back where it was and the replayed frames deliver byte-for-byte what they delivered the first time, across a schedule that both delivers and drops | — | pass | test/uart/uart_integration_test.cpp:1372 |
-| JOY-11 | GH #251 — a rewind INTO --joy-uart-rx-delay-frames' hold restores how much of the hold had been served, so the replay stays silent for the rest of it and releases the stream in the same frame as the run it reproduces | — | pass | test/uart/uart_integration_test.cpp:1439 |
-| JOY-12 | zxnext.vhd:3340-3341 — the joystick cable is paced at the byte time of the channel NR 0x0B bit 0 routes it to (each channel's receiver samples at its own prescaler, uart.vhd:404,589): with channel 1 programmed 8x slower than channel 0, routing to channel 1 delivers at channel 1's rate and routing to channel 0 at channel 0's | zxnext.vhd:3340-3341, uart.vhd:404,589 | pass | test/uart/uart_integration_test.cpp:1509 |
-| JOY-13 | zxnext.vhd:3526-3531,1593 — while the joystick UART mux owns UART 0 a transmitted byte leaves on joy pin 7, not through the module-facing pin (:3343) and not looped back into the channel's own RX FIFO; with the mux off it goes to the module instead | zxnext.vhd:3526-3531,1593 | pass | test/uart/uart_integration_test.cpp:1582 |
-| JOY-14 | zxnext.vhd:3526-3530 — with NR 0x0B bit 0 = 1 it is UART 1's TX that pin 7 carries, while UART 0 keeps its own module-facing pin and reaches the ESP normally | zxnext.vhd:3526-3530 | pass | test/uart/uart_integration_test.cpp:1629 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:1669 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1698 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:1729 |
-| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1775 |
-| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1814 |
+| JOY-01 | zxnext.vhd:3340 — while the joystick UART mux owns UART 0, `uart0_rx` selects `joy_uart_rx` and the ESP's own RX pin is not selected, so its bytes are lost; with the mux off they arrive | zxnext.vhd:3340 | pass | test/uart/uart_integration_test.cpp:861 |
+| JOY-02 | zxnext.vhd:3343 — while the joystick UART mux owns UART 0 the module-facing TX pin is held idle, so a transmitted byte reaches neither the ESP nor a loopback into the channel's own RX FIFO; with the mux off the ESP receives normally | zxnext.vhd:3343 | pass | test/uart/uart_integration_test.cpp:895 |
+| JOY-03 | zxnext.vhd:3340-3341 — NR 0x0B bit 0 selects WHICH channel the joystick connector takes, so with bit 0 = 1 the UART 1 pins are shadowed and the ESP on UART 0 keeps both directions | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:927 |
+| JOY-04 | GH #251 — a serial source attached with --joy-uart-rx arrives on the channel NR 0x0B bit 0 selects, through the same zxnext.vhd:3340-3341 mux the guest reads at port 0x143B | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:950 |
+| JOY-05 | zxnext.vhd:3538 — `joy_uart_rx` is read from i_JOY_LEFT(5) or i_JOY_RIGHT(5) according to NR 0x0B bit 4, so a cable in the other socket is a pin the machine is not looking at and its bytes are lost rather than delivered | zxnext.vhd:3538 | pass | test/uart/uart_integration_test.cpp:981 |
+| JOY-06 | GH #251 — --joy-uart-rx-delay-frames N holds the stream for N COMPLETE frames (counted at the once-per-frame end seam) and releases it in the (N+1)th | — | pass | test/uart/uart_integration_test.cpp:1008 |
+| JOY-07 | GH #251 — JoyUartSource paces delivery at one byte per UartChannel::byte_transfer_ticks() (the same clock the ESP RX path uses), and stops when the stream is exhausted | — | pass | test/uart/uart_integration_test.cpp:1049 |
+| JOY-08 | GH #251 — read_joy_uart_source_file refuses a missing file AND an empty one (a source that sends nothing tests nothing), and reads a real one whole | — | pass | test/uart/uart_integration_test.cpp:1090 |
+| JOY-09 | zxnext.vhd:3341,3344 — the joystick UART mux isolates UART 1 exactly as it isolates UART 0: with NR 0x0B bit 0 = 1 the Pi backend is neither heard nor spoken to and nothing loops back, and with the mux off both directions return | zxnext.vhd:3341,3344 | pass | test/uart/uart_integration_test.cpp:1143 |
+| JOY-10 | GH #251 — JoyUartSource's cursor rides in the emulator state stream, so a rewind puts the cable back where it was and the replayed frames deliver byte-for-byte what they delivered the first time, across a schedule that both delivers and drops | — | pass | test/uart/uart_integration_test.cpp:1240 |
+| JOY-11 | GH #251 — a rewind INTO --joy-uart-rx-delay-frames' hold restores how much of the hold had been served, so the replay stays silent for the rest of it and releases the stream in the same frame as the run it reproduces | — | pass | test/uart/uart_integration_test.cpp:1307 |
+| JOY-12 | zxnext.vhd:3340-3341 — the joystick cable is paced at the byte time of the channel NR 0x0B bit 0 routes it to (each channel's receiver samples at its own prescaler, uart.vhd:404,589): with channel 1 programmed 8x slower than channel 0, routing to channel 1 delivers at channel 1's rate and routing to channel 0 at channel 0's | zxnext.vhd:3340-3341, uart.vhd:404,589 | pass | test/uart/uart_integration_test.cpp:1377 |
+| JOY-13 | zxnext.vhd:3526-3531,1593 — while the joystick UART mux owns UART 0 a transmitted byte leaves on joy pin 7, not through the module-facing pin (:3343) and not looped back into the channel's own RX FIFO; with the mux off it goes to the module instead | zxnext.vhd:3526-3531,1593 | pass | test/uart/uart_integration_test.cpp:1450 |
+| JOY-14 | zxnext.vhd:3526-3530 — with NR 0x0B bit 0 = 1 it is UART 1's TX that pin 7 carries, while UART 0 keeps its own module-facing pin and reaches the ESP normally | zxnext.vhd:3526-3530 | pass | test/uart/uart_integration_test.cpp:1497 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:1537 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1566 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:1597 |
+| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1643 |
+| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1682 |
+
+### Companion native-only suite — `test/uart/uart_integration_native_test.cpp`
+
+Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md).
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| ESP-01 | guest TX on UART 0 egresses to the REAL emulated ESP-01, which parses the AT line and answers — not to the channel's loopback [zxnext.vhd:1611-1612, :3381 UART 0 = ESP] | zxnext.vhd:1611-1612,3381 | pass | test/uart/uart_integration_native_test.cpp:86 |
+| ESP-02 | the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_native_test.cpp:118 |
+| ESP-03 | NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO device reset — the attached ESP keeps its state across it; nextsync's recovery path is a v1.1 extension point (design doc §4.2) [zxnext.vhd:5119, :1579; nextreg.txt:48] | zxnext.vhd:5119,1579 | pass | test/uart/uart_integration_native_test.cpp:168 |
+| ESP-04 | with no ESP backend attached, UART 0 keeps its loopback: the guest's own bytes come back and nothing answers them | — | pass | test/uart/uart_integration_native_test.cpp:193 |
 
 ### Companion POSIX-only suite — `test/uart/uart_posix_test.cpp`
 

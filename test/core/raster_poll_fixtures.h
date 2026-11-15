@@ -69,7 +69,7 @@ Bytes guide_loop(uint16_t org = 0xC000, uint16_t count = kCount, const Bytes& in
 
 // Preselect NR 0x1F; wait for it to read `line`, count, wait for it to leave `line`. `pad` extra
 // register-only instructions in the first loop. EI when `ei` (the IM 2 program installs its handler).
-Bytes preselected_loop(uint8_t line, bool ei, unsigned pad = 0, uint16_t org = 0xC000, uint16_t count = kCount) {
+[[maybe_unused]] Bytes preselected_loop(uint8_t line, bool ei, unsigned pad = 0, uint16_t org = 0xC000, uint16_t count = kCount) {
     Asm a(org);
     a.op({0x3E, kHigh.i_reg, 0xED, 0x47, 0xED, 0x5E});         // ld a,i_reg; ld i,a; im 2
     a.op({0x01, 0x3B, 0x24, 0x3E, 0x1F, 0xED, 0x79, 0x04});    // select NR 0x1F; BC = 0x253B

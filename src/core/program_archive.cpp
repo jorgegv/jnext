@@ -329,4 +329,29 @@ bool extract_single_program(const std::string& archive, std::string& out_path,
     return a.extract(a.programs()[0], out_path, why);
 }
 
+bool extract_single_sd_image(const std::string& archive, std::string& out_path,
+                             std::string& why, std::string* member) {
+    ProgramArchive a;
+    if (!a.open(archive, why)) return false;
+    std::vector<std::string> imgs;
+    for (const auto& n : a.member_names()) {
+        const std::string b = base_of(n);
+        if (n.rfind("__MACOSX/", 0) == 0 || b.rfind("._", 0) == 0) continue;
+        if (ext_of(b) == ".img") imgs.push_back(n);
+    }
+    if (imgs.empty()) {
+        const auto n = a.member_names();
+        why = "holds no SD card image (.img); it holds: " +
+              (n.empty() ? std::string("nothing") : join_names(n));
+        return false;
+    }
+    if (imgs.size() > 1) {
+        why = "holds " + std::to_string(imgs.size()) + " SD card images: " +
+              join_names(imgs);
+        return false;
+    }
+    if (member) *member = imgs[0];
+    return a.extract(imgs[0], out_path, why);
+}
+
 }  // namespace program_archive
