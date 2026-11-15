@@ -137,7 +137,9 @@ span would stop it short. So the gate and the drain both return at once while
 **A handler may subscribe and unsubscribe.** The delivery walks the table by
 index, so a subscription added during a delivery is not visited for that event,
 and an unsubscribe only marks the row; the table is compacted once the
-outermost delivery ends. `raise_host_event()` may be called from a handler and
+outermost delivery ends, and again at the end of every `pump()`, where no delivery is in
+flight (a remote client that adds and removes breakpoints would otherwise grow it without
+bound). `raise_host_event()` may be called from a handler and
 nests.
 
 ## The ring is bounded, and says so
