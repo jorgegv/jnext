@@ -71,12 +71,7 @@
     }
     var reader = resp.body.getReader(), chunks = [], got = 0;
     function pump() {
-      return reader.read().catch(function (e) {
-        // The source of the bytes failed (a file that changed or moved, a dropped download).
-        var re = new Error(e && e.message ? e.message : String(e));
-        re.fromRead = true;
-        throw re;
-      }).then(function (r) {
+      return reader.read().then(function (r) {
         if (r.done) return null;
         chunks.push(r.value);
         got += r.value.length;
@@ -270,7 +265,12 @@
     if (rc !== 0) return Promise.reject(refuse());
     say(phase, 0);
     function pump() {
-      return reader.read().then(function (r) {
+      return reader.read().catch(function (e) {
+        // The source of the bytes failed (a file that changed or moved, a dropped download).
+        var re = new Error(e && e.message ? e.message : String(e));
+        re.fromRead = true;
+        throw re;
+      }).then(function (r) {
         if (r.done) return null;
         var v = r.value;
         if (v.length > cap) {
