@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # a changed NEX. The stand-in keeps one file, keyed by the card and the name, never
 # by the program (as on hardware, where a changed game reads its old high scores).
 #
-# One private minimal NextZXOS card (tools/make-minimal-sdcard-image.sh, built here,
+# One private minimal NextZXOS card (tools/make-minimal-card, built here,
 # deleted at the end, never kept): B is the pristine card the journal J is used on.
 #   (a) B + J, two runs: ESX 1 OK, ESX 2 OK; B's SHA-256 is the same after both;
 #       the second run RESTORES the warm start (a stand-in save is not card state, so
@@ -32,12 +32,14 @@ if want sdcard-writes-esx-func; then
 
     swe_faults=()
     swe_missing=()
-    for tool in mformat mcopy mmd sfdisk truncate sha256sum python3 cmp; do
+    for tool in sha256sum python3 cmp; do
         command -v "$tool" &>/dev/null || swe_missing+=("$tool")
     done
 
     if [[ ${#swe_missing[@]} -gt 0 ]]; then
-        fail_row " (tools absent: ${swe_missing[*]} - install mtools and util-linux)"
+        fail_row " (tools absent: ${swe_missing[*]} - install python3 and coreutils)"
+    elif [[ ! -x "$MAKE_MINIMAL_CARD" ]]; then
+        fail_row " (the card builder $MAKE_MINIMAL_CARD is not built: make unit-test-build)"
     elif [[ ! -f "$SD_MASTER_DIR/cspect-next-1gb.img" ]]; then
         fail_row " (the distribution image $SD_MASTER_DIR/cspect-next-1gb.img is absent)"
     else
@@ -58,10 +60,10 @@ if want sdcard-writes-esx-func; then
         swe_say() { grep -a '^ESX ' <<<"$1" | head -1 || true; }
 
         swe_rc=0
-        bash "$PROJECT_DIR/tools/make-minimal-sdcard-image.sh" \
+        "$MAKE_MINIMAL_CARD" \
             "$SD_MASTER_DIR/cspect-next-1gb.img" "$swe_b" >"$swe_dir/build.out" 2>"$swe_dir/build.err" \
             || swe_rc=$?
-        [[ "$swe_rc" == 0 ]] || swe_faults+=("build: the script exited $swe_rc")
+        [[ "$swe_rc" == 0 ]] || swe_faults+=("build: the card builder exited $swe_rc")
 
         if [[ "$swe_rc" == 0 ]]; then
             swe_b_sha=$(sha256sum "$swe_b" | cut -d' ' -f1)

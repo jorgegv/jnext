@@ -1248,7 +1248,7 @@ bench:
 	@JNEXT_BENCH_BUILD=$(BENCH_BUILD) bash test/bench/bench.sh
 
 # Run the browser bench over the regression NEX set in the host's Chrome (also at 2x CPU throttle) and Firefox
-bench-web: wasm-web playwright sdcard-image
+bench-web: wasm-web playwright sdl-release sdcard-image
 	@# The shipped jnext.mount() page, one wasm instance per program, pinned to the fastest
 	@# physical cores. Writes test/bench/web-baseline-<sha>.txt. Needs a quiet host (it waits
 	@# for load <= 1.5 at each pass start). Optional: CONFIGS=chrome,chrome-x2,firefox
@@ -2172,9 +2172,9 @@ packaging-selftest:
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
-# Test tools/make-minimal-sdcard-image.sh (18 rows) against the cached distribution image - Linux only; needs mtools + sfdisk
-minimal-image-test:
-	@bash test/minimal-sdcard-image-test.sh
+# Test tools/make-minimal-card (15 rows) against the cached distribution image and a synthetic zip - Linux only; needs mtools + sfdisk + python3
+minimal-image-test: unit-test-build
+	@bash test/minimal-card-test.sh
 
 # Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s
 package-contract-test: web-package-test

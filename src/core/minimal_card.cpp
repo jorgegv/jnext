@@ -558,13 +558,12 @@ struct Builder::Impl {
         const std::string name = ex.file.empty() ? std::string("the distribution") : ex.file;
         const std::string digest = sha.final_hex();
         if (in == Input::Zip) {
-            if (ex.zip_size && bytes_in != ex.zip_size) {
-                fail("this is not " + name + ": it is " + std::to_string(bytes_in) + " bytes, the official file is " +
-                     std::to_string(ex.zip_size));
-                return Status::Error;
-            }
-            if (!ex.zip_sha256.empty() && digest != ex.zip_sha256) {
-                fail("this is not " + name + ": its SHA-256 is " + digest + ", expected " + ex.zip_sha256);
+            const bool bad_size = ex.zip_size && bytes_in != ex.zip_size;
+            const bool bad_sha = !ex.zip_sha256.empty() && digest != ex.zip_sha256;
+            if (bad_size || bad_sha) {
+                fail("this is not " + name + ": it is " + std::to_string(bytes_in) + " bytes with SHA-256 " + digest +
+                     "; the official file is " + (ex.zip_size ? std::to_string(ex.zip_size) + " bytes" : std::string("?")) +
+                     (ex.zip_sha256.empty() ? std::string() : " with SHA-256 " + ex.zip_sha256));
                 return Status::Error;
             }
         } else if (!ex.image_sha256.empty() && digest != ex.image_sha256) {

@@ -169,7 +169,7 @@ jobs:
           # nss ... libdrm (the last line): the shared libraries the pinned Chromium headless
           # shell of `make wasm-browser-test` links (`ldd` on it), declared rather than
           # inherited. The browser comes from test/provision-playwright.sh, like the SDK.
-          # util-linux: sfdisk, for tools/make-minimal-sdcard-image.sh (the bare
+          # util-linux: sfdisk, for test/minimal-card-test.sh (the bare
           # fedora:44 has only util-linux-core).
           # zip: package-web.sh's writer (the browser leg builds the web zip through
           # wasm-browser-test; the unit leg runs web-package-test through make unit-test).

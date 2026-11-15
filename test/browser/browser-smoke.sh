@@ -25,7 +25,7 @@
 # What it provides to the specs, all in ONE scratch directory under ~/tmp that is
 # deleted at the end:
 #   card.img      the 40 MiB minimal NextZXOS card, built from the cached distribution
-#                 image by tools/make-minimal-sdcard-image.sh. It is copyrighted
+#                 image by tools/make-minimal-card (the builder the page runs). It is copyrighted
 #                 content: it lives only here, the page gets it through the harness's
 #                 request handler, and it is never committed, uploaded or traced
 #                 (Playwright tracing, HAR and video stay off).
@@ -57,7 +57,7 @@ NATIVE="$ROOT/build/sdl-release/jnext"
 [[ -x "$NATIVE" ]] || die "$NATIVE is not built (make sdl-release): it is the oracle"
 DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb.img}"
 [[ -f "$DIST" ]] || die "no distribution SD image at $DIST (make sdcard-image)"
-for t in mcopy sfdisk python3 timeout; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
+for t in python3 timeout; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
 
 BUILD_VERSION=$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' "$BUILD/CMakeCache.txt")
 VERSION=$(sed -n 's/^version: *//p' "$ROOT/version.yaml")
@@ -71,11 +71,13 @@ SCRATCH=$(mktemp -d "$HOME/tmp/jnext-browser-smoke.XXXXXX")
 trap 'rm -rf "$SCRATCH"' EXIT
 mkdir "$SCRATCH/oracle" "$SCRATCH/out"
 
-bash "$ROOT/tools/make-minimal-sdcard-image.sh" "$DIST" "$SCRATCH/card.img" >"$SCRATCH/out/card.log" 2>&1 \
+CARD_TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/sdl-release/tools/make-minimal-card/make-minimal-card}"
+[[ -x "$CARD_TOOL" ]] || die "$CARD_TOOL is not built (make sdl-release)"
+"$CARD_TOOL" "$DIST" "$SCRATCH/card.img" >"$SCRATCH/out/card.log" 2>&1 \
     || { cat "$SCRATCH/out/card.log" >&2; die "cannot build the minimal card"; }
 # For image.mjs: the card's sha256 and a ZIP of it made by a FOREIGN writer (CPython zipfile,
-# deflate), both computed here at run time (the card is reproducible for one mtools version
-# only, so no digest is ever pinned). Same scratch directory, same deletion.
+# deflate), both computed here at run time. The card is the builder's PINNED one (kDistribution,
+# which the tool enforces), the same bytes on every platform. Same scratch directory, same deletion.
 CARD_SHA256=$(sha256sum "$SCRATCH/card.img" | cut -d' ' -f1)
 python3 -I -c 'import sys, zipfile
 with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:

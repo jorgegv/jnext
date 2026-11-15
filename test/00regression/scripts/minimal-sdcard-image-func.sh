@@ -6,8 +6,8 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
-# GH #458 - the minimal NextZXOS card (tools/make-minimal-sdcard-image.sh) must
-# BOOT: the NextZXOS menu and a warm-started NEX must match the existing
+# GH #458 - the minimal NextZXOS card (tools/make-minimal-card, the builder the browser runs)
+# must BOOT: the NextZXOS menu and a warm-started NEX must match the existing
 # references of the full card, pixel for pixel. The references are never
 # regenerated for this row.
 #
@@ -27,12 +27,14 @@ if want minimal-sdcard-image-func; then
 
     ms_faults=()
     ms_missing=()
-    for tool in mformat mcopy mdir minfo mmd sfdisk truncate sha256sum realpath; do
+    for tool in python3 sha256sum; do
         command -v "$tool" &>/dev/null || ms_missing+=("$tool")
     done
 
     if [[ ${#ms_missing[@]} -gt 0 ]]; then
-        fail_row " (tools absent: ${ms_missing[*]} - install mtools and util-linux)"
+        fail_row " (tools absent: ${ms_missing[*]})"
+    elif [[ ! -x "$MAKE_MINIMAL_CARD" ]]; then
+        fail_row " (the card builder $MAKE_MINIMAL_CARD is not built: make unit-test-build)"
     elif [[ ! -f "$SD_MASTER_DIR/cspect-next-1gb.img" ]]; then
         fail_row " (the distribution image $SD_MASTER_DIR/cspect-next-1gb.img is absent)"
     else
@@ -40,10 +42,30 @@ if want minimal-sdcard-image-func; then
         ms_card="$ms_dir/minimal.img"
         rm -rf "$ms_dir"; mkdir -p "$ms_dir"
         ms_menu="" ms_nex="" ms_build_rc=0
-        bash "$PROJECT_DIR/tools/make-minimal-sdcard-image.sh" \
-            "$SD_MASTER_DIR/cspect-next-1gb.img" "$ms_card" >"$ms_dir/build.out" 2>"$ms_dir/build.err" \
+        # The card is built from a ZIP of the cached distribution image, made here at run time
+        # (python zipfile, deflate: a foreign writer; the image entry first, as in the official
+        # zip) and deleted below: the zip layer and the image layer of the builder, on real data,
+        # in PINNED-card mode. The zip pin is replaced by this zip's own digest; the pinned card
+        # digest (kDistribution) must come out, byte for byte.
+        ms_zip="$ms_dir/distro.zip"
+        ms_pinned=$(sed -n '/constexpr Pins kDistribution/,/^};/p' "$PROJECT_DIR/src/core/sdcard_provisioner.cpp" \
+            | grep -oE '"[0-9a-f]{64}"' | sed -n 3p | tr -d '"' || true)
+        python3 -I -c '
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+    z.write(sys.argv[1], "cspect-next-1gb.img")
+    z.writestr("enNextZX.rom", b"x")
+' "$SD_MASTER_DIR/cspect-next-1gb.img" "$ms_zip" || ms_faults+=("build: cannot zip the distribution image")
+        ms_zip_sha=$(sha256sum "$ms_zip" | cut -d' ' -f1)
+        "$MAKE_MINIMAL_CARD" --expect-zip-sha256 "$ms_zip_sha" "$ms_zip" "$ms_card" >"$ms_dir/build.out" 2>"$ms_dir/build.err" \
             || ms_build_rc=$?
-        [[ "$ms_build_rc" == 0 ]] || ms_faults+=("build: the script exited $ms_build_rc")
+        rm -f "$ms_zip"
+        [[ "$ms_build_rc" == 0 ]] || ms_faults+=("build: the card builder exited $ms_build_rc")
+        if [[ "$ms_build_rc" == 0 ]]; then
+            ms_got=$(sha256sum "$ms_card" | cut -d' ' -f1)
+            [[ ${#ms_pinned} == 64 && "$ms_got" == "$ms_pinned" ]] \
+                || ms_faults+=("build: the card is $ms_got, the pinned card digest is '$ms_pinned'")
+        fi
 
         if [[ "$ms_build_rc" == 0 ]]; then
             # Menu: SPACE at the welcome screen, the NextZXOS menu 50 frames later.
@@ -89,7 +111,7 @@ if want minimal-sdcard-image-func; then
         fi
 
         if [[ ${#ms_faults[@]} -eq 0 ]]; then
-            pass_row " (the minimal card builds, boots the NextZXOS menu and warm-starts a NEX, both matching the full-card references)"
+            pass_row " (the minimal card builds from a zip of the image to the pinned digest, boots the NextZXOS menu and warm-starts a NEX, both matching the full-card references)"
         else
             fail_row " ($(IFS='; '; echo "${ms_faults[*]}"))"
             show_output "build stderr" "$(cat "$ms_dir/build.err" 2>/dev/null || true)"
