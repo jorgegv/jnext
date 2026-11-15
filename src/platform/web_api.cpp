@@ -70,7 +70,9 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
     for (auto it = o.begin(); it != o.end(); ++it)
         if (!find_option(it.key())) return refuse(why, "unknown option '" + it.key() + "'");
     for (const Option& t : WEB_OPTIONS)
-        if (t.required && !o.contains(t.name)) return refuse(why, std::string(t.name) + " is required");
+        if (t.required && !o.contains(t.name))
+            return refuse(why, t.internal ? std::string("the SD card is missing (an internal error of the page layer)")
+                                          : std::string(t.name) + " is required");
 
     auto bad = [&](const char* name, const char* want) {
         return refuse(why, std::string("option '") + name + "' must be " + want);
@@ -91,7 +93,7 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
                 return bad(t.name, "an object {path, sha256}");
             const std::string& sha = v["sha256"].get_ref<const std::string&>();
             // An all-zero digest is the cache's "no digest": never let one through.
-            if (is_hex64(sha) && all_zero(sha)) return refuse(why, "option 'image': the sha256 is all zeros");
+            if (is_hex64(sha) && all_zero(sha)) return refuse(why, std::string("option '") + t.name + "': the sha256 is all zeros");
             out.push_back(flag_spelling(*t.opt));
             out.push_back(v["path"].get<std::string>());
             out.push_back(flag_spelling(*t.opt2));
@@ -134,6 +136,18 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
             break;
         }
         case Kind::Host: {
+            if (std::string(t.name) == "card") {
+                if (!v.is_object()) return bad(t.name, "an object {source}");
+                for (auto it = v.begin(); it != v.end(); ++it) {
+                    if (it.key() != "source") return refuse(why, "option 'card': unknown key '" + it.key() + "'");
+                    const json& sv = it.value();
+                    if (!sv.is_string() || (sv.get_ref<const std::string&>() != "auto" &&
+                                            sv.get_ref<const std::string&>() != "fetch" &&
+                                            sv.get_ref<const std::string&>() != "pick"))
+                        return refuse(why, "option 'card': source must be 'auto', 'fetch' or 'pick'");
+                }
+                break;
+            }
             const bool is_size = std::string(t.name) == "width" || std::string(t.name) == "height";
             if (is_size ? !(v.is_number() || v.is_string()) : !v.is_string())
                 return bad(t.name, is_size ? "a number or a string" : "a string");

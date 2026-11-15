@@ -9,6 +9,9 @@
 #   LUDC-04        a required 10.4 statement removed: fails, naming it
 #   LUDC-05        the same patterns planted in the developer guide do NOT fail, and no
 #                  developer-guide path is in scope
+#   LUDC-06        the four web code files are in scope: a recipe planted in one fails, but the
+#                  names the code itself uses (the development seam, the internal card entry,
+#                  an internal variable) do not, and the same names in prose still fail
 #
 # Row IDs are literals (see test/row_id.h's reason): every row is spelt out.
 set -uo pipefail
@@ -16,7 +19,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 LINT="$HERE/lint-user-docs-card.sh"
-EXPECTED_ROWS=16
+EXPECTED_ROWS=17
 TARGET=src/doc/user-guide/10-web-page/01-a-page-with-a-game.md
 DEV=src/doc/developer-guide/05-building/06-the-browser-build.md
 
@@ -76,6 +79,14 @@ fresh
 run
 inscope=$(bash "$LINT" --list "$W/t" 2>/dev/null | grep -c 'developer-guide' || true)
 row LUDC-05 $([[ $RC -eq 0 && "$inscope" == 0 ]] && echo 1 || echo 0) "recipes in the developer guide do not fail; developer-guide files in scope: $inscope (exit $RC)"
+
+# LUDC-06
+WEBJS=web/jnext_api.js.in
+fresh; printf '\n// run tools/make-minimal-card on it\n' >>"$W/t/$WEBJS"; run; rc_recipe=$RC; out_recipe=$OUT
+fresh; printf '\nvar x = root.jnextDev, y = o[\x27$card\x27], z = image.sha256;\n' >>"$W/t/$WEBJS"; run; rc_code=$RC
+fresh; printf '\nset window.jnextDev first\n' >>"$W/t/$TARGET"; run; rc_prose=$RC
+inlist=$(bash "$LINT" --list "$W/t" 2>/dev/null | grep -c '^web/' || true)
+row LUDC-06 $([[ $rc_recipe -eq 1 && "$out_recipe" == *"[make-minimal]"* && $rc_code -eq 0 && $rc_prose -eq 1 && "$inlist" -ge 4 ]] && echo 1 || echo 0) "web files in scope ($inlist): a recipe in one fails (exit $rc_recipe), the seam/card/variable names as code pass (exit $rc_code), the seam name in prose fails (exit $rc_prose)"
 
 printf 'Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n' "$total" "$passed" "$failed" 0
 if [[ $total -ne $EXPECTED_ROWS ]]; then echo "FAIL: reported $total rows, expected $EXPECTED_ROWS"; exit 1; fi

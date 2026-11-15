@@ -22,12 +22,13 @@
 <script src="jnext-@PROJECT_VERSION@.js"></script>
 <script>
 (function () {
-  // The SD-card image, its SHA-256 and the program come from the query string
-  // (?image=URL&sha256=HEX&file=URL), falling back to these constants.
-  var IMAGE_URL = '';
-  var IMAGE_SHA256 = '';
+  // The program comes from the query string (?file=URL, and &other=URL for the "Load other"
+  // button), falling back to these constants. POSTER_URL is an optional picture shown before the
+  // click. CARD_SOURCE is how the player gets NextZXOS's SD card: 'auto', 'fetch' or 'pick'.
   var PROGRAM_URL = '';
   var OTHER_URL = '';
+  var POSTER_URL = '';
+  var CARD_SOURCE = 'auto';
 
   var q = new URLSearchParams(location.search);
   // Not `status`: a global of that name is window.status, a string.
@@ -35,7 +36,7 @@
   function say(t) { statusEl.textContent = t; }
 
   var options = {
-    image: { url: q.get('image') || IMAGE_URL, sha256: q.get('sha256') || IMAGE_SHA256 },
+    card: { source: CARD_SOURCE },
     width: 640,
     height: 512,
     onProgress: function (phase, fraction) { say(phase + ' ' + Math.round(fraction * 100) + '%'); },
@@ -44,9 +45,8 @@
   };
   var file = q.get('file') || PROGRAM_URL;
   if (file) options.file = file;
-  if (!options.image.url) {
-    say('error: image: no URL configured');
-  } else {
+  if (POSTER_URL) options.poster = POSTER_URL;
+  {
     jnext.mount(document.getElementById('player'), options).then(function (player) {
       window.player = player;
       say('click the player to start');

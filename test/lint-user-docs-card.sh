@@ -54,15 +54,24 @@ SCOPE=(
     'FEATURES.md'
     'packaging/web/README.txt.in'
     # The web layer and the example pages ship to page authors in the bundle and their
-    # comments are read. Enabled when the browser flow stops naming an image URL:
-    #   'web/examples/*.in'
-    #   'web/jnext-widget.js.in'
-    #   'web/jnext_api.js.in'
-    #   'web/jnext-image.js'
+    # comments are read. They are CODE too, so the patterns that name the internal card entry,
+    # the local-development seam or an internal variable are scoped to prose (see PROSE below).
+    'web/examples/*.in'
+    'web/jnext-widget.js.in'
+    'web/jnext_api.js.in'
+    'web/jnext-image.js'
 )
 # Also in scope: ChangeLog, its Unreleased section only (older sections are frozen text).
 CHANGELOG=ChangeLog
 GUIDE_104='src/doc/user-guide/10-web-page/04-*.md'
+
+# The prose files: texts a reader reads as documentation. The three patterns below that the
+# shipped JavaScript legitimately contains as CODE (the internal card entry's name, the
+# development seam's name, an internal variable) apply here only, not to the four web files;
+# the rest of the table applies to those too, comments included. Owner/reviewer choice: narrow
+# the lint to prose rather than disguise the names in code (a comment cannot be told from code
+# by a regex, and a spelling trick would only hide the name from the lint, not from the reader).
+PROSE='src/doc/*|doc/man/*|README.md|FEATURES.md|packaging/web/*|ChangeLog'
 
 # pat NAME REGEX REASON [SCOPE-GLOB]
 PAT_NAME=(); PAT_RE=(); PAT_WHY=(); PAT_SCOPE=()
@@ -73,11 +82,11 @@ pat http-server       'http\.server'                     'serving a card is deve
 pat data-image        'data-(image|sha256)'              'the widget takes no image'
 pat query-image       '[?&](image|sha256)='              'a page takes no image in its query string'
 pat image-object      'image:[[:space:]]*\{'             'a page names no image'
-pat image-url         'image\.(url|sha256)'              'a page names no image'
+pat image-url         'image\.(url|sha256)'              'a page names no image' "$PROSE"
 pat card-img          '\bcard\.img\b'                    'an example card file name'
 pat example-card-url  'example\.(com|org)/[^ )'"'"'"]*\.(img|zip)' 'an example URL for hosting a card'
-pat jnextdev          'jnextDev'                         'the local-development seam is developer-guide material'
-pat dollar-card       '\$card'                           'the internal card option is not documented'
+pat jnextdev          'jnextDev'                         'the local-development seam is developer-guide material' "$PROSE"
+pat dollar-card       '\$card'                           'the internal card option is not documented' "$PROSE"
 pat distro-url-env    'JNEXT_SDCARD_DISTRO_URL'          'a way to point JNEXT at another distribution'
 
 # Resolve the scope to a file list (a pattern that matches nothing is a fault).

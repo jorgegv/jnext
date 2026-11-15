@@ -6,8 +6,13 @@
 // This file knows no command-line flag and no --set key: the whole options
 // object goes to the emulator (jnext_web_argv, src/platform/web_api.cpp), which
 // owns the table that turns it into a command line. The only option names used
-// here are the ones this layer acts on itself: image, file, keepWrites, width,
-// height, wasmUrl and the three callbacks.
+// here are the ones this layer acts on itself: card, poster, file, keepWrites,
+// width, height, wasmUrl and the three callbacks.
+//
+// Nothing is downloaded or built until the visitor clicks the player. The SD card of
+// NextZXOS (SpecNext's copyrighted software, which JNEXT does not ship, host or serve) is
+// then taken from the browser's cache, or made from the official zip on specnext.com: fetched
+// by the page when specnext.com allows it, or chosen by the visitor from a download.
 (function (root) {
   'use strict';
 
@@ -77,17 +82,18 @@
     return o.argv;
   }
 
-  // The options object as the emulator reads it: functions become true, file and
-  // image become what was installed (or placeholders for the early validation), and
-  // keepWrites becomes the path of the writes file (false: dropped).
-  function substitute(options, file, image, writes) {
+  // The options object as the emulator reads it: functions become true, file becomes
+  // what was installed (or a placeholder for the early validation), keepWrites becomes the
+  // path of the writes file (false: dropped), and the internal SD-card entry is added: the
+  // page never supplies it.
+  function substitute(options, file, card, writes) {
     var o = {};
     Object.keys(options).forEach(function (k) {
       var v = options[k];
       o[k] = typeof v === 'function' ? true : v;
     });
     if (o.file !== undefined && fileSpec(o.file)) o.file = file;
-    if (o.image !== undefined && o.image && typeof o.image === 'object') o.image = image;
+    o['$card'] = card;
     if (o.keepWrites === true) o.keepWrites = writes;
     else if (o.keepWrites === false) delete o.keepWrites;
     return o;
@@ -117,6 +123,12 @@
       if (!cb[name]) return;
       try { cb[name](a, b); } catch (e) { console.error('jnext: ' + name + ' threw', e); }
     }
+    // The SD card is the page layer's own business: a page cannot hand one in.
+    if (Object.prototype.hasOwnProperty.call(options, '$card')) {
+      var ce = new Error("unknown option '$card'");
+      call('onError', ce.message);
+      return Promise.reject(ce);
+    }
 
     // ---- DOM ----
     var box = document.createElement('div');
@@ -137,7 +149,20 @@
       'align-items:center;justify-content:center;background:rgba(0,0,0,0.6);color:#fff;' +
       'font:16px sans-serif;cursor:pointer';
     overlay.textContent = 'Loading...';
+    // The optional poster: a picture of the program, shown until the machine starts. A string the
+    // page gave; if the picture cannot be loaded nothing is shown.
+    var poster = null;
+    if (typeof options.poster === 'string' && options.poster) {
+      poster = document.createElement('img');
+      poster.className = 'jnext-poster';
+      poster.alt = '';
+      poster.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;' +
+        'pointer-events:none';
+      poster.addEventListener('error', function () { if (poster && poster.parentNode) poster.parentNode.removeChild(poster); });
+      poster.src = options.poster;
+    }
     box.appendChild(canvas);
+    if (poster) box.appendChild(poster);
     box.appendChild(overlay);
     container.appendChild(box);
     var kb = JnextTouchKeyboard.create(box, canvas);   // builds nothing until the keyboard is shown
@@ -169,13 +194,17 @@
       w.forEach(function (x) { x.reject(err); });
     }
     function progress(phase, fraction) {
-      if (state === 'waiting' || state === 'starting') say(phase + ' ' + Math.round(fraction * 100) + '%');
+      // Not over the panel that asks the visitor for the NextZXOS file: it shows its own line.
+      if ((state === 'waiting' || state === 'starting') && !overlay.querySelector('.jnext-pick')) {
+        say(phase + ' ' + Math.round(fraction * 100) + '%');
+      }
       call('onProgress', phase, fraction);
     }
 
     function onEvent(type, text) {
       if (type === 'started') {
         startedSeen = true;
+        if (poster && poster.parentNode) poster.parentNode.removeChild(poster);
         state = 'running';
         if (volume !== null) mod._jnext_web_set_volume(volume);
         kb.started(mod._jnext_web_touch_keyboard());
@@ -415,7 +444,7 @@
       });
     };
 
-    // ---- the module, the image, the program ----
+    // ---- the module, the card, the program ----
     function failMount(e) {
       kb.destroy();
       if (box.parentNode) box.parentNode.removeChild(box);
@@ -423,7 +452,118 @@
       throw fail(e && e.message ? e.message : String(e));
     }
 
+    // A failure after the click: the player stays, stopped, with the reason on the overlay.
+    function failStart(e) {
+      state = 'exited';
+      var msg = e && e.message ? e.message : String(e);
+      var err = fail(msg);
+      if (!readyDone) readyReject(err);
+      rejectWaiters(err);
+      overlay.style.display = 'flex';
+      overlay.textContent = 'Stopped: ' + msg;
+    }
+
+    function stop(ev) { ev.stopPropagation(); }
+
+    // The visitor must fetch the official file himself: say what it is, where it is, and take
+    // the file he chose. Resolves with the card once a file has been accepted; a refused file
+    // keeps the panel up with the reason and the visitor can choose again.
+    function pickPanel(pins, reason) {
+      return new Promise(function (resolve) {
+        overlay.textContent = '';
+        overlay.style.cursor = 'default';
+        var panel = document.createElement('div');
+        panel.className = 'jnext-pick';
+        panel.style.cssText = 'max-width:90%;text-align:center;font:14px/1.4 sans-serif;cursor:default';
+        function para(text) {
+          var p = document.createElement('p');
+          p.style.cssText = 'margin:6px 0';
+          p.textContent = text;
+          panel.appendChild(p);
+          return p;
+        }
+        para("This player needs NextZXOS, the ZX Spectrum Next's operating system. NextZXOS is " +
+             "SpecNext's copyrighted software: JNEXT does not ship, host or serve it.");
+        var p2 = para('1. Download ' + pins.file + ' from specnext.com: ');
+        var a = document.createElement('a');
+        a.href = pins.url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = pins.file;
+        a.style.cssText = 'color:#8fb8ff';
+        p2.appendChild(a);
+        var p3 = para('2. Choose the downloaded file: ');
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.zip,application/zip';
+        input.style.display = 'none';
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Choose the file...';
+        btn.style.cssText = 'font:inherit;padding:2px 10px;cursor:pointer';
+        btn.addEventListener('click', function () { input.click(); });
+        p3.appendChild(btn);
+        panel.appendChild(input);
+        para("The SD card your browser makes from it stays in the visitor's browser, for this site " +
+             'only. Nothing is sent anywhere.');
+        var last = para(reason || '');
+        last.className = 'jnext-pick-reason';
+        ['click', 'change'].forEach(function (t) { panel.addEventListener(t, stop); });
+        input.addEventListener('change', function () {
+          var f = input.files && input.files[0];
+          if (!f) return;
+          btn.disabled = true;
+          last.textContent = '';
+          JnextImage.buildFromFile(mod, pins, f, function (ph, fr) {
+            last.textContent = 'Making the card... ' + Math.round(fr * 100) + '%';
+            progress(ph, fr);
+          }).then(function (card) {
+            if (panel.parentNode) panel.parentNode.removeChild(panel);
+            resolve(card);
+          }, function (e) {
+            last.textContent = e && e.message ? e.message : String(e);
+            input.value = '';
+            btn.disabled = false;
+          });
+        });
+        overlay.appendChild(panel);
+        progress('choose', 0);
+      });
+    }
+
+    // The SD card: a development card the seam names (localhost only), the one a visit kept, or
+    // one made now from the official zip. -> Promise<{path, sha256}>, the card in /sdcard/image.img.
+    function obtainCard(seam, pins) {
+      if (seam && seam.card) {
+        return JnextImage.fetchImage(seam.card, progress).then(function (image) {
+          var inst = JnextImage.installImage(mod, image);
+          return { path: inst[1], sha256: inst[3] };
+        });
+      }
+      var source = (options.card && options.card.source) || 'auto';
+      return JnextImage.cachedCard(mod, pins).then(function (hit) {
+        if (hit) { progress('download', 1); return hit; }
+        if (source === 'pick') return pickPanel(pins, '');
+        var fetchIt = function () {
+          return JnextImage.fetchDistribution(mod, pins, progress).catch(function (e) {
+            if (source === 'fetch') {
+              throw new Error('cannot read the NextZXOS distribution from specnext.com (' + pins.url + '): ' +
+                              (e && e.message ? e.message : String(e)) +
+                              (e instanceof TypeError ? ' (no Access-Control-Allow-Origin header?)' : ''));
+            }
+            return pickPanel(pins, e && e.message ? e.message : String(e));
+          });
+        };
+        if (source === 'fetch') return fetchIt();
+        return JnextImage.probe(pins, seam && seam.probeTimeoutMs).then(function (pr) {
+          return pr.ok ? fetchIt() : pickPanel(pins, pr.reason);
+        });
+      });
+    }
+
     var wasmUrl = typeof options.wasmUrl === 'string' ? options.wasmUrl : DEFAULT_WASM;
+    var seam = JnextImage.devSeam();
+    var pins = null;
     return createJnextModule({
       canvas: canvas,
       print: function (s) { console.log(s); },
@@ -439,36 +579,39 @@
       }]
     }).then(function (m) {
       mod = m;
-      // Early validation: names, shapes, types, `image` required. No request has
-      // been made yet, so a refused page costs nothing.
-      var img = options.image;
-      argvOf(mod, substitute(options, 'x', { path: '/sdcard/image.img', sha256: img && img.sha256 },
+      pins = JnextImage.distribution(mod, seam);
+      // Early validation: names, shapes, types. No request has been made yet, so a refused
+      // page costs nothing.
+      argvOf(mod, substitute(options, 'x', { path: '/sdcard/image.img', sha256: pins.cardSha256 },
                              '/jnext/card-writes/x.jsdw'));
       return JnextImage.mountWarmStartStore(mod);
     }).then(function () {
-      return JnextImage.fetchImage(options.image, progress);
-    }).then(function (image) {
-      var inst = JnextImage.installImage(mod, image);
-      var fs = options.file !== undefined ? fileSpec(options.file) : null;
-      var fp = fs ? installFile(mod, fs) : Promise.resolve('');
-      // keepWrites: this image on this page has one record; its file goes back into the
-      // in-memory filesystem before the machine starts.
-      var wp = options.keepWrites === true
-        ? JnextImage.cardWritesKey(image.sha256, location.pathname).then(function (key) {
-            return JnextImage.loadCardWrites(mod, key).then(function (p) { writesKey = key; return p; });
-          })
-        : Promise.resolve('');
-      return Promise.all([fp, wp]).then(function (paths) {
-        var path = paths[0];
-        var argv = argvOf(mod, substitute(options, path, { path: inst[1], sha256: inst[3] }, paths[1]));
-        Object.defineProperty(player, 'argv', { value: Object.freeze(argv), enumerable: true });
-        say('Click to start');
-        function start() {
-          if (state !== 'waiting') return;
-          overlay.removeEventListener('click', start);
+      say('Click to start');
+      // The click starts everything: the card, the program, the machine (browsers allow sound
+      // only after a click).
+      function start() {
+        if (state !== 'waiting') return;
+        overlay.removeEventListener('click', start);
+        state = 'starting';
+        overlay.style.cursor = 'default';
+        say('Loading...');
+        canvas.focus();
+        obtainCard(seam, pins).then(function (card) {
+          var fs = options.file !== undefined ? fileSpec(options.file) : null;
+          var fp = fs ? installFile(mod, fs) : Promise.resolve('');
+          // keepWrites: this card on this page has one record; its file goes back into the
+          // in-memory filesystem before the machine starts.
+          var wp = options.keepWrites === true
+            ? JnextImage.cardWritesKey(card.sha256, location.pathname).then(function (key) {
+                return JnextImage.loadCardWrites(mod, key).then(function (p) { writesKey = key; return p; });
+              })
+            : Promise.resolve('');
+          return Promise.all([fp, wp]).then(function (paths) {
+            return argvOf(mod, substitute(options, paths[0], card, paths[1]));
+          });
+        }).then(function (argv) {
+          Object.defineProperty(player, 'argv', { value: Object.freeze(argv), enumerable: true });
           overlay.style.display = 'none';
-          state = 'starting';
-          canvas.focus();
           logMark = log.length;
           try {
             mod.callMain(argv.slice());
@@ -480,16 +623,13 @@
           window.addEventListener('pagehide', onPageHide);
           persistCardWrites();
           if (!startedSeen && state === 'starting') {
-            state = 'exited';
-            var e2 = fail(log.slice(logMark).join('\n') || 'jnext: the machine did not start');
-            readyReject(e2);
-            overlay.style.display = 'flex';
-            say('Stopped');
+            failStart(new Error(log.slice(logMark).join('\n') || 'jnext: the machine did not start'));
+            overlay.textContent = 'Stopped';
           }
-        }
-        overlay.addEventListener('click', start);
-        return player;
-      });
+        }).catch(failStart);
+      }
+      overlay.addEventListener('click', start);
+      return player;
     }).catch(failMount);
   }
 

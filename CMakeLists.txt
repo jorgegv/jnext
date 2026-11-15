@@ -608,7 +608,7 @@ target_include_directories(jnext PRIVATE src "${CMAKE_BINARY_DIR}/generated")
 # (jnext-<version>.js/.wasm) so a page never loads a stale build.
 if(EMSCRIPTEN)
     add_executable(jnext_web src/main.cpp src/platform/browser_frontend.cpp
-                   src/platform/web/web_controller.cpp)
+                   src/platform/web/web_controller.cpp src/platform/web/card_builder_web.cpp)
     set_target_properties(jnext_web PROPERTIES OUTPUT_NAME "jnext-${PROJECT_VERSION}")
     target_compile_definitions(jnext_web PRIVATE JNEXT_BROWSER=1)
     target_link_libraries(jnext_web PRIVATE
@@ -622,7 +622,7 @@ if(EMSCRIPTEN)
     target_link_options(jnext_web PRIVATE
         -sENVIRONMENT=web -sMODULARIZE=1 -sEXPORT_NAME=createJnextModule
         -sINVOKE_RUN=0 -sEXIT_RUNTIME=0
-        -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain,IDBFS,UTF8ToString,stringToNewUTF8
+        -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain,IDBFS,UTF8ToString,stringToNewUTF8,HEAPU8
         -sEXPORTED_FUNCTIONS=_main,_malloc,_free
         -lidbfs.js
         # The JavaScript API (GH #465), appended after the emulator's own code, in this
