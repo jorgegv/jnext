@@ -6,9 +6,9 @@
 # Two entry points, because the suite has two very different halves (GH #61):
 #
 #   bash packaging-test.sh --contracts-only   (`make package-contract-test`)
-#       The ten packaging-layer contract suites — six on the packaging
+#       The packaging-layer contract suites — six on the packaging
 #       scripts, one on the package-* recipes themselves (GH #148), one on
-#       the artifact selection the package rows below use, one on the Flatpak
+#       the artifact selection the package rows below use, one on the CI cache keys, one on the Flatpak
 #       manifest. Hermetic:
 #       pure bash on throwaway fake roots, no compiler, no toolchain, ~4 s.
 #       This half holds the highest-value rows (verify-bundle is the GH #46
@@ -168,6 +168,9 @@ contract artifact-select test/packaging/artifact-select-test.sh artsel "current-
 
 # --- regression-package contract (GH #487) ----------------------------------
 contract regression-package test/packaging/regression-package-test.sh regpkg "unknown package, no or stale artifact, manifest pin, regression-win on the PGO tree"
+
+# --- CI cache-key contract (GH #494) ----------------------------------------
+contract ci-cache-key test/packaging/ci-cache-key-test.sh cikey "every sdcard-image-distro key names the distribution and recipe jnext derives; one macOS key"
 
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real

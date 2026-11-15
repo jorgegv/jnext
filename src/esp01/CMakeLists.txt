@@ -68,8 +68,9 @@ if(ENABLE_TESTS)
     enable_testing()
 
     # GH #416: test executables only (set after the esp01 library target, so
-    # the library keeps its flags); see test/CMakeLists.txt.
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # the library keeps its flags); see test/CMakeLists.txt. Under the same
+    # switch as everything else (JNEXT_WERROR, GH #418).
+    if(JNEXT_WERROR AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-Werror)
     endif()
 

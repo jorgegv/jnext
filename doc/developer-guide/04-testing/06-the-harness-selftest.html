@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3087,7 +3087,7 @@ os-restricted suite without the <code>?</code>, likewise; a gated-out suite is a
 naming the OS; a Windows build's <code>NAME.exe</code> registration matches the manifest and
 the runner prefix reaches the <code>.exe</code>; a bash older than 4, a host without GNU
 <code>timeout</code> or without perl is a refusal; and <code>JNEXT_UNIT_TEST_JOBS</code> serialises
-two lock-holding suites (with the uncapped control that they do overlap). The packaging self-test's <code>PS-05</code> pins that a contract
+two lock-holding suites (with the control that an explicit <code>0</code>, no cap, lets them overlap); unset, the default is one suite per CPU (<code>HS-88e</code>: a host whose <code>nproc</code> says 1 never overlaps them) and each suite's PASS and FAIL row ends with its wall time (<code>HS-88g</code> the PASS row, <code>HS-88h</code> the FAIL row). The packaging self-test's <code>PS-05</code> pins that a contract
 sub-test printing SKIP and exiting 0 is a SKIP row. <code>HS-73</code> runs the real confirm
 path in a throwaway repository whose one row invokes the harness again, as
 harness-selftest-func does, and requires it to complete and stamp: a nested

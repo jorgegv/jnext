@@ -26,7 +26,8 @@ body:
         - Linux — DEB (Debian/Ubuntu)
         - Linux — Flatpak
         - Windows (x64 zip)
-        - macOS (.dmg)
+        - macOS Apple Silicon (.dmg)
+        - macOS Intel (.dmg)
         - Built from source
     validations:
       required: true

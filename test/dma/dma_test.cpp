@@ -81,11 +81,6 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
     }
 }
 
-void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-}
-
 std::string fmt(const char* fmt_str, ...) {
     char buf[512];
     va_list ap;
@@ -3816,9 +3811,9 @@ void group25_gh283_rzx() {
         w(0x2C); w(0x10); w(0xAD); w(kDst & 0xFF); w(kDst >> 8);
         w(0xCF); w(0x87);
     };
-    auto g283_replay = [kRepDma, kRepCpu](Emulator& emu, bool dma_first) {
+    auto g283_replay = [](Emulator& emu, bool dma_first) {
         auto n = std::make_shared<int>(0);
-        emu.port().rzx_in_override = [n, kRepDma, kRepCpu, dma_first](uint16_t) -> uint8_t {
+        emu.port().rzx_in_override = [n, dma_first](uint16_t) -> uint8_t {
             const int i = (*n)++;
             if (!dma_first) return i == 0 ? kRepCpu : 0xFF;
             return i == 0 ? kRepDma : (i == 1 ? kRepCpu : 0xFF);

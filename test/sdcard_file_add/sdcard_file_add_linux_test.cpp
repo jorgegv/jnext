@@ -31,13 +31,6 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
-void skip(const char* id, const char* desc, const std::string& why) {
-    report_row_id(id);
-    ++g_total;
-    ++g_skip;
-    std::printf("  SKIP %s: %s [%s]\n", id, desc, why.c_str());
-}
-
 }  // namespace
 
 #include "sdcard_file_add_helpers.h"

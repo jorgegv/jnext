@@ -5221,11 +5221,6 @@ static uint16_t ref_addr8(uint8_t x, uint8_t y) {
     if (y >= 96) hi = (hi + 1) & 7u;
     return static_cast<uint16_t>((hi << 11) | (pre & 0x7FFu));
 }
-static uint16_t ref_addr_rad(uint8_t x, uint8_t y, bool dfile) {
-    return static_cast<uint16_t>((dfile ? 0x2000u : 0u)
-                                 | (static_cast<unsigned>(y >> 1) << 6)
-                                 | (x >> 2));
-}
 
 struct Fix {
     Ram ram;

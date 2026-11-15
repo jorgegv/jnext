@@ -54,12 +54,6 @@ static std::vector<SkipNote> g_skipped;
 
 static void set_group(const char* name) { g_group = name; }
 
-static void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-    printf("  SKIP %s: %s\n", id, reason);
-}
-
 static void check(const char* id, const char* desc, bool cond,
                   const char* detail = "") {
     report_row_id(id);

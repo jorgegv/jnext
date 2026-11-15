@@ -1937,6 +1937,7 @@ int main(int argc, char* argv[]) {
             opts.upgrade  = [&](const std::string& f, const std::string& t, const std::string& m) {
                 return gui_prov.offer_upgrade(f, t, m);
             };
+            opts.sleep    = [&](unsigned ms, const std::string& n) { gui_prov.retry_wait(ms, n); };
         } else {
             opts.confirm  = sdcard::cli_confirm;
             opts.progress = sdcard::make_cli_progress();

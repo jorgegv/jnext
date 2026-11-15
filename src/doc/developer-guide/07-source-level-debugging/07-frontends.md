@@ -458,7 +458,7 @@ subscribes one `Execute` per start, each with the `space` its place was compiled
 with `MapFormat::Z88dkOrSjasmplus` (`script_host.cpp:187`, [7.3](03-loaders.md)). Held scripts and the
 rest of the language are in [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md).
 
-`cvar(PATH)` is the one atom that reads a C variable: `eval_int()` (`evaluator.cpp:276`) calls
+`cvar(PATH)` is the one atom that reads a C variable: `eval_int()` (`evaluator.cpp:275`) calls
 `read_c_value(0, path)` (frame 0, where the CPU is) and `c_int32_scalar()` ([7.10](10-c-frames-and-values.md)) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
 attach, and every refusal is an `EvalError`, never a 0.

@@ -215,7 +215,6 @@ uint8_t TapLoader::tick_realtime(uint64_t tstates) {
             if (play_pulse_count_ < 2) {
                 // Second half of the same bit — same duration
                 uint8_t byte;
-                size_t total_bytes = 1 + block->data.size() + 1; // flag + data + checksum
                 if (play_byte_idx_ == 0)
                     byte = block->flag;
                 else if (play_byte_idx_ <= block->data.size())

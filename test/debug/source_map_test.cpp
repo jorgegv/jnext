@@ -51,16 +51,20 @@ using jnext::dbg::MemSpace;
 
 // Counts every allocation, so SRCRNG-09 can prove lookup() makes none.
 static long g_allocations = 0;
+// The replacement deallocators release through a function GCC does not inline:
+// it pairs an inlined allocation with ::operator delete and flags a free() it can
+// see in the delete body as a mismatched deallocation.
+__attribute__((noinline)) static void raw_free(void* p) noexcept { std::free(p); }
 void* operator new(std::size_t n) {
     ++g_allocations;
     if (void* p = std::malloc(n ? n : 1)) return p;
     throw std::bad_alloc();
 }
 void* operator new[](std::size_t n) { return operator new(n); }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete[](void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+void operator delete(void* p) noexcept { raw_free(p); }
+void operator delete[](void* p) noexcept { raw_free(p); }
+void operator delete(void* p, std::size_t) noexcept { raw_free(p); }
+void operator delete[](void* p, std::size_t) noexcept { raw_free(p); }
 
 static int g_total = 0;
 static int g_pass  = 0;

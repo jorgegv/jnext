@@ -34,7 +34,7 @@ extern void contend_write_no_mreq( libspectrum_word address, libspectrum_dword t
 
 // Flag bit positions for TEST_N
 static constexpr uint8_t FLAG_C = 0x01;
-static constexpr uint8_t FLAG_N = 0x02;
+[[maybe_unused]] static constexpr uint8_t FLAG_N = 0x02;
 static constexpr uint8_t FLAG_P = 0x04;
 static constexpr uint8_t FLAG_X = 0x08;  // bit 3 (undocumented)
 static constexpr uint8_t FLAG_H = 0x10;

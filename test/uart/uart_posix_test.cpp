@@ -60,11 +60,6 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
-void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-}
-
 // printf-style detail formatter for check() callers that need runtime values.
 static std::string fmt(const char* f, ...) {
     char buf[512];
@@ -79,10 +74,6 @@ std::string hex2(uint8_t v) {
     char buf[8];
     std::snprintf(buf, sizeof(buf), "0x%02x", v);
     return buf;
-}
-
-std::string detail_eq(uint8_t got, uint8_t expected) {
-    return "got=" + hex2(got) + " expected=" + hex2(expected);
 }
 
 // Space-separated hex render of a byte stream, for JOY-* failure details.
@@ -879,7 +870,7 @@ static void test_pi_qemu() {
 
         std::vector<uint8_t> heard;
         bool sent = false;
-        if (started) {
+        if (started && fake.wait_ready()) {   // the Pi has its chardev open: start() returning does not say so
             Emulator emu;
             emu.init(pi_qemu_config(*qemu));
             for (int f = 0; f < 4 && heard.size() < 5; ++f) {
@@ -933,7 +924,7 @@ static void test_pi_qemu() {
         const int  pid     = qemu.pid();
 
         bool first = false, second = false;
-        if (started) {
+        if (started && fake.wait_ready()) {   // the Pi has its chardev open: start() returning does not say so
             {
                 Emulator emu;
                 emu.init(pi_qemu_config(qemu));

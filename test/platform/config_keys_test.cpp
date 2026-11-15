@@ -14,11 +14,13 @@
 #include "platform/config_keys.h"
 
 #include "core/cli_options.h"
+#include "core/float_parse.h"
 #include "debug/debug_keymap.h"
 #include "debug/source_search.h"
 #include "input/joy_source.h"
 
 #include <cstdio>
+#include <locale>
 #include <set>
 #include <string>
 #include <vector>
@@ -321,7 +323,7 @@ int main() {
         if (canon("paths.source_dirs=") != "") bad += "empty ";
         if (canon("paths.source_dirs=a" + sep + "b c") != "a" + sep + "b c") bad += "list ";
         if (canon("paths.source_dirs=/x,y") != "/x,y") bad += "comma ";
-        for (const std::string v : {sep + "a", "a" + sep, "a" + sep + sep + "b", sep}) {
+        for (const std::string& v : {sep + "a", "a" + sep, "a" + sep + sep + "b", sep}) {
             if (canon("paths.source_dirs=" + v, &why) != "<refused>") bad += "accepts '" + v + "' ";
             else if (why.find("\"" + v + "\"") == std::string::npos ||
                      why.find("paths.source_dirs") == std::string::npos) bad += "why(" + why + ") ";
@@ -432,6 +434,66 @@ int main() {
         if (why.find("'step_out'") == std::string::npos || why.find("'trace_toggle'") == std::string::npos) bad += "names2(" + why + ") ";
         check("DK-82", "apply_overrides: a combo held by another action's default, or by a saved redefinition, is refused naming both actions",
               bad.empty(), bad);
+    }
+
+    // SETK-21 .. SETK-23: the locale-independent text -> double behind the Float type
+    // (src/core/float_parse.h). The header has two arms: std::from_chars, compiled only on libstdc++
+    // (Linux, MinGW), and a classic-locale stream, used on libc++ (every Apple build) and compiled
+    // everywhere, so both arms are tested here.
+    using ParseFn = bool (*)(const char*, const char*, double&);
+    struct Case { const char* text; bool ok; double value; };
+    static const Case CASES[] = {
+        {"0", true, 0}, {"-0", true, 0}, {"3", true, 3}, {"-2.75", true, -2.75}, {".5", true, 0.5}, {"5.", true, 5},
+        {"1e2", true, 100}, {"1E-2", true, 0.01}, {"2.5e+1", true, 25}, {"-24", true, -24},
+        {"+3", false, 0}, {" 3", false, 0}, {"3 ", false, 0}, {"", false, 0}, {"-", false, 0}, {".", false, 0},
+        {"1e", false, 0}, {"1e+", false, 0}, {"0x10", false, 0}, {"6.25x", false, 0}, {"6,25", false, 0},
+        {"inf", false, 0}, {"nan", false, 0}, {"--3", false, 0}, {"1e999", false, 0}, {"1e-999", false, 0},
+        {"0.1e-999", false, 0}, {".5e-400", false, 0}, {"0.0e-999", true, 0},
+        {"1e-310", false, 0}, {"2.5e-308", true, 2.5e-308},
+    };
+    auto run_cases = [&](ParseFn fn) {
+        std::string bad;
+        for (const Case& c : CASES) {
+            double d = 7;
+            const std::string t = c.text;
+            const bool ok = fn(t.data(), t.data() + t.size(), d);
+            if (ok != c.ok || (ok && d != c.value)) bad += "'" + t + "' ";
+        }
+        return bad;
+    };
+
+    // SETK-21
+    {
+        const std::string bad = run_cases(float_parse::parse_double_stream);
+        check("SETK-21", "the stream arm of float_parse accepts a plain decimal and refuses +, blanks, junk, hex, inf, nan and out-of-range text",
+              bad.empty(), bad);
+    }
+
+    // SETK-22
+    {
+#ifdef JNEXT_HAVE_FLOAT_FROM_CHARS
+        const std::string bad = run_cases(float_parse::parse_double_chars);
+        check("SETK-22", "the from_chars arm of float_parse (this library has it) gives the same answers as the stream arm, subnormals refused in both", bad.empty(), bad);
+#else
+        const std::string bad = run_cases(float_parse::parse_double);
+        check("SETK-22", "float_parse::parse_double (this library has no floating from_chars: the stream arm) gives the table's answers", bad.empty(), bad);
+#endif
+    }
+
+    // SETK-23
+    {
+        // A global locale whose decimal point is a comma, as a Spanish host's: the parse must not follow it.
+        struct Comma : std::numpunct<char> { char do_decimal_point() const override { return ','; } };
+        const std::locale before = std::locale::global(std::locale(std::locale::classic(), new Comma));
+        std::string bad;
+        double d = 0;
+        const std::string a = "6.25", b = "6,25";
+        if (!float_parse::parse_double_stream(a.data(), a.data() + a.size(), d) || d != 6.25) bad += "stream-6.25 ";
+        if (float_parse::parse_double_stream(b.data(), b.data() + b.size(), d)) bad += "stream-6,25 ";
+        if (!float_parse::parse_double(a.data(), a.data() + a.size(), d) || d != 6.25) bad += "dispatch-6.25 ";
+        if (canon("audio.gain_db=6.25") != "6.25") bad += "setter-6.25 ";
+        std::locale::global(before);
+        check("SETK-23", "float_parse and the Float setter read 6.25 as 6.25 under a comma-decimal global locale", bad.empty(), bad);
     }
 
     // DK-83

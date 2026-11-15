@@ -52,11 +52,11 @@ hypothetical worry: a run here once printed `62 pass, 1 fail` and
 
 ## Why a Fedora container
 
-Three of the seven `ci.yml` jobs — `test`, `qt5-guard` and `package` — run in a
+Three of the eight `ci.yml` jobs — `test`, `qt5-guard` and `package` — run in a
 pinned Fedora container: the same image `release.yml` builds the rpm and Windows
 artifacts in, and the same distribution family the maintainer develops on. (The
-remaining four cannot: `macos`, `macos-unit` and `macos-regression` need a
-`macos-latest` runner, and `flatpak` runs
+remaining five cannot: `macos`, `macos-intel`, `macos-unit` and `macos-regression`
+need a macOS runner, and `flatpak` runs
 in the Flathub `flatpak-github-actions` image, because that is where
 `flatpak-builder` and the KDE SDK live.)
 
@@ -155,8 +155,18 @@ this job; the `flatpak` job below builds it, and only the tool-free
 uploads each package it built as a run artifact; the steps are
 `uses:` steps, so the make-target rule is untouched.
 
-**`macos`** runs `make package-macos` on a real `macos-latest` runner and
+**`macos`** runs `make package-macos` on a real `macos-15` runner (pinned, with `MACOS_DEPLOYMENT_TARGET=15.0`: on `macos-latest`, macOS 26, every Homebrew bottle and so the whole bundle needed macOS 26) and
 uploads the `.dmg`,
+**`macos-intel`** does the same on `macos-15-intel` for the Intel package, with
+the dependencies from MacPorts (`MACPORTS_PREFIX=/opt/local`; Homebrew builds no
+Intel bottles; the MacPorts OpenSSL lives under `libexec/openssl3`, so the build
+is given `OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3`) and
+`MACOS_DEPLOYMENT_TARGET=15.0`, then runs
+`make unit-test-sdl` in the same job: GitHub allows five concurrent macOS jobs
+to a plan, shared by every run, so one job per architecture keeps a run at four
+(the regression suite is not repeated on Intel, since no source is
+architecture-specific). Both Intel runner images are retired in fall 2027, and
+the job goes with them,
 **`macos-unit`** runs `make unit-test-sdl` on one, with Homebrew's
 `bash`, `coreutils` and `grep` installed because the unit harness needs them
 (macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
@@ -196,7 +206,8 @@ and compression is off since the packages are already compressed.
 | `jnext-linux-rpm` | `jnext-<v>-1.x86_64.rpm` | `package` |
 | `jnext-source-zip` | `jnext-<v>-src.zip` | `package` |
 | `jnext-web-zip` | `jnext-<v>-web.zip` | `test` (`browser` leg) |
-| `jnext-macos-dmg` | `jnext-<v>-Darwin.dmg` | `macos` |
+| `jnext-macos-arm64-dmg` | `jnext-<v>-macos-arm64.dmg` | `macos` |
+| `jnext-macos-x64-dmg` | `jnext-<v>-macos-x64.dmg` | `macos-intel` |
 | `jnext-linux-flatpak` | `jnext-<v>-x86_64.flatpak` | `flatpak` |
 
 There is **no `.deb`**. The one `package-deb` builds in the Fedora container is
@@ -246,7 +257,7 @@ pinned Fedora container, so that its dependencies are Fedora-native. Then `src`,
 `windows` (three zips from one Fedora container), `flatpak` (one line, calling
 `flatpak-build.yml`), `web` (`make package-web` in a Fedora container: the browser
 zip, with the Emscripten SDK cache of the `test` job and no SD image, since the
-zip never holds one) and `macos`.
+zip never holds one) `macos` and `macos-intel`.
 Finally **`publish`** attaches everything to a GitHub Release, gated on
 `if: success() && needs.gate.outputs.publish == 'true'`.
 

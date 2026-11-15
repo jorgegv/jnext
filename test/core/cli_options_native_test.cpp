@@ -902,7 +902,7 @@ int main() {
             {
                 std::vector<std::string> bad;
                 const std::string three_five = std::string("3") + "." + "5";
-                for (const std::string v : { three_five, std::string("7"), std::string("14"), std::string("28") })
+                for (const std::string& v : { three_five, std::string("7"), std::string("14"), std::string("28") })
                     if (run("--cpu-speed " + v + " --version") != 0) bad.push_back("rejected " + v);
                 for (const char* v : { "3", "5", "x", "" , "3.50", "07", " 7" }) {
                     const std::string args = std::string("--cpu-speed \"") + v + "\" --version";

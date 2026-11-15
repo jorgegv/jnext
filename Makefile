@@ -34,10 +34,18 @@ BUILD_DIR_WIN_UNIT_TEST := build/win-sdl-unit-test
 # ONLY -- the rest of the Makefile (package-macos above all) keeps the system
 # tools. Empty on Linux: the recipe then sees PATH unchanged.
 UNIT_TEST_PATH := $(PATH)
+# GH #494: the Intel macOS build gets its dependencies from MacPorts (Homebrew
+# builds no Intel bottles). MACPORTS_PREFIX (e.g. /opt/local) selects that: its
+# bin has bash and the g-prefixed tools, libexec/gnubin the plain GNU names
+# (MacPorts grep installs only ggrep in bin). Unset: Homebrew, as before.
 ifeq ($(shell uname -s),Darwin)
+ifneq ($(MACPORTS_PREFIX),)
+UNIT_TEST_PATH := $(MACPORTS_PREFIX)/bin:$(MACPORTS_PREFIX)/libexec/gnubin:$(PATH)
+else
 BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
 ifneq ($(BREW_PREFIX),)
 UNIT_TEST_PATH := $(BREW_PREFIX)/bin:$(BREW_PREFIX)/opt/coreutils/libexec/gnubin:$(BREW_PREFIX)/opt/grep/libexec/gnubin:$(PATH)
+endif
 endif
 endif
 CMAKE             := cmake
@@ -204,7 +212,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web package-web web-package-test wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build regression-wasm
+       package-contract-test minimal-image-test flatpak-prefetch packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web package-web web-package-test wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build regression-wasm
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -1850,6 +1858,11 @@ publish-release:
 # Absolute path: the cpack phase runs inside a subshell that cd's into the build
 # directory, where a relative path stops resolving.
 MACOS_BOUND := bash $(CURDIR)/packaging/macos/run-bounded.sh
+# GH #494: the macOS the .dmg promises to run on (e.g. 15.0). Empty = the
+# toolchain's default and no gate. Set, it goes to CMAKE_OSX_DEPLOYMENT_TARGET in
+# both PGO trees (and into the bundle's LSMinimumSystemVersion), and
+# verify-macos-dmg fails the build if any Mach-O in the .dmg needs a newer macOS.
+MACOS_DEPLOYMENT_TARGET ?=
 
 # Build source packages: v<ver>.tar.gz (rpm/deb source) + jnext-<ver>-src.zip (release); vendors submodules
 package-src:
@@ -1859,7 +1872,7 @@ package-src:
 # Build an RPM package via CPack (Fedora/RHEL); needs rpmbuild
 package-rpm:
 	@# GH #297: the packaged binary is a PGO build (needs the SD image to train).
-	$(call PGO_BUILD,$(BUILD_DIR_RPM_RELEASE),$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF)
+	$(call PGO_BUILD,$(BUILD_DIR_RPM_RELEASE),$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF)
 	cd $(BUILD_DIR_RPM_RELEASE) && cpack -G RPM
 	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_RPM_RELEASE)/*.rpm
 
@@ -1876,7 +1889,7 @@ package-deb: sdl3-vendor
 	@# add — keeping this target the SAME command locally and in CI, on both.
 	@# GH #297: the packaged binary is a PGO build (needs the SD image to train).
 	$(call PGO_BUILD,$(BUILD_DIR_DEB_RELEASE),$(CMAKE) -S . \
-		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF \
 		$$([ -d build/sdl3-vendor/prefix ] && echo "-DCMAKE_PREFIX_PATH=$(CURDIR)/build/sdl3-vendor/prefix -DJNEXT_SDL3_VENDORED=ON"))
 	cd $(BUILD_DIR_DEB_RELEASE) && cpack -G DEB
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_DEB_RELEASE)/*.deb
@@ -1907,6 +1920,7 @@ package-flatpak:
 	@# Build into a local repo, then export a single-file .flatpak bundle so
 	@# this target yields a shippable artifact like package-rpm/deb/win do.
 	rm -rf $(BUILD_DIR_FPK_RELEASE) $(BUILD_DIR_FPK_RELEASE)-repo
+	$(MAKE) flatpak-prefetch
 	flatpak-builder --force-clean --user --repo=$(BUILD_DIR_FPK_RELEASE)-repo $(BUILD_DIR_FPK_RELEASE) \
 		packaging/flatpak/io.github.zxjogv.jnext.yml
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
@@ -1919,6 +1933,10 @@ package-flatpak:
 	@# verify-macos-dmg: the gate is part of producing the artifact, not a
 	@# separate thing someone has to remember to run.
 	$(MAKE) verify-flatpak-permissions
+
+# Fetch the Flatpak manifest's source zip into flatpak-builder's cache, retrying (GH #497)
+flatpak-prefetch:
+	@bash packaging/flatpak/prefetch-sources.sh
 
 # Prove the built Flatpak bundle carries the permissions jnext needs (GH #271)
 verify-flatpak-permissions:
@@ -2103,14 +2121,14 @@ package-macos:
 	@# that line and make would still run the build+cpack lines that follow.
 	@if [ "$$(uname -s)" != "Darwin" ]; then \
 		printf "$(BADGE_SKIP) SKIP $(RESET) macOS packaging requires a Mac (or the GitHub Actions\n"; \
-		printf "  macos-latest runner — see the macos job in .github/workflows/release.yml).\n"; \
+		printf "  macos-15 / macos-15-intel runners — see the macos and macos-intel jobs in .github/workflows/release.yml).\n"; \
 		printf "  It cannot be produced on this $$(uname -s) host.\n"; \
 		exit 0; \
 	fi; \
 	$(MACOS_BOUND) 3600 "PGO build: instrument, train, rebuild (mac-release; GH #297)" \
-		env JOBS=$(JOBS) bash tools/pgo-build.sh $(BUILD_DIR_MAC_RELEASE) -- \
-		$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
-		-DMACOS_APP_BUNDLE=ON && \
+		env JOBS=$(JOBS) FUSE_CASES=$(FUSE_CASES) bash tools/pgo-build.sh $(BUILD_DIR_MAC_RELEASE) -- \
+		$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF \
+		-DMACOS_APP_BUNDLE=ON $(if $(MACOS_DEPLOYMENT_TARGET),-DCMAKE_OSX_DEPLOYMENT_TARGET=$(MACOS_DEPLOYMENT_TARGET)) && \
 	( cd $(BUILD_DIR_MAC_RELEASE) && $(MACOS_BOUND) 900 "cpack -G DragNDrop" cpack -G DragNDrop ) && \
 	$(MAKE) verify-macos-dmg
 
@@ -2159,6 +2177,7 @@ verify-macos-dmg:
 	yes | $(MACOS_BOUND) 120 "hdiutil attach" \
 		hdiutil attach "$$dmg" -nobrowse -readonly -noverify -noautoopen -mountpoint "$$mnt" >/dev/null; \
 	$(MACOS_BOUND) 300 "verify-bundle (mounted dmg)" \
+		env JNEXT_MACOS_MIN="$(MACOS_DEPLOYMENT_TARGET)" \
 		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
 	test -f "$$mnt/jnext.app/Contents/Resources/48rom.map" \
 		|| { echo "error: the .dmg's jnext.app has no Contents/Resources/48rom.map" >&2; exit 1; }; \

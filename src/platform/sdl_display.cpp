@@ -111,7 +111,7 @@ crt_shader::Effect SdlDisplay::set_crt(bool filter, bool shader, crt_shader::Sty
     return crt_effect_;
 }
 
-void SdlDisplay::upload_frame(const uint32_t* pixels, int w, int h) {
+void SdlDisplay::upload_frame(const uint32_t* pixels, int w, [[maybe_unused]] int h) {
 #ifdef __EMSCRIPTEN__
     if (crt_effect_ == crt_shader::Effect::Shader) {
         crt_->present(renderer_, pixels, w, h);   // draws the frame itself: nothing for SDL to do

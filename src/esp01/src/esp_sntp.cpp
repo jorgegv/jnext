@@ -10,6 +10,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #if defined(_WIN32)
@@ -97,7 +98,7 @@ bool sntp_query(const IpAddress& addr, unsigned timeout_s, std::int64_t& out, st
     const auto   n = ::recvfrom(fd, reinterpret_cast<char*>(reply), sizeof reply, 0, nullptr,
                                 nullptr);
     close_socket(fd);
-    if (n < static_cast<decltype(n)>(NTP_PACKET_BYTES)) {
+    if (n < static_cast<std::remove_cv_t<decltype(n)>>(NTP_PACKET_BYTES)) {
         err = "no SNTP reply before the timeout";
         return false;
     }

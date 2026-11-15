@@ -89,11 +89,6 @@ void set_group(const char* name) { g_group = name; }
     }
 }
 
-void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-}
-
 } // namespace
 
 // ══════════════════════════════════════════════════════════════════════

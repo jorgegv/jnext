@@ -128,9 +128,9 @@ private:
     void push(int16_t left, int16_t right);
 
     int                     fd_ = -1;            ///< POSIX: the FIFO
-    void*                   pipe_ = nullptr;     ///< Windows: the named pipe server (HANDLE)
-    void*                   stop_event_ = nullptr;   ///< Windows: close() signals the reader
-    void*                   io_event_ = nullptr;     ///< Windows: the overlapped I/O's event
+    [[maybe_unused]] void*  pipe_ = nullptr;     ///< Windows: the named pipe server (HANDLE)
+    [[maybe_unused]] void*  stop_event_ = nullptr;   ///< Windows: close() signals the reader
+    [[maybe_unused]] void*  io_event_ = nullptr;     ///< Windows: the overlapped I/O's event
     std::thread             thread_;
     std::atomic<bool>       stop_{false};
     std::vector<int16_t>    ring_ = std::vector<int16_t>(2 * kCapacity);

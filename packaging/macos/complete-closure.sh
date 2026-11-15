@@ -50,11 +50,20 @@ mkdir -p "$FRAMEWORKS"
 # itself is bundle-relative by the time we see it — macdeployqt has already
 # rewritten it — so the original absolute path is gone and we search by
 # basename. HOMEBREW_PREFIX lets the search be pointed elsewhere (tests do this).
-BREW_PREFIX=${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /opt/homebrew)}
+# MACPORTS_PREFIX set (the Intel build): search only $MACPORTS_PREFIX/lib, never
+# the Homebrew layout, so a same-named library in the runner's own /usr/local
+# Homebrew cannot be shipped by mistake. Unset: Homebrew, as always.
+if [ -n "${MACPORTS_PREFIX:-}" ]; then
+    BREW_PREFIX=$MACPORTS_PREFIX
+    SEARCH_DIRS=("$BREW_PREFIX"/lib)
+else
+    BREW_PREFIX=${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /opt/homebrew)}
+    SEARCH_DIRS=("$BREW_PREFIX"/lib "$BREW_PREFIX"/opt/*/lib)
+fi
 
 find_library() {
     local base=$1 hit
-    for dir in "$BREW_PREFIX"/lib "$BREW_PREFIX"/opt/*/lib; do
+    for dir in "${SEARCH_DIRS[@]}"; do
         [ -d "$dir" ] || continue
         hit="$dir/$base"
         [ -e "$hit" ] && { echo "$hit"; return 0; }

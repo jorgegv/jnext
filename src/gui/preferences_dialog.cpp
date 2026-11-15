@@ -36,10 +36,11 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
                                      const std::vector<jnext::dbgkeys::LoadIssue>& key_issues,
                                      const std::vector<HostChord>& host_chords,
                                      const std::vector<JoyDeviceInfo>& joy_devices)
-    : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
-      recent_files_(current.recent_files),
+    : QDialog(parent), joy_devices_(joy_devices),
       source_dirs_saved_(current.source_dirs),
       source_scheme_(current.source_scheme),
+      debug_keys_(current.debug_keys),
+      recent_files_(current.recent_files),
       crt_filter_saved_(current.crt_filter),
       crt_shader_saved_(current.crt_shader),
       crt_shader_style_saved_(current.crt_shader_style),
@@ -309,8 +310,8 @@ QWidget* PreferencesDialog::build_audio_tab() {
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
 
-    auto add_gain = [this, tab, form](const QString& label, const QString& object_name,
-                                      const QString& tooltip, QSlider*& slider) {
+    auto add_gain = [tab, form](const QString& label, const QString& object_name,
+                                const QString& tooltip, QSlider*& slider) {
         auto* row = new QWidget(tab);
         auto* h = new QHBoxLayout(row);
         h->setContentsMargins(0, 0, 0, 0);

@@ -72,11 +72,6 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
     }
 }
 
-void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-}
-
 std::string fmt(const char* fmt_str, ...) {
     char buf[512];
     va_list ap;
@@ -1897,8 +1892,6 @@ static void test_section6_ulanext() {
             0x40 | ((~paper_color & 0x07) << 3) | (paper_color & 0x07)); // 0x4E
         const uint8_t format     = 0x07;
         const uint8_t ink_idx    = static_cast<uint8_t>(hires_attr & format);              // 0x06
-        const uint8_t paper_idx  = static_cast<uint8_t>(0x80 | ((hires_attr >> 3) & 0x1F)); // 0x89
-        const uint8_t border_idx = static_cast<uint8_t>(0x80 | ((hires_attr >> 3) & 0x07)); // 0x81
 
         bed.ula.set_screen_mode(static_cast<uint8_t>(0x06 | (paper_color << 3))); // HI_RES
         bed.ula.set_ulanext_en(true);

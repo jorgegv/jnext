@@ -73,11 +73,6 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
-void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-}
-
 // Build a Multiface ready for state-machine tests:
 //   - enabled (NR 0x83 b1 = '1' equivalent so the FFs are not held in reset)
 //   - default mode is mode_p3 (NR 0x0A power-on)

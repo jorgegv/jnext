@@ -29,12 +29,16 @@ endif()
 # GH #416: a compiler warning in a test is a test defect (it hid which side of
 # a row failed, truncated a failure message, narrowed a constant by accident),
 # so the test executables are built with -Werror (GNU and Clang, incl. MinGW
-# gcc). Directory-scoped like the link option above: jnext and the libraries
-# are unaffected. -Wall/-Wextra are deliberately NOT enabled (GH #418): only the
-# compiler's default warnings are errors. Production .cpp files compiled
+# gcc). Directory-scoped like the link option above. -Wall -Wextra come from the
+# root CMakeLists.txt (GH #418); this adds -Werror for every language (the root
+# block's -Werror covers C++ only), so the two C probes below fail on a warning
+# too, and the whole thing is under JNEXT_WERROR. Production .cpp files compiled
 # straight into a test (wav_loader, sdl_input, quit_signal) are covered too.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-Werror)
+    add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra>")
+    if(JNEXT_WERROR)
+        add_compile_options(-Werror)
+    endif()
 endif()
 
 # FUSE Z80 opcode test runner (standalone, no GoogleTest required)

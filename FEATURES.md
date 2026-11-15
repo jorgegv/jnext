@@ -134,6 +134,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Self-contained portable Windows zips, cross-compiled with MinGW, no installer or redistributables
 - Three published Windows packages: x64 Qt6 (Windows 10 1703+), x64 Qt5 and 32-bit Qt5 (Windows 7 SP1+)
 - SDL-only Windows variants for repo-internal validation (not published)
+- macOS `.dmg` packages for Apple Silicon (arm64) and Intel (x64), macOS 15 Sequoia or later
 - Freedesktop integration: `.desktop` launcher, AppStream metainfo, application icon
 - GitHub Actions: CI (build, FUSE, unit, golden-screenshot regression) and a release workflow publishing packages on `v*` tags
 
