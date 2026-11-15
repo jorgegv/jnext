@@ -230,12 +230,28 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/spdlog/CMakeLists.txt")
         "From a source archive: use jnext-<version>-src.zip from the release page; "
         "GitHub's auto-generated source archives do not include submodule content.")
 endif()
+# spdlog's own knob (third_party/spdlog/CMakeLists.txt, option SPDLOG_SYSTEM_INCLUDES):
+# its include dir becomes -isystem, so our -Wall -Wextra below never reports a
+# line of spdlog/fmt, which reaches nearly every TU. It is an option() read when
+# spdlog's CMakeLists runs, so it must be set BEFORE add_subdirectory (GH #418).
+set(SPDLOG_SYSTEM_INCLUDES ON CACHE BOOL "" FORCE)
 add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 
 # ZOT TZX/TAP player by antirez — MIT License.
 add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 
-set(SPDLOG_SYSTEM_INCLUDES ON CACHE BOOL "" FORCE)
+# GH #418: -Wall -Wextra on every first-party C++ target (and Objective-C++),
+# -Werror too unless JNEXT_WERROR=OFF. Packaging builds pass OFF: a release must
+# not fail on a warning a distro's newer compiler adds, which no gate of ours
+# runs. add_compile_options() initialises the COMPILE_OPTIONS of every target
+# created AFTER it, here and in every subdirectory added after it (src/*, tools/,
+# test/, and jnext_web on the WebAssembly epic), so nobody lists targets. spdlog
+# and zot_tzx are created above and never get it; the third-party C inside our
+# own targets (fuse-z80, FatFs, the generated boot ROM) is C, which the generator
+# expression leaves out. The warnings are COMPILE-time only, not on the link line:
+# under LTO + PGO the flow-sensitive ones would depend on the trained profile.
+# The self-check at the end of this file fails the configure if this block is
+# moved or deleted.
 option(JNEXT_WERROR "Treat compiler warnings as errors (packaging builds set OFF)" ON)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(JNEXT_WARNINGS -Wall -Wextra)
@@ -964,3 +980,29 @@ set(CPACK_DMG_VOLUME_NAME "jnext")
 set(CPACK_DMG_SLA_USE_RESOURCE_FILE_LICENSE OFF)
 
 include(CPack)
+
+# GH #418 self-check, in the spirit of the frame gate's FATAL_ERROR: the warning
+# block must have reached the first-party targets and must NOT have reached the
+# third-party ones created above it. A future add_subdirectory(third_party/x)
+# below the block, or the block moved or deleted, fails here rather than
+# silently changing what a build reports.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    foreach(_t jnext_core jnext fuse_z80_test)
+        if(TARGET ${_t})
+            get_target_property(_o ${_t} COMPILE_OPTIONS)
+            string(FIND "${_o}" "-Wextra" _pos)
+            if(_pos EQUAL -1)
+                message(FATAL_ERROR "GH #418: target ${_t} lacks -Wextra: the warning block in CMakeLists.txt no longer precedes it.")
+            endif()
+        endif()
+    endforeach()
+    foreach(_t spdlog zot_tzx)
+        if(TARGET ${_t})
+            get_target_property(_o ${_t} COMPILE_OPTIONS)
+            string(FIND "${_o}" "-Wextra" _pos)
+            if(NOT _pos EQUAL -1)
+                message(FATAL_ERROR "GH #418: third-party target ${_t} got -Wextra: the warning block moved above its add_subdirectory().")
+            endif()
+        endif()
+    endforeach()
+endif()

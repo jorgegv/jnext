@@ -19,6 +19,11 @@ you read it; it is not a replacement for it.
 | `make package-test` | builds every package except macOS and Flatpak and **asserts its contents** (a missing tool fails) |
 | `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain |
 
+Every packaging build (rpm, deb, Flatpak, macOS, and the rpm spec and Debian `rules`)
+configures with `-DJNEXT_WERROR=OFF`, so a warning from a distribution's own compiler
+prints but never fails a release; see
+[5.2 Build configurations](02-build-configurations.md#compiler-warnings).
+
 The source tarball is deliberately not a `git archive`. That would produce an
 *empty* `third_party/spdlog` directory, which fails CMake configure the moment
 anyone tries to build from it; `package-src` instead runs

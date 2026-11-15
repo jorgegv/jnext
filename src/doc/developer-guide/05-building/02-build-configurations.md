@@ -129,6 +129,42 @@ mismatched profile fails the build.
 [5.5 Performance and optimisation](05-performance-and-optimisation.md#profile-guided-optimisation)
 describes the pipeline, the training set, the gates and the measured gains.
 
+## Compiler warnings
+
+Every first-party C++ and Objective-C++ target builds with `-Wall -Wextra`, and
+with `-Werror` unless the CMake option `JNEXT_WERROR` is `OFF` (the default is
+`ON`). A new warning therefore fails the build of the development tree, of
+every test target and of CI, which runs the same make targets. The flags are
+for GCC and Clang (MinGW, AppleClang and Emscripten included); other compilers
+get none.
+
+- **One block, directory scope.** `CMakeLists.txt` calls `add_compile_options`
+  once, after the third-party subdirectories and before the first `src/`
+  subdirectory. CMake initialises every target created after that call, so
+  `src/*`, `tools/*`, every test executable and any later target (the
+  WebAssembly one) inherit the flags without being listed. `spdlog` and
+  `zot_tzx` are created before the block and never get them. The third-party C
+  that is compiled inside our own targets (the Z80 core, FatFs, the generated
+  boot ROM) is C, which the generator expression leaves out.
+  `SPDLOG_SYSTEM_INCLUDES` is forced `ON` before spdlog is added, so its headers
+  are `-isystem` and report nothing. Nothing under `third_party/` is edited.
+- **A self-check guards the order.** The end of `CMakeLists.txt` fails the
+  configure if `jnext_core`, `jnext` or `fuse_z80_test` lack `-Wextra`, or if
+  `spdlog` or `zot_tzx` have it: a new `add_subdirectory` placed below the
+  block, or the block moved or deleted, is caught at configure time.
+- **Packaging builds pass `-DJNEXT_WERROR=OFF`**: `package-rpm`, `package-deb`,
+  `package-macos`, the rpm spec, the Debian `rules` and the Flatpak manifest. A
+  release must not fail on a warning that a distribution's newer compiler adds
+  and that no gate of ours runs. They still print the warnings. `package-win`
+  keeps the default: it is built with the gate's own MinGW compiler.
+- **Compile time only.** The flags are not on the link line. Under LTO and PGO
+  the flow-sensitive warnings (`-Wmaybe-uninitialized`, `-Warray-bounds`) run
+  at link time and would depend on the trained profile; the non-LTO test trees
+  run the same passes per translation unit.
+- **One switch.** `JNEXT_WERROR` also governs the test executables' `-Werror`
+  (`test/CMakeLists.txt`) and the ESP-01 tests' own (`src/esp01/CMakeLists.txt`).
+  The targeted `-Werror=switch` gates and the stack-frame gate below stay.
+
 ## The stack-frame gate
 
 No production function may need a stack frame over 256 KiB:

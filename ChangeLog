@@ -71,6 +71,7 @@
 - Developer guide chapter on the source-level debugger; docs-check verifies its code citations against the tree
 - Faster test cycle: AY mix recomputed only on change, cheaper CLI suite; mistyped regression row names are refused
 - Build warnings fixed at their causes, -Werror on test executables; the rpm links spdlog statically
+- Builds use -Wall -Wextra on every platform, with the reported warnings fixed and new ones failing the build (packaging builds only print them)
 
 ### Contributors in this release
 - @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj, @jattree, @tofro, @jsmolina

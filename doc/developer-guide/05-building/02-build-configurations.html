@@ -2035,6 +2035,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#compiler-warnings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compiler warnings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-stack-frame-gate" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3135,6 +3146,41 @@ skipped when nothing that decides the profile changed, and a missing or
 mismatched profile fails the build.
 <a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5 Performance and optimisation</a>
 describes the pipeline, the training set, the gates and the measured gains.</p>
+<h2 id="compiler-warnings">Compiler warnings<a class="headerlink" href="#compiler-warnings" title="Permanent link">&para;</a></h2>
+<p>Every first-party C++ and Objective-C++ target builds with <code>-Wall -Wextra</code>, and
+with <code>-Werror</code> unless the CMake option <code>JNEXT_WERROR</code> is <code>OFF</code> (the default is
+<code>ON</code>). A new warning therefore fails the build of the development tree, of
+every test target and of CI, which runs the same make targets. The flags are
+for GCC and Clang (MinGW, AppleClang and Emscripten included); other compilers
+get none.</p>
+<ul>
+<li><strong>One block, directory scope.</strong> <code>CMakeLists.txt</code> calls <code>add_compile_options</code>
+  once, after the third-party subdirectories and before the first <code>src/</code>
+  subdirectory. CMake initialises every target created after that call, so
+  <code>src/*</code>, <code>tools/*</code>, every test executable and any later target (the
+  WebAssembly one) inherit the flags without being listed. <code>spdlog</code> and
+  <code>zot_tzx</code> are created before the block and never get them. The third-party C
+  that is compiled inside our own targets (the Z80 core, FatFs, the generated
+  boot ROM) is C, which the generator expression leaves out.
+  <code>SPDLOG_SYSTEM_INCLUDES</code> is forced <code>ON</code> before spdlog is added, so its headers
+  are <code>-isystem</code> and report nothing. Nothing under <code>third_party/</code> is edited.</li>
+<li><strong>A self-check guards the order.</strong> The end of <code>CMakeLists.txt</code> fails the
+  configure if <code>jnext_core</code>, <code>jnext</code> or <code>fuse_z80_test</code> lack <code>-Wextra</code>, or if
+  <code>spdlog</code> or <code>zot_tzx</code> have it: a new <code>add_subdirectory</code> placed below the
+  block, or the block moved or deleted, is caught at configure time.</li>
+<li><strong>Packaging builds pass <code>-DJNEXT_WERROR=OFF</code></strong>: <code>package-rpm</code>, <code>package-deb</code>,
+  <code>package-macos</code>, the rpm spec, the Debian <code>rules</code> and the Flatpak manifest. A
+  release must not fail on a warning that a distribution's newer compiler adds
+  and that no gate of ours runs. They still print the warnings. <code>package-win</code>
+  keeps the default: it is built with the gate's own MinGW compiler.</li>
+<li><strong>Compile time only.</strong> The flags are not on the link line. Under LTO and PGO
+  the flow-sensitive warnings (<code>-Wmaybe-uninitialized</code>, <code>-Warray-bounds</code>) run
+  at link time and would depend on the trained profile; the non-LTO test trees
+  run the same passes per translation unit.</li>
+<li><strong>One switch.</strong> <code>JNEXT_WERROR</code> also governs the test executables' <code>-Werror</code>
+  (<code>test/CMakeLists.txt</code>) and the ESP-01 tests' own (<code>src/esp01/CMakeLists.txt</code>).
+  The targeted <code>-Werror=switch</code> gates and the stack-frame gate below stay.</li>
+</ul>
 <h2 id="the-stack-frame-gate">The stack-frame gate<a class="headerlink" href="#the-stack-frame-gate" title="Permanent link">&para;</a></h2>
 <p>No production function may need a stack frame over 256 KiB:
 <code>-Werror=frame-larger-than=262144</code> on GCC, <code>-Wframe-larger-than=262144
