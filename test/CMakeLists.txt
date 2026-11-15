@@ -828,6 +828,25 @@ target_link_libraries(raster_poll_batch_refuse_test PRIVATE
 target_include_directories(raster_poll_batch_refuse_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME raster_poll_batch_refuse_tests COMMAND raster_poll_batch_refuse_test)
 
+add_executable(raster_poll_batch_observer_test core/raster_poll_batch_observer_test.cpp)
+target_link_libraries(raster_poll_batch_observer_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(raster_poll_batch_observer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME raster_poll_batch_observer_tests COMMAND raster_poll_batch_observer_test)
+
+# The NextZXOS Guide viewer scenario boots NextZXOS from the SD image at run time (a suite of its own:
+# its wall time is the boot's).
+add_executable(raster_poll_batch_boot_test core/raster_poll_batch_boot_test.cpp)
+target_link_libraries(raster_poll_batch_boot_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(raster_poll_batch_boot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME raster_poll_batch_boot_tests COMMAND raster_poll_batch_boot_test)
+
 # GH #489 - the HALT batch with an ESP-01 or a debugger client attached. jnext_platform for
 # emulator_cold_boot() (HBQ-63/64).
 add_executable(halt_batch_observer_test core/halt_batch_observer_test.cpp)
