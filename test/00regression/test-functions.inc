@@ -247,8 +247,12 @@ regression_cleanup() {
 # clone is instant and free, and anywhere else it degrades to a plain copy that
 # still lands on the same filesystem as the master (never in RAM).
 # Sets SD_CLONE_MODE to reflink | copy | absent | failed.
+# Sets SD_CLONE_SIDECARS to none | missing | ok: missing = the image was copied but the
+# distribution sidecars were not written (the default distribution could not be read), so a GUI
+# run on this card meets the upgrade offer and blocks.
 sd_clone_for_run() {
     SD_CLONE_MODE=absent
+    SD_CLONE_SIDECARS=none
     [[ -f "$SD_MASTER_IMAGE" ]] || return 1
     local dst="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
     mkdir -p "$RUN_DIR/sdcard" || { SD_CLONE_MODE=failed; return 1; }
@@ -266,13 +270,14 @@ sd_clone_for_run() {
     # answer it: the clone carries the master's distribution sidecar, and when that is not the
     # default distribution it also carries "do not ask again" for the default one (GH #476).
     local want_dist have_dist="sn-emulator-24.11.zip"
-    want_dist=$(sd_expected_distro) || return 1
+    want_dist=$(sd_expected_distro) || { SD_CLONE_SIDECARS=missing; return 1; }
     if [[ -f "$SD_MASTER_IMAGE.distro" ]]; then
         have_dist=$(head -n1 "$SD_MASTER_IMAGE.distro" | tr -d '[:space:]')
         cp "$SD_MASTER_IMAGE.distro" "$dst.distro"
     fi
     rm -f "$dst.distro-declined"
     [[ "$have_dist" == "$want_dist" ]] || printf '%s\n' "$want_dist" > "$dst.distro-declined"
+    SD_CLONE_SIDECARS=ok
     return 0
 }
 
@@ -291,7 +296,7 @@ sd_card_sidecars() {
 # Fails, printing nothing, unless exactly one name comes out.
 sd_expected_distro() {
     local src="$PROJECT_DIR/src/core/sdcard_provisioner.cpp" n
-    n=$(sed -n '/^const char\* const kDistroUrl =$/{n;s#.*/\([^/"]*\)";$#\1#p}' "$src" 2>/dev/null)
+    n=$(sed -n '/^const char\* const kDistroUrl =$/{n;s#.*/\([^/"]*\)";$#\1#p;}' "$src" 2>/dev/null)
     [[ -n "$n" && "$n" != *$'\n'* ]] || return 1
     printf '%s\n' "$n"
 }
