@@ -175,7 +175,6 @@ uint8_t TurboSound::reg_read(bool reg_mode) const
 
 void TurboSound::tick() { tick_impl_(); }
 void TurboSound::tick_n(uint32_t count) { for (uint32_t i = 0; i < count; ++i) tick_impl_(); }
-void TurboSound::tick_n_poll(uint32_t count) { for (uint32_t i = 0; i < count; ++i) tick_impl_(); }
 
 inline void TurboSound::compute_stereo_mix()
 {

@@ -11899,7 +11899,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     finish_slot_interrupts();
 }
 
-[[gnu::noinline, gnu::flatten]] void Emulator::halt_batch_replay_(uint64_t master_cycles)
+[[gnu::noinline]] void Emulator::halt_batch_replay_(uint64_t master_cycles)
 {
     // GH #452 - the device cluster of a batched HALT slot of n repeats of `batch_first_mc_`. All of it
     // is linear in the window (the batch's gates and bounds see to that) EXCEPT the PSG and the mixer,
@@ -11940,48 +11940,141 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     batch_silenced_ = true;
 }
 
+[[gnu::noinline]] uint64_t Emulator::batch_window_limit_(uint64_t slot_start, uint64_t slot_mc,
+                                                         uint64_t need, bool& dma_waiting)
+{
+    // GH #452, GH #496 - the gates and bounds the HALT batch and the raster-poll batch share, in one
+    // place (a second copy would drift). Called right after a real slot that started at `slot_start`
+    // and cost `slot_mc` master cycles has run through the whole slot body; the device cluster has NOT
+    // run yet. Returns the longest window, in master cycles from `slot_start`, that holds no action
+    // of anything that acts at a time of its own, or 0 when any gate refuses or the window is shorter
+    // than `need` (the least worth a batch). The per-batch tests (what the slot was, the state proof,
+    // contention) stay with the caller. See halt_batch_after_slot_() for the cost-order argument.
+    dma_waiting = false;
+    uint64_t limit = UINT64_MAX;
+
+    // G9, the part that refuses most: the IM2 fabric is quiescent (any interrupt in flight, a
+    // device in S_ACK, a RETI pulse refuse here), in either mode: one finish_slot_interrupts()
+    // for the batched slot then does what each repeat's did, the fast path in pulse mode and the
+    // full path's no-op in hardware mode (G7 keeps the /INT line out). The NMI-activated half is
+    // tested below.
+    if (!im2_.span_quiescent()) return 0;
+
+    // G7: no /INT or /NMI waiting for an instruction boundary (acceptance, and the drop of an
+    // expired pulse window, are per-slot decisions).
+    if (cpu_.int_pending() || cpu_.nmi_pending()) return 0;
+
+    // G2: nothing observes the machine per instruction: a breakpoint, watchpoint, subscription,
+    // step mode, coverage (DebugState::halt_batch_blocked(), which also holds a pause and every
+    // armed() contributor but an attached client), trace, profiler, a rewind replay. An attached
+    // client alone does not refuse (GH #489): the raster walk is advanced over the window below, and
+    // the call-stack tracker learns nothing from a HALT repeat (the real repeat has filled the newest
+    // frame's target space; no 0x76 path pushes or pops).
+    if (debug_state_.halt_batch_blocked() || trace_log_.enabled() || profiler_.active() ||
+        replay_mode_)
+        return 0;
+
+    // G3: RZX counts instructions per frame and replays input per instruction.
+    if (rzx_recorder_.is_recording() || rzx_player_.is_playing()) return 0;
+
+    // G4: real-time tape playback and tape-out sampling tick per instruction.
+    if (tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing() ||
+        tape_capture_live_)
+        return 0;
+
+    // G5: the DMA has nothing to arbitrate, or is in the burst-mode prescaler wait with the bus
+    // released (then bound B5 keeps the batch short of the gate opening).
+    dma_waiting = !dma_.idle_for_batch();
+    if (dma_waiting && !dma_.burst_wait_quiescent()) return 0;
+
+    // G10: the UART bit engine, an attached device that wants ticks, and the host serial sources
+    // tick per slot. An attached device that wants none (an idle ESP-01, GH #489) does not refuse.
+    if (!uart_.batch_quiescent() || joy_uart_source_ || joy_uart_link_) return 0;
+
+    // G11: no NR 0x07 / NR 0x08 b6 commit waiting for its edge (zxnext.vhd:5796-5828). The b6
+    // half is NOT redundant with P2: a contended page is uncontended while the disable is in
+    // force (contention.cpp:131), so P2 passes with the re-enable still pending.
+    if (clock_.pending_cpu_divisor() != clock_.cpu_divisor() ||
+        contention_.pending_cpu_speed() != contention_.cpu_speed() ||
+        contention_.contention_disable_shadow() != contention_.contention_disable())
+        return 0;
+
+    // G12 (and B1's precondition): the frame's own events are queued.
+    if (scheduler_.empty()) return 0;
+
+    // B1: video rows, the CVC reload and the frame's VSYNC (so never past the frame end).
+    {
+        const uint64_t e = scheduler_.next_cycle();
+        if (e <= slot_start + 1 || e - slot_start - 1 < need) return 0;
+        limit = e - slot_start - 1;
+    }
+    // B2: the ULA frame and line interrupts, keyboard release.
+    if (!irq_scheduler_.empty()) {
+        const uint64_t e = irq_scheduler_.next_cycle();
+        if (e <= slot_start + 1 || e - slot_start - 1 < need) return 0;
+        limit = std::min(limit, e - slot_start - 1);
+    }
+
+    // G8: the NMI source pipeline would tick to no effect (a pending host NMI press is consumed
+    // at the next tick: never span it), and G9's other half: the NMI-activated sample is the one
+    // the IM2 fabric last saw. Both call out of line, so they come after the cheap refusals.
+    if (!nmi_source_.tick_is_noop()) return 0;
+    if (!im2_.span_idle(nmi_source_.is_activated())) return 0;
+
+    // B3: the next CTC event (a ZC/TO, a timer leaving S_TRIGGER, a chained trigger).
+    {
+        const uint32_t d = ctc_.cycles_to_next_event();
+        if (d != UINT32_MAX) {
+            if (d <= 1 || d - 1 < need) return 0;
+            limit = std::min<uint64_t>(limit, d - 1);
+        }
+    }
+    // B5: the DMA prescaler gate opening (the next byte, or the block's FINISH_DMA): `g` master
+    // cycles from now, which is after the real slot, so the batch may absorb at most g - 1 more.
+    if (dma_waiting) {
+        const uint64_t e = static_cast<uint64_t>(dma_.cycles_to_prescaler_gate()) + slot_mc - 1;
+        if (e < need) return 0;
+        limit = std::min(limit, e);
+    }
+    // B4: the next Copper action, from the Copper's own position at the slot start.
+    if (copper_.is_running() || copper_.mode_edge_pending()) {
+        const CopperPos pos = copper_position_at_(slot_start);
+        const uint32_t room = limit > 0xFFFFFFFFull ? 0xFFFFFFFFu : static_cast<uint32_t>(limit);
+        const uint32_t k = copper_.idle_cycles(
+            pos.line_mc, pos.cvc, pos.cvc_offset,
+            static_cast<int>(timing_.master_cycles_per_line), timing_.lines_per_frame, room);
+        if (k == 0 || k < need) return 0;
+        limit = std::min<uint64_t>(limit, k);
+    }
+
+    return limit;
+}
+
 [[gnu::noinline]] void Emulator::poll_replay_(uint64_t master_cycles)
 {
-    // GH #496 - halt_batch_replay_() for a poll's window: the real slot that decided the batch
-    // (`batch_first_mc_`), then the pass `batch_pat_[0 .. batch_pat_n_)` over and over, the same
-    // segmenting by PSG ticks (see there for why the PSG and the mixer are replayed apart from the
-    // cluster). A function of its own, not a second mode of halt_batch_replay_(): the HALT replay is a
-    // hot loop whose code generation (everything inlined into one loop) a pattern would change.
-    static constexpr uint64_t PSG_DIVISOR = 16;
+    // GH #496 - the PSG / mixer replay of a poll's window: the real slot that decided the batch
+    // (`batch_first_mc_`), then the pass `batch_pat_[0 .. batch_pat_n_)` k times, SLOT BY SLOT through
+    // halt_batch_replay_() (a window of one slot of that length: the PSG ticks first, then the slot's cycles
+    // integrate). That is what the unbatched cluster does per slot, and the mixer is additive, so it is
+    // exactly the replay of the whole window; it only forgoes halt_batch_replay_()'s grouping of the slots
+    // that tick no PSG, which a second replay loop of its own would give back at a price: a second caller of
+    // the mixer's and the PSG's replay entry points stopped the compiler inlining them into the HALT
+    // replay (2-7 % of every HALT-idle program's instructions, measured).
     const uint64_t first = batch_first_mc_;
     const unsigned pn = batch_pat_n_;
     batch_first_mc_ = 0;
     if (audio_off_) return;     // --silent: the cluster skips its PSG / audio block itself
     uint64_t pat_sum = 0;
     for (unsigned j = 0; j < pn; ++j) pat_sum += batch_pat_[j];
-    const uint64_t slots = 1 + (master_cycles - first) / pat_sum * pn;
-    uint64_t taken = 0;      // slots consumed
-    unsigned pos = 0;        // the pattern slot after the real one that is next
-    auto peek = [&]() { return taken == 0 ? first : batch_pat_[pos]; };
-    auto take = [&]() {
-        const uint64_t l = peek();
-        if (taken++ != 0 && ++pos == pn) pos = 0;
-        return l;
+    const uint64_t passes = (master_cycles - first) / pat_sum;
+    auto slot = [this](uint64_t len) {
+        audio_off_ = false;         // halt_batch_replay_() returns at once when it is set (and sets it again)
+        batch_first_mc_ = len;
+        halt_batch_replay_(len);
     };
-    while (taken < slots) {
-        const uint64_t each = take();
-        psg_accum_ += each;
-        if (psg_accum_ >= PSG_DIVISOR) {
-            turbosound_.tick_n_poll(static_cast<uint32_t>(psg_accum_ / PSG_DIVISOR));
-            psg_accum_ %= PSG_DIVISOR;
-        }
-        uint64_t span = each;
-        while (taken < slots && psg_accum_ + peek() < PSG_DIVISOR) {
-            const uint64_t l = take();
-            psg_accum_ += l;
-            span += l;
-        }
-        if (!replay_mode_)
-            mixer_.integrate_span_poll(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
-                                  &Emulator::pi_sample_thunk_, this);
-    }
-    audio_off_ = true;
-    batch_silenced_ = true;
+    slot(first);
+    for (uint64_t k = 0; k < passes; ++k)
+        for (unsigned j = 0; j < pn; ++j) slot(batch_pat_[j]);
 }
 
 void Emulator::pi_sample_thunk_(void* self)
@@ -12235,116 +12328,6 @@ bool Emulator::poll_start_(uint64_t)
     return window;
 }
 
-[[gnu::noinline]] uint64_t Emulator::batch_window_limit_(uint64_t slot_start, uint64_t slot_mc,
-                                                         uint64_t need, bool& dma_waiting)
-{
-    // GH #452, GH #496 - the gates and bounds the HALT batch and the raster-poll batch share, in one
-    // place (a second copy would drift). Called right after a real slot that started at `slot_start`
-    // and cost `slot_mc` master cycles has run through the whole slot body; the device cluster has NOT
-    // run yet. Returns the longest window, in master cycles from `slot_start`, that holds no action
-    // of anything that acts at a time of its own, or 0 when any gate refuses or the window is shorter
-    // than `need` (the least worth a batch). The per-batch tests (what the slot was, the state proof,
-    // contention) stay with the caller. See halt_batch_after_slot_() for the cost-order argument.
-    dma_waiting = false;
-    uint64_t limit = UINT64_MAX;
-
-    // G9, the part that refuses most: the IM2 fabric is quiescent (any interrupt in flight, a
-    // device in S_ACK, a RETI pulse refuse here), in either mode: one finish_slot_interrupts()
-    // for the batched slot then does what each repeat's did, the fast path in pulse mode and the
-    // full path's no-op in hardware mode (G7 keeps the /INT line out). The NMI-activated half is
-    // tested below.
-    if (!im2_.span_quiescent()) return 0;
-
-    // G7: no /INT or /NMI waiting for an instruction boundary (acceptance, and the drop of an
-    // expired pulse window, are per-slot decisions).
-    if (cpu_.int_pending() || cpu_.nmi_pending()) return 0;
-
-    // G2: nothing observes the machine per instruction: a breakpoint, watchpoint, subscription,
-    // step mode, coverage (DebugState::halt_batch_blocked(), which also holds a pause and every
-    // armed() contributor but an attached client), trace, profiler, a rewind replay. An attached
-    // client alone does not refuse (GH #489): the raster walk is advanced over the window below, and
-    // the call-stack tracker learns nothing from a HALT repeat (the real repeat has filled the newest
-    // frame's target space; no 0x76 path pushes or pops).
-    if (debug_state_.halt_batch_blocked() || trace_log_.enabled() || profiler_.active() ||
-        replay_mode_)
-        return 0;
-
-    // G3: RZX counts instructions per frame and replays input per instruction.
-    if (rzx_recorder_.is_recording() || rzx_player_.is_playing()) return 0;
-
-    // G4: real-time tape playback and tape-out sampling tick per instruction.
-    if (tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing() ||
-        tape_capture_live_)
-        return 0;
-
-    // G5: the DMA has nothing to arbitrate, or is in the burst-mode prescaler wait with the bus
-    // released (then bound B5 keeps the batch short of the gate opening).
-    dma_waiting = !dma_.idle_for_batch();
-    if (dma_waiting && !dma_.burst_wait_quiescent()) return 0;
-
-    // G10: the UART bit engine, an attached device that wants ticks, and the host serial sources
-    // tick per slot. An attached device that wants none (an idle ESP-01, GH #489) does not refuse.
-    if (!uart_.batch_quiescent() || joy_uart_source_ || joy_uart_link_) return 0;
-
-    // G11: no NR 0x07 / NR 0x08 b6 commit waiting for its edge (zxnext.vhd:5796-5828). The b6
-    // half is NOT redundant with P2: a contended page is uncontended while the disable is in
-    // force (contention.cpp:131), so P2 passes with the re-enable still pending.
-    if (clock_.pending_cpu_divisor() != clock_.cpu_divisor() ||
-        contention_.pending_cpu_speed() != contention_.cpu_speed() ||
-        contention_.contention_disable_shadow() != contention_.contention_disable())
-        return 0;
-
-    // G12 (and B1's precondition): the frame's own events are queued.
-    if (scheduler_.empty()) return 0;
-
-    // B1: video rows, the CVC reload and the frame's VSYNC (so never past the frame end).
-    {
-        const uint64_t e = scheduler_.next_cycle();
-        if (e <= slot_start + 1 || e - slot_start - 1 < need) return 0;
-        limit = e - slot_start - 1;
-    }
-    // B2: the ULA frame and line interrupts, keyboard release.
-    if (!irq_scheduler_.empty()) {
-        const uint64_t e = irq_scheduler_.next_cycle();
-        if (e <= slot_start + 1 || e - slot_start - 1 < need) return 0;
-        limit = std::min(limit, e - slot_start - 1);
-    }
-
-    // G8: the NMI source pipeline would tick to no effect (a pending host NMI press is consumed
-    // at the next tick: never span it), and G9's other half: the NMI-activated sample is the one
-    // the IM2 fabric last saw. Both call out of line, so they come after the cheap refusals.
-    if (!nmi_source_.tick_is_noop()) return 0;
-    if (!im2_.span_idle(nmi_source_.is_activated())) return 0;
-
-    // B3: the next CTC event (a ZC/TO, a timer leaving S_TRIGGER, a chained trigger).
-    {
-        const uint32_t d = ctc_.cycles_to_next_event();
-        if (d != UINT32_MAX) {
-            if (d <= 1 || d - 1 < need) return 0;
-            limit = std::min<uint64_t>(limit, d - 1);
-        }
-    }
-    // B5: the DMA prescaler gate opening (the next byte, or the block's FINISH_DMA): `g` master
-    // cycles from now, which is after the real slot, so the batch may absorb at most g - 1 more.
-    if (dma_waiting) {
-        const uint64_t e = static_cast<uint64_t>(dma_.cycles_to_prescaler_gate()) + slot_mc - 1;
-        if (e < need) return 0;
-        limit = std::min(limit, e);
-    }
-    // B4: the next Copper action, from the Copper's own position at the slot start.
-    if (copper_.is_running() || copper_.mode_edge_pending()) {
-        const CopperPos pos = copper_position_at_(slot_start);
-        const uint32_t room = limit > 0xFFFFFFFFull ? 0xFFFFFFFFu : static_cast<uint32_t>(limit);
-        const uint32_t k = copper_.idle_cycles(
-            pos.line_mc, pos.cvc, pos.cvc_offset,
-            static_cast<int>(timing_.master_cycles_per_line), timing_.lines_per_frame, room);
-        if (k == 0 || k < need) return 0;
-        limit = std::min<uint64_t>(limit, k);
-    }
-
-    return limit;
-}
-
 [[gnu::noinline]] uint64_t Emulator::halt_batch_after_slot_(uint64_t master_cycles, bool& batched)
 {
     // GH #452 - see the declaration. Called by run_frame() right after step_one_instruction()
@@ -12375,6 +12358,9 @@ bool Emulator::poll_start_(uint64_t)
     if (cpu_.last_slot_kind() != Z80Cpu::SlotKind::Opcode || cpu_.last_opcode() != 0x76)
         return master_cycles;
 
+    // Bounds: the batched window [slot_start, slot_start + n * p) must hold no action of anything
+    // that acts at a time of its own; the action then happens in a later slot. `need` is the least
+    // window that is worth a batch (two repeats): every bound returns the moment it falls below it.
     // P3: the PC is not one the DivMMC automap (RST vectors, the NMI vector, the tape traps,
     // 0x1FF8-0x1FFF, 0x3Dxx) or anything else reacts to by address: the esxDOS shim fires on
     // every execute() at 0x0008 and NmiSource watches the 0x0066 fetch. NOT the DivMMC / Multiface
