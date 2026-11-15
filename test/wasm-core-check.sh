@@ -4,7 +4,7 @@
 #
 #   bash test/wasm-core-check.sh <build-dir>      e.g. build/wasm-core
 #
-# Rows WCORE-01..09, printed in the suite's uniform format; exits non-zero on any
+# Rows WCORE-01..10, printed in the suite's uniform format; exits non-zero on any
 # FAIL or SKIP. The oracle is the native binary's behaviour for the same command
 # where one exists (the CLI refusals, the log-file error), else the SDK's own
 # contract (no shared memory). `jnext` is the node build (NODERAWFS), so the size
@@ -14,7 +14,7 @@ set -uo pipefail
 
 export LC_ALL=C LANG=C
 
-EXPECTED_TOTAL=9
+EXPECTED_TOTAL=10
 
 BUILD=${1:?usage: wasm-core-check.sh <build-dir>}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -137,6 +137,18 @@ printf 'y\n' | timeout --kill-after=5s 60s "$NODE" "$JS" --headless --machine ne
 OUT=$(<"$SCRATCH/out"); ERR=$(<"$SCRATCH/err")
 row WCORE-09 "with no SD image the WebAssembly build declines the download without a prompt (exit 1, no [y/N])" \
     $([[ $RC -eq 1 && "$ERR$OUT" == *"WebAssembly build cannot download"* && "$ERR$OUT" != *"[y/N]"* ]] && echo 1 || echo 0) "rc=$RC out=[$OUT] err=[$ERR]"
+
+# WCORE-10: an explicit download request with no image fails at once. The browser build has no download, so
+# the provisioner's retry loop (3 retries, 2+4+8 s of backoff natively) must be off: a retry would only
+# block the page's thread for 14 s before the same refusal. Wall time is measured; the bound escalates to SIGKILL.
+RC=0
+T0=$(date +%s.%N)
+timeout --kill-after=5s 60s "$NODE" "$JS" --headless --machine next --sdcard-download-confirm </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err" || RC=$?
+T1=$(date +%s.%N)
+OUT=$(<"$SCRATCH/out"); ERR=$(<"$SCRATCH/err")
+ELAPSED=$(echo "$T1 - $T0" | bc)
+row WCORE-10 "--sdcard-download-confirm with no image fails at once (exit 1, 'downloads are not available in the browser build', no Retry line, under 2 s)" \
+    $([[ $RC -eq 1 && "$ERR$OUT" == *"downloads are not available in the browser build"* && "$ERR$OUT" != *"Retry"* && $(echo "$ELAPSED < 2" | bc) -eq 1 ]] && echo 1 || echo 0) "rc=$RC elapsed=${ELAPSED}s out=[$OUT] err=[$ERR]"
 
 RAW=$(stat -c %s "$WASM")
 GZ=$(gzip -9 -c "$WASM" | wc -c)

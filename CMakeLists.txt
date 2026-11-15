@@ -270,9 +270,11 @@ add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 
 # GH #418: -Wall -Wextra on every first-party C++ target (and Objective-C++),
-# -Werror too unless JNEXT_WERROR=OFF. Packaging builds pass OFF: a release must
-# not fail on a warning a distro's newer compiler adds, which no gate of ours
-# runs. add_compile_options() initialises the COMPILE_OPTIONS of every target
+# -Werror too unless JNEXT_WERROR=OFF. The recipes that build with a distribution's
+# own compiler (rpm, deb, Flatpak, macOS) pass OFF: a release must not fail on a
+# warning a distro's newer compiler adds, which no gate of ours runs. The Windows
+# zips and `make package-web` (the pinned emsdk) keep it ON: their toolchains are
+# the ones the gate tests. add_compile_options() initialises the COMPILE_OPTIONS of every target
 # created AFTER it, here and in every subdirectory added after it (src/*, tools/,
 # test/, and jnext_web on the WebAssembly epic), so nobody lists targets. spdlog
 # and zot_tzx are created above and never get it; the third-party C inside our
