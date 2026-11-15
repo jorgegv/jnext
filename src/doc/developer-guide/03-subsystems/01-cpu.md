@@ -48,6 +48,15 @@ nothing else, and its caller (`Emulator::halt_batch_after_slot_()`) is the one t
 other component could have told the repeats apart; `last_opcode()` lets it check that the
 opcode really was `0x76`.
 
+**Loops.** `Z80Cpu::capture_loop_state()` returns everything one pass of a register-only loop
+could change in the CPU except the 7-bit `R` counter: the registers and their shadows, MEMPTR, `Q`,
+`IncDecZ`, IFF1/IFF2/IM, `halted`, FUSE's `iff2_read` quirk flag and whether the EI grace is
+pending. Two captures that compare equal mean the CPU is in the same state.
+`Z80Cpu::repeat_loop(count, each, slots, dr)` accounts `count` further passes of a pass the caller has
+just run for real and proved periodic: the T-state counter, `R` (by `dr` a pass) and the `execute()`
+serial, like `repeat_halt()` and for the same reason without a register sync. Its caller
+(`Emulator::poll_slot_()`) is the one that proves the passes identical.
+
 `Z80Registers` carries the architectural registers plus MEMPTR, FUSE's `Q` latch
 and `IncDecZ`. That last one is a one-bit shadow that exists only in the VHDL
 (`t80n.vhd:1358-1367`), where it becomes observable through the Z80N `LDWS`

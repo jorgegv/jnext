@@ -60,6 +60,7 @@ nav:
       - 2.3 A frame, end to end: 02-architecture/03-a-frame-end-to-end.md
       - 2.4 The video pipeline: 02-architecture/04-the-video-pipeline.md
       - 2.5 Save state, rewind and determinism: 02-architecture/05-save-state-and-rewind.md
+      - 2.6 Adding a costly optimisation: 02-architecture/06-adding-a-costly-optimisation.md
   - 3. Subsystems:
       - 03-subsystems/index.md
       - 3.1 CPU: 03-subsystems/01-cpu.md

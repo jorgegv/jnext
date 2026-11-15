@@ -616,7 +616,7 @@ void check_ab(const char* id, const char* desc, const std::vector<Scenario>& lis
 // A pair of rows from ONE A/B run per fixture: `id` = identical per frame (and alive, the OFF
 // run really off); `id2` = the HALT batch ENGAGED in the "on" run of every fixture
 // (`expect_engaged`), or REFUSED in every one of them (a refusal row: the counter stays 0).
-void check_pair(const char* id, const char* desc, const char* id2, const char* desc2,
+[[maybe_unused]] void check_pair(const char* id, const char* desc, const char* id2, const char* desc2,
                 const std::vector<Scenario>& list, bool expect_engaged = true,
                 bool copper_engaged = false) {
     std::vector<uint64_t> halt;

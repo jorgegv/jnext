@@ -32,3 +32,6 @@ arbitrary until you have seen the sequence.
   compositor, and the per-scanline change-log replay.
 - [2.5 Save state, rewind and determinism](05-save-state-and-rewind.md) — state
   serialisation, the rewind ring, and what makes an automated run reproducible.
+- [2.6 Adding a costly optimisation](06-adding-a-costly-optimisation.md) — the
+  cost rule for an optimisation of the emulator's own work, how to measure and
+  prove it, and the registry of the costly ones.

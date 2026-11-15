@@ -48,7 +48,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD File Add (POSIX-only rows) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (case-sensitive host) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card Provisioner   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card Provisioner   |      173 |      173 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -105,6 +105,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ZIP program archives  |       71 |       71 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (engaged cases) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (gates and refusals) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (ESP and debugger client) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (NextZXOS Guide viewer) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch switch |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Costly-optimisation registry |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (ESP and debugger client) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Call-stack tracker fetch feed |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (cold boot) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -183,7 +189,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Main-window title (version) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI light/dark scheme (GH #363) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI scheme: private bus dies with the suite (GH #414) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD-card/NextPi download dialog (GH #358) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD-card/NextPi download dialog (GH #358) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -203,6 +209,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16341**| **16341**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16398**| **16398**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

@@ -78,6 +78,7 @@ struct Program {
     int  frames = 0;      // 0 = the default kFrames
     bool copper = false;  // runs a Copper program: the Copper skip must engage (GH #452 stage 2)
     bool halt = false;    // idles on HALT: the HALT batch must engage (GH #452 stage 3)
+    bool poll = false;    // waits for a raster line by polling NR 0x1E/0x1F: the raster-poll batch must engage (GH #496)
 };
 
 
@@ -118,20 +119,24 @@ int run_corpus(const Program* programs, int count, const char* label) {
         std::string diff = batch_ab::first_diff(a, b);
         if (diff.empty() && (!why_a.empty() || !why_b.empty())) diff = why_a + why_b;
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        std::printf("  %s %s: halt_batched=%llu copper_skipped=%llu (%.1f s)\n", p.id, p.path,
+        std::printf("  %s %s: halt_batched=%llu copper_skipped=%llu poll_passes=%llu (%.1f s)\n", p.id, p.path,
                     static_cast<unsigned long long>(b.halt_batched),
-                    static_cast<unsigned long long>(b.copper_skipped), secs);
+                    static_cast<unsigned long long>(b.copper_skipped),
+                    static_cast<unsigned long long>(b.poll_batched), secs);
         // The row also names the programs the optimisation must engage in: one that stops
         // engaging (an optimisation silently disabled) cannot pass the corpus.
         if (diff.empty() && p.copper && b.copper_skipped == 0) diff = "the Copper skip never engaged";
         if (diff.empty() && p.halt && b.halt_batched == 0) diff = "the HALT batch never engaged";
+        if (diff.empty() && p.poll && b.poll_batched == 0) diff = "the raster-poll batch never engaged";
         // And the OFF run must really be off, or the A/B compares the optimisation with itself.
-        if (diff.empty() && (a.copper_skipped != 0 || a.halt_batched != 0))
+        if (diff.empty() && (a.copper_skipped != 0 || a.halt_batched != 0 || a.poll_batched != 0))
             diff = "the OFF run batched (copper_skipped=" + std::to_string(a.copper_skipped) +
-                   " halt_batched=" + std::to_string(a.halt_batched) + ")";
+                   " halt_batched=" + std::to_string(a.halt_batched) +
+                   " poll_batched=" + std::to_string(a.poll_batched) + ")";
         check(p.id, std::string(p.path) + ": identical per frame, batching off vs on" +
                     (p.copper ? ", Copper skip engaged" : "") +
-                    (p.halt ? ", HALT batch engaged" : ""),
+                    (p.halt ? ", HALT batch engaged" : "") +
+                    (p.poll ? ", raster-poll batch engaged" : ""),
               diff.empty(), diff);
     }
 
