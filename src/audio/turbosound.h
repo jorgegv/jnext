@@ -92,6 +92,9 @@ public:
     /// same inlined body, so that tick() keeps its ONE caller (the device cluster, which the compiler
     /// inlines) and the two cannot be folded into one function with two callers.
     void tick_n(uint32_t count);
+    /// GH #496 - tick_n() with a loop of its own, for the raster-poll batch's replay (a second
+    /// caller of tick_n() would stop it being inlined into the HALT replay).
+    void tick_n_poll(uint32_t count);
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
     /// Gates ONLY this chip's contribution to the 3-PSG sum in

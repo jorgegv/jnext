@@ -11863,7 +11863,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     if (!audio_off_) {
         // Tick PSG (TurboSound) at 1.75 MHz rate. (A batched HALT slot arrives here with its PSG and
         // audio switched off through this very test, `audio_off_` being `config_.silent` or a batch's
-        // window: batch_replay_() has replayed them repeat by repeat already.)
+        // window: halt_batch_replay_() has replayed them repeat by repeat already.)
         psg_accum_ += master_cycles;
         while (psg_accum_ >= PSG_DIVISOR) {
             psg_accum_ -= PSG_DIVISOR;
@@ -11877,7 +11877,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
             advance_audio(master_cycles);
         }
     } else if (__builtin_expect(batch_silenced_, 0)) {
-        // GH #452 - the window of a batched HALT: batch_replay_() has run the PSG and the mixer
+        // GH #452 - the window of a batched HALT: halt_batch_replay_() has run the PSG and the mixer
         // for it, repeat by repeat, and switched this block off for the one cluster call; switch it back.
         halt_batch_end_();
     } else if (config_.pi_audio && !replay_mode_) {
@@ -11899,36 +11899,27 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     finish_slot_interrupts();
 }
 
-[[gnu::noinline]] void Emulator::batch_replay_(uint64_t master_cycles)
+[[gnu::noinline, gnu::flatten]] void Emulator::halt_batch_replay_(uint64_t master_cycles)
 {
-    // GH #452 - the device cluster of a batched slot (a HALT repeat standing for several, or GH #496 the
-    // passes of a raster poll) over a window of `master_cycles`. All of it is linear in the window (the
-    // batch's gates and bounds see to that) EXCEPT the PSG and the mixer, which are NOT split-invariant:
-    // per slot the PSG ticks first and then that slot's cycles integrate at the level the tick left. They
-    // are replayed here, first, slot by slot (consecutive slots with no PSG tick between them integrate
-    // at one level and the mixer is additive, so a segment is [ticks of its first slot][one audio span
-    // over its slots]); the cluster then runs once for the whole window with its PSG / audio block switched
-    // off through `audio_off_`, the copy of --silent it tests per slot (config_ itself is never touched:
-    // another thread may read it). The window is the real slot that decided the batch (`batch_first_mc_`)
-    // and then the batch's slots, `batch_pat_[0 .. batch_pat_n_)` over and over: a HALT repeat is a pattern
-    // of one, a raster poll's pass of its instructions. The replay goes through entry points of its own,
-    // shaped like the replay (TurboSound::tick_n(), Mixer::integrate_span()): the cluster's single direct
-    // caller of each per-slot function is what the compiler inlines, and a second caller of the same
-    // function (or a twin the link-time optimiser folds back into it) made it stop, natively and in
-    // WebAssembly (measured: 1-2 % of all instructions of every program).
+    // GH #452 - the device cluster of a batched HALT slot of n repeats of `batch_first_mc_`. All of it
+    // is linear in the window (the batch's gates and bounds see to that) EXCEPT the PSG and the mixer,
+    // which are NOT split-invariant: per repeat the PSG ticks first and then that repeat's cycles
+    // integrate at the level the tick left. They are replayed here, first, repeat by repeat
+    // (consecutive repeats with no PSG tick between them integrate at one level and the mixer is
+    // additive, so a segment is [ticks of its first repeat][one audio span over its repeats]); the
+    // cluster then runs once for the whole window with its PSG / audio block switched off through
+    // `audio_off_`, the copy of --silent it tests per slot (config_ itself is never touched: another
+    // thread may read it). The replay goes through entry points of its own, shaped like the replay
+    // (TurboSound::tick_n(), Mixer::integrate_span()): the cluster's single direct caller of each
+    // per-slot function is what the compiler inlines, and a second caller of the same function (or
+    // a twin the link-time optimiser folds back into it) made it stop, natively and in WebAssembly
+    // (measured: 1-2 % of all instructions of every program).
     static constexpr uint64_t PSG_DIVISOR = 16;
-    const uint64_t first = batch_first_mc_;
-    const unsigned pn = batch_pat_n_;
+    const uint64_t each = batch_first_mc_;
     batch_first_mc_ = 0;
     if (audio_off_) return;     // --silent: the cluster skips its PSG / audio block itself
-    // The i-th slot of the window: the real slot, then the pattern repeating.
-    auto len_of = [&](uint64_t i) { return i == 0 ? first : batch_pat_[(i - 1) % pn]; };
-    // Slots in the window: the real one, then whole patterns (HALT: n - 1 repeats of one).
-    uint64_t pat_sum = 0;
-    for (unsigned j = 0; j < pn; ++j) pat_sum += batch_pat_[j];
-    const uint64_t slots = 1 + (master_cycles - first) / pat_sum * pn;
-    for (uint64_t i = 0; i < slots; ) {
-        const uint64_t each = len_of(i);
+    const uint64_t n = master_cycles / each;
+    for (uint64_t i = 0; i < n; ) {
         psg_accum_ += each;
         if (psg_accum_ >= PSG_DIVISOR) {
             turbosound_.tick_n(static_cast<uint32_t>(psg_accum_ / PSG_DIVISOR));
@@ -11936,14 +11927,57 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
         }
         uint64_t span = each;
         ++i;
-        while (i < slots && psg_accum_ + len_of(i) < PSG_DIVISOR) {
-            const uint64_t l = len_of(i);
-            psg_accum_ += l;
-            span += l;
+        while (i < n && psg_accum_ + each < PSG_DIVISOR) {
+            psg_accum_ += each;
+            span += each;
             ++i;
         }
         if (!replay_mode_)
             mixer_.integrate_span(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
+                                  &Emulator::pi_sample_thunk_, this);
+    }
+    audio_off_ = true;
+    batch_silenced_ = true;
+}
+
+[[gnu::noinline]] void Emulator::poll_replay_(uint64_t master_cycles)
+{
+    // GH #496 - halt_batch_replay_() for a poll's window: the real slot that decided the batch
+    // (`batch_first_mc_`), then the pass `batch_pat_[0 .. batch_pat_n_)` over and over, the same
+    // segmenting by PSG ticks (see there for why the PSG and the mixer are replayed apart from the
+    // cluster). A function of its own, not a second mode of halt_batch_replay_(): the HALT replay is a
+    // hot loop whose code generation (everything inlined into one loop) a pattern would change.
+    static constexpr uint64_t PSG_DIVISOR = 16;
+    const uint64_t first = batch_first_mc_;
+    const unsigned pn = batch_pat_n_;
+    batch_first_mc_ = 0;
+    if (audio_off_) return;     // --silent: the cluster skips its PSG / audio block itself
+    uint64_t pat_sum = 0;
+    for (unsigned j = 0; j < pn; ++j) pat_sum += batch_pat_[j];
+    const uint64_t slots = 1 + (master_cycles - first) / pat_sum * pn;
+    uint64_t taken = 0;      // slots consumed
+    unsigned pos = 0;        // the pattern slot after the real one that is next
+    auto peek = [&]() { return taken == 0 ? first : batch_pat_[pos]; };
+    auto take = [&]() {
+        const uint64_t l = peek();
+        if (taken++ != 0 && ++pos == pn) pos = 0;
+        return l;
+    };
+    while (taken < slots) {
+        const uint64_t each = take();
+        psg_accum_ += each;
+        if (psg_accum_ >= PSG_DIVISOR) {
+            turbosound_.tick_n_poll(static_cast<uint32_t>(psg_accum_ / PSG_DIVISOR));
+            psg_accum_ %= PSG_DIVISOR;
+        }
+        uint64_t span = each;
+        while (taken < slots && psg_accum_ + peek() < PSG_DIVISOR) {
+            const uint64_t l = take();
+            psg_accum_ += l;
+            span += l;
+        }
+        if (!replay_mode_)
+            mixer_.integrate_span_poll(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
                                   &Emulator::pi_sample_thunk_, this);
     }
     audio_off_ = true;
@@ -11968,7 +12002,7 @@ void Emulator::pi_sample_thunk_(void* self)
     // GH #452 - run_frame() calls this for every slot the CPU is halted after (and the IM2 fabric is
     // quiescent, and the switch is on: the cheapest refusals, made inline). Returns the master cycles of
     // the whole window when the slot was a HALT repeat that stands for several (halt_batch_after_slot_()
-    // has absorbed the rest and batch_replay_() has replayed the PSG and the mixer), 0 when not.
+    // has absorbed the rest and halt_batch_replay_() has replayed the PSG and the mixer), 0 when not.
     // run_frame() then runs the device cluster over the window and calls halt_batch_end_(). Batching
     // requires no per-instruction debugger observation (G2: DebugState::halt_batch_blocked()), so the
     // boundary drain and the data-breakpoint test between this call and the cluster stay empty: no
@@ -11976,7 +12010,7 @@ void Emulator::pi_sample_thunk_(void* self)
     bool batched = false;
     const uint64_t total = halt_batch_after_slot_(master_cycles, batched);
     if (!batched) return 0;
-    batch_replay_(total);
+    halt_batch_replay_(total);
     return total;
 }
 
@@ -12197,7 +12231,7 @@ bool Emulator::poll_start_(uint64_t)
     for (unsigned i = 0; i < nslots; ++i) batch_pat_[i] = o.pat[i];
     poll_passes_batched_ += k;
     const uint64_t window = master_cycles + k * P;
-    batch_replay_(window);
+    poll_replay_(window);
     return window;
 }
 

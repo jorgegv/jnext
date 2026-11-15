@@ -2998,7 +2998,7 @@ private:
     /// when the slot was a HALT repeat that stands for several, else 0: halt_batch_after_slot_() has
     /// proved that each further repeat would do exactly what the real one did (every gate and bound
     /// listed there) and absorbed them (CPU counters, master clock, DMA prescaler), and
-    /// batch_replay_() has replayed the PSG and the mixer repeat by repeat
+    /// halt_batch_replay_() has replayed the PSG and the mixer repeat by repeat
     /// (TurboSound::tick_n() and Mixer::integrate_span(), entry points shaped like the replay so that
     /// nothing folds them into the per-slot functions) and switched the cluster's PSG / audio block
     /// off through `audio_off_`; config_ is never written.
@@ -3007,7 +3007,8 @@ private:
     /// halt_batch_end_() to switch the PSG / audio block back on.
     uint64_t halted_slot_(uint64_t master_cycles);
     uint64_t halt_batch_after_slot_(uint64_t master_cycles, bool& batched);
-    void batch_replay_(uint64_t master_cycles);
+    void halt_batch_replay_(uint64_t master_cycles);
+    void poll_replay_(uint64_t master_cycles);
     void halt_batch_end_();
     uint64_t batch_window_limit_(uint64_t slot_start, uint64_t slot_mc, uint64_t need, bool& dma_waiting);
 

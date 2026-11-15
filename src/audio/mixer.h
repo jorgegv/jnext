@@ -93,7 +93,13 @@ public:
     /// their one caller each (advance_audio(), inlined into the device cluster).
     void integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
                         uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx);
+    /// GH #496 - integrate_span() for the raster-poll batch's replay: a copy of its own (see above).
+    void integrate_span_poll(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
+                             uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx);
 private:
+    [[gnu::always_inline]] inline void integrate_span_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                                                            uint64_t cycles, uint64_t& sample_accum, uint64_t threshold,
+                                                            void (*on_sample)(void*), void* ctx);
     [[gnu::always_inline]] inline void accumulate_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                                                         uint32_t master_cycles);
     [[gnu::always_inline]] inline void emit_sample_impl_();

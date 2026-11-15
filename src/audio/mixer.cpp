@@ -253,8 +253,9 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
 
 void Mixer::emit_sample() { emit_sample_impl_(); }
 
-void Mixer::integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
-                           uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx)
+[[gnu::always_inline]] inline void Mixer::integrate_span_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                                                                uint64_t cycles, uint64_t& sample_accum, uint64_t threshold,
+                                                                void (*on_sample)(void*), void* ctx)
 {
     // GH #452 - the HALT batch's replay of Emulator::advance_audio(): the same walk, in chunks that stop
     // at each output-sample boundary, but for a whole span at once, and with the work of a boundary
@@ -274,6 +275,20 @@ void Mixer::integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac
             on_sample(ctx);
         }
     }
+}
+
+void Mixer::integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
+                           uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx)
+{
+    integrate_span_impl_(beeper, ts, dac, cycles, sample_accum, threshold, on_sample, ctx);
+}
+
+void Mixer::integrate_span_poll(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
+                                uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx)
+{
+    // GH #496 - the raster-poll batch's replay: the same walk with a copy of its own, so that
+    // integrate_span() keeps its one caller (the HALT replay), which the compiler inlines.
+    integrate_span_impl_(beeper, ts, dac, cycles, sample_accum, threshold, on_sample, ctx);
 }
 
 int Mixer::available() const { return count_; }
