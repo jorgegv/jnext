@@ -106,7 +106,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch equivalence (engaged cases) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Raster-poll batch equivalence (gates and refusals) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (gates and refusals) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch equivalence (ESP and debugger client) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch equivalence (NextZXOS Guide viewer) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch switch |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -209,6 +209,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16359**| **16359**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16360**| **16360**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
