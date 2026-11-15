@@ -101,19 +101,25 @@ table type and the parser.
 ## 5. The worked example: the raster-poll batch
 
 Measured against the branch point, in per-frame host instructions on the eight `make bench` workloads
-(the optimisation's whole fixed cost is one flag test per slot that is not a HALT repeat, plus the
-refactoring of the HALT batch's gates into the function both batches call):
+(the optimisation's fixed cost is one flag test per slot that is not a HALT repeat, plus the
+refactoring of the HALT batch's gates into the function both batches call; the figures move by about
+0.1 % between builds of logically equal code, see section 2):
 
 | workload | gcc | clang |
 |---|---|---|
-| boot-48k | +0.10 % | +0.07 % |
-| boot-nextzxos | +0.23 % | +0.20 % |
-| copper-demo | +0.07 % | +0.05 % |
-| beast | +0.06 % | +0.05 % |
-| bifrost | +0.10 % | +0.07 % |
-| halt-idle-35 | +0.08 % | +0.06 % |
-| halt-idle-28 | +0.07 % | +0.05 % |
-| ctc-dac-28 | +0.21 % | +0.13 % |
+| boot-48k | +0.10 % | +0.05 % |
+| boot-nextzxos | +0.23 % | +0.15 % |
+| copper-demo | +0.07 % | +0.04 % |
+| beast | +0.06 % | +0.03 % |
+| bifrost | +0.10 % | +0.05 % |
+| halt-idle-35 | +0.08 % | +0.04 % |
+| halt-idle-28 | +0.07 % | +0.04 % |
+| ctc-dac-28 | +0.21 % | +0.10 % |
+
+Two gcc entries are a little above the +0.2 % line: `ctc-dac-28` (a HALT workload, so the refactoring
+of the HALT gates counts there) and `boot-nextzxos`, which reads the raster itself (a few hundred times a
+frame) and so pays for the optimisation's observation as well as its test. The optimisation is kept always
+on; a later compiler that moves these numbers further is the trigger to register it.
 
 Where it works, it removes most of the host work of a screen that waits for the raster: the NextZXOS
 Guide viewer goes from about 91 M host instructions a frame to a third of that, and the games that poll

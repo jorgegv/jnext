@@ -3082,8 +3082,9 @@ that need them land with the first optimisation that is really costly; what is i
 table type and the parser.</p>
 <h2 id="5-the-worked-example-the-raster-poll-batch">5. The worked example: the raster-poll batch<a class="headerlink" href="#5-the-worked-example-the-raster-poll-batch" title="Permanent link">&para;</a></h2>
 <p>Measured against the branch point, in per-frame host instructions on the eight <code>make bench</code> workloads
-(the optimisation's whole fixed cost is one flag test per slot that is not a HALT repeat, plus the
-refactoring of the HALT batch's gates into the function both batches call):</p>
+(the optimisation's fixed cost is one flag test per slot that is not a HALT repeat, plus the
+refactoring of the HALT batch's gates into the function both batches call; the figures move by about
+0.1 % between builds of logically equal code, see section 2):</p>
 <table>
 <thead>
 <tr>
@@ -3096,45 +3097,49 @@ refactoring of the HALT batch's gates into the function both batches call):</p>
 <tr>
 <td>boot-48k</td>
 <td>+0.10 %</td>
-<td>+0.07 %</td>
+<td>+0.05 %</td>
 </tr>
 <tr>
 <td>boot-nextzxos</td>
 <td>+0.23 %</td>
-<td>+0.20 %</td>
+<td>+0.15 %</td>
 </tr>
 <tr>
 <td>copper-demo</td>
 <td>+0.07 %</td>
-<td>+0.05 %</td>
+<td>+0.04 %</td>
 </tr>
 <tr>
 <td>beast</td>
 <td>+0.06 %</td>
-<td>+0.05 %</td>
+<td>+0.03 %</td>
 </tr>
 <tr>
 <td>bifrost</td>
 <td>+0.10 %</td>
-<td>+0.07 %</td>
+<td>+0.05 %</td>
 </tr>
 <tr>
 <td>halt-idle-35</td>
 <td>+0.08 %</td>
-<td>+0.06 %</td>
+<td>+0.04 %</td>
 </tr>
 <tr>
 <td>halt-idle-28</td>
 <td>+0.07 %</td>
-<td>+0.05 %</td>
+<td>+0.04 %</td>
 </tr>
 <tr>
 <td>ctc-dac-28</td>
 <td>+0.21 %</td>
-<td>+0.13 %</td>
+<td>+0.10 %</td>
 </tr>
 </tbody>
 </table>
+<p>Two gcc entries are a little above the +0.2 % line: <code>ctc-dac-28</code> (a HALT workload, so the refactoring
+of the HALT gates counts there) and <code>boot-nextzxos</code>, which reads the raster itself (a few hundred times a
+frame) and so pays for the optimisation's observation as well as its test. The optimisation is kept always
+on; a later compiler that moves these numbers further is the trigger to register it.</p>
 <p>Where it works, it removes most of the host work of a screen that waits for the raster: the NextZXOS
 Guide viewer goes from about 91 M host instructions a frame to a third of that, and the games that poll
 the raster in a tight loop to well under half. It does nothing at 3.5 MHz while contention can apply.</p>

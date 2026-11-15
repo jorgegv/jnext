@@ -224,8 +224,8 @@ T-states, `R` and `execute()` serial, the clock and the DMA prescaler timer adva
 mixer are replayed slot by slot through `halt_batch_replay_()`, the HALT batch's own replay, before the
 cluster runs once over the window. Every batch is preceded by its own watched pass: nothing is cached
 between batches. The fixed cost to every program is that one flag test; it was measured against the
-branch point on the non-polling bench workloads, under gcc and under clang, and is small enough that the
-optimisation is always on rather than a costly one (page 2.6).
+branch point on the bench workloads, under gcc and under clang, at 0.03 to 0.23 % of host instructions, so
+the optimisation is always on rather than a costly one (page 2.6).
 
 Around that choice it also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
