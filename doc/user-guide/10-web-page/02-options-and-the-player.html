@@ -4559,7 +4559,7 @@
 </tr>
 </tbody>
 </table>
-<p><code>player.argv</code> is the equivalent command line, without the program name.</p>
+<p><code>player.argv</code> is the equivalent command line, without the program name; it exists once the visitor has clicked and the player has its SD card (until then it is undefined).</p>
 <h2 id="events">Events<a class="headerlink" href="#events" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>onProgress(phase, fraction)</code>: <code>phase</code> is <code>download</code>, <code>build</code>, <code>choose</code>, <code>warm-start</code> or <code>restore</code>;
