@@ -4,10 +4,10 @@ JNEXT is a ZX Spectrum Next emulator built from the official FPGA core sources.
 This guide shows you how to use it.
 
 Chapters 1 to 5 are for running programs, and assume no development
-background. Chapters 6, 7 and 10 are for developers: the debugger and source-level
+background. Chapters 6, 7 and 8 are for developers: the debugger and source-level
 debugging, automating JNEXT the way its own test suite does, and putting your
-program in a web page. Chapters 8 and 9 are for everyone —
-what to do when something is wrong, and where everything else lives.
+program in a web page. Appendix A is for everyone: where everything else lives.
+What to do when something is wrong is in section 1.4.
 
 The complete list of command-line options is in the manual page — `man jnext`,
 or [`USAGE.md`](https://github.com/jorgegv/jnext/blob/main/USAGE.md). This guide links there rather than repeating
@@ -24,9 +24,8 @@ it.
 | 5 | [Running programs](05-running-programs/index.md) | Machines, input, display, sound, recording |
 | 6 | [The debugger](06-debugger/index.md) | Every panel and every function, scripting, and source-level debugging |
 | 7 | [Automation and CI](07-automation-and-ci/index.md) | Screenshot-testing your own programs |
-| 8 | [Known issues](08-known-issues/index.md) | What to expect when something is wrong |
-| 9 | [Reference](09-reference/index.md) | Where everything else lives |
-| 10 | [JNEXT in a web page](10-web-page/index.md) | Embedding a game in a page or an itch.io upload |
+| 8 | [JNEXT in a web page](08-web-page/index.md) | Embedding a game in a page or an itch.io upload |
+| A | [Reference](appendix-a-reference/index.md) | Where everything else lives |
 
 ## Getting help
 

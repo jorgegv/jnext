@@ -2469,11 +2469,11 @@ check "HS-71i" "documentation does not move the key — doc/, src/doc/, any *.md
 
 out=""
 for kp in doc/formats/jns-snapshot.schema.json doc/man/jnext.1.md doc/testing/CURRENT-REGRESSION-STATE.md \
-          src/doc/user-guide/09-reference/01-command-line-options.md; do
+          src/doc/user-guide/appendix-a-reference/01-command-line-options.md; do
     out+="$kp=$(keymove "$kp") "
 done
 check "HS-71j" "the documentation a regression gate READS moves the key: schema, man page, CLI guide page, regression state (GH #295)" 0 0 "$out" \
-    "doc/formats/jns-snapshot.schema.json=1 doc/man/jnext.1.md=1 doc/testing/CURRENT-REGRESSION-STATE.md=1 src/doc/user-guide/09-reference/01-command-line-options.md=1"
+    "doc/formats/jns-snapshot.schema.json=1 doc/man/jnext.1.md=1 doc/testing/CURRENT-REGRESSION-STATE.md=1 src/doc/user-guide/appendix-a-reference/01-command-line-options.md=1"
 
 # --- cleanliness at each end separately, and the counts (review round 1) ---
 st=$(stamp state); echo 'int z;' >> "$SR/src/main.cpp"; st_dirty=$(stamp state); sg checkout -- src/main.cpp

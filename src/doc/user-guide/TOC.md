@@ -11,11 +11,11 @@ This file is the agreed skeleton for the user manual ([issue
 
 The guide is **task-oriented** — how to do a thing — not a flag reference.
 The complete option reference is `jnext(1)` / `USAGE.md`, which are generated
-from a single source; the Reference chapter links there rather than restating
+from a single source; Appendix A (Reference) links there rather than restating
 options, so the manual can never drift from the binary.
 
 **Audience.** Chapters 1-5 are for someone who just wants to **run programs**,
-and assume no development background. Chapters 6, 7 and 10 are **developer oriented** —
+and assume no development background. Chapters 6, 7 and 8 are **developer oriented** —
 JNEXT is a developer's emulator and its users want to know how the debugger
 and the automation work. Keep the two registers distinct.
 
@@ -33,7 +33,7 @@ build.
 
 What JNEXT is, what it emulates, and how faithful it aims to be (the VHDL core
 as the authoritative spec). Machine coverage at a glance. Where to get help and
-report bugs.
+report bugs (the former chapter 8, Known issues, is merged in there, 2026-11-16).
 
 ## 2. Installing
 
@@ -151,26 +151,17 @@ Carries a **full worked example**, with the examples drawn from JNEXT's own
 regression suite (`test/00regression/`) — real, working automation rather than
 invented snippets.
 
-## 8. Known issues
+## 8. JNEXT in a web page
 
-What to expect when something does not work, and where to look. Links to the
-[issue tracker](https://github.com/jorgegv/jnext/issues) for the live list,
-plus a write-up in place of the most outstanding ones — notably **what happens
-when the host machine is underpowered to run JNEXT** (judder and audio
-catch-up; issue #9), the DAC buzzing (#38), and the debugger window positioning
-(#39).
+JNEXT built for WebAssembly, run in a browser tab from a page you write or from an
+itch.io upload. 8.1 a page with a game, 8.2 the options and the player's controls,
+8.3 itch.io and what the browser build does not do, 8.4 NextZXOS and the SD card, what the
+browser keeps (per origin) and what to do when a page does not start, 8.5 the two ways to
+embed JNEXT (your own page, or the ready-made widget), each as a complete page to copy.
+Added 2026-11-08.
 
-## 9. Reference
+## Appendix A. Reference
 
 The full option reference, generated from the `jnext(1)` man page source so it
 cannot drift; then pointers, not restatements: file and directory locations,
 and links to the ZX Spectrum Next hardware documentation.
-
-## 10. JNEXT in a web page
-
-JNEXT built for WebAssembly, run in a browser tab from a page you write or from an
-itch.io upload. 10.1 a page with a game, 10.2 the options and the player's controls,
-10.3 itch.io and what the browser build does not do, 10.4 NextZXOS and the SD card, what the
-browser keeps (per origin) and what to do when a page does not start, 10.5 the two ways to
-embed JNEXT (your own page, or the ready-made widget), each as a complete page to copy.
-Added 2026-11-08.

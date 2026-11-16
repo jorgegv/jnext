@@ -45,7 +45,7 @@
 #   doc/formats/                          snapshot-schema-func validates jnext's
 #                                         output against the schema there;
 #   doc/man/jnext.1.md                    cli-check diffs the CLI table against it;
-#   src/doc/user-guide/09-reference/01-command-line-options.md
+#   src/doc/user-guide/appendix-a-reference/01-command-line-options.md
 #                                         cli-check (CLI-DOC-06) diffs it too;
 #   doc/testing/CURRENT-REGRESSION-STATE.md  regression-doc-check checks it
 #                                         against regression_tests.conf.
@@ -75,7 +75,7 @@ STAMP_DIR=${JNEXT_REGRESSION_STAMP_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/re
 # The one definition of what the key covers: keyed(p) is true for a keyed path.
 KEY_AWK_FN='function keyed(p) {
     if (p ~ /^doc\/formats\// || p == "doc/man/jnext.1.md" || p == "doc/testing/CURRENT-REGRESSION-STATE.md" \
-        || p == "src/doc/user-guide/09-reference/01-command-line-options.md") return 1
+        || p == "src/doc/user-guide/appendix-a-reference/01-command-line-options.md") return 1
     if (p ~ /^doc\// || p ~ /^src\/doc\// || p ~ /\.md$/ || p == "ChangeLog") return 0
     return 1
 }'

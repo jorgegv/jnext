@@ -524,7 +524,7 @@ int main() {
     // -----------------------------------------------------------------
     // User guide alignment (GH #213).
     //
-    // src/doc/user-guide/09-reference/01-command-line-options.md is generated
+    // src/doc/user-guide/appendix-a-reference/01-command-line-options.md is generated
     // from the man page's OPTIONS section by tools/gen-userguide-cli.pl, and
     // is the mkdocs SOURCE the committed render is built from. Checking the
     // source rather than the rendered HTML is deliberate: docs-userguide-check

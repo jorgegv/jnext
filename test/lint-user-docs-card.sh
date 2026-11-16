@@ -23,13 +23,13 @@
 # reason and (optionally) a narrower scope. One line per hit:
 #   file:line: [name] reason
 #
-# POSITIVE CHECK: the user guide's 10.4 page must carry the three statements, as fixed
+# POSITIVE CHECK: the user guide's 8.4 page must carry the three statements, as fixed
 # substrings (lines joined first, so a wrapped sentence still counts), so they cannot be
 # edited out.
 #
 # CANNOT CATCH, as examples and not as an exhaustive list: prose such as "put the card
 # on your server", a recipe spelt in other words, a card named through a variable. It
-# catches the known shapes; the reviewer of a change to chapter 10 reads it in full.
+# catches the known shapes; the reviewer of a change to chapter 8 reads it in full.
 set -uo pipefail
 
 ROOT_DEFAULT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -65,7 +65,7 @@ SCOPE=(
 )
 # Also in scope: ChangeLog, its Unreleased section only (older sections are frozen text).
 CHANGELOG=ChangeLog
-GUIDE_104='src/doc/user-guide/10-web-page/04-*.md'
+GUIDE_104='src/doc/user-guide/08-web-page/04-*.md'
 
 # The prose files: texts a reader reads as documentation. The three patterns below that the
 # shipped JavaScript legitimately contains as CODE (the internal card entry's name, the
@@ -81,7 +81,7 @@ COMMENT_ONLY='jnextdev dollar-card image-url'
 PAT_NAME=(); PAT_RE=(); PAT_WHY=(); PAT_SCOPE=()
 pat() { PAT_NAME+=("$1"); PAT_RE+=("$2"); PAT_WHY+=("$3"); PAT_SCOPE+=("${4:-}"); }
 pat make-minimal      'make-minimal-(sdcard-image|card)' 'the card recipe is developer-guide material'
-pat fix-sdcard-image  'fix-sdcard-image'                 'a recipe for making a card (scoped to the browser texts; the desktop guide has its own)' 'web/*|packaging/web/*|src/doc/user-guide/10-web-page/*'
+pat fix-sdcard-image  'fix-sdcard-image'                 'a recipe for making a card (scoped to the browser texts; the desktop guide has its own)' 'web/*|packaging/web/*|src/doc/user-guide/08-web-page/*'
 pat http-server       'http\.server'                     'serving a card is developer-guide material'
 pat data-image        'data-(image|sha256)'              'the widget takes no image'
 pat query-image       '[?&](image|sha256)='              'a page takes no image in its query string'
@@ -151,7 +151,7 @@ awk 'BEGIN{u=0} /^## /{u=($0 ~ /^## Unreleased/)} {print (u ? $0 : "")}' "$CHANG
 scan "$CHANGELOG" "$tmp"
 rm -f "$tmp"
 
-# The three statements of 10.4, as fixed substrings over the page with its lines joined.
+# The three statements of 8.4, as fixed substrings over the page with its lines joined.
 flat=$(tr '\n' ' ' <"${G104[0]}" | tr -s ' ')
 for s in "SpecNext's copyrighted software" "JNEXT does not ship, host or serve" "stays in the visitor's browser"; do
     if [[ "$flat" != *"$s"* ]]; then

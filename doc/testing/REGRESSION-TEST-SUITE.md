@@ -343,7 +343,7 @@ host load at start and end, the lanes and the wall time. The key is a hash of
 `src/doc/`, `*.md`, `ChangeLog`) — with the documents that something `make
 regression` runs reads as input (other than docs-check) kept in:
 `doc/formats/`, `doc/man/jnext.1.md`,
-`src/doc/user-guide/09-reference/01-command-line-options.md` (cli-check's
+`src/doc/user-guide/appendix-a-reference/01-command-line-options.md` (cli-check's
 CLI-DOC-06) and `doc/testing/CURRENT-REGRESSION-STATE.md`. The set was derived
 by tracing every file the non-build gates and a whole suite run open, plus a
 static grep of CMake, the Makefile and the rows; it lives in one place,

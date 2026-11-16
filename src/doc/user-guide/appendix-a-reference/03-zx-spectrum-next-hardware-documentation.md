@@ -1,4 +1,4 @@
-# 9.3 ZX Spectrum Next hardware documentation
+# A.3 ZX Spectrum Next hardware documentation
 
 JNEXT emulates the official ZX Spectrum Next FPGA core, and the VHDL source of
 that core is the authority on hardware behaviour. For everything the VHDL does

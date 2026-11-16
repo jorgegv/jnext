@@ -170,13 +170,13 @@ MAN_RENDERER      := doc/man/pandoc-version.txt
 MAN_SRC           := doc/man/jnext.1.md
 MAN_OUT           := doc/man/jnext.1
 USAGE_OUT         := USAGE.md
-# Third rendering of MAN_SRC: the user guide's "9.1 Command-line options" page
+# Third rendering of MAN_SRC: the user guide's "A.1 Command-line options" page
 # (GH #213). Generated into the mkdocs SOURCE tree, so the committed render
 # under doc/user-guide follows through docs-userguide-check as usual. The
 # generator also runs pandoc, which is why it is checked by docs-man-check
 # (and inherits its pandoc-version-gap skip) rather than by the guide's check.
 GUIDE_CLI_GEN     := tools/gen-userguide-cli.pl
-GUIDE_CLI_OUT     := src/doc/user-guide/09-reference/01-command-line-options.md
+GUIDE_CLI_OUT     := src/doc/user-guide/appendix-a-reference/01-command-line-options.md
 
 # Every recipe runs in the C locale. Two reasons, both about not lying:
 #  - builds: compiler/linker diagnostics stay in English (greppable, quotable).
@@ -1171,7 +1171,7 @@ lint-user-docs-card:
 	@# the user guide, man page, README, FEATURES, the Unreleased ChangeLog entry and
 	@# the web package's README must carry no recipe, example URL or page option for a
 	@# card or image (owner, 2026-11-15). Banned shapes plus the three statements of
-	@# user guide 10.4; the developer guide is out of scope on purpose. A prerequisite
+	@# user guide 8.4; the developer guide is out of scope on purpose. A prerequisite
 	@# of docs-check, so it runs on every `make unit-test` and `make regression`.
 	@bash test/lint-user-docs-card.sh
 
