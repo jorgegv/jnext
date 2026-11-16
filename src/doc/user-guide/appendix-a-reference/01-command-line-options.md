@@ -8,7 +8,7 @@
 <!-- A hand edit here FAILS `make docs-check`, and so fails every unit-test -->
 <!-- and regression run. -->
 
-# 9.1 Command-line options
+# A.1 Command-line options
 
 Every option JNEXT accepts is listed below, grouped the way the manual groups
 them. This page, the **jnext(1)** man page and
