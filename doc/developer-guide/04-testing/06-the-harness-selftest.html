@@ -3052,7 +3052,8 @@ guard that cannot be shown to fire is not a guard.</p>
 <code>manifest</code> helper writes a manifest with a matching — or deliberately wrong —
 <code># expect:</code> pin. From those few primitives the self-test drives, among others,
 a clean two-suite run; a suite that fails while a later suite must still be
-reported; a suite that prints no summary; a suite that hangs into its timeout;
+reported; a suite that prints no summary; a suite that hangs into its timeout, and one that is <code>SIGKILL</code>ed before its bound
+(reported as killed, not as a timeout);
 a suite that reports one row ID twice, or fewer or more row IDs than rows; a
 real <code>fork()</code>ing binary whose child reports a row before its parent does; a
 row ID built at run time, a data-ID exemption and a stale one, and a suite with

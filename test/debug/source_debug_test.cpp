@@ -391,23 +391,78 @@ struct Bare {
     }
 };
 
-int main() {
-    std::printf("Source-level debugging (backend)\n");
-    const fs::path dir = fs::temp_directory_path() /
-                         ("jnext-source-debug-" + std::to_string(::getpid()));
-    fs::remove_all(dir);
-    fs::create_directories(dir);
-
-    // The pages behind $8000 and $9000 on this machine, read rather than
-    // assumed: the map must name exactly what the MMU maps.
+// State main() used to share between its sections, now handed to each part.
+struct Ctx {
+    fs::path dir;
     unsigned p80 = 0, p90 = 0;
-    {
-        Machine m;
-        p80 = m.dbg->effective_page(0x8000);
-        p90 = m.dbg->effective_page(0x9000);
-    }
-    const fs::path sld = dir / "prog.sld";
-    write_text(sld, program_sld(p80, p90));
+    fs::path sld;
+    fs::path own;
+    bool cv36_ok = true;   // SRCDBG-CVAL-36's verdict, set early and checked late
+};
+
+static auto attach_sidecars(const Ctx& c, Machine& m, const std::string& stem) {
+    write_text(c.own / (stem + ".nex"), "");
+    write_text(c.own / (stem + ".Memory.txt"), "8000: ._Main\n");
+    write_text(c.own / (stem + ".sld"), program_sld(c.p80, c.p90));
+    return m.dbg->load_program_sidecars((c.own / (stem + ".nex")).string());
+}
+
+static void with_cold_boot(Machine& m) {
+    jnext::dbg::LoopDriver d;
+    d.cold_boot = [&m]() {
+        emulator_frontend_cold_boot(m.emu, m.emu.config(), std::string(), ColdBootHooks{});
+        return true;
+    };
+    m.dbg->set_loop_driver(d);
+}
+
+static bool sidecars_gone(Machine& m) {
+    return m.dbg->source_map().empty() && m.dbg->symbols().empty() &&
+           !m.dbg->source_location(0x8000);
+}
+
+static void poke_page(Machine& m, unsigned nr, unsigned page, uint16_t at,
+                        std::initializer_list<uint8_t> bytes) {
+    m.dbg->nextreg_write(m.a, static_cast<uint8_t>(nr), static_cast<uint8_t>(page));
+    for (const uint8_t b : bytes) m.emu.mmu().write(at++, b);
+}
+
+static void divmmc_instant_machine(Machine& m) {
+    m.dbg->nextreg_write(m.a, 0x50, 10);
+    m.dbg->nextreg_write(m.a, 0x0A, 0x10);   // automap enable
+    m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+    m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+    m.dbg->nextreg_write(m.a, 0xBA, 0x01);   // instant entry at $0000
+    m.emu.divmmc().rom_data()[0] = 0x3C;      // INC A
+    m.emu.divmmc().rom_data()[1] = 0xC9;      // RET
+    m.emu.mmu().write(0x8000, 0xCD);
+    m.emu.mmu().write(0x8001, 0x00);
+    m.emu.mmu().write(0x8002, 0x00);
+    Z80Registers r = m.emu.cpu().get_registers();
+    r.PC = 0x8000;
+    r.AF = 0x0000;
+    m.emu.cpu().set_registers(r);
+    m.dbg->set_trace_enabled(true);
+}
+
+static void interrupt_machine(Machine& m) {
+    poke_page(m, 0x56, 0x12, 0xC000, {0x00});
+    poke_page(m, 0x50, 0x10, 0x0038, {0xFB, 0xC9});
+    m.emu.mmu().write(0x8000, 0xCD);
+    m.emu.mmu().write(0x8001, 0x00);
+    m.emu.mmu().write(0x8002, 0xC0);
+    Z80Registers r = m.emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IM = 1; r.IFF1 = 1; r.IFF2 = 1;
+    m.emu.cpu().set_registers(r);
+    m.dbg->set_trace_enabled(true);
+}
+
+[[gnu::noinline]] static void srcdbg_part_01(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+    const fs::path& sld = ctx.sld;
+
 
     // ── load_source_map() ───────────────────────────────────────────────
     {
@@ -552,6 +607,14 @@ int main() {
                   b.problem.find("bad-b.sna") == std::string::npos,
               a.problem + " | " + b.problem);
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_02(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+    const fs::path& sld = ctx.sld;
+
 
     // ── source_step() forwards ──────────────────────────────────────────
     {
@@ -653,6 +716,13 @@ int main() {
                                 "first mapped position after it: main.bas:13, not $8005",
               in_sub && m.pc() == 0x8006, m.where());
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_03(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const fs::path& sld = ctx.sld;
+
     {
         Machine m;
         m.dbg->load_source_map(sld.string(), false);
@@ -767,6 +837,13 @@ int main() {
                                 "machine stays",
               none == Result::RefusedUnavailable && m.pc() == 0x8002, m.where());
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_04(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
 
     {
         // Two consecutive instructions of one statement: $8005 and $8006 are
@@ -891,6 +968,12 @@ int main() {
         check("SRCDBG-ID-03", "a RAM page under the Layer 2 read mapping is not that page",
               ram && overlaid && m.dbg->source_page(0x0010) == MemSpace::page(10));
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_05(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+
     {
         // History: a ROM entry of the trace is not the RAM page its number
         // names either. 8000: JP $0000, then the ROM (with no ROM image loaded
@@ -1082,6 +1165,9 @@ int main() {
                   b.predicted == MemSpace::divmmc_rom() && b.recorded == MemSpace::divmmc_rom(),
               pair_str(a) + " " + pair_str(b));
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_06(Ctx&) {
     {
         // D5, automap disabled: RST $00 is an INSTANT entry, but NR 0x0A bit 4 is
         // clear, so `divmmc_automap_reset` holds `automap` at 0 (zxnext.vhd:4112;
@@ -1157,6 +1243,9 @@ int main() {
               p.predicted == MemSpace::divmmc_ram(5) && p.recorded == MemSpace::divmmc_ram(5),
               pair_str(p));
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_07(Ctx&) {
     {
         // The Multiface's 0x0066 fetch: unarmed, $0066 is whatever the MMU maps; once the
         // button has armed the NMI (nmi_active), the fetch at $0066 itself latches
@@ -1444,6 +1533,9 @@ int main() {
                   return std::string(b);
               }());
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_08(Ctx&) {
     {
         // A delayed-on entry maps the DivMMC for the rest of the instruction at the entry point:
         // `automap_held` takes `automap_hold` on the first MREQ-high after the opcode fetch
@@ -1757,6 +1849,9 @@ int main() {
                       (u.emu.divmmc().is_nmi_hold() ? ", held after" : ", released after"));
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_09(Ctx&) {
     {
         // Each inner byte of a prefix chain is an M1 with its own decode: a prefix at $0007 and an
         // inner byte at $0008, a DELAYED entry, is still RAM's (the hold it loads reaches the cycles
@@ -2091,6 +2186,13 @@ int main() {
                   "hits=" + std::to_string(hits) + " A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_10(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const fs::path& sld = ctx.sld;
+
     {
         // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes
         // the same prediction as probe_execute (ID-02, ID-06): at an instant DivMMC entry the fetch
@@ -2295,6 +2397,14 @@ int main() {
                   spent,
               m.where() + " reason " + std::to_string(static_cast<int>(st.pause_reason.kind)));
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_11(Ctx& ctx) {
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+    const fs::path& sld = ctx.sld;
+    const fs::path& own = ctx.own;
+
 
     {
         // A handler that redirects: at $8001 (inside main.bas:10) it sends the PC to
@@ -2320,7 +2430,6 @@ int main() {
     // ── store ownership ─────────────────────────────────────────────────
     // In a directory of their own: the rows above leave a plain Memory.txt
     // in `dir`, which is every .nex's fallback there.
-    const fs::path own = dir / "own";
     fs::create_directories(own);
     {
         Machine m;
@@ -2413,6 +2522,20 @@ int main() {
         check("SRCDBG-TAPE-02", "it can still be loaded by hand",
               byhand.count == 6 && m.dbg->source_map().size() == 6);
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_12(Ctx& ctx) {
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+    const fs::path& own = ctx.own;
+    const auto attach = [&](Machine& m, const std::string& stem) {
+        return attach_sidecars(ctx, m, stem);
+    };
+
+
+    // ── store ownership ─────────────────────────────────────────────────
+    // In a directory of their own: the rows above leave a plain Memory.txt
+    // in `dir`, which is every .nex's fallback there.
 
     // ── sidecars belong to the load they came with ──────────────────────
     {
@@ -2486,24 +2609,6 @@ int main() {
     // restore goes back into that program's history (HIST-01/02, and HIST-08
     // below); anything else puts a machine in front of them that they may not
     // describe, whatever its clock says.
-    const auto attach = [&](Machine& m, const std::string& stem) {
-        write_text(own / (stem + ".nex"), "");
-        write_text(own / (stem + ".Memory.txt"), "8000: ._Main\n");
-        write_text(own / (stem + ".sld"), program_sld(p80, p90));
-        return m.dbg->load_program_sidecars((own / (stem + ".nex")).string());
-    };
-    const auto with_cold_boot = [](Machine& m) {
-        jnext::dbg::LoopDriver d;
-        d.cold_boot = [&m]() {
-            emulator_frontend_cold_boot(m.emu, m.emu.config(), std::string(), ColdBootHooks{});
-            return true;
-        };
-        m.dbg->set_loop_driver(d);
-    };
-    const auto sidecars_gone = [](Machine& m) {
-        return m.dbg->source_map().empty() && m.dbg->symbols().empty() &&
-               !m.dbg->source_location(0x8000);
-    };
     {
         Machine m;
         const auto r = attach(m, "rst-soft");
@@ -2537,6 +2642,23 @@ int main() {
                                 "the sidecars attached to it",
               attached && rr == Result::Ok && sidecars_gone(m));
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_13(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+    const fs::path& sld = ctx.sld;
+    const auto attach = [&](Machine& m, const std::string& stem) {
+        return attach_sidecars(ctx, m, stem);
+    };
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
     {
         // A state from another machine, taken well after the sidecars were
         // attached: its clock is not before the attach, so only the kind of
@@ -2683,6 +2805,13 @@ int main() {
               "at " + std::to_string(at) + " after " + std::to_string(after) + " rc " +
                   std::to_string(static_cast<int>(r)));
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_14(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
 
     // ── the call-stack tracker records pages ────────────────────────────
     {
@@ -2722,32 +2851,6 @@ int main() {
                   ram_page_of(f[0].target_space) == p90 && f[1].caller_pc == 0x8002 &&
                   ram_page_of(f[1].caller_space) == p80);
     }
-
-    // ── GH #340 (E23-08): the identity recorded in history and call frames ──
-    // The ZXN fixture: `page` mapped into MMU slot `nr - 0x50`, a byte string
-    // written there, then the real mapping restored by the caller.
-    auto poke_page = [](Machine& m, unsigned nr, unsigned page, uint16_t at,
-                        std::initializer_list<uint8_t> bytes) {
-        m.dbg->nextreg_write(m.a, static_cast<uint8_t>(nr), static_cast<uint8_t>(page));
-        for (const uint8_t b : bytes) m.emu.mmu().write(at++, b);
-    };
-    auto divmmc_instant_machine = [&](Machine& m) {
-        m.dbg->nextreg_write(m.a, 0x50, 10);
-        m.dbg->nextreg_write(m.a, 0x0A, 0x10);   // automap enable
-        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
-        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
-        m.dbg->nextreg_write(m.a, 0xBA, 0x01);   // instant entry at $0000
-        m.emu.divmmc().rom_data()[0] = 0x3C;      // INC A
-        m.emu.divmmc().rom_data()[1] = 0xC9;      // RET
-        m.emu.mmu().write(0x8000, 0xCD);
-        m.emu.mmu().write(0x8001, 0x00);
-        m.emu.mmu().write(0x8002, 0x00);
-        Z80Registers r = m.emu.cpu().get_registers();
-        r.PC = 0x8000;
-        r.AF = 0x0000;
-        m.emu.cpu().set_registers(r);
-        m.dbg->set_trace_enabled(true);
-    };
     {
         // zxnext.vhd:3084-3092 / divmmc.vhd:147 (instant entry: the M1 at $0000 is DivMMC's)
         // and the MMU4 reset value (:4615): the entries name what the M1 recorded.
@@ -2864,6 +2967,15 @@ int main() {
                   m.dbg->registers().HL == 0x5678,
               hex(r0) + " " + hex(r1) + " " + hex(r2) + " HL=" + hex(m.dbg->registers().HL));
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_15(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── GH #340 (E23-08): the identity recorded in history and call frames ──
+    // The ZXN fixture: `page` mapped into MMU slot `nr - 0x50`, a byte string
+    // written there, then the real mapping restored by the caller.
     {
         // zxnext.vhd:3084-3098 (DivMMC RAM), :2966-2971 (Layer 2), :1856-1857 (boot ROM):
         // each entry's FETCH= names the memory the instruction came from.
@@ -2947,6 +3059,13 @@ int main() {
                   t.at(2).fetch_space() == MemSpace::page(0x11),
               "entries=" + std::to_string(t.size()));
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_16(Ctx&) {
+
+    // ── GH #340 (E23-08): the identity recorded in history and call frames ──
+    // The ZXN fixture: `page` mapped into MMU slot `nr - 0x50`, a byte string
+    // written there, then the real mapping restored by the caller.
     {
         // zxnext.vhd:2983-2984, :3052: a 48K's RST $38 lands in ROM 0. And :4688: on a Next
         // with MMU0 = page 0x0C the same RST lands in that RAM page.
@@ -3023,17 +3142,6 @@ int main() {
     }
     // The interrupt fixture: CALL $C000 (page 0x12) from page 4, an INT taken at $C000 before
     // that NOP runs; the IM 1 routine at $0038 (page 0x10) is EI, RET.
-    auto interrupt_machine = [&](Machine& m) {
-        poke_page(m, 0x56, 0x12, 0xC000, {0x00});
-        poke_page(m, 0x50, 0x10, 0x0038, {0xFB, 0xC9});
-        m.emu.mmu().write(0x8000, 0xCD);
-        m.emu.mmu().write(0x8001, 0x00);
-        m.emu.mmu().write(0x8002, 0xC0);
-        Z80Registers r = m.emu.cpu().get_registers();
-        r.PC = 0x8000; r.SP = 0xFF00; r.IM = 1; r.IFF1 = 1; r.IFF2 = 1;
-        m.emu.cpu().set_registers(r);
-        m.dbg->set_trace_enabled(true);
-    };
     {
         // t80na.vhd:278-279: the INT acknowledge cycle fetches nothing, so the interrupted
         // instruction's source is the prediction at its PC (page 0x12, :4688), neither the
@@ -3123,6 +3231,9 @@ int main() {
               f.empty() ? std::string("no frame, ") + m.where()
                         : "frames " + std::to_string(f.size()) + " " + m.where());
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_17(Ctx&) {
 
     {
         // GH #345 (E23-14): a RET that is a computed jump (PUSH; RET) lands on no CALL's
@@ -3687,6 +3798,19 @@ int main() {
                   back && cs.frames().empty());
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_18(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── GH #340 (E23-08): the identity recorded in history and call frames ──
+    // The ZXN fixture: `page` mapped into MMU slot `nr - 0x50`, a byte string
+    // written there, then the real mapping restored by the caller.
+    // The interrupt fixture: CALL $C000 (page 0x12) from page 4, an INT taken at $C000 before
+    // that NOP runs; the IM 1 routine at $0038 (page 0x10) is EI, RET.
     {
         // An INT that ends a HALT: the CPU has stepped past the HALT, so the pushed return
         // address is the HALT's + 1 while the frame's caller is the HALT. The ISR's RET lands
@@ -3723,873 +3847,1239 @@ int main() {
     // the sidecars of the point it lands on (the last 4 attachments are
     // kept); any other landing keeps a carried map only if its binary
     // identity verifies; Back never crosses a landing.
-    {
-        const fs::path life = dir / "life";
-        fs::create_directories(life);
-        const fs::path good = dir / "ident-good.sld";
-        // A state of another machine whose $8000 holds `first` (and, when
-        // `program`, the fixture program), run for `frames` frames.
-        const auto foreign_state = [](uint8_t first, bool program, int frames, uint16_t pc = 0x8000) {
-            Emulator o;
-            EmulatorConfig c;
-            c.type = MachineType::ZX48K;
-            o.init(c);
-            if (program) {
-                const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
-                for (size_t i = 0; i < sizeof(main_prog); ++i)
-                    o.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
-                const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
-                for (size_t i = 0; i < sizeof(sub); ++i)
-                    o.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
-            }
-            o.mmu().write(0x8000, first);
-            Z80Registers r = o.cpu().get_registers();
-            r.PC = pc;
-            r.SP = 0xFF00;
-            r.IFF1 = r.IFF2 = 0;
-            o.cpu().set_registers(r);
-            for (int i = 0; i < frames; ++i) o.run_frame();
-            // The frames moved the PC along the program; the state is taken at `pc`.
-            r = o.cpu().get_registers();
-            r.PC = pc;
-            o.cpu().set_registers(r);
-            StateWriter measure;
-            o.save_state(measure);
-            std::vector<uint8_t> bytes(measure.position(), 0);
-            StateWriter w(bytes.data(), bytes.size());
-            o.save_state(w);
-            return bytes;
-        };
-        const auto own_state = [](Machine& m) {
-            StateWriter measure;
-            m.emu.save_state(measure);
-            std::vector<uint8_t> bytes(measure.position(), 0);
-            StateWriter w(bytes.data(), bytes.size());
-            m.emu.save_state(w);
-            return bytes;
-        };
-        const auto run_frames = [](Machine& m, int n) {
-            m.dbg->run(m.a);
-            for (int i = 0; i < n; ++i) m.emu.run_frame();
-            m.dbg->pause(m.a);
-        };
-        // The driver's `load` lands `*bytes` as a state (the ring is kept).
-        const auto state_driver = [](Machine& m, const std::vector<uint8_t>* bytes) {
-            jnext::dbg::LoopDriver d;
-            d.load = [&m, bytes](const std::string&) {
-                StateReader r(bytes->data(), bytes->size());
-                return m.emu.load_state(r);
-            };
-            m.dbg->set_loop_driver(d);
-        };
-        const auto attach_text = [&](Machine& m, const std::string& stem, const std::string& sld,
-                                     const std::string& memory = {}) {
-            write_text(life / (stem + ".nex"), "");
-            write_text(life / (stem + ".sld"), sld);
-            if (!memory.empty()) write_text(life / (stem + ".Memory.txt"), memory);
-            return m.dbg->load_program_sidecars((life / (stem + ".nex")).string());
-        };
-        struct LogCatcher : jnext::dbg::Listener {
-            std::vector<std::string> lines;
-            std::vector<jnext::dbg::LogLevel> levels;
-            void on_paused(const jnext::dbg::PausedInfo&) override {}
-            void on_resumed(ClientId) override {}
-            void on_reset(ResetKind) override {}
-            void on_frame_ended(uint32_t) override {}
-            void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
-            void on_exit_requested(int) override {}
-            void on_log(jnext::dbg::LogLevel l, const std::string& t) override {
-                levels.push_back(l);
-                lines.push_back(t);
-            }
-            bool has(const std::string& s) const {
-                for (const auto& l : lines)
-                    if (l.find(s) != std::string::npos) return true;
-                return false;
-            }
-        };
-        using State = Debugger::SourceMapStatus::State;
-        const std::string a_sld = program_sld(p80, p90);
-        const std::string b_sld = x_sld(p80, {{"5", 0x8000}});
-        const std::string good_text = [&] {
-            std::ifstream in(good, std::ios::binary);
-            return std::string(std::istreambuf_iterator<char>(in), {});
-        }();
-        const auto line_at = [](Machine& m, uint16_t addr) -> std::string {
-            const auto* l = m.dbg->source_location(addr);
-            return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
-        };
-
-        // SRCLIFE-01: A, then B's state landing that keeps A's slots, then a
-        // rewind into A's history and into B's: each point's own map comes back.
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            attach_text(m, "l1a", a_sld);
-            run_frames(m, 2);
-            const uint32_t frame_a = m.dbg->time().frame;
-            const std::vector<uint8_t> b_state = foreign_state(0x00, true, 6);
-            state_driver(m, &b_state);
-            write_text(life / "l1b.sld", b_sld);
-            const Result ld = m.dbg->load(m.a, (life / "l1b.nex").string());
-            run_frames(m, 2);
-            const uint32_t frame_b = m.dbg->time().frame;
-            const Result ra = m.dbg->rewind_to_frame(m.a, frame_a);
-            const std::string at_a = line_at(m, 0x8000);
-            const Result rb = m.dbg->rewind_to_frame(m.a, frame_b);
-            const std::string at_b = line_at(m, 0x8000);
-            check("SRCLIFE-01", "load A, load B (a state landing that keeps A's slots), rewind "
-                                "into A: A's map is back; rewind into B: B's",
-                  ld == Result::Ok && ra == Result::Ok && rb == Result::Ok &&
-                      at_a == "main.bas:10" && at_b == "x.asm:5",
-                  "A=" + at_a + " B=" + at_b);
-        }
-
-        // SRCLIFE-02: a real .sna of other bytes: the identity fails.
-        {
-            Machine m;
-            LogCatcher lc;
-            m.dbg->set_listener(m.a, &lc);
-            const auto r = attach_text(m, "l2", good_text, "8000: ._Main\n");
-            Machine other;
-            other.emu.mmu().write(0x8000, 0xFF);
-            const std::string sna = (life / "l2b.sna").string();
-            const Result sv = other.dbg->save_snapshot(other.a, sna);
-            jnext::dbg::LoopDriver d;
-            d.load = [&m](const std::string& p) { return emulator_apply_load(m.emu, p, false); };
-            m.dbg->set_loop_driver(d);
-            const bool attached = r.sources == 6 && r.symbols == 1;
-            const Result ld = m.dbg->load(m.a, sna);
-            const auto st = m.dbg->source_map_status();
-            check("SRCLIFE-02", "a sidecar with identity and a real .sna of other bytes: map and "
-                                "symbols detached, status None with a reason",
-                  attached && sv == Result::Ok && ld == Result::Ok &&
-                      m.dbg->source_map().empty() && m.dbg->symbols().empty() &&
-                      st.state == State::None && !st.reason.empty() &&
-                      lc.has("Dropped the program's SLD source map: its binary identity"),
-                  "ld=" + std::to_string(int(ld)) + " reason=" + st.reason);
-        }
-
-        // SRCLIFE-03: a state whose $8000.. differ (B3c).
-        {
-            Machine m;
-            const auto r = attach_text(m, "l3", good_text, "8000: ._Main\n");
-            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
-            const Result ld = m.dbg->load_state_bytes(m.a, other.data(), other.size());
-            check("SRCLIFE-03", "a state restored with other bytes at $8000: the identity fails, "
-                                "map and symbols detached",
-                  r.sources == 6 && ld == Result::Ok && m.dbg->source_map().empty() &&
-                      m.dbg->symbols().empty());
-        }
-
-        // SRCLIFE-04: identical code: kept, re-keyed, and a rewind into the
-        // post-load slots keeps it too.
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            const auto r = attach_text(m, "l4", good_text, "8000: ._Main\n");
-            const std::vector<uint8_t> same = foreign_state(0x00, true, 4);
-            const Result ld = m.dbg->load_state_bytes(m.a, same.data(), same.size());
-            const bool kept_load = m.dbg->source_map().size() == 6;
-            const uint32_t f0 = m.dbg->time().frame;
-            run_frames(m, 2);
-            const Result rr = m.dbg->rewind_to_frame(m.a, f0 + 1);
-            check("SRCLIFE-04", "a state of the same code keeps the sidecars after the load and "
-                                "after a rewind into the post-load slots",
-                  r.sources == 6 && ld == Result::Ok && kept_load && rr == Result::Ok &&
-                      m.dbg->source_map().size() == 6 && m.dbg->lookup_name("Main") == 0x8000);
-        }
-
-        // SRCLIFE-05: the user's map, a foreign state: stale, not replaced.
-        {
-            Machine m;
-            m.dbg->load_source_map(good.string(), false);
-            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
-            const Result ld = m.dbg->load_state_bytes(m.a, other.data(), other.size());
-            const auto st = m.dbg->source_map_status();
-            const bool stale = st.state == State::Stale && st.by_user && st.file == good.string() &&
-                               !st.reason.empty() && m.dbg->source_map().empty() &&
-                               !m.dbg->source_location(0x8000);
-            attach_text(m, "l5", a_sld);
-            const auto st2 = m.dbg->source_map_status();
-            const bool kept = st2.state == State::Stale && st2.file == good.string();
-            const auto again = m.dbg->load_source_map(good.string(), true);
-            const auto st3 = m.dbg->source_map_status();
-            check("SRCLIFE-05", "the user's map after another program's state: stale (no lookup), "
-                                "a later sidecar does not replace it, loading it again makes it live",
-                  ld == Result::Ok && stale && kept && again.count == 6 &&
-                      st3.state == State::Attached && m.dbg->source_map().size() == 6,
-                  st.reason);
-        }
-
-        // SRCLIFE-06 / -24: a reset whose ROM clears RAM afterwards (poked
-        // here: the fixture has no ROM). Intact at the reset, gone later.
-        for (int by_user = 0; by_user < 2; ++by_user) {
-            Machine m;
-            if (by_user) {
-                m.dbg->load_source_map(good.string(), false);
-            } else {
-                attach_text(m, "l6", good_text);
-            }
-            const Result rs = m.dbg->reset(m.a, ResetKind::Soft);
-            const auto s0 = m.dbg->source_map_status();
-            m.dbg->run(m.a);
-            m.emu.mmu().write(0x8001, 0x55);
-            for (int i = 0; i < 5; ++i) m.emu.run_frame();
-            const auto s1 = m.dbg->source_map_status();
-            m.dbg->pause(m.a);
-            const auto s2 = m.dbg->source_map_status();
-            const bool gone = m.emu.mmu().peek(0x8001) != 0x00;
-            const bool ok = rs == Result::Ok && gone && s0.state == State::Attached &&
-                            s1.state == State::Attached;
-            if (by_user)
-                check("SRCLIFE-24", "the same with a map loaded by hand: Stale (by_user, file kept) "
-                                    "after the pause",
-                      ok && s2.state == State::Stale && s2.by_user && s2.file == good.string() &&
-                          m.dbg->source_map().empty());
-            else
-                check("SRCLIFE-06", "a soft reset keeps a verified sidecar map while it is still "
-                                    "intact and while running; the next pause finds RAM changed "
-                                    "and detaches it with a reason",
-                      ok && s2.state == State::None && !s2.reason.empty());
-        }
-
-        // SRCLIFE-07: an RZX started from other bytes.
-        {
-            Machine m;
-            LogCatcher lc;
-            m.dbg->set_listener(m.a, &lc);
-            attach_text(m, "l7", good_text);
-            const std::string rzx = (life / "l7b.rzx").string();
-            {
-                Machine rec;
-                rec.emu.mmu().write(0x8000, 0xFF);
-                rec.emu.start_rzx_recording(rzx);
-                rec.emu.run_frame();
-                rec.emu.stop_rzx_recording();
-            }
-            jnext::dbg::LoopDriver d;
-            d.load = [&m](const std::string& p) { return m.emu.load_rzx(p); };
-            m.dbg->set_loop_driver(d);
-            const Result ld = m.dbg->load(m.a, rzx);
-            check("SRCLIFE-07", "an RZX playback start is a landing: the sidecar with an identity "
-                                "that does not match is detached",
-                  ld == Result::Ok && m.emu.mmu().peek(0x8000) == 0xFF &&
-                      m.dbg->source_map().empty() &&
-                      lc.has("Dropped the program's SLD source map: its binary identity"),
-                  "ld=" + std::to_string(int(ld)));
-        }
-
-        // SRCLIFE-08: Back does not cross a state load.
-        {
-            Machine m(/*rewind=*/true);
-            LogCatcher lc;
-            m.dbg->set_listener(m.a, &lc);
-            m.dbg->load_source_map(good.string(), false);
-            m.dbg->set_trace_enabled(true);
-            // The trace (10000 entries) holds the last frame and a bit: after
-            // the state of frame 5 is taken and one more frame run, the entries
-            // from before it have clocks below the load's, as a Frame Back leaves.
-            run_frames(m, 5);
-            const std::vector<uint8_t> s = own_state(m);
-            run_frames(m, 1);
-            const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
-            const uint64_t load_clock = m.emu.clock().get();
-            const Result first = m.dbg->source_step(m.a, Step::Back);
-            run_frames(m, 2);
-            m.dbg->source_step(m.a, Step::Into);
-            m.dbg->source_step(m.a, Step::Into);
-            const Result second = m.dbg->source_step(m.a, Step::Back);
-            check("SRCLIFE-08", "Back right after a state load refuses (the history before it is "
-                                "another machine's); after more frames it lands on a post-load "
-                                "entry",
-                  ld == Result::Ok && first == Result::RefusedUnavailable &&
-                      lc.has("no earlier mapped source position") && second == Result::Ok &&
-                      m.emu.clock().get() >= load_clock,
-                  "first=" + std::to_string(int(first)) + " second=" +
-                      std::to_string(int(second)));
-        }
-
-        // SRCLIFE-09: load() attaches the program's sidecars.
-        {
-            Machine m;
-            write_text(life / "l9.nex", "");
-            write_text(life / "l9.sld", a_sld);
-            write_text(life / "l9.Memory.txt", "8000: ._Main\n");
-            jnext::dbg::LoopDriver d;
-            d.load = [&m](const std::string&) { m.emu.mmu().write(0xC000, 0x99); return true; };
-            m.dbg->set_loop_driver(d);
-            const Result ld = m.dbg->load(m.a, (life / "l9.nex").string());
-            check("SRCLIFE-09", "load() attaches the program's source map and symbols",
-                  ld == Result::Ok && m.dbg->source_map().size() == 6 &&
-                      m.dbg->lookup_name("Main") == 0x8000);
-        }
-
-        // SRCLIFE-10..14: a ring landing before the attach; the FIRST reader
-        // (or pump) must see the processed state, and pump announces it.
-        {
-            const auto setup = [&](LogCatcher& lc) {
-                auto m = std::make_unique<Machine>(/*rewind=*/true);
-                m->dbg->set_listener(m->a, &lc);
-                run_frames(*m, 3);
-                attach_text(*m, "l10", a_sld, "8000: ._Main\n");
-                const uint32_t f = m->dbg->time().frame;
-                run_frames(*m, 3);
-                m->dbg->rewind_to_frame(m->a, f - 1);
-                return m;
-            };
-            LogCatcher l10, l11, l12, l13, l14;
-            check("SRCLIFE-10", "after a rewind to before the attach the first reader "
-                                "symbols() is already empty",
-                  setup(l10)->dbg->symbols().empty());
-            check("SRCLIFE-11", "... the first reader lookup() finds nothing",
-                  !setup(l11)->dbg->lookup(0x8000).has_value());
-            check("SRCLIFE-12", "... the first reader lookup_name() finds nothing",
-                  !setup(l12)->dbg->lookup_name("Main").has_value());
-            check("SRCLIFE-13", "... the first reader source_map() is empty",
-                  setup(l13)->dbg->source_map().empty());
-            {
-                auto m = setup(l14);
-                const bool before = l14.has("Dropped the program's");
-                m->dbg->pump(jnext::dbg::PumpBudget{});
-                                check("SRCLIFE-14", "... and pump() alone announces the drop to the listeners",
-                      !before && l14.has("Dropped the program's SLD source map"));
-            }
-        }
-
-        // SRCLIFE-15: a writer rechecks first, so the pending landing cannot
-        // undo it afterwards.
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            attach_text(m, "l15a", a_sld, "8000: ._S1sym\n");
-            const uint32_t f1 = m.dbg->time().frame;
-            run_frames(m, 3);
-            attach_text(m, "l15b", a_sld, "8000: ._S2sym\n");
-            run_frames(m, 3);
-            m.dbg->rewind_to_frame(m.a, f1 + 1);
-            m.dbg->clear_symbols();
-            const bool gone = !m.dbg->lookup_name("S1sym").has_value();
-            attach_text(m, "l15c", a_sld, "8000: ._S3sym\n");
-            check("SRCLIFE-15", "clear_symbols() right after a rewind: the old symbol does not "
-                                "come back, and the next program's fill the store",
-                  gone && !m.dbg->lookup_name("S1sym").has_value() &&
-                      m.dbg->lookup_name("S3sym") == 0x8000);
-        }
-
-        // SRCLIFE-16: load() reports a refused sidecar.
-        {
-            Machine m;
-            LogCatcher lc;
-            m.dbg->set_listener(m.a, &lc);
-            write_text(life / "bad.nex", "");
-            write_text(life / "bad.sld", "this is not an SLD\n");
-            jnext::dbg::LoopDriver d;
-            d.load = [](const std::string&) { return true; };
-            m.dbg->set_loop_driver(d);
-            const Result ld = m.dbg->load(m.a, (life / "bad.nex").string());
-            const auto st = m.dbg->source_map_status();
-            bool warn = false;
-            for (size_t i = 0; i < lc.lines.size(); ++i)
-                if (lc.levels[i] == jnext::dbg::LogLevel::Warn &&
-                    lc.lines[i].find("rejected") != std::string::npos)
-                    warn = true;
-            check("SRCLIFE-16", "load() of a program with a refused sidecar tells every listener "
-                                "(Warn) and the status names the file",
-                  ld == Result::Ok && warn && st.state == State::None &&
-                      st.reason.find("bad.sld") != std::string::npos,
-                  st.reason);
-        }
-
-        // SRCLIFE-17: a rebuilt program's Reload attaches the new map.
-        {
-            Machine m;
-            write_text(life / "l17.nex", "");
-            jnext::dbg::LoopDriver d;
-            d.load = [](const std::string&) { return true; };
-            m.dbg->set_loop_driver(d);
-            write_text(life / "l17.sld", a_sld);
-            m.dbg->load(m.a, (life / "l17.nex").string());
-            const std::string first = line_at(m, 0x8000);
-            write_text(life / "l17.sld", x_sld(p80, {{"77", 0x8000}}));
-            m.dbg->load(m.a, (life / "l17.nex").string());
-            check("SRCLIFE-17", "a Reload of a rebuilt program attaches the new build's map",
-                  first == "main.bas:10" && line_at(m, 0x8000) == "x.asm:77", line_at(m, 0x8000));
-        }
-
-        // SRCLIFE-18: a map loaded by hand across a Reload (decision D7).
-        {
-            Machine m;
-            LogCatcher lc;
-            m.dbg->set_listener(m.a, &lc);
-            const fs::path user = life / "user.sld";
-            write_text(user, a_sld);
-            m.dbg->load_source_map(user.string(), false);
-            write_text(life / "l18.nex", "");
-            write_text(life / "l18.sld", b_sld);
-            jnext::dbg::LoopDriver d;
-            d.load = [](const std::string&) { return true; };
-            m.dbg->set_loop_driver(d);
-            m.dbg->load(m.a, (life / "l18.nex").string());
-            const auto st = m.dbg->source_map_status();
-            const bool first = st.state == State::Stale && st.by_user && st.file == user.string() &&
-                               m.dbg->source_map().empty();
-            m.dbg->load_source_map(good.string(), false);
-            m.dbg->load(m.a, (life / "l18.nex").string());
-            const auto st2 = m.dbg->source_map_status();
-            check("SRCLIFE-18", "a map loaded by hand across a Reload stays the user's: stale "
-                                "without an identity, live when the new build matches it",
-                  first && st2.state == State::Attached && st2.by_user &&
-                      m.dbg->source_map().size() == 6,
-                  st.reason);
-        }
-
-        // SRCLIFE-19: the cache keeps the last 4 attachments.
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            std::vector<uint32_t> frames;
-            for (int k = 1; k <= 5; ++k) {
-                attach_text(m, "l19_" + std::to_string(k),
-                            x_sld(p80, {{std::to_string(k).c_str(), 0x8000}}));
-                frames.push_back(m.dbg->time().frame);
-                run_frames(m, 1);
-            }
-            const Result r1 = m.dbg->rewind_to_frame(m.a, frames[0] + 1);
-            const bool g1_none = m.dbg->source_map().empty();
-            const Result r2 = m.dbg->rewind_to_frame(m.a, frames[1] + 1);
-            check("SRCLIFE-19", "five attachments: a rewind into the first finds none (evicted), "
-                                "into the second finds the second's",
-                  r1 == Result::Ok && r2 == Result::Ok && g1_none && line_at(m, 0x8000) == "x.asm:2",
-                  line_at(m, 0x8000));
-        }
-
-        // SRCLIFE-20: a guest write is no landing: nothing is verified.
-        {
-            Machine m;
-            attach_text(m, "l20", good_text);
-            m.emu.mmu().write(0x8001, 0x01);
-            run_frames(m, 1);
-            check("SRCLIFE-20", "a guest write with no landing in between leaves the attached "
-                                "map alone (design §6.6)",
-                  m.dbg->source_map().size() == 6);
-        }
-
-        // SRCLIFE-21: Back's "first instruction of the statement" search does
-        // not run on into the history before a state load. The state is another
-        // machine's, at a later clock, at PC $8001: the post-load $8001 is the
-        // second instruction of main.bas:10, and the instruction before it in
-        // the trace ($8000) belongs to the machine before the load.
-        {
-            Machine m(/*rewind=*/true);
-            m.dbg->load_source_map(good.string(), false);
-            m.dbg->set_trace_enabled(true);
-            run_frames(m, 2);
-            m.set_pc(0x8000);
-            m.dbg->step_into(m.a);                 // $8000 NOP -> PC=$8001
-            const std::vector<uint8_t> s = foreign_state(0x00, true, 6, 0x8001);
-            const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
-            const uint64_t load_clock = m.emu.clock().get();
-            static_cast<void>(m.dbg->source_step(m.a, Step::Into));    // $8001 -> $8002 (main.bas:11); setup, the row reads the trace
-            const auto& t = m.emu.trace_log();
-            const bool pre = t.size() >= 2 && t.at(t.size() - 1).pc == 0x8001 &&
-                             t.at(t.size() - 2).pc == 0x8000 &&
-                             t.at(t.size() - 2).cycle < load_clock;
-            const Result r = m.dbg->source_step(m.a, Step::Back);
-            check("SRCLIFE-21", "Back after Into past a state load does not land before the load",
-                  ld == Result::Ok && pre && (r != Result::Ok || m.emu.clock().get() >= load_clock),
-                  "r=" + std::to_string(int(r)) + " clock=" + std::to_string(m.emu.clock().get()) +
-                      " load=" + std::to_string(load_clock) + " ld=" + std::to_string(int(ld)) +
-                      " pre=" + std::to_string(int(pre)) + " n=" + std::to_string(t.size()));
-        }
-
-        // SRCLIFE-22: verification is pure (no watch, no latch). The check runs
-        // as a guest read would be seen: inside the guest-execution scope.
-        {
-            Machine m;
-            m.dbg->load_source_map(good.string(), false);
-            int hits = 0;
-            Subscription sub;
-            sub.kind = EventKind::Mem;
-            sub.access = Access::Read;
-            sub.filter.lo = 0x8000;
-            sub.filter.hi = 0x8003;
-            sub.action = Action::Continue;
-            sub.handler = [&hits](const jnext::dbg::Event&, Debugger&) {
-                ++hits;
-                return Action::Continue;
-            };
-            m.dbg->subscribe(m.a, sub);
-            for (uint16_t p = 0x8000; p <= 0x8003; ++p)
-                m.emu.debug_state().breakpoints().add_watchpoint(p, WatchType::READ);
-            const std::vector<uint8_t> s = own_state(m);
-            m.dbg->load_state_bytes(m.a, s.data(), s.size());
-            const std::vector<uint8_t> before = own_state(m);
-            const size_t ring_before = m.emu.debug_state().event_table()->size();
-            Debugger::SourceMapStatus st;
-            {
-                DebugState::GuestExecutionScope guest(m.emu.debug_state());
-                st = m.dbg->source_map_status();
-            }
-            const std::vector<uint8_t> after = own_state(m);
-            check("SRCLIFE-22", "verifying a map's identity after a landing runs no Mem Read "
-                                "handler, raises no watchpoint and changes no byte of the state",
-                  st.state == State::Attached && hits == 0 && before == after &&
-                      !m.emu.debug_state().watch_stop() &&
-                      m.emu.debug_state().event_table()->size() == ring_before);
-        }
-
-        // SRCLIFE-23: after a Frame Back into A's history across B's load,
-        // Back still goes back within A's generation.
-        {
-            Machine m(/*rewind=*/true);
-            m.dbg->set_trace_enabled(true);
-            attach_text(m, "l23a", a_sld);
-            run_frames(m, 4);
-            const uint32_t newest = m.dbg->rewind_range().newest_frame;
-            const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
-            state_driver(m, &b);
-            write_text(life / "l23b.sld", b_sld);
-            m.dbg->load(m.a, (life / "l23b.nex").string());
-            const Result rw = m.dbg->rewind_to_frame(m.a, newest);
-            const uint64_t at = m.emu.clock().get();
-            const Result r = m.dbg->source_step(m.a, Step::Back);
-            const uint64_t first = m.emu.clock().get();
-            // The Back replayed from an earlier slot: those instructions were
-            // recorded in A's generation, so the next Back finds them (a
-            // statement or two away, never a frame).
-            const Result r2 = m.dbg->source_step(m.a, Step::Back);
-            const uint64_t second = m.emu.clock().get();
-            check("SRCLIFE-23", "A's history is 'back' within A's generation after a rewind into "
-                                "it across B's load, and the replay of a Back is A's too",
-                  rw == Result::Ok && r == Result::Ok && first < at && r2 == Result::Ok &&
-                      second < first && first - second < m.emu.timing().master_cycles_per_frame,
-                  "rw=" + std::to_string(int(rw)) + " r=" + std::to_string(int(r)) + " r2=" +
-                      std::to_string(int(r2)) + " d=" + std::to_string(first - second));
-        }
-
-        // SRCLIFE-25: the instructions run right after a rewind from B's
-        // generation into A's are A's (the generation is set before the load).
-        {
-            Machine m(/*rewind=*/true);
-            m.dbg->set_trace_enabled(true);
-            attach_text(m, "l25a", a_sld);
-            run_frames(m, 4);
-            const uint32_t newest = m.dbg->rewind_range().newest_frame;
-            const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
-            state_driver(m, &b);
-            write_text(life / "l25b.sld", b_sld);
-            m.dbg->load(m.a, (life / "l25b.nex").string());
-            const Result rw = m.dbg->rewind_to_frame(m.a, newest);
-            const uint64_t at = m.emu.clock().get();
-            m.emu.trace_log().clear();   // only what runs from here on
-            const Result i1 = m.dbg->source_step(m.a, Step::Into);
-            const Result i2 = m.dbg->source_step(m.a, Step::Into);
-            const Result r = m.dbg->source_step(m.a, Step::Back);
-            check("SRCLIFE-25", "Back finds the statements run since a rewind from another "
-                                "generation: they belong to the generation rewound into",
-                  rw == Result::Ok && i1 == Result::Ok && i2 == Result::Ok && r == Result::Ok &&
-                      m.emu.clock().get() >= at,
-                  "r=" + std::to_string(int(r)));
-        }
-
-        // SRCLIFE-26: SRCLIFE-01 with a sidecar that carries an identity. B's
-        // state fails A's identity, which detaches A's map there - and a rewind
-        // into A's history still brings it back (the cached record is A's).
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            attach_text(m, "l26a", good_text);
-            run_frames(m, 2);
-            const uint32_t frame_a = m.dbg->time().frame;
-            const std::vector<uint8_t> b_state = foreign_state(0xFF, true, 6);
-            state_driver(m, &b_state);
-            write_text(life / "l26b.sld", b_sld);
-            const Result ld = m.dbg->load(m.a, (life / "l26b.nex").string());
-            const bool gone = m.dbg->source_map().size() == 6 ? false : true;
-            run_frames(m, 2);
-            const uint32_t frame_b = m.dbg->time().frame;
-            const Result ra = m.dbg->rewind_to_frame(m.a, frame_a);
-            const std::string at_a = line_at(m, 0x8000);
-            const Result rb = m.dbg->rewind_to_frame(m.a, frame_b);
-            const std::string at_b = line_at(m, 0x8000);
-            check("SRCLIFE-26", "load A (with an identity), load B whose bytes fail it, rewind into "
-                                "A: A's map is back; into B: B's",
-                  ld == Result::Ok && gone && ra == Result::Ok && rb == Result::Ok &&
-                      at_a == "main.bas:10" && at_b == "x.asm:5",
-                  "A=" + at_a + " B=" + at_b);
-        }
-
-        // SRCLIFE-27: a map detached at the next pause (the ROM cleared RAM
-        // after a reset) does not come back by a rewind into that generation.
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            attach_text(m, "l27", good_text);
-            const uint32_t f1 = m.dbg->time().frame;
-            run_frames(m, 1);
-            m.dbg->reset(m.a, ResetKind::Soft);
-            const bool kept = m.dbg->source_map_status().state == State::Attached;
-            m.dbg->run(m.a);
-            m.emu.mmu().write(0x8001, 0x55);
-            for (int i = 0; i < 3; ++i) m.emu.run_frame();
-            m.dbg->pause(m.a);
-            const bool detached = m.dbg->source_map_status().state == State::None;
-            const uint32_t f2 = m.dbg->rewind_range().newest_frame;
-            const Result r1 = m.dbg->rewind_to_frame(m.a, f1 + 1);
-            const bool back_in_g1 = m.dbg->source_map().size() == 6;
-            const Result r2 = m.dbg->rewind_to_frame(m.a, f2);
-            check("SRCLIFE-27", "a reset keeps the map, the next pause detaches it, and a rewind "
-                                "out and back into that generation does not bring it back",
-                  kept && detached && r1 == Result::Ok && back_in_g1 && r2 == Result::Ok &&
-                      m.dbg->source_map().empty(),
-                  "size=" + std::to_string(m.dbg->source_map().size()));
-        }
-
-        // SRCLIFE-28: a map that passed the identity check at a landing is
-        // re-keyed AND cached under the new generation.
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            attach_text(m, "l28", good_text);
-            const uint32_t f1 = m.dbg->time().frame;
-            run_frames(m, 1);
-            const std::vector<uint8_t> same = foreign_state(0x00, true, 12);
-            m.dbg->load_state_bytes(m.a, same.data(), same.size());
-            const bool kept = m.dbg->source_map().size() == 6;
-            const uint32_t f2 = m.dbg->time().frame;
-            run_frames(m, 2);
-            const Result r1 = m.dbg->rewind_to_frame(m.a, f1 + 1);
-            const bool in_g1 = m.dbg->source_map().size() == 6;
-            const Result r2 = m.dbg->rewind_to_frame(m.a, f2 + 1);
-            check("SRCLIFE-28", "a same-code state load keeps the map; rewinding out to before it "
-                                "and forward into the post-load slots brings it back",
-                  kept && r1 == Result::Ok && in_g1 && r2 == Result::Ok &&
-                      m.dbg->source_map().size() == 6);
-        }
-
-        // SRCLIFE-29: a hand-loaded map (no identity) across a tape load (a new
-        // generation with no landing) is carried: a rewind within it keeps it.
-        {
-            Machine m(/*rewind=*/true);
-            write_text(life / "l29.sld", a_sld);
-            m.dbg->load_source_map((life / "l29.sld").string(), false);
-            run_frames(m, 1);
-            write_text(life / "l29t.tap", "");
-            m.dbg->load_program_sidecars((life / "l29t.tap").string());
-            const uint32_t f = m.dbg->time().frame;
-            run_frames(m, 3);
-            const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
-            check("SRCLIFE-29", "a hand-loaded map is carried into the generation a tape load "
-                                "opens: a rewind within it leaves it live",
-                  rr == Result::Ok && m.dbg->source_map_status().state == State::Attached);
-        }
-
-        // SRCLIFE-30: the reason of a refused attach comes back with a rewind
-        // into its generation.
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            write_text(life / "l30a.nex", "");
-            write_text(life / "l30a.sld", "this is not an SLD\n");
-            m.dbg->load_program_sidecars((life / "l30a.nex").string());
-            const std::string reason_a = m.dbg->source_map_status().reason;
-            const uint32_t f = m.dbg->time().frame;
-            run_frames(m, 2);
-            attach_text(m, "l30b", a_sld);
-            run_frames(m, 1);
-            const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
-            const auto st = m.dbg->source_map_status();
-            check("SRCLIFE-30", "a rewind into the generation of a refused sidecar shows that "
-                                "refusal again",
-                  rr == Result::Ok && st.state == State::None && !reason_a.empty() &&
-                      st.reason == reason_a,
-                  st.reason);
-        }
-
-        // SRCLIFE-31: a hand-loaded map with an identity is stale after a
-        // foreign state and live again after a rewind back (a cross-generation
-        // rewind re-verifies it).
-        {
-            Machine m(/*rewind=*/true);
-            m.dbg->load_source_map(good.string(), false);
-            run_frames(m, 2);
-            const uint32_t f = m.dbg->time().frame;
-            run_frames(m, 1);
-            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
-            m.dbg->load_state_bytes(m.a, other.data(), other.size());
-            const auto st0 = m.dbg->source_map_status();
-            const Result rr = m.dbg->rewind_to_frame(m.a, f);
-            const auto st1 = m.dbg->source_map_status();
-            check("SRCLIFE-31", "a hand-loaded map with an identity: stale after a state that "
-                                "fails it, live again after a rewind to where it matched",
-                  st0.state == State::Stale && rr == Result::Ok && st1.state == State::Attached);
-        }
-
-        // SRCLIFE-32: Back works after a hard reset that follows two soft
-        // ones inside the trace window (the cold boot made a new TraceLog).
-        {
-            Machine m(/*rewind=*/true);
-            with_cold_boot(m);
-            m.dbg->set_trace_enabled(true);
-            run_frames(m, 2);
-            m.dbg->reset(m.a, ResetKind::Soft);
-            run_frames(m, 1);
-            m.dbg->reset(m.a, ResetKind::Soft);
-            run_frames(m, 1);
-            const Result hr = m.dbg->reset(m.a, ResetKind::Hard);
+    const fs::path life = dir / "life";
+    fs::create_directories(life);
+    const fs::path good = dir / "ident-good.sld";
+    // A state of another machine whose $8000 holds `first` (and, when
+    // `program`, the fixture program), run for `frames` frames.
+    const auto foreign_state = [](uint8_t first, bool program, int frames, uint16_t pc = 0x8000) {
+        Emulator o;
+        EmulatorConfig c;
+        c.type = MachineType::ZX48K;
+        o.init(c);
+        if (program) {
             const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
             for (size_t i = 0; i < sizeof(main_prog); ++i)
-                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+                o.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
             const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
             for (size_t i = 0; i < sizeof(sub); ++i)
-                m.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
-            m.set_pc(0x8000);
-            // The cold boot rebuilt the ring too (rewind enabled from the debugger
-            // is not in the config); turn it on again.
-            m.emu.set_rewind_enabled(true);
-            m.emu.resize_rewind_buffer(8);
-            const auto lr = m.dbg->load_source_map(good.string(), false);
-            m.dbg->set_trace_enabled(true);
-            run_frames(m, 1);
-            m.set_pc(0x8000);
-            const Result i1 = m.dbg->source_step(m.a, Step::Into);
-            const Result i2 = m.dbg->source_step(m.a, Step::Into);
-            const Result b = m.dbg->source_step(m.a, Step::Back);
-            check("SRCLIFE-32", "Back works after a cold boot that followed two soft resets in "
-                                "the retained trace",
-                  hr == Result::Ok && lr.count == 6 && i1 == Result::Ok && i2 == Result::Ok &&
-                      b == Result::Ok,
-                  "hr=" + std::to_string(int(hr)) + " lr=" + std::to_string(lr.count) + " i1=" + std::to_string(int(i1)) + " i2=" + std::to_string(int(i2)) + " back=" + std::to_string(int(b)));
+                o.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
         }
-
-        // SRCLIFE-33: an attached sidecar's status names its file.
-        {
-            Machine m;
-            attach_text(m, "l33", a_sld);
-            const auto st = m.dbg->source_map_status();
-            check("SRCLIFE-33", "the status of an attached sidecar map names its file and is "
-                                "not by_user",
-                  st.state == State::Attached && !st.by_user &&
-                      st.file == (life / "l33.sld").string(),
-                  st.file);
+        o.mmu().write(0x8000, first);
+        Z80Registers r = o.cpu().get_registers();
+        r.PC = pc;
+        r.SP = 0xFF00;
+        r.IFF1 = r.IFF2 = 0;
+        o.cpu().set_registers(r);
+        for (int i = 0; i < frames; ++i) o.run_frame();
+        // The frames moved the PC along the program; the state is taken at `pc`.
+        r = o.cpu().get_registers();
+        r.PC = pc;
+        o.cpu().set_registers(r);
+        StateWriter measure;
+        o.save_state(measure);
+        std::vector<uint8_t> bytes(measure.position(), 0);
+        StateWriter w(bytes.data(), bytes.size());
+        o.save_state(w);
+        return bytes;
+    };
+    const auto run_frames = [](Machine& m, int n) {
+        m.dbg->run(m.a);
+        for (int i = 0; i < n; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+    };
+    // The driver's `load` lands `*bytes` as a state (the ring is kept).
+    const auto state_driver = [](Machine& m, const std::vector<uint8_t>* bytes) {
+        jnext::dbg::LoopDriver d;
+        d.load = [&m, bytes](const std::string&) {
+            StateReader r(bytes->data(), bytes->size());
+            return m.emu.load_state(r);
+        };
+        m.dbg->set_loop_driver(d);
+    };
+    const auto attach_text = [&](Machine& m, const std::string& stem, const std::string& sld,
+                                 const std::string& memory = {}) {
+        write_text(life / (stem + ".nex"), "");
+        write_text(life / (stem + ".sld"), sld);
+        if (!memory.empty()) write_text(life / (stem + ".Memory.txt"), memory);
+        return m.dbg->load_program_sidecars((life / (stem + ".nex")).string());
+    };
+    struct LogCatcher : jnext::dbg::Listener {
+        std::vector<std::string> lines;
+        std::vector<jnext::dbg::LogLevel> levels;
+        void on_paused(const jnext::dbg::PausedInfo&) override {}
+        void on_resumed(ClientId) override {}
+        void on_reset(ResetKind) override {}
+        void on_frame_ended(uint32_t) override {}
+        void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+        void on_exit_requested(int) override {}
+        void on_log(jnext::dbg::LogLevel l, const std::string& t) override {
+            levels.push_back(l);
+            lines.push_back(t);
         }
-
-        // SRCLIFE-34: a hand-loaded map without an identity, loaded after a
-        // reset, stays live across a rewind within its own generation.
-        {
-            Machine m(/*rewind=*/true);
-            m.dbg->reset(m.a, ResetKind::Soft);
-            m.set_pc(0x8000);
-            write_text(life / "l34.sld", a_sld);
-            m.dbg->load_source_map((life / "l34.sld").string(), false);
-            const uint32_t f = m.dbg->time().frame;
-            run_frames(m, 3);
-            const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
-            check("SRCLIFE-34", "a hand-loaded map without an identity stays live across a rewind "
-                                "within the generation it was loaded in",
-                  rr == Result::Ok && m.dbg->source_map_status().state == State::Attached);
+        bool has(const std::string& s) const {
+            for (const auto& l : lines)
+                if (l.find(s) != std::string::npos) return true;
+            return false;
         }
+    };
+    using State = Debugger::SourceMapStatus::State;
+    const std::string a_sld = program_sld(p80, p90);
+    const std::string b_sld = x_sld(p80, {{"5", 0x8000}});
+    const std::string good_text = [&] {
+        std::ifstream in(good, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    }();
+    const auto line_at = [](Machine& m, uint16_t addr) -> std::string {
+        const auto* l = m.dbg->source_location(addr);
+        return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
+    };
 
-        // SRCLIFE-35: loading a map again by hand cancels a check still owed
-        // from the reset (D6: a fresh load was verified a moment ago).
-        {
-            Machine m;
+    // SRCLIFE-01: A, then B's state landing that keeps A's slots, then a
+    // rewind into A's history and into B's: each point's own map comes back.
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        attach_text(m, "l1a", a_sld);
+        run_frames(m, 2);
+        const uint32_t frame_a = m.dbg->time().frame;
+        const std::vector<uint8_t> b_state = foreign_state(0x00, true, 6);
+        state_driver(m, &b_state);
+        write_text(life / "l1b.sld", b_sld);
+        const Result ld = m.dbg->load(m.a, (life / "l1b.nex").string());
+        run_frames(m, 2);
+        const uint32_t frame_b = m.dbg->time().frame;
+        const Result ra = m.dbg->rewind_to_frame(m.a, frame_a);
+        const std::string at_a = line_at(m, 0x8000);
+        const Result rb = m.dbg->rewind_to_frame(m.a, frame_b);
+        const std::string at_b = line_at(m, 0x8000);
+        check("SRCLIFE-01", "load A, load B (a state landing that keeps A's slots), rewind "
+                            "into A: A's map is back; rewind into B: B's",
+              ld == Result::Ok && ra == Result::Ok && rb == Result::Ok &&
+                  at_a == "main.bas:10" && at_b == "x.asm:5",
+              "A=" + at_a + " B=" + at_b);
+    }
+
+    // SRCLIFE-02: a real .sna of other bytes: the identity fails.
+    {
+        Machine m;
+        LogCatcher lc;
+        m.dbg->set_listener(m.a, &lc);
+        const auto r = attach_text(m, "l2", good_text, "8000: ._Main\n");
+        Machine other;
+        other.emu.mmu().write(0x8000, 0xFF);
+        const std::string sna = (life / "l2b.sna").string();
+        const Result sv = other.dbg->save_snapshot(other.a, sna);
+        jnext::dbg::LoopDriver d;
+        d.load = [&m](const std::string& p) { return emulator_apply_load(m.emu, p, false); };
+        m.dbg->set_loop_driver(d);
+        const bool attached = r.sources == 6 && r.symbols == 1;
+        const Result ld = m.dbg->load(m.a, sna);
+        const auto st = m.dbg->source_map_status();
+        check("SRCLIFE-02", "a sidecar with identity and a real .sna of other bytes: map and "
+                            "symbols detached, status None with a reason",
+              attached && sv == Result::Ok && ld == Result::Ok &&
+                  m.dbg->source_map().empty() && m.dbg->symbols().empty() &&
+                  st.state == State::None && !st.reason.empty() &&
+                  lc.has("Dropped the program's SLD source map: its binary identity"),
+              "ld=" + std::to_string(int(ld)) + " reason=" + st.reason);
+    }
+
+    // SRCLIFE-03: a state whose $8000.. differ (B3c).
+    {
+        Machine m;
+        const auto r = attach_text(m, "l3", good_text, "8000: ._Main\n");
+        const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+        const Result ld = m.dbg->load_state_bytes(m.a, other.data(), other.size());
+        check("SRCLIFE-03", "a state restored with other bytes at $8000: the identity fails, "
+                            "map and symbols detached",
+              r.sources == 6 && ld == Result::Ok && m.dbg->source_map().empty() &&
+                  m.dbg->symbols().empty());
+    }
+
+    // SRCLIFE-04: identical code: kept, re-keyed, and a rewind into the
+    // post-load slots keeps it too.
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        const auto r = attach_text(m, "l4", good_text, "8000: ._Main\n");
+        const std::vector<uint8_t> same = foreign_state(0x00, true, 4);
+        const Result ld = m.dbg->load_state_bytes(m.a, same.data(), same.size());
+        const bool kept_load = m.dbg->source_map().size() == 6;
+        const uint32_t f0 = m.dbg->time().frame;
+        run_frames(m, 2);
+        const Result rr = m.dbg->rewind_to_frame(m.a, f0 + 1);
+        check("SRCLIFE-04", "a state of the same code keeps the sidecars after the load and "
+                            "after a rewind into the post-load slots",
+              r.sources == 6 && ld == Result::Ok && kept_load && rr == Result::Ok &&
+                  m.dbg->source_map().size() == 6 && m.dbg->lookup_name("Main") == 0x8000);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_19(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path life = dir / "life";
+    const fs::path good = dir / "ident-good.sld";
+    // A state of another machine whose $8000 holds `first` (and, when
+    // `program`, the fixture program), run for `frames` frames.
+    const auto foreign_state = [](uint8_t first, bool program, int frames, uint16_t pc = 0x8000) {
+        Emulator o;
+        EmulatorConfig c;
+        c.type = MachineType::ZX48K;
+        o.init(c);
+        if (program) {
+            const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
+            for (size_t i = 0; i < sizeof(main_prog); ++i)
+                o.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+            const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
+            for (size_t i = 0; i < sizeof(sub); ++i)
+                o.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
+        }
+        o.mmu().write(0x8000, first);
+        Z80Registers r = o.cpu().get_registers();
+        r.PC = pc;
+        r.SP = 0xFF00;
+        r.IFF1 = r.IFF2 = 0;
+        o.cpu().set_registers(r);
+        for (int i = 0; i < frames; ++i) o.run_frame();
+        // The frames moved the PC along the program; the state is taken at `pc`.
+        r = o.cpu().get_registers();
+        r.PC = pc;
+        o.cpu().set_registers(r);
+        StateWriter measure;
+        o.save_state(measure);
+        std::vector<uint8_t> bytes(measure.position(), 0);
+        StateWriter w(bytes.data(), bytes.size());
+        o.save_state(w);
+        return bytes;
+    };
+    const auto own_state = [](Machine& m) {
+        StateWriter measure;
+        m.emu.save_state(measure);
+        std::vector<uint8_t> bytes(measure.position(), 0);
+        StateWriter w(bytes.data(), bytes.size());
+        m.emu.save_state(w);
+        return bytes;
+    };
+    const auto run_frames = [](Machine& m, int n) {
+        m.dbg->run(m.a);
+        for (int i = 0; i < n; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+    };
+    const auto attach_text = [&](Machine& m, const std::string& stem, const std::string& sld,
+                                 const std::string& memory = {}) {
+        write_text(life / (stem + ".nex"), "");
+        write_text(life / (stem + ".sld"), sld);
+        if (!memory.empty()) write_text(life / (stem + ".Memory.txt"), memory);
+        return m.dbg->load_program_sidecars((life / (stem + ".nex")).string());
+    };
+    struct LogCatcher : jnext::dbg::Listener {
+        std::vector<std::string> lines;
+        std::vector<jnext::dbg::LogLevel> levels;
+        void on_paused(const jnext::dbg::PausedInfo&) override {}
+        void on_resumed(ClientId) override {}
+        void on_reset(ResetKind) override {}
+        void on_frame_ended(uint32_t) override {}
+        void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+        void on_exit_requested(int) override {}
+        void on_log(jnext::dbg::LogLevel l, const std::string& t) override {
+            levels.push_back(l);
+            lines.push_back(t);
+        }
+        bool has(const std::string& s) const {
+            for (const auto& l : lines)
+                if (l.find(s) != std::string::npos) return true;
+            return false;
+        }
+    };
+    using State = Debugger::SourceMapStatus::State;
+    const std::string a_sld = program_sld(p80, p90);
+    const std::string good_text = [&] {
+        std::ifstream in(good, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    }();
+
+    // SRCLIFE-05: the user's map, a foreign state: stale, not replaced.
+    {
+        Machine m;
+        m.dbg->load_source_map(good.string(), false);
+        const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+        const Result ld = m.dbg->load_state_bytes(m.a, other.data(), other.size());
+        const auto st = m.dbg->source_map_status();
+        const bool stale = st.state == State::Stale && st.by_user && st.file == good.string() &&
+                           !st.reason.empty() && m.dbg->source_map().empty() &&
+                           !m.dbg->source_location(0x8000);
+        attach_text(m, "l5", a_sld);
+        const auto st2 = m.dbg->source_map_status();
+        const bool kept = st2.state == State::Stale && st2.file == good.string();
+        const auto again = m.dbg->load_source_map(good.string(), true);
+        const auto st3 = m.dbg->source_map_status();
+        check("SRCLIFE-05", "the user's map after another program's state: stale (no lookup), "
+                            "a later sidecar does not replace it, loading it again makes it live",
+              ld == Result::Ok && stale && kept && again.count == 6 &&
+                  st3.state == State::Attached && m.dbg->source_map().size() == 6,
+              st.reason);
+    }
+
+    // SRCLIFE-06 / -24: a reset whose ROM clears RAM afterwards (poked
+    // here: the fixture has no ROM). Intact at the reset, gone later.
+    for (int by_user = 0; by_user < 2; ++by_user) {
+        Machine m;
+        if (by_user) {
             m.dbg->load_source_map(good.string(), false);
-            m.dbg->reset(m.a, ResetKind::Soft);
-            (void)m.dbg->source_map_status();
-            m.dbg->load_source_map(good.string(), false);
-            m.dbg->run(m.a);
-            m.emu.mmu().write(0x8001, 0x55);
-            m.emu.run_frame();
-            m.dbg->pause(m.a);
-            check("SRCLIFE-35", "a map loaded again by hand after a reset is not checked at the "
-                                "next pause",
-                  m.dbg->source_map_status().state == State::Attached);
+        } else {
+            attach_text(m, "l6", good_text);
         }
+        const Result rs = m.dbg->reset(m.a, ResetKind::Soft);
+        const auto s0 = m.dbg->source_map_status();
+        m.dbg->run(m.a);
+        m.emu.mmu().write(0x8001, 0x55);
+        for (int i = 0; i < 5; ++i) m.emu.run_frame();
+        const auto s1 = m.dbg->source_map_status();
+        m.dbg->pause(m.a);
+        const auto s2 = m.dbg->source_map_status();
+        const bool gone = m.emu.mmu().peek(0x8001) != 0x00;
+        const bool ok = rs == Result::Ok && gone && s0.state == State::Attached &&
+                        s1.state == State::Attached;
+        if (by_user)
+            check("SRCLIFE-24", "the same with a map loaded by hand: Stale (by_user, file kept) "
+                                "after the pause",
+                  ok && s2.state == State::Stale && s2.by_user && s2.file == good.string() &&
+                      m.dbg->source_map().empty());
+        else
+            check("SRCLIFE-06", "a soft reset keeps a verified sidecar map while it is still "
+                                "intact and while running; the next pause finds RAM changed "
+                                "and detaches it with a reason",
+                  ok && s2.state == State::None && !s2.reason.empty());
+    }
 
-        // SRCLIFE-36: clearing a stale hand-loaded map leaves no stale flag
-        // behind for the next sidecar.
+    // SRCLIFE-07: an RZX started from other bytes.
+    {
+        Machine m;
+        LogCatcher lc;
+        m.dbg->set_listener(m.a, &lc);
+        attach_text(m, "l7", good_text);
+        const std::string rzx = (life / "l7b.rzx").string();
         {
-            Machine m;
-            m.dbg->load_source_map(good.string(), false);
-            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
-            m.dbg->load_state_bytes(m.a, other.data(), other.size());
-            const bool stale = m.dbg->source_map_status().state == State::Stale;
-            m.dbg->clear_source_map();
-            attach_text(m, "l36", a_sld);
-            check("SRCLIFE-36", "a stale hand-loaded map that is cleared does not hide the next "
-                                "program's sidecar map",
-                  stale && m.dbg->source_map().size() == 6);
+            Machine rec;
+            rec.emu.mmu().write(0x8000, 0xFF);
+            rec.emu.start_rzx_recording(rzx);
+            rec.emu.run_frame();
+            rec.emu.stop_rzx_recording();
         }
+        jnext::dbg::LoopDriver d;
+        d.load = [&m](const std::string& p) { return m.emu.load_rzx(p); };
+        m.dbg->set_loop_driver(d);
+        const Result ld = m.dbg->load(m.a, rzx);
+        check("SRCLIFE-07", "an RZX playback start is a landing: the sidecar with an identity "
+                            "that does not match is detached",
+              ld == Result::Ok && m.emu.mmu().peek(0x8000) == 0xFF &&
+                  m.dbg->source_map().empty() &&
+                  lc.has("Dropped the program's SLD source map: its binary identity"),
+              "ld=" + std::to_string(int(ld)));
+    }
 
-        // SRCLIFE-37: a source step on a stale hand-loaded map is refused.
-        {
-            Machine m;
-            m.dbg->load_source_map(good.string(), false);
-            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
-            m.dbg->load_state_bytes(m.a, other.data(), other.size());
-            const bool stale = m.dbg->source_map_status().state == State::Stale;
-            const Result r = m.dbg->source_step(m.a, Step::Into);
-            check("SRCLIFE-37", "a source step on a stale hand-loaded map is refused",
-                  stale && r == Result::RefusedUnavailable);
-        }
+    // SRCLIFE-08: Back does not cross a state load.
+    {
+        Machine m(/*rewind=*/true);
+        LogCatcher lc;
+        m.dbg->set_listener(m.a, &lc);
+        m.dbg->load_source_map(good.string(), false);
+        m.dbg->set_trace_enabled(true);
+        // The trace (10000 entries) holds the last frame and a bit: after
+        // the state of frame 5 is taken and one more frame run, the entries
+        // from before it have clocks below the load's, as a Frame Back leaves.
+        run_frames(m, 5);
+        const std::vector<uint8_t> s = own_state(m);
+        run_frames(m, 1);
+        const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
+        const uint64_t load_clock = m.emu.clock().get();
+        const Result first = m.dbg->source_step(m.a, Step::Back);
+        run_frames(m, 2);
+        m.dbg->source_step(m.a, Step::Into);
+        m.dbg->source_step(m.a, Step::Into);
+        const Result second = m.dbg->source_step(m.a, Step::Back);
+        check("SRCLIFE-08", "Back right after a state load refuses (the history before it is "
+                            "another machine's); after more frames it lands on a post-load "
+                            "entry",
+              ld == Result::Ok && first == Result::RefusedUnavailable &&
+                  lc.has("no earlier mapped source position") && second == Result::Ok &&
+                  m.emu.clock().get() >= load_clock,
+              "first=" + std::to_string(int(first)) + " second=" +
+                  std::to_string(int(second)));
+    }
 
-        // SRCLIFE-38: a pause check owed by a reset does not judge the generation
-        // a rewind lands in (it described the generation left).
-        {
-            Machine m(/*rewind=*/true);
-            run_frames(m, 1);
-            attach_text(m, "l38", good_text);
-            run_frames(m, 1);
-            m.emu.mmu().write(0x8001, 0x55);
-            run_frames(m, 2);
-            const uint32_t fmod = m.dbg->time().frame;
-            m.emu.mmu().write(0x8001, 0x00);
-            m.dbg->reset(m.a, ResetKind::Soft);
-            const auto s0 = m.dbg->source_map_status();
-            const Result rr = m.dbg->rewind_to_frame(m.a, fmod - 1);
-            const auto s1 = m.dbg->source_map_status();
-            check("SRCLIFE-38", "a reset leaves a pause check owed; a rewind into the earlier "
-                                "generation (its bytes changed there) restores that generation's "
-                                "map and the owed check does not detach it",
-                  s0.state == State::Attached && rr == Result::Ok &&
-                      m.emu.mmu().peek(0x8001) == 0x55 && s1.state == State::Attached &&
-                      m.dbg->source_map().size() == 6);
-        }
+    // SRCLIFE-09: load() attaches the program's sidecars.
+    {
+        Machine m;
+        write_text(life / "l9.nex", "");
+        write_text(life / "l9.sld", a_sld);
+        write_text(life / "l9.Memory.txt", "8000: ._Main\n");
+        jnext::dbg::LoopDriver d;
+        d.load = [&m](const std::string&) { m.emu.mmu().write(0xC000, 0x99); return true; };
+        m.dbg->set_loop_driver(d);
+        const Result ld = m.dbg->load(m.a, (life / "l9.nex").string());
+        check("SRCLIFE-09", "load() attaches the program's source map and symbols",
+              ld == Result::Ok && m.dbg->source_map().size() == 6 &&
+                  m.dbg->lookup_name("Main") == 0x8000);
+    }
 
-        // SRCLIFE-39: Back's statement-start
-        // search STOPS at another generation's entries; it does not skip them.
-        // A loops on x.asm:1, B (a state load) runs 3 instructions, a rewind
-        // returns to A: A's replay is preceded in the trace by B's entries and,
-        // before them, A's own older x.asm:1 entries that are not this pass.
+    // SRCLIFE-10..14: a ring landing before the attach; the FIRST reader
+    // (or pump) must see the processed state, and pump announces it.
+    {
+        const auto setup = [&](LogCatcher& lc) {
+            auto m = std::make_unique<Machine>(/*rewind=*/true);
+            m->dbg->set_listener(m->a, &lc);
+            run_frames(*m, 3);
+            attach_text(*m, "l10", a_sld, "8000: ._Main\n");
+            const uint32_t f = m->dbg->time().frame;
+            run_frames(*m, 3);
+            m->dbg->rewind_to_frame(m->a, f - 1);
+            return m;
+        };
+        LogCatcher l10, l11, l12, l13, l14;
+        check("SRCLIFE-10", "after a rewind to before the attach the first reader "
+                            "symbols() is already empty",
+              setup(l10)->dbg->symbols().empty());
+        check("SRCLIFE-11", "... the first reader lookup() finds nothing",
+              !setup(l11)->dbg->lookup(0x8000).has_value());
+        check("SRCLIFE-12", "... the first reader lookup_name() finds nothing",
+              !setup(l12)->dbg->lookup_name("Main").has_value());
+        check("SRCLIFE-13", "... the first reader source_map() is empty",
+              setup(l13)->dbg->source_map().empty());
         {
-            Machine m(/*rewind=*/true);
-            m.dbg->set_trace_enabled(true);
-            const uint8_t prog[] = {0x00, 0x18, 0xFD, 0x00, 0x00, 0x00};  // NOP; JR $8000; NOP...
-            for (size_t i = 0; i < sizeof(prog); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
-            m.set_pc(0x8000);
-            attach_text(m, "pd3a", x_sld(p80, {{"1", 0x8000}, {"2", 0x8003}}));
-            run_frames(m, 4);
-            const uint32_t newest = m.dbg->rewind_range().newest_frame;
-            const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
-            state_driver(m, &b);
-            write_text(life / "pd3b.sld", b_sld);
-            const Result ld = m.dbg->load(m.a, (life / "pd3b.nex").string());
-            for (int i = 0; i < 3; ++i) m.dbg->step_into(m.a);
-            const Result rw = m.dbg->rewind_to_frame(m.a, newest);
-            const uint64_t at = m.emu.clock().get();
-            for (int i = 0; i < 4; ++i) m.dbg->step_into(m.a);
-            m.set_pc(0x8003);
-            m.dbg->step_into(m.a);
-            const Result r = m.dbg->source_step(m.a, Step::Back);
-            const uint64_t after = m.emu.clock().get();
-            check("SRCLIFE-39", "Back's statement-start search stops at another generation's entries",
-                  ld == Result::Ok && rw == Result::Ok && r == Result::Ok && after >= at,
-                  "r=" + std::to_string(int(r)) + " at=" + std::to_string(at) + " after=" +
-                      std::to_string(after) + " now=" + m.where());
+            auto m = setup(l14);
+            const bool before = l14.has("Dropped the program's");
+            m->dbg->pump(jnext::dbg::PumpBudget{});
+                            check("SRCLIFE-14", "... and pump() alone announces the drop to the listeners",
+                  !before && l14.has("Dropped the program's SLD source map"));
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_20(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+    const fs::path life = dir / "life";
+    const fs::path good = dir / "ident-good.sld";
+    const auto run_frames = [](Machine& m, int n) {
+        m.dbg->run(m.a);
+        for (int i = 0; i < n; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+    };
+    const auto attach_text = [&](Machine& m, const std::string& stem, const std::string& sld,
+                                 const std::string& memory = {}) {
+        write_text(life / (stem + ".nex"), "");
+        write_text(life / (stem + ".sld"), sld);
+        if (!memory.empty()) write_text(life / (stem + ".Memory.txt"), memory);
+        return m.dbg->load_program_sidecars((life / (stem + ".nex")).string());
+    };
+    struct LogCatcher : jnext::dbg::Listener {
+        std::vector<std::string> lines;
+        std::vector<jnext::dbg::LogLevel> levels;
+        void on_paused(const jnext::dbg::PausedInfo&) override {}
+        void on_resumed(ClientId) override {}
+        void on_reset(ResetKind) override {}
+        void on_frame_ended(uint32_t) override {}
+        void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+        void on_exit_requested(int) override {}
+        void on_log(jnext::dbg::LogLevel l, const std::string& t) override {
+            levels.push_back(l);
+            lines.push_back(t);
+        }
+        bool has(const std::string& s) const {
+            for (const auto& l : lines)
+                if (l.find(s) != std::string::npos) return true;
+            return false;
+        }
+    };
+    using State = Debugger::SourceMapStatus::State;
+    const std::string a_sld = program_sld(p80, p90);
+    const std::string b_sld = x_sld(p80, {{"5", 0x8000}});
+    const std::string good_text = [&] {
+        std::ifstream in(good, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    }();
+    const auto line_at = [](Machine& m, uint16_t addr) -> std::string {
+        const auto* l = m.dbg->source_location(addr);
+        return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
+    };
+
+    // SRCLIFE-15: a writer rechecks first, so the pending landing cannot
+    // undo it afterwards.
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        attach_text(m, "l15a", a_sld, "8000: ._S1sym\n");
+        const uint32_t f1 = m.dbg->time().frame;
+        run_frames(m, 3);
+        attach_text(m, "l15b", a_sld, "8000: ._S2sym\n");
+        run_frames(m, 3);
+        m.dbg->rewind_to_frame(m.a, f1 + 1);
+        m.dbg->clear_symbols();
+        const bool gone = !m.dbg->lookup_name("S1sym").has_value();
+        attach_text(m, "l15c", a_sld, "8000: ._S3sym\n");
+        check("SRCLIFE-15", "clear_symbols() right after a rewind: the old symbol does not "
+                            "come back, and the next program's fill the store",
+              gone && !m.dbg->lookup_name("S1sym").has_value() &&
+                  m.dbg->lookup_name("S3sym") == 0x8000);
+    }
+
+    // SRCLIFE-16: load() reports a refused sidecar.
+    {
+        Machine m;
+        LogCatcher lc;
+        m.dbg->set_listener(m.a, &lc);
+        write_text(life / "bad.nex", "");
+        write_text(life / "bad.sld", "this is not an SLD\n");
+        jnext::dbg::LoopDriver d;
+        d.load = [](const std::string&) { return true; };
+        m.dbg->set_loop_driver(d);
+        const Result ld = m.dbg->load(m.a, (life / "bad.nex").string());
+        const auto st = m.dbg->source_map_status();
+        bool warn = false;
+        for (size_t i = 0; i < lc.lines.size(); ++i)
+            if (lc.levels[i] == jnext::dbg::LogLevel::Warn &&
+                lc.lines[i].find("rejected") != std::string::npos)
+                warn = true;
+        check("SRCLIFE-16", "load() of a program with a refused sidecar tells every listener "
+                            "(Warn) and the status names the file",
+              ld == Result::Ok && warn && st.state == State::None &&
+                  st.reason.find("bad.sld") != std::string::npos,
+              st.reason);
+    }
+
+    // SRCLIFE-17: a rebuilt program's Reload attaches the new map.
+    {
+        Machine m;
+        write_text(life / "l17.nex", "");
+        jnext::dbg::LoopDriver d;
+        d.load = [](const std::string&) { return true; };
+        m.dbg->set_loop_driver(d);
+        write_text(life / "l17.sld", a_sld);
+        m.dbg->load(m.a, (life / "l17.nex").string());
+        const std::string first = line_at(m, 0x8000);
+        write_text(life / "l17.sld", x_sld(p80, {{"77", 0x8000}}));
+        m.dbg->load(m.a, (life / "l17.nex").string());
+        check("SRCLIFE-17", "a Reload of a rebuilt program attaches the new build's map",
+              first == "main.bas:10" && line_at(m, 0x8000) == "x.asm:77", line_at(m, 0x8000));
+    }
+
+    // SRCLIFE-18: a map loaded by hand across a Reload (decision D7).
+    {
+        Machine m;
+        LogCatcher lc;
+        m.dbg->set_listener(m.a, &lc);
+        const fs::path user = life / "user.sld";
+        write_text(user, a_sld);
+        m.dbg->load_source_map(user.string(), false);
+        write_text(life / "l18.nex", "");
+        write_text(life / "l18.sld", b_sld);
+        jnext::dbg::LoopDriver d;
+        d.load = [](const std::string&) { return true; };
+        m.dbg->set_loop_driver(d);
+        m.dbg->load(m.a, (life / "l18.nex").string());
+        const auto st = m.dbg->source_map_status();
+        const bool first = st.state == State::Stale && st.by_user && st.file == user.string() &&
+                           m.dbg->source_map().empty();
+        m.dbg->load_source_map(good.string(), false);
+        m.dbg->load(m.a, (life / "l18.nex").string());
+        const auto st2 = m.dbg->source_map_status();
+        check("SRCLIFE-18", "a map loaded by hand across a Reload stays the user's: stale "
+                            "without an identity, live when the new build matches it",
+              first && st2.state == State::Attached && st2.by_user &&
+                  m.dbg->source_map().size() == 6,
+              st.reason);
+    }
+
+    // SRCLIFE-19: the cache keeps the last 4 attachments.
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        std::vector<uint32_t> frames;
+        for (int k = 1; k <= 5; ++k) {
+            attach_text(m, "l19_" + std::to_string(k),
+                        x_sld(p80, {{std::to_string(k).c_str(), 0x8000}}));
+            frames.push_back(m.dbg->time().frame);
+            run_frames(m, 1);
+        }
+        const Result r1 = m.dbg->rewind_to_frame(m.a, frames[0] + 1);
+        const bool g1_none = m.dbg->source_map().empty();
+        const Result r2 = m.dbg->rewind_to_frame(m.a, frames[1] + 1);
+        check("SRCLIFE-19", "five attachments: a rewind into the first finds none (evicted), "
+                            "into the second finds the second's",
+              r1 == Result::Ok && r2 == Result::Ok && g1_none && line_at(m, 0x8000) == "x.asm:2",
+              line_at(m, 0x8000));
+    }
+
+    // SRCLIFE-20: a guest write is no landing: nothing is verified.
+    {
+        Machine m;
+        attach_text(m, "l20", good_text);
+        m.emu.mmu().write(0x8001, 0x01);
+        run_frames(m, 1);
+        check("SRCLIFE-20", "a guest write with no landing in between leaves the attached "
+                            "map alone (design §6.6)",
+              m.dbg->source_map().size() == 6);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_21(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+    const fs::path life = dir / "life";
+    const fs::path good = dir / "ident-good.sld";
+    // A state of another machine whose $8000 holds `first` (and, when
+    // `program`, the fixture program), run for `frames` frames.
+    const auto foreign_state = [](uint8_t first, bool program, int frames, uint16_t pc = 0x8000) {
+        Emulator o;
+        EmulatorConfig c;
+        c.type = MachineType::ZX48K;
+        o.init(c);
+        if (program) {
+            const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
+            for (size_t i = 0; i < sizeof(main_prog); ++i)
+                o.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+            const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
+            for (size_t i = 0; i < sizeof(sub); ++i)
+                o.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
+        }
+        o.mmu().write(0x8000, first);
+        Z80Registers r = o.cpu().get_registers();
+        r.PC = pc;
+        r.SP = 0xFF00;
+        r.IFF1 = r.IFF2 = 0;
+        o.cpu().set_registers(r);
+        for (int i = 0; i < frames; ++i) o.run_frame();
+        // The frames moved the PC along the program; the state is taken at `pc`.
+        r = o.cpu().get_registers();
+        r.PC = pc;
+        o.cpu().set_registers(r);
+        StateWriter measure;
+        o.save_state(measure);
+        std::vector<uint8_t> bytes(measure.position(), 0);
+        StateWriter w(bytes.data(), bytes.size());
+        o.save_state(w);
+        return bytes;
+    };
+    const auto own_state = [](Machine& m) {
+        StateWriter measure;
+        m.emu.save_state(measure);
+        std::vector<uint8_t> bytes(measure.position(), 0);
+        StateWriter w(bytes.data(), bytes.size());
+        m.emu.save_state(w);
+        return bytes;
+    };
+    const auto run_frames = [](Machine& m, int n) {
+        m.dbg->run(m.a);
+        for (int i = 0; i < n; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+    };
+    // The driver's `load` lands `*bytes` as a state (the ring is kept).
+    const auto state_driver = [](Machine& m, const std::vector<uint8_t>* bytes) {
+        jnext::dbg::LoopDriver d;
+        d.load = [&m, bytes](const std::string&) {
+            StateReader r(bytes->data(), bytes->size());
+            return m.emu.load_state(r);
+        };
+        m.dbg->set_loop_driver(d);
+    };
+    const auto attach_text = [&](Machine& m, const std::string& stem, const std::string& sld,
+                                 const std::string& memory = {}) {
+        write_text(life / (stem + ".nex"), "");
+        write_text(life / (stem + ".sld"), sld);
+        if (!memory.empty()) write_text(life / (stem + ".Memory.txt"), memory);
+        return m.dbg->load_program_sidecars((life / (stem + ".nex")).string());
+    };
+    using State = Debugger::SourceMapStatus::State;
+    const std::string a_sld = program_sld(p80, p90);
+    const std::string b_sld = x_sld(p80, {{"5", 0x8000}});
+    const std::string good_text = [&] {
+        std::ifstream in(good, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    }();
+    const auto line_at = [](Machine& m, uint16_t addr) -> std::string {
+        const auto* l = m.dbg->source_location(addr);
+        return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
+    };
+
+    // SRCLIFE-21: Back's "first instruction of the statement" search does
+    // not run on into the history before a state load. The state is another
+    // machine's, at a later clock, at PC $8001: the post-load $8001 is the
+    // second instruction of main.bas:10, and the instruction before it in
+    // the trace ($8000) belongs to the machine before the load.
+    {
+        Machine m(/*rewind=*/true);
+        m.dbg->load_source_map(good.string(), false);
+        m.dbg->set_trace_enabled(true);
+        run_frames(m, 2);
+        m.set_pc(0x8000);
+        m.dbg->step_into(m.a);                 // $8000 NOP -> PC=$8001
+        const std::vector<uint8_t> s = foreign_state(0x00, true, 6, 0x8001);
+        const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
+        const uint64_t load_clock = m.emu.clock().get();
+        static_cast<void>(m.dbg->source_step(m.a, Step::Into));    // $8001 -> $8002 (main.bas:11); setup, the row reads the trace
+        const auto& t = m.emu.trace_log();
+        const bool pre = t.size() >= 2 && t.at(t.size() - 1).pc == 0x8001 &&
+                         t.at(t.size() - 2).pc == 0x8000 &&
+                         t.at(t.size() - 2).cycle < load_clock;
+        const Result r = m.dbg->source_step(m.a, Step::Back);
+        check("SRCLIFE-21", "Back after Into past a state load does not land before the load",
+              ld == Result::Ok && pre && (r != Result::Ok || m.emu.clock().get() >= load_clock),
+              "r=" + std::to_string(int(r)) + " clock=" + std::to_string(m.emu.clock().get()) +
+                  " load=" + std::to_string(load_clock) + " ld=" + std::to_string(int(ld)) +
+                  " pre=" + std::to_string(int(pre)) + " n=" + std::to_string(t.size()));
+    }
+
+    // SRCLIFE-22: verification is pure (no watch, no latch). The check runs
+    // as a guest read would be seen: inside the guest-execution scope.
+    {
+        Machine m;
+        m.dbg->load_source_map(good.string(), false);
+        int hits = 0;
+        Subscription sub;
+        sub.kind = EventKind::Mem;
+        sub.access = Access::Read;
+        sub.filter.lo = 0x8000;
+        sub.filter.hi = 0x8003;
+        sub.action = Action::Continue;
+        sub.handler = [&hits](const jnext::dbg::Event&, Debugger&) {
+            ++hits;
+            return Action::Continue;
+        };
+        m.dbg->subscribe(m.a, sub);
+        for (uint16_t p = 0x8000; p <= 0x8003; ++p)
+            m.emu.debug_state().breakpoints().add_watchpoint(p, WatchType::READ);
+        const std::vector<uint8_t> s = own_state(m);
+        m.dbg->load_state_bytes(m.a, s.data(), s.size());
+        const std::vector<uint8_t> before = own_state(m);
+        const size_t ring_before = m.emu.debug_state().event_table()->size();
+        Debugger::SourceMapStatus st;
+        {
+            DebugState::GuestExecutionScope guest(m.emu.debug_state());
+            st = m.dbg->source_map_status();
+        }
+        const std::vector<uint8_t> after = own_state(m);
+        check("SRCLIFE-22", "verifying a map's identity after a landing runs no Mem Read "
+                            "handler, raises no watchpoint and changes no byte of the state",
+              st.state == State::Attached && hits == 0 && before == after &&
+                  !m.emu.debug_state().watch_stop() &&
+                  m.emu.debug_state().event_table()->size() == ring_before);
+    }
+
+    // SRCLIFE-23: after a Frame Back into A's history across B's load,
+    // Back still goes back within A's generation.
+    {
+        Machine m(/*rewind=*/true);
+        m.dbg->set_trace_enabled(true);
+        attach_text(m, "l23a", a_sld);
+        run_frames(m, 4);
+        const uint32_t newest = m.dbg->rewind_range().newest_frame;
+        const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
+        state_driver(m, &b);
+        write_text(life / "l23b.sld", b_sld);
+        m.dbg->load(m.a, (life / "l23b.nex").string());
+        const Result rw = m.dbg->rewind_to_frame(m.a, newest);
+        const uint64_t at = m.emu.clock().get();
+        const Result r = m.dbg->source_step(m.a, Step::Back);
+        const uint64_t first = m.emu.clock().get();
+        // The Back replayed from an earlier slot: those instructions were
+        // recorded in A's generation, so the next Back finds them (a
+        // statement or two away, never a frame).
+        const Result r2 = m.dbg->source_step(m.a, Step::Back);
+        const uint64_t second = m.emu.clock().get();
+        check("SRCLIFE-23", "A's history is 'back' within A's generation after a rewind into "
+                            "it across B's load, and the replay of a Back is A's too",
+              rw == Result::Ok && r == Result::Ok && first < at && r2 == Result::Ok &&
+                  second < first && first - second < m.emu.timing().master_cycles_per_frame,
+              "rw=" + std::to_string(int(rw)) + " r=" + std::to_string(int(r)) + " r2=" +
+                  std::to_string(int(r2)) + " d=" + std::to_string(first - second));
+    }
+
+    // SRCLIFE-25: the instructions run right after a rewind from B's
+    // generation into A's are A's (the generation is set before the load).
+    {
+        Machine m(/*rewind=*/true);
+        m.dbg->set_trace_enabled(true);
+        attach_text(m, "l25a", a_sld);
+        run_frames(m, 4);
+        const uint32_t newest = m.dbg->rewind_range().newest_frame;
+        const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
+        state_driver(m, &b);
+        write_text(life / "l25b.sld", b_sld);
+        m.dbg->load(m.a, (life / "l25b.nex").string());
+        const Result rw = m.dbg->rewind_to_frame(m.a, newest);
+        const uint64_t at = m.emu.clock().get();
+        m.emu.trace_log().clear();   // only what runs from here on
+        const Result i1 = m.dbg->source_step(m.a, Step::Into);
+        const Result i2 = m.dbg->source_step(m.a, Step::Into);
+        const Result r = m.dbg->source_step(m.a, Step::Back);
+        check("SRCLIFE-25", "Back finds the statements run since a rewind from another "
+                            "generation: they belong to the generation rewound into",
+              rw == Result::Ok && i1 == Result::Ok && i2 == Result::Ok && r == Result::Ok &&
+                  m.emu.clock().get() >= at,
+              "r=" + std::to_string(int(r)));
+    }
+
+    // SRCLIFE-26: SRCLIFE-01 with a sidecar that carries an identity. B's
+    // state fails A's identity, which detaches A's map there - and a rewind
+    // into A's history still brings it back (the cached record is A's).
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        attach_text(m, "l26a", good_text);
+        run_frames(m, 2);
+        const uint32_t frame_a = m.dbg->time().frame;
+        const std::vector<uint8_t> b_state = foreign_state(0xFF, true, 6);
+        state_driver(m, &b_state);
+        write_text(life / "l26b.sld", b_sld);
+        const Result ld = m.dbg->load(m.a, (life / "l26b.nex").string());
+        const bool gone = m.dbg->source_map().size() == 6 ? false : true;
+        run_frames(m, 2);
+        const uint32_t frame_b = m.dbg->time().frame;
+        const Result ra = m.dbg->rewind_to_frame(m.a, frame_a);
+        const std::string at_a = line_at(m, 0x8000);
+        const Result rb = m.dbg->rewind_to_frame(m.a, frame_b);
+        const std::string at_b = line_at(m, 0x8000);
+        check("SRCLIFE-26", "load A (with an identity), load B whose bytes fail it, rewind into "
+                            "A: A's map is back; into B: B's",
+              ld == Result::Ok && gone && ra == Result::Ok && rb == Result::Ok &&
+                  at_a == "main.bas:10" && at_b == "x.asm:5",
+              "A=" + at_a + " B=" + at_b);
+    }
+
+    // SRCLIFE-27: a map detached at the next pause (the ROM cleared RAM
+    // after a reset) does not come back by a rewind into that generation.
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        attach_text(m, "l27", good_text);
+        const uint32_t f1 = m.dbg->time().frame;
+        run_frames(m, 1);
+        m.dbg->reset(m.a, ResetKind::Soft);
+        const bool kept = m.dbg->source_map_status().state == State::Attached;
+        m.dbg->run(m.a);
+        m.emu.mmu().write(0x8001, 0x55);
+        for (int i = 0; i < 3; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+        const bool detached = m.dbg->source_map_status().state == State::None;
+        const uint32_t f2 = m.dbg->rewind_range().newest_frame;
+        const Result r1 = m.dbg->rewind_to_frame(m.a, f1 + 1);
+        const bool back_in_g1 = m.dbg->source_map().size() == 6;
+        const Result r2 = m.dbg->rewind_to_frame(m.a, f2);
+        check("SRCLIFE-27", "a reset keeps the map, the next pause detaches it, and a rewind "
+                            "out and back into that generation does not bring it back",
+              kept && detached && r1 == Result::Ok && back_in_g1 && r2 == Result::Ok &&
+                  m.dbg->source_map().empty(),
+              "size=" + std::to_string(m.dbg->source_map().size()));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_22(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path life = dir / "life";
+    const fs::path good = dir / "ident-good.sld";
+    // A state of another machine whose $8000 holds `first` (and, when
+    // `program`, the fixture program), run for `frames` frames.
+    const auto foreign_state = [](uint8_t first, bool program, int frames, uint16_t pc = 0x8000) {
+        Emulator o;
+        EmulatorConfig c;
+        c.type = MachineType::ZX48K;
+        o.init(c);
+        if (program) {
+            const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
+            for (size_t i = 0; i < sizeof(main_prog); ++i)
+                o.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+            const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
+            for (size_t i = 0; i < sizeof(sub); ++i)
+                o.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
+        }
+        o.mmu().write(0x8000, first);
+        Z80Registers r = o.cpu().get_registers();
+        r.PC = pc;
+        r.SP = 0xFF00;
+        r.IFF1 = r.IFF2 = 0;
+        o.cpu().set_registers(r);
+        for (int i = 0; i < frames; ++i) o.run_frame();
+        // The frames moved the PC along the program; the state is taken at `pc`.
+        r = o.cpu().get_registers();
+        r.PC = pc;
+        o.cpu().set_registers(r);
+        StateWriter measure;
+        o.save_state(measure);
+        std::vector<uint8_t> bytes(measure.position(), 0);
+        StateWriter w(bytes.data(), bytes.size());
+        o.save_state(w);
+        return bytes;
+    };
+    const auto run_frames = [](Machine& m, int n) {
+        m.dbg->run(m.a);
+        for (int i = 0; i < n; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+    };
+    const auto attach_text = [&](Machine& m, const std::string& stem, const std::string& sld,
+                                 const std::string& memory = {}) {
+        write_text(life / (stem + ".nex"), "");
+        write_text(life / (stem + ".sld"), sld);
+        if (!memory.empty()) write_text(life / (stem + ".Memory.txt"), memory);
+        return m.dbg->load_program_sidecars((life / (stem + ".nex")).string());
+    };
+    using State = Debugger::SourceMapStatus::State;
+    const std::string a_sld = program_sld(p80, p90);
+    const std::string good_text = [&] {
+        std::ifstream in(good, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    }();
+
+    // SRCLIFE-28: a map that passed the identity check at a landing is
+    // re-keyed AND cached under the new generation.
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        attach_text(m, "l28", good_text);
+        const uint32_t f1 = m.dbg->time().frame;
+        run_frames(m, 1);
+        const std::vector<uint8_t> same = foreign_state(0x00, true, 12);
+        m.dbg->load_state_bytes(m.a, same.data(), same.size());
+        const bool kept = m.dbg->source_map().size() == 6;
+        const uint32_t f2 = m.dbg->time().frame;
+        run_frames(m, 2);
+        const Result r1 = m.dbg->rewind_to_frame(m.a, f1 + 1);
+        const bool in_g1 = m.dbg->source_map().size() == 6;
+        const Result r2 = m.dbg->rewind_to_frame(m.a, f2 + 1);
+        check("SRCLIFE-28", "a same-code state load keeps the map; rewinding out to before it "
+                            "and forward into the post-load slots brings it back",
+              kept && r1 == Result::Ok && in_g1 && r2 == Result::Ok &&
+                  m.dbg->source_map().size() == 6);
+    }
+
+    // SRCLIFE-29: a hand-loaded map (no identity) across a tape load (a new
+    // generation with no landing) is carried: a rewind within it keeps it.
+    {
+        Machine m(/*rewind=*/true);
+        write_text(life / "l29.sld", a_sld);
+        m.dbg->load_source_map((life / "l29.sld").string(), false);
+        run_frames(m, 1);
+        write_text(life / "l29t.tap", "");
+        m.dbg->load_program_sidecars((life / "l29t.tap").string());
+        const uint32_t f = m.dbg->time().frame;
+        run_frames(m, 3);
+        const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
+        check("SRCLIFE-29", "a hand-loaded map is carried into the generation a tape load "
+                            "opens: a rewind within it leaves it live",
+              rr == Result::Ok && m.dbg->source_map_status().state == State::Attached);
+    }
+
+    // SRCLIFE-30: the reason of a refused attach comes back with a rewind
+    // into its generation.
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        write_text(life / "l30a.nex", "");
+        write_text(life / "l30a.sld", "this is not an SLD\n");
+        m.dbg->load_program_sidecars((life / "l30a.nex").string());
+        const std::string reason_a = m.dbg->source_map_status().reason;
+        const uint32_t f = m.dbg->time().frame;
+        run_frames(m, 2);
+        attach_text(m, "l30b", a_sld);
+        run_frames(m, 1);
+        const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
+        const auto st = m.dbg->source_map_status();
+        check("SRCLIFE-30", "a rewind into the generation of a refused sidecar shows that "
+                            "refusal again",
+              rr == Result::Ok && st.state == State::None && !reason_a.empty() &&
+                  st.reason == reason_a,
+              st.reason);
+    }
+
+    // SRCLIFE-31: a hand-loaded map with an identity is stale after a
+    // foreign state and live again after a rewind back (a cross-generation
+    // rewind re-verifies it).
+    {
+        Machine m(/*rewind=*/true);
+        m.dbg->load_source_map(good.string(), false);
+        run_frames(m, 2);
+        const uint32_t f = m.dbg->time().frame;
+        run_frames(m, 1);
+        const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+        m.dbg->load_state_bytes(m.a, other.data(), other.size());
+        const auto st0 = m.dbg->source_map_status();
+        const Result rr = m.dbg->rewind_to_frame(m.a, f);
+        const auto st1 = m.dbg->source_map_status();
+        check("SRCLIFE-31", "a hand-loaded map with an identity: stale after a state that "
+                            "fails it, live again after a rewind to where it matched",
+              st0.state == State::Stale && rr == Result::Ok && st1.state == State::Attached);
+    }
+
+    // SRCLIFE-32: Back works after a hard reset that follows two soft
+    // ones inside the trace window (the cold boot made a new TraceLog).
+    {
+        Machine m(/*rewind=*/true);
+        with_cold_boot(m);
+        m.dbg->set_trace_enabled(true);
+        run_frames(m, 2);
+        m.dbg->reset(m.a, ResetKind::Soft);
+        run_frames(m, 1);
+        m.dbg->reset(m.a, ResetKind::Soft);
+        run_frames(m, 1);
+        const Result hr = m.dbg->reset(m.a, ResetKind::Hard);
+        const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
+        for (size_t i = 0; i < sizeof(main_prog); ++i)
+            m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+        const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
+        for (size_t i = 0; i < sizeof(sub); ++i)
+            m.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
+        m.set_pc(0x8000);
+        // The cold boot rebuilt the ring too (rewind enabled from the debugger
+        // is not in the config); turn it on again.
+        m.emu.set_rewind_enabled(true);
+        m.emu.resize_rewind_buffer(8);
+        const auto lr = m.dbg->load_source_map(good.string(), false);
+        m.dbg->set_trace_enabled(true);
+        run_frames(m, 1);
+        m.set_pc(0x8000);
+        const Result i1 = m.dbg->source_step(m.a, Step::Into);
+        const Result i2 = m.dbg->source_step(m.a, Step::Into);
+        const Result b = m.dbg->source_step(m.a, Step::Back);
+        check("SRCLIFE-32", "Back works after a cold boot that followed two soft resets in "
+                            "the retained trace",
+              hr == Result::Ok && lr.count == 6 && i1 == Result::Ok && i2 == Result::Ok &&
+                  b == Result::Ok,
+              "hr=" + std::to_string(int(hr)) + " lr=" + std::to_string(lr.count) + " i1=" + std::to_string(int(i1)) + " i2=" + std::to_string(int(i2)) + " back=" + std::to_string(int(b)));
+    }
+
+    // SRCLIFE-33: an attached sidecar's status names its file.
+    {
+        Machine m;
+        attach_text(m, "l33", a_sld);
+        const auto st = m.dbg->source_map_status();
+        check("SRCLIFE-33", "the status of an attached sidecar map names its file and is "
+                            "not by_user",
+              st.state == State::Attached && !st.by_user &&
+                  st.file == (life / "l33.sld").string(),
+              st.file);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_23(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+    const fs::path life = dir / "life";
+    const fs::path good = dir / "ident-good.sld";
+    // A state of another machine whose $8000 holds `first` (and, when
+    // `program`, the fixture program), run for `frames` frames.
+    const auto foreign_state = [](uint8_t first, bool program, int frames, uint16_t pc = 0x8000) {
+        Emulator o;
+        EmulatorConfig c;
+        c.type = MachineType::ZX48K;
+        o.init(c);
+        if (program) {
+            const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
+            for (size_t i = 0; i < sizeof(main_prog); ++i)
+                o.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+            const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
+            for (size_t i = 0; i < sizeof(sub); ++i)
+                o.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
+        }
+        o.mmu().write(0x8000, first);
+        Z80Registers r = o.cpu().get_registers();
+        r.PC = pc;
+        r.SP = 0xFF00;
+        r.IFF1 = r.IFF2 = 0;
+        o.cpu().set_registers(r);
+        for (int i = 0; i < frames; ++i) o.run_frame();
+        // The frames moved the PC along the program; the state is taken at `pc`.
+        r = o.cpu().get_registers();
+        r.PC = pc;
+        o.cpu().set_registers(r);
+        StateWriter measure;
+        o.save_state(measure);
+        std::vector<uint8_t> bytes(measure.position(), 0);
+        StateWriter w(bytes.data(), bytes.size());
+        o.save_state(w);
+        return bytes;
+    };
+    const auto run_frames = [](Machine& m, int n) {
+        m.dbg->run(m.a);
+        for (int i = 0; i < n; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+    };
+    // The driver's `load` lands `*bytes` as a state (the ring is kept).
+    const auto state_driver = [](Machine& m, const std::vector<uint8_t>* bytes) {
+        jnext::dbg::LoopDriver d;
+        d.load = [&m, bytes](const std::string&) {
+            StateReader r(bytes->data(), bytes->size());
+            return m.emu.load_state(r);
+        };
+        m.dbg->set_loop_driver(d);
+    };
+    const auto attach_text = [&](Machine& m, const std::string& stem, const std::string& sld,
+                                 const std::string& memory = {}) {
+        write_text(life / (stem + ".nex"), "");
+        write_text(life / (stem + ".sld"), sld);
+        if (!memory.empty()) write_text(life / (stem + ".Memory.txt"), memory);
+        return m.dbg->load_program_sidecars((life / (stem + ".nex")).string());
+    };
+    using State = Debugger::SourceMapStatus::State;
+    const std::string a_sld = program_sld(p80, p90);
+    const std::string b_sld = x_sld(p80, {{"5", 0x8000}});
+    const std::string good_text = [&] {
+        std::ifstream in(good, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    }();
+
+    // SRCLIFE-34: a hand-loaded map without an identity, loaded after a
+    // reset, stays live across a rewind within its own generation.
+    {
+        Machine m(/*rewind=*/true);
+        m.dbg->reset(m.a, ResetKind::Soft);
+        m.set_pc(0x8000);
+        write_text(life / "l34.sld", a_sld);
+        m.dbg->load_source_map((life / "l34.sld").string(), false);
+        const uint32_t f = m.dbg->time().frame;
+        run_frames(m, 3);
+        const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
+        check("SRCLIFE-34", "a hand-loaded map without an identity stays live across a rewind "
+                            "within the generation it was loaded in",
+              rr == Result::Ok && m.dbg->source_map_status().state == State::Attached);
+    }
+
+    // SRCLIFE-35: loading a map again by hand cancels a check still owed
+    // from the reset (D6: a fresh load was verified a moment ago).
+    {
+        Machine m;
+        m.dbg->load_source_map(good.string(), false);
+        m.dbg->reset(m.a, ResetKind::Soft);
+        (void)m.dbg->source_map_status();
+        m.dbg->load_source_map(good.string(), false);
+        m.dbg->run(m.a);
+        m.emu.mmu().write(0x8001, 0x55);
+        m.emu.run_frame();
+        m.dbg->pause(m.a);
+        check("SRCLIFE-35", "a map loaded again by hand after a reset is not checked at the "
+                            "next pause",
+              m.dbg->source_map_status().state == State::Attached);
+    }
+
+    // SRCLIFE-36: clearing a stale hand-loaded map leaves no stale flag
+    // behind for the next sidecar.
+    {
+        Machine m;
+        m.dbg->load_source_map(good.string(), false);
+        const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+        m.dbg->load_state_bytes(m.a, other.data(), other.size());
+        const bool stale = m.dbg->source_map_status().state == State::Stale;
+        m.dbg->clear_source_map();
+        attach_text(m, "l36", a_sld);
+        check("SRCLIFE-36", "a stale hand-loaded map that is cleared does not hide the next "
+                            "program's sidecar map",
+              stale && m.dbg->source_map().size() == 6);
+    }
+
+    // SRCLIFE-37: a source step on a stale hand-loaded map is refused.
+    {
+        Machine m;
+        m.dbg->load_source_map(good.string(), false);
+        const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+        m.dbg->load_state_bytes(m.a, other.data(), other.size());
+        const bool stale = m.dbg->source_map_status().state == State::Stale;
+        const Result r = m.dbg->source_step(m.a, Step::Into);
+        check("SRCLIFE-37", "a source step on a stale hand-loaded map is refused",
+              stale && r == Result::RefusedUnavailable);
+    }
+
+    // SRCLIFE-38: a pause check owed by a reset does not judge the generation
+    // a rewind lands in (it described the generation left).
+    {
+        Machine m(/*rewind=*/true);
+        run_frames(m, 1);
+        attach_text(m, "l38", good_text);
+        run_frames(m, 1);
+        m.emu.mmu().write(0x8001, 0x55);
+        run_frames(m, 2);
+        const uint32_t fmod = m.dbg->time().frame;
+        m.emu.mmu().write(0x8001, 0x00);
+        m.dbg->reset(m.a, ResetKind::Soft);
+        const auto s0 = m.dbg->source_map_status();
+        const Result rr = m.dbg->rewind_to_frame(m.a, fmod - 1);
+        const auto s1 = m.dbg->source_map_status();
+        check("SRCLIFE-38", "a reset leaves a pause check owed; a rewind into the earlier "
+                            "generation (its bytes changed there) restores that generation's "
+                            "map and the owed check does not detach it",
+              s0.state == State::Attached && rr == Result::Ok &&
+                  m.emu.mmu().peek(0x8001) == 0x55 && s1.state == State::Attached &&
+                  m.dbg->source_map().size() == 6);
+    }
+
+    // SRCLIFE-39: Back's statement-start
+    // search STOPS at another generation's entries; it does not skip them.
+    // A loops on x.asm:1, B (a state load) runs 3 instructions, a rewind
+    // returns to A: A's replay is preceded in the trace by B's entries and,
+    // before them, A's own older x.asm:1 entries that are not this pass.
+    {
+        Machine m(/*rewind=*/true);
+        m.dbg->set_trace_enabled(true);
+        const uint8_t prog[] = {0x00, 0x18, 0xFD, 0x00, 0x00, 0x00};  // NOP; JR $8000; NOP...
+        for (size_t i = 0; i < sizeof(prog); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        m.set_pc(0x8000);
+        attach_text(m, "pd3a", x_sld(p80, {{"1", 0x8000}, {"2", 0x8003}}));
+        run_frames(m, 4);
+        const uint32_t newest = m.dbg->rewind_range().newest_frame;
+        const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
+        state_driver(m, &b);
+        write_text(life / "pd3b.sld", b_sld);
+        const Result ld = m.dbg->load(m.a, (life / "pd3b.nex").string());
+        for (int i = 0; i < 3; ++i) m.dbg->step_into(m.a);
+        const Result rw = m.dbg->rewind_to_frame(m.a, newest);
+        const uint64_t at = m.emu.clock().get();
+        for (int i = 0; i < 4; ++i) m.dbg->step_into(m.a);
+        m.set_pc(0x8003);
+        m.dbg->step_into(m.a);
+        const Result r = m.dbg->source_step(m.a, Step::Back);
+        const uint64_t after = m.emu.clock().get();
+        check("SRCLIFE-39", "Back's statement-start search stops at another generation's entries",
+              ld == Result::Ok && rw == Result::Ok && r == Result::Ok && after >= at,
+              "r=" + std::to_string(int(r)) + " at=" + std::to_string(at) + " after=" +
+                  std::to_string(after) + " now=" + m.where());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_24(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+    const fs::path& sld = ctx.sld;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
 
     // ── GH #341 / E23-09: source-line breakpoints on the canonical identity ──
     bool srcbp07_b = false;
@@ -4991,6 +5481,20 @@ int main() {
                   " page=" + std::to_string(page_hits) + " rom=" + std::to_string(rom_hits) + " " +
                   srcbp07_detail);
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_25(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+    const fs::path& sld = ctx.sld;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
     {
         // SRCBP-08: a fetch-source qualifier on a kind that has no fetch is refused, not stored inert.
         Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
@@ -5056,6 +5560,19 @@ int main() {
         check("SRCBP-12", "subscribe_source_line for a detached client is refused and arms nothing",
               !r && r.status == Result::RefusedUnavailable && m.dbg->subscriptions(true).empty());
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_26(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
 
     // ── GH #375 stage 2: an SLD's labels reach the backend's symbol table ──
     // The fixtures are sjasmplus's own output (test/fixtures/sjasmequ/README.md):
@@ -5322,6 +5839,17 @@ int main() {
                       has(log, "Kept the loaded source map"));
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_27(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
 
     // ── GH #344: the z88dk -debug map ─────────────────────────────────────────
     // Every row loads a committed fixture (test/fixtures/z88dk): the program with
@@ -5329,2343 +5857,1727 @@ int main() {
     // (main.c:19 starts at $8CB5, `_main` is $8C92), the NEX placement of its
     // bytes (prog_CODE.bin is bank 2 offset 0, i.e. page 4) and the compiler's
     // listing; design 6.1 / 9.4 / 9.7.
-    {
-        const fs::path z = dir / "z88";
-        const fs::path d1 = z / "d1";
-        z88_copy("v2.4/sccz80-debug", d1);
-        const std::string map1 = (d1 / "prog.map").string();
-        {   // Z88-01
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool ok = z88_load(m, d1 / "prog.nex");
-            Debugger::SidecarLoad r;
-            const std::string log = debugger_log_of([&] {
-                r = m.dbg->load_program_sidecars((d1 / "prog.nex").string());
-            });
-            const auto st = m.dbg->source_map_status();
-            check("SRCDBG-Z88-01", "prog.map beside a .nex attaches its symbols and its 46 source lines, "
-                                   "identity verified from prog_CODE.bin",
-                  ok && r.symbols == 19 && r.sources == 46 && m.dbg->source_map().size() == 46 &&
-                      m.dbg->source_map().format() == "z88dk" &&
-                      st.state == Debugger::SourceMapStatus::State::Attached && !st.by_user &&
-                      line_of(*m.dbg, 0x8CB8) == "main.c:19" &&
-                      m.dbg->lookup(0x8C92) == std::string("main") &&
-                      has(log, "Loaded 19 z88dk symbols from '" + map1 + "'") &&
-                      has(log, "Loaded 46 z88dk source lines from '" + map1 +
-                                   "' (program identity verified)"),
-                  "symbols=" + std::to_string(r.symbols) + " sources=" + std::to_string(r.sources) +
-                      " " + line_of(*m.dbg, 0x8CB8) + "\n" + log);
-        }
-        {   // Z88-02
-            const fs::path d = z / "d2";
-            z88_copy("v2.4/sccz80-debug", d);
-            write_text(d / "user.map", "_mine = $9000 ; addr, public, , m, code_compiler, x.c:1\n");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            m.dbg->load_map((d / "user.map").string(), jnext::dbg::MapFormat::Z88dk);
-            z88_load(m, d / "prog.nex");
-            Debugger::SidecarLoad r;
-            const std::string log = debugger_log_of([&] {
-                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            });
-            check("SRCDBG-Z88-02", "the user's symbols are kept over prog.map's, whose source lines still attach",
-                  r.symbols == -1 && r.sources == 46 && m.dbg->lookup_name("_mine") == 0x9000 &&
-                      !m.dbg->lookup_name("_main") && has(log, "Kept the loaded symbols"),
-                  log);
-        }
-        {   // Z88-03
-            const fs::path d = z / "d3";
-            fs::create_directories(d);
-            fs::copy_file(d1 / "prog.map", d / "game.map");
-            // The section binary is beside the tape: the program is not in memory yet, so its
-            // identity is judged where the CPU first runs it, not now (owner decision 2026-10-29).
-            fs::copy_file(d1 / "prog_CODE.bin", d / "game_CODE.bin");
-            write_text(d / "game.tap", "");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            Debugger::SidecarLoad r;
-            const std::string log = debugger_log_of([&] {
-                r = m.dbg->load_program_sidecars((d / "game.tap").string());
-            });
-            check("SRCDBG-Z88-03", "game.map beside a tape attaches its symbols and, at once, its source "
-                                   "lines, pending: the program is not in memory, so its identity is not "
-                                   "judged now and the symbols do not go with a \"mismatch\"",
-                  r.symbols == 19 && m.dbg->lookup_name("_main") == 0x8C92 && r.sources == 46 &&
-                      r.sources_pending && m.dbg->source_map().size() == 46 &&
-                      m.dbg->source_map_status().pending &&
-                      has(log, "(identity check pending: the program loads from tape)"),
-                  log);
-        }
-        {   // Z88-04
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d1 / "prog.nex");
-            m.dbg->load_program_sidecars((d1 / "prog.nex").string());
-            m.dbg->nextreg_write(m.a, 0x54, 40);
-            const auto out = m.dbg->load_source_map(map1, true);
-            const std::string at40 = line_of(*m.dbg, 0x8CB8);
-            m.dbg->nextreg_write(m.a, 0x54, 4);
-            const std::string at4 = line_of(*m.dbg, 0x8CB8);
-            check("SRCDBG-Z88-04", "a map loaded by hand takes its rule-4 page from the MMU now: MMU4 = 40 "
-                                   "puts main.c:19 in page 40 and nowhere in page 4",
-                  out.count == 46 && out.identity && !*out.identity && at40 == "main.c:19" &&
-                      at4 == "-",
-                  at40 + " / " + at4);
-        }
-        {   // Z88-05
-            const fs::path a = z / "d5a", b = z / "d5b";
-            fs::create_directories(a);
-            fs::copy_file(d1 / "prog.nex", a / "game.nex");
-            z88_copy("v2.4/sccz80-debug", b);
-            fs::remove(b / "prog.nex");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, a / "game.nex");
-            const auto out = m.dbg->load_source_map((b / "prog.map").string(), false);
-            check("SRCDBG-Z88-05", "Load Source Map with a z88dk map: 46 lines, identity verified, user "
-                                   "owned, and no symbols (they stay with Load MAP)",
-                  out.count == 46 && out.identity && *out.identity &&
-                      m.dbg->source_map().format() == "z88dk" && !m.dbg->lookup_name("_main") &&
-                      out.identity_note == " (program identity verified)" &&
-                      m.dbg->source_map_status().by_user,
-                  out.error);
-        }
-        {   // Z88-06
-            const fs::path d = z / "d6";
-            z88_copy("v2.4/sccz80-page20", d);
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const std::string log = debugger_log_of([&] {
-                m.dbg->load_program_sidecars((d / "prog.nex").string());
-            });
-            m.dbg->nextreg_write(m.a, 0x56, 20);
-            const std::string at20 = line_of(*m.dbg, 0xC003);
-            m.dbg->nextreg_write(m.a, 0x56, 21);
-            const std::string at21 = line_of(*m.dbg, 0xC003);
-            check("SRCDBG-Z88-06", "banked code (PAGE_20) is found while page 20 is mapped at $C000 and not "
-                                   "under page 21; identity verified over both binaries",
-                  at20 == "banked.c:8" && at21 == "-" && has(log, "(program identity verified)"),
-                  at20 + " / " + at21 + "\n" + log);
-        }
-        {   // Z88-07
-            const fs::path d = z / "d7";
-            z88_copy("v2.4/sccz80-debug", d);
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
+    const fs::path z = dir / "z88";
+    const fs::path d1 = z / "d1";
+    z88_copy("v2.4/sccz80-debug", d1);
+    const std::string map1 = (d1 / "prog.map").string();
+    {   // Z88-01
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool ok = z88_load(m, d1 / "prog.nex");
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+        });
+        const auto st = m.dbg->source_map_status();
+        check("SRCDBG-Z88-01", "prog.map beside a .nex attaches its symbols and its 46 source lines, "
+                               "identity verified from prog_CODE.bin",
+              ok && r.symbols == 19 && r.sources == 46 && m.dbg->source_map().size() == 46 &&
+                  m.dbg->source_map().format() == "z88dk" &&
+                  st.state == Debugger::SourceMapStatus::State::Attached && !st.by_user &&
+                  line_of(*m.dbg, 0x8CB8) == "main.c:19" &&
+                  m.dbg->lookup(0x8C92) == std::string("main") &&
+                  has(log, "Loaded 19 z88dk symbols from '" + map1 + "'") &&
+                  has(log, "Loaded 46 z88dk source lines from '" + map1 +
+                               "' (program identity verified)"),
+              "symbols=" + std::to_string(r.symbols) + " sources=" + std::to_string(r.sources) +
+                  " " + line_of(*m.dbg, 0x8CB8) + "\n" + log);
+    }
+    {   // Z88-02
+        const fs::path d = z / "d2";
+        z88_copy("v2.4/sccz80-debug", d);
+        write_text(d / "user.map", "_mine = $9000 ; addr, public, , m, code_compiler, x.c:1\n");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        m.dbg->load_map((d / "user.map").string(), jnext::dbg::MapFormat::Z88dk);
+        z88_load(m, d / "prog.nex");
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        });
+        check("SRCDBG-Z88-02", "the user's symbols are kept over prog.map's, whose source lines still attach",
+              r.symbols == -1 && r.sources == 46 && m.dbg->lookup_name("_mine") == 0x9000 &&
+                  !m.dbg->lookup_name("_main") && has(log, "Kept the loaded symbols"),
+              log);
+    }
+    {   // Z88-03
+        const fs::path d = z / "d3";
+        fs::create_directories(d);
+        fs::copy_file(d1 / "prog.map", d / "game.map");
+        // The section binary is beside the tape: the program is not in memory yet, so its
+        // identity is judged where the CPU first runs it, not now (owner decision 2026-10-29).
+        fs::copy_file(d1 / "prog_CODE.bin", d / "game_CODE.bin");
+        write_text(d / "game.tap", "");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d / "game.tap").string());
+        });
+        check("SRCDBG-Z88-03", "game.map beside a tape attaches its symbols and, at once, its source "
+                               "lines, pending: the program is not in memory, so its identity is not "
+                               "judged now and the symbols do not go with a \"mismatch\"",
+              r.symbols == 19 && m.dbg->lookup_name("_main") == 0x8C92 && r.sources == 46 &&
+                  r.sources_pending && m.dbg->source_map().size() == 46 &&
+                  m.dbg->source_map_status().pending &&
+                  has(log, "(identity check pending: the program loads from tape)"),
+              log);
+    }
+    {   // Z88-04
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d1 / "prog.nex");
+        m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+        m.dbg->nextreg_write(m.a, 0x54, 40);
+        const auto out = m.dbg->load_source_map(map1, true);
+        const std::string at40 = line_of(*m.dbg, 0x8CB8);
+        m.dbg->nextreg_write(m.a, 0x54, 4);
+        const std::string at4 = line_of(*m.dbg, 0x8CB8);
+        check("SRCDBG-Z88-04", "a map loaded by hand takes its rule-4 page from the MMU now: MMU4 = 40 "
+                               "puts main.c:19 in page 40 and nowhere in page 4",
+              out.count == 46 && out.identity && !*out.identity && at40 == "main.c:19" &&
+                  at4 == "-",
+              at40 + " / " + at4);
+    }
+    {   // Z88-05
+        const fs::path a = z / "d5a", b = z / "d5b";
+        fs::create_directories(a);
+        fs::copy_file(d1 / "prog.nex", a / "game.nex");
+        z88_copy("v2.4/sccz80-debug", b);
+        fs::remove(b / "prog.nex");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, a / "game.nex");
+        const auto out = m.dbg->load_source_map((b / "prog.map").string(), false);
+        check("SRCDBG-Z88-05", "Load Source Map with a z88dk map: 46 lines, identity verified, user "
+                               "owned, and no symbols (they stay with Load MAP)",
+              out.count == 46 && out.identity && *out.identity &&
+                  m.dbg->source_map().format() == "z88dk" && !m.dbg->lookup_name("_main") &&
+                  out.identity_note == " (program identity verified)" &&
+                  m.dbg->source_map_status().by_user,
+              out.error);
+    }
+    {   // Z88-06
+        const fs::path d = z / "d6";
+        z88_copy("v2.4/sccz80-page20", d);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const std::string log = debugger_log_of([&] {
             m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const Result soft = m.dbg->reset(m.a, ResetKind::Soft);
-            const size_t kept = m.dbg->source_map().size();
+        });
+        m.dbg->nextreg_write(m.a, 0x56, 20);
+        const std::string at20 = line_of(*m.dbg, 0xC003);
+        m.dbg->nextreg_write(m.a, 0x56, 21);
+        const std::string at21 = line_of(*m.dbg, 0xC003);
+        check("SRCDBG-Z88-06", "banked code (PAGE_20) is found while page 20 is mapped at $C000 and not "
+                               "under page 21; identity verified over both binaries",
+              at20 == "banked.c:8" && at21 == "-" && has(log, "(program identity verified)"),
+              at20 + " / " + at21 + "\n" + log);
+    }
+}
 
-            Machine n(false, MachineType::ZXN_ISSUE2);
-            Z88Log lc;
-            n.dbg->set_listener(n.a, &lc);
-            z88_load(n, d / "prog.nex");
-            n.dbg->load_program_sidecars((d / "prog.nex").string());
-            uint8_t b = 0;
-            n.dbg->peek(MemSpace::page(4), 0x0CB5, 1, &b);
-            const uint8_t other = static_cast<uint8_t>(b ^ 0xFF);
-            n.dbg->poke(n.a, MemSpace::page(4), 0x0CB5, 1, &other);
-            const Result soft2 = n.dbg->reset(n.a, ResetKind::Soft);
-            const size_t gone = n.dbg->source_map().size();
-            check("SRCDBG-Z88-07", "a soft reset keeps a z88dk map while its section bytes are in the page "
-                                   "and drops it when one differs (read through the peek path)",
-                  soft == Result::Ok && kept == 46 && soft2 == Result::Ok && gone == 0 &&
-                      lc.has("Dropped the program's z88dk source map: its binary identity does not "
-                             "match the program now in memory"),
-                  "kept=" + std::to_string(kept) + " gone=" + std::to_string(gone));
+[[gnu::noinline]] static void srcdbg_part_28(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    {   // Z88-07
+        const fs::path d = z / "d7";
+        z88_copy("v2.4/sccz80-debug", d);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const Result soft = m.dbg->reset(m.a, ResetKind::Soft);
+        const size_t kept = m.dbg->source_map().size();
+
+        Machine n(false, MachineType::ZXN_ISSUE2);
+        Z88Log lc;
+        n.dbg->set_listener(n.a, &lc);
+        z88_load(n, d / "prog.nex");
+        n.dbg->load_program_sidecars((d / "prog.nex").string());
+        uint8_t b = 0;
+        n.dbg->peek(MemSpace::page(4), 0x0CB5, 1, &b);
+        const uint8_t other = static_cast<uint8_t>(b ^ 0xFF);
+        n.dbg->poke(n.a, MemSpace::page(4), 0x0CB5, 1, &other);
+        const Result soft2 = n.dbg->reset(n.a, ResetKind::Soft);
+        const size_t gone = n.dbg->source_map().size();
+        check("SRCDBG-Z88-07", "a soft reset keeps a z88dk map while its section bytes are in the page "
+                               "and drops it when one differs (read through the peek path)",
+              soft == Result::Ok && kept == 46 && soft2 == Result::Ok && gone == 0 &&
+                  lc.has("Dropped the program's z88dk source map: its binary identity does not "
+                         "match the program now in memory"),
+              "kept=" + std::to_string(kept) + " gone=" + std::to_string(gone));
+    }
+    {   // Z88-08
+        const fs::path d = z / "d8";
+        z88_copy("v2.4/sccz80-debug", d);
+        write_text(d / "prog.sld", program_sld(p80, p90));
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        check("SRCDBG-Z88-08", "an SLD sidecar wins the source half over prog.map, whose symbols still attach",
+              r.sources == 6 && m.dbg->source_map().format() == "SLD" && r.symbols == 19);
+    }
+    {   // Z88-09
+        const fs::path d = z / "d9";
+        z88_copy("v2.4/sccz80-debug", d);
+        write_text(d / "prog.Memory.txt", "8000: ._Main\n");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        check("SRCDBG-Z88-09", "a Memory.txt sidecar keeps prog.map's symbols out; its source lines attach",
+              r.symbols == 1 && m.dbg->lookup_name("Main") && !m.dbg->lookup_name("_main") &&
+                  r.sources == 46 && m.dbg->source_map().format() == "z88dk");
+    }
+    {   // Z88-10
+        const fs::path d = z / "d10";
+        fs::create_directories(d);
+        write_text(d / "a.nex", "");
+        write_text(d / "a.sld", program_sld(p80, p90));
+        write_text(d / "a.Memory.txt", "8000: ._Main\n");
+        write_text(d / "b.nex", "");
+        write_text(d / "b.map", "X = $1234\n");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const auto first = m.dbg->load_program_sidecars((d / "a.nex").string());
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d / "b.nex").string());
+        });
+        check("SRCDBG-Z88-10", "a .map with no symbol and no line record is not a z88dk map: nothing "
+                               "attached, nothing reported, the previous program's sidecars cleared",
+              first.sources == 6 && first.symbols == 1 && r.symbols == -1 && r.sources == -1 &&
+                  r.problem.empty() && m.dbg->symbols().empty() && m.dbg->source_map().empty() &&
+                  !has(log, "z88dk"),
+              log);
+    }
+    {   // Z88-11
+        const fs::path d = z / "d11";
+        z88_copy("v2.4/sccz80-debug", d);
+        {
+            std::ofstream o(d / "prog.map", std::ios::app);
+            o << "__C_LINE_99_x = $8CC0 ; addr, local, , main_c, code_compiler, main.c::main::0::2:abc\n";
         }
-        {   // Z88-08
-            const fs::path d = z / "d8";
-            z88_copy("v2.4/sccz80-debug", d);
-            write_text(d / "prog.sld", program_sld(p80, p90));
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            check("SRCDBG-Z88-08", "an SLD sidecar wins the source half over prog.map, whose symbols still attach",
-                  r.sources == 6 && m.dbg->source_map().format() == "SLD" && r.symbols == 19);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        check("SRCDBG-Z88-11", "one malformed line record refuses the source half, naming its line; the "
+                               "symbol half still attaches",
+              r.sources == -1 && r.symbols == 19 && m.dbg->source_map().empty() &&
+                  has(r.problem, "source map '" + (d / "prog.map").string() + "' rejected: line "),
+              r.problem);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_29(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    const fs::path d1 = z / "d1";
+    {   // Z88-12
+        const fs::path d = z / "d12";
+        z88_copy("v2.4/sccz80-debug", d, /*bins=*/false);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        });
+        check("SRCDBG-Z88-12", "without the section binaries the map attaches, and the log says the "
+                               "identity was not verified",
+              r.sources == 46 &&
+                  has(log, "(program identity not verified: no section binaries beside it)"),
+              log);
+    }
+    {   // Z88-13
+        const fs::path d = z / "d13";
+        fs::create_directories(d);
+        fs::copy_file(d1 / "prog.map", d / "game.map");
+        write_text(d / "game.z80", "");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const auto r = m.dbg->load_program_sidecars((d / "game.z80").string());
+        check("SRCDBG-Z88-13", "<stem>.map is a sidecar of a .nex, .tap or .sna only: beside a .z80 "
+                               "nothing attaches",
+              r.symbols == -1 && r.sources == -1 && m.dbg->symbols().empty());
+    }
+    {   // Z88-14
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d1 / "prog.nex");
+        m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+        m.dbg->subscribe(m.a, execute_stop(0x8CB5));
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        const bool at_line = m.dbg->state().paused && m.pc() == 0x8CB5 &&
+                             line_of(*m.dbg, m.pc()) == "main.c:19";
+        m.dbg->source_step(m.a, Step::Into);
+        check("SRCDBG-Z88-14", "real z88dk code: a breakpoint at main.c:19's start stops there, and a "
+                               "source step ends at main.c:20's start ($8CBE)",
+              at_line && m.pc() == 0x8CBE && line_of(*m.dbg, m.pc()) == "main.c:20", m.where());
+    }
+    {   // COV-01 (GH #388): executed_source_lines on real z88dk code
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d1 / "prog.nex");
+        m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+        m.dbg->mem_coverage_enable(true);
+        m.dbg->subscribe(m.a, execute_stop(0x8CB5));
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        const bool at19 = m.dbg->state().paused && m.pc() == 0x8CB5;
+        const auto before = m.dbg->executed_source_lines("main.c");
+        m.dbg->source_step(m.a, Step::Into);                     // runs line 19 (and square()) to 0x8CBE
+        auto listed = [](const std::vector<uint32_t>& v, uint32_t l) {
+            return std::find(v.begin(), v.end(), l) != v.end();
+        };
+        {   // line 20's first byte READ by the guest: an R mark, not an X
+            DebugState::GuestExecutionScope g(m.emu.debug_state());
+            (void)m.emu.mmu().read(0x8CBE);
         }
-        {   // Z88-09
-            const fs::path d = z / "d9";
-            z88_copy("v2.4/sccz80-debug", d);
-            write_text(d / "prog.Memory.txt", "8000: ._Main\n");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            check("SRCDBG-Z88-09", "a Memory.txt sidecar keeps prog.map's symbols out; its source lines attach",
-                  r.symbols == 1 && m.dbg->lookup_name("Main") && !m.dbg->lookup_name("_main") &&
-                      r.sources == 46 && m.dbg->source_map().format() == "z88dk");
+        const auto lines = m.dbg->executed_source_lines("main.c");
+        const auto util  = m.dbg->executed_source_lines("util.c");
+        const bool util_in_map = !m.dbg->source_map().file_ranges("util.c").empty();
+        std::string got;
+        for (uint32_t l : lines) got += std::to_string(l) + " ";
+        check("SRCDBG-COV-01", "executed_source_lines: the lines a run executed are listed (main.c "
+                               "15, 17, 18 before the stop at 19's start; 19 after the step); a line not "
+                               "yet executed (20), a function never called (util.c is in the map) and a "
+                               "line with only R-marked bytes (20 was read) are not",
+              at19 && m.pc() == 0x8CBE && before == std::vector<uint32_t>({15, 17, 18}) &&
+                  lines == std::vector<uint32_t>({15, 17, 18, 19}) && !listed(lines, 20) &&
+                  util_in_map && util.empty() && m.dbg->executed_source_lines("nosuch.c").empty(),
+              "lines=" + got + " pc=" + hex(m.pc()));
+    }
+    {   // COV-02 (GH #388): a banked line, ranges in two pages
+        const unsigned pa = 0x30, pb = 0x31;
+        const fs::path two = dir / "cov2.sld";
+        write_text(two, std::string("|SLD.data.version|1\n") + "x.asm|1||0" + kNextDevice +
+                            "x.asm|7||0|" + std::to_string(pa) + "|32768|T|\n" +
+                            "x.asm|7||0|" + std::to_string(pb) + "|32768|T|\n" +
+                            "x.asm|8||0|" + std::to_string(pa) + "|32769|T|\n");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        m.emu.mmu().set_boot_rom_enabled(false);
+        m.emu.mmu().set_config_mode(false);
+        for (uint8_t pg : { pb, pa }) {
+            m.emu.mmu().set_page(4, pg);
+            m.emu.mmu().write(0x8000, 0x00);      // NOP
+            m.emu.mmu().write(0x8001, 0x00);      // NOP
+            m.emu.mmu().write(0x8002, 0x18);      // JR $
+            m.emu.mmu().write(0x8003, 0xFE);
         }
-        {   // Z88-10
-            const fs::path d = z / "d10";
-            fs::create_directories(d);
-            write_text(d / "a.nex", "");
-            write_text(d / "a.sld", program_sld(p80, p90));
-            write_text(d / "a.Memory.txt", "8000: ._Main\n");
-            write_text(d / "b.nex", "");
-            write_text(d / "b.map", "X = $1234\n");
+        m.dbg->load_source_map(two.string(), false);
+        m.dbg->mem_coverage_enable(true);
+        m.set_pc(0x8000);
+        m.dbg->step_into(m.a);                    // one NOP of Page{pa}'s copy
+        auto has_line = [&](uint32_t l) {
+            const auto v = m.dbg->executed_source_lines("x.asm");
+            return std::find(v.begin(), v.end(), l) != v.end();
+        };
+        const bool only_a = has_line(7) && !has_line(8);   // line 7 via Page{pa}; Page{pb} never ran
+        m.dbg->mem_coverage_clear();
+        const bool cleared = !has_line(7);
+        // run neither: switch the mapping to a THIRD page holding the same bytes
+        m.emu.mmu().set_page(4, 0x32);
+        for (uint16_t a = 0x8000; a < 0x8004; ++a) m.emu.mmu().write(a, a == 0x8002 ? 0x18 : (a == 0x8003 ? 0xFE : 0x00));
+        m.set_pc(0x8000);
+        m.dbg->step_into(m.a);
+        const bool third_page = !has_line(7) && !has_line(8);
+        // And only Page{pb}'s copy (the SECOND range of line 7 in the map): still listed, and
+        // line 8, which has a range in Page{pa} alone, is not.
+        m.dbg->mem_coverage_clear();
+        m.emu.mmu().set_page(4, pb);
+        m.set_pc(0x8000);
+        m.dbg->step_into(m.a);
+        const bool second_copy = has_line(7) && !has_line(8);
+        check("SRCDBG-COV-02", "a line with ranges in two pages is listed once a copy in either page "
+                               "ran (only Page{p1} ran: listed; only Page{p2} ran: listed); after Clear it is not, and the same "
+                               "bytes executed in a third page do not list it",
+              only_a && cleared && third_page && second_copy,
+              std::string("only_a=") + std::to_string(only_a) + " cleared=" + std::to_string(cleared) +
+                  " third=" + std::to_string(third_page) + " second=" + std::to_string(second_copy));
+    }
+    {   // Z88-18: some code ranges have no binary
+        const fs::path d = z / "d18";
+        z88_copy("v2.4/sccz80-page20", d);
+        fs::remove(d / "prog_PAGE_20.bin");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const std::string log = debugger_log_of([&] {
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+        });
+        check("SRCDBG-Z88-18", "with only some of the section binaries the identity is verified for "
+                               "the code they cover, and the log counts the ranges it did not check",
+              has(log, "(program identity verified; ") && has(log, " code ranges have no section "
+                                                                   "binary and were not checked)"),
+              log);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_30(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    const fs::path d1 = z / "d1";
+    const std::string map1 = (d1 / "prog.map").string();
+    {   // Z88-19: the --source-map helper
+        const fs::path d = z / "d19";
+        z88_copy("v2.4/sccz80-debug", d);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto good = emulator_attach_cli_source_map(*m.dbg, (d / "prog.map").string());
+        // The same program, one of its code bytes changed: refused.
+        Machine n(false, MachineType::ZXN_ISSUE2);
+        z88_load(n, d / "prog.nex");
+        uint8_t b = 0;
+        n.dbg->peek(MemSpace::page(4), 0x0CB5, 1, &b);
+        const uint8_t other = static_cast<uint8_t>(b ^ 0xFF);
+        n.dbg->poke(n.a, MemSpace::page(4), 0x0CB5, 1, &other);
+        const auto bad = emulator_attach_cli_source_map(*n.dbg, (d / "prog.map").string());
+        check("SRCDBG-Z88-19", "--source-map's helper attaches a matching map as the user's and "
+                               "refuses a mismatching one, with a line to log each",
+              good.ok && good.line == "--source-map '" + (d / "prog.map").string() +
+                                          "': 46 source lines (program identity verified)" &&
+                  m.dbg->source_map_status().by_user && !bad.ok && n.dbg->source_map().empty() &&
+                  has(bad.line, "does not match the source map's binary identity"),
+              good.line + " | " + bad.line);
+    }
+    {   // Z88-20: a hand load of a map with no line records
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d1 / "prog.nex");
+        m.dbg->load_source_map(map1, true);
+        const auto out = m.dbg->load_source_map(kZ88NoDebug.string(), true);
+        check("SRCDBG-Z88-20", "a z88dk map built without -debug is refused by hand with a reason, and "
+                               "the map already loaded is kept",
+              out.count == -1 && has(out.error, "no source lines in") &&
+                  has(out.error, "built without -debug") && m.dbg->source_map().size() == 46);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_31(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    {   // SRCDBG-LIS-01..04 (GH #348): the --list listings beside a z88dk map
+        const fs::path d = z / "lis";
+        z88_copy_lis("v2.4/sdcc-SO2", d);
+        const std::string map = (d / "prog.map").string();
+        {   // LIS-01
             Machine m(false, MachineType::ZXN_ISSUE2);
-            const auto first = m.dbg->load_program_sidecars((d / "a.nex").string());
-            Debugger::SidecarLoad r;
-            const std::string log = debugger_log_of([&] {
-                r = m.dbg->load_program_sidecars((d / "b.nex").string());
-            });
-            check("SRCDBG-Z88-10", "a .map with no symbol and no line record is not a z88dk map: nothing "
-                                   "attached, nothing reported, the previous program's sidecars cleared",
-                  first.sources == 6 && first.symbols == 1 && r.symbols == -1 && r.sources == -1 &&
-                      r.problem.empty() && m.dbg->symbols().empty() && m.dbg->source_map().empty() &&
-                      !has(log, "z88dk"),
-                  log);
-        }
-        {   // Z88-11
-            const fs::path d = z / "d11";
-            z88_copy("v2.4/sccz80-debug", d);
-            {
-                std::ofstream o(d / "prog.map", std::ios::app);
-                o << "__C_LINE_99_x = $8CC0 ; addr, local, , main_c, code_compiler, main.c::main::0::2:abc\n";
-            }
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            check("SRCDBG-Z88-11", "one malformed line record refuses the source half, naming its line; the "
-                                   "symbol half still attaches",
-                  r.sources == -1 && r.symbols == 19 && m.dbg->source_map().empty() &&
-                      has(r.problem, "source map '" + (d / "prog.map").string() + "' rejected: line "),
-                  r.problem);
-        }
-        {   // Z88-12
-            const fs::path d = z / "d12";
-            z88_copy("v2.4/sccz80-debug", d, /*bins=*/false);
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
+            const bool ok = z88_load(m, d / "prog.nex");
             Debugger::SidecarLoad r;
             const std::string log = debugger_log_of([&] {
                 r = m.dbg->load_program_sidecars((d / "prog.nex").string());
             });
-            check("SRCDBG-Z88-12", "without the section binaries the map attaches, and the log says the "
-                                   "identity was not verified",
-                  r.sources == 46 &&
-                      has(log, "(program identity not verified: no section binaries beside it)"),
-                  log);
+            check("SRCDBG-LIS-01", "the sidecar attaches the listings' 230 source lines, the log says "
+                                   "'and 4 listings', the identity is verified, and $8C6F is main.c:18",
+                  ok && r.sources == 230 && line_of(*m.dbg, 0x8C6F) == "main.c:18" &&
+                      has(log, "Loaded 230 z88dk source lines from '" + map + "' and 4 listings") &&
+                      has(log, "(program identity verified") && !has(log, "not verified"),
+                  std::to_string(r.sources) + "\n" + log);
         }
-        {   // Z88-13
-            const fs::path d = z / "d13";
-            fs::create_directories(d);
-            fs::copy_file(d1 / "prog.map", d / "game.map");
-            write_text(d / "game.z80", "");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const auto r = m.dbg->load_program_sidecars((d / "game.z80").string());
-            check("SRCDBG-Z88-13", "<stem>.map is a sidecar of a .nex, .tap or .sna only: beside a .z80 "
-                                   "nothing attaches",
-                  r.symbols == -1 && r.sources == -1 && m.dbg->symbols().empty());
-        }
-        {   // Z88-14
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d1 / "prog.nex");
-            m.dbg->load_program_sidecars((d1 / "prog.nex").string());
-            m.dbg->subscribe(m.a, execute_stop(0x8CB5));
-            m.dbg->run(m.a);
-            for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
-            const bool at_line = m.dbg->state().paused && m.pc() == 0x8CB5 &&
-                                 line_of(*m.dbg, m.pc()) == "main.c:19";
-            m.dbg->source_step(m.a, Step::Into);
-            check("SRCDBG-Z88-14", "real z88dk code: a breakpoint at main.c:19's start stops there, and a "
-                                   "source step ends at main.c:20's start ($8CBE)",
-                  at_line && m.pc() == 0x8CBE && line_of(*m.dbg, m.pc()) == "main.c:20", m.where());
-        }
-        {   // COV-01 (GH #388): executed_source_lines on real z88dk code
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d1 / "prog.nex");
-            m.dbg->load_program_sidecars((d1 / "prog.nex").string());
-            m.dbg->mem_coverage_enable(true);
-            m.dbg->subscribe(m.a, execute_stop(0x8CB5));
-            m.dbg->run(m.a);
-            for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
-            const bool at19 = m.dbg->state().paused && m.pc() == 0x8CB5;
-            const auto before = m.dbg->executed_source_lines("main.c");
-            m.dbg->source_step(m.a, Step::Into);                     // runs line 19 (and square()) to 0x8CBE
-            auto listed = [](const std::vector<uint32_t>& v, uint32_t l) {
-                return std::find(v.begin(), v.end(), l) != v.end();
-            };
-            {   // line 20's first byte READ by the guest: an R mark, not an X
-                DebugState::GuestExecutionScope g(m.emu.debug_state());
-                (void)m.emu.mmu().read(0x8CBE);
-            }
-            const auto lines = m.dbg->executed_source_lines("main.c");
-            const auto util  = m.dbg->executed_source_lines("util.c");
-            const bool util_in_map = !m.dbg->source_map().file_ranges("util.c").empty();
-            std::string got;
-            for (uint32_t l : lines) got += std::to_string(l) + " ";
-            check("SRCDBG-COV-01", "executed_source_lines: the lines a run executed are listed (main.c "
-                                   "15, 17, 18 before the stop at 19's start; 19 after the step); a line not "
-                                   "yet executed (20), a function never called (util.c is in the map) and a "
-                                   "line with only R-marked bytes (20 was read) are not",
-                  at19 && m.pc() == 0x8CBE && before == std::vector<uint32_t>({15, 17, 18}) &&
-                      lines == std::vector<uint32_t>({15, 17, 18, 19}) && !listed(lines, 20) &&
-                      util_in_map && util.empty() && m.dbg->executed_source_lines("nosuch.c").empty(),
-                  "lines=" + got + " pc=" + hex(m.pc()));
-        }
-        {   // COV-02 (GH #388): a banked line, ranges in two pages
-            const unsigned pa = 0x30, pb = 0x31;
-            const fs::path two = dir / "cov2.sld";
-            write_text(two, std::string("|SLD.data.version|1\n") + "x.asm|1||0" + kNextDevice +
-                                "x.asm|7||0|" + std::to_string(pa) + "|32768|T|\n" +
-                                "x.asm|7||0|" + std::to_string(pb) + "|32768|T|\n" +
-                                "x.asm|8||0|" + std::to_string(pa) + "|32769|T|\n");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            m.emu.mmu().set_boot_rom_enabled(false);
-            m.emu.mmu().set_config_mode(false);
-            for (uint8_t pg : { pb, pa }) {
-                m.emu.mmu().set_page(4, pg);
-                m.emu.mmu().write(0x8000, 0x00);      // NOP
-                m.emu.mmu().write(0x8001, 0x00);      // NOP
-                m.emu.mmu().write(0x8002, 0x18);      // JR $
-                m.emu.mmu().write(0x8003, 0xFE);
-            }
-            m.dbg->load_source_map(two.string(), false);
-            m.dbg->mem_coverage_enable(true);
-            m.set_pc(0x8000);
-            m.dbg->step_into(m.a);                    // one NOP of Page{pa}'s copy
-            auto has_line = [&](uint32_t l) {
-                const auto v = m.dbg->executed_source_lines("x.asm");
-                return std::find(v.begin(), v.end(), l) != v.end();
-            };
-            const bool only_a = has_line(7) && !has_line(8);   // line 7 via Page{pa}; Page{pb} never ran
-            m.dbg->mem_coverage_clear();
-            const bool cleared = !has_line(7);
-            // run neither: switch the mapping to a THIRD page holding the same bytes
-            m.emu.mmu().set_page(4, 0x32);
-            for (uint16_t a = 0x8000; a < 0x8004; ++a) m.emu.mmu().write(a, a == 0x8002 ? 0x18 : (a == 0x8003 ? 0xFE : 0x00));
-            m.set_pc(0x8000);
-            m.dbg->step_into(m.a);
-            const bool third_page = !has_line(7) && !has_line(8);
-            // And only Page{pb}'s copy (the SECOND range of line 7 in the map): still listed, and
-            // line 8, which has a range in Page{pa} alone, is not.
-            m.dbg->mem_coverage_clear();
-            m.emu.mmu().set_page(4, pb);
-            m.set_pc(0x8000);
-            m.dbg->step_into(m.a);
-            const bool second_copy = has_line(7) && !has_line(8);
-            check("SRCDBG-COV-02", "a line with ranges in two pages is listed once a copy in either page "
-                                   "ran (only Page{p1} ran: listed; only Page{p2} ran: listed); after Clear it is not, and the same "
-                                   "bytes executed in a third page do not list it",
-                  only_a && cleared && third_page && second_copy,
-                  std::string("only_a=") + std::to_string(only_a) + " cleared=" + std::to_string(cleared) +
-                      " third=" + std::to_string(third_page) + " second=" + std::to_string(second_copy));
-        }
-        {   // Z88-18: some code ranges have no binary
-            const fs::path d = z / "d18";
-            z88_copy("v2.4/sccz80-page20", d);
-            fs::remove(d / "prog_PAGE_20.bin");
+        {   // LIS-02
             Machine m(false, MachineType::ZXN_ISSUE2);
             z88_load(m, d / "prog.nex");
-            const std::string log = debugger_log_of([&] {
-                m.dbg->load_program_sidecars((d / "prog.nex").string());
-            });
-            check("SRCDBG-Z88-18", "with only some of the section binaries the identity is verified for "
-                                   "the code they cover, and the log counts the ranges it did not check",
-                  has(log, "(program identity verified; ") && has(log, " code ranges have no section "
-                                                                       "binary and were not checked)"),
-                  log);
-        }
-        {   // Z88-19: the --source-map helper
-            const fs::path d = z / "d19";
-            z88_copy("v2.4/sccz80-debug", d);
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto good = emulator_attach_cli_source_map(*m.dbg, (d / "prog.map").string());
-            // The same program, one of its code bytes changed: refused.
+            const auto out = m.dbg->load_source_map(map, true);
+            const fs::path bare = z / "lis-bare";
+            z88_copy("v2.4/sdcc-SO2", bare);
             Machine n(false, MachineType::ZXN_ISSUE2);
-            z88_load(n, d / "prog.nex");
-            uint8_t b = 0;
-            n.dbg->peek(MemSpace::page(4), 0x0CB5, 1, &b);
-            const uint8_t other = static_cast<uint8_t>(b ^ 0xFF);
-            n.dbg->poke(n.a, MemSpace::page(4), 0x0CB5, 1, &other);
-            const auto bad = emulator_attach_cli_source_map(*n.dbg, (d / "prog.map").string());
-            check("SRCDBG-Z88-19", "--source-map's helper attaches a matching map as the user's and "
-                                   "refuses a mismatching one, with a line to log each",
-                  good.ok && good.line == "--source-map '" + (d / "prog.map").string() +
-                                              "': 46 source lines (program identity verified)" &&
-                      m.dbg->source_map_status().by_user && !bad.ok && n.dbg->source_map().empty() &&
-                      has(bad.line, "does not match the source map's binary identity"),
-                  good.line + " | " + bad.line);
+            z88_load(n, bare / "prog.nex");
+            const auto none = n.dbg->load_source_map((bare / "prog.map").string(), true);
+            check("SRCDBG-LIS-02", "a hand load gives 230 lines from 4 listings and no note; the same map "
+                                   "with no listings is refused, the reason pointing at --list",
+                  out.count == 230 && out.listings == 4 && out.listing_note.empty() &&
+                      none.count == -1 && has(none.error, "no source lines in") &&
+                      has(none.error, "--list"),
+                  none.error);
         }
-        {   // Z88-20: a hand load of a map with no line records
+        {   // LIS-03
             Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d1 / "prog.nex");
-            m.dbg->load_source_map(map1, true);
-            const auto out = m.dbg->load_source_map(kZ88NoDebug.string(), true);
-            check("SRCDBG-Z88-20", "a z88dk map built without -debug is refused by hand with a reason, and "
-                                   "the map already loaded is kept",
-                  out.count == -1 && has(out.error, "no source lines in") &&
-                      has(out.error, "built without -debug") && m.dbg->source_map().size() == 46);
+            z88_load(m, d / "prog.nex");
+            const auto line = emulator_attach_cli_source_map(*m.dbg, map);
+            check("SRCDBG-LIS-03", "--source-map's line carries the listing count",
+                  line.ok && has(line.line, "230 source lines") && has(line.line, "(4 z88dk listings)"),
+                  line.line);
         }
-        {   // SRCDBG-LIS-01..04 (GH #348): the --list listings beside a z88dk map
-            const fs::path d = z / "lis";
-            z88_copy_lis("v2.4/sdcc-SO2", d);
-            const std::string map = (d / "prog.map").string();
-            {   // LIS-01
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool ok = z88_load(m, d / "prog.nex");
-                Debugger::SidecarLoad r;
-                const std::string log = debugger_log_of([&] {
-                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-                });
-                check("SRCDBG-LIS-01", "the sidecar attaches the listings' 230 source lines, the log says "
-                                       "'and 4 listings', the identity is verified, and $8C6F is main.c:18",
-                      ok && r.sources == 230 && line_of(*m.dbg, 0x8C6F) == "main.c:18" &&
-                          has(log, "Loaded 230 z88dk source lines from '" + map + "' and 4 listings") &&
-                          has(log, "(program identity verified") && !has(log, "not verified"),
-                      std::to_string(r.sources) + "\n" + log);
-            }
-            {   // LIS-02
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                z88_load(m, d / "prog.nex");
-                const auto out = m.dbg->load_source_map(map, true);
-                const fs::path bare = z / "lis-bare";
-                z88_copy("v2.4/sdcc-SO2", bare);
-                Machine n(false, MachineType::ZXN_ISSUE2);
-                z88_load(n, bare / "prog.nex");
-                const auto none = n.dbg->load_source_map((bare / "prog.map").string(), true);
-                check("SRCDBG-LIS-02", "a hand load gives 230 lines from 4 listings and no note; the same map "
-                                       "with no listings is refused, the reason pointing at --list",
-                      out.count == 230 && out.listings == 4 && out.listing_note.empty() &&
-                          none.count == -1 && has(none.error, "no source lines in") &&
-                          has(none.error, "--list"),
-                      none.error);
-            }
-            {   // LIS-03
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                z88_load(m, d / "prog.nex");
-                const auto line = emulator_attach_cli_source_map(*m.dbg, map);
-                check("SRCDBG-LIS-03", "--source-map's line carries the listing count",
-                      line.ok && has(line.line, "230 source lines") && has(line.line, "(4 z88dk listings)"),
-                      line.line);
-            }
-            {   // LIS-04
-                const fs::path st = z / "lis-stale";
-                z88_copy_lis("v2.4/sdcc-SO2", st);
-                {
-                    std::string text;
-                    {
-                        std::ifstream in(st / "main.c.lis", std::ios::binary);
-                        text.assign(std::istreambuf_iterator<char>(in), {});
-                    }
-                    const size_t at = text.find("0023  af");
-                    if (at != std::string::npos) text.replace(at, 8, "0023  b7");
-                    write_text(st / "main.c.lis", text);
-                }
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                z88_load(m, st / "prog.nex");
-                Debugger::SidecarLoad r;
-                const std::string log = debugger_log_of([&] {
-                    r = m.dbg->load_program_sidecars((st / "prog.nex").string());
-                });
-                Machine n(false, MachineType::ZXN_ISSUE2);
-                z88_load(n, st / "prog.nex");
-                const auto hand = n.dbg->load_source_map((st / "prog.map").string(), true);
-                check("SRCDBG-LIS-04", "a stale main.c.lis is dropped alone: the sidecar attaches the rest and "
-                                       "warns naming it; a hand load carries the note",
-                      r.sources > 0 && r.sources < 230 && has(log, "main.c.lis") &&
-                          has(log, "and 3 listings") && hand.count > 0 && hand.listings == 3 &&
-                          has(hand.listing_note, "main.c.lis"),
-                      log);
-            }
-        }
-        {   // SRCDBG-LIS-05..07 (GH #348 stage 2 review): what the user is told when listings are dropped
-            auto edit = [](const fs::path& file, const std::string& from, const std::string& to) {
+        {   // LIS-04
+            const fs::path st = z / "lis-stale";
+            z88_copy_lis("v2.4/sdcc-SO2", st);
+            {
                 std::string text;
                 {
-                    std::ifstream in(file, std::ios::binary);
+                    std::ifstream in(st / "main.c.lis", std::ios::binary);
                     text.assign(std::istreambuf_iterator<char>(in), {});
                 }
-                const size_t at = text.find(from);
-                if (at != std::string::npos) text.replace(at, from.size(), to);
-                write_text(file, text);
-            };
-            {   // LIS-05: the only listing is stale
-                const fs::path d = z / "lis-only-stale";
-                z88_copy("v2.4/sdcc-SO2", d);
-                fs::copy_file(kZ88Fixtures / "v2.4/sdcc-SO2/main.c.lis", d / "main.c.lis");
-                edit(d / "main.c.lis", "0023  af", "0023  b7");
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                z88_load(m, d / "prog.nex");
-                Debugger::SidecarLoad r;
-                const std::string log = debugger_log_of([&] {
-                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-                });
-                Machine n(false, MachineType::ZXN_ISSUE2);
-                z88_load(n, d / "prog.nex");
-                const auto hand = n.dbg->load_source_map((d / "prog.map").string(), true);
-                check("SRCDBG-LIS-05", "with no usable listing left the sidecar still warns naming the dropped "
-                                       "one and why, and a refused hand load carries the same note",
-                      m.dbg->source_map().empty() && has(log, "z88dk listings for '" + (d / "prog.map").string()) &&
-                          has(log, "main.c.lis") && has(log, "$8C6B") &&
-                          hand.count == -1 && has(hand.error, "main.c.lis") && has(hand.error, "--list"),
-                      log + "\n" + hand.error);
+                const size_t at = text.find("0023  af");
+                if (at != std::string::npos) text.replace(at, 8, "0023  b7");
+                write_text(st / "main.c.lis", text);
             }
-            {   // LIS-06: two dropped listings, the --source-map line and the joined note
-                const fs::path d = z / "lis-two-stale";
-                z88_copy_lis("v2.4/sdcc-SO2", d);
-                edit(d / "main.c.lis", "0023  af", "0023  b7");
-                edit(d / "asmfn.asm.lis", "0000  210000", "0000  310000");
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                z88_load(m, d / "prog.nex");
-                const auto line = emulator_attach_cli_source_map(*m.dbg, (d / "prog.map").string());
-                const size_t a = line.line.find("asmfn.asm.lis");
-                const size_t b = line.line.find("main.c.lis");
-                check("SRCDBG-LIS-06", "--source-map's line carries the notes of two dropped listings, both named "
-                                       "and joined with '; ', beside the count of the two that were used",
-                      line.ok && has(line.line, "(2 z88dk listings)") && a != std::string::npos &&
-                          b != std::string::npos && a < b && line.line.find("; ", a) != std::string::npos,
-                      line.line);
-            }
-            {   // LIS-07: one listing is singular everywhere
-                const fs::path d = z / "lis-one";
-                z88_copy_lis("v2.4/sccz80-incmid", d);
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                z88_load(m, d / "prog.nex");
-                Debugger::SidecarLoad r;
-                const std::string log = debugger_log_of([&] {
-                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-                });
-                Machine n(false, MachineType::ZXN_ISSUE2);
-                z88_load(n, d / "prog.nex");
-                const auto line = emulator_attach_cli_source_map(*n.dbg, (d / "prog.map").string());
-                check("SRCDBG-LIS-07", "a single listing reads 'and 1 listing' in the log and '(1 z88dk listing)' "
-                                       "in --source-map's line",
-                      r.sources > 0 && has(log, " and 1 listing") && !has(log, "1 listings") &&
-                          has(line.line, "(1 z88dk listing)") && !has(line.line, "1 z88dk listings"),
-                      log + "\n" + line.line);
-            }
-        }
-        {   // Z88-21: sidecar identity mismatch
-            const fs::path d = z / "d21";
-            z88_copy("v2.4/sccz80-debug", d);
-            // The binary beside the map is another build's: one code byte differs.
-            std::string bin;
-            {
-                std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
-                bin.assign(std::istreambuf_iterator<char>(in), {});
-            }
-            bin[0x0CB5] = static_cast<char>(bin[0x0CB5] ^ 0xFF);
-            write_text(d / "prog_CODE.bin", bin);
             Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
+            z88_load(m, st / "prog.nex");
             Debugger::SidecarLoad r;
             const std::string log = debugger_log_of([&] {
-                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                r = m.dbg->load_program_sidecars((st / "prog.nex").string());
             });
-            check("SRCDBG-Z88-21", "a z88dk map whose binaries are not the loaded program's is rejected, "
-                                   "symbols included, with the reason",
-                  r.sources == -1 && r.symbols == -1 && m.dbg->source_map().empty() &&
-                      m.dbg->symbols().empty() &&
-                      has(log, "Rejected z88dk source map") && has(r.problem, "rejected"),
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            z88_load(n, st / "prog.nex");
+            const auto hand = n.dbg->load_source_map((st / "prog.map").string(), true);
+            check("SRCDBG-LIS-04", "a stale main.c.lis is dropped alone: the sidecar attaches the rest and "
+                                   "warns naming it; a hand load carries the note",
+                  r.sources > 0 && r.sources < 230 && has(log, "main.c.lis") &&
+                      has(log, "and 3 listings") && hand.count > 0 && hand.listings == 3 &&
+                      has(hand.listing_note, "main.c.lis"),
                   log);
         }
-        {   // Z88-22: a map built without -debug beside a .nex
-            const fs::path d = z / "d22";
-            fs::create_directories(d);
-            fs::copy_file(kZ88NoDebug, d / "game.map");
-            write_text(d / "game.nex", "");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const auto r = m.dbg->load_program_sidecars((d / "game.nex").string());
-            check("SRCDBG-Z88-22", "a map built without -debug beside a .nex attaches its symbols and "
-                                   "reports no source half and no problem",
-                  r.symbols > 0 && r.sources == -1 && r.problem.empty() &&
-                      m.dbg->lookup_name("_main") && m.dbg->source_map().empty());
-        }
-        {   // Z88-23: the identity check changes nothing in the machine, live (PURE-01's fixture)
-            const fs::path d = z / "d23";
-            z88_copy("v2.4/sccz80-page20", d);
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            auto& emu = m.emu;
-            // Live: +3 timing, a contended page behind $C000 (where page 20's code is
-            // checked by its logical address in a careless reader), the floating-bus
-            // latch set, READ watches over checked ranges, a Mem subscription.
-            emu.mmu().set_machine_timing(MachineTimingMode::TimingPlus3);
-            m.dbg->nextreg_write(m.a, 0x56, 0x08);
-            emu.mmu().set_p3_floating_bus_dat(0x3C);
-            for (uint16_t at : {0xC003, 0xC010, 0x8CB5})
-                emu.debug_state().breakpoints().add_watchpoint(at, WatchType::READ);
-            Subscription sub;
-            sub.kind = EventKind::Mem;
-            sub.access = Access::Read;
-            sub.filter.lo = 0x0000;
-            sub.filter.hi = 0xFFFF;
-            sub.action = Action::Continue;
-            m.dbg->subscribe(m.a, sub);
-            auto stream = [&] {
-                StateWriter measure;
-                emu.save_state(measure);
-                std::vector<uint8_t> bytes(measure.position());
-                StateWriter w(bytes.data(), bytes.size());
-                emu.save_state(w);
-                return bytes;
-            };
-            auto ring = [&] { return emu.debug_state().event_table()->size(); };
-            const std::vector<uint8_t> before = stream();
-            const size_t ring_before = ring();
-            Debugger::SourceMapLoad out;
-            {
-                DebugState::GuestExecutionScope guest(emu.debug_state());
-                out = m.dbg->load_source_map((d / "prog.map").string(), false);
-            }
-            const bool untouched = before == stream() && !emu.debug_state().data_bp_hit() &&
-                                   ring() == ring_before && emu.mmu().p3_floating_bus_dat() == 0x3C;
-            check("SRCDBG-Z88-23", "verifying a z88dk map's identity over a mapped page and an unmapped "
-                                   "one, inside the guest's scope with watches armed, changes nothing: "
-                                   "the save stream, the latch, the watch flag and the event ring",
-                  out.count > 0 && out.identity && *out.identity && untouched,
-                  "stream_equal=" + std::to_string(before == stream()) + " hit=" +
-                      std::to_string(emu.debug_state().data_bp_hit()) + " ring=" +
-                      std::to_string(ring_before) + "->" + std::to_string(ring()) + " latch=" +
-                      hex(emu.mmu().p3_floating_bus_dat()));
-            // Control: ONE guest read of $C003 in the same fixture moves all of them, so the
-            // row above cannot pass because nothing here is live.
-            {
-                DebugState::GuestExecutionScope guest(emu.debug_state());
-                (void)emu.mmu().read(0xC003);
-            }
-            check("SRCDBG-Z88-28", "control for Z88-23: ONE guest read of $C003 in the same fixture moves "
-                                   "the save stream, raises the watchpoint and enters the event ring",
-                  before != stream() && emu.debug_state().data_bp_hit() && ring() > ring_before,
-                  "hit=" + std::to_string(emu.debug_state().data_bp_hit()) + " ring=" +
-                      std::to_string(ring()));
-        }
-        {   // Z88-24: a refused SLD sidecar still speaks for the source half
-            const fs::path d = z / "d24";
-            z88_copy("v2.4/sccz80-debug", d);
-            write_text(d / "prog.sld", "this is not an SLD\n");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            check("SRCDBG-Z88-24", "an SLD sidecar that is refused is not replaced by prog.map's source "
-                                   "lines (it exists, and says why); the map's symbols still attach",
-                  r.sources == -1 && m.dbg->source_map().empty() && r.symbols == 19 &&
-                      has(r.problem, "prog.sld' rejected"),
-                  r.problem);
-        }
-        {   // Z88-25: the user's source map is kept; prog.map's source lines are not loaded, its symbols are
-            const fs::path d = z / "d25";
-            z88_copy("v2.4/sccz80-debug", d);
-            const fs::path plain = d / "mine.sld";
-            write_text(plain, program_sld(p80, p90));
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_source_map(plain.string(), false);
-            Debugger::SidecarLoad r;
-            const std::string log = debugger_log_of([&] {
-                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            });
-            check("SRCDBG-Z88-25", "with the user's source map kept, prog.map's source lines are not loaded "
-                                   "(and the log says so) but its symbols still attach (D10)",
-                  r.sources == -1 && r.symbols == 19 && m.dbg->lookup_name("_main") == 0x8C92 &&
-                      m.dbg->source_map().loaded_file() == plain.string() &&
-                      has(log, "Kept the loaded source map '" + plain.string() +
-                                   "'; not loading the source lines of '" + (d / "prog.map").string() + "'"),
-                  "sources=" + std::to_string(r.sources) + " symbols=" + std::to_string(r.symbols) +
-                      " file=" + m.dbg->source_map().loaded_file() + "\n" + log);
-        }
-        {   // Z88-29: a hand z88dk map leaves an earlier hand SLD's labels alone
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d1 / "prog.nex");
-            const auto first = m.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", true);
-            const auto second = m.dbg->load_source_map(map1, true);
-            check("SRCDBG-Z88-29", "a z88dk map loaded by hand fills the source half only: the labels of "
-                                   "the hand SLD loaded before it stay, and it reports none of its own",
-                  first.labels == 12 && second.count == 46 && second.labels == 0 &&
-                      m.dbg->lookup_name("banked") == 0xC000 && !m.dbg->lookup_name("_main"),
-                  "first=" + std::to_string(first.labels) + " second=" + std::to_string(second.labels));
-        }
-        {   // Z88-30: a BOM'd SLD is an SLD, and it loads
-            // History: GH #344 review F5 made the BOM route to the SLD loader, which then refused
-            // it ("missing SLD.data.version 1 header"); owner decision 2026-11-01 (GH #427): the
-            // BOM is skipped and the file loads exactly as without it.
-            const fs::path d = z / "d30";
-            fs::create_directories(d);
-            write_text(d / "bom.sld", std::string("\xEF\xBB\xBF") + program_sld(p80, p90));
-            write_text(d / "plain.sld", program_sld(p80, p90));
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const auto out = m.dbg->load_source_map((d / "bom.sld").string(), false);
-            Machine mp(false, MachineType::ZXN_ISSUE2);
-            const auto plain = mp.dbg->load_source_map((d / "plain.sld").string(), false);
-            check("SRCDBG-Z88-30", "a UTF-8 BOM before an SLD's header is skipped: the SLD loads exactly "
-                                   "as the same file without it (count, error, format)",
-                  out.error.empty() && out.count > 0 && out.count == plain.count &&
-                      m.dbg->source_map().size() == mp.dbg->source_map().size() &&
-                      m.dbg->source_map().format() == mp.dbg->source_map().format(),
-                  out.error + " count=" + std::to_string(out.count) + "/" + std::to_string(plain.count));
-        }
-        {   // Z88-33: a BOM'd SLD carries its labels too
-            const fs::path d = z / "d33";
-            fs::create_directories(d);
-            std::ifstream in(JNEXT_SJASMEQU_DIR "/equlabels.sld", std::ios::binary);
-            const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            write_text(d / "bom.sld", std::string("\xEF\xBB\xBF") + body);
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            Machine mp(false, MachineType::ZXN_ISSUE2);
-            const auto out = m.dbg->load_source_map((d / "bom.sld").string(), true);
-            const auto plain = mp.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", true);
-            check("SRCDBG-Z88-33", "a BOM'd SLD loads the same labels and source lines as the plain one",
-                  out.error.empty() && plain.labels == 12 && out.labels == plain.labels &&
-                      out.count == plain.count && m.dbg->lookup_name("banked") == 0xC000 &&
-                      m.dbg->lookup_name("banked") == mp.dbg->lookup_name("banked"),
-                  out.error + " labels=" + std::to_string(out.labels));
-        }
-        {   // Z88-34: only a BOM at the very start is skipped
-            const fs::path d = z / "d34";
-            fs::create_directories(d);
-            const std::string bom = "\xEF\xBB\xBF";
-            write_text(d / "twice.sld", bom + bom + program_sld(p80, p90));
-            write_text(d / "line2.sld", "\n" + bom + program_sld(p80, p90));
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const auto twice = m.dbg->load_source_map((d / "twice.sld").string(), false);
-            const auto line2 = m.dbg->load_source_map((d / "line2.sld").string(), false);
-            check("SRCDBG-Z88-34", "a second BOM, or a BOM after a leading blank line, is not skipped: the "
-                                   "file is not an SLD (its first line does not start the header), is read "
-                                   "as a z88dk map and refused",
-                  twice.count == -1 && has(twice.error, "no source lines") && line2.count == -1 &&
-                      has(line2.error, "no source lines") &&
-                      m.dbg->source_map().size() == 0,
-                  twice.error + " | " + line2.error);
-        }
-        {   // Z88-35: a BOM'd z88dk map still goes to the z88dk adapter and loads as without it
-            const fs::path d = z / "d35";
-            z88_copy("v2.4/sccz80-debug", d);
-            std::ifstream in(d / "prog.map", std::ios::binary);
-            const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            write_text(d / "bom.map", std::string("\xEF\xBB\xBF") + body);
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto out = m.dbg->load_source_map((d / "bom.map").string(), true);
-            check("SRCDBG-Z88-35", "a BOM'd z88dk map is routed to the z88dk adapter and loads its 46 source "
-                                   "lines as without the BOM",
-                  out.error.empty() && out.count == 46 && m.dbg->source_map().format() == "z88dk" &&
-                      line_of(*m.dbg, 0x8CB8) == "main.c:19",
-                  out.error + " count=" + std::to_string(out.count));
-        }
-        {   // Z88-31: the --source-map helper's line for an SLD
-            const std::string sha = "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a";
-            const fs::path d = z / "d31";
-            fs::create_directories(d);
-            write_text(d / "hash.sld", std::string("|SLD.data.version|1\n||program.name:x\n||program.sha256:") +
-                                           sha + "\n||program.org:32768\n||program.size:4\n" +
-                                           "main.bas|10||0" + kNextDevice + "main.bas|10||0|" +
-                                           std::to_string(p80) + "|32768|T|\n");
-            write_text(d / "plain.sld", program_sld(p80, p90));
-            Machine m;
-            for (unsigned i = 0; i < 4; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), uint8_t(i + 1));
-            const auto with = emulator_attach_cli_source_map(*m.dbg, (d / "hash.sld").string());
-            const auto without = emulator_attach_cli_source_map(*m.dbg, (d / "plain.sld").string());
-            check("SRCDBG-Z88-31", "the helper's line for an SLD ends \" (program identity verified)\" when "
-                                   "its hash matched and has no suffix when it carries none",
-                  with.ok && with.line == "--source-map '" + (d / "hash.sld").string() +
-                                              "': 1 source lines (program identity verified)" &&
-                      without.ok && without.line == "--source-map '" + (d / "plain.sld").string() +
-                                                        "': 6 source lines",
-                  with.line + " | " + without.line);
-        }
-        {   // Z88-27: the one table of program formats
-            bool later = true, not_later = true, map_yes = true, map_no = true;
-            for (const char* p : {"a.tap", "a.TZX", "a.Wav", "dir/a.tap"})
-                later = later && program_loads_later(p);
-            for (const char* p : {"a.nex", "a.sna", "a.z80", "a.szx", "a.rzx", "a.jns", "a", "a.tap.bak"})
-                not_later = not_later && !program_loads_later(p);
-            for (const char* p : {"a.nex", "a.NEX", "a.sna", "a.tap", "a.TAP"})
-                map_yes = map_yes && program_has_z88dk_map(p);
-            for (const char* p : {"a.tzx", "a.wav", "a.z80", "a.szx", "a.rzx", "a", "a.map"})
-                map_no = map_no && !program_has_z88dk_map(p);
-            check("SRCDBG-Z88-27", "program_loads_later() is the tape formats (.tap, .tzx, .wav, any case) "
-                                   "and program_has_z88dk_map() is .nex, .sna and .tap",
-                  later && not_later && map_yes && map_no,
-                  std::string(later ? "" : "later ") + (not_later ? "" : "not_later ") +
-                      (map_yes ? "" : "map_yes ") + (map_no ? "" : "map_no"));
-        }
-        {   // Z88-32: Z88-25's setup with prog.map's binary another build's
-            const fs::path d = z / "d32";
-            z88_copy("v2.4/sccz80-debug", d);
-            std::string bin;
-            {
-                std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
-                bin.assign(std::istreambuf_iterator<char>(in), {});
-            }
-            bin[0x0CB5] = static_cast<char>(bin[0x0CB5] ^ 0xFF);
-            write_text(d / "prog_CODE.bin", bin);
-            const fs::path plain = d / "mine.sld";
-            write_text(plain, program_sld(p80, p90));
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_source_map(plain.string(), false);
-            Debugger::SidecarLoad r;
-            const std::string log = debugger_log_of([&] {
-                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            });
-            check("SRCDBG-Z88-32", "with the user's source map kept, a prog.map whose binaries are another "
-                                   "build's is still rejected: no symbols, the user's map kept, the "
-                                   "rejection logged and reported",
-                  r.symbols == -1 && r.sources == -1 && !m.dbg->lookup_name("_main") &&
-                      m.dbg->source_map().loaded_file() == plain.string() &&
-                      has(log, "Rejected z88dk source map") && has(r.problem, "prog.map' rejected"),
-                  "symbols=" + std::to_string(r.symbols) + " problem=" + r.problem);
-        }
-        {   // Z88-26: a rewind across the load drops the z88dk map and brings it back
-            const fs::path d = z / "d26";
-            z88_copy("v2.4/sccz80-debug", d);
-            // The program's bytes are written into page 4 (where the NEX loader puts them), so the
-            // identity checks without a load that would rebuild the machine under the rewind ring.
-            std::vector<uint8_t> code;
-            {
-                std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
-                code.assign(std::istreambuf_iterator<char>(in), {});
-            }
-            Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
-            Z88Log lc;
-            m.dbg->set_listener(m.a, &lc);
-            const auto frames = [&](int n) {
-                m.dbg->run(m.a);
-                for (int i = 0; i < n; ++i) m.emu.run_frame();
-                m.dbg->pause(m.a);
-            };
-            frames(1);
-            const uint32_t before_load = m.dbg->time().frame;
-            m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
-            write_text(d / "game.nex", "");
-            fs::copy_file(d / "prog.map", d / "game.map");
-            fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
-            const auto r = m.dbg->load_program_sidecars((d / "game.nex").string());
-            frames(2);
-            const uint32_t after_load = m.dbg->time().frame;
-            const Result back = m.dbg->rewind_to_frame(m.a, before_load);
-            const size_t at_before = m.dbg->source_map().size();
-            const Result fwd = m.dbg->rewind_to_frame(m.a, after_load);
-            check("SRCDBG-Z88-26", "rewinding to before the program was loaded drops its z88dk map and "
-                                   "rewinding back restores it, each named as a z88dk map",
-                  r.sources == 46 && back == Result::Ok && fwd == Result::Ok && at_before == 0 &&
-                      m.dbg->source_map().size() == 46 &&
-                      lc.has("Dropped the program's z88dk source map: this point of the history is "
-                             "before the program was loaded") &&
-                      lc.has("Restored the program's z88dk source map of this point in the history"),
-                  "sources=" + std::to_string(r.sources) + " back=" + std::to_string(int(back)) +
-                      " fwd=" + std::to_string(int(fwd)) + " before=" + std::to_string(at_before) +
-                      " after=" + std::to_string(m.dbg->source_map().size()));
-        }
-        {   // Z88-36 (GH #428 x epic): the drop a rewind causes is a change the panels must see
-            const fs::path d = z / "d36";
-            z88_copy("v2.4/sccz80-debug", d);
-            std::vector<uint8_t> code;
-            {
-                std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
-                code.assign(std::istreambuf_iterator<char>(in), {});
-            }
-            Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
-            const auto frames = [&](int n) {
-                m.dbg->run(m.a);
-                for (int i = 0; i < n; ++i) m.emu.run_frame();
-                m.dbg->pause(m.a);
-            };
-            frames(1);
-            const uint32_t before_load = m.dbg->time().frame;
-            m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
-            write_text(d / "game.nex", "");
-            fs::copy_file(d / "prog.map", d / "game.map");
-            fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
-            (void)m.dbg->load_program_sidecars((d / "game.nex").string());
-            frames(2);
-            const Result back = m.dbg->rewind_to_frame(m.a, before_load);
-            // No reader has run since the rewind: the map is dropped by the first one (recheck).
-            const uint64_t rev0 = m.dbg->state_revision();
-            const size_t at_before = m.dbg->source_map().size();
-            const uint64_t rev1 = m.dbg->state_revision();
-            check("SRCDBG-Z88-36", "the state revision advances when the first reader after a rewind drops "
-                                   "the program's z88dk map (a paused panel redraws on the revision, not the clock)",
-                  back == Result::Ok && at_before == 0 && rev1 > rev0,
-                  "back=" + std::to_string(int(back)) + " size=" + std::to_string(at_before) +
-                      " rev " + std::to_string(rev0) + " -> " + std::to_string(rev1));
-        }
-        // ── GH #433: the C variable store has the lifetime of the source map it came from ──
-        // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
-        // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
-        const fs::path vz = z / "var";
-        const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
-            const fs::path d = vz / name;
-            z88_copy(fixture, d);
-            return d;
-        };
-        const auto has_fn = [](const jnext::dbg::VariableStore* s, const char* name) {
-            for (const auto& f : s->functions())
-                if (f.name == name) return true;
-            return false;
-        };
-        const auto s_dup_at = [](const jnext::dbg::VariableStore* s, uint16_t addr) {
-            for (const auto& v : s->variables())
-                if (v.record.var.name == "s_dup" && v.module == "vars_c")
-                    return v.storage.resolved && v.storage.at.space == MemSpace::page(4) &&
-                           v.storage.at.address == addr;
-            return false;
-        };
-        {   // SRCDBG-VAR-01
-            const fs::path d = var_dir("v1");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            Debugger::SidecarLoad r;
-            const std::string log = debugger_log_of([&] {
-                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            });
-            const auto vs = m.dbg->variables();
-            const std::string map = (d / "prog.map").string();
-            check("SRCDBG-VAR-01", "prog.map beside a .nex: variables() is the source map's own store, with the "
-                                   "functions sum, main and other; the sidecar log says what it said before",
-                  vs && vs == m.dbg->source_map().variables() && has_fn(vs.get(), "sum") &&
-                      has_fn(vs.get(), "main") && has_fn(vs.get(), "other") && s_dup_at(vs.get(), 0x909F) &&
-                      has(log, "Loaded " + std::to_string(r.symbols) + " z88dk symbols from '" + map + "'") &&
-                      has(log, "Loaded " + std::to_string(r.sources) + " z88dk source lines from '" + map +
-                                   "' (program identity verified)") &&
-                      log.find("ariable") == std::string::npos,
-                  log);
-        }
-        {   // SRCDBG-VAR-02
-            const fs::path d = var_dir("v2");
-            const fs::path other = vz / "v2other";
-            fs::create_directories(other);
-            write_text(other / "next.nex", "");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const bool had = m.dbg->variables() != nullptr;
-            m.dbg->load_program_sidecars((other / "next.nex").string());
-            check("SRCDBG-VAR-02", "the next program's load, with no sidecar of its own, drops the source map and "
-                                   "its store: variables() is null",
-                  had && m.dbg->source_map().empty() && !m.dbg->variables());
-        }
-        {   // SRCDBG-VAR-03
-            const fs::path d = var_dir("v3");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto out = m.dbg->load_source_map((d / "prog.map").string(), false);
-            const auto vs = m.dbg->variables();
-            const bool by_user = m.dbg->source_map_status().by_user;
-            const Result cleared = m.dbg->clear_source_map();
-            check("SRCDBG-VAR-03", "Load Source Map by hand carries the store (the map is the user's); "
-                                   "clear_source_map() drops both",
-                  out.count > 0 && vs && by_user && has_fn(vs.get(), "main") && cleared == Result::Ok &&
-                      !m.dbg->variables());
-        }
-        {   // SRCDBG-VAR-04
-            const fs::path d = var_dir("v4");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_source_map((d / "prog.map").string(), false);
-            const bool had = m.dbg->variables() != nullptr;
-            // As SRCLIFE-24: a soft reset keeps the user's map while its bytes are intact; a byte
-            // that changes while the machine runs is found at the next pause, and the map is Stale.
-            const Result rs = m.dbg->reset(m.a, ResetKind::Soft);
-            m.dbg->run(m.a);
-            const uint8_t was = m.emu.mmu().peek(0x8CB5);
-            m.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
-            for (int i = 0; i < 5; ++i) m.emu.run_frame();
-            m.dbg->pause(m.a);
-            const auto st = m.dbg->source_map_status();
-            const bool stale_null = rs == Result::Ok && m.emu.mmu().peek(0x8CB5) != was &&
-                                    st.state == Debugger::SourceMapStatus::State::Stale && st.by_user &&
-                                    !m.dbg->variables();
-            const auto again = m.dbg->load_source_map((d / "prog.map").string(), true);
-            check("SRCDBG-VAR-04", "the user's map made Stale when its program's bytes change under a soft reset (found at the "
-                                   "next pause): variables() is null while it is Stale, and loading it again by hand brings it back",
-                  had && stale_null && again.count > 0 && m.dbg->variables() != nullptr &&
-                      m.dbg->source_map_status().state == Debugger::SourceMapStatus::State::Attached);
-        }
-        // SRCDBG-VAR-05 / -06: a rewind across the load, as SRCDBG-Z88-26 / -36
-        const auto rewound = [&](const char* name, bool read_first, std::shared_ptr<const jnext::dbg::VariableStore>& before,
-                                 std::shared_ptr<const jnext::dbg::VariableStore>& after_back,
-                                 std::shared_ptr<const jnext::dbg::VariableStore>& after_fwd,
-                                 uint64_t& rev0, uint64_t& rev1) {
-            const fs::path d = var_dir(name);
-            const std::vector<uint8_t> code = read_all(d / "prog_CODE.bin");
-            Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
-            const auto frames = [&](int n) {
-                m.dbg->run(m.a);
-                for (int i = 0; i < n; ++i) m.emu.run_frame();
-                m.dbg->pause(m.a);
-            };
-            frames(1);
-            const uint32_t before_load = m.dbg->time().frame;
-            m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
-            write_text(d / "game.nex", "");
-            fs::copy_file(d / "prog.map", d / "game.map");
-            fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
-            m.dbg->load_program_sidecars((d / "game.nex").string());
-            before = m.dbg->variables();
-            frames(2);
-            const uint32_t after_load = m.dbg->time().frame;
-            const Result back = m.dbg->rewind_to_frame(m.a, before_load);
-            rev0 = m.dbg->state_revision();
-            if (read_first) after_back = m.dbg->variables();
-            rev1 = m.dbg->state_revision();
-            if (!read_first) after_back = m.dbg->variables();
-            const Result fwd = m.dbg->rewind_to_frame(m.a, after_load);
-            after_fwd = m.dbg->variables();
-            return back == Result::Ok && fwd == Result::Ok;
-        };
-        {   // SRCDBG-VAR-05
-            std::shared_ptr<const jnext::dbg::VariableStore> before, back, fwd;
-            uint64_t r0 = 0, r1 = 0;
-            const bool ok = rewound("v5", false, before, back, fwd, r0, r1);
-            check("SRCDBG-VAR-05", "a rewind to before the load drops the store (null), and rewinding back restores "
-                                   "the very same store object (pointer equal), shared with the cache, not copied",
-                  ok && before && !back && fwd == before);
-        }
-        {   // SRCDBG-VAR-06
-            std::shared_ptr<const jnext::dbg::VariableStore> before, back, fwd;
-            uint64_t r0 = 0, r1 = 0;
-            const bool ok = rewound("v6", true, before, back, fwd, r0, r1);
-            check("SRCDBG-VAR-06", "after a rewind to before the load, variables() is the FIRST reader: it runs "
-                                   "recheck(), returns null, and the state revision advances",
-                  ok && before && !back && r1 > r0);
-        }
-        {   // SRCDBG-VAR-07
-            const fs::path d = vz / "v7";
-            const std::string tap = tape_copy("v2.4/sccz80-tape", d);
-            Machine m;
-            park(m);
-            const auto r = m.dbg->load_program_sidecars(tap);
-            const auto vs = m.dbg->variables();
-            bool counter = false;
-            for (const auto& v : vs ? vs->variables() : std::vector<jnext::dbg::CVariable>{})
-                counter = counter || (v.record.var.name == "counter" && v.storage.symbol == "_counter");
-            const bool pending = m.dbg->source_map_status().pending;
-            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", 0xCC4, 0x8000);
-            m.set_pc(0x8000);
-            run_frames(m, 1);
-            check("SRCDBG-VAR-07", "a tape program's map is attached at once, pending, and its store with it "
-                                   "(counter is joined); a wrong byte judged at the first execution drops the map "
-                                   "and the store",
-                  r.sources == 46 && r.sources_pending && pending && vs && counter && m.dbg->source_map().empty() &&
-                      !m.dbg->variables());
-        }
-        {   // SRCDBG-VAR-08
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const auto r = m.dbg->load_source_map((kZ88Fixtures / "master/sccz80-dot/prog.map").string(), false, false,
-                                                  /*dot_only=*/true);
-            const auto vs = m.dbg->variables();
-            bool total = false;
-            for (const auto& v : vs ? vs->variables() : std::vector<jnext::dbg::CVariable>{})
-                total = total || (v.record.var.name == "total" && v.storage.resolved &&
-                                  v.storage.at.space == MemSpace::divmmc_ram(2) && v.storage.at.address == 0x3253);
-            check("SRCDBG-VAR-08", "a dot command's map loaded by hand (pending, dot): its store has total at "
-                                   "DivMmcRam{2}:$3253 (GH #445: z88dk v2.4-2883 moved it)",
-                  r.count > 0 && r.pending && vs && total);
-        }
-        {   // SRCDBG-VAR-09
-            const fs::path d = var_dir("v9");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto out = m.dbg->load_map((d / "prog.map").string(), jnext::dbg::MapFormat::Z88dk);
-            check("SRCDBG-VAR-09", "Load MAP of a z88dk map loads the symbols and no source half, so no store (OD-8)",
-                  out && out.value > 0 && m.dbg->lookup_name("_main").has_value() && m.dbg->source_map().empty() &&
-                      !m.dbg->variables());
-        }
-        {   // SRCDBG-VAR-10
-            const fs::path d = var_dir("v10");
-            write_text(d / "prog.sld", program_sld(p80, p90));
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            check("SRCDBG-VAR-10", "an SLD sidecar beside prog.map wins the source half, and an SLD carries no store",
-                  r.sources == 6 && m.dbg->source_map().format() == "SLD" && !m.dbg->variables());
-        }
-        {   // SRCDBG-VAR-11
-            const fs::path d = var_dir("v11");
-            const fs::path plain = d / "mine.sld";
-            write_text(plain, program_sld(p80, p90));
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const bool had = m.dbg->variables() != nullptr;
-            m.dbg->load_source_map(plain.string(), false);
-            check("SRCDBG-VAR-11", "a hand SLD loaded over a z88dk map replaces it, and the store goes with the map",
-                  had && m.dbg->source_map().format() == "SLD" && !m.dbg->variables());
-        }
-        {   // SRCDBG-VAR-12
-            const fs::path d = var_dir("v12");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const auto before = m.dbg->variables();
-            const Result lab = m.dbg->set_user_label(MemSpace::page(4), 0x909F, "mine");
-            const auto k = m.dbg->symbols().find_name("mine");
-            const auto after = m.dbg->variables();
-            check("SRCDBG-VAR-12", "a user label at s_dup's address under another name shows in the symbols, and the "
-                                   "store is the same object, still joining vars.c's s_dup to _s_dup at P4:$909F",
-                  lab == Result::Ok && k && k->addr == 0x909F && m.dbg->lookup(0x909F) == std::string("mine") &&
-                      before && after == before && s_dup_at(after.get(), 0x909F));
-        }
+    }
+}
 
-        // ── GH #434 (E353-04) stage 1: the call-stack tracker policy and the C frames ──
-        // Oracle: the C source's call structure (vars.c, other.c, bk.c, bkmain.c, cross.c), the fixtures'
-        // maps and listings (addresses, prologues: `call l_debug_push_frame` / `push ix; ld ix,0; add ix,sp`),
-        // z88dk's library sources (l_debug_push_frame stores E-2 in __debug_framepointer), and measurements of
-        // the running machine that do not use the code under test (SP at the entry instruction, IX, the variable).
-        using FrameBase = Debugger::CFrame::Base;
-        const auto peek16 = [](Machine& m, uint16_t a) {
-            return static_cast<unsigned>(m.emu.mmu().peek(a) | (m.emu.mmu().peek(static_cast<uint16_t>(a + 1)) << 8));
+[[gnu::noinline]] static void srcdbg_part_32(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    {   // SRCDBG-LIS-05..07 (GH #348 stage 2 review): what the user is told when listings are dropped
+        auto edit = [](const fs::path& file, const std::string& from, const std::string& to) {
+            std::string text;
+            {
+                std::ifstream in(file, std::ios::binary);
+                text.assign(std::istreambuf_iterator<char>(in), {});
+            }
+            const size_t at = text.find(from);
+            if (at != std::string::npos) text.replace(at, from.size(), to);
+            write_text(file, text);
         };
-        const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
-            const fs::path d = var_dir(name, fixture);
+        {   // LIS-05: the only listing is stale
+            const fs::path d = z / "lis-only-stale";
+            z88_copy("v2.4/sdcc-SO2", d);
+            fs::copy_file(kZ88Fixtures / "v2.4/sdcc-SO2/main.c.lis", d / "main.c.lis");
+            edit(d / "main.c.lis", "0023  af", "0023  b7");
+            Machine m(false, MachineType::ZXN_ISSUE2);
             z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-        };
-        const auto cv_run_to = [&](Machine& m, uint16_t addr) {
-            const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
-            m.dbg->run(m.a);
-            for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
-            m.dbg->unsubscribe(m.a, id);
-            return m.dbg->state().paused && m.pc() == addr;
-        };
-        const auto fn_name = [&](const Machine& m, const Debugger::CFrame& f) {
-            const auto vs = m.dbg->variables();
-            return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
-        };
-        const auto line_no = [](const Debugger::CFrame& f) { return f.line ? f.line->line : 0; };
-        {   // SRCDBG-CVAL-01
-            Bare m(MachineType::ZXN_ISSUE2);
-            const fs::path d = var_dir("c01");
-            emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const bool no_client = !m.dbg->call_stack_enabled();
-            jnext::dbg::ClientInfo ci;
-            ci.name = "t";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            const ClientId c = m.dbg->attach(ci).value;
-            const bool attached = m.dbg->call_stack_enabled();
-            m.dbg->detach(c);
-            check("SRCDBG-CVAL-01", "no client and a C variable store: call-stack tracking is off; a (non-observer) client attached: on; "
-                                    "detached: off again",
-                  m.dbg->variables() && no_client && attached && !m.dbg->call_stack_enabled());
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            z88_load(n, d / "prog.nex");
+            const auto hand = n.dbg->load_source_map((d / "prog.map").string(), true);
+            check("SRCDBG-LIS-05", "with no usable listing left the sidecar still warns naming the dropped "
+                                   "one and why, and a refused hand load carries the same note",
+                  m.dbg->source_map().empty() && has(log, "z88dk listings for '" + (d / "prog.map").string()) &&
+                      has(log, "main.c.lis") && has(log, "$8C6B") &&
+                      hand.count == -1 && has(hand.error, "main.c.lis") && has(hand.error, "--list"),
+                  log + "\n" + hand.error);
         }
-        {   // SRCDBG-CVAL-02
-            Bare m(MachineType::ZXN_ISSUE2);
-            jnext::dbg::ClientInfo ci;
-            ci.name = "t";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            m.dbg->attach(ci);
-            const std::string sld = (z / "c02.sld").string();
-            write_text(sld, "|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
-                            "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\nmain.bas|10||0|0|32768|T|\n");
-            m.dbg->load_source_map(sld, true);
-            const bool sld_off = !m.dbg->call_stack_enabled();
-            const fs::path d = z / "c02so2";
+        {   // LIS-06: two dropped listings, the --source-map line and the joined note
+            const fs::path d = z / "lis-two-stale";
             z88_copy_lis("v2.4/sdcc-SO2", d);
-            Debugger::SidecarLoad r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const auto vs = m.dbg->variables();
-            check("SRCDBG-CVAL-02", "a client is attached: an SLD map (no store) leaves tracking off, and so does v2.4/sdcc-SO2's map "
-                                    "(lines from listings, an empty store)",
-                  sld_off && (!vs || (vs->functions().empty() && vs->variables().empty())) && !m.dbg->call_stack_enabled());
-            (void)r;
-        }
-        {   // SRCDBG-CVAL-03
-            Bare m(MachineType::ZXN_ISSUE2);
-            const fs::path d = var_dir("c03");
-            emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            jnext::dbg::ClientInfo ci;
-            ci.name = "emulator window";
-            ci.kind = jnext::dbg::ClientKind::Gui;
-            ci.observer = true;
-            m.dbg->attach(ci);
-            check("SRCDBG-CVAL-03", "only an observer client is attached (the Qt emulator window), with a C variable store: tracking is off",
-                  m.dbg->variables() && !m.dbg->call_stack_enabled());
-        }
-        {   // SRCDBG-CVAL-04
-            Bare m;
-            jnext::dbg::ClientInfo ci;
-            ci.name = "A";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            const ClientId a = m.dbg->attach(ci).value;
-            ci.name = "B";
-            const ClientId b = m.dbg->attach(ci).value;
-            m.dbg->set_call_stack_enabled(a, true);
-            m.dbg->set_call_stack_enabled(b, true);
-            m.dbg->set_call_stack_enabled(a, false);
-            const bool b_keeps = m.dbg->call_stack_enabled();
-            // a tracked frame survives A's switching off (nothing cleared the tracker)
-            m.emu.mmu().write(0x6100, 0xCD);
-            m.emu.mmu().write(0x6101, 0x00);
-            m.emu.mmu().write(0x6102, 0x62);
-            m.emu.mmu().write(0x6200, 0x18);
-            m.emu.mmu().write(0x6201, 0xFE);
-            m.start(0x6100);
-            m.dbg->pause(a);
-            m.emu.execute_single_instruction();
-            const size_t frames_before = m.dbg->call_stack().size();
-            m.dbg->set_call_stack_enabled(a, true);
-            m.dbg->set_call_stack_enabled(a, false);
-            const bool kept = m.dbg->call_stack().size() == frames_before && frames_before == 1;
-            m.dbg->set_call_stack_enabled(b, false);
-            const bool off = !m.dbg->call_stack_enabled();
-            const ClientId c = m.dbg->attach(ci).value;
-            m.dbg->set_call_stack_enabled(c, true);
-            const bool on = m.dbg->call_stack_enabled();
-            m.dbg->detach(c);
-            check("SRCDBG-CVAL-04", "per-client requests (GH #434 F-B): A on, B on, A off: still on and the frames are kept; B off: off; "
-                                    "a client that asked and is detached takes its request with it",
-                  b_keeps && kept && off && on && !m.dbg->call_stack_enabled());
-        }
-        {   // SRCDBG-CVAL-05
-            const fs::path d = var_dir("c05");
+            edit(d / "main.c.lis", "0023  af", "0023  b7");
+            edit(d / "asmfn.asm.lis", "0000  210000", "0000  310000");
             Machine m(false, MachineType::ZXN_ISSUE2);
             z88_load(m, d / "prog.nex");
-            m.dbg->set_call_stack_enabled(m.a, false);   // the auto rule alone
-            m.dbg->load_source_map((d / "prog.map").string(), false);
-            const bool on1 = m.dbg->call_stack_enabled();
-            // As SRCLIFE-24: the user's map goes Stale when its program's bytes change while the machine runs
-            m.dbg->reset(m.a, ResetKind::Soft);
-            m.dbg->run(m.a);
-            const uint8_t was = m.emu.mmu().peek(0x8CB5);
-            m.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
-            for (int i = 0; i < 5; ++i) m.emu.run_frame();
-            m.dbg->pause(m.a);
-            const bool stale = m.dbg->source_map_status().state == Debugger::SourceMapStatus::State::Stale;
-            const bool off_stale = !m.dbg->call_stack_enabled();
-            m.dbg->load_source_map((d / "prog.map").string(), true);
-            const bool on2 = m.dbg->call_stack_enabled();
-            m.dbg->clear_source_map();
-            const bool off_clear = !m.dbg->call_stack_enabled();
-            const fs::path d2 = var_dir("c05b");
-            z88_load(m, d2 / "prog.nex");   // the next program, loaded over this one
-            m.dbg->load_program_sidecars((d2 / "prog.nex").string());
-            const bool on3 = m.dbg->call_stack_enabled();
-            check("SRCDBG-CVAL-05", "the auto rule follows the store: on with a user map, off while it is Stale, on when loaded again, off after "
-                                    "clear_source_map(), on with the next program's sidecar",
-                  on1 && stale && off_stale && on2 && off_clear && on3);
+            const auto line = emulator_attach_cli_source_map(*m.dbg, (d / "prog.map").string());
+            const size_t a = line.line.find("asmfn.asm.lis");
+            const size_t b = line.line.find("main.c.lis");
+            check("SRCDBG-LIS-06", "--source-map's line carries the notes of two dropped listings, both named "
+                                   "and joined with '; ', beside the count of the two that were used",
+                  line.ok && has(line.line, "(2 z88dk listings)") && a != std::string::npos &&
+                      b != std::string::npos && a < b && line.line.find("; ", a) != std::string::npos,
+                  line.line);
         }
-        {   // SRCDBG-CVAL-06
-            Bare m;
-            jnext::dbg::ClientInfo ci;
-            ci.name = "A";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            const ClientId a = m.dbg->attach(ci).value;
-            ci.name = "B";
-            const ClientId b = m.dbg->attach(ci).value;
-            jnext::dbg::LoopDriver d;   // the frontend's real cold boot: ~Emulator() and placement-new
-            d.cold_boot = [&]() {
-                emulator_frontend_cold_boot(m.emu, m.emu.config(), std::string(), ColdBootHooks{});
-                return true;
-            };
-            m.dbg->set_loop_driver(d);
-            m.dbg->set_call_stack_enabled(a, true);
-            m.dbg->set_call_stack_enabled(b, true);
-            m.emu.trace_log().set_enabled(true);   // direct, no request: only a rebuilt machine has it off
-            const Result r1 = m.dbg->reset(a, ResetKind::Hard);
-            const bool rebuilt1 = !m.emu.trace_log().enabled();
-            const bool both = m.emu.call_stack().enabled();
-            m.dbg->set_call_stack_enabled(a, false);
-            m.emu.trace_log().set_enabled(true);
-            const Result r2 = m.dbg->reset(a, ResetKind::Hard);
-            const bool rebuilt2 = !m.emu.trace_log().enabled();
-            const bool one = m.emu.call_stack().enabled();
-            m.dbg->set_call_stack_enabled(b, false);
-            m.emu.trace_log().set_enabled(true);
-            const Result r3 = m.dbg->reset(a, ResetKind::Hard);
-            check("SRCDBG-CVAL-06", "a real cold boot (the machine is rebuilt) keeps every client's request: both on, A off (B still on), both off",
-                  r1 == Result::Ok && r2 == Result::Ok && r3 == Result::Ok && rebuilt1 && rebuilt2 && !m.emu.trace_log().enabled() &&
-                      both && one && !m.emu.call_stack().enabled());
-        }
-        // Frame bases, tracked: the CALL that entered the frame's code recorded SP = E, and fp = E - 2
-        // for every compiler (z88dk l_debug_push_frame.asm stores SP-2; `push ix; ld ix,0; add ix,sp` is the same).
-        {   // SRCDBG-CVAL-07
+        {   // LIS-07: one listing is singular everywhere
+            const fs::path d = z / "lis-one";
+            z88_copy_lis("v2.4/sccz80-incmid", d);
             Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c07");
-            const bool s1 = cv_run_to(m, 0x8CB9);
-            const uint16_t E = m.dbg->registers().SP;
-            const bool s2 = cv_run_to(m, 0x8D3E);
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-07", "master sccz80-cvars at vars.c:41 of the first call: frame 0 is sum (Tracked), fp == E - 2 == "
-                                    "__debug_framepointer ($906A); frame 1 is main at vars.c:56 (Tracked)",
-                  s1 && s2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Tracked &&
-                      line_no(fr[0]) == 41 && fr[0].fp == static_cast<uint16_t>(E - 2) && fr[0].fp == peek16(m, 0x906A) &&
-                      fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Tracked && line_no(fr[1]) == 56);
+            z88_load(m, d / "prog.nex");
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            z88_load(n, d / "prog.nex");
+            const auto line = emulator_attach_cli_source_map(*n.dbg, (d / "prog.map").string());
+            check("SRCDBG-LIS-07", "a single listing reads 'and 1 listing' in the log and '(1 z88dk listing)' "
+                                   "in --source-map's line",
+                  r.sources > 0 && has(log, " and 1 listing") && !has(log, "1 listings") &&
+                      has(line.line, "(1 z88dk listing)") && !has(line.line, "1 z88dk listings"),
+                  log + "\n" + line.line);
         }
-        {   // SRCDBG-CVAL-08
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sdcc-cvars", "c08");
-            const bool s1 = cv_run_to(m, 0x8C48);
-            const uint16_t E = m.dbg->registers().SP;
-            const bool s2 = cv_run_to(m, 0x8C97);
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-08", "master sdcc-cvars at vars.c:41: frame 0 is sum (Tracked), fp == E - 2 == IX; frame 1 is main",
-                  s1 && s2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Tracked &&
-                      fr[0].fp == static_cast<uint16_t>(E - 2) && fr[0].fp == m.dbg->registers().IX &&
-                      fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Tracked);
+    }
+    {   // Z88-21: sidecar identity mismatch
+        const fs::path d = z / "d21";
+        z88_copy("v2.4/sccz80-debug", d);
+        // The binary beside the map is another build's: one code byte differs.
+        std::string bin;
+        {
+            std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
+            bin.assign(std::istreambuf_iterator<char>(in), {});
         }
-        {   // SRCDBG-CVAL-09
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/80cc-cvars", "c09");
-            const bool s = cv_run_to(m, 0x8DC6);   // other.c:9
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-09", "master 80cc-cvars at other.c:9 called from main: fp_0 == __debug_framepointer ($8FE5, other keeps a "
-                                    "push-frame frame), fp_1 == IX (main keeps an IX frame); both Tracked",
-                  s && fr.size() >= 2 && fn_name(m, fr[0]) == "other" && fr[0].how == FrameBase::Tracked &&
-                      fr[0].fp == peek16(m, 0x8FE5) && fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Tracked &&
-                      fr[1].fp == m.dbg->registers().IX);
-        }
-        {   // SRCDBG-CVAL-10
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars-banked", "c10");
-            // This machine has no ROM (RST 38 at $0038 reads $FF), so an interrupt runs away: the program's
-            // `ei` (banked_call re-enables them) is undone at bk_sum's entry; the call chain under test is the program's own.
-            cv_run_to(m, 0xC005);
-            {
-                Z80Registers r = m.emu.cpu().get_registers();
-                r.IFF1 = r.IFF2 = 0;
-                m.emu.cpu().set_registers(r);
-            }
-            const bool s = cv_run_to(m, 0xC04C);   // bk.c:10, Page{20}
-            const auto fr = m.dbg->c_frames();
-            const auto& cs = m.dbg->call_stack();
-            check("SRCDBG-CVAL-10", "master sccz80-cvars-banked in bk_sum (bk.c:10, Page{20}): frame 0 bk_sum, frame 1 asm (banked_call, "
-                                    "no C function), frame 2 main at bkmain.c:7; frame 0's function is not the one at the newest "
-                                    "frame's target (l_jphl)",
-                  s && fr.size() >= 3 && fn_name(m, fr[0]) == "bk_sum" && fr[0].pc.space == MemSpace::page(20) &&
-                      fr[1].function == -1 && fn_name(m, fr[2]) == "main" && line_no(fr[2]) == 7 && !cs.empty() &&
-                      cs.back().target_pc != 0xC04C && fr[0].how == FrameBase::Tracked);
-        }
-        // The fallback: no tracker frames (a mid-run attach), so frame 0 comes from the entry bytes and older
-        // frames from the saved frame pointers.
-        {   // SRCDBG-CVAL-11
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c11");
-            cv_run_to(m, 0x8D3E);
-            const auto tracked = m.dbg->c_frames();
-            m.emu.call_stack().clear();
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-11", "sccz80, vars.c:41 with the tracker emptied: sum is Prologue and main Chain, with the same fp as "
-                                    "the tracked run",
-                  tracked.size() >= 2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Prologue &&
-                      fr[0].fp == tracked[0].fp && fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Chain &&
-                      fr[1].fp == tracked[1].fp && fr[1].floor == tracked[1].floor && line_no(fr[1]) == line_no(tracked[1]) &&
-                      line_no(fr[1]) == 56);
-        }
-        {   // SRCDBG-CVAL-12
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sdcc-cvars", "c12");
-            cv_run_to(m, 0x8C97);
-            const auto tracked = m.dbg->c_frames();
-            m.emu.call_stack().clear();
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-12", "zsdcc, vars.c:41 with the tracker emptied: sum is Prologue (IX) and main Chain, with the same fp as "
-                                    "the tracked run",
-                  tracked.size() >= 2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Prologue &&
-                      fr[0].fp == tracked[0].fp && fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Chain &&
-                      fr[1].fp == tracked[1].fp && fr[1].floor == tracked[1].floor && line_no(fr[1]) == line_no(tracked[1]) &&
-                      line_no(fr[1]) == 56);
-        }
-        {   // SRCDBG-CVAL-13
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/80cc-cvars", "c13");
-            cv_run_to(m, 0x8DC6);
-            m.emu.call_stack().clear();
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-13", "80cc in other with the tracker emptied: frame 0 Prologue (push-frame); frame 1 main is Unknown with the "
-                                    "style-change note, and nothing further is listed",
-                  fr.size() == 2 && fn_name(m, fr[0]) == "other" && fr[0].how == FrameBase::Prologue &&
-                      fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Unknown &&
-                      fr[1].note.find("keeps its frame differently") != std::string::npos);
-        }
-        {   // SRCDBG-CVAL-14
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c14a");
-            cv_run_to(m, 0x8CB9);
-            m.emu.call_stack().clear();
-            const auto at_entry = m.dbg->c_frames();
-            const uint16_t sp_entry = m.dbg->registers().SP;
-            const bool s = cv_run_to(m, 0x8D53);   // the ret after `call l_debug_pop_frame`
-            m.emu.call_stack().clear();
-            const auto at_ret = m.dbg->c_frames();
-            const uint16_t sp_ret = m.dbg->registers().SP;
-            Machine z(false, MachineType::ZXN_ISSUE2);
-            cv_load(z, "master/sdcc-cvars", "c14b");
-            cv_run_to(z, 0x8C48);
-            z.emu.call_stack().clear();
-            const auto zentry = z.dbg->c_frames();
-            const uint16_t zsp = z.dbg->registers().SP;
-            const bool zs = cv_run_to(z, 0x8C9E);   // the ret after `pop ix`
-            z.emu.call_stack().clear();
-            const auto zret = z.dbg->c_frames();
-            const uint16_t zsp2 = z.dbg->registers().SP;
-            check("SRCDBG-CVAL-14", "prologue and epilogue windows with no frames: at sum's entry instruction fp == SP - 2 (sccz80, zsdcc); "
-                                    "at the ret after call l_debug_pop_frame fp == SP - 2, not the variable (already the caller's); "
-                                    "zsdcc at the ret after pop ix fp == SP - 2, not IX",
-                  s && zs && !at_entry.empty() && !at_ret.empty() && !zentry.empty() && !zret.empty() &&
-                      at_entry[0].fp == static_cast<uint16_t>(sp_entry - 2) && at_ret[0].fp == static_cast<uint16_t>(sp_ret - 2) &&
-                      at_ret[0].fp != peek16(m, 0x906A) && zentry[0].fp == static_cast<uint16_t>(zsp - 2) &&
-                      zret[0].fp == static_cast<uint16_t>(zsp2 - 2) && zret[0].fp != z.dbg->registers().IX);
-        }
-        {   // SRCDBG-CVAL-15
-            auto attach_midrun = [&](const char* fixture, const char* name, bool ix, bool& ok) {
-                Bare m(MachineType::ZXN_ISSUE2);
-                const fs::path d = var_dir(name, fixture);
-                emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
-                m.dbg->load_program_sidecars((d / "prog.nex").string());
-                m.frames(3);   // the program is in main's while (1) loop; no client, so nothing was tracked
-                jnext::dbg::ClientInfo ci;
-                ci.name = "late";
-                ci.kind = jnext::dbg::ClientKind::Test;
-                const ClientId c = m.dbg->attach(ci).value;
-                m.dbg->pause(c);
-                const auto fr = m.dbg->c_frames();
-                const auto vs = m.dbg->variables();
-                const unsigned var = static_cast<unsigned>(m.emu.mmu().peek(0x906A) | (m.emu.mmu().peek(0x906B) << 8));
-                ok = ok && !fr.empty() && vs && fr[0].function >= 0 &&
-                     vs->functions()[static_cast<size_t>(fr[0].function)].name == "main" && fr[0].how == FrameBase::Prologue &&
-                     fr[0].fp == (ix ? m.dbg->registers().IX : var);
-            };
-            bool ok = true;
-            attach_midrun("master/sccz80-cvars", "c15a", false, ok);
-            attach_midrun("master/sdcc-cvars", "c15b", true, ok);
-            check("SRCDBG-CVAL-15", "a real mid-run attach (no tracked frame): frame 0 main is Prologue, fp == __debug_framepointer "
-                                    "(sccz80, $906A) / IX (zsdcc)",
-                  ok);
-        }
-        {   // SRCDBG-CVAL-16
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c16");
-            cv_run_to(m, 0x8CB9);
-            const uint16_t E = m.dbg->registers().SP;
-            const bool s = cv_run_to(m, 0x8B64);   // l_debug_push_frame's first instruction, in sum's first call
-            const auto fr = m.dbg->c_frames();
-            const auto& cs = m.dbg->call_stack();
-            check("SRCDBG-CVAL-16", "stopped at l_debug_push_frame's first instruction: frame 0 is asm, frame 1 is sum with floor == the "
-                                    "inner call's sp_at_call + 2 (== E), above fp, so its locals are not allocated",
-                  s && fr.size() >= 2 && fr[0].function == -1 && fn_name(m, fr[1]) == "sum" && !cs.empty() &&
-                      fr[1].floor == static_cast<uint16_t>(cs.back().sp_at_call + 2) && fr[1].floor == E &&
-                      fr[1].floor > fr[1].fp);
-        }
-        {   // SRCDBG-CVAL-17
-            struct Cross { const char* fx; uint16_t pc; int line; const char* tag; };
-            // the first line after the padding: cross.c:20 on each compiler (derive-scopes.py: $AC75, $AC87, $AC57)
-            bool ok = true;
-            for (const Cross& c : {Cross{"master/sccz80-cross", 0xAC75, 20, "c17a"}, Cross{"master/80cc-cross", 0xAC87, 20, "c17b"},
-                                   Cross{"master/sdcc-cross", 0xAC57, 20, "c17c"}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, c.fx, c.tag);
-                const bool s = cv_run_to(m, c.pc);
-                const auto fr = m.dbg->c_frames();
-                const auto vs = m.dbg->variables();
-                const auto loc = vs && !fr.empty() ? vs->locate(fr[0].pc) : std::nullopt;
-                const jnext::dbg::CScope* sc = loc ? vs->scope_at(loc->function, loc->offset) : nullptr;
-                ok = ok && s && !fr.empty() && fn_name(m, fr[0]) == "cross" && m.pc() >= 0xA000 && fr[0].pc.space == MemSpace::page(5) &&
-                     loc && loc->offset > 0x1000 && sc && sc->at.space == MemSpace::page(5) && sc->at.address == c.pc &&
-                     sc->line == c.line && sc->known && fr[0].line && fr[0].line->line == c.line &&
-                     fr.size() >= 2 && fn_name(m, fr[1]) == "main";
-            }
-            check("SRCDBG-CVAL-17", "a function that crosses an 8 KB slot (cross.c): stopped past $A000 in cross, frame 0 is cross (piece 2, page 5) with "
-                                    "an offset across the pieces, its scope is the page-5 one of line 20, frame 1 is main; sccz80, 80cc and zsdcc",
-                  ok);
-        }
-        {   // SRCDBG-CVAL-18
-            // GH #434 review F1: a __z88dk_callee epilogue pops its arguments after the frame is restored. Oracle: the
-            // fc listings (sccz80: call l_debug_pop_frame; pop bc; pop af; pop af; push bc; ret; zsdcc: pop ix; pop bc; pop af;
-            // inc sp; push bc; ret; 80cc: call l_debug_pop_frame; pop bc; exx; ...; ret) and E measured at fcallee's entry.
-            struct Fc { const char* fx; uint16_t entry, start, later; const char* tag; };
-            bool ok = true;
-            std::string seen;
-            for (const Fc& c : {Fc{"master/sccz80-fc", 0x8C74, 0x8C8D, 0x8C8E, "c18a"}, Fc{"master/sdcc-fc", 0x8C4A, 0x8C60, 0x8C61, "c18b"},
-                                Fc{"master/80cc-fc", 0x8C74, 0x8C8C, 0x8C8D, "c18c"}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, c.fx, c.tag);
-                cv_run_to(m, c.entry);
-                const uint16_t E = m.dbg->registers().SP;
-                const bool s1 = cv_run_to(m, c.start);
-                m.emu.call_stack().clear();
-                const auto at_start = m.dbg->c_frames();
-                const bool s2 = cv_run_to(m, c.later);
-                m.emu.call_stack().clear();
-                const auto later = m.dbg->c_frames();
-                // right after the restore SP is E again: the base is E - 2; one instruction later SP has moved and the variable
-                // or IX hold the caller's base, which must never be reported
-                const bool good = s1 && s2 && !at_start.empty() && !later.empty() && at_start[0].how == FrameBase::Prologue &&
-                                  at_start[0].fp == static_cast<uint16_t>(E - 2) &&
-                                  (later[0].how == FrameBase::Unknown || later[0].fp == static_cast<uint16_t>(E - 2)) &&
-                                  !(later[0].how == FrameBase::Prologue && later[0].fp != static_cast<uint16_t>(E - 2));
-                ok = ok && good;
-                if (!good) seen += std::string(" ") + c.fx;
-            }
-            // GH #434 review R2-1: a long function (cross(): 8192 bytes of padding) at the ret right after the restore
-            struct Cross { const char* fx; uint16_t entry, ret; const char* tag; };
-            for (const Cross& c : {Cross{"master/sccz80-cross", 0x8C6B, 0xAC80, "c18d"}, Cross{"master/sdcc-cross", 0x8C48, 0xAC5A, "c18e"},
-                                   Cross{"master/80cc-cross", 0x8C78, 0xAC96, "c18f"}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, c.fx, c.tag);
-                cv_run_to(m, c.entry);
-                const uint16_t E = m.dbg->registers().SP;
-                const bool s1 = cv_run_to(m, c.ret);
-                m.emu.call_stack().clear();
-                const auto fr = m.dbg->c_frames();
-                const bool good = s1 && !fr.empty() && fr[0].how == FrameBase::Prologue && fr[0].fp == static_cast<uint16_t>(E - 2);
-                ok = ok && good;
-                if (!good) seen += std::string(" ") + c.fx;
-            }
-            check("SRCDBG-CVAL-18", "a __z88dk_callee epilogue with no frames: right after the frame pointer is restored fp == E - 2; one "
-                                    "instruction later (arguments being popped) the base is Unknown, never the caller's, on sccz80, zsdcc and 80cc; "
-                                    "and at the ret of cross() (8192 bytes of code before it) fp == E - 2",
-                  ok, seen);
-        }
-        {   // SRCDBG-CVAL-19
-            // GH #434 review F2: two frames that keep no saved frame pointer are never chained. Synthetic program: fa (nop; call fb)
-            // and fb (nop; jr $), neither a push-frame nor an IX prologue, in a map of two functions.
-            Bare m(MachineType::ZXN_ISSUE2);
-            jnext::dbg::ClientInfo ci;
-            ci.name = "t";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            m.dbg->attach(ci);
-            const auto esc = [](const std::string& t) {
-                std::string o;
-                for (const unsigned char c : t) {
-                    if (std::isalpha(c)) {
-                        o += static_cast<char>(c);
-                    } else {
-                        char b[8];
-                        std::snprintf(b, sizeof b, "_%02x", c);
-                        o += b;
-                    }
-                }
-                return o;
-            };
-            const std::string map = (z / "c19.map").string();
-            write_text(map,
-                       "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                       "_fb = $8010 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:5\n"
-                       "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                       "__C_LINE_5_t_2ec = $8010 ; addr, local, , t_c, code_compiler, t.c::fb::0::0:5\n"
-                       "__code_compiler_tail = $8020 ; const, public, def, , ,\n"
-                       "__CDBINFO__" + esc("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n"
-                       "__CDBINFO__" + esc("F:G$fb$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:5\n");
-            const auto lr = m.dbg->load_source_map(map, true);
-            const uint8_t code[] = {0x00, 0xCD, 0x10, 0x80, 0x18, 0xFE};
-            for (size_t i = 0; i < sizeof code; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
-            m.emu.mmu().write(0x8010, 0x00);
-            m.emu.mmu().write(0x8011, 0x18);
-            m.emu.mmu().write(0x8012, 0xFE);
-            m.start(0x8000);
-            m.emu.execute_single_instruction();   // nop
-            m.emu.execute_single_instruction();   // call fb
-            const uint16_t sp = m.dbg->registers().SP;
-            m.emu.mmu().write(static_cast<uint16_t>(sp - 2), 0x80);   // fb's "saved frame pointer": a plausible $FF80
-            m.emu.mmu().write(static_cast<uint16_t>(sp - 1), 0xFF);
-            const auto fr = m.dbg->c_frames();
-            const auto vs = m.dbg->variables();
-            const auto name = [&](const Debugger::CFrame& f) {
-                return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
-            };
-            check("SRCDBG-CVAL-19", "frame 0 fb is Tracked and its caller fa, both with no saved frame pointer, is Unknown (never Chain, "
-                                    "though the word at fb's fp looks like a stack address)",
-                  lr.count > 0 && fr.size() == 2 && name(fr[0]) == "fb" && fr[0].how == FrameBase::Tracked && name(fr[1]) == "fa" &&
-                      fr[1].how == FrameBase::Unknown && !fr[1].note.empty());
-        }
-        {   // SRCDBG-CVAL-24
-            // GH #434 review R20: an older frame found through the chain is looked up INSIDE its call (return address - 1), so a
-            // call that is the last instruction of a line stays on that line. Synthetic IX-frame program fo -> fa -> fb whose return
-            // addresses ($800B, $804B) start a new line; the tracker is emptied after fo calls fa, so fo is found by the chain.
-            Bare m(MachineType::ZXN_ISSUE2);
-            jnext::dbg::ClientInfo ci;
-            ci.name = "t";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            m.dbg->attach(ci);
-            const auto esc = [](const std::string& t) {
-                std::string o;
-                for (const unsigned char c : t) {
-                    if (std::isalpha(c)) {
-                        o += static_cast<char>(c);
-                    } else {
-                        char b[8];
-                        std::snprintf(b, sizeof b, "_%02x", c);
-                        o += b;
-                    }
-                }
-                return o;
-            };
-            const auto fn_rec = [&](const char* n) {
-                return "__CDBINFO__" + esc(std::string("F:G$") + n + "$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
-                       " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n";
-            };
-            const auto line_rec = [](int line, unsigned at, const char* fn) {
-                char b[200];
-                std::snprintf(b, sizeof b, "__C_LINE_%d_t_2ec = $%04X ; addr, local, , t_c, code_compiler, t.c::%s::0::0:%d\n", line, at, fn, line);
-                return std::string(b);
-            };
-            const std::string map = (z / "c24.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "_fb = $8020 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:10\n"
-                            "_fo = $8040 ; addr, public, , t_c, code_compiler, t.c::fo::0::0:20\n" +
-                                line_rec(1, 0x8000, "fa") + line_rec(2, 0x8008, "fa") + line_rec(3, 0x800B, "fa") +
-                                line_rec(10, 0x8020, "fb") + line_rec(20, 0x8040, "fo") + line_rec(21, 0x8048, "fo") +
-                                line_rec(22, 0x804B, "fo") + "__code_compiler_tail = $8060 ; const, public, def, , ,\n" +
-                                fn_rec("fa") + fn_rec("fb") + fn_rec("fo"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39};
-            const auto put = [&](uint16_t at, std::initializer_list<uint8_t> tail) {
-                for (size_t i = 0; i < sizeof pro; ++i) m.emu.mmu().write(static_cast<uint16_t>(at + i), pro[i]);
-                uint16_t a = static_cast<uint16_t>(at + sizeof pro);
-                for (const uint8_t b : tail) m.emu.mmu().write(a++, b);
-            };
-            put(0x8040, {0xCD, 0x00, 0x80, 0x18, 0xFE});
-            put(0x8000, {0xCD, 0x20, 0x80, 0x18, 0xFE});
-            put(0x8020, {0x18, 0xFE});
-            m.start(0x8040);
-            for (int i = 0; i < 4; ++i) m.emu.execute_single_instruction();   // fo: prologue, call fa
-            m.emu.call_stack().clear();
-            for (int i = 0; i < 4; ++i) m.emu.execute_single_instruction();   // fa: prologue, call fb
-            for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // fb: prologue
-            const auto fr = m.dbg->c_frames();
-            const auto vs = m.dbg->variables();
-            const auto name = [&](const Debugger::CFrame& f) {
-                return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
-            };
-            check("SRCDBG-CVAL-24", "a frame found through the chain is looked up at return address - 1: fo's call of fa is the last "
-                                    "instruction of line 21 ($804B starts line 22), fa's call of fb of line 2",
-                  lr.count > 0 && fr.size() == 4 && fr[3].function == -1 && name(fr[0]) == "fb" && fr[0].how == FrameBase::Tracked && name(fr[1]) == "fa" &&
-                      line_no(fr[1]) == 2 && name(fr[2]) == "fo" && fr[2].how == FrameBase::Chain && line_no(fr[2]) == 21);
-        }
-        {   // SRCDBG-CVAL-25
-            // GH #434 review R2-2: a `ret` closes the epilogue window, so code after it in the same function is not in it.
-            // Synthetic IX-frame function fq: prologue, `pop ix; ret`, then more body; stopped in the body, tracker empty.
-            Bare m(MachineType::ZXN_ISSUE2);
-            jnext::dbg::ClientInfo ci;
-            ci.name = "t";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            m.dbg->attach(ci);
-            const auto esc = [](const std::string& t) {
-                std::string o;
-                for (const unsigned char c : t) {
-                    if (std::isalpha(c)) {
-                        o += static_cast<char>(c);
-                    } else {
-                        char b[8];
-                        std::snprintf(b, sizeof b, "_%02x", c);
-                        o += b;
-                    }
-                }
-                return o;
-            };
-            const std::string map = (z / "c25.map").string();
-            write_text(map, "_fq = $8000 ; addr, public, , t_c, code_compiler, t.c::fq::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fq::0::0:1\n"
-                            "__code_compiler_tail = $8020 ; const, public, def, , ,\n"
-                            "__CDBINFO__" + esc("F:G$fq$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n");
-            const auto lr = m.dbg->load_source_map(map, true);
-            const uint8_t code[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0xDD, 0xE1, 0xC9, 0x00, 0x00, 0x18, 0xFE};
-            for (size_t i = 0; i < sizeof code; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
-            m.start(0x8000);
-            for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // push ix; ld ix,0; add ix,sp
-            m.start(0x800B);                                                  // the body after the ret
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-25", "code after an epilogue ret in the same function is not in the epilogue window: Prologue, fp == IX",
-                  lr.count > 0 && !fr.empty() && fr[0].how == FrameBase::Prologue && fr[0].fp == m.dbg->registers().IX &&
-                      fr[0].fp == static_cast<uint16_t>(m.dbg->registers().SP));
-        }
-        {   // SRCDBG-CVAL-26
-            // GH #434 review 3 (R3-1): "right after the restore" needs ALL its bytes. Synthetic map: l_debug_pop_frame $8100,
-            // l_debug_push_frame $8110, __debug_framepointer $9000 (holding $9ABC); a push-frame function fp1 at $8000 stopped
-            // right after `call $8200` (the low byte of the pop helper's address, not the high one); an IX function fx at $8300
-            // stopped right after a `pop hl` ($E1 not preceded by $DD). Neither is a restore: the base is the variable's / IX.
-            Bare m(MachineType::ZXN_ISSUE2);
-            jnext::dbg::ClientInfo ci;
-            ci.name = "t";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            m.dbg->attach(ci);
-            const auto esc = [](const std::string& t) {
-                std::string o;
-                for (const unsigned char c : t) {
-                    if (std::isalpha(c)) {
-                        o += static_cast<char>(c);
-                    } else {
-                        char b[8];
-                        std::snprintf(b, sizeof b, "_%02x", c);
-                        o += b;
-                    }
-                }
-                return o;
-            };
-            const auto fn_rec = [&](const char* n) {
-                return "__CDBINFO__" + esc(std::string("F:G$") + n + "$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
-                       " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n";
-            };
-            const std::string map = (z / "c26.map").string();
-            write_text(map, "_fp1 = $8000 ; addr, public, , t_c, code_compiler, t.c::fp1::0::0:1\n"
-                            "_fx = $8300 ; addr, public, , t_c, code_compiler, t.c::fx::0::0:5\n"
-                            "l_debug_pop_frame = $8100 ; addr, public, , lib, code_l_sccz80, l.asm:1\n"
-                            "l_debug_push_frame = $8110 ; addr, public, , lib, code_l_sccz80, l.asm:2\n"
-                            "__debug_framepointer = $9000 ; addr, public, , lib, bss_clib, v.asm:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fp1::0::0:1\n"
-                            "__C_LINE_5_t_2ec = $8300 ; addr, local, , t_c, code_compiler, t.c::fx::0::0:5\n"
-                            "__code_compiler_tail = $8320 ; const, public, def, , ,\n" + fn_rec("fp1") + fn_rec("fx"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            const uint8_t push_fn[] = {0xCD, 0x10, 0x81, 0xCD, 0x00, 0x82, 0xCD, 0x01, 0x81, 0x00, 0x18, 0xFE};
-            const uint8_t ix_fn[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0xE1, 0x00, 0x18, 0xFE};
-            for (size_t i = 0; i < sizeof push_fn; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), push_fn[i]);
-            for (size_t i = 0; i < sizeof ix_fn; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8300 + i), ix_fn[i]);
-            m.emu.mmu().write(0x9000, 0xBC);
-            m.emu.mmu().write(0x9001, 0x9A);
-            m.start(0x8006);   // right after `call $8200`
-            const auto a = m.dbg->c_frames();
-            m.start(0x8009);   // right after `call $8101` (the pop helper's high byte, another low byte)
-            const auto a2 = m.dbg->c_frames();
-            m.start(0x8300);
-            for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // push ix; ld ix,0; add ix,sp
-            m.start(0x8309);   // right after the `pop hl`
-            const auto b = m.dbg->c_frames();
-            check("SRCDBG-CVAL-26", "right after `call` of an address that only shares the pop helper's low byte or only its high byte, or after a `pop hl`, is not "
-                                    "right after the restore: the push-frame function's base is the variable ($9ABC), the IX function's is IX",
-                  lr.count > 0 && !a.empty() && !a2.empty() && !b.empty() && a[0].how == FrameBase::Prologue && a[0].fp == 0x9ABC &&
-                      a2[0].how == FrameBase::Prologue && a2[0].fp == 0x9ABC &&
-                      b[0].how == FrameBase::Prologue && b[0].fp == m.dbg->registers().IX &&
-                      b[0].fp != static_cast<uint16_t>(m.dbg->registers().SP - 2));
-        }
-        {   // SRCDBG-CVAL-27
-            // GH #434 review 3: the real-fixture case: main right after `call _sum` returned, tracker emptied: its base is the
-            // tracked one (main keeps locals, so it is not SP - 2).
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c27");
-            cv_run_to(m, 0x8CB9);
-            const unsigned ret = peek16(m, m.dbg->registers().SP);   // main's return address after the call
-            const bool s = cv_run_to(m, static_cast<uint16_t>(ret));
-            const auto tracked = m.dbg->c_frames();
-            m.emu.call_stack().clear();
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-27", "master sccz80-cvars main right after `call _sum` returned, tracker emptied: Prologue, fp == the tracked fp "
-                                    "(not SP - 2, which only a restore leaves)",
-                  s && !tracked.empty() && !fr.empty() && fn_name(m, fr[0]) == "main" && fr[0].how == FrameBase::Prologue &&
-                      fr[0].fp == tracked[0].fp && fr[0].fp != static_cast<uint16_t>(m.dbg->registers().SP - 2));
-        }
+        bin[0x0CB5] = static_cast<char>(bin[0x0CB5] ^ 0xFF);
+        write_text(d / "prog_CODE.bin", bin);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        });
+        check("SRCDBG-Z88-21", "a z88dk map whose binaries are not the loaded program's is rejected, "
+                               "symbols included, with the reason",
+              r.sources == -1 && r.symbols == -1 && m.dbg->source_map().empty() &&
+                  m.dbg->symbols().empty() &&
+                  has(log, "Rejected z88dk source map") && has(r.problem, "rejected"),
+              log);
+    }
+}
 
-        // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
-        // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
-        // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
-        using Dbg = Debugger;
-        const auto cvv = [&](const Machine& m, size_t k, const char* path) {
-            const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
-            return r.ok ? r.value : "!" + r.why;
+[[gnu::noinline]] static void srcdbg_part_33(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    const fs::path d1 = z / "d1";
+    const std::string map1 = (d1 / "prog.map").string();
+    {   // Z88-22: a map built without -debug beside a .nex
+        const fs::path d = z / "d22";
+        fs::create_directories(d);
+        fs::copy_file(kZ88NoDebug, d / "game.map");
+        write_text(d / "game.nex", "");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const auto r = m.dbg->load_program_sidecars((d / "game.nex").string());
+        check("SRCDBG-Z88-22", "a map built without -debug beside a .nex attaches its symbols and "
+                               "reports no source half and no problem",
+              r.symbols > 0 && r.sources == -1 && r.problem.empty() &&
+                  m.dbg->lookup_name("_main") && m.dbg->source_map().empty());
+    }
+    {   // Z88-23: the identity check changes nothing in the machine, live (PURE-01's fixture)
+        const fs::path d = z / "d23";
+        z88_copy("v2.4/sccz80-page20", d);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        auto& emu = m.emu;
+        // Live: +3 timing, a contended page behind $C000 (where page 20's code is
+        // checked by its logical address in a careless reader), the floating-bus
+        // latch set, READ watches over checked ranges, a Mem subscription.
+        emu.mmu().set_machine_timing(MachineTimingMode::TimingPlus3);
+        m.dbg->nextreg_write(m.a, 0x56, 0x08);
+        emu.mmu().set_p3_floating_bus_dat(0x3C);
+        for (uint16_t at : {0xC003, 0xC010, 0x8CB5})
+            emu.debug_state().breakpoints().add_watchpoint(at, WatchType::READ);
+        Subscription sub;
+        sub.kind = EventKind::Mem;
+        sub.access = Access::Read;
+        sub.filter.lo = 0x0000;
+        sub.filter.hi = 0xFFFF;
+        sub.action = Action::Continue;
+        m.dbg->subscribe(m.a, sub);
+        auto stream = [&] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position());
+            StateWriter w(bytes.data(), bytes.size());
+            emu.save_state(w);
+            return bytes;
         };
-        const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
-            const auto r = m.dbg->source_map().resolve(line);
-            for (const auto& a : r.starts)
-                if (a.address == addr) return true;
-            return false;
-        };
-        const auto row_of = [](const std::vector<Dbg::CValueRow>& rows, const char* name) -> const Dbg::CValueRow* {
-            for (const auto& r : rows)
-                if (r.name == name) return &r;
-            return nullptr;
-        };
-        const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
-            for (const auto& n : r.notes)
-                if (n.find(part) != std::string::npos) return true;
-            return false;
-        };
-        // sum's first call at vars.c:41 on the three compilers
-        struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
-        const auto at41 = [&](const SumAt& c, Machine& m) {
-            cv_load(m, c.fixture, c.tag);
-            return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
-        };
-        const auto sccz80_41 = [&](const SumAt& c) {
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41(c, m);
-            const auto loc = m.dbg->c_locals(0);
-            const auto* pp = row_of(loc.rows, "p");
-            const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
-            const Dbg::CValueResult p = m.dbg->read_c_value(0, "p");
-            const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
-            return at && loc.ok && pp && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "t") == "122" &&
-                   cvv(m, 0, "acc") == "345" && cvv(m, 0, "calls") == "1" && cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && lp.ok &&
-                   lp.where.kind == Dbg::CWhere::Kind::Cpu && p.ok && p.integer && *p.integer == lp.where.cpu && !inner.ok &&
-                   inner.why == "out of scope at vars.c:41" && !row_of(loc.rows, "inner") && cvv(m, 0, "p->y") == "4";
-        };
-        check("SRCDBG-CVAL-28", "v2.4 sccz80-cvars at vars.c:41 (first call of sum): a=0 b=-5 k=120 'x' t=122 acc=345 calls=1, *p = {x = 3, y = 4, tag = 5}, p is "
-                                "frame 1's &lp, and `inner` (block 2) is not listed and read_c_value says out of scope at vars.c:41",
-              sccz80_41({"v2.4/sccz80-cvars", "c28", 0x8D3E}));
-        check("SRCDBG-CVAL-29", "the same on master sccz80-cvars", sccz80_41({"master/sccz80-cvars", "c29", 0x8D3E}));
-        {   // SRCDBG-CVAL-30
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master/sdcc-cvars", "c30", 0x8C97}, m);
-            const Dbg::CValueResult t = m.dbg->read_c_value(0, "t");
-            const Dbg::CValueResult acc = m.dbg->read_c_value(0, "acc");
-            const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
-            const auto loc = m.dbg->c_locals(0);
-            check("SRCDBG-CVAL-30", "master sdcc-cvars at vars.c:41: a=0 b=-5 k=120 'x' calls=1 *p as on sccz80; t is 122 read from BC with the stale note; acc is "
-                                    "optimised out; `inner` is hidden (out of scope); the parameters (block 9) are visible",
-                  at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "calls") == "1" &&
-                      cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && t.ok && t.value == "122" && t.where.kind == Dbg::CWhere::Kind::Register &&
-                      has_note(t, "in BC; may be stale") && !acc.ok && acc.why == "optimised out" && !inner.ok &&
-                      inner.why == "out of scope at vars.c:41" && loc.ok && row_of(loc.rows, "a") && row_of(loc.rows, "k") && !row_of(loc.rows, "inner"));
+        auto ring = [&] { return emu.debug_state().event_table()->size(); };
+        const std::vector<uint8_t> before = stream();
+        const size_t ring_before = ring();
+        Debugger::SourceMapLoad out;
+        {
+            DebugState::GuestExecutionScope guest(emu.debug_state());
+            out = m.dbg->load_source_map((d / "prog.map").string(), false);
         }
-        {   // SRCDBG-CVAL-31
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master/80cc-cvars", "c31", 0x8CCA}, m);
-            const auto loc = m.dbg->c_locals(0);
-            const auto* inner = row_of(loc.rows, "inner");
-            bool marked = false;
-            if (inner)
-                for (const auto& n : inner->notes) marked = marked || n.find("scope unknown") != std::string::npos;
-            check("SRCDBG-CVAL-31", "master 80cc-cvars at vars.c:41: a=0 b=-5 k=120 'x' t=122 acc=345 calls=1 as on sccz80; 80cc writes no block structure, so `inner` is "
-                                    "shown, marked scope unknown",
-                  at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "t") == "122" && cvv(m, 0, "acc") == "345" &&
-                      cvv(m, 0, "calls") == "1" && inner && marked);
+        const bool untouched = before == stream() && !emu.debug_state().data_bp_hit() &&
+                               ring() == ring_before && emu.mmu().p3_floating_bus_dat() == 0x3C;
+        check("SRCDBG-Z88-23", "verifying a z88dk map's identity over a mapped page and an unmapped "
+                               "one, inside the guest's scope with watches armed, changes nothing: "
+                               "the save stream, the latch, the watch flag and the event ring",
+              out.count > 0 && out.identity && *out.identity && untouched,
+              "stream_equal=" + std::to_string(before == stream()) + " hit=" +
+                  std::to_string(emu.debug_state().data_bp_hit()) + " ring=" +
+                  std::to_string(ring_before) + "->" + std::to_string(ring()) + " latch=" +
+                  hex(emu.mmu().p3_floating_bus_dat()));
+        // Control: ONE guest read of $C003 in the same fixture moves all of them, so the
+        // row above cannot pass because nothing here is live.
+        {
+            DebugState::GuestExecutionScope guest(emu.debug_state());
+            (void)emu.mmu().read(0xC003);
         }
-        {   // SRCDBG-CVAL-32
-            bool ok = true;
-            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c32a", 0x8D2B}, SumAt{"master/sdcc-cvars", "c32b", 0x8C94}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, c.fixture, c.tag);
-                ok = ok && cv_starts_at(m, "vars.c:39", c.pc) && cv_run_to(m, c.pc) && cvv(m, 0, "inner") == "7";
-            }
-            check("SRCDBG-CVAL-32", "at vars.c:39 (block 2 open) `inner` is 7 (p->x + p->y) on sccz80 and zsdcc", ok);
+        check("SRCDBG-Z88-28", "control for Z88-23: ONE guest read of $C003 in the same fixture moves "
+                               "the save stream, raises the watchpoint and enters the event ring",
+              before != stream() && emu.debug_state().data_bp_hit() && ring() > ring_before,
+              "hit=" + std::to_string(emu.debug_state().data_bp_hit()) + " ring=" +
+                  std::to_string(ring()));
+    }
+    {   // Z88-24: a refused SLD sidecar still speaks for the source half
+        const fs::path d = z / "d24";
+        z88_copy("v2.4/sccz80-debug", d);
+        write_text(d / "prog.sld", "this is not an SLD\n");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        check("SRCDBG-Z88-24", "an SLD sidecar that is refused is not replaced by prog.map's source "
+                               "lines (it exists, and says why); the map's symbols still attach",
+              r.sources == -1 && m.dbg->source_map().empty() && r.symbols == 19 &&
+                  has(r.problem, "prog.sld' rejected"),
+              r.problem);
+    }
+    {   // Z88-25: the user's source map is kept; prog.map's source lines are not loaded, its symbols are
+        const fs::path d = z / "d25";
+        z88_copy("v2.4/sccz80-debug", d);
+        const fs::path plain = d / "mine.sld";
+        write_text(plain, program_sld(p80, p90));
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_source_map(plain.string(), false);
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        });
+        check("SRCDBG-Z88-25", "with the user's source map kept, prog.map's source lines are not loaded "
+                               "(and the log says so) but its symbols still attach (D10)",
+              r.sources == -1 && r.symbols == 19 && m.dbg->lookup_name("_main") == 0x8C92 &&
+                  m.dbg->source_map().loaded_file() == plain.string() &&
+                  has(log, "Kept the loaded source map '" + plain.string() +
+                               "'; not loading the source lines of '" + (d / "prog.map").string() + "'"),
+              "sources=" + std::to_string(r.sources) + " symbols=" + std::to_string(r.symbols) +
+                  " file=" + m.dbg->source_map().loaded_file() + "\n" + log);
+    }
+    {   // Z88-29: a hand z88dk map leaves an earlier hand SLD's labels alone
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d1 / "prog.nex");
+        const auto first = m.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", true);
+        const auto second = m.dbg->load_source_map(map1, true);
+        check("SRCDBG-Z88-29", "a z88dk map loaded by hand fills the source half only: the labels of "
+                               "the hand SLD loaded before it stay, and it reports none of its own",
+              first.labels == 12 && second.count == 46 && second.labels == 0 &&
+                  m.dbg->lookup_name("banked") == 0xC000 && !m.dbg->lookup_name("_main"),
+              "first=" + std::to_string(first.labels) + " second=" + std::to_string(second.labels));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_34(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+    const fs::path z = dir / "z88";
+    {   // Z88-30: a BOM'd SLD is an SLD, and it loads
+        // History: GH #344 review F5 made the BOM route to the SLD loader, which then refused
+        // it ("missing SLD.data.version 1 header"); owner decision 2026-11-01 (GH #427): the
+        // BOM is skipped and the file loads exactly as without it.
+        const fs::path d = z / "d30";
+        fs::create_directories(d);
+        write_text(d / "bom.sld", std::string("\xEF\xBB\xBF") + program_sld(p80, p90));
+        write_text(d / "plain.sld", program_sld(p80, p90));
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const auto out = m.dbg->load_source_map((d / "bom.sld").string(), false);
+        Machine mp(false, MachineType::ZXN_ISSUE2);
+        const auto plain = mp.dbg->load_source_map((d / "plain.sld").string(), false);
+        check("SRCDBG-Z88-30", "a UTF-8 BOM before an SLD's header is skipped: the SLD loads exactly "
+                               "as the same file without it (count, error, format)",
+              out.error.empty() && out.count > 0 && out.count == plain.count &&
+                  m.dbg->source_map().size() == mp.dbg->source_map().size() &&
+                  m.dbg->source_map().format() == mp.dbg->source_map().format(),
+              out.error + " count=" + std::to_string(out.count) + "/" + std::to_string(plain.count));
+    }
+    {   // Z88-33: a BOM'd SLD carries its labels too
+        const fs::path d = z / "d33";
+        fs::create_directories(d);
+        std::ifstream in(JNEXT_SJASMEQU_DIR "/equlabels.sld", std::ios::binary);
+        const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        write_text(d / "bom.sld", std::string("\xEF\xBB\xBF") + body);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        Machine mp(false, MachineType::ZXN_ISSUE2);
+        const auto out = m.dbg->load_source_map((d / "bom.sld").string(), true);
+        const auto plain = mp.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", true);
+        check("SRCDBG-Z88-33", "a BOM'd SLD loads the same labels and source lines as the plain one",
+              out.error.empty() && plain.labels == 12 && out.labels == plain.labels &&
+                  out.count == plain.count && m.dbg->lookup_name("banked") == 0xC000 &&
+                  m.dbg->lookup_name("banked") == mp.dbg->lookup_name("banked"),
+              out.error + " labels=" + std::to_string(out.labels));
+    }
+    {   // Z88-34: only a BOM at the very start is skipped
+        const fs::path d = z / "d34";
+        fs::create_directories(d);
+        const std::string bom = "\xEF\xBB\xBF";
+        write_text(d / "twice.sld", bom + bom + program_sld(p80, p90));
+        write_text(d / "line2.sld", "\n" + bom + program_sld(p80, p90));
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const auto twice = m.dbg->load_source_map((d / "twice.sld").string(), false);
+        const auto line2 = m.dbg->load_source_map((d / "line2.sld").string(), false);
+        check("SRCDBG-Z88-34", "a second BOM, or a BOM after a leading blank line, is not skipped: the "
+                               "file is not an SLD (its first line does not start the header), is read "
+                               "as a z88dk map and refused",
+              twice.count == -1 && has(twice.error, "no source lines") && line2.count == -1 &&
+                  has(line2.error, "no source lines") &&
+                  m.dbg->source_map().size() == 0,
+              twice.error + " | " + line2.error);
+    }
+    {   // Z88-35: a BOM'd z88dk map still goes to the z88dk adapter and loads as without it
+        const fs::path d = z / "d35";
+        z88_copy("v2.4/sccz80-debug", d);
+        std::ifstream in(d / "prog.map", std::ios::binary);
+        const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        write_text(d / "bom.map", std::string("\xEF\xBB\xBF") + body);
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto out = m.dbg->load_source_map((d / "bom.map").string(), true);
+        check("SRCDBG-Z88-35", "a BOM'd z88dk map is routed to the z88dk adapter and loads its 46 source "
+                               "lines as without the BOM",
+              out.error.empty() && out.count == 46 && m.dbg->source_map().format() == "z88dk" &&
+                  line_of(*m.dbg, 0x8CB8) == "main.c:19",
+              out.error + " count=" + std::to_string(out.count));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_35(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+    const fs::path z = dir / "z88";
+    {   // Z88-31: the --source-map helper's line for an SLD
+        const std::string sha = "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a";
+        const fs::path d = z / "d31";
+        fs::create_directories(d);
+        write_text(d / "hash.sld", std::string("|SLD.data.version|1\n||program.name:x\n||program.sha256:") +
+                                       sha + "\n||program.org:32768\n||program.size:4\n" +
+                                       "main.bas|10||0" + kNextDevice + "main.bas|10||0|" +
+                                       std::to_string(p80) + "|32768|T|\n");
+        write_text(d / "plain.sld", program_sld(p80, p90));
+        Machine m;
+        for (unsigned i = 0; i < 4; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), uint8_t(i + 1));
+        const auto with = emulator_attach_cli_source_map(*m.dbg, (d / "hash.sld").string());
+        const auto without = emulator_attach_cli_source_map(*m.dbg, (d / "plain.sld").string());
+        check("SRCDBG-Z88-31", "the helper's line for an SLD ends \" (program identity verified)\" when "
+                               "its hash matched and has no suffix when it carries none",
+              with.ok && with.line == "--source-map '" + (d / "hash.sld").string() +
+                                          "': 1 source lines (program identity verified)" &&
+                  without.ok && without.line == "--source-map '" + (d / "plain.sld").string() +
+                                                    "': 6 source lines",
+              with.line + " | " + without.line);
+    }
+    {   // Z88-27: the one table of program formats
+        bool later = true, not_later = true, map_yes = true, map_no = true;
+        for (const char* p : {"a.tap", "a.TZX", "a.Wav", "dir/a.tap"})
+            later = later && program_loads_later(p);
+        for (const char* p : {"a.nex", "a.sna", "a.z80", "a.szx", "a.rzx", "a.jns", "a", "a.tap.bak"})
+            not_later = not_later && !program_loads_later(p);
+        for (const char* p : {"a.nex", "a.NEX", "a.sna", "a.tap", "a.TAP"})
+            map_yes = map_yes && program_has_z88dk_map(p);
+        for (const char* p : {"a.tzx", "a.wav", "a.z80", "a.szx", "a.rzx", "a", "a.map"})
+            map_no = map_no && !program_has_z88dk_map(p);
+        check("SRCDBG-Z88-27", "program_loads_later() is the tape formats (.tap, .tzx, .wav, any case) "
+                               "and program_has_z88dk_map() is .nex, .sna and .tap",
+              later && not_later && map_yes && map_no,
+              std::string(later ? "" : "later ") + (not_later ? "" : "not_later ") +
+                  (map_yes ? "" : "map_yes ") + (map_no ? "" : "map_no"));
+    }
+    {   // Z88-32: Z88-25's setup with prog.map's binary another build's
+        const fs::path d = z / "d32";
+        z88_copy("v2.4/sccz80-debug", d);
+        std::string bin;
+        {
+            std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
+            bin.assign(std::istreambuf_iterator<char>(in), {});
         }
-        {   // SRCDBG-CVAL-33
-            bool ok = true;
-            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c33a", 0x8D3E}, SumAt{"master/80cc-cvars", "c33b", 0x8CCA}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = at41(c, m);
-                const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
-                const Dbg::CValueResult pp = m.dbg->read_c_value(1, "pp");
-                ok = ok && at && cvv(m, 1, "lp") == "{x = 3, y = 4, tag = 5}" && cvv(m, 1, "i") == "0" && cvv(m, 1, "c") == "120 'x'" &&
-                     cvv(m, 1, "big") == "100000" && lp.ok && pp.ok && pp.integer && *pp.integer == lp.where.cpu;
-            }
-            Machine z(false, MachineType::ZXN_ISSUE2);
-            const bool zat = at41({"master/sdcc-cvars", "c33c", 0x8C97}, z);
-            const Dbg::CValueResult big = z.dbg->read_c_value(1, "big");
-            const Dbg::CValueResult cc = z.dbg->read_c_value(1, "c");
-            const Dbg::CValueResult pp = z.dbg->read_c_value(1, "pp");
-            check("SRCDBG-CVAL-33", "frame 1 (main) at the vars.c:41 stop: lp = {3, 4, 5}, i = 0, c = 120 'x', big = 100000 and pp == &lp on sccz80 and 80cc; on zsdcc big, c and pp "
-                                    "are registers of an outer frame (optimised out) while lp and i are read from the stack",
-                  ok && zat && cvv(z, 1, "lp") == "{x = 3, y = 4, tag = 5}" && cvv(z, 1, "i") == "0" && !big.ok && big.why == "optimised out" && !cc.ok && !pp.ok);
+        bin[0x0CB5] = static_cast<char>(bin[0x0CB5] ^ 0xFF);
+        write_text(d / "prog_CODE.bin", bin);
+        const fs::path plain = d / "mine.sld";
+        write_text(plain, program_sld(p80, p90));
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_source_map(plain.string(), false);
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        });
+        check("SRCDBG-Z88-32", "with the user's source map kept, a prog.map whose binaries are another "
+                               "build's is still rejected: no symbols, the user's map kept, the "
+                               "rejection logged and reported",
+              r.symbols == -1 && r.sources == -1 && !m.dbg->lookup_name("_main") &&
+                  m.dbg->source_map().loaded_file() == plain.string() &&
+                  has(log, "Rejected z88dk source map") && has(r.problem, "prog.map' rejected"),
+              "symbols=" + std::to_string(r.symbols) + " problem=" + r.problem);
+    }
+    {   // Z88-26: a rewind across the load drops the z88dk map and brings it back
+        const fs::path d = z / "d26";
+        z88_copy("v2.4/sccz80-debug", d);
+        // The program's bytes are written into page 4 (where the NEX loader puts them), so the
+        // identity checks without a load that would rebuild the machine under the rewind ring.
+        std::vector<uint8_t> code;
+        {
+            std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
+            code.assign(std::istreambuf_iterator<char>(in), {});
         }
-        {   // SRCDBG-CVAL-34
-            // vars.c's globals at the stop of CVAL-28 (g_float is `{6}SF` on sccz80/80cc and `{4}SF` on zsdcc; the enum colour BLUE is 6)
-            bool ok = true;
-            std::string seen;
-            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c34a", 0x8D3E}, SumAt{"master/sdcc-cvars", "c34b", 0x8C97}, SumAt{"master/80cc-cvars", "c34c", 0x8CCA}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = at41(c, m);
-                const std::string want_float = std::string("1") + ".5";   // split: a bare literal of this shape reads as a row ID (dup-ids)
-                const std::string got =
-                    "g_int=" + cvv(m, 0, "g_int") + " g_uint=" + cvv(m, 0, "g_uint") + " g_schar=" + cvv(m, 0, "g_schar") + " g_char=" + cvv(m, 0, "g_char") +
-                    " g_long=" + cvv(m, 0, "g_long") + " g_ulong=" + cvv(m, 0, "g_ulong") + " g_float=" + cvv(m, 0, "g_float") + " g_str=" + cvv(m, 0, "g_str") +
-                    " g_cptr=" + cvv(m, 0, "g_cptr").substr(cvv(m, 0, "g_cptr").find(' ') + 1) + " g_matrix=" + cvv(m, 0, "g_matrix") +
-                    " g_pt=" + cvv(m, 0, "g_pt") + " g_colour=" + cvv(m, 0, "g_colour") + " g_byte=" + cvv(m, 0, "g_byte") + " s_file=" + cvv(m, 0, "s_file") +
-                    " vs=" + cvv(m, 0, "vars.c::s_dup") + " os=" + cvv(m, 0, "other.c::s_dup");
-                const std::string want = "g_int=-5 g_uint=40000 g_schar=-3 g_char=65 'A' g_long=305419896 g_ulong=3405691582 g_float=" + want_float +
-                                         " g_str=\"hi\\0\" g_cptr=\"abc\" g_matrix={{1, 2, 3}, {4, 5, 6}} g_pt={x = 1, y = 2, tag = 3} g_colour=6 g_byte=7 s_file=9 vs=0 os=4";
-                if (!at || got != want) {
-                    ok = false;
-                    seen += std::string(" [") + c.fixture + "] " + got;
-                }
-            }
-            check("SRCDBG-CVAL-34", "the globals of vars.c at the vars.c:41 stop, on sccz80, zsdcc and 80cc: g_int=-5 g_uint=40000 g_schar=-3 g_char=65 'A' g_long=305419896 "
-                                    "g_ulong=3405691582 g_float 1.5 g_str=\"hi\\0\" g_cptr=\"abc\" g_matrix g_pt g_colour=6 g_byte=7 s_file=9, and the two file statics s_dup "
-                                    "told apart by file: vars.c::s_dup=0 and other.c::s_dup=4",
-                  ok, seen);
-        }
-        {   // SRCDBG-CVAL-35
-            // in main's while (1): everything main stored has happened (arr = {467, 471, 475, 479}; s_file = 479 + 120; other(599) = 1202, as uint8_t 178)
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c35");
-            const bool at = cv_starts_at(m, "vars.c:64", 0x8E1F) && cv_run_to(m, 0x8E1F);
-            const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
-            const Dbg::CValueResult node = m.dbg->read_c_value(0, "g_node");
-            const Dbg::CValueResult fn = m.dbg->read_c_value(0, "g_fnptr2");
-            check("SRCDBG-CVAL-35", "in main's loop: g_head shows ` <g_node>` (the label of what it points at), g_head->val is 100000, g_node.next is NULL, s_file is 599, "
-                                    "vars.c::s_dup is 178 and g_fnptr2 shows ` <other>`",
-                  at && head.ok && head.value.find(" <g_node>") != std::string::npos && cvv(m, 0, "g_head->val") == "100000" &&
-                      cvv(m, 0, "g_node.next") == "$0000 (NULL)" && node.ok && cvv(m, 0, "s_file") == "599" && cvv(m, 0, "vars.c::s_dup") == "178" && fn.ok &&
-                      fn.value.find(" <other>") != std::string::npos && cvv(m, 0, "g_head->next->val").find("null pointer") != std::string::npos);
-        }
-        {   // SRCDBG-CVAL-36
-            // a real mid-run attach (the program ran with no client, so nothing was tracked): the fallback bases give main's locals
-            bool ok = true;
-            for (const char* fx : {"master/sccz80-cvars", "master/sdcc-cvars"}) {
-                Bare m(MachineType::ZXN_ISSUE2);
-                const fs::path d = var_dir(fx[7] == 's' && fx[8] == 'c' ? "c36a" : "c36b", fx);
-                emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
-                m.dbg->load_program_sidecars((d / "prog.nex").string());
-                m.frames(3);
-                jnext::dbg::ClientInfo ci;
-                ci.name = "late";
-                ci.kind = jnext::dbg::ClientKind::Test;
-                const ClientId c = m.dbg->attach(ci).value;
-                m.dbg->pause(c);
-                const auto str = [&](const char* path) {
-                    const Dbg::CValueResult r = m.dbg->read_c_value(0, path);
-                    return r.ok ? r.value : "!" + r.why;
-                };
-                const Dbg::CValueResult lp = m.dbg->read_c_value(0, "lp");
-                bool good = str("lp") == "{x = 3, y = 4, tag = 5}" && str("i") == "4" && str("arr") == "{467, 471, 475, 479}";
-                if (fx[7] == 's' && fx[8] == 'c') {   // sccz80 keeps c, big and pp on the stack
-                    const Dbg::CValueResult pp = m.dbg->read_c_value(0, "pp");
-                    good = good && str("c") == "120 'x'" && str("big") == "100000" && lp.ok && pp.ok && pp.integer && *pp.integer == lp.where.cpu;
-                }
-                ok = ok && good;
-            }
-        // the banked programs: bk_sum (bk.c, in Page{20}) called from bkmain.c's main
-        const auto bk_entry = [](const Machine& m, const char* fn) -> std::optional<SourceAddress> {
-            const auto vs = m.dbg->variables();
-            for (const auto& f : vs ? vs->functions() : std::vector<jnext::dbg::CFunction>{})
-                if (f.name == fn && f.entry.resolved) return f.entry.at;
-            return std::nullopt;
+        Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+        Z88Log lc;
+        m.dbg->set_listener(m.a, &lc);
+        const auto frames = [&](int n) {
+            m.dbg->run(m.a);
+            for (int i = 0; i < n; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
         };
-        // run to bk.c:10 of the fixture, clearing the interrupts at bk_sum's entry (this machine has no ROM: a RST 38 runs away)
-        const auto at_bk10 = [&](Machine& m, const char* fixture, const char* tag) {
-            cv_load(m, fixture, tag);
-            const auto entry = bk_entry(m, "bk_sum");
-            const auto l10 = m.dbg->source_map().resolve("bk.c:10");
-            if (!entry || l10.starts.empty() || !(l10.starts[0].space == MemSpace::page(20))) return false;
-            if (!cv_run_to(m, entry->address)) return false;
+        frames(1);
+        const uint32_t before_load = m.dbg->time().frame;
+        m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
+        write_text(d / "game.nex", "");
+        fs::copy_file(d / "prog.map", d / "game.map");
+        fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
+        const auto r = m.dbg->load_program_sidecars((d / "game.nex").string());
+        frames(2);
+        const uint32_t after_load = m.dbg->time().frame;
+        const Result back = m.dbg->rewind_to_frame(m.a, before_load);
+        const size_t at_before = m.dbg->source_map().size();
+        const Result fwd = m.dbg->rewind_to_frame(m.a, after_load);
+        check("SRCDBG-Z88-26", "rewinding to before the program was loaded drops its z88dk map and "
+                               "rewinding back restores it, each named as a z88dk map",
+              r.sources == 46 && back == Result::Ok && fwd == Result::Ok && at_before == 0 &&
+                  m.dbg->source_map().size() == 46 &&
+                  lc.has("Dropped the program's z88dk source map: this point of the history is "
+                         "before the program was loaded") &&
+                  lc.has("Restored the program's z88dk source map of this point in the history"),
+              "sources=" + std::to_string(r.sources) + " back=" + std::to_string(int(back)) +
+                  " fwd=" + std::to_string(int(fwd)) + " before=" + std::to_string(at_before) +
+                  " after=" + std::to_string(m.dbg->source_map().size()));
+    }
+    {   // Z88-36 (GH #428 x epic): the drop a rewind causes is a change the panels must see
+        const fs::path d = z / "d36";
+        z88_copy("v2.4/sccz80-debug", d);
+        std::vector<uint8_t> code;
+        {
+            std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
+            code.assign(std::istreambuf_iterator<char>(in), {});
+        }
+        Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+        const auto frames = [&](int n) {
+            m.dbg->run(m.a);
+            for (int i = 0; i < n; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+        };
+        frames(1);
+        const uint32_t before_load = m.dbg->time().frame;
+        m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
+        write_text(d / "game.nex", "");
+        fs::copy_file(d / "prog.map", d / "game.map");
+        fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
+        (void)m.dbg->load_program_sidecars((d / "game.nex").string());
+        frames(2);
+        const Result back = m.dbg->rewind_to_frame(m.a, before_load);
+        // No reader has run since the rewind: the map is dropped by the first one (recheck).
+        const uint64_t rev0 = m.dbg->state_revision();
+        const size_t at_before = m.dbg->source_map().size();
+        const uint64_t rev1 = m.dbg->state_revision();
+        check("SRCDBG-Z88-36", "the state revision advances when the first reader after a rewind drops "
+                               "the program's z88dk map (a paused panel redraws on the revision, not the clock)",
+              back == Result::Ok && at_before == 0 && rev1 > rev0,
+              "back=" + std::to_string(int(back)) + " size=" + std::to_string(at_before) +
+                  " rev " + std::to_string(rev0) + " -> " + std::to_string(rev1));
+    }
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto has_fn = [](const jnext::dbg::VariableStore* s, const char* name) {
+        for (const auto& f : s->functions())
+            if (f.name == name) return true;
+        return false;
+    };
+    const auto s_dup_at = [](const jnext::dbg::VariableStore* s, uint16_t addr) {
+        for (const auto& v : s->variables())
+            if (v.record.var.name == "s_dup" && v.module == "vars_c")
+                return v.storage.resolved && v.storage.at.space == MemSpace::page(4) &&
+                       v.storage.at.address == addr;
+        return false;
+    };
+    {   // SRCDBG-VAR-01
+        const fs::path d = var_dir("v1");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        Debugger::SidecarLoad r;
+        const std::string log = debugger_log_of([&] {
+            r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        });
+        const auto vs = m.dbg->variables();
+        const std::string map = (d / "prog.map").string();
+        check("SRCDBG-VAR-01", "prog.map beside a .nex: variables() is the source map's own store, with the "
+                               "functions sum, main and other; the sidecar log says what it said before",
+              vs && vs == m.dbg->source_map().variables() && has_fn(vs.get(), "sum") &&
+                  has_fn(vs.get(), "main") && has_fn(vs.get(), "other") && s_dup_at(vs.get(), 0x909F) &&
+                  has(log, "Loaded " + std::to_string(r.symbols) + " z88dk symbols from '" + map + "'") &&
+                  has(log, "Loaded " + std::to_string(r.sources) + " z88dk source lines from '" + map +
+                               "' (program identity verified)") &&
+                  log.find("ariable") == std::string::npos,
+              log);
+    }
+    {   // SRCDBG-VAR-02
+        const fs::path d = var_dir("v2");
+        const fs::path other = vz / "v2other";
+        fs::create_directories(other);
+        write_text(other / "next.nex", "");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const bool had = m.dbg->variables() != nullptr;
+        m.dbg->load_program_sidecars((other / "next.nex").string());
+        check("SRCDBG-VAR-02", "the next program's load, with no sidecar of its own, drops the source map and "
+                               "its store: variables() is null",
+              had && m.dbg->source_map().empty() && !m.dbg->variables());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_36(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto has_fn = [](const jnext::dbg::VariableStore* s, const char* name) {
+        for (const auto& f : s->functions())
+            if (f.name == name) return true;
+        return false;
+    };
+    {   // SRCDBG-VAR-03
+        const fs::path d = var_dir("v3");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto out = m.dbg->load_source_map((d / "prog.map").string(), false);
+        const auto vs = m.dbg->variables();
+        const bool by_user = m.dbg->source_map_status().by_user;
+        const Result cleared = m.dbg->clear_source_map();
+        check("SRCDBG-VAR-03", "Load Source Map by hand carries the store (the map is the user's); "
+                               "clear_source_map() drops both",
+              out.count > 0 && vs && by_user && has_fn(vs.get(), "main") && cleared == Result::Ok &&
+                  !m.dbg->variables());
+    }
+    {   // SRCDBG-VAR-04
+        const fs::path d = var_dir("v4");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_source_map((d / "prog.map").string(), false);
+        const bool had = m.dbg->variables() != nullptr;
+        // As SRCLIFE-24: a soft reset keeps the user's map while its bytes are intact; a byte
+        // that changes while the machine runs is found at the next pause, and the map is Stale.
+        const Result rs = m.dbg->reset(m.a, ResetKind::Soft);
+        m.dbg->run(m.a);
+        const uint8_t was = m.emu.mmu().peek(0x8CB5);
+        m.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
+        for (int i = 0; i < 5; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+        const auto st = m.dbg->source_map_status();
+        const bool stale_null = rs == Result::Ok && m.emu.mmu().peek(0x8CB5) != was &&
+                                st.state == Debugger::SourceMapStatus::State::Stale && st.by_user &&
+                                !m.dbg->variables();
+        const auto again = m.dbg->load_source_map((d / "prog.map").string(), true);
+        check("SRCDBG-VAR-04", "the user's map made Stale when its program's bytes change under a soft reset (found at the "
+                               "next pause): variables() is null while it is Stale, and loading it again by hand brings it back",
+              had && stale_null && again.count > 0 && m.dbg->variables() != nullptr &&
+                  m.dbg->source_map_status().state == Debugger::SourceMapStatus::State::Attached);
+    }
+    // SRCDBG-VAR-05 / -06: a rewind across the load, as SRCDBG-Z88-26 / -36
+    const auto rewound = [&](const char* name, bool read_first, std::shared_ptr<const jnext::dbg::VariableStore>& before,
+                             std::shared_ptr<const jnext::dbg::VariableStore>& after_back,
+                             std::shared_ptr<const jnext::dbg::VariableStore>& after_fwd,
+                             uint64_t& rev0, uint64_t& rev1) {
+        const fs::path d = var_dir(name);
+        const std::vector<uint8_t> code = read_all(d / "prog_CODE.bin");
+        Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+        const auto frames = [&](int n) {
+            m.dbg->run(m.a);
+            for (int i = 0; i < n; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+        };
+        frames(1);
+        const uint32_t before_load = m.dbg->time().frame;
+        m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
+        write_text(d / "game.nex", "");
+        fs::copy_file(d / "prog.map", d / "game.map");
+        fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
+        m.dbg->load_program_sidecars((d / "game.nex").string());
+        before = m.dbg->variables();
+        frames(2);
+        const uint32_t after_load = m.dbg->time().frame;
+        const Result back = m.dbg->rewind_to_frame(m.a, before_load);
+        rev0 = m.dbg->state_revision();
+        if (read_first) after_back = m.dbg->variables();
+        rev1 = m.dbg->state_revision();
+        if (!read_first) after_back = m.dbg->variables();
+        const Result fwd = m.dbg->rewind_to_frame(m.a, after_load);
+        after_fwd = m.dbg->variables();
+        return back == Result::Ok && fwd == Result::Ok;
+    };
+    {   // SRCDBG-VAR-05
+        std::shared_ptr<const jnext::dbg::VariableStore> before, back, fwd;
+        uint64_t r0 = 0, r1 = 0;
+        const bool ok = rewound("v5", false, before, back, fwd, r0, r1);
+        check("SRCDBG-VAR-05", "a rewind to before the load drops the store (null), and rewinding back restores "
+                               "the very same store object (pointer equal), shared with the cache, not copied",
+              ok && before && !back && fwd == before);
+    }
+    {   // SRCDBG-VAR-06
+        std::shared_ptr<const jnext::dbg::VariableStore> before, back, fwd;
+        uint64_t r0 = 0, r1 = 0;
+        const bool ok = rewound("v6", true, before, back, fwd, r0, r1);
+        check("SRCDBG-VAR-06", "after a rewind to before the load, variables() is the FIRST reader: it runs "
+                               "recheck(), returns null, and the state revision advances",
+              ok && before && !back && r1 > r0);
+    }
+    {   // SRCDBG-VAR-07
+        const fs::path d = vz / "v7";
+        const std::string tap = tape_copy("v2.4/sccz80-tape", d);
+        Machine m;
+        park(m);
+        const auto r = m.dbg->load_program_sidecars(tap);
+        const auto vs = m.dbg->variables();
+        bool counter = false;
+        for (const auto& v : vs ? vs->variables() : std::vector<jnext::dbg::CVariable>{})
+            counter = counter || (v.record.var.name == "counter" && v.storage.symbol == "_counter");
+        const bool pending = m.dbg->source_map_status().pending;
+        tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", 0xCC4, 0x8000);
+        m.set_pc(0x8000);
+        run_frames(m, 1);
+        check("SRCDBG-VAR-07", "a tape program's map is attached at once, pending, and its store with it "
+                               "(counter is joined); a wrong byte judged at the first execution drops the map "
+                               "and the store",
+              r.sources == 46 && r.sources_pending && pending && vs && counter && m.dbg->source_map().empty() &&
+                  !m.dbg->variables());
+    }
+    {   // SRCDBG-VAR-08
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const auto r = m.dbg->load_source_map((kZ88Fixtures / "master/sccz80-dot/prog.map").string(), false, false,
+                                              /*dot_only=*/true);
+        const auto vs = m.dbg->variables();
+        bool total = false;
+        for (const auto& v : vs ? vs->variables() : std::vector<jnext::dbg::CVariable>{})
+            total = total || (v.record.var.name == "total" && v.storage.resolved &&
+                              v.storage.at.space == MemSpace::divmmc_ram(2) && v.storage.at.address == 0x3253);
+        check("SRCDBG-VAR-08", "a dot command's map loaded by hand (pending, dot): its store has total at "
+                               "DivMmcRam{2}:$3253 (GH #445: z88dk v2.4-2883 moved it)",
+              r.count > 0 && r.pending && vs && total);
+    }
+    {   // SRCDBG-VAR-09
+        const fs::path d = var_dir("v9");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto out = m.dbg->load_map((d / "prog.map").string(), jnext::dbg::MapFormat::Z88dk);
+        check("SRCDBG-VAR-09", "Load MAP of a z88dk map loads the symbols and no source half, so no store (OD-8)",
+              out && out.value > 0 && m.dbg->lookup_name("_main").has_value() && m.dbg->source_map().empty() &&
+                  !m.dbg->variables());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_37(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto s_dup_at = [](const jnext::dbg::VariableStore* s, uint16_t addr) {
+        for (const auto& v : s->variables())
+            if (v.record.var.name == "s_dup" && v.module == "vars_c")
+                return v.storage.resolved && v.storage.at.space == MemSpace::page(4) &&
+                       v.storage.at.address == addr;
+        return false;
+    };
+    {   // SRCDBG-VAR-10
+        const fs::path d = var_dir("v10");
+        write_text(d / "prog.sld", program_sld(p80, p90));
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        check("SRCDBG-VAR-10", "an SLD sidecar beside prog.map wins the source half, and an SLD carries no store",
+              r.sources == 6 && m.dbg->source_map().format() == "SLD" && !m.dbg->variables());
+    }
+    {   // SRCDBG-VAR-11
+        const fs::path d = var_dir("v11");
+        const fs::path plain = d / "mine.sld";
+        write_text(plain, program_sld(p80, p90));
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const bool had = m.dbg->variables() != nullptr;
+        m.dbg->load_source_map(plain.string(), false);
+        check("SRCDBG-VAR-11", "a hand SLD loaded over a z88dk map replaces it, and the store goes with the map",
+              had && m.dbg->source_map().format() == "SLD" && !m.dbg->variables());
+    }
+    {   // SRCDBG-VAR-12
+        const fs::path d = var_dir("v12");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const auto before = m.dbg->variables();
+        const Result lab = m.dbg->set_user_label(MemSpace::page(4), 0x909F, "mine");
+        const auto k = m.dbg->symbols().find_name("mine");
+        const auto after = m.dbg->variables();
+        check("SRCDBG-VAR-12", "a user label at s_dup's address under another name shows in the symbols, and the "
+                               "store is the same object, still joining vars.c's s_dup to _s_dup at P4:$909F",
+              lab == Result::Ok && k && k->addr == 0x909F && m.dbg->lookup(0x909F) == std::string("mine") &&
+                  before && after == before && s_dup_at(after.get(), 0x909F));
+    }
+    {   // SRCDBG-CVAL-01
+        Bare m(MachineType::ZXN_ISSUE2);
+        const fs::path d = var_dir("c01");
+        emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const bool no_client = !m.dbg->call_stack_enabled();
+        jnext::dbg::ClientInfo ci;
+        ci.name = "t";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId c = m.dbg->attach(ci).value;
+        const bool attached = m.dbg->call_stack_enabled();
+        m.dbg->detach(c);
+        check("SRCDBG-CVAL-01", "no client and a C variable store: call-stack tracking is off; a (non-observer) client attached: on; "
+                                "detached: off again",
+              m.dbg->variables() && no_client && attached && !m.dbg->call_stack_enabled());
+    }
+    {   // SRCDBG-CVAL-02
+        Bare m(MachineType::ZXN_ISSUE2);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "t";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        m.dbg->attach(ci);
+        const std::string sld = (z / "c02.sld").string();
+        write_text(sld, "|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+                        "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\nmain.bas|10||0|0|32768|T|\n");
+        m.dbg->load_source_map(sld, true);
+        const bool sld_off = !m.dbg->call_stack_enabled();
+        const fs::path d = z / "c02so2";
+        z88_copy_lis("v2.4/sdcc-SO2", d);
+        Debugger::SidecarLoad r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const auto vs = m.dbg->variables();
+        check("SRCDBG-CVAL-02", "a client is attached: an SLD map (no store) leaves tracking off, and so does v2.4/sdcc-SO2's map "
+                                "(lines from listings, an empty store)",
+              sld_off && (!vs || (vs->functions().empty() && vs->variables().empty())) && !m.dbg->call_stack_enabled());
+        (void)r;
+    }
+    {   // SRCDBG-CVAL-03
+        Bare m(MachineType::ZXN_ISSUE2);
+        const fs::path d = var_dir("c03");
+        emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        jnext::dbg::ClientInfo ci;
+        ci.name = "emulator window";
+        ci.kind = jnext::dbg::ClientKind::Gui;
+        ci.observer = true;
+        m.dbg->attach(ci);
+        check("SRCDBG-CVAL-03", "only an observer client is attached (the Qt emulator window), with a C variable store: tracking is off",
+              m.dbg->variables() && !m.dbg->call_stack_enabled());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_38(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+
+    // ── GH #434 (E353-04) stage 1: the call-stack tracker policy and the C frames ──
+    // Oracle: the C source's call structure (vars.c, other.c, bk.c, bkmain.c, cross.c), the fixtures'
+    // maps and listings (addresses, prologues: `call l_debug_push_frame` / `push ix; ld ix,0; add ix,sp`),
+    // z88dk's library sources (l_debug_push_frame stores E-2 in __debug_framepointer), and measurements of
+    // the running machine that do not use the code under test (SP at the entry instruction, IX, the variable).
+    using FrameBase = Debugger::CFrame::Base;
+    const auto peek16 = [](Machine& m, uint16_t a) {
+        return static_cast<unsigned>(m.emu.mmu().peek(a) | (m.emu.mmu().peek(static_cast<uint16_t>(a + 1)) << 8));
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    const auto fn_name = [&](const Machine& m, const Debugger::CFrame& f) {
+        const auto vs = m.dbg->variables();
+        return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
+    };
+    const auto line_no = [](const Debugger::CFrame& f) { return f.line ? f.line->line : 0; };
+    {   // SRCDBG-CVAL-04
+        Bare m;
+        jnext::dbg::ClientInfo ci;
+        ci.name = "A";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId a = m.dbg->attach(ci).value;
+        ci.name = "B";
+        const ClientId b = m.dbg->attach(ci).value;
+        m.dbg->set_call_stack_enabled(a, true);
+        m.dbg->set_call_stack_enabled(b, true);
+        m.dbg->set_call_stack_enabled(a, false);
+        const bool b_keeps = m.dbg->call_stack_enabled();
+        // a tracked frame survives A's switching off (nothing cleared the tracker)
+        m.emu.mmu().write(0x6100, 0xCD);
+        m.emu.mmu().write(0x6101, 0x00);
+        m.emu.mmu().write(0x6102, 0x62);
+        m.emu.mmu().write(0x6200, 0x18);
+        m.emu.mmu().write(0x6201, 0xFE);
+        m.start(0x6100);
+        m.dbg->pause(a);
+        m.emu.execute_single_instruction();
+        const size_t frames_before = m.dbg->call_stack().size();
+        m.dbg->set_call_stack_enabled(a, true);
+        m.dbg->set_call_stack_enabled(a, false);
+        const bool kept = m.dbg->call_stack().size() == frames_before && frames_before == 1;
+        m.dbg->set_call_stack_enabled(b, false);
+        const bool off = !m.dbg->call_stack_enabled();
+        const ClientId c = m.dbg->attach(ci).value;
+        m.dbg->set_call_stack_enabled(c, true);
+        const bool on = m.dbg->call_stack_enabled();
+        m.dbg->detach(c);
+        check("SRCDBG-CVAL-04", "per-client requests (GH #434 F-B): A on, B on, A off: still on and the frames are kept; B off: off; "
+                                "a client that asked and is detached takes its request with it",
+              b_keeps && kept && off && on && !m.dbg->call_stack_enabled());
+    }
+    {   // SRCDBG-CVAL-05
+        const fs::path d = var_dir("c05");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->set_call_stack_enabled(m.a, false);   // the auto rule alone
+        m.dbg->load_source_map((d / "prog.map").string(), false);
+        const bool on1 = m.dbg->call_stack_enabled();
+        // As SRCLIFE-24: the user's map goes Stale when its program's bytes change while the machine runs
+        m.dbg->reset(m.a, ResetKind::Soft);
+        m.dbg->run(m.a);
+        const uint8_t was = m.emu.mmu().peek(0x8CB5);
+        m.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
+        for (int i = 0; i < 5; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+        const bool stale = m.dbg->source_map_status().state == Debugger::SourceMapStatus::State::Stale;
+        const bool off_stale = !m.dbg->call_stack_enabled();
+        m.dbg->load_source_map((d / "prog.map").string(), true);
+        const bool on2 = m.dbg->call_stack_enabled();
+        m.dbg->clear_source_map();
+        const bool off_clear = !m.dbg->call_stack_enabled();
+        const fs::path d2 = var_dir("c05b");
+        z88_load(m, d2 / "prog.nex");   // the next program, loaded over this one
+        m.dbg->load_program_sidecars((d2 / "prog.nex").string());
+        const bool on3 = m.dbg->call_stack_enabled();
+        check("SRCDBG-CVAL-05", "the auto rule follows the store: on with a user map, off while it is Stale, on when loaded again, off after "
+                                "clear_source_map(), on with the next program's sidecar",
+              on1 && stale && off_stale && on2 && off_clear && on3);
+    }
+    {   // SRCDBG-CVAL-06
+        Bare m;
+        jnext::dbg::ClientInfo ci;
+        ci.name = "A";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId a = m.dbg->attach(ci).value;
+        ci.name = "B";
+        const ClientId b = m.dbg->attach(ci).value;
+        jnext::dbg::LoopDriver d;   // the frontend's real cold boot: ~Emulator() and placement-new
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(m.emu, m.emu.config(), std::string(), ColdBootHooks{});
+            return true;
+        };
+        m.dbg->set_loop_driver(d);
+        m.dbg->set_call_stack_enabled(a, true);
+        m.dbg->set_call_stack_enabled(b, true);
+        m.emu.trace_log().set_enabled(true);   // direct, no request: only a rebuilt machine has it off
+        const Result r1 = m.dbg->reset(a, ResetKind::Hard);
+        const bool rebuilt1 = !m.emu.trace_log().enabled();
+        const bool both = m.emu.call_stack().enabled();
+        m.dbg->set_call_stack_enabled(a, false);
+        m.emu.trace_log().set_enabled(true);
+        const Result r2 = m.dbg->reset(a, ResetKind::Hard);
+        const bool rebuilt2 = !m.emu.trace_log().enabled();
+        const bool one = m.emu.call_stack().enabled();
+        m.dbg->set_call_stack_enabled(b, false);
+        m.emu.trace_log().set_enabled(true);
+        const Result r3 = m.dbg->reset(a, ResetKind::Hard);
+        check("SRCDBG-CVAL-06", "a real cold boot (the machine is rebuilt) keeps every client's request: both on, A off (B still on), both off",
+              r1 == Result::Ok && r2 == Result::Ok && r3 == Result::Ok && rebuilt1 && rebuilt2 && !m.emu.trace_log().enabled() &&
+                  both && one && !m.emu.call_stack().enabled());
+    }
+    // Frame bases, tracked: the CALL that entered the frame's code recorded SP = E, and fp = E - 2
+    // for every compiler (z88dk l_debug_push_frame.asm stores SP-2; `push ix; ld ix,0; add ix,sp` is the same).
+    {   // SRCDBG-CVAL-07
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c07");
+        const bool s1 = cv_run_to(m, 0x8CB9);
+        const uint16_t E = m.dbg->registers().SP;
+        const bool s2 = cv_run_to(m, 0x8D3E);
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-07", "master sccz80-cvars at vars.c:41 of the first call: frame 0 is sum (Tracked), fp == E - 2 == "
+                                "__debug_framepointer ($906A); frame 1 is main at vars.c:56 (Tracked)",
+              s1 && s2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Tracked &&
+                  line_no(fr[0]) == 41 && fr[0].fp == static_cast<uint16_t>(E - 2) && fr[0].fp == peek16(m, 0x906A) &&
+                  fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Tracked && line_no(fr[1]) == 56);
+    }
+    {   // SRCDBG-CVAL-08
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sdcc-cvars", "c08");
+        const bool s1 = cv_run_to(m, 0x8C48);
+        const uint16_t E = m.dbg->registers().SP;
+        const bool s2 = cv_run_to(m, 0x8C97);
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-08", "master sdcc-cvars at vars.c:41: frame 0 is sum (Tracked), fp == E - 2 == IX; frame 1 is main",
+              s1 && s2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Tracked &&
+                  fr[0].fp == static_cast<uint16_t>(E - 2) && fr[0].fp == m.dbg->registers().IX &&
+                  fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Tracked);
+    }
+    {   // SRCDBG-CVAL-09
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/80cc-cvars", "c09");
+        const bool s = cv_run_to(m, 0x8DC6);   // other.c:9
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-09", "master 80cc-cvars at other.c:9 called from main: fp_0 == __debug_framepointer ($8FE5, other keeps a "
+                                "push-frame frame), fp_1 == IX (main keeps an IX frame); both Tracked",
+              s && fr.size() >= 2 && fn_name(m, fr[0]) == "other" && fr[0].how == FrameBase::Tracked &&
+                  fr[0].fp == peek16(m, 0x8FE5) && fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Tracked &&
+                  fr[1].fp == m.dbg->registers().IX);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_39(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+
+    // ── GH #434 (E353-04) stage 1: the call-stack tracker policy and the C frames ──
+    // Oracle: the C source's call structure (vars.c, other.c, bk.c, bkmain.c, cross.c), the fixtures'
+    // maps and listings (addresses, prologues: `call l_debug_push_frame` / `push ix; ld ix,0; add ix,sp`),
+    // z88dk's library sources (l_debug_push_frame stores E-2 in __debug_framepointer), and measurements of
+    // the running machine that do not use the code under test (SP at the entry instruction, IX, the variable).
+    using FrameBase = Debugger::CFrame::Base;
+    const auto peek16 = [](Machine& m, uint16_t a) {
+        return static_cast<unsigned>(m.emu.mmu().peek(a) | (m.emu.mmu().peek(static_cast<uint16_t>(a + 1)) << 8));
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    const auto fn_name = [&](const Machine& m, const Debugger::CFrame& f) {
+        const auto vs = m.dbg->variables();
+        return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
+    };
+    const auto line_no = [](const Debugger::CFrame& f) { return f.line ? f.line->line : 0; };
+    {   // SRCDBG-CVAL-10
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars-banked", "c10");
+        // This machine has no ROM (RST 38 at $0038 reads $FF), so an interrupt runs away: the program's
+        // `ei` (banked_call re-enables them) is undone at bk_sum's entry; the call chain under test is the program's own.
+        cv_run_to(m, 0xC005);
+        {
             Z80Registers r = m.emu.cpu().get_registers();
             r.IFF1 = r.IFF2 = 0;
             m.emu.cpu().set_registers(r);
-            return cv_run_to(m, l10.starts[0].address);
-        };
-        {   // SRCDBG-CVAL-37
-            bool ok = true;
-            std::string seen;
-            for (const char* fx : {"v2.4/sccz80-cvars-banked", "master/sccz80-cvars-banked", "master/sdcc-cvars-banked", "master/80cc-cvars-banked"}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = at_bk10(m, fx, fx[0] == 'v' ? "c37a" : fx[7] == 's' && fx[8] == 'c' ? "c37b" : fx[7] == 's' ? "c37c" : "c37d");
-                const Dbg::CValueResult bt = m.dbg->read_c_value(0, "btable");
-                const bool zsdcc = std::string(fx).find("sdcc") != std::string::npos;
-                bool good = at && cvv(m, 0, "a") == "3" && cvv(m, 0, "b") == "2" && cvv(m, 0, "s") == "103 'g'" && cvv(m, 0, "j") == "4";
-                if (zsdcc) {
-                    // zsdcc writes no record for the const array btable (z88dk U4) but does for bdata
-                    good = good && !bt.ok && cvv(m, 0, "bdata") == "77 'M'";
-                } else {
-                    good = good && bt.ok && bt.value == "{10, 20, 30, 40}" && bt.where.kind == Dbg::CWhere::Kind::Page &&
-                           bt.where.source.space == MemSpace::page(20) && !has_note(bt, "not mapped") && cvv(m, 0, "bdata") == "77 'M'";
-                }
-                if (!good) {
-                    ok = false;
-                    seen += std::string(" ") + fx;
-                }
-            }
-            check("SRCDBG-CVAL-37", "in bk_sum at bk.c:10 (every compiler): a=3 b=2 s=103 'g' j=4 (a uint8_t prints as a char: the CDB has no typedef names); btable = {10, 20, 30, 40} read from Page{20}, which is mapped at $C000 now (no "
-                                    "'not mapped' note), and bdata = 77 'M'; zsdcc writes no btable record (z88dk U4)",
-                  ok, seen);
         }
-        {   // SRCDBG-CVAL-38
-            // back in main's while (1) bank 20 is unmapped again: btable is still read from its own page, with a note, and the CPU view at $C000 shows something else
-            bool ok = true;
-            std::string seen;
-            for (const char* fx : {"master/sccz80-cvars-banked", "master/sdcc-cvars-banked", "master/80cc-cvars-banked"}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at10 = at_bk10(m, fx, fx[7] == 's' && fx[8] == 'c' ? "c38a" : fx[7] == 's' ? "c38b" : "c38c");
-                const auto loop = m.dbg->source_map().resolve("bkmain.c:8");
-                bool at = at10 && !loop.starts.empty();
-                // single-stepped with the interrupts off (banked_call enables them and this machine has no ROM)
-                for (int i = 0; at && i < 2000 && m.dbg->registers().PC != loop.starts[0].address; ++i) {
-                    Z80Registers r = m.emu.cpu().get_registers();
-                    r.IFF1 = r.IFF2 = 0;
-                    m.emu.cpu().set_registers(r);
-                    m.emu.execute_single_instruction();
-                }
-                at = at && m.dbg->registers().PC == loop.starts[0].address;
-                const bool zsdcc = std::string(fx).find("sdcc") != std::string::npos;
-                const Dbg::CValueResult bt = m.dbg->read_c_value(0, "btable");
-                const Dbg::CValueResult loc = m.dbg->read_c_value(0, "loc");
-                uint8_t cpu = 0;
-                m.dbg->peek(MemSpace::cpu(), 0xC000, 1, &cpu);
-                bool good = at;
-                if (zsdcc) {
-                    good = good && !bt.ok && cvv(m, 0, "bdata") == "77 'M'" && has_note(m.dbg->read_c_value(0, "bdata"), "page 20 is not mapped at $C028 now");
-                } else {
-                    good = good && bt.ok && bt.value == "{10, 20, 30, 40}" && has_note(bt, "page 20 is not mapped at $C000 now") && cpu != 10 &&
-                           cvv(m, 0, "btable[2]") == "30" && cvv(m, 0, "btable[3]") == "40 '('";   // an element is read from the global's page too
-                }
-                // main's `loc` (3): a stack variable on sccz80 and zsdcc; 80cc writes no record for it (z88dk U5)
-                if (fx[7] == '8') good = good && !loc.ok && loc.why.find("unknown name") != std::string::npos;
-                else good = good && (loc.ok ? loc.value == "3" : std::string(fx).find("sdcc") != std::string::npos);
-                if (!good) {
-                    ok = false;
-                    seen += std::string(" ") + fx;
-                }
-            }
-            check("SRCDBG-CVAL-38", "in main's loop after bk_sum returned: btable is read from Page{20} with the note `page 20 is not mapped at $C000 now`, and the CPU view at $C000 "
-                                    "is not its bytes; bdata = 77 (zsdcc: with its own note at $C028); main's loc = 3 on sccz80, no record on 80cc (U5)",
-                  ok, seen);
-        }
-        {   // SRCDBG-CVAL-39
-            // fc.c: `ffast(uint16_t x) __z88dk_fastcall` and `fcallee(uint16_t a, uint8_t b) __z88dk_callee`; main: g = ffast(3) (= 4); g += fcallee(g, 4)
-            struct Fc { const char* fx; const char* tag; uint16_t ffast, fcallee; };
-            std::string seen;
-            bool ok = true;
-            // sccz80 (both installs): the listing marks ffast fastcall and the record puts x at its nominal slot (z88dk U1): location unknown
-            for (const Fc& c : {Fc{"v2.4/sccz80-fc", "c39a", 0x8C62, 0x8C74}, Fc{"master/sccz80-fc", "c39b", 0x8C62, 0x8C74}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const fs::path d = var_dir(c.tag, c.fx);
-                z88_copy_lis(c.fx, d);
-                z88_load(m, d / "prog.nex");
-                m.dbg->load_program_sidecars((d / "prog.nex").string());
-                const bool at = cv_run_to(m, c.ffast);
-                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
-                const bool u1 = at && !x.ok && x.why.find("location unknown") != std::string::npos && x.why.find("U1") != std::string::npos;
-                const bool at2 = cv_run_to(m, c.fcallee);
-                const bool callee = at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4";
-                if (!u1 || !callee) {
-                    ok = false;
-                    seen += std::string(" ") + c.fx;
-                }
-            }
-            {   // zsdcc: x is the register HL at ffast's entry (a frameless function), fcallee's arguments are on the stack above its return address
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const fs::path d = var_dir("c39c", "master/sdcc-fc");
-                z88_copy_lis("master/sdcc-fc", d);
-                z88_load(m, d / "prog.nex");
-                m.dbg->load_program_sidecars((d / "prog.nex").string());
-                const bool at = cv_run_to(m, 0x8C48);
-                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
-                const bool at2 = cv_run_to(m, 0x8C4A);
-                if (!(at && x.ok && x.value == "3" && x.where.kind == Dbg::CWhere::Kind::Register && at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4")) {
-                    ok = false;
-                    seen += " zsdcc";
-                }
-            }
-            {   // 80cc: x is pushed at fp - 2 after the four prologue instructions (push ix; ld ix,0; add ix,sp; push hl); its record is B,1,-2 (correct)
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const fs::path d = var_dir("c39d", "master/80cc-fc");
-                z88_copy_lis("master/80cc-fc", d);
-                z88_load(m, d / "prog.nex");
-                m.dbg->load_program_sidecars((d / "prog.nex").string());
-                const bool at = cv_run_to(m, 0x8C6B);
-                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
-                const bool at2 = cv_run_to(m, 0x8C74);
-                if (!(at && x.ok && x.value == "3" && x.where.kind == Dbg::CWhere::Kind::Cpu && at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4")) {
-                    ok = false;
-                    seen += " 80cc";
-                }
-            }
-            check("SRCDBG-CVAL-39", "fc.c: ffast's x is `location unknown (z88dk U1...)` on both sccz80 installs (a listed fastcall function whose parameter is recorded at its nominal "
-                                    "slot), 3 from HL on zsdcc and 3 at fp - 2 on 80cc; fcallee's a and b are 4 at its entry on all four",
-                  ok, seen);
-        }
-        {   // SRCDBG-CVAL-40
-            // the same sccz80 build with NO listing beside the map: nothing flags ffast fastcall, but its entry does (OD-A, GH #438): `call l_debug_push_frame; push hl`
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const fs::path d = var_dir("c40", "master/sccz80-fc");   // z88_copy: the map, the NEX and the section binaries, no .lis
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const bool at = cv_run_to(m, 0x8C62);
-            const bool entry = m.emu.mmu().peek(0x8C62) == 0xCD && m.emu.mmu().peek(0x8C65) == 0xE5;   // call l_debug_push_frame (fc.c.lis: 0000 cd0000, 0003 e5 push hl)
-            const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
-            check("SRCDBG-CVAL-40", "ffast's x with no listing is refused `location unknown (z88dk U1...)`: its entry is `call l_debug_push_frame; push hl` (the prologue is the fastcall evidence)",
-                  at && entry && !x.ok && x.why.find("location unknown (z88dk U1") == 0);
-        }
-        {   // SRCDBG-CVAL-41
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master/sccz80-cvars", "c41", 0x8D3E}, m);
-            const auto err = [&](size_t k, const char* path) {
-                const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
-                return r.ok ? std::string("ok") : r.why;
-            };
-            check("SRCDBG-CVAL-41", "C paths on the machine at vars.c:41: g_matrix[1][2] = 6, g_pt.tag = 3, p->y = 4, *p, g_str[1] = 105 'i', g_cptr[2] = 99 'c', lp.x = 3 (frame 1), "
-                                    "sum::calls = 1, other.c::s_dup = 4; refusals: g_matrix[2][0] (index 2 out of range [0, 2)), g_pt.z (no member 'z'), g_int.x (not a struct), "
-                                    "*g_int (not a pointer), nosuch (unknown name 'nosuch'), g_head->next->val (null pointer: g_head is not set yet); sum::calls reads from frame 1 (a static local from any frame), sum::t is refused from main",
-                  at && cvv(m, 0, "g_matrix[1][2]") == "6" && cvv(m, 0, "g_pt.tag") == "3" && cvv(m, 0, "p->y") == "4" && cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" &&
-                      cvv(m, 0, "g_str[1]") == "105 'i'" && cvv(m, 0, "g_cptr[2]") == "99 'c'" && cvv(m, 1, "lp.x") == "3" && cvv(m, 0, "sum::calls") == "1" &&
-                      cvv(m, 0, "other.c::s_dup") == "4" && cvv(m, 0, "vars.c::s_dup") == "0" && err(0, "g_matrix[2][0]") == "index 2 out of range [0, 2)" &&
-                      err(0, "g_pt.z") == "no member 'z'" && err(0, "g_int.x") == "not a struct" && err(0, "*g_int") == "not a pointer" &&
-                      err(0, "nosuch") == "unknown name 'nosuch'" && err(0, "g_head->next->val") == "null pointer" && err(5, "g_int").find("no frame 5") == 0 &&
-                      err(0, "g_pt.").find("member name") != std::string::npos && cvv(m, 1, "sum::calls") == "1" &&
-                      err(1, "sum::t") == "'t' is a local of sum, which frame 1 is not" && err(0, "nosuchfn::x") == "no function 'nosuchfn'");
-        }
-        {   // SRCDBG-CVAL-42
-            // g_flags poked with 8D C8: zsdcc decodes the bitfields exactly; sccz80 and 80cc write overlapping ints (z88dk U2) and say so
-            const auto flags_at = [&](Machine& m) {
-                const Dbg::CValueResult r = m.dbg->read_c_value(0, "g_flags");
-                const uint8_t b[2] = {0x8D, 0xC8};
-                if (r.where.kind == Dbg::CWhere::Kind::Page) m.dbg->poke(m.a, r.where.source.space, r.where.source.address & 0x1FFF, 2, b);
-                return m.dbg->read_c_value(0, "g_flags");
-            };
-            Machine z(false, MachineType::ZXN_ISSUE2);
-            const bool zat = at41({"master/sdcc-cvars", "c42a", 0x8C97}, z);
-            const Dbg::CValueResult zf = flags_at(z);
-            Machine c(false, MachineType::ZXN_ISSUE2);
-            const bool cat = at41({"master/sccz80-cvars", "c42b", 0x8D3E}, c);
-            const Dbg::CValueResult cf = flags_at(c);
-            check("SRCDBG-CVAL-42", "g_flags = 8D C8: zsdcc reads lo = 5, mid = 17, hi = 200; sccz80 shows the storage units marked `bitfield layout unknown (z88dk U2)`",
-                  zat && zf.ok && zf.value == "{lo = 5, mid = 17, hi = 200}" && has_note(zf, "U2") == false && cat && cf.ok && has_note(cf, "bitfield layout unknown (z88dk U2)") &&
-                      cf.value.find("hi = 200") != std::string::npos);
-        }
-        {   // SRCDBG-CVAL-43
-            struct Oth { const char* fx; const char* tag; uint16_t pc; };
-            bool ok = true;
-            std::string seen;
-            for (const Oth& c : {Oth{"master/sccz80-cvars", "c43a", 0x8E49}, Oth{"master/sdcc-cvars", "c43b", 0x8D49}, Oth{"master/80cc-cvars", "c43c", 0x8DC6}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, c.fx, c.tag);
-                const bool at = cv_run_to(m, c.pc);
-                const bool good = at && cvv(m, 0, "q") == "599" && cvv(m, 0, "res") == "1202" && cvv(m, 0, "s_dup") == "4";
-                if (!good) {
-                    ok = false;
-                    seen += std::string(" ") + c.fx;
-                }
-            }
-            check("SRCDBG-CVAL-43", "in other(599) at its `return res`: q = 599, res = 1202 (zsdcc: from HL) and the file static s_dup of other.c is 4, on all three compilers", ok, seen);
-        }
-        {   // SRCDBG-CVAL-44
-            const auto esc = [](const std::string& t) {
-                std::string o;
-                for (const unsigned char c : t) {
-                    if (std::isalpha(c)) {
-                        o += static_cast<char>(c);
-                    } else {
-                        char b[8];
-                        std::snprintf(b, sizeof b, "_%02x", c);
-                        o += b;
-                    }
-                }
-                return o;
-            };
-            const auto why_of = [&](Machine& m) { return m.dbg->c_variables_status(); };
-            Bare none;
-            const auto s_none = none.dbg->c_variables_status();
-            Machine sldm(false, MachineType::ZXN_ISSUE2);
-            const std::string sld = (z / "c44.sld").string();
-            write_text(sld, "|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,slots.adr:0,8192,16384,24576,32768,40960,49152,57344\nmain.bas|10||0|0|32768|T|\n");
-            sldm.dbg->load_source_map(sld, true);
-            const auto s_sld = why_of(sldm);
-            Machine so2(false, MachineType::ZXN_ISSUE2);
-            const fs::path dso2 = z / "c44so2";
-            z88_copy_lis("v2.4/sdcc-SO2", dso2);
-            z88_load(so2, dso2 / "prog.nex");
-            so2.dbg->load_program_sidecars((dso2 / "prog.nex").string());
-            const auto s_so2 = why_of(so2);
-            Machine o0(false, MachineType::ZXN_ISSUE2);
-            const fs::path do0 = var_dir("c44o0", "master/sdcc-cvars-O0");
-            z88_load(o0, do0 / "prog.nex");
-            o0.dbg->load_program_sidecars((do0 / "prog.nex").string());
-            const auto s_o0 = why_of(o0);
-            // sccz80-cvars with its __CDBINFO__ lines removed (lines, no records), and with every record made undecodable
-            std::string lines_only, bogus;
-            size_t n_cdb = 0;
-            {
-                std::ifstream in(kZ88Fixtures / "master/sccz80-cvars" / "prog.map");
-                for (std::string l; std::getline(in, l);) {
-                    if (l.compare(0, 11, "__CDBINFO__") == 0) {
-                        ++n_cdb;
-                        bogus += "__CDBINFO__" + esc("Q:bogus") + l.substr(l.find(' ')) + "\n";
-                    } else {
-                        lines_only += l + "\n";
-                        bogus += l + "\n";
-                    }
-                }
-            }
-            Machine lo(false, MachineType::ZXN_ISSUE2);
-            write_text(z / "c44lo.map", lines_only);
-            lo.dbg->load_source_map((z / "c44lo.map").string(), true);
-            const auto s_lo = why_of(lo);
-            Machine bg(false, MachineType::ZXN_ISSUE2);
-            write_text(z / "c44bg.map", bogus);
-            bg.dbg->load_source_map((z / "c44bg.map").string(), true);
-            const auto s_bg = why_of(bg);
-            Machine ok(false, MachineType::ZXN_ISSUE2);
-            cv_load(ok, "master/sccz80-cvars", "c44ok");
-            check("SRCDBG-CVAL-44", "c_variables_status(): none attached -> `no source map is attached`; an SLD -> `an SLD source map carries no C variables`; v2.4 sdcc-SO2 with listings "
-                                    "-> `the map has no C debug records`; zcc -O0 -> `zsdcc wrote no C variable records`; sccz80 with its records removed -> `the map has line records but no "
-                                    "__CDBINFO__ records`; every record undecodable -> `all N C variable records were refused`; a normal build is available",
-                  !s_none.available && s_none.why == "no source map is attached" && !s_sld.available && s_sld.why.find("an SLD source map carries no C variables") == 0 &&
-                      !s_so2.available && s_so2.why.find("the map has no C debug records") == 0 && !s_o0.available &&
-                      s_o0.why.find("zsdcc wrote no C variable records for this build") == 0 && !s_lo.available &&
-                      s_lo.why == "the map has line records but no __CDBINFO__ records" && !s_bg.available &&
-                      s_bg.why.find("all " + std::to_string(n_cdb) + " C variable records were refused: ") == 0 && ok.dbg->c_variables_status().available);
-        }
-        {   // SRCDBG-CVAL-45
-            const fs::path d = var_dir("c45");
-            const fs::path other = z / "c45other";
-            fs::create_directories(other);
-            write_text(other / "next.nex", "");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const bool had = !m.dbg->c_frames().empty() && m.dbg->c_variables_status().available;
-            m.dbg->load_program_sidecars((other / "next.nex").string());   // the next program, with no sidecar: the store goes with its map
-            const auto st = m.dbg->c_variables_status();
-            const auto loc = m.dbg->c_locals(0);
-            const auto rv = m.dbg->read_c_value(0, "g_int");
-            check("SRCDBG-CVAL-45", "the next program's load drops the store: c_frames() is empty, c_locals() and read_c_value() are refused with the status text, c_globals() is empty",
-                  had && m.dbg->c_frames().empty() && !st.available && !loc.ok && loc.why == st.why && !rv.ok && rv.why == st.why && m.dbg->c_globals().empty());
-        }
-        {   // SRCDBG-CVAL-46
-            // a rewind to before the load: c_frames() is the FIRST reader, so it runs recheck(): empty, and the state revision advances
-            const fs::path d = var_dir("c46");
-            const std::vector<uint8_t> code = read_all(d / "prog_CODE.bin");
-            Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
-            const auto run_frames = [&](int n) {
-                m.dbg->run(m.a);
-                for (int i = 0; i < n; ++i) m.emu.run_frame();
-                m.dbg->pause(m.a);
-            };
-            run_frames(1);
-            const uint32_t before_load = m.dbg->time().frame;
-            m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
-            write_text(d / "game.nex", "");
-            fs::copy_file(d / "prog.map", d / "game.map");
-            fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
-            m.dbg->load_program_sidecars((d / "game.nex").string());
-            const bool had = !m.dbg->c_frames().empty();
-            run_frames(2);
-            const Result back = m.dbg->rewind_to_frame(m.a, before_load);
-            const uint64_t rev0 = m.dbg->state_revision();
-            const size_t n = m.dbg->c_frames().size();
-            const uint64_t rev1 = m.dbg->state_revision();
-            check("SRCDBG-CVAL-46", "after a rewind to before the load, c_frames() is the first reader: it runs recheck(), returns no frame, and the state revision advances",
-                  had && back == Result::Ok && n == 0 && rev1 > rev0);
-        }
-        {   // SRCDBG-CVAL-47
-            // cross(20): r = a + 1 = 21, then r = r * 2 = 42 past the 8 KB padding, so at `return r` (the first line after the second slot starts) a = 20 and r = 42
-            struct Cr { const char* fx; const char* tag; const char* line; uint16_t pc; };
-            bool ok = true;
-            std::string seen;
-            for (const Cr& c : {Cr{"master/sccz80-cross", "c47a", "cross.c:21", 0xAC7A}, Cr{"master/80cc-cross", "c47b", "cross.c:21", 0xAC92},
-                                Cr{"master/sdcc-cross", "c47c", "cross.c:22", 0xAC58}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, c.fx, c.tag);
-                const bool at = cv_starts_at(m, c.line, c.pc) && cv_run_to(m, c.pc);
-                const Dbg::CValueResult a = m.dbg->read_c_value(0, "a");
-                const Dbg::CValueResult r = m.dbg->read_c_value(0, "r");
-                const bool good = at && m.dbg->registers().PC >= 0xA000 && a.ok && a.value == "20" && r.ok && r.value == "42";
-                if (!good) {
-                    ok = false;
-                    seen += std::string(" ") + c.fx + " a=" + (a.ok ? a.value : a.why) + " r=" + (r.ok ? r.value : r.why);
-                }
-            }
-            check("SRCDBG-CVAL-47", "a function that crosses an 8 KB slot (cross.c): stopped past $A000 (page 5), a = 20 and r = 42, on sccz80, 80cc and zsdcc", ok, seen);
-        }
-        {   // SRCDBG-CVAL-48
-            // a dot command's global is in DivMMC RAM bank 2: read from its own page, with a note that it is not mapped (the CPU is not in the command)
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            m.dbg->load_source_map((kZ88Fixtures / "master/sccz80-dot/prog.map").string(), false, false, /*dot_only=*/true);
-            uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
-            bank2[0x3253 & 0x1FFF] = 200;   // `total` is a uint8_t
-            const Dbg::CValueResult r = m.dbg->read_c_value(0, "total");
-            check("SRCDBG-CVAL-48", "a dot command's `total` ($3253 in DivMMC RAM bank 2) is read from its own page (200), where = DivMmcRam{2}:$3253, with the note that the bank is not mapped now",
-                  r.ok && r.value == "200" && r.where.kind == Dbg::CWhere::Kind::Page && r.where.source.space == MemSpace::divmmc_ram(2) &&
-                      r.where.source.address == 0x3253 && has_note(r, "DivMMC RAM 2 is not mapped at $3253 now"));
-        }
-        {   // SRCDBG-CVAL-49
-            // order and hiding: parameters first by stack position, then locals, then static locals; no compiler temporaries (sloc), no enumerators, no string literals
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master/sccz80-cvars", "c49a", 0x8D3E}, m);
-            const auto names_of = [](const std::vector<Dbg::CValueRow>& rows) {
-                std::string o;
-                for (const auto& r : rows) o += (o.empty() ? "" : " ") + r.name;
-                return o;
-            };
-            const auto sc = m.dbg->c_locals(0);
-            Machine z(false, MachineType::ZXN_ISSUE2);
-            const bool zat = at41({"master/sdcc-cvars", "c49b", 0x8C97}, z);
-            const auto zc = z.dbg->c_locals(0);
-            bool temps = false;
-            for (const auto& r : z.dbg->c_globals()) temps = temps || r.name.find("sloc") == 0 || r.name.find("__") == 0 || r.name == "RED" || r.name == "BLUE";
-            for (const auto& r : m.dbg->c_globals()) temps = temps || r.name == "RED" || r.name == "GREEN" || r.name == "BLUE" || r.name.find("__") == 0;
-            bool kinds = sc.ok && sc.rows.size() == 7 && sc.rows[0].kind == Dbg::CValueRow::Kind::Param && sc.rows[3].kind == Dbg::CValueRow::Kind::Param &&
-                         sc.rows[4].kind == Dbg::CValueRow::Kind::Local && sc.rows[6].kind == Dbg::CValueRow::Kind::StaticLocal;
-            check("SRCDBG-CVAL-49", "c_locals(0) at vars.c:41: sccz80 `k p b a acc t calls` (parameters by stack position, locals, the static local last), zsdcc `a b p k acc t calls`; "
-                                    "no sloc temporaries, enumerators or `__` records anywhere in c_locals or c_globals",
-                  at && zat && sc.ok && zc.ok && names_of(sc.rows) == "k p b a acc t calls" && names_of(zc.rows) == "a b p k acc t calls" && kinds && !temps);
-        }
-        {   // SRCDBG-CVAL-51
-            // a register local of an OUTER frame is not available (the live registers are frame 0's). Synthetic IX-frame program fa -> fb; fa has `unsigned char q` in [c]
+        const bool s = cv_run_to(m, 0xC04C);   // bk.c:10, Page{20}
+        const auto fr = m.dbg->c_frames();
+        const auto& cs = m.dbg->call_stack();
+        check("SRCDBG-CVAL-10", "master sccz80-cvars-banked in bk_sum (bk.c:10, Page{20}): frame 0 bk_sum, frame 1 asm (banked_call, "
+                                "no C function), frame 2 main at bkmain.c:7; frame 0's function is not the one at the newest "
+                                "frame's target (l_jphl)",
+              s && fr.size() >= 3 && fn_name(m, fr[0]) == "bk_sum" && fr[0].pc.space == MemSpace::page(20) &&
+                  fr[1].function == -1 && fn_name(m, fr[2]) == "main" && line_no(fr[2]) == 7 && !cs.empty() &&
+                  cs.back().target_pc != 0xC04C && fr[0].how == FrameBase::Tracked);
+    }
+    // The fallback: no tracker frames (a mid-run attach), so frame 0 comes from the entry bytes and older
+    // frames from the saved frame pointers.
+    {   // SRCDBG-CVAL-11
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c11");
+        cv_run_to(m, 0x8D3E);
+        const auto tracked = m.dbg->c_frames();
+        m.emu.call_stack().clear();
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-11", "sccz80, vars.c:41 with the tracker emptied: sum is Prologue and main Chain, with the same fp as "
+                                "the tracked run",
+              tracked.size() >= 2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Prologue &&
+                  fr[0].fp == tracked[0].fp && fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Chain &&
+                  fr[1].fp == tracked[1].fp && fr[1].floor == tracked[1].floor && line_no(fr[1]) == line_no(tracked[1]) &&
+                  line_no(fr[1]) == 56);
+    }
+    {   // SRCDBG-CVAL-12
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sdcc-cvars", "c12");
+        cv_run_to(m, 0x8C97);
+        const auto tracked = m.dbg->c_frames();
+        m.emu.call_stack().clear();
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-12", "zsdcc, vars.c:41 with the tracker emptied: sum is Prologue (IX) and main Chain, with the same fp as "
+                                "the tracked run",
+              tracked.size() >= 2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Prologue &&
+                  fr[0].fp == tracked[0].fp && fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Chain &&
+                  fr[1].fp == tracked[1].fp && fr[1].floor == tracked[1].floor && line_no(fr[1]) == line_no(tracked[1]) &&
+                  line_no(fr[1]) == 56);
+    }
+    {   // SRCDBG-CVAL-13
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/80cc-cvars", "c13");
+        cv_run_to(m, 0x8DC6);
+        m.emu.call_stack().clear();
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-13", "80cc in other with the tracker emptied: frame 0 Prologue (push-frame); frame 1 main is Unknown with the "
+                                "style-change note, and nothing further is listed",
+              fr.size() == 2 && fn_name(m, fr[0]) == "other" && fr[0].how == FrameBase::Prologue &&
+                  fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Unknown &&
+                  fr[1].note.find("keeps its frame differently") != std::string::npos);
+    }
+    {   // SRCDBG-CVAL-14
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c14a");
+        cv_run_to(m, 0x8CB9);
+        m.emu.call_stack().clear();
+        const auto at_entry = m.dbg->c_frames();
+        const uint16_t sp_entry = m.dbg->registers().SP;
+        const bool s = cv_run_to(m, 0x8D53);   // the ret after `call l_debug_pop_frame`
+        m.emu.call_stack().clear();
+        const auto at_ret = m.dbg->c_frames();
+        const uint16_t sp_ret = m.dbg->registers().SP;
+        Machine z(false, MachineType::ZXN_ISSUE2);
+        cv_load(z, "master/sdcc-cvars", "c14b");
+        cv_run_to(z, 0x8C48);
+        z.emu.call_stack().clear();
+        const auto zentry = z.dbg->c_frames();
+        const uint16_t zsp = z.dbg->registers().SP;
+        const bool zs = cv_run_to(z, 0x8C9E);   // the ret after `pop ix`
+        z.emu.call_stack().clear();
+        const auto zret = z.dbg->c_frames();
+        const uint16_t zsp2 = z.dbg->registers().SP;
+        check("SRCDBG-CVAL-14", "prologue and epilogue windows with no frames: at sum's entry instruction fp == SP - 2 (sccz80, zsdcc); "
+                                "at the ret after call l_debug_pop_frame fp == SP - 2, not the variable (already the caller's); "
+                                "zsdcc at the ret after pop ix fp == SP - 2, not IX",
+              s && zs && !at_entry.empty() && !at_ret.empty() && !zentry.empty() && !zret.empty() &&
+                  at_entry[0].fp == static_cast<uint16_t>(sp_entry - 2) && at_ret[0].fp == static_cast<uint16_t>(sp_ret - 2) &&
+                  at_ret[0].fp != peek16(m, 0x906A) && zentry[0].fp == static_cast<uint16_t>(zsp - 2) &&
+                  zret[0].fp == static_cast<uint16_t>(zsp2 - 2) && zret[0].fp != z.dbg->registers().IX);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_40(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+
+    // ── GH #434 (E353-04) stage 1: the call-stack tracker policy and the C frames ──
+    // Oracle: the C source's call structure (vars.c, other.c, bk.c, bkmain.c, cross.c), the fixtures'
+    // maps and listings (addresses, prologues: `call l_debug_push_frame` / `push ix; ld ix,0; add ix,sp`),
+    // z88dk's library sources (l_debug_push_frame stores E-2 in __debug_framepointer), and measurements of
+    // the running machine that do not use the code under test (SP at the entry instruction, IX, the variable).
+    using FrameBase = Debugger::CFrame::Base;
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    const auto fn_name = [&](const Machine& m, const Debugger::CFrame& f) {
+        const auto vs = m.dbg->variables();
+        return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
+    };
+    {   // SRCDBG-CVAL-15
+        auto attach_midrun = [&](const char* fixture, const char* name, bool ix, bool& ok) {
             Bare m(MachineType::ZXN_ISSUE2);
+            const fs::path d = var_dir(name, fixture);
+            emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            m.frames(3);   // the program is in main's while (1) loop; no client, so nothing was tracked
             jnext::dbg::ClientInfo ci;
-            ci.name = "t";
+            ci.name = "late";
             ci.kind = jnext::dbg::ClientKind::Test;
-            m.dbg->attach(ci);
-            const auto esc = [](const std::string& t) {
-                std::string o;
-                for (const unsigned char c : t) {
-                    if (std::isalpha(c)) {
-                        o += static_cast<char>(c);
-                    } else {
-                        char b[8];
-                        std::snprintf(b, sizeof b, "_%02x", c);
-                        o += b;
-                    }
-                }
-                return o;
-            };
-            const auto rec = [&](const std::string& r) { return "__CDBINFO__" + esc(r) + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n"; };
-            const std::string map = (z / "c51.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "_fb = $8020 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:10\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_10_t_2ec = $8020 ; addr, local, , t_c, code_compiler, t.c::fb::0::0:10\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
-                                rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + rec("F:G$fb$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
-                                rec("S:Lt.c.fa$q$1_0$1({1}SC:U),R,0,0,[c]") + rec("S:Lt.c.fb$r$1_0$1({1}SC:U),R,0,0,[c]"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39};
-            const auto put = [&](uint16_t at, std::initializer_list<uint8_t> tail) {
-                for (size_t k = 0; k < sizeof pro; ++k) m.emu.mmu().write(static_cast<uint16_t>(at + k), pro[k]);
-                uint16_t a = static_cast<uint16_t>(at + sizeof pro);
-                for (const uint8_t b : tail) m.emu.mmu().write(a++, b);
-            };
-            put(0x8000, {0xCD, 0x20, 0x80, 0x18, 0xFE});
-            put(0x8020, {0x18, 0xFE});
-            Z80Registers r0 = m.emu.cpu().get_registers();
-            r0.BC = 0x0742;
-            m.emu.cpu().set_registers(r0);
-            m.start(0x8000);
-            for (int k = 0; k < 7; ++k) m.emu.execute_single_instruction();   // fa: prologue, call fb; fb: prologue
-            const Dbg::CValueResult outer = m.dbg->read_c_value(1, "fa::q");
-            const Dbg::CValueResult mine = m.dbg->read_c_value(0, "r");
-            check("SRCDBG-CVAL-51", "a register local of frame 1 (fa's q in [c]) is `not available (register, outer frame)` while frame 0's own (fb's r in [c], C = $42 = 66 'B') is read",
-                  lr.count > 0 && !outer.ok && outer.why == "not available (register, outer frame)" && mine.ok && mine.value == "66 'B'");
-        }
-        {   // SRCDBG-CVAL-52
-            // a frame whose base is not known: a stack variable is refused (not read from a made-up address), and c_locals refuses the frame (CVAL-13's state)
+            const ClientId c = m.dbg->attach(ci).value;
+            m.dbg->pause(c);
+            const auto fr = m.dbg->c_frames();
+            const auto vs = m.dbg->variables();
+            const unsigned var = static_cast<unsigned>(m.emu.mmu().peek(0x906A) | (m.emu.mmu().peek(0x906B) << 8));
+            ok = ok && !fr.empty() && vs && fr[0].function >= 0 &&
+                 vs->functions()[static_cast<size_t>(fr[0].function)].name == "main" && fr[0].how == FrameBase::Prologue &&
+                 fr[0].fp == (ix ? m.dbg->registers().IX : var);
+        };
+        bool ok = true;
+        attach_midrun("master/sccz80-cvars", "c15a", false, ok);
+        attach_midrun("master/sdcc-cvars", "c15b", true, ok);
+        check("SRCDBG-CVAL-15", "a real mid-run attach (no tracked frame): frame 0 main is Prologue, fp == __debug_framepointer "
+                                "(sccz80, $906A) / IX (zsdcc)",
+              ok);
+    }
+    {   // SRCDBG-CVAL-16
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c16");
+        cv_run_to(m, 0x8CB9);
+        const uint16_t E = m.dbg->registers().SP;
+        const bool s = cv_run_to(m, 0x8B64);   // l_debug_push_frame's first instruction, in sum's first call
+        const auto fr = m.dbg->c_frames();
+        const auto& cs = m.dbg->call_stack();
+        check("SRCDBG-CVAL-16", "stopped at l_debug_push_frame's first instruction: frame 0 is asm, frame 1 is sum with floor == the "
+                                "inner call's sp_at_call + 2 (== E), above fp, so its locals are not allocated",
+              s && fr.size() >= 2 && fr[0].function == -1 && fn_name(m, fr[1]) == "sum" && !cs.empty() &&
+                  fr[1].floor == static_cast<uint16_t>(cs.back().sp_at_call + 2) && fr[1].floor == E &&
+                  fr[1].floor > fr[1].fp);
+    }
+    {   // SRCDBG-CVAL-17
+        struct Cross { const char* fx; uint16_t pc; int line; const char* tag; };
+        // the first line after the padding: cross.c:20 on each compiler (derive-scopes.py: $AC75, $AC87, $AC57)
+        bool ok = true;
+        for (const Cross& c : {Cross{"master/sccz80-cross", 0xAC75, 20, "c17a"}, Cross{"master/80cc-cross", 0xAC87, 20, "c17b"},
+                               Cross{"master/sdcc-cross", 0xAC57, 20, "c17c"}}) {
             Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/80cc-cvars", "c52");
-            cv_run_to(m, 0x8DC6);
+            cv_load(m, c.fx, c.tag);
+            const bool s = cv_run_to(m, c.pc);
+            const auto fr = m.dbg->c_frames();
+            const auto vs = m.dbg->variables();
+            const auto loc = vs && !fr.empty() ? vs->locate(fr[0].pc) : std::nullopt;
+            const jnext::dbg::CScope* sc = loc ? vs->scope_at(loc->function, loc->offset) : nullptr;
+            ok = ok && s && !fr.empty() && fn_name(m, fr[0]) == "cross" && m.pc() >= 0xA000 && fr[0].pc.space == MemSpace::page(5) &&
+                 loc && loc->offset > 0x1000 && sc && sc->at.space == MemSpace::page(5) && sc->at.address == c.pc &&
+                 sc->line == c.line && sc->known && fr[0].line && fr[0].line->line == c.line &&
+                 fr.size() >= 2 && fn_name(m, fr[1]) == "main";
+        }
+        check("SRCDBG-CVAL-17", "a function that crosses an 8 KB slot (cross.c): stopped past $A000 in cross, frame 0 is cross (piece 2, page 5) with "
+                                "an offset across the pieces, its scope is the page-5 one of line 20, frame 1 is main; sccz80, 80cc and zsdcc",
+              ok);
+    }
+    {   // SRCDBG-CVAL-18
+        // GH #434 review F1: a __z88dk_callee epilogue pops its arguments after the frame is restored. Oracle: the
+        // fc listings (sccz80: call l_debug_pop_frame; pop bc; pop af; pop af; push bc; ret; zsdcc: pop ix; pop bc; pop af;
+        // inc sp; push bc; ret; 80cc: call l_debug_pop_frame; pop bc; exx; ...; ret) and E measured at fcallee's entry.
+        struct Fc { const char* fx; uint16_t entry, start, later; const char* tag; };
+        bool ok = true;
+        std::string seen;
+        for (const Fc& c : {Fc{"master/sccz80-fc", 0x8C74, 0x8C8D, 0x8C8E, "c18a"}, Fc{"master/sdcc-fc", 0x8C4A, 0x8C60, 0x8C61, "c18b"},
+                            Fc{"master/80cc-fc", 0x8C74, 0x8C8C, 0x8C8D, "c18c"}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, c.fx, c.tag);
+            cv_run_to(m, c.entry);
+            const uint16_t E = m.dbg->registers().SP;
+            const bool s1 = cv_run_to(m, c.start);
             m.emu.call_stack().clear();
-            const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
-            const auto cl = m.dbg->c_locals(1);
-            check("SRCDBG-CVAL-52", "80cc in other with the tracker emptied: main (frame 1) has no known base, so read_c_value(1, lp) is refused (the frame base is not known) and c_locals(1) "
-                                    "is refused (the base of frame 1 is not known), while frame 0 reads",
-                  !lp.ok && lp.value.empty() && lp.why.find("the frame base is not known") == 0 && !cl.ok && cl.why.find("the base of frame 1 is not known") == 0 &&
-                      cvv(m, 0, "q") == "599");
+            const auto at_start = m.dbg->c_frames();
+            const bool s2 = cv_run_to(m, c.later);
+            m.emu.call_stack().clear();
+            const auto later = m.dbg->c_frames();
+            // right after the restore SP is E again: the base is E - 2; one instruction later SP has moved and the variable
+            // or IX hold the caller's base, which must never be reported
+            const bool good = s1 && s2 && !at_start.empty() && !later.empty() && at_start[0].how == FrameBase::Prologue &&
+                              at_start[0].fp == static_cast<uint16_t>(E - 2) &&
+                              (later[0].how == FrameBase::Unknown || later[0].fp == static_cast<uint16_t>(E - 2)) &&
+                              !(later[0].how == FrameBase::Prologue && later[0].fp != static_cast<uint16_t>(E - 2));
+            ok = ok && good;
+            if (!good) seen += std::string(" ") + c.fx;
         }
-        {   // SRCDBG-CVAL-53
+        // GH #434 review R2-1: a long function (cross(): 8192 bytes of padding) at the ret right after the restore
+        struct Cross { const char* fx; uint16_t entry, ret; const char* tag; };
+        for (const Cross& c : {Cross{"master/sccz80-cross", 0x8C6B, 0xAC80, "c18d"}, Cross{"master/sdcc-cross", 0x8C48, 0xAC5A, "c18e"},
+                               Cross{"master/80cc-cross", 0x8C78, 0xAC96, "c18f"}}) {
             Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c53");
-            const bool at = cv_run_to(m, 0x8E1F);
-            const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
-            const Dbg::CValueResult val = m.dbg->read_c_value(0, "g_head->val");
-            check("SRCDBG-CVAL-53", "what g_head points at is in the CPU view: g_head->val is 100000 with where = Cpu at the pointer's value (g_head itself is a page address)",
-                  at && head.ok && head.where.kind == Dbg::CWhere::Kind::Page && head.integer && val.ok && val.value == "100000" &&
-                      val.where.kind == Dbg::CWhere::Kind::Cpu && static_cast<int64_t>(val.where.cpu) == *head.integer + 2);
+            cv_load(m, c.fx, c.tag);
+            cv_run_to(m, c.entry);
+            const uint16_t E = m.dbg->registers().SP;
+            const bool s1 = cv_run_to(m, c.ret);
+            m.emu.call_stack().clear();
+            const auto fr = m.dbg->c_frames();
+            const bool good = s1 && !fr.empty() && fr[0].how == FrameBase::Prologue && fr[0].fp == static_cast<uint16_t>(E - 2);
+            ok = ok && good;
+            if (!good) seen += std::string(" ") + c.fx;
         }
-        {   // SRCDBG-CVAL-54
-            // CVAL-05's stale user map: the status says so, and so does every reader
-            const fs::path d = var_dir("c54");
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_source_map((d / "prog.map").string(), false);
-            m.dbg->reset(m.a, ResetKind::Soft);
-            m.dbg->run(m.a);
-            const uint8_t was = m.emu.mmu().peek(0x8CB5);
-            m.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
-            for (int i = 0; i < 5; ++i) m.emu.run_frame();
-            m.dbg->pause(m.a);
-            const auto st = m.dbg->c_variables_status();
-            const auto cl = m.dbg->c_locals(0);
-            const auto rv = m.dbg->read_c_value(0, "g_int");
-            check("SRCDBG-CVAL-54", "a user map gone Stale: c_variables_status(), c_locals() and read_c_value() all say `the source map is stale: ...`",
-                  !st.available && st.why.find("the source map is stale: ") == 0 && !cl.ok && cl.why == st.why && !rv.ok && rv.why == st.why);
-        }
-        {   // SRCDBG-CVAL-55
-            // static inline util_inc is defined in two modules of master/sdcc-debug: `util_inc::v` does not say which
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sdcc-debug", "c55");
-            const Dbg::CValueResult r = m.dbg->read_c_value(0, "util_inc::v");
-            check("SRCDBG-CVAL-55", "a function name defined in two modules is refused as ambiguous (name its file), not first-wins",
-                  !r.ok && r.why.find("function 'util_inc' is ambiguous") == 0);
-        }
-        // synthetic z88dk maps for the rows below: functions and variables written as the compilers write them
-        const auto s3_esc = [](const std::string& t) {
+        check("SRCDBG-CVAL-18", "a __z88dk_callee epilogue with no frames: right after the frame pointer is restored fp == E - 2; one "
+                                "instruction later (arguments being popped) the base is Unknown, never the caller's, on sccz80, zsdcc and 80cc; "
+                                "and at the ret of cross() (8192 bytes of code before it) fp == E - 2",
+              ok, seen);
+    }
+    {   // SRCDBG-CVAL-19
+        // GH #434 review F2: two frames that keep no saved frame pointer are never chained. Synthetic program: fa (nop; call fb)
+        // and fb (nop; jr $), neither a push-frame nor an IX prologue, in a map of two functions.
+        Bare m(MachineType::ZXN_ISSUE2);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "t";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        m.dbg->attach(ci);
+        const auto esc = [](const std::string& t) {
             std::string o;
             for (const unsigned char c : t) {
                 if (std::isalpha(c)) {
@@ -7678,418 +7590,97 @@ int main() {
             }
             return o;
         };
-        const auto s3_rec = [&](const std::string& r, const char* module) {
-            return "__CDBINFO__" + s3_esc(r) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+        const std::string map = (z / "c19.map").string();
+        write_text(map,
+                   "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                   "_fb = $8010 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:5\n"
+                   "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                   "__C_LINE_5_t_2ec = $8010 ; addr, local, , t_c, code_compiler, t.c::fb::0::0:5\n"
+                   "__code_compiler_tail = $8020 ; const, public, def, , ,\n"
+                   "__CDBINFO__" + esc("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n"
+                   "__CDBINFO__" + esc("F:G$fb$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:5\n");
+        const auto lr = m.dbg->load_source_map(map, true);
+        const uint8_t code[] = {0x00, 0xCD, 0x10, 0x80, 0x18, 0xFE};
+        for (size_t i = 0; i < sizeof code; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
+        m.emu.mmu().write(0x8010, 0x00);
+        m.emu.mmu().write(0x8011, 0x18);
+        m.emu.mmu().write(0x8012, 0xFE);
+        m.start(0x8000);
+        m.emu.execute_single_instruction();   // nop
+        m.emu.execute_single_instruction();   // call fb
+        const uint16_t sp = m.dbg->registers().SP;
+        m.emu.mmu().write(static_cast<uint16_t>(sp - 2), 0x80);   // fb's "saved frame pointer": a plausible $FF80
+        m.emu.mmu().write(static_cast<uint16_t>(sp - 1), 0xFF);
+        const auto fr = m.dbg->c_frames();
+        const auto vs = m.dbg->variables();
+        const auto name = [&](const Debugger::CFrame& f) {
+            return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
         };
-        {   // SRCDBG-CVAL-56
-            // data in a page, with the CPU's view of the same address changed afterwards: gp ($8100) holds $9000, gv_label is at $9000, gv sits on the last byte of its page
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "c56.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
-                            "_gp = $8100 ; addr, public, , t_c, data_compiler, t.c:1\n"
-                            "_gv_label = $9000 ; addr, public, , t_c, data_compiler, t.c:2\n"
-                            "_gv = $9FFF ; addr, public, , t_c, data_compiler, t.c:3\n"
-                            "_gok = $9FFD ; addr, public, , t_c, data_compiler, t.c:4\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gp$0_0$0({2}DG,SC:U),E,0,0", "t_c") +
-                                s3_rec("S:G$gv_label$0_0$0({1}SC:U),E,0,0", "t_c") + s3_rec("S:G$gv$0_0$0({2}SI:S),E,0,0", "t_c") +
-                                s3_rec("S:G$gok$0_0$0({2}SI:S),E,0,0", "t_c"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            m.emu.mmu().write(0x8100, 0x00);
-            m.emu.mmu().write(0x8101, 0x90);
-            m.emu.mmu().write(0x9000, 7);
-            m.emu.mmu().write(0x9FFD, 0x34);
-            m.emu.mmu().write(0x9FFE, 0x12);
-            const Dbg::CValueResult mapped = m.dbg->read_c_value(0, "gp");
-            const Dbg::CValueResult ok2 = m.dbg->read_c_value(0, "gok");
-            const Dbg::CValueResult cross = m.dbg->read_c_value(0, "gv");
-            m.dbg->nextreg_write(m.a, 0x54, 40);   // the CPU's $8000 slot is another page now
-            m.emu.mmu().write(0x9000, 200);        // what the CPU sees at $9000
-            const Dbg::CValueResult gp = m.dbg->read_c_value(0, "gp");
-            const Dbg::CValueResult star = m.dbg->read_c_value(0, "*gp");
-            check("SRCDBG-CVAL-56", "a 2-byte global on the last byte of its page is refused (the value crosses a page boundary) with no value, never 0, while one 2 bytes before reads 4660; "
-                                    "a pointer in a mapped page shows the label of what it points at (` <gv_label>`); once the page is unmapped the pointer still reads from its own "
-                                    "page, with the not-mapped note, has NO label (the label is of what the CPU sees), and what it points at is read through the CPU view "
-                                    "(200) with no not-mapped note and where = Cpu",
-                  lr.count > 0 && !cross.ok && cross.value.empty() && cross.why == "the value crosses a page boundary" && ok2.ok && ok2.value == "4660" && mapped.ok &&
-                      mapped.value.find("$9000 <gv_label>") == 0 && gp.ok && gp.value.find("$9000") == 0 && gp.value.find("<gv_label>") == std::string::npos && has_note(gp, "is not mapped at $8100 now") && star.ok && star.value == "200" &&
-                      star.where.kind == Dbg::CWhere::Kind::Cpu && !has_note(star, "not mapped"));
-        }
-        {   // SRCDBG-CVAL-57
-            // two modules each with `static void init(void) { static int done; }`: both rows read back, by file-qualified paths; the bare `init::done` is ambiguous
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "c57.map").string();
-            write_text(map, "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
-                            "_init = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
-                            "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
-                            "__C_LINE_1_b_2ec = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
-                            "_st_init_done = $9000 ; addr, local, , a_c, bss_compiler, a.c:2\n"
-                            "_st_init_done = $9010 ; addr, local, , b_c, bss_compiler, b.c:2\n" +
-                                s3_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") + s3_rec("F:Fb.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "b_c") +
-                                s3_rec("S:Fa.c$st_init_done$1_0$1({2}SI:S),E,0,0", "a_c") + s3_rec("S:Fb.c$st_init_done$1_0$1({2}SI:S),E,0,0", "b_c"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            m.emu.mmu().write(0x9000, 7);
-            m.emu.mmu().write(0x9010, 9);
-            std::vector<Dbg::CValueRow> rows;
-            for (const auto& r : m.dbg->c_globals())
-                if (r.name == "done") rows.push_back(r);
-            bool round = rows.size() == 2;
-            for (const auto& r : rows) round = round && r.ok && m.dbg->read_c_value(0, r.path).ok && m.dbg->read_c_value(0, r.path).value == r.value;
-            m.set_pc(0x7000);   // in neither function
-            const Dbg::CValueResult bare = m.dbg->read_c_value(0, "init::done");
-            check("SRCDBG-CVAL-57", "two modules with a static function `init` each holding a static `done`: c_globals() has `a.c::init::done` = 7 and `b.c::init::done` = 9, both read back "
-                                    "through their path, and the unqualified `init::done` is refused as ambiguous",
-                  lr.count > 0 && round && rows[0].path == "a.c::init::done" && rows[0].value == "7" && rows[1].path == "b.c::init::done" && rows[1].value == "9" &&
-                      !bare.ok && bare.why.find("is ambiguous") != std::string::npos);
-        }
-        {   // SRCDBG-CVAL-59
-            // the preference of a bare `fn::name` for the function the CPU is in (GH #353 review F3): with two modules' `init`, `init::done` is a.c's 7 while the PC is in a.c's init and b.c's 9 in b.c's
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "c59.map").string();
-            write_text(map, "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
-                            "_init = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
-                            "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
-                            "__C_LINE_1_b_2ec = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
-                            "_st_init_done = $9000 ; addr, local, , a_c, bss_compiler, a.c:2\n"
-                            "_st_init_done = $9010 ; addr, local, , b_c, bss_compiler, b.c:2\n" +
-                                s3_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") + s3_rec("F:Fb.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "b_c") +
-                                s3_rec("S:Fa.c$st_init_done$1_0$1({2}SI:S),E,0,0", "a_c") + s3_rec("S:Fb.c$st_init_done$1_0$1({2}SI:S),E,0,0", "b_c"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            m.emu.mmu().write(0x9000, 7);
-            m.emu.mmu().write(0x9010, 9);
-            m.set_pc(0x8000);
-            const Dbg::CValueResult in_a = m.dbg->read_c_value(0, "init::done");
-            m.set_pc(0x8010);
-            const Dbg::CValueResult in_b = m.dbg->read_c_value(0, "init::done");
-            m.set_pc(0x7000);
-            const Dbg::CValueResult none = m.dbg->read_c_value(0, "init::done");
-            check("SRCDBG-CVAL-59", "with two modules' static `init` each holding `done`, a bare `init::done` is a.c's 7 while the PC is in a.c's init, b.c's 9 in b.c's, and ambiguous in neither",
-                  lr.count > 0 && in_a.ok && in_a.value == "7" && in_b.ok && in_b.value == "9" && !none.ok && none.why.find("is ambiguous") != std::string::npos,
-                  (in_a.ok ? in_a.value : in_a.why) + " | " + (in_b.ok ? in_b.value : in_b.why));
-        }
-        {   // SRCDBG-CVAL-58
-            // a pointer local held in HL (zsdcc `R,0,0,[l,h]`) is followed through the CPU view; a member of a register-held aggregate has no address
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "c58.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") +
-                                s3_rec("T:Ft.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "t_c") +
-                                s3_rec("S:Lt.c.fa$p$1_0$1({2}DG,STpt:S),R,0,0,[l,h]", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}STpt:S),R,0,0,[c,b]", "t_c"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            const uint8_t pts[] = {3, 0, 4, 0, 5, 0, 6, 0};
-            for (size_t i = 0; i < sizeof pts; ++i) m.emu.mmu().write(static_cast<uint16_t>(0xA000 + i), pts[i]);
-            Z80Registers r = m.emu.cpu().get_registers();
-            r.HL = 0xA000;
-            m.emu.cpu().set_registers(r);
-            const Dbg::CValueResult py = m.dbg->read_c_value(0, "p->y");
-            const Dbg::CValueResult p1 = m.dbg->read_c_value(0, "p[1].y");
-            const Dbg::CValueResult star = m.dbg->read_c_value(0, "*p");
-            const Dbg::CValueResult pv = m.dbg->read_c_value(0, "p");
-            const Dbg::CValueResult pdot = m.dbg->read_c_value(0, "p.x");
-            const Dbg::CValueResult wx = m.dbg->read_c_value(0, "w.x");
-            check("SRCDBG-CVAL-58", "a pointer in HL: p is `$A000` (a Register value), p->y = 4, p[1].y = 6 and *p = {x = 3, y = 4} are read through the CPU view (where = Cpu, with the stale-register "
-                                    "note); `.x` on the pointer and on a register-held struct are refused (no address)",
-                  lr.count > 0 && pv.ok && pv.value == "$A000" && pv.where.kind == Dbg::CWhere::Kind::Register && py.ok && py.value == "4" &&
-                      py.where.kind == Dbg::CWhere::Kind::Cpu && py.where.cpu == 0xA002 && has_note(py, "in HL; may be stale") && p1.ok && p1.value == "6" && star.ok &&
-                      star.value == "{x = 3, y = 4}" && !pdot.ok && !wx.ok && wx.why == "a register value has no address");
-        }
-        // ── GH #435 (E353-05): the children of a C variable, on a real machine ──
-        // Oracle: vars.c / bk.c / bkmain.c semantics (types.h: struct point {x, y, tag}; g_matrix = {{1, 2, 3}, {4, 5, 6}}; btable = {10, 20, 30, 40}
-        // in bank 20), the committed maps' addresses and records.
-        {   // SRCDBG-CVCH-01
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master/sccz80-cvars", "ch1", 0x8D3E}, m);
-            const Dbg::CChildRows lp = m.dbg->c_children(1, "lp");
-            const Dbg::CChildRows p = m.dbg->c_children(0, "p");
-            bool round_trip = lp.ok && p.ok;
-            for (const auto* rs : {&lp.rows, &p.rows})
-                for (const auto& r : *rs) round_trip = round_trip && r.ok && cvv(m, rs == &lp.rows ? 1 : 0, r.path.c_str()) == r.value;
-            check("SRCDBG-CVCH-01", "at vars.c:41: c_children(1, lp) is lp.x 3, lp.y 4, lp.tag 5 and c_children(0, p) is p->x 3, p->y 4, p->tag 5 (p points at main's lp); every "
-                                    "row's path read back through read_c_value gives the row's own value text",
-                  at && lp.ok && lp.total == 3 && lp.rows.size() == 3 && lp.rows[0].path == "lp.x" && lp.rows[0].value == "3" && lp.rows[1].path == "lp.y" &&
-                      lp.rows[1].value == "4" && lp.rows[2].path == "lp.tag" && lp.rows[2].value == "5" && lp.rows[0].type == "int" &&
-                      lp.rows[2].type == "unsigned char" && p.ok && p.total == 3 && p.rows.size() == 3 && p.rows[0].path == "p->x" && p.rows[0].value == "3" &&
-                      p.rows[1].path == "p->y" && p.rows[1].value == "4" && p.rows[2].path == "p->tag" && p.rows[2].value == "5" && round_trip);
-        }
-        {   // SRCDBG-CVCH-02
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master/sccz80-cvars", "ch2", 0x8D3E}, m);
-            const Dbg::CChildRows row1 = m.dbg->c_children(0, "g_matrix", 1, 1);
-            const Dbg::CChildRows leaf = m.dbg->c_children(0, "g_int");
-            const Dbg::CChildRows past = m.dbg->c_children(9, "lp");
-            const Dbg::CChildRows inner = m.dbg->c_children(0, "inner");
-            const Dbg::CValueResult inner_read = m.dbg->read_c_value(0, "inner");
-            check("SRCDBG-CVCH-02", "c_children(0, g_matrix, 1, 1): total 2 and the one row g_matrix[1] = {4, 5, 6}; a scalar (g_int) is ok with total 0; a frame past the end is "
-                                    "refused; `inner` (out of scope at vars.c:41) is refused with read_c_value's own reason",
-                  at && row1.ok && row1.total == 2 && row1.rows.size() == 1 && row1.rows[0].path == "g_matrix[1]" && row1.rows[0].value == "{4, 5, 6}" && leaf.ok &&
-                      leaf.total == 0 && leaf.rows.empty() && !past.ok && !past.why.empty() && !inner.ok && !inner_read.ok && inner.why == inner_read.why &&
-                      inner.why == "out of scope at vars.c:41");
-        }
-        {   // SRCDBG-CVCH-03
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at10 = at_bk10(m, "master/sccz80-cvars-banked", "ch3");
-            const auto loop = m.dbg->source_map().resolve("bkmain.c:8");
-            bool at = at10 && !loop.starts.empty();
-            // single-stepped with the interrupts off (banked_call enables them and this machine has no ROM), as SRCDBG-CVAL-38
-            for (int i = 0; at && i < 2000 && m.dbg->registers().PC != loop.starts[0].address; ++i) {
-                Z80Registers r = m.emu.cpu().get_registers();
-                r.IFF1 = r.IFF2 = 0;
-                m.emu.cpu().set_registers(r);
-                m.emu.execute_single_instruction();
-            }
-            at = at && m.dbg->registers().PC == loop.starts[0].address;
-            const Dbg::CChildRows bt = m.dbg->c_children(0, "btable");
-            bool pages = bt.ok && bt.rows.size() == 4;
-            for (size_t i = 0; pages && i < 4; ++i) {
-                const auto& r = bt.rows[i];
-                bool note = false;
-                for (const auto& n : r.notes) note = note || n.find("page 20 is not mapped at $C000 now") != std::string::npos;
-                pages = r.where.kind == Dbg::CWhere::Kind::Page && r.where.source.space == MemSpace::page(20) && r.where.source.address == 0xC000 + i && note;
-            }
-            check("SRCDBG-CVCH-03", "banked, in main's loop (bank 20 unmapped): c_children(0, btable) is 4 rows 10, 20, 30, 40 '(' each placed in Page{20} at $C000..$C003 (read "
-                                    "from the global's own page, not the CPU view) with the not-mapped note",
-                  at && pages && bt.total == 4 && bt.rows[0].value == "10" && bt.rows[1].value == "20" && bt.rows[2].value == "30" && bt.rows[3].value == "40 '('");
-        }
-        {   // SRCDBG-CVCH-04
-            // `*p` is `p[0]`: the grammar applies a leading `*` after the postfix steps, so a child path built as `*p` + `.x` would read `*(p.x)`
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master/sccz80-cvars", "ch4", 0x8D3E}, m);
-            const Dbg::CChildRows star = m.dbg->c_children(0, "*p");
-            bool round_trip = star.ok && star.rows.size() == 3;
-            for (const auto& r : star.rows) round_trip = round_trip && r.ok && cvv(m, 0, r.path.c_str()) == r.value;
-            check("SRCDBG-CVCH-04", "c_children(0, *p) at vars.c:41 is x 3, y 4, tag 5 (paths p[0].x, p[0].y, p[0].tag, not `*p.x`) and every row's path reads back through "
-                                    "read_c_value to the row's own value",
-                  at && star.ok && star.total == 3 && star.rows.size() == 3 && star.rows[0].path == "p[0].x" && star.rows[0].value == "3" && star.rows[1].path == "p[0].y" &&
-                      star.rows[1].value == "4" && star.rows[2].path == "p[0].tag" && star.rows[2].value == "5" && round_trip);
-        }
-        {   // SRCDBG-CVCH-05
-            // SRCDBG-CVAL-58's synthetic map: p (a struct pt *) in HL, w (a struct in BC)
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "ch5.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") +
-                                s3_rec("T:Ft.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "t_c") +
-                                s3_rec("S:Lt.c.fa$p$1_0$1({2}DG,STpt:S),R,0,0,[l,h]", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}STpt:S),R,0,0,[c,b,e,d]", "t_c"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            const uint8_t pts[] = {3, 0, 4, 0};
-            for (size_t i = 0; i < sizeof pts; ++i) m.emu.mmu().write(static_cast<uint16_t>(0xA000 + i), pts[i]);
-            Z80Registers r = m.emu.cpu().get_registers();
-            r.HL = 0xA000;
-            m.emu.cpu().set_registers(r);
-            const Dbg::CChildRows p = m.dbg->c_children(0, "p");
-            const Dbg::CChildRows w = m.dbg->c_children(0, "w");
-            bool note = false;
-            if (p.rows.size() == 2)
-                for (const auto& n : p.rows[1].notes) note = note || n.find("in HL; may be stale") != std::string::npos;
-            check("SRCDBG-CVCH-05", "a pointer held in HL opens onto its pointee: c_children(0, p) is p->x 3 and p->y 4 (where = Cpu at $A002 for y, with the stale-register note); a struct held in "
-                                    "BC has no address to walk and is refused `a register value has no address`",
-                  lr.count > 0 && p.ok && p.total == 2 && p.rows.size() == 2 && p.rows[0].path == "p->x" && p.rows[0].value == "3" && p.rows[1].path == "p->y" && p.rows[1].value == "4" &&
-                      p.rows[1].where.kind == Dbg::CWhere::Kind::Cpu && p.rows[1].where.cpu == 0xA002 && note && !w.ok && w.why == "a register value has no address",
-                  "p.ok=" + std::to_string(p.ok) + " why=" + p.why + " rows=" + std::to_string(p.rows.size()) + " w=" + w.why +
-                      (p.rows.size() == 2 ? " r0=" + p.rows[0].path + "=" + p.rows[0].value + "/" + p.rows[0].why + " r1=" + p.rows[1].value : ""));
-        }
-        {   // SRCDBG-CVCH-06
-            // a pointer GLOBAL is read from its own page, what it points at through the CPU view: with the page unmapped, the pointer is still the page's
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "ch6");
-            const bool run = cv_run_to(m, 0x8E1F);   // g_head = &g_node at vars.c:64
-            const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
-            const bool remapped = m.dbg->set_mmu_slot(m.a, 4, 40) == Result::Ok;   // $8000-$9FFF now shows another page
-            const Dbg::CChildRows kids = m.dbg->c_children(0, "g_head");
-            uint8_t b[4] = {0, 0, 0, 0};
-            const uint16_t node = head.integer ? static_cast<uint16_t>(*head.integer) : 0;
-            m.dbg->peek(MemSpace::cpu(), static_cast<uint16_t>(node + 2), 4, b);
-            const int32_t want = static_cast<int32_t>(b[0] | b[1] << 8 | b[2] << 16 | static_cast<uint32_t>(b[3]) << 24);
-            check("SRCDBG-CVCH-06", "with page 4 unmapped (slot 4 remapped), c_children(0, g_head) still starts from the pointer in g_head's own page ($9091, g_node): ok, next and val, val read "
-                                    "through the CPU view (what the remapped slot shows at node + 2), not refused as `null pointer`",
-                  run && remapped && head.ok && node != 0 && kids.ok && kids.total == 2 && kids.rows.size() == 2 && kids.rows[1].path == "g_head->val" &&
-                      kids.rows[1].value == std::to_string(want));
-        }
-        {   // SRCDBG-CVCH-07
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "ch7");
-            const bool s1 = cv_run_to(m, 0x8CB9), s2 = cv_run_to(m, 0x8B64);   // l_debug_push_frame in sum's first call: frame 1 is sum, `t` is not allocated yet
-            const Dbg::CChildRows t = m.dbg->c_children(1, "t");
-            const Dbg::CValueResult read = m.dbg->read_c_value(1, "t");
-            Machine n(false, MachineType::ZXN_ISSUE2);
-            const Dbg::CChildRows none = n.dbg->c_children(0, "x");
-            check("SRCDBG-CVCH-07", "a variable that cannot be read is refused with read_c_value's own reason, not listed as a leaf: c_children(1, t) at the helper is `not allocated`; with no "
-                                    "source map the reason is c_variables_status's",
-                  s1 && s2 && !t.ok && !read.ok && t.why == read.why && t.why == "not allocated" && !none.ok && !none.why.empty() &&
-                      none.why == n.dbg->c_variables_status().why);
-        }
-        {   // SRCDBG-CVAL-50
-            // the facade's contract for its consumers: no reader bumps state_revision(); refusals have reasons; a result carries its type, location and integer; rows round-trip
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master/sccz80-cvars", "c50", 0x8D3E}, m);
-            m.dbg->c_frames();   // settle any pending recheck()
-            const uint64_t rev = m.dbg->state_revision();
-            const auto frames = m.dbg->c_frames();
-            const auto loc0 = m.dbg->c_locals(0);
-            const auto glob = m.dbg->c_globals();
-            const auto g_int = m.dbg->read_c_value(0, "g_int");
-            const auto st = m.dbg->c_variables_status();
-            const bool quiet = m.dbg->state_revision() == rev;
-            const auto past = m.dbg->c_locals(frames.size());
-            const auto head = m.dbg->read_c_value(1, "pp");
-            const auto gf = m.dbg->read_c_value(0, "g_float");
-            const auto s_dup = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.path == "vars.c::s_dup"; });
-            const auto calls = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.path == "sum::calls"; });
-            const auto gint = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.name == "g_int"; });
-            bool sorted = true, round = !glob.empty();
-            for (size_t i = 1; i < glob.size(); ++i)
-                sorted = sorted && (glob[i - 1].file < glob[i].file || (glob[i - 1].file == glob[i].file && glob[i - 1].name <= glob[i].name));
-            for (const auto& r : glob)
-                round = round && (!r.ok || m.dbg->read_c_value(0, r.path).value == r.value);
-            for (const auto& r : loc0.rows)
-                round = round && (!r.ok || m.dbg->read_c_value(0, r.path).value == r.value);
-            // an assembly frame: stopped at l_debug_push_frame's first instruction (frame 0 is asm)
-            Machine a(false, MachineType::ZXN_ISSUE2);
-            cv_load(a, "master/sccz80-cvars", "c50b");
-            cv_run_to(a, 0x8CB9);
-            const bool asm_at = cv_run_to(a, 0x8B64);
-            const auto asm0 = a.dbg->c_locals(0);
-            const auto unalloc = a.dbg->read_c_value(1, "t");   // frame 1 is sum, whose locals are not allocated yet
-            Bare none;
-            const auto nl = none.dbg->c_locals(0);
-            check("SRCDBG-CVAL-50", "no reader bumps the state revision; c_locals(past the end) says `no frame N (there are M)`, an assembly frame `is not in a C function`, a local of an outer function whose frame has not allocated it `not allocated`, no store gives the status "
-                                    "text (also from read_c_value and an empty c_globals); read_c_value(1, pp) has an integer (the pointer's address) and a Cpu location, g_int -5 with type `int`, "
-                                    "g_float a real; c_globals() is ordered by file then name with `vars.c::s_dup` (a file static in a page), `sum::calls` (a static local) and g_int, and every row's path "
-                                    "reads back the same value",
-                  at && st.available && quiet && g_int.ok && g_int.integer && *g_int.integer == -5 && g_int.type == "int" && !g_int.real && !past.ok &&
-                      past.why == "no frame " + std::to_string(frames.size()) + " (there are " + std::to_string(frames.size()) + ")" && asm_at && !asm0.ok &&
-                      asm0.why.find("is not in a C function") != std::string::npos && !unalloc.ok && unalloc.why == "not allocated" && !nl.ok && nl.why == "no source map is attached" &&
-                      !none.dbg->read_c_value(0, "g_int").ok && none.dbg->c_globals().empty() && head.ok && head.integer && head.where.kind == Dbg::CWhere::Kind::Cpu &&
-                      gf.ok && gf.real && *gf.real == 1.5 && s_dup != glob.end() && s_dup->kind == Dbg::CValueRow::Kind::FileStatic && s_dup->file == "vars.c" &&
-                      s_dup->where.kind == Dbg::CWhere::Kind::Page && calls != glob.end() && calls->kind == Dbg::CValueRow::Kind::StaticLocal &&
-                      gint != glob.end() && gint->kind == Dbg::CValueRow::Kind::Global && sorted && round);
-        }
-            check("SRCDBG-CVAL-36", "a real mid-run attach (main in its while (1), no tracked frame): lp = {3, 4, 5}, i = 4, arr = {467, 471, 475, 479} on sccz80 and zsdcc, and "
-                                    "on sccz80 also c = 120 'x', big = 100000 and pp == &lp",
-                  ok);
-        }
-        {   // SRCDBG-CVAL-20
-            // GH #434 review F7 (R12): zsdcc `push ix; ld ix,0; add ix,sp`: after the push (entry+2) and after the ld (entry+6)
-            // SP = E - 2 already, so the base is SP.
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sdcc-cvars", "c20");
-            cv_run_to(m, 0x8C48);
-            const uint16_t E = m.dbg->registers().SP;
-            const bool s1 = cv_run_to(m, 0x8C4A);
-            m.emu.call_stack().clear();
-            const auto a = m.dbg->c_frames();
-            const bool s2 = cv_run_to(m, 0x8C4E);
-            m.emu.call_stack().clear();
-            const auto b = m.dbg->c_frames();
-            check("SRCDBG-CVAL-20", "zsdcc sum at entry + 2 and entry + 6 with no frames: Prologue, fp == E - 2 (SP), not the caller's IX",
-                  s1 && s2 && !a.empty() && !b.empty() && a[0].how == FrameBase::Prologue && b[0].how == FrameBase::Prologue &&
-                      a[0].fp == static_cast<uint16_t>(E - 2) && b[0].fp == static_cast<uint16_t>(E - 2));
-        }
-        {   // SRCDBG-CVAL-21
-            // GH #434 review F7 (R17): a saved frame pointer that is no stack address above this frame ends the chain.
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c21");
-            cv_run_to(m, 0x8D3E);
-            m.emu.call_stack().clear();
-            const uint16_t fp = m.dbg->c_frames()[0].fp;
-            bool ok = true;
-            for (const uint16_t bad : {uint16_t(0x1234), uint16_t(0xFFFE), static_cast<uint16_t>(fp + 2)}) {
-                m.emu.mmu().write(fp, static_cast<uint8_t>(bad & 0xFF));
-                m.emu.mmu().write(static_cast<uint16_t>(fp + 1), static_cast<uint8_t>(bad >> 8));
-                const auto fr = m.dbg->c_frames();
-                ok = ok && fr.size() == 2 && fr[1].how == FrameBase::Unknown &&
-                     fr[1].note.find("saved frame pointer") != std::string::npos;
-            }
-            check("SRCDBG-CVAL-21", "a saved frame pointer below the frame, at the top of memory or inside the frame itself gives an Unknown "
-                                    "caller with a note, not a Chain",
-                  ok);
-        }
-        {   // SRCDBG-CVAL-22
-            // GH #434 review F7 (R19): a tracked frame whose caller_space was not recorded uses the page mapped now, with a note.
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars", "c22");
-            cv_run_to(m, 0x8D3E);
-            std::vector<CallFrame> frames = m.emu.call_stack().frames();
-            for (CallFrame& f : frames) f.caller_space = MemSpace::cpu();
-            m.emu.call_stack().restore_frames(frames);
-            const auto fr = m.dbg->c_frames();
-            check("SRCDBG-CVAL-22", "a tracked frame with no recorded caller_space: its pc is in the page mapped now, with a note",
-                  fr.size() >= 2 && fr[1].pc.space == m.dbg->source_page(fr[1].pc.address) && !(fr[1].pc.space == MemSpace::cpu()) &&
-                      !fr[1].note.empty() && fn_name(m, fr[1]) == "main");
-        }
-        {   // SRCDBG-CVAL-23
-            // GH #434 review F8: a request needs an attached client.
-            Bare m;
-            jnext::dbg::ClientInfo ci;
-            ci.name = "t";
-            ci.kind = jnext::dbg::ClientKind::Test;
-            const ClientId c = m.dbg->attach(ci).value;
-            m.dbg->detach(c);
-            const Result none = m.dbg->set_call_stack_enabled(jnext::dbg::CLIENT_NONE, true);
-            const Result gone = m.dbg->set_call_stack_enabled(c, true);
-            check("SRCDBG-CVAL-23", "set_call_stack_enabled is RefusedUnavailable for CLIENT_NONE and for a detached client, and changes nothing",
-                  none == Result::RefusedUnavailable && gone == Result::RefusedUnavailable && !m.dbg->call_stack_enabled());
-        }
+        check("SRCDBG-CVAL-19", "frame 0 fb is Tracked and its caller fa, both with no saved frame pointer, is Unknown (never Chain, "
+                                "though the word at fb's fp looks like a stack address)",
+              lr.count > 0 && fr.size() == 2 && name(fr[0]) == "fb" && fr[0].how == FrameBase::Tracked && name(fr[1]) == "fa" &&
+                  fr[1].how == FrameBase::Unknown && !fr[1].note.empty());
+    }
+}
 
-        // ── GH #437: writing a C variable (write_c_value) ──────────────────────────────────────────────────────
-        // Oracle: the C source of the fixtures (vars.c: at the vars.c:41 stop of the first call a = 0, b = -5, k = 120, t = 122 and
-        // `return t + (int16_t)acc` with acc = 3 * (a + b + k); main's loop; bk.c / bkmain.c), their maps (every address and record
-        // offset is the map's own: sccz80 a = fp+10, t = fp-2, main's c = fp-15, lp = fp-5; 80cc t = fp-8, acc = fp-6; _g_int $903E ...),
-        // the compiled float bytes, and independent reads of the machine (the CPU view or a page, never the facade) after each write.
-        using Bytes = std::vector<uint8_t>;
-        const std::string w225 = std::string("2") + ".25";
-        const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
-            jnext::dbg::CNewValue nv;
-            nv.text = v;
-            return m.dbg->write_c_value(m.a, k, path, nv);
-        };
-        const auto cpk = [](Machine& m, uint32_t a, size_t n) {
-            Bytes b;
-            for (size_t i = 0; i < n; ++i) b.push_back(m.emu.mmu().peek(static_cast<uint16_t>(a + i)));
-            return b;
-        };
-        const auto ppk = [](Machine& m, MemSpace s, uint32_t off, size_t n) {
-            Bytes b(n, 0);
-            m.dbg->peek(s, off, n, b.data());
-            return b;
-        };
-        const auto ival = [&](const Machine& m, size_t k, const char* path) {
-            const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
-            return r.ok && r.integer ? *r.integer : INT64_MIN;
-        };
-        // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
-        struct CwTry {
-            Dbg::CWriteResult w;
-            bool quiet = false;
-        };
-        const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
-            m.dbg->c_frames();   // settle any pending recheck()
-            const uint64_t rev = m.dbg->state_revision();
-            CwTry t;
-            const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
-            t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
-            return t;
-        };
-        const auto refused_with = [](const CwTry& t, const char* needle) {
-            return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
-        };
-        const auto cw_entry = [](const Machine& m, const char* fn) -> std::optional<SourceAddress> {
-            const auto vs = m.dbg->variables();
-            for (const auto& f : vs ? vs->functions() : std::vector<jnext::dbg::CFunction>{})
-                if (f.name == fn && f.entry.resolved) return f.entry.at;
-            return std::nullopt;
-        };
-        // a synthetic z88dk map record, written as the compilers write it (CVAL-56's)
-        const auto s3_rec = [](const std::string& r, const char* module) {
+[[gnu::noinline]] static void srcdbg_part_41(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+
+    // ── GH #434 (E353-04) stage 1: the call-stack tracker policy and the C frames ──
+    // Oracle: the C source's call structure (vars.c, other.c, bk.c, bkmain.c, cross.c), the fixtures'
+    // maps and listings (addresses, prologues: `call l_debug_push_frame` / `push ix; ld ix,0; add ix,sp`),
+    // z88dk's library sources (l_debug_push_frame stores E-2 in __debug_framepointer), and measurements of
+    // the running machine that do not use the code under test (SP at the entry instruction, IX, the variable).
+    using FrameBase = Debugger::CFrame::Base;
+    const auto peek16 = [](Machine& m, uint16_t a) {
+        return static_cast<unsigned>(m.emu.mmu().peek(a) | (m.emu.mmu().peek(static_cast<uint16_t>(a + 1)) << 8));
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    const auto fn_name = [&](const Machine& m, const Debugger::CFrame& f) {
+        const auto vs = m.dbg->variables();
+        return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
+    };
+    const auto line_no = [](const Debugger::CFrame& f) { return f.line ? f.line->line : 0; };
+    {   // SRCDBG-CVAL-24
+        // GH #434 review R20: an older frame found through the chain is looked up INSIDE its call (return address - 1), so a
+        // call that is the last instruction of a line stays on that line. Synthetic IX-frame program fo -> fa -> fb whose return
+        // addresses ($800B, $804B) start a new line; the tracker is emptied after fo calls fa, so fo is found by the chain.
+        Bare m(MachineType::ZXN_ISSUE2);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "t";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        m.dbg->attach(ci);
+        const auto esc = [](const std::string& t) {
             std::string o;
-            for (const unsigned char c : r) {
+            for (const unsigned char c : t) {
                 if (std::isalpha(c)) {
                     o += static_cast<char>(c);
                 } else {
@@ -8098,1165 +7689,3909 @@ int main() {
                     o += b;
                 }
             }
-            return "__CDBINFO__" + o + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+            return o;
         };
-        const SumAt kSccz80_41{"master/sccz80-cvars", "w", 0x8D3E}, kZsdcc_41{"master/sdcc-cvars", "w", 0x8C97}, k80cc_41{"master/80cc-cvars", "w", 0x8CCA};
-        {   // SRCDBG-CVW-01
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w01", kSccz80_41.pc}, m);
-            const uint16_t fp = m.dbg->c_frames()[0].fp;
-            const bool w = wr(m, 0, "a", "7").ok() && wr(m, 0, "t", "1000").ok() && wr(m, 0, "calls", "10").ok() && wr(m, 0, "s_file", "1234").ok() &&
-                           wr(m, 0, "other.c::s_dup", "99").ok() && wr(m, 0, "g_int", "10").ok();
-            check("SRCDBG-CVW-01", "sccz80 at vars.c:41, each storage class is written where the map says and reads back: param a = 7 at fp+10, local t = 1000 at "
-                                   "fp-2 (E8 03), static local sum::calls = 10 at $90A0 (Page 4), file static s_file = 1234 at $9067, other.c's s_dup = 99 at "
-                                   "$9069 while vars.c's s_dup (at $909F) still reads 0, global g_int = 10 at $903E",
-                  at && w && cpk(m, fp + 10u, 2) == Bytes{7, 0} && cvv(m, 0, "a") == "7" && cpk(m, fp - 2u, 2) == Bytes{0xE8, 0x03} && cvv(m, 0, "t") == "1000" &&
-                      cpk(m, 0x90A0, 1) == Bytes{10} && cvv(m, 0, "calls") == "10" && cpk(m, 0x9067, 2) == Bytes{0xD2, 0x04} && cvv(m, 0, "s_file") == "1234" &&
-                      cpk(m, 0x9069, 1) == Bytes{99} && cvv(m, 0, "other.c::s_dup") == "99 'c'" && cvv(m, 0, "vars.c::s_dup") == "0" && cpk(m, 0x909F, 1) == Bytes{0} &&
-                      cpk(m, 0x903E, 2) == Bytes{10, 0} && cvv(m, 0, "g_int") == "10",
-                  "w=" + std::to_string(w) + " a=" + cvv(m, 0, "a") + " t=" + cvv(m, 0, "t") + " calls=" + cvv(m, 0, "calls") + " s_file=" + cvv(m, 0, "s_file") +
-                      " os=" + cvv(m, 0, "other.c::s_dup") + " vs=" + cvv(m, 0, "vars.c::s_dup") + " g_int=" + cvv(m, 0, "g_int"));
-        }
-        {   // SRCDBG-CVW-02
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w02", kSccz80_41.pc}, m);
-            const int64_t cptr = ival(m, 0, "g_cptr");
-            const Dbg::CWriteResult via = wr(m, 0, "g_cptr[0]", "'x'");
-            const bool w = wr(m, 0, "g_schar", "-128").ok() && wr(m, 0, "g_char", "'Z'").ok() && wr(m, 0, "g_uint", "65535").ok() &&
-                           wr(m, 0, "g_long", "-2147483648").ok() && wr(m, 0, "g_ulong", "4294967295").ok() && wr(m, 0, "g_float", w225).ok() &&
-                           wr(m, 0, "g_bptr", "$8000").ok() && via.ok() && wr(m, 0, "g_matrix[1][2]", "-6").ok() && wr(m, 0, "g_pt.tag", "9").ok() &&
-                           wr(m, 0, "g_pts[2].y", "-1").ok() && wr(m, 0, "g_word.w", "0x1234").ok() && wr(m, 0, "g_node.val", "-100000").ok() &&
-                           wr(m, 0, "g_str[0]", "'H'").ok();
-            check("SRCDBG-CVW-02", "sccz80, each type: g_schar -128 (80), g_char 'Z' (reads 90 'Z'), g_uint 65535, g_long -2147483648, g_ulong 4294967295, g_float "
-                                   "2.25 (00 00 00 00 10 82, reads 2.25), g_bptr $8000, g_cptr[0] = 'x' through the pointer (where = Cpu), g_matrix[1][2] = -6, "
-                                   "g_pt.tag = 9, g_pts[2].y = -1, g_word.w = 0x1234 (its bytes alias: 52 and 18), g_node.val = -100000, g_str[0] = 'H' (read back "
-                                   "as the element)",
-                  at && w && cpk(m, 0x9042, 1) == Bytes{0x80} && cvv(m, 0, "g_schar") == "-128" && cpk(m, 0x9043, 1) == Bytes{0x5A} && cvv(m, 0, "g_char") == "90 'Z'" &&
-                      cpk(m, 0x9040, 2) == Bytes{0xFF, 0xFF} && cpk(m, 0x9044, 4) == Bytes{0, 0, 0, 0x80} && cpk(m, 0x9048, 4) == Bytes{0xFF, 0xFF, 0xFF, 0xFF} &&
-                      cpk(m, 0x904C, 6) == Bytes{0, 0, 0, 0, 0x10, 0x82} && cvv(m, 0, "g_float") == w225 && cpk(m, 0x9070, 2) == Bytes{0x00, 0x80} &&
-                      cvv(m, 0, "g_bptr").find("$8000") == 0 && via.where.kind == Dbg::CWhere::Kind::Cpu && cptr > 0 && cpk(m, static_cast<uint32_t>(cptr), 1) == Bytes{'x'} &&
-                      cpk(m, 0x905F, 2) == Bytes{0xFA, 0xFF} && cvv(m, 0, "g_matrix[1][2]") == "-6" && cpk(m, 0x9065, 1) == Bytes{9} &&
-                      cpk(m, 0x907E, 2) == Bytes{0xFF, 0xFF} && cpk(m, 0x908F, 2) == Bytes{0x34, 0x12} && ival(m, 0, "g_word.b[0]") == 52 && ival(m, 0, "g_word.b[1]") == 18 &&
-                      cpk(m, 0x9093, 4) == Bytes{0x60, 0x79, 0xFE, 0xFF} && cvv(m, 0, "g_node.val") == "-100000" && cpk(m, 0x9052, 1) == Bytes{'H'} &&
-                      cvv(m, 0, "g_str[0]") == "72 'H'",
-                  "w=" + std::to_string(w) + " via=" + via.why + " cptr=" + std::to_string(cptr) + " float=" + cvv(m, 0, "g_float") + " bptr=" + cvv(m, 0, "g_bptr") +
-                      " word=" + cvv(m, 0, "g_word") + " node=" + cvv(m, 0, "g_node.val") + " str=" + cvv(m, 0, "g_str[0]"));
-        }
-        {   // SRCDBG-CVW-03
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kZsdcc_41.fixture, "w03", kZsdcc_41.pc}, m);
-            const bool w = wr(m, 0, "g_float", w225).ok() && wr(m, 0, "g_char", "255").ok() && wr(m, 0, "g_flags.lo", "5").ok() && wr(m, 0, "g_flags.mid", "17").ok() &&
-                           wr(m, 0, "g_flags.hi", "200").ok();
-            const Bytes flags = cpk(m, 0x8F90, 2);
-            const CwTry bad = attempt(m, 0, "g_flags.lo", "8");
-            check("SRCDBG-CVW-03", "zsdcc: g_float = 2.25 stores IEEE binary32 (00 00 10 40), g_char = 255 (an unsigned char there), g_flags.lo = 5, .mid = 17 and "
-                                   ".hi = 200 leave 8D C8 at _g_flags (each field keeps the others' bits), and g_flags.lo = 8 is refused with the bytes unchanged",
-                  at && w && cpk(m, 0x8F44, 4) == Bytes{0, 0, 0x10, 0x40} && cvv(m, 0, "g_float") == w225 && cpk(m, 0x8F3B, 1) == Bytes{0xFF} && ival(m, 0, "g_char") == 255 &&
-                      flags == Bytes{0x8D, 0xC8} && cvv(m, 0, "g_flags") == "{lo = 5, mid = 17, hi = 200}" && refused_with(bad, "out of range") && cpk(m, 0x8F90, 2) == flags);
-        }
-        {   // SRCDBG-CVW-04
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({k80cc_41.fixture, "w04", k80cc_41.pc}, m);
-            const uint16_t fp = m.dbg->c_frames()[0].fp;
-            const bool w = wr(m, 0, "t", "1000").ok() && wr(m, 0, "acc", "70000").ok();
-            check("SRCDBG-CVW-04", "80cc at vars.c:41: t = 1000 lands at fp-8 (80cc's own record) and acc = 70000 at fp-6, both read back",
-                  at && w && cpk(m, fp - 8u, 2) == Bytes{0xE8, 0x03} && cvv(m, 0, "t") == "1000" && cpk(m, fp - 6u, 4) == Bytes{0x70, 0x11, 0x01, 0x00} && cvv(m, 0, "acc") == "70000");
-        }
-        {   // SRCDBG-CVW-05
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w05", kSccz80_41.pc}, m);
-            const uint16_t fp1 = m.dbg->c_frames()[1].fp;
-            const bool w = wr(m, 1, "c", "100").ok() && wr(m, 1, "lp.x", "10").ok();
-            check("SRCDBG-CVW-05", "an outer frame (main, frame 1): c = 100 reads 100 'd' and lands at main's fp-15, lp.x = 10 lands at fp-5 (and p, which points at lp, "
-                                   "reads it); frame 0's own a, t and k are unchanged",
-                  at && w && cpk(m, fp1 - 15u, 1) == Bytes{100} && cvv(m, 1, "c") == "100 'd'" && cpk(m, fp1 - 5u, 2) == Bytes{10, 0} && cvv(m, 1, "lp") == "{x = 10, y = 4, tag = 5}" &&
-                      cvv(m, 0, "p->x") == "10" && cvv(m, 0, "a") == "0" && cvv(m, 0, "t") == "122" && cvv(m, 0, "k") == "120 'x'");
-        }
-        {   // SRCDBG-CVW-06
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars-banked", "w06");
-            const auto l7 = m.dbg->source_map().resolve("bkmain.c:7");
-            const bool at = !l7.starts.empty() && cv_run_to(m, l7.starts[0].address);
-            const Bytes cpu0 = cpk(m, 0xC000, 4);
-            const Dbg::CWriteResult w = wr(m, 0, "btable[0]", "50");
-            const Dbg::CValueResult back = m.dbg->read_c_value(0, "btable[0]");
-            check("SRCDBG-CVW-06", "a page global written while its page is unmapped (sccz80 banked, bkmain.c:7, before the call): btable[0] = 50 lands in Page 20 "
-                                   "(an independent peek of the page reads 50), the CPU's bytes at $C000 are unchanged, and the read-back says `page 20 is not mapped at "
-                                   "$C000 now`",
-                  at && w.ok() && w.where.kind == Dbg::CWhere::Kind::Page && w.where.source.space == MemSpace::page(20) && ppk(m, MemSpace::page(20), 0, 1) == Bytes{50} &&
-                      cpk(m, 0xC000, 4) == cpu0 && back.ok && back.value == "50 '2'" && has_note(back, "page 20 is not mapped at $C000 now"));
-        }
-        {   // SRCDBG-CVW-07
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w07", kSccz80_41.pc}, m);
-            const bool w = wr(m, 0, "t", "1000").ok();
-            const bool at2 = cv_run_to(m, kSccz80_41.pc);   // sum's second call
-            check("SRCDBG-CVW-07", "the machine sees it: t = 1000 at the first vars.c:41 makes sum return 1000 + 345 = 1345, which main stores in arr[0] (467 without the write); "
-                                   "at the second call frame 1's arr[0] is 1345",
-                  at && w && at2 && cvv(m, 1, "arr[0]") == "1345");
-        }
-        {   // SRCDBG-CVW-08
-            bool ok = true;
-            std::string seen;
-            for (const SumAt& c : {SumAt{kSccz80_41.fixture, "w08a", kSccz80_41.pc}, SumAt{kZsdcc_41.fixture, "w08b", kZsdcc_41.pc}, SumAt{k80cc_41.fixture, "w08c", k80cc_41.pc}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = at41(c, m);
-                const bool w = wr(m, 0, "g_int", "10").ok();
-                const bool at2 = cv_run_to(m, c.pc);
-                bool good = at && w && at2 && cvv(m, 0, "b") == "10" && cvv(m, 0, "t") == "138";   // 1 + 10 + 120 + 7
-                if (good && std::string(c.fixture).find("sccz80") != std::string::npos) {
-                    const auto loop = m.dbg->source_map().resolve("vars.c:64");
-                    good = !loop.starts.empty() && cv_run_to(m, loop.starts[0].address) && cvv(m, 0, "arr") == "{467, 531, 535, 539}" && cvv(m, 0, "s_file") == "659";
-                }
-                if (!good) {
-                    ok = false;
-                    seen += std::string(" ") + c.fixture;
+        const auto fn_rec = [&](const char* n) {
+            return "__CDBINFO__" + esc(std::string("F:G$") + n + "$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
+                   " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n";
+        };
+        const auto line_rec = [](int line, unsigned at, const char* fn) {
+            char b[200];
+            std::snprintf(b, sizeof b, "__C_LINE_%d_t_2ec = $%04X ; addr, local, , t_c, code_compiler, t.c::%s::0::0:%d\n", line, at, fn, line);
+            return std::string(b);
+        };
+        const std::string map = (z / "c24.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "_fb = $8020 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:10\n"
+                        "_fo = $8040 ; addr, public, , t_c, code_compiler, t.c::fo::0::0:20\n" +
+                            line_rec(1, 0x8000, "fa") + line_rec(2, 0x8008, "fa") + line_rec(3, 0x800B, "fa") +
+                            line_rec(10, 0x8020, "fb") + line_rec(20, 0x8040, "fo") + line_rec(21, 0x8048, "fo") +
+                            line_rec(22, 0x804B, "fo") + "__code_compiler_tail = $8060 ; const, public, def, , ,\n" +
+                            fn_rec("fa") + fn_rec("fb") + fn_rec("fo"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39};
+        const auto put = [&](uint16_t at, std::initializer_list<uint8_t> tail) {
+            for (size_t i = 0; i < sizeof pro; ++i) m.emu.mmu().write(static_cast<uint16_t>(at + i), pro[i]);
+            uint16_t a = static_cast<uint16_t>(at + sizeof pro);
+            for (const uint8_t b : tail) m.emu.mmu().write(a++, b);
+        };
+        put(0x8040, {0xCD, 0x00, 0x80, 0x18, 0xFE});
+        put(0x8000, {0xCD, 0x20, 0x80, 0x18, 0xFE});
+        put(0x8020, {0x18, 0xFE});
+        m.start(0x8040);
+        for (int i = 0; i < 4; ++i) m.emu.execute_single_instruction();   // fo: prologue, call fa
+        m.emu.call_stack().clear();
+        for (int i = 0; i < 4; ++i) m.emu.execute_single_instruction();   // fa: prologue, call fb
+        for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // fb: prologue
+        const auto fr = m.dbg->c_frames();
+        const auto vs = m.dbg->variables();
+        const auto name = [&](const Debugger::CFrame& f) {
+            return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
+        };
+        check("SRCDBG-CVAL-24", "a frame found through the chain is looked up at return address - 1: fo's call of fa is the last "
+                                "instruction of line 21 ($804B starts line 22), fa's call of fb of line 2",
+              lr.count > 0 && fr.size() == 4 && fr[3].function == -1 && name(fr[0]) == "fb" && fr[0].how == FrameBase::Tracked && name(fr[1]) == "fa" &&
+                  line_no(fr[1]) == 2 && name(fr[2]) == "fo" && fr[2].how == FrameBase::Chain && line_no(fr[2]) == 21);
+    }
+    {   // SRCDBG-CVAL-25
+        // GH #434 review R2-2: a `ret` closes the epilogue window, so code after it in the same function is not in it.
+        // Synthetic IX-frame function fq: prologue, `pop ix; ret`, then more body; stopped in the body, tracker empty.
+        Bare m(MachineType::ZXN_ISSUE2);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "t";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        m.dbg->attach(ci);
+        const auto esc = [](const std::string& t) {
+            std::string o;
+            for (const unsigned char c : t) {
+                if (std::isalpha(c)) {
+                    o += static_cast<char>(c);
+                } else {
+                    char b[8];
+                    std::snprintf(b, sizeof b, "_%02x", c);
+                    o += b;
                 }
             }
-            check("SRCDBG-CVW-08", "g_int = 10 at the first vars.c:41 of sum, on sccz80, zsdcc and 80cc: at the second call b is 10 and t is 1 + 10 + 120 + 7 = 138; on sccz80 "
-                                   "main's loop then holds arr = {467, 531, 535, 539} and s_file = 539 + 120 = 659",
-                  ok, seen);
-        }
-        {   // SRCDBG-CVW-09
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, kSccz80_41.fixture, "w09");
-            const auto l34 = m.dbg->source_map().resolve("vars.c:34");
-            const bool at34 = !l34.starts.empty() && cv_run_to(m, l34.starts[0].address);
-            const bool w = wr(m, 0, "p->x", "10").ok();
-            const bool at41b = cv_run_to(m, kSccz80_41.pc);
-            check("SRCDBG-CVW-09", "a pointer target: p->x = 10 at vars.c:34 of the first call; at vars.c:41 inner is 10 + 4, so t = 0 - 5 + 120 + 14 = 129, and main's lp.x "
-                                   "is 10 (written through the pointer into main's struct)",
-                  at34 && w && at41b && cvv(m, 0, "t") == "129" && cvv(m, 1, "lp") == "{x = 10, y = 4, tag = 5}");
-        }
-        {   // SRCDBG-CVW-10
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            cv_load(m, "master/sccz80-cvars-banked", "w10");
-            const auto l7 = m.dbg->source_map().resolve("bkmain.c:7");
-            const auto l10 = m.dbg->source_map().resolve("bk.c:10");
-            const auto entry = cw_entry(m, "bk_sum");
-            bool at = !l7.starts.empty() && !l10.starts.empty() && entry && cv_run_to(m, l7.starts[0].address);
-            const bool w = at && wr(m, 0, "btable[0]", "50").ok();
-            // this machine has no ROM: interrupts are cleared at bk_sum's entry, as CVAL-37 does
-            at = at && cv_run_to(m, entry->address);
-            if (at) {
-                Z80Registers r = m.emu.cpu().get_registers();
-                r.IFF1 = r.IFF2 = 0;
-                m.emu.cpu().set_registers(r);
+            return o;
+        };
+        const std::string map = (z / "c25.map").string();
+        write_text(map, "_fq = $8000 ; addr, public, , t_c, code_compiler, t.c::fq::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fq::0::0:1\n"
+                        "__code_compiler_tail = $8020 ; const, public, def, , ,\n"
+                        "__CDBINFO__" + esc("F:G$fq$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n");
+        const auto lr = m.dbg->load_source_map(map, true);
+        const uint8_t code[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0xDD, 0xE1, 0xC9, 0x00, 0x00, 0x18, 0xFE};
+        for (size_t i = 0; i < sizeof code; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
+        m.start(0x8000);
+        for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // push ix; ld ix,0; add ix,sp
+        m.start(0x800B);                                                  // the body after the ret
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-25", "code after an epilogue ret in the same function is not in the epilogue window: Prologue, fp == IX",
+              lr.count > 0 && !fr.empty() && fr[0].how == FrameBase::Prologue && fr[0].fp == m.dbg->registers().IX &&
+                  fr[0].fp == static_cast<uint16_t>(m.dbg->registers().SP));
+    }
+    {   // SRCDBG-CVAL-26
+        // GH #434 review 3 (R3-1): "right after the restore" needs ALL its bytes. Synthetic map: l_debug_pop_frame $8100,
+        // l_debug_push_frame $8110, __debug_framepointer $9000 (holding $9ABC); a push-frame function fp1 at $8000 stopped
+        // right after `call $8200` (the low byte of the pop helper's address, not the high one); an IX function fx at $8300
+        // stopped right after a `pop hl` ($E1 not preceded by $DD). Neither is a restore: the base is the variable's / IX.
+        Bare m(MachineType::ZXN_ISSUE2);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "t";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        m.dbg->attach(ci);
+        const auto esc = [](const std::string& t) {
+            std::string o;
+            for (const unsigned char c : t) {
+                if (std::isalpha(c)) {
+                    o += static_cast<char>(c);
+                } else {
+                    char b[8];
+                    std::snprintf(b, sizeof b, "_%02x", c);
+                    o += b;
+                }
             }
-            at = at && cv_run_to(m, l10.starts[0].address);
-            const int64_t s = at ? ival(m, 0, "s") : INT64_MIN;
+            return o;
+        };
+        const auto fn_rec = [&](const char* n) {
+            return "__CDBINFO__" + esc(std::string("F:G$") + n + "$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
+                   " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n";
+        };
+        const std::string map = (z / "c26.map").string();
+        write_text(map, "_fp1 = $8000 ; addr, public, , t_c, code_compiler, t.c::fp1::0::0:1\n"
+                        "_fx = $8300 ; addr, public, , t_c, code_compiler, t.c::fx::0::0:5\n"
+                        "l_debug_pop_frame = $8100 ; addr, public, , lib, code_l_sccz80, l.asm:1\n"
+                        "l_debug_push_frame = $8110 ; addr, public, , lib, code_l_sccz80, l.asm:2\n"
+                        "__debug_framepointer = $9000 ; addr, public, , lib, bss_clib, v.asm:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fp1::0::0:1\n"
+                        "__C_LINE_5_t_2ec = $8300 ; addr, local, , t_c, code_compiler, t.c::fx::0::0:5\n"
+                        "__code_compiler_tail = $8320 ; const, public, def, , ,\n" + fn_rec("fp1") + fn_rec("fx"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        const uint8_t push_fn[] = {0xCD, 0x10, 0x81, 0xCD, 0x00, 0x82, 0xCD, 0x01, 0x81, 0x00, 0x18, 0xFE};
+        const uint8_t ix_fn[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0xE1, 0x00, 0x18, 0xFE};
+        for (size_t i = 0; i < sizeof push_fn; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), push_fn[i]);
+        for (size_t i = 0; i < sizeof ix_fn; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8300 + i), ix_fn[i]);
+        m.emu.mmu().write(0x9000, 0xBC);
+        m.emu.mmu().write(0x9001, 0x9A);
+        m.start(0x8006);   // right after `call $8200`
+        const auto a = m.dbg->c_frames();
+        m.start(0x8009);   // right after `call $8101` (the pop helper's high byte, another low byte)
+        const auto a2 = m.dbg->c_frames();
+        m.start(0x8300);
+        for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // push ix; ld ix,0; add ix,sp
+        m.start(0x8309);   // right after the `pop hl`
+        const auto b = m.dbg->c_frames();
+        check("SRCDBG-CVAL-26", "right after `call` of an address that only shares the pop helper's low byte or only its high byte, or after a `pop hl`, is not "
+                                "right after the restore: the push-frame function's base is the variable ($9ABC), the IX function's is IX",
+              lr.count > 0 && !a.empty() && !a2.empty() && !b.empty() && a[0].how == FrameBase::Prologue && a[0].fp == 0x9ABC &&
+                  a2[0].how == FrameBase::Prologue && a2[0].fp == 0x9ABC &&
+                  b[0].how == FrameBase::Prologue && b[0].fp == m.dbg->registers().IX &&
+                  b[0].fp != static_cast<uint16_t>(m.dbg->registers().SP - 2));
+    }
+    {   // SRCDBG-CVAL-27
+        // GH #434 review 3: the real-fixture case: main right after `call _sum` returned, tracker emptied: its base is the
+        // tracked one (main keeps locals, so it is not SP - 2).
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c27");
+        cv_run_to(m, 0x8CB9);
+        const unsigned ret = peek16(m, m.dbg->registers().SP);   // main's return address after the call
+        const bool s = cv_run_to(m, static_cast<uint16_t>(ret));
+        const auto tracked = m.dbg->c_frames();
+        m.emu.call_stack().clear();
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-27", "master sccz80-cvars main right after `call _sum` returned, tracker emptied: Prologue, fp == the tracked fp "
+                                "(not SP - 2, which only a restore leaves)",
+              s && !tracked.empty() && !fr.empty() && fn_name(m, fr[0]) == "main" && fr[0].how == FrameBase::Prologue &&
+                  fr[0].fp == tracked[0].fp && fr[0].fp != static_cast<uint16_t>(m.dbg->registers().SP - 2));
+    }
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto row_of = [](const std::vector<Dbg::CValueRow>& rows, const char* name) -> const Dbg::CValueRow* {
+        for (const auto& r : rows)
+            if (r.name == name) return &r;
+        return nullptr;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    const auto sccz80_41 = [&](const SumAt& c) {
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41(c, m);
+        const auto loc = m.dbg->c_locals(0);
+        const auto* pp = row_of(loc.rows, "p");
+        const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
+        const Dbg::CValueResult p = m.dbg->read_c_value(0, "p");
+        const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
+        return at && loc.ok && pp && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "t") == "122" &&
+               cvv(m, 0, "acc") == "345" && cvv(m, 0, "calls") == "1" && cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && lp.ok &&
+               lp.where.kind == Dbg::CWhere::Kind::Cpu && p.ok && p.integer && *p.integer == lp.where.cpu && !inner.ok &&
+               inner.why == "out of scope at vars.c:41" && !row_of(loc.rows, "inner") && cvv(m, 0, "p->y") == "4";
+    };
+    check("SRCDBG-CVAL-28", "v2.4 sccz80-cvars at vars.c:41 (first call of sum): a=0 b=-5 k=120 'x' t=122 acc=345 calls=1, *p = {x = 3, y = 4, tag = 5}, p is "
+                            "frame 1's &lp, and `inner` (block 2) is not listed and read_c_value says out of scope at vars.c:41",
+          sccz80_41({"v2.4/sccz80-cvars", "c28", 0x8D3E}));
+    check("SRCDBG-CVAL-29", "the same on master sccz80-cvars", sccz80_41({"master/sccz80-cvars", "c29", 0x8D3E}));
+    {   // SRCDBG-CVAL-30
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master/sdcc-cvars", "c30", 0x8C97}, m);
+        const Dbg::CValueResult t = m.dbg->read_c_value(0, "t");
+        const Dbg::CValueResult acc = m.dbg->read_c_value(0, "acc");
+        const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
+        const auto loc = m.dbg->c_locals(0);
+        check("SRCDBG-CVAL-30", "master sdcc-cvars at vars.c:41: a=0 b=-5 k=120 'x' calls=1 *p as on sccz80; t is 122 read from BC with the stale note; acc is "
+                                "optimised out; `inner` is hidden (out of scope); the parameters (block 9) are visible",
+              at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "calls") == "1" &&
+                  cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && t.ok && t.value == "122" && t.where.kind == Dbg::CWhere::Kind::Register &&
+                  has_note(t, "in BC; may be stale") && !acc.ok && acc.why == "optimised out" && !inner.ok &&
+                  inner.why == "out of scope at vars.c:41" && loc.ok && row_of(loc.rows, "a") && row_of(loc.rows, "k") && !row_of(loc.rows, "inner"));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_42(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto row_of = [](const std::vector<Dbg::CValueRow>& rows, const char* name) -> const Dbg::CValueRow* {
+        for (const auto& r : rows)
+            if (r.name == name) return &r;
+        return nullptr;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    {   // SRCDBG-CVAL-31
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master/80cc-cvars", "c31", 0x8CCA}, m);
+        const auto loc = m.dbg->c_locals(0);
+        const auto* inner = row_of(loc.rows, "inner");
+        bool marked = false;
+        if (inner)
+            for (const auto& n : inner->notes) marked = marked || n.find("scope unknown") != std::string::npos;
+        check("SRCDBG-CVAL-31", "master 80cc-cvars at vars.c:41: a=0 b=-5 k=120 'x' t=122 acc=345 calls=1 as on sccz80; 80cc writes no block structure, so `inner` is "
+                                "shown, marked scope unknown",
+              at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "t") == "122" && cvv(m, 0, "acc") == "345" &&
+                  cvv(m, 0, "calls") == "1" && inner && marked);
+    }
+    {   // SRCDBG-CVAL-32
+        bool ok = true;
+        for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c32a", 0x8D2B}, SumAt{"master/sdcc-cvars", "c32b", 0x8C94}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, c.fixture, c.tag);
+            ok = ok && cv_starts_at(m, "vars.c:39", c.pc) && cv_run_to(m, c.pc) && cvv(m, 0, "inner") == "7";
+        }
+        check("SRCDBG-CVAL-32", "at vars.c:39 (block 2 open) `inner` is 7 (p->x + p->y) on sccz80 and zsdcc", ok);
+    }
+    {   // SRCDBG-CVAL-33
+        bool ok = true;
+        for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c33a", 0x8D3E}, SumAt{"master/80cc-cvars", "c33b", 0x8CCA}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41(c, m);
+            const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
+            const Dbg::CValueResult pp = m.dbg->read_c_value(1, "pp");
+            ok = ok && at && cvv(m, 1, "lp") == "{x = 3, y = 4, tag = 5}" && cvv(m, 1, "i") == "0" && cvv(m, 1, "c") == "120 'x'" &&
+                 cvv(m, 1, "big") == "100000" && lp.ok && pp.ok && pp.integer && *pp.integer == lp.where.cpu;
+        }
+        Machine z(false, MachineType::ZXN_ISSUE2);
+        const bool zat = at41({"master/sdcc-cvars", "c33c", 0x8C97}, z);
+        const Dbg::CValueResult big = z.dbg->read_c_value(1, "big");
+        const Dbg::CValueResult cc = z.dbg->read_c_value(1, "c");
+        const Dbg::CValueResult pp = z.dbg->read_c_value(1, "pp");
+        check("SRCDBG-CVAL-33", "frame 1 (main) at the vars.c:41 stop: lp = {3, 4, 5}, i = 0, c = 120 'x', big = 100000 and pp == &lp on sccz80 and 80cc; on zsdcc big, c and pp "
+                                "are registers of an outer frame (optimised out) while lp and i are read from the stack",
+              ok && zat && cvv(z, 1, "lp") == "{x = 3, y = 4, tag = 5}" && cvv(z, 1, "i") == "0" && !big.ok && big.why == "optimised out" && !cc.ok && !pp.ok);
+    }
+    {   // SRCDBG-CVAL-34
+        // vars.c's globals at the stop of CVAL-28 (g_float is `{6}SF` on sccz80/80cc and `{4}SF` on zsdcc; the enum colour BLUE is 6)
+        bool ok = true;
+        std::string seen;
+        for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c34a", 0x8D3E}, SumAt{"master/sdcc-cvars", "c34b", 0x8C97}, SumAt{"master/80cc-cvars", "c34c", 0x8CCA}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41(c, m);
+            const std::string want_float = std::string("1") + ".5";   // split: a bare literal of this shape reads as a row ID (dup-ids)
+            const std::string got =
+                "g_int=" + cvv(m, 0, "g_int") + " g_uint=" + cvv(m, 0, "g_uint") + " g_schar=" + cvv(m, 0, "g_schar") + " g_char=" + cvv(m, 0, "g_char") +
+                " g_long=" + cvv(m, 0, "g_long") + " g_ulong=" + cvv(m, 0, "g_ulong") + " g_float=" + cvv(m, 0, "g_float") + " g_str=" + cvv(m, 0, "g_str") +
+                " g_cptr=" + cvv(m, 0, "g_cptr").substr(cvv(m, 0, "g_cptr").find(' ') + 1) + " g_matrix=" + cvv(m, 0, "g_matrix") +
+                " g_pt=" + cvv(m, 0, "g_pt") + " g_colour=" + cvv(m, 0, "g_colour") + " g_byte=" + cvv(m, 0, "g_byte") + " s_file=" + cvv(m, 0, "s_file") +
+                " vs=" + cvv(m, 0, "vars.c::s_dup") + " os=" + cvv(m, 0, "other.c::s_dup");
+            const std::string want = "g_int=-5 g_uint=40000 g_schar=-3 g_char=65 'A' g_long=305419896 g_ulong=3405691582 g_float=" + want_float +
+                                     " g_str=\"hi\\0\" g_cptr=\"abc\" g_matrix={{1, 2, 3}, {4, 5, 6}} g_pt={x = 1, y = 2, tag = 3} g_colour=6 g_byte=7 s_file=9 vs=0 os=4";
+            if (!at || got != want) {
+                ok = false;
+                seen += std::string(" [") + c.fixture + "] " + got;
+            }
+        }
+        check("SRCDBG-CVAL-34", "the globals of vars.c at the vars.c:41 stop, on sccz80, zsdcc and 80cc: g_int=-5 g_uint=40000 g_schar=-3 g_char=65 'A' g_long=305419896 "
+                                "g_ulong=3405691582 g_float 1.5 g_str=\"hi\\0\" g_cptr=\"abc\" g_matrix g_pt g_colour=6 g_byte=7 s_file=9, and the two file statics s_dup "
+                                "told apart by file: vars.c::s_dup=0 and other.c::s_dup=4",
+              ok, seen);
+    }
+    {   // SRCDBG-CVAL-35
+        // in main's while (1): everything main stored has happened (arr = {467, 471, 475, 479}; s_file = 479 + 120; other(599) = 1202, as uint8_t 178)
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c35");
+        const bool at = cv_starts_at(m, "vars.c:64", 0x8E1F) && cv_run_to(m, 0x8E1F);
+        const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
+        const Dbg::CValueResult node = m.dbg->read_c_value(0, "g_node");
+        const Dbg::CValueResult fn = m.dbg->read_c_value(0, "g_fnptr2");
+        check("SRCDBG-CVAL-35", "in main's loop: g_head shows ` <g_node>` (the label of what it points at), g_head->val is 100000, g_node.next is NULL, s_file is 599, "
+                                "vars.c::s_dup is 178 and g_fnptr2 shows ` <other>`",
+              at && head.ok && head.value.find(" <g_node>") != std::string::npos && cvv(m, 0, "g_head->val") == "100000" &&
+                  cvv(m, 0, "g_node.next") == "$0000 (NULL)" && node.ok && cvv(m, 0, "s_file") == "599" && cvv(m, 0, "vars.c::s_dup") == "178" && fn.ok &&
+                  fn.value.find(" <other>") != std::string::npos && cvv(m, 0, "g_head->next->val").find("null pointer") != std::string::npos);
+    }
+    // a real mid-run attach (the program ran with no client, so nothing was tracked): the fallback bases give main's locals
+    ctx.cv36_ok = true;
+}
+
+[[gnu::noinline]] static void srcdbg_part_43(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    for (const char* fx : {"master/sccz80-cvars", "master/sdcc-cvars"}) {
+        Bare m(MachineType::ZXN_ISSUE2);
+        const fs::path d = var_dir(fx[7] == 's' && fx[8] == 'c' ? "c36a" : "c36b", fx);
+        emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        m.frames(3);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "late";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId c = m.dbg->attach(ci).value;
+        m.dbg->pause(c);
+        const auto str = [&](const char* path) {
+            const Dbg::CValueResult r = m.dbg->read_c_value(0, path);
+            return r.ok ? r.value : "!" + r.why;
+        };
+        const Dbg::CValueResult lp = m.dbg->read_c_value(0, "lp");
+        bool good = str("lp") == "{x = 3, y = 4, tag = 5}" && str("i") == "4" && str("arr") == "{467, 471, 475, 479}";
+        if (fx[7] == 's' && fx[8] == 'c') {   // sccz80 keeps c, big and pp on the stack
+            const Dbg::CValueResult pp = m.dbg->read_c_value(0, "pp");
+            good = good && str("c") == "120 'x'" && str("big") == "100000" && lp.ok && pp.ok && pp.integer && *pp.integer == lp.where.cpu;
+        }
+        ctx.cv36_ok = ctx.cv36_ok && good;
+    }
+    // the banked programs: bk_sum (bk.c, in Page{20}) called from bkmain.c's main
+    const auto bk_entry = [](const Machine& m, const char* fn) -> std::optional<SourceAddress> {
+        const auto vs = m.dbg->variables();
+        for (const auto& f : vs ? vs->functions() : std::vector<jnext::dbg::CFunction>{})
+            if (f.name == fn && f.entry.resolved) return f.entry.at;
+        return std::nullopt;
+    };
+    // run to bk.c:10 of the fixture, clearing the interrupts at bk_sum's entry (this machine has no ROM: a RST 38 runs away)
+    const auto at_bk10 = [&](Machine& m, const char* fixture, const char* tag) {
+        cv_load(m, fixture, tag);
+        const auto entry = bk_entry(m, "bk_sum");
+        const auto l10 = m.dbg->source_map().resolve("bk.c:10");
+        if (!entry || l10.starts.empty() || !(l10.starts[0].space == MemSpace::page(20))) return false;
+        if (!cv_run_to(m, entry->address)) return false;
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.IFF1 = r.IFF2 = 0;
+        m.emu.cpu().set_registers(r);
+        return cv_run_to(m, l10.starts[0].address);
+    };
+    {   // SRCDBG-CVAL-37
+        bool ok = true;
+        std::string seen;
+        for (const char* fx : {"v2.4/sccz80-cvars-banked", "master/sccz80-cvars-banked", "master/sdcc-cvars-banked", "master/80cc-cvars-banked"}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at_bk10(m, fx, fx[0] == 'v' ? "c37a" : fx[7] == 's' && fx[8] == 'c' ? "c37b" : fx[7] == 's' ? "c37c" : "c37d");
+            const Dbg::CValueResult bt = m.dbg->read_c_value(0, "btable");
+            const bool zsdcc = std::string(fx).find("sdcc") != std::string::npos;
+            bool good = at && cvv(m, 0, "a") == "3" && cvv(m, 0, "b") == "2" && cvv(m, 0, "s") == "103 'g'" && cvv(m, 0, "j") == "4";
+            if (zsdcc) {
+                // zsdcc writes no record for the const array btable (z88dk U4) but does for bdata
+                good = good && !bt.ok && cvv(m, 0, "bdata") == "77 'M'";
+            } else {
+                good = good && bt.ok && bt.value == "{10, 20, 30, 40}" && bt.where.kind == Dbg::CWhere::Kind::Page &&
+                       bt.where.source.space == MemSpace::page(20) && !has_note(bt, "not mapped") && cvv(m, 0, "bdata") == "77 'M'";
+            }
+            if (!good) {
+                ok = false;
+                seen += std::string(" ") + fx;
+            }
+        }
+        check("SRCDBG-CVAL-37", "in bk_sum at bk.c:10 (every compiler): a=3 b=2 s=103 'g' j=4 (a uint8_t prints as a char: the CDB has no typedef names); btable = {10, 20, 30, 40} read from Page{20}, which is mapped at $C000 now (no "
+                                "'not mapped' note), and bdata = 77 'M'; zsdcc writes no btable record (z88dk U4)",
+              ok, seen);
+    }
+    {   // SRCDBG-CVAL-38
+        // back in main's while (1) bank 20 is unmapped again: btable is still read from its own page, with a note, and the CPU view at $C000 shows something else
+        bool ok = true;
+        std::string seen;
+        for (const char* fx : {"master/sccz80-cvars-banked", "master/sdcc-cvars-banked", "master/80cc-cvars-banked"}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at10 = at_bk10(m, fx, fx[7] == 's' && fx[8] == 'c' ? "c38a" : fx[7] == 's' ? "c38b" : "c38c");
             const auto loop = m.dbg->source_map().resolve("bkmain.c:8");
-            bool in_loop = at && !loop.starts.empty();
-            for (int i = 0; in_loop && i < 2000 && m.dbg->registers().PC != loop.starts[0].address; ++i) {
+            bool at = at10 && !loop.starts.empty();
+            // single-stepped with the interrupts off (banked_call enables them and this machine has no ROM)
+            for (int i = 0; at && i < 2000 && m.dbg->registers().PC != loop.starts[0].address; ++i) {
                 Z80Registers r = m.emu.cpu().get_registers();
                 r.IFF1 = r.IFF2 = 0;
                 m.emu.cpu().set_registers(r);
                 m.emu.execute_single_instruction();
             }
-            in_loop = in_loop && m.dbg->registers().PC == loop.starts[0].address;
-            check("SRCDBG-CVW-10", "banked: btable[0] = 50 at bkmain.c:7, continued to bk.c:10: s = 3 + 50 + 20 + 30 + 40 = 143; back in main's loop result = 143 + 2 = 145",
-                  at && w && s == 143 && in_loop && ival(m, 0, "result") == 145);
+            at = at && m.dbg->registers().PC == loop.starts[0].address;
+            const bool zsdcc = std::string(fx).find("sdcc") != std::string::npos;
+            const Dbg::CValueResult bt = m.dbg->read_c_value(0, "btable");
+            const Dbg::CValueResult loc = m.dbg->read_c_value(0, "loc");
+            uint8_t cpu = 0;
+            m.dbg->peek(MemSpace::cpu(), 0xC000, 1, &cpu);
+            bool good = at;
+            if (zsdcc) {
+                good = good && !bt.ok && cvv(m, 0, "bdata") == "77 'M'" && has_note(m.dbg->read_c_value(0, "bdata"), "page 20 is not mapped at $C028 now");
+            } else {
+                good = good && bt.ok && bt.value == "{10, 20, 30, 40}" && has_note(bt, "page 20 is not mapped at $C000 now") && cpu != 10 &&
+                       cvv(m, 0, "btable[2]") == "30" && cvv(m, 0, "btable[3]") == "40 '('";   // an element is read from the global's page too
+            }
+            // main's `loc` (3): a stack variable on sccz80 and zsdcc; 80cc writes no record for it (z88dk U5)
+            if (fx[7] == '8') good = good && !loc.ok && loc.why.find("unknown name") != std::string::npos;
+            else good = good && (loc.ok ? loc.value == "3" : std::string(fx).find("sdcc") != std::string::npos);
+            if (!good) {
+                ok = false;
+                seen += std::string(" ") + fx;
+            }
         }
-        {   // SRCDBG-CVW-11
-            Machine zs(false, MachineType::ZXN_ISSUE2);
-            const bool zat = at41({kZsdcc_41.fixture, "w11a", kZsdcc_41.pc}, zs);
-            const uint16_t bc = zs.dbg->registers().BC;
-            const CwTry t = attempt(zs, 0, "t", "1"), acc = attempt(zs, 0, "acc", "1");
-            // a pointer held in HL (CVAL-58's map): a write through it is refused, the bytes at HL+2 stay
-            Machine h(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "w11.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") +
-                                s3_rec("T:Ft.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "t_c") +
-                                s3_rec("S:Lt.c.fa$p$1_0$1({2}DG,STpt:S),R,0,0,[l,h]", "t_c"));
-            const auto lr = h.dbg->load_source_map(map, true);
-            const uint8_t pts[] = {3, 0, 4, 0, 5, 0, 6, 0};
-            for (size_t i = 0; i < sizeof pts; ++i) h.emu.mmu().write(static_cast<uint16_t>(0xA000 + i), pts[i]);
-            Z80Registers r = h.emu.cpu().get_registers();
-            r.HL = 0xA000;
-            h.emu.cpu().set_registers(r);
-            const CwTry py = attempt(h, 0, "p->y", "1"), pv = attempt(h, 0, "p", "$B000");
-            check("SRCDBG-CVW-11", "registers are never written: zsdcc's t (in BC) is refused naming BC with BC unchanged, its acc is `optimised out`; a pointer held in HL "
-                                   "is refused for p itself and for p->y (a register may be stale), the bytes at HL+2 unchanged; nothing bumps the revision or logs",
-                  zat && refused_with(t, "a register variable cannot be written") && t.w.why.find("(in BC)") != std::string::npos && zs.dbg->registers().BC == bc &&
-                      cvv(zs, 0, "t") == "122" && refused_with(acc, "optimised out") && lr.count > 0 && refused_with(py, "a register variable cannot be written") &&
-                      py.w.why.find("(in HL)") != std::string::npos && refused_with(pv, "a register variable cannot be written") && cpk(h, 0xA002, 2) == Bytes{4, 0} &&
-                      h.dbg->registers().HL == 0xA000);
-        }
-        {   // SRCDBG-CVW-12
+        check("SRCDBG-CVAL-38", "in main's loop after bk_sum returned: btable is read from Page{20} with the note `page 20 is not mapped at $C000 now`, and the CPU view at $C000 "
+                                "is not its bytes; bdata = 77 (zsdcc: with its own note at $C028); main's loc = 3 on sccz80, no record on 80cc (U5)",
+              ok, seen);
+    }
+    {   // SRCDBG-CVAL-39
+        // fc.c: `ffast(uint16_t x) __z88dk_fastcall` and `fcallee(uint16_t a, uint8_t b) __z88dk_callee`; main: g = ffast(3) (= 4); g += fcallee(g, 4)
+        struct Fc { const char* fx; const char* tag; uint16_t ffast, fcallee; };
+        std::string seen;
+        bool ok = true;
+        // sccz80 (both installs): the listing marks ffast fastcall and the record puts x at its nominal slot (z88dk U1): location unknown
+        for (const Fc& c : {Fc{"v2.4/sccz80-fc", "c39a", 0x8C62, 0x8C74}, Fc{"master/sccz80-fc", "c39b", 0x8C62, 0x8C74}}) {
             Machine m(false, MachineType::ZXN_ISSUE2);
-            const fs::path d = var_dir("w12", "master/sccz80-fc");
-            z88_copy_lis("master/sccz80-fc", d);
+            const fs::path d = var_dir(c.tag, c.fx);
+            z88_copy_lis(c.fx, d);
             z88_load(m, d / "prog.nex");
             m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const bool at = cv_run_to(m, 0x8C62);
-            const uint16_t sp = m.dbg->registers().SP;
-            const Bytes stack = cpk(m, sp, 64);
-            const CwTry t = attempt(m, 0, "x", "5");
-            check("SRCDBG-CVW-12", "U1: sccz80's fastcall ffast has its parameter x recorded at a slot it is not in (z88dk U1): the write is refused with the read's `location "
-                                   "unknown (z88dk U1...)` and the stack bytes stay",
-                  at && refused_with(t, "location unknown") && t.w.why.find("U1") != std::string::npos && cpk(m, sp, 64) == stack);
-        }
-        {   // SRCDBG-CVW-13
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w13a", kSccz80_41.pc}, m);
-            const CwTry inner = attempt(m, 0, "inner", "1");
-            Machine c(false, MachineType::ZXN_ISSUE2);
-            const bool cat = at41({k80cc_41.fixture, "w13b", k80cc_41.pc}, c);
-            const CwTry unknown = attempt(c, 0, "inner", "1");
-            check("SRCDBG-CVW-13", "scope: sccz80's block local `inner` at vars.c:41 is `out of scope at vars.c:41`; 80cc writes no block structure, so its `inner` is shown but "
-                                   "refused `scope unknown` (the slot may hold another variable), while 80cc's t is written (the 80cc row above)",
-                  at && cat && refused_with(inner, "out of scope at vars.c:41") && refused_with(unknown, "scope unknown"));
-        }
-        {   // SRCDBG-CVW-14
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w14", kSccz80_41.pc}, m);
-            const uint16_t fp1 = m.dbg->c_frames()[1].fp;
-            const Bytes pt = cpk(m, 0x9061, 5), mat = cpk(m, 0x9055, 12), str = cpk(m, 0x9052, 3), lp = cpk(m, fp1 - 5u, 5);
-            bool all = at;
-            const char* kPaths[] = {"g_pt", "g_matrix", "g_matrix[1]", "g_str", "*p"};
-            for (const char* p : kPaths) all = all && refused_with(attempt(m, 0, p, "1"), "is an aggregate: write a member or an element");
-            all = all && refused_with(attempt(m, 1, "lp", "1"), "is an aggregate: write a member or an element");
-            check("SRCDBG-CVW-14", "aggregates are never written whole: g_pt, frame 1's lp, g_matrix, g_matrix[1], g_str and *p (a struct) are each refused `is an aggregate: "
-                                   "write a member or an element`, with their bytes unchanged",
-                  all && cpk(m, 0x9061, 5) == pt && cpk(m, 0x9055, 12) == mat && cpk(m, 0x9052, 3) == str && cpk(m, fp1 - 5u, 5) == lp);
-        }
-        {   // SRCDBG-CVW-15
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w15a", kSccz80_41.pc}, m);
-            const size_t n = m.dbg->c_frames().size();
-            const CwTry fr7 = attempt(m, 7, "g_int", "1");
-            Machine c(false, MachineType::ZXN_ISSUE2);
-            cv_load(c, "master/80cc-cvars", "w15b");
-            const bool cat = cv_run_to(c, 0x8DC6);
-            c.emu.call_stack().clear();   // CVAL-52's state: main (frame 1) has no known base
-            const CwTry base = attempt(c, 1, "lp.x", "1");
-            Machine p(false, MachineType::ZXN_ISSUE2);
-            cv_load(p, "master/sccz80-cvars", "w15c");
-            cv_run_to(p, 0x8CB9);
-            const bool pat = cv_run_to(p, 0x8B64);   // CVAL-16's stop: l_debug_push_frame's first instruction, in sum's first call
-            const CwTry unalloc = attempt(p, 1, "t", "1"), nof0 = attempt(p, 0, "t", "1");
-            check("SRCDBG-CVW-15", "frames: frame 7 is `no frame 7 (there are N)`; 80cc's main with no known base refuses `the frame base is not known`; at "
-                                   "l_debug_push_frame's first instruction sum's t (frame 1) is `not allocated` and frame 0 (assembly) has no `t`",
-                  at && cat && pat && refused_with(fr7, ("no frame 7 (there are " + std::to_string(n) + ")").c_str()) && refused_with(base, "the frame base is not known") &&
-                      refused_with(unalloc, "not allocated") && refused_with(nof0, "unknown name 't'"));
-        }
-        {   // SRCDBG-CVW-16
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w16", kSccz80_41.pc}, m);
-            const Bytes globals = cpk(m, 0x903E, 64);
-            const uint16_t fp1 = m.dbg->c_frames()[1].fp;
-            const CwTry u = attempt(m, 0, "g_uint", "-1"), i = attempt(m, 0, "g_int", "32768"), s = attempt(m, 0, "g_schar", "128"), c = attempt(m, 1, "c", "200"),
-                        p = attempt(m, 0, "g_bptr", "65536"), f = attempt(m, 0, "g_float", "1e39"), fr = attempt(m, 0, "g_int", std::string("1") + ".5"), ab = attempt(m, 0, "g_int", "abc");
-            check("SRCDBG-CVW-16", "values: g_uint = -1, g_int = 32768, g_schar = 128, frame 1's c = 200 (sccz80's char is signed), g_bptr = 65536, g_float = 1e39 (48-bit "
-                                   "overflow), g_int = a fraction and g_int = abc are each refused with the encoder's text, and nothing changes",
-                  at && refused_with(u, "out of range for unsigned int (0..65535)") && refused_with(i, "out of range for int (-32768..32767)") &&
-                      refused_with(s, "out of range for char (-128..127)") && refused_with(c, "(-128..127)") && refused_with(p, "(0..65535)") &&
-                      refused_with(f, "out of range for float (z88dk 48-bit)") && refused_with(fr, "is not an integer") && refused_with(ab, "is not a number") &&
-                      cpk(m, 0x903E, 64) == globals && cvv(m, 1, "c") == "120 'x'" && fp1 > 0);
-        }
-        {   // SRCDBG-CVW-17
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "w17.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
-                            "_gv = $9FFF ; addr, public, , t_c, data_compiler, t.c:3\n"
-                            "_gok = $9FFD ; addr, public, , t_c, data_compiler, t.c:4\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gv$0_0$0({2}SI:S),E,0,0", "t_c") +
-                                s3_rec("S:G$gok$0_0$0({2}SI:S),E,0,0", "t_c"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            m.emu.mmu().write(0x9FFF, 0x77);
-            m.emu.mmu().write(0xA000, 0x66);
-            const CwTry cross = attempt(m, 0, "gv", "1");
-            const bool ok2 = wr(m, 0, "gok", "4660").ok();
-            check("SRCDBG-CVW-17", "a 2-byte global on the last byte of its page is refused `the value crosses a page boundary` and neither page's byte changes; gok, two bytes "
-                                   "before it, is written and reads back 4660",
-                  lr.count > 0 && refused_with(cross, "the value crosses a page boundary") && cpk(m, 0x9FFF, 2) == Bytes{0x77, 0x66} && ok2 && cvv(m, 0, "gok") == "4660" &&
-                      cpk(m, 0x9FFD, 2) == Bytes{0x34, 0x12});
-        }
-        {   // SRCDBG-CVW-18
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w18", kSccz80_41.pc}, m);
-            const Bytes fl = cpk(m, 0x9099, 4);
-            const CwTry t = attempt(m, 0, "g_flags.lo", "1");
-            check("SRCDBG-CVW-18", "U2: sccz80's g_flags.lo (an overlapping bitfield-like member) is refused with `bitfield layout unknown (z88dk U2)` and _g_flags stays",
-                  at && refused_with(t, "bitfield layout unknown (z88dk U2)") && cpk(m, 0x9099, 4) == fl);
-        }
-        {   // SRCDBG-CVW-19
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w19", kSccz80_41.pc}, m);
-            CwTry rzx;
-            {
-                m.emu.rzx_player().start(RzxRecording{});
-                rzx = attempt(m, 0, "g_int", "1");
-                m.emu.rzx_player().stop();
+            const bool at = cv_run_to(m, c.ffast);
+            const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+            const bool u1 = at && !x.ok && x.why.find("location unknown") != std::string::npos && x.why.find("U1") != std::string::npos;
+            const bool at2 = cv_run_to(m, c.fcallee);
+            const bool callee = at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4";
+            if (!u1 || !callee) {
+                ok = false;
+                seen += std::string(" ") + c.fx;
             }
-            const CwTry nul = attempt(m, 0, "*g_bptr", "1");
-            const bool set_ptr = wr(m, 0, "g_bptr", "$0010").ok();   // slot 0 is ROM
-            const CwTry rom = attempt(m, 0, "*g_bptr", "1");
-            Machine d(false, MachineType::ZXN_ISSUE2);
-            d.dbg->load_source_map((kZ88Fixtures / "master/sccz80-dot/prog.map").string(), false, false, /*dot_only=*/true);
-            uint8_t* bank2 = d.emu.divmmc().ram_data() + 2 * 0x2000;
-            bank2[0x3253 & 0x1FFF] = 200;
-            const CwTry dot = attempt(d, 0, "total", "7");
-            check("SRCDBG-CVW-19", "backend refusals: under an RZX playback g_int = 1 is RefusedRzx; *g_bptr with g_bptr NULL is the null-pointer refusal; with g_bptr = $0010 (ROM) "
-                                   "*g_bptr = 1 is RefusedReadOnly, `0 of 1 bytes landed (the rest is read-only)`, landed 0; a dot command's `total` (DivMMC RAM bank 2) "
-                                   "is Unsupported with the DivMMC text and its byte unchanged; none bumps the revision",
-                  at && !rzx.w.ok() && rzx.w.status == Result::RefusedRzx && rzx.quiet && cpk(m, 0x903E, 2) == Bytes{0xFB, 0xFF} && !nul.w.ok() && nul.quiet &&
-                      nul.w.why.find("null") != std::string::npos && set_ptr && !rom.w.ok() && rom.w.status == Result::RefusedReadOnly && rom.w.landed == 0 && rom.quiet &&
-                      rom.w.why == "0 of 1 bytes landed (the rest is read-only)" && !dot.w.ok() && dot.w.status == Result::Unsupported && dot.quiet &&
-                      dot.w.why == "DivMMC RAM bank 2 cannot be written by the debugger (unsupported)" && bank2[0x3253 & 0x1FFF] == 200);
         }
-        {   // SRCDBG-CVW-20
-            Machine none(false, MachineType::ZXN_ISSUE2);
-            const CwTry a = attempt(none, 0, "g_int", "1");
-            Machine sldm(false, MachineType::ZXN_ISSUE2);
-            const std::string sld = (z / "w20.sld").string();
-            write_text(sld, "|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,slots.adr:0,8192,16384,24576,32768,40960,49152,57344\nmain.bas|10||0|0|32768|T|\n");
-            sldm.dbg->load_source_map(sld, true);
-            const CwTry b = attempt(sldm, 0, "g_int", "1");
-            const fs::path d = var_dir("w20", "master/sccz80-cvars");
-            Machine st(false, MachineType::ZXN_ISSUE2);
-            z88_load(st, d / "prog.nex");
-            st.dbg->load_source_map((d / "prog.map").string(), false);
-            st.dbg->reset(st.a, ResetKind::Soft);
-            st.dbg->run(st.a);
-            const uint8_t was = st.emu.mmu().peek(0x8CB5);
-            st.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
-            for (int i = 0; i < 5; ++i) st.emu.run_frame();
-            st.dbg->pause(st.a);
-            const CwTry c = attempt(st, 0, "g_int", "1");
-            check("SRCDBG-CVW-20", "no store: no map attached, an SLD map and a stale user map each refuse with c_variables_status()'s own text",
-                  !none.dbg->c_variables_status().why.empty() && refused_with(a, none.dbg->c_variables_status().why.c_str()) &&
-                      refused_with(b, sldm.dbg->c_variables_status().why.c_str()) && b.w.why.find("SLD") != std::string::npos &&
-                      refused_with(c, "the source map is stale: ") && c.w.why == st.dbg->c_variables_status().why);
-        }
-        {   // SRCDBG-CVW-21
+        {   // zsdcc: x is the register HL at ffast's entry (a frameless function), fcallee's arguments are on the stack above its return address
             Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w21", kSccz80_41.pc}, m);
-            m.dbg->c_frames();
-            const uint64_t rev0 = m.dbg->state_revision();
-            Dbg::CWriteResult w;
-            const std::string log = debugger_log_of([&] { w = wr(m, 0, "t", "1000"); });
-            const uint64_t rev1 = m.dbg->state_revision();
-            m.dbg->read_c_value(0, "t");
-            m.dbg->c_locals(0);
-            const uint64_t rev2 = m.dbg->state_revision();
-            size_t lines = 0;
-            for (size_t at_ = log.find("MUTATE"); at_ != std::string::npos; at_ = log.find("MUTATE", at_ + 1)) ++lines;
-            check("SRCDBG-CVW-21", "one successful write advances state_revision() by exactly 1 and logs exactly one MUTATE line naming the client; reading it back moves nothing",
-                  at && w.ok() && rev1 == rev0 + 1 && lines == 1 && log.find("by " + std::to_string(m.a)) != std::string::npos && rev2 == rev1);
+            const fs::path d = var_dir("c39c", "master/sdcc-fc");
+            z88_copy_lis("master/sdcc-fc", d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const bool at = cv_run_to(m, 0x8C48);
+            const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+            const bool at2 = cv_run_to(m, 0x8C4A);
+            if (!(at && x.ok && x.value == "3" && x.where.kind == Dbg::CWhere::Kind::Register && at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4")) {
+                ok = false;
+                seen += " zsdcc";
+            }
         }
-        {   // SRCDBG-CVW-22
+        {   // 80cc: x is pushed at fp - 2 after the four prologue instructions (push ix; ld ix,0; add ix,sp; push hl); its record is B,1,-2 (correct)
             Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({kSccz80_41.fixture, "w22", kSccz80_41.pc}, m);
-            const uint16_t fp = m.dbg->c_frames()[0].fp;
-            const Dbg::CWriteResult t = wr(m, 0, "t", "1000"), c = wr(m, 0, "sum::calls", "10");
-            check("SRCDBG-CVW-22", "the result: t = 1000 is Ok with old_value 122, value 1000, type int, where = Cpu at fp-2 and landed 2; sum::calls = 10 is where = Page 4 at "
-                                   "$90A0, landed 1",
-                  at && t.ok() && t.old_value == "122" && t.value == "1000" && t.type == "int" && t.where.kind == Dbg::CWhere::Kind::Cpu && t.where.cpu == static_cast<uint16_t>(fp - 2) &&
-                      t.landed == 2 && c.ok() && c.where.kind == Dbg::CWhere::Kind::Page && c.where.source.space == MemSpace::page(4) && c.where.source.address == 0x90A0 &&
-                      c.landed == 1);
+            const fs::path d = var_dir("c39d", "master/80cc-fc");
+            z88_copy_lis("master/80cc-fc", d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const bool at = cv_run_to(m, 0x8C6B);
+            const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+            const bool at2 = cv_run_to(m, 0x8C74);
+            if (!(at && x.ok && x.value == "3" && x.where.kind == Dbg::CWhere::Kind::Cpu && at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4")) {
+                ok = false;
+                seen += " 80cc";
+            }
         }
-        {   // SRCDBG-CVW-23
-            // a 2-byte object on $3FFF: the first byte is ROM, the second is RAM. poke() lands the RAM byte, logs one MUTATE line and bumps the revision once,
-            // and answers RefusedReadOnly: a refusal that carries the bump of the bytes that landed
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "w23.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
-                            "_gp = $8100 ; addr, public, , t_c, data_compiler, t.c:1\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gp$0_0$0({2}DG,SI:S),E,0,0", "t_c"));
-            const auto lr = m.dbg->load_source_map(map, true);
-            m.emu.mmu().write(0x8100, 0xFF);
-            m.emu.mmu().write(0x8101, 0x3F);   // gp = $3FFF
-            m.emu.mmu().write(0x4000, 0x55);
-            const uint8_t rom0 = m.emu.mmu().peek(0x3FFF);
-            m.dbg->c_frames();
-            const uint64_t rev = m.dbg->state_revision();
-            Dbg::CWriteResult w;
-            const std::string log = debugger_log_of([&] { w = wr(m, 0, "*gp", "4660"); });   // $1234
-            size_t lines = 0;
-            for (size_t at_ = log.find("MUTATE"); at_ != std::string::npos; at_ = log.find("MUTATE", at_ + 1)) ++lines;
-            check("SRCDBG-CVW-23", "a 2-byte int through a pointer at $3FFF (ROM, then RAM): RefusedReadOnly `1 of 2 bytes landed (the rest is read-only)`, landed 1, the RAM byte at $4000 "
-                                   "is the high byte $12 and the ROM byte is unchanged, exactly one MUTATE line and the revision up by exactly 1",
-                  lr.count > 0 && !w.ok() && w.status == Result::RefusedReadOnly && w.landed == 1 && w.why == "1 of 2 bytes landed (the rest is read-only)" &&
-                      m.emu.mmu().peek(0x4000) == 0x12 && m.emu.mmu().peek(0x3FFF) == rom0 && lines == 1 && m.dbg->state_revision() == rev + 1,
-                  w.why + " landed=" + std::to_string(w.landed) + " lines=" + std::to_string(lines) + " rev " + std::to_string(rev) + "->" + std::to_string(m.dbg->state_revision()));
-        }
+        check("SRCDBG-CVAL-39", "fc.c: ffast's x is `location unknown (z88dk U1...)` on both sccz80 installs (a listed fastcall function whose parameter is recorded at its nominal "
+                                "slot), 3 from HL on zsdcc and 3 at fp - 2 on 80cc; fcallee's a and b are 4 at its entry on all four",
+              ok, seen);
+    }
+}
 
-        // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
-        // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
-        // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
-        const std::string k3233 = "80cc may not keep it in the frame slot";   // the part of the 80cc note that names it
-        const auto zb_at = [&](Machine& m, const char* fixture, const char* tag, const char* line, uint16_t pc, bool lis = false) {
-            const fs::path d = var_dir(tag, fixture);
-            if (lis) z88_copy_lis(fixture, d);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            return cv_starts_at(m, line, pc) && cv_run_to(m, pc);
+[[gnu::noinline]] static void srcdbg_part_44(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    {   // SRCDBG-CVAL-40
+        // the same sccz80 build with NO listing beside the map: nothing flags ffast fastcall, but its entry does (OD-A, GH #438): `call l_debug_push_frame; push hl`
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const fs::path d = var_dir("c40", "master/sccz80-fc");   // z88_copy: the map, the NEX and the section binaries, no .lis
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const bool at = cv_run_to(m, 0x8C62);
+        const bool entry = m.emu.mmu().peek(0x8C62) == 0xCD && m.emu.mmu().peek(0x8C65) == 0xE5;   // call l_debug_push_frame (fc.c.lis: 0000 cd0000, 0003 e5 push hl)
+        const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+        check("SRCDBG-CVAL-40", "ffast's x with no listing is refused `location unknown (z88dk U1...)`: its entry is `call l_debug_push_frame; push hl` (the prologue is the fastcall evidence)",
+              at && entry && !x.ok && x.why.find("location unknown (z88dk U1") == 0);
+    }
+    {   // SRCDBG-CVAL-41
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master/sccz80-cvars", "c41", 0x8D3E}, m);
+        const auto err = [&](size_t k, const char* path) {
+            const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+            return r.ok ? std::string("ok") : r.why;
         };
-        const auto note80 = [&](const std::vector<std::string>& notes) {
-            for (const auto& n : notes)
-                if (n.find(k3233) != std::string::npos) return true;
-            return false;
+        check("SRCDBG-CVAL-41", "C paths on the machine at vars.c:41: g_matrix[1][2] = 6, g_pt.tag = 3, p->y = 4, *p, g_str[1] = 105 'i', g_cptr[2] = 99 'c', lp.x = 3 (frame 1), "
+                                "sum::calls = 1, other.c::s_dup = 4; refusals: g_matrix[2][0] (index 2 out of range [0, 2)), g_pt.z (no member 'z'), g_int.x (not a struct), "
+                                "*g_int (not a pointer), nosuch (unknown name 'nosuch'), g_head->next->val (null pointer: g_head is not set yet); sum::calls reads from frame 1 (a static local from any frame), sum::t is refused from main",
+              at && cvv(m, 0, "g_matrix[1][2]") == "6" && cvv(m, 0, "g_pt.tag") == "3" && cvv(m, 0, "p->y") == "4" && cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" &&
+                  cvv(m, 0, "g_str[1]") == "105 'i'" && cvv(m, 0, "g_cptr[2]") == "99 'c'" && cvv(m, 1, "lp.x") == "3" && cvv(m, 0, "sum::calls") == "1" &&
+                  cvv(m, 0, "other.c::s_dup") == "4" && cvv(m, 0, "vars.c::s_dup") == "0" && err(0, "g_matrix[2][0]") == "index 2 out of range [0, 2)" &&
+                  err(0, "g_pt.z") == "no member 'z'" && err(0, "g_int.x") == "not a struct" && err(0, "*g_int") == "not a pointer" &&
+                  err(0, "nosuch") == "unknown name 'nosuch'" && err(0, "g_head->next->val") == "null pointer" && err(5, "g_int").find("no frame 5") == 0 &&
+                  err(0, "g_pt.").find("member name") != std::string::npos && cvv(m, 1, "sum::calls") == "1" &&
+                  err(1, "sum::t") == "'t' is a local of sum, which frame 1 is not" && err(0, "nosuchfn::x") == "no function 'nosuchfn'");
+    }
+    {   // SRCDBG-CVAL-42
+        // g_flags poked with 8D C8: zsdcc decodes the bitfields exactly; sccz80 and 80cc write overlapping ints (z88dk U2) and say so
+        const auto flags_at = [&](Machine& m) {
+            const Dbg::CValueResult r = m.dbg->read_c_value(0, "g_flags");
+            const uint8_t b[2] = {0x8D, 0xC8};
+            if (r.where.kind == Dbg::CWhere::Kind::Page) m.dbg->poke(m.a, r.where.source.space, r.where.source.address & 0x1FFF, 2, b);
+            return m.dbg->read_c_value(0, "g_flags");
         };
-        const auto u1 = [](const Dbg::CValueResult& r) { return !r.ok && r.why.find("location unknown (z88dk U1") == 0; };
-        // main's `while (1);`: its loop head. The first jump of main (jp, or jr) that lands on or before itself, inside main, found from the entry: sccz80's
-        // `jp i_6` is a jump to itself, 80cc's `ld a,1; or a; jp nz,L_f2_bb_1` jumps back to its `ld a,1`
-        const auto spin_pc = [&](Machine& m, const char* fn) -> int {
-            const auto e = cw_entry(m, fn);
-            if (!e) return -1;
-            const auto at = [&](unsigned a) { return static_cast<unsigned>(m.emu.mmu().peek(static_cast<uint16_t>(a))); };
-            for (unsigned pc = e->address; pc < e->address + 0xC0u; ++pc) {
-                const unsigned op = at(pc);
-                unsigned target = 0;
-                if (op == 0xC3 || op == 0xC2 || op == 0xCA || op == 0xD2 || op == 0xDA || op == 0xE2 || op == 0xEA || op == 0xF2 || op == 0xFA)
-                    target = at(pc + 1) | at(pc + 2) << 8;
-                else if (op == 0x18 || op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38)
-                    target = pc + 2u + static_cast<unsigned>(static_cast<int8_t>(at(pc + 1)));
-                if (target >= e->address && target <= pc) return static_cast<int>(target);
-            }
-            return -1;
-        };
-        const auto spin_at = [&](Machine& m, const char* fixture, const char* tag) {
-            const fs::path d = var_dir(tag, fixture);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const int pc = spin_pc(m, "main");
-            return pc >= 0 && cv_run_to(m, static_cast<uint16_t>(pc));
-        };
-        {   // SRCDBG-ZB-01
+        Machine z(false, MachineType::ZXN_ISSUE2);
+        const bool zat = at41({"master/sdcc-cvars", "c42a", 0x8C97}, z);
+        const Dbg::CValueResult zf = flags_at(z);
+        Machine c(false, MachineType::ZXN_ISSUE2);
+        const bool cat = at41({"master/sccz80-cvars", "c42b", 0x8D3E}, c);
+        const Dbg::CValueResult cf = flags_at(c);
+        check("SRCDBG-CVAL-42", "g_flags = 8D C8: zsdcc reads lo = 5, mid = 17, hi = 200; sccz80 shows the storage units marked `bitfield layout unknown (z88dk U2)`",
+              zat && zf.ok && zf.value == "{lo = 5, mid = 17, hi = 200}" && has_note(zf, "U2") == false && cat && cf.ok && has_note(cf, "bitfield layout unknown (z88dk U2)") &&
+                  cf.value.find("hi = 200") != std::string::npos);
+    }
+    {   // SRCDBG-CVAL-43
+        struct Oth { const char* fx; const char* tag; uint16_t pc; };
+        bool ok = true;
+        std::string seen;
+        for (const Oth& c : {Oth{"master/sccz80-cvars", "c43a", 0x8E49}, Oth{"master/sdcc-cvars", "c43b", 0x8D49}, Oth{"master/80cc-cvars", "c43c", 0x8DC6}}) {
             Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({k80cc_41.fixture, "zb01a", k80cc_41.pc}, m);
-            const auto loc = m.dbg->c_locals(0);
-            bool all = at && loc.ok;
-            std::string seen;
-            for (const char* n : {"a", "b", "p", "k", "t", "acc", "inner"}) {
-                const auto* row = row_of(loc.rows, n);
-                if (!(row && note80(row->notes))) { all = false; seen += std::string(" ") + n; }
+            cv_load(m, c.fx, c.tag);
+            const bool at = cv_run_to(m, c.pc);
+            const bool good = at && cvv(m, 0, "q") == "599" && cvv(m, 0, "res") == "1202" && cvv(m, 0, "s_dup") == "4";
+            if (!good) {
+                ok = false;
+                seen += std::string(" ") + c.fx;
             }
-            const auto* calls = row_of(loc.rows, "calls");
-            const Dbg::CValueResult t = m.dbg->read_c_value(0, "t"), lp = m.dbg->read_c_value(1, "lp"), g = m.dbg->read_c_value(0, "g_int"), sc = m.dbg->read_c_value(0, "sum::calls");
-            bool globals = true;
-            for (const auto& r : m.dbg->c_globals()) globals = globals && !note80(r.notes);
-            // no sccz80 or zsdcc local carries it
-            bool others = true;
-            int n = 0;
-            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "zb01b", 0x8D3E}, SumAt{"master/sdcc-cvars", "zb01c", 0x8C97}, SumAt{"v2.4/sccz80-cvars", "zb01d", 0x8D3E}}) {
-                Machine o(false, MachineType::ZXN_ISSUE2);
-                others = others && at41(c, o);
-                for (const auto& r : o.dbg->c_locals(0).rows) { others = others && !note80(r.notes); ++n; }
-                others = others && !note80(o.dbg->read_c_value(1, "lp").notes);
-            }
-            check("SRCDBG-ZB-01", "master 80cc-cvars at vars.c:41: a, b, p, k, t, acc and inner carry the 80cc note in c_locals(0), t does in read_c_value(0, \"t\") and frame 1's lp "
-                                  "does; read_c_value of the block local inner also says `scope unknown`; sum::calls, g_int and every global do not; no sccz80 or zsdcc local does",
-                  all && calls && !note80(calls->notes) && t.ok && note80(t.notes) && has_note(m.dbg->read_c_value(0, "inner"), "scope unknown") && !has_note(t, "scope unknown") && lp.ok && note80(lp.notes) && g.ok && !note80(g.notes) && sc.ok && !note80(sc.notes) && globals && others && n > 12,
-                  seen + " n=" + std::to_string(n));
         }
-        {   // SRCDBG-ZB-02
-            // u5.c (z88dk#3233's program): twice(v): r = v + v; r = r + 1. At line 7's start r is in A (the listing's `add a,a`), v = 3, and r's slot was never written
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = zb_at(m, "master/80cc-u5", "zb02", "u5.c:7", 0x8C6C);
-            const unsigned a = m.dbg->registers().AF >> 8;
-            const Dbg::CValueResult r = m.dbg->read_c_value(0, "r"), v = m.dbg->read_c_value(0, "v");
-            check("SRCDBG-ZB-02", "master 80cc-u5 at `r = r + 1;`: A is 6 (v + v, v = 3), r is read from its slot with the 80cc note and the slot does not hold 6 (the stale value the note warns of)",
-                  at && a == 6 && r.ok && note80(r.notes) && r.value != "6" && v.ok && v.value == "3" && note80(v.notes), "A=" + std::to_string(a) + " r=" + (r.ok ? r.value : r.why));
-        }
-        {   // SRCDBG-ZB-03
-            // U1 per function. fc.c: ffast's x is pushed after `call l_debug_push_frame` (the stop is entry + 4, after `push hl`). fm.c: fm(a, b) fastcall, y = a - b = 5 at `return y;`
-            Machine f(false, MachineType::ZXN_ISSUE2);
-            const bool fat = zb_at(f, "master-fixed/sccz80-fc", "zb03a", "fc.c:3", 0x8C62, true) && cv_run_to(f, 0x8C66);
-            const Dbg::CValueResult fx = f.dbg->read_c_value(0, "x");
-            const uint16_t fp = f.dbg->c_frames()[0].fp;
-            Machine g(false, MachineType::ZXN_ISSUE2);
-            const bool gat = zb_at(g, "master-fixed/sccz80-fm", "zb03b", "fm.c:7", 0x8C92, true);
-            Machine p(false, MachineType::ZXN_ISSUE2);
-            const bool pat = zb_at(p, "master/sccz80-fm", "zb03c", "fm.c:7", 0x8C92, true);
-            Machine c(false, MachineType::ZXN_ISSUE2);
-            const bool cat = zb_at(c, "master/80cc-fm", "zb03d", "fm.c:7", 0x8C68, true);
-            const Dbg::CValueResult ca = c.dbg->read_c_value(0, "a"), cb = c.dbg->read_c_value(0, "b");
-            check("SRCDBG-ZB-03", "U1 per function: master-fixed sccz80-fc at ffast's `push hl`: x = 3 at fp-2 (Cpu), no U1; master-fixed fm at `return y;`: a = 7, b = 2, y = 5; master (pre-fix) "
-                                  "sccz80 fm: a and b refused with U1, y = 5; master 80cc fm: a = 7 with no U1 and with the 80cc note, b has no U1 but the 80cc note and reads y's 5 "
-                                  "(its record -2 is y's slot: z88dk#3233 before PR #3244) and both b and y carry `shares its stack slot with <the other>`",
-                  fat && fx.ok && fx.value == "3" && fx.where.kind == Dbg::CWhere::Kind::Cpu && fx.where.cpu == static_cast<uint16_t>(fp - 2) && !u1(fx) &&
-                      gat && cvv(g, 0, "a") == "7" && cvv(g, 0, "b") == "2" && cvv(g, 0, "y") == "5" && pat && u1(p.dbg->read_c_value(0, "a")) && u1(p.dbg->read_c_value(0, "b")) &&
-                      cvv(p, 0, "y") == "5" && cat && ca.ok && ca.value == "7" && !u1(ca) && note80(ca.notes) && cb.ok && !u1(cb) && note80(cb.notes) && cb.value == "5" && cvv(c, 0, "y") == "5" &&
-                      has_note(cb, jnext::dbg::c_shares_note("y").c_str()) && has_note(c.dbg->read_c_value(0, "y"), jnext::dbg::c_shares_note("b").c_str()) && !has_note(ca, "shares its stack slot"),
-                  "x=" + (fx.ok ? fx.value : fx.why) + " b80=" + (cb.ok ? cb.value : cb.why));
-        }
-        {   // SRCDBG-ZB-04
-            // no listing beside any of these maps: the entry bytes decide. ffast: `call l_debug_push_frame; push hl`; fcallee's entry is the same call but no `push hl` after it
-            const auto ffast_x = [&](const char* fixture, const char* tag, uint16_t pc) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = zb_at(m, fixture, tag, "fc.c:3", 0x8C62) && (pc == 0x8C62 || cv_run_to(m, pc));
-                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
-                return std::make_pair(at, x);
-            };
-            const auto pre24 = ffast_x("v2.4/sccz80-fc", "zb04a", 0x8C62), prem = ffast_x("master/sccz80-fc", "zb04b", 0x8C62), fixd = ffast_x("master-fixed/sccz80-fc", "zb04c", 0x8C66);
-            bool callee = true;
-            for (const SumAt& c : {SumAt{"v2.4/sccz80-fc", "zb04d", 0x8C74}, SumAt{"master/sccz80-fc", "zb04e", 0x8C74}, SumAt{"master-fixed/sccz80-fc", "zb04f", 0x8C74}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, c.fixture, c.tag);
-                callee = callee && cv_run_to(m, c.pc) && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4";
-            }
-            // the shapes of the evidence, poked into master's entry (not yet executed, at $8C62; l_debug_push_frame is $8B5C): `call l_debug_push_frame; push de; push hl` (a 32-bit parameter) is evidence;
-            // `call l_debug_push_frame; push de` alone and a call to another address are not
-            const auto poked = [&](const char* tag, std::initializer_list<std::pair<uint16_t, uint8_t>> pokes) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = zb_at(m, "master/sccz80-fc", tag, "fc.c:3", 0x8C62);
-                for (const auto& pk : pokes) m.emu.mmu().write(pk.first, pk.second);
-                return std::make_pair(at, m.dbg->read_c_value(0, "x"));
-            };
-            const auto de_hl = poked("zb04h", {{0x8C65, 0xD5}, {0x8C66, 0xE5}}), de_only = poked("zb04i", {{0x8C65, 0xD5}, {0x8C66, 0xC5}}),
-                       other_call = poked("zb04j", {{0x8C63, 0x5D}});
-            check("SRCDBG-ZB-04", "no listing (the entry bytes are the evidence): v2.4 and master sccz80-fc's ffast x is refused with U1, master-fixed's is 3; fcallee's a and b are 4 on all three "
-                                  "(`call l_debug_push_frame` is not enough: only `push hl` after it marks a fastcall function); poked into master's entry, `call l_debug_push_frame; push de; "
-                                  "push hl` is evidence too, `push de` alone and a call to another address are not",
-                  pre24.first && u1(pre24.second) && prem.first && u1(prem.second) && fixd.first && fixd.second.ok && fixd.second.value == "3" && callee && de_hl.first && u1(de_hl.second) &&
-                      de_only.first && !u1(de_only.second) && other_call.first && !u1(other_call.second));
-        }
-        {   // SRCDBG-ZB-05
-            // z88dk#3231: with start/width records the bitfields of g_flags are exact. g_flags poked 8D C8: lo = 5, mid = 17 (byte 0), hi = 200 (byte 1)
-            std::string seen;
-            bool ok = true;
-            for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb05a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb05b", 0x8CB0}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = at41(c, m);
-                const Dbg::CValueResult r0 = m.dbg->read_c_value(0, "g_flags");
-                const uint8_t b[2] = {0x8D, 0xC8};
-                if (r0.where.kind == Dbg::CWhere::Kind::Page) m.dbg->poke(m.a, r0.where.source.space, r0.where.source.address & 0x1FFF, 2, b);
-                const Dbg::CValueResult r = m.dbg->read_c_value(0, "g_flags");
-                if (!(at && r.ok && r.value == "{lo = 5, mid = 17, hi = 200}" && r.notes.empty())) { ok = false; seen += std::string(" ") + c.fixture + ":" + (r.ok ? r.value : r.why); }
-            }
-            check("SRCDBG-ZB-05", "master-fixed sccz80-cvars and 80cc-cvars, g_flags poked 8D C8: {lo = 5, mid = 17, hi = 200} with no note (the SB records are exact)", ok, seen);
-        }
-        {   // SRCDBG-ZB-06
-            // bits.c at `while (1);` (line 15): g_bf, l_bf, g_one. The expected text is the C program's own: lo 5, mid 17, hi 200, neg -3, wide 2748, tag 66; g_one.s = -3
-            const std::string good = "{lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'}";   // tag is a uint8_t: a printable byte shows its character
-            const auto child_type = [&](Machine& m, const char* path, const char* member) {
-                for (const auto& r : m.dbg->c_children(0, path, 0, 16).rows)
-                    if (r.name == member) return r.type;
-                return std::string("-");
-            };
-            struct Bt { const char* fx; const char* tag; uint16_t pc; bool fixed; bool c80; bool zs; };
-            std::string seen;
-            bool ok = true;
-            for (const Bt& c : {Bt{"master-fixed/sccz80-bits", "zb06a", 0x8CE1, true, false, false}, Bt{"master-fixed/80cc-bits", "zb06b", 0x8CFE, true, true, false},
-                                Bt{"master/sdcc-bits", "zb06c", 0x8CB3, true, false, true}, Bt{"master/sccz80-bits", "zb06d", 0x8CE1, false, false, false},
-                                Bt{"master/80cc-bits", "zb06e", 0x8CFE, false, true, false}, Bt{"v2.4/sccz80-bits", "zb06f", 0x8CE1, false, false, false}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = zb_at(m, c.fx, c.tag, "bits.c:15", c.pc);
-                const Dbg::CValueResult gb = m.dbg->read_c_value(0, "g_bf"), lb = m.dbg->read_c_value(0, "l_bf"), go = m.dbg->read_c_value(0, "g_one");
-                bool one;
-                bool marked = true;
-                if (c.fixed) {
-                    one = go.ok && go.value == (c.zs ? "{s = -3}" : "{s = 13}") && child_type(m, "g_bf", "neg") == "int :4" && child_type(m, "g_bf", "lo") == "unsigned int :3" &&
-                          child_type(m, "g_one", "s") == (c.zs ? "int :4" : "unsigned int :4");
-                    marked = gb.ok && gb.value == good && gb.notes.empty() && lb.ok && lb.value == good && note80(lb.notes) == c.c80 && !note80(gb.notes);
+        check("SRCDBG-CVAL-43", "in other(599) at its `return res`: q = 599, res = 1202 (zsdcc: from HL) and the file static s_dup of other.c is 4, on all three compilers", ok, seen);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_45(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    {   // SRCDBG-CVAL-44
+        const auto esc = [](const std::string& t) {
+            std::string o;
+            for (const unsigned char c : t) {
+                if (std::isalpha(c)) {
+                    o += static_cast<char>(c);
                 } else {
-                    // whole-int records: lo, mid, hi and neg are U2-marked, tag is read right; g_one's `{2}SI:U` lies beyond its 1-byte struct
-                    const std::string mark = "[bitfield layout unknown (z88dk U2)]";
-                    marked = gb.ok && gb.value.find("tag = 66 'B'") != std::string::npos && gb.value.find("lo = ") != std::string::npos;
-                    for (const char* mem : {"lo", "mid", "hi", "neg"}) {
-                        const size_t at2 = gb.value.find(std::string(mem) + " = ");
-                        marked = marked && at2 != std::string::npos && gb.value.substr(at2, gb.value.find_first_of(",}", at2) - at2).find(mark) != std::string::npos;
-                    }
-                    marked = marked && lb.ok && lb.value.find("tag = 66 'B'") != std::string::npos && note80(lb.notes) == c.c80;
-                    one = !go.ok && go.why.find("lies beyond the object") != std::string::npos;
-                }
-                if (!(at && one && marked)) { ok = false; seen += std::string(" ") + c.fx + " at=" + std::to_string(at) + " one=" + std::to_string(one) + " marked=" + std::to_string(marked) + " gb=" + (gb.ok ? gb.value : gb.why); }
-            }
-            check("SRCDBG-ZB-06", "bits.c at `while (1);`: g_bf and l_bf are {lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'} on master-fixed sccz80 and 80cc and master zsdcc, neg is `int :4` and lo "
-                                  "`unsigned int :3`; g_one = {s = 13} on fixed sccz80 and 80cc (an int bitfield is unsigned there), {s = -3} on zsdcc; the pre-fix records (v2.4 and master sccz80, "
-                                  "master 80cc) mark lo, mid, hi and neg U2 and read tag = 66 'B', and refuse g_one; the 80cc locals carry the 80cc note, nothing else does",
-                  ok, seen);
-        }
-        {   // SRCDBG-ZB-07
-            // blocks.c (f: t; an `if` block p; a `for` with i; blocks u, v, z / g2: q, a `for (;;)` body w / h: m, a `for` with j) at the first hit of each line, on every sccz80:
-            // the C program computes t = 3 -> 9 -> 12 -> 24, u = 12, v = 12, z = 13, w = 4, h's t = 5 -> 6, m = 5, j = 0. A name listed with a value that is not its own carries `shares`
-            struct Bz { const char* fx; const char* tag; bool fixed; };
-            std::string seen;
-            bool ok = true;
-            const auto shares_of = [&](Machine& m, const char* name) {
-                for (const auto& n : m.dbg->read_c_value(0, name).notes)
-                    if (n.find("shares its stack slot with ") == 0) return n;
-                return std::string();
-            };
-            const auto listed = [&](Machine& m, const char* name) { return row_of(m.dbg->c_locals(0).rows, name) != nullptr; };
-            // the Variables tab's rows (c_locals) carry the same note as read_c_value
-            const auto row_shares = [&](Machine& m, const char* name) {
-                const auto rows = m.dbg->c_locals(0).rows;
-                const auto* r = row_of(rows, name);
-                if (r)
-                    for (const auto& n : r->notes)
-                        if (n.find("shares its stack slot with ") == 0) return n;
-                return std::string();
-            };
-            for (const Bz& c : {Bz{"v2.4/sccz80-blocks", "zb07a", false}, Bz{"master/sccz80-blocks", "zb07b", false}, Bz{"master-fixed/sccz80-blocks", "zb07c", true}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, c.fx, c.tag);
-                const bool f8 = cv_starts_at(m, "blocks.c:8", 0x8CB4) && cv_run_to(m, 0x8CB4);
-                const bool a8 = cvv(m, 0, "t") == "3" && cvv(m, 0, "p") == "6" && (c.fixed ? !listed(m, "i") : (listed(m, "i") && shares_of(m, "p") == jnext::dbg::c_shares_note("i") && shares_of(m, "i") == jnext::dbg::c_shares_note("p") &&
-                                                                                    row_shares(m, "p") == jnext::dbg::c_shares_note("i") && row_shares(m, "i") == jnext::dbg::c_shares_note("p")));
-                const bool f11 = cv_starts_at(m, "blocks.c:11", 0x8CDD) && cv_run_to(m, 0x8CDD);
-                const bool a11 = cvv(m, 0, "t") == "9" && (c.fixed ? cvv(m, 0, "i") == "0" && !listed(m, "p") : (!listed(m, "i") && !listed(m, "p")));
-                const bool f17 = cv_starts_at(m, "blocks.c:17", 0x8CF7) && cv_run_to(m, 0x8CF7);
-                const bool a17 = cvv(m, 0, "t") == "12" && cvv(m, 0, "u") == "12" && cvv(m, 0, "v") == "12" &&
-                                 (c.fixed ? shares_of(m, "v") == jnext::dbg::c_shares_note("z") && shares_of(m, "z") == jnext::dbg::c_shares_note("v") && row_shares(m, "v") == jnext::dbg::c_shares_note("z") &&
-                                                  row_shares(m, "z") == jnext::dbg::c_shares_note("v") : (shares_of(m, "v").empty() && !listed(m, "z")));
-                const bool f20 = cv_starts_at(m, "blocks.c:20", 0x8D0E) && cv_run_to(m, 0x8D0E);
-                const bool a20 = cvv(m, 0, "t") == "24" && cvv(m, 0, "u") == "12" && !listed(m, "v") && (c.fixed ? cvv(m, 0, "z") == "13" && shares_of(m, "z").empty() : !listed(m, "z"));
-                const bool g32 = cv_starts_at(m, "blocks.c:32", 0x8D42) && cv_run_to(m, 0x8D42);
-                const bool ag = cvv(m, 0, "w") == "4" && !listed(m, "q");
-                const bool h42 = cv_starts_at(m, "blocks.c:42", 0x8D7A) && cv_run_to(m, 0x8D7A);
-                const bool ah = cvv(m, 0, "t") == "5" && cvv(m, 0, "m") == "5" && cvv(m, 0, "j") == "0";
-                const bool h44 = cv_starts_at(m, "blocks.c:44", 0x8D90) && cv_run_to(m, 0x8D90);
-                const bool ah2 = cvv(m, 0, "t") == "6" && cvv(m, 0, "m") == "5" && !listed(m, "j");
-                if (!(f8 && a8 && f11 && a11 && f17 && a17 && f20 && a20 && g32 && ag && h42 && ah && h44 && ah2)) {
-                    ok = false;
-                    seen += std::string(" ") + c.fx + ":" + (f8 ? "" : "!f8") + (a8 ? "" : "!a8") + (f11 ? "" : "!f11") + (a11 ? "" : "!a11") + (f17 ? "" : "!f17") + (a17 ? "" : "!a17") + (f20 ? "" : "!f20") +
-                            (a20 ? "" : "!a20") + (g32 ? "" : "!g32") + (ag ? "" : "!ag") + (h42 ? "" : "!h42") + (ah ? "" : "!ah") + (h44 ? "" : "!h44") + (ah2 ? "" : "!ah2");
+                    char b[8];
+                    std::snprintf(b, sizeof b, "_%02x", c);
+                    o += b;
                 }
             }
-            check("SRCDBG-ZB-07", "blocks.c at the first hit of f:8 (t 3, p 6), f:11 (t 9), f:17 (t, u, v = 12, 12, 12), f:20 (t 24, u 12), g2:32 (w 4, not q), h:42 (t 5, m 5, j 0) and h:44 (t 6, m 5, no j) on v2.4, "
-                                  "master and master-fixed sccz80: v2.4 and master list `i` at f:8 sharing p's slot (both marked, neither hidden) and not at f:11 or f:20's z; master-fixed lists i = 0 at f:11, z = 13 "
-                                  "at f:20 and marks v/z at f:17",
-                  ok, seen);
+            return o;
+        };
+        const auto why_of = [&](Machine& m) { return m.dbg->c_variables_status(); };
+        Bare none;
+        const auto s_none = none.dbg->c_variables_status();
+        Machine sldm(false, MachineType::ZXN_ISSUE2);
+        const std::string sld = (z / "c44.sld").string();
+        write_text(sld, "|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,slots.adr:0,8192,16384,24576,32768,40960,49152,57344\nmain.bas|10||0|0|32768|T|\n");
+        sldm.dbg->load_source_map(sld, true);
+        const auto s_sld = why_of(sldm);
+        Machine so2(false, MachineType::ZXN_ISSUE2);
+        const fs::path dso2 = z / "c44so2";
+        z88_copy_lis("v2.4/sdcc-SO2", dso2);
+        z88_load(so2, dso2 / "prog.nex");
+        so2.dbg->load_program_sidecars((dso2 / "prog.nex").string());
+        const auto s_so2 = why_of(so2);
+        Machine o0(false, MachineType::ZXN_ISSUE2);
+        const fs::path do0 = var_dir("c44o0", "master/sdcc-cvars-O0");
+        z88_load(o0, do0 / "prog.nex");
+        o0.dbg->load_program_sidecars((do0 / "prog.nex").string());
+        const auto s_o0 = why_of(o0);
+        // sccz80-cvars with its __CDBINFO__ lines removed (lines, no records), and with every record made undecodable
+        std::string lines_only, bogus;
+        size_t n_cdb = 0;
+        {
+            std::ifstream in(kZ88Fixtures / "master/sccz80-cvars" / "prog.map");
+            for (std::string l; std::getline(in, l);) {
+                if (l.compare(0, 11, "__CDBINFO__") == 0) {
+                    ++n_cdb;
+                    bogus += "__CDBINFO__" + esc("Q:bogus") + l.substr(l.find(' ')) + "\n";
+                } else {
+                    lines_only += l + "\n";
+                    bogus += l + "\n";
+                }
+            }
         }
-        {   // SRCDBG-ZB-08
-            // fm.c at main's `while (1);`: ls = "loc", static ss = "stat", file static fs = "file", global gs = "glob", each with its NUL
-            const auto txt = [&](Machine& m, const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
-            const std::string unk = "!an array of unknown length: its debug record has no size";
-            Machine f(false, MachineType::ZXN_ISSUE2);
-            const bool fat = spin_at(f, "master-fixed/sccz80-fm", "zb08a");
-            Machine p(false, MachineType::ZXN_ISSUE2);
-            const bool pat = spin_at(p, "master/sccz80-fm", "zb08b");
-            Machine v(false, MachineType::ZXN_ISSUE2);
-            const bool vat = spin_at(v, "v2.4/sccz80-fm", "zb08c");
-            Machine c(false, MachineType::ZXN_ISSUE2);
-            const bool cat = spin_at(c, "master/80cc-fm", "zb08d");
-            const Dbg::CValueResult cls = c.dbg->read_c_value(0, "ls");
-            const std::string want_ls = "\"loc\\0\"", want_ss = "\"stat\\0\"", want_fs = "\"file\\0\"", want_gs = "\"glob\\0\"";
-            check("SRCDBG-ZB-08", "fm.c at main's `while (1);`: master-fixed sccz80 reads ls \"loc\\0\", ss \"stat\\0\", fs \"file\\0\" and gs \"glob\\0\" (every byte, #437's rule); v2.4 and master sccz80 refuse ls, ss "
-                                  "and fs (`an array of unknown length: its debug record has no size`) and read gs as fixed; master 80cc reads ls with the 80cc note (the value is not asserted) and "
-                                  "refuses ss and fs",
-                  fat && txt(f, "ls") == want_ls && txt(f, "ss") == want_ss && txt(f, "fs") == want_fs && txt(f, "gs") == want_gs && pat && txt(p, "ls") == unk && txt(p, "ss") == unk &&
-                      txt(p, "fs") == unk && txt(p, "gs") == want_gs && vat && txt(v, "ls") == unk && txt(v, "gs") == want_gs && cat && cls.ok && note80(cls.notes) && txt(c, "ss") == unk &&
-                      txt(c, "fs") == unk && txt(c, "gs") == want_gs,
-                  "fixed ls=" + txt(f, "ls") + " ss=" + txt(f, "ss") + " fs=" + txt(f, "fs") + " gs=" + txt(f, "gs") + " | 80cc ls=" + txt(c, "ls") + " ss=" + txt(c, "ss"));
-        }
-        {   // SRCDBG-ZB-09
-            // writes: an 80cc frame-slot variable is written, and the result carries the note (the Qt panel and `monitor set var` print it)
+        Machine lo(false, MachineType::ZXN_ISSUE2);
+        write_text(z / "c44lo.map", lines_only);
+        lo.dbg->load_source_map((z / "c44lo.map").string(), true);
+        const auto s_lo = why_of(lo);
+        Machine bg(false, MachineType::ZXN_ISSUE2);
+        write_text(z / "c44bg.map", bogus);
+        bg.dbg->load_source_map((z / "c44bg.map").string(), true);
+        const auto s_bg = why_of(bg);
+        Machine ok(false, MachineType::ZXN_ISSUE2);
+        cv_load(ok, "master/sccz80-cvars", "c44ok");
+        check("SRCDBG-CVAL-44", "c_variables_status(): none attached -> `no source map is attached`; an SLD -> `an SLD source map carries no C variables`; v2.4 sdcc-SO2 with listings "
+                                "-> `the map has no C debug records`; zcc -O0 -> `zsdcc wrote no C variable records`; sccz80 with its records removed -> `the map has line records but no "
+                                "__CDBINFO__ records`; every record undecodable -> `all N C variable records were refused`; a normal build is available",
+              !s_none.available && s_none.why == "no source map is attached" && !s_sld.available && s_sld.why.find("an SLD source map carries no C variables") == 0 &&
+                  !s_so2.available && s_so2.why.find("the map has no C debug records") == 0 && !s_o0.available &&
+                  s_o0.why.find("zsdcc wrote no C variable records for this build") == 0 && !s_lo.available &&
+                  s_lo.why == "the map has line records but no __CDBINFO__ records" && !s_bg.available &&
+                  s_bg.why.find("all " + std::to_string(n_cdb) + " C variable records were refused: ") == 0 && ok.dbg->c_variables_status().available);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_46(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    {   // SRCDBG-CVAL-45
+        const fs::path d = var_dir("c45");
+        const fs::path other = z / "c45other";
+        fs::create_directories(other);
+        write_text(other / "next.nex", "");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const bool had = !m.dbg->c_frames().empty() && m.dbg->c_variables_status().available;
+        m.dbg->load_program_sidecars((other / "next.nex").string());   // the next program, with no sidecar: the store goes with its map
+        const auto st = m.dbg->c_variables_status();
+        const auto loc = m.dbg->c_locals(0);
+        const auto rv = m.dbg->read_c_value(0, "g_int");
+        check("SRCDBG-CVAL-45", "the next program's load drops the store: c_frames() is empty, c_locals() and read_c_value() are refused with the status text, c_globals() is empty",
+              had && m.dbg->c_frames().empty() && !st.available && !loc.ok && loc.why == st.why && !rv.ok && rv.why == st.why && m.dbg->c_globals().empty());
+    }
+    {   // SRCDBG-CVAL-46
+        // a rewind to before the load: c_frames() is the FIRST reader, so it runs recheck(): empty, and the state revision advances
+        const fs::path d = var_dir("c46");
+        const std::vector<uint8_t> code = read_all(d / "prog_CODE.bin");
+        Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+        const auto run_frames = [&](int n) {
+            m.dbg->run(m.a);
+            for (int i = 0; i < n; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+        };
+        run_frames(1);
+        const uint32_t before_load = m.dbg->time().frame;
+        m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
+        write_text(d / "game.nex", "");
+        fs::copy_file(d / "prog.map", d / "game.map");
+        fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
+        m.dbg->load_program_sidecars((d / "game.nex").string());
+        const bool had = !m.dbg->c_frames().empty();
+        run_frames(2);
+        const Result back = m.dbg->rewind_to_frame(m.a, before_load);
+        const uint64_t rev0 = m.dbg->state_revision();
+        const size_t n = m.dbg->c_frames().size();
+        const uint64_t rev1 = m.dbg->state_revision();
+        check("SRCDBG-CVAL-46", "after a rewind to before the load, c_frames() is the first reader: it runs recheck(), returns no frame, and the state revision advances",
+              had && back == Result::Ok && n == 0 && rev1 > rev0);
+    }
+    {   // SRCDBG-CVAL-47
+        // cross(20): r = a + 1 = 21, then r = r * 2 = 42 past the 8 KB padding, so at `return r` (the first line after the second slot starts) a = 20 and r = 42
+        struct Cr { const char* fx; const char* tag; const char* line; uint16_t pc; };
+        bool ok = true;
+        std::string seen;
+        for (const Cr& c : {Cr{"master/sccz80-cross", "c47a", "cross.c:21", 0xAC7A}, Cr{"master/80cc-cross", "c47b", "cross.c:21", 0xAC92},
+                            Cr{"master/sdcc-cross", "c47c", "cross.c:22", 0xAC58}}) {
             Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({k80cc_41.fixture, "zb09a", k80cc_41.pc}, m);
-            const Dbg::CWriteResult w = wr(m, 0, "t", "1000");
-            Machine s(false, MachineType::ZXN_ISSUE2);
-            const bool sat = at41({kSccz80_41.fixture, "zb09b", kSccz80_41.pc}, s);
-            const Dbg::CWriteResult sw = wr(s, 0, "t", "1000");
-            // the writer of the readers' refusals: a float of an mbf32 map is refused (bytes unchanged), of a math32 map stored as IEEE; U1 with no listing is refused too
-            const auto float_map = [&](const char* name, const char* lib_line) {
-                auto fmp = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
-                Machine& fm = *fmp;
-                const std::string map = (z / name).string();
-                write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                                "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                                "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + std::string(lib_line) +
-                                "_gf = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gf$0_0$0({4}SF:S),E,0,0", "t_c"));
-                fm.dbg->load_source_map(map, true);
-                const Bytes before = cpk(fm, 0x9000, 4);
-                const CwTry t = attempt(fm, 0, "gf", std::string("1") + ".5");
-                return std::make_tuple(std::move(fmp), t, before);
-            };
-            auto mbf = float_map("zb09m.map", "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n");
-            auto m32 = float_map("zb09n.map", "__code_fp_math32_size = $001D ; const, public, def, , ,\n");
-            // the guard binds the writer: b's record (-2) is y's slot on 80cc, v and z share one in master-fixed's blocks.c; a write to either is refused, the other keeps its value
-            Machine sb(false, MachineType::ZXN_ISSUE2);
-            const bool sbat = zb_at(sb, "master/80cc-fm", "zb09d", "fm.c:7", 0x8C68);
-            const CwTry bw = attempt(sb, 0, "b", "9");
-            Machine sz(false, MachineType::ZXN_ISSUE2);
-            const bool szat = zb_at(sz, "master-fixed/sccz80-blocks", "zb09e", "blocks.c:17", 0x8CF7);
-            const CwTry zw = attempt(sz, 0, "z", "5");
-            const CwTry vw = attempt(sz, 0, "v", "5");
-            Machine ul(false, MachineType::ZXN_ISSUE2);
-            const bool uat = zb_at(ul, "master/sccz80-fc", "zb09c", "fc.c:3", 0x8C62);
-            const CwTry u1w = attempt(ul, 0, "x", "5");
-            check("SRCDBG-ZB-09", "write t := 1000 at master 80cc vars.c:41 succeeds and its CWriteResult.notes holds the 80cc note, and t reads back 1000; the same write on sccz80 succeeds with no "
-                                  "note; the readers' refusals bind the writer: a float global of an mbf32 map is refused and its bytes stay, in a math32 map the value lands as IEEE (00 00 C0 3F), "
-                                  "and ffast's x with no listing (entry evidence) is refused with U1; a variable that shares its stack slot is refused (80cc b with y, master-fixed's z with v) and the other keeps its value",
-                  at && w.ok() && note80(w.notes) && w.value == "1000" && cvv(m, 0, "t") == "1000" && sat && sw.ok() && sw.notes.empty() &&
-                      refused_with(std::get<1>(mbf), "float format mbf32 is not read") && cpk(*std::get<0>(mbf), 0x9000, 4) == std::get<2>(mbf) && std::get<1>(m32).w.ok() &&
-                      cpk(*std::get<0>(m32), 0x9000, 4) == Bytes{0, 0, 0xC0, 0x3F} && uat && refused_with(u1w, "location unknown (z88dk U1") &&
-                      sbat && refused_with(bw, "shares its stack slot with y") && cvv(sb, 0, "y") == "5" && szat && refused_with(zw, "shares its stack slot with v") && refused_with(vw, "shares its stack slot with z") &&
-                      cvv(sz, 0, "v") == "12");
+            cv_load(m, c.fx, c.tag);
+            const bool at = cv_starts_at(m, c.line, c.pc) && cv_run_to(m, c.pc);
+            const Dbg::CValueResult a = m.dbg->read_c_value(0, "a");
+            const Dbg::CValueResult r = m.dbg->read_c_value(0, "r");
+            const bool good = at && m.dbg->registers().PC >= 0xA000 && a.ok && a.value == "20" && r.ok && r.value == "42";
+            if (!good) {
+                ok = false;
+                seen += std::string(" ") + c.fx + " a=" + (a.ok ? a.value : a.why) + " r=" + (r.ok ? r.value : r.why);
+            }
         }
-        {   // SRCDBG-CVFMT-01
-            // GH #477: a module's float format (the local constants of z88dk#3240) decides the read, the typed value and the write through the facade
-            const auto fp_lines = [](int mode, int bias, int ms, const char* module) {
-                char b[400];
-                std::snprintf(b, sizeof b,
-                              "__fp_exponent_bias = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n__fp_mantissa_size = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n"
-                              "__fp_mode = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n",
-                              bias, module, ms, module, mode, module);
-                return std::string(b);
-            };
-            struct FpRun {
-                std::unique_ptr<Machine> mp;
-                std::string before_text, after_text;
-                std::optional<double> real;
-                bool read_ok = false;
-                CwTry w;
-                Bytes before, after;
-            };
-            const auto run = [&](const char* name, const std::string& extra, const Bytes& init, const std::string& value) {
-                FpRun r;
-                r.mp = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
-                Machine& fm = *r.mp;
-                const std::string map = (z / name).string();
-                write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                                "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                                "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + extra +
-                                "_gf = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gf$0_0$0({4}SF:S),E,0,0", "t_c"));
-                fm.dbg->load_source_map(map, true);
-                for (size_t i = 0; i < init.size(); ++i) fm.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), init[i]);
-                const Dbg::CValueResult rd = fm.dbg->read_c_value(0, "gf");
-                r.read_ok = rd.ok;
-                r.before_text = rd.ok ? rd.value : "!" + rd.why;
-                r.real = rd.real;
-                r.before = cpk(fm, 0x9000, 4);
-                r.w = attempt(fm, 0, "gf", value);
-                r.after = cpk(fm, 0x9000, 4);
-                const Dbg::CValueResult back = fm.dbg->read_c_value(0, "gf");
-                r.after_text = back.ok ? back.value : "!" + back.why;
-                return r;
-            };
-            const std::string c15 = std::string("1") + ".5";
-            const FpRun a = run("cvfmt01a.map", fp_lines(2, 128, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, c15);
-            const FpRun b = run("cvfmt01b.map", fp_lines(2, 128, 3, "t_c") + "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n", {0x00, 0x00, 0xD0, 0x82}, c15);
-            const FpRun c = run("cvfmt01c.map", fp_lines(6, 0, 3, "t_c"), {0x00, 0x00, 0xC0, 0x01}, "-3.25");
-            const FpRun d = run("cvfmt01d.map", fp_lines(7, 0, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, c15);
-            check("SRCDBG-CVFMT-01", "a module with mode 2 (mbf32): gf 00 00 D0 82 reads -3.25 (value and typed real), a write of 1.5 stores 00 00 40 81 and reads back 1.5; "
-                                     "with __code_fp_mbf32_size beside it, which alone refuses mbf32 floats, it still reads and writes (the format beats the library guess); mode 6 (AM9511): "
-                                     "00 00 C0 01 reads 1.5 and -3.25 is written as 00 00 D0 82; mode 7: the read and the write are refused with the reason and the bytes stay",
-                  a.read_ok && a.before_text == "-3.25" && a.real && *a.real == -3.25 && a.w.w.ok() && a.after == Bytes{0x00, 0x00, 0x40, 0x81} && a.after_text == c15 &&
-                      b.read_ok && b.before_text == "-3.25" && b.w.w.ok() && b.after == Bytes{0x00, 0x00, 0x40, 0x81} &&
-                      c.read_ok && c.before_text == c15 && c.w.w.ok() && c.after == Bytes{0x00, 0x00, 0xD0, 0x82} && c.after_text == "-3.25" &&
-                      !d.read_ok && d.before_text == "!float format __fp_mode 7 is not supported" && refused_with(d.w, "float format __fp_mode 7 is not supported") && d.after == d.before,
-                  a.before_text + " | " + b.before_text + " | " + c.before_text + " | " + d.before_text + " " + d.w.w.why);
+        check("SRCDBG-CVAL-47", "a function that crosses an 8 KB slot (cross.c): stopped past $A000 (page 5), a = 20 and r = 42, on sccz80, 80cc and zsdcc", ok, seen);
+    }
+    {   // SRCDBG-CVAL-48
+        // a dot command's global is in DivMMC RAM bank 2: read from its own page, with a note that it is not mapped (the CPU is not in the command)
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        m.dbg->load_source_map((kZ88Fixtures / "master/sccz80-dot/prog.map").string(), false, false, /*dot_only=*/true);
+        uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
+        bank2[0x3253 & 0x1FFF] = 200;   // `total` is a uint8_t
+        const Dbg::CValueResult r = m.dbg->read_c_value(0, "total");
+        check("SRCDBG-CVAL-48", "a dot command's `total` ($3253 in DivMMC RAM bank 2) is read from its own page (200), where = DivMmcRam{2}:$3253, with the note that the bank is not mapped now",
+              r.ok && r.value == "200" && r.where.kind == Dbg::CWhere::Kind::Page && r.where.source.space == MemSpace::divmmc_ram(2) &&
+                  r.where.source.address == 0x3253 && has_note(r, "DivMMC RAM 2 is not mapped at $3253 now"));
+    }
+    {   // SRCDBG-CVAL-49
+        // order and hiding: parameters first by stack position, then locals, then static locals; no compiler temporaries (sloc), no enumerators, no string literals
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master/sccz80-cvars", "c49a", 0x8D3E}, m);
+        const auto names_of = [](const std::vector<Dbg::CValueRow>& rows) {
+            std::string o;
+            for (const auto& r : rows) o += (o.empty() ? "" : " ") + r.name;
+            return o;
+        };
+        const auto sc = m.dbg->c_locals(0);
+        Machine z(false, MachineType::ZXN_ISSUE2);
+        const bool zat = at41({"master/sdcc-cvars", "c49b", 0x8C97}, z);
+        const auto zc = z.dbg->c_locals(0);
+        bool temps = false;
+        for (const auto& r : z.dbg->c_globals()) temps = temps || r.name.find("sloc") == 0 || r.name.find("__") == 0 || r.name == "RED" || r.name == "BLUE";
+        for (const auto& r : m.dbg->c_globals()) temps = temps || r.name == "RED" || r.name == "GREEN" || r.name == "BLUE" || r.name.find("__") == 0;
+        bool kinds = sc.ok && sc.rows.size() == 7 && sc.rows[0].kind == Dbg::CValueRow::Kind::Param && sc.rows[3].kind == Dbg::CValueRow::Kind::Param &&
+                     sc.rows[4].kind == Dbg::CValueRow::Kind::Local && sc.rows[6].kind == Dbg::CValueRow::Kind::StaticLocal;
+        check("SRCDBG-CVAL-49", "c_locals(0) at vars.c:41: sccz80 `k p b a acc t calls` (parameters by stack position, locals, the static local last), zsdcc `a b p k acc t calls`; "
+                                "no sloc temporaries, enumerators or `__` records anywhere in c_locals or c_globals",
+              at && zat && sc.ok && zc.ok && names_of(sc.rows) == "k p b a acc t calls" && names_of(zc.rows) == "a b p k acc t calls" && kinds && !temps);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_47(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    {   // SRCDBG-CVAL-51
+        // a register local of an OUTER frame is not available (the live registers are frame 0's). Synthetic IX-frame program fa -> fb; fa has `unsigned char q` in [c]
+        Bare m(MachineType::ZXN_ISSUE2);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "t";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        m.dbg->attach(ci);
+        const auto esc = [](const std::string& t) {
+            std::string o;
+            for (const unsigned char c : t) {
+                if (std::isalpha(c)) {
+                    o += static_cast<char>(c);
+                } else {
+                    char b[8];
+                    std::snprintf(b, sizeof b, "_%02x", c);
+                    o += b;
+                }
+            }
+            return o;
+        };
+        const auto rec = [&](const std::string& r) { return "__CDBINFO__" + esc(r) + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n"; };
+        const std::string map = (z / "c51.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "_fb = $8020 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:10\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_10_t_2ec = $8020 ; addr, local, , t_c, code_compiler, t.c::fb::0::0:10\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+                            rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + rec("F:G$fb$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
+                            rec("S:Lt.c.fa$q$1_0$1({1}SC:U),R,0,0,[c]") + rec("S:Lt.c.fb$r$1_0$1({1}SC:U),R,0,0,[c]"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39};
+        const auto put = [&](uint16_t at, std::initializer_list<uint8_t> tail) {
+            for (size_t k = 0; k < sizeof pro; ++k) m.emu.mmu().write(static_cast<uint16_t>(at + k), pro[k]);
+            uint16_t a = static_cast<uint16_t>(at + sizeof pro);
+            for (const uint8_t b : tail) m.emu.mmu().write(a++, b);
+        };
+        put(0x8000, {0xCD, 0x20, 0x80, 0x18, 0xFE});
+        put(0x8020, {0x18, 0xFE});
+        Z80Registers r0 = m.emu.cpu().get_registers();
+        r0.BC = 0x0742;
+        m.emu.cpu().set_registers(r0);
+        m.start(0x8000);
+        for (int k = 0; k < 7; ++k) m.emu.execute_single_instruction();   // fa: prologue, call fb; fb: prologue
+        const Dbg::CValueResult outer = m.dbg->read_c_value(1, "fa::q");
+        const Dbg::CValueResult mine = m.dbg->read_c_value(0, "r");
+        check("SRCDBG-CVAL-51", "a register local of frame 1 (fa's q in [c]) is `not available (register, outer frame)` while frame 0's own (fb's r in [c], C = $42 = 66 'B') is read",
+              lr.count > 0 && !outer.ok && outer.why == "not available (register, outer frame)" && mine.ok && mine.value == "66 'B'");
+    }
+    {   // SRCDBG-CVAL-52
+        // a frame whose base is not known: a stack variable is refused (not read from a made-up address), and c_locals refuses the frame (CVAL-13's state)
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/80cc-cvars", "c52");
+        cv_run_to(m, 0x8DC6);
+        m.emu.call_stack().clear();
+        const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
+        const auto cl = m.dbg->c_locals(1);
+        check("SRCDBG-CVAL-52", "80cc in other with the tracker emptied: main (frame 1) has no known base, so read_c_value(1, lp) is refused (the frame base is not known) and c_locals(1) "
+                                "is refused (the base of frame 1 is not known), while frame 0 reads",
+              !lp.ok && lp.value.empty() && lp.why.find("the frame base is not known") == 0 && !cl.ok && cl.why.find("the base of frame 1 is not known") == 0 &&
+                  cvv(m, 0, "q") == "599");
+    }
+    {   // SRCDBG-CVAL-53
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c53");
+        const bool at = cv_run_to(m, 0x8E1F);
+        const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
+        const Dbg::CValueResult val = m.dbg->read_c_value(0, "g_head->val");
+        check("SRCDBG-CVAL-53", "what g_head points at is in the CPU view: g_head->val is 100000 with where = Cpu at the pointer's value (g_head itself is a page address)",
+              at && head.ok && head.where.kind == Dbg::CWhere::Kind::Page && head.integer && val.ok && val.value == "100000" &&
+                  val.where.kind == Dbg::CWhere::Kind::Cpu && static_cast<int64_t>(val.where.cpu) == *head.integer + 2);
+    }
+    {   // SRCDBG-CVAL-54
+        // CVAL-05's stale user map: the status says so, and so does every reader
+        const fs::path d = var_dir("c54");
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_source_map((d / "prog.map").string(), false);
+        m.dbg->reset(m.a, ResetKind::Soft);
+        m.dbg->run(m.a);
+        const uint8_t was = m.emu.mmu().peek(0x8CB5);
+        m.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
+        for (int i = 0; i < 5; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+        const auto st = m.dbg->c_variables_status();
+        const auto cl = m.dbg->c_locals(0);
+        const auto rv = m.dbg->read_c_value(0, "g_int");
+        check("SRCDBG-CVAL-54", "a user map gone Stale: c_variables_status(), c_locals() and read_c_value() all say `the source map is stale: ...`",
+              !st.available && st.why.find("the source map is stale: ") == 0 && !cl.ok && cl.why == st.why && !rv.ok && rv.why == st.why);
+    }
+    {   // SRCDBG-CVAL-55
+        // static inline util_inc is defined in two modules of master/sdcc-debug: `util_inc::v` does not say which
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sdcc-debug", "c55");
+        const Dbg::CValueResult r = m.dbg->read_c_value(0, "util_inc::v");
+        check("SRCDBG-CVAL-55", "a function name defined in two modules is refused as ambiguous (name its file), not first-wins",
+              !r.ok && r.why.find("function 'util_inc' is ambiguous") == 0);
+    }
+    // synthetic z88dk maps for the rows below: functions and variables written as the compilers write them
+    const auto s3_esc = [](const std::string& t) {
+        std::string o;
+        for (const unsigned char c : t) {
+            if (std::isalpha(c)) {
+                o += static_cast<char>(c);
+            } else {
+                char b[8];
+                std::snprintf(b, sizeof b, "_%02x", c);
+                o += b;
+            }
         }
-        {   // SRCDBG-CVFMT-02
-            const std::string c25 = std::string("2") + ".5";
-            // two modules in one map, each with its own format: each global reads and is written in its own module's format
-            const auto fp_lines = [](int mode, int bias, int ms, const char* module) {
-                char b[400];
-                std::snprintf(b, sizeof b,
-                              "__fp_exponent_bias = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n__fp_mantissa_size = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n"
-                              "__fp_mode = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n",
-                              bias, module, ms, module, mode, module);
-                return std::string(b);
-            };
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "cvfmt02.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + fp_lines(0, 128, 5, "t_c") + fp_lines(1, 126, 3, "u_c") +
-                            "_g6 = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n_g4 = $9010 ; addr, public, , u_c, data_compiler, u.c:3\n" +
-                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$g6$0_0$0({6}SF:S),E,0,0", "t_c") + s3_rec("S:G$g4$0_0$0({4}SF:S),E,0,0", "u_c"));
-            m.dbg->load_source_map(map, true);
-            const Bytes b6 = {0x00, 0x00, 0x00, 0x00, 0xD0, 0x82}, b4 = {0x00, 0x00, 0x50, 0xC0};   // -3.25 as sccz80's math48 and math32 wrote it
-            for (size_t i = 0; i < b6.size(); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), b6[i]);
-            for (size_t i = 0; i < b4.size(); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x9010 + i), b4[i]);
-            const auto txt = [&](const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
-            const std::string r6 = txt("g6"), r4 = txt("g4");
-            const CwTry w6 = attempt(m, 0, "g6", c25), w4 = attempt(m, 0, "g4", c25);
-            check("SRCDBG-CVFMT-02", "two modules in one map: t_c (48-bit) g6 and u_c (IEEE) g4 both read -3.25 from their own bytes, and a write of 2.5 lands as 00 00 00 00 20 82 in g6 "
-                                     "and 00 00 20 40 in g4",
-                  r6 == "-3.25" && r4 == "-3.25" && w6.w.ok() && w4.w.ok() && cpk(m, 0x9000, 6) == Bytes{0x00, 0x00, 0x00, 0x00, 0x20, 0x82} && cpk(m, 0x9010, 4) == Bytes{0x00, 0x00, 0x20, 0x40},
-                  r6 + " " + r4 + " " + w6.w.why + " " + w4.w.why);
+        return o;
+    };
+    const auto s3_rec = [&](const std::string& r, const char* module) {
+        return "__CDBINFO__" + s3_esc(r) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
+    {   // SRCDBG-CVAL-56
+        // data in a page, with the CPU's view of the same address changed afterwards: gp ($8100) holds $9000, gv_label is at $9000, gv sits on the last byte of its page
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "c56.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                        "_gp = $8100 ; addr, public, , t_c, data_compiler, t.c:1\n"
+                        "_gv_label = $9000 ; addr, public, , t_c, data_compiler, t.c:2\n"
+                        "_gv = $9FFF ; addr, public, , t_c, data_compiler, t.c:3\n"
+                        "_gok = $9FFD ; addr, public, , t_c, data_compiler, t.c:4\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gp$0_0$0({2}DG,SC:U),E,0,0", "t_c") +
+                            s3_rec("S:G$gv_label$0_0$0({1}SC:U),E,0,0", "t_c") + s3_rec("S:G$gv$0_0$0({2}SI:S),E,0,0", "t_c") +
+                            s3_rec("S:G$gok$0_0$0({2}SI:S),E,0,0", "t_c"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        m.emu.mmu().write(0x8100, 0x00);
+        m.emu.mmu().write(0x8101, 0x90);
+        m.emu.mmu().write(0x9000, 7);
+        m.emu.mmu().write(0x9FFD, 0x34);
+        m.emu.mmu().write(0x9FFE, 0x12);
+        const Dbg::CValueResult mapped = m.dbg->read_c_value(0, "gp");
+        const Dbg::CValueResult ok2 = m.dbg->read_c_value(0, "gok");
+        const Dbg::CValueResult cross = m.dbg->read_c_value(0, "gv");
+        m.dbg->nextreg_write(m.a, 0x54, 40);   // the CPU's $8000 slot is another page now
+        m.emu.mmu().write(0x9000, 200);        // what the CPU sees at $9000
+        const Dbg::CValueResult gp = m.dbg->read_c_value(0, "gp");
+        const Dbg::CValueResult star = m.dbg->read_c_value(0, "*gp");
+        check("SRCDBG-CVAL-56", "a 2-byte global on the last byte of its page is refused (the value crosses a page boundary) with no value, never 0, while one 2 bytes before reads 4660; "
+                                "a pointer in a mapped page shows the label of what it points at (` <gv_label>`); once the page is unmapped the pointer still reads from its own "
+                                "page, with the not-mapped note, has NO label (the label is of what the CPU sees), and what it points at is read through the CPU view "
+                                "(200) with no not-mapped note and where = Cpu",
+              lr.count > 0 && !cross.ok && cross.value.empty() && cross.why == "the value crosses a page boundary" && ok2.ok && ok2.value == "4660" && mapped.ok &&
+                  mapped.value.find("$9000 <gv_label>") == 0 && gp.ok && gp.value.find("$9000") == 0 && gp.value.find("<gv_label>") == std::string::npos && has_note(gp, "is not mapped at $8100 now") && star.ok && star.value == "200" &&
+                  star.where.kind == Dbg::CWhere::Kind::Cpu && !has_note(star, "not mapped"));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_48(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    // the banked programs: bk_sum (bk.c, in Page{20}) called from bkmain.c's main
+    const auto bk_entry = [](const Machine& m, const char* fn) -> std::optional<SourceAddress> {
+        const auto vs = m.dbg->variables();
+        for (const auto& f : vs ? vs->functions() : std::vector<jnext::dbg::CFunction>{})
+            if (f.name == fn && f.entry.resolved) return f.entry.at;
+        return std::nullopt;
+    };
+    // run to bk.c:10 of the fixture, clearing the interrupts at bk_sum's entry (this machine has no ROM: a RST 38 runs away)
+    const auto at_bk10 = [&](Machine& m, const char* fixture, const char* tag) {
+        cv_load(m, fixture, tag);
+        const auto entry = bk_entry(m, "bk_sum");
+        const auto l10 = m.dbg->source_map().resolve("bk.c:10");
+        if (!entry || l10.starts.empty() || !(l10.starts[0].space == MemSpace::page(20))) return false;
+        if (!cv_run_to(m, entry->address)) return false;
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.IFF1 = r.IFF2 = 0;
+        m.emu.cpu().set_registers(r);
+        return cv_run_to(m, l10.starts[0].address);
+    };
+    // synthetic z88dk maps for the rows below: functions and variables written as the compilers write them
+    const auto s3_esc = [](const std::string& t) {
+        std::string o;
+        for (const unsigned char c : t) {
+            if (std::isalpha(c)) {
+                o += static_cast<char>(c);
+            } else {
+                char b[8];
+                std::snprintf(b, sizeof b, "_%02x", c);
+                o += b;
+            }
         }
-        {   // SRCDBG-CVFMT-03
-            // a register-held float (80cc `R` records) in a module that records mbf32: its text and typed value are mbf32's, not binary32's
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const std::string map = (z / "cvfmt03.map").string();
-            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
-                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
-                            "__fp_exponent_bias = $0080 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n"
-                            "__fp_mantissa_size = $0003 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n"
-                            "__fp_mode = $0002 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n" +
-                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}SF:S),R,0,0,[c,b,e,d]", "t_c"));
-            const auto lr = m.dbg->load_source_map(map, true);
+        return o;
+    };
+    const auto s3_rec = [&](const std::string& r, const char* module) {
+        return "__CDBINFO__" + s3_esc(r) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
+    {   // SRCDBG-CVAL-57
+        // two modules each with `static void init(void) { static int done; }`: both rows read back, by file-qualified paths; the bare `init::done` is ambiguous
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "c57.map").string();
+        write_text(map, "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                        "_init = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                        "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                        "__C_LINE_1_b_2ec = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                        "_st_init_done = $9000 ; addr, local, , a_c, bss_compiler, a.c:2\n"
+                        "_st_init_done = $9010 ; addr, local, , b_c, bss_compiler, b.c:2\n" +
+                            s3_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") + s3_rec("F:Fb.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "b_c") +
+                            s3_rec("S:Fa.c$st_init_done$1_0$1({2}SI:S),E,0,0", "a_c") + s3_rec("S:Fb.c$st_init_done$1_0$1({2}SI:S),E,0,0", "b_c"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        m.emu.mmu().write(0x9000, 7);
+        m.emu.mmu().write(0x9010, 9);
+        std::vector<Dbg::CValueRow> rows;
+        for (const auto& r : m.dbg->c_globals())
+            if (r.name == "done") rows.push_back(r);
+        bool round = rows.size() == 2;
+        for (const auto& r : rows) round = round && r.ok && m.dbg->read_c_value(0, r.path).ok && m.dbg->read_c_value(0, r.path).value == r.value;
+        m.set_pc(0x7000);   // in neither function
+        const Dbg::CValueResult bare = m.dbg->read_c_value(0, "init::done");
+        check("SRCDBG-CVAL-57", "two modules with a static function `init` each holding a static `done`: c_globals() has `a.c::init::done` = 7 and `b.c::init::done` = 9, both read back "
+                                "through their path, and the unqualified `init::done` is refused as ambiguous",
+              lr.count > 0 && round && rows[0].path == "a.c::init::done" && rows[0].value == "7" && rows[1].path == "b.c::init::done" && rows[1].value == "9" &&
+                  !bare.ok && bare.why.find("is ambiguous") != std::string::npos);
+    }
+    {   // SRCDBG-CVAL-59
+        // the preference of a bare `fn::name` for the function the CPU is in (GH #353 review F3): with two modules' `init`, `init::done` is a.c's 7 while the PC is in a.c's init and b.c's 9 in b.c's
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "c59.map").string();
+        write_text(map, "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                        "_init = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                        "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                        "__C_LINE_1_b_2ec = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                        "_st_init_done = $9000 ; addr, local, , a_c, bss_compiler, a.c:2\n"
+                        "_st_init_done = $9010 ; addr, local, , b_c, bss_compiler, b.c:2\n" +
+                            s3_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") + s3_rec("F:Fb.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "b_c") +
+                            s3_rec("S:Fa.c$st_init_done$1_0$1({2}SI:S),E,0,0", "a_c") + s3_rec("S:Fb.c$st_init_done$1_0$1({2}SI:S),E,0,0", "b_c"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        m.emu.mmu().write(0x9000, 7);
+        m.emu.mmu().write(0x9010, 9);
+        m.set_pc(0x8000);
+        const Dbg::CValueResult in_a = m.dbg->read_c_value(0, "init::done");
+        m.set_pc(0x8010);
+        const Dbg::CValueResult in_b = m.dbg->read_c_value(0, "init::done");
+        m.set_pc(0x7000);
+        const Dbg::CValueResult none = m.dbg->read_c_value(0, "init::done");
+        check("SRCDBG-CVAL-59", "with two modules' static `init` each holding `done`, a bare `init::done` is a.c's 7 while the PC is in a.c's init, b.c's 9 in b.c's, and ambiguous in neither",
+              lr.count > 0 && in_a.ok && in_a.value == "7" && in_b.ok && in_b.value == "9" && !none.ok && none.why.find("is ambiguous") != std::string::npos,
+              (in_a.ok ? in_a.value : in_a.why) + " | " + (in_b.ok ? in_b.value : in_b.why));
+    }
+    {   // SRCDBG-CVAL-58
+        // a pointer local held in HL (zsdcc `R,0,0,[l,h]`) is followed through the CPU view; a member of a register-held aggregate has no address
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "c58.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") +
+                            s3_rec("T:Ft.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "t_c") +
+                            s3_rec("S:Lt.c.fa$p$1_0$1({2}DG,STpt:S),R,0,0,[l,h]", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}STpt:S),R,0,0,[c,b]", "t_c"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        const uint8_t pts[] = {3, 0, 4, 0, 5, 0, 6, 0};
+        for (size_t i = 0; i < sizeof pts; ++i) m.emu.mmu().write(static_cast<uint16_t>(0xA000 + i), pts[i]);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.HL = 0xA000;
+        m.emu.cpu().set_registers(r);
+        const Dbg::CValueResult py = m.dbg->read_c_value(0, "p->y");
+        const Dbg::CValueResult p1 = m.dbg->read_c_value(0, "p[1].y");
+        const Dbg::CValueResult star = m.dbg->read_c_value(0, "*p");
+        const Dbg::CValueResult pv = m.dbg->read_c_value(0, "p");
+        const Dbg::CValueResult pdot = m.dbg->read_c_value(0, "p.x");
+        const Dbg::CValueResult wx = m.dbg->read_c_value(0, "w.x");
+        check("SRCDBG-CVAL-58", "a pointer in HL: p is `$A000` (a Register value), p->y = 4, p[1].y = 6 and *p = {x = 3, y = 4} are read through the CPU view (where = Cpu, with the stale-register "
+                                "note); `.x` on the pointer and on a register-held struct are refused (no address)",
+              lr.count > 0 && pv.ok && pv.value == "$A000" && pv.where.kind == Dbg::CWhere::Kind::Register && py.ok && py.value == "4" &&
+                  py.where.kind == Dbg::CWhere::Kind::Cpu && py.where.cpu == 0xA002 && has_note(py, "in HL; may be stale") && p1.ok && p1.value == "6" && star.ok &&
+                  star.value == "{x = 3, y = 4}" && !pdot.ok && !wx.ok && wx.why == "a register value has no address");
+    }
+    // ── GH #435 (E353-05): the children of a C variable, on a real machine ──
+    // Oracle: vars.c / bk.c / bkmain.c semantics (types.h: struct point {x, y, tag}; g_matrix = {{1, 2, 3}, {4, 5, 6}}; btable = {10, 20, 30, 40}
+    // in bank 20), the committed maps' addresses and records.
+    {   // SRCDBG-CVCH-01
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master/sccz80-cvars", "ch1", 0x8D3E}, m);
+        const Dbg::CChildRows lp = m.dbg->c_children(1, "lp");
+        const Dbg::CChildRows p = m.dbg->c_children(0, "p");
+        bool round_trip = lp.ok && p.ok;
+        for (const auto* rs : {&lp.rows, &p.rows})
+            for (const auto& r : *rs) round_trip = round_trip && r.ok && cvv(m, rs == &lp.rows ? 1 : 0, r.path.c_str()) == r.value;
+        check("SRCDBG-CVCH-01", "at vars.c:41: c_children(1, lp) is lp.x 3, lp.y 4, lp.tag 5 and c_children(0, p) is p->x 3, p->y 4, p->tag 5 (p points at main's lp); every "
+                                "row's path read back through read_c_value gives the row's own value text",
+              at && lp.ok && lp.total == 3 && lp.rows.size() == 3 && lp.rows[0].path == "lp.x" && lp.rows[0].value == "3" && lp.rows[1].path == "lp.y" &&
+                  lp.rows[1].value == "4" && lp.rows[2].path == "lp.tag" && lp.rows[2].value == "5" && lp.rows[0].type == "int" &&
+                  lp.rows[2].type == "unsigned char" && p.ok && p.total == 3 && p.rows.size() == 3 && p.rows[0].path == "p->x" && p.rows[0].value == "3" &&
+                  p.rows[1].path == "p->y" && p.rows[1].value == "4" && p.rows[2].path == "p->tag" && p.rows[2].value == "5" && round_trip);
+    }
+    {   // SRCDBG-CVCH-02
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master/sccz80-cvars", "ch2", 0x8D3E}, m);
+        const Dbg::CChildRows row1 = m.dbg->c_children(0, "g_matrix", 1, 1);
+        const Dbg::CChildRows leaf = m.dbg->c_children(0, "g_int");
+        const Dbg::CChildRows past = m.dbg->c_children(9, "lp");
+        const Dbg::CChildRows inner = m.dbg->c_children(0, "inner");
+        const Dbg::CValueResult inner_read = m.dbg->read_c_value(0, "inner");
+        check("SRCDBG-CVCH-02", "c_children(0, g_matrix, 1, 1): total 2 and the one row g_matrix[1] = {4, 5, 6}; a scalar (g_int) is ok with total 0; a frame past the end is "
+                                "refused; `inner` (out of scope at vars.c:41) is refused with read_c_value's own reason",
+              at && row1.ok && row1.total == 2 && row1.rows.size() == 1 && row1.rows[0].path == "g_matrix[1]" && row1.rows[0].value == "{4, 5, 6}" && leaf.ok &&
+                  leaf.total == 0 && leaf.rows.empty() && !past.ok && !past.why.empty() && !inner.ok && !inner_read.ok && inner.why == inner_read.why &&
+                  inner.why == "out of scope at vars.c:41");
+    }
+    {   // SRCDBG-CVCH-03
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at10 = at_bk10(m, "master/sccz80-cvars-banked", "ch3");
+        const auto loop = m.dbg->source_map().resolve("bkmain.c:8");
+        bool at = at10 && !loop.starts.empty();
+        // single-stepped with the interrupts off (banked_call enables them and this machine has no ROM), as SRCDBG-CVAL-38
+        for (int i = 0; at && i < 2000 && m.dbg->registers().PC != loop.starts[0].address; ++i) {
             Z80Registers r = m.emu.cpu().get_registers();
-            r.BC = 0x0000;
-            r.DE = 0x82D0;   // bytes C B E D = 00 00 D0 82: mbf32 -3.25
+            r.IFF1 = r.IFF2 = 0;
             m.emu.cpu().set_registers(r);
-            const Dbg::CValueResult w = m.dbg->read_c_value(0, "w");
-            check("SRCDBG-CVFMT-03", "an `R` record {4}SF local in BC:DE of a mode-2 module (00 00 D0 82) reads -3.25 as text and as the typed value (the register path's own `real`)",
-                  lr.count > 0 && w.ok && w.value == "-3.25" && w.real && *w.real == -3.25, w.ok ? w.value : w.why);
+            m.emu.execute_single_instruction();
         }
-        {   // SRCDBG-ZB-10
-            // z88dk#3262 + #3265 on real records: master-fixed-zsdcc/sdcc-cvars has no TAB in its C_LINE records and the -debug module names of the whole path. The program
-            // and its code are those of master/sdcc-cvars (vars.c:41 is $8C97 in both), so CVAL-30's values are the oracle
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = at41({"master-fixed-zsdcc/sdcc-cvars", "zb10", 0x8C97}, m);
-            const Dbg::CValueResult t = m.dbg->read_c_value(0, "t");
-            const Dbg::CValueResult acc = m.dbg->read_c_value(0, "acc");
-            const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
-            const auto loc = m.dbg->c_locals(0);
-            check("SRCDBG-ZB-10", "master-fixed-zsdcc sdcc-cvars (C_LINE without the TAB) at vars.c:41: a=0 b=-5 k=120 'x' calls=1 *p as on master; t is 122 read from BC with the stale note; "
-                                  "acc is optimised out; `inner` is hidden (out of scope) and not listed",
-                  at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "calls") == "1" &&
-                      cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && t.ok && t.value == "122" && t.where.kind == Dbg::CWhere::Kind::Register &&
-                      has_note(t, "in BC; may be stale") && !acc.ok && acc.why == "optimised out" && !inner.ok &&
-                      inner.why == "out of scope at vars.c:41" && loc.ok && row_of(loc.rows, "a") && row_of(loc.rows, "k") && !row_of(loc.rows, "inner"));
+        at = at && m.dbg->registers().PC == loop.starts[0].address;
+        const Dbg::CChildRows bt = m.dbg->c_children(0, "btable");
+        bool pages = bt.ok && bt.rows.size() == 4;
+        for (size_t i = 0; pages && i < 4; ++i) {
+            const auto& r = bt.rows[i];
+            bool note = false;
+            for (const auto& n : r.notes) note = note || n.find("page 20 is not mapped at $C000 now") != std::string::npos;
+            pages = r.where.kind == Dbg::CWhere::Kind::Page && r.where.source.space == MemSpace::page(20) && r.where.source.address == 0xC000 + i && note;
         }
-        {   // SRCDBG-ZB-11
-            // z88dk#3241: N:/E: records beside the S: record of an enum variable. g_colour is BLUE (6), read from its S: record, as on master (CVAL-34)
-            bool ok = true;
-            std::string seen;
-            for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb11a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb11b", 0x8CB0}}) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool at = at41(c, m);
-                const std::string got = cvv(m, 0, "g_colour") + "/" + cvv(m, 0, "g_int") + "/" + cvv(m, 0, "g_byte");
-                if (!(at && got == "6/-5/7")) { ok = false; seen += std::string(" ") + c.fixture + ":" + got; }
+        check("SRCDBG-CVCH-03", "banked, in main's loop (bank 20 unmapped): c_children(0, btable) is 4 rows 10, 20, 30, 40 '(' each placed in Page{20} at $C000..$C003 (read "
+                                "from the global's own page, not the CPU view) with the not-mapped note",
+              at && pages && bt.total == 4 && bt.rows[0].value == "10" && bt.rows[1].value == "20" && bt.rows[2].value == "30" && bt.rows[3].value == "40 '('");
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_49(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    // synthetic z88dk maps for the rows below: functions and variables written as the compilers write them
+    const auto s3_esc = [](const std::string& t) {
+        std::string o;
+        for (const unsigned char c : t) {
+            if (std::isalpha(c)) {
+                o += static_cast<char>(c);
+            } else {
+                char b[8];
+                std::snprintf(b, sizeof b, "_%02x", c);
+                o += b;
             }
-            check("SRCDBG-ZB-11", "master-fixed sccz80-cvars and 80cc-cvars at vars.c:41 (maps with N: and E: enum records): g_colour reads 6 (BLUE) from its S: record, with g_int and g_byte as before", ok, seen);
         }
-        // master-fixed-80cc/80cc-scope: load the fixture (with its listings when `lis`) and run to `pc`
-        const auto lz = [&](Machine& m, const char* tag, uint16_t pc, bool lis) {
-            const fs::path d = var_dir(tag, "master-fixed-80cc/80cc-scope");
-            if (lis) z88_copy_lis("master-fixed-80cc/80cc-scope", d);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            return cv_run_to(m, pc);
-        };
-        {   // SRCDBG-ZB-12
-            // 80cc with PR #3243 (master-fixed-80cc/80cc-scope, f3254.c; f is entered at $8C49). Oracle: the C program's own scopes. f's locals: t (level 1), p (inside the `if`), i (the outer `for`), j (the inner,
-            // brace-less `for`). At L6 (`t += p`, $8C68) p is in scope and i, j are not; in the inner loop (the third `C_LINE 10` of the listing, `j++`, $8CBE) i and j are in scope
-            // and p is not; at `return t` (L13, $8C9A) only t is. Without the listing beside the map no scope is exact, and every block local is flagged
-            const auto names = [&](Machine& m) {
-                std::string out;
-                const auto loc = m.dbg->c_locals(0);
-                for (const auto& r : loc.rows) {
-                    if (r.kind == Dbg::CValueRow::Kind::Param) continue;
-                    bool unk = false;
-                    for (const auto& n : r.notes) unk = unk || n.find("scope unknown") != std::string::npos;
-                    out += (out.empty() ? "" : " ") + r.name + (unk ? "?" : "");
-                }
-                return out;
-            };
-            std::string got;
-            const auto at = [&](const char* tag, uint16_t pc, bool lis) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                const bool ok = lz(m, tag, pc, lis);
-                const std::string n = names(m);
-                std::vector<std::string> v;
-                std::istringstream is(n);
-                for (std::string w; is >> w;) v.push_back(w);
-                std::sort(v.begin(), v.end());
-                std::string row;
-                for (const auto& w : v) row += (row.empty() ? "" : " ") + w;
-                got += std::string(ok ? "" : "[no stop]") + row + "|";
-                return row;
-            };
-            const std::string l6 = at("zb12a", 0x8C68, true), loop = at("zb12b", 0x8CBE, true), l13 = at("zb12c", 0x8C9A, true);
-            const std::string n6 = at("zb12d", 0x8C68, false), nloop = at("zb12e", 0x8CBE, false), n13 = at("zb12f", 0x8C9A, false);
-            check("SRCDBG-ZB-12", "master-fixed-80cc f3254.c with the listing beside the map (GH #438 S4b: an 80cc block local is never plain): at `t += p` p is listed flagged `scope unknown` and t plain; in the inner loop (third `C_LINE 10`) i and j are listed flagged `scope unknown`, t plain, "
-                                  "p absent; at `return t` only t is. With no listing at the same three stops every block local is flagged (i? j? p?) and t is plain",
-                  l6 == "p? t" && loop == "i? j? t" && l13 == "t" && n6 == "i? j? p? t" && nloop == "i? j? p? t" && n13 == "i? j? p? t", got);
+        return o;
+    };
+    const auto s3_rec = [&](const std::string& r, const char* module) {
+        return "__CDBINFO__" + s3_esc(r) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
+    {   // SRCDBG-CVCH-04
+        // `*p` is `p[0]`: the grammar applies a leading `*` after the postfix steps, so a child path built as `*p` + `.x` would read `*(p.x)`
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master/sccz80-cvars", "ch4", 0x8D3E}, m);
+        const Dbg::CChildRows star = m.dbg->c_children(0, "*p");
+        bool round_trip = star.ok && star.rows.size() == 3;
+        for (const auto& r : star.rows) round_trip = round_trip && r.ok && cvv(m, 0, r.path.c_str()) == r.value;
+        check("SRCDBG-CVCH-04", "c_children(0, *p) at vars.c:41 is x 3, y 4, tag 5 (paths p[0].x, p[0].y, p[0].tag, not `*p.x`) and every row's path reads back through "
+                                "read_c_value to the row's own value",
+              at && star.ok && star.total == 3 && star.rows.size() == 3 && star.rows[0].path == "p[0].x" && star.rows[0].value == "3" && star.rows[1].path == "p[0].y" &&
+                  star.rows[1].value == "4" && star.rows[2].path == "p[0].tag" && star.rows[2].value == "5" && round_trip);
+    }
+    {   // SRCDBG-CVCH-05
+        // SRCDBG-CVAL-58's synthetic map: p (a struct pt *) in HL, w (a struct in BC)
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "ch5.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") +
+                            s3_rec("T:Ft.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "t_c") +
+                            s3_rec("S:Lt.c.fa$p$1_0$1({2}DG,STpt:S),R,0,0,[l,h]", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}STpt:S),R,0,0,[c,b,e,d]", "t_c"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        const uint8_t pts[] = {3, 0, 4, 0};
+        for (size_t i = 0; i < sizeof pts; ++i) m.emu.mmu().write(static_cast<uint16_t>(0xA000 + i), pts[i]);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.HL = 0xA000;
+        m.emu.cpu().set_registers(r);
+        const Dbg::CChildRows p = m.dbg->c_children(0, "p");
+        const Dbg::CChildRows w = m.dbg->c_children(0, "w");
+        bool note = false;
+        if (p.rows.size() == 2)
+            for (const auto& n : p.rows[1].notes) note = note || n.find("in HL; may be stale") != std::string::npos;
+        check("SRCDBG-CVCH-05", "a pointer held in HL opens onto its pointee: c_children(0, p) is p->x 3 and p->y 4 (where = Cpu at $A002 for y, with the stale-register note); a struct held in "
+                                "BC has no address to walk and is refused `a register value has no address`",
+              lr.count > 0 && p.ok && p.total == 2 && p.rows.size() == 2 && p.rows[0].path == "p->x" && p.rows[0].value == "3" && p.rows[1].path == "p->y" && p.rows[1].value == "4" &&
+                  p.rows[1].where.kind == Dbg::CWhere::Kind::Cpu && p.rows[1].where.cpu == 0xA002 && note && !w.ok && w.why == "a register value has no address",
+              "p.ok=" + std::to_string(p.ok) + " why=" + p.why + " rows=" + std::to_string(p.rows.size()) + " w=" + w.why +
+                  (p.rows.size() == 2 ? " r0=" + p.rows[0].path + "=" + p.rows[0].value + "/" + p.rows[0].why + " r1=" + p.rows[1].value : ""));
+    }
+    {   // SRCDBG-CVCH-06
+        // a pointer GLOBAL is read from its own page, what it points at through the CPU view: with the page unmapped, the pointer is still the page's
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "ch6");
+        const bool run = cv_run_to(m, 0x8E1F);   // g_head = &g_node at vars.c:64
+        const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
+        const bool remapped = m.dbg->set_mmu_slot(m.a, 4, 40) == Result::Ok;   // $8000-$9FFF now shows another page
+        const Dbg::CChildRows kids = m.dbg->c_children(0, "g_head");
+        uint8_t b[4] = {0, 0, 0, 0};
+        const uint16_t node = head.integer ? static_cast<uint16_t>(*head.integer) : 0;
+        m.dbg->peek(MemSpace::cpu(), static_cast<uint16_t>(node + 2), 4, b);
+        const int32_t want = static_cast<int32_t>(b[0] | b[1] << 8 | b[2] << 16 | static_cast<uint32_t>(b[3]) << 24);
+        check("SRCDBG-CVCH-06", "with page 4 unmapped (slot 4 remapped), c_children(0, g_head) still starts from the pointer in g_head's own page ($9091, g_node): ok, next and val, val read "
+                                "through the CPU view (what the remapped slot shows at node + 2), not refused as `null pointer`",
+              run && remapped && head.ok && node != 0 && kids.ok && kids.total == 2 && kids.rows.size() == 2 && kids.rows[1].path == "g_head->val" &&
+                  kids.rows[1].value == std::to_string(want));
+    }
+    {   // SRCDBG-CVCH-07
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "ch7");
+        const bool s1 = cv_run_to(m, 0x8CB9), s2 = cv_run_to(m, 0x8B64);   // l_debug_push_frame in sum's first call: frame 1 is sum, `t` is not allocated yet
+        const Dbg::CChildRows t = m.dbg->c_children(1, "t");
+        const Dbg::CValueResult read = m.dbg->read_c_value(1, "t");
+        Machine n(false, MachineType::ZXN_ISSUE2);
+        const Dbg::CChildRows none = n.dbg->c_children(0, "x");
+        check("SRCDBG-CVCH-07", "a variable that cannot be read is refused with read_c_value's own reason, not listed as a leaf: c_children(1, t) at the helper is `not allocated`; with no "
+                                "source map the reason is c_variables_status's",
+              s1 && s2 && !t.ok && !read.ok && t.why == read.why && t.why == "not allocated" && !none.ok && !none.why.empty() &&
+                  none.why == n.dbg->c_variables_status().why);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_50(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    {   // SRCDBG-CVAL-50
+        // the facade's contract for its consumers: no reader bumps state_revision(); refusals have reasons; a result carries its type, location and integer; rows round-trip
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master/sccz80-cvars", "c50", 0x8D3E}, m);
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        const auto frames = m.dbg->c_frames();
+        const auto loc0 = m.dbg->c_locals(0);
+        const auto glob = m.dbg->c_globals();
+        const auto g_int = m.dbg->read_c_value(0, "g_int");
+        const auto st = m.dbg->c_variables_status();
+        const bool quiet = m.dbg->state_revision() == rev;
+        const auto past = m.dbg->c_locals(frames.size());
+        const auto head = m.dbg->read_c_value(1, "pp");
+        const auto gf = m.dbg->read_c_value(0, "g_float");
+        const auto s_dup = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.path == "vars.c::s_dup"; });
+        const auto calls = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.path == "sum::calls"; });
+        const auto gint = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.name == "g_int"; });
+        bool sorted = true, round = !glob.empty();
+        for (size_t i = 1; i < glob.size(); ++i)
+            sorted = sorted && (glob[i - 1].file < glob[i].file || (glob[i - 1].file == glob[i].file && glob[i - 1].name <= glob[i].name));
+        for (const auto& r : glob)
+            round = round && (!r.ok || m.dbg->read_c_value(0, r.path).value == r.value);
+        for (const auto& r : loc0.rows)
+            round = round && (!r.ok || m.dbg->read_c_value(0, r.path).value == r.value);
+        // an assembly frame: stopped at l_debug_push_frame's first instruction (frame 0 is asm)
+        Machine a(false, MachineType::ZXN_ISSUE2);
+        cv_load(a, "master/sccz80-cvars", "c50b");
+        cv_run_to(a, 0x8CB9);
+        const bool asm_at = cv_run_to(a, 0x8B64);
+        const auto asm0 = a.dbg->c_locals(0);
+        const auto unalloc = a.dbg->read_c_value(1, "t");   // frame 1 is sum, whose locals are not allocated yet
+        Bare none;
+        const auto nl = none.dbg->c_locals(0);
+        check("SRCDBG-CVAL-50", "no reader bumps the state revision; c_locals(past the end) says `no frame N (there are M)`, an assembly frame `is not in a C function`, a local of an outer function whose frame has not allocated it `not allocated`, no store gives the status "
+                                "text (also from read_c_value and an empty c_globals); read_c_value(1, pp) has an integer (the pointer's address) and a Cpu location, g_int -5 with type `int`, "
+                                "g_float a real; c_globals() is ordered by file then name with `vars.c::s_dup` (a file static in a page), `sum::calls` (a static local) and g_int, and every row's path "
+                                "reads back the same value",
+              at && st.available && quiet && g_int.ok && g_int.integer && *g_int.integer == -5 && g_int.type == "int" && !g_int.real && !past.ok &&
+                  past.why == "no frame " + std::to_string(frames.size()) + " (there are " + std::to_string(frames.size()) + ")" && asm_at && !asm0.ok &&
+                  asm0.why.find("is not in a C function") != std::string::npos && !unalloc.ok && unalloc.why == "not allocated" && !nl.ok && nl.why == "no source map is attached" &&
+                  !none.dbg->read_c_value(0, "g_int").ok && none.dbg->c_globals().empty() && head.ok && head.integer && head.where.kind == Dbg::CWhere::Kind::Cpu &&
+                  gf.ok && gf.real && *gf.real == 1.5 && s_dup != glob.end() && s_dup->kind == Dbg::CValueRow::Kind::FileStatic && s_dup->file == "vars.c" &&
+                  s_dup->where.kind == Dbg::CWhere::Kind::Page && calls != glob.end() && calls->kind == Dbg::CValueRow::Kind::StaticLocal &&
+                  gint != glob.end() && gint->kind == Dbg::CValueRow::Kind::Global && sorted && round);
+    }
+    check("SRCDBG-CVAL-36", "a real mid-run attach (main in its while (1), no tracked frame): lp = {3, 4, 5}, i = 4, arr = {467, 471, 475, 479} on sccz80 and zsdcc, and "
+                            "on sccz80 also c = 120 'x', big = 100000 and pp == &lp",
+          ctx.cv36_ok);
+}
+
+[[gnu::noinline]] static void srcdbg_part_51(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+
+    // ── GH #434 (E353-04) stage 1: the call-stack tracker policy and the C frames ──
+    // Oracle: the C source's call structure (vars.c, other.c, bk.c, bkmain.c, cross.c), the fixtures'
+    // maps and listings (addresses, prologues: `call l_debug_push_frame` / `push ix; ld ix,0; add ix,sp`),
+    // z88dk's library sources (l_debug_push_frame stores E-2 in __debug_framepointer), and measurements of
+    // the running machine that do not use the code under test (SP at the entry instruction, IX, the variable).
+    using FrameBase = Debugger::CFrame::Base;
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    const auto fn_name = [&](const Machine& m, const Debugger::CFrame& f) {
+        const auto vs = m.dbg->variables();
+        return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    {   // SRCDBG-CVAL-20
+        // GH #434 review F7 (R12): zsdcc `push ix; ld ix,0; add ix,sp`: after the push (entry+2) and after the ld (entry+6)
+        // SP = E - 2 already, so the base is SP.
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sdcc-cvars", "c20");
+        cv_run_to(m, 0x8C48);
+        const uint16_t E = m.dbg->registers().SP;
+        const bool s1 = cv_run_to(m, 0x8C4A);
+        m.emu.call_stack().clear();
+        const auto a = m.dbg->c_frames();
+        const bool s2 = cv_run_to(m, 0x8C4E);
+        m.emu.call_stack().clear();
+        const auto b = m.dbg->c_frames();
+        check("SRCDBG-CVAL-20", "zsdcc sum at entry + 2 and entry + 6 with no frames: Prologue, fp == E - 2 (SP), not the caller's IX",
+              s1 && s2 && !a.empty() && !b.empty() && a[0].how == FrameBase::Prologue && b[0].how == FrameBase::Prologue &&
+                  a[0].fp == static_cast<uint16_t>(E - 2) && b[0].fp == static_cast<uint16_t>(E - 2));
+    }
+    {   // SRCDBG-CVAL-21
+        // GH #434 review F7 (R17): a saved frame pointer that is no stack address above this frame ends the chain.
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c21");
+        cv_run_to(m, 0x8D3E);
+        m.emu.call_stack().clear();
+        const uint16_t fp = m.dbg->c_frames()[0].fp;
+        bool ok = true;
+        for (const uint16_t bad : {uint16_t(0x1234), uint16_t(0xFFFE), static_cast<uint16_t>(fp + 2)}) {
+            m.emu.mmu().write(fp, static_cast<uint8_t>(bad & 0xFF));
+            m.emu.mmu().write(static_cast<uint16_t>(fp + 1), static_cast<uint8_t>(bad >> 8));
+            const auto fr = m.dbg->c_frames();
+            ok = ok && fr.size() == 2 && fr[1].how == FrameBase::Unknown &&
+                 fr[1].note.find("saved frame pointer") != std::string::npos;
         }
-        {   // SRCDBG-ZB-13
-            // writes, same fixture and stops: p at `t += p` is proven in scope, so p := 5 succeeds and carries the 80cc frame-slot note; i in the inner loop is `scope unknown`, so i := 1 is refused
+        check("SRCDBG-CVAL-21", "a saved frame pointer below the frame, at the top of memory or inside the frame itself gives an Unknown "
+                                "caller with a note, not a Chain",
+              ok);
+    }
+    {   // SRCDBG-CVAL-22
+        // GH #434 review F7 (R19): a tracked frame whose caller_space was not recorded uses the page mapped now, with a note.
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars", "c22");
+        cv_run_to(m, 0x8D3E);
+        std::vector<CallFrame> frames = m.emu.call_stack().frames();
+        for (CallFrame& f : frames) f.caller_space = MemSpace::cpu();
+        m.emu.call_stack().restore_frames(frames);
+        const auto fr = m.dbg->c_frames();
+        check("SRCDBG-CVAL-22", "a tracked frame with no recorded caller_space: its pc is in the page mapped now, with a note",
+              fr.size() >= 2 && fr[1].pc.space == m.dbg->source_page(fr[1].pc.address) && !(fr[1].pc.space == MemSpace::cpu()) &&
+                  !fr[1].note.empty() && fn_name(m, fr[1]) == "main");
+    }
+    {   // SRCDBG-CVAL-23
+        // GH #434 review F8: a request needs an attached client.
+        Bare m;
+        jnext::dbg::ClientInfo ci;
+        ci.name = "t";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId c = m.dbg->attach(ci).value;
+        m.dbg->detach(c);
+        const Result none = m.dbg->set_call_stack_enabled(jnext::dbg::CLIENT_NONE, true);
+        const Result gone = m.dbg->set_call_stack_enabled(c, true);
+        check("SRCDBG-CVAL-23", "set_call_stack_enabled is RefusedUnavailable for CLIENT_NONE and for a detached client, and changes nothing",
+              none == Result::RefusedUnavailable && gone == Result::RefusedUnavailable && !m.dbg->call_stack_enabled());
+    }
+
+    // ── GH #437: writing a C variable (write_c_value) ──────────────────────────────────────────────────────
+    // Oracle: the C source of the fixtures (vars.c: at the vars.c:41 stop of the first call a = 0, b = -5, k = 120, t = 122 and
+    // `return t + (int16_t)acc` with acc = 3 * (a + b + k); main's loop; bk.c / bkmain.c), their maps (every address and record
+    // offset is the map's own: sccz80 a = fp+10, t = fp-2, main's c = fp-15, lp = fp-5; 80cc t = fp-8, acc = fp-6; _g_int $903E ...),
+    // the compiled float bytes, and independent reads of the machine (the CPU view or a page, never the facade) after each write.
+    using Bytes = std::vector<uint8_t>;
+    const std::string w225 = std::string("2") + ".25";
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    const auto cpk = [](Machine& m, uint32_t a, size_t n) {
+        Bytes b;
+        for (size_t i = 0; i < n; ++i) b.push_back(m.emu.mmu().peek(static_cast<uint16_t>(a + i)));
+        return b;
+    };
+    const auto ival = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok && r.integer ? *r.integer : INT64_MIN;
+    };
+    const SumAt kSccz80_41{"master/sccz80-cvars", "w", 0x8D3E};
+    {   // SRCDBG-CVW-01
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w01", kSccz80_41.pc}, m);
+        const uint16_t fp = m.dbg->c_frames()[0].fp;
+        const bool w = wr(m, 0, "a", "7").ok() && wr(m, 0, "t", "1000").ok() && wr(m, 0, "calls", "10").ok() && wr(m, 0, "s_file", "1234").ok() &&
+                       wr(m, 0, "other.c::s_dup", "99").ok() && wr(m, 0, "g_int", "10").ok();
+        check("SRCDBG-CVW-01", "sccz80 at vars.c:41, each storage class is written where the map says and reads back: param a = 7 at fp+10, local t = 1000 at "
+                               "fp-2 (E8 03), static local sum::calls = 10 at $90A0 (Page 4), file static s_file = 1234 at $9067, other.c's s_dup = 99 at "
+                               "$9069 while vars.c's s_dup (at $909F) still reads 0, global g_int = 10 at $903E",
+              at && w && cpk(m, fp + 10u, 2) == Bytes{7, 0} && cvv(m, 0, "a") == "7" && cpk(m, fp - 2u, 2) == Bytes{0xE8, 0x03} && cvv(m, 0, "t") == "1000" &&
+                  cpk(m, 0x90A0, 1) == Bytes{10} && cvv(m, 0, "calls") == "10" && cpk(m, 0x9067, 2) == Bytes{0xD2, 0x04} && cvv(m, 0, "s_file") == "1234" &&
+                  cpk(m, 0x9069, 1) == Bytes{99} && cvv(m, 0, "other.c::s_dup") == "99 'c'" && cvv(m, 0, "vars.c::s_dup") == "0" && cpk(m, 0x909F, 1) == Bytes{0} &&
+                  cpk(m, 0x903E, 2) == Bytes{10, 0} && cvv(m, 0, "g_int") == "10",
+              "w=" + std::to_string(w) + " a=" + cvv(m, 0, "a") + " t=" + cvv(m, 0, "t") + " calls=" + cvv(m, 0, "calls") + " s_file=" + cvv(m, 0, "s_file") +
+                  " os=" + cvv(m, 0, "other.c::s_dup") + " vs=" + cvv(m, 0, "vars.c::s_dup") + " g_int=" + cvv(m, 0, "g_int"));
+    }
+    {   // SRCDBG-CVW-02
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w02", kSccz80_41.pc}, m);
+        const int64_t cptr = ival(m, 0, "g_cptr");
+        const Dbg::CWriteResult via = wr(m, 0, "g_cptr[0]", "'x'");
+        const bool w = wr(m, 0, "g_schar", "-128").ok() && wr(m, 0, "g_char", "'Z'").ok() && wr(m, 0, "g_uint", "65535").ok() &&
+                       wr(m, 0, "g_long", "-2147483648").ok() && wr(m, 0, "g_ulong", "4294967295").ok() && wr(m, 0, "g_float", w225).ok() &&
+                       wr(m, 0, "g_bptr", "$8000").ok() && via.ok() && wr(m, 0, "g_matrix[1][2]", "-6").ok() && wr(m, 0, "g_pt.tag", "9").ok() &&
+                       wr(m, 0, "g_pts[2].y", "-1").ok() && wr(m, 0, "g_word.w", "0x1234").ok() && wr(m, 0, "g_node.val", "-100000").ok() &&
+                       wr(m, 0, "g_str[0]", "'H'").ok();
+        check("SRCDBG-CVW-02", "sccz80, each type: g_schar -128 (80), g_char 'Z' (reads 90 'Z'), g_uint 65535, g_long -2147483648, g_ulong 4294967295, g_float "
+                               "2.25 (00 00 00 00 10 82, reads 2.25), g_bptr $8000, g_cptr[0] = 'x' through the pointer (where = Cpu), g_matrix[1][2] = -6, "
+                               "g_pt.tag = 9, g_pts[2].y = -1, g_word.w = 0x1234 (its bytes alias: 52 and 18), g_node.val = -100000, g_str[0] = 'H' (read back "
+                               "as the element)",
+              at && w && cpk(m, 0x9042, 1) == Bytes{0x80} && cvv(m, 0, "g_schar") == "-128" && cpk(m, 0x9043, 1) == Bytes{0x5A} && cvv(m, 0, "g_char") == "90 'Z'" &&
+                  cpk(m, 0x9040, 2) == Bytes{0xFF, 0xFF} && cpk(m, 0x9044, 4) == Bytes{0, 0, 0, 0x80} && cpk(m, 0x9048, 4) == Bytes{0xFF, 0xFF, 0xFF, 0xFF} &&
+                  cpk(m, 0x904C, 6) == Bytes{0, 0, 0, 0, 0x10, 0x82} && cvv(m, 0, "g_float") == w225 && cpk(m, 0x9070, 2) == Bytes{0x00, 0x80} &&
+                  cvv(m, 0, "g_bptr").find("$8000") == 0 && via.where.kind == Dbg::CWhere::Kind::Cpu && cptr > 0 && cpk(m, static_cast<uint32_t>(cptr), 1) == Bytes{'x'} &&
+                  cpk(m, 0x905F, 2) == Bytes{0xFA, 0xFF} && cvv(m, 0, "g_matrix[1][2]") == "-6" && cpk(m, 0x9065, 1) == Bytes{9} &&
+                  cpk(m, 0x907E, 2) == Bytes{0xFF, 0xFF} && cpk(m, 0x908F, 2) == Bytes{0x34, 0x12} && ival(m, 0, "g_word.b[0]") == 52 && ival(m, 0, "g_word.b[1]") == 18 &&
+                  cpk(m, 0x9093, 4) == Bytes{0x60, 0x79, 0xFE, 0xFF} && cvv(m, 0, "g_node.val") == "-100000" && cpk(m, 0x9052, 1) == Bytes{'H'} &&
+                  cvv(m, 0, "g_str[0]") == "72 'H'",
+              "w=" + std::to_string(w) + " via=" + via.why + " cptr=" + std::to_string(cptr) + " float=" + cvv(m, 0, "g_float") + " bptr=" + cvv(m, 0, "g_bptr") +
+                  " word=" + cvv(m, 0, "g_word") + " node=" + cvv(m, 0, "g_node.val") + " str=" + cvv(m, 0, "g_str[0]"));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_52(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+
+    // ── GH #437: writing a C variable (write_c_value) ──────────────────────────────────────────────────────
+    // Oracle: the C source of the fixtures (vars.c: at the vars.c:41 stop of the first call a = 0, b = -5, k = 120, t = 122 and
+    // `return t + (int16_t)acc` with acc = 3 * (a + b + k); main's loop; bk.c / bkmain.c), their maps (every address and record
+    // offset is the map's own: sccz80 a = fp+10, t = fp-2, main's c = fp-15, lp = fp-5; 80cc t = fp-8, acc = fp-6; _g_int $903E ...),
+    // the compiled float bytes, and independent reads of the machine (the CPU view or a page, never the facade) after each write.
+    using Bytes = std::vector<uint8_t>;
+    const std::string w225 = std::string("2") + ".25";
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    const auto cpk = [](Machine& m, uint32_t a, size_t n) {
+        Bytes b;
+        for (size_t i = 0; i < n; ++i) b.push_back(m.emu.mmu().peek(static_cast<uint16_t>(a + i)));
+        return b;
+    };
+    const auto ppk = [](Machine& m, MemSpace s, uint32_t off, size_t n) {
+        Bytes b(n, 0);
+        m.dbg->peek(s, off, n, b.data());
+        return b;
+    };
+    const auto ival = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok && r.integer ? *r.integer : INT64_MIN;
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    const SumAt kSccz80_41{"master/sccz80-cvars", "w", 0x8D3E}, kZsdcc_41{"master/sdcc-cvars", "w", 0x8C97}, k80cc_41{"master/80cc-cvars", "w", 0x8CCA};
+    {   // SRCDBG-CVW-03
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kZsdcc_41.fixture, "w03", kZsdcc_41.pc}, m);
+        const bool w = wr(m, 0, "g_float", w225).ok() && wr(m, 0, "g_char", "255").ok() && wr(m, 0, "g_flags.lo", "5").ok() && wr(m, 0, "g_flags.mid", "17").ok() &&
+                       wr(m, 0, "g_flags.hi", "200").ok();
+        const Bytes flags = cpk(m, 0x8F90, 2);
+        const CwTry bad = attempt(m, 0, "g_flags.lo", "8");
+        check("SRCDBG-CVW-03", "zsdcc: g_float = 2.25 stores IEEE binary32 (00 00 10 40), g_char = 255 (an unsigned char there), g_flags.lo = 5, .mid = 17 and "
+                               ".hi = 200 leave 8D C8 at _g_flags (each field keeps the others' bits), and g_flags.lo = 8 is refused with the bytes unchanged",
+              at && w && cpk(m, 0x8F44, 4) == Bytes{0, 0, 0x10, 0x40} && cvv(m, 0, "g_float") == w225 && cpk(m, 0x8F3B, 1) == Bytes{0xFF} && ival(m, 0, "g_char") == 255 &&
+                  flags == Bytes{0x8D, 0xC8} && cvv(m, 0, "g_flags") == "{lo = 5, mid = 17, hi = 200}" && refused_with(bad, "out of range") && cpk(m, 0x8F90, 2) == flags);
+    }
+    {   // SRCDBG-CVW-04
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({k80cc_41.fixture, "w04", k80cc_41.pc}, m);
+        const uint16_t fp = m.dbg->c_frames()[0].fp;
+        const bool w = wr(m, 0, "t", "1000").ok() && wr(m, 0, "acc", "70000").ok();
+        check("SRCDBG-CVW-04", "80cc at vars.c:41: t = 1000 lands at fp-8 (80cc's own record) and acc = 70000 at fp-6, both read back",
+              at && w && cpk(m, fp - 8u, 2) == Bytes{0xE8, 0x03} && cvv(m, 0, "t") == "1000" && cpk(m, fp - 6u, 4) == Bytes{0x70, 0x11, 0x01, 0x00} && cvv(m, 0, "acc") == "70000");
+    }
+    {   // SRCDBG-CVW-05
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w05", kSccz80_41.pc}, m);
+        const uint16_t fp1 = m.dbg->c_frames()[1].fp;
+        const bool w = wr(m, 1, "c", "100").ok() && wr(m, 1, "lp.x", "10").ok();
+        check("SRCDBG-CVW-05", "an outer frame (main, frame 1): c = 100 reads 100 'd' and lands at main's fp-15, lp.x = 10 lands at fp-5 (and p, which points at lp, "
+                               "reads it); frame 0's own a, t and k are unchanged",
+              at && w && cpk(m, fp1 - 15u, 1) == Bytes{100} && cvv(m, 1, "c") == "100 'd'" && cpk(m, fp1 - 5u, 2) == Bytes{10, 0} && cvv(m, 1, "lp") == "{x = 10, y = 4, tag = 5}" &&
+                  cvv(m, 0, "p->x") == "10" && cvv(m, 0, "a") == "0" && cvv(m, 0, "t") == "122" && cvv(m, 0, "k") == "120 'x'");
+    }
+    {   // SRCDBG-CVW-06
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars-banked", "w06");
+        const auto l7 = m.dbg->source_map().resolve("bkmain.c:7");
+        const bool at = !l7.starts.empty() && cv_run_to(m, l7.starts[0].address);
+        const Bytes cpu0 = cpk(m, 0xC000, 4);
+        const Dbg::CWriteResult w = wr(m, 0, "btable[0]", "50");
+        const Dbg::CValueResult back = m.dbg->read_c_value(0, "btable[0]");
+        check("SRCDBG-CVW-06", "a page global written while its page is unmapped (sccz80 banked, bkmain.c:7, before the call): btable[0] = 50 lands in Page 20 "
+                               "(an independent peek of the page reads 50), the CPU's bytes at $C000 are unchanged, and the read-back says `page 20 is not mapped at "
+                               "$C000 now`",
+              at && w.ok() && w.where.kind == Dbg::CWhere::Kind::Page && w.where.source.space == MemSpace::page(20) && ppk(m, MemSpace::page(20), 0, 1) == Bytes{50} &&
+                  cpk(m, 0xC000, 4) == cpu0 && back.ok && back.value == "50 '2'" && has_note(back, "page 20 is not mapped at $C000 now"));
+    }
+    {   // SRCDBG-CVW-07
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w07", kSccz80_41.pc}, m);
+        const bool w = wr(m, 0, "t", "1000").ok();
+        const bool at2 = cv_run_to(m, kSccz80_41.pc);   // sum's second call
+        check("SRCDBG-CVW-07", "the machine sees it: t = 1000 at the first vars.c:41 makes sum return 1000 + 345 = 1345, which main stores in arr[0] (467 without the write); "
+                               "at the second call frame 1's arr[0] is 1345",
+              at && w && at2 && cvv(m, 1, "arr[0]") == "1345");
+    }
+    {   // SRCDBG-CVW-08
+        bool ok = true;
+        std::string seen;
+        for (const SumAt& c : {SumAt{kSccz80_41.fixture, "w08a", kSccz80_41.pc}, SumAt{kZsdcc_41.fixture, "w08b", kZsdcc_41.pc}, SumAt{k80cc_41.fixture, "w08c", k80cc_41.pc}}) {
             Machine m(false, MachineType::ZXN_ISSUE2);
-            const fs::path d = var_dir("zb13a", "master-fixed-80cc/80cc-scope");
-            z88_copy_lis("master-fixed-80cc/80cc-scope", d);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            const bool at6 = cv_run_to(m, 0x8C68);
-            const CwTry wp = attempt(m, 0, "p", "5");
-            Machine l(false, MachineType::ZXN_ISSUE2);
-            const bool atl = lz(l, "zb13b", 0x8CBE, true);
-            const CwTry wi = attempt(l, 0, "i", "1");
-            check("SRCDBG-ZB-13", "master-fixed-80cc f3254.c with the listing (GH #438 S4b: an 80cc block local is never plain): at `t += p` p := 5 is refused `scope unknown` (nothing is written) and the read of p carries the "
-                  "`scope unknown` note; in the inner loop i := 1 is refused the same way",
-                  at6 && refused_with(wp, "scope unknown") && has_note(m.dbg->read_c_value(0, "p"), "scope unknown") && atl && refused_with(wi, "scope unknown"));
+            const bool at = at41(c, m);
+            const bool w = wr(m, 0, "g_int", "10").ok();
+            const bool at2 = cv_run_to(m, c.pc);
+            bool good = at && w && at2 && cvv(m, 0, "b") == "10" && cvv(m, 0, "t") == "138";   // 1 + 10 + 120 + 7
+            if (good && std::string(c.fixture).find("sccz80") != std::string::npos) {
+                const auto loop = m.dbg->source_map().resolve("vars.c:64");
+                good = !loop.starts.empty() && cv_run_to(m, loop.starts[0].address) && cvv(m, 0, "arr") == "{467, 531, 535, 539}" && cvv(m, 0, "s_file") == "659";
+            }
+            if (!good) {
+                ok = false;
+                seen += std::string(" ") + c.fixture;
+            }
         }
-        // S4b fixtures: load a fixture (with its listings when `lis`) and run to `pc`
-        const auto lzf = [&](Machine& m, const char* fixture, const char* tag, uint16_t pc, bool lis) {
-            const fs::path d = var_dir(tag, fixture);
-            if (lis) z88_copy_lis(fixture, d);
-            else z88_copy(fixture, d);
-            z88_load(m, d / "prog.nex");
-            m.dbg->load_program_sidecars((d / "prog.nex").string());
-            return cv_run_to(m, pc);
+        check("SRCDBG-CVW-08", "g_int = 10 at the first vars.c:41 of sum, on sccz80, zsdcc and 80cc: at the second call b is 10 and t is 1 + 10 + 120 + 7 = 138; on sccz80 "
+                               "main's loop then holds arr = {467, 531, 535, 539} and s_file = 539 + 120 = 659",
+              ok, seen);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_53(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+
+    // ── GH #437: writing a C variable (write_c_value) ──────────────────────────────────────────────────────
+    // Oracle: the C source of the fixtures (vars.c: at the vars.c:41 stop of the first call a = 0, b = -5, k = 120, t = 122 and
+    // `return t + (int16_t)acc` with acc = 3 * (a + b + k); main's loop; bk.c / bkmain.c), their maps (every address and record
+    // offset is the map's own: sccz80 a = fp+10, t = fp-2, main's c = fp-15, lp = fp-5; 80cc t = fp-8, acc = fp-6; _g_int $903E ...),
+    // the compiled float bytes, and independent reads of the machine (the CPU view or a page, never the facade) after each write.
+    using Bytes = std::vector<uint8_t>;
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    const auto cpk = [](Machine& m, uint32_t a, size_t n) {
+        Bytes b;
+        for (size_t i = 0; i < n; ++i) b.push_back(m.emu.mmu().peek(static_cast<uint16_t>(a + i)));
+        return b;
+    };
+    const auto ival = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok && r.integer ? *r.integer : INT64_MIN;
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    const auto cw_entry = [](const Machine& m, const char* fn) -> std::optional<SourceAddress> {
+        const auto vs = m.dbg->variables();
+        for (const auto& f : vs ? vs->functions() : std::vector<jnext::dbg::CFunction>{})
+            if (f.name == fn && f.entry.resolved) return f.entry.at;
+        return std::nullopt;
+    };
+    // a synthetic z88dk map record, written as the compilers write it (CVAL-56's)
+    const auto s3_rec = [](const std::string& r, const char* module) {
+        std::string o;
+        for (const unsigned char c : r) {
+            if (std::isalpha(c)) {
+                o += static_cast<char>(c);
+            } else {
+                char b[8];
+                std::snprintf(b, sizeof b, "_%02x", c);
+                o += b;
+            }
+        }
+        return "__CDBINFO__" + o + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
+    const SumAt kSccz80_41{"master/sccz80-cvars", "w", 0x8D3E}, kZsdcc_41{"master/sdcc-cvars", "w", 0x8C97};
+    {   // SRCDBG-CVW-09
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, kSccz80_41.fixture, "w09");
+        const auto l34 = m.dbg->source_map().resolve("vars.c:34");
+        const bool at34 = !l34.starts.empty() && cv_run_to(m, l34.starts[0].address);
+        const bool w = wr(m, 0, "p->x", "10").ok();
+        const bool at41b = cv_run_to(m, kSccz80_41.pc);
+        check("SRCDBG-CVW-09", "a pointer target: p->x = 10 at vars.c:34 of the first call; at vars.c:41 inner is 10 + 4, so t = 0 - 5 + 120 + 14 = 129, and main's lp.x "
+                               "is 10 (written through the pointer into main's struct)",
+              at34 && w && at41b && cvv(m, 0, "t") == "129" && cvv(m, 1, "lp") == "{x = 10, y = 4, tag = 5}");
+    }
+    {   // SRCDBG-CVW-10
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        cv_load(m, "master/sccz80-cvars-banked", "w10");
+        const auto l7 = m.dbg->source_map().resolve("bkmain.c:7");
+        const auto l10 = m.dbg->source_map().resolve("bk.c:10");
+        const auto entry = cw_entry(m, "bk_sum");
+        bool at = !l7.starts.empty() && !l10.starts.empty() && entry && cv_run_to(m, l7.starts[0].address);
+        const bool w = at && wr(m, 0, "btable[0]", "50").ok();
+        // this machine has no ROM: interrupts are cleared at bk_sum's entry, as CVAL-37 does
+        at = at && cv_run_to(m, entry->address);
+        if (at) {
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.IFF1 = r.IFF2 = 0;
+            m.emu.cpu().set_registers(r);
+        }
+        at = at && cv_run_to(m, l10.starts[0].address);
+        const int64_t s = at ? ival(m, 0, "s") : INT64_MIN;
+        const auto loop = m.dbg->source_map().resolve("bkmain.c:8");
+        bool in_loop = at && !loop.starts.empty();
+        for (int i = 0; in_loop && i < 2000 && m.dbg->registers().PC != loop.starts[0].address; ++i) {
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.IFF1 = r.IFF2 = 0;
+            m.emu.cpu().set_registers(r);
+            m.emu.execute_single_instruction();
+        }
+        in_loop = in_loop && m.dbg->registers().PC == loop.starts[0].address;
+        check("SRCDBG-CVW-10", "banked: btable[0] = 50 at bkmain.c:7, continued to bk.c:10: s = 3 + 50 + 20 + 30 + 40 = 143; back in main's loop result = 143 + 2 = 145",
+              at && w && s == 143 && in_loop && ival(m, 0, "result") == 145);
+    }
+    {   // SRCDBG-CVW-11
+        Machine zs(false, MachineType::ZXN_ISSUE2);
+        const bool zat = at41({kZsdcc_41.fixture, "w11a", kZsdcc_41.pc}, zs);
+        const uint16_t bc = zs.dbg->registers().BC;
+        const CwTry t = attempt(zs, 0, "t", "1"), acc = attempt(zs, 0, "acc", "1");
+        // a pointer held in HL (CVAL-58's map): a write through it is refused, the bytes at HL+2 stay
+        Machine h(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "w11.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") +
+                            s3_rec("T:Ft.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "t_c") +
+                            s3_rec("S:Lt.c.fa$p$1_0$1({2}DG,STpt:S),R,0,0,[l,h]", "t_c"));
+        const auto lr = h.dbg->load_source_map(map, true);
+        const uint8_t pts[] = {3, 0, 4, 0, 5, 0, 6, 0};
+        for (size_t i = 0; i < sizeof pts; ++i) h.emu.mmu().write(static_cast<uint16_t>(0xA000 + i), pts[i]);
+        Z80Registers r = h.emu.cpu().get_registers();
+        r.HL = 0xA000;
+        h.emu.cpu().set_registers(r);
+        const CwTry py = attempt(h, 0, "p->y", "1"), pv = attempt(h, 0, "p", "$B000");
+        check("SRCDBG-CVW-11", "registers are never written: zsdcc's t (in BC) is refused naming BC with BC unchanged, its acc is `optimised out`; a pointer held in HL "
+                               "is refused for p itself and for p->y (a register may be stale), the bytes at HL+2 unchanged; nothing bumps the revision or logs",
+              zat && refused_with(t, "a register variable cannot be written") && t.w.why.find("(in BC)") != std::string::npos && zs.dbg->registers().BC == bc &&
+                  cvv(zs, 0, "t") == "122" && refused_with(acc, "optimised out") && lr.count > 0 && refused_with(py, "a register variable cannot be written") &&
+                  py.w.why.find("(in HL)") != std::string::npos && refused_with(pv, "a register variable cannot be written") && cpk(h, 0xA002, 2) == Bytes{4, 0} &&
+                  h.dbg->registers().HL == 0xA000);
+    }
+    {   // SRCDBG-CVW-12
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const fs::path d = var_dir("w12", "master/sccz80-fc");
+        z88_copy_lis("master/sccz80-fc", d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const bool at = cv_run_to(m, 0x8C62);
+        const uint16_t sp = m.dbg->registers().SP;
+        const Bytes stack = cpk(m, sp, 64);
+        const CwTry t = attempt(m, 0, "x", "5");
+        check("SRCDBG-CVW-12", "U1: sccz80's fastcall ffast has its parameter x recorded at a slot it is not in (z88dk U1): the write is refused with the read's `location "
+                               "unknown (z88dk U1...)` and the stack bytes stay",
+              at && refused_with(t, "location unknown") && t.w.why.find("U1") != std::string::npos && cpk(m, sp, 64) == stack);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_54(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+
+    // ── GH #437: writing a C variable (write_c_value) ──────────────────────────────────────────────────────
+    // Oracle: the C source of the fixtures (vars.c: at the vars.c:41 stop of the first call a = 0, b = -5, k = 120, t = 122 and
+    // `return t + (int16_t)acc` with acc = 3 * (a + b + k); main's loop; bk.c / bkmain.c), their maps (every address and record
+    // offset is the map's own: sccz80 a = fp+10, t = fp-2, main's c = fp-15, lp = fp-5; 80cc t = fp-8, acc = fp-6; _g_int $903E ...),
+    // the compiled float bytes, and independent reads of the machine (the CPU view or a page, never the facade) after each write.
+    using Bytes = std::vector<uint8_t>;
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    const auto cpk = [](Machine& m, uint32_t a, size_t n) {
+        Bytes b;
+        for (size_t i = 0; i < n; ++i) b.push_back(m.emu.mmu().peek(static_cast<uint16_t>(a + i)));
+        return b;
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    const SumAt kSccz80_41{"master/sccz80-cvars", "w", 0x8D3E}, k80cc_41{"master/80cc-cvars", "w", 0x8CCA};
+    {   // SRCDBG-CVW-13
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w13a", kSccz80_41.pc}, m);
+        const CwTry inner = attempt(m, 0, "inner", "1");
+        Machine c(false, MachineType::ZXN_ISSUE2);
+        const bool cat = at41({k80cc_41.fixture, "w13b", k80cc_41.pc}, c);
+        const CwTry unknown = attempt(c, 0, "inner", "1");
+        check("SRCDBG-CVW-13", "scope: sccz80's block local `inner` at vars.c:41 is `out of scope at vars.c:41`; 80cc writes no block structure, so its `inner` is shown but "
+                               "refused `scope unknown` (the slot may hold another variable), while 80cc's t is written (the 80cc row above)",
+              at && cat && refused_with(inner, "out of scope at vars.c:41") && refused_with(unknown, "scope unknown"));
+    }
+    {   // SRCDBG-CVW-14
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w14", kSccz80_41.pc}, m);
+        const uint16_t fp1 = m.dbg->c_frames()[1].fp;
+        const Bytes pt = cpk(m, 0x9061, 5), mat = cpk(m, 0x9055, 12), str = cpk(m, 0x9052, 3), lp = cpk(m, fp1 - 5u, 5);
+        bool all = at;
+        const char* kPaths[] = {"g_pt", "g_matrix", "g_matrix[1]", "g_str", "*p"};
+        for (const char* p : kPaths) all = all && refused_with(attempt(m, 0, p, "1"), "is an aggregate: write a member or an element");
+        all = all && refused_with(attempt(m, 1, "lp", "1"), "is an aggregate: write a member or an element");
+        check("SRCDBG-CVW-14", "aggregates are never written whole: g_pt, frame 1's lp, g_matrix, g_matrix[1], g_str and *p (a struct) are each refused `is an aggregate: "
+                               "write a member or an element`, with their bytes unchanged",
+              all && cpk(m, 0x9061, 5) == pt && cpk(m, 0x9055, 12) == mat && cpk(m, 0x9052, 3) == str && cpk(m, fp1 - 5u, 5) == lp);
+    }
+    {   // SRCDBG-CVW-15
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w15a", kSccz80_41.pc}, m);
+        const size_t n = m.dbg->c_frames().size();
+        const CwTry fr7 = attempt(m, 7, "g_int", "1");
+        Machine c(false, MachineType::ZXN_ISSUE2);
+        cv_load(c, "master/80cc-cvars", "w15b");
+        const bool cat = cv_run_to(c, 0x8DC6);
+        c.emu.call_stack().clear();   // CVAL-52's state: main (frame 1) has no known base
+        const CwTry base = attempt(c, 1, "lp.x", "1");
+        Machine p(false, MachineType::ZXN_ISSUE2);
+        cv_load(p, "master/sccz80-cvars", "w15c");
+        cv_run_to(p, 0x8CB9);
+        const bool pat = cv_run_to(p, 0x8B64);   // CVAL-16's stop: l_debug_push_frame's first instruction, in sum's first call
+        const CwTry unalloc = attempt(p, 1, "t", "1"), nof0 = attempt(p, 0, "t", "1");
+        check("SRCDBG-CVW-15", "frames: frame 7 is `no frame 7 (there are N)`; 80cc's main with no known base refuses `the frame base is not known`; at "
+                               "l_debug_push_frame's first instruction sum's t (frame 1) is `not allocated` and frame 0 (assembly) has no `t`",
+              at && cat && pat && refused_with(fr7, ("no frame 7 (there are " + std::to_string(n) + ")").c_str()) && refused_with(base, "the frame base is not known") &&
+                  refused_with(unalloc, "not allocated") && refused_with(nof0, "unknown name 't'"));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_55(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+
+    // ── GH #437: writing a C variable (write_c_value) ──────────────────────────────────────────────────────
+    // Oracle: the C source of the fixtures (vars.c: at the vars.c:41 stop of the first call a = 0, b = -5, k = 120, t = 122 and
+    // `return t + (int16_t)acc` with acc = 3 * (a + b + k); main's loop; bk.c / bkmain.c), their maps (every address and record
+    // offset is the map's own: sccz80 a = fp+10, t = fp-2, main's c = fp-15, lp = fp-5; 80cc t = fp-8, acc = fp-6; _g_int $903E ...),
+    // the compiled float bytes, and independent reads of the machine (the CPU view or a page, never the facade) after each write.
+    using Bytes = std::vector<uint8_t>;
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    const auto cpk = [](Machine& m, uint32_t a, size_t n) {
+        Bytes b;
+        for (size_t i = 0; i < n; ++i) b.push_back(m.emu.mmu().peek(static_cast<uint16_t>(a + i)));
+        return b;
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    // a synthetic z88dk map record, written as the compilers write it (CVAL-56's)
+    const auto s3_rec = [](const std::string& r, const char* module) {
+        std::string o;
+        for (const unsigned char c : r) {
+            if (std::isalpha(c)) {
+                o += static_cast<char>(c);
+            } else {
+                char b[8];
+                std::snprintf(b, sizeof b, "_%02x", c);
+                o += b;
+            }
+        }
+        return "__CDBINFO__" + o + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
+    const SumAt kSccz80_41{"master/sccz80-cvars", "w", 0x8D3E};
+    {   // SRCDBG-CVW-16
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w16", kSccz80_41.pc}, m);
+        const Bytes globals = cpk(m, 0x903E, 64);
+        const uint16_t fp1 = m.dbg->c_frames()[1].fp;
+        const CwTry u = attempt(m, 0, "g_uint", "-1"), i = attempt(m, 0, "g_int", "32768"), s = attempt(m, 0, "g_schar", "128"), c = attempt(m, 1, "c", "200"),
+                    p = attempt(m, 0, "g_bptr", "65536"), f = attempt(m, 0, "g_float", "1e39"), fr = attempt(m, 0, "g_int", std::string("1") + ".5"), ab = attempt(m, 0, "g_int", "abc");
+        check("SRCDBG-CVW-16", "values: g_uint = -1, g_int = 32768, g_schar = 128, frame 1's c = 200 (sccz80's char is signed), g_bptr = 65536, g_float = 1e39 (48-bit "
+                               "overflow), g_int = a fraction and g_int = abc are each refused with the encoder's text, and nothing changes",
+              at && refused_with(u, "out of range for unsigned int (0..65535)") && refused_with(i, "out of range for int (-32768..32767)") &&
+                  refused_with(s, "out of range for char (-128..127)") && refused_with(c, "(-128..127)") && refused_with(p, "(0..65535)") &&
+                  refused_with(f, "out of range for float (z88dk 48-bit)") && refused_with(fr, "is not an integer") && refused_with(ab, "is not a number") &&
+                  cpk(m, 0x903E, 64) == globals && cvv(m, 1, "c") == "120 'x'" && fp1 > 0);
+    }
+    {   // SRCDBG-CVW-17
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "w17.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                        "_gv = $9FFF ; addr, public, , t_c, data_compiler, t.c:3\n"
+                        "_gok = $9FFD ; addr, public, , t_c, data_compiler, t.c:4\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gv$0_0$0({2}SI:S),E,0,0", "t_c") +
+                            s3_rec("S:G$gok$0_0$0({2}SI:S),E,0,0", "t_c"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        m.emu.mmu().write(0x9FFF, 0x77);
+        m.emu.mmu().write(0xA000, 0x66);
+        const CwTry cross = attempt(m, 0, "gv", "1");
+        const bool ok2 = wr(m, 0, "gok", "4660").ok();
+        check("SRCDBG-CVW-17", "a 2-byte global on the last byte of its page is refused `the value crosses a page boundary` and neither page's byte changes; gok, two bytes "
+                               "before it, is written and reads back 4660",
+              lr.count > 0 && refused_with(cross, "the value crosses a page boundary") && cpk(m, 0x9FFF, 2) == Bytes{0x77, 0x66} && ok2 && cvv(m, 0, "gok") == "4660" &&
+                  cpk(m, 0x9FFD, 2) == Bytes{0x34, 0x12});
+    }
+    {   // SRCDBG-CVW-18
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w18", kSccz80_41.pc}, m);
+        const Bytes fl = cpk(m, 0x9099, 4);
+        const CwTry t = attempt(m, 0, "g_flags.lo", "1");
+        check("SRCDBG-CVW-18", "U2: sccz80's g_flags.lo (an overlapping bitfield-like member) is refused with `bitfield layout unknown (z88dk U2)` and _g_flags stays",
+              at && refused_with(t, "bitfield layout unknown (z88dk U2)") && cpk(m, 0x9099, 4) == fl);
+    }
+    {   // SRCDBG-CVW-19
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w19", kSccz80_41.pc}, m);
+        CwTry rzx;
+        {
+            m.emu.rzx_player().start(RzxRecording{});
+            rzx = attempt(m, 0, "g_int", "1");
+            m.emu.rzx_player().stop();
+        }
+        const CwTry nul = attempt(m, 0, "*g_bptr", "1");
+        const bool set_ptr = wr(m, 0, "g_bptr", "$0010").ok();   // slot 0 is ROM
+        const CwTry rom = attempt(m, 0, "*g_bptr", "1");
+        Machine d(false, MachineType::ZXN_ISSUE2);
+        d.dbg->load_source_map((kZ88Fixtures / "master/sccz80-dot/prog.map").string(), false, false, /*dot_only=*/true);
+        uint8_t* bank2 = d.emu.divmmc().ram_data() + 2 * 0x2000;
+        bank2[0x3253 & 0x1FFF] = 200;
+        const CwTry dot = attempt(d, 0, "total", "7");
+        check("SRCDBG-CVW-19", "backend refusals: under an RZX playback g_int = 1 is RefusedRzx; *g_bptr with g_bptr NULL is the null-pointer refusal; with g_bptr = $0010 (ROM) "
+                               "*g_bptr = 1 is RefusedReadOnly, `0 of 1 bytes landed (the rest is read-only)`, landed 0; a dot command's `total` (DivMMC RAM bank 2) "
+                               "is Unsupported with the DivMMC text and its byte unchanged; none bumps the revision",
+              at && !rzx.w.ok() && rzx.w.status == Result::RefusedRzx && rzx.quiet && cpk(m, 0x903E, 2) == Bytes{0xFB, 0xFF} && !nul.w.ok() && nul.quiet &&
+                  nul.w.why.find("null") != std::string::npos && set_ptr && !rom.w.ok() && rom.w.status == Result::RefusedReadOnly && rom.w.landed == 0 && rom.quiet &&
+                  rom.w.why == "0 of 1 bytes landed (the rest is read-only)" && !dot.w.ok() && dot.w.status == Result::Unsupported && dot.quiet &&
+                  dot.w.why == "DivMMC RAM bank 2 cannot be written by the debugger (unsupported)" && bank2[0x3253 & 0x1FFF] == 200);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_56(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    // a synthetic z88dk map record, written as the compilers write it (CVAL-56's)
+    const auto s3_rec = [](const std::string& r, const char* module) {
+        std::string o;
+        for (const unsigned char c : r) {
+            if (std::isalpha(c)) {
+                o += static_cast<char>(c);
+            } else {
+                char b[8];
+                std::snprintf(b, sizeof b, "_%02x", c);
+                o += b;
+            }
+        }
+        return "__CDBINFO__" + o + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
+    const SumAt kSccz80_41{"master/sccz80-cvars", "w", 0x8D3E};
+    {   // SRCDBG-CVW-20
+        Machine none(false, MachineType::ZXN_ISSUE2);
+        const CwTry a = attempt(none, 0, "g_int", "1");
+        Machine sldm(false, MachineType::ZXN_ISSUE2);
+        const std::string sld = (z / "w20.sld").string();
+        write_text(sld, "|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,slots.adr:0,8192,16384,24576,32768,40960,49152,57344\nmain.bas|10||0|0|32768|T|\n");
+        sldm.dbg->load_source_map(sld, true);
+        const CwTry b = attempt(sldm, 0, "g_int", "1");
+        const fs::path d = var_dir("w20", "master/sccz80-cvars");
+        Machine st(false, MachineType::ZXN_ISSUE2);
+        z88_load(st, d / "prog.nex");
+        st.dbg->load_source_map((d / "prog.map").string(), false);
+        st.dbg->reset(st.a, ResetKind::Soft);
+        st.dbg->run(st.a);
+        const uint8_t was = st.emu.mmu().peek(0x8CB5);
+        st.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
+        for (int i = 0; i < 5; ++i) st.emu.run_frame();
+        st.dbg->pause(st.a);
+        const CwTry c = attempt(st, 0, "g_int", "1");
+        check("SRCDBG-CVW-20", "no store: no map attached, an SLD map and a stale user map each refuse with c_variables_status()'s own text",
+              !none.dbg->c_variables_status().why.empty() && refused_with(a, none.dbg->c_variables_status().why.c_str()) &&
+                  refused_with(b, sldm.dbg->c_variables_status().why.c_str()) && b.w.why.find("SLD") != std::string::npos &&
+                  refused_with(c, "the source map is stale: ") && c.w.why == st.dbg->c_variables_status().why);
+    }
+    {   // SRCDBG-CVW-21
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w21", kSccz80_41.pc}, m);
+        m.dbg->c_frames();
+        const uint64_t rev0 = m.dbg->state_revision();
+        Dbg::CWriteResult w;
+        const std::string log = debugger_log_of([&] { w = wr(m, 0, "t", "1000"); });
+        const uint64_t rev1 = m.dbg->state_revision();
+        m.dbg->read_c_value(0, "t");
+        m.dbg->c_locals(0);
+        const uint64_t rev2 = m.dbg->state_revision();
+        size_t lines = 0;
+        for (size_t at_ = log.find("MUTATE"); at_ != std::string::npos; at_ = log.find("MUTATE", at_ + 1)) ++lines;
+        check("SRCDBG-CVW-21", "one successful write advances state_revision() by exactly 1 and logs exactly one MUTATE line naming the client; reading it back moves nothing",
+              at && w.ok() && rev1 == rev0 + 1 && lines == 1 && log.find("by " + std::to_string(m.a)) != std::string::npos && rev2 == rev1);
+    }
+    {   // SRCDBG-CVW-22
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({kSccz80_41.fixture, "w22", kSccz80_41.pc}, m);
+        const uint16_t fp = m.dbg->c_frames()[0].fp;
+        const Dbg::CWriteResult t = wr(m, 0, "t", "1000"), c = wr(m, 0, "sum::calls", "10");
+        check("SRCDBG-CVW-22", "the result: t = 1000 is Ok with old_value 122, value 1000, type int, where = Cpu at fp-2 and landed 2; sum::calls = 10 is where = Page 4 at "
+                               "$90A0, landed 1",
+              at && t.ok() && t.old_value == "122" && t.value == "1000" && t.type == "int" && t.where.kind == Dbg::CWhere::Kind::Cpu && t.where.cpu == static_cast<uint16_t>(fp - 2) &&
+                  t.landed == 2 && c.ok() && c.where.kind == Dbg::CWhere::Kind::Page && c.where.source.space == MemSpace::page(4) && c.where.source.address == 0x90A0 &&
+                  c.landed == 1);
+    }
+    {   // SRCDBG-CVW-23
+        // a 2-byte object on $3FFF: the first byte is ROM, the second is RAM. poke() lands the RAM byte, logs one MUTATE line and bumps the revision once,
+        // and answers RefusedReadOnly: a refusal that carries the bump of the bytes that landed
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "w23.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                        "_gp = $8100 ; addr, public, , t_c, data_compiler, t.c:1\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gp$0_0$0({2}DG,SI:S),E,0,0", "t_c"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        m.emu.mmu().write(0x8100, 0xFF);
+        m.emu.mmu().write(0x8101, 0x3F);   // gp = $3FFF
+        m.emu.mmu().write(0x4000, 0x55);
+        const uint8_t rom0 = m.emu.mmu().peek(0x3FFF);
+        m.dbg->c_frames();
+        const uint64_t rev = m.dbg->state_revision();
+        Dbg::CWriteResult w;
+        const std::string log = debugger_log_of([&] { w = wr(m, 0, "*gp", "4660"); });   // $1234
+        size_t lines = 0;
+        for (size_t at_ = log.find("MUTATE"); at_ != std::string::npos; at_ = log.find("MUTATE", at_ + 1)) ++lines;
+        check("SRCDBG-CVW-23", "a 2-byte int through a pointer at $3FFF (ROM, then RAM): RefusedReadOnly `1 of 2 bytes landed (the rest is read-only)`, landed 1, the RAM byte at $4000 "
+                               "is the high byte $12 and the ROM byte is unchanged, exactly one MUTATE line and the revision up by exactly 1",
+              lr.count > 0 && !w.ok() && w.status == Result::RefusedReadOnly && w.landed == 1 && w.why == "1 of 2 bytes landed (the rest is read-only)" &&
+                  m.emu.mmu().peek(0x4000) == 0x12 && m.emu.mmu().peek(0x3FFF) == rom0 && lines == 1 && m.dbg->state_revision() == rev + 1,
+              w.why + " landed=" + std::to_string(w.landed) + " lines=" + std::to_string(lines) + " rev " + std::to_string(rev) + "->" + std::to_string(m.dbg->state_revision()));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_57(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto row_of = [](const std::vector<Dbg::CValueRow>& rows, const char* name) -> const Dbg::CValueRow* {
+        for (const auto& r : rows)
+            if (r.name == name) return &r;
+        return nullptr;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    const SumAt k80cc_41{"master/80cc-cvars", "w", 0x8CCA};
+
+    // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
+    // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
+    // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
+    const std::string k3233 = "80cc may not keep it in the frame slot";   // the part of the 80cc note that names it
+    const auto zb_at = [&](Machine& m, const char* fixture, const char* tag, const char* line, uint16_t pc, bool lis = false) {
+        const fs::path d = var_dir(tag, fixture);
+        if (lis) z88_copy_lis(fixture, d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        return cv_starts_at(m, line, pc) && cv_run_to(m, pc);
+    };
+    const auto note80 = [&](const std::vector<std::string>& notes) {
+        for (const auto& n : notes)
+            if (n.find(k3233) != std::string::npos) return true;
+        return false;
+    };
+    {   // SRCDBG-ZB-01
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({k80cc_41.fixture, "zb01a", k80cc_41.pc}, m);
+        const auto loc = m.dbg->c_locals(0);
+        bool all = at && loc.ok;
+        std::string seen;
+        for (const char* n : {"a", "b", "p", "k", "t", "acc", "inner"}) {
+            const auto* row = row_of(loc.rows, n);
+            if (!(row && note80(row->notes))) { all = false; seen += std::string(" ") + n; }
+        }
+        const auto* calls = row_of(loc.rows, "calls");
+        const Dbg::CValueResult t = m.dbg->read_c_value(0, "t"), lp = m.dbg->read_c_value(1, "lp"), g = m.dbg->read_c_value(0, "g_int"), sc = m.dbg->read_c_value(0, "sum::calls");
+        bool globals = true;
+        for (const auto& r : m.dbg->c_globals()) globals = globals && !note80(r.notes);
+        // no sccz80 or zsdcc local carries it
+        bool others = true;
+        int n = 0;
+        for (const SumAt& c : {SumAt{"master/sccz80-cvars", "zb01b", 0x8D3E}, SumAt{"master/sdcc-cvars", "zb01c", 0x8C97}, SumAt{"v2.4/sccz80-cvars", "zb01d", 0x8D3E}}) {
+            Machine o(false, MachineType::ZXN_ISSUE2);
+            others = others && at41(c, o);
+            for (const auto& r : o.dbg->c_locals(0).rows) { others = others && !note80(r.notes); ++n; }
+            others = others && !note80(o.dbg->read_c_value(1, "lp").notes);
+        }
+        check("SRCDBG-ZB-01", "master 80cc-cvars at vars.c:41: a, b, p, k, t, acc and inner carry the 80cc note in c_locals(0), t does in read_c_value(0, \"t\") and frame 1's lp "
+                              "does; read_c_value of the block local inner also says `scope unknown`; sum::calls, g_int and every global do not; no sccz80 or zsdcc local does",
+              all && calls && !note80(calls->notes) && t.ok && note80(t.notes) && has_note(m.dbg->read_c_value(0, "inner"), "scope unknown") && !has_note(t, "scope unknown") && lp.ok && note80(lp.notes) && g.ok && !note80(g.notes) && sc.ok && !note80(sc.notes) && globals && others && n > 12,
+              seen + " n=" + std::to_string(n));
+    }
+    {   // SRCDBG-ZB-02
+        // u5.c (z88dk#3233's program): twice(v): r = v + v; r = r + 1. At line 7's start r is in A (the listing's `add a,a`), v = 3, and r's slot was never written
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = zb_at(m, "master/80cc-u5", "zb02", "u5.c:7", 0x8C6C);
+        const unsigned a = m.dbg->registers().AF >> 8;
+        const Dbg::CValueResult r = m.dbg->read_c_value(0, "r"), v = m.dbg->read_c_value(0, "v");
+        check("SRCDBG-ZB-02", "master 80cc-u5 at `r = r + 1;`: A is 6 (v + v, v = 3), r is read from its slot with the 80cc note and the slot does not hold 6 (the stale value the note warns of)",
+              at && a == 6 && r.ok && note80(r.notes) && r.value != "6" && v.ok && v.value == "3" && note80(v.notes), "A=" + std::to_string(a) + " r=" + (r.ok ? r.value : r.why));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_58(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+
+    // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
+    // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
+    // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
+    const std::string k3233 = "80cc may not keep it in the frame slot";   // the part of the 80cc note that names it
+    const auto zb_at = [&](Machine& m, const char* fixture, const char* tag, const char* line, uint16_t pc, bool lis = false) {
+        const fs::path d = var_dir(tag, fixture);
+        if (lis) z88_copy_lis(fixture, d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        return cv_starts_at(m, line, pc) && cv_run_to(m, pc);
+    };
+    const auto note80 = [&](const std::vector<std::string>& notes) {
+        for (const auto& n : notes)
+            if (n.find(k3233) != std::string::npos) return true;
+        return false;
+    };
+    const auto u1 = [](const Dbg::CValueResult& r) { return !r.ok && r.why.find("location unknown (z88dk U1") == 0; };
+    {   // SRCDBG-ZB-03
+        // U1 per function. fc.c: ffast's x is pushed after `call l_debug_push_frame` (the stop is entry + 4, after `push hl`). fm.c: fm(a, b) fastcall, y = a - b = 5 at `return y;`
+        Machine f(false, MachineType::ZXN_ISSUE2);
+        const bool fat = zb_at(f, "master-fixed/sccz80-fc", "zb03a", "fc.c:3", 0x8C62, true) && cv_run_to(f, 0x8C66);
+        const Dbg::CValueResult fx = f.dbg->read_c_value(0, "x");
+        const uint16_t fp = f.dbg->c_frames()[0].fp;
+        Machine g(false, MachineType::ZXN_ISSUE2);
+        const bool gat = zb_at(g, "master-fixed/sccz80-fm", "zb03b", "fm.c:7", 0x8C92, true);
+        Machine p(false, MachineType::ZXN_ISSUE2);
+        const bool pat = zb_at(p, "master/sccz80-fm", "zb03c", "fm.c:7", 0x8C92, true);
+        Machine c(false, MachineType::ZXN_ISSUE2);
+        const bool cat = zb_at(c, "master/80cc-fm", "zb03d", "fm.c:7", 0x8C68, true);
+        const Dbg::CValueResult ca = c.dbg->read_c_value(0, "a"), cb = c.dbg->read_c_value(0, "b");
+        check("SRCDBG-ZB-03", "U1 per function: master-fixed sccz80-fc at ffast's `push hl`: x = 3 at fp-2 (Cpu), no U1; master-fixed fm at `return y;`: a = 7, b = 2, y = 5; master (pre-fix) "
+                              "sccz80 fm: a and b refused with U1, y = 5; master 80cc fm: a = 7 with no U1 and with the 80cc note, b has no U1 but the 80cc note and reads y's 5 "
+                              "(its record -2 is y's slot: z88dk#3233 before PR #3244) and both b and y carry `shares its stack slot with <the other>`",
+              fat && fx.ok && fx.value == "3" && fx.where.kind == Dbg::CWhere::Kind::Cpu && fx.where.cpu == static_cast<uint16_t>(fp - 2) && !u1(fx) &&
+                  gat && cvv(g, 0, "a") == "7" && cvv(g, 0, "b") == "2" && cvv(g, 0, "y") == "5" && pat && u1(p.dbg->read_c_value(0, "a")) && u1(p.dbg->read_c_value(0, "b")) &&
+                  cvv(p, 0, "y") == "5" && cat && ca.ok && ca.value == "7" && !u1(ca) && note80(ca.notes) && cb.ok && !u1(cb) && note80(cb.notes) && cb.value == "5" && cvv(c, 0, "y") == "5" &&
+                  has_note(cb, jnext::dbg::c_shares_note("y").c_str()) && has_note(c.dbg->read_c_value(0, "y"), jnext::dbg::c_shares_note("b").c_str()) && !has_note(ca, "shares its stack slot"),
+              "x=" + (fx.ok ? fx.value : fx.why) + " b80=" + (cb.ok ? cb.value : cb.why));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_59(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto row_of = [](const std::vector<Dbg::CValueRow>& rows, const char* name) -> const Dbg::CValueRow* {
+        for (const auto& r : rows)
+            if (r.name == name) return &r;
+        return nullptr;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+
+    // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
+    // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
+    // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
+    const std::string k3233 = "80cc may not keep it in the frame slot";   // the part of the 80cc note that names it
+    const auto zb_at = [&](Machine& m, const char* fixture, const char* tag, const char* line, uint16_t pc, bool lis = false) {
+        const fs::path d = var_dir(tag, fixture);
+        if (lis) z88_copy_lis(fixture, d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        return cv_starts_at(m, line, pc) && cv_run_to(m, pc);
+    };
+    const auto note80 = [&](const std::vector<std::string>& notes) {
+        for (const auto& n : notes)
+            if (n.find(k3233) != std::string::npos) return true;
+        return false;
+    };
+    const auto u1 = [](const Dbg::CValueResult& r) { return !r.ok && r.why.find("location unknown (z88dk U1") == 0; };
+    {   // SRCDBG-ZB-04
+        // no listing beside any of these maps: the entry bytes decide. ffast: `call l_debug_push_frame; push hl`; fcallee's entry is the same call but no `push hl` after it
+        const auto ffast_x = [&](const char* fixture, const char* tag, uint16_t pc) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = zb_at(m, fixture, tag, "fc.c:3", 0x8C62) && (pc == 0x8C62 || cv_run_to(m, pc));
+            const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+            return std::make_pair(at, x);
         };
-        const auto trows = [&](Machine& m, const char* name) {
-            std::vector<Dbg::CValueRow> out;
-            for (const auto& r : m.dbg->c_locals(0).rows)
-                if (r.name == name) out.push_back(r);
+        const auto pre24 = ffast_x("v2.4/sccz80-fc", "zb04a", 0x8C62), prem = ffast_x("master/sccz80-fc", "zb04b", 0x8C62), fixd = ffast_x("master-fixed/sccz80-fc", "zb04c", 0x8C66);
+        bool callee = true;
+        for (const SumAt& c : {SumAt{"v2.4/sccz80-fc", "zb04d", 0x8C74}, SumAt{"master/sccz80-fc", "zb04e", 0x8C74}, SumAt{"master-fixed/sccz80-fc", "zb04f", 0x8C74}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, c.fixture, c.tag);
+            callee = callee && cv_run_to(m, c.pc) && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4";
+        }
+        // the shapes of the evidence, poked into master's entry (not yet executed, at $8C62; l_debug_push_frame is $8B5C): `call l_debug_push_frame; push de; push hl` (a 32-bit parameter) is evidence;
+        // `call l_debug_push_frame; push de` alone and a call to another address are not
+        const auto poked = [&](const char* tag, std::initializer_list<std::pair<uint16_t, uint8_t>> pokes) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = zb_at(m, "master/sccz80-fc", tag, "fc.c:3", 0x8C62);
+            for (const auto& pk : pokes) m.emu.mmu().write(pk.first, pk.second);
+            return std::make_pair(at, m.dbg->read_c_value(0, "x"));
+        };
+        const auto de_hl = poked("zb04h", {{0x8C65, 0xD5}, {0x8C66, 0xE5}}), de_only = poked("zb04i", {{0x8C65, 0xD5}, {0x8C66, 0xC5}}),
+                   other_call = poked("zb04j", {{0x8C63, 0x5D}});
+        check("SRCDBG-ZB-04", "no listing (the entry bytes are the evidence): v2.4 and master sccz80-fc's ffast x is refused with U1, master-fixed's is 3; fcallee's a and b are 4 on all three "
+                              "(`call l_debug_push_frame` is not enough: only `push hl` after it marks a fastcall function); poked into master's entry, `call l_debug_push_frame; push de; "
+                              "push hl` is evidence too, `push de` alone and a call to another address are not",
+              pre24.first && u1(pre24.second) && prem.first && u1(prem.second) && fixd.first && fixd.second.ok && fixd.second.value == "3" && callee && de_hl.first && u1(de_hl.second) &&
+                  de_only.first && !u1(de_only.second) && other_call.first && !u1(other_call.second));
+    }
+    {   // SRCDBG-ZB-05
+        // z88dk#3231: with start/width records the bitfields of g_flags are exact. g_flags poked 8D C8: lo = 5, mid = 17 (byte 0), hi = 200 (byte 1)
+        std::string seen;
+        bool ok = true;
+        for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb05a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb05b", 0x8CB0}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41(c, m);
+            const Dbg::CValueResult r0 = m.dbg->read_c_value(0, "g_flags");
+            const uint8_t b[2] = {0x8D, 0xC8};
+            if (r0.where.kind == Dbg::CWhere::Kind::Page) m.dbg->poke(m.a, r0.where.source.space, r0.where.source.address & 0x1FFF, 2, b);
+            const Dbg::CValueResult r = m.dbg->read_c_value(0, "g_flags");
+            if (!(at && r.ok && r.value == "{lo = 5, mid = 17, hi = 200}" && r.notes.empty())) { ok = false; seen += std::string(" ") + c.fixture + ":" + (r.ok ? r.value : r.why); }
+        }
+        check("SRCDBG-ZB-05", "master-fixed sccz80-cvars and 80cc-cvars, g_flags poked 8D C8: {lo = 5, mid = 17, hi = 200} with no note (the SB records are exact)", ok, seen);
+    }
+    {   // SRCDBG-ZB-06
+        // bits.c at `while (1);` (line 15): g_bf, l_bf, g_one. The expected text is the C program's own: lo 5, mid 17, hi 200, neg -3, wide 2748, tag 66; g_one.s = -3
+        const std::string good = "{lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'}";   // tag is a uint8_t: a printable byte shows its character
+        const auto child_type = [&](Machine& m, const char* path, const char* member) {
+            for (const auto& r : m.dbg->c_children(0, path, 0, 16).rows)
+                if (r.name == member) return r.type;
+            return std::string("-");
+        };
+        struct Bt { const char* fx; const char* tag; uint16_t pc; bool fixed; bool c80; bool zs; };
+        std::string seen;
+        bool ok = true;
+        for (const Bt& c : {Bt{"master-fixed/sccz80-bits", "zb06a", 0x8CE1, true, false, false}, Bt{"master-fixed/80cc-bits", "zb06b", 0x8CFE, true, true, false},
+                            Bt{"master/sdcc-bits", "zb06c", 0x8CB3, true, false, true}, Bt{"master/sccz80-bits", "zb06d", 0x8CE1, false, false, false},
+                            Bt{"master/80cc-bits", "zb06e", 0x8CFE, false, true, false}, Bt{"v2.4/sccz80-bits", "zb06f", 0x8CE1, false, false, false}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = zb_at(m, c.fx, c.tag, "bits.c:15", c.pc);
+            const Dbg::CValueResult gb = m.dbg->read_c_value(0, "g_bf"), lb = m.dbg->read_c_value(0, "l_bf"), go = m.dbg->read_c_value(0, "g_one");
+            bool one;
+            bool marked = true;
+            if (c.fixed) {
+                one = go.ok && go.value == (c.zs ? "{s = -3}" : "{s = 13}") && child_type(m, "g_bf", "neg") == "int :4" && child_type(m, "g_bf", "lo") == "unsigned int :3" &&
+                      child_type(m, "g_one", "s") == (c.zs ? "int :4" : "unsigned int :4");
+                marked = gb.ok && gb.value == good && gb.notes.empty() && lb.ok && lb.value == good && note80(lb.notes) == c.c80 && !note80(gb.notes);
+            } else {
+                // whole-int records: lo, mid, hi and neg are U2-marked, tag is read right; g_one's `{2}SI:U` lies beyond its 1-byte struct
+                const std::string mark = "[bitfield layout unknown (z88dk U2)]";
+                marked = gb.ok && gb.value.find("tag = 66 'B'") != std::string::npos && gb.value.find("lo = ") != std::string::npos;
+                for (const char* mem : {"lo", "mid", "hi", "neg"}) {
+                    const size_t at2 = gb.value.find(std::string(mem) + " = ");
+                    marked = marked && at2 != std::string::npos && gb.value.substr(at2, gb.value.find_first_of(",}", at2) - at2).find(mark) != std::string::npos;
+                }
+                marked = marked && lb.ok && lb.value.find("tag = 66 'B'") != std::string::npos && note80(lb.notes) == c.c80;
+                one = !go.ok && go.why.find("lies beyond the object") != std::string::npos;
+            }
+            if (!(at && one && marked)) { ok = false; seen += std::string(" ") + c.fx + " at=" + std::to_string(at) + " one=" + std::to_string(one) + " marked=" + std::to_string(marked) + " gb=" + (gb.ok ? gb.value : gb.why); }
+        }
+        check("SRCDBG-ZB-06", "bits.c at `while (1);`: g_bf and l_bf are {lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'} on master-fixed sccz80 and 80cc and master zsdcc, neg is `int :4` and lo "
+                              "`unsigned int :3`; g_one = {s = 13} on fixed sccz80 and 80cc (an int bitfield is unsigned there), {s = -3} on zsdcc; the pre-fix records (v2.4 and master sccz80, "
+                              "master 80cc) mark lo, mid, hi and neg U2 and read tag = 66 'B', and refuse g_one; the 80cc locals carry the 80cc note, nothing else does",
+              ok, seen);
+    }
+    {   // SRCDBG-ZB-07
+        // blocks.c (f: t; an `if` block p; a `for` with i; blocks u, v, z / g2: q, a `for (;;)` body w / h: m, a `for` with j) at the first hit of each line, on every sccz80:
+        // the C program computes t = 3 -> 9 -> 12 -> 24, u = 12, v = 12, z = 13, w = 4, h's t = 5 -> 6, m = 5, j = 0. A name listed with a value that is not its own carries `shares`
+        struct Bz { const char* fx; const char* tag; bool fixed; };
+        std::string seen;
+        bool ok = true;
+        const auto shares_of = [&](Machine& m, const char* name) {
+            for (const auto& n : m.dbg->read_c_value(0, name).notes)
+                if (n.find("shares its stack slot with ") == 0) return n;
+            return std::string();
+        };
+        const auto listed = [&](Machine& m, const char* name) { return row_of(m.dbg->c_locals(0).rows, name) != nullptr; };
+        // the Variables tab's rows (c_locals) carry the same note as read_c_value
+        const auto row_shares = [&](Machine& m, const char* name) {
+            const auto rows = m.dbg->c_locals(0).rows;
+            const auto* r = row_of(rows, name);
+            if (r)
+                for (const auto& n : r->notes)
+                    if (n.find("shares its stack slot with ") == 0) return n;
+            return std::string();
+        };
+        for (const Bz& c : {Bz{"v2.4/sccz80-blocks", "zb07a", false}, Bz{"master/sccz80-blocks", "zb07b", false}, Bz{"master-fixed/sccz80-blocks", "zb07c", true}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, c.fx, c.tag);
+            const bool f8 = cv_starts_at(m, "blocks.c:8", 0x8CB4) && cv_run_to(m, 0x8CB4);
+            const bool a8 = cvv(m, 0, "t") == "3" && cvv(m, 0, "p") == "6" && (c.fixed ? !listed(m, "i") : (listed(m, "i") && shares_of(m, "p") == jnext::dbg::c_shares_note("i") && shares_of(m, "i") == jnext::dbg::c_shares_note("p") &&
+                                                                                row_shares(m, "p") == jnext::dbg::c_shares_note("i") && row_shares(m, "i") == jnext::dbg::c_shares_note("p")));
+            const bool f11 = cv_starts_at(m, "blocks.c:11", 0x8CDD) && cv_run_to(m, 0x8CDD);
+            const bool a11 = cvv(m, 0, "t") == "9" && (c.fixed ? cvv(m, 0, "i") == "0" && !listed(m, "p") : (!listed(m, "i") && !listed(m, "p")));
+            const bool f17 = cv_starts_at(m, "blocks.c:17", 0x8CF7) && cv_run_to(m, 0x8CF7);
+            const bool a17 = cvv(m, 0, "t") == "12" && cvv(m, 0, "u") == "12" && cvv(m, 0, "v") == "12" &&
+                             (c.fixed ? shares_of(m, "v") == jnext::dbg::c_shares_note("z") && shares_of(m, "z") == jnext::dbg::c_shares_note("v") && row_shares(m, "v") == jnext::dbg::c_shares_note("z") &&
+                                              row_shares(m, "z") == jnext::dbg::c_shares_note("v") : (shares_of(m, "v").empty() && !listed(m, "z")));
+            const bool f20 = cv_starts_at(m, "blocks.c:20", 0x8D0E) && cv_run_to(m, 0x8D0E);
+            const bool a20 = cvv(m, 0, "t") == "24" && cvv(m, 0, "u") == "12" && !listed(m, "v") && (c.fixed ? cvv(m, 0, "z") == "13" && shares_of(m, "z").empty() : !listed(m, "z"));
+            const bool g32 = cv_starts_at(m, "blocks.c:32", 0x8D42) && cv_run_to(m, 0x8D42);
+            const bool ag = cvv(m, 0, "w") == "4" && !listed(m, "q");
+            const bool h42 = cv_starts_at(m, "blocks.c:42", 0x8D7A) && cv_run_to(m, 0x8D7A);
+            const bool ah = cvv(m, 0, "t") == "5" && cvv(m, 0, "m") == "5" && cvv(m, 0, "j") == "0";
+            const bool h44 = cv_starts_at(m, "blocks.c:44", 0x8D90) && cv_run_to(m, 0x8D90);
+            const bool ah2 = cvv(m, 0, "t") == "6" && cvv(m, 0, "m") == "5" && !listed(m, "j");
+            if (!(f8 && a8 && f11 && a11 && f17 && a17 && f20 && a20 && g32 && ag && h42 && ah && h44 && ah2)) {
+                ok = false;
+                seen += std::string(" ") + c.fx + ":" + (f8 ? "" : "!f8") + (a8 ? "" : "!a8") + (f11 ? "" : "!f11") + (a11 ? "" : "!a11") + (f17 ? "" : "!f17") + (a17 ? "" : "!a17") + (f20 ? "" : "!f20") +
+                        (a20 ? "" : "!a20") + (g32 ? "" : "!g32") + (ag ? "" : "!ag") + (h42 ? "" : "!h42") + (ah ? "" : "!ah") + (h44 ? "" : "!h44") + (ah2 ? "" : "!ah2");
+            }
+        }
+        check("SRCDBG-ZB-07", "blocks.c at the first hit of f:8 (t 3, p 6), f:11 (t 9), f:17 (t, u, v = 12, 12, 12), f:20 (t 24, u 12), g2:32 (w 4, not q), h:42 (t 5, m 5, j 0) and h:44 (t 6, m 5, no j) on v2.4, "
+                              "master and master-fixed sccz80: v2.4 and master list `i` at f:8 sharing p's slot (both marked, neither hidden) and not at f:11 or f:20's z; master-fixed lists i = 0 at f:11, z = 13 "
+                              "at f:20 and marks v/z at f:17",
+              ok, seen);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_60(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cw_entry = [](const Machine& m, const char* fn) -> std::optional<SourceAddress> {
+        const auto vs = m.dbg->variables();
+        for (const auto& f : vs ? vs->functions() : std::vector<jnext::dbg::CFunction>{})
+            if (f.name == fn && f.entry.resolved) return f.entry.at;
+        return std::nullopt;
+    };
+
+    // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
+    // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
+    // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
+    const std::string k3233 = "80cc may not keep it in the frame slot";   // the part of the 80cc note that names it
+    const auto note80 = [&](const std::vector<std::string>& notes) {
+        for (const auto& n : notes)
+            if (n.find(k3233) != std::string::npos) return true;
+        return false;
+    };
+    // main's `while (1);`: its loop head. The first jump of main (jp, or jr) that lands on or before itself, inside main, found from the entry: sccz80's
+    // `jp i_6` is a jump to itself, 80cc's `ld a,1; or a; jp nz,L_f2_bb_1` jumps back to its `ld a,1`
+    const auto spin_pc = [&](Machine& m, const char* fn) -> int {
+        const auto e = cw_entry(m, fn);
+        if (!e) return -1;
+        const auto at = [&](unsigned a) { return static_cast<unsigned>(m.emu.mmu().peek(static_cast<uint16_t>(a))); };
+        for (unsigned pc = e->address; pc < e->address + 0xC0u; ++pc) {
+            const unsigned op = at(pc);
+            unsigned target = 0;
+            if (op == 0xC3 || op == 0xC2 || op == 0xCA || op == 0xD2 || op == 0xDA || op == 0xE2 || op == 0xEA || op == 0xF2 || op == 0xFA)
+                target = at(pc + 1) | at(pc + 2) << 8;
+            else if (op == 0x18 || op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38)
+                target = pc + 2u + static_cast<unsigned>(static_cast<int8_t>(at(pc + 1)));
+            if (target >= e->address && target <= pc) return static_cast<int>(target);
+        }
+        return -1;
+    };
+    const auto spin_at = [&](Machine& m, const char* fixture, const char* tag) {
+        const fs::path d = var_dir(tag, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const int pc = spin_pc(m, "main");
+        return pc >= 0 && cv_run_to(m, static_cast<uint16_t>(pc));
+    };
+    {   // SRCDBG-ZB-08
+        // fm.c at main's `while (1);`: ls = "loc", static ss = "stat", file static fs = "file", global gs = "glob", each with its NUL
+        const auto txt = [&](Machine& m, const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
+        const std::string unk = "!an array of unknown length: its debug record has no size";
+        Machine f(false, MachineType::ZXN_ISSUE2);
+        const bool fat = spin_at(f, "master-fixed/sccz80-fm", "zb08a");
+        Machine p(false, MachineType::ZXN_ISSUE2);
+        const bool pat = spin_at(p, "master/sccz80-fm", "zb08b");
+        Machine v(false, MachineType::ZXN_ISSUE2);
+        const bool vat = spin_at(v, "v2.4/sccz80-fm", "zb08c");
+        Machine c(false, MachineType::ZXN_ISSUE2);
+        const bool cat = spin_at(c, "master/80cc-fm", "zb08d");
+        const Dbg::CValueResult cls = c.dbg->read_c_value(0, "ls");
+        const std::string want_ls = "\"loc\\0\"", want_ss = "\"stat\\0\"", want_fs = "\"file\\0\"", want_gs = "\"glob\\0\"";
+        check("SRCDBG-ZB-08", "fm.c at main's `while (1);`: master-fixed sccz80 reads ls \"loc\\0\", ss \"stat\\0\", fs \"file\\0\" and gs \"glob\\0\" (every byte, #437's rule); v2.4 and master sccz80 refuse ls, ss "
+                              "and fs (`an array of unknown length: its debug record has no size`) and read gs as fixed; master 80cc reads ls with the 80cc note (the value is not asserted) and "
+                              "refuses ss and fs",
+              fat && txt(f, "ls") == want_ls && txt(f, "ss") == want_ss && txt(f, "fs") == want_fs && txt(f, "gs") == want_gs && pat && txt(p, "ls") == unk && txt(p, "ss") == unk &&
+                  txt(p, "fs") == unk && txt(p, "gs") == want_gs && vat && txt(v, "ls") == unk && txt(v, "gs") == want_gs && cat && cls.ok && note80(cls.notes) && txt(c, "ss") == unk &&
+                  txt(c, "fs") == unk && txt(c, "gs") == want_gs,
+              "fixed ls=" + txt(f, "ls") + " ss=" + txt(f, "ss") + " fs=" + txt(f, "fs") + " gs=" + txt(f, "gs") + " | 80cc ls=" + txt(c, "ls") + " ss=" + txt(c, "ss"));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_61(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+
+    // ── GH #437: writing a C variable (write_c_value) ──────────────────────────────────────────────────────
+    // Oracle: the C source of the fixtures (vars.c: at the vars.c:41 stop of the first call a = 0, b = -5, k = 120, t = 122 and
+    // `return t + (int16_t)acc` with acc = 3 * (a + b + k); main's loop; bk.c / bkmain.c), their maps (every address and record
+    // offset is the map's own: sccz80 a = fp+10, t = fp-2, main's c = fp-15, lp = fp-5; 80cc t = fp-8, acc = fp-6; _g_int $903E ...),
+    // the compiled float bytes, and independent reads of the machine (the CPU view or a page, never the facade) after each write.
+    using Bytes = std::vector<uint8_t>;
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    const auto cpk = [](Machine& m, uint32_t a, size_t n) {
+        Bytes b;
+        for (size_t i = 0; i < n; ++i) b.push_back(m.emu.mmu().peek(static_cast<uint16_t>(a + i)));
+        return b;
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    // a synthetic z88dk map record, written as the compilers write it (CVAL-56's)
+    const auto s3_rec = [](const std::string& r, const char* module) {
+        std::string o;
+        for (const unsigned char c : r) {
+            if (std::isalpha(c)) {
+                o += static_cast<char>(c);
+            } else {
+                char b[8];
+                std::snprintf(b, sizeof b, "_%02x", c);
+                o += b;
+            }
+        }
+        return "__CDBINFO__" + o + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
+    const SumAt kSccz80_41{"master/sccz80-cvars", "w", 0x8D3E}, k80cc_41{"master/80cc-cvars", "w", 0x8CCA};
+
+    // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
+    // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
+    // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
+    const std::string k3233 = "80cc may not keep it in the frame slot";   // the part of the 80cc note that names it
+    const auto zb_at = [&](Machine& m, const char* fixture, const char* tag, const char* line, uint16_t pc, bool lis = false) {
+        const fs::path d = var_dir(tag, fixture);
+        if (lis) z88_copy_lis(fixture, d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        return cv_starts_at(m, line, pc) && cv_run_to(m, pc);
+    };
+    const auto note80 = [&](const std::vector<std::string>& notes) {
+        for (const auto& n : notes)
+            if (n.find(k3233) != std::string::npos) return true;
+        return false;
+    };
+    {   // SRCDBG-ZB-09
+        // writes: an 80cc frame-slot variable is written, and the result carries the note (the Qt panel and `monitor set var` print it)
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({k80cc_41.fixture, "zb09a", k80cc_41.pc}, m);
+        const Dbg::CWriteResult w = wr(m, 0, "t", "1000");
+        Machine s(false, MachineType::ZXN_ISSUE2);
+        const bool sat = at41({kSccz80_41.fixture, "zb09b", kSccz80_41.pc}, s);
+        const Dbg::CWriteResult sw = wr(s, 0, "t", "1000");
+        // the writer of the readers' refusals: a float of an mbf32 map is refused (bytes unchanged), of a math32 map stored as IEEE; U1 with no listing is refused too
+        const auto float_map = [&](const char* name, const char* lib_line) {
+            auto fmp = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
+            Machine& fm = *fmp;
+            const std::string map = (z / name).string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + std::string(lib_line) +
+                            "_gf = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gf$0_0$0({4}SF:S),E,0,0", "t_c"));
+            fm.dbg->load_source_map(map, true);
+            const Bytes before = cpk(fm, 0x9000, 4);
+            const CwTry t = attempt(fm, 0, "gf", std::string("1") + ".5");
+            return std::make_tuple(std::move(fmp), t, before);
+        };
+        auto mbf = float_map("zb09m.map", "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n");
+        auto m32 = float_map("zb09n.map", "__code_fp_math32_size = $001D ; const, public, def, , ,\n");
+        // the guard binds the writer: b's record (-2) is y's slot on 80cc, v and z share one in master-fixed's blocks.c; a write to either is refused, the other keeps its value
+        Machine sb(false, MachineType::ZXN_ISSUE2);
+        const bool sbat = zb_at(sb, "master/80cc-fm", "zb09d", "fm.c:7", 0x8C68);
+        const CwTry bw = attempt(sb, 0, "b", "9");
+        Machine sz(false, MachineType::ZXN_ISSUE2);
+        const bool szat = zb_at(sz, "master-fixed/sccz80-blocks", "zb09e", "blocks.c:17", 0x8CF7);
+        const CwTry zw = attempt(sz, 0, "z", "5");
+        const CwTry vw = attempt(sz, 0, "v", "5");
+        Machine ul(false, MachineType::ZXN_ISSUE2);
+        const bool uat = zb_at(ul, "master/sccz80-fc", "zb09c", "fc.c:3", 0x8C62);
+        const CwTry u1w = attempt(ul, 0, "x", "5");
+        check("SRCDBG-ZB-09", "write t := 1000 at master 80cc vars.c:41 succeeds and its CWriteResult.notes holds the 80cc note, and t reads back 1000; the same write on sccz80 succeeds with no "
+                              "note; the readers' refusals bind the writer: a float global of an mbf32 map is refused and its bytes stay, in a math32 map the value lands as IEEE (00 00 C0 3F), "
+                              "and ffast's x with no listing (entry evidence) is refused with U1; a variable that shares its stack slot is refused (80cc b with y, master-fixed's z with v) and the other keeps its value",
+              at && w.ok() && note80(w.notes) && w.value == "1000" && cvv(m, 0, "t") == "1000" && sat && sw.ok() && sw.notes.empty() &&
+                  refused_with(std::get<1>(mbf), "float format mbf32 is not read") && cpk(*std::get<0>(mbf), 0x9000, 4) == std::get<2>(mbf) && std::get<1>(m32).w.ok() &&
+                  cpk(*std::get<0>(m32), 0x9000, 4) == Bytes{0, 0, 0xC0, 0x3F} && uat && refused_with(u1w, "location unknown (z88dk U1") &&
+                  sbat && refused_with(bw, "shares its stack slot with y") && cvv(sb, 0, "y") == "5" && szat && refused_with(zw, "shares its stack slot with v") && refused_with(vw, "shares its stack slot with z") &&
+                  cvv(sz, 0, "v") == "12");
+    }
+    {   // SRCDBG-CVFMT-01
+        // GH #477: a module's float format (the local constants of z88dk#3240) decides the read, the typed value and the write through the facade
+        const auto fp_lines = [](int mode, int bias, int ms, const char* module) {
+            char b[400];
+            std::snprintf(b, sizeof b,
+                          "__fp_exponent_bias = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n__fp_mantissa_size = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n"
+                          "__fp_mode = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n",
+                          bias, module, ms, module, mode, module);
+            return std::string(b);
+        };
+        struct FpRun {
+            std::unique_ptr<Machine> mp;
+            std::string before_text, after_text;
+            std::optional<double> real;
+            bool read_ok = false;
+            CwTry w;
+            Bytes before, after;
+        };
+        const auto run = [&](const char* name, const std::string& extra, const Bytes& init, const std::string& value) {
+            FpRun r;
+            r.mp = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
+            Machine& fm = *r.mp;
+            const std::string map = (z / name).string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + extra +
+                            "_gf = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gf$0_0$0({4}SF:S),E,0,0", "t_c"));
+            fm.dbg->load_source_map(map, true);
+            for (size_t i = 0; i < init.size(); ++i) fm.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), init[i]);
+            const Dbg::CValueResult rd = fm.dbg->read_c_value(0, "gf");
+            r.read_ok = rd.ok;
+            r.before_text = rd.ok ? rd.value : "!" + rd.why;
+            r.real = rd.real;
+            r.before = cpk(fm, 0x9000, 4);
+            r.w = attempt(fm, 0, "gf", value);
+            r.after = cpk(fm, 0x9000, 4);
+            const Dbg::CValueResult back = fm.dbg->read_c_value(0, "gf");
+            r.after_text = back.ok ? back.value : "!" + back.why;
+            return r;
+        };
+        const std::string c15 = std::string("1") + ".5";
+        const FpRun a = run("cvfmt01a.map", fp_lines(2, 128, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, c15);
+        const FpRun b = run("cvfmt01b.map", fp_lines(2, 128, 3, "t_c") + "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n", {0x00, 0x00, 0xD0, 0x82}, c15);
+        const FpRun c = run("cvfmt01c.map", fp_lines(6, 0, 3, "t_c"), {0x00, 0x00, 0xC0, 0x01}, "-3.25");
+        const FpRun d = run("cvfmt01d.map", fp_lines(7, 0, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, c15);
+        check("SRCDBG-CVFMT-01", "a module with mode 2 (mbf32): gf 00 00 D0 82 reads -3.25 (value and typed real), a write of 1.5 stores 00 00 40 81 and reads back 1.5; "
+                                 "with __code_fp_mbf32_size beside it, which alone refuses mbf32 floats, it still reads and writes (the format beats the library guess); mode 6 (AM9511): "
+                                 "00 00 C0 01 reads 1.5 and -3.25 is written as 00 00 D0 82; mode 7: the read and the write are refused with the reason and the bytes stay",
+              a.read_ok && a.before_text == "-3.25" && a.real && *a.real == -3.25 && a.w.w.ok() && a.after == Bytes{0x00, 0x00, 0x40, 0x81} && a.after_text == c15 &&
+                  b.read_ok && b.before_text == "-3.25" && b.w.w.ok() && b.after == Bytes{0x00, 0x00, 0x40, 0x81} &&
+                  c.read_ok && c.before_text == c15 && c.w.w.ok() && c.after == Bytes{0x00, 0x00, 0xD0, 0x82} && c.after_text == "-3.25" &&
+                  !d.read_ok && d.before_text == "!float format __fp_mode 7 is not supported" && refused_with(d.w, "float format __fp_mode 7 is not supported") && d.after == d.before,
+              a.before_text + " | " + b.before_text + " | " + c.before_text + " | " + d.before_text + " " + d.w.w.why);
+    }
+    {   // SRCDBG-CVFMT-02
+        const std::string c25 = std::string("2") + ".5";
+        // two modules in one map, each with its own format: each global reads and is written in its own module's format
+        const auto fp_lines = [](int mode, int bias, int ms, const char* module) {
+            char b[400];
+            std::snprintf(b, sizeof b,
+                          "__fp_exponent_bias = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n__fp_mantissa_size = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n"
+                          "__fp_mode = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n",
+                          bias, module, ms, module, mode, module);
+            return std::string(b);
+        };
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "cvfmt02.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + fp_lines(0, 128, 5, "t_c") + fp_lines(1, 126, 3, "u_c") +
+                        "_g6 = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n_g4 = $9010 ; addr, public, , u_c, data_compiler, u.c:3\n" +
+                        s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$g6$0_0$0({6}SF:S),E,0,0", "t_c") + s3_rec("S:G$g4$0_0$0({4}SF:S),E,0,0", "u_c"));
+        m.dbg->load_source_map(map, true);
+        const Bytes b6 = {0x00, 0x00, 0x00, 0x00, 0xD0, 0x82}, b4 = {0x00, 0x00, 0x50, 0xC0};   // -3.25 as sccz80's math48 and math32 wrote it
+        for (size_t i = 0; i < b6.size(); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), b6[i]);
+        for (size_t i = 0; i < b4.size(); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x9010 + i), b4[i]);
+        const auto txt = [&](const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
+        const std::string r6 = txt("g6"), r4 = txt("g4");
+        const CwTry w6 = attempt(m, 0, "g6", c25), w4 = attempt(m, 0, "g4", c25);
+        check("SRCDBG-CVFMT-02", "two modules in one map: t_c (48-bit) g6 and u_c (IEEE) g4 both read -3.25 from their own bytes, and a write of 2.5 lands as 00 00 00 00 20 82 in g6 "
+                                 "and 00 00 20 40 in g4",
+              r6 == "-3.25" && r4 == "-3.25" && w6.w.ok() && w4.w.ok() && cpk(m, 0x9000, 6) == Bytes{0x00, 0x00, 0x00, 0x00, 0x20, 0x82} && cpk(m, 0x9010, 4) == Bytes{0x00, 0x00, 0x20, 0x40},
+              r6 + " " + r4 + " " + w6.w.why + " " + w4.w.why);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_62(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_load = [&](Machine& m, const char* fixture, const char* name) {
+        const fs::path d = var_dir(name, fixture);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+        const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+        return r.ok ? r.value : "!" + r.why;
+    };
+    const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+        const auto r = m.dbg->source_map().resolve(line);
+        for (const auto& a : r.starts)
+            if (a.address == addr) return true;
+        return false;
+    };
+    const auto row_of = [](const std::vector<Dbg::CValueRow>& rows, const char* name) -> const Dbg::CValueRow* {
+        for (const auto& r : rows)
+            if (r.name == name) return &r;
+        return nullptr;
+    };
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    // sum's first call at vars.c:41 on the three compilers
+    struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+    const auto at41 = [&](const SumAt& c, Machine& m) {
+        cv_load(m, c.fixture, c.tag);
+        return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+    };
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    // a synthetic z88dk map record, written as the compilers write it (CVAL-56's)
+    const auto s3_rec = [](const std::string& r, const char* module) {
+        std::string o;
+        for (const unsigned char c : r) {
+            if (std::isalpha(c)) {
+                o += static_cast<char>(c);
+            } else {
+                char b[8];
+                std::snprintf(b, sizeof b, "_%02x", c);
+                o += b;
+            }
+        }
+        return "__CDBINFO__" + o + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
+    {   // SRCDBG-CVFMT-03
+        // a register-held float (80cc `R` records) in a module that records mbf32: its text and typed value are mbf32's, not binary32's
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const std::string map = (z / "cvfmt03.map").string();
+        write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                        "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                        "__fp_exponent_bias = $0080 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n"
+                        "__fp_mantissa_size = $0003 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n"
+                        "__fp_mode = $0002 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}SF:S),R,0,0,[c,b,e,d]", "t_c"));
+        const auto lr = m.dbg->load_source_map(map, true);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.BC = 0x0000;
+        r.DE = 0x82D0;   // bytes C B E D = 00 00 D0 82: mbf32 -3.25
+        m.emu.cpu().set_registers(r);
+        const Dbg::CValueResult w = m.dbg->read_c_value(0, "w");
+        check("SRCDBG-CVFMT-03", "an `R` record {4}SF local in BC:DE of a mode-2 module (00 00 D0 82) reads -3.25 as text and as the typed value (the register path's own `real`)",
+              lr.count > 0 && w.ok && w.value == "-3.25" && w.real && *w.real == -3.25, w.ok ? w.value : w.why);
+    }
+    {   // SRCDBG-ZB-10
+        // z88dk#3262 + #3265 on real records: master-fixed-zsdcc/sdcc-cvars has no TAB in its C_LINE records and the -debug module names of the whole path. The program
+        // and its code are those of master/sdcc-cvars (vars.c:41 is $8C97 in both), so CVAL-30's values are the oracle
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = at41({"master-fixed-zsdcc/sdcc-cvars", "zb10", 0x8C97}, m);
+        const Dbg::CValueResult t = m.dbg->read_c_value(0, "t");
+        const Dbg::CValueResult acc = m.dbg->read_c_value(0, "acc");
+        const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
+        const auto loc = m.dbg->c_locals(0);
+        check("SRCDBG-ZB-10", "master-fixed-zsdcc sdcc-cvars (C_LINE without the TAB) at vars.c:41: a=0 b=-5 k=120 'x' calls=1 *p as on master; t is 122 read from BC with the stale note; "
+                              "acc is optimised out; `inner` is hidden (out of scope) and not listed",
+              at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "calls") == "1" &&
+                  cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && t.ok && t.value == "122" && t.where.kind == Dbg::CWhere::Kind::Register &&
+                  has_note(t, "in BC; may be stale") && !acc.ok && acc.why == "optimised out" && !inner.ok &&
+                  inner.why == "out of scope at vars.c:41" && loc.ok && row_of(loc.rows, "a") && row_of(loc.rows, "k") && !row_of(loc.rows, "inner"));
+    }
+    {   // SRCDBG-ZB-11
+        // z88dk#3241: N:/E: records beside the S: record of an enum variable. g_colour is BLUE (6), read from its S: record, as on master (CVAL-34)
+        bool ok = true;
+        std::string seen;
+        for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb11a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb11b", 0x8CB0}}) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41(c, m);
+            const std::string got = cvv(m, 0, "g_colour") + "/" + cvv(m, 0, "g_int") + "/" + cvv(m, 0, "g_byte");
+            if (!(at && got == "6/-5/7")) { ok = false; seen += std::string(" ") + c.fixture + ":" + got; }
+        }
+        check("SRCDBG-ZB-11", "master-fixed sccz80-cvars and 80cc-cvars at vars.c:41 (maps with N: and E: enum records): g_colour reads 6 (BLUE) from its S: record, with g_int and g_byte as before", ok, seen);
+    }
+    // master-fixed-80cc/80cc-scope: load the fixture (with its listings when `lis`) and run to `pc`
+    const auto lz = [&](Machine& m, const char* tag, uint16_t pc, bool lis) {
+        const fs::path d = var_dir(tag, "master-fixed-80cc/80cc-scope");
+        if (lis) z88_copy_lis("master-fixed-80cc/80cc-scope", d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        return cv_run_to(m, pc);
+    };
+    {   // SRCDBG-ZB-12
+        // 80cc with PR #3243 (master-fixed-80cc/80cc-scope, f3254.c; f is entered at $8C49). Oracle: the C program's own scopes. f's locals: t (level 1), p (inside the `if`), i (the outer `for`), j (the inner,
+        // brace-less `for`). At L6 (`t += p`, $8C68) p is in scope and i, j are not; in the inner loop (the third `C_LINE 10` of the listing, `j++`, $8CBE) i and j are in scope
+        // and p is not; at `return t` (L13, $8C9A) only t is. Without the listing beside the map no scope is exact, and every block local is flagged
+        const auto names = [&](Machine& m) {
+            std::string out;
+            const auto loc = m.dbg->c_locals(0);
+            for (const auto& r : loc.rows) {
+                if (r.kind == Dbg::CValueRow::Kind::Param) continue;
+                bool unk = false;
+                for (const auto& n : r.notes) unk = unk || n.find("scope unknown") != std::string::npos;
+                out += (out.empty() ? "" : " ") + r.name + (unk ? "?" : "");
+            }
             return out;
         };
-        const auto row_has = [](const Dbg::CValueRow& r, const char* part) {
-            for (const auto& n : r.notes)
+        std::string got;
+        const auto at = [&](const char* tag, uint16_t pc, bool lis) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool ok = lz(m, tag, pc, lis);
+            const std::string n = names(m);
+            std::vector<std::string> v;
+            std::istringstream is(n);
+            for (std::string w; is >> w;) v.push_back(w);
+            std::sort(v.begin(), v.end());
+            std::string row;
+            for (const auto& w : v) row += (row.empty() ? "" : " ") + w;
+            got += std::string(ok ? "" : "[no stop]") + row + "|";
+            return row;
+        };
+        const std::string l6 = at("zb12a", 0x8C68, true), loop = at("zb12b", 0x8CBE, true), l13 = at("zb12c", 0x8C9A, true);
+        const std::string n6 = at("zb12d", 0x8C68, false), nloop = at("zb12e", 0x8CBE, false), n13 = at("zb12f", 0x8C9A, false);
+        check("SRCDBG-ZB-12", "master-fixed-80cc f3254.c with the listing beside the map (GH #438 S4b: an 80cc block local is never plain): at `t += p` p is listed flagged `scope unknown` and t plain; in the inner loop (third `C_LINE 10`) i and j are listed flagged `scope unknown`, t plain, "
+                              "p absent; at `return t` only t is. With no listing at the same three stops every block local is flagged (i? j? p?) and t is plain",
+              l6 == "p? t" && loop == "i? j? t" && l13 == "t" && n6 == "i? j? p? t" && nloop == "i? j? p? t" && n13 == "i? j? p? t", got);
+    }
+    {   // SRCDBG-ZB-13
+        // writes, same fixture and stops: p at `t += p` is proven in scope, so p := 5 succeeds and carries the 80cc frame-slot note; i in the inner loop is `scope unknown`, so i := 1 is refused
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const fs::path d = var_dir("zb13a", "master-fixed-80cc/80cc-scope");
+        z88_copy_lis("master-fixed-80cc/80cc-scope", d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        const bool at6 = cv_run_to(m, 0x8C68);
+        const CwTry wp = attempt(m, 0, "p", "5");
+        Machine l(false, MachineType::ZXN_ISSUE2);
+        const bool atl = lz(l, "zb13b", 0x8CBE, true);
+        const CwTry wi = attempt(l, 0, "i", "1");
+        check("SRCDBG-ZB-13", "master-fixed-80cc f3254.c with the listing (GH #438 S4b: an 80cc block local is never plain): at `t += p` p := 5 is refused `scope unknown` (nothing is written) and the read of p carries the "
+              "`scope unknown` note; in the inner loop i := 1 is refused the same way",
+              at6 && refused_with(wp, "scope unknown") && has_note(m.dbg->read_c_value(0, "p"), "scope unknown") && atl && refused_with(wi, "scope unknown"));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_63(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    // S4b fixtures: load a fixture (with its listings when `lis`) and run to `pc`
+    const auto lzf = [&](Machine& m, const char* fixture, const char* tag, uint16_t pc, bool lis) {
+        const fs::path d = var_dir(tag, fixture);
+        if (lis) z88_copy_lis(fixture, d);
+        else z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        return cv_run_to(m, pc);
+    };
+    const auto trows = [&](Machine& m, const char* name) {
+        std::vector<Dbg::CValueRow> out;
+        for (const auto& r : m.dbg->c_locals(0).rows)
+            if (r.name == name) out.push_back(r);
+        return out;
+    };
+    const auto row_has = [](const Dbg::CValueRow& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    {   // SRCDBG-ZB-14
+        // shadowing, sccz80 (master-fixed-sccz80/sccz80-shadow, shadow.c): at `g += t` (line 8, $8C76) the inner t (block 2) is 5 and the outer t is 3. The innermost wins, as in gdb
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = lzf(m, "master-fixed-sccz80/sccz80-shadow", "zb14", 0x8C76, true);
+        const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+        const auto rows = trows(m, "t");
+        const bool two = rows.size() == 2;
+        const bool marked = two && (row_has(rows[0], "shadowed") != row_has(rows[1], "shadowed"));
+        const Dbg::CValueRow* outer = two ? (row_has(rows[0], "shadowed") ? &rows[0] : &rows[1]) : nullptr;
+        const Dbg::CValueRow* inner = two ? (outer == &rows[0] ? &rows[1] : &rows[0]) : nullptr;
+        const Dbg::CWriteResult w = wr(m, 0, "t", "7");
+        const auto after = trows(m, "t");
+        const bool wrote = after.size() == 2 && ((after[0].value == "7" && after[1].value == "3") || (after[0].value == "3" && after[1].value == "7"));
+        check("SRCDBG-ZB-14", "sccz80 shadow.c at `g += t`: read t is 5 (the inner one) with no ambiguity or scope note; c_locals has two t rows, the outer (3) marked `shadowed` and the inner (5) not; t := 7 writes the inner one "
+                              "(the rows read 7 and 3 afterwards)",
+              at && rd.ok && rd.value == "5" && !has_note(rd, "ambiguous") && !has_note(rd, "scope unknown") && marked && outer && inner && outer->value == "3" && inner->value == "5" && w.ok() && wrote);
+    }
+    {   // SRCDBG-ZB-15
+        // the same, 80cc ($8C64): the inner t is a block local, never certain, so the read is noted `ambiguous` and `scope unknown`, the outer row is `may be shadowed`, and t := 7 is refused
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = lzf(m, "master-fixed-80cc/80cc-shadow", "zb15", 0x8C64, true);
+        const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+        const auto rows = trows(m, "t");
+        int may = 0, unk = 0;
+        for (const auto& r : rows) {
+            may += row_has(r, "may be shadowed");
+            unk += row_has(r, "scope unknown");
+        }
+        const CwTry w = attempt(m, 0, "t", "7");
+        check("SRCDBG-ZB-15", "80cc shadow.c at `g += t`: read t is ok with the notes `ambiguous: 2 variables named t ...` and `scope unknown`; of the two t rows one is `may be shadowed` and one `scope unknown`; "
+                              "t := 7 is refused (`scope unknown`, nothing written)",
+              at && rd.ok && has_note(rd, "ambiguous: 2 variables named t") && has_note(rd, "scope unknown") && rows.size() == 2 && may == 1 && unk == 1 && refused_with(w, "scope unknown"));
+    }
+    {   // SRCDBG-ZB-16
+        // zsdcc ($8C56, shadow.c line 8): zsdcc keeps the outer t in DE and records the inner t (5, a constant) as `[]`, optimised out. The innermost still wins: t reads `optimised out`, not the outer's value
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadow", "zb16", 0x8C56, true);
+        const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+        const auto rows = trows(m, "t");
+        int shadowed = 0;
+        for (const auto& r : rows) shadowed += row_has(r, "shadowed") && !row_has(r, "may be shadowed");
+        const CwTry w = attempt(m, 0, "t", "7");
+        check("SRCDBG-ZB-16", "zsdcc shadow.c at `g += t`: two t rows, the outer (register DE) marked `shadowed`; read t is the inner one, `optimised out`; t := 7 is refused",
+              at && rows.size() == 2 && shadowed == 1 && !rd.ok && rd.why == "optimised out" && !w.w.ok());
+    }
+    {   // SRCDBG-ZB-18
+        // block-scoped statics, sccz80 (statics.c): f's `static int16_t t` lives in the innermost block (lines 9-12), f2's in its inner block. The identity of the variable a name means is read from where it
+        // lives: a static is in a data page (`Kind::Page`, here $8EF3 and $8EF5, the map's `_st_f_t` and `_st_f2_t`), a local on the stack (`Kind::Cpu`). (sccz80 itself never uses the static: it
+        // resolves `t` to the outer local in the block, so the VALUES say nothing about which record the debugger picked.) Inside the static's block the static wins and the local is `shadowed`;
+        // outside it `t` is the local alone
+        const char* fx = "master-fixed-sccz80/sccz80-static";
+        Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2), f2out(false, MachineType::ZXN_ISSUE2);
+        const bool a1 = lzf(in, fx, "zb18a", 0x8C9F, true), a2 = lzf(out, fx, "zb18b", 0x8CAE, true), a3 = lzf(f2in, fx, "zb18c", 0x8CD4, true), a4 = lzf(f2out, fx, "zb18d", 0x8CD9, true);
+        const Dbg::CValueResult rin = in.dbg->read_c_value(0, "t"), rout = out.dbg->read_c_value(0, "t"), r2in = f2in.dbg->read_c_value(0, "t"), r2out = f2out.dbg->read_c_value(0, "t");
+        const auto rows_in = trows(in, "t"), rows_out = trows(out, "t"), rows_f2out = trows(f2out, "t");
+        int page = 0, cpu = 0, shadowed_cpu = 0;
+        for (const auto& r : rows_in) {
+            page += r.where.kind == Dbg::CWhere::Kind::Page;
+            cpu += r.where.kind == Dbg::CWhere::Kind::Cpu;
+            shadowed_cpu += r.where.kind == Dbg::CWhere::Kind::Cpu && row_has(r, "shadowed");
+        }
+        const Dbg::CWriteResult win = wr(in, 0, "t", "9");
+        int nine_page = 0;
+        for (const auto& r : trows(in, "t")) nine_page += r.where.kind == Dbg::CWhere::Kind::Page && r.value == "9";
+        const Dbg::CWriteResult wout = wr(out, 0, "t", "5");
+        const auto rout2 = trows(out, "t");
+        check("SRCDBG-ZB-18", "sccz80 statics.c: inside the static's block t is the static (a Page place at $8EF3), the stack local is the other t row and `shadowed`, and t := 9 writes the static; outside it (`g += t`) "
+                              "there is one t row, on the stack, t reads it and t := 5 writes it; in f2 the inner static ($8EF5) wins at `g = t` and the block local (stack) is the only t at `g += t`",
+              a1 && a2 && a3 && a4 && rin.ok && rin.where.kind == Dbg::CWhere::Kind::Page && rin.where.source.address == 0x8EF3 && rows_in.size() == 2 && page == 1 && cpu == 1 && shadowed_cpu == 1 &&
+                  win.ok() && nine_page == 1 && rout.ok && rout.where.kind == Dbg::CWhere::Kind::Cpu && rows_out.size() == 1 && wout.ok() && rout2.size() == 1 && rout2[0].value == "5" &&
+                  r2in.ok && r2in.where.kind == Dbg::CWhere::Kind::Page && r2in.where.source.address == 0x8EF5 && r2out.ok && r2out.where.kind == Dbg::CWhere::Kind::Cpu && rows_f2out.size() == 1);
+    }
+    {   // SRCDBG-ZB-19
+        // the same on 80cc: the static is a block local to the PC's scope, never certain. Inside its block t reads with `ambiguous` and `scope unknown` and the write is refused; outside (F1: a later block)
+        // the static is hidden and the level-1 local (on the stack) is the only t, with no ambiguity and a successful write; in f2 at `g = t` the pick is ambiguous and the write refused, at `g += t`
+        // the lone block-local t is flagged but NOT ambiguous (one candidate: certain)
+        const char* fx = "master-fixed-80cc/80cc-static";
+        Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2), f2out(false, MachineType::ZXN_ISSUE2);
+        const bool a1 = lzf(in, fx, "zb19a", 0x8C75, true), a2 = lzf(out, fx, "zb19b", 0x8C7A, true), a3 = lzf(f2in, fx, "zb19c", 0x8CA4, true), a4 = lzf(f2out, fx, "zb19d", 0x8CAA, true);
+        const Dbg::CValueResult rin = in.dbg->read_c_value(0, "t"), rout = out.dbg->read_c_value(0, "t"), r2in = f2in.dbg->read_c_value(0, "t"), r2out = f2out.dbg->read_c_value(0, "t");
+        const auto rows_in = trows(in, "t"), rows_out = trows(out, "t"), rows_f2out = trows(f2out, "t");
+        int may = 0;
+        for (const auto& r : rows_in) may += row_has(r, "may be shadowed");
+        const CwTry win = attempt(in, 0, "t", "9"), w2in = attempt(f2in, 0, "t", "9");
+        const Dbg::CWriteResult wout = wr(out, 0, "t", "5");
+        check("SRCDBG-ZB-19", "80cc statics.c: inside the static's block t is ok with `ambiguous: 2 variables named t` and `scope unknown` (the static, a Page place), the other row is `may be shadowed`, t := 9 is refused; at "
+                              "`g += t` there is one t row, on the stack, with no ambiguity note, and t := 5 writes it; in f2 at `g = t` the pick is ambiguous and the write refused, at `g += t` the lone block-local t "
+                              "reads with `scope unknown` and NO `ambiguous` note",
+              a1 && a2 && a3 && a4 && rin.ok && rin.where.kind == Dbg::CWhere::Kind::Page && has_note(rin, "ambiguous: 2 variables named t") && has_note(rin, "scope unknown") && rows_in.size() == 2 && may == 1 &&
+                  refused_with(win, "scope unknown") && rout.ok && rout.where.kind == Dbg::CWhere::Kind::Cpu && !has_note(rout, "ambiguous") && rows_out.size() == 1 && wout.ok() && r2in.ok &&
+                  has_note(r2in, "ambiguous: 2 variables named t") && refused_with(w2in, "scope unknown") && r2out.ok && has_note(r2out, "scope unknown") && !has_note(r2out, "ambiguous") &&
+                  rows_f2out.size() == 1);
+    }
+    {   // SRCDBG-ZB-20
+        // zsdcc (exact blocks), statics.c: the outer t lives in DE and the inner static t (E space, a Page place) is the pick at `g = t + u`; outside its block t is the register local only
+        const char* fx = "master-fixed-zsdcc/sdcc-static";
+        Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2);
+        const bool a1 = lzf(in, fx, "zb20a", 0x8C71, true), a2 = lzf(out, fx, "zb20b", 0x8C78, true), a3 = lzf(f2in, fx, "zb20c", 0x8C9D, true);
+        const auto rin = trows(in, "t"), rout = trows(out, "t");
+        int shadowed = 0, page = 0;
+        for (const auto& r : rin) {
+            shadowed += row_has(r, "shadowed") && !row_has(r, "may be shadowed");
+            page += r.where.kind == Dbg::CWhere::Kind::Page;
+        }
+        const Dbg::CValueResult ri = in.dbg->read_c_value(0, "t"), r2 = f2in.dbg->read_c_value(0, "t");
+        check("SRCDBG-ZB-20", "zsdcc statics.c: inside the static's block there are two t rows (the register local `shadowed`, the static a Page place) and t reads the static, in f2 too; outside it there is one t row, "
+                              "the register local",
+              a1 && a2 && a3 && rin.size() == 2 && shadowed == 1 && page == 1 && ri.ok && ri.where.kind == Dbg::CWhere::Kind::Page && r2.ok && r2.where.kind == Dbg::CWhere::Kind::Page && rout.size() == 1 &&
+                  rout[0].where.kind != Dbg::CWhere::Kind::Page);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_64(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path z = dir / "z88";
+    // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+    // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+    // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+    const fs::path vz = z / "var";
+    const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+        const fs::path d = vz / name;
+        z88_copy(fixture, d);
+        return d;
+    };
+    const auto cv_run_to = [&](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+
+    // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+    // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+    // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+    using Dbg = Debugger;
+    const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    const auto wr = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        jnext::dbg::CNewValue nv;
+        nv.text = v;
+        return m.dbg->write_c_value(m.a, k, path, nv);
+    };
+    // a write attempt that must leave nothing behind: no revision bump, no MUTATE line
+    struct CwTry {
+        Dbg::CWriteResult w;
+        bool quiet = false;
+    };
+    const auto attempt = [&](Machine& m, size_t k, const char* path, const std::string& v) {
+        m.dbg->c_frames();   // settle any pending recheck()
+        const uint64_t rev = m.dbg->state_revision();
+        CwTry t;
+        const std::string log = debugger_log_of([&] { t.w = wr(m, k, path, v); });
+        t.quiet = m.dbg->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        return t;
+    };
+    const auto refused_with = [](const CwTry& t, const char* needle) {
+        return !t.w.ok() && t.w.landed == 0 && t.quiet && !t.w.why.empty() && t.w.why.find(needle) != std::string::npos;
+    };
+    // S4b fixtures: load a fixture (with its listings when `lis`) and run to `pc`
+    const auto lzf = [&](Machine& m, const char* fixture, const char* tag, uint16_t pc, bool lis) {
+        const fs::path d = var_dir(tag, fixture);
+        if (lis) z88_copy_lis(fixture, d);
+        else z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        m.dbg->load_program_sidecars((d / "prog.nex").string());
+        return cv_run_to(m, pc);
+    };
+    const auto row_has = [](const Dbg::CValueRow& r, const char* part) {
+        for (const auto& n : r.notes)
+            if (n.find(part) != std::string::npos) return true;
+        return false;
+    };
+    {   // SRCDBG-ZB-21
+        // two block statics named n in one function (zsdcc, shadowagg.c: n = 7 in one block, n = 100 in the next; sccz80 rejects the program): the typed path f::n is refused for a read and a write
+        // with `ambiguous: 2 statics named n in f`; each Globals row's own path (a handle) reads its own static and writes it alone; monitor-style listing marks the rows
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadowagg", "zb21", 0x8C8B, true);
+        std::vector<Dbg::CValueRow> rows;
+        for (const auto& r : m.dbg->c_globals())
+            if (r.name == "n") rows.push_back(r);
+        const Dbg::CValueResult typed = m.dbg->read_c_value(0, "f::n");
+        const CwTry wt = attempt(m, 0, "f::n", "1");
+        bool distinct = rows.size() == 2 && rows[0].path != rows[1].path && rows[0].path[0] == '#' && rows[1].path[0] == '#';
+        std::set<std::string> vals;
+        for (const auto& r : rows) {
+            distinct = distinct && r.ambiguous_path && r.name_path == "f::n" && r.ok;
+            vals.insert(r.value);
+        }
+        jnext::dbg::CNewValue nv55;
+        nv55.text = "55";
+        const Dbg::CWriteResult w = rows.size() == 2 ? m.dbg->write_c_value_row(m.a, 0, rows[1].path, nv55) : Dbg::CWriteResult{};
+        std::string first_after, second_after;   // the Globals rows again: the row with the first handle, the row with the second
+        for (const auto& r : m.dbg->c_globals())
+            if (rows.size() == 2 && r.name == "n") (r.path == rows[0].path ? first_after : second_after) = r.value;
+        check("SRCDBG-ZB-21", "zsdcc shadowagg.c with two block statics n: c_globals() has two n rows with distinct handle paths, name_path f::n and ambiguous_path; they read 7 and 100; `f::n` is refused for a read and a write "
+                              "(`ambiguous: 2 statics named n in f`); writing one row's handle changes that static only",
+              at && distinct && vals == std::set<std::string>({"7", "100"}) && !typed.ok && typed.why == "ambiguous: 2 statics named n in f" && refused_with(wt, "ambiguous: 2 statics named n in f") && w.ok() &&
+                  second_after == "55" && first_after == rows[0].value,
+              "rows=" + std::to_string(rows.size()) + " typed=" + (typed.ok ? typed.value : typed.why) + " w=" + w.why + " after=" + first_after + "/" + second_after + (rows.size() == 2 ? " paths=" + rows[0].path + "," + rows[1].path + " v=" + rows[0].value + "," + rows[1].value + " amb=" + std::to_string(rows[0].ambiguous_path) + " np=" + rows[0].name_path : std::string()));
+    }
+    {   // SRCDBG-ZB-22
+        // the notes of a variable ride on its children (GH #353 review F5): 80cc shadowagg.c at `g += s.x + s.y` ($8C7D), the inner struct s (block 2, level 2) is a flagged block local and the outer s
+        // (level 1) is `may be shadowed`. c_children("s") (the name picks the inner) carries `scope unknown` and `ambiguous` on its members, as read_c_value("s.x") does; the outer row's own
+        // path (a handle) has neither and lists the outer's members
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = lzf(m, "master-fixed-80cc/80cc-shadowagg", "zb22", 0x8C7D, true);
+        std::vector<Dbg::CValueRow> srows;
+        for (const auto& r : m.dbg->c_locals(0).rows)
+            if (r.name == "s") srows.push_back(r);
+        const Dbg::CValueResult rd = m.dbg->read_c_value(0, "s.x");
+        const Dbg::CChildRows inner = m.dbg->c_children(0, "s", 0, 16);
+        bool inner_notes = inner.ok && inner.rows.size() == 2;
+        const auto vhas = [](const std::vector<std::string>& v, const char* part) {
+            for (const auto& n : v)
                 if (n.find(part) != std::string::npos) return true;
             return false;
         };
-        {   // SRCDBG-ZB-14
-            // shadowing, sccz80 (master-fixed-sccz80/sccz80-shadow, shadow.c): at `g += t` (line 8, $8C76) the inner t (block 2) is 5 and the outer t is 3. The innermost wins, as in gdb
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = lzf(m, "master-fixed-sccz80/sccz80-shadow", "zb14", 0x8C76, true);
-            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
-            const auto rows = trows(m, "t");
-            const bool two = rows.size() == 2;
-            const bool marked = two && (row_has(rows[0], "shadowed") != row_has(rows[1], "shadowed"));
-            const Dbg::CValueRow* outer = two ? (row_has(rows[0], "shadowed") ? &rows[0] : &rows[1]) : nullptr;
-            const Dbg::CValueRow* inner = two ? (outer == &rows[0] ? &rows[1] : &rows[0]) : nullptr;
-            const Dbg::CWriteResult w = wr(m, 0, "t", "7");
-            const auto after = trows(m, "t");
-            const bool wrote = after.size() == 2 && ((after[0].value == "7" && after[1].value == "3") || (after[0].value == "3" && after[1].value == "7"));
-            check("SRCDBG-ZB-14", "sccz80 shadow.c at `g += t`: read t is 5 (the inner one) with no ambiguity or scope note; c_locals has two t rows, the outer (3) marked `shadowed` and the inner (5) not; t := 7 writes the inner one "
-                                  "(the rows read 7 and 3 afterwards)",
-                  at && rd.ok && rd.value == "5" && !has_note(rd, "ambiguous") && !has_note(rd, "scope unknown") && marked && outer && inner && outer->value == "3" && inner->value == "5" && w.ok() && wrote);
-        }
-        {   // SRCDBG-ZB-15
-            // the same, 80cc ($8C64): the inner t is a block local, never certain, so the read is noted `ambiguous` and `scope unknown`, the outer row is `may be shadowed`, and t := 7 is refused
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = lzf(m, "master-fixed-80cc/80cc-shadow", "zb15", 0x8C64, true);
-            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
-            const auto rows = trows(m, "t");
-            int may = 0, unk = 0;
-            for (const auto& r : rows) {
-                may += row_has(r, "may be shadowed");
-                unk += row_has(r, "scope unknown");
-            }
-            const CwTry w = attempt(m, 0, "t", "7");
-            check("SRCDBG-ZB-15", "80cc shadow.c at `g += t`: read t is ok with the notes `ambiguous: 2 variables named t ...` and `scope unknown`; of the two t rows one is `may be shadowed` and one `scope unknown`; "
-                                  "t := 7 is refused (`scope unknown`, nothing written)",
-                  at && rd.ok && has_note(rd, "ambiguous: 2 variables named t") && has_note(rd, "scope unknown") && rows.size() == 2 && may == 1 && unk == 1 && refused_with(w, "scope unknown"));
-        }
-        {   // SRCDBG-ZB-16
-            // zsdcc ($8C56, shadow.c line 8): zsdcc keeps the outer t in DE and records the inner t (5, a constant) as `[]`, optimised out. The innermost still wins: t reads `optimised out`, not the outer's value
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadow", "zb16", 0x8C56, true);
-            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
-            const auto rows = trows(m, "t");
-            int shadowed = 0;
-            for (const auto& r : rows) shadowed += row_has(r, "shadowed") && !row_has(r, "may be shadowed");
-            const CwTry w = attempt(m, 0, "t", "7");
-            check("SRCDBG-ZB-16", "zsdcc shadow.c at `g += t`: two t rows, the outer (register DE) marked `shadowed`; read t is the inner one, `optimised out`; t := 7 is refused",
-                  at && rows.size() == 2 && shadowed == 1 && !rd.ok && rd.why == "optimised out" && !w.w.ok());
-        }
-        {   // SRCDBG-ZB-18
-            // block-scoped statics, sccz80 (statics.c): f's `static int16_t t` lives in the innermost block (lines 9-12), f2's in its inner block. The identity of the variable a name means is read from where it
-            // lives: a static is in a data page (`Kind::Page`, here $8EF3 and $8EF5, the map's `_st_f_t` and `_st_f2_t`), a local on the stack (`Kind::Cpu`). (sccz80 itself never uses the static: it
-            // resolves `t` to the outer local in the block, so the VALUES say nothing about which record the debugger picked.) Inside the static's block the static wins and the local is `shadowed`;
-            // outside it `t` is the local alone
-            const char* fx = "master-fixed-sccz80/sccz80-static";
-            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2), f2out(false, MachineType::ZXN_ISSUE2);
-            const bool a1 = lzf(in, fx, "zb18a", 0x8C9F, true), a2 = lzf(out, fx, "zb18b", 0x8CAE, true), a3 = lzf(f2in, fx, "zb18c", 0x8CD4, true), a4 = lzf(f2out, fx, "zb18d", 0x8CD9, true);
-            const Dbg::CValueResult rin = in.dbg->read_c_value(0, "t"), rout = out.dbg->read_c_value(0, "t"), r2in = f2in.dbg->read_c_value(0, "t"), r2out = f2out.dbg->read_c_value(0, "t");
-            const auto rows_in = trows(in, "t"), rows_out = trows(out, "t"), rows_f2out = trows(f2out, "t");
-            int page = 0, cpu = 0, shadowed_cpu = 0;
-            for (const auto& r : rows_in) {
-                page += r.where.kind == Dbg::CWhere::Kind::Page;
-                cpu += r.where.kind == Dbg::CWhere::Kind::Cpu;
-                shadowed_cpu += r.where.kind == Dbg::CWhere::Kind::Cpu && row_has(r, "shadowed");
-            }
-            const Dbg::CWriteResult win = wr(in, 0, "t", "9");
-            int nine_page = 0;
-            for (const auto& r : trows(in, "t")) nine_page += r.where.kind == Dbg::CWhere::Kind::Page && r.value == "9";
-            const Dbg::CWriteResult wout = wr(out, 0, "t", "5");
-            const auto rout2 = trows(out, "t");
-            check("SRCDBG-ZB-18", "sccz80 statics.c: inside the static's block t is the static (a Page place at $8EF3), the stack local is the other t row and `shadowed`, and t := 9 writes the static; outside it (`g += t`) "
-                                  "there is one t row, on the stack, t reads it and t := 5 writes it; in f2 the inner static ($8EF5) wins at `g = t` and the block local (stack) is the only t at `g += t`",
-                  a1 && a2 && a3 && a4 && rin.ok && rin.where.kind == Dbg::CWhere::Kind::Page && rin.where.source.address == 0x8EF3 && rows_in.size() == 2 && page == 1 && cpu == 1 && shadowed_cpu == 1 &&
-                      win.ok() && nine_page == 1 && rout.ok && rout.where.kind == Dbg::CWhere::Kind::Cpu && rows_out.size() == 1 && wout.ok() && rout2.size() == 1 && rout2[0].value == "5" &&
-                      r2in.ok && r2in.where.kind == Dbg::CWhere::Kind::Page && r2in.where.source.address == 0x8EF5 && r2out.ok && r2out.where.kind == Dbg::CWhere::Kind::Cpu && rows_f2out.size() == 1);
-        }
-        {   // SRCDBG-ZB-19
-            // the same on 80cc: the static is a block local to the PC's scope, never certain. Inside its block t reads with `ambiguous` and `scope unknown` and the write is refused; outside (F1: a later block)
-            // the static is hidden and the level-1 local (on the stack) is the only t, with no ambiguity and a successful write; in f2 at `g = t` the pick is ambiguous and the write refused, at `g += t`
-            // the lone block-local t is flagged but NOT ambiguous (one candidate: certain)
-            const char* fx = "master-fixed-80cc/80cc-static";
-            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2), f2out(false, MachineType::ZXN_ISSUE2);
-            const bool a1 = lzf(in, fx, "zb19a", 0x8C75, true), a2 = lzf(out, fx, "zb19b", 0x8C7A, true), a3 = lzf(f2in, fx, "zb19c", 0x8CA4, true), a4 = lzf(f2out, fx, "zb19d", 0x8CAA, true);
-            const Dbg::CValueResult rin = in.dbg->read_c_value(0, "t"), rout = out.dbg->read_c_value(0, "t"), r2in = f2in.dbg->read_c_value(0, "t"), r2out = f2out.dbg->read_c_value(0, "t");
-            const auto rows_in = trows(in, "t"), rows_out = trows(out, "t"), rows_f2out = trows(f2out, "t");
-            int may = 0;
-            for (const auto& r : rows_in) may += row_has(r, "may be shadowed");
-            const CwTry win = attempt(in, 0, "t", "9"), w2in = attempt(f2in, 0, "t", "9");
-            const Dbg::CWriteResult wout = wr(out, 0, "t", "5");
-            check("SRCDBG-ZB-19", "80cc statics.c: inside the static's block t is ok with `ambiguous: 2 variables named t` and `scope unknown` (the static, a Page place), the other row is `may be shadowed`, t := 9 is refused; at "
-                                  "`g += t` there is one t row, on the stack, with no ambiguity note, and t := 5 writes it; in f2 at `g = t` the pick is ambiguous and the write refused, at `g += t` the lone block-local t "
-                                  "reads with `scope unknown` and NO `ambiguous` note",
-                  a1 && a2 && a3 && a4 && rin.ok && rin.where.kind == Dbg::CWhere::Kind::Page && has_note(rin, "ambiguous: 2 variables named t") && has_note(rin, "scope unknown") && rows_in.size() == 2 && may == 1 &&
-                      refused_with(win, "scope unknown") && rout.ok && rout.where.kind == Dbg::CWhere::Kind::Cpu && !has_note(rout, "ambiguous") && rows_out.size() == 1 && wout.ok() && r2in.ok &&
-                      has_note(r2in, "ambiguous: 2 variables named t") && refused_with(w2in, "scope unknown") && r2out.ok && has_note(r2out, "scope unknown") && !has_note(r2out, "ambiguous") &&
-                      rows_f2out.size() == 1);
-        }
-        {   // SRCDBG-ZB-20
-            // zsdcc (exact blocks), statics.c: the outer t lives in DE and the inner static t (E space, a Page place) is the pick at `g = t + u`; outside its block t is the register local only
-            const char* fx = "master-fixed-zsdcc/sdcc-static";
-            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2);
-            const bool a1 = lzf(in, fx, "zb20a", 0x8C71, true), a2 = lzf(out, fx, "zb20b", 0x8C78, true), a3 = lzf(f2in, fx, "zb20c", 0x8C9D, true);
-            const auto rin = trows(in, "t"), rout = trows(out, "t");
-            int shadowed = 0, page = 0;
-            for (const auto& r : rin) {
-                shadowed += row_has(r, "shadowed") && !row_has(r, "may be shadowed");
-                page += r.where.kind == Dbg::CWhere::Kind::Page;
-            }
-            const Dbg::CValueResult ri = in.dbg->read_c_value(0, "t"), r2 = f2in.dbg->read_c_value(0, "t");
-            check("SRCDBG-ZB-20", "zsdcc statics.c: inside the static's block there are two t rows (the register local `shadowed`, the static a Page place) and t reads the static, in f2 too; outside it there is one t row, "
-                                  "the register local",
-                  a1 && a2 && a3 && rin.size() == 2 && shadowed == 1 && page == 1 && ri.ok && ri.where.kind == Dbg::CWhere::Kind::Page && r2.ok && r2.where.kind == Dbg::CWhere::Kind::Page && rout.size() == 1 &&
-                      rout[0].where.kind != Dbg::CWhere::Kind::Page);
-        }
-        {   // SRCDBG-ZB-21
-            // two block statics named n in one function (zsdcc, shadowagg.c: n = 7 in one block, n = 100 in the next; sccz80 rejects the program): the typed path f::n is refused for a read and a write
-            // with `ambiguous: 2 statics named n in f`; each Globals row's own path (a handle) reads its own static and writes it alone; monitor-style listing marks the rows
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadowagg", "zb21", 0x8C8B, true);
-            std::vector<Dbg::CValueRow> rows;
-            for (const auto& r : m.dbg->c_globals())
-                if (r.name == "n") rows.push_back(r);
-            const Dbg::CValueResult typed = m.dbg->read_c_value(0, "f::n");
-            const CwTry wt = attempt(m, 0, "f::n", "1");
-            bool distinct = rows.size() == 2 && rows[0].path != rows[1].path && rows[0].path[0] == '#' && rows[1].path[0] == '#';
-            std::set<std::string> vals;
-            for (const auto& r : rows) {
-                distinct = distinct && r.ambiguous_path && r.name_path == "f::n" && r.ok;
-                vals.insert(r.value);
-            }
-            jnext::dbg::CNewValue nv55;
-            nv55.text = "55";
-            const Dbg::CWriteResult w = rows.size() == 2 ? m.dbg->write_c_value_row(m.a, 0, rows[1].path, nv55) : Dbg::CWriteResult{};
-            std::string first_after, second_after;   // the Globals rows again: the row with the first handle, the row with the second
-            for (const auto& r : m.dbg->c_globals())
-                if (rows.size() == 2 && r.name == "n") (r.path == rows[0].path ? first_after : second_after) = r.value;
-            check("SRCDBG-ZB-21", "zsdcc shadowagg.c with two block statics n: c_globals() has two n rows with distinct handle paths, name_path f::n and ambiguous_path; they read 7 and 100; `f::n` is refused for a read and a write "
-                                  "(`ambiguous: 2 statics named n in f`); writing one row's handle changes that static only",
-                  at && distinct && vals == std::set<std::string>({"7", "100"}) && !typed.ok && typed.why == "ambiguous: 2 statics named n in f" && refused_with(wt, "ambiguous: 2 statics named n in f") && w.ok() &&
-                      second_after == "55" && first_after == rows[0].value,
-                  "rows=" + std::to_string(rows.size()) + " typed=" + (typed.ok ? typed.value : typed.why) + " w=" + w.why + " after=" + first_after + "/" + second_after + (rows.size() == 2 ? " paths=" + rows[0].path + "," + rows[1].path + " v=" + rows[0].value + "," + rows[1].value + " amb=" + std::to_string(rows[0].ambiguous_path) + " np=" + rows[0].name_path : std::string()));
-        }
-        {   // SRCDBG-ZB-22
-            // the notes of a variable ride on its children (GH #353 review F5): 80cc shadowagg.c at `g += s.x + s.y` ($8C7D), the inner struct s (block 2, level 2) is a flagged block local and the outer s
-            // (level 1) is `may be shadowed`. c_children("s") (the name picks the inner) carries `scope unknown` and `ambiguous` on its members, as read_c_value("s.x") does; the outer row's own
-            // path (a handle) has neither and lists the outer's members
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = lzf(m, "master-fixed-80cc/80cc-shadowagg", "zb22", 0x8C7D, true);
-            std::vector<Dbg::CValueRow> srows;
-            for (const auto& r : m.dbg->c_locals(0).rows)
-                if (r.name == "s") srows.push_back(r);
-            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "s.x");
-            const Dbg::CChildRows inner = m.dbg->c_children(0, "s", 0, 16);
-            bool inner_notes = inner.ok && inner.rows.size() == 2;
-            const auto vhas = [](const std::vector<std::string>& v, const char* part) {
-                for (const auto& n : v)
-                    if (n.find(part) != std::string::npos) return true;
-                return false;
-            };
-            for (const auto& r : inner.rows) inner_notes = inner_notes && vhas(r.notes, "scope unknown") && vhas(r.notes, "ambiguous");
-            const Dbg::CValueRow* outer = nullptr;
-            for (const auto& r : srows)
-                if (r.path[0] == '#') outer = &r;
-            Dbg::CChildRows oc;
-            if (outer) oc = m.dbg->c_children_row(0, outer->path, 0, 16);
-            bool outer_clean = outer && oc.ok && oc.rows.size() == 2;
-            for (const auto& r : oc.rows) outer_clean = outer_clean && !vhas(r.notes, "scope unknown") && !vhas(r.notes, "ambiguous") && r.name_path.empty();
-            check("SRCDBG-ZB-22", "80cc shadowagg.c in the inner block: two s rows (the outer, level 1, with a handle path and `may be shadowed`); children of the name `s` carry `scope unknown` and `ambiguous` like the read of s.x; "
-                                  "children of the outer's handle path carry neither note and no name path",
-                  at && srows.size() == 2 && outer && has_note(rd, "scope unknown") && inner_notes && outer_clean,
-                  "at=" + std::to_string(at) + " srows=" + std::to_string(srows.size()) + " outer=" + std::to_string(outer != nullptr) + " rd=" + std::to_string(has_note(rd, "scope unknown")) + " inner_notes=" + std::to_string(inner_notes) + " inner.ok=" + std::to_string(inner.ok) + "/" + std::to_string(inner.rows.size()) + " outer_clean=" + std::to_string(outer_clean) + " oc=" + oc.why);
-        }
-        {   // SRCDBG-ZB-23
-            // the panel's row handles are internal (GH #353 review round 2): the typed read, write and children functions refuse `#n` (the shadowed outer struct s at shadowagg.c:9), the *_row functions that
-            // the Variables panel uses resolve it
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadowagg", "zb23", 0x8C8B, true);
-            std::string handle;
-            for (const auto& r : m.dbg->c_locals(0).rows)
-                if (r.name == "s" && r.path[0] == '#') handle = r.path;
-            jnext::dbg::CNewValue nv;
-            nv.text = "77";
-            const Dbg::CValueResult typed = m.dbg->read_c_value(0, handle + ".x");
-            const Dbg::CWriteResult tw = m.dbg->write_c_value(m.a, 0, handle + ".x", nv);
-            const Dbg::CChildRows tc = m.dbg->c_children(0, handle, 0, 16);
-            const Dbg::CChildRows rc = m.dbg->c_children_row(0, handle, 0, 16);
-            check("SRCDBG-ZB-23", "shadowagg.c:9, the shadowed struct s has a handle path: read_c_value, write_c_value and c_children refuse it (and write nothing), while c_children_row lists its two members (x = 3, y = 1)",
-                  at && handle.size() > 1 && !typed.ok && !tw.ok() && !tc.ok && rc.ok && rc.rows.size() == 2 && rc.rows[0].value == "3" && rc.rows[1].value == "1");
-        }
-        {   // SRCDBG-ZB-24
-            // a handle is judged where the CPU is: at shadowagg.c:14 (zsdcc) the inner struct s's block is closed. Its handle reads and writes `out of scope`; the outer s (visible) reads through its handle
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadowagg", "zb24", 0x8CA3, true);
-            std::string inner, outer;
-            const auto vars = m.dbg->variables();
-            for (size_t i = 0; vars && i < vars->variables().size(); ++i) {
-                const auto& v = vars->variables()[i];
-                if (v.c_name == "s" && v.function >= 0) (v.record.var.level >= 2 ? inner : outer) = "#" + std::to_string(i);
-            }
-            jnext::dbg::CNewValue nv;
-            nv.text = "5";
-            jnext::dbg::CNewValue nv0;
-            nv0.text = "5";
-            const Dbg::CChildRows ci = m.dbg->c_children_row(0, inner, 0, 16), co = m.dbg->c_children_row(0, outer, 0, 16);
-            const Dbg::CWriteResult wi = m.dbg->write_c_value_row(m.a, 0, inner + ".x", nv0);
-            const Dbg::CChildRows other_frame = m.dbg->c_children_row(1, outer, 0, 16);   // frame 1 is main: f's variable is not one of its locals
-            check("SRCDBG-ZB-24", "shadowagg.c:14: the closed inner s is refused `out of scope` when its children are listed and when it is written through its handle; the visible outer s lists x = 3 through its; in main's frame the handle of f's s is "
-                                  "refused as a local of another function",
-                  at && !inner.empty() && !outer.empty() && !ci.ok && ci.why.find("out of scope") != std::string::npos && !wi.ok() && wi.why.find("out of scope") != std::string::npos && co.ok && co.rows.size() == 2 && co.rows[0].value == "3" &&
-                      !other_frame.ok && other_frame.why.find("a local of another function") != std::string::npos, other_frame.why);
-        }
-        {   // SRCDBG-ZB-25
-            // the flags of a handle row are carried (80cc statics.c f2 at `g = t` ($8CA4)): the block-local t is `scope unknown` and shadowed by the deeper static t, so its handle reads with the note and a
-            // write through it is refused `scope unknown`
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const bool at = lzf(m, "master-fixed-80cc/80cc-static", "zb25", 0x8CA4, true);
-            std::string handle;
-            for (const auto& r : m.dbg->c_locals(0).rows)
-                if (r.name == "t" && r.path[0] == '#') handle = r.path;
-            jnext::dbg::CNewValue nv;
-            nv.text = "9";
-            const Dbg::CWriteResult w = m.dbg->write_c_value_row(m.a, 0, handle, nv);
-            check("SRCDBG-ZB-25", "80cc statics.c f2 at `g = t`: the shadowed block-local t has a handle path and a write through it is refused `scope unknown`",
-                  at && handle.size() > 1 && !w.ok() && w.why.find("scope unknown") != std::string::npos, w.why);
-        }
-        {   // SRCDBG-ZB-17
-
-            // review 7 F1: 80cc stamps code with the scope of a block the code is not in (master-fixed-80cc/80cc-ifelse, ifelse.c, listing beside the map). The oracle is the C program: at the PCs below
-            // only t (and i, k, t in d2) is in scope or maybe, and q is NOT in scope. (1) f1: the jump that ends the then-branch ($8C91, listed on the else line, block 3); (2) k9: the jump that ends a
-            // brace-less then-branch ($8D72); (3) c1: the epilogue after a trailing block ($8DBD); (4) d2: the multiply hoisted before the loop ($8DDD). No block local is plain; q is flagged, a read
-            // of q carries `scope unknown` and q := 1 is refused; d2's parameters are a and c, 80cc's temporary 1licm_0 is not listed
-            const auto names = [&](Machine& m, bool params) {
-                std::vector<std::string> v;
-                for (const auto& r : m.dbg->c_locals(0).rows) {
-                    if ((r.kind == Dbg::CValueRow::Kind::Param) != params) continue;
-                    v.push_back(r.name + (row_has(r, "scope unknown") ? "?" : ""));
-                }
-                std::sort(v.begin(), v.end());
-                std::string out;
-                for (const auto& x : v) out += (out.empty() ? "" : " ") + x;
-                return out;
-            };
-            Machine m1(false, MachineType::ZXN_ISSUE2), m2(false, MachineType::ZXN_ISSUE2), m3(false, MachineType::ZXN_ISSUE2), m4(false, MachineType::ZXN_ISSUE2);
-            const bool a1 = lzf(m1, "master-fixed-80cc/80cc-ifelse", "zb17a", 0x8C91, true), a2 = lzf(m2, "master-fixed-80cc/80cc-ifelse", "zb17b", 0x8D72, true),
-                       a3 = lzf(m3, "master-fixed-80cc/80cc-ifelse", "zb17c", 0x8DBD, true), a4 = lzf(m4, "master-fixed-80cc/80cc-ifelse", "zb17d", 0x8DDD, true);
-            const std::string n1 = names(m1, false), n2 = names(m2, false), n3 = names(m3, false), n4 = names(m4, false), p4 = names(m4, true);
-            const Dbg::CValueResult rq = m1.dbg->read_c_value(0, "q");
-            const CwTry wq = attempt(m1, 0, "q", "1");
-            check("SRCDBG-ZB-17", "master-fixed-80cc ifelse.c with the listing, at the jump that ends f1's then-branch, k9's brace-less then-branch jump, c1's epilogue and d2's hoisted multiply: the block locals are "
-                                  "`q? t`, `q? t`, `q? t` and `i? k? t` (never plain); read q carries `scope unknown` and q := 1 is refused; d2's parameters are `a c` and nothing is named 1licm_0",
-                  a1 && a2 && a3 && a4 && n1 == "q? t" && n2 == "q? t" && n3 == "q? t" && n4 == "i? k? t" && p4 == "a c" && rq.ok && has_note(rq, "scope unknown") && refused_with(wq, "scope unknown"),
-                  n1 + " | " + n2 + " | " + n3 + " | " + n4 + " | " + p4);
-        }
+        for (const auto& r : inner.rows) inner_notes = inner_notes && vhas(r.notes, "scope unknown") && vhas(r.notes, "ambiguous");
+        const Dbg::CValueRow* outer = nullptr;
+        for (const auto& r : srows)
+            if (r.path[0] == '#') outer = &r;
+        Dbg::CChildRows oc;
+        if (outer) oc = m.dbg->c_children_row(0, outer->path, 0, 16);
+        bool outer_clean = outer && oc.ok && oc.rows.size() == 2;
+        for (const auto& r : oc.rows) outer_clean = outer_clean && !vhas(r.notes, "scope unknown") && !vhas(r.notes, "ambiguous") && r.name_path.empty();
+        check("SRCDBG-ZB-22", "80cc shadowagg.c in the inner block: two s rows (the outer, level 1, with a handle path and `may be shadowed`); children of the name `s` carry `scope unknown` and `ambiguous` like the read of s.x; "
+                              "children of the outer's handle path carry neither note and no name path",
+              at && srows.size() == 2 && outer && has_note(rd, "scope unknown") && inner_notes && outer_clean,
+              "at=" + std::to_string(at) + " srows=" + std::to_string(srows.size()) + " outer=" + std::to_string(outer != nullptr) + " rd=" + std::to_string(has_note(rd, "scope unknown")) + " inner_notes=" + std::to_string(inner_notes) + " inner.ok=" + std::to_string(inner.ok) + "/" + std::to_string(inner.rows.size()) + " outer_clean=" + std::to_string(outer_clean) + " oc=" + oc.why);
     }
+    {   // SRCDBG-ZB-23
+        // the panel's row handles are internal (GH #353 review round 2): the typed read, write and children functions refuse `#n` (the shadowed outer struct s at shadowagg.c:9), the *_row functions that
+        // the Variables panel uses resolve it
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadowagg", "zb23", 0x8C8B, true);
+        std::string handle;
+        for (const auto& r : m.dbg->c_locals(0).rows)
+            if (r.name == "s" && r.path[0] == '#') handle = r.path;
+        jnext::dbg::CNewValue nv;
+        nv.text = "77";
+        const Dbg::CValueResult typed = m.dbg->read_c_value(0, handle + ".x");
+        const Dbg::CWriteResult tw = m.dbg->write_c_value(m.a, 0, handle + ".x", nv);
+        const Dbg::CChildRows tc = m.dbg->c_children(0, handle, 0, 16);
+        const Dbg::CChildRows rc = m.dbg->c_children_row(0, handle, 0, 16);
+        check("SRCDBG-ZB-23", "shadowagg.c:9, the shadowed struct s has a handle path: read_c_value, write_c_value and c_children refuse it (and write nothing), while c_children_row lists its two members (x = 3, y = 1)",
+              at && handle.size() > 1 && !typed.ok && !tw.ok() && !tc.ok && rc.ok && rc.rows.size() == 2 && rc.rows[0].value == "3" && rc.rows[1].value == "1");
+    }
+    {   // SRCDBG-ZB-24
+        // a handle is judged where the CPU is: at shadowagg.c:14 (zsdcc) the inner struct s's block is closed. Its handle reads and writes `out of scope`; the outer s (visible) reads through its handle
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadowagg", "zb24", 0x8CA3, true);
+        std::string inner, outer;
+        const auto vars = m.dbg->variables();
+        for (size_t i = 0; vars && i < vars->variables().size(); ++i) {
+            const auto& v = vars->variables()[i];
+            if (v.c_name == "s" && v.function >= 0) (v.record.var.level >= 2 ? inner : outer) = "#" + std::to_string(i);
+        }
+        jnext::dbg::CNewValue nv;
+        nv.text = "5";
+        jnext::dbg::CNewValue nv0;
+        nv0.text = "5";
+        const Dbg::CChildRows ci = m.dbg->c_children_row(0, inner, 0, 16), co = m.dbg->c_children_row(0, outer, 0, 16);
+        const Dbg::CWriteResult wi = m.dbg->write_c_value_row(m.a, 0, inner + ".x", nv0);
+        const Dbg::CChildRows other_frame = m.dbg->c_children_row(1, outer, 0, 16);   // frame 1 is main: f's variable is not one of its locals
+        check("SRCDBG-ZB-24", "shadowagg.c:14: the closed inner s is refused `out of scope` when its children are listed and when it is written through its handle; the visible outer s lists x = 3 through its; in main's frame the handle of f's s is "
+                              "refused as a local of another function",
+              at && !inner.empty() && !outer.empty() && !ci.ok && ci.why.find("out of scope") != std::string::npos && !wi.ok() && wi.why.find("out of scope") != std::string::npos && co.ok && co.rows.size() == 2 && co.rows[0].value == "3" &&
+                  !other_frame.ok && other_frame.why.find("a local of another function") != std::string::npos, other_frame.why);
+    }
+    {   // SRCDBG-ZB-25
+        // the flags of a handle row are carried (80cc statics.c f2 at `g = t` ($8CA4)): the block-local t is `scope unknown` and shadowed by the deeper static t, so its handle reads with the note and a
+        // write through it is refused `scope unknown`
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const bool at = lzf(m, "master-fixed-80cc/80cc-static", "zb25", 0x8CA4, true);
+        std::string handle;
+        for (const auto& r : m.dbg->c_locals(0).rows)
+            if (r.name == "t" && r.path[0] == '#') handle = r.path;
+        jnext::dbg::CNewValue nv;
+        nv.text = "9";
+        const Dbg::CWriteResult w = m.dbg->write_c_value_row(m.a, 0, handle, nv);
+        check("SRCDBG-ZB-25", "80cc statics.c f2 at `g = t`: the shadowed block-local t has a handle path and a write through it is refused `scope unknown`",
+              at && handle.size() > 1 && !w.ok() && w.why.find("scope unknown") != std::string::npos, w.why);
+    }
+    {   // SRCDBG-ZB-17
+
+        // review 7 F1: 80cc stamps code with the scope of a block the code is not in (master-fixed-80cc/80cc-ifelse, ifelse.c, listing beside the map). The oracle is the C program: at the PCs below
+        // only t (and i, k, t in d2) is in scope or maybe, and q is NOT in scope. (1) f1: the jump that ends the then-branch ($8C91, listed on the else line, block 3); (2) k9: the jump that ends a
+        // brace-less then-branch ($8D72); (3) c1: the epilogue after a trailing block ($8DBD); (4) d2: the multiply hoisted before the loop ($8DDD). No block local is plain; q is flagged, a read
+        // of q carries `scope unknown` and q := 1 is refused; d2's parameters are a and c, 80cc's temporary 1licm_0 is not listed
+        const auto names = [&](Machine& m, bool params) {
+            std::vector<std::string> v;
+            for (const auto& r : m.dbg->c_locals(0).rows) {
+                if ((r.kind == Dbg::CValueRow::Kind::Param) != params) continue;
+                v.push_back(r.name + (row_has(r, "scope unknown") ? "?" : ""));
+            }
+            std::sort(v.begin(), v.end());
+            std::string out;
+            for (const auto& x : v) out += (out.empty() ? "" : " ") + x;
+            return out;
+        };
+        Machine m1(false, MachineType::ZXN_ISSUE2), m2(false, MachineType::ZXN_ISSUE2), m3(false, MachineType::ZXN_ISSUE2), m4(false, MachineType::ZXN_ISSUE2);
+        const bool a1 = lzf(m1, "master-fixed-80cc/80cc-ifelse", "zb17a", 0x8C91, true), a2 = lzf(m2, "master-fixed-80cc/80cc-ifelse", "zb17b", 0x8D72, true),
+                   a3 = lzf(m3, "master-fixed-80cc/80cc-ifelse", "zb17c", 0x8DBD, true), a4 = lzf(m4, "master-fixed-80cc/80cc-ifelse", "zb17d", 0x8DDD, true);
+        const std::string n1 = names(m1, false), n2 = names(m2, false), n3 = names(m3, false), n4 = names(m4, false), p4 = names(m4, true);
+        const Dbg::CValueResult rq = m1.dbg->read_c_value(0, "q");
+        const CwTry wq = attempt(m1, 0, "q", "1");
+        check("SRCDBG-ZB-17", "master-fixed-80cc ifelse.c with the listing, at the jump that ends f1's then-branch, k9's brace-less then-branch jump, c1's epilogue and d2's hoisted multiply: the block locals are "
+                              "`q? t`, `q? t`, `q? t` and `i? k? t` (never plain); read q carries `scope unknown` and q := 1 is refused; d2's parameters are `a c` and nothing is named 1licm_0",
+              a1 && a2 && a3 && a4 && n1 == "q? t" && n2 == "q? t" && n3 == "q? t" && n4 == "i? k? t" && p4 == "a c" && rq.ok && has_note(rq, "scope unknown") && refused_with(wq, "scope unknown"),
+              n1 + " | " + n2 + " | " + n3 + " | " + n4 + " | " + p4);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_65(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
 
     // ── GH #344 stage 3: a tape program's maps ───────────────────────────────
     // The oracle is the committed v2.4/sccz80-tape fixture (zcc +zx; its prog.tap carries
@@ -9572,6 +11907,11 @@ int main() {
                       " pc=" + hex(m.pc()));
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_66(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
 
     // ── GH #344 stage 3: per memory space (owner decision 2026-10-29) ─────────
     // v2.4/sccz80-page20: prog_CODE.bin is page 4 ($8000..), prog_PAGE_20.bin is page 20
@@ -9862,6 +12202,19 @@ int main() {
                       hex(ctl.latch));
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_67(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
 
     // ── GH #344 stage 3: who answers for the verdict ─────────────────────────
     {
@@ -10159,660 +12512,940 @@ int main() {
                   st.reason + "\n" + log);
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_68(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
 
     // ── GH #345 (E23-14): C stepping semantics on real z88dk code ───────────────
     // Oracles: the -run fixtures' maps and listings (test/fixtures/z88dk), design 7
     // (Over/Out by call depth) and the recorded z88dk-gdb sessions A-E (plan
     // gh345-plan.md section 6) for v2.4/sccz80-debug. Each row reaches its start by
     // RUNNING to a breakpoint, as SRCDBG-Z88-14 does.
-    {
-        const fs::path sdir = dir / "srcstep";
-        // Run to `addr` on a fixture's machine; false when it never stops there.
-        const auto reach = [](Machine& m, uint16_t addr) {
-            const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
-            m.dbg->run(m.a);
-            for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
-            m.dbg->unsubscribe(m.a, id);
-            return m.dbg->state().paused && m.pc() == addr;
-        };
-        // Depth over CALL / RST frames (an interrupt's frame is not the program's).
-        const auto depth = [](const Machine& m) {
-            int n = 0;
-            for (const auto& f : m.dbg->call_stack())
-                if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
-            return n;
-        };
-        const auto at = [&](Machine& m, uint16_t pc, const char* line) {
-            return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
-        };
-        // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
-        const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
-                               std::string* log) {
-            const fs::path d = sdir / sub;
-            z88_copy(fixture, d);
-            z88_load(m, d / "prog.nex");
-            *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
-            return reach(m, addr) && has(*log, "(program identity verified)");
-        };
+    const fs::path sdir = dir / "srcstep";
+    // Run to `addr` on a fixture's machine; false when it never stops there.
+    const auto reach = [](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+    // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+    const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                           std::string* log) {
+        const fs::path d = sdir / sub;
+        z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+        return reach(m, addr) && has(*log, "(program identity verified)");
+    };
 
-        // master / sdcc `__banked`: bmain.c:13 `result = banked_add(2, 3);` at $8CAE.
-        {   // SRCSTEP-01
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sdcc-banked-run", "bs1", 0x8CAE, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-01", "sdcc __banked: Over bmain.c:13's call to banked_add (through "
-                                "banked_call) lands on bmain.c:15 ($8CBE; line 14 is its alias) at the "
-                                "same depth",
-                  ok && at(m, 0x8CBE, "bmain.c:15") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-02
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sdcc-banked-run", "bs2", 0x8CAE, &log);
-            m.dbg->source_step(m.a, Step::Into);
-            check("SRCSTEP-02", "sdcc __banked: Into bmain.c:13 runs through banked_call and stops "
-                                "at banked.c:5 ($C000), fetched from page 20",
-                  ok && at(m, 0xC000, "banked.c:5") && m.dbg->effective_page(0xC000) == 20, m.where());
-        }
-        {   // SRCSTEP-03
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sdcc-banked-run", "bs3", 0x8CAE, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Into);
-            m.dbg->source_step(m.a, Step::Into);
-            const bool inside = at(m, 0xC008, "banked.c:8");
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-03", "sdcc __banked: Out of banked_add returns to the caller's line "
-                                "bmain.c:13 at $8CB9 (after the defq), at the caller's depth",
-                  ok && inside && at(m, 0x8CB9, "bmain.c:13") && depth(m) == d0, m.where());
-        }
-        {   // SRCSTEP-08
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sdcc-banked-run", "bs8", 0x8CAE, &log);
-            const int d0 = depth(m);
-            int d805A = -1, d809F = -1, d807E = -1, dC000 = -1, d8083 = -1, d809D = -1, d8CB9 = -1;
-            int mindepth = 1 << 20;
-            bool in_call = false, arrived = false;
-            const auto first = [](int& slot, int v) { if (slot < 0) slot = v; };
-            for (int i = 0; i < 200 && !arrived; ++i) {
-                const uint16_t pc = m.pc();
-                const int d = depth(m);
-                if (pc == 0x805A) in_call = true;
-                if (pc == 0x8CB9) { first(d8CB9, d); arrived = true; break; }
-                if (in_call && d < mindepth) mindepth = d;
-                if (pc == 0x805A) first(d805A, d);
-                if (pc == 0x809F) first(d809F, d);
-                if (pc == 0x807E) first(d807E, d);
-                if (pc == 0xC000) first(dC000, d);
-                if (pc == 0x8083) first(d8083, d);
-                if (pc == 0x809D) first(d809D, d);
-                m.dbg->step_into(m.a);
-            }
-            check("SRCSTEP-08", "banked_call keeps its frame for the whole trampoline: depth d0+1 at "
-                                "$805A, d0+2 in set_mmu ($809F), d0+1 after its RET ($807E), d0+2 in "
-                                "banked_add ($C000), d0+1 after the target's RET ($8083, $809D), d0 at "
-                                "$8CB9, and never below d0+1 inside the call",
-                  ok && arrived && d805A == d0 + 1 && d809F == d0 + 2 && d807E == d0 + 1 &&
-                      dC000 == d0 + 2 && d8083 == d0 + 1 && d809D == d0 + 1 && d8CB9 == d0 &&
-                      mindepth == d0 + 1,
-                  "d0=" + std::to_string(d0) + " 805A:" + std::to_string(d805A) + " 809F:" +
-                      std::to_string(d809F) + " 807E:" + std::to_string(d807E) + " C000:" +
-                      std::to_string(dC000) + " 8083:" + std::to_string(d8083) + " 809D:" +
-                      std::to_string(d809D) + " 8CB9:" + std::to_string(d8CB9) + " min:" +
-                      std::to_string(mindepth));
-        }
-
-        // v2.4 / sccz80 -debug: z88dk-gdb sessions A, B, E (l_debug_push_frame in every function).
-        {   // SRCSTEP-04
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-debug", "s4", 0x8CBE, &log);
-            m.dbg->source_step(m.a, Step::Into);
-            const bool first = at(m, 0x8C78, "main.c:10");
-            m.dbg->source_step(m.a, Step::Into);
-            check("SRCSTEP-04", "sccz80 -debug: Into main.c:20 stops at square's first line "
-                                "($8C78, main.c:10) and the next Into runs l_debug_push_frame through "
-                                "to main.c:11 ($8C7B) [z88dk-gdb A, B]",
-                  ok && first && at(m, 0x8C7B, "main.c:11"), m.where());
-        }
-        {   // SRCSTEP-05
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-debug", "s5", 0x8CB5, &log);
-            m.dbg->source_step(m.a, Step::Over);
-            const bool first = at(m, 0x8CBE, "main.c:20");
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-05", "sccz80 -debug: Over main.c:19 -> :20 ($8CBE), Over the call to "
-                                "square -> main.c:21 ($8CE9) [z88dk-gdb A, E]",
-                  ok && first && at(m, 0x8CE9, "main.c:21"), m.where());
-        }
-        {   // SRCSTEP-06
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-debug", "s6", 0x8CBE, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Into);
-            m.dbg->source_step(m.a, Step::Into);
-            const bool in = at(m, 0x8C7B, "main.c:11");
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-06", "sccz80 -debug: Out of square's last line returns to main.c:20 at "
-                                "$8CC9, at the caller's depth [z88dk-gdb A: finish]",
-                  ok && in && at(m, 0x8CC9, "main.c:20") && depth(m) == d0, m.where());
-        }
-        {   // SRCSTEP-09
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-debug", "s9", 0x8CBE, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Into);
-            const bool in = at(m, 0x8C78, "main.c:10");
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-09", "sccz80 -debug: Over from square's first line runs the helper "
-                                "through and stops at main.c:11 ($8C7B), inside square [z88dk-gdb A: next]",
-                  ok && in && at(m, 0x8C7B, "main.c:11") && depth(m) == d0 + 1, m.where());
-        }
-        {   // SRCSTEP-10
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-debug", "s10", 0x8CBE, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Into);
-            m.dbg->source_step(m.a, Step::Into);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-10", "sccz80 -debug: Over from square's last line returns to main.c:20 "
-                                "($8CC9) [z88dk-gdb B: next]",
-                  ok && at(m, 0x8CC9, "main.c:20") && depth(m) == d0, m.where());
-        }
-
-        // GH #349 (R1): an int parameter makes sccz80 call l_gintspsp (EX (SP),HL; JP (HL): a
-        // return with no RET). Oracles: test/fixtures/z88dk/{v2.4,master}/{sccz80,80cc}-intarg
-        // (map, listing, binary) and the helper's source in the z88dk library.
-        {   // SRCSTEP-14
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-intarg", "i14", 0x8C6E, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-14", "sccz80 2.4: Over accum's line 4 (the int parameter, CALL l_gintspsp at $8C72) stays in accum and stops at line 5 ($8C84), at the same depth",
-                  ok && at(m, 0x8C84, "intarg.c:5") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-15
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-intarg", "i15", 0x8C6E, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-15", "sccz80 master: Over accum's line 4 (CALL l_gintspsp at $8C72) stays in accum and stops at line 5 ($8C84), at the same depth",
-                  ok && at(m, 0x8C84, "intarg.c:5") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-16
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/80cc-intarg", "i16", 0x8C66, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-16", "80cc master: Over accum's line 4 stops at line 5 ($8C7D; GH #445: was $8C7E before z88dk v2.4-2883) at the same depth (80cc emits no l_gintspsp call for this program: the unchanged control)",
-                  ok && at(m, 0x8C7D, "intarg.c:5") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-17
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-intarg", "i17", 0x8C6E, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-17", "sccz80 2.4: Out of accum from line 4 returns to main at $8C9A (intarg.c:12) one level up, the helper's frame already closed",
-                  ok && at(m, 0x8C9A, "intarg.c:12") && depth(m) == d0 - 1, log + m.where());
-        }
-        {   // SRCSTEP-18
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-intarg", "i18", 0x8C6E, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-18", "sccz80 master: Out of accum from line 4 returns to main at $8C99 (intarg.c:11) one level up",
-                  ok && at(m, 0x8C99, "intarg.c:11") && depth(m) == d0 - 1, log + m.where());
-        }
-        {   // SRCSTEP-19
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-intarg", "i19", 0x8C6E, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool moved = reach(m, 0x8C75);
-            const auto& f = m.dbg->call_stack();
-            check("SRCSTEP-19", "sccz80 2.4: after l_gintspsp returns by JP (HL) ($8C75, inside accum) the Call Stack holds the frames it held before the call and no frame for the helper (the newest is the CALL _accum at $8C97)",
-                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8C97,
-                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-20
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-intarg", "i20", 0x8C6E, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool moved = reach(m, 0x8C75);
-            const auto& f = m.dbg->call_stack();
-            check("SRCSTEP-20", "sccz80 master: after l_gintspsp returns by JP (HL) ($8C75, inside accum) the Call Stack holds no frame for the helper (the newest is the CALL _accum at $8C96)",
-                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8C96,
-                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-21
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-intarg", "i21", 0x8C9D, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-21", "sccz80 master: Over main's line 12, which calls l_gintspsp and then accum (a call that itself calls the helper), stops at line 13 ($8CAE) at the same depth",
-                  ok && at(m, 0x8CAE, "intarg.c:13") && depth(m) == d0, log + m.where());
-        }
-
-        // GH #349 (R1'): long arithmetic (l_long_sub: POP IX ... JP (IX), SP above the slot) and switch
-        // (l_case: POP HL as the case table, JP (HL) to a case label). Oracles: test/fixtures/z88dk/
-        // {v2.4,master}/{sccz80,80cc}-longsw (map, listing, binary) and the helpers' library sources.
-        {   // SRCSTEP-22
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-longsw", "l22", 0x8CC8, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-22", "sccz80 2.4: Over lsub's line 4 (CALL l_long_sub at $8CDD: POP IX ... JP (IX)) stays in lsub and stops at line 5 ($8CE4), at the same depth",
-                  ok && at(m, 0x8CE4, "longsw.c:5") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-23
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-longsw", "l23", 0x8CC8, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-23", "sccz80 master: Over lsub's line 4 (CALL l_long_sub) stays in lsub and stops at line 5 ($8CE4), at the same depth",
-                  ok && at(m, 0x8CE4, "longsw.c:5") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-24
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/80cc-longsw", "l24", 0x8C83, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-24", "80cc master: Over lsub's line 4 stops at line 5 ($8CA7) at the same depth (80cc inlines the long subtraction: the unchanged control)",
-                  ok && at(m, 0x8CA7, "longsw.c:5") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-25
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-longsw", "l25", 0x8CC8, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-25", "sccz80 2.4: Out of lsub from line 4 returns to main at $8D75 (longsw.c:28) one level up",
-                  ok && at(m, 0x8D75, "longsw.c:28") && depth(m) == d0 - 1, log + m.where());
-        }
-        {   // SRCSTEP-26
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-longsw", "l26", 0x8CC8, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-26", "sccz80 master: Out of lsub from line 4 returns to main at $8D75 (longsw.c:27) one level up",
-                  ok && at(m, 0x8D75, "longsw.c:27") && depth(m) == d0 - 1, log + m.where());
-        }
-        {   // SRCSTEP-27
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-longsw", "l27", 0x8CC8, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool moved = reach(m, 0x8CE0);
-            const auto& f = m.dbg->call_stack();
-            check("SRCSTEP-27", "sccz80 2.4: after l_long_sub returns by JP (IX) ($8CE0, inside lsub) the Call Stack holds the frames it held before and none for the helper (the newest is the CALL _lsub at $8D72)",
-                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D72,
-                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-28
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-longsw", "l28", 0x8CC8, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool moved = reach(m, 0x8CE0);
-            const auto& f = m.dbg->call_stack();
-            check("SRCSTEP-28", "sccz80 master: after l_long_sub returns by JP (IX) ($8CE0) the Call Stack holds no frame for the helper (the newest is the CALL _lsub at $8D72)",
-                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D72,
-                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-29
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-longsw", "l29", 0x8CF4, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-29", "sccz80 2.4: Over sw's switch (CALL l_case at $8CF8 matching case 200) stays in sw and stops at the case body longsw.c:13 ($8D20), at the same depth",
-                  ok && at(m, 0x8D20, "longsw.c:13") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-30
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-longsw", "l30", 0x8CF4, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-30", "sccz80 master: Over sw's switch (CALL l_case, case 200) stops at the case body longsw.c:13 ($8D20), at the same depth",
-                  ok && at(m, 0x8D20, "longsw.c:13") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-31
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/80cc-longsw", "l31", 0x8CB4, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-31", "80cc master: Over sw's switch (CALL l_case at $8CBC, case 200) stops at the case body longsw.c:13 ($8CE8), at the same depth",
-                  ok && at(m, 0x8CE8, "longsw.c:13") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-32
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-longsw", "l32", 0x8CF4, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool moved = reach(m, 0x8D20);
-            const auto& f = m.dbg->call_stack();
-            check("SRCSTEP-32", "sccz80 2.4: after l_case jumps to its case label ($8D20) the Call Stack holds no frame for the helper (the newest is the CALL _sw at $8D81)",
-                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D81,
-                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-33
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-longsw", "l33", 0x8CF4, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool moved = reach(m, 0x8D20);
-            const auto& f = m.dbg->call_stack();
-            check("SRCSTEP-33", "sccz80 master: after l_case jumps to its case label ($8D20) the Call Stack holds no frame for the helper (the newest is the CALL _sw at $8D81)",
-                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D81,
-                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-34
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-longsw", "l34", 0x8D20, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-34", "sccz80 2.4: Out of sw from its case 200 body returns to main at $8D84 (longsw.c:29) one level up",
-                  ok && at(m, 0x8D84, "longsw.c:29") && depth(m) == d0 - 1, log + m.where());
-        }
-        {   // SRCSTEP-35
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-longsw", "l35", 0x8D20, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-35", "sccz80 master: Out of sw from its case 200 body returns to main at $8D84 (longsw.c:28) one level up",
-                  ok && at(m, 0x8D84, "longsw.c:28") && depth(m) == d0 - 1, log + m.where());
-        }
-
-        // GH #349 (R1''): a __z88dk_callee body keeps its return address ABOVE its CALL's slot (POP r; POP
-        // args; PUSH r), so SP is above the slot for the whole body, and its internal JP (r) is not a return.
-        // The shipped rule (SP above the slot = consumed) ended those frames: Over became Into and the Call
-        // Stack lost the frame. Oracles: test/fixtures/sjasmcallee (callee.asm + the SLD) and test/fixtures/
-        // z88dk/{v2.4,master}/sccz80-calleejp (map, listing, binary); libsrc/sound/bit/c/sccz80/
-        // bit_beep_raw_callee.asm. The text in [] is what 837a4ee71 did.
-        const auto sld_start = [&](Machine& m, uint16_t addr, std::string* log) {
-            std::ifstream in(JNEXT_SJASMCALLEE_DIR "/callee.bin", std::ios::binary);
-            const std::string bin((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            for (size_t k = 0; k < bin.size(); ++k)
-                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + k), static_cast<uint8_t>(bin[k]));
-            const auto r = m.dbg->load_source_map(JNEXT_SJASMCALLEE_DIR "/callee.sld", true);
-            *log = "labels " + std::to_string(r.count);
-            m.set_pc(0x8000);
-            return !bin.empty() && r.count > 0 && reach(m, addr);
-        };
-        {   // SRCSTEP-36
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = sld_start(m, 0x8008, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-36", "hand asm: Over callee.asm:9 (call addone: POP HL; POP DE; PUSH HL; JP (HL) inside) "
-                                "stops at callee.asm:10 ($800B) at the same depth [837a4ee71: callee.asm:28 $8029]",
-                  ok && at(m, 0x800B, "callee.asm:10") && depth(m) == d0, log + " " + m.where());
-        }
-        {   // SRCSTEP-37
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = sld_start(m, 0x8011, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-37", "hand asm: Over callee.asm:14 (call addtwo: JP (IX) with the return address at SP+2) "
-                                "stops at callee.asm:15 ($8014) at the same depth [837a4ee71: callee.asm:39 $8037]",
-                  ok && at(m, 0x8014, "callee.asm:15") && depth(m) == d0, log + " " + m.where());
-        }
-        {   // SRCSTEP-38
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = sld_start(m, 0x8015, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-38", "hand asm: Over callee.asm:16 (call dispatch: POP HL as an inline table, JP (HL) into "
-                                "the caller) stops at case_a, callee.asm:20 ($801E), at the same depth: clause B's "
-                                "positive on code with no symbols",
-                  ok && at(m, 0x801E, "callee.asm:20") && depth(m) == d0, log + " " + m.where());
-        }
-        {   // SRCSTEP-39
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = sld_start(m, 0x8008, &log);
-            const int d0 = depth(m);
-            const bool moved = reach(m, 0x8029);
-            const auto& f = m.dbg->call_stack();
-            const bool kept = moved && depth(m) == d0 + 1 && !f.empty() && f.back().caller_pc == 0x8008 &&
-                              f.back().target_pc == 0x8022;
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-39", "hand asm: at stage2 ($8029, after addone's JP (HL)) the frame CALL $8008 -> $8022 is "
-                                "still open (depth d0 + 1); Out returns to callee.asm:10 ($800B) at depth d0 [837a4ee71: "
-                                "depth d0 at $8029, and Out ran one instruction]",
-                  ok && kept && at(m, 0x800B, "callee.asm:10") && depth(m) == d0, log + " " + m.where());
-        }
-        {   // SRCSTEP-40
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = sld_start(m, 0x8011, &log);
-            const int d0 = depth(m);
-            const bool moved = reach(m, 0x8037);
-            const auto& f = m.dbg->call_stack();
-            const bool kept = moved && depth(m) == d0 + 1 && !f.empty() && f.back().caller_pc == 0x8011 &&
-                              f.back().target_pc == 0x802C;
-            const bool back = reach(m, 0x8014) && depth(m) == d0;
-            check("SRCSTEP-40", "hand asm: at stage3 ($8037, after addtwo's JP (IX)) the frame CALL $8011 -> $802C is "
-                                "open; after its RET ($8014) the depth is d0 [837a4ee71: d0 at $8037]",
-                  ok && kept && back, log + " " + m.where());
-        }
-        {   // SRCSTEP-41
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-calleejp", "c41", 0x8C7F, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-41", "sccz80 2.4: Over calleejp.c:9 (addtwo, a __z88dk_callee routine with an internal JP (HL)) stops at calleejp.c:10 ($8C91) at the same depth [837a4ee71: calleejpfn.asm:14 $8CD6]",
-                  ok && at(m, 0x8C91, "calleejp.c:10") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-42
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-calleejp", "c42", 0x8C75, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-42", "sccz80 master: Over calleejp.c:8 (addtwo) stops at calleejp.c:9 ($8C80) at the same depth [837a4ee71: calleejpfn.asm:14 $8CC8]",
-                  ok && at(m, 0x8C80, "calleejp.c:9") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-43
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-calleejp", "c43", 0x8C7F, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool r0 = reach(m, 0x8CD6) && m.dbg->call_stack().size() == n0 + 1 &&
-                              m.dbg->call_stack().back().caller_pc == 0x8C87 && m.dbg->call_stack().back().target_pc == 0x8CCD;
-            const bool r1 = reach(m, 0x8CDB) && m.dbg->call_stack().size() == n0 + 1 &&
-                              m.dbg->call_stack().back().caller_pc == 0x8C87 && m.dbg->call_stack().back().target_pc == 0x8CCD;
-            const bool end = reach(m, 0x8C8A) && m.dbg->call_stack().size() == n0;
-            check("SRCSTEP-43", "sccz80 2.4: inside addtwo after each internal JP (HL) ($8CD6 stage2, $8CDB stage3) the Call Stack holds the frame CALL $8C87 -> $8CCD above the caller's frames; after its RET ($8C8A) it is gone",
-                  ok && r0 && r1 && end, log + "frames n0=" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-44
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-calleejp", "c44", 0x8C75, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool r0 = reach(m, 0x8CC8) && m.dbg->call_stack().size() == n0 + 1 &&
-                              m.dbg->call_stack().back().caller_pc == 0x8C7B && m.dbg->call_stack().back().target_pc == 0x8CBF;
-            const bool r1 = reach(m, 0x8CCD) && m.dbg->call_stack().size() == n0 + 1 &&
-                              m.dbg->call_stack().back().caller_pc == 0x8C7B && m.dbg->call_stack().back().target_pc == 0x8CBF;
-            const bool end = reach(m, 0x8C7E) && m.dbg->call_stack().size() == n0;
-            check("SRCSTEP-44", "sccz80 master: inside addtwo after each internal JP (HL) ($8CC8, $8CCD) the Call Stack holds the frame CALL $8C7B -> $8CBF; after its RET ($8C7E) it is gone",
-                  ok && r0 && r1 && end, log + "frames n0=" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-45
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-calleejp", "c45", 0x8C7F, &log);
-            const int d0 = depth(m);
-            const bool in = reach(m, 0x8CD6) && depth(m) == d0 + 1;
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-45", "sccz80 2.4: Out from stage2 (calleejpfn.asm:14, after addtwo's JP (HL)) returns to calleejp.c:9 ($8C8A), one level up [837a4ee71: main $8CC0]",
-                  ok && in && at(m, 0x8C8A, "calleejp.c:9") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-46
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-calleejp", "c46", 0x8C75, &log);
-            const int d0 = depth(m);
-            const bool in = reach(m, 0x8CC8) && depth(m) == d0 + 1;
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-46", "sccz80 master: Out from stage2 ($8CC8) returns to calleejp.c:8 ($8C7E), one level up [837a4ee71: main $8CB2]",
-                  ok && in && at(m, 0x8C7E, "calleejp.c:8") && depth(m) == d0, log + m.where());
-        }
-        {   // SRCSTEP-47
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-calleejp", "c47", 0x8C9B, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool moved = reach(m, 0x8BD3);
-            const auto& f = m.dbg->call_stack();
-            check("SRCSTEP-47", "sccz80 2.4: after bit_beep_raw_callee's asm_bit_beep_raw has looped by JP (IX) and reached asm_bit_close ($8BD3), the Call Stack still holds CALL $8CA3 -> $8B8C [837a4ee71: no frame]",
-                  ok && moved && f.size() == n0 + 1 && f.back().caller_pc == 0x8CA3 && f.back().target_pc == 0x8B8C,
-                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
-        }
-        {   // SRCSTEP-48
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "master/sccz80-calleejp", "c48", 0x8C8F, &log);
-            const size_t n0 = m.dbg->call_stack().size();
-            const bool moved = reach(m, 0x8BCA);
-            const auto& f = m.dbg->call_stack();
-            check("SRCSTEP-48", "sccz80 master: after the JP (IX) loop, at asm_bit_close ($8BCA), the Call Stack still holds CALL $8C96 -> $8B83 [837a4ee71: no frame]",
-                  ok && moved && f.size() == n0 + 1 && f.back().caller_pc == 0x8C96 && f.back().target_pc == 0x8B83,
-                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
-        }
-
-        // v2.4 / sccz80 `__banked`: G5 and G9 in one program.
-        {   // SRCSTEP-11
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-banked-run", "k11", 0x8CCB, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Into);
-            const bool first = at(m, 0xC000, "banked.c:6") && m.dbg->effective_page(0xC000) == 20;
-            m.dbg->source_step(m.a, Step::Into);
-            const bool second = at(m, 0xC003, "banked.c:8");
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-11", "sccz80 __banked: Into banked_call stops at banked.c:6 (page 20), then "
-                                ":8; Out returns to bmain.c:14 at $8CDA (after the defq) at the "
-                                "caller's depth [z88dk-gdb C: step]",
-                  ok && first && second && at(m, 0x8CDA, "bmain.c:14") && depth(m) == d0, m.where());
-        }
-        {   // SRCSTEP-12
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            std::string log;
-            const bool ok = start(m, "v2.4/sccz80-banked-run", "k12", 0x8CCB, &log);
-            const int d0 = depth(m);
-            m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-12", "sccz80 __banked: Over the banked call lands on bmain.c:15 ($8CE2) at "
-                                "the caller's depth",
-                  ok && at(m, 0x8CE2, "bmain.c:15") && depth(m) == d0, m.where());
-        }
-
-        // Synthetic programs: a source map of `file|line` at addresses, on the page now mapped.
-        const auto syn_sld = [&](const char* name, Machine& m,
-                                 std::initializer_list<std::pair<const char*, unsigned>> recs) {
-            std::string text = std::string("|SLD.data.version|1\n") + "main.asm|1||0" + kNextDevice;
-            for (const auto& [pos, addr] : recs) {
-                const std::string r = pos;
-                const size_t c = r.find(':');
-                text += r.substr(0, c) + "|" + r.substr(c + 1) + "||0|" +
-                        std::to_string(m.dbg->effective_page(uint16_t(addr))) + "|" +
-                        std::to_string(addr) + "|T|\n";
-            }
-            fs::create_directories(sdir);
-            write_text(sdir / name, text);
-            return (sdir / name).string();
-        };
-        const auto poke = [](Machine& m, uint16_t addr, std::initializer_list<uint8_t> b) {
-            for (const uint8_t v : b) m.emu.mmu().write(addr++, v);
-        };
-        {   // SRCSTEP-07
-            Machine m;
-            poke(m, 0x8000, {0xCD, 0x00, 0x90, 0x00, 0x18, 0xFE});   // CALL f; NOP; JR $
-            poke(m, 0x9000, {0x00, 0xC3, 0x00, 0xA0});               // NOP; JP g
-            poke(m, 0xA000, {0x00, 0x00, 0xC9});                     // NOP; NOP; RET
-            m.dbg->load_source_map(syn_sld("s7.sld", m,
-                {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8003}, {"f.asm:1", 0x9000},
-                 {"f.asm:2", 0x9001}, {"g.asm:1", 0xA000}, {"g.asm:2", 0xA001}, {"g.asm:3", 0xA002}}),
-                false);
-            m.set_pc(0x8000);
-            m.dbg->source_step(m.a, Step::Into);
-            m.dbg->source_step(m.a, Step::Into);
-            m.dbg->source_step(m.a, Step::Into);
-            const bool in_g = at(m, 0xA000, "g.asm:1");
-            m.dbg->source_step(m.a, Step::Out);
-            check("SRCSTEP-07", "a tail JP pushes no frame: Out from the jumped-to routine returns to "
-                                "f's caller (main.asm:2, $8003) at depth 0",
-                  in_g && at(m, 0x8003, "main.asm:2") && depth(m) == 0, m.where());
-        }
-        {   // SRCSTEP-13
-            Machine m;
-            m.emu.cpu().on_esxdos_call = [](uint8_t, Z80Registers&) { return true; };
-            poke(m, 0x8000, {0xCF, 0x85, 0x00, 0x18, 0xFD});   // RST $08; DEFB $85; NOP; JR $8002
-            m.dbg->load_source_map(syn_sld("s13.sld", m,
-                {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8002}, {"main.asm:3", 0x8003}}), false);
-            m.set_pc(0x8000);
-            const std::string log = debugger_log_of([&] { m.dbg->source_step(m.a, Step::Over); });
-            check("SRCSTEP-13", "Over a line holding an esxdos RST $08 serviced by the shim stops on "
-                                "the next line ($8002) at depth 0, with no runaway warning",
-                  at(m, 0x8002, "main.asm:2") && depth(m) == 0 && !has(log, "Source step stopped after"),
-                  m.where() + " " + log);
-        }
-        {   // SRCDBG-CS-10
-            const auto build = [&](Machine& m) {
-                poke(m, 0x8000, {0x21, 0x01, 0x00, 0xE5, 0xCD, 0x00, 0x90, 0x00, 0x18, 0xFE});
-                poke(m, 0x9000, {0xD1, 0xC1, 0xD5, 0xCD, 0x00, 0xA0, 0x00, 0xC9});   // callee convention
-                poke(m, 0xA000, {0x00, 0xC9});
-                m.dbg->load_source_map(syn_sld("cs10.sld", m,
-                    {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8007}, {"f.asm:1", 0x9000},
-                     {"f.asm:2", 0x9003}, {"f.asm:3", 0x9006}, {"g.asm:1", 0xA000}}), false);
-                m.set_pc(0x8000);
-            };
-            Machine a;
-            build(a);
-            a.dbg->source_step(a.a, Step::Over);
-            const bool over = at(a, 0x8007, "main.asm:2") && depth(a) == 0;
-            Machine b;
-            build(b);
-            b.dbg->source_step(b.a, Step::Into);
-            b.dbg->source_step(b.a, Step::Into);
-            const bool in_f2 = at(b, 0x9003, "f.asm:2");
-            b.dbg->source_step(b.a, Step::Over);
-            check("SRCDBG-CS-10", "a __z88dk_callee routine (its return slot moved UP) keeps its frame "
-                                  "while the call it makes returns: Over main.asm:1 lands on :2 at depth "
-                                  "0, Over inside f lands on f.asm:3 at depth 1",
-                  over && in_f2 && at(b, 0x9006, "f.asm:3") && depth(b) == 1,
-                  a.where() + " | " + b.where() + " depth " + std::to_string(depth(b)));
-        }
+    // master / sdcc `__banked`: bmain.c:13 `result = banked_add(2, 3);` at $8CAE.
+    {   // SRCSTEP-01
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sdcc-banked-run", "bs1", 0x8CAE, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-01", "sdcc __banked: Over bmain.c:13's call to banked_add (through "
+                            "banked_call) lands on bmain.c:15 ($8CBE; line 14 is its alias) at the "
+                            "same depth",
+              ok && at(m, 0x8CBE, "bmain.c:15") && depth(m) == d0, log + m.where());
     }
+    {   // SRCSTEP-02
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sdcc-banked-run", "bs2", 0x8CAE, &log);
+        m.dbg->source_step(m.a, Step::Into);
+        check("SRCSTEP-02", "sdcc __banked: Into bmain.c:13 runs through banked_call and stops "
+                            "at banked.c:5 ($C000), fetched from page 20",
+              ok && at(m, 0xC000, "banked.c:5") && m.dbg->effective_page(0xC000) == 20, m.where());
+    }
+    {   // SRCSTEP-03
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sdcc-banked-run", "bs3", 0x8CAE, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Into);
+        m.dbg->source_step(m.a, Step::Into);
+        const bool inside = at(m, 0xC008, "banked.c:8");
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-03", "sdcc __banked: Out of banked_add returns to the caller's line "
+                            "bmain.c:13 at $8CB9 (after the defq), at the caller's depth",
+              ok && inside && at(m, 0x8CB9, "bmain.c:13") && depth(m) == d0, m.where());
+    }
+    {   // SRCSTEP-08
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sdcc-banked-run", "bs8", 0x8CAE, &log);
+        const int d0 = depth(m);
+        int d805A = -1, d809F = -1, d807E = -1, dC000 = -1, d8083 = -1, d809D = -1, d8CB9 = -1;
+        int mindepth = 1 << 20;
+        bool in_call = false, arrived = false;
+        const auto first = [](int& slot, int v) { if (slot < 0) slot = v; };
+        for (int i = 0; i < 200 && !arrived; ++i) {
+            const uint16_t pc = m.pc();
+            const int d = depth(m);
+            if (pc == 0x805A) in_call = true;
+            if (pc == 0x8CB9) { first(d8CB9, d); arrived = true; break; }
+            if (in_call && d < mindepth) mindepth = d;
+            if (pc == 0x805A) first(d805A, d);
+            if (pc == 0x809F) first(d809F, d);
+            if (pc == 0x807E) first(d807E, d);
+            if (pc == 0xC000) first(dC000, d);
+            if (pc == 0x8083) first(d8083, d);
+            if (pc == 0x809D) first(d809D, d);
+            m.dbg->step_into(m.a);
+        }
+        check("SRCSTEP-08", "banked_call keeps its frame for the whole trampoline: depth d0+1 at "
+                            "$805A, d0+2 in set_mmu ($809F), d0+1 after its RET ($807E), d0+2 in "
+                            "banked_add ($C000), d0+1 after the target's RET ($8083, $809D), d0 at "
+                            "$8CB9, and never below d0+1 inside the call",
+              ok && arrived && d805A == d0 + 1 && d809F == d0 + 2 && d807E == d0 + 1 &&
+                  dC000 == d0 + 2 && d8083 == d0 + 1 && d809D == d0 + 1 && d8CB9 == d0 &&
+                  mindepth == d0 + 1,
+              "d0=" + std::to_string(d0) + " 805A:" + std::to_string(d805A) + " 809F:" +
+                  std::to_string(d809F) + " 807E:" + std::to_string(d807E) + " C000:" +
+                  std::to_string(dC000) + " 8083:" + std::to_string(d8083) + " 809D:" +
+                  std::to_string(d809D) + " 8CB9:" + std::to_string(d8CB9) + " min:" +
+                  std::to_string(mindepth));
+    }
+
+    // v2.4 / sccz80 -debug: z88dk-gdb sessions A, B, E (l_debug_push_frame in every function).
+    {   // SRCSTEP-04
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-debug", "s4", 0x8CBE, &log);
+        m.dbg->source_step(m.a, Step::Into);
+        const bool first = at(m, 0x8C78, "main.c:10");
+        m.dbg->source_step(m.a, Step::Into);
+        check("SRCSTEP-04", "sccz80 -debug: Into main.c:20 stops at square's first line "
+                            "($8C78, main.c:10) and the next Into runs l_debug_push_frame through "
+                            "to main.c:11 ($8C7B) [z88dk-gdb A, B]",
+              ok && first && at(m, 0x8C7B, "main.c:11"), m.where());
+    }
+    {   // SRCSTEP-05
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-debug", "s5", 0x8CB5, &log);
+        m.dbg->source_step(m.a, Step::Over);
+        const bool first = at(m, 0x8CBE, "main.c:20");
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-05", "sccz80 -debug: Over main.c:19 -> :20 ($8CBE), Over the call to "
+                            "square -> main.c:21 ($8CE9) [z88dk-gdb A, E]",
+              ok && first && at(m, 0x8CE9, "main.c:21"), m.where());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_69(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path sdir = dir / "srcstep";
+    // Run to `addr` on a fixture's machine; false when it never stops there.
+    const auto reach = [](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+    // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+    const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                           std::string* log) {
+        const fs::path d = sdir / sub;
+        z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+        return reach(m, addr) && has(*log, "(program identity verified)");
+    };
+    {   // SRCSTEP-06
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-debug", "s6", 0x8CBE, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Into);
+        m.dbg->source_step(m.a, Step::Into);
+        const bool in = at(m, 0x8C7B, "main.c:11");
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-06", "sccz80 -debug: Out of square's last line returns to main.c:20 at "
+                            "$8CC9, at the caller's depth [z88dk-gdb A: finish]",
+              ok && in && at(m, 0x8CC9, "main.c:20") && depth(m) == d0, m.where());
+    }
+    {   // SRCSTEP-09
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-debug", "s9", 0x8CBE, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Into);
+        const bool in = at(m, 0x8C78, "main.c:10");
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-09", "sccz80 -debug: Over from square's first line runs the helper "
+                            "through and stops at main.c:11 ($8C7B), inside square [z88dk-gdb A: next]",
+              ok && in && at(m, 0x8C7B, "main.c:11") && depth(m) == d0 + 1, m.where());
+    }
+    {   // SRCSTEP-10
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-debug", "s10", 0x8CBE, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Into);
+        m.dbg->source_step(m.a, Step::Into);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-10", "sccz80 -debug: Over from square's last line returns to main.c:20 "
+                            "($8CC9) [z88dk-gdb B: next]",
+              ok && at(m, 0x8CC9, "main.c:20") && depth(m) == d0, m.where());
+    }
+
+    // GH #349 (R1): an int parameter makes sccz80 call l_gintspsp (EX (SP),HL; JP (HL): a
+    // return with no RET). Oracles: test/fixtures/z88dk/{v2.4,master}/{sccz80,80cc}-intarg
+    // (map, listing, binary) and the helper's source in the z88dk library.
+    {   // SRCSTEP-14
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-intarg", "i14", 0x8C6E, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-14", "sccz80 2.4: Over accum's line 4 (the int parameter, CALL l_gintspsp at $8C72) stays in accum and stops at line 5 ($8C84), at the same depth",
+              ok && at(m, 0x8C84, "intarg.c:5") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-15
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-intarg", "i15", 0x8C6E, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-15", "sccz80 master: Over accum's line 4 (CALL l_gintspsp at $8C72) stays in accum and stops at line 5 ($8C84), at the same depth",
+              ok && at(m, 0x8C84, "intarg.c:5") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-16
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/80cc-intarg", "i16", 0x8C66, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-16", "80cc master: Over accum's line 4 stops at line 5 ($8C7D; GH #445: was $8C7E before z88dk v2.4-2883) at the same depth (80cc emits no l_gintspsp call for this program: the unchanged control)",
+              ok && at(m, 0x8C7D, "intarg.c:5") && depth(m) == d0, log + m.where());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_70(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path sdir = dir / "srcstep";
+    // Run to `addr` on a fixture's machine; false when it never stops there.
+    const auto reach = [](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+    // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+    const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                           std::string* log) {
+        const fs::path d = sdir / sub;
+        z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+        return reach(m, addr) && has(*log, "(program identity verified)");
+    };
+    {   // SRCSTEP-17
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-intarg", "i17", 0x8C6E, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-17", "sccz80 2.4: Out of accum from line 4 returns to main at $8C9A (intarg.c:12) one level up, the helper's frame already closed",
+              ok && at(m, 0x8C9A, "intarg.c:12") && depth(m) == d0 - 1, log + m.where());
+    }
+    {   // SRCSTEP-18
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-intarg", "i18", 0x8C6E, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-18", "sccz80 master: Out of accum from line 4 returns to main at $8C99 (intarg.c:11) one level up",
+              ok && at(m, 0x8C99, "intarg.c:11") && depth(m) == d0 - 1, log + m.where());
+    }
+    {   // SRCSTEP-19
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-intarg", "i19", 0x8C6E, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool moved = reach(m, 0x8C75);
+        const auto& f = m.dbg->call_stack();
+        check("SRCSTEP-19", "sccz80 2.4: after l_gintspsp returns by JP (HL) ($8C75, inside accum) the Call Stack holds the frames it held before the call and no frame for the helper (the newest is the CALL _accum at $8C97)",
+              ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8C97,
+              log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+    }
+    {   // SRCSTEP-20
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-intarg", "i20", 0x8C6E, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool moved = reach(m, 0x8C75);
+        const auto& f = m.dbg->call_stack();
+        check("SRCSTEP-20", "sccz80 master: after l_gintspsp returns by JP (HL) ($8C75, inside accum) the Call Stack holds no frame for the helper (the newest is the CALL _accum at $8C96)",
+              ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8C96,
+              log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+    }
+    {   // SRCSTEP-21
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-intarg", "i21", 0x8C9D, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-21", "sccz80 master: Over main's line 12, which calls l_gintspsp and then accum (a call that itself calls the helper), stops at line 13 ($8CAE) at the same depth",
+              ok && at(m, 0x8CAE, "intarg.c:13") && depth(m) == d0, log + m.where());
+    }
+
+    // GH #349 (R1'): long arithmetic (l_long_sub: POP IX ... JP (IX), SP above the slot) and switch
+    // (l_case: POP HL as the case table, JP (HL) to a case label). Oracles: test/fixtures/z88dk/
+    // {v2.4,master}/{sccz80,80cc}-longsw (map, listing, binary) and the helpers' library sources.
+    {   // SRCSTEP-22
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-longsw", "l22", 0x8CC8, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-22", "sccz80 2.4: Over lsub's line 4 (CALL l_long_sub at $8CDD: POP IX ... JP (IX)) stays in lsub and stops at line 5 ($8CE4), at the same depth",
+              ok && at(m, 0x8CE4, "longsw.c:5") && depth(m) == d0, log + m.where());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_71(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path sdir = dir / "srcstep";
+    // Run to `addr` on a fixture's machine; false when it never stops there.
+    const auto reach = [](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+    // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+    const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                           std::string* log) {
+        const fs::path d = sdir / sub;
+        z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+        return reach(m, addr) && has(*log, "(program identity verified)");
+    };
+    {   // SRCSTEP-23
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-longsw", "l23", 0x8CC8, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-23", "sccz80 master: Over lsub's line 4 (CALL l_long_sub) stays in lsub and stops at line 5 ($8CE4), at the same depth",
+              ok && at(m, 0x8CE4, "longsw.c:5") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-24
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/80cc-longsw", "l24", 0x8C83, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-24", "80cc master: Over lsub's line 4 stops at line 5 ($8CA7) at the same depth (80cc inlines the long subtraction: the unchanged control)",
+              ok && at(m, 0x8CA7, "longsw.c:5") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-25
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-longsw", "l25", 0x8CC8, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-25", "sccz80 2.4: Out of lsub from line 4 returns to main at $8D75 (longsw.c:28) one level up",
+              ok && at(m, 0x8D75, "longsw.c:28") && depth(m) == d0 - 1, log + m.where());
+    }
+    {   // SRCSTEP-26
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-longsw", "l26", 0x8CC8, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-26", "sccz80 master: Out of lsub from line 4 returns to main at $8D75 (longsw.c:27) one level up",
+              ok && at(m, 0x8D75, "longsw.c:27") && depth(m) == d0 - 1, log + m.where());
+    }
+    {   // SRCSTEP-27
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-longsw", "l27", 0x8CC8, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool moved = reach(m, 0x8CE0);
+        const auto& f = m.dbg->call_stack();
+        check("SRCSTEP-27", "sccz80 2.4: after l_long_sub returns by JP (IX) ($8CE0, inside lsub) the Call Stack holds the frames it held before and none for the helper (the newest is the CALL _lsub at $8D72)",
+              ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D72,
+              log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+    }
+    {   // SRCSTEP-28
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-longsw", "l28", 0x8CC8, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool moved = reach(m, 0x8CE0);
+        const auto& f = m.dbg->call_stack();
+        check("SRCSTEP-28", "sccz80 master: after l_long_sub returns by JP (IX) ($8CE0) the Call Stack holds no frame for the helper (the newest is the CALL _lsub at $8D72)",
+              ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D72,
+              log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_72(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path sdir = dir / "srcstep";
+    // Run to `addr` on a fixture's machine; false when it never stops there.
+    const auto reach = [](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+    // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+    const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                           std::string* log) {
+        const fs::path d = sdir / sub;
+        z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+        return reach(m, addr) && has(*log, "(program identity verified)");
+    };
+    {   // SRCSTEP-29
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-longsw", "l29", 0x8CF4, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-29", "sccz80 2.4: Over sw's switch (CALL l_case at $8CF8 matching case 200) stays in sw and stops at the case body longsw.c:13 ($8D20), at the same depth",
+              ok && at(m, 0x8D20, "longsw.c:13") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-30
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-longsw", "l30", 0x8CF4, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-30", "sccz80 master: Over sw's switch (CALL l_case, case 200) stops at the case body longsw.c:13 ($8D20), at the same depth",
+              ok && at(m, 0x8D20, "longsw.c:13") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-31
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/80cc-longsw", "l31", 0x8CB4, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-31", "80cc master: Over sw's switch (CALL l_case at $8CBC, case 200) stops at the case body longsw.c:13 ($8CE8), at the same depth",
+              ok && at(m, 0x8CE8, "longsw.c:13") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-32
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-longsw", "l32", 0x8CF4, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool moved = reach(m, 0x8D20);
+        const auto& f = m.dbg->call_stack();
+        check("SRCSTEP-32", "sccz80 2.4: after l_case jumps to its case label ($8D20) the Call Stack holds no frame for the helper (the newest is the CALL _sw at $8D81)",
+              ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D81,
+              log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+    }
+    {   // SRCSTEP-33
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-longsw", "l33", 0x8CF4, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool moved = reach(m, 0x8D20);
+        const auto& f = m.dbg->call_stack();
+        check("SRCSTEP-33", "sccz80 master: after l_case jumps to its case label ($8D20) the Call Stack holds no frame for the helper (the newest is the CALL _sw at $8D81)",
+              ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D81,
+              log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+    }
+    {   // SRCSTEP-34
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-longsw", "l34", 0x8D20, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-34", "sccz80 2.4: Out of sw from its case 200 body returns to main at $8D84 (longsw.c:29) one level up",
+              ok && at(m, 0x8D84, "longsw.c:29") && depth(m) == d0 - 1, log + m.where());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_73(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path sdir = dir / "srcstep";
+    // Run to `addr` on a fixture's machine; false when it never stops there.
+    const auto reach = [](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+    // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+    const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                           std::string* log) {
+        const fs::path d = sdir / sub;
+        z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+        return reach(m, addr) && has(*log, "(program identity verified)");
+    };
+    {   // SRCSTEP-35
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-longsw", "l35", 0x8D20, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-35", "sccz80 master: Out of sw from its case 200 body returns to main at $8D84 (longsw.c:28) one level up",
+              ok && at(m, 0x8D84, "longsw.c:28") && depth(m) == d0 - 1, log + m.where());
+    }
+
+    // GH #349 (R1''): a __z88dk_callee body keeps its return address ABOVE its CALL's slot (POP r; POP
+    // args; PUSH r), so SP is above the slot for the whole body, and its internal JP (r) is not a return.
+    // The shipped rule (SP above the slot = consumed) ended those frames: Over became Into and the Call
+    // Stack lost the frame. Oracles: test/fixtures/sjasmcallee (callee.asm + the SLD) and test/fixtures/
+    // z88dk/{v2.4,master}/sccz80-calleejp (map, listing, binary); libsrc/sound/bit/c/sccz80/
+    // bit_beep_raw_callee.asm. The text in [] is what 837a4ee71 did.
+    const auto sld_start = [&](Machine& m, uint16_t addr, std::string* log) {
+        std::ifstream in(JNEXT_SJASMCALLEE_DIR "/callee.bin", std::ios::binary);
+        const std::string bin((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        for (size_t k = 0; k < bin.size(); ++k)
+            m.emu.mmu().write(static_cast<uint16_t>(0x8000 + k), static_cast<uint8_t>(bin[k]));
+        const auto r = m.dbg->load_source_map(JNEXT_SJASMCALLEE_DIR "/callee.sld", true);
+        *log = "labels " + std::to_string(r.count);
+        m.set_pc(0x8000);
+        return !bin.empty() && r.count > 0 && reach(m, addr);
+    };
+    {   // SRCSTEP-36
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = sld_start(m, 0x8008, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-36", "hand asm: Over callee.asm:9 (call addone: POP HL; POP DE; PUSH HL; JP (HL) inside) "
+                            "stops at callee.asm:10 ($800B) at the same depth [837a4ee71: callee.asm:28 $8029]",
+              ok && at(m, 0x800B, "callee.asm:10") && depth(m) == d0, log + " " + m.where());
+    }
+    {   // SRCSTEP-37
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = sld_start(m, 0x8011, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-37", "hand asm: Over callee.asm:14 (call addtwo: JP (IX) with the return address at SP+2) "
+                            "stops at callee.asm:15 ($8014) at the same depth [837a4ee71: callee.asm:39 $8037]",
+              ok && at(m, 0x8014, "callee.asm:15") && depth(m) == d0, log + " " + m.where());
+    }
+    {   // SRCSTEP-38
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = sld_start(m, 0x8015, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-38", "hand asm: Over callee.asm:16 (call dispatch: POP HL as an inline table, JP (HL) into "
+                            "the caller) stops at case_a, callee.asm:20 ($801E), at the same depth: clause B's "
+                            "positive on code with no symbols",
+              ok && at(m, 0x801E, "callee.asm:20") && depth(m) == d0, log + " " + m.where());
+    }
+    {   // SRCSTEP-39
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = sld_start(m, 0x8008, &log);
+        const int d0 = depth(m);
+        const bool moved = reach(m, 0x8029);
+        const auto& f = m.dbg->call_stack();
+        const bool kept = moved && depth(m) == d0 + 1 && !f.empty() && f.back().caller_pc == 0x8008 &&
+                          f.back().target_pc == 0x8022;
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-39", "hand asm: at stage2 ($8029, after addone's JP (HL)) the frame CALL $8008 -> $8022 is "
+                            "still open (depth d0 + 1); Out returns to callee.asm:10 ($800B) at depth d0 [837a4ee71: "
+                            "depth d0 at $8029, and Out ran one instruction]",
+              ok && kept && at(m, 0x800B, "callee.asm:10") && depth(m) == d0, log + " " + m.where());
+    }
+    {   // SRCSTEP-40
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = sld_start(m, 0x8011, &log);
+        const int d0 = depth(m);
+        const bool moved = reach(m, 0x8037);
+        const auto& f = m.dbg->call_stack();
+        const bool kept = moved && depth(m) == d0 + 1 && !f.empty() && f.back().caller_pc == 0x8011 &&
+                          f.back().target_pc == 0x802C;
+        const bool back = reach(m, 0x8014) && depth(m) == d0;
+        check("SRCSTEP-40", "hand asm: at stage3 ($8037, after addtwo's JP (IX)) the frame CALL $8011 -> $802C is "
+                            "open; after its RET ($8014) the depth is d0 [837a4ee71: d0 at $8037]",
+              ok && kept && back, log + " " + m.where());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_74(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path sdir = dir / "srcstep";
+    // Run to `addr` on a fixture's machine; false when it never stops there.
+    const auto reach = [](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+    // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+    const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                           std::string* log) {
+        const fs::path d = sdir / sub;
+        z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+        return reach(m, addr) && has(*log, "(program identity verified)");
+    };
+    {   // SRCSTEP-41
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-calleejp", "c41", 0x8C7F, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-41", "sccz80 2.4: Over calleejp.c:9 (addtwo, a __z88dk_callee routine with an internal JP (HL)) stops at calleejp.c:10 ($8C91) at the same depth [837a4ee71: calleejpfn.asm:14 $8CD6]",
+              ok && at(m, 0x8C91, "calleejp.c:10") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-42
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-calleejp", "c42", 0x8C75, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-42", "sccz80 master: Over calleejp.c:8 (addtwo) stops at calleejp.c:9 ($8C80) at the same depth [837a4ee71: calleejpfn.asm:14 $8CC8]",
+              ok && at(m, 0x8C80, "calleejp.c:9") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-43
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-calleejp", "c43", 0x8C7F, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool r0 = reach(m, 0x8CD6) && m.dbg->call_stack().size() == n0 + 1 &&
+                          m.dbg->call_stack().back().caller_pc == 0x8C87 && m.dbg->call_stack().back().target_pc == 0x8CCD;
+        const bool r1 = reach(m, 0x8CDB) && m.dbg->call_stack().size() == n0 + 1 &&
+                          m.dbg->call_stack().back().caller_pc == 0x8C87 && m.dbg->call_stack().back().target_pc == 0x8CCD;
+        const bool end = reach(m, 0x8C8A) && m.dbg->call_stack().size() == n0;
+        check("SRCSTEP-43", "sccz80 2.4: inside addtwo after each internal JP (HL) ($8CD6 stage2, $8CDB stage3) the Call Stack holds the frame CALL $8C87 -> $8CCD above the caller's frames; after its RET ($8C8A) it is gone",
+              ok && r0 && r1 && end, log + "frames n0=" + std::to_string(n0) + " " + m.where());
+    }
+    {   // SRCSTEP-44
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-calleejp", "c44", 0x8C75, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool r0 = reach(m, 0x8CC8) && m.dbg->call_stack().size() == n0 + 1 &&
+                          m.dbg->call_stack().back().caller_pc == 0x8C7B && m.dbg->call_stack().back().target_pc == 0x8CBF;
+        const bool r1 = reach(m, 0x8CCD) && m.dbg->call_stack().size() == n0 + 1 &&
+                          m.dbg->call_stack().back().caller_pc == 0x8C7B && m.dbg->call_stack().back().target_pc == 0x8CBF;
+        const bool end = reach(m, 0x8C7E) && m.dbg->call_stack().size() == n0;
+        check("SRCSTEP-44", "sccz80 master: inside addtwo after each internal JP (HL) ($8CC8, $8CCD) the Call Stack holds the frame CALL $8C7B -> $8CBF; after its RET ($8C7E) it is gone",
+              ok && r0 && r1 && end, log + "frames n0=" + std::to_string(n0) + " " + m.where());
+    }
+    {   // SRCSTEP-45
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-calleejp", "c45", 0x8C7F, &log);
+        const int d0 = depth(m);
+        const bool in = reach(m, 0x8CD6) && depth(m) == d0 + 1;
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-45", "sccz80 2.4: Out from stage2 (calleejpfn.asm:14, after addtwo's JP (HL)) returns to calleejp.c:9 ($8C8A), one level up [837a4ee71: main $8CC0]",
+              ok && in && at(m, 0x8C8A, "calleejp.c:9") && depth(m) == d0, log + m.where());
+    }
+    {   // SRCSTEP-46
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-calleejp", "c46", 0x8C75, &log);
+        const int d0 = depth(m);
+        const bool in = reach(m, 0x8CC8) && depth(m) == d0 + 1;
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-46", "sccz80 master: Out from stage2 ($8CC8) returns to calleejp.c:8 ($8C7E), one level up [837a4ee71: main $8CB2]",
+              ok && in && at(m, 0x8C7E, "calleejp.c:8") && depth(m) == d0, log + m.where());
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_75(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path sdir = dir / "srcstep";
+    // Run to `addr` on a fixture's machine; false when it never stops there.
+    const auto reach = [](Machine& m, uint16_t addr) {
+        const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        m.dbg->unsubscribe(m.a, id);
+        return m.dbg->state().paused && m.pc() == addr;
+    };
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+    // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+    const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                           std::string* log) {
+        const fs::path d = sdir / sub;
+        z88_copy(fixture, d);
+        z88_load(m, d / "prog.nex");
+        *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+        return reach(m, addr) && has(*log, "(program identity verified)");
+    };
+    {   // SRCSTEP-47
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-calleejp", "c47", 0x8C9B, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool moved = reach(m, 0x8BD3);
+        const auto& f = m.dbg->call_stack();
+        check("SRCSTEP-47", "sccz80 2.4: after bit_beep_raw_callee's asm_bit_beep_raw has looped by JP (IX) and reached asm_bit_close ($8BD3), the Call Stack still holds CALL $8CA3 -> $8B8C [837a4ee71: no frame]",
+              ok && moved && f.size() == n0 + 1 && f.back().caller_pc == 0x8CA3 && f.back().target_pc == 0x8B8C,
+              log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+    }
+    {   // SRCSTEP-48
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "master/sccz80-calleejp", "c48", 0x8C8F, &log);
+        const size_t n0 = m.dbg->call_stack().size();
+        const bool moved = reach(m, 0x8BCA);
+        const auto& f = m.dbg->call_stack();
+        check("SRCSTEP-48", "sccz80 master: after the JP (IX) loop, at asm_bit_close ($8BCA), the Call Stack still holds CALL $8C96 -> $8B83 [837a4ee71: no frame]",
+              ok && moved && f.size() == n0 + 1 && f.back().caller_pc == 0x8C96 && f.back().target_pc == 0x8B83,
+              log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+    }
+
+    // v2.4 / sccz80 `__banked`: G5 and G9 in one program.
+    {   // SRCSTEP-11
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-banked-run", "k11", 0x8CCB, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Into);
+        const bool first = at(m, 0xC000, "banked.c:6") && m.dbg->effective_page(0xC000) == 20;
+        m.dbg->source_step(m.a, Step::Into);
+        const bool second = at(m, 0xC003, "banked.c:8");
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-11", "sccz80 __banked: Into banked_call stops at banked.c:6 (page 20), then "
+                            ":8; Out returns to bmain.c:14 at $8CDA (after the defq) at the "
+                            "caller's depth [z88dk-gdb C: step]",
+              ok && first && second && at(m, 0x8CDA, "bmain.c:14") && depth(m) == d0, m.where());
+    }
+    {   // SRCSTEP-12
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        std::string log;
+        const bool ok = start(m, "v2.4/sccz80-banked-run", "k12", 0x8CCB, &log);
+        const int d0 = depth(m);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCSTEP-12", "sccz80 __banked: Over the banked call lands on bmain.c:15 ($8CE2) at "
+                            "the caller's depth",
+              ok && at(m, 0x8CE2, "bmain.c:15") && depth(m) == d0, m.where());
+    }
+
+    // Synthetic programs: a source map of `file|line` at addresses, on the page now mapped.
+    const auto syn_sld = [&](const char* name, Machine& m,
+                             std::initializer_list<std::pair<const char*, unsigned>> recs) {
+        std::string text = std::string("|SLD.data.version|1\n") + "main.asm|1||0" + kNextDevice;
+        for (const auto& [pos, addr] : recs) {
+            const std::string r = pos;
+            const size_t c = r.find(':');
+            text += r.substr(0, c) + "|" + r.substr(c + 1) + "||0|" +
+                    std::to_string(m.dbg->effective_page(uint16_t(addr))) + "|" +
+                    std::to_string(addr) + "|T|\n";
+        }
+        fs::create_directories(sdir);
+        write_text(sdir / name, text);
+        return (sdir / name).string();
+    };
+    const auto poke = [](Machine& m, uint16_t addr, std::initializer_list<uint8_t> b) {
+        for (const uint8_t v : b) m.emu.mmu().write(addr++, v);
+    };
+    {   // SRCSTEP-07
+        Machine m;
+        poke(m, 0x8000, {0xCD, 0x00, 0x90, 0x00, 0x18, 0xFE});   // CALL f; NOP; JR $
+        poke(m, 0x9000, {0x00, 0xC3, 0x00, 0xA0});               // NOP; JP g
+        poke(m, 0xA000, {0x00, 0x00, 0xC9});                     // NOP; NOP; RET
+        m.dbg->load_source_map(syn_sld("s7.sld", m,
+            {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8003}, {"f.asm:1", 0x9000},
+             {"f.asm:2", 0x9001}, {"g.asm:1", 0xA000}, {"g.asm:2", 0xA001}, {"g.asm:3", 0xA002}}),
+            false);
+        m.set_pc(0x8000);
+        m.dbg->source_step(m.a, Step::Into);
+        m.dbg->source_step(m.a, Step::Into);
+        m.dbg->source_step(m.a, Step::Into);
+        const bool in_g = at(m, 0xA000, "g.asm:1");
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCSTEP-07", "a tail JP pushes no frame: Out from the jumped-to routine returns to "
+                            "f's caller (main.asm:2, $8003) at depth 0",
+              in_g && at(m, 0x8003, "main.asm:2") && depth(m) == 0, m.where());
+    }
+    {   // SRCSTEP-13
+        Machine m;
+        m.emu.cpu().on_esxdos_call = [](uint8_t, Z80Registers&) { return true; };
+        poke(m, 0x8000, {0xCF, 0x85, 0x00, 0x18, 0xFD});   // RST $08; DEFB $85; NOP; JR $8002
+        m.dbg->load_source_map(syn_sld("s13.sld", m,
+            {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8002}, {"main.asm:3", 0x8003}}), false);
+        m.set_pc(0x8000);
+        const std::string log = debugger_log_of([&] { m.dbg->source_step(m.a, Step::Over); });
+        check("SRCSTEP-13", "Over a line holding an esxdos RST $08 serviced by the shim stops on "
+                            "the next line ($8002) at depth 0, with no runaway warning",
+              at(m, 0x8002, "main.asm:2") && depth(m) == 0 && !has(log, "Source step stopped after"),
+              m.where() + " " + log);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_76(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path sdir = dir / "srcstep";
+    // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+    const auto depth = [](const Machine& m) {
+        int n = 0;
+        for (const auto& f : m.dbg->call_stack())
+            if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+        return n;
+    };
+    const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+        return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+    };
+
+    // Synthetic programs: a source map of `file|line` at addresses, on the page now mapped.
+    const auto syn_sld = [&](const char* name, Machine& m,
+                             std::initializer_list<std::pair<const char*, unsigned>> recs) {
+        std::string text = std::string("|SLD.data.version|1\n") + "main.asm|1||0" + kNextDevice;
+        for (const auto& [pos, addr] : recs) {
+            const std::string r = pos;
+            const size_t c = r.find(':');
+            text += r.substr(0, c) + "|" + r.substr(c + 1) + "||0|" +
+                    std::to_string(m.dbg->effective_page(uint16_t(addr))) + "|" +
+                    std::to_string(addr) + "|T|\n";
+        }
+        fs::create_directories(sdir);
+        write_text(sdir / name, text);
+        return (sdir / name).string();
+    };
+    const auto poke = [](Machine& m, uint16_t addr, std::initializer_list<uint8_t> b) {
+        for (const uint8_t v : b) m.emu.mmu().write(addr++, v);
+    };
+    {   // SRCDBG-CS-10
+        const auto build = [&](Machine& m) {
+            poke(m, 0x8000, {0x21, 0x01, 0x00, 0xE5, 0xCD, 0x00, 0x90, 0x00, 0x18, 0xFE});
+            poke(m, 0x9000, {0xD1, 0xC1, 0xD5, 0xCD, 0x00, 0xA0, 0x00, 0xC9});   // callee convention
+            poke(m, 0xA000, {0x00, 0xC9});
+            m.dbg->load_source_map(syn_sld("cs10.sld", m,
+                {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8007}, {"f.asm:1", 0x9000},
+                 {"f.asm:2", 0x9003}, {"f.asm:3", 0x9006}, {"g.asm:1", 0xA000}}), false);
+            m.set_pc(0x8000);
+        };
+        Machine a;
+        build(a);
+        a.dbg->source_step(a.a, Step::Over);
+        const bool over = at(a, 0x8007, "main.asm:2") && depth(a) == 0;
+        Machine b;
+        build(b);
+        b.dbg->source_step(b.a, Step::Into);
+        b.dbg->source_step(b.a, Step::Into);
+        const bool in_f2 = at(b, 0x9003, "f.asm:2");
+        b.dbg->source_step(b.a, Step::Over);
+        check("SRCDBG-CS-10", "a __z88dk_callee routine (its return slot moved UP) keeps its frame "
+                              "while the call it makes returns: Over main.asm:1 lands on :2 at depth "
+                              "0, Over inside f lands on f.asm:3 at depth 1",
+              over && in_f2 && at(b, 0x9006, "f.asm:3") && depth(b) == 1,
+              a.where() + " | " + b.where() + " depth " + std::to_string(depth(b)));
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_77(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
 
     // ── GH #375 stage 3: z88dk map symbols take their pages ─────────────────────
     // Oracle: the fixtures' NEX placement (prog_PAGE_20.bin and prog_BANK_10.bin at NEX
@@ -10965,6 +13598,11 @@ int main() {
                   mnemonic(0x8C9A) + " | " + mnemonic(0x8D65));
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_78(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
 
     // ── GH #351 (E23-21): z88dk dot commands, which NextZXOS runs from DivMMC RAM bank 2 ──
     // Oracle: the committed dot / dotx fixtures (zcc +zxn -subtype=dot|dotx, v2.4 sccz80:
@@ -10973,670 +13611,854 @@ int main() {
     // (fixtures README): the file is copied into DivMMC bank 2, E3 <- $82, the CPU runs $2000.
     // The machine is a Next with the fixture's CODE group placed in bank 2 the way NextZXOS
     // does it, the stack holding a return address to a parked loop.
-    {
-        const MemSpace D2 = MemSpace::divmmc_ram(2);
-        const fs::path root = dir / "dot";
-        constexpr uint16_t kMain = 0x2D5F;
-        constexpr uint16_t kEntry = 0x2000;
-        z88_copy("v2.4/sccz80-dot", root / "a");
-        z88_copy("v2.4/sccz80-dotx", root / "x");
-        z88_copy("v2.4/sccz80-debug", root / "nex");
-        const std::string dot_map = (root / "a" / "prog.map").string();
-        const std::string dotx_map = (root / "x" / "prog.map").string();
-        const std::vector<uint8_t> dot_code = read_all(root / "a" / "prog_CODE.bin");
-        const std::vector<uint8_t> x_code = read_all(root / "x" / "prog_CODE.bin");
-        const std::vector<uint8_t> x_main = read_all(root / "x" / "prog_MAIN.bin");
-        const auto put_dot = [](Machine& m, const std::vector<uint8_t>& code, long flip = -1) {
-            uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
-            std::copy(code.begin(), code.end(), bank2);
-            if (flip >= 0) bank2[flip] ^= 0xFF;
-        };
-        const auto enter_dot_bank = [](Machine& m) { m.dbg->port_out(m.a, 0xE3, 0x82); };
-        // PC at `pc`, with a return address to the parked loop at $6000 on the stack.
-        const auto start_at = [](Machine& m, uint16_t pc) {
-            park(m);
-            m.emu.mmu().write(0xFEFE, 0x00);
-            m.emu.mmu().write(0xFEFF, 0x60);
-            Z80Registers r = m.emu.cpu().get_registers();
-            r.SP = 0xFEFE;
-            m.emu.cpu().set_registers(r);
-            m.set_pc(pc);
-        };
-        // A Next machine running the dot command `code` from bank 2 with `map` attached.
-        const auto dot_machine = [&](const std::vector<uint8_t>& code, const std::string& map, Machine& m,
-                                     long flip = -1) {
-            put_dot(m, code, flip);
-            enter_dot_bank(m);
-            start_at(m, 0x6000);   // parked while the map is loaded: a hand load made inside the command judges like a landing there
-            const auto r = m.dbg->load_source_map(map, false);
-            m.set_pc(kMain);
-            return r;
-        };
-        // Run until the machine stops, at most `limit` times; the PCs it stopped at.
-        const auto stops_of = [](Machine& m, int limit = 10) {
-            std::vector<uint16_t> pcs;
-            for (int i = 0; i < limit; ++i) {
-                m.dbg->run(m.a);
-                for (int f = 0; f < 4 && !m.dbg->state().paused; ++f) m.emu.run_frame();
-                if (!m.dbg->state().paused) break;
-                pcs.push_back(m.pc());
-            }
-            return pcs;
-        };
-        const auto name_of = [&](Machine& m) {
-            const auto* l = m.dbg->source_location();
-            return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
-        };
-        const auto verified_line = [&](const std::string& map, const char* tail) {
-            return "Verified z88dk source map '" + map + "': " + tail;
-        };
-        const std::string not_the_one = "The dot command started in DivMMC RAM bank 2 is not the one source map '" +
-                                        dot_map + "' describes; it stays pending";
-        const std::string verified_all = verified_line(dot_map, "the dot command in DivMMC RAM bank 2 matches its binary identity");
+    const MemSpace D2 = MemSpace::divmmc_ram(2);
+    const fs::path root = dir / "dot";
+    constexpr uint16_t kMain = 0x2D5F;
+    z88_copy("v2.4/sccz80-dot", root / "a");
+    z88_copy("v2.4/sccz80-dotx", root / "x");
+    z88_copy("v2.4/sccz80-debug", root / "nex");
+    const std::string dot_map = (root / "a" / "prog.map").string();
+    const std::vector<uint8_t> dot_code = read_all(root / "a" / "prog_CODE.bin");
+    const auto put_dot = [](Machine& m, const std::vector<uint8_t>& code, long flip = -1) {
+        uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
+        std::copy(code.begin(), code.end(), bank2);
+        if (flip >= 0) bank2[flip] ^= 0xFF;
+    };
+    const auto enter_dot_bank = [](Machine& m) { m.dbg->port_out(m.a, 0xE3, 0x82); };
+    // PC at `pc`, with a return address to the parked loop at $6000 on the stack.
+    const auto start_at = [](Machine& m, uint16_t pc) {
+        park(m);
+        m.emu.mmu().write(0xFEFE, 0x00);
+        m.emu.mmu().write(0xFEFF, 0x60);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.SP = 0xFEFE;
+        m.emu.cpu().set_registers(r);
+        m.set_pc(pc);
+    };
+    // A Next machine running the dot command `code` from bank 2 with `map` attached.
+    const auto dot_machine = [&](const std::vector<uint8_t>& code, const std::string& map, Machine& m,
+                                 long flip = -1) {
+        put_dot(m, code, flip);
+        enter_dot_bank(m);
+        start_at(m, 0x6000);   // parked while the map is loaded: a hand load made inside the command judges like a landing there
+        const auto r = m.dbg->load_source_map(map, false);
+        m.set_pc(kMain);
+        return r;
+    };
+    // Run until the machine stops, at most `limit` times; the PCs it stopped at.
+    const auto stops_of = [](Machine& m, int limit = 10) {
+        std::vector<uint16_t> pcs;
+        for (int i = 0; i < limit; ++i) {
+            m.dbg->run(m.a);
+            for (int f = 0; f < 4 && !m.dbg->state().paused; ++f) m.emu.run_frame();
+            if (!m.dbg->state().paused) break;
+            pcs.push_back(m.pc());
+        }
+        return pcs;
+    };
+    const auto name_of = [&](Machine& m) {
+        const auto* l = m.dbg->source_location();
+        return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
+    };
 
-        {   // SRCDOT-01
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            const auto r = dot_machine(dot_code, dot_map, m);
-            const bool premise = m.dbg->source_page(0x2D4F) == D2 && m.dbg->effective_page(0x2D4F) != 0xFF;
-            const auto g = m.dbg->subscribe_source_line(m.a, "dot.c:8", execute_stop(0));
-            const auto stops = stops_of(m);
-            bool at_line = true;
-            Machine n(false, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, n);
-            n.dbg->subscribe_source_line(n.a, "dot.c:8", execute_stop(0));
-            n.dbg->run(n.a);
-            for (int f = 0; f < 4 && !n.dbg->state().paused; ++f) n.emu.run_frame();
-            at_line = n.dbg->state().paused && n.pc() == 0x2D4F && name_of(n) == "dot.c:8" &&
-                      n.dbg->source_page(n.pc()) == D2;
-            check("SRCDOT-01", "a dot command's map attaches (pending) with the ROM at $2000 and a source breakpoint on dot.c:8 stops "
-                               "the command running from DivMMC bank 2 at $2D4F, four times in all, reporting dot.c:8",
-                  r.count > 0 && r.pending && premise && static_cast<bool>(g) && at_line &&
-                      stops == std::vector<uint16_t>(4, 0x2D4F),
-                  "count=" + std::to_string(r.count) + " stops=" + std::to_string(stops.size()) + " " + n.where());
+    {   // SRCDOT-01
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        const auto r = dot_machine(dot_code, dot_map, m);
+        const bool premise = m.dbg->source_page(0x2D4F) == D2 && m.dbg->effective_page(0x2D4F) != 0xFF;
+        const auto g = m.dbg->subscribe_source_line(m.a, "dot.c:8", execute_stop(0));
+        const auto stops = stops_of(m);
+        bool at_line = true;
+        Machine n(false, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, n);
+        n.dbg->subscribe_source_line(n.a, "dot.c:8", execute_stop(0));
+        n.dbg->run(n.a);
+        for (int f = 0; f < 4 && !n.dbg->state().paused; ++f) n.emu.run_frame();
+        at_line = n.dbg->state().paused && n.pc() == 0x2D4F && name_of(n) == "dot.c:8" &&
+                  n.dbg->source_page(n.pc()) == D2;
+        check("SRCDOT-01", "a dot command's map attaches (pending) with the ROM at $2000 and a source breakpoint on dot.c:8 stops "
+                           "the command running from DivMMC bank 2 at $2D4F, four times in all, reporting dot.c:8",
+              r.count > 0 && r.pending && premise && static_cast<bool>(g) && at_line &&
+                  stops == std::vector<uint16_t>(4, 0x2D4F),
+              "count=" + std::to_string(r.count) + " stops=" + std::to_string(stops.size()) + " " + n.where());
+    }
+    {   // SRCDOT-02
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, m);
+        m.dbg->subscribe_source_line(m.a, "dot.c:14", execute_stop(0));
+        stops_of(m, 1);
+        const uint16_t at14 = m.pc();
+        const std::string l14 = name_of(m);
+        m.dbg->source_step(m.a, Step::Into);
+        const uint16_t at15 = m.pc();
+        const std::string l15 = name_of(m);
+        const bool in15 = m.dbg->source_page(at15) == D2;
+        m.dbg->subscribe_source_line(m.a, "dot.c:17", execute_stop(0));
+        stops_of(m, 1);
+        const uint16_t at17 = m.pc();
+        const std::string l17 = name_of(m);
+        m.dbg->source_step(m.a, Step::Into);
+        const uint16_t in_add3 = m.pc();
+        const std::string l7 = name_of(m);
+        m.dbg->source_step(m.a, Step::Out);
+        const std::string back = name_of(m);
+        m.dbg->source_step(m.a, Step::Over);
+        const uint16_t next = m.pc();
+        const std::string l18 = name_of(m);
+        check("SRCDOT-02", "source steps follow inside the dot command: Into dot.c:14 -> dot.c:15 ($2D6A); Into the add3() call line "
+                           "dot.c:17 ($2D82) -> add3's dot.c:7 ($2D4C); Out -> back on dot.c:17; Over (the loop returns to its test) -> dot.c:15 ($2D6A-$2D81); every landing in DivMMC RAM bank 2",
+              at14 == 0x2D62 && l14 == "dot.c:14" && at15 == 0x2D6A && l15 == "dot.c:15" && in15 && at17 == 0x2D82 &&
+                  l17 == "dot.c:17" && in_add3 == 0x2D4C && l7 == "dot.c:7" && back == "dot.c:17" && l18 == "dot.c:15" &&
+                  next >= 0x2D6A && next < 0x2D82 && m.dbg->source_page(next) == D2,
+              l14 + " " + l15 + " " + l17 + " " + l7 + " " + back + " " + l18);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_79(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path root = dir / "dot";
+    constexpr uint16_t kMain = 0x2D5F;
+    constexpr uint16_t kEntry = 0x2000;
+    const std::string dot_map = (root / "a" / "prog.map").string();
+    const std::vector<uint8_t> dot_code = read_all(root / "a" / "prog_CODE.bin");
+    const auto put_dot = [](Machine& m, const std::vector<uint8_t>& code, long flip = -1) {
+        uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
+        std::copy(code.begin(), code.end(), bank2);
+        if (flip >= 0) bank2[flip] ^= 0xFF;
+    };
+    const auto enter_dot_bank = [](Machine& m) { m.dbg->port_out(m.a, 0xE3, 0x82); };
+    // PC at `pc`, with a return address to the parked loop at $6000 on the stack.
+    const auto start_at = [](Machine& m, uint16_t pc) {
+        park(m);
+        m.emu.mmu().write(0xFEFE, 0x00);
+        m.emu.mmu().write(0xFEFF, 0x60);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.SP = 0xFEFE;
+        m.emu.cpu().set_registers(r);
+        m.set_pc(pc);
+    };
+    // A Next machine running the dot command `code` from bank 2 with `map` attached.
+    const auto dot_machine = [&](const std::vector<uint8_t>& code, const std::string& map, Machine& m,
+                                 long flip = -1) {
+        put_dot(m, code, flip);
+        enter_dot_bank(m);
+        start_at(m, 0x6000);   // parked while the map is loaded: a hand load made inside the command judges like a landing there
+        const auto r = m.dbg->load_source_map(map, false);
+        m.set_pc(kMain);
+        return r;
+    };
+    // Run until the machine stops, at most `limit` times; the PCs it stopped at.
+    const auto stops_of = [](Machine& m, int limit = 10) {
+        std::vector<uint16_t> pcs;
+        for (int i = 0; i < limit; ++i) {
+            m.dbg->run(m.a);
+            for (int f = 0; f < 4 && !m.dbg->state().paused; ++f) m.emu.run_frame();
+            if (!m.dbg->state().paused) break;
+            pcs.push_back(m.pc());
         }
-        {   // SRCDOT-02
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, m);
-            m.dbg->subscribe_source_line(m.a, "dot.c:14", execute_stop(0));
-            stops_of(m, 1);
-            const uint16_t at14 = m.pc();
-            const std::string l14 = name_of(m);
-            m.dbg->source_step(m.a, Step::Into);
-            const uint16_t at15 = m.pc();
-            const std::string l15 = name_of(m);
-            const bool in15 = m.dbg->source_page(at15) == D2;
-            m.dbg->subscribe_source_line(m.a, "dot.c:17", execute_stop(0));
-            stops_of(m, 1);
-            const uint16_t at17 = m.pc();
-            const std::string l17 = name_of(m);
-            m.dbg->source_step(m.a, Step::Into);
-            const uint16_t in_add3 = m.pc();
-            const std::string l7 = name_of(m);
-            m.dbg->source_step(m.a, Step::Out);
-            const std::string back = name_of(m);
-            m.dbg->source_step(m.a, Step::Over);
-            const uint16_t next = m.pc();
-            const std::string l18 = name_of(m);
-            check("SRCDOT-02", "source steps follow inside the dot command: Into dot.c:14 -> dot.c:15 ($2D6A); Into the add3() call line "
-                               "dot.c:17 ($2D82) -> add3's dot.c:7 ($2D4C); Out -> back on dot.c:17; Over (the loop returns to its test) -> dot.c:15 ($2D6A-$2D81); every landing in DivMMC RAM bank 2",
-                  at14 == 0x2D62 && l14 == "dot.c:14" && at15 == 0x2D6A && l15 == "dot.c:15" && in15 && at17 == 0x2D82 &&
-                      l17 == "dot.c:17" && in_add3 == 0x2D4C && l7 == "dot.c:7" && back == "dot.c:17" && l18 == "dot.c:15" &&
-                      next >= 0x2D6A && next < 0x2D82 && m.dbg->source_page(next) == D2,
-                  l14 + " " + l15 + " " + l17 + " " + l7 + " " + back + " " + l18);
+        return pcs;
+    };
+    const auto verified_line = [&](const std::string& map, const char* tail) {
+        return "Verified z88dk source map '" + map + "': " + tail;
+    };
+    const std::string not_the_one = "The dot command started in DivMMC RAM bank 2 is not the one source map '" +
+                                    dot_map + "' describes; it stays pending";
+    const std::string verified_all = verified_line(dot_map, "the dot command in DivMMC RAM bank 2 matches its binary identity");
+    {   // SRCDOT-03
+        // The same 8K in ordinary RAM (page 40 in MMU1, E3 off) and the control with E3 = $82.
+        const auto ram_machine = [&](Machine& m) {
+            m.dbg->poke(m.a, MemSpace::page(40), 0, dot_code.size(), dot_code.data());
+            m.dbg->nextreg_write(m.a, 0x51, 40);
+            m.dbg->port_out(m.a, 0xE3, 0x00);
+            start_at(m, kMain);
+            m.dbg->load_source_map(dot_map, false);
+        };
+        Machine r(false, MachineType::ZXN_ISSUE2);
+        ram_machine(r);
+        const bool premise = r.dbg->source_page(0x2D62) == MemSpace::page(40);
+        r.dbg->subscribe_source_line(r.a, "dot.c:8", execute_stop(0));
+        const auto stops = stops_of(r, 3);
+        r.dbg->pause(r.a);
+        const bool ran_through = stops.empty() && r.pc() == 0x6000;
+        // How often the code ran $2D4F: single steps over the same RAM.
+        Machine c(false, MachineType::ZXN_ISSUE2);
+        ram_machine(c);
+        int passes = 0;
+        for (int i = 0; i < 4000 && c.pc() != 0x6000; ++i) {
+            if (c.pc() == 0x2D4F) ++passes;
+            c.dbg->step_into(c.a);
         }
-        {   // SRCDOT-03
-            // The same 8K in ordinary RAM (page 40 in MMU1, E3 off) and the control with E3 = $82.
-            const auto ram_machine = [&](Machine& m) {
-                m.dbg->poke(m.a, MemSpace::page(40), 0, dot_code.size(), dot_code.data());
-                m.dbg->nextreg_write(m.a, 0x51, 40);
-                m.dbg->port_out(m.a, 0xE3, 0x00);
-                start_at(m, kMain);
-                m.dbg->load_source_map(dot_map, false);
-            };
-            Machine r(false, MachineType::ZXN_ISSUE2);
-            ram_machine(r);
-            const bool premise = r.dbg->source_page(0x2D62) == MemSpace::page(40);
-            r.dbg->subscribe_source_line(r.a, "dot.c:8", execute_stop(0));
-            const auto stops = stops_of(r, 3);
-            r.dbg->pause(r.a);
-            const bool ran_through = stops.empty() && r.pc() == 0x6000;
-            // How often the code ran $2D4F: single steps over the same RAM.
-            Machine c(false, MachineType::ZXN_ISSUE2);
-            ram_machine(c);
-            int passes = 0;
-            for (int i = 0; i < 4000 && c.pc() != 0x6000; ++i) {
-                if (c.pc() == 0x2D4F) ++passes;
-                c.dbg->step_into(c.a);
-            }
-            const bool no_loc = !c.dbg->source_location(0x2D62) && !r.dbg->source_location(0x2D4F);
-            // Under the ROM.
-            Machine o(false, MachineType::ZXN_ISSUE2);
-            o.dbg->load_source_map(dot_map, false);
-            const bool rom_none = !o.dbg->source_location(0x2D62) && o.dbg->source_page(0x2D62).kind == MemSpace::Kind::Rom;
-            // The control: E3 = $82 stops.
-            Machine d(false, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, d);
-            d.dbg->subscribe_source_line(d.a, "dot.c:8", execute_stop(0));
-            const auto d_stops = stops_of(d, 2);
-            check("SRCDOT-03", "the same bytes in ordinary RAM (page 40 at $2000, E3 off) or ROM at $2D62 match nothing: a dot.c:8 breakpoint never stops "
-                               "while the code runs $2D4F four times; the control with DivMMC bank 2 stops",
-                  premise && ran_through && passes == 4 && no_loc && rom_none && !d_stops.empty() && d_stops[0] == 0x2D4F,
-                  "premise=" + std::to_string(premise) + " stops=" + std::to_string(stops.size()) + " passes=" + std::to_string(passes));
-        }
-        {   // SRCDOT-04
-            const auto at_entry = [&](Machine& m, std::string& log, Debugger::SourceMapStatus& st) {
-                enter_dot_bank(m);
-                m.set_pc(kEntry);
-                log = debugger_log_of([&] {
-                    m.dbg->step_into(m.a);
-                    st = m.dbg->source_map_status();
-                });
-            };
-            Machine good(false, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, good);
-            const bool was_pending = good.dbg->source_map_status().pending;
-            std::string log_good;
-            Debugger::SourceMapStatus st_good;
-            at_entry(good, log_good, st_good);
-            // One byte of dot.c:14's code changed: another dot command is in the bank.
-            Machine bad(false, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, bad, 0xD62);
-            std::string log1, log2, log3;
-            Debugger::SourceMapStatus st1, st2, st3;
-            at_entry(bad, log1, st1);
-            at_entry(bad, log2, st2);
-            bad.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] = dot_code[0xD62];   // the real command arrives
-            at_entry(bad, log3, st3);
-            check("SRCDOT-04", "judged at the entry: $2000 fetched from bank 2 with matching bytes verifies the map (and tells so); with one changed byte "
-                               "the map stays attached and pending, the 'not the one' line is told once, nothing is dropped; the right bytes at the next entry verify it",
-                  was_pending && !st_good.pending && has(log_good, verified_all) &&
-                      st1.state == Debugger::SourceMapStatus::State::Attached && st1.pending && has(log1, not_the_one) &&
-                      st2.pending && !has(log2, not_the_one) && !has(log1 + log2, "Rejected") && !has(log1 + log2, "Dropped") &&
-                      bad.dbg->source_map().size() > 0 && !st3.pending && has(log3, verified_all),
-                  log_good + "|" + log1 + "|" + log2 + "|" + log3);
-        }
-        {   // SRCDOT-05
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, m);
-            std::string log;
-            Debugger::SourceMapStatus st;
+        const bool no_loc = !c.dbg->source_location(0x2D62) && !r.dbg->source_location(0x2D4F);
+        // Under the ROM.
+        Machine o(false, MachineType::ZXN_ISSUE2);
+        o.dbg->load_source_map(dot_map, false);
+        const bool rom_none = !o.dbg->source_location(0x2D62) && o.dbg->source_page(0x2D62).kind == MemSpace::Kind::Rom;
+        // The control: E3 = $82 stops.
+        Machine d(false, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, d);
+        d.dbg->subscribe_source_line(d.a, "dot.c:8", execute_stop(0));
+        const auto d_stops = stops_of(d, 2);
+        check("SRCDOT-03", "the same bytes in ordinary RAM (page 40 at $2000, E3 off) or ROM at $2D62 match nothing: a dot.c:8 breakpoint never stops "
+                           "while the code runs $2D4F four times; the control with DivMMC bank 2 stops",
+              premise && ran_through && passes == 4 && no_loc && rom_none && !d_stops.empty() && d_stops[0] == 0x2D4F,
+              "premise=" + std::to_string(premise) + " stops=" + std::to_string(stops.size()) + " passes=" + std::to_string(passes));
+    }
+    {   // SRCDOT-04
+        const auto at_entry = [&](Machine& m, std::string& log, Debugger::SourceMapStatus& st) {
+            enter_dot_bank(m);
+            m.set_pc(kEntry);
             log = debugger_log_of([&] {
-                const auto stops = stops_of(m, 1);   // runs _main to the parked loop, never fetching $2000
-                (void)stops;
-                m.dbg->pause(m.a);
+                m.dbg->step_into(m.a);
                 st = m.dbg->source_map_status();
             });
-            check("SRCDOT-05", "the code runs from _main without ever fetching $2000: the map is still pending (the entry is the judgement point, not the first run of a span)",
-                  m.pc() == 0x6000 && st.state == Debugger::SourceMapStatus::State::Attached && st.pending &&
-                      !has(log, "Verified"),
-                  log);
+        };
+        Machine good(false, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, good);
+        const bool was_pending = good.dbg->source_map_status().pending;
+        std::string log_good;
+        Debugger::SourceMapStatus st_good;
+        at_entry(good, log_good, st_good);
+        // One byte of dot.c:14's code changed: another dot command is in the bank.
+        Machine bad(false, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, bad, 0xD62);
+        std::string log1, log2, log3;
+        Debugger::SourceMapStatus st1, st2, st3;
+        at_entry(bad, log1, st1);
+        at_entry(bad, log2, st2);
+        bad.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] = dot_code[0xD62];   // the real command arrives
+        at_entry(bad, log3, st3);
+        check("SRCDOT-04", "judged at the entry: $2000 fetched from bank 2 with matching bytes verifies the map (and tells so); with one changed byte "
+                           "the map stays attached and pending, the 'not the one' line is told once, nothing is dropped; the right bytes at the next entry verify it",
+              was_pending && !st_good.pending && has(log_good, verified_all) &&
+                  st1.state == Debugger::SourceMapStatus::State::Attached && st1.pending && has(log1, not_the_one) &&
+                  st2.pending && !has(log2, not_the_one) && !has(log1 + log2, "Rejected") && !has(log1 + log2, "Dropped") &&
+                  bad.dbg->source_map().size() > 0 && !st3.pending && has(log3, verified_all),
+              log_good + "|" + log1 + "|" + log2 + "|" + log3);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_80(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path root = dir / "dot";
+    constexpr uint16_t kMain = 0x2D5F;
+    constexpr uint16_t kEntry = 0x2000;
+    const std::string dot_map = (root / "a" / "prog.map").string();
+    const std::string dotx_map = (root / "x" / "prog.map").string();
+    const std::vector<uint8_t> dot_code = read_all(root / "a" / "prog_CODE.bin");
+    const std::vector<uint8_t> x_code = read_all(root / "x" / "prog_CODE.bin");
+    const auto put_dot = [](Machine& m, const std::vector<uint8_t>& code, long flip = -1) {
+        uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
+        std::copy(code.begin(), code.end(), bank2);
+        if (flip >= 0) bank2[flip] ^= 0xFF;
+    };
+    const auto enter_dot_bank = [](Machine& m) { m.dbg->port_out(m.a, 0xE3, 0x82); };
+    // PC at `pc`, with a return address to the parked loop at $6000 on the stack.
+    const auto start_at = [](Machine& m, uint16_t pc) {
+        park(m);
+        m.emu.mmu().write(0xFEFE, 0x00);
+        m.emu.mmu().write(0xFEFF, 0x60);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.SP = 0xFEFE;
+        m.emu.cpu().set_registers(r);
+        m.set_pc(pc);
+    };
+    // A Next machine running the dot command `code` from bank 2 with `map` attached.
+    const auto dot_machine = [&](const std::vector<uint8_t>& code, const std::string& map, Machine& m,
+                                 long flip = -1) {
+        put_dot(m, code, flip);
+        enter_dot_bank(m);
+        start_at(m, 0x6000);   // parked while the map is loaded: a hand load made inside the command judges like a landing there
+        const auto r = m.dbg->load_source_map(map, false);
+        m.set_pc(kMain);
+        return r;
+    };
+    // Run until the machine stops, at most `limit` times; the PCs it stopped at.
+    const auto stops_of = [](Machine& m, int limit = 10) {
+        std::vector<uint16_t> pcs;
+        for (int i = 0; i < limit; ++i) {
+            m.dbg->run(m.a);
+            for (int f = 0; f < 4 && !m.dbg->state().paused; ++f) m.emu.run_frame();
+            if (!m.dbg->state().paused) break;
+            pcs.push_back(m.pc());
         }
-        {   // SRCDOT-06
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            put_dot(m, dot_code, 0xD62);   // not the command: hand loading does not compare
+        return pcs;
+    };
+    const auto verified_line = [&](const std::string& map, const char* tail) {
+        return "Verified z88dk source map '" + map + "': " + tail;
+    };
+    {   // SRCDOT-05
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, m);
+        std::string log;
+        Debugger::SourceMapStatus st;
+        log = debugger_log_of([&] {
+            const auto stops = stops_of(m, 1);   // runs _main to the parked loop, never fetching $2000
+            (void)stops;
+            m.dbg->pause(m.a);
+            st = m.dbg->source_map_status();
+        });
+        check("SRCDOT-05", "the code runs from _main without ever fetching $2000: the map is still pending (the entry is the judgement point, not the first run of a span)",
+              m.pc() == 0x6000 && st.state == Debugger::SourceMapStatus::State::Attached && st.pending &&
+                  !has(log, "Verified"),
+              log);
+    }
+    {   // SRCDOT-06
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        put_dot(m, dot_code, 0xD62);   // not the command: hand loading does not compare
+        enter_dot_bank(m);
+        start_at(m, kMain);
+        const auto r = m.dbg->load_source_map(dot_map, /*accept_identity_mismatch=*/false, /*verify_at_first_execution=*/false);
+        const size_t size = m.dbg->source_map().size();
+        const auto nex = m.dbg->load_source_map((root / "nex" / "prog.map").string(), false, false, /*dot_only=*/true);
+        const auto dot_again = m.dbg->load_source_map(dot_map, false, false, /*dot_only=*/true);
+        check("SRCDOT-06", "a hand load of a dot command's map attaches pending even with different bytes in bank 2 (no mismatch, no refusal); with no program "
+                           "(dot_only) a NEX map is refused as not a dot command and the attached map is kept, while a dot map is accepted",
+              r.count > 0 && r.pending && r.error.empty() && !r.identity.has_value() &&
+                  has(r.identity_note, "the dot command loads when it runs") && nex.count == -1 && nex.not_dot &&
+                  has(nex.error, "dot command") && m.dbg->source_map().size() == size && dot_again.count > 0 &&
+                  dot_again.pending && !dot_again.not_dot,
+              r.error + " | " + nex.error);
+    }
+    {   // SRCDOT-07
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, m);
+        const auto verify_entry = [&] {
+            put_dot(m, dot_code);
             enter_dot_bank(m);
-            start_at(m, kMain);
-            const auto r = m.dbg->load_source_map(dot_map, /*accept_identity_mismatch=*/false, /*verify_at_first_execution=*/false);
-            const size_t size = m.dbg->source_map().size();
-            const auto nex = m.dbg->load_source_map((root / "nex" / "prog.map").string(), false, false, /*dot_only=*/true);
-            const auto dot_again = m.dbg->load_source_map(dot_map, false, false, /*dot_only=*/true);
-            check("SRCDOT-06", "a hand load of a dot command's map attaches pending even with different bytes in bank 2 (no mismatch, no refusal); with no program "
-                               "(dot_only) a NEX map is refused as not a dot command and the attached map is kept, while a dot map is accepted",
-                  r.count > 0 && r.pending && r.error.empty() && !r.identity.has_value() &&
-                      has(r.identity_note, "the dot command loads when it runs") && nex.count == -1 && nex.not_dot &&
-                      has(nex.error, "dot command") && m.dbg->source_map().size() == size && dot_again.count > 0 &&
-                      dot_again.pending && !dot_again.not_dot,
-                  r.error + " | " + nex.error);
-        }
-        {   // SRCDOT-07
-            Machine m(false, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, m);
-            const auto verify_entry = [&] {
-                put_dot(m, dot_code);
-                enter_dot_bank(m);
-                m.set_pc(kEntry);
-                m.dbg->step_into(m.a);
-                return m.dbg->source_map_status();
-            };
-            m.dbg->reset(m.a, ResetKind::Soft);
-            const std::string log_a = debugger_log_of([&] { (void)m.dbg->source_map_status(); });
-            const auto after_first = m.dbg->source_map_status();
-            const auto v1 = verify_entry();
-            m.dbg->reset(m.a, ResetKind::Soft);
-            std::string log_b;
-            Debugger::SourceMapStatus after_second;
-            log_b = debugger_log_of([&] { after_second = m.dbg->source_map_status(); });
-            const auto v2 = verify_entry();
-            check("SRCDOT-07", "a soft reset neither drops nor stales a dot map: a pending one stays attached and pending (a tape's would be judged and dropped), "
-                               "a verified one goes back to pending, and the next matching entry verifies it again",
-                  after_first.state == Debugger::SourceMapStatus::State::Attached && after_first.pending && !has(log_a, "Dropped") &&
-                      !v1.pending && after_second.state == Debugger::SourceMapStatus::State::Attached && after_second.pending &&
-                      !has(log_b, "stale") && !has(log_b, "Dropped") && !v2.pending && m.dbg->source_map().size() > 0,
-                  log_a + "|" + log_b);
-        }
-        {   // SRCDOT-08
-            const auto x_machine = [&](Machine& m, long flip_main) {
-                dot_machine(x_code, dotx_map, m);
-                tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", flip_main, 0);
-            };
-            const std::string x_dot_line = "Verified z88dk source map '" + dotx_map + "' in DivMMC RAM bank 2; 1 memory space still to check";
-            const std::string x_all = verified_line(dotx_map, "the dot command in DivMMC RAM bank 2 matches its binary identity");
-            // a) the entry matches, then the main part runs
-            Machine a(false, MachineType::ZXN_ISSUE2);
-            x_machine(a, -1);
-            const bool premise = a.dbg->source_page(0x87EB) == MemSpace::page(4);
-            Debugger::SourceMapStatus s1, s2;
-            const std::string la = debugger_log_of([&] {
-                enter_dot_bank(a);
-                a.set_pc(kEntry);
-                a.dbg->step_into(a.a);
-                s1 = a.dbg->source_map_status();
-                a.set_pc(0x87EB);
-                a.dbg->step_into(a.a);
-                s2 = a.dbg->source_map_status();
-            });
-            // b) a changed byte of the main part, after the entry matched: dropped, as a tape
-            Machine b(false, MachineType::ZXN_ISSUE2);
-            x_machine(b, 0x7EB);
-            Debugger::SourceMapStatus s3;
-            const std::string lb = debugger_log_of([&] {
-                enter_dot_bank(b);
-                b.set_pc(kEntry);
-                b.dbg->step_into(b.a);
-                b.set_pc(0x87EB);
-                b.dbg->step_into(b.a);
-                s3 = b.dbg->source_map_status();
-            });
-            // c) the main part runs before any entry: nothing is judged
-            Machine c(false, MachineType::ZXN_ISSUE2);
-            x_machine(c, 0x7EB);
-            Debugger::SourceMapStatus s4;
-            const std::string lc = debugger_log_of([&] {
-                c.set_pc(0x87EB);
-                c.dbg->step_into(c.a);
-                s4 = c.dbg->source_map_status();
-            });
-            check("SRCDOT-08", "dotx: a matching entry verifies bank 2 and arms page 4 (still pending, one space to check); the main part's first run with matching "
-                               "bytes verifies the map; with one changed byte it is dropped as a tape's; before any entry the main part's run judges nothing",
-                  premise && s1.pending && has(la, x_dot_line) && !s2.pending && has(la, x_all) &&
-                      s3.state == Debugger::SourceMapStatus::State::None && has(lb, "Rejected z88dk source map") &&
-                      s4.state == Debugger::SourceMapStatus::State::Attached && s4.pending && !has(lc, "Rejected") && !has(lc, "Verified"),
-                  la + "|" + lb + "|" + lc);
-        }
-        {   // SRCDOT-09
-            Machine m(true, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, m);
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;   // a loop inside the dot's bank, past its code
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
-            run_frames(m, 2);   // _main returns to the loop at $6000 in the first
-            const uint32_t before_entry = m.dbg->time().frame;
             m.set_pc(kEntry);
             m.dbg->step_into(m.a);
-            m.set_pc(0x3F00);
-            run_frames(m, 2);
-            const uint32_t after_entry = m.dbg->time().frame;
-            const auto in_dot_now = m.dbg->source_map_status();
-            const Result back = m.dbg->rewind_to_frame(m.a, before_entry);
-            const auto s_back = m.dbg->source_map_status();
-            const Result fwd = m.dbg->rewind_to_frame(m.a, after_entry);
-            const auto s_fwd = m.dbg->source_map_status();
-            check("SRCDOT-09", "a rewind to before the entry puts the dot map back to pending, still attached; coming forward to a frame where the CPU is inside the "
-                               "command (bytes matching) verifies it again",
-                  !in_dot_now.pending && back == Result::Ok && s_back.state == Debugger::SourceMapStatus::State::Attached &&
-                      s_back.pending && fwd == Result::Ok && !s_fwd.pending && m.dbg->source_map().size() > 0,
-                  "back=" + std::to_string(int(back)) + " fwd=" + std::to_string(int(fwd)) + " pend=" +
-                      std::to_string(s_back.pending) + std::to_string(s_fwd.pending));
-        }
-        {   // SRCDOT-10 (review R1): verified, then another dot command, then the right one again
+            return m.dbg->source_map_status();
+        };
+        m.dbg->reset(m.a, ResetKind::Soft);
+        const std::string log_a = debugger_log_of([&] { (void)m.dbg->source_map_status(); });
+        const auto after_first = m.dbg->source_map_status();
+        const auto v1 = verify_entry();
+        m.dbg->reset(m.a, ResetKind::Soft);
+        std::string log_b;
+        Debugger::SourceMapStatus after_second;
+        log_b = debugger_log_of([&] { after_second = m.dbg->source_map_status(); });
+        const auto v2 = verify_entry();
+        check("SRCDOT-07", "a soft reset neither drops nor stales a dot map: a pending one stays attached and pending (a tape's would be judged and dropped), "
+                           "a verified one goes back to pending, and the next matching entry verifies it again",
+              after_first.state == Debugger::SourceMapStatus::State::Attached && after_first.pending && !has(log_a, "Dropped") &&
+                  !v1.pending && after_second.state == Debugger::SourceMapStatus::State::Attached && after_second.pending &&
+                  !has(log_b, "stale") && !has(log_b, "Dropped") && !v2.pending && m.dbg->source_map().size() > 0,
+              log_a + "|" + log_b);
+    }
+    {   // SRCDOT-08
+        const auto x_machine = [&](Machine& m, long flip_main) {
+            dot_machine(x_code, dotx_map, m);
+            tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", flip_main, 0);
+        };
+        const std::string x_dot_line = "Verified z88dk source map '" + dotx_map + "' in DivMMC RAM bank 2; 1 memory space still to check";
+        const std::string x_all = verified_line(dotx_map, "the dot command in DivMMC RAM bank 2 matches its binary identity");
+        // a) the entry matches, then the main part runs
+        Machine a(false, MachineType::ZXN_ISSUE2);
+        x_machine(a, -1);
+        const bool premise = a.dbg->source_page(0x87EB) == MemSpace::page(4);
+        Debugger::SourceMapStatus s1, s2;
+        const std::string la = debugger_log_of([&] {
+            enter_dot_bank(a);
+            a.set_pc(kEntry);
+            a.dbg->step_into(a.a);
+            s1 = a.dbg->source_map_status();
+            a.set_pc(0x87EB);
+            a.dbg->step_into(a.a);
+            s2 = a.dbg->source_map_status();
+        });
+        // b) a changed byte of the main part, after the entry matched: dropped, as a tape
+        Machine b(false, MachineType::ZXN_ISSUE2);
+        x_machine(b, 0x7EB);
+        Debugger::SourceMapStatus s3;
+        const std::string lb = debugger_log_of([&] {
+            enter_dot_bank(b);
+            b.set_pc(kEntry);
+            b.dbg->step_into(b.a);
+            b.set_pc(0x87EB);
+            b.dbg->step_into(b.a);
+            s3 = b.dbg->source_map_status();
+        });
+        // c) the main part runs before any entry: nothing is judged
+        Machine c(false, MachineType::ZXN_ISSUE2);
+        x_machine(c, 0x7EB);
+        Debugger::SourceMapStatus s4;
+        const std::string lc = debugger_log_of([&] {
+            c.set_pc(0x87EB);
+            c.dbg->step_into(c.a);
+            s4 = c.dbg->source_map_status();
+        });
+        check("SRCDOT-08", "dotx: a matching entry verifies bank 2 and arms page 4 (still pending, one space to check); the main part's first run with matching "
+                           "bytes verifies the map; with one changed byte it is dropped as a tape's; before any entry the main part's run judges nothing",
+              premise && s1.pending && has(la, x_dot_line) && !s2.pending && has(la, x_all) &&
+                  s3.state == Debugger::SourceMapStatus::State::None && has(lb, "Rejected z88dk source map") &&
+                  s4.state == Debugger::SourceMapStatus::State::Attached && s4.pending && !has(lc, "Rejected") && !has(lc, "Verified"),
+              la + "|" + lb + "|" + lc);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_81(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const MemSpace D2 = MemSpace::divmmc_ram(2);
+    const fs::path root = dir / "dot";
+    constexpr uint16_t kMain = 0x2D5F;
+    constexpr uint16_t kEntry = 0x2000;
+    const std::string dot_map = (root / "a" / "prog.map").string();
+    const std::string dotx_map = (root / "x" / "prog.map").string();
+    const std::vector<uint8_t> dot_code = read_all(root / "a" / "prog_CODE.bin");
+    const std::vector<uint8_t> x_code = read_all(root / "x" / "prog_CODE.bin");
+    const std::vector<uint8_t> x_main = read_all(root / "x" / "prog_MAIN.bin");
+    const auto put_dot = [](Machine& m, const std::vector<uint8_t>& code, long flip = -1) {
+        uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
+        std::copy(code.begin(), code.end(), bank2);
+        if (flip >= 0) bank2[flip] ^= 0xFF;
+    };
+    const auto enter_dot_bank = [](Machine& m) { m.dbg->port_out(m.a, 0xE3, 0x82); };
+    // PC at `pc`, with a return address to the parked loop at $6000 on the stack.
+    const auto start_at = [](Machine& m, uint16_t pc) {
+        park(m);
+        m.emu.mmu().write(0xFEFE, 0x00);
+        m.emu.mmu().write(0xFEFF, 0x60);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.SP = 0xFEFE;
+        m.emu.cpu().set_registers(r);
+        m.set_pc(pc);
+    };
+    // A Next machine running the dot command `code` from bank 2 with `map` attached.
+    const auto dot_machine = [&](const std::vector<uint8_t>& code, const std::string& map, Machine& m,
+                                 long flip = -1) {
+        put_dot(m, code, flip);
+        enter_dot_bank(m);
+        start_at(m, 0x6000);   // parked while the map is loaded: a hand load made inside the command judges like a landing there
+        const auto r = m.dbg->load_source_map(map, false);
+        m.set_pc(kMain);
+        return r;
+    };
+    const auto verified_line = [&](const std::string& map, const char* tail) {
+        return "Verified z88dk source map '" + map + "': " + tail;
+    };
+    const std::string not_the_one = "The dot command started in DivMMC RAM bank 2 is not the one source map '" +
+                                    dot_map + "' describes; it stays pending";
+    const std::string verified_all = verified_line(dot_map, "the dot command in DivMMC RAM bank 2 matches its binary identity");
+    {   // SRCDOT-09
+        Machine m(true, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, m);
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;   // a loop inside the dot's bank, past its code
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+        run_frames(m, 2);   // _main returns to the loop at $6000 in the first
+        const uint32_t before_entry = m.dbg->time().frame;
+        m.set_pc(kEntry);
+        m.dbg->step_into(m.a);
+        m.set_pc(0x3F00);
+        run_frames(m, 2);
+        const uint32_t after_entry = m.dbg->time().frame;
+        const auto in_dot_now = m.dbg->source_map_status();
+        const Result back = m.dbg->rewind_to_frame(m.a, before_entry);
+        const auto s_back = m.dbg->source_map_status();
+        const Result fwd = m.dbg->rewind_to_frame(m.a, after_entry);
+        const auto s_fwd = m.dbg->source_map_status();
+        check("SRCDOT-09", "a rewind to before the entry puts the dot map back to pending, still attached; coming forward to a frame where the CPU is inside the "
+                           "command (bytes matching) verifies it again",
+              !in_dot_now.pending && back == Result::Ok && s_back.state == Debugger::SourceMapStatus::State::Attached &&
+                  s_back.pending && fwd == Result::Ok && !s_fwd.pending && m.dbg->source_map().size() > 0,
+              "back=" + std::to_string(int(back)) + " fwd=" + std::to_string(int(fwd)) + " pend=" +
+                  std::to_string(s_back.pending) + std::to_string(s_fwd.pending));
+    }
+    {   // SRCDOT-10 (review R1): verified, then another dot command, then the right one again
+        Machine m(false, MachineType::ZXN_ISSUE2);
+        dot_machine(dot_code, dot_map, m);
+        const auto entry = [&](std::string& log) {
+            enter_dot_bank(m);
+            m.set_pc(kEntry);
+            Debugger::SourceMapStatus st;
+            log = debugger_log_of([&] { m.dbg->step_into(m.a); st = m.dbg->source_map_status(); });
+            return st;
+        };
+        std::string l1, l2, l3, l4;
+        const auto s1 = entry(l1);                                   // verified
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;       // another command
+        const auto s2 = entry(l2);
+        const auto s3 = entry(l3);                                   // told once
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;       // ours again
+        const auto s4 = entry(l4);
+        // dotx: after the foreign entry the main part is disarmed again.
+        Machine x(false, MachineType::ZXN_ISSUE2);
+        dot_machine(x_code, dotx_map, x);
+        tape_bytes(x, MemSpace::page(4), root / "x" / "prog_MAIN.bin", 0x7EB, 0);   // a wrong main part
+        const auto first_span = x.dbg->source_map().verify_spans();
+        size_t code_lo = 0x2000;
+        for (const auto& sp : first_span) if (sp.unit == D2) { code_lo = sp.lo; break; }
+        const auto x_entry = [&](std::string& log) {
+            enter_dot_bank(x);
+            x.set_pc(kEntry);
+            log = debugger_log_of([&] { x.dbg->step_into(x.a); (void)x.dbg->source_map_status(); });
+        };
+        const auto x_main = [&](std::string& log) {
+            x.set_pc(0x87EB);
+            Debugger::SourceMapStatus st;
+            log = debugger_log_of([&] { x.dbg->step_into(x.a); st = x.dbg->source_map_status(); });
+            return st;
+        };
+        std::string xa, xb, xc, xd;
+        x_entry(xa);                                                 // armed
+        x.emu.divmmc().ram_data()[2 * 0x2000 + (code_lo - 0x2000)] ^= 0xFF;
+        x_entry(xb);                                                 // foreign: disarmed
+        const auto xs = x_main(xc);                                  // wrong main part: judges nothing
+        x.emu.divmmc().ram_data()[2 * 0x2000 + (code_lo - 0x2000)] ^= 0xFF;
+        x_entry(xd);                                                 // ours: armed again
+        const auto xe = [&] { std::string l; const auto st = x_main(l); return std::make_pair(st, l); }();
+        check("SRCDOT-10", "a verified dot map meets another dot command's entry: it goes back to pending, the 'not the one' line is told once, nothing is "
+                           "dropped, and the right bytes at the next entry verify it again; a dotx's main part is disarmed by the foreign entry (a wrong "
+                           "main part run then drops nothing) and armed again by the right entry (it is then dropped)",
+              !s1.pending && has(l1, verified_all) && s2.pending && s2.state == Debugger::SourceMapStatus::State::Attached &&
+                  has(l2, not_the_one) && s3.pending && !has(l3, not_the_one) && !has(l2 + l3, "Dropped") && !has(l2 + l3, "Rejected") &&
+                  m.dbg->source_map().size() > 0 && !s4.pending && has(l4, verified_all) &&
+                  xs.state == Debugger::SourceMapStatus::State::Attached && xs.pending && !has(xc, "Rejected") &&
+                  xe.first.state == Debugger::SourceMapStatus::State::None && has(xe.second, "Rejected z88dk source map"),
+              l1 + "|" + l2 + "|" + l3 + "|" + l4);
+    }
+    {   // SRCDOT-11 (review R2): $2000 run from somewhere other than bank 2 judges nothing
+        const auto at_2000 = [&](uint8_t e3, long flip, std::string& log) {
             Machine m(false, MachineType::ZXN_ISSUE2);
-            dot_machine(dot_code, dot_map, m);
-            const auto entry = [&](std::string& log) {
-                enter_dot_bank(m);
-                m.set_pc(kEntry);
-                Debugger::SourceMapStatus st;
-                log = debugger_log_of([&] { m.dbg->step_into(m.a); st = m.dbg->source_map_status(); });
-                return st;
-            };
-            std::string l1, l2, l3, l4;
-            const auto s1 = entry(l1);                                   // verified
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;       // another command
-            const auto s2 = entry(l2);
-            const auto s3 = entry(l3);                                   // told once
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;       // ours again
-            const auto s4 = entry(l4);
-            // dotx: after the foreign entry the main part is disarmed again.
-            Machine x(false, MachineType::ZXN_ISSUE2);
-            dot_machine(x_code, dotx_map, x);
-            tape_bytes(x, MemSpace::page(4), root / "x" / "prog_MAIN.bin", 0x7EB, 0);   // a wrong main part
-            const auto first_span = x.dbg->source_map().verify_spans();
-            size_t code_lo = 0x2000;
-            for (const auto& sp : first_span) if (sp.unit == D2) { code_lo = sp.lo; break; }
-            const auto x_entry = [&](std::string& log) {
-                enter_dot_bank(x);
-                x.set_pc(kEntry);
-                log = debugger_log_of([&] { x.dbg->step_into(x.a); (void)x.dbg->source_map_status(); });
-            };
-            const auto x_main = [&](std::string& log) {
-                x.set_pc(0x87EB);
-                Debugger::SourceMapStatus st;
-                log = debugger_log_of([&] { x.dbg->step_into(x.a); st = x.dbg->source_map_status(); });
-                return st;
-            };
-            std::string xa, xb, xc, xd;
-            x_entry(xa);                                                 // armed
-            x.emu.divmmc().ram_data()[2 * 0x2000 + (code_lo - 0x2000)] ^= 0xFF;
-            x_entry(xb);                                                 // foreign: disarmed
-            const auto xs = x_main(xc);                                  // wrong main part: judges nothing
-            x.emu.divmmc().ram_data()[2 * 0x2000 + (code_lo - 0x2000)] ^= 0xFF;
-            x_entry(xd);                                                 // ours: armed again
-            const auto xe = [&] { std::string l; const auto st = x_main(l); return std::make_pair(st, l); }();
-            check("SRCDOT-10", "a verified dot map meets another dot command's entry: it goes back to pending, the 'not the one' line is told once, nothing is "
-                               "dropped, and the right bytes at the next entry verify it again; a dotx's main part is disarmed by the foreign entry (a wrong "
-                               "main part run then drops nothing) and armed again by the right entry (it is then dropped)",
-                  !s1.pending && has(l1, verified_all) && s2.pending && s2.state == Debugger::SourceMapStatus::State::Attached &&
-                      has(l2, not_the_one) && s3.pending && !has(l3, not_the_one) && !has(l2 + l3, "Dropped") && !has(l2 + l3, "Rejected") &&
-                      m.dbg->source_map().size() > 0 && !s4.pending && has(l4, verified_all) &&
-                      xs.state == Debugger::SourceMapStatus::State::Attached && xs.pending && !has(xc, "Rejected") &&
-                      xe.first.state == Debugger::SourceMapStatus::State::None && has(xe.second, "Rejected z88dk source map"),
-                  l1 + "|" + l2 + "|" + l3 + "|" + l4);
-        }
-        {   // SRCDOT-11 (review R2): $2000 run from somewhere other than bank 2 judges nothing
-            const auto at_2000 = [&](uint8_t e3, long flip, std::string& log) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                dot_machine(dot_code, dot_map, m, flip);
-                m.dbg->port_out(m.a, 0xE3, e3);
-                m.set_pc(kEntry);
-                log = debugger_log_of([&] { m.dbg->step_into(m.a); });
-                const bool premise = e3 == 0 ? m.dbg->source_page(kEntry).kind == MemSpace::Kind::Rom
-                                             : m.dbg->source_page(kEntry) == MemSpace::divmmc_ram(0);
-                return std::make_pair(m.dbg->source_map_status(), premise);
-            };
-            std::string la, lb, lc, ld;
-            const auto rom   = at_2000(0x00, -1, la);    // ROM at $2000, bank 2 holds the command
-            const auto bank0 = at_2000(0x80, -1, lb);    // DivMMC bank 0 (NextZXOS's hook), same
-            const auto rom_x = at_2000(0x00, 0xD62, lc); // ROM, bank 2 holds another command
-            const auto bk0_x = at_2000(0x80, 0xD62, ld);
-            const std::string all = la + lb + lc + ld;
-            check("SRCDOT-11", "$2000 run from ROM (E3 = 0) or from DivMMC bank 0 (E3 = $80) with bank 2 holding the command judges nothing: the map stays pending, "
-                               "no Verified line, and no 'not the one' line even when bank 2 holds another command",
-                  rom.second && bank0.second && rom_x.second && bk0_x.second && rom.first.pending && bank0.first.pending &&
-                      rom_x.first.pending && bk0_x.first.pending && !has(all, "Verified") && !has(all, not_the_one) &&
-                      rom.first.state == Debugger::SourceMapStatus::State::Attached,
-                  all);
-        }
-        {   // SRCDOT-12 (review R5): after a ring landing the status is what the original run showed at that instant
-            struct Sample { uint64_t clock; bool pending; bool attached; };
-            const auto trial = [&](const std::vector<uint8_t>& code, const std::string& map, bool main_part,
-                                   int& compared, bool& saw_true, bool& saw_false, std::string& note) {
-                Machine m(true, MachineType::ZXN_ISSUE2);
-                dot_machine(code, map, m);
-                if (main_part) tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", -1, 0);
-                const uint8_t loop[2] = {0x18, 0xFE};
-                m.dbg->poke(m.a, MemSpace::page(4), 0x1F00, 2, loop);          // a loop at $9F00 in page 4
-                m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;        // and one at $3F00 in bank 2
-                m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
-                std::vector<Sample> log;
-                std::vector<uint32_t> frames;
-                const auto sample = [&] {   // the status of the original run now
-                    const auto st = m.dbg->source_map_status();
-                    log.push_back({m.emu.clock().get(), st.pending, st.state == Debugger::SourceMapStatus::State::Attached});
-                };
-                const auto frame = [&] {
-                    sample();
-                    frames.push_back(m.dbg->time().frame);
-                    run_frames(m, 1);
-                };
-                m.set_pc(0x6000);
-                frame(); frame();                                              // parked: pending
-                m.set_pc(kEntry);
-                m.dbg->step_into(m.a);                                         // the entry
-                sample();
-                if (main_part) {
-                    m.set_pc(0x87EB);
-                    m.dbg->step_into(m.a);                                     // the main part's first run
-                    sample();
-                    m.set_pc(0x9F00);                                          // running in page 4
-                } else {
-                    m.set_pc(0x9F00);                                          // a plain dot calls out of its bank
-                }
-                frame(); frame();
-                if (!main_part) { m.set_pc(0x3F00); frame(); frame(); }       // and is back inside it
-                frame();
-                for (size_t i = 0; i < frames.size(); ++i) {
-                    if (m.dbg->rewind_to_frame(m.a, frames[i]) != Result::Ok) { note += " rewind-failed"; continue; }
-                    const auto st = m.dbg->source_map_status();
-                    const uint64_t t = m.emu.clock().get();
-                    const Sample* orig = nullptr;                              // the original run at cycle t
-                    for (const Sample& s2 : log) if (s2.clock <= t) orig = &s2;
-                    if (!orig) continue;
-                    ++compared;
-                    if (orig->pending != st.pending || orig->attached != (st.state == Debugger::SourceMapStatus::State::Attached))
-                        note += " frame " + std::to_string(frames[i]) + " orig-pending=" + std::to_string(orig->pending) +
-                                " landed-pending=" + std::to_string(st.pending);
-                    (orig->pending ? saw_true : saw_false) = true;
-                }
-            };
-            int c1 = 0, c2 = 0;
-            bool t1 = false, f1 = false, t2 = false, f2 = false;
-            std::string n1, n2;
-            trial(x_code, dotx_map, true, c1, t1, f1, n1);
-            trial(dot_code, dot_map, false, c2, t2, f2, n2);
-            check("SRCDOT-12", "a rewind into a dotx's main part (page 4) and into a plain dot's out-of-bank code reads the same status the original run showed at that "
-                               "instant (verified while running there, pending before the entry), for every frame of the history",
-                  c1 >= 5 && c2 >= 7 && t1 && f1 && t2 && f2 && n1.empty() && n2.empty(),
-                  "dotx compared=" + std::to_string(c1) + n1 + " dot compared=" + std::to_string(c2) + n2);
-        }
-        {   // SRCDOT-13 (review R5): a hand load paused inside the running command judges like a landing there
-            const auto loaded_at = [&](uint16_t pc, long flip) {
-                Machine m(false, MachineType::ZXN_ISSUE2);
-                put_dot(m, dot_code, flip);
-                enter_dot_bank(m);
-                start_at(m, pc);
-                const auto r = m.dbg->load_source_map(dot_map, false);
-                return std::make_pair(r, m.dbg->source_map_status());
-            };
-            const auto inside  = loaded_at(kMain, -1);     // in bank 2, the bytes are the command's
-            const auto foreign = loaded_at(kMain, 0xD62);  // in bank 2, another command
-            const auto outside = loaded_at(0x6000, -1);    // not running it
-            check("SRCDOT-13", "a hand load made while the CPU runs inside the command (bank 2, matching bytes) is verified at once, as a landing there would be; "
-                               "with other bytes in the bank, or the CPU elsewhere, it attaches pending",
-                  inside.first.count > 0 && !inside.second.pending && inside.second.state == Debugger::SourceMapStatus::State::Attached &&
-                      foreign.second.pending && outside.second.pending && !inside.first.pending &&
-                      has(inside.first.identity_note, "program identity verified") && !has(inside.first.identity_note, "pending") &&
-                      has(foreign.first.identity_note, "the dot command loads when it runs") && foreign.first.pending &&
-                      has(outside.first.identity_note, "the dot command loads when it runs"));
-        }
-        // Shared by SRCDOT-14..18: a Machine with a rewind ring, the command in bank 2 and a loop at $3F00 in it.
+            dot_machine(dot_code, dot_map, m, flip);
+            m.dbg->port_out(m.a, 0xE3, e3);
+            m.set_pc(kEntry);
+            log = debugger_log_of([&] { m.dbg->step_into(m.a); });
+            const bool premise = e3 == 0 ? m.dbg->source_page(kEntry).kind == MemSpace::Kind::Rom
+                                         : m.dbg->source_page(kEntry) == MemSpace::divmmc_ram(0);
+            return std::make_pair(m.dbg->source_map_status(), premise);
+        };
+        std::string la, lb, lc, ld;
+        const auto rom   = at_2000(0x00, -1, la);    // ROM at $2000, bank 2 holds the command
+        const auto bank0 = at_2000(0x80, -1, lb);    // DivMMC bank 0 (NextZXOS's hook), same
+        const auto rom_x = at_2000(0x00, 0xD62, lc); // ROM, bank 2 holds another command
+        const auto bk0_x = at_2000(0x80, 0xD62, ld);
+        const std::string all = la + lb + lc + ld;
+        check("SRCDOT-11", "$2000 run from ROM (E3 = 0) or from DivMMC bank 0 (E3 = $80) with bank 2 holding the command judges nothing: the map stays pending, "
+                           "no Verified line, and no 'not the one' line even when bank 2 holds another command",
+              rom.second && bank0.second && rom_x.second && bk0_x.second && rom.first.pending && bank0.first.pending &&
+                  rom_x.first.pending && bk0_x.first.pending && !has(all, "Verified") && !has(all, not_the_one) &&
+                  rom.first.state == Debugger::SourceMapStatus::State::Attached,
+              all);
+    }
+    {   // SRCDOT-12 (review R5): after a ring landing the status is what the original run showed at that instant
         struct Sample { uint64_t clock; bool pending; bool attached; };
-        const auto ring_machine = [&](Machine& m, const std::vector<uint8_t>& code, const std::string& map) {
+        const auto trial = [&](const std::vector<uint8_t>& code, const std::string& map, bool main_part,
+                               int& compared, bool& saw_true, bool& saw_false, std::string& note) {
+            Machine m(true, MachineType::ZXN_ISSUE2);
             dot_machine(code, map, m);
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;
+            if (main_part) tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", -1, 0);
+            const uint8_t loop[2] = {0x18, 0xFE};
+            m.dbg->poke(m.a, MemSpace::page(4), 0x1F00, 2, loop);          // a loop at $9F00 in page 4
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;        // and one at $3F00 in bank 2
             m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+            std::vector<Sample> log;
+            std::vector<uint32_t> frames;
+            const auto sample = [&] {   // the status of the original run now
+                const auto st = m.dbg->source_map_status();
+                log.push_back({m.emu.clock().get(), st.pending, st.state == Debugger::SourceMapStatus::State::Attached});
+            };
+            const auto frame = [&] {
+                sample();
+                frames.push_back(m.dbg->time().frame);
+                run_frames(m, 1);
+            };
             m.set_pc(0x6000);
-        };
-        // The status of the original run now, kept; `frames` the frame numbers a rewind can name.
-        const auto sample_of = [&](Machine& m, std::vector<Sample>& log) {
-            const auto st = m.dbg->source_map_status();
-            log.push_back({m.emu.clock().get(), st.pending, st.state == Debugger::SourceMapStatus::State::Attached});
-        };
-        const auto frame_of = [&](Machine& m, std::vector<Sample>& log, std::vector<uint32_t>& frames) {
-            sample_of(m, log);
-            run_frames(m, 1);
-            frames.push_back(m.dbg->time().frame);   // rewinding to it lands at the start of the frame just run
-        };
-        // Rewind to each of `frames`; compare the landed status with the last sample at or before the landed cycle.
-        const auto compare_rewinds = [&](Machine& m, const std::vector<Sample>& log, const std::vector<uint32_t>& frames,
-                                         int& compared, bool& saw_pending, bool& saw_verified, std::string& note) {
-            for (const uint32_t fr : frames) {
-                if (m.dbg->rewind_to_frame(m.a, fr) != Result::Ok) { note += " rewind-failed"; continue; }
+            frame(); frame();                                              // parked: pending
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);                                         // the entry
+            sample();
+            if (main_part) {
+                m.set_pc(0x87EB);
+                m.dbg->step_into(m.a);                                     // the main part's first run
+                sample();
+                m.set_pc(0x9F00);                                          // running in page 4
+            } else {
+                m.set_pc(0x9F00);                                          // a plain dot calls out of its bank
+            }
+            frame(); frame();
+            if (!main_part) { m.set_pc(0x3F00); frame(); frame(); }       // and is back inside it
+            frame();
+            for (size_t i = 0; i < frames.size(); ++i) {
+                if (m.dbg->rewind_to_frame(m.a, frames[i]) != Result::Ok) { note += " rewind-failed"; continue; }
                 const auto st = m.dbg->source_map_status();
                 const uint64_t t = m.emu.clock().get();
-                const Sample* orig = nullptr;
-                for (const Sample& q : log) if (q.clock <= t) orig = &q;
+                const Sample* orig = nullptr;                              // the original run at cycle t
+                for (const Sample& s2 : log) if (s2.clock <= t) orig = &s2;
                 if (!orig) continue;
                 ++compared;
                 if (orig->pending != st.pending || orig->attached != (st.state == Debugger::SourceMapStatus::State::Attached))
-                    note += " frame " + std::to_string(fr) + " orig-pending=" + std::to_string(orig->pending) +
+                    note += " frame " + std::to_string(frames[i]) + " orig-pending=" + std::to_string(orig->pending) +
                             " landed-pending=" + std::to_string(st.pending);
-                (orig->pending ? saw_pending : saw_verified) = true;
+                (orig->pending ? saw_true : saw_false) = true;
             }
         };
-        {   // SRCDOT-14 (review Q1): a rewind back across a reset into the running command
+        int c1 = 0, c2 = 0;
+        bool t1 = false, f1 = false, t2 = false, f2 = false;
+        std::string n1, n2;
+        trial(x_code, dotx_map, true, c1, t1, f1, n1);
+        trial(dot_code, dot_map, false, c2, t2, f2, n2);
+        check("SRCDOT-12", "a rewind into a dotx's main part (page 4) and into a plain dot's out-of-bank code reads the same status the original run showed at that "
+                           "instant (verified while running there, pending before the entry), for every frame of the history",
+              c1 >= 5 && c2 >= 7 && t1 && f1 && t2 && f2 && n1.empty() && n2.empty(),
+              "dotx compared=" + std::to_string(c1) + n1 + " dot compared=" + std::to_string(c2) + n2);
+    }
+    {   // SRCDOT-13 (review R5): a hand load paused inside the running command judges like a landing there
+        const auto loaded_at = [&](uint16_t pc, long flip) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            put_dot(m, dot_code, flip);
+            enter_dot_bank(m);
+            start_at(m, pc);
+            const auto r = m.dbg->load_source_map(dot_map, false);
+            return std::make_pair(r, m.dbg->source_map_status());
+        };
+        const auto inside  = loaded_at(kMain, -1);     // in bank 2, the bytes are the command's
+        const auto foreign = loaded_at(kMain, 0xD62);  // in bank 2, another command
+        const auto outside = loaded_at(0x6000, -1);    // not running it
+        check("SRCDOT-13", "a hand load made while the CPU runs inside the command (bank 2, matching bytes) is verified at once, as a landing there would be; "
+                           "with other bytes in the bank, or the CPU elsewhere, it attaches pending",
+              inside.first.count > 0 && !inside.second.pending && inside.second.state == Debugger::SourceMapStatus::State::Attached &&
+                  foreign.second.pending && outside.second.pending && !inside.first.pending &&
+                  has(inside.first.identity_note, "program identity verified") && !has(inside.first.identity_note, "pending") &&
+                  has(foreign.first.identity_note, "the dot command loads when it runs") && foreign.first.pending &&
+                  has(outside.first.identity_note, "the dot command loads when it runs"));
+    }
+    // Shared by SRCDOT-14..18: a Machine with a rewind ring, the command in bank 2 and a loop at $3F00 in it.
+    struct Sample { uint64_t clock; bool pending; bool attached; };
+}
+
+[[gnu::noinline]] static void srcdbg_part_82(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
+    const fs::path root = dir / "dot";
+    constexpr uint16_t kMain = 0x2D5F;
+    constexpr uint16_t kEntry = 0x2000;
+    const std::string dot_map = (root / "a" / "prog.map").string();
+    const std::string dotx_map = (root / "x" / "prog.map").string();
+    const std::vector<uint8_t> dot_code = read_all(root / "a" / "prog_CODE.bin");
+    const std::vector<uint8_t> x_code = read_all(root / "x" / "prog_CODE.bin");
+    const auto put_dot = [](Machine& m, const std::vector<uint8_t>& code, long flip = -1) {
+        uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
+        std::copy(code.begin(), code.end(), bank2);
+        if (flip >= 0) bank2[flip] ^= 0xFF;
+    };
+    const auto enter_dot_bank = [](Machine& m) { m.dbg->port_out(m.a, 0xE3, 0x82); };
+    // PC at `pc`, with a return address to the parked loop at $6000 on the stack.
+    const auto start_at = [](Machine& m, uint16_t pc) {
+        park(m);
+        m.emu.mmu().write(0xFEFE, 0x00);
+        m.emu.mmu().write(0xFEFF, 0x60);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.SP = 0xFEFE;
+        m.emu.cpu().set_registers(r);
+        m.set_pc(pc);
+    };
+    // A Next machine running the dot command `code` from bank 2 with `map` attached.
+    const auto dot_machine = [&](const std::vector<uint8_t>& code, const std::string& map, Machine& m,
+                                 long flip = -1) {
+        put_dot(m, code, flip);
+        enter_dot_bank(m);
+        start_at(m, 0x6000);   // parked while the map is loaded: a hand load made inside the command judges like a landing there
+        const auto r = m.dbg->load_source_map(map, false);
+        m.set_pc(kMain);
+        return r;
+    };
+    // Shared by SRCDOT-14..18: a Machine with a rewind ring, the command in bank 2 and a loop at $3F00 in it.
+    struct Sample { uint64_t clock; bool pending; bool attached; };
+    const auto ring_machine = [&](Machine& m, const std::vector<uint8_t>& code, const std::string& map) {
+        dot_machine(code, map, m);
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+        m.set_pc(0x6000);
+    };
+    // The status of the original run now, kept; `frames` the frame numbers a rewind can name.
+    const auto sample_of = [&](Machine& m, std::vector<Sample>& log) {
+        const auto st = m.dbg->source_map_status();
+        log.push_back({m.emu.clock().get(), st.pending, st.state == Debugger::SourceMapStatus::State::Attached});
+    };
+    const auto frame_of = [&](Machine& m, std::vector<Sample>& log, std::vector<uint32_t>& frames) {
+        sample_of(m, log);
+        run_frames(m, 1);
+        frames.push_back(m.dbg->time().frame);   // rewinding to it lands at the start of the frame just run
+    };
+    // Rewind to each of `frames`; compare the landed status with the last sample at or before the landed cycle.
+    const auto compare_rewinds = [&](Machine& m, const std::vector<Sample>& log, const std::vector<uint32_t>& frames,
+                                     int& compared, bool& saw_pending, bool& saw_verified, std::string& note) {
+        for (const uint32_t fr : frames) {
+            if (m.dbg->rewind_to_frame(m.a, fr) != Result::Ok) { note += " rewind-failed"; continue; }
+            const auto st = m.dbg->source_map_status();
+            const uint64_t t = m.emu.clock().get();
+            const Sample* orig = nullptr;
+            for (const Sample& q : log) if (q.clock <= t) orig = &q;
+            if (!orig) continue;
+            ++compared;
+            if (orig->pending != st.pending || orig->attached != (st.state == Debugger::SourceMapStatus::State::Attached))
+                note += " frame " + std::to_string(fr) + " orig-pending=" + std::to_string(orig->pending) +
+                        " landed-pending=" + std::to_string(st.pending);
+            (orig->pending ? saw_pending : saw_verified) = true;
+        }
+    };
+    {   // SRCDOT-14 (review Q1): a rewind back across a reset into the running command
+        Machine m(true, MachineType::ZXN_ISSUE2);
+        ring_machine(m, dot_code, dot_map);
+        std::vector<Sample> log;
+        std::vector<uint32_t> frames;
+        frame_of(m, log, frames); frame_of(m, log, frames);          // parked: pending
+        m.set_pc(kEntry);
+        m.dbg->step_into(m.a);
+        m.set_pc(0x3F00);                                           // running inside bank 2
+        sample_of(m, log);
+        frame_of(m, log, frames); frame_of(m, log, frames);
+        const bool ran_verified = !m.dbg->source_map_status().pending;
+        const Result rst = m.dbg->reset(m.a, ResetKind::Soft);
+        const bool after_reset_pending = m.dbg->source_map_status().pending;
+        run_frames(m, 2);
+        sample_of(m, log);
+        int compared = 0;
+        bool sp = false, sv = false;
+        std::string note;
+        compare_rewinds(m, log, std::vector<uint32_t>(frames.begin(), frames.end()), compared, sp, sv, note);
+        check("SRCDOT-14", "a rewind back across a soft reset into the frames where the command was running reads what the original run showed (verified there, "
+                           "pending before the entry), although the reset itself leaves the map pending: the records of the earlier generation are kept",
+              rst == Result::Ok && ran_verified && after_reset_pending && compared >= 3 && sp && sv && note.empty(),
+              "compared=" + std::to_string(compared) + note);
+    }
+    {   // SRCDOT-15 (review Q2): a live re-run after a rewind replaces what the first run recorded
+        const auto diverge = [&](bool foreign, std::string& note, bool& ok) {
             Machine m(true, MachineType::ZXN_ISSUE2);
             ring_machine(m, dot_code, dot_map);
-            std::vector<Sample> log;
-            std::vector<uint32_t> frames;
-            frame_of(m, log, frames); frame_of(m, log, frames);          // parked: pending
-            m.set_pc(kEntry);
-            m.dbg->step_into(m.a);
-            m.set_pc(0x3F00);                                           // running inside bank 2
-            sample_of(m, log);
-            frame_of(m, log, frames); frame_of(m, log, frames);
-            const bool ran_verified = !m.dbg->source_map_status().pending;
-            const Result rst = m.dbg->reset(m.a, ResetKind::Soft);
-            const bool after_reset_pending = m.dbg->source_map_status().pending;
-            run_frames(m, 2);
-            sample_of(m, log);
-            int compared = 0;
-            bool sp = false, sv = false;
-            std::string note;
-            compare_rewinds(m, log, std::vector<uint32_t>(frames.begin(), frames.end()), compared, sp, sv, note);
-            check("SRCDOT-14", "a rewind back across a soft reset into the frames where the command was running reads what the original run showed (verified there, "
-                               "pending before the entry), although the reset itself leaves the map pending: the records of the earlier generation are kept",
-                  rst == Result::Ok && ran_verified && after_reset_pending && compared >= 3 && sp && sv && note.empty(),
-                  "compared=" + std::to_string(compared) + note);
-        }
-        {   // SRCDOT-15 (review Q2): a live re-run after a rewind replaces what the first run recorded
-            const auto diverge = [&](bool foreign, std::string& note, bool& ok) {
-                Machine m(true, MachineType::ZXN_ISSUE2);
-                ring_machine(m, dot_code, dot_map);
-                std::vector<Sample> log;
-                std::vector<uint32_t> frames;
-                frame_of(m, log, frames);
-                const uint32_t f_pre = frames.back();
-                frame_of(m, log, frames);                                // the first run enters one frame later
-                m.set_pc(kEntry);
-                m.dbg->step_into(m.a);
-                m.set_pc(0x3F00);
-                sample_of(m, log);
-                frame_of(m, log, frames); frame_of(m, log, frames);
-                const bool first_verified = !m.dbg->source_map_status().pending;
-                if (m.dbg->rewind_to_frame(m.a, f_pre) != Result::Ok) { ok = false; return; }
-                const bool back_pending = m.dbg->source_map_status().pending;
-                // the new run: its entry comes at an earlier cycle, with another command or the same one
-                if (foreign) m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
-                std::vector<Sample> log2;
-                std::vector<uint32_t> frames2;
-                m.set_pc(kEntry);
-                m.dbg->step_into(m.a);
-                m.set_pc(0x3F00);
-                sample_of(m, log2);
-                frame_of(m, log2, frames2); frame_of(m, log2, frames2); frame_of(m, log2, frames2); frame_of(m, log2, frames2);
-                const bool new_pending = m.dbg->source_map_status().pending;
-                int compared = 0;
-                bool sp = false, sv = false;
-                compare_rewinds(m, log2, frames2, compared, sp, sv, note);
-                ok = first_verified && back_pending && new_pending == foreign && compared >= 3 && (foreign ? sp : sv) && note.empty();
-            };
-            std::string n1, n2;
-            bool ok1 = false, ok2 = false;
-            diverge(true, n1, ok1);
-            diverge(false, n2, ok2);
-            check("SRCDOT-15", "verified run, rewind to before the entry, a live re-run entering earlier with another command (and with the same command): a rewind into the "
-                               "new run reads the new run's status, the abandoned run's later verdict is gone",
-                  ok1 && ok2, n1 + "|" + n2);
-        }
-        {   // SRCDOT-16 (review Q3, N2): a landing between the matching entry and the main part's first run keeps the main part armed
-            Machine m(true, MachineType::ZXN_ISSUE2);
-            ring_machine(m, x_code, dotx_map);
-            tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", 0x7EB, 0);   // a wrong main part
             std::vector<Sample> log;
             std::vector<uint32_t> frames;
             frame_of(m, log, frames);
             const uint32_t f_pre = frames.back();
+            frame_of(m, log, frames);                                // the first run enters one frame later
             m.set_pc(kEntry);
-            m.dbg->step_into(m.a);                                       // armed
+            m.dbg->step_into(m.a);
             m.set_pc(0x3F00);
-            frame_of(m, log, frames); frame_of(m, log, frames); frame_of(m, log, frames);
-            const uint32_t f_mid = frames[2];                            // a frame boundary after the entry, before the main part runs
-            const Result r1 = m.dbg->rewind_to_frame(m.a, f_pre);
-            const auto s_pre = m.dbg->source_map_status();
-            const Result r2 = m.dbg->rewind_to_frame(m.a, f_mid);
-            const auto s_mid = m.dbg->source_map_status();
-            Debugger::SourceMapStatus s_end;
-            m.set_pc(0x87EB);
-            const std::string lg = debugger_log_of([&] { m.dbg->step_into(m.a); s_end = m.dbg->source_map_status(); });
-            check("SRCDOT-16", "dotx: after a rewind to before the entry and forward to a frame between the matching entry and the main part's first run, the main part is "
-                               "still armed: running it with a wrong byte drops the map, as in the original run",
-                  r1 == Result::Ok && r2 == Result::Ok && s_pre.pending && s_mid.pending &&
-                      s_end.state == Debugger::SourceMapStatus::State::None && has(lg, "Rejected z88dk source map"),
-                  lg);
-        }
-        {   // SRCDOT-17 (review Q3, N7): a history of several transitions is read back in every period
-            Machine m(true, MachineType::ZXN_ISSUE2);
-            ring_machine(m, dot_code, dot_map);
-            std::vector<Sample> log;
-            std::vector<uint32_t> frames;
-            const auto enter = [&] { enter_dot_bank(m); m.set_pc(kEntry); m.dbg->step_into(m.a); m.set_pc(0x3F00); };
-            frame_of(m, log, frames);                                    // pending
-            enter(); sample_of(m, log);                                  // verified
-            frame_of(m, log, frames);
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
-            enter(); sample_of(m, log);                                  // another command: pending
-            frame_of(m, log, frames);
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
-            enter(); sample_of(m, log);                                  // ours again: verified
-            frame_of(m, log, frames);
-            frame_of(m, log, frames);
+            sample_of(m, log);
+            frame_of(m, log, frames); frame_of(m, log, frames);
+            const bool first_verified = !m.dbg->source_map_status().pending;
+            if (m.dbg->rewind_to_frame(m.a, f_pre) != Result::Ok) { ok = false; return; }
+            const bool back_pending = m.dbg->source_map_status().pending;
+            // the new run: its entry comes at an earlier cycle, with another command or the same one
+            if (foreign) m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+            std::vector<Sample> log2;
+            std::vector<uint32_t> frames2;
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);
+            m.set_pc(0x3F00);
+            sample_of(m, log2);
+            frame_of(m, log2, frames2); frame_of(m, log2, frames2); frame_of(m, log2, frames2); frame_of(m, log2, frames2);
+            const bool new_pending = m.dbg->source_map_status().pending;
             int compared = 0;
             bool sp = false, sv = false;
-            std::string note;
-            compare_rewinds(m, log, frames, compared, sp, sv, note);
-            check("SRCDOT-17", "a history of verified, foreign entry, verified again, with frames in each period: a rewind into every frame reads the status the original run "
-                               "showed there",
-                  compared >= 4 && sp && sv && note.empty(), "compared=" + std::to_string(compared) + note);
-        }
-        {   // SRCDOT-18 (review Q3, N9): a hand load inside the command is part of the history
-            Machine m(true, MachineType::ZXN_ISSUE2);
-            put_dot(m, dot_code);
-            enter_dot_bank(m);
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;
-            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
-            start_at(m, 0x3F00);                                         // running the command's loop
-            const auto r = m.dbg->load_source_map(dot_map, false);
-            run_frames(m, 2);
-            const uint32_t f_later = m.dbg->time().frame;   // the start of the second frame, after the load
-            run_frames(m, 2);
-            const bool before = !m.dbg->source_map_status().pending;
-            const Result rr = m.dbg->rewind_to_frame(m.a, f_later);
-            const auto st = m.dbg->source_map_status();
-            check("SRCDOT-18", "a map hand-loaded while the CPU runs the command is verified, and a rewind to a later frame of that run still reads verified",
-                  r.count > 0 && before && rr == Result::Ok && !st.pending && st.state == Debugger::SourceMapStatus::State::Attached);
-        }
-        {   // SRCDOT-19 (review S1): a state load restores an earlier clock; the old run's verdict is not the new run's
-            Machine m(true, MachineType::ZXN_ISSUE2);
-            ring_machine(m, dot_code, dot_map);
-            run_frames(m, 1);                                            // parked
-            const auto saved = m.dbg->save_state_bytes(m.a, jnext::dbg::SaveStateMode::RefuseMidFrame);
-            m.set_pc(kEntry);
-            m.dbg->step_into(m.a);                                       // verified, in the old generation
-            m.set_pc(0x3F00);
-            run_frames(m, 3);
-            const bool old_verified = !m.dbg->source_map_status().pending;
-            Result ld = Result::Unsupported;
-            if (saved) ld = m.dbg->load_state_bytes(m.a, saved.value.data(), saved.value.size());
-            m.set_pc(0x6000);
-            run_frames(m, 1);
-            run_frames(m, 1);                                            // never entered: pending
-            const bool new_pending = m.dbg->source_map_status().pending;
-            const uint32_t f2 = m.dbg->time().frame;
-            const Result rr = m.dbg->rewind_to_frame(m.a, f2);
-            const auto st = m.dbg->source_map_status();
-            check("SRCDOT-19", "after a state load back to an earlier clock, a rewind into the new run (never entered) reads pending, not the old generation's verdict at an overlapping cycle",
-                  saved && ld == Result::Ok && old_verified && new_pending && rr == Result::Ok && st.pending &&
-                      st.state == Debugger::SourceMapStatus::State::Attached);
-        }
+            compare_rewinds(m, log2, frames2, compared, sp, sv, note);
+            ok = first_verified && back_pending && new_pending == foreign && compared >= 3 && (foreign ? sp : sv) && note.empty();
+        };
+        std::string n1, n2;
+        bool ok1 = false, ok2 = false;
+        diverge(true, n1, ok1);
+        diverge(false, n2, ok2);
+        check("SRCDOT-15", "verified run, rewind to before the entry, a live re-run entering earlier with another command (and with the same command): a rewind into the "
+                           "new run reads the new run's status, the abandoned run's later verdict is gone",
+              ok1 && ok2, n1 + "|" + n2);
     }
+    {   // SRCDOT-16 (review Q3, N2): a landing between the matching entry and the main part's first run keeps the main part armed
+        Machine m(true, MachineType::ZXN_ISSUE2);
+        ring_machine(m, x_code, dotx_map);
+        tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", 0x7EB, 0);   // a wrong main part
+        std::vector<Sample> log;
+        std::vector<uint32_t> frames;
+        frame_of(m, log, frames);
+        const uint32_t f_pre = frames.back();
+        m.set_pc(kEntry);
+        m.dbg->step_into(m.a);                                       // armed
+        m.set_pc(0x3F00);
+        frame_of(m, log, frames); frame_of(m, log, frames); frame_of(m, log, frames);
+        const uint32_t f_mid = frames[2];                            // a frame boundary after the entry, before the main part runs
+        const Result r1 = m.dbg->rewind_to_frame(m.a, f_pre);
+        const auto s_pre = m.dbg->source_map_status();
+        const Result r2 = m.dbg->rewind_to_frame(m.a, f_mid);
+        const auto s_mid = m.dbg->source_map_status();
+        Debugger::SourceMapStatus s_end;
+        m.set_pc(0x87EB);
+        const std::string lg = debugger_log_of([&] { m.dbg->step_into(m.a); s_end = m.dbg->source_map_status(); });
+        check("SRCDOT-16", "dotx: after a rewind to before the entry and forward to a frame between the matching entry and the main part's first run, the main part is "
+                           "still armed: running it with a wrong byte drops the map, as in the original run",
+              r1 == Result::Ok && r2 == Result::Ok && s_pre.pending && s_mid.pending &&
+                  s_end.state == Debugger::SourceMapStatus::State::None && has(lg, "Rejected z88dk source map"),
+              lg);
+    }
+    {   // SRCDOT-17 (review Q3, N7): a history of several transitions is read back in every period
+        Machine m(true, MachineType::ZXN_ISSUE2);
+        ring_machine(m, dot_code, dot_map);
+        std::vector<Sample> log;
+        std::vector<uint32_t> frames;
+        const auto enter = [&] { enter_dot_bank(m); m.set_pc(kEntry); m.dbg->step_into(m.a); m.set_pc(0x3F00); };
+        frame_of(m, log, frames);                                    // pending
+        enter(); sample_of(m, log);                                  // verified
+        frame_of(m, log, frames);
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+        enter(); sample_of(m, log);                                  // another command: pending
+        frame_of(m, log, frames);
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+        enter(); sample_of(m, log);                                  // ours again: verified
+        frame_of(m, log, frames);
+        frame_of(m, log, frames);
+        int compared = 0;
+        bool sp = false, sv = false;
+        std::string note;
+        compare_rewinds(m, log, frames, compared, sp, sv, note);
+        check("SRCDOT-17", "a history of verified, foreign entry, verified again, with frames in each period: a rewind into every frame reads the status the original run "
+                           "showed there",
+              compared >= 4 && sp && sv && note.empty(), "compared=" + std::to_string(compared) + note);
+    }
+    {   // SRCDOT-18 (review Q3, N9): a hand load inside the command is part of the history
+        Machine m(true, MachineType::ZXN_ISSUE2);
+        put_dot(m, dot_code);
+        enter_dot_bank(m);
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;
+        m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+        start_at(m, 0x3F00);                                         // running the command's loop
+        const auto r = m.dbg->load_source_map(dot_map, false);
+        run_frames(m, 2);
+        const uint32_t f_later = m.dbg->time().frame;   // the start of the second frame, after the load
+        run_frames(m, 2);
+        const bool before = !m.dbg->source_map_status().pending;
+        const Result rr = m.dbg->rewind_to_frame(m.a, f_later);
+        const auto st = m.dbg->source_map_status();
+        check("SRCDOT-18", "a map hand-loaded while the CPU runs the command is verified, and a rewind to a later frame of that run still reads verified",
+              r.count > 0 && before && rr == Result::Ok && !st.pending && st.state == Debugger::SourceMapStatus::State::Attached);
+    }
+    {   // SRCDOT-19 (review S1): a state load restores an earlier clock; the old run's verdict is not the new run's
+        Machine m(true, MachineType::ZXN_ISSUE2);
+        ring_machine(m, dot_code, dot_map);
+        run_frames(m, 1);                                            // parked
+        const auto saved = m.dbg->save_state_bytes(m.a, jnext::dbg::SaveStateMode::RefuseMidFrame);
+        m.set_pc(kEntry);
+        m.dbg->step_into(m.a);                                       // verified, in the old generation
+        m.set_pc(0x3F00);
+        run_frames(m, 3);
+        const bool old_verified = !m.dbg->source_map_status().pending;
+        Result ld = Result::Unsupported;
+        if (saved) ld = m.dbg->load_state_bytes(m.a, saved.value.data(), saved.value.size());
+        m.set_pc(0x6000);
+        run_frames(m, 1);
+        run_frames(m, 1);                                            // never entered: pending
+        const bool new_pending = m.dbg->source_map_status().pending;
+        const uint32_t f2 = m.dbg->time().frame;
+        const Result rr = m.dbg->rewind_to_frame(m.a, f2);
+        const auto st = m.dbg->source_map_status();
+        check("SRCDOT-19", "after a state load back to an earlier clock, a rewind into the new run (never entered) reads pending, not the old generation's verdict at an overlapping cycle",
+              saved && ld == Result::Ok && old_verified && new_pending && rr == Result::Ok && st.pending &&
+                  st.state == Debugger::SourceMapStatus::State::Attached);
+    }
+}
+
+[[gnu::noinline]] static void srcdbg_part_83(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+
 
     // ── GH #387 (E23-24): the user's labels and comments through the backend ────────
     // Oracle: design 10.2/10.3 (two layers, one reader: user label, else toolchain paged, else toolchain
@@ -11843,6 +14665,22 @@ int main() {
                   run_set == Result::Ok && running && r.dbg->lookup_name("banked") == std::optional<uint16_t>(0xC000));
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_84(Ctx& ctx) {
+    const fs::path& dir = ctx.dir;
+    const unsigned p80 = ctx.p80;
+    const unsigned p90 = ctx.p90;
+    const auto attach = [&](Machine& m, const std::string& stem) {
+        return attach_sidecars(ctx, m, stem);
+    };
+
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
 
     // ── GH #387: the store has no lifetime (design 6.8) ──────────────────────────────
     {
@@ -12080,6 +14918,120 @@ int main() {
                   poke_seen && fingerprint(m) != mid);
         }
     }
+}
+
+[[gnu::noinline]] static void srcdbg_part_85(Ctx&) {
+
+}
+
+// A Machine is ~1 MB of frame: kept out of main()
+[[gnu::noinline]] static void read_pages(unsigned& p80, unsigned& p90) {
+    Machine m;
+    p80 = m.dbg->effective_page(0x8000);
+    p90 = m.dbg->effective_page(0x9000);
+}
+
+int main() {
+    std::printf("Source-level debugging (backend)\n");
+    const fs::path dir = fs::temp_directory_path() /
+                         ("jnext-source-debug-" + std::to_string(::getpid()));
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    // The pages behind $8000 and $9000 on this machine, read rather than
+    // assumed: the map must name exactly what the MMU maps.
+    unsigned p80 = 0, p90 = 0;
+    read_pages(p80, p90);
+    const fs::path sld = dir / "prog.sld";
+    write_text(sld, program_sld(p80, p90));
+    Ctx ctx;
+    ctx.dir = dir; ctx.p80 = p80; ctx.p90 = p90; ctx.sld = sld; ctx.own = dir / "own";
+
+    srcdbg_part_01(ctx);
+    srcdbg_part_02(ctx);
+    srcdbg_part_03(ctx);
+    srcdbg_part_04(ctx);
+    srcdbg_part_05(ctx);
+    srcdbg_part_06(ctx);
+    srcdbg_part_07(ctx);
+    srcdbg_part_08(ctx);
+    srcdbg_part_09(ctx);
+    srcdbg_part_10(ctx);
+    srcdbg_part_11(ctx);
+    srcdbg_part_12(ctx);
+    srcdbg_part_13(ctx);
+    srcdbg_part_14(ctx);
+    srcdbg_part_15(ctx);
+    srcdbg_part_16(ctx);
+    srcdbg_part_17(ctx);
+    srcdbg_part_18(ctx);
+    srcdbg_part_19(ctx);
+    srcdbg_part_20(ctx);
+    srcdbg_part_21(ctx);
+    srcdbg_part_22(ctx);
+    srcdbg_part_23(ctx);
+    srcdbg_part_24(ctx);
+    srcdbg_part_25(ctx);
+    srcdbg_part_26(ctx);
+    srcdbg_part_27(ctx);
+    srcdbg_part_28(ctx);
+    srcdbg_part_29(ctx);
+    srcdbg_part_30(ctx);
+    srcdbg_part_31(ctx);
+    srcdbg_part_32(ctx);
+    srcdbg_part_33(ctx);
+    srcdbg_part_34(ctx);
+    srcdbg_part_35(ctx);
+    srcdbg_part_36(ctx);
+    srcdbg_part_37(ctx);
+    srcdbg_part_38(ctx);
+    srcdbg_part_39(ctx);
+    srcdbg_part_40(ctx);
+    srcdbg_part_41(ctx);
+    srcdbg_part_42(ctx);
+    srcdbg_part_43(ctx);
+    srcdbg_part_44(ctx);
+    srcdbg_part_45(ctx);
+    srcdbg_part_46(ctx);
+    srcdbg_part_47(ctx);
+    srcdbg_part_48(ctx);
+    srcdbg_part_49(ctx);
+    srcdbg_part_50(ctx);
+    srcdbg_part_51(ctx);
+    srcdbg_part_52(ctx);
+    srcdbg_part_53(ctx);
+    srcdbg_part_54(ctx);
+    srcdbg_part_55(ctx);
+    srcdbg_part_56(ctx);
+    srcdbg_part_57(ctx);
+    srcdbg_part_58(ctx);
+    srcdbg_part_59(ctx);
+    srcdbg_part_60(ctx);
+    srcdbg_part_61(ctx);
+    srcdbg_part_62(ctx);
+    srcdbg_part_63(ctx);
+    srcdbg_part_64(ctx);
+    srcdbg_part_65(ctx);
+    srcdbg_part_66(ctx);
+    srcdbg_part_67(ctx);
+    srcdbg_part_68(ctx);
+    srcdbg_part_69(ctx);
+    srcdbg_part_70(ctx);
+    srcdbg_part_71(ctx);
+    srcdbg_part_72(ctx);
+    srcdbg_part_73(ctx);
+    srcdbg_part_74(ctx);
+    srcdbg_part_75(ctx);
+    srcdbg_part_76(ctx);
+    srcdbg_part_77(ctx);
+    srcdbg_part_78(ctx);
+    srcdbg_part_79(ctx);
+    srcdbg_part_80(ctx);
+    srcdbg_part_81(ctx);
+    srcdbg_part_82(ctx);
+    srcdbg_part_83(ctx);
+    srcdbg_part_84(ctx);
+    srcdbg_part_85(ctx);
 
     fs::remove_all(dir);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
