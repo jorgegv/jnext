@@ -2122,43 +2122,58 @@ void test_console_rows() {
 // rows build, and no row touches the network or a real NextZXOS image.
 // ---------------------------------------------------------------------------
 
-// A stored single-entry zip of the file `src` named `name`, streamed (the FAT32 source is
-// ~600 MB of mostly zeros, which make_zip's in-memory vector would copy).
+// A deflated single-entry zip of the file `src` named `name`, streamed (the FAT32 source is ~600 MB of mostly
+// zeros, which make_zip's in-memory vector would copy). Deflated, not stored: the zip is ~1 MB instead of 600 MB,
+// so each stubbed "download" of it copies ~1 MB, not 600 MB (GH #503); unzip_entry still inflates the full image.
 bool make_zip_file(const std::string& zip, const std::string& name, const std::string& src) {
     std::ifstream in(src, std::ios::binary);
     if (!in) return false;
     uint32_t crc = static_cast<uint32_t>(crc32(0L, Z_NULL, 0));
     uint64_t size = 0;
     std::vector<char> buf(1 << 20);
+    std::vector<uint8_t> comp, chunk(1 << 16);
+    z_stream zs{};
+    if (deflateInit2(&zs, Z_BEST_SPEED, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK) return false;
+    auto pump = [&](int flush) {
+        do {
+            zs.next_out = chunk.data();
+            zs.avail_out = static_cast<uInt>(chunk.size());
+            deflate(&zs, flush);
+            comp.insert(comp.end(), chunk.begin(), chunk.end() - zs.avail_out);
+        } while (zs.avail_out == 0);
+    };
     while (in) {
         in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
         const auto n = in.gcount();
         if (n <= 0) break;
         crc = static_cast<uint32_t>(crc32(crc, reinterpret_cast<const Bytef*>(buf.data()), static_cast<uInt>(n)));
         size += static_cast<uint64_t>(n);
+        zs.next_in = reinterpret_cast<Bytef*>(buf.data());
+        zs.avail_in = static_cast<uInt>(n);
+        pump(Z_NO_FLUSH);
     }
+    zs.avail_in = 0;
+    pump(Z_FINISH);
+    deflateEnd(&zs);
+    const uint32_t csize = static_cast<uint32_t>(comp.size());
     std::vector<uint8_t> head;
-    put32(head, 0x04034b50); put16(head, 20); put16(head, 0); put16(head, 0); put16(head, 0); put16(head, 0);
-    put32(head, crc); put32(head, static_cast<uint32_t>(size)); put32(head, static_cast<uint32_t>(size));
+    put32(head, 0x04034b50); put16(head, 20); put16(head, 0); put16(head, 8); put16(head, 0); put16(head, 0);
+    put32(head, crc); put32(head, csize); put32(head, static_cast<uint32_t>(size));
     put16(head, static_cast<uint16_t>(name.size())); put16(head, 0);
     head.insert(head.end(), name.begin(), name.end());
     std::vector<uint8_t> tail;
-    put32(tail, 0x02014b50); put16(tail, 20); put16(tail, 20); put16(tail, 0); put16(tail, 0); put16(tail, 0); put16(tail, 0);
-    put32(tail, crc); put32(tail, static_cast<uint32_t>(size)); put32(tail, static_cast<uint32_t>(size));
+    put32(tail, 0x02014b50); put16(tail, 20); put16(tail, 20); put16(tail, 0); put16(tail, 8); put16(tail, 0); put16(tail, 0);
+    put32(tail, crc); put32(tail, csize); put32(tail, static_cast<uint32_t>(size));
     put16(tail, static_cast<uint16_t>(name.size())); put16(tail, 0); put16(tail, 0); put16(tail, 0); put16(tail, 0);
     put32(tail, 0); put32(tail, 0);
     tail.insert(tail.end(), name.begin(), name.end());
     const uint32_t cd_size = static_cast<uint32_t>(tail.size());
-    const uint32_t cd_off  = static_cast<uint32_t>(head.size() + size);
+    const uint32_t cd_off  = static_cast<uint32_t>(head.size() + comp.size());
     put32(tail, 0x06054b50); put16(tail, 0); put16(tail, 0); put16(tail, 1); put16(tail, 1);
     put32(tail, cd_size); put32(tail, cd_off); put16(tail, 0);
     std::ofstream out(zip, std::ios::binary | std::ios::trunc);
     out.write(reinterpret_cast<const char*>(head.data()), static_cast<std::streamsize>(head.size()));
-    std::ifstream in2(src, std::ios::binary);
-    while (in2) {
-        in2.read(buf.data(), static_cast<std::streamsize>(buf.size()));
-        if (in2.gcount() > 0) out.write(buf.data(), in2.gcount());
-    }
+    out.write(reinterpret_cast<const char*>(comp.data()), static_cast<std::streamsize>(comp.size()));
     out.write(reinterpret_cast<const char*>(tail.data()), static_cast<std::streamsize>(tail.size()));
     return static_cast<bool>(out);
 }
@@ -2172,6 +2187,47 @@ uint32_t volume_serial(const std::string& img, uint32_t part_lba, uint32_t secto
     f.read(reinterpret_cast<char*>(b), 4);
     return static_cast<uint32_t>(b[0]) | static_cast<uint32_t>(b[1]) << 8 |
            static_cast<uint32_t>(b[2]) << 16 | static_cast<uint32_t>(b[3]) << 24;
+}
+
+// Copy `from` to `to` keeping its all-zero 1 MiB blocks as holes. The 600 MB FAT32 fixtures are almost all
+// zeros: a plain copy (or read_file + write_file) writes every one of them, ~600 MB of disk traffic per row,
+// which on a slow runner is most of the suite's time (GH #503).
+bool copy_sparse(const std::string& from, const std::string& to) {
+    std::ifstream in(from, std::ios::binary);
+    std::ofstream out(to, std::ios::binary | std::ios::trunc);
+    if (!in || !out) return false;
+    std::vector<char> buf(1 << 20), zero(1 << 20, 0);
+    uint64_t total = 0;
+    while (in) {
+        in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+        const auto n = in.gcount();
+        if (n <= 0) break;
+        if (std::memcmp(buf.data(), zero.data(), static_cast<size_t>(n)) != 0) {
+            out.seekp(static_cast<std::streamoff>(total));
+            out.write(buf.data(), n);
+        }
+        total += static_cast<uint64_t>(n);
+    }
+    out.close();
+    std::error_code ec;
+    std::filesystem::resize_file(to, total, ec);
+    return !ec && !out.fail();
+}
+
+// The one FAT32 source image (and its zip and SHA-256) every row that needs a 600 MB source starts from: built
+// once, on first use, instead of once per row (GH #503). Rows copy it (copy_sparse) and never modify it.
+struct SharedSrc { bool ok = false; std::string err, img, zip, sha; };
+const SharedSrc& shared_src() {
+    static SharedSrc s;
+    static bool built = false;
+    if (!built) {
+        built = true;
+        s.img = g_tmpdir + "/shared-src.img";
+        s.zip = g_tmpdir + "/shared-src.zip";
+        s.ok = make_fat32_source(s.img, 63, 1228800, s.err) && make_zip_file(s.zip, "cspect-next-1gb.img", s.img);
+        if (s.ok) s.sha = sdcard::sha256_file(s.img);
+    }
+    return s;
 }
 
 void test_upgrade_rows() {
@@ -2199,10 +2255,11 @@ void test_upgrade_rows() {
     auto user_card_only = [&] { clean(); write_file(fixed, user_card); };
 
     // The FAT32 source every derive row starts from, and the "download" of it.
-    const std::string src = g_tmpdir + "/upg-src.img", big_zip = g_tmpdir + "/upg-big.zip";
-    std::string serr;
-    const bool src_ok = make_fat32_source(src, 63, 1228800, serr) &&
-                        make_zip_file(big_zip, "cspect-next-1gb.img", src);
+    const SharedSrc& shared = shared_src();
+    const std::string& src = shared.img;
+    const std::string& big_zip = shared.zip;
+    const std::string& serr = shared.err;
+    const bool src_ok = shared.ok;
     check("PROV-DIST-00", "the offline fixtures (a FAT32 source image and its zip) are built", src_ok, serr);
     if (!src_ok) { jtp::unset_env("JNEXT_CONFIG_DIR"); return; }
 
@@ -2383,10 +2440,10 @@ void test_upgrade_rows() {
     // -- SER-01..03: each distribution's card has its own serial -----------------
     {
         clean();
-        write_file(raw, read_file(src)); write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
+        copy_sparse(src, raw); write_sha256_sidecar(raw, shared.sha); write_default_raw_distro(raw);   // raw == src
         sdcard::ProvisionOptions o; o.download = failing_dl; o.confirm = [](const std::string&) { return true; };
         auto r = sdcard::provision_sd_card(o);
-        const uint32_t want = sdcard::volume_id_from_sha256(sdcard::sha256_file(raw));
+        const uint32_t want = sdcard::volume_id_from_sha256(shared.sha);
         const uint32_t got = volume_serial(fixed, 63, 0), bak = volume_serial(fixed, 63, 6);
         check("PROV-SER-01", "the derived card's BS_VolID32 and its backup boot sector copy equal the first 4 bytes of the raw's SHA-256",
               r.status == sdcard::ProvisionStatus::Ok && want != 0 && got == want && bak == want,
@@ -2394,12 +2451,18 @@ void test_upgrade_rows() {
         const uint32_t first = got;
         clean();
         // the same raw again: the same serial; another raw (one boot-code byte differs): another serial
-        write_file(raw, read_file(src)); write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
+        copy_sparse(src, raw); write_sha256_sidecar(raw, shared.sha); write_default_raw_distro(raw);
         (void)sdcard::provision_sd_card(o);
         const uint32_t again = volume_serial(fixed, 63, 0);
         clean();
-        std::vector<uint8_t> other = read_file(src); other[0x10] ^= 0x5A;
-        write_file(raw, other); write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
+        copy_sparse(src, raw);
+        {   // one boot-code byte differs
+            std::fstream f(raw, std::ios::in | std::ios::out | std::ios::binary);
+            char c = 0;
+            f.seekg(0x10); f.read(&c, 1); c = static_cast<char>(c ^ 0x5A);
+            f.seekp(0x10); f.write(&c, 1);
+        }
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
         (void)sdcard::provision_sd_card(o);
         const uint32_t different = volume_serial(fixed, 63, 0);
         check("PROV-SER-02", "the same raw gives the same serial twice; a different raw gives a different one",
@@ -2418,8 +2481,6 @@ void test_upgrade_rows() {
               volume_serial(fixed, 63, 0) != 0, r.error);
         clean();
     }
-    std::remove(src.c_str());
-    std::remove(big_zip.c_str());
     jtp::unset_env("JNEXT_CONFIG_DIR");
 }
 
@@ -2442,10 +2503,10 @@ void test_retry_rows() {
             std::remove(f.c_str());
         sdcard::discard_partial(zip);
     };
-    const std::string src = g_tmpdir + "/retry-src.img", good_zip = g_tmpdir + "/retry-good.zip";
-    std::string serr;
-    const bool src_ok = make_fat32_source(src, 63, 1228800, serr) &&
-                        make_zip_file(good_zip, "cspect-next-1gb.img", src);
+    const SharedSrc& shared = shared_src();
+    const std::string& good_zip = shared.zip;
+    const std::string& serr = shared.err;
+    const bool src_ok = shared.ok;
     check("PROV-RETRY-01", "the offline fixtures (a FAT32 source image and its zip) are built", src_ok, serr);
     if (!src_ok) { jtp::unset_env("JNEXT_CONFIG_DIR"); return; }
     jtp::unset_env("JNEXT_SDCARD_RETRY_BACKOFF_MS");   // the real 2 s base for these rows
@@ -2629,8 +2690,6 @@ void test_retry_rows() {
     }
     jtp::set_env("JNEXT_SDCARD_RETRY_BACKOFF_MS", "0");   // back to the suite's no-wait setting
     clean();
-    std::remove(src.c_str());
-    std::remove(good_zip.c_str());
     jtp::unset_env("JNEXT_CONFIG_DIR");
 }
 
@@ -2965,12 +3024,13 @@ int main() {
     //    image from a trusted raw (SHA256 matches), no download, raw pristine --
     {
         std::remove(fixed.c_str());
-        std::string berr;
-        // ~600 MB partition at LBA 63 (sparse) → valid 8 KB-cluster FAT32.
-        bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
+        // ~600 MB partition at LBA 63 (sparse) → valid 8 KB-cluster FAT32: a copy of the shared source.
+        const SharedSrc& shared = shared_src();
+        std::string berr = shared.err;
+        bool src_ok = shared.ok && copy_sparse(shared.img, raw);
         check("PROV-FIXED-01", "raw FAT32 source built", src_ok, berr);
 
-        const std::string h_before = sdcard::sha256_file(raw);
+        const std::string h_before = shared.sha;   // raw is a byte copy of the source
         write_sha256_sidecar(raw, h_before); write_default_raw_distro(raw); // trusted raw
 
         download_called = false;
@@ -3010,10 +3070,11 @@ int main() {
     //    return value is honoured, not ignored. --
     {
         std::remove(fixed.c_str());
-        std::string berr;
-        bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
+        const SharedSrc& shared = shared_src();
+        std::string berr = shared.err;
+        bool src_ok = shared.ok && copy_sparse(shared.img, raw);
         check("PROV-BUSY-02", "raw FAT32 source built", src_ok, berr);
-        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw); // trusted raw
+        write_sha256_sidecar(raw, shared.sha); write_default_raw_distro(raw); // trusted raw
 
         sdcard::ProvisionOptions o;
         o.download = recording_dl; // must NOT be called (skip-redownload)
@@ -3096,9 +3157,10 @@ int main() {
         // 01: a derive records the recipe that made the image, replacing a
         // stale sidecar from an older one.
         std::remove(fixed.c_str());
-        std::string berr;
-        bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
-        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
+        const SharedSrc& shared = shared_src();
+        std::string berr = shared.err;
+        bool src_ok = shared.ok && copy_sparse(shared.img, raw);
+        write_sha256_sidecar(raw, shared.sha); write_default_raw_distro(raw);
         write_file(recipe, {'1', '\n'});
         sdcard::ProvisionOptions o;
         o.download = recording_dl;
