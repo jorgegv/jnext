@@ -11,8 +11,6 @@ Two honest caveats:
 - **Extreme cycle-exactness is not a goal.** "Good enough to develop games on"
   is. A handful of demos that depend on sub-scanline timing may not be
   pixel-perfect.
-- **JNEXT 1.0 is not finished.** Fixes are still pending and many features
-  are on the roadmap. It works well enough for its author, and hopefully for
-  you; the 1.0 release is meant to bring more users and more bug reports. Rough
-  edges are listed rather than hidden — see [1.4, *Getting help and reporting bugs*](04-getting-help-and-reporting-bugs.md#known-issues) — and
+- **JNEXT is still under active development.** Some fixes are pending and more
+  features are on the roadmap. Rough edges are listed rather than hidden — see [1.4, *Getting help and reporting bugs*](04-getting-help-and-reporting-bugs.md#known-issues) — and
   bugs go to the issue tracker, <https://github.com/jorgegv/jnext/issues>.
