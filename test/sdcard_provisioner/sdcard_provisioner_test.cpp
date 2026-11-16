@@ -1308,7 +1308,7 @@ void test_stall_rows() {
 
     // 08: the production numbers, end to end: default_http_download gives up at 30 s, not 120.
     // The row waits 30 s of real time, so it runs on a thread started at the top of this function and
-    // overlaps every other row; its check() is made by run_deferred_checks() once the others are done.
+    // overlaps every other row; its check() is made from g_deferred at the end of main(), before the Total line.
     // (GH #503: it was 30 of the suite's 57 s on the dev host, and a wait does not shrink on a slow runner.)
 
     // 09: a transport failure is not a stall: it ends the attempt at once with the transport's own reason, and the
