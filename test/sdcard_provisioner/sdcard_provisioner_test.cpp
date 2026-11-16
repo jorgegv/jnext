@@ -158,6 +158,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <future>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -185,6 +188,9 @@ void check(const char* id, const char* desc, bool cond,
 }
 
 std::string g_tmpdir;
+
+// Row checks whose work ran on a thread (PROV-STALL-08): run once every other row is done.
+std::vector<std::function<void()>> g_deferred;
 
 std::string tp(const char* name) { return g_tmpdir + "/" + name; }
 
@@ -1022,6 +1028,47 @@ void test_stall_rows() {
     const sdcard::DownloadTimings fast{200, 2000};   // tick 200 ms, stall after 2 s
     const std::string kEtag = "\"v1\"";
 
+    // PROV-STALL-08 (see its row below): launched first so its 30 s of waiting overlaps the rest of the suite.
+    {
+        const rs::Opts o8 = stalling(40000);
+        const std::string dest8 = dest_in("h");
+        auto fut = std::make_shared<std::future<std::pair<bool, std::string>>>(std::async(
+            std::launch::async, [o8, dest8, slurp, num]() -> std::pair<bool, std::string> {
+                rs::Server srv;
+                if (!srv.ok()) return {false, "NOSRV:cannot listen on 127.0.0.1"};
+                srv.set(o8);
+                Seen seen;
+                std::string err;
+                const Clk::time_point t0 = Clk::now();
+                const bool ok = sdcard::default_http_download(srv.url(), dest8, seen.fn(), err);
+                const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+                const double gap = seen.max_gap_from(100000, 300000, seen.now());
+                sdcard::ResumeInfo ri;
+                const bool cond = !ok && secs >= 29.5 && secs <= 34.0 &&
+                                  err.rfind("stalled: no data received for 30 s", 0) == 0 &&
+                                  seen.count_at(100000, 300000) >= 100 && gap <= 0.8 &&
+                                  slurp(sdcard::partial_path(dest8)).size() == 100000 &&
+                                  sdcard::read_resume_info(dest8, ri);
+                return {cond, "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err +
+                                  "' calls_at_stall=" + std::to_string(seen.count_at(100000, 300000)) +
+                                  " max_gap=" + num(gap) + "s part=" +
+                                  std::to_string(slurp(sdcard::partial_path(dest8)).size())};
+            }));
+        g_deferred.push_back([fut] {
+            const auto r = fut->get();
+            if (!r.first && r.second.rfind("NOSRV:", 0) == 0) {
+                check("PROV-STALL-08", "loopback server fixture started", false, r.second.substr(6));
+                return;
+            }
+            check("PROV-STALL-08",
+                  "default_http_download (the production numbers) gives up on a silent connection at 30 s, not "
+                  "120: it returns in 29.5-34 s with 'stalled: no data received for 30 s', called the ProgressFn "
+                  "at least 100 times at (100000, 300000) with no gap over 800 ms, and kept the 100000-byte "
+                  ".part and its record",
+                  r.first, r.second);
+        });
+    }
+
     // 01: the ProgressFn is called through the stall, every tick.
     {
         rs::Server srv;
@@ -1260,33 +1307,9 @@ void test_stall_rows() {
     }
 
     // 08: the production numbers, end to end: default_http_download gives up at 30 s, not 120.
-    {
-        rs::Server srv;
-        if (!srv.ok()) {
-            check("PROV-STALL-08", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
-        } else {
-            const std::string dest = dest_in("h");
-            srv.set(stalling(40000));
-            Seen seen;
-            std::string err;
-            const Clk::time_point t0 = Clk::now();
-            const bool ok = sdcard::default_http_download(srv.url(), dest, seen.fn(), err);
-            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
-            const double gap = seen.max_gap_from(100000, 300000, seen.now());
-            sdcard::ResumeInfo ri;
-            check("PROV-STALL-08",
-                  "default_http_download (the production numbers) gives up on a silent connection at 30 s, not "
-                  "120: it returns in 29.5-34 s with 'stalled: no data received for 30 s', called the ProgressFn "
-                  "at least 100 times at (100000, 300000) with no gap over 800 ms, and kept the 100000-byte "
-                  ".part and its record",
-                  !ok && secs >= 29.5 && secs <= 34.0 && err.rfind("stalled: no data received for 30 s", 0) == 0 &&
-                      seen.count_at(100000, 300000) >= 100 && gap <= 0.8 &&
-                      slurp(sdcard::partial_path(dest)).size() == 100000 && sdcard::read_resume_info(dest, ri),
-                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "' calls_at_stall=" +
-                      std::to_string(seen.count_at(100000, 300000)) + " max_gap=" + num(gap) + "s part=" +
-                      std::to_string(slurp(sdcard::partial_path(dest)).size()));
-        }
-    }
+    // The row waits 30 s of real time, so it runs on a thread started at the top of this function and
+    // overlaps every other row; its check() is made by run_deferred_checks() once the others are done.
+    // (GH #503: it was 30 of the suite's 57 s on the dev host, and a wait does not shrink on a slow runner.)
 
     // 09: a transport failure is not a stall: it ends the attempt at once with the transport's own reason, and the
     // RIGHT one, since that is what the user reads when the network or the server is down. Two ways to fail, one
@@ -3508,6 +3531,7 @@ int main() {
     test_console_rows();
     test_upgrade_rows();
 
+    for (const auto& d : g_deferred) d();   // joins the PROV-STALL-08 thread before g_tmpdir goes
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);
