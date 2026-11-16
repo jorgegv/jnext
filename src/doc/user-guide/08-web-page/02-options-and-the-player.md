@@ -6,12 +6,12 @@
 |---|---|---|
 | `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. Without it the machine boots to the NextZXOS menu. |
 | `width`, `height` | number (CSS pixels) or CSS length | The box the player fills; the picture is letterboxed inside it. Default `100%`. |
-| `poster` | URL | A picture, a screenshot of the game, shown before the click so the player is not black on load. |
+| `poster` | URL | A picture, a screenshot of the game, shown in the player area before the click so the player is not black on load. The emulator replaces it when the visitor starts the player. Without it nothing is shown there. |
 | `machine` | string | `--machine`. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |
-| `keepWrites` | boolean | Keep the program's saves in the visitor's browser (off by default; [8.4](04-the-image-and-what-the-browser-keeps.md)). |
-| `card` | `{source}` | How the page gets NextZXOS's SD card ([8.4](04-the-image-and-what-the-browser-keeps.md)). The default, `'auto'`, is the right choice for most pages. |
-| `touchKeyboard` | `'auto'`, `'on'` or `'off'` | The on-screen keyboard (see "Keyboard", below). |
+| `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in [8.3](03-itch-and-limits.md) and [8.4](04-the-image-and-what-the-browser-keeps.md). |
+| `card` | `{source}` | How the page gets NextZXOS's SD card ([8.4](04-the-image-and-what-the-browser-keeps.md)). The default, `'auto'`, is the right choice for most pages. The page never names an address or a digest. |
+| `touchKeyboard` | `'auto'`, `'on'` or `'off'` | `--touch-keyboard`: the on-screen keyboard. `'auto'` (default) shows it on a phone or tablet, `'on'` always, `'off'` never. See "Keyboard", below. |
 | `onProgress`, `onReady`, `onError` | functions | Events, below. |
 
 Program formats `file` accepts:
@@ -60,7 +60,9 @@ The player takes the keys while its canvas has focus (the click focuses it).
 On a device whose main pointer is a finger the player shows an on-screen Spectrum Next
 keyboard at the bottom of its box. The screen above it shrinks by the keyboard's height.
 
-![The on-screen keyboard on a phone](../img/web-touch-keyboard.png)
+![The on-screen keyboard on a phone, in a 640-pixel player](../img/web-touch-keyboard.png)
+
+The picture is a 640-pixel player, so it shows the full 58-key layout (see the widths below).
 
 - `touchKeyboard: 'auto'` (the default) shows it on a phone or tablet.
 - `'on'` shows it everywhere, `'off'` nowhere.
@@ -135,7 +137,7 @@ player `machine: '48k'`, `'128k'`, `'plus3'` or `'pentagon'`.
 ### The CRT effect
 
 The desktop window's CRT effect ([5.3](../05-running-programs/03-display.md)) runs in
-the page too, off by default, with the same five looks. It needs a browser with WebGL.
+the page too, off by default, with the same five looks and the same parameters. It needs a browser with WebGL.
 
 ```js
 jnext.mount(el, { args: ['--crt', 'tv'] });

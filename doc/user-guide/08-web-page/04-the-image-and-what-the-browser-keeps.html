@@ -4539,8 +4539,8 @@ downloaded or built before the click). It then goes one of two ways.</p>
 </thead>
 <tbody>
 <tr>
-<td>the SD card (about 40 MiB)</td>
-<td>Cache Storage</td>
+<td>the SD card</td>
+<td>Cache Storage: one entry of about 40 MiB, named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it)</td>
 </tr>
 <tr>
 <td>the warm-start recording</td>
@@ -4590,7 +4590,7 @@ it is refused on the player's panel only (no <code>onError</code>), because the 
 </tr>
 <tr>
 <td><code>option 'card' must be an object {source}</code>, <code>option 'card': unknown key '&lt;key&gt;'</code> or <code>option 'card': source must be 'auto', 'fetch' or 'pick'</code></td>
-<td>The <code>card</code> option is not what 10.2 and this page describe.</td>
+<td>The <code>card</code> option is not what <a href="02-options-and-the-player.html">8.2</a> and this page describe.</td>
 </tr>
 <tr>
 <td><code>this file is not sn-emulator-26.11.zip from specnext.com ...</code></td>
@@ -4672,7 +4672,7 @@ it is refused on the player's panel only (no <code>onError</code>), because the 
 </table>
 <h2 id="advanced-configuration">Advanced configuration<a class="headerlink" href="#advanced-configuration" title="Permanent link">&para;</a></h2>
 <h3 id="cardsource-how-the-first-visit-goes"><code>card.source</code>: how the first visit goes<a class="headerlink" href="#cardsource-how-the-first-visit-goes" title="Permanent link">&para;</a></h3>
-<p>The page does not name the file or its address, and has nothing to host. It can choose
+<p>The page does not name the file, its address or a digest, and has nothing to host. It can choose
 how the first visit goes with the <code>card</code> option (<code>data-card-source</code> on the widget,
 <a href="05-two-ways-to-embed.html">8.5</a>):</p>
 <table>

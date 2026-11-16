@@ -4583,7 +4583,7 @@
 <tr>
 <td><code>poster</code></td>
 <td>URL</td>
-<td>A picture, a screenshot of the game, shown before the click so the player is not black on load.</td>
+<td>A picture, a screenshot of the game, shown in the player area before the click so the player is not black on load. The emulator replaces it when the visitor starts the player. Without it nothing is shown there.</td>
 </tr>
 <tr>
 <td><code>machine</code></td>
@@ -4598,17 +4598,17 @@
 <tr>
 <td><code>keepWrites</code></td>
 <td>boolean</td>
-<td>Keep the program's saves in the visitor's browser (off by default; <a href="04-the-image-and-what-the-browser-keeps.html">8.4</a>).</td>
+<td><code>--sdcard-writes</code>, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in <a href="03-itch-and-limits.html">8.3</a> and <a href="04-the-image-and-what-the-browser-keeps.html">8.4</a>.</td>
 </tr>
 <tr>
 <td><code>card</code></td>
 <td><code>{source}</code></td>
-<td>How the page gets NextZXOS's SD card (<a href="04-the-image-and-what-the-browser-keeps.html">8.4</a>). The default, <code>'auto'</code>, is the right choice for most pages.</td>
+<td>How the page gets NextZXOS's SD card (<a href="04-the-image-and-what-the-browser-keeps.html">8.4</a>). The default, <code>'auto'</code>, is the right choice for most pages. The page never names an address or a digest.</td>
 </tr>
 <tr>
 <td><code>touchKeyboard</code></td>
 <td><code>'auto'</code>, <code>'on'</code> or <code>'off'</code></td>
-<td>The on-screen keyboard (see "Keyboard", below).</td>
+<td><code>--touch-keyboard</code>: the on-screen keyboard. <code>'auto'</code> (default) shows it on a phone or tablet, <code>'on'</code> always, <code>'off'</code> never. See "Keyboard", below.</td>
 </tr>
 <tr>
 <td><code>onProgress</code>, <code>onReady</code>, <code>onError</code></td>
@@ -4698,7 +4698,8 @@
 <h3 id="phones-and-tablets">Phones and tablets<a class="headerlink" href="#phones-and-tablets" title="Permanent link">&para;</a></h3>
 <p>On a device whose main pointer is a finger the player shows an on-screen Spectrum Next
 keyboard at the bottom of its box. The screen above it shrinks by the keyboard's height.</p>
-<p><img alt="The on-screen keyboard on a phone" src="../img/web-touch-keyboard.png" /></p>
+<p><img alt="The on-screen keyboard on a phone, in a 640-pixel player" src="../img/web-touch-keyboard.png" /></p>
+<p>The picture is a 640-pixel player, so it shows the full 58-key layout (see the widths below).</p>
 <ul>
 <li><code>touchKeyboard: 'auto'</code> (the default) shows it on a phone or tablet.</li>
 <li><code>'on'</code> shows it everywhere, <code>'off'</code> nowhere.</li>
@@ -4757,7 +4758,7 @@ a.click();
 player <code>machine: '48k'</code>, <code>'128k'</code>, <code>'plus3'</code> or <code>'pentagon'</code>.</p>
 <h3 id="the-crt-effect">The CRT effect<a class="headerlink" href="#the-crt-effect" title="Permanent link">&para;</a></h3>
 <p>The desktop window's CRT effect (<a href="../05-running-programs/03-display.html">5.3</a>) runs in
-the page too, off by default, with the same five looks. It needs a browser with WebGL.</p>
+the page too, off by default, with the same five looks and the same parameters. It needs a browser with WebGL.</p>
 <pre><code class="language-js">jnext.mount(el, { args: ['--crt', 'tv'] });
 </code></pre>
 <p><code>--crt</code> takes <code>off</code>, <code>scanlines</code>, <code>soft</code>, <code>tv</code> or <code>pc</code>.</p>

@@ -29,7 +29,7 @@ The page is that simple because its core is this:
 ```
 
 Before the click the player shows "Click to start", over the `poster` picture when the
-page gave one:
+page gave one (without it the player area is empty until the click):
 
 ![The player before the click](../img/web-click-to-start.png)
 

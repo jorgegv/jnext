@@ -64,7 +64,7 @@ A later visit to the same site needs no download and no file.
 
 | what | where |
 |---|---|
-| the SD card (about 40 MiB) | Cache Storage |
+| the SD card | Cache Storage: one entry of about 40 MiB, named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it) |
 | the warm-start recording | IndexedDB |
 | the saves, with `keepWrites` | IndexedDB, in a database of its own |
 
@@ -98,7 +98,7 @@ it is refused on the player's panel only (no `onError`), because the visitor can
 | message | what it means |
 |---|---|
 | `unknown option '<name>'` or `option '<name>' must be ...` | A `mount()` option is misspelt or of the wrong type. Nothing has been downloaded yet. |
-| `option 'card' must be an object {source}`, `option 'card': unknown key '<key>'` or `option 'card': source must be 'auto', 'fetch' or 'pick'` | The `card` option is not what 10.2 and this page describe. |
+| `option 'card' must be an object {source}`, `option 'card': unknown key '<key>'` or `option 'card': source must be 'auto', 'fetch' or 'pick'` | The `card` option is not what [8.2](02-options-and-the-player.md) and this page describe. |
 | `this file is not sn-emulator-26.11.zip from specnext.com ...` | The visitor chose a different file: the message gives its size, or says its SHA-256 differs. The visitor has to download the official file from specnext.com (the link is on the panel) and choose that one. |
 | `the chosen file could not be read: ...` or `the card could not be made in this browser: ...` | On the panel. The browser could not read the file the visitor chose (it changed or moved after it was chosen), or could not make or store the card (memory or storage). The file is not at fault: choose it again, or free some space. |
 | `cannot read the NextZXOS distribution from specnext.com: ...` | `card.source` is `'fetch'` and the file could not be read: specnext.com does not allow the page to read it, the visitor is offline, or the download failed. Use `'auto'` or `'pick'`. |
@@ -123,7 +123,7 @@ it is refused on the player's panel only (no `onError`), because the visitor can
 
 ### `card.source`: how the first visit goes
 
-The page does not name the file or its address, and has nothing to host. It can choose
+The page does not name the file, its address or a digest, and has nothing to host. It can choose
 how the first visit goes with the `card` option (`data-card-source` on the widget,
 [8.5](05-two-ways-to-embed.md)):
 
