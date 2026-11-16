@@ -481,7 +481,7 @@ New features since last release:
 
 - <one line per feature>
 
-Plus a long list of rendering, timing and compatibility fixes — see the ChangeLog.
+Plus the regular list of rendering, timing and compatibility fixes — see the ChangeLog.
 
 **User guide:** https://www.jnext.es/user-guide/
 **Downloads:** https://github.com/jorgegv/jnext/releases
@@ -506,7 +506,7 @@ New features since last release:
 [*]<one line per feature>
 [/list]
 
-Plus a long list of rendering, timing and compatibility fixes — see the ChangeLog.
+Plus the regular list of rendering, timing and compatibility fixes — see the ChangeLog.
 
 [b]User guide:[/b] [url=https://www.jnext.es/user-guide/]https://www.jnext.es/user-guide/[/url]
 [b]Downloads:[/b] [url=https://github.com/jorgegv/jnext/releases]https://github.com/jorgegv/jnext/releases[/url]
