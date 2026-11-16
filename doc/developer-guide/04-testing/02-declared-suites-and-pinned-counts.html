@@ -3188,7 +3188,12 @@ precisely that with <code>log_gate_test</code> and got a clean green run for it.
   refusal. <code>fuse_z80_test</code> and <code>z80n_test</code> are declared exemptions, named in the
   output, because their IDs are the case names of a checked-in fixture file;</li>
 <li><strong>crashes</strong>, exits non-zero, or contains any row that failed;</li>
-<li><strong>times out</strong>, which by default means 300 s for a single suite.</li>
+<li><strong>times out</strong>, which by default means 300 s for a single suite. A suite that
+  dies of <code>SIGKILL</code> (status 137) before that bound is not a timeout: the row says
+  <code>KILLED by SIGKILL after Ns, before the 300s bound (out of memory?)</code>. The usual
+  killer is the kernel's out-of-memory killer, for example on a WebAssembly suite
+  whose one huge function makes node compile gigabytes, and the label keeps that
+  from reading as a slow test.</li>
 </ul>
 <p><code>make unit-test</code> exits non-zero whenever a suite fails, and the harness prints
 an explicit <code>UNIT TESTS FAILED</code> banner so that the grand-total line — the one

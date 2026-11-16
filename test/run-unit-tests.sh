@@ -662,7 +662,16 @@ for name in "${RUNNABLE[@]}"; do
     # 139/great = signal, 255 = the .rc file itself went missing.
     if [[ ! "$line" =~ ^Total:[[:space:]]+([0-9]+)[[:space:]]+Passed:[[:space:]]+([0-9]+)[[:space:]]+Failed:[[:space:]]+([0-9]+)[[:space:]]+Skipped:[[:space:]]+([0-9]+) ]]; then
         case "$rc" in
-            124|137) fail_row "$name" "TIMED OUT after ${SUITE_TIMEOUT}s (no summary line)" ;;
+            # 137 is SIGKILL: the timeout's own escalation (the bound ran out) or something else
+            # killing the suite (the kernel's OOM killer: a WebAssembly suite whose one huge
+            # function made node compile gigabytes). Only the wall time tells them apart.
+            124) fail_row "$name" "TIMED OUT after ${SUITE_TIMEOUT}s (no summary line)" ;;
+            137) secs=$(cat "$TMPDIR_RUN/$name.secs" 2>/dev/null || echo 0)
+                 if [[ "$secs" =~ ^[0-9]+$ && "$secs" -lt "$SUITE_TIMEOUT" ]]; then
+                     fail_row "$name" "KILLED by SIGKILL after ${secs}s, before the ${SUITE_TIMEOUT}s bound (out of memory?) (no summary line)"
+                 else
+                     fail_row "$name" "TIMED OUT after ${SUITE_TIMEOUT}s (no summary line)"
+                 fi ;;
             0)       fail_row "$name" "no parseable 'Total:' summary line (rc=0 — it asserted nothing)" ;;
             *)       fail_row "$name" "no parseable 'Total:' summary line (rc=$rc — crashed?)" ;;
         esac

@@ -37,7 +37,8 @@ The stubs are a few lines of bash that report one row ID per row, print a
 `manifest` helper writes a manifest with a matching — or deliberately wrong —
 `# expect:` pin. From those few primitives the self-test drives, among others,
 a clean two-suite run; a suite that fails while a later suite must still be
-reported; a suite that prints no summary; a suite that hangs into its timeout;
+reported; a suite that prints no summary; a suite that hangs into its timeout, and one that is `SIGKILL`ed before its bound
+(reported as killed, not as a timeout);
 a suite that reports one row ID twice, or fewer or more row IDs than rows; a
 real `fork()`ing binary whose child reports a row before its parent does; a
 row ID built at run time, a data-ID exemption and a stale one, and a suite with

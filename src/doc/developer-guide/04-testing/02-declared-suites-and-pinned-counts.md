@@ -151,7 +151,12 @@ Once the suites have run, one fails when it:
   refusal. `fuse_z80_test` and `z80n_test` are declared exemptions, named in the
   output, because their IDs are the case names of a checked-in fixture file;
 - **crashes**, exits non-zero, or contains any row that failed;
-- **times out**, which by default means 300 s for a single suite.
+- **times out**, which by default means 300 s for a single suite. A suite that
+  dies of `SIGKILL` (status 137) before that bound is not a timeout: the row says
+  `KILLED by SIGKILL after Ns, before the 300s bound (out of memory?)`. The usual
+  killer is the kernel's out-of-memory killer, for example on a WebAssembly suite
+  whose one huge function makes node compile gigabytes, and the label keeps that
+  from reading as a slow test.
 
 `make unit-test` exits non-zero whenever a suite fails, and the harness prints
 an explicit `UNIT TESTS FAILED` banner so that the grand-total line — the one
