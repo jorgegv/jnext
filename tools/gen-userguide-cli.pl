@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# Generate the user guide's "9.1 Command-line options" page from the OPTIONS
+# Generate the user guide's "A.1 Command-line options" page from the OPTIONS
 # section of doc/man/jnext.1.md (GH #213).
 #
 # That file is the SINGLE SOURCE for the CLI reference. It already generates
@@ -8,7 +8,7 @@
 # the third rendering of the same text, so the guide can carry the full,
 # explained option list without becoming a copy that drifts.
 #
-# The output is COMMITTED (src/doc/user-guide/09-reference/01-command-line-options.md)
+# The output is COMMITTED (src/doc/user-guide/appendix-a-reference/01-command-line-options.md)
 # and staleness-gated by `make docs-man-check` — a hand edit to it is a FAIL on
 # every `make unit-test` and `make regression`, exactly like a stale man page.
 #
@@ -39,7 +39,7 @@ my $ROOT     = File::Spec->rel2abs( dirname($0) . '/..' );
 my $MAN_SRC  = "$ROOT/doc/man/jnext.1.md";
 my $PREAMBLE = "$ROOT/src/doc/user-guide-cli-preamble.md";
 my $OUT      = $ARGV[0]
-    // "$ROOT/src/doc/user-guide/09-reference/01-command-line-options.md";
+    // "$ROOT/src/doc/user-guide/appendix-a-reference/01-command-line-options.md";
 
 # Man-page section title (parenthetical suffix stripped) -> guide link. The
 # keys are validated against the real section titles below, so a renamed

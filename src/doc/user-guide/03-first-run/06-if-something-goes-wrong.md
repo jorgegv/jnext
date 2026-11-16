@@ -58,5 +58,5 @@ image yourself, note that JNEXT enforces the FAT32 specification as strictly as
 the real firmware does, and will refuse a card the real machine would also
 refuse.
 
-Anything else: chapter 8, *Known issues*, and
-<https://github.com/jorgegv/jnext/issues>.
+Anything else: [1.4, *Getting help and reporting bugs*](../01-introduction/04-getting-help-and-reporting-bugs.md),
+and <https://github.com/jorgegv/jnext/issues>.

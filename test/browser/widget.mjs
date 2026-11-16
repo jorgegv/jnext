@@ -90,7 +90,7 @@ const waitRunning = (page, i = 0) => waitFor(page, (i) =>
 
 // The code blocks of the guide section, verbatim, three placeholders filled in.
 function guideBlocks() {
-  const md = fs.readFileSync(path.join(ROOT, 'src/doc/user-guide/10-web-page/05-two-ways-to-embed.md'), 'utf8');
+  const md = fs.readFileSync(path.join(ROOT, 'src/doc/user-guide/08-web-page/05-two-ways-to-embed.md'), 'utf8');
   const blocks = [...md.matchAll(/```html\n([\s\S]*?)```/g)].map((m) => m[1]);
   must(blocks.length === 2, 'the guide section has ' + blocks.length + ' html blocks, expected 2');
   return blocks.map((b) => b.split('jnext-VERSION.js').join(`jnext-${VERSION}.js`)

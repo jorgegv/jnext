@@ -1100,7 +1100,7 @@ target_compile_definitions(cli_options_test PRIVATE
     JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"
     JNEXT_MAIN_SRC="${CMAKE_SOURCE_DIR}/src/main.cpp"
     # The user guide's generated option page (GH #213) — CLI-DOC-06.
-    JNEXT_GUIDE_CLI_SRC="${CMAKE_SOURCE_DIR}/src/doc/user-guide/09-reference/01-command-line-options.md")
+    JNEXT_GUIDE_CLI_SRC="${CMAKE_SOURCE_DIR}/src/doc/user-guide/appendix-a-reference/01-command-line-options.md")
 add_test(NAME cli_options_tests COMMAND cli_options_test)
 
 # The rows of the same family that run the built jnext binary as a child process

@@ -5,7 +5,7 @@ Every frontend reaches the stores through the backend facade
 `SymbolTable`. This page says what each one reads, and describes in full the
 only one with a source *view*: the Qt debugger's Source tab. For the verbs
 themselves see [3.9.1](../03-subsystems/09-1-the-backend-api.md); for a user's
-steps see chapter 10 of the user guide, *Source-level debugging*.
+steps see chapter 6 of the user guide, *The Source Debugger*.
 
 ![Who reads the source-level stores](../img/srcdbg-frontends.svg)
 

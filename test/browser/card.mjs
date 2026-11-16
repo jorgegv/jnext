@@ -16,7 +16,7 @@
 //      seam is ignored off localhost.
 // Oracles: the native tool's card of the synthetic zip (SMOKE_SYN_CARD_SHA256), the pinned card
 // digest of the release (SMOKE_PINNED_CARD_SHA256), the native run of tilemap_demo.nex
-// ($SMOKE_ORACLE/tilemap.png), the three statements of the user guide's 10.4 page.
+// ($SMOKE_ORACLE/tilemap.png), the three statements of the user guide's 8.4 page.
 import { Harness, waitFor, sleep } from './harness.mjs';
 import fs from 'fs';
 import http from 'http';

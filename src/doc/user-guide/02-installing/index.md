@@ -6,7 +6,7 @@ your system from the latest release:
 **<https://github.com/jorgegv/jnext/releases/latest>**
 
 To put JNEXT in a web page there is nothing to install on your computer: the web
-zip and how to host it are in [chapter 10](../10-web-page/index.md).
+zip and how to host it are in [chapter 8](../08-web-page/index.md).
 
 ## Trying a build before it is released
 

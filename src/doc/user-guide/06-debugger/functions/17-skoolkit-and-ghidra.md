@@ -118,4 +118,4 @@ message names the file and line and **nothing** is imported.
 | `--import-skoolkit FILE` / `--import-ghidra FILE` | read at start, after `--annotations`; repeat for several files; a bad file exits with status 1 |
 | `--coverage` | record the code/data map |
 
-See also the [command line reference](../../09-reference/01-command-line-options.md).
+See also the [command line reference](../../appendix-a-reference/01-command-line-options.md).

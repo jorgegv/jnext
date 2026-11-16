@@ -140,6 +140,6 @@ the file each step touches:
    updated in `test/unit-tests.conf` and `functional_tests.conf`. The IDs must be
    string literals (the harness refuses a built-up ID), and unique across suites
    ([4.4](../04-testing/04-traceability.md)).
-9. **Documentation.** The user guide's chapter 10 (the user's side), a new page in
+9. **Documentation.** The user guide's chapter 6, *The Source Debugger* (the user's side), a new page in
    [7.4](04-formats.md) with the nine parts, a row in the design document's section 9
    (the contract), and, if a flag is added, the man page and `make cli-check`.

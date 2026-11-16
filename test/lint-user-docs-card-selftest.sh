@@ -6,7 +6,7 @@
 #   LUDC-02a..l    each banned pattern, planted alone in a user-guide page, fails (exit 1)
 #                  and the report names the pattern
 #   LUDC-03        a scoped path that is missing: exit 2
-#   LUDC-04        a required 10.4 statement removed: fails, naming it
+#   LUDC-04        a required 8.4 statement removed: fails, naming it
 #   LUDC-05        the same patterns planted in the developer guide do NOT fail, and no
 #                  developer-guide path is in scope
 #   LUDC-06        the four web code files are in scope: a recipe planted in one fails, but the
@@ -22,7 +22,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 LINT="$HERE/lint-user-docs-card.sh"
 EXPECTED_ROWS=18
-TARGET=src/doc/user-guide/10-web-page/01-a-page-with-a-game.md
+TARGET=src/doc/user-guide/08-web-page/01-a-page-with-a-game.md
 DEV=src/doc/developer-guide/05-building/06-the-browser-build.md
 
 total=0; passed=0; failed=0
@@ -71,9 +71,9 @@ fresh; rm "$W/t/FEATURES.md"; run
 row LUDC-03 $([[ $RC -eq 2 ]] && echo 1 || echo 0) "a scoped path that is missing: exit $RC (want 2)"
 
 # LUDC-04
-fresh; G=$(ls "$W"/t/src/doc/user-guide/10-web-page/04-*.md)
+fresh; G=$(ls "$W"/t/src/doc/user-guide/08-web-page/04-*.md)
 tr '\n' ' ' <"$G" | sed "s/JNEXT does not ship, host or serve/JNEXT does nothing/" >"$G.new" && mv "$G.new" "$G"; run
-row LUDC-04 $([[ $RC -eq 1 && "$OUT" == *"missing statement: JNEXT does not ship, host or serve"* ]] && echo 1 || echo 0) "a removed 10.4 statement fails and is named (exit $RC)"
+row LUDC-04 $([[ $RC -eq 1 && "$OUT" == *"missing statement: JNEXT does not ship, host or serve"* ]] && echo 1 || echo 0) "a removed 8.4 statement fails and is named (exit $RC)"
 
 # LUDC-05
 fresh

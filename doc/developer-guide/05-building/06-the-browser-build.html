@@ -3036,7 +3036,7 @@
 <h1 id="56-the-browser-build">5.6 The browser build<a class="headerlink" href="#56-the-browser-build" title="Permanent link">&para;</a></h1>
 <p>JNEXT also runs in a browser tab, built for WebAssembly. This page is the entry
 point to everything that builds, tests and ships it. What the page's author sees
-is in the user guide, chapter 10; this page is for the person who changes the
+is in the user guide, chapter 8; this page is for the person who changes the
 emulator.</p>
 <h2 id="what-it-is">What it is<a class="headerlink" href="#what-it-is" title="Permanent link">&para;</a></h2>
 <p>The browser build is the SDL-only configuration (no Qt, no debugger GUI) compiled
@@ -3470,7 +3470,7 @@ the recording was made on is not the one it now boots from.</p>
   line, with all CSS injected once under <code>.jnext-widget</code> (each part resets its own
   properties with <code>all: initial</code>; the API's own overlay keeps its text and click, and
   only its colours are set from the theme variables). The WIDGET rows (<code>widget.mjs</code>)
-  include the two code blocks of the user guide's section 10.5, extracted from its
+  include the two code blocks of the user guide's section 8.5, extracted from its
   source and run verbatim, so the guide's snippets cannot drift from what is tested.</li>
 <li><code>crt_shader_policy_test</code> (CRT-POL-15 to 18: the start-up rule and the GL viewport) and <code>config_keys_test</code> (SETK-CRT-01: the <code>WEB</code> bit) cover the CRT effect's rules natively.</li>
 <li>Native suites test the browser's policy without a browser: <code>web_api_test</code> (the option
@@ -3498,7 +3498,7 @@ keep it, and every card made from it, out of the repository and off GitHub:</p>
   SpecNext, and a developer's local one is never published.</li>
 </ul>
 <p>The minimal card itself is described in <a href="03-packaging-and-release.html">5.3</a>. The user
-guide (chapter 10) tells page authors and visitors none of what follows; the
+guide (chapter 8) tells page authors and visitors none of what follows; the
 <code>lint-user-docs-card</code> check (part of <code>make docs-check</code>) fails if a user-facing text
 describes making, serving or hosting a card (the developer guide is out of its scope).</p>
 <h2 id="trying-a-page-locally-with-a-card-of-your-own">Trying a page locally with a card of your own<a class="headerlink" href="#trying-a-page-locally-with-a-card-of-your-own" title="Permanent link">&para;</a></h2>

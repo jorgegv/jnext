@@ -150,20 +150,19 @@ nav:
       - 7.3 Exit codes, and the capture that was never taken: 07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.md
       - 7.4 A worked example: 07-automation-and-ci/04-a-worked-example.md
       - 7.5 Beyond screenshots: 07-automation-and-ci/05-beyond-screenshots.md
-  - 8. Known issues: 08-known-issues/index.md
-  - 9. Reference:
-      - 09-reference/index.md
-      - 9.1 Command-line options: 09-reference/01-command-line-options.md
-      - 9.2 Files and directories: 09-reference/02-files-and-directories.md
-      - 9.3 ZX Spectrum Next hardware documentation: 09-reference/03-zx-spectrum-next-hardware-documentation.md
-      - 9.4 The project: 09-reference/04-the-project.md
-  - 10. JNEXT in a web page:
-      - 10-web-page/index.md
-      - 10.1 A page with a game: 10-web-page/01-a-page-with-a-game.md
-      - 10.2 Options and the player: 10-web-page/02-options-and-the-player.md
-      - 10.3 On itch.io, and what the browser build does not do: 10-web-page/03-itch-and-limits.md
-      - 10.4 NextZXOS, the SD card, and what the browser keeps: 10-web-page/04-the-image-and-what-the-browser-keeps.md
-      - 10.5 Two ways to embed JNEXT, your own page or the widget: 10-web-page/05-two-ways-to-embed.md
+  - 8. JNEXT in a web page:
+      - 08-web-page/index.md
+      - 8.1 A page with a game: 08-web-page/01-a-page-with-a-game.md
+      - 8.2 Options and the player: 08-web-page/02-options-and-the-player.md
+      - 8.3 On itch.io, and what the browser build does not do: 08-web-page/03-itch-and-limits.md
+      - 8.4 NextZXOS, the SD card, and what the browser keeps: 08-web-page/04-the-image-and-what-the-browser-keeps.md
+      - 8.5 Two ways to embed JNEXT, your own page or the widget: 08-web-page/05-two-ways-to-embed.md
+  - Appendix A. Reference:
+      - appendix-a-reference/index.md
+      - A.1 Command-line options: appendix-a-reference/01-command-line-options.md
+      - A.2 Files and directories: appendix-a-reference/02-files-and-directories.md
+      - A.3 ZX Spectrum Next hardware documentation: appendix-a-reference/03-zx-spectrum-next-hardware-documentation.md
+      - A.4 The project: appendix-a-reference/04-the-project.md
 
 # Make `mkdocs build --strict` fail on the two classes of breakage this guide
 # is most exposed to now that it is split across 70 files: a page missing from
@@ -194,7 +193,7 @@ hooks:
 
 markdown_extensions:
   - admonition
-  # The generated CLI-options page (9.1) is a definition list, the same
+  # The generated CLI-options page (A.1) is a definition list, the same
   # shape the man page uses. python-markdown ships def_list; mkdocs-material
   # styles the <dl> it produces. No other page uses the syntax.
   - def_list
