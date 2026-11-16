@@ -388,7 +388,7 @@ scope, and so is a zip whose central directory lies.
 
 It is built on every push: the `browser` leg of the `test` job runs `make
 wasm-browser-test`, which has `package-web` as a prerequisite and ends with the row
-WEBPKG-BR-01, which serves only the extracted zip and boots `plain.html` from it
+WEBPKG-BR-01, which serves only the extracted zip and boots `plain.html` from it (WEBPKG-BR-02 to 05 check the viewport of the four example pages)
 (see [5.4](04-continuous-integration.md)); and `release.yml` has a `web` job that
 runs the same target. It is not a `package-test` row: that would need a second
 Emscripten SDK restore and a second wasm build in the `package` job, for what the

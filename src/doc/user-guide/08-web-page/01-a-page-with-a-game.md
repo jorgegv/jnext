@@ -83,6 +83,9 @@ nothing ([8.4](04-the-image-and-what-the-browser-keeps.md)).
 | `itch-game.html` | The page of an itch.io upload ([8.3](03-itch-and-limits.md)) |
 | `itch-host.html` | A page that embeds `itch-game.html` in an `iframe`, as itch.io does |
 
+All four declare a device-width viewport, so they lay out properly on a phone. A page of
+your own needs the same `<meta name="viewport">` tag ([8.2](02-options-and-the-player.md#phones-and-tablets)).
+
 ## Advanced configuration
 
 **Query string of the examples**

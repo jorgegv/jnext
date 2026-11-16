@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A page that embeds a JNEXT game</title>
 <style>
   body { margin: 1em; font: 14px sans-serif; }
