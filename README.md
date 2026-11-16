@@ -52,7 +52,7 @@ under CI.
   the emulator.
 - **In a web page, too.** The same emulator, built for WebAssembly: a script tag
   and one call put a `.nex`, `.tap`, `.tzx`, `.wav`, `.rzx` recording or snapshot (`.jns`, `.sna`, `.szx`, `.z80`) in your own page or an itch.io
-  upload ([user guide chapter 10](doc/user-guide/10-web-page/index.html)).
+  upload ([user guide chapter 8](doc/user-guide/08-web-page/index.html)).
 - **The VHDL is the specification.** Where the hardware's behaviour is
   ambiguous, it is resolved against the official FPGA core sources and pinned
   there by a unit test — so the emulator's answer is the silicon's answer.
@@ -97,7 +97,7 @@ for your system from the
 | **Windows 32-bit (x86)** | Download `jnext-*-windows-x86-legacy.zip`, unzip, run `jnext.exe`     |
 | **macOS (Apple Silicon)** | Download `jnext-*-macos-arm64.dmg` (macOS 15 or later), open it, drag **jnext** to Applications |
 | **macOS (Intel)**        | Download `jnext-*-macos-x64.dmg` (macOS 15 or later), open it, drag **jnext** to Applications |
-| **Web page**             | Download `jnext-*-web.zip`, host its files: [user guide chapter 10](doc/user-guide/10-web-page/index.html) |
+| **Web page**             | Download `jnext-*-web.zip`, host its files: [user guide chapter 8](doc/user-guide/08-web-page/index.html) |
 
 The Linux packages put a `jnext` command on your `PATH`.
 
@@ -174,7 +174,7 @@ make read-userguide
 
 That prints a `http://localhost:8000/` URL; open it in your browser. (Or open
 `doc/user-guide/index.html` directly.) Chapters 1-5 cover running programs;
-6, 7 and 10 are for developers — every debugger panel and function, how to
+6, 7 and 8 are for developers — every debugger panel and function, how to
 automate JNEXT the way its own test suite does, and how to put your program in a
 web page.
 

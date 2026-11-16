@@ -11,7 +11,7 @@ right now.
 
 This chapter is the maintainer's description of that machinery. The user's
 side, with the procedures (loading a map, setting a line breakpoint, stepping
-by statement), is chapter 10 of the user guide, *Source-level debugging*. Nothing
+by statement), is chapter 6 of the user guide, *The Source Debugger*. Nothing
 here repeats a procedure; where a page needs one, it says so and points there.
 
 ![Source-level debugging: files, adapters, stores, readers](../img/srcdbg-overview.svg)

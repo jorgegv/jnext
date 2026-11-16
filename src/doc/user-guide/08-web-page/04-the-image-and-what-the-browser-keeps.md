@@ -1,4 +1,4 @@
-# 10.4 NextZXOS, the SD card, and what the browser keeps
+# 8.4 NextZXOS, the SD card, and what the browser keeps
 
 ## NextZXOS
 
@@ -18,95 +18,76 @@ The card is a small boot card (40 MiB) with only what NextZXOS needs to reach it
 and to warm-start a program, not the 1 GB distribution image. The browser build is made
 and tested for that card.
 
+The page author does nothing for any of this: the player's default does it all.
+
 ## The first visit, two ways
 
-The first visit to a site, after the visitor clicks the player (the click is what
-starts anything: nothing is downloaded or built before it), goes one of two ways.
+The first visit to a site starts when the visitor clicks the player (nothing is
+downloaded or built before the click). It then goes one of two ways.
 
-1. **specnext.com allows the page to read the file.** The page downloads the official
-   file (`onProgress('download', fraction)`), makes the card in the browser
-   (`onProgress('build', 1)`) and keeps the card. The downloaded file itself is not kept.
-2. **specnext.com does not allow it** (the case with this release: a browser lets a page
-   read a file from another site only when that site says so). The player then shows what
-   to do: a link to download the official file from specnext.com, and a button to choose
-   the downloaded file. `onProgress('choose', 0)` reports it. When the visitor chooses
-   the file, the browser makes the card from it (`onProgress('build', fraction)`) and keeps the card.
-   A file that is not the official one is refused, with the reason on the screen, and the
-   visitor can choose again.
+1. **specnext.com allows the page to read the file.**
+    - The page downloads the official file (`onProgress('download', fraction)`).
+    - It makes the card in the browser (`onProgress('build', 1)`) and keeps the card.
+    - The downloaded file itself is not kept.
+2. **specnext.com does not allow it.** This is the case with this release: a browser lets
+   a page read a file from another site only when that site says so.
+    - The player shows what to do: a link to download the official file from specnext.com,
+      and a button to choose the downloaded file (`onProgress('choose', 0)`).
+    - When the visitor chooses the file, the browser makes the card from it
+      (`onProgress('build', fraction)`) and keeps the card.
+    - A file that is not the official one is refused, with the reason on the screen, and
+      the visitor can choose again.
 
-Either way the visitor sees these steps, in this order: the click, `download` or `choose`
-and `build`, then for a `.nex` program only `warm-start` (NextZXOS boots once and the
-machine is recorded), then `onReady`. The download's progress is measured against the
-`Content-Length` specnext.com sends when it does not compress the file, and otherwise against
-the known size of the official file, so it is reported either way.
+![The panel the visitor sees in way 2](../img/web-card-choose.png)
 
-## For page authors: `card.source`
+Either way the visitor sees these steps, in this order:
 
-The page does not name the file or its address, and has nothing to host. It can choose
-how the first visit goes with the `card` option (`data-card-source` on the widget, 10.5):
-
-| `card.source` | the first visit |
-|---|---|
-| `'auto'` (default) | The page checks whether specnext.com allows it to read the official file. If so, it downloads it (way 1); if not, or if the download fails, the player asks the visitor (way 2) and shows the reason. |
-| `'fetch'` | Only way 1. Use it once specnext.com allows pages to read the file; if it cannot be read, the page reports an error (`onError`) and does not ask the visitor. |
-| `'pick'` | Only way 2: the page always shows the download link and the file button, and makes no request to specnext.com. |
-
-The widget and the example pages show the same player panel. A page that shows its own
-status text can use `onProgress` (10.2): `'choose'` is the moment to say "choose the
-NextZXOS file".
+1. the click;
+2. `download` or `choose`, then `build`;
+3. for a `.nex` program only, `warm-start` (NextZXOS boots once and the machine is
+   recorded);
+4. `onReady`.
 
 ## Later visits
 
-A later visit to the same site needs no download and no file: the card the browser kept
-is checked against its SHA-256 every time, and a card that no longer matches is deleted
-and made again, as on a first visit.
+A later visit to the same site needs no download and no file.
 
-For a `.nex` program the recorded machine is brought back (`restore`) instead of booting
-NextZXOS again. A corrupted recording is made again. A `.tap`, a `.tzx` or a `.wav` starts directly in 48K
-BASIC, and an `.rzx` on the machine it was recorded on, without NextZXOS, so there is nothing to record. A Next page with no program boots
-NextZXOS on every visit and records nothing.
+- The card the browser kept is checked against its SHA-256 every time. A card that no
+  longer matches is deleted and made again, as on a first visit.
+- For a `.nex` program the recorded machine is brought back (`restore`) instead of booting
+  NextZXOS again. A corrupted recording is made again.
+- A `.tap`, a `.tzx` or a `.wav` starts directly in 48K BASIC, and an `.rzx` on the
+  machine it was recorded on, without NextZXOS, so there is nothing to record.
+- A Next page with no program boots NextZXOS on every visit and records nothing.
 
 ## What the browser keeps, and where
 
-- The SD card is kept in the browser's Cache Storage: one entry of about 40 MiB, named
-  by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it). The
-  official file the card was made from is not kept.
-- The warm-start recording is kept in IndexedDB.
-- With `keepWrites`, the sectors the program writes to the card are kept in IndexedDB, in
-  a database of their own (`jnext-card-writes`) that exists only for a page that uses it.
-  There is one record per card and page: its name is the card's SHA-256 and a short
-  digest of the page's path, so another card, or another page of the same site, has
-  its own saves, and a changed card never reuses the old ones. Only the written sectors
-  are stored (516 bytes each; the card itself is never written), and they stay in the
-  visitor's browser: nothing is sent anywhere.
-- Nothing else is kept: no settings, nor screenshots or snapshots (10.3).
+| what | where |
+|---|---|
+| the SD card (about 40 MiB) | Cache Storage |
+| the warm-start recording | IndexedDB |
+| the saves, with `keepWrites` | IndexedDB, in a database of its own |
+
+- Nothing else is kept: no settings, nor screenshots or snapshots
+  ([8.3](03-itch-and-limits.md)).
+- The official file the card was made from is not kept.
 - Several players on one page share the recording.
 - If the browser's storage is full, the session still runs and the next visit makes the
   card again.
+- Clearing the site's data in the browser makes the next visit a first visit: the card is
+  made again.
 
-### Keeping the saves
+## Keeping the saves
 
 ```js
 jnext.mount(el, { file: 'game.nex', keepWrites: true });
 ```
 
-Whatever the program writes to the card is there at the next visit, and so is the one file a
-NEX loaded with `file` saves through esxDOS (10.3). `player.resetCard()` clears both (10.2). A save is stored a moment after the program makes it: a reload within moments of a save can lose it (the store on leaving the page is best effort).
-The saves belong to the card: a visit whose card differs, even in one byte (a JNEXT
-release that moves to a newer NextZXOS makes a different card), starts with none. A record made for another card is refused with a message naming
-`--sdcard-writes-reset`: mount once with `args: ['--sdcard-writes-reset']` to discard it. A
-record whose header is not a valid one (damaged, or in a format this version does not
-read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
-site's data in the browser, or delete the record from the `jnext-card-writes` database
-(store `journals`) with the browser's developer tools.
-A `.jns` snapshot (10.2) restored over a card that has newer saves leaves NextZXOS's in-memory
-picture of the card out of step with the card, as on the desktop (5.9).
-
-Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
-origin share the card and the recording. A game inside an `iframe` of another site may
-or may not see the storage its own origin has: that depends on the browser, its version
-and its privacy settings (in the Chromium used to test JNEXT it did), so do not rely on
-either. Clearing the site's data in the browser makes the next visit a first visit: the card is made again.
+- Whatever the program writes to the card is there at the next visit, and so is the one
+  file a NEX loaded with `file` saves through esxDOS ([8.3](03-itch-and-limits.md)).
+- `player.resetCard()` clears both ([8.2](02-options-and-the-player.md)).
+- A save is stored a moment after the program makes it: a reload within moments of a save
+  can lose it (the store on leaving the page is best effort).
 
 ## If it does not start
 
@@ -137,3 +118,53 @@ it is refused on the player's panel only (no `onError`), because the visitor can
 | `option 'keepWrites' must be a boolean` | `keepWrites` is not `true` or `false`. Nothing has been downloaded yet. |
 | `jnext exited with code N` | The machine stopped with an error after it had started. |
 | the lines the machine printed, or `jnext: the machine did not start` | The machine stopped before its first frame. The lines say why. |
+
+## Advanced configuration
+
+### `card.source`: how the first visit goes
+
+The page does not name the file or its address, and has nothing to host. It can choose
+how the first visit goes with the `card` option (`data-card-source` on the widget,
+[8.5](05-two-ways-to-embed.md)):
+
+| `card.source` | the first visit |
+|---|---|
+| `'auto'` (default) | The page checks whether specnext.com allows it to read the official file. If so, it downloads it (way 1); if not, or if the download fails, the player asks the visitor (way 2) and shows the reason. |
+| `'fetch'` | Only way 1. Use it once specnext.com allows pages to read the file; if it cannot be read, the page reports an error (`onError`) and does not ask the visitor. |
+| `'pick'` | Only way 2: the page always shows the download link and the file button, and makes no request to specnext.com. |
+
+- The widget and the example pages show the same player panel.
+- A page that shows its own status text can use `onProgress` ([8.2](02-options-and-the-player.md)):
+  `'choose'` is the moment to say "choose the NextZXOS file".
+- The download's progress is measured against the `Content-Length` specnext.com sends when
+  it does not compress the file, and otherwise against the known size of the official file,
+  so it is reported either way.
+
+### The stored saves in detail
+
+- With `keepWrites`, the sectors the program writes to the card are kept in IndexedDB, in
+  a database of their own (`jnext-card-writes`) that exists only for a page that uses it.
+- There is one record per card and page. Its name is the card's SHA-256 and a short
+  digest of the page's path, so another card, or another page of the same site, has its
+  own saves, and a changed card never reuses the old ones.
+- Only the written sectors are stored (516 bytes each; the card itself is never written),
+  and they stay in the visitor's browser: nothing is sent anywhere.
+- The saves belong to the card: a visit whose card differs, even in one byte (a JNEXT
+  release that moves to a newer NextZXOS makes a different card), starts with none.
+- A record made for another card is refused with a message naming
+  `--sdcard-writes-reset`. Mount once with `args: ['--sdcard-writes-reset']` to discard it.
+- A record whose header is not a valid one (damaged, or in a format this version does not
+  read) is refused as "not a jnext SD-writes file", and the reset does not remove it.
+  Clear the site's data in the browser, or delete the record from the `jnext-card-writes`
+  database (store `journals`) with the browser's developer tools.
+- A `.jns` snapshot ([8.2](02-options-and-the-player.md)) restored over a card that has
+  newer saves leaves NextZXOS's in-memory picture of the card out of step with the card,
+  as on the desktop ([5.9](../05-running-programs/09-snapshots.md)).
+
+### Storage per origin
+
+- Browsers keep the storage of each origin (scheme, host and port) apart.
+- Two pages of one origin share the card and the recording.
+- A game inside an `iframe` of another site may or may not see the storage its own origin
+  has: that depends on the browser, its version and its privacy settings (in the Chromium
+  used to test JNEXT it did), so do not rely on either.

@@ -2,7 +2,7 @@
 
 JNEXT also runs in a browser tab, built for WebAssembly. This page is the entry
 point to everything that builds, tests and ships it. What the page's author sees
-is in the user guide, chapter 10; this page is for the person who changes the
+is in the user guide, chapter 8; this page is for the person who changes the
 emulator.
 
 ## What it is
@@ -358,7 +358,7 @@ the recording was made on is not the one it now boots from.
   line, with all CSS injected once under `.jnext-widget` (each part resets its own
   properties with `all: initial`; the API's own overlay keeps its text and click, and
   only its colours are set from the theme variables). The WIDGET rows (`widget.mjs`)
-  include the two code blocks of the user guide's section 10.5, extracted from its
+  include the two code blocks of the user guide's section 8.5, extracted from its
   source and run verbatim, so the guide's snippets cannot drift from what is tested.
 - `crt_shader_policy_test` (CRT-POL-15 to 18: the start-up rule and the GL viewport) and `config_keys_test` (SETK-CRT-01: the `WEB` bit) cover the CRT effect's rules natively.
 - Native suites test the browser's policy without a browser: `web_api_test` (the option
@@ -388,7 +388,7 @@ keep it, and every card made from it, out of the repository and off GitHub:
   SpecNext, and a developer's local one is never published.
 
 The minimal card itself is described in [5.3](03-packaging-and-release.md). The user
-guide (chapter 10) tells page authors and visitors none of what follows; the
+guide (chapter 8) tells page authors and visitors none of what follows; the
 `lint-user-docs-card` check (part of `make docs-check`) fails if a user-facing text
 describes making, serving or hosting a card (the developer guide is out of its scope).
 
