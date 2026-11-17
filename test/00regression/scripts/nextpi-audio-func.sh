@@ -69,7 +69,7 @@ if want nextpi-audio-func; then
     # 1500 frames, not fewer: the tone has to be in the ring (2205 frames of
     # prebuffer) before the headless run ends, and the stand-in starts as a
     # chain of processes. Measured: at 150 frames the fact failed 14 of 24
-    # copies run 8 at once on a macOS host; on Linux (fedora:44, 8 CPUs) it
+    # copies run 8 at once on a macOS host; on Linux (fedora:44 in 2026-10, 8 CPUs) it
     # failed 0 of 180 across 8 and 12 concurrent copies at 150 and 1500 frames,
     # 24 of them beside 8 busy loops. 1500 frames is the margin, and the row
     # stays in the parallel phase.

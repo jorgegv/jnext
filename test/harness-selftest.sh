@@ -53,7 +53,7 @@ INVOKE_TIMEOUT=120
 
 # EVERY external tool a check's evidence depends on, verified before any check
 # runs. A missing tool must be a loud refusal, never evidence: HS-70e once
-# asked `pgrep`/`ps` (procps-ng, absent from the fedora:44 CI container) for
+# asked `pgrep`/`ps` (procps-ng, absent from the fedora:45 CI container) for
 # the process it was about to signal, both failed silently behind `|| true`,
 # and the row reported a broken harness that was not broken (GH #295 CI). With
 # a tool missing from an INCOMPLETE list, the shape is the same, only louder:
@@ -69,8 +69,8 @@ INVOKE_TIMEOUT=120
 #   grep -oE 'execve\("[^"]+"' hs.trace | sed 's/execve("//; s/"$//; s|.*/||' | sort -u
 #
 # then drop the stub suites the self-test writes itself (*_test). Two
-# substitutions: `cc1plus` is gcc's own (c++ stays), and `hostname` — absent
-# from fedora:44 — is only a fallback-guarded call in regression-stamp.sh,
+# substitutions: `cc1plus` is gcc's own (c++ stays), and `hostname`, absent
+# from the fedora:45 CI container, is only a fallback-guarded call in regression-stamp.sh,
 # whose fallback is `uname`. Process lookups read /proc (proc_* below), so
 # procps is deliberately NOT here. No row re-derives the list on every run:
 # strace is not installed in CI and roughly triples the self-test's time, and

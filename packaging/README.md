@@ -41,7 +41,7 @@ cmake --build build -j"$(nproc)"
 cd build && cpack -G TGZ        # or: cpack -G "TGZ;DEB;RPM"
 ```
 
-Verified on this dev host (Fedora 44): **TGZ, RPM and DEB all produced a
+Verified on the dev host (Fedora 44, 2026-07-16): **TGZ, RPM and DEB all produced a
 package** (`jnext-<ver>-Linux.{tar.gz,rpm,deb}`). The DEB generator prints
 "CPACK_DEBIAN_PACKAGE_DEPENDS not set, the package will have no
 dependencies" — a known CPack-on-non-Debian-host limitation

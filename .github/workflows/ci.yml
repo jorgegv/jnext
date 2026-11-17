@@ -1018,7 +1018,7 @@ jobs:
   #
   # The `package` job above cannot build it: `make package-test` carries only
   # the manifest contract, since the real build needs org.kde.Sdk. Installing
-  # flatpak-builder into that fedora:45 container does NOT fix it — the missing
+  # flatpak-builder into that fedora:45 container does NOT fix it; the missing
   # piece is the org.kde.Sdk//6.10 RUNTIME, a multi-gigabyte Flathub download,
   # and flatpak-builder additionally needs a privileged container for
   # bubblewrap's user namespaces. So the manifest was checked and the build was

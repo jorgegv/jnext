@@ -27,7 +27,7 @@ name: Release
 #               (jnext-<ver>-1.fc45.x86_64.rpm), so the two never collide.
 #   * src     → `make package-src` → jnext-<ver>-src.zip (submodule-aware)
 #   * windows → `make package-win` + `package-win-qt5` + `package-win32-qt5`
-#               (MinGW cross-build + DLL bundling) in a fedora:45 container —
+#               (MinGW cross-build + DLL bundling) in a fedora:45 container:
 #               the three published Windows zips (exe runs under wine)
 #   * flatpak → delegated to the shared .github/workflows/flatpak-build.yml
 #               (also dispatchable by hand); flatpak-builder against
@@ -110,6 +110,9 @@ jobs:
     if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
     strategy:
+      # Not fail-fast: a red leg must not cancel the other, so both stay
+      # diagnosable. `publish` still needs every leg green. Same as the rpm matrix.
+      fail-fast: false
       matrix:
         rel: ["24.04", "26.04"]
     container: ubuntu:${{ matrix.rel }}
@@ -216,6 +219,10 @@ jobs:
     if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
     strategy:
+      # Not fail-fast: a red leg must not cancel the other (an SD download that
+      # failed on the network in one leg cancelled the other), so both stay
+      # diagnosable. `publish` still needs every leg green. Same as the deb matrix.
+      fail-fast: false
       matrix:
         fedora: ["44", "45"]
     container: fedora:${{ matrix.fedora }}
