@@ -25,6 +25,5 @@ Directly in this folder:
 | [`RELEASE-PROTOCOL.md`](RELEASE-PROTOCOL.md) | Versioning, tagging, packaging and announcing releases. |
 | [`REFERENCES.md`](REFERENCES.md) | Every external URL the project relies on. |
 | [`DEVELOPMENT-SESSIONS.md`](DEVELOPMENT-SESSIONS.md) | Log of development sessions and time spent. |
-| [`DEBUGGER-REMOTE-REAL-NEXT-PLAN.md`](DEBUGGER-REMOTE-REAL-NEXT-PLAN.md) | Execution plan of epic #486: debugging another jnext or a real Next over DZRP (draft for owner review). |
 | [`LINUX-BUILD-DOCKER.md`](LINUX-BUILD-DOCKER.md), [`WINDOWS-PORTING.md`](WINDOWS-PORTING.md) | Build notes for a Docker container and for the Windows cross-build; `BUILD.md` at the repository root is the main build guide. |
 | `SCREENSHOT.png`, `JNEXT-NEXTZXOS-BOOT.png` | Screenshots used by `README.md` and the AppStream metadata; keep their paths. |

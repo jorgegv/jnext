@@ -1,6 +1,7 @@
 # Remote debugging of another jnext and of a real Next: execution plan (epic #486)
 
-Status: **DRAFT for owner review** (2026-11-17). Nothing in this plan is started. When the
+Status: **DRAFT for owner review** (2026-11-17; round 2, 2026-11-18: the independent review's
+findings and the owner's inputs of 2026-11-17 folded in, §13). Nothing in this plan is started. When the
 owner approves it, its tasks become the sub-issues of #486, on the epic branch
 `epic486-remote-target`; each sub-issue branches off it and merges back into it, and the epic
 reaches `main` in one merge (CLAUDE.md, merge protocol step 1).
@@ -31,6 +32,7 @@ Each line is sized to be one sub-issue. IDs are stable; the detail is in §4 to 
 - [ ] **R0.2** DZRP client framing: command encoder and response/notification parser in `dzrp_frame.*`, cross-checked against the server's parser
 - [ ] **R0.3** DZRP client session core (`DzrpClient`): CMD_INIT/CLOSE, sequence numbers 1..15, pipelining window, timeouts, NTF_PAUSE dispatch, remote profile detection
 - [ ] **R0.4** Client links: outbound TCP over `esp::make_socket_transport`, and an in-memory link pair for the suites
+- [ ] **R0.5** Early hardware checkpoint (owner, KS2 board issue 4): connect over TCP to dezogif_ng's WiFi ROM, CMD_INIT, registers and memory read; confirms §2.4 before R1-R4 build on it
 
 ### Phase R1: the target interface in the backend
 
@@ -46,7 +48,7 @@ Each line is sized to be one sub-issue. IDs are stable; the detail is in §4 to 
 - [ ] **R2.3** Watchpoints over CMD 42/43 as `Mem` subscriptions
 - [ ] **R2.4** Instruction stepping by temporary breakpoints: one successor function, oracle-tested against jnext's Z80 core
 - [ ] **R2.5** Connect and disconnect in the GUI: Debug > Remote Target dialog, errors, lost link, reconnect
-- [ ] **R2.6** CLI and Preferences: `--remote-target`, `remote.*` keys in `config_keys.cpp`, man page, `make cli-check`
+- [ ] **R2.6** CLI and Preferences: `--remote-target`, `remote.*` keys in `src/platform/config_keys.h` (`KeyId` + `KEYS[]`), man page, `make cli-check`
 - [ ] **R2.7** Loopback parity suite: the remote facade over an in-process `DzrpServer` against `LocalTarget`, same programs, same answers
 - [ ] **R2.8** Functional rows: `remote-jnext-func` (test probe over TCP) and `remote-qt-func` (GUI started with `--remote-target`)
 - [ ] **R2.9** Docs: user guide page, developer guide chapter, FEATURES.md
@@ -62,12 +64,12 @@ Each line is sized to be one sub-issue. IDs are stable; the detail is in §4 to 
 
 ### Phase R4: remote Next with dezogif_ng (proof of concept)
 
-- [ ] **R4.1** dezogif_ng profile: static command set, never-unsupported guard, IM and IFF unknown, reserved banks
+- [ ] **R4.1** dezogif_ng profile: identity rule, static command set, never-unsupported and running-state send rules, IM and IFF unknown, reserved banks
 - [ ] **R4.2** Simple-mode breakpoints (CMD 13/14): set before continue, restore at stop, continue off a breakpoint, forbidden addresses
 - [ ] **R4.3** Program upload: a NEX onto the target (CMD_WRITE_BANK or WRITE_BANK_MEM, SET_SLOT, SET_REGISTER) (owner question Q5)
-- [ ] **R4.4** Serial link: host serial port (POSIX termios, Win32 COM), 921600 8N1, the 0xA5 preamble (owner question Q3)
-- [ ] **R4.5** Emulated-rig rows: the real dezogif_ng ROM in jnext, WiFi over the emulated ESP-01 and UART over the joy-port pty (owner question Q4)
-- [ ] **R4.6** Hardware validation on the owner's KS2, with a latency record (owner)
+- [ ] **R4.4** Serial link (optional, after the PoC: the owner's PoC link is WiFi, Q3): host serial port (POSIX termios, Win32 COM), 921600 8N1, the 0xA5 preamble
+- [ ] **R4.5** Emulated-rig rows: the real dezogif_ng ROM in jnext, WiFi over the emulated ESP-01 (primary); UART over the joy-port pty only with R4.4 (owner question Q4)
+- [ ] **R4.6** Hardware validation on the owner's KS2 (board issue 4) over WiFi, with a latency record (owner)
 - [ ] **R4.7** Docs: "Debugging a real Next" user guide page, man page, developer guide
 
 ### Phase R5: proof-of-concept verdict (owner decision gate)
@@ -92,6 +94,7 @@ date above.
 |---|---|---|
 | jnext | this repository | `main` @ `ad916bc6d` (v1.3.5) |
 | dezogif_ng | `~/src/spectrum/dezogif_ng` | `eb58524`, build `0026`, MIT since `4f988b9` |
+| maziac's dezogif (upstream of dezogif_ng) | the same checkout, remote `upstream` | fork point `dee4255` (`fbb3629` "Version 2.2.1"); `upstream/main` @ `71c7ad0` (2026-09-10, `v2.3.0-rc2`) |
 | DeZog (source, not the bundle) | `~/src/spectrum/dezog.jorgegv` | fork branch `zxnext-socket-transport` @ `6b46a0c1`; `upstream/main` @ `0de07af6` (3.8.0-rc7) |
 | DZRP specification | DeZog `design/DeZogProtocol.md` | `upstream/main` @ `0de07af6`, DZRP 2.2.0 |
 | Existing designs | `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`, `doc/design/debug-subsystem/dzrp-frontend.md`, `doc/design/SOURCE-LEVEL-DEBUGGING.md` | as on `main` |
@@ -112,7 +115,8 @@ nobody has measured are marked **(unmeasured)**.
   `Emulator& emu`. Each loop owner builds exactly one: `QtApp` (`src/gui/qt_app.cpp:322`),
   `SdlApp` (`src/platform/sdl_app.cpp:242`), `HeadlessApp` (`src/platform/headless_app.cpp:57`).
 - The Qt panels hold `jnext::dbg::Debugger*` and never `Emulator*` (`src/debugger/*_panel.h`;
-  `video_panel.cpp` and `debugger_window.cpp` mention `Emulator` only in comments). Across
+  `video_panel.*` and `debugger_window.*` name `Emulator` only in comments and in one menu
+  label, "&Attach to Emulator Window", `debugger_window.cpp:983`). Across
   `src/debugger/` they call **99 distinct facade methods** (grep of `dbg_->`, `dbg.`,
   `backend().` call sites). The most used are host-side: `source_map` (28 sites),
   `source_page` (16), `symbols` (13); the machine reads are `state` (19), `mmu_slots` (11),
@@ -160,12 +164,13 @@ nobody has measured are marked **(unmeasured)**.
   cable; `--joy-uart-pty` (`src/core/cli_options.h:446`) allocates a pty "the form a serial
   client such as DeZog opens".
 - The ESP-01 emulation serves `AT+CIPSERVER` on a host socket, bound by `--esp-listen-address`
-  (`cli_options.h:588`). dezogif_ng's own bench (`test/run-dzrp-stub.sh`) runs headless jnext
-  with the WiFi ROM installed as the Multiface ROM, raises the NMI with `--delayed-nmi`
-  (`cli_options.h:782`) and talks DZRP to `127.0.0.1:11000`.
+  (`cli_options.h:588`). dezogif_ng's own bench (`test/run-dzrp-stub.sh`) installs the WiFi ROM
+  as the Multiface ROM on a card copy with `mcopy` (`:428`), runs headless jnext, raises the
+  NMI with `--delayed-nmi-frames` (`:482`; `cli_options.h:789`) and talks DZRP to
+  `127.0.0.1:11000`.
 - `--sdcard-file-add FILE --sdcard-file-dest PATH` (`cli_options.h:300`) copies a file onto a
   card and exits (`main.cpp`, the `sdcard_file_add_count > 0` arm returns after the copy), so
-  installing a ROM on a scratch card needs no mtools.
+  R4.5 can install the ROM with jnext's own mechanism instead of mtools.
 - `test/dzrp/` holds dezogif_ng's Python DZRP client and conformance suite, copied at
   `709ae7d` (`doc/testing/DZRP-VALIDATION.md`).
 
@@ -174,13 +179,14 @@ nobody has measured are marked **(unmeasured)**.
 | Fact | Evidence |
 |---|---|
 | It is the Multiface ROM (`enNextMf.rom`), entered by the NMI button or, for a PC-initiated Pause, by a Copper-raised NMI | README; `doc/ZXNEXT-REMOTE-DEBUG-STUB.md` §2, §4.3 |
-| Answers **DZRP 2.1.0**, machine 4, name `"dezogif "` + version | `src/commands.asm:26-35`, `cmd_init.response` |
+| Answers **DZRP 2.1.0**, machine 4, name **`"dezogif v2.2.1"`**: `PRG_VERSION` is upstream's version string, which the fork "has never moved" | `src/commands.asm:26-35`, `cmd_init.response`; `src/data_const.asm:11-19` |
 | Serves commands **1 to 23** only through its jump table, plus 40 (answers id 0 = refused) and 41 (acknowledged) | `commands.asm` `cmd_jump_table` (`:41-65`), `get_cmd_pointer.not_supported` (`:117-126`), `cmd_add_breakpoint` |
 | **No** 24 (`GET_SUPPORTED_COMMANDS`), 25/26 (bank memory), 27/28, 39, 42/43 (watchpoints), 50/51 (state) | same; `:74-77` "not supported, and silent" |
 | **An unsupported command ends the session**: `cmd_not_supported` sends no reply and jumps to `drain_main`, which falls into `main`, which "RE-INITIALISE[S] THE DEBUGGEE'S SAVED STATE" | `commands.asm` `cmd_not_supported`; `src/main.asm:117-147` |
 | Breakpoints are client-owned `RST 0` patches: CMD 13 sets a list and returns the original bytes, CMD 14 restores them (only where the byte is still 0xC7, spec) | `cmd_set_breakpoints`, `cmd_restore_mem`; `doc/DEZOG-BREAKPOINTS-DESIGN.md` §1, §3 |
 | CMD_CONTINUE takes up to two temporary breakpoints, patched by the stub | `cmd_continue` |
 | `CMD_PAUSE` only acknowledges; the stop itself comes from the Copper-NMI poll while running | `cmd_pause` banner |
+| **While the program runs, any received byte is a break or nothing.** With the async break armed, the per-frame poll breaks on ANY byte (reason `MANUAL_BREAK`; it cannot tell a `CMD_PAUSE` from the ESP-01's unsolicited `CONNECT`/`CLOSED` lines), and only then is the command read; with the break off (a Copper-using program without the two instructions, the "C" key) nothing reads the link and the command times out | `doc/ASYNCHRONOUS-BREAK-DESIGN.md` "BREAK ON ANY BYTE"; README (doc) |
 | Sprite attributes and patterns (18/19) are "answered but empty"; palette and clip (16/17) are served | `cmd_jump_table` comments `:60-61` |
 | Reserves 8K banks 91 (loopback), 92 (temp), 94 (MAIN, refused by CMD_WRITE_BANK); runs MAIN in slot 7 and uses slot 6 as a swap window while stopped | `src/constants.asm` `LOOPBACK_BANK`, `TMP_BANK`, `MAIN_BANK`, `MAIN_SLOT`, `SWAP_SLOT`; `cmd_write_bank` banner |
 | Reports slot 7 from its backup and slot 0 as ROM while stopped | `cmd_get_registers`; `SLOT_BACKUP` struct comment |
@@ -190,6 +196,22 @@ nobody has measured are marked **(unmeasured)**.
 | PC Pause works over WiFi, and over the cable on joy port 2 only; the serial break "has not run on hardware" | README (doc); dezogif_ng #43 |
 | A program that uses the Copper loses the async break unless it carries the two instructions itself; the "C" key turns the break off | README; `doc/ASYNCHRONOUS-BREAK-DESIGN.md` §0.1 (doc) |
 | Needs core 03.01.10 or later (stackless NMI) and a Multiface-enabled config | README (doc) |
+
+### 2.4a maziac's dezogif, the upstream: what `CMD_INIT` cannot tell apart
+
+| Fact | Evidence |
+|---|---|
+| At the fork point the upstream answers **byte-identically** to dezogif_ng: DZRP 2.1.0, machine 4, `"dezogif v2.2.1"` | `git show dee4255:src/commands.asm` (`DZRP_VERSION` 2.1.0); `dee4255:src/data_const.asm` `PRG_VERSION` |
+| But it routes **`CMD_PAUSE` (7)**, 18 and 19 to `cmd_not_supported`, so on that stub a Pause resets the session exactly as an unknown command does on dezogif_ng | `dee4255:src/commands.asm`, `.pause: defw cmd_not_supported ; 7, not supported on a ZX Next` |
+| The upstream today (`71c7ad0`) answers **DZRP 2.2.0**, `"dezogif v2.3.0-rc2"`, and serves `CMD_GET_SUPPORTED_COMMANDS`; its bitfield is 1-4, 6-17, 20-24 (no 5, 18/19, 25/26, 28, 39-43) | `upstream/main:src/commands.asm:27-29`, `:65`, `cmd_get_supported_commands` |
+| It emits `NTF_LOG` (notification 2) | `upstream/main:src/dbg_send_log.asm`, `SEND_NTF_LOG` in `cmd_close` |
+| **Neither upstream version has a TCP transport**: both are UART-only (`src/uart.asm`; no `transport_esp.asm`). The WiFi transport is dezogif_ng's addition | `git ls-tree dee4255 src/`, `git ls-tree upstream/main src/`; dezogif_ng README "What this fork adds" |
+| DeZog 3.8 requires a 2.2 remote | DeZog `upstream/main:src/remotes/dzrptransport/dzrptransportremote.ts:60`, `:630-635` |
+
+So `CMD_INIT` alone cannot tell dezogif_ng from the upstream at the fork point, and the
+difference matters (Pause). The **link** can: a 2.1.0 `"dezogif ..."` reached over TCP can only
+be dezogif_ng's WiFi build; over a serial cable it may be either. §3 turns this into the
+identity rule.
 
 DeZog's client for this stub (`ZxNextSerialRemote`, `src/remotes/dzrpbuffer/zxnextserialremote.ts`)
 adds the rules a client must keep: no breakpoint in ROM (bank 0xFE/0xFF) nor at 0x0000-0x0007
@@ -205,8 +227,9 @@ cannot be read back (`Z80RegistersZxNextDecoder` returns NaN).
   coverage, no Copper and no audio command.
 - `CMD_CONTINUE` carries at most **two** temporary breakpoints; its step-over and step-out
   "alternate commands" are specified but "At the moment there are no plans to implement" them.
-- DZRP 2.2.0 makes `CMD_GET_SUPPORTED_COMMANDS` mandatory **for remotes that answer 2.2.0**;
-  a 2.1.0 remote such as dezogif_ng has no way to say what it supports.
+- DZRP 2.2.0 makes `CMD_GET_SUPPORTED_COMMANDS` mandatory **for remotes that answer 2.2.0**,
+  so probing with it is safe there (jnext, the upstream dezogif today); a 2.1.0 remote such as
+  dezogif_ng has no way to say what it supports, and probing it destroys its session (§2.4).
 
 ---
 
@@ -249,10 +272,44 @@ cannot be read back (`Z80RegistersZxNextDecoder` returns NaN).
   remote facade's `pump()` from the same tick it already runs, so NTF_PAUSE arrives as a
   `Paused` the window reacts to exactly as to a local stop. No thread (architecture §5's
   reasons hold).
-- **Profiles, not probing** (D4). `CMD_INIT`'s reply names the remote. `"jnext v..."` at 2.2.0
-  gets the command set from `CMD_GET_SUPPORTED_COMMANDS`; `"dezogif ..."` at 2.1.0 gets a fixed
-  set (§2.4), and the client never sends a command outside it, because one unsupported command
-  resets the stub's session. Any other remote is refused with a message naming it (D14).
+- **Waiting without a thread: the wait hook** (D17). A blocking fetch waits in a loop of
+  `ClientLink::poll()` up to the response timeout, and every iteration calls a **wait hook**
+  that the owner of the remote facade installs on `DzrpClient`: the LOCAL facade's
+  `Debugger::pump(PumpBudget{})`. This is what makes a single-threaded process able to talk to
+  a server it hosts itself: an in-process `DzrpServer` is a `Service` of the local facade and
+  is drained only by its `pump()` (`src/remote/transport.h`, `Server`), so without the hook the
+  loopback suite (R2.7) would wait for a reply that cannot come. In the GUI the same hook keeps
+  the local jnext's own servers (a DeZog attached to it, say) served during the wait. The hook
+  never runs frames and is never called from inside `run_frame()` or an event delivery (a
+  panel refresh is neither), so architecture §5's no-reentrancy rule holds; a wait started
+  from inside the hook is refused. The connect and `CMD_INIT` phase is asynchronous (one step
+  per tick) and never a blocking wait.
+- **No session with oneself** (D17). The client's `CMD_INIT` program name carries a
+  per-process random session token; a `DzrpServer` that receives a token of its own process
+  answers error 1, and the client reports "this is this jnext's own DZRP server". Such a
+  session has no use, and it would make every remote stop a stop of the machine running the
+  window. The unit suites inject distinct tokens so the in-process loopback stays possible.
+- **The local emulator stalls during a blocking wait.** One thread: while a fetch waits, the
+  local emulator runs no frames. The stop-time burst exists to make that rare; each wait is
+  bounded by the response timeout (§12).
+- **Profiles, chosen from `CMD_INIT` and the link** (D4, D14, D19). The client never sends a
+  command outside its profile's set, because one unsupported command resets a dezogif_ng
+  session (§2.4) and a Pause resets the old upstream's (§2.4a).
+
+  | `CMD_INIT` answer | Link | Profile | Command set | Breakpoints |
+  |---|---|---|---|---|
+  | `"jnext v..."`, 2.2.0 or later | any | jnext | from `CMD_GET_SUPPORTED_COMMANDS` | normal (40/41) |
+  | `"dezogif ..."`, 2.1.0 | TCP | dezogif_ng (only its WiFi build has TCP, §2.4a) | fixed, §2.4 | simple (13/14) |
+  | `"dezogif ..."`, 2.1.0 | serial | ambiguous: dezogif_ng UART build or upstream <= v2.2.1 | the intersection: §2.4's set minus 7, 18, 19; Pause by the NMI button only, unless the user declares the stub is dezogif_ng (`remote.stub`, R4.4), which selects the dezogif_ng set | simple |
+  | `"dezogif ..."`, 2.2.0 or later | any | dezogif 2.2 (the upstream today, a future dezogif_ng) | from `CMD_GET_SUPPORTED_COMMANDS`, safe at 2.2.0 | simple (no 40/41 in the bitfield); normal if the bitfield ever has 40/41 |
+  | anything else | any | refused, naming the remote | none | n/a |
+
+  The dezogif 2.2 row is untested until a stub answering 2.2.0 is on hand (the upstream is
+  UART-only, so it needs R4.4); owner question Q6 asks whether to keep it. Every profile
+  accepts `NTF_LOG` and logs it.
+- **Nothing but Pause while a dezogif program runs** (D18). From §2.4: on any dezogif profile
+  the send gate allows only `CMD_PAUSE` while the program runs (and only where the profile has
+  Pause); everything else waits for the stop, or is done inside an absorbed pause (R4.2).
 - **Two breakpoint dialects** (D5), chosen by the profile and never mixed in one session (spec,
   "Modes"): normal mode (40/41, the remote owns the list) for jnext; simple mode (13/14, the
   client owns the list and patches around every continue) for dezogif_ng.
@@ -272,11 +329,12 @@ changes nothing a user sees.
   C values, `source_step` strategy, exports), or **local-only** (refuses with `Unsupported` on a
   remote: rewind, trace, coverage, `render_layer`, copper, AY, input injection, capture, bookmarks,
   `load` through the loop driver, `reset`). Output: a table appended to this document and the
-  proposed `src/debug/target.h` (published, std headers only, so `test/lint-debug-headers.sh`
-  keeps passing) plus the facade additions: a constructor or factory over a `Target`,
+  proposed `src/debug/target.h` (published, std headers only, and added to `HEADERS` in
+  `test/lint-debug-headers.sh:79-84` so the include-graph lint gates it like the other four)
+  plus the facade additions: a constructor or factory over a `Target`,
   `capabilities()`, `target_info()` (kind, remote name and version, link text) and the register
   validity mask.
-- **Files.** This document; `src/debug/target.h` (declarations only);
+- **Files.** This document; `src/debug/target.h` (declarations only); `test/lint-debug-headers.sh`;
   `doc/design/debug-subsystem/b0-cap-traceability.md` gets the new CAP rows.
 - **Tests.** None beyond compiling the header in the lint (`lint-debug-headers` row).
 - **Acceptance.** Every method of `debugger.h` appears once in the table with its class and a
@@ -303,16 +361,24 @@ changes nothing a user sees.
 
 - **Design.** `jnext::remote::dzrp::DzrpClient` (`src/remote/dzrp/dzrp_client.{h,cpp}`): owns
   a link, sends `CMD_INIT` (version 2.2.0, name `"jnext v<version>"`), parses the reply into a
-  `RemoteInfo{name, version, machine}` and selects a profile (D4): `jnext` (needs >= 2.2.0;
-  then `CMD_GET_SUPPORTED_COMMANDS`), `dezogif` (2.1.0 fixed set), anything else refused. Keeps a
-  pipelining window (configurable; default 15 for jnext, 1 for dezogif until R4.6 measures
-  otherwise), a per-command timeout, and a queue of NTF_PAUSE notifications. **Every send goes
-  through one gate that refuses a command outside the profile's set** (the never-unsupported
-  rule), and that refusal is a client bug logged at error level.
+  `RemoteInfo{name, version, machine}` and selects a profile from §3's table (D4, D19:
+  the answer and the link type). The name it sends carries the process's session token (D17).
+  Keeps a pipelining window (configurable; default 15 for jnext, 1 for the dezogif profiles until
+  R4.6 measures otherwise), a per-command timeout, a queue of NTF_PAUSE notifications, and
+  logs `NTF_LOG`. **Every send goes through one gate** that refuses (1) a command outside the
+  profile's set (the never-unsupported rule) and (2) on a dezogif profile, any command but
+  `CMD_PAUSE` while the program runs (D18); a refusal is a client bug logged at error level.
+  Blocking waits call the wait hook (D17) on every poll iteration.
 - **Tests.** `dzrp_client_test` rows over a scripted peer: version gate, each profile, unknown
   remote refused, sequence wrap 15 -> 1, a reply with a wrong sequence number (protocol error,
-  link closed), timeout, NTF_PAUSE between a command and its reply, CMD_CLOSE on teardown. A
-  row asserts the gate: with the dezogif profile, asking for command 24, 25 or 42 sends nothing.
+  link closed), timeout, NTF_PAUSE between a command and its reply, CMD_CLOSE on teardown. Gate
+  rows: with the dezogif_ng profile, asking for command 24, 25 or 42 sends nothing; with the
+  ambiguous serial profile, asking for 7, 18 or 19 sends nothing; with a dezogif profile and the
+  program running, any command but 7 sends nothing. Identity rows: each line of §3's table,
+  including the same `"dezogif v2.2.1"` answer over TCP and over serial giving two profiles.
+  Wait-hook rows: a blocking read to an in-process `DzrpServer` over the memory pair completes
+  with the hook installed and times out without it; a wait started inside the hook is refused.
+  Self-connection row: a server receiving its own process's token answers error 1.
 - **Acceptance.** All rows green; against a real `DzrpServer` over the memory pipe (R0.4) the
   session opens and closes and the server's log shows one attach and one detach.
 - **Depends on.** R0.2, R0.4.
@@ -325,11 +391,34 @@ changes nothing a user sees.
   allowed: the user names the host), `MemoryLinkPair` for the suites (two ends of an in-memory
   pipe, the second end handed to a `remote::Server` through `FakeListener`,
   `src/remote/fake_transport.h`), and later `SerialLink` (R4.4). No new socket code (D13).
+  A link never pumps its peer: in-process peers are served by R0.3's wait hook (D17).
 - **Tests.** `remote_transport_test` gains `RLK-` rows: connect refused, connect timeout, peer
   close, partial writes, the memory pair against `remote::Server`. Windows: the TCP rows run in
   `make unit-test-win` (the esp twin is already there).
 - **Acceptance.** Rows green in `make unit-test`, `unit-test-sdl`, `unit-test-win`.
 - **Depends on.** Nothing.
+
+### R0.5 Early hardware checkpoint (owner)
+
+- **Goal.** Before R1 to R4 build on §2.4's source-derived facts, check the ones a session
+  rests on against the real stub on the owner's Next: a **KS2, board issue 4**, running
+  dezogif_ng's WiFi ROM (`make mf-rom-wifi`) over its ESP-01, the PoC link the owner chose (Q3).
+- **Design.** A small test-only command-line driver over `DzrpClient` and `TcpLink`
+  (`test/dzrp_client_probe`; R2.8's `remote_target_probe` later grows from it): connect to `tcp:<Next IP>:11000`, `CMD_INIT`,
+  `CMD_GET_REGISTERS`, `CMD_READ_MEM` of a few ranges (around PC and SP, one in each slot),
+  `CMD_GET_TBBLUE_REG` of NR 0x00 / 0x01 / 0x50-0x57, `CMD_CLOSE`. Only commands of the
+  dezogif_ng set are sent. **The silent reset on an unknown command is NOT exercised** unless
+  the owner agrees to it (Q10): it would cost the session and prove a fact the source already
+  states plainly.
+- **Record.** A first section of `doc/testing/REMOTE-TARGET-VALIDATION.md` (R4.6 completes it):
+  board (KS2, issue 4), core version (NR 0x01 and the boot screen), dezogif_ng build number (its
+  banner), the `CMD_INIT` reply bytes, the register and memory values against what the Next's
+  screen shows, and the round-trip time of each command.
+- **Acceptance.** The record exists and states, for each of: the `CMD_INIT` answer (DZRP 2.1.0,
+  `"dezogif v2.2.1"`), the slot reporting of `CMD_GET_REGISTERS`, and `CMD_READ_MEM` returning the
+  debuggee's bytes, whether the hardware agrees with §2.4. Any disagreement is folded into §2.4
+  and the affected tasks before R1.1 starts.
+- **Depends on.** R0.3, R0.4. Blocks R1.1 (by owner decision 2026-11-17).
 
 ---
 
@@ -356,7 +445,7 @@ knows how to grey out what a target cannot do.
 - **Docs.** Developer guide 3.9 (`src/doc/developer-guide/03-subsystems/09-1-the-backend-api.md`):
   the seam and the three method classes.
 - **Acceptance.** No test count changes except new rows; no behaviour change; bench within noise.
-- **Depends on.** R0.1 (owner-approved header).
+- **Depends on.** R0.1 (owner-approved header); R0.5 (the hardware checkpoint, owner decision 2026-11-17).
 
 ### R1.2 Capability model
 
@@ -414,7 +503,8 @@ CI proves it on loopback. This is also the PoC's client, minus the dezogif profi
   (25/26, ROM as bank 0xFF). Slots: `CMD_SET_SLOT`. NextREGs: `CMD_GET_TBBLUE_REG` per register
   (pipelined), writes by `CMD_SET_NEXTREGS` (27) when advertised. Sprites: 16-19. Paging ports
   for the MMU panel from NextREGs where the Next exposes them. Snapshot cache per D3.
-- **Tests.** In `remote_target_test` (R2.7) rows `RTG-`: each primitive against `LocalTarget`
+- **Tests.** New suite `remote_target_test`, created here and extended by R2.2 to R2.4 and
+  R2.7 (the in-process setup and wait hook of R2.7's design), rows `RTG-`: each primitive against `LocalTarget`
   on the same machine state; the snapshot burst is one pipelined write (row counts frames
   before the first reply); a write is visible to the next read without a refetch.
 - **Acceptance.** Every inspection panel the table marks "remote jnext: yes" shows the same
@@ -430,7 +520,9 @@ CI proves it on loopback. This is also the PoC's client, minus the dezogif profi
   each stop, against the remote facade (a `Condition` takes `const Debugger&`, `events.h`), and
   a false condition resumes at once: one round trip per hit, stated in the tooltip. Other event
   kinds -> `Unsupported`.
-- **Tests.** `RTG-` rows: breakpoint in RAM and in ROM (a jnext target can), page-qualified,
+- **Tests.** `RTG-` rows: breakpoint in RAM, page-qualified, and in ROM (a jnext target can;
+  it is armed in every ROM bank, because the server maps bank 0xFE/0xFF to `PAGE_ANY`,
+  `bank1_to_page()`, `src/remote/dzrp/dzrp_server.cpp:105-124`),
   conditional true/false, `once`, a hit while the GUI of the target jnext also has a breakpoint
   (both clients see their own), detach resumes only a pause the client made (the server's rule,
   `dzrp-close-resume-func`).
@@ -487,12 +579,18 @@ CI proves it on loopback. This is also the PoC's client, minus the dezogif profi
 - **Design.** One enabler flag, `--remote-target URI` with `tcp:HOST:PORT` (and from R4.4
   `serial:DEVICE[@BAUD]`), which opens the debugger window on that target at start. The
   Preferences "Debugger" tab (`src/gui/preferences_dialog.cpp`, `build_debugger_tab()`) gains a
-  "Remote target" group holding the dialog's fields. One row per field in
-  `src/platform/config_keys.h` `KEYS[]` (section `remote`): `link` (Word `tcp|serial`), `host`
-  (Text), `port` (Int 1..65535), `serial_device` (Path), `serial_baud` (Int), `connect_timeout_ms`
-  (Int), `response_timeout_ms` (Int), all `QT`, `needs_debugger = true`, the first five with
-  `flag = "--remote-target"`. `cli_options.h` gains the `--remote-target` entry; headless and the
-  SDL frontend refuse it with a message (there is no debugger window to drive).
+  "Remote target" group holding the dialog's fields. Each field is a
+  `KeyId` entry plus a `KEYS[]` row in `src/platform/config_keys.h` (section `remote`): `link`
+  (Word `tcp|serial`), `host` (Text), `port` (Int 1..65535), `serial_device` (Path),
+  `serial_baud` (Int), `connect_timeout_ms` (Int), `response_timeout_ms` (Int), all `QT`,
+  `needs_debugger = true`, and `flag = nullptr`: `Key::flag` means "a dedicated option with the
+  same effect" (`config_keys.h:111`), and `--remote-target` does more than set these keys (it
+  also connects at start), so every field is set by `--set remote.KEY=VALUE` and the man page
+  says which keys `--remote-target` fills from its URI. The URI grammar is exactly
+  `tcp:HOST:PORT` and `serial:DEVICE[@BAUD]`; the program file is a separate key
+  (`remote.program`, R3.1) and `remote.stub` comes with R4.4. `cli_options.h` gains the
+  `--remote-target` entry; headless and the SDL frontend refuse it with a message (there is no
+  debugger window to drive).
 - **Tests.** `cli_options_test` (via `make cli-check`), `app_config_test` (AC-94/95/96 cover a
   new key automatically), a `--set remote.port=...` row.
 - **Docs.** `doc/man/jnext.1.md` Debugging section, regenerated `jnext.1`, `USAGE.md` and the
@@ -507,8 +605,10 @@ CI proves it on loopback. This is also the PoC's client, minus the dezogif profi
   `Debugger` and a `DzrpServer`, and a remote `Debugger` over a `DzrpTarget` over the
   `MemoryLinkPair`. Each row runs the same scenario through the local facade and through the
   remote one and compares: registers, memory, slots, breakpoints hit, step landings, C values
-  (R3.5). The server is the "fake shim" the epic asks for on the jnext side, and it is not a
-  fake: it is the shipped server.
+  (R3.5). The remote facade's `DzrpClient` gets the local facade's `pump()` as its wait hook
+  (§3, D17) and the two ends distinct session tokens, which is what lets one thread wait on a
+  server it hosts. The server is the "fake shim" the epic asks for on the jnext side, and it is
+  not a fake: it is the shipped server.
 - **Tests.** Rows `RTG-`, declared in `test/unit-tests.conf` (Linux, SDL-only and Windows
   configurations: no Qt).
 - **Acceptance.** Every "remote jnext: yes" capability of §11 has at least one parity row.
@@ -534,7 +634,11 @@ CI proves it on loopback. This is also the PoC's client, minus the dezogif profi
   `--debug-listen-address` decides who can connect).
 - Developer guide: new chapter `src/doc/developer-guide/03-subsystems/10-8-remote-targets.md`
   (the seam, the profiles, the cache, the stepping strategy), linked from `10-0`.
-- FEATURES.md entry. `make docs-check` green.
+- FEATURES.md entry.
+- **Acceptance.** `make docs-check` green; the user guide page covers connecting from the
+  dialog and from `--remote-target`, every "remote jnext: no" row of §11 with its reason, and
+  the security note; the developer guide chapter covers the seam, the profile table of §3, the
+  wait hook and the snapshot cache.
 
 ---
 
@@ -546,13 +650,16 @@ over plain DZRP.
 ### R3.1 Program and sidecars; fetch identity
 
 - **Design.** The user names the program file of the remote session (dialog field, and the CLI
-  through `--remote-target`'s program part or `--set remote.program=FILE`, a new key). The
+  through `--set remote.program=FILE`, a new `KeyId` + `KEYS[]` row as in R2.6). The
   existing `Debugger::load_program_sidecars(path)` loads its map, SLD, `.lis`, `.cdb` as for a
   local load. The fetch identity on a remote is the MMU's: `Page{p}` for a RAM slot, `Rom{}` for
   bank 0xFF; DivMMC, Multiface, Alt ROM and Layer 2 overlays are invisible over DZRP and are
   reported as such (`source_page()` returns the slot's page; §11).
 - **Tests.** `RSRC-` rows in `remote_target_test`: a z88dk banked program's lines resolve on
   the remote as on the local.
+- **Acceptance.** With the program named, the Source tab, symbols and line breakpoints of a
+  remote session resolve to the same files, lines and addresses as a local session of the same
+  program; with an overlay mapped, the views say "MMU only" instead of showing a wrong line.
 - **Depends on.** R2.7.
 
 ### R3.2 Build-match check
@@ -564,6 +671,9 @@ over plain DZRP.
   describe") and disables source features until the user confirms. Reads use the snapshot
   burst, so the check costs a bounded number of round trips.
 - **Tests.** `RSRC-` rows: match, one byte changed, wrong bank mapped.
+- **Acceptance.** A one-byte difference in any source-mapped code range is reported before
+  any line is shown, and a match costs no more round trips than the snapshot burst plus one
+  read per mapped bank.
 - **Depends on.** R3.1.
 
 ### R3.3 Source line stepping
@@ -604,6 +714,8 @@ over plain DZRP.
   by `CMD_READ_MEM_BLOCKS` when advertised; plain `CMD_READ_MEM` otherwise (dezogif). Writes
   through `poke()` as today.
 - **Tests.** `RSRC-` parity rows for locals, globals, structs and arrays on the C fixture.
+- **Acceptance.** The Variables panel shows the same rows and values on a remote stop as on the
+  local one; on a dezogif profile no bulk command is ever sent (gate row).
 - **Depends on.** R3.4.
 
 ### R3.6 Tests and docs for remote source debugging
@@ -613,6 +725,9 @@ over plain DZRP.
 - Docs: user guide `06-debugger/functions/14-source-level-debugging.md` and the new page; the
   developer guide's `07-source-level-debugging/05-breakpoints-steps-history.md` and
   `10-c-frames-and-values.md` gain the remote strategy.
+- **Acceptance.** The functional row green as a targeted row; `make docs-check` green; the
+  pages say what a remote source step costs (round trips) and what stays local-only (Back,
+  Reverse Continue).
 
 ---
 
@@ -623,8 +738,10 @@ protocol path against the real stub running in jnext.
 
 ### R4.1 dezogif_ng profile
 
-- **Design.** The `dezogif` profile (`dzrp_client.cpp`): commands 1-23 except 22, plus nothing
-  above; breakpoints in simple mode (R4.2); IM, IFF1, IFF2, HALT invalid; no watchpoints, no
+- **Design.** The dezogif_ng profile (`dzrp_client.cpp`), selected by §3's identity rule (2.1.0
+  `"dezogif ..."` over TCP, or over serial with `remote.stub=dezogif_ng`); the ambiguous serial
+  profile is the same minus 7, 18 and 19. Commands 1-23 except 22, plus nothing above; while the
+  program runs, only `CMD_PAUSE` (D18); breakpoints in simple mode (R4.2); IM, IFF1, IFF2, HALT invalid; no watchpoints, no
   bank memory, no state; sprite attributes and patterns unavailable (the stub returns zeros);
   pipelining window 1 until R4.6 measures more; reserved banks 91, 92 and 94 refused for writes
   and marked in the memory views; slot 7 reads come from the stub's backup and are correct for
@@ -632,7 +749,10 @@ protocol path against the real stub running in jnext.
 - **Tests.** `dzrp_client_test` rows with a scripted dezogif peer (the fake shim for the
   hardware dialect): handshake, the gate refuses every command outside the set (a test that a
   stray 24 would be caught before it is sent, because the real stub would answer nothing and
-  reset).
+  reset); the running-state rule; the peer emits `NTF_LOG` and the client logs it.
+- **Acceptance.** Against the scripted peer, a full session (connect, registers, memory, a
+  breakpoint, continue, hit, step, Pause, disconnect) sends only commands of the profile's set,
+  and nothing but command 7 while running; the capability set matches §11's dezogif_ng column.
 - **Depends on.** R2.7.
 
 ### R4.2 Simple-mode breakpoints
@@ -645,9 +765,18 @@ protocol path against the real stub running in jnext.
   two continues: step off with temporaries, then patch it back and continue
   (`ZxNextSerialRemote.sendDzrpCmdContinue`). Refused: ROM banks, 0x0000-0x0007, 0x0066-0x0073
   (`checkBreakpoint`); RST 08 stepped as one instruction; a DJNZ's temporary at the PC dropped
-  (`calcStepBp`). A breakpoint set while running is patched at once and recorded. A NTF_PAUSE
+  (`calcStepBp`). A breakpoint added, removed, enabled or disabled while the program runs is NOT sent at once:
+  any byte would break the program (async break armed) or go unanswered (break off, §2.4).
+  Where the profile has Pause, the edit is done as an **absorbed pause**: `CMD_PAUSE`, wait for
+  `NTF_PAUSE`, restore and re-set the list (14, then 13), `CMD_CONTINUE`, and the window does not
+  show that stop (the program is stopped for those round trips; said in the tooltip).
+  Without Pause (the ambiguous serial profile, the break off) the edit is **queued** and applied
+  at the next stop, and the breakpoint shows "pending" until then. A NTF_PAUSE
   at a temporary that is also a user breakpoint is reported as a step (DeZog's correction).
-- **Tests.** Scripted-peer rows for each rule; emulated-rig rows (R4.5) for the real stub.
+- **Tests.** Scripted-peer rows for each rule, and for edits while running: with Pause the
+  wire carries exactly 7, then (after `NTF_PAUSE`) 14, 13, 6, and no `Paused` reaches the
+  window; without Pause the wire carries nothing until the next stop, then 14 and 13 with the
+  queued edit in. Emulated-rig rows (R4.5) for the real stub.
 - **Acceptance.** After every stop the cache and the target hold no 0xC7 the program did not
   write (row reads the patched addresses after the restore).
 - **Depends on.** R4.1, R2.4.
@@ -662,51 +791,76 @@ protocol path against the real stub running in jnext.
 - **Tests.** `RTG-` rows on the loopback (jnext target): uploaded memory equals a local
   `--load` of the same NEX at its entry point; scripted-peer row for the dezogif command
   sequence.
+- **Acceptance.** After an upload the target stops at the NEX's entry point with its banks,
+  slots, SP and PC as a local `--load` of the same file sets them, and the build-match check
+  (R3.2) passes; a NEX touching banks 91, 92 or 94 is refused before any byte is sent to
+  dezogif_ng.
 - **Depends on.** R4.1. Owner question Q5 decides whether it is in the PoC.
 
-### R4.4 Serial link
+### R4.4 Serial link (optional, after the PoC)
 
+- **Status.** Not part of the PoC: the owner's PoC link is WiFi (Q3, answered 2026-11-17). Kept
+  for cable rigs and for the upstream dezogif, which is UART-only (§2.4a).
 - **Design.** `SerialLink : ClientLink` (`src/remote/serial_link.{h,cpp}` plus a Windows twin):
   POSIX termios raw 8N1, no flow control, arbitrary baud through the platform's custom-rate
   call where the standard set lacks 921600; Win32 `CreateFile("\\\\.\\COMn")` with
   `SetCommState`. The dezogif serial profile enables the 0xA5 pre-stage (R0.2). Pause over the
   cable is offered only when the stub reports joy port 2 (the README's "PC break: ready") and
   is marked unverified on hardware (dezogif_ng #43); otherwise the status bar says to press
-  the NMI button. No child process is spawned, so the LANG=C rule does not apply.
-- **Tests.** `RLK-` rows on a pty pair (`# os: posix`); the Windows twin compiles in
-  `make unit-test-win` and its behaviour is tested only on hardware (stated in the row's
-  comment and in §12).
-- **Depends on.** R4.1. Owner question Q3 decides whether it is in the PoC.
+  the NMI button. A new key `remote.stub` (Word `auto|dezogif_ng`, R2.6's pattern) lets the user
+  declare that a 2.1.0 `"dezogif ..."` remote on a cable is dezogif_ng, which lifts the ambiguous
+  profile's restrictions (§3). No child process is spawned, so the LANG=C rule does not apply.
+- **Tests.** `RLK-` rows on a pty pair in a new sibling suite `remote_serial_link_test`,
+  declared `# os: posix` in `test/unit-tests.conf` (`remote_transport_test` is `# os: native`,
+  and CLAUDE.md moves such rows to an os-gated sibling suite, never to a SKIP); the Windows
+  twin compiles in `make unit-test-win` and its behaviour is tested only on hardware (stated in
+  the suite's comment and in §12).
+- **Acceptance.** Over a pty pair the session of R4.1's acceptance runs with the 0xA5 pre-stage
+  and 921600 configured; the ambiguous profile never sends 7, 18 or 19 unless `remote.stub`
+  declares dezogif_ng; `make unit-test-win` builds the Windows twin.
+- **Depends on.** R4.1.
 
 ### R4.5 Emulated-rig rows
 
 - **Design.** The real dezogif_ng running in jnext, driven by the probe: a scratch card copy
   (`private-sd`), the ROM installed by `jnext --sdcard COPY --sdcard-file-add ROM
   --sdcard-file-dest /MACHINES/NEXT/enNextMf.rom --sdcard-file-force`, then headless jnext with
-  `--esp --esp-listen-address 127.0.0.1 --delayed-nmi ...` (WiFi ROM) and the probe on
+  `--esp --esp-listen-address 127.0.0.1 --delayed-nmi-frames ...` (WiFi ROM) and the probe on
   `tcp:127.0.0.1:11000` (row `remote-dezogif-wifi-func`, tagged `serial` because the guest's
-  port is fixed at 11000); and the UART ROM with `--joy-uart-pty`, the probe on the logged pty
-  (row `remote-dezogif-uart-func`, `os=linux`). Scenario: connect, registers, memory and slots,
+  port is fixed at 11000). That WiFi row is the primary one, matching the owner's PoC link.
+  Only once R4.4 lands, a second row runs the UART ROM with `--joy-uart-pty` and the probe on
+  the logged pty (`remote-dezogif-uart-func`, `os=linux`). The probe connects while the stub is
+  stopped: a TCP connect while the program runs makes the ESP-01 print `CONNECT`, which the
+  async break takes as a break (§2.4). Scenario: connect, registers, memory and slots,
   breakpoint, continue, hit, step, pause of a running program (WiFi), disconnect. The NextZXOS
   image is the one jnext provisions; no image is committed or uploaded, in any form.
-- **Tests.** The two rows. Where the ROM comes from is owner question Q4.
+- **Tests.** The WiFi row (and the UART row with R4.4). Where the ROM comes from is owner
+  question Q4.
 - **Acceptance.** Both rows green as targeted rows; they fail when the client sends an
   unsupported command (mutation: drop the gate, the stub resets and the row goes red).
-- **Depends on.** R4.2; R4.4 for the UART row.
+- **Depends on.** R4.2; R4.4 for the optional UART row.
 
 ### R4.6 Hardware validation (owner)
 
-- A manual protocol in `doc/testing/REMOTE-TARGET-VALIDATION.md` (the shape of
-  `DZRP-VALIDATION.md`): the R4.5 scenario on the KS2, over WiFi and over the cable as
-  available, with a C program and source stepping; record round-trip time, stop-refresh time,
-  Step Over and line-step wall time, and the largest pipelining window that holds. Results set
-  the dezogif profile's window and timeouts.
+- **Design.** A manual protocol in `doc/testing/REMOTE-TARGET-VALIDATION.md` (the shape of
+  `DZRP-VALIDATION.md`, started by R0.5): the R4.5 scenario on the owner's **KS2, board issue 4**,
+  over WiFi (dezogif_ng's WiFi ROM on the ESP-01), with a C program and source stepping; record
+  round-trip time, stop-refresh time, Step Over and line-step wall time, an absorbed-pause
+  breakpoint edit, and the largest pipelining window that holds. Every record names the board
+  (KS2, issue 4), the core version and the dezogif_ng build. Results set the dezogif_ng
+  profile's window and timeouts. The cable is checked only if R4.4 is done.
+- **Acceptance.** Every row of §11's dezogif_ng column that says "yes" has a recorded result on
+  the KS2 (pass, or a defect folded back into the plan), and the latency figures are in the
+  record.
 
 ### R4.7 Docs for the real Next
 
 - User guide page "Debugging a real Next" (install dezogif_ng, WiFi or cable, what greys out,
   the Copper and joystick caveats from §2.4); man page for `serial:` URIs; developer guide: the
-  dezogif profile and the simple-mode dance. FEATURES.md entry.
+  dezogif profiles and the simple-mode dance. FEATURES.md entry.
+- **Acceptance.** `make docs-check` green; the user guide page covers installing the WiFi ROM,
+  connecting, every "no" of §11's dezogif_ng column with its reason, the running-program rule
+  (edits cause a short absorbed pause) and the Copper and joystick caveats.
 
 ---
 
@@ -715,17 +869,21 @@ protocol path against the real stub running in jnext.
 - **R5.1** A report appended to this document: what the PoC does on hardware, what is missing
   against §11, measured costs, and the shim options (below).
 - **R5.2** The owner decides. Options to put to the owner, all within the 2026-11-10 decision
-  (no DZRP extensions, no own protocol): (a) stop at dezogif_ng; (b) contribute the missing
-  standard DZRP 2.2.0 commands (24, 25/26, 28) to dezogif_ng upstream, which the client already
-  uses through the bitfield; (c) a jnext shim in this repository (R6).
+  (no DZRP extensions, no own protocol): (a) stop at dezogif_ng; (b) bring dezogif_ng to
+  DZRP 2.2.0: maziac's upstream already answers 2.2.0 and serves `CMD_GET_SUPPORTED_COMMANDS`
+  (`71c7ad0`, §2.4a), so (b) is merging that and adding what neither stub has (25/26 bank
+  memory, 28 block reads) in dezogif_ng, the owner's own project; the client then uses them
+  through the bitfield with no change (the dezogif 2.2 profile); (c) a jnext shim in this
+  repository (R6).
 
 ## 10. Phase R6: custom shim (placeholders, gated by R5.2)
 
 - **R6.1** Import: dezogif_ng's sources, distributed under jnext's GPL with the MIT notices of
   maziac (2020) and jorgegv (2026) kept (`LICENSE`, `NOTICE`); a licensing note beside
   `doc/legal/`.
-- **R6.2** Build: dezogif_ng is **sjasmplus** source (`Makefile`, README "Requirements"), not
-  z88dk as the issue body says. Either sjasmplus becomes a pinned build dependency (owner
+- **R6.2** Build: dezogif_ng's ROM is **sjasmplus** source, and z88dk builds only its `mfselect`
+  and `.mfinstall` tools (README "Requirements"), so the issue body's "built with z88dk" holds
+  for the tools, not the ROM. Either sjasmplus becomes a pinned build dependency (owner
   approval, PULL-REQUEST-PROTOCOL's no-new-dependency rule) or the sources are ported to
   z88dk's assembler. Reproducible output (dezogif_ng already has `check-reproducible`).
   Version in lockstep with `version.yaml`.
@@ -738,17 +896,19 @@ protocol path against the real stub running in jnext.
 ## 11. What degrades on a remote target
 
 "Remote jnext" is another jnext over DZRP 2.2.0 (`DzrpServer`). "Remote Next" is a Next running
-dezogif_ng build 0026 (DZRP 2.1.0). "Greyed" means the action is disabled with the reason in its
+dezogif_ng build 0026 (DZRP 2.1.0) through the dezogif_ng profile (WiFi, the PoC link); the
+ambiguous serial profile of §3 differs only where a cell says so. "Greyed" means the action is disabled with the reason in its
 tooltip, or the panel shows a placeholder with the reason (R1.3).
 
 | Capability | Local jnext | Remote jnext | Remote Next (dezogif_ng) | When unavailable |
 |---|---|---|---|---|
-| Run, Pause | yes | yes (CMD 6/7, NTF_PAUSE) | Run yes; Pause only with the async break: WiFi ROM yes, cable on joy port 2 yes but unverified on hardware, else the NMI button; not for a Copper-using program without the two instructions | Pause stays enabled; on timeout the status bar says "press the NMI button" |
+| Run, Pause | yes | yes (CMD 6/7, NTF_PAUSE) | Run yes; Pause only with the async break: WiFi ROM yes, cable on joy port 2 yes but unverified on hardware, else the NMI button; not for a Copper-using program without the two instructions; never on the ambiguous serial profile unless `remote.stub=dezogif_ng` | Pause stays enabled; on timeout the status bar says "press the NMI button" |
 | Step Into / Over / Out (instruction) | exact (`debugger_step`) | by temporary breakpoints, one round trip per step; Out by return address or DeZog's loop | same; not in ROM, not at 0x0000-0x0007 / 0x0066-0x0073; RST 08 steps over | step actions disabled at a forbidden PC, with the reason |
 | Run to Cursor | yes | yes | yes, cursor in RAM only | disabled on a ROM or forbidden line |
 | Run to end of frame / scanline, run to cycle | yes | no (no time in DZRP) | no | greyed: "cycle-exact: local only" |
 | Step Back, Frame Back, rewind slider, source Back, Reverse Continue | yes | no | no | Rewind menu and history actions greyed |
-| Execute breakpoints | anywhere | anywhere, ROM included, page-qualified (CMD 40/41) | RAM only (RST 0 patches, CMD 13/14), patched only while running | the gutter refuses the click with the reason |
+| Execute breakpoints | anywhere | anywhere (CMD 40/41); page-qualified in RAM, a ROM breakpoint armed in every ROM bank | RAM only (RST 0 patches, CMD 13/14), patched only while running; an edit while running is an absorbed pause, or queued ("pending") without Pause (R4.2) | the gutter refuses the click with the reason |
+| Any command while the program runs | yes | yes | only `CMD_PAUSE`: any other byte would break the program or go unanswered (§2.4, D18) | edits absorbed or queued; reads show the last stop, marked stale |
 | Conditions, log actions, `once`, hit counts | evaluated in the emulator | evaluated by the client at each hit, auto-continue (a round trip per hit) | same | enabled; tooltip states the cost |
 | Read / write watchpoints | yes | yes (CMD 42/43) | no | Watch-breakpoint actions greyed |
 | Port, NextREG-write, interrupt, frame, Copper, DMA events | yes | no | no | not offered (script-only today) |
@@ -796,10 +956,15 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | Stack-walk heuristic finds data that looks like a return address | a wrong frame in the Call Stack | labelled "reconstructed"; C frames use frame pointers |
 | CMD_CONTINUE carries two temporaries only | line steps with more exits | transient breakpoints beyond two (R3.3) |
 | Pause over the cable never tested on hardware (dezogif_ng #43) | Pause may not work on a cable rig | offered only on joy port 2, labelled unverified, NMI fallback message |
-| Windows and macOS serial are not testable on this host | a platform-only failure | compile in `unit-test-win`; hardware check by a tester (R4.6) |
+| Windows and macOS serial are not testable on this host | a platform-only failure (only if R4.4 is done) | compile in `unit-test-win`; hardware check by a tester |
 | The emulated ESP binds the guest's fixed port 11000 | parallel rows collide | the row is tagged `serial` |
 | dezogif_ng's ROM in CI needs sjasmplus or a binary fixture | a new dependency or a binary in the repo | owner question Q4 |
-| dezogif_ng and upstream dezogif move to DZRP 2.2.0 | the static profile becomes wrong | profile keyed on name and version; a 2.2.0 dezogif uses the bitfield like jnext |
+| `CMD_INIT` cannot tell dezogif_ng from the upstream at the fork point (both 2.1.0 `"dezogif v2.2.1"`), and a Pause resets the old upstream's session (§2.4a) | a Pause destroys the session on an old upstream stub | the identity rule (§3, D19): TCP means dezogif_ng; on serial the conservative profile has no Pause unless the user declares the stub |
+| The upstream dezogif is already on DZRP 2.2.0 (`71c7ad0`), and dezogif_ng may follow | a fixed profile would be wrong for it | the dezogif 2.2 profile uses the bitfield, which 2.2.0 makes safe; untested until such a stub is on hand (Q6) |
+| A blocking fetch stalls the local emulator (one thread) | the local machine's frames and sound stop while a remote read waits | the stop-time burst makes misses rare; each wait is bounded by the response timeout (setting, R2.6); the wait hook keeps the local servers served; measured in R2.8 and R4.6 |
+| Waiting on a server in the same process | without the wait hook the in-process loopback suite cannot get a reply | the wait hook (D17), with rows that fail without it |
+| A session with oneself | every remote stop stops the local machine | refused by the session token (D17) |
+| A byte sent while a dezogif program runs | an unwanted break, or no answer | the running-state send rule (D18) in the gate, with rows; the probe connects only while the stub is stopped (the ESP-01's `CONNECT` line is a byte) |
 | The program on the Next is not the build the map describes | wrong lines, wrong variables | the build-match check (R3.2) |
 | Interrupts and the stub perturb the debuggee (R, speed, Copper list, joystick port) | values differ from an emulator session | stated in §11 and the user guide, from §2.4's evidence |
 
@@ -807,32 +972,42 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 
 ## 13. Open questions for the owner
 
-1. **Q1. Frozen header.** Approve adding to `src/debug/debugger.h` a constructor (or factory)
-   over a `Target`, `capabilities()`, `why_unavailable()`, `target_info()` and a register
-   validity mask, plus the new published header `src/debug/target.h`? (R0.1 lists them.)
-2. **Q2. Document location.** The brief put this plan in `doc/`; `doc/README.md` files design
-   documents under `doc/design/`. Keep it here, or move it there?
-3. **Q3. Link on the KS2.** Which link will you test the PoC on: the WiFi ROM over the ESP-01, or
-   the cable on the joy port through a USB serial adapter? WiFi needs no serial code (R4.4 can
-   follow the PoC); a cable makes R4.4 part of it.
-4. **Q4. dezogif_ng in CI.** For the emulated-rig rows (R4.5): vendor the prebuilt MIT ROMs as
-   test fixtures (pinned build number and sha256, with their notice), build them from source
-   with sjasmplus (a new pinned dependency), or skip those rows and rely on the scripted peer?
-5. **Q5. Upload in the PoC.** A dezogif_ng session normally starts with the client pushing the
-   program (R4.3). Is that in the PoC, or is attaching to a program already started on the Next
-   (NMI into it) enough for it?
-6. **Q6. Other DZRP remotes.** The plan recognises only jnext and dezogif_ng and refuses any
-   other remote (CSpect, upstream dezogif). Keep that, or accept any 2.2.0 remote through its
-   bitfield, labelled untested?
-7. **Q7. Bank views on dezogif_ng.** Grey them out in the PoC (plan), or read a page by a
-   temporary `CMD_SET_SLOT` swap that the client undoes?
-8. **Q8. One target per window.** While the debugger window shows a remote target, the local
-   emulator has no debugger window (it keeps running, its servers keep serving). Acceptable, or
-   do you want two windows at once?
-9. **Q9. The custom shim's limits.** With DZRP extensions abandoned, a jnext shim could only add
-   standard DZRP 2.2.0 commands and the stub-side features dezogif_ng already has. And the issue
-   says the shim is built with z88dk, while dezogif_ng is sjasmplus source. Both shape R5.2;
-   no answer is needed before then, but they are recorded here so R5 starts from them.
+Answered by the owner on 2026-11-17 and folded in: **Q2** (document location) is removed: plan
+documents live under `doc/design/`, and this file was moved there. **Q3** is answered below.
+The KS2 (board issue 4) is available for real testing (R0.5, R4.6).
+
+- **Q1. Frozen header.** Approve adding to `src/debug/debugger.h` a constructor (or factory)
+  over a `Target`, `capabilities()`, `why_unavailable()`, `target_info()` and a register
+  validity mask, plus the new published header `src/debug/target.h`? (R0.1 lists them.)
+- **Q3. Link on the KS2. ANSWERED (owner, 2026-11-17): WiFi**, dezogif_ng's WiFi ROM over the
+  ESP-01. R4.4 (serial) is optional and after the PoC; the emulated-rig rows use the WiFi path
+  as the primary one.
+- **Q4. dezogif_ng in CI.** For the emulated-rig rows (R4.5): vendor the prebuilt MIT ROMs as
+  test fixtures (pinned build number and sha256, with their notice), build them from source
+  with sjasmplus (a new pinned dependency), or not have those rows at all and rely on the
+  scripted peer (rows that do not exist, not SKIPs)?
+- **Q5. Upload in the PoC.** A dezogif_ng session normally starts with the client pushing the
+  program (R4.3). Is that in the PoC, or is attaching to a program already started on the Next
+  (NMI into it) enough for it?
+- **Q6. Other dezogif stubs and DZRP remotes.** The plan serves jnext, dezogif_ng, and any
+  `"dezogif"` remote answering DZRP 2.2.0 or later through its bitfield (the upstream today,
+  UART-only, untested until R4.4 and such a stub are on hand); a 2.1.0 `"dezogif"` on a cable is
+  treated conservatively (no Pause) unless declared dezogif_ng. Every other remote (CSpect,
+  ZEsarUX's DZRP, ...) is refused. Keep the dezogif 2.2 profile, or refuse it too?
+- **Q7. Bank views on dezogif_ng.** Grey them out in the PoC (plan), or read a page by a
+  temporary `CMD_SET_SLOT` swap that the client undoes?
+- **Q8. One target per window.** While the debugger window shows a remote target, the local
+  emulator has no debugger window (it keeps running, its servers keep serving). Acceptable, or
+  do you want two windows at once?
+- **Q9. The custom shim's limits.** With DZRP extensions abandoned, a jnext shim could only add
+  standard DZRP 2.2.0 commands and the stub-side features dezogif_ng already has. And the issue
+  says the shim is built with z88dk, while dezogif_ng's ROM is sjasmplus source (z88dk builds
+  only its `mfselect` and `.mfinstall` tools). Both shape R5.2;
+  no answer is needed before then, but they are recorded here so R5 starts from them.
+- **Q10. The silent reset on hardware.** May R0.5 (or R4.6) deliberately send dezogif_ng an
+  unsupported command once, to confirm on the KS2 that it answers nothing and resets the
+  session (`main.asm:117-147`)? It costs that session only. The plan does not do it unless you
+  agree.
 
 ---
 
@@ -843,16 +1018,19 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | D1 | The target seam is inside `jnext_debug`, below the facade; a remote session is a second `Debugger` over a `DzrpTarget` | panels keep `Debugger*` and the 99 methods they call; the host-side half exists once | an abstract facade (about 150 virtuals, every panel and the host-side logic duplicated or rewritten); proxies at panel level |
 | D2 | Symbols, sources, C values, frames, conditions and the stepping strategy run in jnext for every target | the 2026-11-11 design; plain DZRP carries only primitives | moving logic to the target (needs extensions, abandoned) |
 | D3 | Stop-time snapshot cache with a pipelined burst; misses are bounded blocking reads | keeps the synchronous facade and the panels unchanged | asynchronous per-panel fetch (every panel rewritten) |
-| D4 | Remote profiles from `CMD_INIT` (name and version); `GET_SUPPORTED_COMMANDS` only for 2.2.0; never send a command outside the profile | dezogif_ng answers 2.1.0, has no command 24, and resets on an unsupported command (`commands.asm`, `main.asm:117-147`) | probing with command 24 everywhere, as #486's 2026-11-11 item 3 suggests: correct for 2.2.0 remotes, session-destroying on dezogif_ng |
+| D4 | Remote profiles from `CMD_INIT` (name and version) and the link (D19); `GET_SUPPORTED_COMMANDS` only for remotes answering 2.2.0 or later; never send a command outside the profile | dezogif_ng answers 2.1.0, has no command 24, and resets on an unsupported command (`commands.asm`, `main.asm:117-147`); 2.2.0 makes 24 mandatory, so probing is safe there, and the upstream dezogif already serves it (`71c7ad0`) | probing with command 24 everywhere, as #486's 2026-11-11 item 3 suggests: correct for 2.2.0 remotes (jnext, the upstream dezogif today), session-destroying on dezogif_ng |
 | D5 | Two breakpoint dialects, normal (40/41) for jnext and simple (13/14) for dezogif_ng, never mixed | the jnext server has no 13/14; dezogif_ng refuses 40 (id 0); the spec forbids mixing in a session | implementing 13/14 in the jnext server so one dialect serves both (patching RAM on an emulator, losing ROM breakpoints) |
 | D6 | One successor function in `jnext_debug`, tested against jnext's own Z80 core over the whole opcode table | a FUSE-validated oracle exists in the tree | porting DeZog's `calcStepBp` (no oracle; and code is reimplemented, not copied) |
 | D7 | Line steps by the statement's exit set, extra exits as transient breakpoints | one round trip per line, as #486 asks | one instruction step per round trip until the line changes (rejected in #486 itself) |
 | D8 | Call stack on a remote rebuilt by walking the stack at each stop | the tracker needs every instruction; `c_frames()` already has a no-tracker path | running a tracker on the target |
 | D9 | Tests at three levels: in-process loopback against the shipped server, a scripted dezogif peer, and the real dezogif_ng ROM in jnext; hardware by the owner | a fake alone would test our reading of the stub against itself | a fake shim only |
 | D10 | A test-only probe executable drives the remote facade in functional rows | tests the shipped client code end to end without new user features | making jnext a DZRP relay (not in scope); driving the GUI with xdotool for protocol rows |
-| D11 | TCP first (R0.4), serial in R4.4 | TCP covers remote jnext and dezogif_ng's WiFi build | serial first |
+| D11 | TCP first (R0.4); serial (R4.4) optional, after the PoC | TCP covers remote jnext and dezogif_ng's WiFi build, which is the owner's PoC link (Q3) | serial inside the PoC |
 | D12 | The custom shim is a placeholder phase gated by R5.2, standard DZRP only | the 2026-11-10 decision makes it conditional and abandons extensions | planning a shim protocol now |
 | D13 | The TCP link reuses `esp::make_socket_transport()` with a client address policy | non-blocking, Windows-twinned, already tested; `jnext_remote` stays Qt-free | new socket code; Qt sockets |
-| D14 | Only the jnext and dezogif_ng profiles are recognised | scope read literally ("clients for other emulators" abandoned) | generic DZRP remotes (owner question Q6) |
+| D14 | Recognised: jnext, dezogif_ng, and `"dezogif"` remotes at 2.2.0 or later (bitfield, untested); every other remote refused | scope read literally ("clients for other emulators" abandoned), while a dezogif stub is the same target class as dezogif_ng and costs nothing extra once the bitfield path exists | refusing the upstream dezogif (possible, owner question Q6); generic DZRP remotes |
 | D15 | One enabler flag `--remote-target URI`, every other field through `--set remote.*`; Qt only | CLAUDE.md's GUI-setting rule with the smallest flag surface | one dedicated flag per field |
 | D16 | Remote verbs a target cannot serve return `Result::Unsupported` and are greyed with a reason | the facade's rule "every verb that can refuse says so" | hiding panels |
+| D17 | Blocking waits call a wait hook (the local facade's `pump()`); connect and `CMD_INIT` are asynchronous; a session with oneself is refused by a per-process session token | single-threaded, an in-process server is drained only by the local `pump()` (`transport.h` `Server`); a self-session has no use | a client thread (architecture §5's reasons against threads hold); asynchronous panels; detecting self by address and port (misses a LAN address of the same host) |
+| D18 | On a dezogif profile, nothing but `CMD_PAUSE` is sent while the program runs; breakpoint edits are an absorbed pause, or queued without Pause | any byte breaks the running program or goes unanswered (`ASYNCHRONOUS-BREAK-DESIGN.md`, "BREAK ON ANY BYTE") | DeZog's way, sending `CMD_SET_BREAKPOINTS` at once (an unannounced break with the async break, a timeout without it) |
+| D19 | The 2.1.0 `"dezogif"` identity is resolved by the link: TCP = dezogif_ng; serial = a conservative profile (no 7, 18, 19) unless the user declares dezogif_ng (`remote.stub`) | both forks answer 2.1.0 `"dezogif v2.2.1"`, and only dezogif_ng has a TCP transport (§2.4a) | a probe command to tell them apart (every candidate costs a session on one of them); always asking the user |
