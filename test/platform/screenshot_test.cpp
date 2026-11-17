@@ -23,7 +23,7 @@
 // not available the row falls back to the unwritable-path stimulus, so it
 // still asserts something true rather than passing vacuously — and says which
 // stimulus it used in its detail string. Unit tests run on Linux (the dev host
-// and CI's fedora:44 container), where it is always present.
+// and CI's fedora:45 container), where it is always present.
 // ===========================================================================
 #include "core/screenshot.h"
 #include "video/ula.h"

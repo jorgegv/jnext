@@ -62,7 +62,7 @@ pkg=${1:-}
 . test/packaging/artifact-select.sh
 VER=$(artifact_version .) || fault "cannot read version.yaml"
 case "$pkg" in
-    rpm)       tree=build/rpm-release;         glob='jnext-*.x86_64.rpm'; want="jnext-$VER-1.x86_64.rpm" ;;
+    rpm)       tree=build/rpm-release;         glob='jnext-*.x86_64.rpm'; want="" ;;   # dist-tagged: named below
     deb)       tree=build/deb-release;         glob='jnext_*_amd64.deb';  want="jnext_${VER}_amd64.deb" ;;
     win)       tree=build/win-release;         glob='*.zip';              want="jnext-$VER-windows-x64.zip" ;;
     win-qt5)   tree=build/win-qt5-release;     glob='*.zip';              want="jnext-$VER-windows-x64-legacy.zip" ;;
@@ -79,6 +79,9 @@ if [[ -n "${JNEXT_REGRESSION_PACKAGE_ARTIFACT:-}" ]]; then
     art=$JNEXT_REGRESSION_PACKAGE_ARTIFACT
     [[ -f "$art" ]] || fault "JNEXT_REGRESSION_PACKAGE_ARTIFACT is not a file: $art"
 else
+    if [[ "$pkg" == rpm ]]; then
+        want=$(rpm_artifact_name "$VER") || fault "cannot name the current rpm (the reason is above); make package-rpm needs rpm-build"
+    fi
     art=$(pick_artifact "$tree" "$glob" "$want") \
         || fault "cannot select the current artifact for '$pkg' in $tree (expected $want; pick_artifact's reason is above). Build it with make package-$pkg; make regression-package clears earlier versions first."
     art=$root/$art

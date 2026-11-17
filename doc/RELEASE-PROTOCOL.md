@@ -195,7 +195,7 @@ metainfo excepted). **Do not add a hard-coded copy of the version; read
 | Target | Produces |
 |--------|----------|
 | `make package-src` | source tarball (vendors submodule content) |
-| `make package-rpm` / `package-deb` | Fedora/RHEL `.rpm` / Debian/Ubuntu `.deb` (CPack) |
+| `make package-rpm` / `package-deb` | Fedora `.rpm`, named with the building host's dist tag (`jnext-<ver>-1.fc45.x86_64.rpm`) / Debian/Ubuntu `.deb` (CPack) |
 | `make package-win` | Windows `.zip` — MinGW cross-build, Qt6/SDL3 DLLs + `qwindows` plugin bundled by `packaging/windows/bundle-dlls.sh` (`build/win-release/`) |
 | `make package-win-qt5` / `package-win32-qt5` | Windows 7/8 `-legacy` `.zip`s, x64 and 32-bit — the Qt5 full-GUI builds (GH #108) |
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.10`); ends by running `make verify-flatpak-permissions` on it |
@@ -203,6 +203,28 @@ metainfo excepted). **Do not add a hard-coded copy of the version; read
 | `make package-web` | the browser build, `jnext-<ver>-web.zip` (js + wasm, example pages, licence texts), in `build/wasm-core/`; needs the Emscripten SDK; verifies its own zip and never holds a NextZXOS image |
 | `make package-test` | build every package (except macOS, Flatpak and the browser zip) and assert each artifact |
 | `make package-contract-test` | the packaging-**script** contract suites only — hermetic, ~4 s, no toolchain |
+
+### Supported distributions (owner, 2026-11-17)
+
+Release packages track:
+
+- **Fedora: the two supported releases, current and previous.** Now 44 and 45;
+  45 and 46 once Fedora 46 ships (expected April 2027). One rpm per release,
+  each built in its own `fedora:<N>` container, so its auto-generated requires
+  are that release's sonames. CPack names each with its dist tag
+  (`CPACK_RPM_PACKAGE_RELEASE_DIST`): `jnext-<ver>-1.fc44.x86_64.rpm` and
+  `jnext-<ver>-1.fc45.x86_64.rpm`.
+- **Ubuntu: the two latest LTS releases.** Now 24.04 and 26.04; 26.04 and 28.04
+  in 2028. One deb per release, `jnext_<ver>_ubuntu<rel>_amd64.deb`.
+
+The **CI reference platform** is the current Fedora, now `fedora:45`: `ci.yml`,
+the Windows and browser jobs of `release.yml`, and `windows-build.yml` run in
+it, and its pandoc, mkdocs-material and graphviz render the committed
+documentation (the versions `docs-check` compares against). When a Fedora
+release ships, a change moves all of these to it together: every `fedora:<N>`
+container and `-fedora<N>` cache key, the rpm matrix in `release.yml`, the
+install tables in `README.md` and the user guide, and a re-render of both guides
+on the new release.
 
 CI runs these same targets — one build path, with **exactly one declared
 divergence**: the Flatpak build invokes
@@ -263,7 +285,7 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
   `regression` builds `gui-release` and runs `make regression` — self-provisioning
   the SD image; `regression-win` runs `make regression-win`; **`qt5-guard`** runs
   `make qt5-guard-build`; **`package`** runs
-  `make package-test` in a `fedora:44` container, building every package and
+  `make package-test` in a `fedora:45` container, building every package and
   asserting its contents, then (GH #359) uploads each as a run artifact
   (Windows zips, rpm, source zip; 14-day retention, success only; the
   Fedora-built deb is not uploaded); **`macos`** runs `make package-macos` on
@@ -285,14 +307,16 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
      `ubuntu:26.04` pinned containers: CPack's `dpkg-shlibdeps` bakes in the
      container's library package names, so each LTS gets its own deb (the 24.04
      `t64` names are unsatisfiable on 26.04), renamed
-     `jnext_<ver>_ubuntu<rel>_amd64.deb` and shipped as two assets; `rpm` builds
-     the RPM via CPack inside a
-     `fedora:44` container (so its deps are Fedora-native, not the Ubuntu
-     `CURL_OPENSSL_4` libcurl node); `src` runs `make package-src` to emit the
+     `jnext_<ver>_ubuntu<rel>_amd64.deb` and shipped as two assets; `rpm` is a
+     **matrix** over `fedora:44` and `fedora:45` pinned containers, building one
+     RPM per supported Fedora via CPack (so its deps are Fedora-native, not the
+     Ubuntu `CURL_OPENSSL_4` libcurl node), each named with its dist tag
+     (`jnext-<ver>-1.fc<N>.x86_64.rpm`), uploaded as its own artifact
+     (`jnext-linux-rpm-fedora<N>`) and shipped as two assets; `src` runs `make package-src` to emit the
      submodule-aware `jnext-<ver>-src.zip`; Windows via `make package-win`,
      `make package-win-qt5` and `make package-win32-qt5` (the x64 zip plus the
-     two `-legacy` zips) in a `fedora:44` container; `web` runs `make package-web`
-     in a `fedora:44` container (the browser zip; the job restores no SD image);
+     two `-legacy` zips) in a `fedora:45` container; `web` runs `make package-web`
+     in a `fedora:45` container (the browser zip; the job restores no SD image);
      `flatpak` via
      `flatpak-builder` in the KDE 6.10 container (the one declared divergence
      from the make-target rule, §4);
@@ -303,7 +327,8 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
      also blocking and in `publish`'s `needs:`.
      Each uploads its packages as an artifact. The `deb`, `rpm` and `windows`
      jobs first run `make regression-package` on the package they built (GH #487;
-     unpacked, never installed; the Windows job once per zip), so the published
+     unpacked, never installed; each deb and rpm matrix leg on its own package,
+     the Windows job once per zip), so the published
      file is the tested one and a red run withholds the release. The Flatpak is
      not covered.
   3. **`publish`** — `if: success() && needs.gate.outputs.publish == 'true'`;

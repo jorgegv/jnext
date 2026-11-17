@@ -296,8 +296,11 @@ printed `62 pass, 1 fail` and `UNIT TESTS FAILED` in bold and went **green**.
 Do not add a step for something the Makefile already declares as a prerequisite
 (`docs-check` is a prerequisite of both `unit-test` and `regression`).
 
-The job runs in `container: fedora:44` — the same image `release.yml` builds the
-rpm and Windows artifacts in, and the distro the maintainer develops on. That is
+The job runs in `container: fedora:45` — the same image `release.yml` builds the
+Windows artifacts and the Fedora 45 rpm in (its rpm matrix also builds one in
+`fedora:44`: packages track the current and previous Fedora and the two latest
+Ubuntu LTS, doc/RELEASE-PROTOCOL.md section 4), and the distro the maintainer
+develops on. That is
 load-bearing: distros ship different pandoc / mkdocs-material versions, and
 those emit byte-different generated documentation, so a different runner reports
 a *version gap* as staleness.

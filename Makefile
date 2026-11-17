@@ -127,7 +127,9 @@ GUIDE_PORT        ?= 8000
 GUIDE_BUILD_ENV   := SOURCE_DATE_EPOCH=1700000000
 # Renderer fingerprint: VERSIONS ONLY. `mkdocs --version` also prints the
 # install path, which differs per machine and would make every other host
-# look like a version mismatch.
+# look like a version mismatch. The checks compare sitemap.xml.gz DECOMPRESSED
+# (test/docs-tree-same.sh): its gzip bytes also depend on the zlib Python is
+# linked against (zlib-ng on Fedora 45), which this fingerprint does not see.
 GUIDE_FINGERPRINT := python3 -c "import importlib.metadata as m; print('mkdocs', m.version('mkdocs')); print('mkdocs-material', m.version('mkdocs-material'))"
 GUIDE_RENDERER    := src/doc/user-guide-renderer.txt
 GUIDE_SRC         := src/doc/user-guide
@@ -203,7 +205,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -948,7 +950,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card-selftest traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test sdcard-image
+unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card-selftest docs-tree-same-selftest traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test sdcard-image
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -1178,6 +1180,10 @@ lint-user-docs-card:
 # Self-test lint-user-docs-card: each banned pattern fails, the developer guide is out of scope
 lint-user-docs-card-selftest:
 	@bash test/lint-user-docs-card-selftest.sh
+
+# Self-test docs-tree-same.sh: the guide checks' site diff, sitemap.xml.gz compared decompressed
+docs-tree-same-selftest:
+	@bash test/docs-tree-same-selftest.sh
 
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:
@@ -1499,7 +1505,7 @@ docs-man-check:
 	 if [ -n "$$there" ] && [ "$$here" != "$$there" ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) different pandoc than generated the committed outputs,\n"; \
 	   printf "        so the freshness cannot be verified here (a byte-diff would report a\n"; \
-	   printf "        version gap, not staleness). Use the reference platform (fedora:44),\n"; \
+	   printf "        version gap, not staleness). Use the reference platform (fedora:45),\n"; \
 	   printf "        or rely on CI.\n"; \
 	   printf "        here: $$here / committed: $$there\n"; rc=1; \
 	 elif [ $$rc -eq 0 ]; then \
@@ -1528,11 +1534,11 @@ docs-userguide-check:
 	 if [ $$rc -eq 0 ] && [ "$$here" != "$$there" ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) different mkdocs/material than rendered the committed\n"; \
 	   printf "        guide, so its freshness cannot be verified here (a byte-diff would report\n"; \
-	   printf "        a version gap, not staleness). Use the reference platform (fedora:44),\n"; \
+	   printf "        a version gap, not staleness). Use the reference platform (fedora:45),\n"; \
 	   printf "        or rely on CI.\n"; \
 	   printf "        here: $$(echo $$here | tr '\\n' ' ') / committed: $$(echo $$there | tr '\\n' ' ')\n"; rc=1; \
 	 elif [ $$rc -eq 0 ]; then \
-	   diff -r -q $$tmp/guide $(GUIDE_OUT) >/dev/null 2>&1 \
+	   bash test/docs-tree-same.sh $$tmp/guide $(GUIDE_OUT) >/dev/null 2>&1 \
 	     || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_OUT) is stale vs $(GUIDE_SRC)\n"; rc=1; }; \
 	 fi; \
 	 rm -rf $$tmp; \
@@ -1719,7 +1725,7 @@ docs-devguide-check:
 	   printf "$(BADGE_FAIL) FAIL $(RESET) different mkdocs/material/graphviz than rendered the\n"; \
 	   printf "        committed developer guide, so its freshness cannot be verified here\n"; \
 	   printf "        (a byte-diff would report a version gap, not staleness). Use the\n"; \
-	   printf "        reference platform (fedora:44), or rely on CI.\n"; \
+	   printf "        reference platform (fedora:45), or rely on CI.\n"; \
 	   printf "        here: $$(echo $$here | tr '\\n' ' ') / committed: $$(echo $$there | tr '\\n' ' ')\n"; rc=1; \
 	 elif [ $$rc -eq 0 ]; then \
 	   for d in $(DEVGUIDE_DOT); do \
@@ -1730,7 +1736,7 @@ docs-devguide-check:
 	   $(GUIDE_BUILD_ENV) mkdocs build --strict --config-file $(DEVGUIDE_CONFIG) --site-dir $$tmp/site >/dev/null 2>&1 \
 	     || { printf "$(BADGE_FAIL) FAIL $(RESET) the developer guide does not build\n"; rc=1; }; \
 	   if [ $$rc -eq 0 ]; then \
-	     diff -r -q $$tmp/site $(DEVGUIDE_OUT) >/dev/null 2>&1 \
+	     bash test/docs-tree-same.sh $$tmp/site $(DEVGUIDE_OUT) >/dev/null 2>&1 \
 	       || { printf "$(BADGE_FAIL) FAIL $(RESET) $(DEVGUIDE_OUT) is stale vs $(DEVGUIDE_SRC)\n"; rc=1; }; \
 	   fi; \
 	 fi; \

@@ -230,7 +230,7 @@ fi
 if command -v rpmbuild >/dev/null 2>&1; then
     clear_artifacts build/rpm-release 'jnext-*.x86_64.rpm'
     if make package-rpm >"$LOGDIR/rpm.log" 2>&1; then
-        r=$(pick_artifact build/rpm-release 'jnext-*.x86_64.rpm' "jnext-$VER-1.x86_64.rpm" 2>>"$LOGDIR/rpm.log")
+        r=$(want=$(rpm_artifact_name "$VER") && pick_artifact build/rpm-release 'jnext-*.x86_64.rpm' "$want" 2>>"$LOGDIR/rpm.log")
         if [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$" \
            && ! rpm -qlp "$r" 2>/dev/null | grep -q "^/usr/share/jnext/48rom.map$"; then
             bad package-rpm "rpm has no /usr/share/jnext/48rom.map (the 48K ROM symbol map)" "$LOGDIR/rpm.log"
@@ -789,7 +789,7 @@ rp_zipname() { case "$1" in
 rp_art() {
     local f
     case "$1" in
-        rpm) f=build/rpm-release/jnext-$VER-1.x86_64.rpm ;;
+        rpm) f=build/rpm-release/$(rpm_artifact_name "$VER" 2>/dev/null) ;;
         deb) f=build/deb-release/jnext_${VER}_amd64.deb ;;
         *)   f=build/$(rp_tree "$1")/$(rp_zipname "$1") ;;
     esac
