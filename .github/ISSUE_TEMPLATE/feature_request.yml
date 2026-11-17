@@ -16,7 +16,7 @@ body:
       label: Proposed solution
       description: What you'd like jnext to do.
     validations:
-      required: true
+      required: false
   - type: textarea
     id: alternatives
     attributes:
