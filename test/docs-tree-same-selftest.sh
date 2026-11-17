@@ -11,13 +11,20 @@
 #   DTS-06  any other file differing (the uncompressed sitemap.xml included) is NOT the same
 #   DTS-07  a file present in one tree only is NOT the same
 #   DTS-08  a wrong argument count is a usage error (exit 2)
+#   DTS-09  the REAL `make docs-userguide-check`, pointed (GUIDE_OUT=) at a copy of the
+#           committed guide whose sitemap.xml.gz is re-compressed (other bytes, same
+#           content), passes; the same copy with a changed sitemap content fails as stale
+#   DTS-10  the same for the real `make docs-devguide-check` (DEVGUIDE_OUT=)
+#   DTS-09/10 prove the Makefile recipes use this comparison: with a plain `diff -r -q`
+#   in either recipe its row fails. They need mkdocs and graphviz, as docs-check does.
 #
 # Row IDs are literals (see test/row_id.h's reason): every row is spelt out.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(cd "$HERE/.." && pwd)
 SAME="$HERE/docs-tree-same.sh"
-EXPECTED_ROWS=8
+EXPECTED_ROWS=10
 
 total=0; passed=0; failed=0
 row() {  # row ID OK(0|1) TEXT
@@ -70,6 +77,24 @@ row DTS-07 $([[ $RC -eq 1 ]] && echo 1 || echo 0) "a file present in one tree on
 
 bash "$SAME" "$W/a" >/dev/null 2>&1; rc_usage=$?
 row DTS-08 $([[ $rc_usage -eq 2 ]] && echo 1 || echo 0) "a missing argument is a usage error (exit $rc_usage)"
+
+# real_check <target> <OUTVAR> <committed-dir>: run the real check against a copy of the
+# committed render, first with its sitemap.xml.gz re-compressed (must pass), then with the
+# sitemap content changed (must fail, naming the copy as stale). Sets RC_SAME, RC_DIFF, OUT_DIFF.
+real_check() {
+    local target=$1 var=$2 src=$3 copy=$W/$1
+    rm -rf "$copy"; cp -a "$ROOT/$src" "$copy"
+    gzip -dc "$ROOT/$src/sitemap.xml.gz" | gzip -1 >"$copy/sitemap.xml.gz"
+    if cmp -s "$ROOT/$src/sitemap.xml.gz" "$copy/sitemap.xml.gz"; then RC_SAME=99; else
+        (cd "$ROOT" && timeout --kill-after=5s 300s make --no-print-directory "$target" "$var=$copy") >/dev/null 2>&1; RC_SAME=$?
+    fi
+    { gzip -dc "$ROOT/$src/sitemap.xml.gz"; printf '<!-- changed -->\n'; } | gzip -n -9 >"$copy/sitemap.xml.gz"
+    OUT_DIFF=$(cd "$ROOT" && timeout --kill-after=5s 300s make --no-print-directory "$target" "$var=$copy" 2>&1); RC_DIFF=$?
+}
+real_check docs-userguide-check GUIDE_OUT doc/user-guide
+row DTS-09 $([[ $RC_SAME -eq 0 && $RC_DIFF -ne 0 && "$OUT_DIFF" == *"is stale"* ]] && echo 1 || echo 0) "make docs-userguide-check: a re-compressed sitemap.xml.gz passes (exit $RC_SAME), a changed one is stale (exit $RC_DIFF)"
+real_check docs-devguide-check DEVGUIDE_OUT doc/developer-guide
+row DTS-10 $([[ $RC_SAME -eq 0 && $RC_DIFF -ne 0 && "$OUT_DIFF" == *"is stale"* ]] && echo 1 || echo 0) "make docs-devguide-check: a re-compressed sitemap.xml.gz passes (exit $RC_SAME), a changed one is stale (exit $RC_DIFF)"
 
 printf 'Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n' "$total" "$passed" "$failed" 0
 if [[ $total -ne $EXPECTED_ROWS ]]; then echo "FAIL: reported $total rows, expected $EXPECTED_ROWS"; exit 1; fi
