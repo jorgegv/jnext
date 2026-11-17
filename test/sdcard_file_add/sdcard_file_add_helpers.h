@@ -158,6 +158,78 @@ bool make_fixture(const fs::path& image, std::string& why) {
     return got == payload(3000, 11);
 }
 
+// --- SD-writes file helpers (GH #507) ---------------------------------------
+// The journal's records, read from the FILE with a reader written from the
+// format table of the developer guide's media chapter (header 64 bytes; then
+// sector records of u32 sector + 512 bytes, or kept-file records 0xFFFFFFFF,
+// u32 L, L bytes), NOT through sd_write_journal::Journal::lookup. A later
+// record of a sector supersedes an earlier one.
+[[maybe_unused]] bool read_journal_file(const fs::path& jf,
+                                        std::map<uint32_t, std::vector<uint8_t>>& out) {
+    std::ifstream f(jf, std::ios::binary);
+    if (!f) return false;
+    std::vector<uint8_t> raw((std::istreambuf_iterator<char>(f)),
+                             std::istreambuf_iterator<char>());
+    if (raw.size() < 64 || std::memcmp(raw.data(), "JNEXTSDW", 8) != 0) return false;
+    auto u32 = [&](std::size_t o) {
+        return static_cast<uint32_t>(raw[o]) | (static_cast<uint32_t>(raw[o + 1]) << 8) |
+               (static_cast<uint32_t>(raw[o + 2]) << 16) | (static_cast<uint32_t>(raw[o + 3]) << 24);
+    };
+    out.clear();
+    std::size_t pos = 64;
+    while (pos + 4 <= raw.size()) {
+        const uint32_t first = u32(pos);
+        if (first == 0xFFFFFFFFu) {
+            if (pos + 8 > raw.size()) return false;
+            const uint32_t len = u32(pos + 4);
+            if (len > raw.size() - pos - 8) return false;
+            pos += 8 + len;
+        } else {
+            if (raw.size() - pos < 516) return false;
+            out[first].assign(raw.begin() + static_cast<std::ptrdiff_t>(pos + 4),
+                              raw.begin() + static_cast<std::ptrdiff_t>(pos + 516));
+            pos += 516;
+        }
+    }
+    return pos == raw.size();
+}
+
+// Lay the journal's sectors over `image` (a copy of the pristine card): what
+// the machine's card holds when it mounts image + writes file.
+[[maybe_unused]] bool apply_journal(const fs::path& jf, const fs::path& image) {
+    std::map<uint32_t, std::vector<uint8_t>> recs;
+    if (!read_journal_file(jf, recs)) return false;
+    std::fstream f(image, std::ios::in | std::ios::out | std::ios::binary);
+    if (!f) return false;
+    for (const auto& kv : recs) {
+        f.seekp(static_cast<std::streamoff>(static_cast<uint64_t>(kv.first) * kSectorSize));
+        f.write(reinterpret_cast<const char*>(kv.second.data()), kSectorSize);
+    }
+    f.flush();
+    return f.good();
+}
+
+// A fresh journal FILE for `image`, registered (the state main() leaves after
+// --sdcard-writes). Rows call forget_all_for_test() when done.
+[[maybe_unused]] bool bind_journal(const fs::path& image, const fs::path& jf,
+                                   bool keep_file = false) {
+    if (!keep_file) { std::error_code ec; fs::remove(jf, ec); }
+    sd_write_journal::Binding b;
+    b.bytes = fs::file_size(image);
+    b.sha256.fill(0x5C);
+    std::string why;
+    return sd_write_journal::bind(image.string(), jf.string(), b, false, why);
+}
+
+// The 512 bytes at absolute card sector `sector` of an image file.
+[[maybe_unused]] std::vector<uint8_t> image_sector(const fs::path& image, uint32_t sector) {
+    std::ifstream f(image, std::ios::binary);
+    std::vector<uint8_t> v(kSectorSize);
+    f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(sector) * kSectorSize));
+    f.read(reinterpret_cast<char*>(v.data()), kSectorSize);
+    return v;
+}
+
 // Read the two FAT copies of a fixture image and report whether they agree.
 // A writer that updates only FAT #1 passes every read-back test jnext can run
 // (its readers all use FAT #1) and produces a card that fsck and any driver

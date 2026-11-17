@@ -1410,6 +1410,251 @@ void test_tree_replace_lost() {
           "fixture free=" + std::to_string(free_before) + "; " + err + why);
 }
 
+// ---------------------------------------------------------------------------
+// --sdcard-file-add with an SD-writes file bound to the image (SDFA-J??,
+// GH #507): the copy goes into the writes file and the image is never written.
+//
+// Oracles: (O1) FatFs is deterministic (FF_FS_NORTC: same reads, same writes),
+// so an image-mode add to a pristine copy is the reference for what the
+// journal must hold; (O2) the journal format table of the developer guide,
+// read by the test-local reader in the helpers (not by Journal::lookup);
+// (O3) extract_sd_rom, the independent short-name reader.
+// ---------------------------------------------------------------------------
+void test_journal() {
+    std::string why, err;
+    std::error_code ec;
+    const fs::path pristine = g_scratch / "j-pristine.img";
+    if (!make_fixture(pristine, why)) {
+        std::printf("FATAL: cannot build fixture image (%s)\n", why.c_str());
+        std::exit(2);
+    }
+    auto copy = [&](const char* name) {
+        const fs::path p = g_scratch / name;
+        fs::copy_file(pristine, p, fs::copy_options::overwrite_existing, ec);
+        return p;
+    };
+    const fs::path src = g_scratch / "j-DOTEST";
+    const std::vector<uint8_t> data = payload(3000, 201);
+    write_host_file(src, data);
+    const uint64_t pristine_digest = file_digest(pristine);
+
+    // The image-mode reference (O1): the same add on a pristine copy, no journal.
+    const fs::path ref = copy("j-ref.img");
+    sdcard::add_file_to_image(ref.string(), src.string(), "/DOT/DOTEST", false, err);
+    const uint64_t ref_digest = file_digest(ref);
+
+    // J01..J04: one journal-mode add, then the refusal of a second one.
+    {
+        const fs::path img = copy("j1.img"), jf = g_scratch / "j1.jsdw";
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf);
+        const FileAddStatus st =
+            sdcard::add_file_to_image(img.string(), src.string(), "/DOT/DOTEST", false, err);
+        check("SDFA-J01", "a journal-mode add returns Ok and leaves the image byte-identical",
+              st == FileAddStatus::Ok && file_digest(img) == pristine_digest, err);
+
+        const fs::path app = copy("j1-app.img");
+        const bool applied = apply_journal(jf, app);
+        check("SDFA-J02", "the journal laid over the pristine card equals the image-mode result",
+              applied && file_digest(app) == ref_digest);
+
+        std::vector<uint8_t> got;
+        check("SDFA-J03", "on the applied card the file reads back, the old tree is intact and the FATs agree",
+              extract_sd_rom(app.string(), "/DOT/DOTEST", got) && got == data &&
+              fixture_tree_intact(app) && fats_agree(app, why), why);
+
+        const uint64_t jd = file_digest(jf);
+        const FileAddStatus st2 =
+            sdcard::add_file_to_image(img.string(), src.string(), "/DOT/DOTEST", false, err);
+        check("SDFA-J04", "a second add to the same dest is refused with DestExists and the journal is untouched",
+              st2 == FileAddStatus::DestExists && file_digest(jf) == jd, err);
+
+        // J05: replaced with force and different bytes.
+        const std::vector<uint8_t> data2 = payload(3000, 202);
+        const fs::path src2 = g_scratch / "j-DOTEST2";
+        write_host_file(src2, data2);
+        const FileAddStatus st3 =
+            sdcard::add_file_to_image(img.string(), src2.string(), "/DOT/DOTEST", true, err);
+        const fs::path app2 = copy("j5-app.img");
+        const bool applied2 = apply_journal(jf, app2);
+        check("SDFA-J05", "a forced replace in journal mode reads back the new bytes and leaves the image alone",
+              st3 == FileAddStatus::Ok && applied2 &&
+              extract_sd_rom(app2.string(), "/DOT/DOTEST", got) && got == data2 &&
+              file_digest(img) == pristine_digest, err);
+        sd_write_journal::forget_all_for_test();
+    }
+
+    // J06: two different files in two calls into one journal.
+    {
+        const fs::path img = copy("j6.img"), jf = g_scratch / "j6.jsdw";
+        const fs::path srcb = g_scratch / "j-OTHER";
+        const std::vector<uint8_t> datab = payload(1500, 204);
+        write_host_file(srcb, datab);
+        const fs::path ref2 = copy("j6-ref.img");
+        sdcard::add_file_to_image(ref2.string(), src.string(), "/DOT/A.BIN", false, err);
+        sdcard::add_file_to_image(ref2.string(), srcb.string(), "/DOT/B.BIN", false, err);
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf);
+        const FileAddStatus a =
+            sdcard::add_file_to_image(img.string(), src.string(), "/DOT/A.BIN", false, err);
+        const FileAddStatus b =
+            sdcard::add_file_to_image(img.string(), srcb.string(), "/DOT/B.BIN", false, err);
+        const fs::path app = copy("j6-app.img");
+        const bool applied = apply_journal(jf, app);
+        std::vector<uint8_t> ga, gb;
+        check("SDFA-J06", "two adds into one journal both read back, the FATs agree and the card equals the image-mode result",
+              a == FileAddStatus::Ok && b == FileAddStatus::Ok && applied &&
+              extract_sd_rom(app.string(), "/DOT/A.BIN", ga) && ga == data &&
+              extract_sd_rom(app.string(), "/DOT/B.BIN", gb) && gb == datab &&
+              fats_agree(app, why) && file_digest(app) == file_digest(ref2), why);
+        sd_write_journal::forget_all_for_test();
+    }
+
+    // J07: an add refused before writing leaves no journal file.
+    {
+        const fs::path img = copy("j7.img"), jf = g_scratch / "j7.jsdw";
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf);
+        const FileAddStatus st =
+            sdcard::add_file_to_image(img.string(), src.string(), "/README.TXT", false, err);
+        check("SDFA-J07", "an add refused before writing (DestExists) creates no writes file",
+              st == FileAddStatus::DestExists && !fs::exists(jf, ec), err);
+        sd_write_journal::forget_all_for_test();
+    }
+
+    // J08: a directory tree.
+    {
+        const fs::path tree = g_scratch / "j-tree";
+        fs::remove_all(tree, ec);
+        fs::create_directories(tree / "sub", ec);
+        write_host_file(tree / "one.bin", payload(700, 205));
+        write_host_file(tree / "two.bin", payload(1300, 206));
+        write_host_file(tree / "sub" / "three.bin", payload(90, 207));
+        const fs::path ref3 = copy("j8-ref.img");
+        sdcard::add_to_image(ref3.string(), tree.string(), "/TREE", false, err);
+        const fs::path img = copy("j8.img"), jf = g_scratch / "j8.jsdw";
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf);
+        const FileAddStatus st = sdcard::add_to_image(img.string(), tree.string(), "/TREE", false, err);
+        const fs::path app = copy("j8-app.img");
+        const bool applied = apply_journal(jf, app);
+        check("SDFA-J08", "a directory add in journal mode equals the image-mode result and leaves the image alone",
+              st == FileAddStatus::Ok && applied && file_digest(app) == file_digest(ref3) &&
+              file_digest(img) == pristine_digest &&
+              card_file_is(app, "/TREE/sub/three.bin", payload(90, 207)), err);
+        sd_write_journal::forget_all_for_test();
+    }
+
+    // J09, J10: a journal that rewrote the MBR or the BPB is refused up front.
+    {
+        const std::vector<uint8_t> junk(512, 0xE5);
+        const fs::path img = copy("j9.img"), jf = g_scratch / "j9.jsdw";
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf);
+        sd_write_journal::for_image(img.string())->commit(0, junk.data());
+        const uint64_t jd = file_digest(jf);
+        const FileAddStatus st =
+            sdcard::add_file_to_image(img.string(), src.string(), "/DOT/DOTEST", false, err);
+        check("SDFA-J09", "a journal holding sector 0 is refused with ImageUnusable, naming the writes file, nothing written",
+              st == FileAddStatus::ImageUnusable && err.find(jf.string()) != std::string::npos &&
+              err.find("--sdcard-writes-reset") != std::string::npos &&
+              file_digest(jf) == jd && file_digest(img) == pristine_digest, err);
+        sd_write_journal::forget_all_for_test();
+
+        const fs::path img2 = copy("j10.img"), jf2 = g_scratch / "j10.jsdw";
+        bind_journal(img2, jf2);
+        sd_write_journal::for_image(img2.string())->commit(kPartLba, junk.data());
+        const uint64_t jd2 = file_digest(jf2);
+        const FileAddStatus st2 =
+            sdcard::add_file_to_image(img2.string(), src.string(), "/DOT/DOTEST", false, err);
+        check("SDFA-J10", "a journal holding the partition boot sector is refused with ImageUnusable, nothing written",
+              st2 == FileAddStatus::ImageUnusable && err.find(jf2.string()) != std::string::npos &&
+              file_digest(jf2) == jd2 && file_digest(img2) == pristine_digest, err);
+        sd_write_journal::forget_all_for_test();
+    }
+
+    // J11: the esxDOS stand-in's kept file survives an add.
+    {
+        const fs::path img = copy("j11.img"), jf = g_scratch / "j11.jsdw";
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf);
+        const std::vector<uint8_t> kept = payload(40, 208);
+        sd_write_journal::for_image(img.string())->commit_file("SAVE.DAT", kept);
+        const FileAddStatus st =
+            sdcard::add_file_to_image(img.string(), src.string(), "/DOT/DOTEST", false, err);
+        sd_write_journal::forget_all_for_test();
+        const bool rebound = bind_journal(img, jf, true);
+        const auto kf = rebound ? sd_write_journal::for_image(img.string())->kept_file()
+                                : std::nullopt;
+        check("SDFA-J11", "the kept esxDOS file is still the journal's kept file after an add and a rebind",
+              st == FileAddStatus::Ok && kf && kf->name == "SAVE.DAT" && kf->data == kept, err);
+        sd_write_journal::forget_all_for_test();
+    }
+
+    // J12, J13: the glue itself, in journal mode.
+    {
+        const fs::path img = copy("j12.img"), jf = g_scratch / "j12.jsdw";
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf);
+        auto j = sd_write_journal::for_image(img.string());
+        const std::vector<uint8_t> mark(512, 0xA5);
+        j->commit(kPartLba + 11, mark.data());
+        bool attached = fatfs_glue::attach(0, img.string(), kPartLba, kPartSectors, err, j);
+        std::vector<uint8_t> buf(3 * 512);
+        const DRESULT rr = disk_read(0, buf.data(), 10, 3);
+        const std::vector<uint8_t> s0(buf.begin(), buf.begin() + 512);
+        const std::vector<uint8_t> s1(buf.begin() + 512, buf.begin() + 1024);
+        const std::vector<uint8_t> s2(buf.begin() + 1024, buf.end());
+        check("SDFA-J12", "a three-sector read returns image, journal, image for sectors 10, 11, 12",
+              attached && rr == RES_OK && s0 == image_sector(img, kPartLba + 10) && s1 == mark &&
+              s2 == image_sector(img, kPartLba + 12), err);
+        fatfs_glue::detach(0);
+
+        // J13: a two-sector write lands in the journal at ABSOLUTE sectors.
+        std::vector<uint8_t> w(2 * 512);
+        for (std::size_t i = 0; i < w.size(); ++i) w[i] = static_cast<uint8_t>(i * 7 + 3);
+        const fs::path jf13 = g_scratch / "j13.jsdw";
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf13);
+        j = sd_write_journal::for_image(img.string());
+        attached = fatfs_glue::attach(0, img.string(), kPartLba, kPartSectors, err, j);
+        const DRESULT wr = disk_write(0, w.data(), 20, 2);
+        fatfs_glue::detach(0);
+        std::map<uint32_t, std::vector<uint8_t>> recs;
+        const bool read_ok = read_journal_file(jf13, recs);
+        check("SDFA-J13", "a two-sector write adds records for absolute sectors part+20 and part+21 and the image is unchanged",
+              attached && wr == RES_OK && read_ok && recs.size() == 2 &&
+              recs.count(kPartLba + 20) && recs.count(kPartLba + 21) &&
+              recs[kPartLba + 20] == std::vector<uint8_t>(w.begin(), w.begin() + 512) &&
+              recs[kPartLba + 21] == std::vector<uint8_t>(w.begin() + 512, w.end()) &&
+              file_digest(img) == pristine_digest, err);
+        sd_write_journal::forget_all_for_test();
+    }
+
+    // J14: a forced same-size replace does not grow the writes file.
+    {
+        const fs::path img = copy("j14.img"), jf = g_scratch / "j14.jsdw";
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf);
+        const FileAddStatus a =
+            sdcard::add_file_to_image(img.string(), src.string(), "/DOT/DOTEST", false, err);
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf, true);                       // bind compacts
+        const uint64_t len1 = fs::exists(jf, ec) ? fs::file_size(jf, ec) : 0;
+        const fs::path src3 = g_scratch / "j-DOTEST3";
+        write_host_file(src3, payload(3000, 209));
+        const FileAddStatus b =
+            sdcard::add_file_to_image(img.string(), src3.string(), "/DOT/DOTEST", true, err);
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img, jf, true);
+        const uint64_t len2 = fs::exists(jf, ec) ? fs::file_size(jf, ec) : 0;
+        check("SDFA-J14", "a forced same-size replace leaves the writes file the same length after a rebind",
+              a == FileAddStatus::Ok && b == FileAddStatus::Ok && len1 > 64 && len1 == len2,
+              std::to_string(len1) + " vs " + std::to_string(len2) + " " + err);
+        sd_write_journal::forget_all_for_test();
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -1440,6 +1685,7 @@ int main() {
     test_multi_level();
     test_unknown_fsinfo();
     test_create_grows_then_fails();
+    test_journal();
 
     fs::remove_all(g_scratch, ec);
 
