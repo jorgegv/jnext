@@ -211,7 +211,7 @@ open(sys.argv[1], "wb").write(hdr + struct.pack("<I", 7) + bytes(512))' \
             else
                 sw_faults+=("g2: the foreign reader refused the journal")
             fi
-            # g3: a second add is refused, the writes file untouched.
+            # g3: a second add is refused, the card the writes file describes unchanged.
             # (Binding the file compacts superseded records, so its bytes may be rewritten; the card
             # it describes must not change.)
             sw_fa "$sw_b" "$sw_dir/DOTEST" --sdcard-writes "$sw_g"
