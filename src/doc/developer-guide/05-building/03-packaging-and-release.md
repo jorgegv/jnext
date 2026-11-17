@@ -9,7 +9,7 @@ you read it; it is not a replacement for it.
 | Target | Produces |
 |---|---|
 | `make package-src` | source tarball plus `jnext-<ver>-src.zip`, with submodule content vendored |
-| `make package-rpm` | `.rpm` via CPack, in `build/rpm-release/` |
+| `make package-rpm` | `.rpm` via CPack, in `build/rpm-release/`, named with the host's dist tag (`jnext-<v>-1.fc45.x86_64.rpm`) |
 | `make package-deb` | `.deb` via CPack, in `build/deb-release/` |
 | `make package-win` | Windows x64 Qt6 `.zip` — MinGW cross-build, Qt6/SDL3 DLLs and the `qwindows` plugin bundled |
 | `make package-win-qt5` / `package-win32-qt5` | the legacy Qt5 Windows zips, 64- and 32-bit, which keep a lower Windows floor than the Qt6 build: Windows 7 SP1 against the Qt6 zip's Windows 10 1703. The floors were audited once, per package, and the audit is recorded in `doc/design/WINDOWS-COMPAT-PLAN.md` |

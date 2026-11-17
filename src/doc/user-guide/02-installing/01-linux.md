@@ -2,7 +2,8 @@
 
 | Distribution | Command |
 |--------------|---------|
-| Fedora / RHEL | `sudo dnf install ./jnext-*.x86_64.rpm` |
+| Fedora 44 | `sudo dnf install ./jnext-*.fc44.x86_64.rpm` |
+| Fedora 45 | `sudo dnf install ./jnext-*.fc45.x86_64.rpm` |
 | Ubuntu 24.04 | `sudo apt install ./jnext_*_ubuntu24.04_amd64.deb` |
 | Ubuntu 26.04 | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb` |
 | Any distribution | `flatpak install ./jnext-*-x86_64.flatpak` |

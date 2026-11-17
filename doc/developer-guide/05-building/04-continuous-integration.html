@@ -3090,8 +3090,11 @@ hypothetical worry: a run here once printed <code>62 pass, 1 fail</code> and
 <code>UNIT TESTS FAILED</code> in bold, and went green.</p>
 <h2 id="why-a-fedora-container">Why a Fedora container<a class="headerlink" href="#why-a-fedora-container" title="Permanent link">&para;</a></h2>
 <p>Three of the eight <code>ci.yml</code> jobs — <code>test</code>, <code>qt5-guard</code> and <code>package</code> — run in a
-pinned Fedora container: the same image <code>release.yml</code> builds the rpm and Windows
-artifacts in, and the same distribution family the maintainer develops on. (The
+pinned Fedora container, <code>fedora:45</code>: the same image <code>release.yml</code> builds the
+Windows artifacts and the Fedora 45 rpm in, and the same distribution family the
+maintainer develops on. It follows the current Fedora release: when a new one
+ships, every Fedora container and cache key moves to it together, and both guides
+are re-rendered there. (The
 remaining five cannot: <code>macos</code>, <code>macos-intel</code>, <code>macos-unit</code> and <code>macos-regression</code>
 need a macOS runner, and <code>flatpak</code> runs
 in the Flathub <code>flatpak-github-actions</code> image, because that is where
@@ -3105,7 +3108,7 @@ as staleness, which is exactly what happened: a runner whose distribution
 shipped an older pandoc than the maintainer's failed <code>docs-check</code> on every run
 from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.</p>
-<p>The container tracks the <code>updates</code> repository of fedora:44, so CI can receive a newer
+<p>The container tracks the <code>updates</code> repository of fedora:45, so CI can receive a newer
 package than a developer host that has not upgraded yet: <code>unit-test-win</code> was once red on
 CI under wine 11.20 and green on a host with 11.0. To see CI's package set locally, build an
 image from <code>ci.yml</code>'s two install lists (the test dependencies, and the MinGW and wine
@@ -3257,7 +3260,7 @@ and compression is off since the packages are already compressed.</p>
 </tr>
 <tr>
 <td><code>jnext-linux-rpm</code></td>
-<td><code>jnext-&lt;v&gt;-1.x86_64.rpm</code></td>
+<td><code>jnext-&lt;v&gt;-1.fc45.x86_64.rpm</code></td>
 <td><code>package</code></td>
 </tr>
 <tr>
@@ -3322,8 +3325,12 @@ is not, nothing builds, and the tag remains a private history marker.</p>
 <p>When it is, seven artifact jobs run. <code>deb</code> is a matrix over two pinned Ubuntu LTS
 containers, one per supported release, because <code>dpkg-shlibdeps</code> bakes the
 container's own library package names into the dependency list, so a deb built
-in one release's container is uninstallable on the next. <code>rpm</code> builds in the
-pinned Fedora container, so that its dependencies are Fedora-native. Then <code>src</code>,
+in one release's container is uninstallable on the next. <code>rpm</code> is a matrix over
+pinned <code>fedora:44</code> and <code>fedora:45</code> containers, the current and previous Fedora,
+so that each rpm's dependencies are that release's own; CPack names each with
+its dist tag (<code>jnext-&lt;v&gt;-1.fc45.x86_64.rpm</code>), so the two never collide. The
+packages track the two supported Fedora releases and the two latest Ubuntu LTS
+releases. Then <code>src</code>,
 <code>windows</code> (three zips from one Fedora container), <code>flatpak</code> (one line, calling
 <code>flatpak-build.yml</code>), <code>web</code> (<code>make package-web</code> in a Fedora container: the browser
 zip, with the Emscripten SDK cache of the <code>test</code> job and no SD image, since the

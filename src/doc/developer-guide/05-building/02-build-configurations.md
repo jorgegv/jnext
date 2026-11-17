@@ -54,7 +54,7 @@ tools first on `PATH`), and as MinGW-built Windows executables under wine
 `test/unit-tests.conf` ([4.2](../04-testing/02-declared-suites-and-pinned-counts.md)).
 The Qt and debugger suites run on Linux only, and the regression suite, the
 documentation gates and the traceability matrix are Linux-only by design: they
-gate committed artifacts that are byte-checked against the `fedora:44`
+gate committed artifacts that are byte-checked against the `fedora:45`
 toolchain.
 
 ## Where each target builds

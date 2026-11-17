@@ -64,7 +64,7 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | Target                 | Produces                          | Tooling needed                                  | Verified on the Linux dev host? |
 |------------------------|-----------------------------------|-------------------------------------------------|---------------------------------|
 | `make package-src`     | source tarball (`build/dist/v<ver>.tar.gz`) — vendors submodule content | git                     | Yes                             |
-| `make package-rpm`     | `.rpm` (via CPack, in `build/rpm-release/`), named `jnext-<ver>-<rel>.<arch>.rpm` | `cpack` + `rpmbuild` | Yes                     |
+| `make package-rpm`     | `.rpm` (via CPack, in `build/rpm-release/`), named `jnext-<ver>-<rel>.<arch>.rpm` with the host's dist tag in `<rel>` (`1.fc45`) | `cpack` + `rpmbuild` | Yes                     |
 | `make package-deb`     | `.deb` (via CPack, in `build/deb-release/`), named `jnext_<ver>_<arch>.deb` | `cpack` + `dpkg`     | Yes (deps weak off-Debian, see above) |
 | `make win-release` | Windows `jnext.exe` + its runtime DLLs bundled beside it in `build/win-release/` (runnable in place) | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
 | `make package-win`     | Windows `.zip` (`jnext-<ver>-windows-x64.zip` in `build/win-release/`) — exe + bundled Qt6/SDL2/SDL3 DLLs + Qt plugins | Fedora MinGW cross toolchain (see below)        | **Yes** (with the MinGW packages installed) |
@@ -240,8 +240,9 @@ distro-specific and the tooling gets it right automatically.
 
 ## RPM (Fedora)
 
-Support policy (per project CLAUDE.md): Fedora current + previous stable
-(44 and 43 at the time of writing).
+Support policy (doc/RELEASE-PROTOCOL.md section 4): the two supported Fedora
+releases, current and previous (now 44 and 45). `release.yml` builds one CPack
+rpm per release, named with its dist tag (`jnext-<ver>-1.fc45.x86_64.rpm`).
 
 `packaging/rpm/jnext.spec` builds from a source tarball via `cmake`. It is a
 real, from-source spec (not merely a CPack wrapper), with explicit
@@ -280,7 +281,9 @@ SDL2, libcurl, libcrypto, libpng, zlib, GL libs, …).
 
 ## Debian / Ubuntu
 
-Support policy: Debian Stable + OldStable, Ubuntu current + LTS.
+Support policy: the release debs track the two latest Ubuntu LTS releases (now
+24.04 and 26.04; doc/RELEASE-PROTOCOL.md section 4). The source package below
+also targets Debian Stable + OldStable.
 
 `packaging/debian/` (`control`, `rules`, `changelog.history`, `copyright`,
 and `source/format`) is a standard `debhelper-compat (= 13)`, `dh
@@ -560,9 +563,9 @@ jobs, when they run:
 | Job       | Runner                        | Build                                                 | Package(s)                     | Verified locally? |
 |-----------|-------------------------------|-------------------------------------------------------|--------------------------------|--------------------|
 | `deb`     | `ubuntu-latest` + `ubuntu:24.04`/`ubuntu:26.04` (matrix) | `make package-deb` (in each pinned container) | 2× DEB (`build/deb-release/`), one per LTS, named `jnext_<ver>_ubuntu<rel>_amd64.deb` | Yes — both built + `apt install`ed in their own containers; the 24.04 deps carry the t64 names, 26.04's differ |
-| `rpm`     | `ubuntu-latest` + `fedora:44` | `make package-rpm` (in a Fedora container)           | RPM (`build/rpm-release/`)     | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
+| `rpm`     | `ubuntu-latest` + `fedora:44`/`fedora:45` (matrix) | `make package-rpm` (in each pinned container) | 2× RPM (`build/rpm-release/`), one per supported Fedora, named `jnext-<ver>-1.fc<N>.x86_64.rpm` | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node). The dist-tagged name was checked on Fedora 45 (full build) and in a `fedora:44` container (CPack probe) |
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
-| `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` + `package-win-qt5` + `package-win32-qt5` (MinGW cross-builds + DLL bundling) | 3× ZIP (`build/win-release/`, `build/win-qt5-release/`, `build/win32-qt5-release/`) | Yes — all three built here; the x64-Qt6 zip ran green on a real runner and shipped in v0.98.19, confirmed working on Windows hardware; both Qt5 zips confirmed by a tester on real Windows 8.1 (GH #108) |
+| `windows` | `ubuntu-latest` + `fedora:45` | `make package-win` + `package-win-qt5` + `package-win32-qt5` (MinGW cross-builds + DLL bundling) | 3× ZIP (`build/win-release/`, `build/win-qt5-release/`, `build/win32-qt5-release/`) | Yes — all three built here; the x64-Qt6 zip ran green on a real runner and shipped in v0.98.19, confirmed working on Windows hardware; both Qt5 zips confirmed by a tester on real Windows 8.1 (GH #108) |
 | `flatpak` | `ubuntu-latest` + KDE 6.10     | one `uses:` line calling `.github/workflows/flatpak-build.yml`: `flatpak-builder` (org.kde.Sdk//6.10), then `make verify-flatpak-permissions` on the bundle | `.flatpak` bundle              | Yes — built here against the installed `org.kde.Sdk//6.10`, then installed from the bundle and run; its sandbox permissions are asserted in-job by `verify-permissions.sh` (GH #271). *Blocking since v0.99.110.* |
 | `macos`   | `macos-15`                    | `make package-macos` (Homebrew + CPack + `macdeployqt`, `MACOS_DEPLOYMENT_TARGET=15.0`) | DragNDrop `jnext-<ver>-macos-arm64.dmg` (`build/mac-release/`) | No — no macOS runner locally; the bundle's self-containment is asserted in-job by `verify-bundle.sh`. *Blocking since issue #61.* |
 | `macos-intel` | `macos-15-intel`          | `make package-macos` (MacPorts via `install-macports.sh`, `MACPORTS_PREFIX=/opt/local`, `MACOS_DEPLOYMENT_TARGET=15.0`) | DragNDrop `jnext-<ver>-macos-x64.dmg` (`build/mac-release/`) | No — no Intel Mac locally; same in-job gates, plus the minimum-macOS gate. Blocking: in `publish`'s `needs:`. |
