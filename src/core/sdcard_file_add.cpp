@@ -2,6 +2,7 @@
 
 #include "core/fat32_image.h"
 #include "core/fatfs_diskio.h"
+#include "peripheral/sd_write_journal.h"
 
 extern "C" {
 #include "third_party/fatfs/ff.h"
@@ -267,16 +268,36 @@ struct MountedCard {
     // a flush is not a no-op — f_getfree() alone can leave FSInfo pending
     // (GH #292 review round 4).
     bool  dirty    = false;
+    // What a write lands in: the image, or the SD-writes file when one is
+    // bound to the image (journal mode: the image is read-only). Names the
+    // target in the messages about a failed write.
+    std::string target;
 
     FileAddStatus mount(const std::string& image_path, std::string& err) {
         PartitionInfo part;
         if (!read_partition_info(image_path, part, err))
             return FileAddStatus::ImageUnusable;
+        auto journal = sd_write_journal::for_image(image_path);
+        target = journal ? journal->file() : image_path;
+        if (journal) {
+            // The geometry above came from the raw image. A journal that
+            // rewrote the partition table or the boot sector means the card
+            // the machine sees is not that one: refuse rather than write
+            // files at offsets that card does not have.
+            uint8_t sec[kSectorSize];
+            if (journal->lookup(0, sec) || journal->lookup(part.lba, sec)) {
+                err = "the writes file '" + journal->file() +
+                      "' holds a rewritten partition table or boot sector for '" +
+                      image_path + "'; --sdcard-file-add cannot place files on it "
+                      "(--sdcard-writes-reset starts again from the image)";
+                return FileAddStatus::ImageUnusable;
+            }
+        }
         std::string glue_err;
         if (!fatfs_glue::attach(kDrive, image_path, part.lba,
-                                part.total_sectors, glue_err)) {
-            err = "cannot open SD image '" + image_path +
-                  "' for writing (" + glue_err + ")";
+                                part.total_sectors, glue_err, journal)) {
+            err = "cannot open SD image '" + image_path + "' for " +
+                  (journal ? "reading" : "writing") + " (" + glue_err + ")";
             return FileAddStatus::ImageUnusable;
         }
         attached = true;
@@ -481,7 +502,7 @@ FileAddStatus write_card_file(MountedCard& card,
         fr = f_write(&fp, buf.data(), static_cast<UINT>(take), &bw);
         if (fr != FR_OK) {
             return abandon(FileAddStatus::ImageUnusable,
-                           "writing to '" + image_path + "' failed (" +
+                           "writing to '" + card.target + "' failed (" +
                            fr_str(fr) + ")");
         }
         if (bw != take) {
@@ -495,7 +516,7 @@ FileAddStatus write_card_file(MountedCard& card,
     fr = f_close(&fp);
     if (fr != FR_OK) {
         f_unlink(fat_path.c_str());
-        err = "cannot flush '" + dest_path + "' to '" + image_path + "' (" +
+        err = "cannot flush '" + dest_path + "' to '" + card.target + "' (" +
               fr_str(fr) + "); it was removed from the card";
         return FileAddStatus::ImageUnusable;
     }

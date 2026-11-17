@@ -1,7 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
+
+namespace sd_write_journal { class Journal; }
 
 /// Glue that backs ChaN FatFs (third_party/fatfs) on host image files.
 ///
@@ -17,8 +20,16 @@ namespace fatfs_glue {
 // Attach `image_path` (opened read/write) to FatFs physical drive `pdrv`
 // (0..FF_VOLUMES-1). FatFs will see `sector_count` 512-byte sectors starting
 // at byte offset `part_lba * 512` in the file. Returns true, else sets `err`.
+//
+// With a `journal` (an SD-writes journal bound to the image) the drive runs in
+// journal mode: the image is opened read-only and never written; reads are the
+// image with the journal's sectors laid over them, and writes are committed to
+// the journal. The journal's sector numbers are absolute card sectors, so the
+// glue adds `part_lba` to every FatFs sector. Without one (the default, and
+// what the SD-card provisioner uses) the image is opened read/write.
 bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
-            uint32_t sector_count, std::string& err);
+            uint32_t sector_count, std::string& err,
+            std::shared_ptr<sd_write_journal::Journal> journal = nullptr);
 
 // Flush and close the backing file for `pdrv`.
 void detach(uint8_t pdrv);

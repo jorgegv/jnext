@@ -300,7 +300,8 @@ inline constexpr Option OPTIONS[] = {
     { "--sdcard-file-add", 1, Doc::Documented, OptId::SdcardFileAdd,
       "FILE",
       "Copy host FILE, or a whole directory, into the SD image\n"
-      "and exit without starting emulation. Lands in the card\n"
+      "(or, with --sdcard-writes, into that FILE) and exit without\n"
+      "starting emulation. Lands in the card\n"
       "root under its own name unless --sdcard-file-dest says\n"
       "otherwise. Given once per run." },
     { "--sdcard-file-dest", 1, Doc::Documented, OptId::SdcardFileDest,
@@ -340,7 +341,7 @@ inline constexpr Option OPTIONS[] = {
       "refused. Created at the first write. Also keeps the one\n"
       "file the esxDOS stand-in holds for a directly loaded NEX,\n"
       "stored when the program closes it. Excludes\n"
-      "--sdcard-readonly and --sdcard-file-add." },
+      "--sdcard-readonly; --sdcard-file-add then copies into FILE." },
     { "--sdcard-writes-reset", 0, Doc::Documented, OptId::SdcardWritesReset,
       "",
       "Discard the writes kept in the --sdcard-writes FILE (the\n"
