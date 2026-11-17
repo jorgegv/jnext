@@ -1,5 +1,13 @@
 # ChangeLog
 
+## v1.3.5 (2026-11-17)
+
+### User Features
+- Fedora 44 and Fedora 45 each get their own rpm, named with its release (`.fc44` / `.fc45`)
+
+### Internal JNEXT Development
+- CI and release builds move to Fedora 45; packages track the two supported Fedora and two latest Ubuntu LTS releases
+
 ## v1.3.0 (2026-11-15)
 
 ### User Features
