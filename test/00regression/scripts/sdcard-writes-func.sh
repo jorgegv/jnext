@@ -17,9 +17,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # here, deleted at the end, never kept): R takes the writes itself (the
 # reference), B is the pristine card the journal is used on.
 #   (a) refusals, each exit 1 with its message: --sdcard-writes-reset alone;
-#       --sdcard-writes with --sdcard-readonly; with --sdcard-file-add; a FILE
-#       that is not a journal (left untouched); a journal made for another
-#       digest (built here from the format table), naming --sdcard-writes-reset;
+#       --sdcard-writes with --sdcard-readonly; a FILE that is not a journal
+#       (left untouched); a journal made for another digest (built here from
+#       the format table), naming --sdcard-writes-reset;
 #   (b) R, two runs: SAVE 1 OK, SAVE 2 OK, and `dd` reads "JNSV" and 2 in sectors 60000 and 60001;
 #   (c) B + a journal, two runs: SAVE 1 OK, SAVE 2 OK; B's SHA-256 is the same
 #       after both runs; the second run records the warm start again (the key
@@ -31,14 +31,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #       afterwards equals the one the first run of (c) left; the run records the
 #       warm start again (it must not restore the recording of the written card);
 #   (f) a journal made against a card copy is refused (exit 1, naming the mtime,
-#       journal untouched) after `touch -d` moves that copy's modification time.
+#       journal untouched) after `touch -d` moves that copy's modification time;
+#   (g) --sdcard-file-add with --sdcard-writes (GH #507): the copy goes into the
+#       writes file and B stays pristine; the journal laid over a copy of B
+#       equals the card an image-mode add makes, and mtools reads the file from
+#       it; a second add is refused (exit 4, journal untouched), --sdcard-file-force
+#       replaces it, --sdcard-writes-reset starts again (the journal of the first add).
 # The cards are 40 MiB; mtools reads them at the partition offset 32256.
 if want sdcard-writes-func; then
     begin_func sdcard-writes-func
 
     sw_faults=()
     sw_missing=()
-    for tool in mdir sha256sum python3 cmp od dd; do
+    for tool in mdir mcopy sha256sum python3 cmp od dd; do
         command -v "$tool" &>/dev/null || sw_missing+=("$tool")
     done
 
@@ -94,8 +99,6 @@ if want sdcard-writes-func; then
             sw_refuse reset-alone "--sdcard-writes-reset needs --sdcard-writes" --sdcard-writes-reset
             sw_refuse readonly "cannot be combined with --sdcard-readonly" \
                 --sdcard-writes "$sw_dir/x.jsdw" --sdcard-readonly
-            sw_refuse file-add "cannot be combined with --sdcard-writes" \
-                --sdcard-writes "$sw_dir/x.jsdw" --sdcard-file-add "$sw_nex"
             printf 'this is not a journal\n' >"$sw_dir/notj.txt"
             sw_notj_sha=$(sha256sum "$sw_dir/notj.txt" | cut -d' ' -f1)
             sw_refuse not-a-journal "is not a jnext SD-writes file" --sdcard-writes "$sw_dir/notj.txt"
@@ -176,10 +179,64 @@ open(sys.argv[1], "wb").write(hdr + struct.pack("<I", 7) + bytes(512))' \
                 || sw_faults+=("f: no 'another image ... mtime' message")
             [[ "$(sha256sum "$sw_dir/t.jsdw" | cut -d' ' -f1)" == "$sw_t_sha" ]] \
                 || sw_faults+=("f: the journal was changed by the refused run")
+
+            # (g) --sdcard-file-add into the writes file; B is not written.
+            sw_g=$sw_dir/g.jsdw
+            printf 'dot command stand-in, version 1\n' >"$sw_dir/DOTEST"
+            sw_fa() {   # sw_fa <card> <host file> [extra jnext args]: output in $sw_fa_out, status in $sw_fa_rc
+                local card=$1 host=$2; shift 2
+                sw_fa_rc=0
+                sw_fa_out=$(timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine next \
+                    --sdcard "$card" --sdcard-file-add "$host" --sdcard-file-dest /DOT/DOTEST "$@" 2>&1) \
+                    || sw_fa_rc=$?
+            }
+            sw_fa "$sw_b" "$sw_dir/DOTEST" --sdcard-writes "$sw_g"
+            [[ "$sw_fa_rc" == 0 ]] || sw_faults+=("g1: the add exited $sw_fa_rc, not 0: $sw_fa_out")
+            grep -qF "kept in $sw_g" <<<"$sw_fa_out" || sw_faults+=("g1: the output does not say where the copy went")
+            [[ "$(sha256sum "$sw_b" | cut -d' ' -f1)" == "$sw_b_sha" ]] \
+                || sw_faults+=("g1: the image changed (the copy must go into the writes file)")
+            [[ -s "$sw_g" ]] || sw_faults+=("g1: no writes file was made")
+            cp "$sw_g" "$sw_dir/g1.jsdw" 2>/dev/null || true
+            # g2: the image-mode add on a private copy is the reference.
+            cp --reflink=auto "$sw_b" "$sw_dir/rg.img"
+            sw_fa "$sw_dir/rg.img" "$sw_dir/DOTEST"
+            [[ "$sw_fa_rc" == 0 ]] || sw_faults+=("g2: the image-mode add exited $sw_fa_rc: $sw_fa_out")
+            cp --reflink=auto "$sw_b" "$sw_dir/g-applied.img"
+            if python3 -I "$PROJECT_DIR/test/00regression/sdcard-writes-apply.py" "$sw_dir/g-applied.img" "$sw_g"; then
+                cmp -s "$sw_dir/g-applied.img" "$sw_dir/rg.img" \
+                    || sw_faults+=("g2: the writes file laid over the pristine card differs from the image-mode card")
+                mcopy -n -i "$sw_dir/g-applied.img@@$sw_off" ::/DOT/DOTEST "$sw_dir/DOTEST.out" 2>/dev/null \
+                    && cmp -s "$sw_dir/DOTEST.out" "$sw_dir/DOTEST" \
+                    || sw_faults+=("g2: mtools does not read /DOT/DOTEST back from the applied card")
+            else
+                sw_faults+=("g2: the foreign reader refused the journal")
+            fi
+            # g3: a second add is refused, the writes file untouched.
+            sw_g_sha=$(sha256sum "$sw_g" | cut -d' ' -f1)
+            sw_fa "$sw_b" "$sw_dir/DOTEST" --sdcard-writes "$sw_g"
+            [[ "$sw_fa_rc" == 4 ]] || sw_faults+=("g3: the repeated add exited $sw_fa_rc, not 4")
+            [[ "$(sha256sum "$sw_g" | cut -d' ' -f1)" == "$sw_g_sha" ]] \
+                || sw_faults+=("g3: the refused add changed the writes file")
+            # g4: changed bytes + --sdcard-file-force replace the file.
+            printf 'dot command stand-in, version 2 (changed)\n' >"$sw_dir/DOTEST2"
+            sw_fa "$sw_b" "$sw_dir/DOTEST2" --sdcard-writes "$sw_g" --sdcard-file-force
+            [[ "$sw_fa_rc" == 0 ]] || sw_faults+=("g4: the forced add exited $sw_fa_rc: $sw_fa_out")
+            cp --reflink=auto "$sw_b" "$sw_dir/g-applied2.img"
+            python3 -I "$PROJECT_DIR/test/00regression/sdcard-writes-apply.py" "$sw_dir/g-applied2.img" "$sw_g" \
+                || sw_faults+=("g4: the foreign reader refused the journal")
+            mcopy -n -i "$sw_dir/g-applied2.img@@$sw_off" ::/DOT/DOTEST "$sw_dir/DOTEST2.out" 2>/dev/null \
+                && cmp -s "$sw_dir/DOTEST2.out" "$sw_dir/DOTEST2" \
+                || sw_faults+=("g4: the replaced file is not what mtools reads from the applied card")
+            [[ "$(sha256sum "$sw_b" | cut -d' ' -f1)" == "$sw_b_sha" ]] || sw_faults+=("g4: the image changed")
+            # g5: --sdcard-writes-reset starts again from the image.
+            sw_fa "$sw_b" "$sw_dir/DOTEST" --sdcard-writes "$sw_g" --sdcard-writes-reset
+            [[ "$sw_fa_rc" == 0 ]] || sw_faults+=("g5: the reset add exited $sw_fa_rc: $sw_fa_out")
+            cmp -s "$sw_g" "$sw_dir/g1.jsdw" \
+                || sw_faults+=("g5: after the reset the writes file is not the one the first add left")
         fi
 
         if [[ ${#sw_faults[@]} -eq 0 ]]; then
-            pass_row " (refusals; a pristine card plus its journal equals the read-write card, kept pristine, reset by the flag)"
+            pass_row " (refusals; a pristine card plus its journal equals the read-write card, kept pristine, reset by the flag; file-add into the journal)"
         else
             fail_row " ($(IFS=';'; echo "${sw_faults[*]}"))"
             show_output "b run 2" "${sw_b2:-}" 'SAVE|warm start|\[error\]|\[warning\]'
