@@ -35,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   (g) --sdcard-file-add with --sdcard-writes (GH #507): the copy goes into the
 #       writes file and B stays pristine; the journal laid over a copy of B
 #       equals the card an image-mode add makes, and mtools reads the file from
-#       it; a second add is refused (exit 4, journal untouched), --sdcard-file-force
+#       it; a second add is refused (exit 4, card unchanged), --sdcard-file-force
 #       replaces it, --sdcard-writes-reset starts again (the journal of the first add).
 # The cards are 40 MiB; mtools reads them at the partition offset 32256.
 if want sdcard-writes-func; then
@@ -212,11 +212,14 @@ open(sys.argv[1], "wb").write(hdr + struct.pack("<I", 7) + bytes(512))' \
                 sw_faults+=("g2: the foreign reader refused the journal")
             fi
             # g3: a second add is refused, the writes file untouched.
-            sw_g_sha=$(sha256sum "$sw_g" | cut -d' ' -f1)
+            # (Binding the file compacts superseded records, so its bytes may be rewritten; the card
+            # it describes must not change.)
             sw_fa "$sw_b" "$sw_dir/DOTEST" --sdcard-writes "$sw_g"
             [[ "$sw_fa_rc" == 4 ]] || sw_faults+=("g3: the repeated add exited $sw_fa_rc, not 4")
-            [[ "$(sha256sum "$sw_g" | cut -d' ' -f1)" == "$sw_g_sha" ]] \
-                || sw_faults+=("g3: the refused add changed the writes file")
+            cp --reflink=auto "$sw_b" "$sw_dir/g-applied3.img"
+            python3 -I "$PROJECT_DIR/test/00regression/sdcard-writes-apply.py" "$sw_dir/g-applied3.img" "$sw_g" \
+                && cmp -s "$sw_dir/g-applied3.img" "$sw_dir/g-applied.img" \
+                || sw_faults+=("g3: the refused add changed the card the writes file describes")
             # g4: changed bytes + --sdcard-file-force replace the file.
             printf 'dot command stand-in, version 2 (changed)\n' >"$sw_dir/DOTEST2"
             sw_fa "$sw_b" "$sw_dir/DOTEST2" --sdcard-writes "$sw_g" --sdcard-file-force
