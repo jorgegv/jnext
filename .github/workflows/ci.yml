@@ -85,8 +85,9 @@ jobs:
       matrix:
         leg: [build-matrix, unit, unit-win, regression, regression-win, regression-wasm, unit-wasm, browser]
     runs-on: ubuntu-latest
-    # Same fedora:44 container release.yml builds the rpm and Windows artifacts
-    # in, and the same distro the maintainer develops on. That is the point: the
+    # Same fedora:45 container release.yml builds the Windows artifacts and the
+    # Fedora 45 rpm in (its rpm job also builds one in fedora:44, the previous
+    # supported release), and the same distro the maintainer develops on. That is the point: the
     # committed man page, USAGE.md, rendered user guide and rendered developer
     # guide (including its Graphviz SVGs) are all GENERATED, and
     # pandoc/mkdocs-material/graphviz emit byte-different output across versions — so
@@ -94,7 +95,7 @@ jobs:
     # shipped pandoc 3.1.3 against the maintainer's 3.7.0.2 and failed
     # docs-check on every run from the day the man page landed. Matching the
     # distro removes that whole class instead of pinning tool by tool.
-    container: fedora:44
+    container: fedora:45
     timeout-minutes: 120
     # GH #202. Supplied as ENVIRONMENT, never by rewriting the commands: every
     # `run:` below stays the plain make target a human types locally, which is
@@ -124,13 +125,13 @@ jobs:
     env:
       FPGA_CORE_REF: b047011d82bf3086f2b7db76451c6254506f5fe8   # CORE VERSION 3.02.03
     steps:
-      # MUST run BEFORE the checkout: a bare fedora:44 has no git, and
+      # MUST run BEFORE the checkout: a bare fedora:45 has no git, and
       # actions/checkout throws outright when `submodules` is requested
       # without it ("Input 'submodules' not supported when falling back to
       # download using the GitHub REST API"). release.yml's rpm and windows
       # jobs already order it this way for exactly this reason.
       #
-      # Package set mirrors release.yml's rpm job (same fedora:44 container,
+      # Package set mirrors release.yml's rpm job (its fedora:45 leg,
       # same dnf names) plus the tools the test
       # layers need on top: imagemagick (`compare`, screenshot diffing),
       # openbox (debugger-window-wm-func: the debugger window's size/grow rows
@@ -170,7 +171,7 @@ jobs:
           # shell of `make wasm-browser-test` links (`ldd` on it), declared rather than
           # inherited. The browser comes from test/provision-playwright.sh, like the SDK.
           # util-linux: sfdisk, for test/minimal-card-test.sh (the bare
-          # fedora:44 has only util-linux-core).
+          # fedora:45 has only util-linux-core).
           # zip: package-web.sh's writer (the browser leg builds the web zip through
           # wasm-browser-test; the unit leg runs web-package-test through make unit-test).
           # mtools + dosfstools are the FOREIGN validators the GH #269
@@ -313,10 +314,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
-          key: ccache-fedora44-${{ matrix.leg }}-${{ github.sha }}
+          key: ccache-fedora45-${{ matrix.leg }}-${{ github.sha }}
           restore-keys: |
-            ccache-fedora44-${{ matrix.leg }}-
-            ccache-fedora44-
+            ccache-fedora45-${{ matrix.leg }}-
+            ccache-fedora45-
 
       # The unit leg needs it for sd_rom_extractor_test, the regression leg
       # for every row that boots NextZXOS; the build matrix runs nothing. The
@@ -337,11 +338,11 @@ jobs:
           # regression suite's gate re-derives a master of an older recipe on
           # its own, but a cache entry is never re-saved under a key that hit,
           # so without a bump every run would re-derive the same stale entry.
-          # -fedora44 namespaces the container era: entries saved on a plain
+          # -fedora45 namespaces the container era: entries saved on a plain
           # ubuntu runner carry /home/runner paths and are useless (and
           # misleading) here. Bump with the container image, not just with
           # kDistroUrl.
-          key: sdcard-image-distro-26.11-recipe3-fedora44
+          key: sdcard-image-distro-26.11-recipe3-fedora45
 
       # Ghidra 12.2 (GH #389): 570 MB, provisioned by `make regression` itself
       # (test/provision-ghidra.sh) into this directory, pinned by its sha256, so a
@@ -352,7 +353,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/jnext/tools/ghidra-12.2
-          key: ghidra-12.2-2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67-fedora44
+          key: ghidra-12.2-2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67-fedora45
 
       # Mirrors the merge-to-main protocol in CLAUDE.md: `make clean` then
       # `make gui-release` first, so regression.sh (which prefers
@@ -378,7 +379,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/jnext/tools/emsdk-6.0.13
-          key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora44
+          key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora45
 
       # playwright-core and the Chromium headless shell (about 135 MB), provisioned by
       # `make wasm-browser-test` itself (test/provision-playwright.sh), pinned by two
@@ -388,7 +389,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/jnext/tools/playwright-1.65.0
-          key: playwright-1.65.0-315247c5-18352d22-fedora44
+          key: playwright-1.65.0-315247c5-18352d22-fedora45
 
       # Link rot only shows up at BUILD time and only in the combinations the
       # default build does not exercise: CMake derives static-link order from
@@ -555,10 +556,10 @@ jobs:
   # has no other use for Qt5.
   qt5-guard:
     runs-on: ubuntu-latest
-    container: fedora:44
+    container: fedora:45
     timeout-minutes: 30
     steps:
-      # Same before-checkout ordering rule as the test job (bare fedora:44
+      # Same before-checkout ordering rule as the test job (bare fedora:45
       # has no git). Package set = the build-only subset of the test job's
       # list, with qt5-qtbase-devel and qt5-qtsvg-devel replacing the qt6 pair.
       - name: Install build dependencies
@@ -578,9 +579,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
-          key: ccache-qt5-fedora44-${{ github.sha }}
+          key: ccache-qt5-fedora45-${{ github.sha }}
           restore-keys: |
-            ccache-qt5-fedora44-
+            ccache-qt5-fedora45-
 
       - name: make qt5-guard-build
         run: LANG=C make qt5-guard-build
@@ -617,10 +618,10 @@ jobs:
   # and only the tool-free manifest contract (`flatpak-manifest`) runs here.
   package:
     runs-on: ubuntu-latest
-    # fedora:44, same as the test job and the same container release.yml builds
-    # the rpm and Windows artifacts in. Load-bearing for Windows: only Fedora
+    # fedora:45, same as the test job and the same container release.yml builds
+    # the Windows artifacts and the Fedora 45 rpm in. Load-bearing for Windows: only Fedora
     # packages a MinGW Qt6, so this is the one host the cross-build works on.
-    container: fedora:44
+    container: fedora:45
     # GH #297: every package-* target is a PGO build (instrument, train,
     # rebuild), so this job needs the NextZXOS SD image for the training —
     # restored by the same cache step as the `test` job (below) — and wine for
@@ -630,7 +631,7 @@ jobs:
     # user CPU — so a 4-vCPU runner needs roughly 30-45 min.
     timeout-minutes: 120
     steps:
-      # Before the checkout: a bare fedora:44 has no git, and actions/checkout
+      # Before the checkout: a bare fedora:45 has no git, and actions/checkout
       # rejects `submodules` without it.
       #
       # Package set = release.yml's rpm job (Fedora-native build deps) + its
@@ -670,16 +671,16 @@ jobs:
         with:
           submodules: recursive
 
-      # Own cache namespace: the `test` job writes ccache-fedora44-<sha>, and
+      # Own cache namespace: the `test` job writes ccache-fedora45-<sha>, and
       # two jobs saving the same key collide (GitHub cache entries are
       # immutable). The compilations differ anyway — Release/no-tests here.
       - name: Cache ccache
         uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
-          key: ccache-fedora44-package-${{ github.sha }}
+          key: ccache-fedora45-package-${{ github.sha }}
           restore-keys: |
-            ccache-fedora44-package-
+            ccache-fedora45-package-
 
       # GH #297: the PGO training needs the NextZXOS SD image (the ROMs come
       # from it). The SAME cache entry as the `test` job above — same path, same
@@ -690,7 +691,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11-recipe3-fedora44
+          key: sdcard-image-distro-26.11-recipe3-fedora45
 
       - name: make package-test (build every package, assert its contents)
         run: LANG=C make package-test
@@ -776,7 +777,7 @@ jobs:
   #
   # Windows already is, and adding a second Windows job here would duplicate
   # it: the `package` job above installs the full MinGW cross toolchain in the
-  # same fedora:44 container and `make package-test` builds package-win,
+  # same fedora:45 container and `make package-test` builds package-win,
   # package-win-qt5, package-win-sdl, package-win32-qt5 and package-win32-sdl,
   # asserting each zip's contents. macOS was excluded from that suite by
   # construction — packaging-test.sh:25 says so — because the .dmg needs a Mac.
@@ -794,7 +795,7 @@ jobs:
   # the other half of why the gap hurt.
   #
   # This and the macOS jobs below are the only ones needing a real macOS
-  # runner; every other job in this file is fedora:44. It is deliberately NOT continue-on-error: a gate
+  # runner; every other job in this file is fedora:45. It is deliberately NOT continue-on-error: a gate
   # that cannot fail anything is not a gate (the same reasoning release.yml's
   # macos job records).
   macos:
@@ -1017,7 +1018,7 @@ jobs:
   #
   # The `package` job above cannot build it: `make package-test` carries only
   # the manifest contract, since the real build needs org.kde.Sdk. Installing
-  # flatpak-builder into that fedora:44 container does NOT fix it — the missing
+  # flatpak-builder into that fedora:45 container does NOT fix it — the missing
   # piece is the org.kde.Sdk//6.10 RUNTIME, a multi-gigabyte Flathub download,
   # and flatpak-builder additionally needs a privileged container for
   # bubblewrap's user namespaces. So the manifest was checked and the build was

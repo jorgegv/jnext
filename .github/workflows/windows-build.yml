@@ -30,7 +30,7 @@ on:
 jobs:
   windows-build:
     runs-on: ubuntu-latest
-    container: fedora:44
+    container: fedora:45
     # Backstop against a silent hang; each leg was ~5-10 min in this container
     # before GH #297 made it a PGO build (two compiles + a wine training run),
     # so the backstop doubled.
@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11-recipe3-fedora44
+          key: sdcard-image-distro-26.11-recipe3-fedora45
       - name: make package-win
         if: ${{ inputs.qt6 }}
         run: make package-win
