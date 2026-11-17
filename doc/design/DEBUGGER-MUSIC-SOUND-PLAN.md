@@ -1,10 +1,14 @@
 # Music and sound panels in the debugger: execution plan (epic #224)
 
-Status: **DRAFT for owner review** (2026-11-17). Nothing in this plan is started. Once the
-owner approves it, its tasks become the sub-issues of #224 on the epic branch
-`epic224-audio-debugger` (decision 7). Each sub-issue branches off the epic branch and merges
-back into it. The epic reaches `main` in one merge, after the batch gate and a green CI run on
-the pushed epic branch (CLAUDE.md, merge protocol steps 1 and 2).
+Status: **DRAFT for owner review** (2026-11-17; owner answers to §10 folded in 2026-11-18).
+Nothing in this plan is started. Once the owner approves it, #224 gets **one sub-issue per
+scope item, eleven in all** (decision 7), on the epic branch `epic224-audio-debugger`. Each
+sub-issue carries its tasks below as its checklist, branches off the epic branch, and merges
+back into it. **The epic branch reaches `main` twice** (owner, 2026-11-18, §10 Q1): once when
+Phase 1 (sub-issues 1-5) is done, and again when Phases 2 and 3 are done. Between the two it
+continues on the same branch, with `main` merged into it first. Each merge into `main` follows
+the epic rule: the batch gate on the epic branch's tip and a green CI run on the pushed epic
+branch (CLAUDE.md, merge protocol steps 1 and 2).
 
 The scope is the owner's. It comes from #224's "UPDATE 2026/11/17: scope (approved by
 jorgegv, 2026-11-17)" block and its Decisions 1-9, and this plan does not reopen it:
@@ -39,42 +43,81 @@ jorgegv, 2026-11-17)" block and its Decisions 1-9, and this plan does not reopen
 
 ## Task list
 
-Each line is sized to be one sub-issue. IDs are stable; the detail is in §5 to §7.
+One heading per sub-issue, i.e. per scope item 1-11 (decision 7). The task lines under a
+heading are that sub-issue's checklist, one line per task, with stable IDs; the detail is in §5
+to §7. Shared groundwork goes with the first item that needs it: A1.1 (note math and the core
+suite), A1.2 (the mute fix and the invisibility harness) and A1.3 (`audio_state()`) are in
+sub-issue 1, because the decoded chip view is their first consumer and A1.3's own rows already
+use the harness. Each sub-issue updates the user guide, developer guide and man page for what it
+changes (a new flag's man page entry has to land with it, or `make cli-check` fails). The three
+doc tasks A1.13, A2.8 and A3.5 are the closing consolidation pass of their phase, placed in that
+phase's last sub-issue. When sub-issue 5 is merged into the epic branch, Phase 1 is complete and
+the epic branch merges into `main` (owner, 2026-11-18); sub-issues 6-11 then continue on it.
 
 ### Phase A1: see and stop
+
+#### Sub-issue 1: decoded chip view (scope item 1)
 
 - [ ] **A1.1** New core suite `audio_debug_test`, plus a published pure helper for PSG tone and envelope frequency, note name and cents
 - [ ] **A1.2** Take the debugger mutes out of machine state: the AY chip mute leaks into the serialised `pcm_l`/`pcm_r`; add the "invisible to the Z80" harness
 - [ ] **A1.3** `audio_state()` backend query: chips, envelope position, select and pan, routing, host gains and mutes (INS-22)
 - [ ] **A1.4** Audio tab with sub-tabs, and the Chips sub-tab: decoded view, hex toggle, live level bars, display-rate refresh while visible
+
+#### Sub-issue 2: routing and "why is it silent" (scope item 2)
+
 - [ ] **A1.5** Dropped-write classification at the AY, DAC and NR 0x2C-0x2E sites, with always-on counters and `clear_audio_drops`
 - [ ] **A1.6** DAC & Beeper sub-tab: DAC A-D, enables, port families, beeper and speaker, Pi I2S, gains and mutes, dropped-write table
+
+#### Sub-issue 3: audio write log (scope item 3)
+
 - [ ] **A1.7** Audio write tap and ring log in the backend (INS-23), CSV export, `--audio-log FILE`
 - [ ] **A1.8** Log sub-tab: filters, envelope-restart flag, double-click to Disassembly, Export CSV, collected only while visible
+
+#### Sub-issue 4: breakpoints on decoded audio writes (scope item 4)
+
 - [ ] **A1.9** `AudioWrite` event kind: latched at the tap, cheap filters (target, chip, register, value/mask, flags), delivered at the boundary
 - [ ] **A1.10** "Audio write" breakpoints in the GUI: a `BreakpointModel` type and the Add dialog fields
-- [ ] **A1.11** DSL: the `ay_write` event with payload `CHIP REG VALUE PREV`, an `ay[c, r]` accessor, `AUDIO_CHANNEL_MUTE`
-- [ ] **A1.12** Per-channel mute and solo: the 13-bit host mask in TurboSound and the Mixer, backend verbs, Solo and Mute controls
-- [ ] **A1.13** Phase 1 docs: user guide Audio page, developer guide 3.4, 3.9 and 3.10.2, scripting quick reference, man page, FEATURES.md
+- [ ] **A1.11** DSL: the `ay_write` event with payload `CHIP REG VALUE PREV` and an `ay[c, r]` accessor
+
+#### Sub-issue 5: solo and mute per channel (scope item 5)
+
+- [ ] **A1.12** Per-channel mute and solo: the 13-bit host mask in TurboSound and the Mixer, backend verbs, `AUDIO_CHANNEL_MUTE` in the DSL, Solo and Mute controls
+- [ ] **A1.13** Phase 1 doc pass: user guide Audio page, developer guide 3.4, 3.9 and 3.10.2, scripting quick reference, FEATURES.md, banner recount
 
 ### Phase A2: see over time
 
+#### Sub-issue 6: tracker view (scope item 6)
+
 - [ ] **A2.1** Frame grouping helper (pure): per-frame final registers, double writes, first and last write, write count, PC range
 - [ ] **A2.2** Tracker sub-tab: one row per frame, 3 chips side by side, changes highlighted, empty and double frames marked, jump back via rewind
+
+#### Sub-issue 7: player timing (scope item 7)
+
 - [ ] **A2.3** Player timing in the Tracker sub-tab: first and last write, count, PC range, min/avg/max over N frames, jitter strip
+
+#### Sub-issue 8: oscilloscopes and meters (scope item 8)
+
 - [ ] **A2.4** Source tap in the Mixer: per-source box-filtered samples at 44.1 kHz, only while requested (INS-24), bench A/B
 - [ ] **A2.5** Scopes sub-tab: 9 AY channels, 4 DAC channels, beeper and L/R mix, edge-triggered, with meters, at display rate
+
+#### Sub-issue 9: DAC sample-stream view (scope item 9)
+
 - [ ] **A2.6** Read-only CTC and DMA queries (INS-25)
 - [ ] **A2.7** Sample-stream view in DAC & Beeper: rate, intervals, jitter and gaps per writer, beside the CTC and DMA pacing
-- [ ] **A2.8** Phase 2 docs
+- [ ] **A2.8** Phase 2 doc pass: user guide (tracker, timing, scopes, sample stream), developer guide 3.4 and 3.9, FEATURES.md, banner recount
 
 ### Phase A3: take it elsewhere
+
+#### Sub-issue 10: `.psg` register-stream export (scope item 10)
 
 - [ ] **A3.1** `.psg` writer, one stream per AY chip, fed from the write tap; byte rows against hand-built files
 - [ ] **A3.2** Fuse reference: a 128K fixture program, a maintainer tool that records it in Fuse, and the committed recording compared byte for byte
 - [ ] **A3.3** `.psg` export from the GUI (start/stop) and `--psg-record FILE`
+
+#### Sub-issue 11: per-source WAV stems (scope item 11)
+
 - [ ] **A3.4** Per-source WAV stems before host gain (AY0-2, DAC, beeper, Pi, mix), `--wav-record-stems DIR`, GUI start/stop
-- [ ] **A3.5** Phase 3 docs, FEATURES.md, the epic's bench record and the ChangeLog draft
+- [ ] **A3.5** Phase 3 doc pass, FEATURES.md, the epic's bench record and the ChangeLog draft
 
 ---
 
@@ -273,7 +316,7 @@ address, so it is **not** counted (D6).
 ```
  guest OUT / DMA / Copper / NR commit
         |  AY, DAC, NR 0x2C-0x2E, 0xFE handlers (emulator.cpp)
-        |     drop classification -> AudioDropCounters (always on; cold path only)
+        |     drop classification -> AudioDropCounters (always on; one compare per write)
         |     if (audio_tap_active_)  -> AudioTapRecord  ---> ring log (INS-23)
         |                                               ---> AudioWrite latch (EVT)
         |                                               ---> .psg writer (A3.1)
@@ -288,8 +331,12 @@ address, so it is **not** counted (D6).
   bool is true while any consumer is live: the ring log, an armed `AudioWrite` subscription, or
   a `.psg` recording. These sites already run a `std::function` port handler per write, so the
   test is noise next to them, and it adds nothing to the per-instruction path.
-- **Drop counters** sit on the existing early-return branches, which only run when a write
-  is discarded. They are always on: the user gets the answer even if they open the panel after
+- **Drop counters.** The DAC and NR mirror drops sit on the existing early-return branches,
+  which run only when a write is discarded. The AY drops are decided inside `TurboSound` and
+  `AyChip`, so `reg_addr()` and `reg_write()` return a small status enum instead of `void`
+  (A1.5), and the handler adds one compare per AY port write (`if (st != Applied)`), never per
+  instruction. The decision logic stays where it is, with no copy in `emulator.cpp` that could
+  drift. The counters are always on: the user gets the answer even if they open the panel after
   the problem happened. They are plain counters held by `Emulator`, outside `describe_state()`.
 - **Mixer.** `accumulate_impl_()` gains `if (source_tap_)` with a null pointer by default:
   one well-predicted branch per instruction slice, the same cost class as the existing
@@ -347,8 +394,11 @@ Nothing in this epic may change what the guest sees:
 Exact declarations. Types go in `inspect.h` (INS-22 to INS-25) and `events.h` (EVT); the mute
 bit layout goes in `audio/audio_mute.h`, which `inspect.h` already includes, so the bit
 assignment exists once (the INS-10 reuse rule, `inspect.h:432-437`). Each verb lands in the task
-named in its comment, never as a stub. Every header stays std-only (`test/lint-debug-headers.sh`,
-preflight row 5).
+named in its comment, never as a stub. Every published header stays within the include budget
+`test/lint-debug-headers.sh` enforces (preflight row 5: no `core/emulator.h`, no `src/platform/`,
+no Qt or SDL, none of the internal headers it lists). That lint checks a **fixed list** of headers
+(`HEADERS=(...)`, `lint-debug-headers.sh:79-84`), so a new published header is covered only once
+it is added to that list.
 
 **`src/audio/audio_mute.h`** (added beside `AudioMute`):
 
@@ -403,6 +453,27 @@ struct EventFilter {      // added fields, read only for kind == AudioWrite
     uint8_t         audio_flags_all = 0;    // every listed AudioFlag bit must be set
 };
 ```
+
+**`AudioWrite` latch packing** (`src/debug/event_table.h`, internal, not frozen). It follows the
+existing convention: `kind` says which fields mean anything, `sub_kind` carries the kind's own
+sub-enum as a raw byte (as `CopperEventKind` and `DmaEventKind` do), and `misc`, `misc2` and
+`misc3` are per-kind bytes (`Reset`, `IntAck` and `Dma` already reuse them). No field is added
+and each value has a whole byte:
+
+| `LatchEntry` field | `AudioWrite` meaning | becomes `Event::` |
+|---|---|---|
+| `sub_kind` | `AudioTarget`, raw byte | `audio_target` |
+| `addr` | the 16-bit port; 0x2C-0x2E for a NR mirror; 0 for the beeper | `port` |
+| `reg` | AY: the 5-bit latched address; NR mirror: the NextREG number | `reg` |
+| `value`, `prev` | the byte written, and the register or channel value before it | `value`, `prev` |
+| `source` | `Cpu`, `Dma` or `Copper` (a debugger write is never latched) | `source` |
+| `misc` | chip: AY 0-2, DAC channel 0-3, 0 otherwise | `chip` |
+| `misc2` | `AudioFlag` bits | `audio_flags` |
+| `misc3` | `AudioDropReason`, raw byte | `drop_reason` |
+
+The header fields (`cycle`, `frame`, `pc`, `vc`, `hc`) come from the common stamper like every
+other kind. A DAC write that fans out to two channels (0xB3, 0xDF, a mono-AD 0xFB, NR 0x2D)
+latches one entry per channel.
 
 **`src/debug/inspect.h`**:
 
@@ -517,14 +588,14 @@ struct CtcChannelState {
     uint8_t  count = 0;              // current down-counter
     bool     running = false;
     bool     int_enabled = false;    // control bit 7, or NR 0xC5
-    uint32_t zc_rate_mhz = 0;        // ZC/TO rate in milli-hertz; 0 = unknown (counter mode
+    uint32_t zc_rate_millihz = 0;    // ZC/TO rate in milli-hertz; 0 = unknown (counter mode
                                      // fed by a stopped channel)
 };
 struct DmaState {
     bool     active = false;
     uint8_t  mode = 0;               // R4 bits 6:5: 00 byte, 01 continuous, 10 burst
     uint8_t  prescaler = 0;          // R2 port B; 0 = no pacing
-    uint32_t rate_mhz = 0;           // 875 kHz / prescaler in milli-hertz; 0 when prescaler 0
+    uint32_t rate_millihz = 0;       // 875 kHz / prescaler in milli-hertz; 0 when prescaler 0
     uint16_t src = 0, dst = 0, length = 0, counter = 0;
     bool     src_io = false, dst_io = false;
 };
@@ -571,30 +642,37 @@ The DIRECT-VALUE banner grows by 8 queries, from 52 to 60, all in the video/audi
 (16 -> 24): `audio_state`, `audio_channel_mute_mask`, `audio_log_enabled`,
 `audio_scope_enabled`, `psg_recording`, `stems_recording`, `ctc_state`, `dma_state`.
 **The task that lands each query edits the banner and the bucket count**, and A1.13, A2.8 and
-A3.5 re-check the total against the list, as the banner itself asks. `b0-cap-traceability.md` gets INS-22 to
-INS-25 and the `AudioWrite` row of CAP-EVT; `debug_types_check.cpp` gets static asserts for the
-`AudioChannelMute` layout and `AUDIO_DROP_REASON_COUNT`. The pure helpers of A1.1 and A2.1 are
-**new published headers** (`src/debug/audio_math.h`, `src/debug/audio_frames.h`), std-only, so
-the lint covers them.
+A3.5 re-check the total against the list, as the banner itself asks.
+`b0-cap-traceability.md` gets INS-22 to INS-25 and the `AudioWrite` row of CAP-EVT; `debug_types_check.cpp` gets static asserts for the
+`AudioChannelMute` layout and `AUDIO_DROP_REASON_COUNT`, and its `EventKind` asserts move from
+14 to 15 kinds (A1.9). The pure helpers of A1.1 and A2.1 are **new published headers**
+(`src/debug/audio_math.h`, `src/debug/audio_frames.h`). They include only standard headers plus,
+for `audio_frames.h`, `debug/inspect.h` (for `AudioLogEntry`), and the task that creates each one
+adds it to the lint's `HEADERS` list, so the lint actually checks it.
 
 ---
 
 ## 5. Phase A1: see and stop
 
 Goal: the user sees what the chips play, why something is silent, and which write did it, and
-can stop on that write and hear one channel alone. This phase can stand alone (owner question
-Q1).
+can stop on that write and hear one channel alone. When sub-issues 1-5 are done, the epic
+branch merges into `main` on its own (owner, 2026-11-18, §10 Q1), so Phase 1 must be complete
+by itself: its docs (A1.13), its CLI flag (`--audio-log`), its FEATURES.md entry, and no
+placeholder that points at unfinished work except the Tracker and Scopes sub-tabs, which say
+"not available yet" in so many words.
 
 ### A1.1 Core suite and the note math
 
-- **Design.** A new published header `src/debug/audio_math.h` (std-only), consisting of pure
+- **Design.** A new published header `src/debug/audio_math.h` (standard headers only), with pure
   functions: `double psg_tone_hz(uint16_t tp, uint32_t clock_hz)`,
   `double psg_envelope_hz(uint16_t ep, uint8_t shape, uint32_t clock_hz)` (0 for a non-repeating
   shape), `PsgNote psg_note(double hz)` returning `{bool valid; uint8_t midi; char name[4];
   int8_t octave; double cents;}`, and `const char* psg_envelope_glyph(uint8_t shape)` (the
   eight `ym2149.vhd:371-391` glyphs as ASCII: `\___`, `/___`, `\\\\`, `\/\/`, `\'''`, `////`,
   `/'''`, `/\/\`; no em dashes, no non-ASCII).
-- **Files.** `src/debug/audio_math.{h,cpp}` (in `jnext_debug`), `test/debug/audio_debug_test.cpp`,
+- **Files.** `src/debug/audio_math.{h,cpp}` and `src/debug/CMakeLists.txt` (in `jnext_debug`),
+  `test/lint-debug-headers.sh` (`debug/audio_math.h` added to `HEADERS`),
+  `test/debug/audio_debug_test.cpp`,
   `test/CMakeLists.txt`, `test/unit-tests.conf` (a core suite: `# gate: none`, `# os: all`, so
   it runs in `unit-test`, `unit-test-sdl`, `unit-test-win` and `unit-test-wasm`),
   `test/refresh-traceability-matrix.pl` (`%PLAN_DOC`, `:387`, `'audio_debug_test' => 'AUDIO'`),
@@ -602,11 +680,12 @@ Q1).
   holding every planned row of the epic). Read `doc/testing/UNIT-TEST-PLAN-EXECUTION.md` first.
 - **Tests.** `ANO-01..` rows: the §3.2 table (TP 0 = TP 1, 252, 253, 239, 428, 4095,
   out-of-range); a tie case (a frequency exactly half-way between two notes names the upper
-  one, at -50 cents); envelope sawtooth and triangle frequency at EP 0, 1 and 100 (§3.3); a non-repeating shape returns 0; the eight
-  glyphs. Each expected value comes from the formula with its VHDL citation, computed outside
+  one, at -50 cents); envelope sawtooth and triangle frequency at EP 0, 1 and 100 (§3.3); a
+  non-repeating shape returns 0; the eight glyphs. Each expected value comes from the formula with its VHDL citation, computed outside
   the code under test (the table above).
 - **Acceptance.** The suite is declared with its exact count and green in all four unit
-  gates; `make traceability-check` lists the planned epic rows as PLANNED.
+  gates; `make traceability-check` lists the planned epic rows as PLANNED; the header lint
+  (preflight row 5) compiles `audio_math.h` and passes.
 - **Depends on.** Nothing.
 
 ### A1.2 Mutes out of the machine state (F1) and the invisibility harness
@@ -686,22 +765,29 @@ Q1).
   `ay_registers()`; `wants_live_refresh()` is true only while the Audio tab is current and the
   window visible (switching tab or hiding the window clears it). DAP-01..17 keep passing; those
   that read labels moved into the Chips header are re-pointed to them, not rewritten.
-- **Acceptance.** The panel reads only `audio_state()` and `ay_registers()`; there is no
-  `Emulator*` in `src/debugger/` (CLAUDE.md rule; `grep` gate).
+- **Acceptance.** The panel reads only `audio_state()` and `ay_registers()`; the Qt panels
+  still hold `Debugger*` and never `Emulator*` (the #276 backend rule; `git grep 'Emulator[*&]'
+  src/debugger/` finds nothing outside comments); every DAP row green.
 - **Depends on.** A1.3.
 
 ### A1.5 Dropped-write classification and counters
 
 - **Design.** One private `Emulator::note_audio_drop(AudioDropReason, uint16_t port, uint8_t
-  value)` called from each early-return branch of §3.5. It records `debug_slot_pc_`, the frame,
-  and the source (`slot_ran_dma()`, or NextReg's write source for a mirror). For the AY
-  conditions that live inside TurboSound and AyChip, the Emulator handler tests the const views
-  (`reset_held()`, `selected address & 0x10`, the command pattern with `enabled()`) before
-  calling the setter, so the classification lives in one file and the audio classes stay free
-  of the debugger. A dropped write also goes to the tap (A1.7) with `AudioFlag::Dropped` when
-  the tap is active. `clear_audio_drops()` zeroes the counters, which are excluded from
-  `describe_state()` and untouched by reset.
-- **Files.** `src/core/emulator.{h,cpp}`, `src/debug/debugger_inspect.cpp`, `debugger.h`.
+  value)` called from each DAC and NR mirror early-return branch of §3.5. It records
+  `debug_slot_pc_`, the frame, and the source (`slot_ran_dma()`, NextReg's write source for a
+  mirror, `EventSource::Debugger` when `guest_access()` is false). The AY conditions are decided
+  where they already are: `TurboSound::reg_addr()` returns `AyAddrStatus {Applied, HeldInReset,
+  ChipSelectTurboOff, SelectIgnored}` and `TurboSound::reg_write()` returns `AyWriteStatus
+  {Applied, HeldInReset, AddressHigh}` (from `AyChip::write_data()`'s `addr_ & 0x10` test), and
+  the Emulator handler maps a non-`Applied` status to a reason. That is one compare per AY port
+  write, and no copy of TurboSound's logic exists in `emulator.cpp` to drift from it (§4.1). A
+  dropped write also goes to the tap (A1.7) with `AudioFlag::Dropped` when the tap is active.
+  `clear_audio_drops()` zeroes the counters, which are excluded from `describe_state()` and
+  untouched by reset.
+- **Files.** `src/audio/turbosound.{h,cpp}`, `ay_chip.{h,cpp}` (the status returns),
+  `src/core/emulator.{h,cpp}`, `src/debug/debugger_inspect.cpp`, `debugger.h`,
+  `test/audio/ay_cache_test.cpp` only if its reference model must mirror the new return type
+  (its rows and expected values stay as they are).
 - **Tests.** `DRP-01..` one row per reason, each driven by real writes and each straddling the
   condition (the same write counted with the enable off, applied and not counted with it on):
   NR 0x84 bit 0 off; NR 0x06 = 11; 0xFF to 0xFFFD with TurboSound off
@@ -711,9 +797,14 @@ Q1).
   from the decode table at `zxnext.vhd:2967-2980`; NR 0x08 bit 3 off (`DacDisabled`);
   NR 0x2D with the DAC off (`DacMirrorDisabled`); a DMA write counted with source Dma; a 0xDFFD
   write not counted (D6); 0xF1 with Soundrive 2 off counted as `DacFamilyDisabled` while the
-  0x7FFD-family handler still runs; `last_pc` names the `OUT`. `AIZ-06`: counters survive a
-  state load and a reset unchanged.
-- **Mutations.** Swap the decode/gate precedence: the "family off and DAC off" row dies.
+  0x7FFD-family handler still runs; **precedence**: 0x1F with NR 0x84 bit 1 off **and** NR 0x08
+  bit 3 off counts as `DacFamilyDisabled`, not `DacDisabled` (D7); a `.jds`-style
+  `port_out()` to 0xFFFD with the port disabled counts with source `Debugger`; `last_pc` names
+  the `OUT`. `AIZ-06`: counters survive a state load and a reset unchanged.
+- **Mutations.** Swap the decode/gate precedence: the precedence row dies. Change TurboSound's
+  select-command pattern (`d(4:2) = "111"`): the `AyChipSelectTurboOff` row and the existing
+  `turbosound` rows of `audio_test` die. Return `Applied` for the address-high case: the
+  `AyAddressHigh` row dies.
   Remove one site's call: its row dies.
 - **Acceptance.** Every early return in the AY, DAC and NR mirror handlers either calls
   `note_audio_drop()` or carries a comment saying why it is not a drop (the 0xDFFD case).
@@ -738,7 +829,7 @@ Q1).
 
 ### A1.7 Write tap and ring log (INS-23), `--audio-log FILE`
 
-- **Design.** An `AudioTapRecord` (internal, `src/audio/audio_tap.h`, std-only) built at each
+- **Design.** An `AudioTapRecord` (internal, `src/audio/audio_tap.h`, standard headers only) built at each
   site while `audio_tap_active_`:
   - AY data writes: chip, the 5-bit address, value, previous register value (`read_register`),
     and `EnvelopeRestart` when the address is 13;
@@ -746,7 +837,12 @@ Q1).
     select is folded into the next data write's decoded register; D10);
   - DAC channel writes: one record per channel written, so 0xB3, 0xDF and 0xFB fan out;
   - NR 0x2C-0x2E commits;
-  - beeper: only when EAR or MIC changes (border-only 0xFE writes are not audio).
+  - beeper: only when EAR or MIC changes (border-only 0xFE writes are not audio);
+  - writes the debugger itself makes (`port_out()`, a `.jds` `out`, `nextreg_write()`; the sites
+    see `guest_access()` false) are recorded with source `Debugger`, because they change the
+    sound. They fire no `AudioWrite` event, by the §4.2a rule that a debugger write fires no
+    event at all (`events.h`, `EventSource`), and they do reach the `.psg` stream, since the
+    chip holds them.
 
   `Debugger::Impl` owns a ring (`AUDIO_LOG_DEFAULT_ENTRIES`, allocated on the first request,
   freed when the effective state goes off) and the per-client requests. The Emulator holds one
@@ -774,7 +870,8 @@ Q1).
   exit 0). `make cli-check` green.
 - **Bench.** `make bench` A/B (§4.1) with the log off; the result goes in the PR.
 - **Acceptance.** Taps off costs within the control-build floor in retired instructions; the
-  log matches the event system's timestamps.
+  log matches the event system's timestamps; `audio-log-func`, `make cli-check` and
+  `make docs-check` green; `--audio-log` is in the man page.
 - **Depends on.** A1.3 (the audio classes' debug views), A1.5 (the same write sites).
 
 ### A1.8 Log sub-tab
@@ -790,15 +887,19 @@ Q1).
 - **Tests.** `DAP-` rows: showing the sub-tab makes `audio_log_enabled()` true and hiding it
   makes it false (the #498 rule); the filter rows; the restart flag cell; double-click
   navigates; Export writes the file.
+- **Acceptance.** The log is collected exactly while the Log sub-tab is visible in a visible
+  window (or another client asks); every filter of the design narrows the table as its row
+  says; DAP rows green.
 - **Depends on.** A1.4, A1.7.
 
 ### A1.9 `AudioWrite` event kind
 
-- **Design.** At the tap, when an `AudioWrite` subscription is armed
-  (`debug_state_->audio_events_armed()`, the same pre-gate shape as `nextreg_events_armed()`,
-  `nextreg.cpp:461-466`), build a `LatchEntry` with kind `AudioWrite`, reusing `reg`, `value`,
-  `prev`, `addr` (port) and `source`, plus the target, chip, flags and reason packed into the
-  free `misc`/`misc2`/`misc3` bytes. It is delivered at the raising instruction's boundary, or
+- **Design.** At the tap, for a guest write (`guest_access()` true) and when an `AudioWrite`
+  subscription is armed (`DebugState::audio_events_armed()`, a new flag of the same shape as
+  `DebugState::nextreg_events_armed()`, `debug_state.h:587`, which `NextReg::write()` tests at
+  `src/port/nextreg.cpp:469-471`), build a `LatchEntry` with kind `AudioWrite` and the packing
+  of §4.4 ("`AudioWrite` latch packing"), and let the pre-gated `event_table` filter decide
+  whether to latch it. It is delivered at the raising instruction's boundary, or
   one instruction late for a CPU NR mirror (as `NextRegWrite`). The matching filter
   (`EventFilter::matches`) tests target mask, chip, `regs`, value/mask and flags with integer
   compares. `Event` carries the new fields. This covers "stop on AY c register r (optionally
@@ -806,12 +907,26 @@ Q1).
   write" (`audio_targets = Dac|DacMirror`) and "on a dropped write"
   (`audio_flags_all = Dropped`).
 - **Files.** `src/debug/events.h`, `event_table.{h,cpp}`, `debug_state.{h,cpp}`,
-  `debugger_events.cpp`, `src/core/emulator.cpp`.
+  `debugger_events.cpp`, `src/core/emulator.cpp`, and `src/debug/debug_types_check.cpp`, whose
+  compile-time pins move with the new kind: `EVENT_KIND_COUNT == 14` (`:109`) becomes 15, the
+  `kind_bit(EventKind::Dma) == (1u << 13)` assert (`:113`) gains a
+  `kind_bit(EventKind::AudioWrite) == (1u << 14)` twin, and `Dma + 1 == EVENT_KIND_COUNT`
+  (`:116`) becomes `AudioWrite + 1`. The event-kind table of
+  `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md` §4.3, which the first assert's message cites,
+  gains the `AudioWrite` row in the same change; so does `b0-cap-traceability.md` (CAP-EVT).
 - **Tests.** `AEV-01..`: each filter field straddled (match and non-match); a Stop lands after
   the writing instruction with `Event::pc` the writer; `once`; Log and Continue actions; ring
-  overflow behaviour as other kinds; an AY write by DMA carries source Dma; `AIZ-08`: an armed
-  Log-action subscription vs none. `debugger_backend_test` rows that enumerate `EventKind`
-  (if any assert `EVENT_KIND_COUNT`) are updated with the new count, not weakened.
+  overflow behaviour as other kinds; an AY write by DMA carries source Dma; a debugger
+  `port_out()` to 0xBFFD fires nothing; each field of the latch packing round-trips into
+  `Event` (one row per field, distinct values in all four so a swapped byte shows); `AIZ-08`:
+  an armed Log-action subscription vs none. The build itself checks the new kind count
+  (`debug_types_check.cpp`).
+- **Mutations.** Swap `misc` and `misc3` in the packing: the round-trip row dies. Drop the
+  `audio_events_armed()` pre-gate: nothing fails functionally (the filter still rejects), so
+  the A1.7 bench A/B is what guards it, as for `nextreg_events_armed()`.
+- **Acceptance.** The four stop cases of the design (AY c register r with optional value/mask,
+  an envelope restart, a DAC write, a dropped write) each have a row that stops on the right
+  instruction and a row that does not stop on a near miss; the build is green with 15 kinds.
 - **Depends on.** A1.7.
 
 ### A1.10 "Audio write" breakpoints in the GUI
@@ -827,28 +942,33 @@ Q1).
   for each field; the row text; a hit pauses and the panel highlights it; persistence follows
   whatever `persistent_bp_test` already covers for the other types (extended there if the type
   persists).
+- **Acceptance.** Every field of the dialog maps to one `EventFilter` field (§4.4) and a
+  breakpoint made in the dialog stops on the same write as the equivalent backend
+  subscription; QBA rows green; the Breakpoints page of the user guide shows the new type.
 - **Depends on.** A1.9.
 
-### A1.11 DSL: `ay_write`, `CHIP`, `ay[c, r]`, `AUDIO_CHANNEL_MUTE`
+### A1.11 DSL: `ay_write`, `CHIP`, `ay[c, r]`
 
 - **Design.** In `src/script/`: the reserved word `ay_write` and the accessor stem `ay`. The
   event is `on ay_write [chip N] [reg N] [mask M value V] do ... end`, compiled to an
   `AudioWrite` subscription with `audio_targets = AyRegister`, with payload `CHIP REG VALUE PREV`
   (new payload name `CHIP`; `REG`, `VALUE`, `PREV` and `PC` exist). `ay[c, r]` reads chip c
-  register r through `ay_registers()` (D11 on the spelling). `AUDIO_CHANNEL_MUTE` is a live
-  name, readable and assignable (`set AUDIO_CHANNEL_MUTE = 0x1FE`), mirroring `AUDIO_MUTE`
-  (`script_engine.cpp:794-796`).
+  register r through `ay_registers()`. The spelling `ay[c, r]` is the owner's (2026-11-18,
+  §10 Q2): it matches `phys[page, offset]` (`ast.h:79`) and the lexer's bracketed-stem table
+  (`lexer.cpp:172-175`), so no grammar change is needed.
+  `AUDIO_CHANNEL_MUTE` belongs to sub-issue 5 (A1.12).
 - **Files.** `src/script/names.{h,cpp}`, the parser, evaluator and engine,
   `src/doc/user-guide/06-debugger/scripting/03-events.md`, `04-reading-the-machine.md`,
   `08-changing-the-machine.md`, `13-quick-reference.md`.
 - **Tests.** `PARSE-AYW-01..` (`script_parse_test`): the event's grammar, each qualifier, and
   refusals (chip 3, reg 16); the reserved-word and names lists (the `PARSE-LV-NAMES` row's
   list grows by one name, as its own comment requires). `EVAL-AYR-01..` (`script_eval_test`):
-  `ay[1, 13]` after a TurboSound write; out-of-range indices refused. `EVAL-ACM-01..`:
-  `AUDIO_CHANNEL_MUTE` reads and sets the mask. `EVT-AYW-01..` (`script_events_test`): a script
-  logs `CHIP REG VALUE PREV` for a real AY write and stops on `reg 13`.
-- **Depends on.** A1.9, A1.12 (for `AUDIO_CHANNEL_MUTE`; the event and accessor can land first
-  if A1.12 is late).
+  `ay[1, 13]` after a TurboSound write; out-of-range indices refused. `EVT-AYW-01..`
+  (`script_events_test`): a script logs `CHIP REG VALUE PREV` for a real AY write and stops on
+  `reg 13`.
+- **Acceptance.** The scripting pages and the quick reference document the event, its
+  qualifiers and payload and the accessor; `make docs-check` green; script rows green.
+- **Depends on.** A1.9.
 
 ### A1.12 Per-channel mute and solo
 
@@ -857,35 +977,59 @@ Q1).
   channels' `a/b/c` inputs before the per-chip stereo math, so ACB, mono and pan stay right.
   It also goes to `Mixer::set_dac_channel_mute(bits 9-12)`, where a muted DAC channel is
   replaced by 0x80 in the audible DAC sum (its silence is the midpoint, as for `AudioMute::DAC`,
-  `mixer.cpp:149-162`). The mask is not machine state: not reset, not serialised. The backend
-  verbs are as in §4.4, with a MUTATE log line. GUI: a Mute and a Solo button per channel row
+  `mixer.cpp:149-162`). The DAC channel test shares the existing per-slice branch: the Mixer
+  folds both masks into the one byte `mix()` already tests (`mute_mask_ != AudioMute::NONE`,
+  `mixer.cpp:143`, gaining a bit that means "a DAC channel is muted"), so an unmuted run still
+  pays exactly one branch. The mask is not machine state: not reset, not serialised. The
+  backend verbs are as in §4.4, with a MUTATE log line. In the DSL, `AUDIO_CHANNEL_MUTE` is a
+  live name, readable and assignable (`set AUDIO_CHANNEL_MUTE = 0x1FE`), mirroring `AUDIO_MUTE`
+  (`names.cpp` `LIVE[]`, `script_engine.cpp:794-796`). GUI: a Mute and a Solo button per channel row
   in Chips and per DAC channel in DAC & Beeper. Solo is GUI-only (decision 4): it sets the mask
   to everything except that channel and remembers the previous mask to restore on un-solo.
   `AudioChannelMute` is defined in `audio_mute.h`.
 - **Files.** `src/audio/turbosound.{h,cpp}`, `mixer.{h,cpp}`, `audio_mute.h`,
   `src/core/emulator.h`, `src/debug/debugger_inspect.cpp`, `debugger.h`, `debug_types_check.cpp`,
-  `src/debugger/audio_panel.cpp`.
+  `src/script/names.{h,cpp}`, `script_engine.cpp`, the scripting pages `04-reading-the-machine.md`,
+  `08-changing-the-machine.md` and `13-quick-reference.md`, `src/debugger/audio_panel.cpp`.
 - **Tests.** `ACM-01..`: for each of the 13 bits, the audible output loses exactly that
   channel's contribution, with each channel driven to a distinct level so an aggregate cannot
   hide a wrong bit (verification-discipline, "asserting on an aggregate"); ACB and mono with
   one channel muted; the DAC midpoint substitution; mask untouched by hard and soft reset;
-  REV-style revision bump. `AIZ-09`: each bit on vs off leaves the state bytes equal.
-  `DAP-` rows: Solo on B of AY1 sets the mask to `ALL & ~ay_bit(1,1)`, and un-solo restores the
-  earlier mask.
+  `set_audio_channel_mute_mask` advances `Debugger::state_revision()` by one, as `REV-08`
+  (`debugger_backend_test`) pins for `set_audio_mute_mask`, with a new literal `REV-` row there.
+  `AIZ-09`: each bit on vs off leaves the state bytes equal. `EVAL-ACM-01..`
+  (`script_eval_test`): `AUDIO_CHANNEL_MUTE` reads and sets the mask, and the `PARSE-LV-NAMES`
+  list grows by that name. `DAP-` rows: Solo on B of AY1 sets the mask to
+  `ALL & ~ay_bit(1,1)`, and un-solo restores the earlier mask.
+- **Mutations.** Map a bit to the wrong channel: its ACM row dies. Mute the DAC channel to 0
+  instead of 0x80: the midpoint row dies. Serialise the mask: AIZ-09 dies.
+- **Acceptance.** All 13 channels can be muted and soloed from the panel and from `.jds`, the
+  serialised state never changes, and an unmuted run executes the same mixer branches as today
+  (A1.7's bench method, run again here).
 - **Depends on.** A1.2, A1.4.
 
-### A1.13 Phase 1 documentation
+### A1.13 Phase 1 doc pass
 
-- User guide `06-debugger/panels/13-audio.md` rewritten around the sub-tabs, with notes and
-  cents (and why 128K tables play 23 cents flat), the envelope restart, the dropped-write
-  reasons as a "why is it silent" checklist, and the log, breakpoints and mutes.
-- Developer guide 3.4 `04-audio.md` (the audible copy vs the hardware aggregate, the taps and
-  their cost rule), 3.9 `09-1-the-backend-api.md` (INS-22, INS-23, the `AudioWrite` kind),
-  3.10.2 `10-2-the-qt-debugger.md` (sub-tabs, live refresh, visibility requests); manuals
-  carry no issue numbers (owner rule).
-- Man page `doc/man/jnext.1.md`: `--audio-log`; `make docs-man`, `make docs-userguide`,
-  `make docs-devguide`, `make cli-check`, `make docs-check`.
-- FEATURES.md entry for the Phase 1 panels. Re-count the DIRECT-VALUE banner.
+- **Design.** The closing pass over what sub-issues 1-5 changed (each of them already updated
+  the pages it touched; this task makes them read as one manual). No issue numbers in the
+  manuals (owner rule); versions or dates instead.
+- **Files.** `src/doc/user-guide/06-debugger/panels/13-audio.md`, `08-breakpoints.md`;
+  `src/doc/developer-guide/03-subsystems/04-audio.md`, `09-1-the-backend-api.md`,
+  `09-2-event-delivery-and-mutation.md`, `10-2-the-qt-debugger.md`; the rendered
+  `doc/user-guide/` and `doc/developer-guide/`; `doc/man/jnext.1.md` and its generated outputs
+  (if `--audio-log`'s entry needs more than A1.7 gave it); `FEATURES.md`; the DIRECT-VALUE
+  banner of `src/debug/debugger.h` (comment only).
+- **Tests.** `make docs-check` (man page, user guide and developer guide renders match their
+  sources), `make cli-check`, and the banner recount: the listed names, the bucket counts and
+  the total agree with the declarations (52 + the queries landed so far).
+- **Acceptance.** A reader of the Audio page finds: the five sub-tabs and what each shows;
+  notes and cents, and why 128K tables play about 23 cents flat on the Next; the envelope glyph,
+  note and position, and that every R13 write restarts the envelope; the dropped-write reasons
+  as a "why is it silent" checklist with the register to change for each; the log, its
+  filters and export; audio-write breakpoints; mute, solo and `AUDIO_CHANNEL_MUTE`. A reader
+  of the developer guide finds the audible copy versus the serialised hardware aggregate, the
+  tap seam and its cost rule, INS-22, INS-23 and the `AudioWrite` kind. FEATURES.md lists the
+  Phase 1 panels. `make docs-check` green.
 - **Depends on.** A1.1 to A1.12.
 
 ---
@@ -904,10 +1048,16 @@ and whether a sample stream is paced.
   `AudioFrameAccumulator` (feed an `AudioLogEntry`; a completed frame comes out when the frame
   number advances, plus `flush()`). It has three consumers: the tracker, player timing and the
   `.psg` writer (A3.1). Dropped writes and markers never count as writes; a marker flushes.
+- **Files.** `src/debug/audio_frames.{h,cpp}` and `src/debug/CMakeLists.txt` (in
+  `jnext_debug`); `test/lint-debug-headers.sh` (`debug/audio_frames.h` added to `HEADERS`);
+  `test/debug/audio_debug_test.cpp`; `test/unit-tests.conf` (count).
 - **Tests.** `AFG-01..` with hand-built entry lists: last value wins in `final_value`;
   `double_mask` set on a second write to one register; registers 14 and 15 ignored for
   `final_value` and counted in `writes`; empty frames between written ones; first and last
   timestamps; PC range; DMA writes counted; a marker flushes.
+- **Acceptance.** Every field of `AudioFrame` is asserted on a frame where it holds and on one
+  where it does not; the header lint compiles `audio_frames.h`; the core suite is green in all
+  four unit gates.
 - **Depends on.** A1.7.
 
 ### A2.2 Tracker sub-tab
@@ -920,8 +1070,15 @@ and whether a sample stream is paced.
   "double" marker. Double-click a row to `rewind_to_frame(frame)` when the frame is inside
   `rewind_range()`; otherwise the action is greyed and the tooltip says why. The view requests
   the log while visible (as in A1.8).
+- **Files.** `src/debugger/audio_tracker_view.{h,cpp}` (new), `audio_panel.cpp`,
+  `src/debugger/CMakeLists.txt`, `test/debugger/audio_panel_test.cpp`, `test/unit-tests.conf`
+  (count).
 - **Tests.** `DAP-` rows: a scripted 4-frame write stream renders the expected cells; empty and
-  double markers; rewind called with the row's frame; greyed outside the range.
+  double markers; rewind called with the row's frame; greyed outside the range; showing and
+  hiding the sub-tab moves `audio_log_enabled()`.
+- **Acceptance.** For a known write stream the grid equals a hand-written expected grid, cell
+  for cell; a double-click lands the machine on that frame (`time().frame` after the rewind);
+  the log is requested only while the sub-tab is visible.
 - **Depends on.** A2.1, A1.8.
 
 ### A2.3 Player timing
@@ -930,9 +1087,16 @@ and whether a sample stream is paced.
   T-state, write count and PC range, plus min/avg/max over the last N frames (N = 50 by
   default, editable) and a jitter strip (first-write line per frame as a dot plot). The label
   points to #369's T-state counter and `--profile` for exact routine cost.
-- **Tests.** `DAP-` rows over a fixture whose IM2 player writes at a known line, from the
-  log's own stamps: min = max for a steady player; a deliberately late frame shows in max and
-  in the strip.
+- **Files.** `src/debugger/audio_tracker_view.{h,cpp}` (the strip; or a small
+  `audio_timing_strip.{h,cpp}` if the view grows past about 800 lines), the per-frame
+  statistics in `src/debug/audio_frames.{h,cpp}` (pure, so the core suite tests them),
+  `test/debug/audio_debug_test.cpp`, `test/debugger/audio_panel_test.cpp`.
+- **Tests.** `AFG-` rows for the window statistics (min/avg/max of first-write line and count
+  over N frames, on hand-built frames). `DAP-` rows over a fixture whose IM2 player writes at a
+  known line, from the log's own stamps: min = max for a steady player; a deliberately late
+  frame shows in max and in the strip.
+- **Acceptance.** The strip's numbers equal the statistics computed by the core helper from the
+  same frames; the late frame of the fixture is visible as such; rows green.
 - **Depends on.** A2.1.
 
 ### A2.4 Source tap (INS-24)
@@ -956,6 +1120,9 @@ and whether a sample stream is paced.
   `AIZ-10`: tap on vs off.
 - **Bench.** `make bench` A/B with the tap off (one branch per slice) and on; both numbers
   recorded.
+- **Acceptance.** With the tap off, retired instructions are within the control-build floor of
+  the epic's base; with it on, the cost is recorded in the PR; the scope samples equal the
+  hand-computed levels and do not change with HALT batching.
 - **Depends on.** A1.2 (the hardware aggregate it reads).
 
 ### A2.5 Scopes sub-tab
@@ -965,8 +1132,14 @@ and whether a sample stream is paced.
   holdoff of one display frame; with no trigger in the window it free-runs, and the trigger
   lamp shows it. Refresh is at display rate while visible (decision 3). Under `--silent` or with
   audio disabled the sub-tab shows "audio synthesis is off".
+- **Files.** `src/debugger/audio_scope_view.{h,cpp}` (new), `audio_panel.cpp`,
+  `debugger_manager.cpp` (the live-refresh predicate covers Scopes), `src/debugger/CMakeLists.txt`,
+  `test/debugger/audio_panel_test.cpp`.
 - **Tests.** `DAP-` rows: a square-wave fixture triggers at the same phase on consecutive
   refreshes; the request follows visibility; the synthesis-off placeholder.
+- **Acceptance.** A steady tone gives a still trace at display rate; the source tap runs only
+  while the sub-tab is visible; the cost of the open window with Scopes visible is measured
+  (host instructions per frame, window closed vs open) and recorded in the PR.
 - **Depends on.** A2.4, A1.4.
 
 ### A2.6 CTC and DMA queries (INS-25)
@@ -983,6 +1156,12 @@ and whether a sample stream is paced.
   (= 256); counter mode chained from a running timer; the ch3-to-ch0 chain; DMA prescaler 0 and
   55 at each CPU speed (the rate must not change with speed); `AIZ-11`: 1000 queries mid-run
   leave the state bytes equal.
+- **Files.** `src/peripheral/ctc.h` (`CtcChannel::DebugView`), `src/peripheral/dma.h`
+  (`Dma::DebugView`), `src/debug/inspect.h`, `debugger.h`, `debugger_inspect.cpp`,
+  `debug_types_check.cpp`, `b0-cap-traceability.md`, `test/debug/audio_debug_test.cpp`.
+- **Acceptance.** Every field of `CtcChannelState` and `DmaState` has a row with its VHDL
+  citation; the DMA rate is the same at all four CPU speeds; the queries leave the machine
+  untouched.
 - **Depends on.** Nothing in this epic (it can run in parallel with A1).
 
 ### A2.7 Sample-stream view
@@ -992,14 +1171,30 @@ and whether a sample stream is paced.
   (standard deviation), and gaps (intervals above 2x the median, D13). The DAC & Beeper
   sub-tab shows it next to the CTC channels and the DMA state from A2.6, with the computed
   pacing rate beside the measured write rate.
+- **Files.** `src/debug/audio_frames.{h,cpp}` (`dac_stream_stats`), `src/debugger/audio_panel.cpp`
+  (or the DAC & Beeper view file of A1.6), `test/debug/audio_debug_test.cpp`,
+  `test/debugger/audio_panel_test.cpp`.
 - **Tests.** `DSS-01..` on hand-built streams: steady 15 625 Hz from one PC; a gap; two writers
   kept apart; DMA vs CPU. `DAP-` row: the view shows the CTC rate beside the measured one.
+- **Acceptance.** For a CTC-paced DAC fixture the measured write rate and the CTC's computed
+  rate agree to the CTC's own resolution, and a deliberately skipped sample shows as a gap.
 - **Depends on.** A1.7, A2.6.
 
-### A2.8 Phase 2 documentation
+### A2.8 Phase 2 doc pass
 
-User guide (tracker, timing, scopes, sample stream), developer guide 3.4 (the source tap and
-its cost), 3.9 (INS-24, INS-25), FEATURES.md, banner re-count.
+- **Design.** The closing pass over what sub-issues 6-9 changed; no issue numbers in the
+  manuals.
+- **Files.** `src/doc/user-guide/06-debugger/panels/13-audio.md`;
+  `src/doc/developer-guide/03-subsystems/04-audio.md`, `09-1-the-backend-api.md`,
+  `10-2-the-qt-debugger.md`; the rendered `doc/user-guide/` and `doc/developer-guide/`;
+  `FEATURES.md`; the DIRECT-VALUE banner (comment only).
+- **Tests.** `make docs-check`; the banner recount.
+- **Acceptance.** A reader of the Audio page finds how to read the tracker (empty and double
+  frames, the jump back), what player timing measures and what it does not (exact cost is the
+  T-state counter or `--profile`), how the scopes trigger and that they need audio synthesis
+  on, and how to read the sample-stream view against the CTC and DMA pacing. The developer guide
+  describes the source tap, its cost rule, INS-24 and INS-25. `make docs-check` green.
+- **Depends on.** A2.1 to A2.7.
 
 ---
 
@@ -1061,14 +1256,22 @@ row instead.
   order regardless of write order; **last value wins** (D4); R14/R15 excluded; a dropped write
   excluded; a chip-select command excluded; stop flushes and terminates; three chips go to
   three streams; `AIZ-12`: recording on vs off.
+- **Files.** `src/audio/psg_writer.{h,cpp}`, `src/audio/CMakeLists.txt`,
+  `src/debug/debugger_audio.cpp` (start/stop verbs), `debugger.h`, `test/debug/audio_debug_test.cpp`.
+- **Acceptance.** Every `PSG-` row's expected bytes are written out by hand in the row, from
+  §7.1 and Fuse's `psg.c`; the writer is fed only by the tap; an unwritable path is refused at
+  start.
 - **Depends on.** A2.1.
 
 ### A3.2 Fuse reference
 
 - **Design.**
-  - `test/audio/fixtures/psg_fixture.asm`: a 128K program in our own source (bytes listed in
-    the header for regeneration with no toolchain, like `ay_envelope_sweep.asm`). It runs IM2
-    with its own vector table, so jnext needs no ROM, and after about 100 frames of silence it
+  - `test/audio/fixtures/psg_fixture.asm` and its assembled `psg_fixture.bin`, both committed
+    (as `test/00regression/bin/ay_envelope_sweep.{asm,bin}` are), with the bytes listed in the
+    `.asm` header so the `.bin` can be regenerated with no toolchain. It is a 128K program in
+    our own source, origin 0x8000. It runs IM2 with its own vector table, so jnext needs no ROM.
+    Its first frame of sound is a **sentinel**: one write of R7 = 0x3F followed by eight empty
+    frames, which nothing else in the sequence repeats. After about 100 frames of silence it
     plays a fixed 300-frame sequence. That sequence writes each register at most once per frame
     right after `HALT`, varies 1 to 14 registers per frame, includes R13 writes with unchanged
     values, and has gaps of 1, 3, 4, 5 and 9 empty frames. Then it stops writing and loops on
@@ -1079,15 +1282,25 @@ row instead.
     `xdotool` as in §7.2 (each step retried until the expected window appears, then verified),
     records, exits through File > Exit, and writes `test/audio/fixtures/psg_fixture.fuse.psg`.
     Every external command runs under `LANG=C` and `timeout --kill-after`.
-  - Row `PSF-01`: run the fixture in-process on a 128K-timing machine for 500 frames with the
-    writer on, then compare with the committed file after normalising both: drop the leading and
-    trailing separator runs, which depend only on when recording started and stopped. The
-    remainder must be byte-identical.
+  - Row `PSF-01`: inject the `.bin` at 0x8000 into an in-process 128K-timing machine, run 500
+    frames with the writer on, then compare with the committed file after normalising both:
+    cut everything before the sentinel frame and drop the trailing separator run. Cutting at the
+    sentinel makes the comparison independent of when Record was clicked, even if the 128K
+    ROM or the tape loader touched the AY first in the Fuse run. The remainder must be
+    byte-identical.
   - The fixture and its Fuse output are our own program's register stream: license-clean, no
     ROM or SD image content.
+- **Files.** `test/audio/fixtures/psg_fixture.{asm,bin}`, `test/audio/fixtures/psg_fixture.fuse.psg`,
+  `tools/fuse-psg-reference.sh`, `test/debug/audio_debug_test.cpp`, `test/CMakeLists.txt` (the
+  fixtures staged for the suite, re-staged on change, like the other fixture files), the
+  section of `AUDIO-TEST-PLAN-DESIGN.md` naming Fuse 1.6.0 as `PSF-01`'s oracle.
 - **Tests.** `PSF-01`, plus `PSF-02`: the normalisation itself on two hand-built files that
-  differ only in leading and trailing runs. A mutation that changes the separator encoding or
-  the register order fails `PSF-01` as well as the `PSG-` rows.
+  differ only before the sentinel and in the trailing run, and that give different results
+  when they differ after it. A mutation that changes the separator encoding or the register
+  order fails `PSF-01` as well as the `PSG-` rows.
+- **Acceptance.** The committed `.psg` was produced by `tools/fuse-psg-reference.sh` (the
+  commit message says so, with the Fuse version); `PSF-01` is green in all four unit gates
+  without Fuse installed; nothing in CI runs Fuse.
 - **Depends on.** A3.1.
 
 ### A3.3 `.psg` export: GUI and `--psg-record FILE`
@@ -1098,10 +1311,14 @@ row instead.
   with a recording lamp.
 - **Files.** `src/core/cli_options.h`, `src/main.cpp`, loop owners, `audio_panel.cpp`,
   `doc/man/jnext.1.md`.
-- **Tests.** Regression row `psg-record-func`: headless 128K run of the fixture with
-  `--psg-record`, then the file is compared to `psg_fixture.fuse.psg` after the same
-  normalisation (the path through `main.cpp` that unit rows cannot reach), and no `-ay1` file
-  exists. `DAP-` row for the GUI start/stop. `make cli-check`.
+- **Tests.** Regression row `psg-record-func`: `--headless --machine 128k --inject
+  psg_fixture.bin --inject-org 8000 --inject-pc 8000` (the injection `audio-envelope-func`
+  already uses) with `--psg-record`, then the file is compared to `psg_fixture.fuse.psg` after
+  the same normalisation (the path through `main.cpp` that unit rows cannot reach), and no
+  `-ay1` file exists. `DAP-` row for the GUI start/stop. `make cli-check`.
+- **Acceptance.** `psg-record-func`, `make cli-check` and `make docs-check` green;
+  `--psg-record` and its file naming are in the man page; the GUI and the CLI produce the same
+  bytes for the same run.
 - **Depends on.** A3.2.
 
 ### A3.4 Per-source WAV stems
@@ -1126,15 +1343,32 @@ row instead.
 
   Plus `AIZ-13`: stems on vs off. Regression row `wav-stems-func` (headless; seven valid WAV
   files; the `--silent` refusal message). `make cli-check`.
+- **Files.** `src/audio/mixer.{h,cpp}` (the stem terms of the source tap),
+  `src/audio/audio_recorder.{h,cpp}` (reused, one instance per stem), `src/debug/debugger_audio.cpp`,
+  `debugger.h`, `src/core/cli_options.h`, `src/main.cpp` and the loop owners,
+  `src/debugger/audio_panel.cpp`, `doc/man/jnext.1.md`, `test/debug/audio_debug_test.cpp`,
+  `test/00regression/scripts/wav-stems-func.sh`, `test/00regression/functional_tests.conf`
+  (row and `# expect:` counts).
+- **Acceptance.** The sum identity holds exactly on the DC fixture and within the derived 3 LSB
+  bound everywhere; `mix.wav` equals `--wav-record` at 0 dB; `wav-stems-func`, `make cli-check`
+  and `make docs-check` green.
 - **Depends on.** A2.4.
 
-### A3.5 Phase 3 documentation and close-out
+### A3.5 Phase 3 doc pass and close-out
 
-User guide (export and stems, with what each file contains and how to load it into an AY
-player; the Fuse "first value wins" note); developer guide 3.4 (writers, the Fuse reference and
-how to regenerate it); man page (`--psg-record`, `--wav-record-stems`); FEATURES.md. Also the
-epic's bench record (taps off and on, retired instructions, from A1.7 and A2.4) appended to this
-document, the banner re-count, and the ChangeLog draft (§13) for the owner.
+- **Design.** The closing pass over sub-issues 10 and 11, and the epic's records.
+- **Files.** `src/doc/user-guide/06-debugger/panels/13-audio.md` (and the recording page of the
+  user guide, if the CLI flags are listed there); `src/doc/developer-guide/03-subsystems/04-audio.md`;
+  the rendered guides; `doc/man/jnext.1.md` and outputs (if more than A3.3 and A3.4 gave it);
+  `FEATURES.md`; this document (a bench record appended); the DIRECT-VALUE banner.
+- **Tests.** `make docs-check`, `make cli-check`, the banner recount (final total 60).
+- **Acceptance.** A reader of the user guide finds what each `.psg` and stem file contains, how
+  to load a `.psg` into an AY player, that jnext keeps the last value written in a frame where
+  Fuse keeps the first, and why the stems sum to the mix. The developer guide explains the
+  writers and how to regenerate the Fuse reference. This document carries the bench record
+  (retired instructions, taps off and on, from A1.7, A2.4 and A2.5), and the ChangeLog draft (§13)
+  is handed to the owner. `make docs-check` green.
+- **Depends on.** A3.1 to A3.4.
 
 ---
 
@@ -1176,7 +1410,7 @@ document, the banner re-count, and the ChangeLog draft (§13) for the owner.
 | A1.2 changes what is serialised for a muted machine | old snapshots saved while muted carry a muted aggregate | a load rebuilds the audible copy; the stored aggregate is only used until the next PSG tick (existing `chip_pcm_valid_` path); stated in the developer guide |
 | Fuse GUI automation is flaky | the reference cannot be regenerated easily | maintainer-only tool with retries and window checks; the committed file is the CI oracle; the steps are recorded in §7.2 |
 | The fixture plays differently in Fuse and jnext (frame offset of about 1.5 lines on 128K) | `PSF-01` false failure | writes right after `HALT`, far from the boundary; normalisation of leading and trailing runs |
-| `AudioWrite` adds an `EventKind` value | suites that pin `EVENT_KIND_COUNT` or iterate kinds | appended before `Count`, existing values unchanged; affected rows updated with the new count |
+| `AudioWrite` adds an `EventKind` value | the compile-time pins in `debug_types_check.cpp:109,113,116` break the build | appended before `Count`, existing values unchanged; A1.9 moves the three asserts and the architecture doc's §4.3 table in the same change |
 | A beeper engine floods the ring (tens of kHz of EAR toggles) | the log holds seconds, not minutes | per-target filter in the GUI; `audio_log_resize`; beeper logged on change only |
 | #377 (dockable panels) lands mid-epic | the Audio tab's sub-tab layout must move | sub-tabs live inside `AudioPanel`, a single widget a dock can host as is |
 | #372 lands mid-epic and reshapes the Add dialog | A1.10 conflicts | A1.10 reuses #372's widgets if present; merge order decided by the orchestrator |
@@ -1186,18 +1420,15 @@ document, the banner re-count, and the ChangeLog draft (§13) for the owner.
 
 ---
 
-## 10. Open questions for the owner
+## 10. Owner questions (ANSWERED 2026-11-18)
 
-Only questions the approved decisions do not answer.
+No owner question is open. The owner answered both of the first draft's questions "yes":
 
-1. **Q1. Phase 1 on `main` early?** Decision 7 puts the whole epic on `epic224-audio-debugger`.
-   Phase 1 is complete on its own (A1.13 documents it). Should Phase 1 merge into `main` when
-   it is done, with the epic branch continuing from there, or does everything land together?
-   (Plan default: all at once, as decision 7 reads.)
-2. **Q2. DSL accessor spelling.** The scope says `ay[c][r]`. The DSL's only two-argument
-   accessor is `phys[page, offset]`, and its accessor stems are lexed as one token with their
-   bracket (`names.cpp`, `RESERVED`). The plan uses `ay[c, r]` (D11); is that acceptable, or
-   must it be `ay[c][r]` (a grammar change)?
+1. **Q1. Phase 1 on `main` early? ANSWERED: yes.** When Phase 1 (sub-issues 1-5) is done, the
+   epic branch merges into `main` on its own, then continues for Phases 2 and 3 and merges
+   again at the end. Folded into the Status line, the task list and §5.
+2. **Q2. DSL accessor `ay[c, r]` instead of the scope's `ay[c][r]`? ANSWERED: yes.**
+   `ay[c, r]`, no grammar change. Folded into A1.11 and D11.
 
 ---
 
@@ -1206,7 +1437,7 @@ Only questions the approved decisions do not answer.
 | # | Decision | Why | Rejected alternative |
 |---|---|---|---|
 | D1 | One tap seam: a `bool` gate at each audio write site and a null-pointer gate in `Mixer::accumulate_impl_()`; consumers are per-client requests in the `Debugger` | zero cost when off, measured by retired instructions; one place to reason about | per-feature hooks at each site; a `std::function` callback per write (the `--dac-trace` shape), which costs an indirect call per write even for one consumer |
-| D2 | The dropped-write counters are always on | they sit on cold early-return branches only; the user gets the answer even if they opened the panel late | counting only while the panel is visible (loses the evidence that matters most) |
+| D2 | The dropped-write counters are always on | DAC and mirror drops sit on cold early-return branches, AY drops cost one compare per AY port write (a returned status, A1.5); the user gets the answer even if they opened the panel late | counting only while the panel is visible (loses the evidence that matters most) |
 | D3 | No ZXTune is provisioned | byte identity with Fuse's own writer on the same program implies acceptance by every reader of Fuse's files; ZXTune is a large C++ tree with heavy build dependencies, and its binary releases were not checked | a sha256-pinned ZXTune build under `~/.cache/jnext/tools` as an extra reader |
 | D4 | `.psg` keeps the last value written to a register in a frame | it is the chip's state at the frame end, which a frame-based replayer reproduces; Fuse's first-value rule replays the wrong value when two writers touch one register in a frame | Fuse's first-value rule, for byte identity in every case |
 | D5 | `--psg-record FILE`: AY#0 to FILE, AY#1/#2 to `-ay1`/`-ay2` files created on their first write | a 128K tune gives exactly the file named; TurboSound tunes get one file per chip | three files always (two silent files for a 128K tune); a prefix-only naming |
@@ -1215,7 +1446,7 @@ Only questions the approved decisions do not answer.
 | D8 | Frames for the tracker, timing and `.psg` are the stamper's frames | the ULA interrupt is within one line of the wrap on every timing; events, scripts and the log then agree | grouping by interrupt instants (a second frame notion for one feature) |
 | D9 | No recording in rewind replay; a rewind truncates newer entries and adds a marker; resets and loads add a marker | the log then describes the machine's actual timeline | recording replayed writes twice; clearing the log on every rewind |
 | D10 | Plain 0xFFFD register selects are not log entries; the selected register is folded into the next data write | a select makes no sound and doubles the entry count of every player | log every port write (the `io_write` event already offers that) |
-| D11 | The DSL accessor is `ay[c, r]` | matches `phys[page, offset]` and the lexer's bracketed-stem rule (owner Q2) | `ay[c][r]` with chained brackets (a grammar change for one accessor) |
+| D11 | The DSL accessor is `ay[c, r]` (owner-confirmed, 2026-11-18) | matches `phys[page, offset]` and the lexer's bracketed-stem rule | `ay[c][r]` with chained brackets (a grammar change for one accessor) |
 | D12 | The scope and stem taps are pre-mute and pre-gain | stems are for A/B against hardware and must not depend on listening aids; a muted channel's scope still shows what is muted | post-mute taps (a muted channel's stem goes silent) |
 | D13 | A sample-stream gap is an interval above 2x the median | robust to the stream's own rate; parameter shown in the view | a fixed time threshold |
 | D14 | The stems include `pi.wav` | the Pi I2S term is part of the 13-bit sum (`audio_mixer.vhd:99-100`); without it the stems do not sum to the mix | omit it (the sum identity then holds only with the Pi input idle) |
@@ -1224,6 +1455,8 @@ Only questions the approved decisions do not answer.
 | D17 | Per-channel solo and mute act on an audible copy in TurboSound and the Mixer | it keeps ACB, mono and pan exact and leaves the serialised hardware outputs alone (F1) | muting in the panel by rewriting AY volumes (machine state) |
 | D18 | Player timing lives in the Tracker sub-tab and the sample-stream view in DAC & Beeper | decision 6 names five sub-tabs; both are views of data those sub-tabs already show | two extra sub-tabs |
 | D19 | F1's fix adds a new serialised hardware aggregate under the existing `pcm_l`/`pcm_r` keys and keeps `pcm_left()`/`chip_pcm()` as the audible output | the snapshot format is unchanged, the Mixer is untouched, and `DAP-08..15` and `AYC-16` keep passing without edits | repurpose `pcm_left()` as the hardware value (rewrites the existing mute rows and the Mixer's read) |
+| D20 | AY drops are reported by `TurboSound::reg_addr()`/`reg_write()` returning a status, mapped to a reason in the Emulator handler | the decision stays in the one place that makes it, so it cannot drift; one compare per AY write | re-testing `reset_held()`, the address bit and the select pattern in `emulator.cpp` before each write (a copy of TurboSound's logic) |
+| D21 | 26 tasks grouped into 11 sub-issues, one per scope item; A1.1-A1.3 go to sub-issue 1 and each phase's doc pass to its last sub-issue | decision 7 (one sub-issue per item) with a work breakdown fine enough to review; A1.1-A1.3 are first consumed by the decoded view | one sub-issue per task (26, against decision 7); a separate groundwork sub-issue (a twelfth issue no scope item names) |
 
 ---
 
