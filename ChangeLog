@@ -4,8 +4,7 @@
 
 ### User Features
 - Fedora 44 and Fedora 45 each get their own rpm, named with its release (`.fc44` / `.fc45`)
-- User guide: web page chapter rewritten as chapter 8, with screenshots and separate basic and advanced setups
-- User guide: Known issues folded into chapter 1, Reference moved to Appendix A, stale caveats removed
+- User guide reorganised and corrected, with a rewritten web page chapter
 
 ### Internal JNEXT Development
 - CI and release builds move to Fedora 45; packages track the two supported Fedora and two latest Ubuntu LTS releases
