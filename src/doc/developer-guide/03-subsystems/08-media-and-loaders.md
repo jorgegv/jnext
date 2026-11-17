@@ -1831,7 +1831,25 @@ prepare_warm_start` therefore treats the card as neither stale nor uncacheable, 
 Readers that go to the image directly (the ROM extractor, the card identity a `.jns` snapshot
 records) do not see the journal.
 
-The rows are `SDW-01..28` (`sdcard_writes_test`), `SDP-SDW-01..02` (a sector append and a
+**`--sdcard-file-add` writes through the journal.** The file-add engine (`MountedCard::mount()` in
+`src/core/sdcard_file_add.cpp`) mounts the image through FatFs, so it cannot reach `SdCardDevice`.
+Instead `fatfs_glue::attach()` takes an optional journal and the glue runs in journal mode: the
+image is opened `ios::in` only, `disk_read` overlays the journal's sectors on what it read, and
+`disk_write` commits each sector to the journal, whose sector numbers are absolute card sectors
+(the glue adds the partition's start LBA). `MountedCard::mount()` takes the journal from
+`for_image()` like `SdCardDevice::mount()`, so a bound image is always written through its
+journal; the SD-card provisioner passes none and still writes its image. FatFs is the only writer
+in both modes, and it is deterministic (`FF_FS_NORTC`), so the journal laid over a pristine card
+equals the card an image-mode add makes. The partition geometry is read from the raw image, so
+`mount()` refuses with `ImageUnusable` when the journal holds sector 0 or the partition's boot
+sector: the card the machine sees would differ from the one the copy is laid out for. The write
+failure messages name the journal file (`MountedCard::target`), not the image. A forced
+replace of a file reuses its clusters (FatFs's `f_open` reuses the cluster hole), so the next
+`bind()` compacts the superseded records and the file does not grow.
+
+The rows are `SDW-01..28` (`sdcard_writes_test`), `SDFA-J01..J14` and `SDFA-JP01..JP02`
+(`sdcard_file_add_test` and `sdcard_file_add_posix_test`: the journal-mode add, read back from
+the journal by a reader written from the table above), `SDP-SDW-01..02` (a sector append and a
 kept-file append that really fail), `WSR-SDW-01..06` (the key; `06`: a kept file does not move
 it), `ESXK-01..08` (`esxdos_stub_test`: the stand-in keeps and adopts its file) and the regression
 rows `sdcard-writes-func`, whose guest is `test/fixtures/nex/save_counter.nex` (source
