@@ -56,6 +56,7 @@ Public releases only, from v1.1.0 on (owner decision 2026-10-04). One `- ` bulle
   - PR reviewers: `gh api repos/jorgegv/jnext/pulls/<n>/reviews` and `pulls/<n>/comments`;
   - non-GitHub contributors (forum requesters, testers): `gh` cannot list them — they are named in the issue bodies and comments ("Requested by MickeyG (Spectrum Computing forums)"), so read each issue's body as well as its comments.
   Drop bots and the owner.
+  - **Then filter (owner, 2026-11-17):** keep a contributor only if at least one issue they opened (or that was filed for them, as a forum requester) was CLOSED between the previous public release's tag time and now: `gh issue list --state closed --search "closed:>=<date>" --json number,author,closedAt` plus each closed issue's body for named requesters. Commenters, testers, and openers of still-open issues are contributors but earn no mention. An issue counts for the release whose tagged commit contains its fix: issues are closed after the push, so one closed just after the previous tag whose fix is in that tag (`git merge-base --is-ancestor <fix> <prev-tag>`) belongs to the previous release, not this one. If nobody is left, omit the section.
 
 ## Style rules (strict)
 
