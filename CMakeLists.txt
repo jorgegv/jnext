@@ -1084,6 +1084,10 @@ set(CPACK_RPM_PACKAGE_AUTOREQ ON)
 # Name the .rpm the RPM way: <name>-<version>-<release>.<arch>.rpm
 # (RPM-DEFAULT), instead of CPack's default "jnext-<version>-Linux.rpm".
 set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
+# Release "1%{?dist}": rpmbuild expands the builder's dist tag, so a Fedora 45
+# build is jnext-<version>-1.fc45.x86_64.rpm and a Fedora 44 one ...-1.fc44...;
+# release.yml builds one per supported Fedora and both ship side by side.
+set(CPACK_RPM_PACKAGE_RELEASE_DIST ON)
 
 # macOS: icon for the .app/.dmg produced by the Bundle/DragNDrop generators.
 # Unverified on this Linux dev host (macOS packaging is CI/Mac-only).
