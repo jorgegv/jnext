@@ -240,7 +240,7 @@
 |         |      | v1.2.35->1.2.39                                                                                        |
 | 15/11   |      | #494 macOS Intel (neosquid); #418 -Wall -Wextra; #497 download retries; #496 raster-poll (janko-jj)    |
 |         |      | epic #14 WebAssembly merged (#458 browser card). v1.2.40->1.2.45; v1.3.0 PUBLIC RELEASE                |
-| 16/11   |      | #501 user guide restructure, web chapter 8; wasm suite OOM fix; #503 faster provisioner test         |
+| 16/11   |      | #501 user guide restructure, web chapter 8; wasm suite OOM fix; #503 faster provisioner test           |
 |         |      | v1.3.1->1.3.3                                                                                          |
-| 17/11   |      | Dev host on Fedora 45; #506 CI on fedora:45, rpms for Fedora 44 and 45. v1.3.4; v1.3.5 PUBLIC RELEASE |
+| 17/11   |      | Dev host on Fedora 45; #506 CI on fedora:45, rpms for Fedora 44 and 45. v1.3.4; v1.3.5 PUBLIC RELEASE  |
 | TOTAL:  | 666h |                                                                                                        |
