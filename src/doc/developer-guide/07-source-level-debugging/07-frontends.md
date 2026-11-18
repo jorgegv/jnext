@@ -37,7 +37,7 @@ File list's cached items (`combo_files_`) and the reason `report_sidecars()` gav
 `SourcePanel::refresh_()` (`source_panel.cpp:615`) runs while the machine is paused,
 whenever the window's paused stamp changed ([3.10.2](../03-subsystems/10-2-the-qt-debugger.md):
 the stamp carries a flag for "the loaded file changed on disk",
-`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:980`; the flag is
+`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:977`; the flag is
 `SourcePanel::file_changed_on_disk()`, `source_panel.cpp:574`). In order:
 
 1. `update_buttons(paused)` (`source_panel.cpp:516`): the forward steps need a paused machine and a
@@ -108,12 +108,12 @@ and MainWindow logs `Source search path: ...`.
 ### Loading a map by hand
 
 The Source tab's **Load Source Map...** button and the Debug > Source > Load Source Map... item
-are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:874`). Its file dialog
+are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:871`). Its file dialog
 offers `*.sld`, `*.sld.txt` and `*.map`; the backend tells the format by content
 ([7.3](03-loaders.md)), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 `load_map()`; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:916`):
+rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:913`):
 the log, and the main window's status bar for ten seconds.
 
 ### Colouring
@@ -394,7 +394,7 @@ Which space a view prints is a rule per view (design 10.3):
   its `@NN`, which is a different thing ([7.1](01-which-memory.md)).
 
 The instruction at the PC is read as the CPU will fetch it, not as a data read.
-`Debugger::memory_reader()` (`debugger_inspect.cpp:838`) takes the bytes of that one instruction
+`Debugger::memory_reader()` (`debugger_inspect.cpp:840`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
 other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:175`: `is_call_like()` at `:184` and `instruction_length()` at `:190`

@@ -3193,7 +3193,7 @@ File list's cached items (<code>combo_files_</code>) and the reason <code>report
 <p><code>SourcePanel::refresh_()</code> (<code>source_panel.cpp:615</code>) runs while the machine is paused,
 whenever the window's paused stamp changed (<a href="../03-subsystems/10-2-the-qt-debugger.html">3.10.2</a>:
 the stamp carries a flag for "the loaded file changed on disk",
-<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:980</code>; the flag is
+<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:977</code>; the flag is
 <code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:574</code>). In order:</p>
 <ol>
 <li><code>update_buttons(paused)</code> (<code>source_panel.cpp:516</code>): the forward steps need a paused machine and a
@@ -3260,12 +3260,12 @@ manager announces each change (<code>source_dirs_changed</code>, because <code>s
 and MainWindow logs <code>Source search path: ...</code>.</p>
 <h3 id="loading-a-map-by-hand">Loading a map by hand<a class="headerlink" href="#loading-a-map-by-hand" title="Permanent link">&para;</a></h3>
 <p>The Source tab's <strong>Load Source Map...</strong> button and the Debug &gt; Source &gt; Load Source Map... item
-are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:874</code>). Its file dialog
+are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:871</code>). Its file dialog
 offers <code>*.sld</code>, <code>*.sld.txt</code> and <code>*.map</code>; the backend tells the format by content
 (<a href="03-loaders.html">7.3</a>), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 <code>load_map()</code>; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:916</code>):
+rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:913</code>):
 the log, and the main window's status bar for ten seconds.</p>
 <h3 id="colouring">Colouring<a class="headerlink" href="#colouring" title="Permanent link">&para;</a></h3>
 <p><code>SourceHighlighter</code> (<code>source_highlighter.*</code>, a <code>QSyntaxHighlighter</code> that exists only in
@@ -3529,7 +3529,7 @@ a run override like <code>debugger.attached</code>).</p>
   its <code>@NN</code>, which is a different thing (<a href="01-which-memory.html">7.1</a>).</li>
 </ul>
 <p>The instruction at the PC is read as the CPU will fetch it, not as a data read.
-<code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:838</code>) takes the bytes of that one instruction
+<code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:840</code>) takes the bytes of that one instruction
 (at most four) from <code>Emulator::predict_instruction_bytes()</code> and every other address from
 <code>Mmu::peek()</code>; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
 other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:175</code>: <code>is_call_like()</code> at <code>:184</code> and <code>instruction_length()</code> at <code>:190</code>

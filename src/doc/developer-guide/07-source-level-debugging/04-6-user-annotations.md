@@ -193,18 +193,18 @@ The same two views edit the store and draw it; nothing here changes what the sto
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
   (`connect`, `src/debugger/debugger_window.cpp:899-903`), connected to `DebuggerManager::on_open_annotations()`
-  (`debugger_manager.cpp:795`), `on_save_annotations()` (`:771`) and `on_save_annotations_as()` (`:761`); Save with no
+  (`debugger_manager.cpp:792`), `on_save_annotations()` (`:768`) and `on_save_annotations_as()` (`:758`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).
 - **Unsaved changes (D11).** `DebuggerManager` keeps `saved_revision_` (`debugger_manager.h`), the backend's
   `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
-  `confirm_discard_annotations()` (`debugger_manager.cpp:777`) asks Save / Discard / Cancel when they differ, and is
+  `confirm_discard_annotations()` (`debugger_manager.cpp:774`) asks Save / Discard / Cancel when they differ, and is
   asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
   (`confirm_discard_annotations`, `src/gui/main_window.cpp:3881`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
   SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3878`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:742`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:395`), makes that file
+  (`debugger_manager.cpp:739`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:395`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.
