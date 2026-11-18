@@ -231,6 +231,35 @@ Requires \f[B]\-\-sdcard\-writes\f[R].
 A file that is not a \f[B]jnext\f[R] SD\-writes file is refused, never
 removed.
 .TP
+\f[B]\-\-sdcard2\f[R] \f[I]FILE\f[R]
+Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]) in the \f[B]second
+SD card slot\f[R], which NextZXOS sees as the next drive after the first
+card\(cqs partitions (D: for a first card with one).
+There is no default and no download: the slot is empty unless this is
+given.
+ROMs are read from the first card only.
+A \f[I]FILE\f[R] that is not a readable regular file, a ZIP archive, or
+the same file as \f[B]\-\-sdcard\f[R], is refused (exit status 1).
+See \f[B]A SECOND SD CARD\f[R].
+.TP
+\f[B]\-\-sdcard2\-readonly\f[R]
+Open the second card\(cqs image read\-only, as
+\f[B]\-\-sdcard\-readonly\f[R] does for the first.
+Requires \f[B]\-\-sdcard2\f[R].
+.TP
+\f[B]\-\-sdcard2\-writes\f[R] \f[I]FILE\f[R]
+Keep the writes the emulated machine makes to the second card in
+\f[I]FILE\f[R] instead of its image, as \f[B]\-\-sdcard\-writes\f[R]
+does for the first card; \f[I]FILE\f[R] belongs to that image,
+identified by its size and modification time.
+Requires \f[B]\-\-sdcard2\f[R]; excludes
+\f[B]\-\-sdcard2\-readonly\f[R].
+.TP
+\f[B]\-\-sdcard2\-writes\-reset\f[R]
+Discard the writes kept in the \f[B]\-\-sdcard2\-writes\f[R]
+\f[I]FILE\f[R] before the card is mounted.
+Requires \f[B]\-\-sdcard2\-writes\f[R].
+.TP
 \f[B]\-\-sdcard\-file\-add\f[R] \f[I]FILE\f[R]
 Copy host \f[I]FILE\f[R] \(em a file, or a directory with everything in
 it \(em into the SD\-card image and \f[B]exit without starting
@@ -1882,6 +1911,39 @@ then never written, and the machine\(cqs writes are kept in
 .PP
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
+.SS A SECOND SD CARD
+The Next board has two SD sockets.
+\f[B]\-\-sdcard2\f[R] \f[I]FILE\f[R] puts a second card in the second
+one.
+NextZXOS maps every FAT partition of every card to a drive letter, first
+card first: with one partition on the first card, the second card\(cqs
+first partition is \f[B]D:\f[R].
+Type \f[CR]CD \(dqd:\(dq\f[R] to enter it (\f[CR].nexload d:/x.nex\f[R]
+does not work: \f[CR]:\f[R] separates BASIC statements, so quote the
+path or \f[CR]CD\f[R] first).
+NextZXOS finds its drives at start\-up, so the card must be in the slot
+before the machine boots or hard\-resets; there is no card\-detect line.
+.IP \(bu 2
+The second card is a plain image of its own (a partition table and a FAT
+partition, for example a copy of a real card made with \f[CR]dd\f[R], or
+one built with \f[CR]sfdisk\f[R] and \f[CR]mformat\f[R]).
+It must not be the first card\(cqs file.
+.IP \(bu 2
+ROMs and the firmware always come from the first card: the second one is
+never read for them, and is not downloaded or upgraded.
+.IP \(bu 2
+It follows the first card\(cqs rules: \f[B]\-\-sdcard2\-readonly\f[R],
+\f[B]\-\-sdcard2\-writes\f[R] and \f[B]\-\-sdcard2\-writes\-reset\f[R]
+work as their first\-card twins.
+A soft reset keeps the card as it is; a hard reset power\-cycles it.
+.IP \(bu 2
+\f[B]\-\-sdcard\-file\-add\f[R] works on any FAT32 image, so
+\f[CR]jnext \-\-sdcard card2.img \-\-sdcard\-file\-add FILE\f[R] puts a
+file on a second\-card image.
+.IP \(bu 2
+A recording of the warm start is keyed on the second card as well (its
+size and modification time), so changing it takes a new recording.
+Rewind carries its state.
 .SS CHANGING THE CARD WHILE RUNNING
 \f[B]File > Insert SD Card Image\&...\f[R] swaps the card in the running
 machine, and \f[B]File > Eject SD Card\f[R] takes it out; nothing is

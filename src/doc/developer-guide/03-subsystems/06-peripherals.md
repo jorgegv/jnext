@@ -161,6 +161,20 @@ the same token and reopens the image. This runtime path is entirely separate fro
 host-side FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`, which pulls the
 ROM images out of the same file at startup.
 
+The board has two SD sockets, and the master models both: index 0 is `spi_ss_sd0_n`
+(`port_e7_reg(0)`) and holds `sd_card_`, index 1 is `spi_ss_sd1_n` (`port_e7_reg(1)`)
+and holds `sd_card2_`, a distinct `SdCardDevice` of its own, mounted from
+`EmulatorConfig::sd_card2_image` (`--sdcard2`) at hard reset exactly where card 0
+is, and empty (the pulled-up MISO, every byte `0xFF`) when no image is given.
+The two share SCK, MOSI and MISO and differ only by chip select, and NR `0x0A`
+bit 5 swaps which of the two a port `0xE7` write reaches. Attaching the *same*
+device to both selects is a bug: NextZXOS probes the second socket on every boot
+and then sees a phantom second card. The second card is never read for ROMs (the
+extractor takes `sd_card_image` only), has no download, upgrade or
+`--sdcard-sha256`, and its protocol state travels in the rewind stream after
+card 0's. NextZXOS maps its first partition to the next drive letter (`D:`) and
+detects drives at startup only.
+
 The card can be changed while the machine runs (`Emulator::change_sd_card()`):
 `mount()` is a full `reset()` of the protocol state, so the guest has to
 initialise the new card from CMD0, which is what NextZXOS's REMOUNT does after

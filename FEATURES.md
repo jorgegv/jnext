@@ -16,6 +16,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Remembered controller identity per connector, so identical pads are told apart (`--joy1-device`/`--joy2-device`)
 - DivMMC with 8KB SRAM, automap, and SD card image mounting
 - Live SD-card change without a reset: File > Insert SD Card Image / Eject SD Card, or `--delayed-sdcard-insert-frames N FILE` headless
+- Second SD card slot (D: in NextZXOS): `--sdcard2 FILE`, with `--sdcard2-readonly` and `--sdcard2-writes`
 - Floating bus emulation (48K/128K modes)
 - Pentagon-512 / Pentagon-1024 paging modes via NextREG NR 0x8F
 

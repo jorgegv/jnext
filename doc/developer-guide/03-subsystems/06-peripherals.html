@@ -3256,6 +3256,19 @@ fail every later seek). A host write error on a read-write card is answered with
 the same token and reopens the image. This runtime path is entirely separate from the
 host-side FAT32 reader in <code>src/core/sd_rom_extractor.{h,cpp}</code>, which pulls the
 ROM images out of the same file at startup.</p>
+<p>The board has two SD sockets, and the master models both: index 0 is <code>spi_ss_sd0_n</code>
+(<code>port_e7_reg(0)</code>) and holds <code>sd_card_</code>, index 1 is <code>spi_ss_sd1_n</code> (<code>port_e7_reg(1)</code>)
+and holds <code>sd_card2_</code>, a distinct <code>SdCardDevice</code> of its own, mounted from
+<code>EmulatorConfig::sd_card2_image</code> (<code>--sdcard2</code>) at hard reset exactly where card 0
+is, and empty (the pulled-up MISO, every byte <code>0xFF</code>) when no image is given.
+The two share SCK, MOSI and MISO and differ only by chip select, and NR <code>0x0A</code>
+bit 5 swaps which of the two a port <code>0xE7</code> write reaches. Attaching the <em>same</em>
+device to both selects is a bug: NextZXOS probes the second socket on every boot
+and then sees a phantom second card. The second card is never read for ROMs (the
+extractor takes <code>sd_card_image</code> only), has no download, upgrade or
+<code>--sdcard-sha256</code>, and its protocol state travels in the rewind stream after
+card 0's. NextZXOS maps its first partition to the next drive letter (<code>D:</code>) and
+detects drives at startup only.</p>
 <p>The card can be changed while the machine runs (<code>Emulator::change_sd_card()</code>):
 <code>mount()</code> is a full <code>reset()</code> of the protocol state, so the guest has to
 initialise the new card from CMD0, which is what NextZXOS's REMOUNT does after

@@ -199,6 +199,30 @@ with status 1.
     the image as it is. Requires **--sdcard-writes**. A file that is not
     a **jnext** SD-writes file is refused, never removed.
 
+**--sdcard2** *FILE*
+:   Mount SD-card image *FILE* (`.img`) in the **second SD card slot**,
+    which NextZXOS sees as the next drive after the first card’s
+    partitions (D: for a first card with one). There is no default and
+    no download: the slot is empty unless this is given. ROMs are read
+    from the first card only. A *FILE* that is not a readable regular
+    file, a ZIP archive, or the same file as **--sdcard**, is refused
+    (exit status 1). See **A SECOND SD CARD**.
+
+**--sdcard2-readonly**
+:   Open the second card’s image read-only, as **--sdcard-readonly**
+    does for the first. Requires **--sdcard2**.
+
+**--sdcard2-writes** *FILE*
+:   Keep the writes the emulated machine makes to the second card in
+    *FILE* instead of its image, as **--sdcard-writes** does for the
+    first card; *FILE* belongs to that image, identified by its size and
+    modification time. Requires **--sdcard2**; excludes
+    **--sdcard2-readonly**.
+
+**--sdcard2-writes-reset**
+:   Discard the writes kept in the **--sdcard2-writes** *FILE* before
+    the card is mounted. Requires **--sdcard2-writes**.
+
 **--sdcard-file-add** *FILE*
 :   Copy host *FILE* — a file, or a directory with everything in it —
     into the SD-card image and **exit without starting emulation**.
