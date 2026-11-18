@@ -180,33 +180,67 @@ int main()
         check("FBT-10b", "after N frames it is closed: fastload_active() false, 0 frames left", ok && end);
     }
     {
+        // Every membrane position (8 rows x 5 columns), a fresh machine each, and the guest still
+        // reads Caps Shift down after the window closed on it.
+        std::string bad;
+        bool still_down = false;
+        for (int row = 0; row < 8; ++row) {
+            for (int col = 0; col < 5; ++col) {
+                auto emu = make48k();
+                if (!emu) { bad += "init "; continue; }
+                emu->arm_fast_boot(500);
+                emu->run_frame();
+                emu->keyboard().set_matrix_bit(row, col, true);
+                emu->run_frame();
+                if (emu->fast_boot_frames_left() != 0 || emu->fastload_active())
+                    bad += "r" + std::to_string(row) + "c" + std::to_string(col) + " ";
+                if (row == 0 && col == 0) {
+                    for (int i = 0; i < 4; ++i) emu->run_frame();   // the membrane's two-scan hysteresis
+                    still_down = (emu->keyboard().read_rows(0xFE) & 0x01) == 0;
+                }
+            }
+        }
+        check("FBT-11", "a key at ANY of the 40 matrix positions closes the window after that frame, and the guest still reads Caps Shift down",
+              bad.empty() && still_down, bad);
+    }
+    {
+        // Every extended-key bit Keyboard defines (ExtKey 0..15).
+        std::string bad;
+        for (int id = 0; id < 16; ++id) {
+            auto emu = make48k();
+            if (!emu) { bad += "init "; continue; }
+            emu->arm_fast_boot(500);
+            emu->run_frame();
+            emu->keyboard().set_extended_key(id, true);
+            emu->run_frame();
+            if (emu->fast_boot_frames_left() != 0 || emu->fastload_active()) bad += std::to_string(id) + " ";
+        }
+        check("FBT-12", "an extended key closes the window too, every one of the 16 bits", bad.empty(), bad);
+    }
+    {
+        // The sequence the frontends run: pause BETWEEN frames (Break, Emulation > Pause, a remote
+        // client), no run_frame() while paused, resume, run on. A resume() of a RUNNING machine is routine
+        // and must not close it.
         auto emu = make48k();
-        bool closed = false, still_down = false;
+        bool routine_ok = false, closed = false, stays = false;
         if (emu) {
             emu->arm_fast_boot(500);
             emu->run_frame();
-            emu->keyboard().set_matrix_bit(0, 0, true);   // Caps Shift
+            emu->debug_state().resume();
+            emu->run_frame();
+            routine_ok = emu->fast_boot_frames_left() > 0;
+            emu->debug_state().pause();
+            emu->debug_state().resume();
             emu->run_frame();
             closed = emu->fast_boot_frames_left() == 0 && !emu->fastload_active();
-            for (int i = 0; i < 4; ++i) emu->run_frame();   // the membrane's two-scan hysteresis
-            still_down = (emu->keyboard().read_rows(0xFE) & 0x01) == 0;
+            emu->run_frame();
+            stays = emu->fast_boot_frames_left() == 0 && !emu->fastload_active();
         }
-        check("FBT-11", "a matrix key closes the window after that frame, and the guest still reads it down",
-              emu && closed && still_down);
+        check("FBT-13", "a pause between frames then a resume closes the window (and it stays closed); a resume of a running machine does not",
+              emu && routine_ok && closed && stays);
     }
     {
-        auto emu = make48k();
-        bool closed = false;
-        if (emu) {
-            emu->arm_fast_boot(500);
-            emu->run_frame();
-            emu->keyboard().set_extended_key(0, true);
-            emu->run_frame();
-            closed = emu->fast_boot_frames_left() == 0 && !emu->fastload_active();
-        }
-        check("FBT-12", "an extended key closes the window too", emu && closed);
-    }
-    {
+        // A breakpoint inside a frame: the frame is left half-run, then resumed.
         auto emu = make48k();
         bool closed = false, stays = false;
         if (emu) {
@@ -217,12 +251,12 @@ int main()
             emu->debug_state().pause();
             emu->run_frame();                    // returns at once, the frame half-run
             emu->debug_state().resume();
-            emu->run_frame();                    // the resume: the stop ends the window
+            emu->run_frame();
             closed = open_before && emu->fast_boot_frames_left() == 0 && !emu->fastload_active();
             emu->run_frame();
             stays = emu->fast_boot_frames_left() == 0 && !emu->fastload_active();
         }
-        check("FBT-13", "a debugger stop closes the window, and after the resume it stays closed",
+        check("FBT-13b", "a stop inside a frame (the frame left half-run) closes the window after the resume, and it stays closed",
               emu && closed && stays);
     }
     {

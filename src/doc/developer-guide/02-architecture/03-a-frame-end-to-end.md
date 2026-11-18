@@ -58,7 +58,7 @@ edge of real time:
   in `src/platform/fast_boot.h`) in which a plain Next start runs uncapped with
   the sound card unfed. The window counts frames in `end_of_frame()`, survives
   the firmware's own soft reset, and closes on time up, the first guest key, a
-  debugger stop (a frame resumed after one), `init()` without `preserve_memory`
+  debugger stop (any pause that is then resumed, between frames or inside one), `init()` without `preserve_memory`
   and `load_state()`. It is host pacing only: not serialised, and it changes
   no emulated state (`fast_boot_test`).
 - **The audio band's estimate stays within one device chunk of the reading**

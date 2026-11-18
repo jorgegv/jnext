@@ -19,6 +19,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      the emulated timeline disarms it, with a warning, and the run exits 0.
 #   E  --headless --fast-boot 10 --delayed-automatic-exit-frames 1: the generic
 #      "no effect with --headless" warning, exit 0.
+#   F  one short windowed run per exclusion term of src/main.cpp (--inject, --rzx-play,
+#      --delayed-screenshot, --delayed-automatic-exit in seconds, --script, --delayed-pok-frames
+#      (SDL only: the Qt window refuses it), --record, --wav-record, --rzx-record, --dac-trace,
+#      --record-script) with --fast-boot 10: the warning `fast boot: off (<reason>)`, so a term
+#      dropped from main.cpp's chain is a FAIL naming the flag.
 #
 # Each windowed run is ended with SIGTERM once its line is seen (the quit-signal
 # contract): an exit flag of its own would disarm the fast boot. The unit
@@ -137,8 +142,40 @@ if want fast-boot-func; then
             fb_faults+=("E: jnext exited non-zero")
         fi
 
+        # --- F: every exclusion term, one windowed run each ---
+        printf '\xc9' > "$fb_dir/inject.bin"
+        printf 'NScreen\nM  8 16384 171 0\nY\n' > "$fb_dir/t.pok"
+        if ! timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next --sdcard-readonly \
+               ${SD_CARD_ARGS[@]+"${SD_CARD_ARGS[@]}"} --rzx-record "$fb_dir/in.rzx" \
+               --delayed-automatic-exit-frames 60 >"$fb_dir/f-rzx.log" 2>&1 || [[ ! -s "$fb_dir/in.rzx" ]]; then
+            fb_faults+=("F: could not record the .rzx fixture")
+        fi
+        fb_prog="a program is loaded at start"
+        fb_sched="the command line schedules work on the emulated timeline"
+        fb_rec="a recording is running"
+        # fb_case NAME BIN REASON jnext-args...
+        fb_case() {
+            local name="$1" bin="$2" reason="$3"; shift 3
+            local log="$fb_dir/f-$name.log"
+            fb_run "$bin" "$log" "" "fast boot: off" \
+                --machine next --sdcard-readonly ${SD_CARD_ARGS[@]+"${SD_CARD_ARGS[@]}"} --fast-boot 10 "$@"
+            grep -qE "warning.*fast boot: off \($reason\)" "$log" 2>/dev/null \
+                || fb_faults+=("F $name: no warn line 'fast boot: off ($reason)'")
+        }
+        fb_case inject  "$JNEXT" "$fb_prog"  --inject "$fb_dir/inject.bin"
+        fb_case rzxplay "$JNEXT" "$fb_prog"  --rzx-play "$fb_dir/in.rzx"
+        fb_case shot    "$JNEXT" "$fb_sched" --delayed-screenshot "$fb_dir/f.png" --delayed-screenshot-frames 100000
+        fb_case exitsec "$JNEXT" "$fb_sched" --delayed-automatic-exit 1000
+        fb_case script  "$JNEXT" "$fb_sched" --script "$SCRIPT_DIR/boot-commit-probe.jds"
+        fb_case pok     "$fb_sdl" "$fb_sched" --delayed-pok-frames 100000 "$fb_dir/t.pok"
+        fb_case record  "$JNEXT" "$fb_rec"   --record "$fb_dir/f.mp4"
+        fb_case wavrec  "$JNEXT" "$fb_rec"   --wav-record "$fb_dir/f.wav"
+        fb_case rzxrec  "$JNEXT" "$fb_rec"   --rzx-record "$fb_dir/f.rzx"
+        fb_case dac     "$JNEXT" "$fb_rec"   --dac-trace "$fb_dir/f.csv"
+        fb_case recscr  "$JNEXT" "$fb_rec"   --record-script "$fb_dir/f.jds"
+
         if [[ ${#fb_faults[@]} -eq 0 ]]; then
-            pass_row " (Qt saved pref + --fast-boot key press, SDL --set, automation and --headless disarm: armed, time up, key press, off)"
+            pass_row " (Qt saved pref + --fast-boot key press, SDL --set, --headless and every program/scheduled/recording flag disarm: armed, time up, key press, off)"
         else
             fail_row " ($(IFS='|'; echo "${fb_faults[*]}"))"
         fi

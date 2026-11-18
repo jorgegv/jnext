@@ -10647,11 +10647,13 @@ void Emulator::run_frame()
 
     const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
 
-    // GH #499 - the fast-boot window ends at a debugger stop. Every early
-    // return from the loop below is a stop that leaves the frame half-run, so
-    // entering with a frame in progress IS the resume after one. (The frame-end
-    // code is never reached while stopped, hence the check is here.)
-    if (fast_boot_frames_left_ > 0 && frame_in_progress_) close_fast_boot_("debugger stop");
+    // GH #499 - the fast-boot window ends at a debugger stop: a pause that has
+    // since been resumed (Break, Emulation > Pause and remote pauses land BETWEEN
+    // frames; a breakpoint inside one), or one still standing. The frame-end
+    // code is never reached while stopped, hence the check is here.
+    if (fast_boot_frames_left_ > 0 &&
+        (debug_state_.paused() || debug_state_.stops_resumed() != fast_boot_stops_))
+        close_fast_boot_("debugger stop");
 
     // A frame that was PAUSED mid-way is RESUMED, not RESTARTED.
     //

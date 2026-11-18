@@ -856,7 +856,10 @@ public:
     /// preserve_memory (every load and machine change) and load_state(). A
     /// soft reset keeps it: the Next firmware performs one itself to start
     /// NextZXOS. Host pacing only: not serialised, changes no emulated state.
-    void arm_fast_boot(uint32_t frames) { fast_boot_frames_left_ = frames; fast_boot_run_ = 0; }
+    void arm_fast_boot(uint32_t frames) {
+        fast_boot_frames_left_ = frames; fast_boot_run_ = 0;
+        fast_boot_stops_ = debug_state_.stops_resumed();
+    }
     /// GH #499 - frames left of that window (0: none).
     uint32_t fast_boot_frames_left() const { return fast_boot_frames_left_; }
     /// GH #408 - frames a fast tape keeps the emulator uncapped after a
@@ -2728,6 +2731,7 @@ private:
     // run since it was armed (for the log line). Host pacing only, not serialised.
     uint32_t         fast_boot_frames_left_ = 0;
     uint32_t         fast_boot_run_ = 0;
+    uint64_t         fast_boot_stops_ = 0;   // DebugState::stops_resumed() when armed: a stop and resume closes the window
     /// Close the window, logging why (only when it was open).
     void close_fast_boot_(const char* reason);
     /// GH #408 - the one rule for a deck change: whatever replaces or empties
