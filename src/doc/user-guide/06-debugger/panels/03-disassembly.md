@@ -88,6 +88,30 @@ A few things worth knowing:
   stopped redrawing — gives you the code that is in memory now.
 - Copying with nothing selected does nothing; it never clears the clipboard.
 
+## What the line at PC is about to do
+
+While the machine is paused, the line at `PC` ends with a hint in blue, after
+its opcode bytes:
+
+- For a conditional jump, call or return (`JP cc`, `JR cc`, `CALL cc`, `RET cc`)
+  and for `DJNZ`, it shows `[taken]` or `[not taken]`, judged from the current
+  flags (or from `B` for `DJNZ`). For `RET cc` a taken return also shows where
+  it goes, as `[taken -> address]`, because the return address is on the stack
+  and not in the instruction.
+- For an instruction with a memory operand written as `(HL)`, `(BC)`, `(DE)`,
+  `(IX+d)`, `(IY+d)`, `(nn)` or `(SP)`, it shows the address and the value
+  there, as `[(address)=$value]`: a byte, or a word for the 16-bit loads and
+  `EX (SP),HL`. For `(IX+d)` this is the only place the final address appears.
+  An address that has a label is shown by its name.
+
+The hint describes the instruction as it will run from the current state. It is
+read from the registers and memory without disturbing anything, and never from
+an I/O port, so an `IN` or `OUT` has none. At a DivMMC or Multiface entry
+point, where the instruction itself switches the memory in, the value is read
+from the memory the instruction will see. A pending interrupt can run before the instruction does,
+and then the hint does not apply. The hint is not copied with the listing, and
+it is not shown while the machine is running.
+
 ## The right-click menu
 
 The right-click menu is where most of the day-to-day work happens:
