@@ -72,8 +72,8 @@ if want sdcard2-func; then
                      --sdcard-file-add "$PROJECT_DIR/test/00regression/nex/magic_port_demo.nex" \
                      --sdcard-file-dest /MAGIC.NEX > "$W/add.log" 2>&1 || rc=$?
         [[ $rc -eq 0 ]] || faults+=("--sdcard-file-add onto card 2 exited $rc")
-        LANG=C mdir -i "$CARD2@@$OFF" :: </dev/null 2>/dev/null | grep -qi 'MAGIC *NEX' \
-            || faults+=("mdir does not list MAGIC.NEX on card 2")
+        listing=$(LANG=C mdir -i "$CARD2@@$OFF" :: </dev/null 2>/dev/null || true)
+        grep -qi 'MAGIC *NEX' <<<"$listing" || faults+=("mdir does not list MAGIC.NEX on card 2")
 
         # Frame-based, boot-timeline frames (bf) like sdcard-swap-func: SPACE@400
         # skips the welcome tour, DOWN+ENTER reach the command line; then
