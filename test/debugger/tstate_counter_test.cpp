@@ -67,11 +67,12 @@ int main()
     {
         TstateCounter c;
         c.observe(1000, 0);
+        c.observe(1004, 0);   // an earlier stop, so the total must start at THIS one
         c.set_accumulate(true); const uint64_t z = c.value();
-        c.observe(1004, 0); const uint64_t a = c.value();
-        c.observe(1011, 0); const uint64_t b = c.value();
+        c.observe(1011, 0); const uint64_t a = c.value();
+        c.observe(1015, 0); const uint64_t b = c.value();
         check("TSC-04", "ticking Accumulate zeroes and adds up later stops",
-              z == 0 && a == 4 && b == 11, seq({z, a, b}));
+              z == 0 && a == 7 && b == 11, seq({z, a, b}));
     }
     {
         TstateCounter c;
@@ -140,8 +141,12 @@ int main()
         TstateCounter d;
         d.observe(0xFFFFFFF0ULL, 0); d.set_accumulate(true);
         d.observe(0x100000010ULL, 0);
+        TstateCounter e;   // one delta wider than 32 bits
+        e.observe(1, 0);
+        e.observe(0x200000001ULL, 0);
         check("TSC-11", "64-bit: no 32-bit truncation",
-              a == 4 && d.value() == 0x20, seq({a, d.value()}));
+              a == 4 && d.value() == 0x20 && e.value() == 0x200000000ULL,
+              seq({a, d.value(), e.value()}));
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
