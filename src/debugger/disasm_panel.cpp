@@ -25,6 +25,7 @@
 #include <QKeySequence>
 
 #include "debug/debugger.h"
+#include "debug/disasm_hint.h"
 #include "debugger/memory_text.h"
 #include "debug/symbol_table.h"
 #include "debugger/watch_panel.h"
@@ -282,6 +283,15 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         entry.breakpoint_live = bps && bps->pc_marked_live(cur, space);
         entry.space           = space;
         entry.mem             = entry.is_current_pc ? space : memtext::now_of(sinfo, cur);
+        if (entry.is_current_pc) {
+            // GH #367 - the instruction as it will run from this state: its bytes as the CPU will
+            // fetch them (memory_reader) and its operand as its own data cycles will see the map
+            // (operand_reader: at a DivMMC/Multiface entry point the M1 has already switched the
+            // overlay, which peek(Cpu) does not show). Neither disturbs the machine, neither is a
+            // port read.
+            entry.hint = disasm_hint::format_hint(
+                disasm_hint::pc_hint(dbg_->registers(), read_fn, dbg_->operand_reader()), namer());
+        }
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);
@@ -683,11 +693,21 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // the two can never drift apart.
         painter.drawText(mx, text_y, mnemonic_str);
 
+        // GH #367 - the PC line's hint, at the comment's column in its own ink (measured with the
+        // font active on this line: the PC line is bold); the user's comment moves right of it.
+        int comment_x = bx + BYTES_WIDTH;
+        const QString hint = line_hint(i);
+        if (!hint.isEmpty()) {
+            painter.setPen(palette_tint::ink(palette(), hint_color()));
+            painter.drawText(comment_x, text_y, hint);
+            comment_x += painter.fontMetrics().horizontalAdvance(hint) + painter.fontMetrics().horizontalAdvance(QLatin1Char(' ')) * 2;
+        }
+
         // GH #387 - the user's comment after the bytes column, in muted ink.
         const QString comment = line_comment(i);
         if (!comment.isEmpty()) {
             painter.setPen(palette_tint::ink(palette(), QColor(0x60, 0x80, 0x60)));
-            painter.drawText(bx + BYTES_WIDTH, text_y, comment);
+            painter.drawText(comment_x, text_y, comment);
         }
 
         if (entry.is_current_pc) {
@@ -1061,6 +1081,13 @@ QString DisasmPanel::line_label(int line) const
     QString t = QString::fromStdString(*name);
     if (t.size() > LABEL_CHARS) t = t.left(LABEL_CHARS - 3) + QStringLiteral("...");
     return t;
+}
+
+QString DisasmPanel::line_hint(int line) const
+{
+    if (!paused_ || line < 0 || line >= static_cast<int>(entries_.size())) return QString();
+    const auto& e = entries_[line];
+    return e.is_current_pc ? QString::fromStdString(e.hint) : QString();
 }
 
 QString DisasmPanel::line_comment(int line) const

@@ -96,10 +96,10 @@ the pause ownership and stop evidence exactly as `step_into()` sets them.
   `HALT` with interrupts disabled (`Warn`: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  `SOURCE_STEP_FRAME_LIMIT` frames (100, `SOURCE_STEP_FRAME_LIMIT`, `debugger.h:1464`) since the start
+  `SOURCE_STEP_FRAME_LIMIT` frames (100, `SOURCE_STEP_FRAME_LIMIT`, `debugger.h:1485`) since the start
   (`Warn`); then the delivery below.
 - **The limit.** After `SOURCE_STEP_LIMIT` instructions (1,000,000,
-  `SOURCE_STEP_LIMIT`, `debugger.h:1460`) the step ends with a `Warn`.
+  `SOURCE_STEP_LIMIT`, `debugger.h:1481`) the step ends with a `Warn`.
 - **The delivery.** `debugger_step()` delivers no `Execute` event, because `run_frame()`
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC `run_frame()`'s treatment itself, in its
@@ -196,7 +196,7 @@ slot for the whole body, and its internal jumps are not returns. `CallStack::not
 `PUSH IY`, Z80N `PUSH nn` or `EX (SP),HL/IX/IY` put `caller_pc + 3` above the slot of the newest
 `CALL` frame; the latest store wins. The copy is live (`CallStack::ret_copy_live_()`,
 `call_stack.cpp:69`) while it sits at or above SP and still holds that value. The words are read
-through a stack reader that `Emulator::Emulator()` (`emulator.cpp:46`) installs over `Mmu::peek()`
+through a stack reader that `Emulator::Emulator()` (`emulator.cpp:47`) installs over `Mmu::peek()`
 (`mmu.h:367`), which has no watchpoint or latch side effect. Without a reader (the bare tracker
 rows) nothing is recorded and clause B is "SP above the slot".
 

@@ -9,8 +9,8 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 ## 1. The producer
 
 JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
-loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:995` and copies
-it to the configuration at `src/main.cpp:2490`, and `ScriptHost::start()` loads it (`annotations_file`,
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:946` and copies
+it to the configuration at `src/main.cpp:2454`, and `ScriptHost::start()` loads it (`annotations_file`,
 `src/script/script_host.cpp:201-215`), after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
@@ -160,7 +160,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
 - **One menu builder.** `add_annotation_actions()` (`src/debugger/annotation_menu.cpp:77`) appends, behind a
   separator, **Add Label…** / **Rename Label…**, **Remove Label** and **Add Comment…** / **Edit Comment…** to a
   code view's context menu. The Disassembly calls it with the one place of the line, its address and the
-  `entry.space` it was drawn with (in `DisasmPanel::contextMenuEvent()`, `add_annotation_actions` is called at `src/debugger/disasm_panel.cpp:986`); the
+  `entry.space` it was drawn with (in `DisasmPanel::contextMenuEvent()`, `add_annotation_actions` is called at `src/debugger/disasm_panel.cpp:1006`); the
   Source tab calls it with the line's `st.starts` (in `SourcePanel::fill_context_menu()`, `add_annotation_actions` is called at
   `src/debugger/source_panel.cpp:1369`), so a line that compiled to several places gets a submenu per entry,
   a place not mapped now stays editable (the key does not depend on the mapping), and a line with no code
@@ -175,36 +175,36 @@ The same two views edit the store and draw it; nothing here changes what the sto
   file the toolchain layer was loaded from (`toolchain_symbols().loaded_file()` in `add_annotation_actions()`, `toolchain_note`,
   `annotation_menu.cpp:95-98`; `state_of()`, `:24`, only says whether a label is there). The panels hold a `const Debugger*` for reading; the writes go
   through the non-const pointer `DebuggerManager` hands them with `set_annotation_backend()`
-  (`src/debugger/debugger_manager.cpp:392` and `:396`), and each panel's `annotations_changed()` signal makes the
+  (`src/debugger/debugger_manager.cpp:395` and `:399`), and each panel's `annotations_changed()` signal makes the
   manager refresh the panels.
-- **The Disassembly draws it.** `label_column_shown()` (`disasm_panel.cpp:1016`) is true while the symbol table
+- **The Disassembly draws it.** `label_column_shown()` (`disasm_panel.cpp:1036`) is true while the symbol table
   (the composed reader, section 9) holds any label; then the **Label** column sits between the BP column and the
   mnemonic and every x after it moves by `label_width()` (16 characters). The columns run Mem, Addr, BP column,
-  [Label], mnemonic, opcode bytes, `; comment`; `breakpoint_x()` (`:1023`) is the BP column's left edge,
-  `mnemonic_x()` (`:1025`) the mnemonic's (`breakpoint_x() + 20 + 4`, plus `label_width()` with a label),
-  `mnemonic_width()` (`:1030`) the mnemonic column's 20 characters, and `bytes_x(line)` (`:1035`) where that line's
+  [Label], mnemonic, opcode bytes, `; comment`; `breakpoint_x()` (`:1043`) is the BP column's left edge,
+  `mnemonic_x()` (`:1045`) the mnemonic's (`breakpoint_x() + 20 + 4`, plus `label_width()` with a label),
+  `mnemonic_width()` (`:1050`) the mnemonic column's 20 characters, and `bytes_x(line)` (`:1055`) where that line's
   bytes start: after the column, or after the mnemonic itself plus a gap when that mnemonic is wider, so a long
   line pushes only its own bytes. The comment sits 100 px (`BYTES_WIDTH`) after the bytes. The painter and the tests
   read these accessors (`QDCOL-01`, `QDCOL-03`, `QDCOL-04`; with no label the mnemonic is at 172, `QANN-01`).
-  `line_label()` (`:1056`) is the name the reader gives the line's
-  own address in its own memory, shortened with `...`; `line_comment()` (`:1066`) is `; ` and the comment's first
+  `line_label()` (`:1076`) is the name the reader gives the line's
+  own address in its own memory, shortened with `...`; `line_comment()` (`:1093`) is `; ` and the comment's first
   line, plus ` ...` when it has more. Both are what the painter draws and what the tests read. The copy
   formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
   (`connect`, `src/debugger/debugger_window.cpp:899-903`), connected to `DebuggerManager::on_open_annotations()`
-  (`debugger_manager.cpp:784`), `on_save_annotations()` (`:760`) and `on_save_annotations_as()` (`:750`); Save with no
+  (`debugger_manager.cpp:792`), `on_save_annotations()` (`:768`) and `on_save_annotations_as()` (`:758`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).
 - **Unsaved changes (D11).** `DebuggerManager` keeps `saved_revision_` (`debugger_manager.h`), the backend's
   `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
-  `confirm_discard_annotations()` (`debugger_manager.cpp:766`) asks Save / Discard / Cancel when they differ, and is
+  `confirm_discard_annotations()` (`debugger_manager.cpp:774`) asks Save / Discard / Cancel when they differ, and is
   asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
   (`confirm_discard_annotations`, `src/gui/main_window.cpp:3881`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
   SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3878`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:731`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:395`), makes that file
+  (`debugger_manager.cpp:739`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:395`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.

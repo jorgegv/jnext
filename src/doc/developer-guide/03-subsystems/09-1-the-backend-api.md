@@ -128,11 +128,11 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 | Area | Reads | Writes |
 |---|---|---|
 | registers | `registers()` | `set_register(by, RegId, v)`, one register at a time. Setting `PC` clears `halted` |
-| memory | `peek(space, addr, n, buf)`, `memory_reader()` | `poke(by, space, addr, n, buf)` |
+| memory | `peek(space, addr, n, buf)`, `memory_reader()`, `operand_reader()` | `poke(by, space, addr, n, buf)` |
 | paging | `mmu_slots()`, `paging_ports()`, `rom_select()` | `set_mmu_slot(by, slot, page)`, through the NR 0x50+slot write handler |
 | NextREG | `nextreg_peek(reg)`, `nextreg_selected()` | `nextreg_write(by, reg, v)`, which runs the register's own handler |
 | ports | — | `port_in(by, port)`, `port_out(by, port, v)`; both dispatch like the guest's `IN`/`OUT` and are perturbing by nature |
-| time and raster | `time()`, `raster()`, `machine()` | — |
+| time and raster | `time()`, `time_epoch()` (changes when time moves without executing), `raster()`, `machine()` | — |
 | sprites | `sprites()`, `sprite_attr_raw(i)`, `pattern_ram()`, `sprite_palette_rgb333(bank, i)`, `sprite_clip()` | `set_sprite_attr_raw(...)`, `write_pattern_ram(...)` |
 | Copper | `copper()` | — |
 | audio | `ay_registers(chip)`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()`, `audio_mute_mask()` | `set_audio_mute_mask(by, m)` (host-side, never in a snapshot or an RZX) |

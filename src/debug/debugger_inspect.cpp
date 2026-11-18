@@ -664,6 +664,8 @@ Time Debugger::time() const {
     return t;
 }
 
+uint64_t Debugger::time_epoch() const { return impl_->emu.time_epoch(); }
+
 MachineInfo Debugger::machine() const {
     MachineInfo mi;
     const MachineTiming& t  = impl_->emu.timing();
@@ -856,6 +858,11 @@ DisasmReadFn Debugger::memory_reader() const {
         const uint16_t off = static_cast<uint16_t>(addr - pc);
         return off < n ? b[off] : peek(addr);
     };
+}
+
+DisasmReadFn Debugger::operand_reader() const {
+    Emulator* emu = &impl_->emu;
+    return emu->predict_data_reader(emu->cpu().get_registers().PC);
 }
 
 std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,

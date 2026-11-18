@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3381,7 +3381,7 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 </tr>
 <tr>
 <td>memory</td>
-<td><code>peek(space, addr, n, buf)</code>, <code>memory_reader()</code></td>
+<td><code>peek(space, addr, n, buf)</code>, <code>memory_reader()</code>, <code>operand_reader()</code></td>
 <td><code>poke(by, space, addr, n, buf)</code></td>
 </tr>
 <tr>
@@ -3401,7 +3401,7 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 </tr>
 <tr>
 <td>time and raster</td>
-<td><code>time()</code>, <code>raster()</code>, <code>machine()</code></td>
+<td><code>time()</code>, <code>time_epoch()</code> (changes when time moves without executing), <code>raster()</code>, <code>machine()</code></td>
 <td>—</td>
 </tr>
 <tr>

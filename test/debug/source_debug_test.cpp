@@ -2967,6 +2967,116 @@ static void interrupt_machine(Machine& m) {
                   m.dbg->registers().HL == 0x5678,
               hex(r0) + " " + hex(r1) + " " + hex(r2) + " HL=" + hex(m.dbg->registers().HL));
     }
+    // ── GH #367: operand_reader(), the memory the PC instruction's DATA cycles see ──
+    auto operand = [](Machine& m, uint16_t a) { return m.dbg->operand_reader()(a); };
+    auto peeked = [](Machine& m, uint16_t a) {
+        uint8_t b = 0xEE;
+        m.dbg->peek(MemSpace::cpu(), a, 1, &b);
+        return b;
+    };
+    auto a_reg = [](Machine& m) { return static_cast<uint8_t>(m.dbg->registers().AF >> 8); };
+    {
+        // divmmc.vhd:126-148 (automap_hold loaded in the M1, automap_held as soon as MREQ goes
+        // high) + zxnext.vhd:3084: at an INSTANT entry the data cycle of LD A,(HL) already sees
+        // the DivMMC ROM, while peek(Cpu) still shows RAM page 10. Witness: A after the step.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(m);
+        m.emu.divmmc().rom_data()[0] = 0x7E;   // LD A,(HL)
+        m.emu.divmmc().rom_data()[5] = 0x22;
+        m.emu.mmu().write(0x0005, 0x11);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.PC = 0x0000; r.HL = 0x0005;
+        m.emu.cpu().set_registers(r);
+        const uint8_t op = operand(m, 5), pk = peeked(m, 5);
+        m.dbg->step_into(m.a);
+        check("OPRD-01", "at a DivMMC instant entry operand_reader() returns the DivMMC ROM's byte at "
+                         "$0005 (0x22), which the instruction's own data cycle loads into A, while "
+                         "peek(Cpu) shows RAM's 0x11",
+              op == 0x22 && pk == 0x11 && a_reg(m) == 0x22, hex(op) + " " + hex(pk) + " A=" + hex(a_reg(m)));
+    }
+    {
+        // divmmc.vhd:124-148, a DELAYED entry: the opcode is RAM's, the data cycles are DivMMC's.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(m);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x00);   // delayed entry at $0000
+        m.emu.mmu().write(0x0000, 0x7E);          // LD A,(HL) in RAM page 10
+        m.emu.mmu().write(0x0005, 0x11);
+        m.emu.divmmc().rom_data()[0] = 0x00;
+        m.emu.divmmc().rom_data()[5] = 0x22;
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.PC = 0x0000; r.HL = 0x0005;
+        m.emu.cpu().set_registers(r);
+        const uint8_t op = operand(m, 5), pk = peeked(m, 5);
+        m.dbg->step_into(m.a);
+        check("OPRD-02", "at a DELAYED DivMMC entry operand_reader() returns the DivMMC ROM's byte "
+                         "(0x22) for an operand of the RAM-fetched LD A,(HL), as the executed A shows, "
+                         "while peek(Cpu) shows RAM's 0x11",
+              op == 0x22 && pk == 0x11 && a_reg(m) == 0x22, hex(op) + " " + hex(pk) + " A=" + hex(a_reg(m)));
+    }
+    {
+        // Not an entry point: operand_reader() IS peek(Cpu). Checked with the DivMMC armed (PC in
+        // RAM), and with it active and held (PC at $0001 after the entry instruction ran).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(m);
+        m.emu.divmmc().rom_data()[5] = 0x22;
+        m.emu.mmu().write(0x0005, 0x11);
+        m.dbg->nextreg_write(m.a, 0x52, 0xE5);   // slot 2 ($4000) floating (zxnext.vhd:3061): reads 0xFF
+        bool same_ram = operand(m, 0x4000) == 0xFF && peeked(m, 0x4000) == 0xFF;
+        const uint16_t probes[] = {0x0000, 0x0005, 0x1FFF, 0x2000, 0x3FFF, 0x4000, 0x8005, 0xC000, 0xFFFF};
+        for (uint16_t a : probes) same_ram = same_ram && operand(m, a) == peeked(m, a);
+        m.dbg->step_into(m.a);   // CALL $0000
+        m.dbg->step_into(m.a);   // INC A, in the DivMMC ROM; the PC is now $0001 with the DivMMC held
+        bool same_held = m.pc() == 0x0001 && operand(m, 0x4000) == 0xFF && peeked(m, 0x4000) == 0xFF;
+        for (uint16_t a : probes) same_held = same_held && operand(m, a) == peeked(m, a);
+        check("OPRD-03", "away from an entry point operand_reader() equals peek(Cpu) over the whole map: "
+                         "with the DivMMC armed and the PC at $8000, and with it active (PC at $0001); a floating slot ($4000, NR 0x52 = 0xE5) reads 0xFF through both",
+              same_ram && same_held && peeked(m, 5) == 0x22,
+              std::string("armed=") + (same_ram ? "1" : "0") + " held=" + (same_held ? "1" : "0") + " pc=" + hex(m.pc()));
+    }
+    {
+        // divmmc.vhd:139-145: the M1 at $1FF8-$1FFF unmaps; the instruction's own data cycles
+        // already see RAM (automap_hold cleared), though the opcode came from the ROM.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(m);
+        m.emu.mmu().write(0x0005, 0x11);   // RAM page 10, written while it is still mapped
+        m.dbg->step_into(m.a);   // CALL $0000
+        m.dbg->step_into(m.a);   // INC A at the entry: the DivMMC is mapped from now on
+        m.emu.divmmc().rom_data()[0x1FF8] = 0x7E;   // LD A,(HL)
+        m.emu.divmmc().rom_data()[5] = 0x22;
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.PC = 0x1FF8; r.HL = 0x0005;
+        m.emu.cpu().set_registers(r);
+        const uint8_t op = operand(m, 5), pk = peeked(m, 5);
+        m.dbg->step_into(m.a);
+        check("OPRD-04", "an M1 at $1FF8 with the DivMMC mapped: operand_reader() returns RAM's byte "
+                         "(0x11), as the executed A shows, while peek(Cpu) still shows the ROM's 0x22",
+              op == 0x11 && pk == 0x22 && a_reg(m) == 0x11, hex(op) + " " + hex(pk) + " A=" + hex(a_reg(m)));
+    }
+    {
+        // multiface.vhd:169-186 / zxnext.vhd:3030: the armed fetch at $0066 latches mf_enable, so
+        // the data cycles of that instruction see the Multiface ROM; unarmed, they see RAM.
+        auto run = [&](bool armed, uint8_t& op, uint8_t& pk) {
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m.dbg->nextreg_write(m.a, 0x50, 10);
+            m.emu.multiface().set_enabled(true);
+            m.emu.mmu().write(0x0066, 0x00);
+            m.emu.mmu().write(0x0070, 0x11);                   // RAM page 10
+            m.emu.ram().page_ptr(0x0A)[0x66] = 0x7E;           // Multiface ROM: LD A,(HL)
+            m.emu.ram().page_ptr(0x0A)[0x70] = 0x22;
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.PC = 0x0066; r.HL = 0x0070;
+            m.emu.cpu().set_registers(r);
+            if (armed) m.emu.multiface().button_press();
+            op = operand(m, 0x70); pk = peeked(m, 0x70);
+        };
+        uint8_t aop = 0, apk = 0, uop = 0, upk = 0;
+        run(true, aop, apk);
+        run(false, uop, upk);
+        check("OPRD-05", "an armed Multiface fetch at $0066: operand_reader() returns the Multiface ROM's "
+                         "byte (0x22) while peek(Cpu) shows RAM's 0x11; unarmed, both show RAM's",
+              aop == 0x22 && apk == 0x11 && uop == 0x11 && upk == 0x11,
+              hex(aop) + " " + hex(apk) + " " + hex(uop) + " " + hex(upk));
+    }
 }
 
 [[gnu::noinline]] static void srcdbg_part_15(Ctx& ctx) {

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3192,7 +3192,10 @@ was terminated BY the signal, plus headless held paused by a DZRP client) and
   multiplier (<code>--speed</code>, <code>SdlApp::set_speed_percent()</code>) scales the whole-ms
   sleep, switches off audio pacing away from 1x and, above it, presents at most
   every <code>frame_sequencer::RENDER_INTERVAL_MS</code> — the same three things
-  <code>QtApp</code> does, done inline because this loop does not use the sequencer.</li>
+  <code>QtApp</code> does, done inline because this loop does not use the sequencer. The
+  same present throttle applies while <code>Emulator::fastload_active()</code> holds (a
+  tape load, the fast boot): the renderer is vsynced, so presenting every
+  frame of a sprint would cap it near the display's refresh rate.</li>
 <li><strong><code>HeadlessApp</code></strong> (<code>src/platform/headless_app.h</code>) owns nothing but the
   <code>Emulator</code>. Its <code>run()</code> is a bare <code>run_frame()</code> loop with no sleep in it.</li>
 </ul>

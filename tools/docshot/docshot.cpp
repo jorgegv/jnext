@@ -184,7 +184,11 @@ namespace {
 // `boot-nextzxos-welcome` row of test/00regression/regression_tests.conf, and
 // for the same reason: it is where the boot has finished and nothing is
 // animating, so the picture is stable.
-constexpr int kBootFrames = 400;
+// GH #369: 577, not 400: on the 26.11 card the firmware commits the machine type
+// at frame 472 and the welcome screen is up at 577 (the row's @bf:577, which
+// e04296c75 rebased from 400 on the 24.11 card). At 400 the capture is the
+// TBBLUE firmware menu.
+constexpr int kBootFrames = 577;
 // Same pinned clock as that row, so the NextZXOS date is identical every run.
 constexpr const char* kRtc = "2026-07-10T08:55:00";
 // Rewind depth. Non-zero so the rewind toolbar is populated and appears in the
