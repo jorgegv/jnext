@@ -138,6 +138,8 @@ public:
     /// Test seam for the pacing (GH #468): the clock the frame deadline reads, in microseconds, and the sleep run()
     /// performs. Defaults: SDL_GetTicksNS() / 1000 and SDL_Delay(). tick() only READS the clock and never sleeps, so a
     /// suite that drives both sees the pacing grid without depending on how fast the host runs a tick.
+    /// GH #499: frames uploaded and presented to the display since start (a throttled tick presents none).
+    uint64_t uploads_for_test() const { return uploads_total_; }
     void set_pacing_time_for_test(std::function<int64_t()> now_us, std::function<void(uint32_t)> sleep_ms) {
         pacing_now_us_ = std::move(now_us);
         pacing_sleep_ms_ = std::move(sleep_ms);
@@ -285,14 +287,15 @@ private:
 
     // --speed (see set_speed_percent()); 1.0 = real time.
     double      speed_multiplier_ = 1.0;
-    // SDL_GetTicks() of the last present, for the >1x present throttle.
-    // Uint64-wide because SDL3's SDL_GetTicks() is (SDL2's was Uint32).
+    // pacing_now_us() / 1000 of the last present, for the present throttle
+    // (above 100%, and during a fast load or the fast boot).
     uint64_t    last_present_ms_ = 0;
     /// GH #428 — framebuffer generation last uploaded to the display
     /// (render_policy::NOTHING_UPLOADED until the first present), and the
     /// once-per-second present instrument ("sdl present: ticks=N uploads=K").
     uint64_t    last_uploaded_gen_ = ~uint64_t{0};
     uint64_t    present_ticks_ = 0, present_uploads_ = 0, present_window_start_ms_ = 0;
+    uint64_t    uploads_total_ = 0;   // GH #499: present_uploads_ never reset, for the throttle's rows
 
     // Pending --rzx-play / --rzx-record, started at the top of run().
     std::string rzx_play_file_;

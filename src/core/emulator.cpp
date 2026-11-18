@@ -193,6 +193,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     tape_auto_play_ = cfg.tape_auto_play;
     tape_poll_.reset();
     tape_fastload_frames_left_ = 0;   // GH #408
+    // GH #499: the fast-boot window survives a soft reset (the firmware's own
+    // hand-over to NextZXOS) and nothing else.
+    if (!preserve_memory) close_fast_boot_("machine reset or load");
     // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
     // latch loaded only at video_frame_sync, with no reset clause
     // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
@@ -10652,6 +10655,14 @@ void Emulator::run_frame()
 
     const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
 
+    // GH #499 - the fast-boot window ends at a debugger stop: a pause that has
+    // since been resumed (Break, Emulation > Pause and remote pauses land BETWEEN
+    // frames; a breakpoint inside one), or one still standing. The frame-end
+    // code is never reached while stopped, hence the check is here.
+    if (fast_boot_frames_left_ > 0 &&
+        (debug_state_.paused() || debug_state_.stops_resumed() != fast_boot_stops_))
+        close_fast_boot_("debugger stop");
+
     // A frame that was PAUSED mid-way is RESUMED, not RESTARTED.
     //
     // The debugger pauses by returning from inside the loop below, leaving the frame
@@ -11089,6 +11100,19 @@ void Emulator::end_of_frame(uint64_t frame_end)
     phantom_typist_.tick_frame();
     // GH #408 - the fast tape's pacing window counts emulated frames.
     if (tape_fastload_frames_left_ > 0) --tape_fastload_frames_left_;
+    // GH #499 - the fast-boot window counts emulated frames too, and ends at
+    // the first guest key (delivered as usual) or time up.
+    if (fast_boot_frames_left_ > 0) {
+        ++fast_boot_run_;
+        bool key_down = keyboard_.live_extended_keys() != 0;
+        for (int r = 0; r < 8 && !key_down; ++r)
+            key_down = (keyboard_.matrix_row(r) & 0x1F) != 0x1F;
+        if (key_down) close_fast_boot_("key press");
+        else if (--fast_boot_frames_left_ == 0) {
+            Log::emulator()->info("fast boot: ended (time up) after {} frames", fast_boot_run_);
+            fast_boot_run_ = 0;
+        }
+    }
 
     // G133 closure — the two-scan shift hysteresis (membrane.vhd:178-191) is
     // advanced by Keyboard::tick_scan(), which is driven from on_scanline() at
@@ -14725,6 +14749,14 @@ void Emulator::save_state(StateWriter& w) const
     }
 }
 
+void Emulator::close_fast_boot_(const char* reason)
+{
+    if (fast_boot_frames_left_ == 0) return;
+    Log::emulator()->info("fast boot: ended ({}) after {} frames", reason, fast_boot_run_);
+    fast_boot_frames_left_ = 0;
+    fast_boot_run_ = 0;
+}
+
 bool Emulator::load_state(StateReader& r)
 {
     poll_stop_();   // GH #496: time may have moved; a watched pass belongs to the timeline being left
@@ -14733,6 +14765,7 @@ bool Emulator::load_state(StateReader& r)
     // trapped in the timeline being left (a rewind, a debugger state load, the
     // .jns round trip). The restored machine sprints again at its next trap.
     tape_fastload_frames_left_ = 0;
+    close_fast_boot_("machine reset or load");   // GH #499
     // GH #276 B2 — THE RECONCILIATION RUNS ON EVERY EXIT, not just the
     // successful one, and this is the exit that needs it most.
     //

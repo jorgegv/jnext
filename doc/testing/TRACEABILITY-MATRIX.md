@@ -72,7 +72,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6262 | 6262 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6262**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5747**. Rows the 218 suites declared in `test/unit-tests.conf` run live: **16634**.
+Rows the sections above carry: **6262**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5747**. Rows the 218 suites declared in `test/unit-tests.conf` run live: **16642**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -84,7 +84,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 167 suites (10971 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 167 suites (10979 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -129,14 +129,14 @@ These 167 suites (10971 live rows) have no VHDL-derived plan row to map, so they
 | `recent_files_test` | 17 | File > Recent Files list logic and load-dialog seed (GH #406, host GUI, no VHDL oracle) |
 | `recent_files_posix_test` | 8 | File > Recent Files symlink dedup (GH #406, POSIX-only, host GUI, no VHDL oracle) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
-| `tstate_counter_test` | 11 | debugger CPU panel T-state counter start point and accumulate policy (host GUI, no VHDL oracle) |
 | `pointer_capture_test` | 94 | host mouse-capture policy (window-manager behaviour) |
 | `frame_deadline_test` | 47 | host frame-deadline scheduling (wall-clock) |
-| `frame_sequencer_test` | 116 | host frame sequencer (wall-clock run/present ordering) |
+| `fast_boot_test` | 26 | fast boot (GH #499): host pacing of the first seconds of a Next start; no hardware counterpart |
+| `frame_sequencer_test` | 118 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 182 | host key latch/debounce compensation; guest matrix is `## Input` |
-| `sdl_app_tick_test` | 12 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
+| `sdl_app_tick_test` | 14 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
 | `browser_policy_test` | 29 | browser page rAF callback gate and refusals (host UI, GH #463) |
 | `web_api_test` | 26 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
@@ -251,8 +251,8 @@ These 167 suites (10971 live rows) have no VHDL-derived plan row to map, so they
 | `debugger_keymap_test` | 44 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
 | `debugger_menu_test` | 68 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 44 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
-| `debugger_panels_test` | 118 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
-| `debugger_verbs_test` | 118 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_panels_test` | 117 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
+| `debugger_verbs_test` | 108 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
 | `debugger_source_panel_test` | 285 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 | `debugger_variables_panel_test` | 55 | debugger Variables tab: C locals per frame, globals, lazy expansion, Call Stack selection (GH #435, host GUI, jnext-internal); the T80N core has no debugger |
 

@@ -52,8 +52,10 @@ Either way the visitor sees these steps, in this order:
 
 A later visit to the same site needs no download and no file.
 
-- The card the browser kept is checked against its SHA-256 every time. A card that no
-  longer matches is deleted and made again, as on a first visit.
+- The card the browser kept is stored compressed and checked every time by the compressed
+  copy's own checksum. A card that fails it is deleted and made again, as on a first visit.
+- A card kept by an earlier JNEXT release is converted on the first visit, with no
+  download.
 - For a `.nex` program the recorded machine is brought back (`restore`) instead of booting
   NextZXOS again. A corrupted recording is made again.
 - A `.tap`, a `.tzx` or a `.wav` starts directly in 48K BASIC, and an `.rzx` on the
@@ -64,13 +66,15 @@ A later visit to the same site needs no download and no file.
 
 | what | where |
 |---|---|
-| the SD card | Cache Storage: one entry of about 40 MiB, named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it) |
+| the SD card | Cache Storage: one entry of about 1.1 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it) |
 | the warm-start recording | IndexedDB |
 | the saves, with `keepWrites` | IndexedDB, in a database of its own |
 
 - Nothing else is kept: no settings, nor screenshots or snapshots
   ([8.3](03-itch-and-limits.md)).
 - The official file the card was made from is not kept.
+- A browser too old to compress and decompress data in the page keeps the card
+  uncompressed, about 40 MiB, and checks it by its SHA-256 on every visit instead.
 - Several players on one page share the recording.
 - If the browser's storage is full, the session still runs and the next visit makes the
   card again.

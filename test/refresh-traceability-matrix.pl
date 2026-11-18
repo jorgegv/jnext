@@ -1136,6 +1136,7 @@ my %NO_MATRIX_SECTION = (
     'sdcard_upgrade_box_test' => 'SDL message box offering a newer NextZXOS image (host UI, GH #476)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
     'sdl_app_tick_test' => 'SdlApp::tick() host frame-loop iteration (host UI, GH #462)',
+    'fast_boot_test' => 'fast boot (GH #499): host pacing of the first seconds of a Next start; no hardware counterpart',
     'web_api_test' => 'browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465)',
     'browser_policy_test' => 'browser page rAF callback gate and refusals (host UI, GH #463)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',

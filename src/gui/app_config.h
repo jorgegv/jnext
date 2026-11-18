@@ -11,6 +11,7 @@
 #include "debug/debug_keymap.h"
 #include "platform/audio_pacing.h"
 #include "platform/config_keys.h"
+#include "platform/fast_boot.h"
 #include "platform/pointer_capture.h"
 #include "platform/source_scheme.h"
 #include "core/screenshot.h"
@@ -42,6 +43,9 @@ struct AppConfigData {
     // machine with no config file is unchanged. Persisted as "audio"/"video".
     audio_pacing::WhenSlowPrefer when_slow_prefer =
         audio_pacing::WhenSlowPrefer::Audio;
+
+    // GH #499 - seconds of a plain Next start run at maximum speed (0 = off). A launch setting.
+    int         fast_boot_seconds      = fast_boot::DEFAULT_SECONDS;
 
     // Host-side gain applied after the emulated hardware mix. Unlike
     // `silent`, this can be changed live from Preferences. The CLI option

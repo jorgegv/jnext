@@ -1107,6 +1107,31 @@ int main()
                   s_int(frame_sequencer::FASTLOAD_BURST_LIMIT));
     }
     {
+        // GH #499 - the burst is also bounded by wall time. Each frame costs 10 ms (a fake clock) and the
+        // budget is FASTLOAD_BURST_BUDGET_US = 50 ms. Derivation from step (8): the tick's own paced frame (1)
+        // runs before burst_t0; the loop then runs while (now - burst_t0) < 50 ms, i.e. at elapsed 0, 10, 20,
+        // 30, 40 ms = 5 loop frames; then the closing frame (1): 7 frames in all, not the 201 the frame limit
+        // alone would allow. Only the closing frame composites among the burst's own frames.
+        frame_sequencer::Sequencer seq;
+        FakeFrontend fx;
+        fx.audio_model       = false;
+        fx.queue_ms          = 65.0;
+        fx.run_frame_cost_us = 10000;
+        fx.fastload_frames   = 100000;   // never ends within a tick
+        start(seq, fx);
+        const frame_sequencer::TickResult r = seq.tick(fx);
+        check("FS-BURST-06", "an endless fastload with 10 ms frames stops at the 50 ms wall budget: 1 paced + 5 loop + 1 closing = 7 frames",
+              r.frames_rendered == 7 && frame_sequencer::FASTLOAD_BURST_BUDGET_US == 50000,
+              "frames=" + s_int(r.frames_rendered));
+        int interior_composited = 0;
+        for (size_t i = 1; i + 1 < fx.composites.size(); i++)
+            if (fx.composites[i]) ++interior_composited;
+        check("FS-BURST-06b", "in that budget-stopped tick only the closing frame composites among the burst's frames",
+              fx.composites.size() == 7 && fx.composites.back() == true && interior_composited == 0,
+              "composites=" + s_int(static_cast<int>(fx.composites.size())) +
+              " interior=" + s_int(interior_composited));
+    }
+    {
         // No fastload -> no burst at all.
         frame_sequencer::Sequencer seq;
         FakeFrontend fx;
