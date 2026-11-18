@@ -4454,6 +4454,497 @@ static void test_pc_hint() {
     }
 }
 
+// ===========================================================================
+// QMPT - GH #370: the Memory panel's tools (Find, Save / Load / Fill Block).
+//
+// Oracle: the issue's stated behaviour and the backend's documented poke / peek contract and its
+// exact MUTATE text (debugger_inspect.cpp): a Cpu poke is ONE verb however long, a Page poke
+// stops at its 8K page, ROM is read-only, RZX refuses every write. No VHDL oracle (host UI).
+// A standalone MemoryPanel over a real Emulator + Debugger, as the QMP rows; the client is 0, so a
+// MUTATE line ends "by 0". The tools' answers are read off MemoryPanel::message.
+// ===========================================================================
+namespace {
+
+struct ToolRig {
+    Emulator emu;
+    bool built = false;
+    std::unique_ptr<jnext::dbg::Debugger> dbg;
+    MutateLog log;
+    std::unique_ptr<MemoryPanel> mem;
+    QStringList msgs;
+    std::vector<int> shown;   // show_in_disassembly_requested, in order
+
+    explicit ToolRig(MachineType t) {
+        built = build(emu, t);
+        dbg = std::make_unique<jnext::dbg::Debugger>(emu);
+        const auto rec = dbg->attach(jnext::dbg::ClientInfo{"rec", jnext::dbg::ClientKind::Test}).value;
+        dbg->set_listener(rec, &log);
+        mem = std::make_unique<MemoryPanel>(dbg.get());
+        mem->resize(700, 600);
+        QObject::connect(mem.get(), &MemoryPanel::message, [this](const QString& m) { msgs << m; });
+        QObject::connect(mem.get(), &MemoryPanel::show_in_disassembly_requested,
+                         [this](uint16_t a) { shown.push_back(a); });
+    }
+    ~ToolRig() {
+        mem.reset();
+        dbg.reset();
+    }
+    std::vector<uint8_t> peek(jnext::dbg::MemSpace sp, uint32_t addr, size_t n) {
+        std::vector<uint8_t> v(n, 0);
+        dbg->peek(sp, addr, n, v.data());
+        return v;
+    }
+    void put(jnext::dbg::MemSpace sp, uint32_t addr, const std::vector<uint8_t>& b) {
+        dbg->poke(jnext::dbg::CLIENT_NONE, sp, addr, b.size(), b.data());
+        log.lines.clear();
+        msgs.clear();
+    }
+    QString last() const { return msgs.isEmpty() ? QStringLiteral("<none>") : msgs.last(); }
+    std::string mutates() const {
+        std::string o;
+        for (const auto& l : log.lines) o += l + " | ";
+        return o;
+    }
+};
+
+QString write_file(const QTemporaryDir& d, const QString& name, const QByteArray& data) {
+    const QString p = d.path() + "/" + name;
+    QFile f(p);
+    f.open(QIODevice::WriteOnly | QIODevice::Truncate);
+    f.write(data);
+    return p;
+}
+
+QString d_path(const QTemporaryDir& d, const QString& name) { return d.path() + "/" + name; }
+
+QByteArray read_file(const QString& p) {
+    QFile f(p);
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("<unreadable>");
+}
+
+QByteArray ramp(int n, int mul) {
+    QByteArray b(n, 0);
+    for (int i = 0; i < n; ++i) b[i] = static_cast<char>((i * mul) & 0xFF);
+    return b;
+}
+
+std::vector<uint8_t> vec(const QByteArray& b) { return std::vector<uint8_t>(b.begin(), b.end()); }
+
+/// Run `act` (which opens a modal dialog), answering it with `fn`; false when none opened.
+template <class Act, class Fn>
+bool via_dialog(Act act, Fn fn) {
+    bool seen = false;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* d = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!d) return;
+        seen = true;
+        fn(d);
+    });
+    timer.start(1);
+    act();
+    timer.stop();
+    QApplication::processEvents();
+    return seen;
+}
+
+QCheckBox* check_named(QDialog* d, const QString& text) {
+    for (QCheckBox* c : d->findChildren<QCheckBox*>())
+        if (c->text() == text) return c;
+    return nullptr;
+}
+
+QList<QAction*> real_actions(const QMenu& m) {
+    QList<QAction*> out;
+    for (QAction* a : m.actions()) out << a;
+    return out;
+}
+
+}  // namespace
+
+static void test_memory_panel_tools() {
+    set_group("QMPT");
+    using jnext::dbg::MemSpace;
+    namespace mt = jnext::dbg::memtools;
+    const auto text = [](const char* t) { return *mt::text_pattern(t, true, nullptr); };
+    const std::vector<uint8_t> p8{0xF1, 0x37, 0x0A, 0x5C, 0xE2, 0x9B, 0x44, 0xC6};
+    const auto p8_pat = [&]() { return mt::Pattern{p8, std::vector<uint8_t>(8, 0xFF)}; };
+    QTemporaryDir td;
+
+    // QMPT-01
+    {
+        ToolRig r(MachineType::ZX48K);
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        QStringList names;
+        QList<bool> enabled;
+        int seps = 0, sep_at = -1, idx = 0;
+        for (QAction* a : real_actions(menu)) {
+            if (a->isSeparator()) { ++seps; sep_at = idx; }
+            else { names << a->text(); enabled << a->isEnabled(); }
+            ++idx;
+        }
+        r.mem->find(text("JNEXT"));
+        QMenu menu2;
+        r.mem->fill_context_menu(menu2);
+        const bool next_on = menu2.actions().value(1) && menu2.actions().value(1)->isEnabled();
+        check("QMPT-01", "context menu: Find..., Find Next (disabled until a find), separator, Save/Load/Fill Block...",
+              r.built && names == QStringList({"Find...", "Find Next", "Save Block...", "Load Block...", "Fill Block..."}) &&
+                  enabled == QList<bool>({true, false, true, true, true}) && seps == 1 && sep_at == 2 && next_on,
+              s(names.join("|")));
+    }
+
+    // QMPT-02
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x8100, {'J', 'N', 'E', 'X', 'T'});
+        r.put(MemSpace::cpu(), 0x9200, {'J', 'N', 'E', 'X', 'T'});
+        r.mem->find(text("JNEXT"));
+        const int a = r.mem->selected_address();
+        r.mem->find_next();
+        const int b = r.mem->selected_address();
+        r.mem->find_next();
+        const int c = r.mem->selected_address();
+        check("QMPT-02", "find then Find Next twice: $8100, $9200, then wraps to $8100 and says so",
+              r.built && a == 0x8100 && b == 0x9200 && c == 0x8100 &&
+                  r.msgs == QStringList({"Found at $8100", "Found at $9200", "Found at $8100 (wrapped)"}),
+              s(r.msgs.join("|")));
+    }
+
+    // QMPT-03
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x8000, {0xCD, 0x12, 0x81});
+        r.put(MemSpace::cpu(), 0x8010, {0xCD, 0x12, 0x80});
+        go_to(r.mem.get(), "7FF0");
+        r.mem->find(*mt::parse_hex_pattern("CD ?? 80", "", nullptr));
+        const int a = r.mem->selected_address();
+        go_to(r.mem.get(), "7FF0");
+        r.mem->find(*mt::parse_hex_pattern("CD ?? 80", "FF 00 FE", nullptr));
+        const int b = r.mem->selected_address();
+        check("QMPT-03", "find from the selected byte: CD ?? 80 hits $8010; with mask FF 00 FE it also hits $8000",
+              r.built && a == 0x8010 && b == 0x8000, fmt("a=%X b=%X", a, b));
+    }
+
+    // QMPT-04
+    {
+        ToolRig r(MachineType::ZXN_ISSUE2);
+        r.put(MemSpace::page(0x30), 0x10, p8);
+        r.mem->find(p8_pat());
+        const QString cpu_msg = r.last();
+        select_page_view(r.mem.get(), "30");
+        r.msgs.clear();
+        r.mem->find(p8_pat());
+        check("QMPT-04", "Page 30 (mapped in no slot): CPU View does not find it; the Page view does and the Disassembly does not move",
+              r.built && cpu_msg == "Not found in CPU View" && r.mem->selected_address() == 0x10 &&
+                  r.last() == "Found at offset $0010 of P30; not mapped in any slot, so the Disassembly does not move" &&
+                  r.shown.empty(),
+              s(cpu_msg) + " / " + s(r.last()));
+    }
+
+    // QMPT-05
+    {
+        ToolRig r(MachineType::ZXN_ISSUE2);
+        r.dbg->set_mmu_slot(jnext::dbg::CLIENT_NONE, 6, 0x20);
+        r.put(MemSpace::page(0x20), 0x123, p8);
+        select_view(r.mem.get(), 7);          // Slot 6
+        r.mem->find(p8_pat());
+        const QString m1 = r.last();
+        select_page_view(r.mem.get(), "20");
+        r.mem->find(p8_pat());
+        const QString m2 = r.last();
+        select_view(r.mem.get(), 0);
+        r.mem->find(p8_pat());
+        const QString m3 = r.last();
+        check("QMPT-05", "slot 6 -> P20: the Slot and Page views emit $C123 (slot base + offset), CPU View finds $C123",
+              r.built && m1 == "Found at offset $0123 of P20" && m2 == m1 && m3 == "Found at $C123" &&
+                  r.shown == std::vector<int>({0xC123, 0xC123, 0xC123}),
+              s(m1) + " / " + s(m2) + " / " + s(m3));
+    }
+
+    // QMPT-06
+    {
+        ToolRig r(MachineType::ZX48K);
+        const QByteArray f = ramp(6912, 7);
+        const QString path = write_file(td, "f.bin", f);
+        r.mem->load_block(0x4000, std::nullopt, path);
+        check("QMPT-06", "Load a whole 6912-byte file at $4000: bytes land, one poke, one MUTATE line",
+              r.built && r.peek(MemSpace::cpu(), 0x4000, 6912) == vec(f) &&
+                  r.last() == "Loaded 6912 bytes at $4000 from f.bin" &&
+                  r.log.lines == std::vector<std::string>({"MUTATE mem cpu:0x4000 6912 bytes by 0"}),
+              s(r.last()) + " " + r.mutates());
+    }
+
+    // QMPT-07
+    {
+        ToolRig r(MachineType::ZX48K);
+        const QByteArray f = ramp(16, 3);
+        const auto rom_before = r.peek(MemSpace::cpu(), 0x3FF8, 8);
+        r.mem->load_block(0x3FF8, std::nullopt, write_file(td, "f.bin", f));
+        check("QMPT-07", "Load across the ROM/RAM boundary: the RAM half lands, ROM is unchanged, 8 of 16 is said",
+              r.built && r.peek(MemSpace::cpu(), 0x4000, 8) == vec(f.mid(8)) &&
+                  r.peek(MemSpace::cpu(), 0x3FF8, 8) == rom_before &&
+                  r.last() == "Loaded 8 of 16 bytes at $3FF8 from f.bin: the rest is ROM, which is read-only" &&
+                  r.log.lines == std::vector<std::string>({"MUTATE mem cpu:0x3FF8 8 of 16 bytes (the rest read-only) by 0"}),
+              s(r.last()) + " " + r.mutates());
+    }
+
+    // QMPT-08
+    {
+        ToolRig r(MachineType::ZX48K);
+        const QString path = write_file(td, "f.bin", ramp(16, 5));
+        const auto rom_before = r.peek(MemSpace::rom(0), 0, 16);
+        select_view(r.mem.get(), 1);          // Slot 0 = ROM0
+        r.mem->load_block(0, std::nullopt, path);
+        const QString m1 = r.last();
+        select_view(r.mem.get(), 0);
+        r.mem->load_block(0, 16, path);
+        check("QMPT-08", "Load into ROM (Slot 0 view, and CPU View $0000) is refused: ROM is read-only, nothing logged",
+              r.built && m1 == "Load refused: ROM is read-only" && r.last() == m1 &&
+                  r.peek(MemSpace::rom(0), 0, 16) == rom_before && r.log.lines.empty(),
+              s(m1) + " / " + s(r.last()));
+    }
+
+    // QMPT-09
+    {
+        ToolRig r(MachineType::ZXN_ISSUE2);
+        const QByteArray f = ramp(512, 1);
+        select_page_view(r.mem.get(), "20");
+        r.mem->load_block(0x1F00, std::nullopt, write_file(td, "f.bin", f));
+        check("QMPT-09", "Page 20 view: a 512-byte load at $1F00 runs on into P21, one poke (one MUTATE line) per page",
+              r.built && r.peek(MemSpace::page(0x20), 0x1F00, 256) == vec(f.left(256)) &&
+                  r.peek(MemSpace::page(0x21), 0, 256) == vec(f.mid(256)) &&
+                  r.log.lines == std::vector<std::string>({"MUTATE mem page32:0x1F00 256 bytes by 0",
+                                                           "MUTATE mem page33:0x0000 256 bytes by 0"}) &&
+                  r.last() == "Loaded 512 bytes at offset $1F00 of P20 from f.bin",
+              s(r.last()) + " " + r.mutates());
+    }
+
+    // QMPT-10
+    {
+        ToolRig r(MachineType::ZX48K);
+        const QByteArray f32 = ramp(32, 9);
+        r.mem->load_block(0xFFF0, std::nullopt, write_file(td, "a.bin", f32));
+        const bool a = r.peek(MemSpace::cpu(), 0xFFF0, 16) == vec(f32.left(16)) &&
+                       r.last() == "Loaded 16 of 32 bytes at $FFF0 from a.bin: the rest would run past $FFFF";
+        const QString ma = r.last();
+        r.mem->load_block(0x8000, 8, write_file(td, "b.bin", f32));
+        const bool b = r.peek(MemSpace::cpu(), 0x8000, 8) == vec(f32.left(8)) &&
+                       r.peek(MemSpace::cpu(), 0x8008, 1) == std::vector<uint8_t>{0} &&
+                       r.last() == "Loaded 8 bytes at $8000 from b.bin";
+        r.mem->load_block(0x9000, 8, write_file(td, "c.bin", ramp(4, 1)));
+        const bool c = r.last() == "Loaded 4 of 8 bytes at $9000 from c.bin: the file holds only 4 bytes";
+        check("QMPT-10", "Load limits: end of the 64K space, an explicit Length shorter than the file, a file shorter than Length",
+              r.built && a && b && c, s(ma) + " / " + s(r.last()));
+    }
+
+    // QMPT-11
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x8000, {0x11, 0x22, 0x33, 0x44});
+        r.put(MemSpace::cpu(), 0x8010, {0x5A, 0x5B});
+        const QString path = write_file(td, "f.bin", ramp(8, 1));
+        const QString out = d_path(td, "g.bin");
+        r.emu.rzx_player().start(RzxRecording{});
+        r.mem->load_block(0x8000, std::nullopt, path);
+        const QString ml = r.last();
+        r.mem->fill_block(0x8000, 4, {0xAA});
+        const QString mf = r.last();
+        r.mem->save_block(0x8000, 16, out);
+        const QString ms = r.last();
+        const auto after = r.peek(MemSpace::cpu(), 0x8000, 4);
+        r.msgs.clear();
+        r.mem->find(*mt::parse_hex_pattern("5A 5B", "", nullptr));
+        const int hit = r.mem->selected_address();
+        const std::string mutated = r.mutates();
+        r.emu.rzx_player().stop();
+        const QString tail = "memory cannot be changed while an RZX recording or playback is running (stop it first)";
+        check("QMPT-11", "during RZX: Load and Fill are refused with the stated text and change nothing; Save and Find still work",
+              r.built && ml == "Load refused: " + tail && mf == "Fill refused: " + tail &&
+                  after == std::vector<uint8_t>({0x11, 0x22, 0x33, 0x44}) && mutated.empty() &&
+                  ms == "Saved 16 bytes from $8000 to g.bin" && read_file(out).size() == 16 &&
+                  static_cast<uint8_t>(read_file(out)[0]) == 0x11 && hit == 0x8010,
+              s(ml) + " / " + s(mf) + " / " + s(ms));
+    }
+
+    // QMPT-12
+    {
+        ToolRig r(MachineType::ZX48K);
+        const QString g = d_path(td, "g.bin");
+        r.mem->save_block(0x4000, 0x1B00, g);
+        const QString m1 = r.last();
+        const bool a = read_file(g) == QByteArray::fromRawData(
+                                           reinterpret_cast<const char*>(r.peek(MemSpace::cpu(), 0x4000, 0x1B00).data()), 0x1B00);
+        ToolRig n(MachineType::ZXN_ISSUE2);
+        n.put(MemSpace::page(0x0A), 0x1FF0, {1, 2, 3, 4});
+        n.put(MemSpace::page(0x0B), 0x0000, {9, 8, 7, 6});
+        select_page_view(n.mem.get(), "0A");
+        const QString h = d_path(td, "h.bin");
+        n.mem->save_block(0, 0x4000, h);
+        auto want = n.peek(MemSpace::page(0x0A), 0, 0x2000);
+        const auto second = n.peek(MemSpace::page(0x0B), 0, 0x2000);
+        want.insert(want.end(), second.begin(), second.end());
+        check("QMPT-12", "Save writes the raw bytes: a CPU block, and a Page block that runs across two pages",
+              r.built && a && m1 == "Saved 6912 bytes from $4000 to g.bin" && read_file(h) == QByteArray(reinterpret_cast<const char*>(want.data()), 0x4000),
+              s(m1));
+    }
+
+    // QMPT-13
+    {
+        ToolRig r(MachineType::ZX48K);
+        const QString g = d_path(td, "never.bin");
+        r.mem->save_block(0xF000, 0x1001, g);
+        const QString m1 = r.last();
+        const bool none = !QFileInfo::exists(g);
+        r.mem->save_block(0x8000, 16, td.path() + "/nodir/x.bin");
+        check("QMPT-13", "Save refusals: a block past $FFFF writes no file; an unwritable path says Save failed",
+              r.built && m1 == "Save refused: the block runs past $FFFF" && none &&
+                  r.last().startsWith("Save failed: x.bin: ") && r.last().size() > 20,
+              s(m1) + " / " + s(r.last()));
+    }
+
+    // QMPT-14
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.mem->fill_block(0x8000, 8, {0xDE, 0xAD, 0xBE});
+        const bool a = r.peek(MemSpace::cpu(), 0x8000, 9) ==
+                           std::vector<uint8_t>({0xDE, 0xAD, 0xBE, 0xDE, 0xAD, 0xBE, 0xDE, 0xAD, 0x00}) &&
+                       r.last() == "Filled 8 bytes at $8000 with DE AD BE" &&
+                       r.log.lines == std::vector<std::string>({"MUTATE mem cpu:0x8000 8 bytes by 0"});
+        r.log.lines.clear();
+        r.mem->fill_block(0x9000, 1, {0x55});
+        const bool b = r.log.lines.size() == 1 && r.log.lines[0].rfind("MUTATE mem cpu:0x9000 0x", 0) == 0 &&
+                       r.log.lines[0].find(" -> 0x55 by 0") != std::string::npos;
+        check("QMPT-14", "Fill repeats the value cyclically in one poke; a 1-byte fill logs the single-byte MUTATE form",
+              r.built && a && b, s(r.last()) + " " + r.mutates());
+    }
+
+    // QMPT-15
+    {
+        ToolRig n(MachineType::ZXN_ISSUE2);
+        n.put(MemSpace::page(0x20), 0, {0x77});
+        select_page_view(n.mem.get(), "20");
+        const QString path = write_file(td, "f.bin", ramp(4, 1));
+        n.mem->fill_block(0x2000, 1, {0x00});
+        const QString m1 = n.last();
+        n.mem->load_block(0x2000, std::nullopt, path);
+        const QString m2 = n.last();
+        n.mem->save_block(0x2000, 1, d_path(td, "g.bin"));
+        const QString m3 = n.last();
+        const bool bound = m1 == "Fill refused: the start is outside the 8K page" &&
+                           m2 == "Load refused: the start is outside the 8K page" &&
+                           m3 == "Save refused: the start is outside the 8K page" &&
+                           n.peek(MemSpace::page(0x20), 0, 1) == std::vector<uint8_t>{0x77};
+        ToolRig r(MachineType::ZX48K);
+        select_view(r.mem.get(), 2);          // Slot 1 = the upper half of ROM0
+        const QString g = d_path(td, "rom.bin");
+        r.mem->save_block(0x0100, 16, g);
+        const auto want = r.peek(MemSpace::rom(0), 0x2100, 16);
+        check("QMPT-15", "Slot/Page views refuse a start outside the 8K page; a ROM slot's location text is the space address",
+              n.built && bound && r.last() == "Saved 16 bytes from offset $2100 of ROM0 to rom.bin" &&
+                  read_file(g) == QByteArray(reinterpret_cast<const char*>(want.data()), 16),
+              s(m1) + " / " + s(r.last()));
+    }
+
+    // QMPT-16
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x8100, {'J', 'N', 'E', 'X', 'T'});
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        QAction* find = menu.actions()[0];
+        QStringList prefilled;
+        const bool seen1 = via_dialog([&]() { find->trigger(); }, [&](QDialog* d) {
+            d->findChildren<QLineEdit*>()[0]->setText("JNEXT");
+            check_named(d, "Text")->setChecked(true);
+            d->accept();
+        });
+        const int a = r.mem->selected_address();
+        const QString m1 = r.last();
+        // The second time: the answers are remembered; switch back to hex.
+        const bool seen2 = via_dialog([&]() { find->trigger(); }, [&](QDialog* d) {
+            prefilled << d->findChildren<QLineEdit*>()[0]->text();
+            check_named(d, "Text")->setChecked(false);
+            d->findChildren<QLineEdit*>()[0]->setText("4A 4E");
+            d->accept();
+        });
+        const int b = r.mem->selected_address();
+        const int before = r.mem->selected_address();
+        r.msgs.clear();
+        const bool seen3 = via_dialog([&]() { find->trigger(); }, [](QDialog* d) { d->reject(); });
+        check("QMPT-16", "Find dialog from the menu: text then hex, answers remembered, Cancel changes nothing",
+              r.built && seen1 && seen2 && seen3 && a == 0x8100 && m1 == "Found at $8100" && prefilled == QStringList({"JNEXT"}) &&
+                  b == 0x8100 && r.msgs.isEmpty() && r.mem->selected_address() == before,
+              s(m1) + " " + s(prefilled.join("|")));
+    }
+
+    // QMPT-17
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x8100, {0x01});
+        go_to(r.mem.get(), "8100");
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        const auto acts = menu.actions();      // Find, Find Next, sep, Save, Load, Fill
+        QStringList start_prefill;
+        const QString g = d_path(td, "g.bin");
+        via_dialog([&]() { acts[3]->trigger(); }, [&](QDialog* d) {
+            auto e = d->findChildren<QLineEdit*>();   // Start, Length, File
+            start_prefill << e[0]->text();
+            e[1]->setText("10");
+            e[2]->setText(g);
+            d->accept();
+        });
+        const bool saved = read_file(g).size() == 16 && r.last() == "Saved 16 bytes from $8100 to g.bin";
+        via_dialog([&]() { acts[3]->trigger(); }, [](QDialog* d) { d->reject(); });
+        const QString f = write_file(td, "f.bin", ramp(4, 1));
+        via_dialog([&]() { acts[4]->trigger(); }, [&](QDialog* d) {
+            auto e = d->findChildren<QLineEdit*>();   // File, Start, Length
+            start_prefill << e[1]->text();
+            e[0]->setText(f);
+            e[1]->setText("9000");
+            e[2]->setText("");
+            d->accept();
+        });
+        const bool loaded = r.peek(MemSpace::cpu(), 0x9000, 4) == vec(ramp(4, 1)) &&
+                            r.last() == "Loaded 4 bytes at $9000 from f.bin";
+        via_dialog([&]() { acts[5]->trigger(); }, [&](QDialog* d) {
+            auto e = d->findChildren<QLineEdit*>();   // Start, Length, Value
+            start_prefill << e[0]->text();
+            e[1]->setText("4");
+            e[2]->setText("EE");
+            d->accept();
+        });
+        const bool filled = r.peek(MemSpace::cpu(), 0x8100, 5) == std::vector<uint8_t>({0xEE, 0xEE, 0xEE, 0xEE, 0x00});
+        const auto before = r.peek(MemSpace::cpu(), 0x8100, 8);
+        via_dialog([&]() { acts[5]->trigger(); }, [](QDialog* d) { d->reject(); });
+        const bool cancelled = r.peek(MemSpace::cpu(), 0x8100, 8) == before;
+        // The dialogs left nothing behind in the panel: the Addr box and the selector are still the
+        // only line edit and combo box, and still drive the view.
+        const bool one_edit = r.mem->findChildren<QLineEdit*>().size() == 1 && r.mem->findChildren<QComboBox*>().size() == 1;
+        const bool nav = go_to(r.mem.get(), "9000") && r.mem->selected_address() == 0x9000 && select_view(r.mem.get(), 1);
+        check("QMPT-17", "Save/Load/Fill dialogs: Start prefilled with the selected byte, answers act, Cancel does nothing, no panel child left",
+              r.built && start_prefill == QStringList({"$8100", "$8100", "$8100"}) && saved && loaded && filled && cancelled &&
+                  one_edit && nav,
+              s(start_prefill.join("|")) + " " + s(r.last()));
+    }
+
+    // QMPT-18
+    {
+        ToolRig r(MachineType::ZX48K);
+        go_to(r.mem.get(), "8000");
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        via_dialog([&]() { menu.actions()[0]->trigger(); }, [](QDialog* d) {
+            d->findChildren<QLineEdit*>()[0]->setText("CD3");
+            d->accept();
+        });
+        check("QMPT-18", "a refused pattern in the Find dialog is reported and moves nothing",
+              r.built && r.last() == "Find: odd number of hex digits in 'CD3'" && r.mem->selected_address() == 0x8000,
+              s(r.last()));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -4486,6 +4977,7 @@ int main(int argc, char** argv) {
     test_annotations();
     test_disasm_columns();
     test_pc_hint();
+    test_memory_panel_tools();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

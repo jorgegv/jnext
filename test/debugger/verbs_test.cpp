@@ -51,6 +51,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/memory_panel.h"
 #include "debugger/mmu_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/stack_panel.h"
@@ -66,6 +67,8 @@
 #include <QApplication>
 #include <QBoxLayout>
 #include <QCheckBox>
+#include <QComboBox>
+#include <QDialog>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -4031,6 +4034,110 @@ static void test_tstates() {
     }
 }
 
+// ── QMPW — GH #370: the Memory panel's tool messages in the real window ─────────────────────
+//
+// Oracle: the issue (a find moves the Disassembly; every write is one backend poke) and the
+// debugger window's documented rewind wall (§4.2a: a debugger change is marked on the ring, so
+// Step Back across it is refused). The answers are the window's status bar, held like a refusal.
+static void test_memory_tools_window() {
+    set_group("QMPW");
+    using jnext::dbg::MemSpace;
+    namespace mt = jnext::dbg::memtools;
+    QTemporaryDir td;
+
+    // QMPW-01
+    {
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "a Find in the Memory panel selects the hit in the Disassembly and says so in the status bar";
+        if (!fx.ok) check("QMPW-01", desc, false, "fixture");
+        else {
+            fx.load(0x8100, {'J', 'N', 'E', 'X', 'T'});
+            fx.enable();
+            DebuggerWindow* dbg = fx.dbg();
+            dbg->memory_panel()->find(*mt::text_pattern("JNEXT", true, nullptr));
+            check("QMPW-01", desc,
+                  dbg->disasm_panel()->selected_address() == 0x8100 && status_of(dbg) == "Found at $8100",
+                  fmt("sel=%04X status='%s'", dbg->disasm_panel()->selected_address(), s(status_of(dbg)).c_str()));
+        }
+    }
+
+    // QMPW-02
+    {
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "a partial Load's message is in the status bar and survives a panel refresh (the hold)";
+        if (!fx.ok) check("QMPW-02", desc, false, "fixture");
+        else {
+            fx.enable();
+            DebuggerWindow* dbg = fx.dbg();
+            QFile f(td.path() + "/f.bin");
+            f.open(QIODevice::WriteOnly);
+            f.write(QByteArray(16, '\x5A'));
+            f.close();
+            dbg->memory_panel()->load_block(0x3FF8, std::nullopt, f.fileName());
+            const QString want = "Loaded 8 of 16 bytes at $3FF8 from f.bin: the rest is ROM, which is read-only";
+            const QString at_once = status_of(dbg);
+            dbg->refresh_panels();
+            check("QMPW-02", desc, at_once == want && status_of(dbg) == want,
+                  s(at_once) + " / " + s(status_of(dbg)));
+        }
+    }
+
+    // QMPW-03
+    {
+        // The same four steps, with and without a Memory panel Fill in the middle.
+        auto run = [&](bool fill) {
+            Fixture fx(MachineType::ZX48K, 10);
+            if (!fx.ok || !fx.emu.rewind_buffer()) return QString("<fixture>");
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            fx.mgr->on_step_into();
+            fx.mgr->on_step_into();
+            if (fill) fx.dbg()->memory_panel()->fill_block(0xC000, 16, {0xAA});
+            fx.mgr->on_step_into();
+            fx.mgr->on_step_into();
+            fx.mgr->on_step_back();
+            return status_of(fx.dbg());
+        };
+        const QString control = run(false), with_fill = run(true);
+        check("QMPW-03", "a Memory panel Fill marks the rewind ring: Step Back across it is refused, and is not without it",
+              !control.startsWith("Step Back refused") &&
+                  with_fill.startsWith("Step Back refused: it would undo a change you made from the debugger"),
+              s(control) + " / " + s(with_fill));
+    }
+
+    // QMPW-04
+    {
+        Fixture fx(MachineType::ZXN_ISSUE2, 0);
+        const char* desc = "a Find hit in a page no slot maps leaves the Disassembly where it was and says so";
+        if (!fx.ok) check("QMPW-04", desc, false, "fixture");
+        else {
+            fx.enable();
+            DebuggerWindow* dbg = fx.dbg();
+            const std::vector<uint8_t> p8{0xF1, 0x37, 0x0A, 0x5C, 0xE2, 0x9B, 0x44, 0xC6};
+            fx.backend->poke(jnext::dbg::CLIENT_NONE, MemSpace::page(0x30), 0x10, p8.size(), p8.data());
+            MemoryPanel* mem = dbg->memory_panel();
+            QTimer timer;                       // answers the "Page..." prompt
+            QObject::connect(&timer, &QTimer::timeout, [&]() {
+                auto* dlg = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                if (!dlg) return;
+                if (auto* e = dlg->findChild<QLineEdit*>()) e->setText("30");
+                dlg->accept();
+            });
+            timer.start(1);
+            mem->findChild<QComboBox*>()->setCurrentIndex(9);
+            timer.stop();
+            QApplication::processEvents();
+            const uint16_t before = dbg->disasm_panel()->selected_address();
+            mem->find(mt::Pattern{p8, std::vector<uint8_t>(8, 0xFF)});
+            check("QMPW-04", desc,
+                  dbg->disasm_panel()->selected_address() == before &&
+                      status_of(dbg) == "Found at offset $0010 of P30; not mapped in any slot, so the Disassembly does not move",
+                  s(status_of(dbg)));
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -4065,6 +4172,7 @@ int main(int argc, char** argv) {
     test_annotations_ui();
     test_reexport_ui();
     test_tstates();
+    test_memory_tools_window();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
