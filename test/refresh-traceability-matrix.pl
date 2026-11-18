@@ -1175,6 +1175,7 @@ my %NO_MATRIX_SECTION = (
     # here would make this document's content depend on the host's build
     # configuration, which a traceability record must not.
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
+    'tstate_counter_test'       => 'debugger CPU panel T-state counter start point and accumulate policy (host GUI, no VHDL oracle)',
     'quit_cleanup_test'         => 'host shutdown ordering (GUI lifecycle)',
     'toolbar_icons_test'        => 'toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md)',
     'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',

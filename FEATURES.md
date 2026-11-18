@@ -141,6 +141,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 
 ## Debugger
 - Separate debugger window with full panel layout
+- CPU panel T-state counter: T-states since the last stop, or accumulated across stops
 - Panels: CPU registers, disassembly, memory hex editor, MMU, stack, call stack
 - Memory panel physical-page view: `Slot 0-7` show the page mapped in the slot, `Page...` shows any NR page
 - Panels: video layers, sprites, copper, NextREG, audio, watches, breakpoints

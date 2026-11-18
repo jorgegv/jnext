@@ -1271,6 +1271,13 @@ target_compile_definitions(window_attach_test PRIVATE
     JNEXT_DEBUGGER_WINDOW_SRC="${CMAKE_SOURCE_DIR}/src/debugger/debugger_window.cpp")
 add_test(NAME window_attach_tests COMMAND window_attach_test)
 
+# Debugger CPU panel T-state counter (GH #369). Pure start-point / accumulate
+# policy (src/debugger/tstate_counter.h), header-only, no Qt: registered
+# unconditionally like window_attach_test.
+add_executable(tstate_counter_test debugger/tstate_counter_test.cpp)
+target_include_directories(tstate_counter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tstate_counter_tests COMMAND tstate_counter_test)
+
 # Pointer-capture motion policy (issue #37). Pure decision helper under test
 # (src/platform/pointer_capture.h) — no Qt, no SDL, so the logic the frontend
 # ships is reachable by CI even though its event handler is not.

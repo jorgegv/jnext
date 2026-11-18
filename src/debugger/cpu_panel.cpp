@@ -174,6 +174,37 @@ void CpuPanel::create_ui() {
     state_row->addStretch();
 
     top_layout->addLayout(state_row);
+
+    // === Rows 5-6: T-states since the last stop, and its Accumulate box (GH #369) ===
+    auto* tstates_row = new QHBoxLayout();
+    tstates_row->setSpacing(4);
+
+    auto* tstates_lbl = new QLabel("T-states: ", this);
+    tstates_lbl->setFont(mono_bold);
+    tstates_row->addWidget(tstates_lbl);
+
+    tstates_value_ = new QLabel("0", this);
+    tstates_value_->setFont(mono);
+    tstates_row->addWidget(tstates_value_);
+
+    tstates_row->addStretch();
+    top_layout->addLayout(tstates_row);
+
+    // The check box has its own line: beside a 12-digit value it needs 271 px
+    // and the panel is capped at 260 (QPN-CPU-05).
+    auto* accumulate_row = new QHBoxLayout();
+    tstates_accumulate_ = new QCheckBox(tr("Accumulate"), this);
+    tstates_accumulate_->setToolTip(
+        tr("Add up the T-states across stops instead of counting from the last one"));
+    accumulate_row->addWidget(tstates_accumulate_);
+    accumulate_row->addStretch();
+    // Straight to the counter: no refresh() and no manager, so no redraw count moves.
+    connect(tstates_accumulate_, &QCheckBox::toggled, this, [this](bool on) {
+        tstates_.set_accumulate(on);
+        tstates_value_->setText(QString::number(tstates_.value()));
+    });
+
+    top_layout->addLayout(accumulate_row);
     top_layout->addStretch();
 
     setMinimumWidth(200);
@@ -194,9 +225,19 @@ void CpuPanel::paintEvent(QPaintEvent* event) {
     }
 }
 
+void CpuPanel::restart_tstate_count() {
+    if (!dbg_) return;
+    tstates_.restart(dbg_->time().tstates_total, dbg_->time_epoch());
+    tstates_value_->setText(QString::number(tstates_.value()));
+}
+
 void CpuPanel::refresh() {
     if (!dbg_) return;
     if (!paused_) return;
+
+    // GH #369: a paused observation is a stop.
+    tstates_.observe(dbg_->time().tstates_total, dbg_->time_epoch());   // INS-07
+    tstates_value_->setText(QString::number(tstates_.value()));
 
     const Z80Registers regs = dbg_->registers();   // INS-01
 

@@ -1,4 +1,5 @@
 #include "core/emulator.h"
+#include <atomic>
 #include "debug/ram_page.h"
 #include "debug/event_table.h"
 #include "save/state_desc.h"
@@ -171,9 +172,16 @@ void fold_journal_into_key(const sd_write_journal::Journal& j,
 
 }  // namespace
 
+void Emulator::bump_time_epoch_()
+{
+    static std::atomic<uint64_t> next{1};
+    time_epoch_ = next.fetch_add(1, std::memory_order_relaxed);
+}
+
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    if (!preserve_memory) bump_time_epoch_();   // GH #369: a hard init restarts the clock's story
     // A recording in progress belongs to the configuration it began under: an
     // in-place init() (a reset, a machine change) must not let it finish under
     // the new one's key.
@@ -14751,6 +14759,10 @@ void Emulator::close_fast_boot_(const char* reason)
 
 bool Emulator::load_state(StateReader& r)
 {
+    // GH #369: FIRST, not after the clock fields: a restore that fails at a
+    // sentinel returns with the machine partly written (its time included), and
+    // the epoch must have moved on that path too.
+    bump_time_epoch_();
     poll_stop_();   // GH #496: time may have moved; a watched pass belongs to the timeline being left
     tape_poll_.reset();   // GH #395: time may have moved backwards
     // GH #408 - and so may the fast-load window: it was opened by a block
