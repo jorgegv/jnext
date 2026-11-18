@@ -306,19 +306,29 @@ static std::string enc_hex(const CFormatCtx& ctx, const char* chain, const char*
     return e.ok ? hex_of(e.bytes) : "!" + e.why;
 }
 
-int main() {
-    Loaded sc("master/sccz80-cvars");
-    Loaded sd("master/sdcc-cvars");
-    Loaded cc("master/80cc-cvars");
+struct Rec4 { uint32_t off; int line, level, block; };
+
+struct Var4 { const char* name; int level, block, off; };
+
+struct Sc3 { int line, level, block; };
+
+// The state the parts of main() share: the three loaded maps and the formatting contexts built on them.
+struct Ctx {
+    Loaded sc{"master/sccz80-cvars"};
+    Loaded sd{"master/sdcc-cvars"};
+    Loaded cc{"master/80cc-cvars"};
     CFormatCtx plain;   // no machine, no store
     CFormatCtx csc;     // sccz80's store: types from types.h
-    csc.store = sc.store.get();
-    csc.scope_name = "vars.c";
-    csc.module = "vars_c";
     CFormatCtx csd;     // zsdcc's store: each module has its own copy
-    csd.store = sd.store.get();
-    csd.scope_name = "vars";
-    csd.module = "vars_c";
+};
+
+[[gnu::noinline]] static void cvalue_part_01(Ctx& ctx) {
+    auto& cc = ctx.cc;
+    auto& csc = ctx.csc;
+    auto& csd = ctx.csd;
+    auto& plain = ctx.plain;
+    auto& sc = ctx.sc;
+    auto& sd = ctx.sd;
 
     // ── CVALF-01..04: z88dk's 48-bit float ─────────────────────────────────────
     // Oracle: the bytes z88dk compiled for floats.c (v2.4 and master sccz80: the same six).
@@ -733,6 +743,14 @@ int main() {
         check("CVALF-28c", "nested blocks: the level-3 scope (3,3) sees v3, its level-2 parent's v2 and v1; the level-2 scope sees v2 and v1 but not v3",
               names(c_visible_locals(st, 0, &sc[3])) == "v1 v2 v3" && names(c_visible_locals(st, 0, &sc[2])) == "v1 v2");
     }
+}
+
+[[gnu::noinline]] static void cvalue_part_02(Ctx& ctx) {
+    auto& csc = ctx.csc;
+    auto& plain = ctx.plain;
+    auto& sc = ctx.sc;
+    auto& sd = ctx.sd;
+
     {
         // ffast(x) __z88dk_fastcall: sccz80 `x` is B,1,4 at level 0, 80cc's `x` B,1,-2 at level 0 (OD-14's correct record), zsdcc's `x` is the register
         // [l,h] at level 1 in a block (0) below the body's (7)
@@ -1152,6 +1170,14 @@ int main() {
                   a.items[1].loc.addr == 0xB002 && a.items[2].suffix == "->tag" && a.items[2].loc.addr == 0xB004 && !n.ok && n.why == "null pointer" &&
                   n.items.empty() && n.total == 0);
     }
+}
+
+[[gnu::noinline]] static void cvalue_part_03(Ctx& ctx) {
+    auto& csc = ctx.csc;
+    auto& csd = ctx.csd;
+    auto& sc = ctx.sc;
+    auto& sd = ctx.sd;
+
     {
         Mem mem;
         mem.put(0xA000, {0x00, 0xB0});   // int *p = $B000
@@ -1351,6 +1377,9 @@ int main() {
                   has(big, "8-byte integer does not fit the script's 32 bits") && u2.why == "bitfield layout unknown (z88dk U2)" && !u2.ok &&
                   has(none, "no integer value was read"));
     }
+}
+
+[[gnu::noinline]] static void cvalue_part_04(Ctx&) {
 
     // ── CVW-01..12 (GH #437): the bytes a written value stores (c_encode_value) ────────────────────────────
     // Oracles: the C types' ranges and little-endian layout (as the reader), the bytes z88dk compiled for floats.c (sccz80's
@@ -1574,6 +1603,9 @@ int main() {
                   bits_text("master/sdcc-bits", "bits", "g_one", {0x0D}) == "{s = -3}" &&
                   bits_text("master/sccz80-bits", "bits.c", "g_one", {0x0D}) == "!member 's' lies beyond the object");
     }
+}
+
+[[gnu::noinline]] static void cvalue_part_05(Ctx&) {
     {   // CVZB-10
         // the (struct tag, member) pairs of the store whose member read through c_eval_path carries the U2 note
         const auto u2_members = [](const char* fixture) {
@@ -1879,6 +1911,9 @@ int main() {
               at(10) == "p t" && at(24) == "i t" && at(30) == "i k t" && at(40) == "i t" && at(50) == "t" && at(55) == "t u" && zrow == "q " && srow == "p " && prow == "t i ",
               at(10) + " | " + at(24) + " | " + at(30) + " | " + at(40) + " | " + at(55) + " | z=" + zrow + " s=" + srow + " p=" + prow);
     }
+}
+
+[[gnu::noinline]] static void cvalue_part_06(Ctx&) {
 
     {   // CVZB-14
         // The records sccz80 writes once a `for` opens a block (z88dk#3254, PR #3258; sccz80 built at upstream 96c0efaddd from issue_3254.t's program and a second program): the `for`
@@ -1995,9 +2030,6 @@ int main() {
     }
 
     // ── GH #438 S4a: 80cc's PR #3243 block records read three-valued, with the listing's scopes ─────────────
-    struct Rec4 { uint32_t off; int line, level, block; };
-    struct Var4 { const char* name; int level, block, off; };
-    struct Sc3 { int line, level, block; };
     // The rows of one function: the listing's scopes in order (the flag `scopes_from_listing` set), `name?` for a local flagged `scope unknown`, a hidden local absent
     const auto cc80_rows = [](const std::vector<Rec4>& trail, const std::vector<Var4>& vars, const std::vector<Sc3>& scopes, bool* plain_block = nullptr, bool* bad_pick = nullptr) {
         std::vector<CVariable> vs;
@@ -2257,6 +2289,9 @@ int main() {
                         "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
               bad.empty(), bad);
     }
+}
+
+[[gnu::noinline]] static void cvalue_part_07(Ctx&) {
     {
         const std::string bad = fp_build_problems("nightly/sccz80-zx-genmath", 0, 128, 5, 6);
         check("CVFMT-02", "fpfmt.c built by sccz80 +zx --genmath (z88dk nightly 20261107): the map records mode 0, bias 128, mantissa 5; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
@@ -2493,6 +2528,9 @@ int main() {
                           "they keep the size / library rule; the same fpfmt.c built by 2.4 reads f1 and farr by size and refuses *pf (the size of the pointed-to type is not known)",
               maps >= 100 && clean == maps && fp24, std::to_string(maps) + " maps, " + std::to_string(clean) + " clean:" + bad + " | 2.4: " + fp24why);
     }
+}
+
+[[gnu::noinline]] static void cvalue_part_08(Ctx&) {
     {   // CVFMT-23: the z88 integer form
         const FpCtx z4(5, 127, 4), z3(5, 127, 3);
         const std::string two = text_of(z4.ctx, "{6}SF:S", {0x00, 0x02, 0x00, 0x00, 0x00, 0x00});
@@ -2761,6 +2799,26 @@ int main() {
                           "format and an int; the three-argument overload still reads by size (48-bit -3.25, binary32 1.5)",
               per_mode && none && o48 && *o48 == -3.25 && o32 && *o32 == 1.5);
     }
+}
+
+// main() is split into noinline parts: under a WebAssembly engine one function is compiled whole,
+// and one long main() costs gigabytes of compile memory (test/wasm-function-size.pl bounds it).
+int main() {
+    Ctx ctx;
+    ctx.csc.store = ctx.sc.store.get();
+    ctx.csc.scope_name = "vars.c";
+    ctx.csc.module = "vars_c";
+    ctx.csd.store = ctx.sd.store.get();
+    ctx.csd.scope_name = "vars";
+    ctx.csd.module = "vars_c";
+    cvalue_part_01(ctx);
+    cvalue_part_02(ctx);
+    cvalue_part_03(ctx);
+    cvalue_part_04(ctx);
+    cvalue_part_05(ctx);
+    cvalue_part_06(ctx);
+    cvalue_part_07(ctx);
+    cvalue_part_08(ctx);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;

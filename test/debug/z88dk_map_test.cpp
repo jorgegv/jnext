@@ -266,17 +266,21 @@ static size_t locals_of(const VariableStore& s, const CFunction* f) {
     return n;
 }
 
-int main() {
-    std::printf("z88dk -debug map adapter\n");
+// The state the parts of main() share: the scratch directory and the sccz80 v2.4 map every row
+// compares with, plus the two cvars map paths later parts read.
+struct Ctx {
+    fs::path dir;
+    SourceMap sc;
+    fs::path sc_cvars;
+    fs::path sd_cvars;
+};
 
-    const fs::path dir = fs::temp_directory_path() / ("jnext-z88dk-map-" + std::to_string(::getpid()));
-    fs::remove_all(dir);
-    fs::create_directories(dir);
-
+[[gnu::noinline]] static void z88map_part_01(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    auto& sc = ctx.sc;
     const fs::path v24 = kFixtures / "v2.4";
     const fs::path master = kFixtures / "master";
     const std::function<std::optional<uint16_t>(int)> no_head = [](int) { return std::nullopt; };
-
     auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
         return load_z88dk_source_map(m, map.string(), space);
     };
@@ -287,7 +291,6 @@ int main() {
     };
 
     // ── Z88MAP-01..07: v2.4 sccz80, the program every other row compares with ──
-    SourceMap sc;
     const auto sc_r = load(sc, v24 / "sccz80-debug" / "prog.map");
     check("Z88MAP-01", "main.c:19 starts at $8CB5 in page 4 (__C_LINE_19 = $8CB5, prog_CODE.bin at bank 2)",
           sc_r && starts_are(sc.resolve("main.c:19"), {{P4, 0x8CB5}}) && sc.resolve("main.c:19").error.empty() &&
@@ -502,6 +505,21 @@ int main() {
                   rf && mf.lookup(P20, 0x8100) && !mf.verify_program(logical_junk, all22).has_value() &&
                   rs && smc_intact && smc_patched_ok && smc_code_bad && bins_refused);
     }
+}
+
+[[gnu::noinline]] static void z88map_part_02(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    auto& sc = ctx.sc;
+    const fs::path v24 = kFixtures / "v2.4";
+    const fs::path master = kFixtures / "master";
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
 
     // ── Z88MAP-15: the symbol half is the symbol loader's ──
     {
@@ -682,6 +700,25 @@ int main() {
         check("Z88MAP-26", "a refused load leaves the previous store and its file name",
               !bad && m.size() == 46 && m.loaded_file() == before && is_at(m.lookup(P4, 0x8CB8), "main.c", 19));
     }
+}
+
+[[gnu::noinline]] static void z88map_part_03(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    const fs::path v24 = kFixtures / "v2.4";
+    const fs::path master = kFixtures / "master";
+    const std::function<std::optional<uint16_t>(int)> no_head = [](int) { return std::nullopt; };
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
+    const auto block_line = [](const char* section, uint64_t head, const char* block) {
+        return rec(("__" + std::string(section) + "_head").c_str(), head, "", block, "", "const");
+    };
+
     {
         const fs::path huge = dir / "huge.map";
         write_text(huge, "_x = $9000 ; addr, public, , m, code, a.c:1\n");
@@ -798,9 +835,6 @@ int main() {
     // / `_H`), and the map lines z80asm writes since z88dk#3197, in the shape of a real
     // user memory map (next-point's mmap.inc: BANK_8_CODE at $100000, PAGE_95_CONST at
     // $5FC000, BANK_0_DATA_USER at $E000).
-    const auto block_line = [](const char* section, uint64_t head, const char* block) {
-        return rec(("__" + std::string(section) + "_head").c_str(), head, "", block, "", "const");
-    };
     {
         Z88dkBlocks blocks;
         for (const std::string& l : {block_line("BANK_8_CODE", 0x100000, "BANK_8_CODE"),
@@ -1065,6 +1099,17 @@ int main() {
                       !t.lookup(MemSpace::page(40), 0x8000) && !t.lookup(MemSpace::cpu(), 0x8000));
         }
     }
+}
+
+[[gnu::noinline]] static void z88map_part_04(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    const fs::path v24 = kFixtures / "v2.4";
+    const fs::path master = kFixtures / "master";
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
 
     // ── Z88CN-*: C names for z88dk C symbols, GH #424 stage 1 (design 10.6) ────
     // Oracle: zcc heads each file with `MODULE <file, non-alnum -> _>` (zcc.c) and its
@@ -1397,6 +1442,20 @@ int main() {
                       shown(two.lookup(MemSpace::cpu(), 0x9000), "first"));
         }
     }
+}
+
+[[gnu::noinline]] static void z88map_part_05(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    const fs::path v24 = kFixtures / "v2.4";
+    const fs::path master = kFixtures / "master";
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
 
     // ── Z88MAP-30 (GH #348): line 0 is z80asm's file-entry marker, no code ──
     {
@@ -1658,8 +1717,6 @@ int main() {
         }
     }
 
-
-
     {
         // The BOM (owner decision 2026-11-01, GH #427): the symbol loaders skip one at the very
         // start of the file, as the SLD loader does, so the first symbol is not renamed by it.
@@ -1708,7 +1765,6 @@ int main() {
               n2 >= 19 && !two.lookup_name("_first") && two.lookup_name("_main") == 0x8C92);
     }
 
-
     {
         // GH #427 stage 2b round 2: the --map loader skips one BOM, not several; the Simple and
         // NextBuild formats skip the one.
@@ -1738,13 +1794,29 @@ int main() {
         check("MAPBOM-06", "load_nextbuild_memory() skips a UTF-8 BOM: the first line's label is not dropped",
               nn == 2 && nb.lookup(jnext::dbg::MemSpace::cpu(), 0xACB5) == std::optional<std::string>("FillScreen"));
     }
+}
+
+[[gnu::noinline]] static void z88map_part_06(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    auto& sc_cvars = ctx.sc_cvars;
+    auto& sd_cvars = ctx.sd_cvars;
+    const fs::path v24 = kFixtures / "v2.4";
+    const fs::path master = kFixtures / "master";
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
 
     // ── Z88CDB-01..26 (GH #433, E353-03): the C variable store the adapter fills from the
     // __CDBINFO__ records. Oracle: the committed fixtures (their README "C variables" section and
     // the maps themselves), the writers cited in doc/developer-guide 7.9, and the decoder's own
     // refusals (cdb_record.h). ──
-    const fs::path sc_cvars = master / "sccz80-cvars" / "prog.map";
-    const fs::path sd_cvars = master / "sdcc-cvars" / "prog.map";
+    ctx.sc_cvars = master / "sccz80-cvars" / "prog.map";
+    ctx.sd_cvars = master / "sdcc-cvars" / "prog.map";
     const fs::path cc_cvars = master / "80cc-cvars" / "prog.map";
     SourceMap m_sc, m_sd, m_cc;
     const auto r_sc = load(m_sc, sc_cvars);
@@ -2163,9 +2235,21 @@ int main() {
               enumerators > 0 && untouched && twin && zmain && zmain->record.hidden == CdbHidden::Function &&
                   !zmain->storage.resolved && zmain->storage.symbol.empty());
     }
+}
 
-    // ── Z88CDB-27..40 (GH #433 review 1): the branches the first 26 rows left one-sided. Every
-    // synthetic map is a committed one with lines added or edited in memory (never a fixture edit).
+[[gnu::noinline]] static void z88map_part_07(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    auto& sc_cvars = ctx.sc_cvars;
+    auto& sd_cvars = ctx.sd_cvars;
+    const fs::path master = kFixtures / "master";
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
     const auto sym_line = [](const char* name, const char* value, const char* scope, const char* module,
                              const char* section, const char* loc = "vars.c:1") {
         return std::string(name) + " = $" + value + " ; addr, " + scope + ", , " + module + ", " + section + ", " + loc;
@@ -2177,6 +2261,9 @@ int main() {
         for (const auto& e : extra) lines.push_back(e);
         return lines;
     };
+
+    // ── Z88CDB-27..40 (GH #433 review 1): the branches the first 26 rows left one-sided. Every
+    // synthetic map is a committed one with lines added or edited in memory (never a fixture edit).
     {
         SourceMap m;
         const auto r = load(m, synth("z88cdb27.map", join_lines(plus(map_lines(sc_cvars),
@@ -2645,11 +2732,18 @@ main fc_c 8C96
               n == 12 && bad.empty());
         if (!bad.empty()) std::printf("  Z88CDB-40 differs:%s\n", bad.c_str());
     }
+}
 
-
-    // ── GH #434 stage 1: extents (F-A), the frame helpers, the listing evidence, the no-records facts ──
-    // The extents golden is the output of `derive-scopes.py --extents` (raw map lines only); re-derive it
-    // with that script when a fixture is regenerated, never paste this suite's output.
+[[gnu::noinline]] static void z88map_part_08(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
     const auto extent_text = [](const VariableStore& s) {
         std::vector<const CFunction*> fns;
         for (const CFunction& f : s.functions())
@@ -2672,6 +2766,18 @@ main fc_c 8C96
         }
         return got;
     };
+    const auto banner_of = [](const fs::path& lis) {
+        std::ifstream in(lis);
+        std::string head((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        head.resize(std::min<size_t>(head.size(), 4000));
+        return head.find("80cc z88dk") != std::string::npos        ? jnext::dbg::CCompiler::Cc80
+               : head.find("Small-C/Plus") != std::string::npos ? jnext::dbg::CCompiler::Sccz80
+                                                                 : jnext::dbg::CCompiler::Zsdcc;
+    };
+
+    // ── GH #434 stage 1: extents (F-A), the frame helpers, the listing evidence, the no-records facts ──
+    // The extents golden is the output of `derive-scopes.py --extents` (raw map lines only); re-derive it
+    // with that script when a fixture is regenerated, never paste this suite's output.
     {
         static const struct { const char* map; const char* golden; } kExtentGolden[] = {
         {"master/sccz80-cvars", R"GOLD(main vars_c 8D54
@@ -2975,14 +3081,6 @@ main cross_c AC97
     // ── GH #438: what the map says of the compiler, the unsized arrays, the float library and the fastcall records ──
     // Oracle: the listing banners z88dk wrote beside each map (80cc, sccz80, zsdcc), the C sources (fm.c, fl.c, xm.c) and the
     // fixtures' own record text.
-    const auto banner_of = [](const fs::path& lis) {
-        std::ifstream in(lis);
-        std::string head((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        head.resize(std::min<size_t>(head.size(), 4000));
-        return head.find("80cc z88dk") != std::string::npos        ? jnext::dbg::CCompiler::Cc80
-               : head.find("Small-C/Plus") != std::string::npos ? jnext::dbg::CCompiler::Sccz80
-                                                                 : jnext::dbg::CCompiler::Zsdcc;
-    };
     {   // Z88ZB-01
         int modules = 0, bad = 0, c80 = 0, scc = 0, zs = 0;
         for (const char* root : {"v2.4", "v2.4-dotn", "master", "master-fixed"})
@@ -3025,8 +3123,18 @@ main cross_c AC97
                           "Sccz80 iff `Small-C/Plus`, else Zsdcc (the banners are the oracle; the module count is pinned from the tree)",
               bad == 0 && modules == 115 && c80 > 0 && scc > 0 && zs > 0);
     }
+}
 
-    // the records named `name` (its C name): "<count><h if hidden>" in store order
+[[gnu::noinline]] static void z88map_part_09(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
     const auto arr_records = [](const VariableStore& st, const char* name) {
         std::string out;
         for (const CVariable& v : st.variables()) {
@@ -3036,7 +3144,6 @@ main cross_c AC97
         }
         return out;
     };
-    // GH #438 mutation pins: a minimal synthetic map (module t_c: functions f and g, one line record) plus the given extra map lines and records
     const auto zb_map = [&](const char* name, const std::string& extra) {
         const std::string text =
             std::string("_f = $8000 ; addr, public, , t_c, code_compiler, t.c::f::0::0:1\n_g = $8010 ; addr, public, , t_c, code_compiler, t.c::g::0::0:2\n") +
@@ -3048,6 +3155,9 @@ main cross_c AC97
     const auto zb_cdb = [](const std::string& rec_text, const char* module = "t_c") {
         return "__CDBINFO__" + cdb_escape(rec_text) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
     };
+
+    // the records named `name` (its C name): "<count><h if hidden>" in store order
+    // GH #438 mutation pins: a minimal synthetic map (module t_c: functions f and g, one line record) plus the given extra map lines and records
     {   // Z88ZB-03
         const auto all4 = [&](const char* fx) {
             SourceMap m;
@@ -3401,6 +3511,44 @@ main cross_c AC97
         check("Z88ZB-12", "master-fixed-80cc f3254.c: with the listing beside the map f's scope table holds every C_LINE occurrence (at +$75 L10 4/3, at +$58 L10 4/3, +$51 L13 1/1, +$92 L12 2/1); with Z88dkListings::None the flag is off and +$75 resolves to L13 (1/1), the map's one symbol per scope; the pre-#3243 master/80cc-cvars, listings beside it, has no function with the flag",
               ok);
     }
+}
+
+[[gnu::noinline]] static void z88map_part_10(Ctx& ctx) {
+    auto& dir = ctx.dir;
+    auto& sc_cvars = ctx.sc_cvars;
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
+    const auto block_line = [](const char* section, uint64_t head, const char* block) {
+        return rec(("__" + std::string(section) + "_head").c_str(), head, "", block, "", "const");
+    };
+    const auto sym_line = [](const char* name, const char* value, const char* scope, const char* module,
+                             const char* section, const char* loc = "vars.c:1") {
+        return std::string(name) + " = $" + value + " ; addr, " + scope + ", , " + module + ", " + section + ", " + loc;
+    };
+    const auto cdb_line = [](const std::string& text, const char* module) {
+        return "__CDBINFO__" + cdb_escape(text) + " = $0001 ; const, public, , " + module + ", code_compiler, x.c:1";
+    };
+    const auto plus = [](std::vector<std::string> lines, std::initializer_list<std::string> extra) {
+        for (const auto& e : extra) lines.push_back(e);
+        return lines;
+    };
+    const auto zb_map = [&](const char* name, const std::string& extra) {
+        const std::string text =
+            std::string("_f = $8000 ; addr, public, , t_c, code_compiler, t.c::f::0::0:1\n_g = $8010 ; addr, public, , t_c, code_compiler, t.c::g::0::0:2\n") +
+            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::f::0::0:1\n__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+            "__CDBINFO__" + cdb_escape("F:G$f$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n" +
+            "__CDBINFO__" + cdb_escape("F:G$g$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n" + extra;
+        return synth(name, text);
+    };
+    const auto zb_cdb = [](const std::string& rec_text, const char* module = "t_c") {
+        return "__CDBINFO__" + cdb_escape(rec_text) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
 
     {   // Z88ZB-13
         // The last C_LINE directive before a byte row owns it (z80asm puts the earlier ones on the same address; here a block opens and a statement follows with no code between). A synthetic 80cc
@@ -3725,8 +3873,29 @@ main cross_c AC97
         check("ROMMAP-04", "every NAME = $ADDR line of data/48rom.map resolves by name to its own address: 395 lines, none shadowed by an equal name",
               lines == 395 && wrong == 0);
     }
+}
 
-    fs::remove_all(dir);
+// main() is split into noinline parts: under a WebAssembly engine one function is compiled whole,
+// and one long main() costs gigabytes of compile memory (test/wasm-function-size.pl bounds it).
+int main() {
+    std::printf("z88dk -debug map adapter\n");
+
+    Ctx ctx;
+    ctx.dir = fs::temp_directory_path() / ("jnext-z88dk-map-" + std::to_string(::getpid()));
+    fs::remove_all(ctx.dir);
+    fs::create_directories(ctx.dir);
+    z88map_part_01(ctx);
+    z88map_part_02(ctx);
+    z88map_part_03(ctx);
+    z88map_part_04(ctx);
+    z88map_part_05(ctx);
+    z88map_part_06(ctx);
+    z88map_part_07(ctx);
+    z88map_part_08(ctx);
+    z88map_part_09(ctx);
+    z88map_part_10(ctx);
+
+    fs::remove_all(ctx.dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

@@ -873,45 +873,13 @@ std::string json_with(const std::string& src, const char* key,
 
 // ═════════════════════════════════════════════════════════════════════════
 
-int main(int argc, char** argv) {
-    std::string emit_dir;
-    for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--emit-corpus") == 0 && i + 1 < argc) {
-            emit_dir = argv[++i];
-        } else if (std::strcmp(argv[i], "--extract-golden") == 0 &&
-                   i + 2 < argc) {
-            // §17.1, as a tool rather than a shell pipeline: capture the
-            // pre-migration state stream from a warm-start cache so S3-S5 can
-            // `cmp` against it after every migrated subsystem. The JNSG
-            // rows below cover this exact code path.
-            const std::string in_path  = argv[i + 1];
-            const std::string out_path = argv[i + 2];
-            std::ifstream is(in_path, std::ios::binary);
-            if (!is) {
-                std::fprintf(stderr, "cannot read %s\n", in_path.c_str());
-                return 2;
-            }
-            std::vector<uint8_t> file((std::istreambuf_iterator<char>(is)),
-                                      std::istreambuf_iterator<char>());
-            std::vector<uint8_t> stream;
-            std::string why;
-            if (!s2::extract_warm_start(file, stream, why)) {
-                std::fprintf(stderr, "%s: %s\n", in_path.c_str(), why.c_str());
-                return 2;
-            }
-            std::ofstream os(out_path, std::ios::binary | std::ios::trunc);
-            os.write(reinterpret_cast<const char*>(stream.data()),
-                     static_cast<std::streamsize>(stream.size()));
-            if (!os.good()) {
-                std::fprintf(stderr, "cannot write %s\n", out_path.c_str());
-                return 2;
-            }
-            std::printf("%zu bytes -> %s\n", stream.size(), out_path.c_str());
-            return 0;
-        }
-    }
-
+// The state the parts of main() share: the one scratch string every row hands the readers.
+struct Ctx {
     std::string why;
+};
+
+[[gnu::noinline]] static void snapshot_part_01(Ctx& ctx) {
+    auto& why = ctx.why;
 
     // ─────────────────────────────────────────────────────────────────────
     // JNSC — the ZIP container
@@ -1692,6 +1660,10 @@ int main(int argc, char** argv) {
               "refused, naming the member",
               refused_naming("JNSC-REF-30", opened, why, "disk 1"), why);
     }
+}
+
+[[gnu::noinline]] static void snapshot_part_02(Ctx& ctx) {
+    auto& why = ctx.why;
 
     {
         // A file exactly one byte short of an EOCD. The short-file guard is
@@ -2394,6 +2366,11 @@ int main(int argc, char** argv) {
               det("%zu of %zu produced a verdict; first bad: %s", verdicts, n,
                   first_bad.c_str()));
     }
+}
+
+[[gnu::noinline]] static void snapshot_part_03(Ctx& ctx) {
+    auto& why = ctx.why;
+
     {
         // §6.2's bound on `partition_lba`, asserted on the READ side and in
         // BOTH directions.
@@ -3131,6 +3108,10 @@ int main(int argc, char** argv) {
                               [](uint8_t b) { return b == 0xA5; }),
               det("read=%d n=%zu", read, blob.size()));
     }
+}
+
+[[gnu::noinline]] static void snapshot_part_04(Ctx& ctx) {
+    auto& why = ctx.why;
 
     // ─────────────────────────────────────────────────────────────────────
     // JNSI — the SD identity (§11.3)
@@ -3479,7 +3460,6 @@ int main(int argc, char** argv) {
                   v.reconfigure_to.c_str()));
     }
 
-
     // ─────────────────────────────────────────────────────────────────────
     // JNSD — one declaration, three realisations (§9.2)
     // ─────────────────────────────────────────────────────────────────────
@@ -3684,7 +3664,6 @@ int main(int argc, char** argv) {
                       bd2.failure() ? bd2.failure() : ""));
         }
 
-
         // `save_via_desc` / `load_via_desc` are the ONE place the write
         // direction's `const_cast` lives (state_desc_bin.h). S3-S5's ~34 call
         // sites go through them, so they are exercised here rather than
@@ -3864,6 +3843,9 @@ int main(int argc, char** argv) {
                   doc.find("\"enabled\"") < doc.find("\"entry_points\""),
               "");
     }
+}
+
+[[gnu::noinline]] static void snapshot_part_05(Ctx&) {
 
     // ─────────────────────────────────────────────────────────────────────
     // JNSE — the §6.2 encoding table, entry by entry
@@ -4582,6 +4564,10 @@ int main(int argc, char** argv) {
                       msg_to_keys.size(), cases.size(), offender.c_str()));
         }
     }
+}
+
+[[gnu::noinline]] static void snapshot_part_06(Ctx& ctx) {
+    auto& why = ctx.why;
 
     // ── GH #289: a DECLARATION's own refusal must reach the caller ───────
     //
@@ -5475,6 +5461,55 @@ int main(int argc, char** argv) {
                       d.undefaulted() == 3);
         }
     }
+}
+
+// main() is split into noinline parts: under a WebAssembly engine one function is compiled whole,
+// and one long main() costs gigabytes of compile memory (test/wasm-function-size.pl bounds it).
+int main(int argc, char** argv) {
+    std::string emit_dir;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--emit-corpus") == 0 && i + 1 < argc) {
+            emit_dir = argv[++i];
+        } else if (std::strcmp(argv[i], "--extract-golden") == 0 &&
+                   i + 2 < argc) {
+            // §17.1, as a tool rather than a shell pipeline: capture the
+            // pre-migration state stream from a warm-start cache so S3-S5 can
+            // `cmp` against it after every migrated subsystem. The JNSG
+            // rows below cover this exact code path.
+            const std::string in_path  = argv[i + 1];
+            const std::string out_path = argv[i + 2];
+            std::ifstream is(in_path, std::ios::binary);
+            if (!is) {
+                std::fprintf(stderr, "cannot read %s\n", in_path.c_str());
+                return 2;
+            }
+            std::vector<uint8_t> file((std::istreambuf_iterator<char>(is)),
+                                      std::istreambuf_iterator<char>());
+            std::vector<uint8_t> stream;
+            std::string why;
+            if (!s2::extract_warm_start(file, stream, why)) {
+                std::fprintf(stderr, "%s: %s\n", in_path.c_str(), why.c_str());
+                return 2;
+            }
+            std::ofstream os(out_path, std::ios::binary | std::ios::trunc);
+            os.write(reinterpret_cast<const char*>(stream.data()),
+                     static_cast<std::streamsize>(stream.size()));
+            if (!os.good()) {
+                std::fprintf(stderr, "cannot write %s\n", out_path.c_str());
+                return 2;
+            }
+            std::printf("%zu bytes -> %s\n", stream.size(), out_path.c_str());
+            return 0;
+        }
+    }
+
+    Ctx ctx;
+    snapshot_part_01(ctx);
+    snapshot_part_02(ctx);
+    snapshot_part_03(ctx);
+    snapshot_part_04(ctx);
+    snapshot_part_05(ctx);
+    snapshot_part_06(ctx);
 
     // ── Emit the corpus for the external ZIP readers ─────────────────────
     if (!emit_dir.empty()) {
