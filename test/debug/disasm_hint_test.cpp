@@ -776,6 +776,11 @@ static Row folw_returns() {
         w.m[0xFFFF] = 0x34; w.m[0x0000] = 0x12;
         Z80Registers r = regs(); r.SP = 0xFFFF;
         row.need(is_code(fol(r, 0x8000, w), 0x1234), "return wrap " + hx(c.back()));
+        // the return address is a DATA read: the code image holds nothing at SP
+        Img code_only; for (size_t k = 0; k < c.size(); ++k) code_only.m[0x8000 + k] = c[k];
+        Img data_only; data_only.put(0xA000, {0x34, 0x12});
+        row.need(is_code(follow_target(regs(), 0x8000, reader(code_only), reader(data_only)), 0x1234),
+                 "return " + hx(c.back()) + " reads its address through `data`");
     }
     return row;
 }

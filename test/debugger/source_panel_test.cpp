@@ -8087,6 +8087,32 @@ void test_source_follow_nav() {
                   w.sp->shown_file() == "main.bas",
               fmt_row("requests=%d back=%d fwd=%d", requests, w.sp->can_go_back(), w.sp->can_go_forward()));
     }
+    {   // QSRCN-05: the window's Follow acts on the Source tab with the focus in its text, else on the Disassembly
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        QAction* follow = nullptr;
+        for (QAction* a : fx.dbg()->findChildren<QAction*>())
+            if (a->text() == QLatin1String("Follow")) follow = a;
+        w.src_move(11);
+        w.ed->setFocus(Qt::OtherFocusReason);
+        if (follow) follow->trigger();
+        w.tick();
+        const bool in_source = w.sp->shown_file() == "sub.bas" && w.dp->selected_address() != 0x9000;
+        // the same action with the focus out of the text goes to the Disassembly
+        w.sp->go_back();
+        w.tick();
+        w.dp->setFocus(Qt::OtherFocusReason);
+        w.dp->show_address(0x8002);
+        if (follow) follow->trigger();
+        const bool in_disasm = w.dp->selected_address() == 0x9000;
+        check("QSRCN-05", "the window's Follow action goes to the Source tab when the focus is in its text and to the "
+                          "Disassembly otherwise",
+              follow && in_source && in_disasm,
+              fmt_row("action=%d in_source=%d in_disasm=%d", follow != nullptr, in_source, in_disasm));
+    }
 }
 
 int main(int argc, char** argv) {

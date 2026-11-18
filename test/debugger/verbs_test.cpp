@@ -4240,7 +4240,6 @@ static void test_nav_window() {
             QApplication::processEvents();
             DisasmPanel* dis = fx.dbg()->disasm_panel();
             dis->show_address(0x2000);   // somewhere else (a recorded jump of its own)
-            fx.tick();
             const uint16_t before = dis->view_address();
             QLabel* pc = window_reg_label(fx, "PC: ");
             if (pc) {
