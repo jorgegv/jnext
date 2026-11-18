@@ -2582,8 +2582,8 @@ int main()
                 emulator_service_sd_card_change(emu, frontend, frontend_set);
                 emu.request_sd_card_change({"", false, 0});
                 emulator_service_sd_card_change(emu, frontend, frontend_set);
-                emu.request_sd_card_change({card_a, false, 1});
-                const auto ins = emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const std::string refused = emu.request_sd_card_change({card_a, false, 1});
+                const auto ins = emulator_service_sd_card_change(emu, frontend, frontend_set);   // nothing queued
                 emulator_frontend_cold_boot(emu, frontend, "", ColdBootHooks{});
 
                 EmulatorConfig twice = with_a;
@@ -2594,10 +2594,10 @@ int main()
                       "after both cards are ejected, inserting the first card's image in the second slot "
                       "is refused, and after the hard reset the two slots do not hold one file; a config "
                       "that names one file twice leaves the second slot empty",
-                      made && ins && !ins->error.empty() && emu.sd_card().mounted() &&
+                      made && !refused.empty() && !ins && emu.sd_card().mounted() &&
                           !emu.sd_card2().mounted() && dup.sd_card().mounted() &&
                           !dup.sd_card2().mounted() && dup.config().sd_card2_image.empty(),
-                      "err='" + (ins ? ins->error : std::string("-")) + "' card2 mounted=" +
+                      "refused='" + refused + "' card2 mounted=" +
                           std::to_string(emu.sd_card2().mounted()));
             }
 
