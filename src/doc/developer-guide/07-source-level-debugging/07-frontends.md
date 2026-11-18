@@ -243,14 +243,14 @@ did in its sender, so no move echoes.
   panel makes itself (the PC placement of `refresh_()`, a text load, `set_disasm_selection()`) runs
   under a `SyncScope` (`syncing_`), so that slot stays silent, and ends with `emit_lines_(false, ...)`,
   so a stop tints the PC statement's other instructions without scrolling.
-  `DisasmPanel::set_source_lines()` (`disasm_panel.cpp:438`) stores the range; a row is linked
-  (`source_linked()`, `linked_at_()`, `:425-433`) when `lookup_all()` in its own space has a location
+  `DisasmPanel::set_source_lines()` (`disasm_panel.cpp:448`) stores the range; a row is linked
+  (`source_linked()`, `linked_at_()`, `:435-443`) when `lookup_all()` in its own space has a location
   on a selected line of that file, the primary or not. `paintEvent` fills a linked row with
   `source_sync_colors::linked()` before the PC row, the selection and the coverage bar. With `reveal`
   and no linked row in view, the view centres on the first start of `resolve(file:line)` that is
   mapped now; otherwise it never moves.
 - **Disassembly to Source.** `DisasmPanel::selection_changed(lo, hi, caret)` comes from the user paths
-  only (`notify_selection_()`, `disasm_panel.cpp:413`: a press, a drag, a navigation key, Select All, the menu's
+  only (`notify_selection_()`, `disasm_panel.cpp:423`: a press, a drag, a navigation key, Select All, the menu's
   collapse), when the triple differs from the last one sent. `show_address()` and a refresh do not
   emit; `set_source_lines()` forgets the last triple, so the next click on the same lines is a change
   again. `SourcePanel::set_disasm_selection()` (`source_panel.cpp:976`) is ignored while running or
