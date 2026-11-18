@@ -52,6 +52,10 @@ if want sdcard2-func; then
         clone_a writes
         clone_a warm
         clone_a warmj
+        clone_a insreset
+        clone_a qt
+        clone_a prefs
+        clone_a stale
 
         # Card 2: 64 MiB, an MBR with one FAT32 (type 0x0C) partition from sector
         # 2048, formatted with one-sector clusters so it has more than 65 525 of them.
@@ -89,9 +93,10 @@ if want sdcard2-func; then
         for k in . n e x l o a d space m a g i c . n e x enter; do kadd "$f" "$k"; f=$((f + 15)); done
         exit_frame=$(bf $((f + 400)))
 
-        d_run() {   # d_run <name> [extra args...]
+        D_ENV=()
+        d_run() {   # d_run <name> [extra args...]   (D_ENV: extra environment, as VAR=value words)
             local name=$1 rc=0; shift
-            JNEXT_CONFIG_DIR="$BASE/$name" timeout --foreground --kill-after=5s 300s \
+            env JNEXT_CONFIG_DIR="$BASE/$name" "${D_ENV[@]}" timeout --foreground --kill-after=5s 300s \
                 "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
                          --magic-port 0xCAFE --magic-port-mode line \
                          "${keys[@]}" "$@" \
@@ -101,6 +106,18 @@ if want sdcard2-func; then
         }
         d_run d --sdcard2 "$CARD2"
         d_run control
+        # insert-reset: no card at power-on; a headless insert and a hard reset in the SAME tick
+        # (as sdcard-swap-func's reset leg): the change is made BEFORE the cold boot, which boots
+        # NextZXOS with the new card, so the d keys find it.
+        D_ENV=(JNEXT_DELAYED_RESET_FRAMES=5)
+        d_run insreset --delayed-sdcard2-insert-frames 5 "$CARD2"
+        D_ENV=()
+        grep -qF "Second SD card inserted: '$CARD2'" "$W/insreset.log" \
+            || faults+=("insert-reset: the second card was not inserted")
+        grep -qF "outlived a reset" "$W/insreset.log" \
+            && faults+=("insert-reset: the change was made after the cold boot, not before")
+        grep -qF "Hello from ZX Next!" "$W/insreset.log" \
+            || faults+=("insert-reset: after the reset NextZXOS did not run MAGIC.NEX from D:")
         grep -qF "Second SD card image mounted: '$CARD2'" "$W/d.log" \
             || faults+=("d: the second card was not mounted")
         grep -qF "Hello from ZX Next!" "$W/d.log" \
@@ -171,6 +188,44 @@ if want sdcard2-func; then
         grep -qF "recorded a NextZXOS-resident machine" "$W/warmj2.log" \
             || faults+=("warmj: the refused recording was not replaced by a new one")
 
+        # qt: QtApp's poll for the second slot, its order against the cold boot, its own config
+        # and its report to the window, through the probe (offscreen, as sdcard-swap-func).
+        rc=0
+        JNEXT_CONFIG_DIR="$BASE/qt" JNEXT_HOST_PROBE="sdcard2:$CARD2" \
+        QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
+        timeout --foreground --kill-after=5s 120s \
+            "$JNEXT" --silent --machine 48k --rewind-buffer-size 0 \
+                     --delayed-automatic-exit-frames 150 > "$W/qt.log" 2>&1 || rc=$?
+        [[ $rc -eq 0 ]] || faults+=("qt: the run exited $rc")
+        grep -qF "HOSTPROBE sdcard2: same-tick-reset card=new" "$W/qt.log" \
+            || faults+=("qt: the hard reset did not keep the new second card")
+        grep -qF "Second SD card image mounted: '$CARD2'" "$W/qt.log" \
+            || faults+=("qt: the same-tick hard reset did not boot with the new second card")
+        grep -qF "outlived a reset" "$W/qt.log" \
+            && faults+=("qt: the change was serviced after the cold boot, not before")
+        grep -qF "status bar: Second SD card inserted: $CARD2" "$W/qt.log" \
+            || faults+=("qt: the window was not told the change was made")
+
+        # prefs: the saved Preferences path (jnext.conf [paths] sd_card2_path) mounts the second
+        # card with no flag; a saved path that no longer exists is logged and leaves the slot
+        # empty, and the run still starts.
+        printf '[paths]\nsd_card2_path=%s\n' "$CARD2" > "$BASE/prefs/jnext.conf"
+        printf '[paths]\nsd_card2_path=%s\n' "$W/vanished.img" > "$BASE/stale/jnext.conf"
+        for pn in prefs stale; do
+            rc=0
+            JNEXT_CONFIG_DIR="$BASE/$pn" QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
+            timeout --foreground --kill-after=5s 120s \
+                "$JNEXT" --silent --machine 48k --rewind-buffer-size 0 \
+                         --delayed-automatic-exit-frames 30 > "$W/$pn.log" 2>&1 || rc=$?
+            [[ $rc -eq 0 ]] || faults+=("$pn: the run exited $rc")
+        done
+        grep -qF "Second SD card image mounted: '$CARD2'" "$W/prefs.log" \
+            || faults+=("prefs: the saved second card was not mounted")
+        grep -qF "Second SD card image mounted" "$W/stale.log" \
+            && faults+=("stale: a vanished saved second card was mounted")
+        grep -qF "Preferences: the second SD card image is not used" "$W/stale.log" \
+            || faults+=("stale: the vanished saved path was not reported")
+
         # refused: card 0 is CARD2 where the second card is the thing under test (the
         # run never starts: every refusal is at parse time, on a 48K headless machine).
         short_run() {   # short_run <label> <expect-in-log> [jnext args...]
@@ -195,6 +250,20 @@ if want sdcard2-func; then
         short_run reset "--sdcard2-writes-reset needs --sdcard2-writes FILE" --sdcard "$CARD2" \
             --sdcard2 "$W/card2b.img" --sdcard2-writes-reset
         short_run rdonly "--sdcard2-readonly needs --sdcard2 FILE" --sdcard "$CARD2" --sdcard2-readonly
+        short_run insdup "need two different images" --sdcard "$CARD2" --sdcard2 "$W/card2b.img" \
+            --delayed-sdcard2-insert-frames 3 "$CARD2"
+        short_run insfirst "need two different images" --sdcard "$CARD2" \
+            --delayed-sdcard2-insert-frames 3 "$CARD2"
+        windowed_run() {
+            local rc=0
+            timeout --foreground --kill-after=5s 120s \
+                "$JNEXT" --machine 48k --delayed-sdcard2-insert-frames 5 "$W/card2b.img" \
+                > "$W/windowed.log" 2>&1 || rc=$?
+            [[ $rc -ne 0 ]] || faults+=("windowed: exited 0")
+            grep -qF "--delayed-sdcard2-insert-frames requires --headless" "$W/windowed.log" \
+                || faults+=("windowed: no 'requires --headless' in the log")
+        }
+        QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy windowed_run
         short_run wonly "--sdcard2-writes needs --sdcard2 FILE" --sdcard "$CARD2" \
             --sdcard2-writes "$W/w.jsdw"
     fi

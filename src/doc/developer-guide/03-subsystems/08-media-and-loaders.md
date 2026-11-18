@@ -654,14 +654,14 @@ catches an own write that left the mtime unchanged. The (size, mtime, generation
 thread at every cold boot that loads a program. **Accepted residual:** an
 image replaced or edited from outside with the same size and the same mtime
 (`cp -p`, `touch -r`) serves a stale recording; `--warm-start-regenerate` is the
-escape hatch. The key also holds the second SD card's (size, mtime) (0, 0 for
-none, plus the digest of its `--sdcard2-writes` journal, folded as card 0's is,
-since its image never changes while the card does), since the recording boots with
-it mounted and the resident NextZXOS knows `D:`; a change of that card takes a new
-recording. The file magic is `JNEXTWS4`
-(layout generation); the header is 144 bytes, the stored length stays at
-offset 88 and the second card's size, mtime and write-journal digest sit at
-96, 104 and 112.
+escape hatch. The key also covers the second SD card: its (size, mtime), (0, 0)
+for none, and the digest of its `--sdcard2-writes` journal, folded as card 0's is
+(its image never changes while the card does). The recording boots with that card
+mounted and the resident NextZXOS knows `D:`, so a change of the card takes a new
+recording; a refusal caused by the journal alone says so. The file magic is
+`JNEXTWS4` (layout generation). The header is 144 bytes: the stored length stays at
+offset 88, and the second card's size, mtime and write-journal digest sit at 96,
+104 and 112.
 
 **Tests.** `test/warm_start/warm_start_test.cpp` (`WSC-*` for the cache file,
 its four invalidation keys and the compressed payload; `WSR-*` for the

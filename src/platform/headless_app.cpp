@@ -383,10 +383,10 @@ bool HeadlessApp::set_delayed_nmi_seconds(const std::string& button, int delay_s
     return true;
 }
 
-void HeadlessApp::set_delayed_sdcard_insert(const std::string& image, int delay_frames) {
-    delayed_sd_inserts_.push_back({image, delay_frames});
-    Log::platform()->info("delayed-sdcard-insert: will insert '{}' after {} frame(s)",
-                          image, delay_frames);
+void HeadlessApp::set_delayed_sdcard_insert(const std::string& image, int delay_frames, int slot) {
+    delayed_sd_inserts_.push_back({image, delay_frames, slot});
+    Log::platform()->info("delayed-sdcard{}-insert: will insert '{}' after {} frame(s)",
+                          slot == 1 ? "2" : "", image, delay_frames);
 }
 
 void HeadlessApp::set_delayed_pok(jnext::pok::CliRequest request, int delay_frames) {
@@ -757,8 +757,9 @@ void HeadlessApp::run() {
         // the same service call. A refusal fails the run, like a failed load.
         for (auto it = delayed_sd_inserts_.begin(); it != delayed_sd_inserts_.end(); ) {
             if (it->countdown <= 0) {
-                if (!emulator_.request_sd_card_change(
-                        {it->image, emulator_.config().sd_card_readonly}).empty())
+                const bool ro = it->slot == 1 ? emulator_.config().sd_card2_readonly
+                                              : emulator_.config().sd_card_readonly;
+                if (!emulator_.request_sd_card_change({it->image, ro, it->slot}).empty())
                     exit_code_ = 1;
                 it = delayed_sd_inserts_.erase(it);
             } else {
@@ -1038,7 +1039,11 @@ void HeadlessApp::run() {
             for (const auto& k : delayed_keys_) keys += (keys.empty() ? "" : ", ") + k.name;
             for (const auto& n : delayed_nmis_) nmis += (nmis.empty() ? "" : ", ") + n.name;
             std::string cards;
-            for (const auto& c : delayed_sd_inserts_) cards += (cards.empty() ? "" : ", ") + c.image;
+            std::string cards2;
+            for (const auto& c : delayed_sd_inserts_) {
+                std::string& dst = c.slot == 1 ? cards2 : cards;
+                dst += (dst.empty() ? "" : ", ") + c.image;
+            }
             if (!auto_exit_finds_no_deferred_work(emulator_, {
                     {"--load", load_file_, load_countdown_ >= 0},
                     {"--inject", inject_file_, inject_countdown_ >= 0},
@@ -1046,7 +1051,8 @@ void HeadlessApp::run() {
                      !rzx_record_file_.empty() && !rzx_record_started_},
                     {"--delayed-keypress", keys, !delayed_keys_.empty()},
                     {"--delayed-nmi", nmis, !delayed_nmis_.empty()},
-                    {"--delayed-sdcard-insert-frames", cards, !delayed_sd_inserts_.empty()},
+                    {"--delayed-sdcard-insert-frames", cards, !cards.empty()},
+                    {"--delayed-sdcard2-insert-frames", cards2, !cards2.empty()},
                     {"--delayed-pok-frames", pok_job_ ? pok_job_->request().path : std::string(),
                      pok_job_ && pok_job_->pending()},
                 }))

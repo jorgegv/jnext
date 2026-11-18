@@ -269,16 +269,25 @@ public:
     // config().sd_card_image, which an insert updates and an eject does not.
 
     /// The change to make. `image` empty means eject.
+    /// `slot` 0 is the first card (spi_ss_sd0_n), 1 the second (GH #505).
     struct SdCardChange {
         std::string image;
         bool        read_only = false;
+        int         slot = 0;
     };
 
     /// Why a card change would be refused right now, or empty when it would
     /// not: an RZX recording or playback (it replays one continuous run on one
     /// card), and a directly loaded NEX holding its own file open (unmounting
     /// drops the read overlay that serves that file).
-    std::string sd_card_change_refusal() const;
+    /// The read-overlay rule is card 0's: card 2 has no overlay.
+    std::string sd_card_change_refusal(int slot = 0) const;
+
+    /// Why `change` would put one image in both slots ("" = it would not): an
+    /// insert of the file the OTHER slot has mounted. Two devices writing one
+    /// FAT is the phantom-card hazard again, whichever route (File > Insert,
+    /// --delayed-sdcard*-insert-frames, a Preferences path) asks for it.
+    std::string sd_card_cross_slot_refusal(const SdCardChange& change) const;
 
     /// Record a change for the frontend to perform at the end of its tick (after
     /// its frames, or at the paused instruction boundary when the debugger

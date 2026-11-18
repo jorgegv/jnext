@@ -290,6 +290,10 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
               std::to_string(sd2_bytes) + ", mtime " + std::to_string(sd2_mtime) +
               " != size " + std::to_string(want.sd2_image_bytes) + ", mtime " +
               std::to_string(want.sd2_image_mtime) + ")";
+        if (sd2_jsha != want.sd2_journal_sha256) {
+            why += " or its write journal (digest " + sha256_to_hex(sd2_jsha) + " != " +
+                   sha256_to_hex(want.sd2_journal_sha256) + ")";
+        }
         return false;
     }
     // The PLAIN length is the identity check — what this build's save_state

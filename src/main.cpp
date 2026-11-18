@@ -351,6 +351,7 @@ int main(int argc, char* argv[]) {
     bool        sdcard_writes_reset = false;
     std::string sd_card2_image;        // --sdcard2 FILE: the second SD card (GH #505)
     bool        sdcard2_readonly = false;
+    bool        sd_card2_from_prefs = false;   // the path came from Preferences, not the CLI
     std::string sdcard2_writes_file;   // --sdcard2-writes FILE
     bool        sdcard2_writes_reset = false;
     bool        sdcard_download_force   = false;
@@ -508,7 +509,7 @@ int main(int argc, char* argv[]) {
     std::vector<DelayedKeyArg> delayed_keys;
     struct DelayedNmiArg { int delay; std::string button; bool in_frames; };
     std::vector<DelayedNmiArg> delayed_nmis;
-    struct DelayedSdInsertArg { int delay; std::string image; };
+    struct DelayedSdInsertArg { int delay; std::string image; int slot; };
     std::vector<DelayedSdInsertArg> delayed_sd_inserts;   // GH #93
     // GH #381 (owner Q1) - --delayed-pok-frames N FILE and --pok-trainers LIST. The
     // counts are occurrences: a repeat is refused (one POK file per run), and
@@ -615,6 +616,9 @@ int main(int argc, char* argv[]) {
         case KeyId::AudioGainDacDb:    gain(cli::OptId::AudioGainDacDb); break;
         case KeyId::PathsSdCardPath:
             sd_card_image = t;
+            break;
+        case KeyId::PathsSdCard2Path:
+            sd_card2_image = t;     // GH #505: an explicit --set, like --sdcard2
             break;
         case KeyId::PathsSourceDirs:
             source_dirs_text = t;   // a later --set replaces everything before it; --source-dir appends
@@ -1439,24 +1443,28 @@ int main(int argc, char* argv[]) {
                 delayed_nmis.push_back({dn_n, v[1], in_frames});
                 break;
             }
-            case cli::OptId::DelayedSdcardInsertFrames: {
+            case cli::OptId::DelayedSdcardInsertFrames:
+            case cli::OptId::DelayedSdcard2InsertFrames: {
                 // GH #93. The image is checked when the change is performed,
                 // which refuses an unreadable one and fails the run. Two things
                 // are refused HERE, because each would otherwise run on and
                 // exit 0: an empty FILE is an EJECT to the emulator (a script
                 // with an unset variable would pull the card), and a bad N.
+                const bool second = opt->id == cli::OptId::DelayedSdcard2InsertFrames;
+                const char* flag = second ? "--delayed-sdcard2-insert-frames"
+                                          : "--delayed-sdcard-insert-frames";
                 long n = 0;
                 if (!cli::parse_int(v[0], 0, INT_MAX, n)) {
-                    fprintf(stderr, "--delayed-sdcard-insert-frames: N must be a "
-                                    "non-negative frame number, not \"%s\".\n", v[0]);
+                    fprintf(stderr, "%s: N must be a "
+                                    "non-negative frame number, not \"%s\".\n", flag, v[0]);
                     return 1;
                 }
                 if (*v[1] == '\0') {
-                    fprintf(stderr, "--delayed-sdcard-insert-frames: FILE is empty. "
-                                    "It names the SD-card image to insert.\n");
+                    fprintf(stderr, "%s: FILE is empty. "
+                                    "It names the SD-card image to insert.\n", flag);
                     return 1;
                 }
-                delayed_sd_inserts.push_back({static_cast<int>(n), v[1]});
+                delayed_sd_inserts.push_back({static_cast<int>(n), v[1], second ? 1 : 0});
                 break;
             }
             case cli::OptId::DelayedPokFrames:
@@ -1838,7 +1846,10 @@ int main(int argc, char* argv[]) {
     if (!headless) {
         const char* headless_only = !delayed_keys.empty()  ? "--delayed-keypress"
                                   : !delayed_nmis.empty()  ? "--delayed-nmi"
-                                  : !delayed_sd_inserts.empty() ? "--delayed-sdcard-insert-frames"
+                                  : !delayed_sd_inserts.empty()
+                                      ? (delayed_sd_inserts.front().slot == 1
+                                             ? "--delayed-sdcard2-insert-frames"
+                                             : "--delayed-sdcard-insert-frames")
                                   : !snapshot_file.empty() ? "--delayed-snapshot"
                                   : !script_keys.empty()   ? "--script-key"
                                   : nullptr;
@@ -1932,6 +1943,19 @@ int main(int argc, char* argv[]) {
 #endif
         if (sd_card_image.empty() && !gui_app_config.data().sd_card_path.isEmpty()) {
             sd_card_image = gui_app_config.data().sd_card_path.toStdString();
+        }
+        // GH #505: the saved second-card path, when no --sdcard2 / --set gave one. A saved
+        // path that no longer works is logged and leaves the slot empty (only an explicit
+        // flag refuses to start); a card that equals the first one is not mounted twice.
+        if (sd_card2_image.empty() && !gui_app_config.data().sd_card2_path.isEmpty()) {
+            const std::string saved = gui_app_config.data().sd_card2_path.toStdString();
+            const std::string why = Emulator::sd_image_refusal(saved);
+            if (!why.empty()) {
+                Log::emulator()->error("Preferences: the second SD card image is not used: {}", why);
+            } else {
+                sd_card2_image = saved;
+                sd_card2_from_prefs = true;
+            }
         }
     }
 #endif
@@ -2114,12 +2138,17 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "--sdcard2: %s\n", why.c_str());
             return 1;
         }
-        if (sdcard::same_image_file(sd_card2_image, sd_card_image)) {
+        if (sd_card2_from_prefs && sdcard::same_image_file(sd_card2_image, sd_card_image)) {
+            Log::emulator()->error("Preferences: the second SD card image is the first card's "
+                                   "image; the second slot stays empty");
+            sd_card2_image.clear();
+        } else if (sdcard::same_image_file(sd_card2_image, sd_card_image)) {
             fprintf(stderr, "--sdcard2 %s: is the first SD card's image; the two slots "
                             "need two different images\n", sd_card2_image.c_str());
             return 1;
         }
-        if (!bind_card_writes("--sdcard2-writes", "second SD card", sd_card2_image,
+        if (!sd_card2_image.empty() &&
+            !bind_card_writes("--sdcard2-writes", "second SD card", sd_card2_image,
                               sdcard2_writes_file, sdcard2_writes_reset, sdcard2_readonly, ""))
             return 1;
     }
@@ -3267,7 +3296,7 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
-        for (auto& si : delayed_sd_inserts) app.set_delayed_sdcard_insert(si.image, si.delay);
+        for (auto& si : delayed_sd_inserts) app.set_delayed_sdcard_insert(si.image, si.delay, si.slot);
         result = configure_and_run(app);
     } else {
 #ifdef ENABLE_QT_UI

@@ -126,6 +126,9 @@ public:
     /// Returns true if an image is mounted.
     bool mounted() const { return file_.is_open(); }
 
+    /// The mounted image's path ("" when nothing is mounted).
+    const std::string& image_path() const { return path_; }
+
     /// SpiDevice interface — exchange one byte (legacy, used by base class defaults).
     uint8_t exchange(uint8_t tx) override;
 

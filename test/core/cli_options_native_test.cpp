@@ -1110,6 +1110,14 @@ int main() {
                     if (run(base + " --set esp.allowed_hosts= --delayed-automatic-exit-frames 1") != 0)
                         bad.push_back("--set esp.allowed_hosts= (empty) refused with the ESP off");
                 }
+                // SDSLOT-51 (GH #505): the second card's path is reachable through its flag AND --set.
+                {
+                    const bool f = run("--sdcard2 \"/a b/c.img\" --version") == 0;
+                    const bool k = run("--set paths.sd_card2_path=\"/a b/c.img\" --version") == 0;
+                    check("SDSLOT-51", "--sdcard2 FILE and --set paths.sd_card2_path=FILE are both accepted",
+                          f && k, std::string("flag ") + (f ? "ok" : "refused") + ", --set " +
+                                      (k ? "ok" : "refused"));
+                }
                 check("CLI-SET-12", "a flag and --set accept and refuse the same values of the same key (one per "
                                     "type: bool, int, float, word, machine, device id, keep, host list, combo, text)",
                       bad.empty(), join(bad));

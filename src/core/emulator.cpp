@@ -12,6 +12,7 @@
 #include "core/program_archive.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
+#include "core/sdcard_file_add.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
 #include "core/sha256.h"
@@ -8248,6 +8249,7 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
     // A card with a write journal (--sdcard-writes) is never written itself:
     // its key is exact (the journal is read live) and folds the journal in.
     const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+    std::string stat_failed = config_.sd_card_image;   // the card whose stat failed (GH #505)
     auto read_key = [&](warm_start::Identity& k) {
         bool ok;
         if (digest_for_image(config_, digest)) {
@@ -8270,8 +8272,7 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
         if (ok && !config_.sd_card2_image.empty() &&
             !stat_sd_image_key(config_.sd_card2_image, k.sd2_image_bytes,
                                k.sd2_image_mtime)) {
-            Log::emulator()->error("warm start: cannot stat the second SD image '{}'",
-                                   config_.sd_card2_image);
+            stat_failed = config_.sd_card2_image;
             ok = false;
         }
         // The second card's write journal, folded as card 0's is: its image never
@@ -8284,8 +8285,7 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
     };
     auto fail_stat = [&]() {
         Log::emulator()->error("warm start: cannot stat SD image '{}' - this load "
-                               "falls back to the synthetic machine",
-                               config_.sd_card_image);
+                               "falls back to the synthetic machine", stat_failed);
         warm_start_state_.clear();
         warm_start_failed_image_ = config_.sd_card_image;
         return unavailable(0);
@@ -8806,7 +8806,7 @@ std::string Emulator::take_nex_load_request()
     return request;
 }
 
-std::string Emulator::sd_card_change_refusal() const
+std::string Emulator::sd_card_change_refusal(int slot) const
 {
     if (rzx_recorder_.is_recording())
         return "an RZX recording is being made (stop it first)";
@@ -8815,14 +8815,26 @@ std::string Emulator::sd_card_change_refusal() const
     // unmount() drops the read overlay, and with it the file a directly loaded
     // extended NEX keeps open (load_nex()): the running program would lose it
     // mid-read. On hardware that file lives on the card being pulled.
-    if (sd_card_.has_read_overlay())
+    if (slot == 0 && sd_card_.has_read_overlay())
         return "the loaded NEX program keeps its own file open on the card";
+    return {};
+}
+
+std::string Emulator::sd_card_cross_slot_refusal(const SdCardChange& change) const
+{
+    if (change.image.empty()) return {};
+    const SdCardDevice& other = change.slot == 0 ? sd_card2_ : sd_card_;
+    if (other.mounted() && sdcard::same_image_file(change.image, other.image_path()))
+        return "'" + change.image + "' is the image in the " +
+               (change.slot == 0 ? "second" : "first") + " SD card slot; the two slots "
+               "need two different images";
     return {};
 }
 
 std::string Emulator::request_sd_card_change(SdCardChange change)
 {
-    std::string why = sd_card_change_refusal();
+    std::string why = sd_card_change_refusal(change.slot);
+    if (why.empty()) why = sd_card_cross_slot_refusal(change);
     // One change at a time: a second request in the same tick used to REPLACE
     // the first, so the card asked for first silently never went in.
     if (why.empty() && sd_card_change_request_)
@@ -8865,14 +8877,34 @@ std::string Emulator::sd_image_refusal(const std::string& image)
 
 std::string Emulator::change_sd_card(const SdCardChange& change)
 {
-    std::string why = sd_card_change_refusal();
+    std::string why = sd_card_change_refusal(change.slot);
     if (why.empty() && !change.image.empty()) why = sd_image_refusal(change.image);
+    if (why.empty()) why = sd_card_cross_slot_refusal(change);
     if (!why.empty()) {
         Log::emulator()->error("SD card change refused: {}", why);
         return why;
     }
 
-    if (change.image.empty()) {
+    if (change.slot == 1) {
+        // The second card (GH #505). Unlike card 0 its configured path follows an
+        // EJECT too: it has no power-on role (the ROMs come from card 0), so a hard
+        // reset after an eject keeps the slot empty, and after an insert the new card.
+        if (change.image.empty()) {
+            sd_card2_.unmount();
+            config_.sd_card2_image.clear();
+            config_.sd_card2_readonly = false;
+            Log::emulator()->info("Second SD card ejected");
+        } else if (sd_card2_.mount(change.image, change.read_only)) {
+            config_.sd_card2_image    = change.image;
+            config_.sd_card2_readonly = change.read_only;
+            Log::emulator()->info("Second SD card inserted: '{}'{}", change.image,
+                                  change.read_only ? " (read-only)" : "");
+        } else {
+            config_.sd_card2_image.clear();
+            why = "could not mount '" + change.image + "'; the slot is empty";
+            Log::emulator()->error("Second SD card change: {}", why);
+        }
+    } else if (change.image.empty()) {
         sd_card_.unmount();
         Log::emulator()->info("SD card ejected");
     } else if (sd_card_.mount(change.image, change.read_only)) {

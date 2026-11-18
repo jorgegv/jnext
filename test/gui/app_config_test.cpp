@@ -1732,6 +1732,24 @@ static void test_source_scheme(QTemporaryDir& dir) {
           saved_word);
 }
 
+// GH #505: the second SD card's saved path.
+static void test_sd_card2(QTemporaryDir& dir) {
+    set_group("AC-SDCARD2");
+    const AppConfigData kDefaults{};
+    const QString p = fresh_ini_path(dir, "sdcard2");
+    { AppConfig w(p); w.data().sd_card2_path = "/home/user/sd/second, card.img"; w.save(); }
+    AppConfig r(p);
+    r.load();
+    QSettings raw(p, QSettings::IniFormat);
+    raw.beginGroup("paths");
+    check("SDSLOT-50",
+          "paths.sd_card2_path is empty by default, round-trips through save/load (a comma "
+          "included), and the file spells it sd_card2_path= under [paths]",
+          kDefaults.sd_card2_path.isEmpty() &&
+              r.data().sd_card2_path == QStringLiteral("/home/user/sd/second, card.img") &&
+              raw.value("sd_card2_path").toString() == QStringLiteral("/home/user/sd/second, card.img"));
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -1763,6 +1781,7 @@ int main() {
     test_merge_cli_assignments(dir);
     test_source_dirs(dir);
     test_source_scheme(dir);
+    test_sd_card2(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

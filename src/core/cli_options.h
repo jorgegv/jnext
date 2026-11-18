@@ -152,6 +152,7 @@ enum class OptId {
     DelayedNmi,
     DelayedNmiFrames,
     DelayedSdcardInsertFrames,
+    DelayedSdcard2InsertFrames,
     DelayedPokFrames,
     PokTrainers,
     RewindBufferSize,
@@ -833,6 +834,15 @@ inline constexpr Option OPTIONS[] = {
       "File > Insert SD Card Image does (headless only,\n"
       "repeatable). Keeps --sdcard-readonly. Refused while an\n"
       "RZX records or plays; a refusal fails the run" },
+    // GH #505 - the same for the second SD card slot.
+    { "--delayed-sdcard2-insert-frames", 2, Doc::Documented, OptId::DelayedSdcard2InsertFrames,
+      "N FILE",
+      "Insert SD-card image FILE in the second SD card slot after\n"
+      "N emulated frames, as File > Insert Second SD Card Image\n"
+      "does (headless only, repeatable). Keeps --sdcard2-readonly.\n"
+      "Refused for the image in the first slot, and while an RZX\n"
+      "records or plays; a refusal fails the run. NextZXOS finds\n"
+      "the card after a hard reset (JNEXT_DELAYED_RESET_FRAMES)" },
     // GH #381 (owner decision Q1, 2026-10-18) - a POK trainer file applied from the
     // command line, for the runs that have no Machine > POK Trainers... window: headless and
     // the SDL-only window. TWO rows because the arity is at most 2 (CLI-TBL-03) and because
