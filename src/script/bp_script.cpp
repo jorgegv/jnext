@@ -212,7 +212,8 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
             out.specs.push_back(std::move(s));
             continue;
         }
-        if (!ev.lo || ev.hi || ev.page_lo || ev.page_only || ev.mask || ev.value) {
+        // `page`-only and `mask`/`value` filters have no `lo`, so `!ev.lo` refuses them too.
+        if (!ev.lo || ev.hi || ev.page_lo) {
             fail(out, ev.pos, not_a_bp("the filter is not one address"));
             return out;
         }

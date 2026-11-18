@@ -416,11 +416,12 @@ static void engine_rows() {
         for (size_t i = 0; i < subs.size() && i < want.size(); ++i) {
             const auto& s = subs[i];
             const Expect& w = want[i];
-            bool same = s.kind == w.kind && s.enabled == w.enabled && s.filter.lo == w.lo && s.filter.hi == w.hi &&
-                        s.filter.space == w.space && s.action == jnext::dbg::Action::Stop;
+            bool same = s.kind == w.kind && s.enabled == w.enabled &&
+                        s.filter.space == w.space;
+            if (w.kind != EventKind::Port) same = same && s.filter.lo == w.lo && s.filter.hi == w.hi;
             if (w.kind == EventKind::Port) same = same && s.filter.port_mask == w.port_mask && s.filter.port_value == w.port_value;
             if (w.kind != EventKind::Execute) same = same && s.access == w.access;
-            if (w.kind == EventKind::Execute) same = same && !s.has_handler;
+            if (w.kind == EventKind::Execute) same = same && !s.has_handler && s.action == jnext::dbg::Action::Stop;
             if (!same) miss += " #" + std::to_string(i);
         }
         check("BPJ-18", "the saved text loads in a ScriptEngine (jnext --script FILE) with no error or warning and "

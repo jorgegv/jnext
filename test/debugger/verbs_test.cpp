@@ -4142,6 +4142,7 @@ static void test_bp_script() {
             sub.filter.lo = sub.filter.hi = 0x8100;
             sub.action = jnext::dbg::Action::Stop;
             a.fx.backend->subscribe(other, sub);
+            m.sync();   // the push the tick would have published
             saved = m.script_specs();
             a.run("Save as Script...", g_tmp->filePath(QStringLiteral("bpj-rt.jds")));
             const std::string text = slurp_file(g_tmp->filePath(QStringLiteral("bpj-rt.jds")).toStdString());
@@ -4149,7 +4150,8 @@ static void test_bp_script() {
             bool listed = false;
             for (const auto& r : m.rows()) listed = listed || (!r.own && r.addr == 0x8100);
             check("QBPJ-09", "another client's breakpoint is listed read-only but is not in the saved file",
-                  listed && text.find("0x8100") == std::string::npos && text.find("0x8000") != std::string::npos, text);
+                  listed && text.find("0x8100") == std::string::npos && text.find("0x8000") != std::string::npos,
+                  fmt("listed=%d text=%s", listed, text.c_str()));
         }
         BpjFix b;
         const auto seen = b.run("Load from Script...", g_tmp->filePath(QStringLiteral("bpj-rt.jds")));
