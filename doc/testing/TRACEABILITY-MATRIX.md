@@ -31,7 +31,7 @@ mentions them, so a test can no longer be absent from this document.
 | Compositor                                 |   300 |  300 |    0 |    0 |       0 |          0 |
 | Audio                                      |   275 |  275 |    0 |    0 |       0 |          0 |
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
-| DivMMC+SPI                                 |   172 |  172 |    0 |    0 |       0 |          0 |
+| DivMMC+SPI                                 |   173 |  173 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   268 |  268 |    0 |    0 |       0 |          0 |
@@ -70,9 +70,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6281 | 6281 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6282 | 6282 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6281**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5758**. Rows the 217 suites declared in `test/unit-tests.conf` run live: **16626**.
+Rows the sections above carry: **6282**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5758**. Rows the 217 suites declared in `test/unit-tests.conf` run live: **16627**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -84,7 +84,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 166 suites (10952 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 166 suites (10953 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -107,7 +107,7 @@ These 166 suites (10952 live rows) have no VHDL-derived plan row to map, so they
 | `sha256_test` | 15 | SHA-256 of every backend (OpenSSL, BCrypt, the portable WebAssembly one; host utility): NIST FIPS 180-2 Appendix B and the NIST CSRC SHA-2 example as oracles, coreutils sha256sum for the rest; the FPGA core has no counterpart |
 | `minimal_card_test` | 26 | the minimal NextZXOS card builder (GH #458): a synthetic MS-FAT32-spec distribution and a zlib zip built in the test, the card read back with ChaN FatFs (host SD-image tool, jnext-internal; the FPGA core has no counterpart) |
 | `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
-| `warm_start_test` | 119 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
+| `warm_start_test` | 120 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
 | `warm_start_card_test` | 4 | warm-start digest key and stepped recording against the real card (GH #464, jnext-internal); no FPGA counterpart |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `sd_identity_test` | 31 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
@@ -2402,6 +2402,7 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | SDSLOT-15 | a write journal bound to the second card's image keeps its writes: the CMD24 is accepted, CMD17 reads it back, the image is unchanged and the journal file exists; the first card has no journal and reads its own data | — | pass | test/divmmc/divmmc_integration_test.cpp:578 |
 | SDSLOT-16 | an initialised second card survives a soft reset (no re-init needed, zxnext.vhd:3309 only drives port_e7_reg) and needs the handshake again after a hard reset (R1 idle 0x01) | zxnext.vhd:3309 | pass | test/divmmc/divmmc_integration_test.cpp:602 |
 | SDSLOT-17 | a whole-machine save taken just after a CMD17 data token on the second card restores a card that is still streaming: the next bytes of the sector are the same as before the save | — | pass | test/divmmc/divmmc_integration_test.cpp:644 |
+| SDSLOT-18 | a rewind stream without the second card's block (as recorded before it existed) loads: the whole shorter stream is consumed, card 0 resumes its CMD17 stream (bytes 10, 11) and the second socket stays empty | — | pass | test/divmmc/divmmc_integration_test.cpp:690 |
 | SX-01 | Write 0xEB forwards byte to MOSI (VHDL spi_master.vhd:111-112) | spi_master.vhd:111-112 | pass | test/divmmc/divmmc_test.cpp:3179 |
 | SX-02 | Read 0xEB pushes 0xFF on MOSI and triggers one exchange (VHDL spi_master.vhd:109-110) | spi_master.vhd:109-110 | pass | test/divmmc/divmmc_test.cpp:3207 |
 | SX-03 | First read after select returns previous-cycle result (VHDL spi_master.vhd:162-166); with no prior transfer the value is the miso_dat signal-init 0x00 (spi_master.vhd:74) | spi_master.vhd:162-166, spi_master.vhd:74 | pass | test/divmmc/divmmc_test.cpp:3237 |
