@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QObject>
 #include <QAction>
+#include <QPointer>
 #include <QToolBar>
 #include <memory>
 
@@ -110,6 +111,10 @@ public:
     /// and ensure_window() would build a window on the compiled-in defaults.
     /// Applies immediately when a window already exists.
     void set_keymap(const jnext::dbgkeys::Keymap& km);
+
+    /// GH #374 - the emulator window's File > Reload Last File, which the debugger window's File menu
+    /// forwards to. Held here because the window is created lazily (as set_keymap()).
+    void set_reload_action(QAction* host);
 
     /// GH #387 - the annotations project file (.jdp): the one `--annotations` loaded at start-up (so
     /// Save writes back to it and nothing is unsaved), or the last one opened or saved. Empty = none yet.
@@ -357,6 +362,7 @@ private:
     // The separate debugger window (created lazily on first enable)
     DebuggerWindow* debugger_window_ = nullptr;
     jnext::dbgkeys::Keymap keymap_;      // GH #1
+    QPointer<QAction> reload_action_;    // GH #374
     std::optional<bool> attach_override_;   // GH #417
     std::optional<bool> physical_override_; // GH #360
     QStringList configured_source_dirs_;    // GH #420

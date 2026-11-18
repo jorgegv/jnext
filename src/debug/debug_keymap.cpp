@@ -208,6 +208,14 @@ bool validate_combo(const Combo& c, std::string& why, bool host_mod_is_ctrl) {
         return false;
     }
 
+    // GH #374: <host>+L is File > Reload Last File in BOTH windows. On Linux Alt+L is already
+    // refused above (Alt+letter); on macOS it is Command+L (Qt Ctrl), which would otherwise be a
+    // same-window duplicate in the debugger window (GH #124).
+    if (c.mods == host_mod && c.key == Key::L) {
+        why = std::string(host_txt) + "+L is Reload Last File";
+        return false;
+    }
+
     // GH #321: Alt+Shift+F5 / Alt+Shift+F9 are Quick Save / Quick Load Snapshot
     // in the emulator window (a QAction there, the key Router in the SDL
     // build). Refused by name, as the script host keys are: a debugger action

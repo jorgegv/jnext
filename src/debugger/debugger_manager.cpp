@@ -295,6 +295,12 @@ void DebuggerManager::set_keymap(const jnext::dbgkeys::Keymap& km) {
         debugger_window_->set_keymap(km);
 }
 
+void DebuggerManager::set_reload_action(QAction* host) {
+    reload_action_ = host;
+    if (debugger_window_)
+        debugger_window_->set_reload_source(host);
+}
+
 QStringList DebuggerManager::source_dirs() const {
     QStringList all;
     for (const QStringList* list : {&configured_source_dirs_, &located_source_dirs_})
@@ -342,6 +348,7 @@ void DebuggerManager::ensure_window() {
     // about: rebinding and then opening the debugger for the first time left
     // the toolbar on the old keys.
     debugger_window_->set_keymap(keymap_);
+    debugger_window_->set_reload_source(reload_action_);   // GH #374
     // GH #420 - the same for the Source tab's search path, and its Locate File... .
     if (auto* sp = debugger_window_->source_panel()) {
         connect(sp, &SourcePanel::source_dir_located, this, &DebuggerManager::on_source_dir_located);

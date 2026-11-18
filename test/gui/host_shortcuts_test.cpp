@@ -432,6 +432,30 @@ int main(int argc, char** argv)
               issues.size() == 1 && km.is_default(jnext::dbgkeys::Action::StepBack));
     }
 
+    // --- GH #374: Command+L is Reload Last File in both windows ------------
+    {
+        using namespace jnext::dbgkeys;
+        auto refused_why = [](Combo c, bool mac, std::string& why) { return !validate_combo(c, why, mac); };
+        std::string why;
+        const bool mac_ctrl_l = refused_why({MOD_CTRL, Key::L}, true, why) &&
+                                why.find("Reload Last File") != std::string::npos;
+        std::string w2;
+        check("HS374-01", "macOS: Ctrl(=Command)+L is refused as a debugger binding, naming Reload Last File; "
+                          "Ctrl+Shift+L and Ctrl+K stay bindable, Ctrl+L stays bindable on Linux, Alt+L is refused there",
+              mac_ctrl_l && !refused_why({MOD_CTRL | MOD_SHIFT, Key::L}, true, w2) &&
+                  !refused_why({MOD_CTRL, Key::K}, true, w2) &&
+                  !refused_why({MOD_CTRL, Key::L}, false, w2) &&
+                  refused_why({MOD_ALT, Key::L}, false, w2));
+        std::vector<LoadIssue> issues, issues2;
+        const Keymap kmac = build_keymap({{"step_back", "Ctrl+L"}}, issues, true);
+        const Keymap klin = build_keymap({{"step_back", "Ctrl+L"}}, issues2, false);
+        const Combo got = klin.combo(jnext::dbgkeys::Action::StepBack);
+        check("HS374-02", "a [debugger_keys] entry on Command+L is refused on macOS (action keeps its default) "
+                          "and honoured on Linux",
+              issues.size() == 1 && kmac.is_default(jnext::dbgkeys::Action::StepBack) &&
+                  issues2.empty() && got.mods == MOD_CTRL && got.key == Key::L);
+    }
+
     // --- the wiring: the product reads the table, not literals -------------
     {
         const QString mw = read_all("src/gui/main_window.cpp");

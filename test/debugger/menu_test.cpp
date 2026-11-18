@@ -142,6 +142,12 @@
 #include <QScrollBar>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QTest>
+#include <QWindow>
+#include <filesystem>
+#include <fstream>
+#include "gui/host_shortcuts.h"
+#include "menu_accel.h"
 #include <QTimer>
 #include <QToolBar>
 
@@ -3268,6 +3274,145 @@ static void test_set_override_handoff()
     if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
 }
 
+// ── DRL: GH #374 - File > Reload Last File in the debugger window ─────────────
+//
+// The emulator window's File > Reload Last File (GH #406) is reachable from the debugger window: its
+// own QAction, same host chord, forwarding to the emulator window's action and mirroring its enabled
+// state. Oracles: the issue ("File > Reload program"), GH #406's contract for the same command (RFM-19..21
+// in recent_files_menu_test), the host Alt rule and GH #124's ambiguity rule. No VHDL (host UI). The key
+// rows go through QTest's real platform key path; an inactive window is a loud FAIL, never a skip.
+static void test_reload_last_from_debugger()
+{
+    set_group("DRL");
+    namespace fs = std::filesystem;
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home, files;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    auto touch = [&](const char* name) {
+        const std::string p = (fs::path(files.path().toStdString()) / name).string();
+        std::ofstream(p, std::ios::binary) << "x";
+        return p;
+    };
+    const std::string a = touch("a.tap"), b = touch("b.tap");
+
+    {
+        MainWindowFixture fx;
+        std::string handed;
+        int handed_n = 0;
+        DebuggerWindow* dbg = nullptr;
+        QAction* host = nullptr;
+        if (fx.ok) {
+            fx.win.set_load_file_callback([&](const std::string& p, bool) { handed = p; ++handed_n; });
+            fx.win.debugger_manager()->set_enabled(true);
+            dbg = fx.win.debugger_manager()->debugger_window_ptr();
+            host = fx.win.reload_last_action();
+        }
+        auto load = [&](const std::string& p) {
+            fx.win.handle_load_path(QString::fromStdString(p));
+            fx.win.load_finished(p, true);
+        };
+        const bool built = fx.ok && dbg && host && dbg->reload_action();
+        auto fail_all = [&](const char* id) { check(id, "DRL fixture", false, "fixture failed"); };
+        if (!built) {
+            for (const char* id : {"DRL-01", "DRL-02", "DRL-03", "DRL-04", "DRL-05", "DRL-06"}) fail_all(id);
+        } else {
+            QAction* ra = dbg->reload_action();
+            // DRL-01
+            {
+                QMenuBar* bar = dbg->menuBar();
+                const auto acts = bar->actions();
+                QMenu* fm = (!acts.isEmpty() && acts.first()->menu()) ? acts.first()->menu() : nullptr;
+                const bool first_file = !acts.isEmpty() && acts.first()->text() == QLatin1String("&File");
+                QAction* item = item_named(fm, QStringLiteral("Reload Last File"));
+                const QKeySequence want = host_shortcuts::sequence(host_shortcuts::Action::ReloadLast);
+                bool no_l = true;
+                for (const auto& m : accel::harvest_widget_mnemonics(dbg))
+                    if (m.key == QLatin1String("Alt+L")) no_l = false;
+                check("DRL-01", "the debugger menu bar starts with &File, holding Reload Last File on the host "
+                                "chord (WindowShortcut); no widget mnemonic is L",
+                      first_file && item == ra && ra->shortcuts() == QList<QKeySequence>{want} &&
+                          ra->shortcutContext() == Qt::WindowShortcut && no_l,
+                      ra->shortcut().toString().toStdString());
+            }
+            // DRL-02
+            {
+                const bool e0 = ra->isEnabled(), h0 = host->isEnabled();
+                load(a);
+                const bool e1 = ra->isEnabled(), h1 = host->isEnabled();
+                QMenu* recent = fx.win.recent_menu();
+                QAction* clear = nullptr;
+                for (QAction* x : recent->actions())
+                    if (visible(x->text()).startsWith(QLatin1String("Clear"))) clear = x;
+                if (clear) clear->trigger();
+                const bool e2 = ra->isEnabled(), h2 = host->isEnabled();
+                check("DRL-02", "the item's enabled state follows the emulator window's action: off, on after a "
+                                "load, off after Clear Recent Files",
+                      clear && !e0 && !h0 && e1 && h1 && !e2 && !h2,
+                      fmt("%d%d %d%d %d%d", e0, h0, e1, h1, e2, h2));
+            }
+            // DRL-03
+            {
+                load(a); load(b);
+                handed_n = 0; handed.clear();
+                ra->trigger();
+                const bool once = handed_n == 1 && handed == b;
+                fx.win.load_finished(b, true);
+                const QStringList want{QString::fromStdString(b), QString::fromStdString(a)};
+                check("DRL-03", "triggering it hands the newest recent file to the loader once; the list is {b, a}",
+                      once && fx.win.app_config().data().recent_files == want,
+                      handed + " n=" + std::to_string(handed_n));
+            }
+            // DRL-04
+            {
+                const std::string gone = touch("gone.tap");
+                load(a); load(gone);
+                fs::remove(gone);
+                handed_n = 0;
+                ra->trigger();
+                check("DRL-04", "a vanished newest file: nothing is loaded, it is dropped, the status bar names it, "
+                                "the item stays enabled",
+                      handed_n == 0 &&
+                          fx.win.app_config().data().recent_files == QStringList{QString::fromStdString(a)} &&
+                          fx.win.statusBar()->currentMessage().contains("gone.tap") && ra->isEnabled());
+            }
+            // DRL-05
+            {
+                load(a); load(b);
+                handed_n = 0; handed.clear();
+                dbg->show();
+                dbg->activateWindow();
+                QTest::qWait(150);
+                const bool active = dbg->windowHandle() && QApplication::activeWindow() == dbg;
+                if (active) {
+                    QTest::keyClick(dbg->windowHandle(), Qt::Key_L, Qt::AltModifier);
+                    QTest::qWait(100);
+                }
+                check("DRL-05", "Alt+L pressed in the debugger window (real key path) reloads the newest file once",
+                      active && handed_n == 1 && handed == b,
+                      active ? handed : "debugger window is not the active window");
+            }
+            // DRL-06
+            {
+                handed_n = 0; handed.clear();
+                fx.win.show();
+                fx.win.activateWindow();
+                fx.win.raise();
+                QTest::qWait(150);
+                const bool active = fx.win.windowHandle() && QApplication::activeWindow() == &fx.win;
+                if (active) {
+                    QTest::keyClick(fx.win.windowHandle(), Qt::Key_L, Qt::AltModifier);
+                    QTest::qWait(100);
+                }
+                check("DRL-06", "Alt+L in the emulator window, debugger open, loads exactly once (no ambiguity)",
+                      active && handed_n == 1,
+                      active ? std::to_string(handed_n) : "emulator window is not the active window");
+            }
+        }
+    }
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -3320,6 +3465,8 @@ int main(int argc, char** argv)
     test_physical_menu();
     test_set_override_handoff();
     std::printf("  Group: QLADDR         - done\n");
+    test_reload_last_from_debugger();
+    std::printf("  Group: DRL            - done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

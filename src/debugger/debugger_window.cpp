@@ -376,6 +376,20 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     apply_keymap();
 }
 
+void DebuggerWindow::set_reload_source(QAction* host) {
+    // GH #374: the emulator window's Reload Last File. Forward the trigger, mirror the enabled state.
+    QObject::disconnect(reload_trigger_conn_);
+    QObject::disconnect(reload_enable_conn_);
+    if (!host) {
+        reload_action_->setEnabled(false);
+        return;
+    }
+    reload_trigger_conn_ = connect(reload_action_, &QAction::triggered, host, &QAction::trigger);
+    reload_enable_conn_  = connect(host, &QAction::changed, reload_action_,
+                                   [this, host]() { reload_action_->setEnabled(host->isEnabled()); });
+    reload_action_->setEnabled(host->isEnabled());
+}
+
 void DebuggerWindow::set_keymap(const jnext::dbgkeys::Keymap& km) {
     keymap_ = km;
     apply_keymap();
@@ -637,6 +651,14 @@ void DebuggerWindow::create_menus() {
     //     and the guest keys ARE already released when this window takes the
     //     keyboard, by the emulator window's own focusOutEvent.
     jnext::disable_alt_menu_navigation(bar, this);
+
+    // GH #374 - File > Reload Last File: the emulator window's command, reachable from here. A host
+    // shortcut like the script keys (not a keymap action: the keymap refuses Alt+letter); its handler
+    // and enabled state are the emulator window's (set_reload_source()). F: free in this menu bar.
+    QMenu* file_menu = bar->addMenu(tr("&File"));
+    reload_action_ = file_menu->addAction(tr("Reload Last File"));
+    reload_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::ReloadLast));
+    reload_action_->setEnabled(false);   // until a host action says otherwise
 
     // --- Debug menu ---
     QMenu* debug_menu = bar->addMenu(tr("&Debug"));
