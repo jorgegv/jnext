@@ -251,7 +251,8 @@ refuse a value by name, makes `render_combo()` canonical, and makes the grammar
 testable without a widget. `validate_combo()` refuses the combinations that
 would break something else: anything without Ctrl, Alt or Meta that is not
 `F1`-`F12` (the Memory panel types hex with bare keys), `Alt`+letter (the menu
-bar's), `Alt`+`1`..`8` (the script host keys), and `Ctrl+C` / `Ctrl+A`.
+bar's), `Alt`+`1`..`8` (the script host keys), `Ctrl+C` / `Ctrl+A`, and, where
+the host modifier is Command, Command+`L` (Reload Last File).
 
 **A chord both windows bind is a warning, not a conflict.** `Qt::WindowShortcut`
 matches against the active window, and each window keeps its own binding, so a
@@ -262,6 +263,17 @@ Preferences tab refuses such a capture. `build_keymap()` resolves a hand-edited
 file deterministically — explicit beats default, the earlier action beats the
 later, the loser is left unbound — and every refusal becomes a `LoadIssue` that
 `MainWindow` logs at error level and the tab lists.
+
+**File > Reload Last File is not a keymap action.** The debugger window's File menu holds its
+OWN `QAction`, carrying the host chord (`host_shortcuts::sequence()`, Alt+L; Command+L on
+macOS). `DebuggerManager::set_reload_action()` hands the manager the emulator window's
+`reload_last_action_`, and `DebuggerWindow::set_reload_source()` connects the two: triggering
+forwards to that action, and `QAction::changed` mirrors its enabled state. So there is one
+handler (the File > Open route, with the Recent Files bookkeeping) and one enabled state.
+Two designs were rejected. One shared `QAction` would be invisible to the guards, which walk
+`findChildren()` of the debugger window, and `jnext_debugger` cannot name `MainWindow`.
+`Debugger::load()` is an in-place load with no Recent Files bookkeeping, and it drops the
+`SidecarLoad`, so a refused map would only be logged.
 
 `MainWindow` keeps the map in effect in `debug_keys_`. Both its forwarding of
 the five execution keys (`run`, `pause`, `step_into`, `step_over`, `step_out`)

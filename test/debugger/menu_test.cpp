@@ -142,6 +142,7 @@
 #include <QScrollBar>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QStatusBar>
 #include <QTest>
 #include <QWindow>
 #include <filesystem>
@@ -3370,10 +3371,14 @@ static void test_reload_last_from_debugger()
                 handed_n = 0;
                 ra->trigger();
                 check("DRL-04", "a vanished newest file: nothing is loaded, it is dropped, the status bar names it, "
-                                "the item stays enabled",
+                                "the item stays enabled (list {a, b})",
                       handed_n == 0 &&
-                          fx.win.app_config().data().recent_files == QStringList{QString::fromStdString(a)} &&
-                          fx.win.statusBar()->currentMessage().contains("gone.tap") && ra->isEnabled());
+                          fx.win.app_config().data().recent_files ==
+                              QStringList{QString::fromStdString(a), QString::fromStdString(b)} &&
+                          fx.win.statusBar()->currentMessage().contains("gone.tap") && ra->isEnabled(),
+                      fmt("n=%d list=%s msg=%s en=%d", handed_n,
+                          fx.win.app_config().data().recent_files.join('|').toStdString().c_str(),
+                          fx.win.statusBar()->currentMessage().toStdString().c_str(), (int)ra->isEnabled()));
             }
             // DRL-05
             {
