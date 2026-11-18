@@ -763,7 +763,12 @@ int main(int argc, char** argv) {
     r28.need(g_s28_cases == 22272, "cases " + std::to_string(g_s28_cases));
     check("DHINT-28", "Z80Cpu sweep: every conditional opcode (also DD/FD-prefixed) x 256 flag or B values (22272 runs)", r28);
     Row r29 = sweep_memory();
-    r29.need(g_s29_total == 542 && g_s29_named == 70 + 0 && true, "sweep totals " + std::to_string(g_s29_total));
+    // Per class, derived by hand: 512 prefixed opcodes + 30 Z80N = 542. Named: 35 per prefix (25 (IX+d) byte forms,
+    // DD CB, EX (SP), LD (nn),IX / IX,(nn), and the six BC/DE/nn forms the prefix ignores) = 70. Stack: 26 per
+    // prefix (8 PUSH/POP, CALL, RET, 8 RST, and the 4 + 4 CALL/RET cc taken at F=0) = 52. Z80N with a data access: 9.
+    r29.need(g_s29_total == 542 && g_s29_named == 70 && g_s29_stack == 52 && g_s29_z80n == 9 && g_s29_silent == 411,
+             "sweep classes named " + std::to_string(g_s29_named) + " stack " + std::to_string(g_s29_stack) + " z80n " +
+                 std::to_string(g_s29_z80n) + " silent " + std::to_string(g_s29_silent) + " total " + std::to_string(g_s29_total));
     check("DHINT-29", "Z80Cpu sweep: DD/FD 00-FF and the 30 Z80N ED ops access exactly the named operand, else an implicit class", r29);
     std::printf("  sweep classes: named %d silent %d stack %d z80n %d total %d\n", g_s29_named, g_s29_silent, g_s29_stack,
                 g_s29_z80n, g_s29_total);

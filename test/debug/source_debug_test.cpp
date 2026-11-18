@@ -3037,10 +3037,11 @@ static void interrupt_machine(Machine& m) {
         // already see RAM (automap_hold cleared), though the opcode came from the ROM.
         Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
         divmmc_instant_machine(m);
-        m.dbg->step_into(m.a);   // CALL $0000: the DivMMC is mapped from now on
+        m.emu.mmu().write(0x0005, 0x11);   // RAM page 10, written while it is still mapped
+        m.dbg->step_into(m.a);   // CALL $0000
+        m.dbg->step_into(m.a);   // INC A at the entry: the DivMMC is mapped from now on
         m.emu.divmmc().rom_data()[0x1FF8] = 0x7E;   // LD A,(HL)
         m.emu.divmmc().rom_data()[5] = 0x22;
-        m.emu.mmu().write(0x0005, 0x11);
         Z80Registers r = m.emu.cpu().get_registers();
         r.PC = 0x1FF8; r.HL = 0x0005;
         m.emu.cpu().set_registers(r);

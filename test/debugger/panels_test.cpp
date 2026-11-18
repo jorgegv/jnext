@@ -4372,7 +4372,7 @@ static void test_pc_hint() {
     }
     {   // QDHINT-05: nothing moves on a +3
         Emulator emu;
-        const bool built = setup(emu, MachineType::PLUS3);
+        const bool built = setup(emu, MachineType::ZX_PLUS3);
         poke(emu, 0x8000, {0x7E});          // LD A,(HL), HL in contended RAM
         poke(emu, 0x6000, {0xA5});
         set_regs(emu, 0x8000, 0, 0x6000, 0, 0xA000);
