@@ -8,7 +8,9 @@
 ///
 /// This is the engine behind `--sdcard-file-add FILE --sdcard-file-dest PATH`,
 /// a copy-and-exit CLI mode: no emulation is started, the image is mutated and
-/// jnext exits with a status that says exactly what happened.
+/// jnext exits with a status that says exactly what happened. When an SD-writes
+/// journal is bound to the image (`--sdcard-writes`), the writes go into that
+/// file instead and the image is opened read-only (fatfs_glue journal mode).
 ///
 /// WHY THERE IS NO FAT32 WRITER HERE.
 ///

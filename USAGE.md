@@ -266,12 +266,13 @@ bytes each) and the one file jnext’s esxDOS stand-in keeps for a
 directly loaded NEX (see **esxDOS calls from a directly loaded NEX**),
 stored when the program closes it and handed back to the stand-in at the
 next start, whatever the program: it belongs to the card, not to the NEX
-that wrote it. Excludes **--sdcard-readonly** and **--sdcard-file-add**.
-A recording of the warm start is keyed on the image and on *FILE*’s
-sectors, so it is taken again after the machine has written one; the
-stand-in’s file is not card state and does not change it. Files read
-from the image by the host (the ROMs, a snapshot’s card identity) do not
-see the writes. See **SD CARD AND ROMS**.
+that wrote it. Excludes **--sdcard-readonly**; with
+**--sdcard-file-add** the copy goes into *FILE* and the image is not
+written. A recording of the warm start is keyed on the image and on
+*FILE*’s sectors, so it is taken again after the machine has written
+one; the stand-in’s file is not card state and does not change it. Files
+read from the image by the host (the ROMs, a snapshot’s card identity)
+do not see the writes. See **SD CARD AND ROMS**.
 
 **--sdcard-writes-reset**  
 Discard the writes kept in the **--sdcard-writes** *FILE* before the
@@ -286,7 +287,9 @@ the SD-card image and **exit without starting emulation**. Without
 name. Give it once per run. The image written is the one **--sdcard**
 names, or the default-location image when **--sdcard** is omitted — in
 which case a loud warning says so, because that image is shared with
-every other run. See **PUTTING A FILE ON THE CARD**.
+every other run. With **--sdcard-writes** the copy goes into that file
+instead and the image is not written. See **PUTTING A FILE ON THE
+CARD**.
 
 **--sdcard-file-dest** *PATH*  
 Optional. The path on the card that **--sdcard-file-add**’s *FILE*
@@ -1713,6 +1716,29 @@ goes into the default-location image, which every other run also boots
 and which the test suite resolves from; jnext warns loudly when that
 happens. It does not make a backup: these are gigabyte files, and
 `cp --reflink=auto` is instant on a copy-on-write filesystem.
+
+With **--sdcard-writes** *FILE* the copy goes into *FILE* instead, and
+the image is opened read-only and never written, so a card shared by
+other runs stays as it is and no warning about the default image is
+given. The next run that is given the same image and *FILE* boots a card
+that has the file:
+
+    jnext --sdcard-file-add DOTEST --sdcard-file-dest /DOT/DOTEST --sdcard-writes dev.jsdw
+    jnext --sdcard-writes dev.jsdw
+
+The rules are those of a copy into the image. A second add of the same
+destination is refused (exit 4) and *FILE* is left alone; with
+**--sdcard-file-force** it is replaced, and replacing a file by one of
+the same size does not make *FILE* grow. **--sdcard-writes-reset**
+starts again from the image. Adds accumulate in *FILE*, together with
+anything a run of the machine wrote and the file the esxDOS stand-in
+keeps. *FILE* holds a copy of everything added, so for a big tree a
+private copy of the image is the better tool. A *FILE* that holds a
+rewritten partition table or boot sector of the card is refused (exit 5)
+before anything is written, because the card the machine sees is then
+not the one the copy would be laid out for; **--sdcard-writes-reset**
+starts again. The warm-start recording is taken again by the next
+**--load**, as after any write to the card.
 
 The image must be a spec-valid FAT32 (at least 65525 clusters) — the
 same thing the Next’s own firmware requires. The image jnext provisions
@@ -3555,7 +3581,8 @@ given. Nothing was written.
 5  
 The SD image is missing, is not an MBR-partitioned FAT32 image, holds a
 filesystem this build will not mount (an under-clustered one), or could
-not be written.
+not be written, or, with **--sdcard-writes**, the writes file could not
+be written or holds a rewritten partition table or boot sector.
 
 6  
 The card has no room — not enough free space, or a directory with no

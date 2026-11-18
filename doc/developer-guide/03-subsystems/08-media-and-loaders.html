@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.9</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.10</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.9</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.10</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -5035,7 +5035,24 @@ prepare_warm_start</code> therefore treats the card as neither stale nor uncache
 <code>--sdcard-sha256</code> alone must (the digest describes the file only until jnext writes to it).
 Readers that go to the image directly (the ROM extractor, the card identity a <code>.jns</code> snapshot
 records) do not see the journal.</p>
-<p>The rows are <code>SDW-01..28</code> (<code>sdcard_writes_test</code>), <code>SDP-SDW-01..02</code> (a sector append and a
+<p><strong><code>--sdcard-file-add</code> writes through the journal.</strong> The file-add engine (<code>MountedCard::mount()</code> in
+<code>src/core/sdcard_file_add.cpp</code>) mounts the image through FatFs, so it cannot reach <code>SdCardDevice</code>.
+Instead <code>fatfs_glue::attach()</code> takes an optional journal and the glue runs in journal mode: the
+image is opened <code>ios::in</code> only, <code>disk_read</code> overlays the journal's sectors on what it read, and
+<code>disk_write</code> commits each sector to the journal, whose sector numbers are absolute card sectors
+(the glue adds the partition's start LBA). <code>MountedCard::mount()</code> takes the journal from
+<code>for_image()</code> like <code>SdCardDevice::mount()</code>, so a bound image is always written through its
+journal; the SD-card provisioner passes none and still writes its image. FatFs is the only writer
+in both modes, and it is deterministic (<code>FF_FS_NORTC</code>), so the journal laid over a pristine card
+equals the card an image-mode add makes. The partition geometry is read from the raw image, so
+<code>mount()</code> refuses with <code>ImageUnusable</code> when the journal holds sector 0 or the partition's boot
+sector: the card the machine sees would differ from the one the copy is laid out for. The write
+failure messages name the journal file (<code>MountedCard::target</code>), not the image. A forced
+replace of a file reuses its clusters (FatFs's <code>f_open</code> reuses the cluster hole), so the next
+<code>bind()</code> compacts the superseded records and the file does not grow.</p>
+<p>The rows are <code>SDW-01..28</code> (<code>sdcard_writes_test</code>), <code>SDFA-J01..J14</code> and <code>SDFA-JP01..JP02</code>
+(<code>sdcard_file_add_test</code> and <code>sdcard_file_add_posix_test</code>: the journal-mode add, read back from
+the journal by a reader written from the table above), <code>SDP-SDW-01..02</code> (a sector append and a
 kept-file append that really fail), <code>WSR-SDW-01..06</code> (the key; <code>06</code>: a kept file does not move
 it), <code>ESXK-01..08</code> (<code>esxdos_stub_test</code>: the stand-in keeps and adopts its file) and the regression
 rows <code>sdcard-writes-func</code>, whose guest is <code>test/fixtures/nex/save_counter.nex</code> (source

@@ -194,7 +194,9 @@ is optional: without it the file or directory goes into the root of the card
 under its own name, and with `--sdcard-file-dest /` a directory's contents go
 straight into the root. Missing directories on the way are created, existing
 ones are merged into, and a file that is already there is refused unless you
-add `--sdcard-file-force`. A copy that cannot be completed is refused or undone
+add `--sdcard-file-force`. To leave the image untouched, add `--sdcard-writes FILE`: the
+copy then goes into *FILE*, and the next run given the same image and *FILE* has the
+files on its card. A copy that cannot be completed is refused or undone
 as a whole, never left half-done; the **jnext(1)** man page, under PUTTING A
 FILE ON THE CARD, lists exactly what is refused and why.
 
