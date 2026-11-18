@@ -858,6 +858,11 @@ DisasmReadFn Debugger::memory_reader() const {
     };
 }
 
+DisasmReadFn Debugger::operand_reader() const {
+    Emulator* emu = &impl_->emu;
+    return emu->predict_data_reader(emu->cpu().get_registers().PC);
+}
+
 std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,
                                               const SymbolTable* syms) const {
     std::vector<DisasmLine> out;
