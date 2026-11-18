@@ -47,6 +47,20 @@ edge of real time:
   than two periods late, the backlog is dropped and the next tick runs at once;
   it used to wait a whole period first, which on a host that cannot keep up
   idled the machine every other tick while it was already behind.
+- **A sprint is bounded in wall time as well as in frames.** While
+  `Emulator::fastload_active()` holds, step (8) of the tick runs extra frames
+  in the one tick, up to `FASTLOAD_BURST_LIMIT` (200) and no longer than
+  `FASTLOAD_BURST_BUDGET_US` (50 ms) of wall clock, so the window repaints and
+  reads keys at 20 Hz even at the ~130 frames per second a Next boot reaches
+  (200 frames once blocked it for about 1.6 s). `fastload_active()` is true for
+  a tape being loaded and for the **fast boot window**: `arm_fast_boot()`
+  opens N emulated frames at launch (`main.cpp`, through `fast_boot::decide()`
+  in `src/platform/fast_boot.h`) in which a plain Next start runs uncapped with
+  the sound card unfed. The window counts frames in `end_of_frame()`, survives
+  the firmware's own soft reset, and closes on time up, the first guest key, a
+  debugger stop (a frame resumed after one), `init()` without `preserve_memory`
+  and `load_state()`. It is host pacing only: not serialised, and it changes
+  no emulated state (`fast_boot_test`).
 - **The audio band's estimate stays within one device chunk of the reading**
   (`BandState::envelope_ms` in `src/platform/audio_pacing.h`, set from the
   opened device's buffer; see [Audio](../03-subsystems/04-audio.md)).

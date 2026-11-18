@@ -836,7 +836,12 @@ public:
     ///     ROM trap served it a block within the last
     ///     FASTLOAD_TAPE_IDLE_FRAMES frames: the gap between a header and
     ///     its data, or a BASIC loader's next `LOAD ""CODE`.
+    ///
+    /// It also covers the fast-boot window (arm_fast_boot(), GH #499): the
+    /// one predicate for "run uncapped, sound card unfed" stays this one, so
+    /// the four platform consumers need no second one.
     bool fastload_active() const {
+        if (fast_boot_frames_left_ > 0) return true;
         if (phantom_typist_.wants_fastload()) return true;
         const bool fast_tape_pending =
             (tape_.is_loaded()     && tape_.fast_load()     && !tape_.at_end()) ||
@@ -844,6 +849,16 @@ public:
         if (!fast_tape_pending) return false;
         return keyboard_.auto_typing() || tape_fastload_frames_left_ > 0;
     }
+    /// GH #499 - fast boot: open a window of `frames` emulated frames in which
+    /// fastload_active() is true (the frontends run uncapped with the sound
+    /// card unfed). Armed once at launch by main.cpp (fast_boot::decide()).
+    /// Closed by: running out, a guest key, a debugger stop, init() without
+    /// preserve_memory (every load and machine change) and load_state(). A
+    /// soft reset keeps it: the Next firmware performs one itself to start
+    /// NextZXOS. Host pacing only: not serialised, changes no emulated state.
+    void arm_fast_boot(uint32_t frames) { fast_boot_frames_left_ = frames; fast_boot_run_ = 0; }
+    /// GH #499 - frames left of that window (0: none).
+    uint32_t fast_boot_frames_left() const { return fast_boot_frames_left_; }
     /// GH #408 - frames a fast tape keeps the emulator uncapped after a
     /// ROM-trap load (one emulated second at 50 Hz). Measured on a synthetic
     /// `10 LOAD ""CODE : PAUSE n : LOAD ""CODE` loader (tap_loader_test
@@ -2709,6 +2724,12 @@ private:
     // Host pacing only: not serialised (a restored machine sprints again at
     // its next trapped block).
     uint32_t         tape_fastload_frames_left_ = 0;
+    // GH #499 - fast-boot window (see arm_fast_boot()): frames left, and frames
+    // run since it was armed (for the log line). Host pacing only, not serialised.
+    uint32_t         fast_boot_frames_left_ = 0;
+    uint32_t         fast_boot_run_ = 0;
+    /// Close the window, logging why (only when it was open).
+    void close_fast_boot_(const char* reason);
     /// GH #408 - the one rule for a deck change: whatever replaces or empties
     /// the decks outside a state restore (load_tap, load_tzx, load_wav,
     /// eject_tape) calls this, and the old tape's window goes with it. A .jns

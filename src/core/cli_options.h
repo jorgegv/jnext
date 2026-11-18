@@ -123,6 +123,7 @@ enum class OptId {
     RzxPlay,
     RzxRecord,
     Speed,
+    FastBoot,
     WhenSlowPrefer,
     Joy1Source,
     Joy2Source,
@@ -367,6 +368,11 @@ inline constexpr Option OPTIONS[] = {
     { "--speed", 1, Doc::Documented, OptId::Speed,
       "PERCENT",
       "Emulator speed as % (50=half, 100=normal, 200=2x, 400=4x)" },
+    { "--fast-boot", 1, Doc::Documented, OptId::FastBoot,
+      "SECONDS",
+      "Run the first SECONDS (0..60, 0=off, default 15) of a\n"
+      "plain Next start at maximum speed, sound off; any key\n"
+      "returns to normal speed" },
     { "--when-slow-prefer", 1, Doc::Documented, OptId::WhenSlowPrefer,
       "WHAT",
       "What to sacrifice when the host cannot emulate in\n"

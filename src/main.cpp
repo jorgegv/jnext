@@ -22,6 +22,7 @@
 // other options, before the frontend type is known.
 #include "platform/audio_pacing.h"
 #include "platform/config_keys.h"       // GH #417 --set
+#include "platform/fast_boot.h"        // GH #499 --fast-boot
 #include "platform/pointer_capture.h"   // GH #365 --mouse-release
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "platform/quit_signal.h"      // SIGINT/SIGTERM as a quit request (GH #364)
@@ -430,6 +431,9 @@ int main(int argc, char* argv[]) {
     audio_pacing::WhenSlowPrefer when_slow_prefer =
         audio_pacing::WhenSlowPrefer::Audio;
     bool        when_slow_prefer_set = false;  // was --when-slow-prefer given?
+    // GH #499 - the fast boot's length, in seconds (0 = off); `_set` lets the command line win over the saved one.
+    int         fast_boot_seconds = fast_boot::DEFAULT_SECONDS;
+    bool        fast_boot_set = false;         // was --fast-boot (or --set startup.fast_boot_seconds) given?
     // GH #365 — how a captured mouse is released.
     pointer_capture::ReleaseMethod mouse_release = pointer_capture::kDefaultReleaseMethod;
     bool        mouse_release_set = false;     // was --mouse-release given?
@@ -548,6 +552,10 @@ int main(int argc, char* argv[]) {
         case KeyId::StartupTapeAutoPlay:
             tape_auto_play = on;
             tape_auto_play_set = true;
+            break;
+        case KeyId::StartupFastBootSeconds:
+            fast_boot_seconds = static_cast<int>(num);
+            fast_boot_set = true;
             break;
         case KeyId::StartupWhenSlowPrefer:
             when_slow_prefer = (t == "video") ? audio_pacing::WhenSlowPrefer::Video
@@ -1196,6 +1204,18 @@ int main(int argc, char* argv[]) {
                 speed_percent_set = true;
                 note_given(config_keys::KeyId::StartupEmulatorSpeedPercent, arg);
                 break;
+            case cli::OptId::FastBoot: {
+                config_keys::Assignment fa;
+                if (!via_table(config_keys::KeyId::StartupFastBootSeconds, v[0], fa)) {
+                    fprintf(stderr, "--fast-boot: SECONDS must be a whole number from 0 to %d, not \"%s\".\n",
+                            fast_boot::MAX_SECONDS, v[0]);
+                    return 1;
+                }
+                fast_boot_seconds = static_cast<int>(std::strtol(fa.text.c_str(), nullptr, 10));
+                fast_boot_set = true;
+                note_given(config_keys::KeyId::StartupFastBootSeconds, arg);
+                break;
+            }
             case cli::OptId::WhenSlowPrefer: {
                 config_keys::Assignment wa;
                 if (via_table(config_keys::KeyId::StartupWhenSlowPrefer, v[0], wa)) {
@@ -3027,6 +3047,46 @@ int main(int argc, char* argv[]) {
         }
         if (!rzx_record_file.empty()) {
             app.set_rzx_record(rzx_record_file);
+        }
+
+        // GH #499 - fast boot: the first emulated seconds of a plain Next start run at maximum
+        // speed, sound off, until time is up, a guest key, a debugger stop or a load. Armed once
+        // here for every frontend; fast_boot::decide() holds the rules (never with --headless, a
+        // program, command-line work on the emulated timeline, or a recording). Resolved like
+        // --when-slow-prefer: the command line over the saved Preference (Qt), else the default.
+        {
+            int seconds = fast_boot_seconds;
+#ifdef ENABLE_QT_UI
+            if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>)
+                seconds = merge_cli_precedence(fast_boot_set, fast_boot_seconds,
+                                               gui_app_config.data().fast_boot_seconds);
+#endif
+            fast_boot::Launch fl;
+            fl.seconds      = seconds;
+            fl.headless     = headless;
+            fl.next_machine = fast_boot::is_next(app.emulator().config().type);
+            // A program runs at start: --load (a bare file name, an archive, .rzx included), --inject, --rzx-play.
+            fl.program      = !load_file.empty() || !inject_file.empty() || !rzx_play_file.empty();
+            // Work scheduled on the emulated timeline. The Qt window counts these delays per
+            // tick, not per frame, so a sprint would move every one of them: --delayed-screenshot*,
+            // --delayed-automatic-exit*, --delayed-pok-frames, --script (the headless-only
+            // --delayed-keypress, --delayed-nmi, --delayed-snapshot and --script-key are refused
+            // elsewhere without --headless, and headless never arms).
+            fl.scheduled    = !screenshot_file.empty() || auto_exit_delay_frames >= 0 || auto_exit_delay >= 0 ||
+                              pok_request.has_value() || !script_files.empty() || !script_keys.empty();
+            fl.recording    = !record_file.empty() || !wav_record_file.empty() || !rzx_record_file.empty() ||
+                              !dac_trace_file.empty() || !record_script_file.empty();
+            const fast_boot::Decision fd = fast_boot::decide(fl);
+            if (fd.why == fast_boot::Why::Armed) {
+                app.emulator().arm_fast_boot(fd.frames);
+                Log::emulator()->info("fast boot: the first {} s ({} frames) run at maximum speed; press any key to stop",
+                                      seconds, fd.frames);
+            } else if (fast_boot_set && fd.why != fast_boot::Why::Off && fd.why != fast_boot::Why::Headless) {
+                // Asked for, and not given: say so (a setting of 0 and --headless have their own wording).
+                Log::emulator()->warn("fast boot: off ({})", fast_boot::why_text(fd.why));
+            } else {
+                Log::emulator()->info("fast boot: off ({})", fast_boot::why_text(fd.why));
+            }
         }
 
         // The run's teardown: recorders, app.shutdown() and the exit status.

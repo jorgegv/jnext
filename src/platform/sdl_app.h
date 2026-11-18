@@ -285,8 +285,8 @@ private:
 
     // --speed (see set_speed_percent()); 1.0 = real time.
     double      speed_multiplier_ = 1.0;
-    // SDL_GetTicks() of the last present, for the >1x present throttle.
-    // Uint64-wide because SDL3's SDL_GetTicks() is (SDL2's was Uint32).
+    // pacing_now_us() / 1000 of the last present, for the present throttle
+    // (above 100%, and during a fast load or the fast boot).
     uint64_t    last_present_ms_ = 0;
     /// GH #428 — framebuffer generation last uploaded to the display
     /// (render_policy::NOTHING_UPLOADED until the first present), and the

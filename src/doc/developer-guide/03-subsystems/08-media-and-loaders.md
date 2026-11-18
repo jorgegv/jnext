@@ -137,6 +137,9 @@ The real-time players cover the pure-EAR turbo loaders too: a TZX Direct
 Recording block (0x15) plays as a TZX block, and WAV playback interpolates the
 edge position inside a sample, which is what DeciLoad's 12k8 loader needs.
 
+(`fastload_active()` also covers the fast-boot window of a plain Next start;
+see [A frame, end to end](../02-architecture/03-a-frame-end-to-end.md).)
+
 **A fast load also runs the machine uncapped**, so the BASIC between the blocks
 does not cost real time: `Emulator::fastload_active()` drops the frame pacing (the
 Qt frontend runs up to 200 frames per tick, the SDL one skips its delay) and the

@@ -406,6 +406,64 @@ int main()
               " fast=" + std::to_string(fast) + " paced_again=" + std::to_string(paced_again));
     }
 
+    // --- SDLT-13: during fast load / fast boot the present is throttled, and its frames skip the compositor ----
+    // GH #499. The renderer is vsynced, so presenting every frame of a sprint would cap it near the display's
+    // refresh; the ticks inside RENDER_INTERVAL_MS (20 ms) of the last present neither present nor composite
+    // (Emulator::rendered_frames() counts the composited frames). The clock is driven (FakeTime, no cost per
+    // read): tick 1 at t = 1 s presents, tick 2 at the same instant must not, tick 3 25 ms later presents.
+    {
+        bool ok = false;
+        auto app = make_app(ok);
+        FakeTime ft;
+        ft.work_us = 0;
+        ft.t = 1000000;
+        ft.attach(*app);
+        app->emulator().arm_fast_boot(1000);
+        const bool fast = app->emulator().fastload_active();
+        uint32_t s = 0;
+        const uint64_t r0 = app->emulator().rendered_frames();
+        app->tick(s);
+        const uint64_t r1 = app->emulator().rendered_frames();
+        app->tick(s);
+        const uint64_t r2 = app->emulator().rendered_frames();
+        ft.t += 25000;
+        app->tick(s);
+        const uint64_t r3 = app->emulator().rendered_frames();
+        const uint32_t frames = app->emulator().frame_num();
+        app->shutdown();
+        check("SDLT-13", "during fast load a tick inside RENDER_INTERVAL_MS of the last present does not present, and its frame skips the compositor (3 frames run: composited 1, 0, then 1 after 25 ms)",
+              ok && fast && frames == 3 && r1 - r0 == 1 && r2 == r1 && r3 - r2 == 1,
+              "fast=" + std::to_string(fast) + " frames=" + std::to_string(frames) + " r=" +
+              std::to_string(r0) + "/" + std::to_string(r1) + "/" + std::to_string(r2) + "/" + std::to_string(r3));
+    }
+
+    // --- SDLT-14: a due screenshot still presents during fast load ---------------------------------------------
+    {
+        namespace fs = std::filesystem;
+        const fs::path shot = fs::temp_directory_path() / ("jnext-sdlt14-" + jtp::process_id_string() + ".png");
+        std::error_code ec;
+        fs::remove(shot, ec);
+        bool ok = false;
+        auto app = make_app(ok);
+        FakeTime ft;
+        ft.work_us = 0;
+        ft.t = 1000000;
+        ft.attach(*app);
+        app->set_delayed_screenshot(shot.string(), 1, Renderer::LAYER_ALL);
+        app->emulator().arm_fast_boot(1000);
+        uint32_t s = 0;
+        app->tick(s);                                    // presents (the first of the window)
+        const uint64_t r1 = app->emulator().rendered_frames();
+        app->tick(s);                                    // same instant: only the due screenshot lets it composite
+        const uint64_t r2 = app->emulator().rendered_frames();
+        app->shutdown();
+        const bool written = fs::exists(shot, ec);
+        fs::remove(shot, ec);
+        check("SDLT-14", "a due screenshot still presents and composites during fast load, inside the throttle interval, and the file is written",
+              ok && r2 - r1 == 1 && written,
+              "r1=" + std::to_string(r1) + " r2=" + std::to_string(r2) + " written=" + std::to_string(written));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

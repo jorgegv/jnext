@@ -669,13 +669,14 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
     // scaled period instead (the sleep below) — exactly as QtApp does.
     const bool speed_scaled = (speed_multiplier_ != 1.0);
     const bool screenshot_due = screenshot_countdown_.due();
-    // Above 100%, present at most every RENDER_INTERVAL_MS (QtApp's
-    // compositor throttle): the frames in between are never seen, and the
-    // renderer is vsynced, so presenting every one would cap the machine
-    // at the display's refresh rate. A due screenshot always presents.
+    // Above 100%, and during a fast load or the fast boot (GH #499), present
+    // at most every RENDER_INTERVAL_MS (QtApp's compositor throttle): the
+    // frames in between are never seen, and the renderer is vsynced, so
+    // presenting every one would cap the machine at the display's refresh
+    // rate. A due screenshot always presents.
     bool present_this_tick = true;
-    if (speed_multiplier_ > 1.0 && !screenshot_due) {
-        const uint64_t now = SDL_GetTicks();
+    if ((speed_multiplier_ > 1.0 || emulator_.fastload_active()) && !screenshot_due) {
+        const uint64_t now = static_cast<uint64_t>(pacing_now_us() / 1000);   // the test seam's clock (SDLT-13)
         if (now - last_present_ms_ < static_cast<uint64_t>(
                                          frame_sequencer::RENDER_INTERVAL_MS))
             present_this_tick = false;
@@ -695,8 +696,9 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
             // Superseded-composite skip (issue #9): the display presents
             // once, below, so only the tick's last frame composites
             // (render_policy.h). Fastload runs 1 frame per loop pass here
-            // (its pacing comes from skipping the delay), so it always
-            // composites; a due screenshot forces the whole tick.
+            // (its pacing comes from skipping the delay) and presents
+            // at most every RENDER_INTERVAL_MS (above), so only the frames
+            // that present composite; a due screenshot forces the whole tick.
             emulator_.set_render_enabled(
                 present_this_tick &&
                 render_policy::composite_frame_in_tick(i, frames,
