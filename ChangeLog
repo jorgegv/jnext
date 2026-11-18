@@ -1,5 +1,18 @@
 # ChangeLog
 
+## Unreleased (2026-11-18)
+
+### User Features
+- Fast boot: a plain Next start runs its first 15 seconds at full speed with the sound off; any key ends it (`--fast-boot`, Preferences)
+- Browser: the SD card is kept compressed, about 1.1 MB of the visitor's storage instead of 40 MiB
+
+### Developer Features
+- Disassembly: the PC line shows whether a conditional jump, call or return is taken, and the value at its memory operand
+- Debugger CPU panel shows the T-states since the last stop, with an Accumulate option
+
+### Contributors in this release
+- @janko-jj
+
 ## v1.3.5 (2026-11-17)
 
 ### User Features
