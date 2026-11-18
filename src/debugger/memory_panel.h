@@ -35,6 +35,12 @@ public:
     /// Update display with current memory and MMU state.
     void refresh();
 
+    /// GH #366 - show CPU address `addr`: switches the view to CPU View when it is in a slot or
+    /// page view (a CPU address means nothing there), then centres and selects the byte.
+    void show_address(uint16_t addr);
+    /// The selected byte's address, -1 for none.
+    int selected_address() const { return selected_addr_; }
+
     QSize sizeHint() const override;
 
 protected:

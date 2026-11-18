@@ -1,4 +1,5 @@
 #include "debugger/debugger_window.h"
+#include <QApplication>
 #include "gui/host_shortcuts.h"   // GH #403
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "qt/debug_keymap_qt.h"
@@ -690,6 +691,28 @@ void DebuggerWindow::create_menus() {
         else if (disasm_panel_) disasm_panel_->run_to_selected();
     });
     addAction(run_to_cursor_action_);
+
+    // GH #366 - Follow / Back / Forward: bindable window commands, in no menu (as Run to Cursor).
+    follow_action_ = new QAction(tr("Follow"), this);
+    connect(follow_action_, &QAction::triggered, this, [this]() {
+        if (source_has_focus()) source_panel_->follow();
+        else if (disasm_panel_) disasm_panel_->follow();
+    });
+    addAction(follow_action_);
+    back_action_ = new QAction(tr("Back"), this);
+    connect(back_action_, &QAction::triggered, this, [this]() {
+        if (source_has_focus()) source_panel_->go_back();
+        else if (disasm_panel_) disasm_panel_->go_back();
+    });
+    addAction(back_action_);
+    forward_action_ = new QAction(tr("Forward"), this);
+    connect(forward_action_, &QAction::triggered, this, [this]() {
+        if (source_has_focus()) source_panel_->go_forward();
+        else if (disasm_panel_) disasm_panel_->go_forward();
+    });
+    addAction(forward_action_);
+    connect(qApp, &QApplication::focusChanged, this, [this]() { update_nav_actions(); });
+    update_nav_actions();
 
     debug_menu->addSeparator();
 
@@ -1509,6 +1532,13 @@ void DebuggerWindow::create_panels() {
     connect(source_panel_, &SourcePanel::show_address_requested, disasm_panel_,
             &DisasmPanel::show_address);
 
+    // GH #366 - Follow on a memory operand shows it in the Memory panel; a history change refreshes
+    // the Back/Forward enabled state.
+    connect(disasm_panel_, &DisasmPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
+    connect(source_panel_, &SourcePanel::show_memory_requested, this, &DebuggerWindow::show_in_memory);
+    connect(disasm_panel_, &DisasmPanel::history_changed, this, &DebuggerWindow::update_nav_actions);
+    connect(source_panel_, &SourcePanel::history_changed, this, &DebuggerWindow::update_nav_actions);
+
     // GH #347 - selection sync, both ways, and the Disassembly menu's Show in Source. The
     // Disassembly tells the Source tab only of selections the user made; the Source tab tells it
     // only of cursor moves, and asks it to scroll only for a move the user made there.
@@ -1569,6 +1599,7 @@ void DebuggerWindow::create_panels() {
 
     // --- Bottom: memory tabs (left) | watches+breakpoints tabs (right) ---
     auto* memory_tab_widget = new QTabWidget();
+    memory_tab_widget_ = memory_tab_widget;
     memory_tab_widget->setTabPosition(QTabWidget::North);
     memory_tab_widget->addTab(stack_panel_, tr("Stack"));
     memory_tab_widget->addTab(callstack_panel_, tr("Call Stack"));
@@ -1614,6 +1645,24 @@ void DebuggerWindow::create_panels() {
     scroll->setWidgetResizable(true);   // splitter still fills a roomy window
     scroll->setFrameShape(QFrame::NoFrame);
     setCentralWidget(scroll);
+}
+
+bool DebuggerWindow::source_has_focus() const {
+    return source_panel_ && source_panel_->has_text_focus();
+}
+
+void DebuggerWindow::update_nav_actions() {
+    const bool src = source_has_focus();
+    const bool back = src ? source_panel_->can_go_back() : (disasm_panel_ && disasm_panel_->can_go_back());
+    const bool fwd = src ? source_panel_->can_go_forward() : (disasm_panel_ && disasm_panel_->can_go_forward());
+    if (back_action_) back_action_->setEnabled(back);
+    if (forward_action_) forward_action_->setEnabled(fwd);
+}
+
+void DebuggerWindow::show_in_memory(uint16_t addr) {
+    if (!memory_panel_) return;
+    memory_panel_->show_address(addr);
+    if (memory_tab_widget_) memory_tab_widget_->setCurrentWidget(memory_panel_);
 }
 
 void DebuggerWindow::activate_follow_pc() {

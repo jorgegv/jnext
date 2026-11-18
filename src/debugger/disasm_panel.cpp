@@ -88,6 +88,7 @@ DisasmPanel::DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
 
     // Goto PC button — centers the view around current PC
     connect(goto_pc_btn_, &QPushButton::clicked, this, [this]() {
+        if (dbg_) record_jump_(dbg_->registers().PC);   // GH #366: the button is a jump the user made
         activate_follow_pc();
     });
 
@@ -203,10 +204,104 @@ void DisasmPanel::navigate_to_address(const QString& text)
     const auto resolved = dbg_ ? dbg_->symbols().resolve(text.toStdString())
                                : SymbolTable().resolve(text.toStdString());
     if (!resolved) return;
+    record_jump_(*resolved);   // GH #366
     center_on(*resolved);   // the address box only moves the view; the selection stays
 }
 
 void DisasmPanel::show_address(uint16_t addr)
+{
+    record_jump_(addr);   // GH #366: a jump from another panel (Source, Symbols, a register)
+    place_(addr);
+}
+
+DisasmPanel::Loc DisasmPanel::here_() const
+{
+    Loc l;
+    l.top = view_addr_;
+    if (selected_line_ >= 0 && selected_line_ < static_cast<int>(entries_.size()))
+        l.caret = entries_[selected_line_].line.addr;
+    return l;
+}
+
+void DisasmPanel::record_jump_(uint16_t target)
+{
+    const Loc h = here_();
+    if (h.caret && *h.caret == target) return;   // already there
+    history_.record(h);
+    emit history_changed();
+}
+
+void DisasmPanel::restore_(const Loc& loc)
+{
+    view_addr_ = clamp_view_addr(loc.top);
+    disassemble_from(view_addr_, visible_lines());
+    selected_line_ = -1;
+    if (loc.caret) {
+        for (int i = 0; i < static_cast<int>(entries_.size()); ++i)
+            if (entries_[i].line.addr == *loc.caret) { selected_line_ = i; break; }
+        set_selection(*loc.caret, /*extend=*/false);
+    } else {
+        clear_selection();
+    }
+    update();
+}
+
+bool DisasmPanel::go_back()
+{
+    const auto to = history_.back(here_());
+    if (!to) return false;
+    restore_(*to);
+    emit history_changed();
+    return true;
+}
+
+bool DisasmPanel::go_forward()
+{
+    const auto to = history_.forward(here_());
+    if (!to) return false;
+    restore_(*to);
+    emit history_changed();
+    return true;
+}
+
+disasm_hint::Follow DisasmPanel::follow_of_line(int line) const
+{
+    if (!dbg_ || !paused_ || line < 0 || line >= static_cast<int>(entries_.size())) return {};
+    const uint16_t at = entries_[line].line.addr;
+    const Z80Registers r = dbg_->registers();
+    const DisasmReadFn code = dbg_->memory_reader();
+    // The PC instruction's data cycles see the map as its own fetch leaves it (operand_reader); any
+    // other line is read as the CPU map is now.
+    const jnext::dbg::Debugger* dbg = dbg_;
+    const DisasmReadFn data = entries_[line].is_current_pc
+        ? dbg_->operand_reader()
+        : DisasmReadFn([dbg](uint16_t a) -> uint8_t {
+              uint8_t b = 0;
+              dbg->peek(jnext::dbg::MemSpace::cpu(), a, 1, &b);
+              return b;
+          });
+    return disasm_hint::follow_target(r, at, code, data);
+}
+
+void DisasmPanel::follow()
+{
+    int line = selected_line_;
+    if (line < 0 || line >= static_cast<int>(entries_.size())) {
+        line = -1;
+        for (int i = 0; i < static_cast<int>(entries_.size()); ++i)
+            if (entries_[i].is_current_pc) { line = i; break; }   // no caret: the PC line
+    }
+    follow_line(line);
+}
+
+void DisasmPanel::follow_line(int line)
+{
+    const disasm_hint::Follow f = follow_of_line(line);
+    if (f.kind == disasm_hint::Follow::Kind::Code) show_address(f.addr);
+    else if (f.kind == disasm_hint::Follow::Kind::Data) emit show_in_memory_requested(f.addr);
+}
+
+void DisasmPanel::place_(uint16_t addr)
 {
     center_on(addr);
     // GH #423 - the line is the caret and the selection, so it is also the target of
@@ -980,6 +1075,20 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     connect(run_to, &QAction::triggered, this, [this, addr]() {
         emit run_to_requested(addr);
     });
+
+    // GH #366 - Follow: the line's branch target, or its memory operand in the Memory panel.
+    {
+        const disasm_hint::Follow f = follow_of_line(line);
+        auto* follow_act = menu.addAction("Follow");
+        menu.setToolTipsVisible(true);
+        if (f.kind == disasm_hint::Follow::Kind::None) {
+            follow_act->setEnabled(false);
+        } else {
+            const QString a = QString::asprintf("$%04X", f.addr);
+            follow_act->setToolTip(f.kind == disasm_hint::Follow::Kind::Code ? a : tr("%1 in Memory").arg(a));
+            connect(follow_act, &QAction::triggered, this, [this, line]() { follow_line(line); });
+        }
+    }
 
     menu.addSeparator();
 

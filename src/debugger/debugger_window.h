@@ -329,6 +329,18 @@ private:
     /// change the menu shape that debugger_accel_test pins. Unbound by
     /// default, so it does nothing until the user binds it.
     QAction* run_to_cursor_action_ = nullptr;
+    /// GH #366 - Follow, Back and Forward, window commands like Run to Cursor: no menu item (the
+    /// menu shape debugger_accel_test pins), the keys come from apply_keymap(). They act on the
+    /// Source tab when its text has the focus, else on the Disassembly.
+    QAction* follow_action_ = nullptr;
+    QAction* back_action_ = nullptr;
+    QAction* forward_action_ = nullptr;
+    /// Back and Forward are enabled per the focused view's history.
+    void update_nav_actions();
+    /// Show `addr` in the Memory panel and raise its tab.
+    void show_in_memory(uint16_t addr);
+    bool source_has_focus() const;
+    QTabWidget* memory_tab_widget_ = nullptr;
     QAction* rewind_enable_action_ = nullptr;
 
     // GH #1 — toolbar buttons whose captions or tooltips quote a key. They are
