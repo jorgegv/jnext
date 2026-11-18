@@ -3135,6 +3135,7 @@ main cross_c AC97
         write_text(p, body);
         return p;
     };
+    // the records named `name` (its C name): "<count><h if hidden>" in store order
     const auto arr_records = [](const VariableStore& st, const char* name) {
         std::string out;
         for (const CVariable& v : st.variables()) {
@@ -3144,6 +3145,7 @@ main cross_c AC97
         }
         return out;
     };
+    // GH #438 mutation pins: a minimal synthetic map (module t_c: functions f and g, one line record) plus the given extra map lines and records
     const auto zb_map = [&](const char* name, const std::string& extra) {
         const std::string text =
             std::string("_f = $8000 ; addr, public, , t_c, code_compiler, t.c::f::0::0:1\n_g = $8010 ; addr, public, , t_c, code_compiler, t.c::g::0::0:2\n") +
@@ -3156,8 +3158,6 @@ main cross_c AC97
         return "__CDBINFO__" + cdb_escape(rec_text) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
     };
 
-    // the records named `name` (its C name): "<count><h if hidden>" in store order
-    // GH #438 mutation pins: a minimal synthetic map (module t_c: functions f and g, one line record) plus the given extra map lines and records
     {   // Z88ZB-03
         const auto all4 = [&](const char* fx) {
             SourceMap m;
