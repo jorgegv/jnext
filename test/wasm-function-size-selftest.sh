@@ -10,7 +10,8 @@
 #
 #   WFS-01   a body of exactly the bound passes
 #   WFS-02   a body one byte over fails, and the report names the file, the size and the bound
-#   WFS-03   the offender is named by function index = imports + code index (f3, not f1)
+#   WFS-03   the offender is named by function index = function imports + code index (f3, not f1), with
+#            other import kinds interleaved and decoy global/data names at the same index
 #   WFS-04   the largest body is found wherever it sits in the section (middle, last)
 #   WFS-05   every offending module is reported, none dropped, a good one not blamed
 #   WFS-06   the largest BODY is measured, not the section (3 x 100000 + 1 MiB of data pass)
@@ -40,15 +41,15 @@ row() {  # row ID OK(0|1) TEXT
 W=$(mktemp -d "${TMPDIR:-/tmp}/wfs.XXXXXX") || exit 1
 trap 'rm -rf "$W"' EXIT
 
-# gen.pl <out> <bodies comma list> [imports=K] [names=0|1] [data=BYTES] [cut=1]
-# Type section (one () -> ()), K imported functions, function section, code section whose body i is
+# gen.pl <out> <bodies comma list> [imports=K] [mixed=1] [names=0|1] [data=BYTES] [cut=1]
+# Type section (one () -> ()), K imported functions (mixed=1: with a memory, table, global and tag import among them), function section, code section whose body i is
 # 0x00 (no locals) + (size-2) x 0x01 (nop) + 0x0B (end), so its LEB size prefix is exactly `size`;
 # an optional data section; an optional name section (function index i is named "f<i>").
 # cut=1 chops the file 200 bytes before the end of the code section.
 cat >"$W/gen.pl" <<'PERL'
 use strict; use warnings;
 my ($out, $bodies, @opt) = @ARGV;
-my %o = (imports => 0, names => 1, data => 0, cut => 0);
+my %o = (imports => 0, names => 1, data => 0, cut => 0, mixed => 0);
 for (@opt) { my ($k, $v) = split /=/; $o{$k} = $v }
 sub leb { my $n = shift; my $r = ''; while (1) { my $b = $n & 0x7F; $n >>= 7; if ($n) { $r .= chr($b | 0x80) } else { $r .= chr($b); last } } $r }
 sub sec { my ($id, $p) = @_; chr($id) . leb(length $p) . $p }
@@ -56,7 +57,15 @@ sub nm { my $s = shift; leb(length $s) . $s }
 my @b = split /,/, $bodies;
 my $m = "\0asm\1\0\0\0";
 $m .= sec(1, "\1\x60\0\0");
-if ($o{imports}) { my $p = leb($o{imports}); $p .= nm('e') . nm("i$_") . "\0\0" for 0 .. $o{imports} - 1; $m .= sec(2, $p) }
+if ($o{imports}) {
+    my @imp = map { nm('e') . nm("i$_") . "\0\0" } 0 .. $o{imports} - 1;    # function imports: kind 0, type 0
+    if ($o{mixed}) {    # non-function imports (they take no function index): memory with a max, table, global, tag
+        my @other = (nm('e') . nm('mem') . "\2\1\1\2", nm('e') . nm('tab') . "\1\x70\1\1\2",
+                     nm('e') . nm('glob') . "\3\x7F\0", nm('e') . nm('tag') . "\4\0\0");
+        @imp = ($other[0], $imp[0], $other[1], $other[2], @imp[1 .. $#imp], $other[3]);
+    }
+    $m .= sec(2, leb(scalar @imp) . join('', @imp));
+}
 $m .= sec(3, leb(scalar @b) . ("\0" x @b));
 my $code = leb(scalar @b);
 $code .= leb($_) . "\0" . ("\1" x ($_ - 2)) . "\x0B" for @b;
@@ -66,7 +75,13 @@ $m .= sec(11, "\1\1" . leb($o{data}) . ("\0" x $o{data})) if $o{data};
 if ($o{names}) {
     my $n = $o{imports} + @b;
     my $sub = leb($n); $sub .= leb($_) . nm("f$_") for 0 .. $n - 1;
-    $m .= sec(0, nm('name') . "\1" . leb(length $sub) . $sub);
+    # subsections 0 (module), 1 (functions), 7 (globals), 9 (data segments), as every real module has;
+    # 7 and 9 map index 3 to decoys, which must never be taken for a function name
+    my $sub0 = nm('m');
+    my $sub7 = leb(1) . leb(3) . nm('g3');
+    my $sub9 = leb(1) . leb(3) . nm('d3');
+    $m .= sec(0, nm('name') . "\0" . leb(length $sub0) . $sub0 . "\1" . leb(length $sub) . $sub
+                 . "\7" . leb(length $sub7) . $sub7 . "\x09" . leb(length $sub9) . $sub9);
 }
 $m = substr($m, 0, $cut_at) if $o{cut};
 open(my $fh, '>:raw', $out) or die; print $fh $m; close $fh;
@@ -84,10 +99,11 @@ fresh; gen "$W/d/a.wasm" $((BOUND + 1)); run
 row WFS-02 $([[ $RC -eq 1 && "$OUT" == *"a.wasm"* && "$OUT" == *"$((BOUND + 1))"* && "$OUT" == *"$BOUND-byte bound"* ]] && echo 1 || echo 0) "a body of $((BOUND + 1)) bytes fails naming the file, the size and the bound (exit $RC)"
 
 # WFS-03: 2 imports, bodies 100, BOUND+1, 100 -> the big one is function index 2 + 1 = 3
-fresh; gen "$W/d/a.wasm" 100,$((BOUND + 1)),100 imports=2; run
+fresh; gen "$W/d/a.wasm" 100,$((BOUND + 1)),100 imports=2 mixed=1; run
 bad=0; [[ "$OUT" == *"function f3 has"* ]] || bad=1
 [[ "$OUT" =~ function\ f[0124]\  ]] && bad=1
-row WFS-03 $([[ $RC -eq 1 && $bad -eq 0 ]] && echo 1 || echo 0) "with 2 imports the offender is f3 and no other function is named (exit $RC)"
+[[ "$OUT" == *g3* || "$OUT" == *d3* ]] && bad=1
+row WFS-03 $([[ $RC -eq 1 && $bad -eq 0 ]] && echo 1 || echo 0) "with 2 function imports among memory/table/global/tag imports the offender is f3; no other function and no global/data decoy (g3, d3) is named (exit $RC)"
 
 # WFS-04
 fresh; gen "$W/d/mid.wasm" 1000,$((BOUND + 1)),2000; gen "$W/d/last.wasm" 1000,2000,$((BOUND + 1)); run
