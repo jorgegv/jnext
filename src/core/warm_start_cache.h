@@ -76,7 +76,12 @@ namespace warm_start {
 /// (1 byte): the offset `cvc` counts from became state of its own instead of
 /// a mirror of NR 0x64. 2 154 295 -> 2 154 296 on the Next; the length check
 /// alone would catch it, and the bump is made for the same reason as 3's.
-constexpr uint32_t kFormatVersion = 4;
+///
+/// **5 - GH #505 (2026-11-18).** `Emulator::save_state` appends the second SD
+/// card's SPI FSM (and its sentinel) after card 0's; the stream grew by the
+/// size of one card FSM. The length check alone would catch it; the bump is
+/// made for the same reason as 3's.
+constexpr uint32_t kFormatVersion = 5;
 
 /// Recording-procedure version: what the recorder DOES to reach the state it
 /// captures, which neither the stream's shape nor the card's key can show.
@@ -120,6 +125,12 @@ struct Identity {
     uint64_t sd_image_bytes = 0;
     int64_t  sd_image_mtime = 0;
     std::array<uint8_t, 32> sd_image_sha256{};
+
+    /// The SECOND SD card's size and mtime (GH #505); both 0 = no second card.
+    /// The recording boots with it mounted (the resident NextZXOS knows D:), so
+    /// it is part of the machine's identity. Same refusal branch as card 0's.
+    uint64_t sd2_image_bytes = 0;
+    int64_t  sd2_image_mtime = 0;
     bool has_sha256() const {
         for (uint8_t b : sd_image_sha256) if (b) return true;
         return false;
@@ -197,6 +208,6 @@ void set_persist_hook(PersistHook hook);
 /// Byte length of the on-disk header that precedes the compressed payload.
 /// PLAIN — never compressed. See the file-layout comment in the .cpp for why
 /// the header is the one part that cannot be.
-constexpr size_t kHeaderBytes = 96;
+constexpr size_t kHeaderBytes = 112;
 
 }  // namespace warm_start

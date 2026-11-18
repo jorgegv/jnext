@@ -293,6 +293,11 @@ public:
     /// of being destroyed with the old machine.
     void carry_sd_card_change(SdCardChange change);
 
+    /// Why `image` cannot be mounted as an SD card ("" = it can): not a regular
+    /// file, unreadable, or a ZIP archive. The one check a live change and the
+    /// startup `--sdcard2` share.
+    static std::string sd_image_refusal(const std::string& image);
+
     /// Perform a change now. Re-checks the refusals; an image that is not a
     /// readable regular file is refused before the current card is touched. On success the config
     /// follows the card (an insert only), the warm-start recording is dropped
@@ -934,6 +939,7 @@ public:
     Dma&          dma()       { return dma_; }
     SpiMaster&    spi()       { return spi_; }
     SdCardDevice& sd_card()   { return sd_card_; }
+    SdCardDevice& sd_card2()  { return sd_card2_; }   // second socket (GH #505)
     I2cController& i2c()     { return i2c_; }
     Uart&         uart()      { return uart_; }
 
@@ -1891,6 +1897,7 @@ private:
     // the last firmware write, not a hard-coded zero.
     bool    nr_02_bus_reset_ = false;
     SdCardDevice    sd_card_;
+    SdCardDevice    sd_card2_;   // the second socket, SPI index 1 (GH #505)
     Renderer        renderer_;
     Keyboard        keyboard_;
     // Task 19 (instant TAP load) — FUSE-style phantom typist. Idle by

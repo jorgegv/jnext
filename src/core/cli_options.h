@@ -61,6 +61,10 @@ enum class OptId {
     SdcardSha256,
     SdcardWrites,
     SdcardWritesReset,
+    Sdcard2,
+    Sdcard2Readonly,
+    Sdcard2Writes,
+    Sdcard2WritesReset,
     DelayedScreenshot,
     DelayedScreenshotTime,
     DelayedScreenshotFrames,
@@ -348,6 +352,29 @@ inline constexpr Option OPTIONS[] = {
       "stand-in's file included) before the card is mounted. Needs\n"
       "--sdcard-writes. A file that is\n"
       "not a jnext SD-writes file is refused, never removed." },
+    // GH #505 - the second SD card (the board's second socket; NextZXOS maps it
+    // to the next drive letter, D: with a one-partition card 0).
+    { "--sdcard2", 1, Doc::Documented, OptId::Sdcard2,
+      "FILE",
+      "Mount SD card image FILE (.img) in the second SD card slot,\n"
+      "which NextZXOS sees as the next drive after the first card's\n"
+      "partitions (D: for a one-partition first card). No download,\n"
+      "no default: the slot is empty unless this is given. ROMs are\n"
+      "read from the first card only. Not in the browser build." },
+    { "--sdcard2-readonly", 0, Doc::Documented, OptId::Sdcard2Readonly,
+      "",
+      "Open the second SD card image read-only; the host file is\n"
+      "never written. Needs --sdcard2." },
+    { "--sdcard2-writes", 1, Doc::Documented, OptId::Sdcard2Writes,
+      "FILE",
+      "Keep the guest's writes to the second SD card in FILE\n"
+      "instead of the image, as --sdcard-writes does for the first\n"
+      "card (FILE belongs to the image's size and modification\n"
+      "time). Needs --sdcard2; excludes --sdcard2-readonly." },
+    { "--sdcard2-writes-reset", 0, Doc::Documented, OptId::Sdcard2WritesReset,
+      "",
+      "Discard the writes kept in the --sdcard2-writes FILE before\n"
+      "the card is mounted. Needs --sdcard2-writes." },
     // GH #417 - the three Startup settings that have a menu of their own
     // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every
     // other jnext.conf setting is reached with --set.

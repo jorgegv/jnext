@@ -252,6 +252,47 @@ static bool via_table(config_keys::KeyId id, const char* value, config_keys::Ass
     return config_keys::parse_assignment(
         (std::string(k.section) + "." + k.name + "=" + (value ? value : "")).c_str(), out, why);
 }
+// --sdcard-writes / --sdcard2-writes: bind FILE as the write journal of the card
+// `image` (the one that will be mounted). FILE records that card's identity: the
+// digest when `sha256_hex` is given, else size + mtime. Prints and returns false
+// on a refusal; a no-op (true) without a FILE.
+static bool bind_card_writes(const char* flag, const char* label, const std::string& image,
+                             const std::string& file, bool reset, bool readonly,
+                             const std::string& sha256_hex)
+{
+    if (reset && file.empty()) {
+        fprintf(stderr, "%s-reset needs %s FILE\n", flag, flag);
+        return false;
+    }
+    if (file.empty()) return true;
+    if (readonly) {
+        fprintf(stderr, "%s cannot be combined with %s-readonly: "
+                        "a write-protected card has no writes to keep.\n",
+                flag, std::strncmp(flag, "--sdcard2", 9) == 0 ? "--sdcard2" : "--sdcard");
+        return false;
+    }
+    sd_write_journal::Binding binding;
+    std::error_code bind_ec;
+    binding.bytes = std::filesystem::file_size(image, bind_ec);
+    if (!bind_ec && !sha256_hex.empty()) {
+        warm_start::parse_sha256_hex(sha256_hex, binding.sha256);
+    } else if (!bind_ec) {
+        const auto t = std::filesystem::last_write_time(image, bind_ec);
+        binding.mtime = static_cast<int64_t>(t.time_since_epoch().count());
+    }
+    if (bind_ec) {
+        fprintf(stderr, "%s: cannot stat the SD image %s: %s\n", flag, image.c_str(),
+                bind_ec.message().c_str());
+        return false;
+    }
+    std::string why;
+    if (!sd_write_journal::bind(image, file, binding, reset, why)) {
+        fprintf(stderr, "%s: %s\n", flag, why.c_str());
+        return false;
+    }
+    Log::emulator()->info("{} writes are kept in {}; the image is not written", label, file);
+    return true;
+}
 
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
@@ -307,6 +348,10 @@ int main(int argc, char* argv[]) {
     bool        sdcard_sha256_given = false;
     std::string sdcard_writes_file;    // --sdcard-writes FILE
     bool        sdcard_writes_reset = false;
+    std::string sd_card2_image;        // --sdcard2 FILE: the second SD card (GH #505)
+    bool        sdcard2_readonly = false;
+    std::string sdcard2_writes_file;   // --sdcard2-writes FILE
+    bool        sdcard2_writes_reset = false;
     bool        sdcard_download_force   = false;
     std::string sdcard_upgrade_arg;          // --sdcard-upgrade MODE ("" = not given)
     bool        sdcard_cli_given        = false; // --sdcard on the command line (not the Preferences path)
@@ -758,6 +803,18 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SdcardWritesReset:
                 sdcard_writes_reset = true;
+                break;
+            case cli::OptId::Sdcard2:
+                sd_card2_image = v[0];
+                break;
+            case cli::OptId::Sdcard2Readonly:
+                sdcard2_readonly = true;
+                break;
+            case cli::OptId::Sdcard2Writes:
+                sdcard2_writes_file = v[0];
+                break;
+            case cli::OptId::Sdcard2WritesReset:
+                sdcard2_writes_reset = true;
                 break;
             case cli::OptId::DelayedScreenshot:
                 screenshot_file = v[0];
@@ -2016,38 +2073,35 @@ int main(int argc, char* argv[]) {
     // written. Bound here, after resolution and after a browser zip has been
     // extracted, so it is the card that will be mounted; FILE records that
     // card's identity: the --sdcard-sha256 digest when given, else size + mtime.
-    if (sdcard_writes_reset && sdcard_writes_file.empty()) {
-        fprintf(stderr, "--sdcard-writes-reset needs --sdcard-writes FILE\n");
+    if (!bind_card_writes("--sdcard-writes", "SD card", sd_card_image, sdcard_writes_file,
+                          sdcard_writes_reset, sdcard_readonly, sdcard_sha256_norm))
         return 1;
-    }
-    if (!sdcard_writes_file.empty()) {
-        if (sdcard_readonly) {
-            fprintf(stderr, "--sdcard-writes cannot be combined with --sdcard-readonly: "
-                            "a write-protected card has no writes to keep.\n");
+
+    // GH #505 - the second card. Validated with the same rules a live change
+    // applies, and refused (never silently dropped) when it cannot be mounted.
+    if (sd_card2_image.empty()) {
+        const char* needs = sdcard2_readonly            ? "--sdcard2-readonly"
+                          : !sdcard2_writes_file.empty() ? "--sdcard2-writes"
+                          : sdcard2_writes_reset         ? "--sdcard2-writes-reset"
+                                                         : nullptr;
+        if (needs) {
+            fprintf(stderr, "%s needs --sdcard2 FILE\n", needs);
             return 1;
         }
-        sd_write_journal::Binding binding;
-        std::error_code bind_ec;
-        binding.bytes = std::filesystem::file_size(sd_card_image, bind_ec);
-        if (!bind_ec && !sdcard_sha256_norm.empty()) {
-            warm_start::parse_sha256_hex(sdcard_sha256_norm, binding.sha256);
-        } else if (!bind_ec) {
-            const auto t = std::filesystem::last_write_time(sd_card_image, bind_ec);
-            binding.mtime = static_cast<int64_t>(t.time_since_epoch().count());
-        }
-        if (bind_ec) {
-            fprintf(stderr, "--sdcard-writes: cannot stat the SD image %s: %s\n",
-                    sd_card_image.c_str(), bind_ec.message().c_str());
+    } else {
+        const std::string why = Emulator::sd_image_refusal(sd_card2_image);
+        if (!why.empty()) {
+            fprintf(stderr, "--sdcard2: %s\n", why.c_str());
             return 1;
         }
-        std::string why;
-        if (!sd_write_journal::bind(sd_card_image, sdcard_writes_file, binding,
-                                    sdcard_writes_reset, why)) {
-            fprintf(stderr, "--sdcard-writes: %s\n", why.c_str());
+        if (sdcard::same_image_file(sd_card2_image, sd_card_image)) {
+            fprintf(stderr, "--sdcard2 %s: is the first SD card's image; the two slots "
+                            "need two different images\n", sd_card2_image.c_str());
             return 1;
         }
-        Log::emulator()->info("SD card writes are kept in {}; the image is not written",
-                              sdcard_writes_file);
+        if (!bind_card_writes("--sdcard2-writes", "second SD card", sd_card2_image,
+                              sdcard2_writes_file, sdcard2_writes_reset, sdcard2_readonly, ""))
+            return 1;
     }
 
     // ---------------------------------------------------------------------
@@ -2397,6 +2451,8 @@ int main(int argc, char* argv[]) {
         cfg.type = configured_machine;
         cfg.sd_card_image = sd_card_image;
         cfg.sd_card_readonly = sdcard_readonly;
+        cfg.sd_card2_image = sd_card2_image;
+        cfg.sd_card2_readonly = sdcard2_readonly;
         if (!sdcard_sha256_norm.empty()) {
             cfg.sd_card_sha256     = sdcard_sha256_norm;
             cfg.sd_card_sha256_for = sd_card_image;   // the (extracted) card it describes

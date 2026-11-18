@@ -48,7 +48,7 @@ namespace {
 //
 //   offset  size  field
 //   ------  ----  ---------------------------------------------------------
-//        0     8  magic "JNEXTWS3"
+//        0     8  magic "JNEXTWS4"
 //        8     4  state-stream format version (u32 LE)
 //       12     4  machine type                (u32 LE)
 //       16     8  PLAIN payload length        (u64 LE)  <- identity
@@ -58,16 +58,20 @@ namespace {
 //       72     4  recording-procedure version (u32 LE) <- identity
 //       76    12  reserved, zero
 //       88     8  STORED payload length       (u64 LE)  <- bytes on disk
-//       96   ...  zlib stream, exactly `stored` bytes
+//       96     8  second SD image size        (u64 LE)  <- identity (0 = none)
+//      104     8  second SD image mtime       (i64 LE)  <- identity
+//      112   ...  zlib stream, exactly `stored` bytes
 //
-// "JNEXTWS3" — 8 bytes, no terminator. The trailing digit is a FILE-layout
+// "JNEXTWS4" — 8 bytes, no terminator. The trailing digit is a FILE-layout
 // generation, distinct from Identity::format_version (which versions the
 // state stream inside). It went 1 -> 2 when the payload stopped being the raw
 // stream, and 2 -> 3 (GH #396) when the 64-byte SD digest field became the
 // image's size and mtime; the stream itself did not change either time, so
-// kFormatVersion did not. An older file therefore fails at the magic - the
-// first and cheapest check - rather than being read with the wrong layout.
-constexpr char kMagic[8] = {'J', 'N', 'E', 'X', 'T', 'W', 'S', '3'};
+// kFormatVersion did not. It went 3 -> 4 (GH #505) when the second SD card's
+// size and mtime joined the identity and the header grew to 112 bytes. An older
+// file therefore fails at the magic - the first and cheapest check - rather
+// than being read with the wrong layout.
+constexpr char kMagic[8] = {'J', 'N', 'E', 'X', 'T', 'W', 'S', '4'};
 
 // Header field offsets. Written and read from the same constants so the two
 // sides cannot drift.
@@ -80,6 +84,8 @@ constexpr size_t kOffSdMtime      = 32;   // i64 — SD image mtime, raw file_cl
 constexpr size_t kOffSdSha256     = 40;   // 32 bytes — SD image SHA-256, zero = none
 constexpr size_t kOffRecordingVer = 72;   // u32 - recording procedure version
 constexpr size_t kOffStoredBytes  = 88;   // u64 — compressed payload length
+constexpr size_t kOffSd2Bytes     = 96;   // u64 - second SD image size (0 = none)
+constexpr size_t kOffSd2Mtime     = 104;  // i64 - second SD image mtime
 
 void put_u32(uint8_t* p, uint32_t v) {
     p[0] = static_cast<uint8_t>(v);
@@ -240,6 +246,8 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
     const int64_t  sd_mtime = static_cast<int64_t>(get_u64(hdr + kOffSdMtime));
     std::array<uint8_t, 32> sd_sha{};
     std::memcpy(sd_sha.data(), hdr + kOffSdSha256, sd_sha.size());
+    const uint64_t sd2_bytes = get_u64(hdr + kOffSd2Bytes);
+    const int64_t  sd2_mtime = static_cast<int64_t>(get_u64(hdr + kOffSd2Mtime));
 
     // Each mismatch names BOTH values: a stale cache that silently served the
     // wrong machine is the worst failure this mechanism can have, so when it
@@ -269,6 +277,13 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
             why += " (sha256 " + sha256_to_hex(sd_sha) + " != " +
                    sha256_to_hex(want.sd_image_sha256) + ")";
         }
+        return false;
+    }
+    if (sd2_bytes != want.sd2_image_bytes || sd2_mtime != want.sd2_image_mtime) {
+        why = "recorded with a different second SD card (size " +
+              std::to_string(sd2_bytes) + ", mtime " + std::to_string(sd2_mtime) +
+              " != size " + std::to_string(want.sd2_image_bytes) + ", mtime " +
+              std::to_string(want.sd2_image_mtime) + ")";
         return false;
     }
     // The PLAIN length is the identity check — what this build's save_state
@@ -355,6 +370,8 @@ bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& w
     put_u64(hdr + kOffSdBytes, id.sd_image_bytes);
     put_u64(hdr + kOffSdMtime, static_cast<uint64_t>(id.sd_image_mtime));
     std::memcpy(hdr + kOffSdSha256, id.sd_image_sha256.data(), id.sd_image_sha256.size());
+    put_u64(hdr + kOffSd2Bytes, id.sd2_image_bytes);
+    put_u64(hdr + kOffSd2Mtime, static_cast<uint64_t>(id.sd2_image_mtime));
     put_u64(hdr + kOffStoredBytes, static_cast<uint64_t>(packed.size()));
 
     // Write to a sibling temporary and rename: a jnext killed mid-write must

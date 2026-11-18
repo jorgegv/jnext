@@ -445,6 +445,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // storm at PC=$18FB (102 CMD0 cycles in 4 s).
     if (!preserve_memory) {
         sd_card_.reset();
+        sd_card2_.reset();   // same reason: an external card, GH #505
     }
 
     renderer_.reset(/*hard=*/!preserve_memory);   // GH #263, see palette_ above
@@ -6952,7 +6953,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // dual-attach made the same initialized card answer NextZXOS's
     // slot-1 probe as a phantom second card (the zx_go reference
     // emulator documents this exact bug causing an infinite mount loop).
-    spi_.attach_device(0, &sd_card_);  // SD card in socket 0; socket 1 empty
+    // GH #505: socket 1 (spi_ss_sd1_n = port_e7_reg(1), zxnext.vhd:3331) gets
+    // its OWN, distinct device, the second SD card. Never the same device on
+    // both selects (that is the phantom-card bug above); an unmounted
+    // sd_card2_ answers like an empty socket (0xFF).
+    spi_.attach_device(0, &sd_card_);   // SD card 0 (spi_ss_sd0_n)
+    spi_.attach_device(1, &sd_card2_);  // second SD card (spi_ss_sd1_n)
 
     // GH #251 — teach the UART how to ask whether the joystick-connector serial
     // mux has taken a channel over (zxnext.vhd:3340-3346, :3537). Installed
@@ -7411,6 +7417,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         } else {
             Log::emulator()->warn("could not mount SD card image: '{}'", cfg.sd_card_image);
+        }
+    }
+    // GH #505: the second card, mounted exactly where card 0 is (hard reset
+    // only). No ROM extraction, no digest baseline: it is never a ROM source.
+    if (!preserve_memory && !cfg.sd_card2_image.empty()) {
+        if (sd_card2_.mount(cfg.sd_card2_image, cfg.sd_card2_readonly)) {
+            Log::emulator()->info("Second SD card image mounted: '{}'", cfg.sd_card2_image);
+        } else {
+            Log::emulator()->warn("could not mount second SD card image: '{}'",
+                                  cfg.sd_card2_image);
         }
     }
 
@@ -8235,6 +8251,17 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
                                    k.sd_image_mtime);
         }
         if (ok && journal) fold_journal_into_key(*journal, k.sd_image_sha256);
+        // GH #505: the second card's key (size + mtime; 0/0 = none). The
+        // recording boots with it mounted, so it is part of the machine.
+        k.sd2_image_bytes = 0;
+        k.sd2_image_mtime = 0;
+        if (ok && !config_.sd_card2_image.empty() &&
+            !stat_sd_image_key(config_.sd_card2_image, k.sd2_image_bytes,
+                               k.sd2_image_mtime)) {
+            Log::emulator()->error("warm start: cannot stat the second SD image '{}'",
+                                   config_.sd_card2_image);
+            ok = false;
+        }
         return ok;
     };
     auto fail_stat = [&]() {
@@ -8804,21 +8831,24 @@ void Emulator::carry_sd_card_change(SdCardChange change)
     request_sd_card_change(std::move(change));
 }
 
+std::string Emulator::sd_image_refusal(const std::string& image)
+{
+    // A directory opens as an ifstream on some platforms, so ask the
+    // filesystem what it is first.
+    std::error_code ec;
+    if (std::filesystem::exists(image, ec) && !std::filesystem::is_regular_file(image, ec))
+        return "'" + image + "' is not a file";
+    if (!std::ifstream(image, std::ios::binary).is_open())
+        return "cannot open '" + image + "'";
+    if (program_archive::is_archive_path(image))
+        return "'" + image + "' is a ZIP archive, not an SD card image; unzip it first";
+    return {};
+}
+
 std::string Emulator::change_sd_card(const SdCardChange& change)
 {
     std::string why = sd_card_change_refusal();
-    if (why.empty() && !change.image.empty()) {
-        // A directory opens as an ifstream on some platforms, so ask the
-        // filesystem what it is first.
-        std::error_code ec;
-        if (std::filesystem::exists(change.image, ec) &&
-            !std::filesystem::is_regular_file(change.image, ec))
-            why = "'" + change.image + "' is not a file";
-        else if (!std::ifstream(change.image, std::ios::binary).is_open())
-            why = "cannot open '" + change.image + "'";
-        else if (program_archive::is_archive_path(change.image))
-            why = "'" + change.image + "' is a ZIP archive, not an SD card image; unzip it first";
-    }
+    if (why.empty() && !change.image.empty()) why = sd_image_refusal(change.image);
     if (!why.empty()) {
         Log::emulator()->error("SD card change refused: {}", why);
         return why;
@@ -14697,7 +14727,8 @@ void Emulator::save_state(StateWriter& w) const
     // loader was streaming a CMD18 multi-block read restored a card that was
     // no longer streaming and the replayed frames got R1/token framing where
     // sector bytes belonged. Appended last, after esxdos_hostfs, so every
-    // byte before it is exactly where S5b left it.
+    // byte before it is exactly where S5b left it. (GH #505 appends the second
+    // card's FSM after it.)
     //
     // Only the PROTOCOL state travels. The mounted image is an external
     // resource: it is recorded by reopenable identity in a `.jns` manifest
@@ -14705,6 +14736,9 @@ void Emulator::save_state(StateWriter& w) const
     // the esxDOS handles above are.
     sd_card_.save_state(w);
     put_sentinel();   // "sdcard"
+    // GH #505: the second card's FSM, appended after card 0's.
+    sd_card2_.save_state(w);
+    put_sentinel();   // "sdcard2"
 
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
@@ -15173,6 +15207,11 @@ bool Emulator::load_state(StateReader& r)
     if (!r.eof()) {
         sd_card_.load_state(r);
         if (!check_sentinel("sdcard")) return false;
+        // GH #505: the second card, appended after card 0's FSM.
+        if (!r.eof()) {
+            sd_card2_.load_state(r);
+            if (!check_sentinel("sdcard2")) return false;
+        }
     }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS

@@ -23,14 +23,21 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 #include "memory/ram.h"
+#include "peripheral/sd_card.h"
+#include "peripheral/sd_write_journal.h"
 
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 #include "../row_id.h"
+#include "../test_portable.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -341,6 +348,309 @@ static void test_flash_cs_gate() {
 
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// §12a. The second SD card (GH #505) — SDSLOT-10..17
+// ══════════════════════════════════════════════════════════════════════
+//
+// Oracle: zxnext.vhd (core 3.02.03, origin/master) — port 0xE7 decode
+// :3311-3314 ("10" -> spi_ss_sd0_n, "01" -> spi_ss_sd1_n with NR 0x0A bit 5
+// clear, swapped with it set), select lines :3331-3332, ONE shared MISO
+// :3278-3280 (all ones when no slave drives), NR 0x0A write gate :5191-5194
+// and read-back :5912. The cards are driven the way the guest drives them:
+// OUT 0xE7 / OUT 0xEB / IN 0xEB, with the SD protocol from the SD Physical
+// Layer spec (CMD0/8/55/41/58 init, CMD17 read, CMD24 write; data-response
+// token 0x05 accepted / 0x0D write-protected, 7.3.3.1).
+
+namespace {
+
+namespace fs = std::filesystem;
+
+std::vector<uint8_t> slurp_file(const std::string& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
+                                std::istreambuf_iterator<char>());
+}
+
+// A 64 KiB card whose every byte is `fill`: the first byte of sector 0 names it.
+std::string make_card(const std::string& dir, const char* name, uint8_t fill) {
+    const std::string p = dir + "/" + name;
+    std::ofstream o(p, std::ios::binary | std::ios::trunc);
+    const std::vector<uint8_t> v(64 * 1024, fill);
+    o.write(reinterpret_cast<const char*>(v.data()), static_cast<std::streamsize>(v.size()));
+    return p;
+}
+
+// A 64 KiB card whose byte i of sector s is (s*5 + i) & 255: every byte of a
+// stream tells its position.
+std::string make_pattern_card(const std::string& dir, const char* name) {
+    const std::string p = dir + "/" + name;
+    std::ofstream o(p, std::ios::binary | std::ios::trunc);
+    for (int s = 0; s < 128; ++s)
+        for (int i = 0; i < 512; ++i) o.put(static_cast<char>((s * 5 + i) & 0xFF));
+    return p;
+}
+
+// The guest's view of the SPI port pair.
+struct PortSd {
+    Emulator& e;
+    void sel(uint8_t v) { e.port().out(0x00E7, v); }
+    void tx(uint8_t b)  { e.port().out(0x00EB, b); }
+    uint8_t rx()        { return e.port().in(0x00EB); }
+    uint8_t cmd(uint8_t c, uint32_t arg) {
+        tx(static_cast<uint8_t>(0x40 | c));
+        tx(static_cast<uint8_t>(arg >> 24)); tx(static_cast<uint8_t>(arg >> 16));
+        tx(static_cast<uint8_t>(arg >> 8));  tx(static_cast<uint8_t>(arg));
+        tx(0x95);
+        for (int i = 0; i < 20; ++i) {
+            const uint8_t r = rx();
+            if (r != 0xFF) return r;
+        }
+        return 0xFF;
+    }
+    void init() { cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0); }
+    // First data byte of `sector` after a CMD17, or -1 when no block comes back.
+    // `with_init` = run the CMD0..58 handshake first. `r1_out` gets CMD17's R1.
+    int read_first(uint8_t sel_val, uint32_t sector, bool with_init = true, int* r1_out = nullptr) {
+        sel(sel_val);
+        if (with_init) init();
+        const uint8_t r1 = cmd(17, sector);
+        if (r1_out) *r1_out = r1;
+        int first = -1;
+        if (r1 == 0x00) {
+            for (int i = 0; i < 24; ++i)
+                if (rx() == 0xFE) { first = rx(); break; }
+        }
+        sel(0xFF);
+        return first;
+    }
+    // Data-response token of a CMD24 of `sector` filled with `fill`, or -1.
+    int write_token(uint8_t sel_val, uint32_t sector, uint8_t fill) {
+        sel(sel_val);
+        init();
+        int token = -1;
+        if (cmd(24, sector) == 0x00) {
+            tx(0xFE);
+            for (int i = 0; i < 512; ++i) tx(fill);
+            tx(0xFF); tx(0xFF);
+            for (int i = 0; i < 32; ++i) {
+                const uint8_t b = rx();
+                if (b != 0xFF) { token = b; break; }
+            }
+        }
+        sel(0xFF);
+        return token;
+    }
+};
+
+EmulatorConfig two_card_config(const std::string& a, const std::string& b) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    cfg.sd_card_image = a;
+    cfg.sd_card2_image = b;
+    return cfg;
+}
+
+uint8_t nr_read(Emulator& emu, uint8_t reg) {
+    emu.port().out(0x243B, reg);
+    return emu.port().in(0x253B);
+}
+
+}  // namespace
+
+static void test_second_sd_card() {
+    set_group("12a. Second SD card");
+
+    const std::string dir = jtp::make_temp_dir("jnext-sdslot-");
+    if (dir.empty()) {
+        check("SDSLOT-10", "cannot make a scratch directory", false);
+        return;
+    }
+    const std::string card_a = make_card(dir, "a.img", 0xA1);
+    const std::string card_b = make_card(dir, "b.img", 0xB2);
+
+    // SDSLOT-10: two cards, two selects.
+    {
+        Emulator emu;
+        emu.init(two_card_config(card_a, card_b));
+        PortSd g{emu};
+        const int s1 = g.read_first(0x01, 0);   // "01" -> spi_ss_sd1_n -> the second card
+        const int s2 = g.read_first(0x02, 0);   // "10" -> spi_ss_sd0_n -> the first card
+        check("SDSLOT-10",
+              "with two cards mounted, port 0xE7 <- 0x01 reads the second card and 0x02 the "
+              "first (zxnext.vhd:3311-3314, :3331-3332, :3278-3280)",
+              s1 == 0xB2 && s2 == 0xA1, fmt("sel01=%d sel02=%d", s1, s2));
+    }
+
+    // SDSLOT-11: no second card = an empty socket.
+    {
+        Emulator emu;
+        emu.init(two_card_config(card_a, ""));
+        PortSd g{emu};
+        int r1 = -2;
+        const int s1 = g.read_first(0x01, 0, true, &r1);
+        const int s2 = g.read_first(0x02, 0);
+        check("SDSLOT-11",
+              "with no second card, selecting it gets only the pulled-up MISO (every byte "
+              "0xFF, no R1, no data block) and the first card still answers on its own select "
+              "(zxnext.vhd:3278-3280)",
+              s1 == -1 && r1 == 0xFF && s2 == 0xA1, fmt("sel01=%d r1=%d sel02=%d", s1, r1, s2));
+    }
+
+    // SDSLOT-12 / 13: NR 0x0A bit 5 (sd_swap), config mode only.
+    {
+        Emulator emu;
+        emu.init(two_card_config(card_a, card_b));
+        PortSd g{emu};
+        emu.port().out(0x243B, 0x03);
+        emu.port().out(0x253B, 0x07);               // config mode (NR 0x03 = 111)
+        emu.port().out(0x243B, 0x0A);
+        emu.port().out(0x253B, 0x20);               // sd_swap = 1
+        const uint8_t back = nr_read(emu, 0x0A);
+        const int s2 = g.read_first(0x02, 0);
+        const int s1 = g.read_first(0x01, 0);
+        check("SDSLOT-12",
+              "in config mode NR 0x0A <- 0x20 swaps the sockets: 0x02 then reads the second "
+              "card, 0x01 the first, and bit 5 reads back set (zxnext.vhd:3311-3314, "
+              ":5191-5194, :5912)",
+              s2 == 0xB2 && s1 == 0xA1 && (back & 0x20) != 0,
+              fmt("sel02=%d sel01=%d nr0a=%02x", s2, s1, back));
+    }
+    {
+        Emulator emu;
+        emu.init(two_card_config(card_a, card_b));
+        PortSd g{emu};
+        const bool cfg_mode = emu.nextreg().nr_03_config_mode();
+        emu.port().out(0x243B, 0x0A);
+        emu.port().out(0x253B, 0x20);               // ignored outside config mode
+        const uint8_t back = nr_read(emu, 0x0A);
+        const int s2 = g.read_first(0x02, 0);
+        check("SDSLOT-13",
+              "outside config mode NR 0x0A <- 0x20 is ignored: no swap, bit 5 reads clear "
+              "(zxnext.vhd:5191-5194 config-mode gate)",
+              !cfg_mode && s2 == 0xA1 && (back & 0x20) == 0,
+              fmt("cfg=%d sel02=%d nr0a=%02x", cfg_mode, s2, back));
+    }
+
+    // SDSLOT-14: the second card's own write-protect.
+    {
+        const std::string b2 = make_card(dir, "b-ro.img", 0xB2);
+        const std::string a2 = make_card(dir, "a-rw.img", 0xA1);
+        EmulatorConfig cfg = two_card_config(a2, b2);
+        cfg.sd_card2_readonly = true;
+        const auto b_before = slurp_file(b2);
+        Emulator emu;
+        emu.init(cfg);
+        PortSd g{emu};
+        const int tok_b = g.write_token(0x01, 1, 0x5A);
+        const int tok_a = g.write_token(0x02, 1, 0x5A);
+        check("SDSLOT-14",
+              "a read-only second card answers a CMD24 with the 0x0D write-protect token and its "
+              "image file is unchanged, while the writable first card takes the write (0x05) "
+              "(SD Physical Layer spec 7.3.3.1)",
+              tok_b == 0x0D && slurp_file(b2) == b_before && tok_a == 0x05,
+              fmt("tok2=%d tok1=%d", tok_b, tok_a));
+    }
+
+    // SDSLOT-15: a write journal bound to the second card's image.
+    {
+        const std::string a2 = make_card(dir, "a-j.img", 0xA1);
+        const std::string b2 = make_card(dir, "b-j.img", 0xB2);
+        const std::string jf = dir + "/b-j.jsdw";
+        sd_write_journal::Binding binding;
+        std::error_code ec;
+        binding.bytes = fs::file_size(b2, ec);
+        binding.mtime = static_cast<int64_t>(fs::last_write_time(b2, ec).time_since_epoch().count());
+        std::string why;
+        const bool bound = sd_write_journal::bind(b2, jf, binding, false, why);
+        const auto b_before = slurp_file(b2);
+        const auto a_before = slurp_file(a2);
+        Emulator emu;
+        emu.init(two_card_config(a2, b2));
+        PortSd g{emu};
+        const int tok = g.write_token(0x01, 3, 0x5A);
+        const int back = g.read_first(0x01, 3);
+        const int a_sector3 = g.read_first(0x02, 3);
+        check("SDSLOT-15",
+              "a write journal bound to the second card's image keeps its writes: the CMD24 is "
+              "accepted, CMD17 reads it back, the image is unchanged and the journal file exists; "
+              "the first card has no journal and reads its own data",
+              bound && tok == 0x05 && back == 0x5A && slurp_file(b2) == b_before &&
+                  fs::exists(jf, ec) && slurp_file(a2) == a_before && a_sector3 == 0xA1 &&
+                  !sd_write_journal::for_image(a2),
+              fmt("bound=%d tok=%d back=%d a3=%d %s", bound, tok, back, a_sector3, why.c_str()));
+    }
+
+    // SDSLOT-16: outside the FPGA reset domain, like the first card.
+    {
+        Emulator emu;
+        emu.init(two_card_config(card_a, card_b));
+        PortSd g{emu};
+        g.sel(0x01);
+        g.init();
+        g.sel(0xFF);
+        emu.soft_reset();
+        int r1_soft = -2;
+        const int after_soft = g.read_first(0x01, 0, /*with_init=*/false, &r1_soft);
+        emu.init(two_card_config(card_a, card_b));   // a cold boot: the card is power-cycled
+        int r1_hard = -2;
+        const int after_hard = g.read_first(0x01, 0, /*with_init=*/false, &r1_hard);
+        check("SDSLOT-16",
+              "an initialised second card survives a soft reset (no re-init needed, "
+              "zxnext.vhd:3309 only drives port_e7_reg) and needs the handshake again after a "
+              "hard reset (R1 idle 0x01)",
+              after_soft == 0xB2 && r1_soft == 0x00 && after_hard == -1 && r1_hard == 0x01,
+              fmt("soft=%d r1=%d hard=%d r1=%d", after_soft, r1_soft, after_hard, r1_hard));
+    }
+
+    // SDSLOT-17: the rewind stream carries the second card's FSM mid-transfer.
+    {
+        const std::string pa = make_pattern_card(dir, "pa.img");
+        const std::string pb = make_pattern_card(dir, "pb.img");
+        Emulator emu;
+        emu.init(two_card_config(pa, pb));
+        SdCardDevice& sd2 = emu.sd_card2();
+        auto cmd = [&sd2](uint8_t c, uint32_t arg) {
+            const uint8_t bytes[6] = {static_cast<uint8_t>(0x40 | c), static_cast<uint8_t>(arg >> 24),
+                                      static_cast<uint8_t>(arg >> 16), static_cast<uint8_t>(arg >> 8),
+                                      static_cast<uint8_t>(arg), 0x95};
+            for (uint8_t b : bytes) (void)sd2.receive(b);
+            for (int i = 0; i < 16; ++i) {
+                const uint8_t r = sd2.send();
+                if (r != 0xFF) return r;
+            }
+            return uint8_t{0xFF};
+        };
+        cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+        const uint8_t r1 = cmd(17, 2);                       // sector 2: byte i = (10 + i) & 255
+        bool tok = false;
+        for (int i = 0; i < 16; ++i) if (sd2.send() == 0xFE) { tok = true; break; }
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        uint8_t first[3] = {sd2.send(), sd2.send(), sd2.send()};
+        sd2.reset();                                         // as thorough as a fresh process
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+        uint8_t again[3] = {sd2.send(), sd2.send(), sd2.send()};
+        check("SDSLOT-17",
+              "a whole-machine save taken just after a CMD17 data token on the second card "
+              "restores a card that is still streaming: the next bytes of the sector are the "
+              "same as before the save",
+              tok && r1 == 0x00 && loaded && first[0] == 10 && first[1] == 11 && first[2] == 12 &&
+                  again[0] == 10 && again[1] == 11 && again[2] == 12,
+              fmt("loaded=%d first=%d,%d,%d again=%d,%d,%d", loaded, first[0], first[1], first[2],
+                  again[0], again[1], again[2]));
+    }
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 int main() {
     std::printf("DivMMC Integration Test (GH #201)\n");
     std::printf("====================================\n\n");
@@ -353,6 +663,9 @@ int main() {
 
     test_flash_cs_gate();
     std::printf("  Group: 12. Flash CS gate — done\n");
+
+    test_second_sd_card();
+    std::printf("  Group: 12a. Second SD card — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
