@@ -372,7 +372,10 @@ void CpuPanel::show_value_menu(int field, const QPoint& global_pos) {
     QMenu menu(this);
     QAction* edit = menu.addAction(tr("Edit Value\u2026"));
     edit->setEnabled(dbg_ && paused_);
-    if (menu.exec(global_pos) == edit) begin_edit(field);
+    bool picked = false;
+    connect(edit, &QAction::triggered, &menu, [&picked]() { picked = true; });
+    menu.exec(global_pos);
+    if (picked) begin_edit(field);   // after the popup closed: it gives the focus back on close
 }
 
 void CpuPanel::paintEvent(QPaintEvent* event) {

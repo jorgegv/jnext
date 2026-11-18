@@ -4082,8 +4082,8 @@ static void test_cpu_edit_window() {
     {
         Fixture fx;
         const char* desc = "an edit of PC through the window's CPU panel moves the Disassembly's PC "
-                           "line at the next paused tick: line_hint of the new PC line is the hint of "
-                           "its instruction (LD A,(HL) -> [($9005)=$3C]), and the old line's is empty";
+                           "line at the next paused tick: the only hint in the view is that of the new PC line "
+                           "(LD A,(HL) -> [($9005)=$3C]), and there was none before";
         if (!fx.ok) { check("QREGW-01", desc, false, "fixture"); }
         else {
             fx.load(PROG, {0x00, 0x7E, 0x00, 0x18, 0xFD});   // NOP / LD A,(HL) / NOP / JR $8000
@@ -4092,15 +4092,24 @@ static void test_cpu_edit_window() {
             fx.enable();
             if (auto* sb = fx.dbg()->disasm_panel()->findChild<QScrollBar*>()) sb->setValue(PROG);
             fx.tick();
-            const QString before = fx.dbg()->disasm_panel()->line_hint(1);
+            // The scroll bar clamps below $8000, so the PC line is further down: scan the view.
+            auto hints = [&]() {
+                QStringList h;
+                for (int i = 0; i < 80; ++i) {
+                    const QString t = fx.dbg()->disasm_panel()->line_hint(i);
+                    if (!t.isEmpty()) h << t;
+                }
+                return h;
+            };
+            const QStringList before = hints();
             const bool done = window_edit_reg(fx, "PC: ", "8001");
             fx.tick();
-            const QString at_new = fx.dbg()->disasm_panel()->line_hint(1);
-            const QString at_old = fx.dbg()->disasm_panel()->line_hint(0);
+            const QStringList after = hints();
             check("QREGW-01", desc,
-                  done && fx.pc() == 0x8001 && before.isEmpty() && at_new == "[($9005)=$3C]" && at_old.isEmpty(),
-                  fmt("done=%d PC=%04X hint before '%s', new line '%s', old line '%s'", done, fx.pc(),
-                      s(before).c_str(), s(at_new).c_str(), s(at_old).c_str()));
+                  done && fx.pc() == 0x8001 && before.isEmpty() &&
+                      after == QStringList{QStringLiteral("[($9005)=$3C]")},
+                  fmt("done=%d PC=%04X hints before '%s', after '%s'", done, fx.pc(),
+                      s(before.join('|')).c_str(), s(after.join('|')).c_str()));
         }
     }
 

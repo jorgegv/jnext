@@ -149,6 +149,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Video panel "Background" view: the NR 0x4A fallback colour per scanline
 - Video panel raster indicator: beam position in all four hardware counter domains, frame diagram and ULA fetch read-out
 - Audio panel per-source mute: AY #0/#1/#2, DAC and Beeper silenced independently without affecting emulation
+- CPU panel: edit registers, flags, IFF and IM in place while paused (double-click a value, click a flag), with symbols accepted for 16-bit values
 - PC/data/read/write breakpoints with watchpoints
 - I/O port breakpoints: IO Read on `IN`, IO Write on `OUT`, by low byte or exact 16-bit port
 - Breakpoint enable/disable per row, plus a master switch

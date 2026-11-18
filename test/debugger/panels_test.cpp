@@ -2357,7 +2357,7 @@ struct CpuFix {
         emu.cpu().set_registers(r);
         panel->refresh();
     }
-    Z80Registers regs() const { return emu.cpu().get_registers(); }
+    Z80Registers regs() { return emu.cpu().get_registers(); }
     std::string want(const char* what, unsigned from, unsigned to) const {
         return fmt("MUTATE reg %s 0x%X -> 0x%X by %u", what, from, to, static_cast<unsigned>(window));
     }
