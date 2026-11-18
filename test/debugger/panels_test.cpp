@@ -4883,6 +4883,29 @@ struct NavFix {
     bool shows(const char* addr_text) { return !dcol_row(painted(dis.get()), addr_text).empty(); }
 };
 
+/// Right-click the disassembly row `row`: {present, enabled, tooltip} of its "Follow" entry.
+struct FollowEntry { bool present = false; bool enabled = false; QString tip; };
+static FollowEntry follow_entry(DisasmPanel* p, int row) {
+    FollowEntry r;
+    bool seen = false;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || seen) return;
+        seen = true;
+        for (QAction* a : menu->actions())
+            if (a->text() == QLatin1String("Follow")) { r.present = true; r.enabled = a->isEnabled(); r.tip = a->toolTip(); }
+        menu->close();
+    });
+    timer.start(1);
+    const QPoint pos(200, 52 + row * 18 + 9);
+    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, p->mapToGlobal(pos));
+    QApplication::sendEvent(p, &ev);
+    timer.stop();
+    QApplication::processEvents();
+    return r;
+}
+
 static void test_disasm_nav() {
     set_group("QNAV");
 
@@ -5002,6 +5025,22 @@ static void test_disasm_nav() {
         }
     }
 
+    {
+        NavFix f;
+        const char* desc = "the context menu's Follow is enabled on a CALL line with the target in its tooltip, "
+                           "disabled on NOP";
+        if (!f.ok) { check("QNAV-07", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0xCD, 0x00, 0x90, 0x00});
+            f.view(0x8000);
+            const FollowEntry call = follow_entry(f.dis.get(), 0);
+            const FollowEntry nop = follow_entry(f.dis.get(), 1);
+            check("QNAV-07", desc,
+                  call.present && call.enabled && call.tip.contains("$9000") && nop.present && !nop.enabled,
+                  fmt("call present=%d enabled=%d tip='%s'; nop present=%d enabled=%d", call.present, call.enabled,
+                      s(call.tip).c_str(), nop.present, nop.enabled));
+        }
+    }
     {
         NavFix f;
         const char* desc = "can_go_back() / can_go_forward() follow the history: none, then back only, then forward only";

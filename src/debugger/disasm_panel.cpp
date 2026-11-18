@@ -1076,6 +1076,20 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         emit run_to_requested(addr);
     });
 
+    // GH #366 - Follow: the line's branch target, or its memory operand in the Memory panel.
+    {
+        const disasm_hint::Follow f = follow_of_line(line);
+        auto* follow_act = menu.addAction("Follow");
+        menu.setToolTipsVisible(true);
+        if (f.kind == disasm_hint::Follow::Kind::None) {
+            follow_act->setEnabled(false);
+        } else {
+            const QString a = QString::asprintf("$%04X", f.addr);
+            follow_act->setToolTip(f.kind == disasm_hint::Follow::Kind::Code ? a : tr("%1 in Memory").arg(a));
+            connect(follow_act, &QAction::triggered, this, [this, line]() { follow_line(line); });
+        }
+    }
+
     menu.addSeparator();
 
     auto* go_to = menu.addAction("Go to Address...");

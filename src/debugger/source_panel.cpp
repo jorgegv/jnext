@@ -1417,6 +1417,19 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
     if (st.starts.empty()) run_to->setToolTip(nocode);
     connect(run_to, &QAction::triggered, this, [this, where]() { emit run_to_line_requested(where); });
 
+    // GH #366 - Follow on this line.
+    {
+        const disasm_hint::Follow f = follow_of_line(line);
+        QAction* a = menu.addAction(tr("Follow"));
+        if (f.kind == disasm_hint::Follow::Kind::None) {
+            a->setEnabled(false);
+        } else {
+            const QString t = QString::asprintf("$%04X", f.addr);
+            a->setToolTip(f.kind == disasm_hint::Follow::Kind::Code ? t : tr("%1 in Memory").arg(t));
+            connect(a, &QAction::triggered, this, [this, line]() { follow_line(line); });
+        }
+    }
+
     menu.addSeparator();
     auto place_text = [this](const SourceAddress& s) {
         return BreakpointModel::address_text(s.address, s.space, style_, memtext::next_layout(dbg_));
