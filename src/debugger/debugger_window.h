@@ -332,8 +332,8 @@ private:
     /// change the menu shape that debugger_accel_test pins. Unbound by
     /// default, so it does nothing until the user binds it.
     QAction* run_to_cursor_action_ = nullptr;
-    /// GH #366 - Follow, Back and Forward, window commands like Run to Cursor: no menu item (the
-    /// menu shape debugger_accel_test pins), the keys come from apply_keymap(). They act on the
+    /// GH #366 - Follow, Back and Forward, window commands like Run to Cursor, listed in the Go menu;
+    /// the keys come from apply_keymap(). They act on the
     /// Source tab when its text has the focus, else on the Disassembly.
     QAction* follow_action_ = nullptr;
     QAction* back_action_ = nullptr;

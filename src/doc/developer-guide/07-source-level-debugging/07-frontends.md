@@ -79,7 +79,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`source_panel.cpp:580`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1692`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1707`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -224,7 +224,7 @@ the single seam for the C names (`resolve_key("@" + word)`; `@` forces a symbol)
 After the Show in Disassembly entry the menu carries the user-annotation entries: Add / Rename
 Label…, Remove Label and Add / Edit Comment…, from `add_annotation_actions()`
 (`src/debugger/annotation_menu.cpp:77`), once per place the line compiled to
-(`SourcePanel::fill_context_menu()` calls `add_annotation_actions`, `src/debugger/source_panel.cpp:1453`). The Disassembly
+(`SourcePanel::fill_context_menu()` calls `add_annotation_actions`, `src/debugger/source_panel.cpp:1466`). The Disassembly
 shows the labels and comments; the Source tab does not. How they are stored, saved and drawn is
 [7.4.6](04-6-user-annotations.md), section 10.
 

@@ -696,7 +696,7 @@ void DebuggerWindow::create_menus() {
     });
     addAction(run_to_cursor_action_);
 
-    // GH #366 - Follow / Back / Forward: bindable window commands, in no menu (as Run to Cursor).
+    // GH #366 - Follow / Back / Forward: bindable window commands, listed in the Go menu below.
     follow_action_ = new QAction(tr("Follow"), this);
     connect(follow_action_, &QAction::triggered, this, [this]() {
         if (source_has_focus()) source_panel_->follow();
@@ -865,6 +865,21 @@ void DebuggerWindow::create_menus() {
 
     QAction* rewind_size_action = rewind_menu->addAction(tr("Rewind &Buffer Size..."));
     connect(rewind_size_action, &QAction::triggered, this, &DebuggerWindow::show_rewind_buffer_size_dialog);
+
+    // --- Go menu (GH #366): the navigation commands and the Symbols tab. G is free among this bar's
+    // mnemonics (D, S, M, B, W, N). The three actions are the window commands created above; their keys
+    // come from apply_keymap(). Symbols has no key of its own.
+    QMenu* go_menu = bar->addMenu(tr("&Go"));
+    go_menu->addAction(follow_action_);
+    go_menu->addAction(back_action_);
+    go_menu->addAction(forward_action_);
+    go_menu->addSeparator();
+    QAction* symbols_action = go_menu->addAction(tr("&Symbols"));
+    connect(symbols_action, &QAction::triggered, this, [this]() {
+        if (!symbols_panel_) return;
+        tab_widget_->setCurrentWidget(symbols_panel_);
+        symbols_panel_->focus_filter();
+    });
 
     // --- Script menu (GH #26 WP5, dsl-frontend.md §6.4) ---
     // Alt+S: free among this bar's mnemonics (D, S, M, B, W, N).

@@ -1028,14 +1028,24 @@ QAction* action_named(QWidget* w, const char* text) {
 void test_nav_keys() {
     {
         DebuggerFixture fx;
-        const char* desc = "Follow, Back and Forward carry F12, Alt+Left and Alt+Right on the window's own actions";
+        const char* desc = "Follow, Back and Forward carry F12, Alt+Left and Alt+Right and sit in the Go menu with Symbols";
         if (!fx.ok) { check("QNAVW-01", desc, false, "fixture failed"); }
         else {
             QAction* f = action_named(fx.dbg, "Follow");
             QAction* b = action_named(fx.dbg, "Back");
             QAction* w = action_named(fx.dbg, "Forward");
+            // ... and they sit in the Go menu with Symbols
+            QMenu* go = nullptr;
+            for (QAction* top : fx.dbg->menuBar()->actions())
+                if (top->menu() && top->text().remove(QLatin1Char('&')) == QLatin1String("Go")) go = top->menu();
+            bool in_menu = false, symbols = false;
+            if (go)
+                for (QAction* a : go->actions()) {
+                    if (a == f || a == b || a == w) in_menu = true;
+                    if (a->text().remove(QLatin1Char('&')) == QLatin1String("Symbols")) symbols = true;
+                }
             check("QNAVW-01", desc,
-                  f && b && w && f->shortcut() == to_key_sequence(parsed("F12")) &&
+                  go && in_menu && symbols && f && b && w && f->shortcut() == to_key_sequence(parsed("F12")) &&
                       b->shortcut() == to_key_sequence(parsed("Alt+Left")) &&
                       w->shortcut() == to_key_sequence(parsed("Alt+Right")),
                   f && b && w ? (f->shortcut().toString() + " " + b->shortcut().toString() + " " + w->shortcut().toString()).toStdString()

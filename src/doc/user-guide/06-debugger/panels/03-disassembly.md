@@ -114,7 +114,7 @@ it is not shown while the machine is running.
 
 ## Navigating: Follow, Back and Forward
 
-**Follow** (**F12**) takes the line with the caret (the `PC` line when there is none) to
+**Follow** (**F12**, the **Go** menu, or the right-click menu) takes the line with the caret (the `PC` line when there is none) to
 where it goes:
 
 - a jump, call or relative jump (`JP`, `CALL`, `JR`, `DJNZ`, `RST`) goes to its target. A
