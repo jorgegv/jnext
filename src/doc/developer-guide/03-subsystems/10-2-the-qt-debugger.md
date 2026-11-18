@@ -105,7 +105,7 @@ Accumulate policy live in `jnext::TstateCounter` (`src/debugger/tstate_counter.h
 time changes nothing. One mechanism detects a discontinuity: `Debugger::time_epoch()`, a token the Emulator
 re-takes (from a process-wide counter, so a cold boot's new machine never repeats one) wherever time moves
 without executing: `load_state()` (Step Back, a rewind in either direction, another client's
-`load_state_bytes()`), a `.jns` restore, and a hard `init()` (a cold boot, a hard reset, every in-place
+`load_state_bytes()`, a `.jns` restore, which runs through it), and a hard `init()` (a cold boot, a hard reset, every in-place
 snapshot or program load, whoever or whatever started it). The counter restarts at the first stop that sees a
 new epoch. A soft reset leaves the epoch alone: the total runs on through one. Two restarts are pushed because
 the epoch cannot say where they start: `Reset` (a cold boot while running: counted from the reset, not from the
