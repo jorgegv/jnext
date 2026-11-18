@@ -157,7 +157,7 @@ void BreakpointModel::publish_() {
         const bool port = si.kind == EventKind::Port;
         r.addr = port ? si.filter.port_value : si.filter.lo;
         if (si.kind == EventKind::Execute) r.space = si.filter.space;
-        if (r.own) members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live});
+        if (r.own) members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live, si.group});
         // E23-09 -- the members of one source breakpoint are ONE row: the
         // lowest address's, enabled only while every location is, live while
         // any is.
@@ -226,6 +226,13 @@ void BreakpointModel::publish_() {
         if (it == seen.end()) kinds |= kind_bit(o.kind);
     }
 
+    for (auto it = group_lines_.begin(); it != group_lines_.end();) {
+        const bool listed = std::any_of(members.begin(), members.end(), [&](const Member& m) {
+            return m.group == it->first;
+        });
+        it = listed ? std::next(it) : group_lines_.erase(it);
+    }
+
     rows_        = std::move(rows);
     members_     = std::move(members);
     seen_        = std::move(seen);
@@ -258,6 +265,7 @@ jnext::dbg::GroupId BreakpointModel::add_source_line(const QString& file_line) {
     const auto g = dbg_.subscribe_source_line(
         client_, file_line.toStdString(), sub_for(Execute, 0, jnext::dbg::MemSpace::cpu()));
     if (!g) return jnext::dbg::GROUP_NONE;
+    group_lines_[g.value] = file_line.toStdString();
     publish_();
     return g.value;
 }
@@ -294,6 +302,59 @@ void BreakpointModel::clear_all() {
     for (const Member& m : members_) ids.push_back(m.id);
     for (jnext::dbg::EventId id : ids) dbg_.unsubscribe(client_, id);
     publish_();
+}
+
+std::vector<jnext::script::BpSpec> BreakpointModel::script_specs() const {
+    using jnext::script::BpSpec;
+    std::vector<BpSpec> out;
+    for (const Row& r : rows_) {
+        if (!r.own) continue;
+        BpSpec s;
+        s.kind    = static_cast<BpSpec::Kind>(r.type);
+        s.addr    = r.addr;
+        s.space   = r.space;
+        s.enabled = r.enabled;
+        if (r.group != jnext::dbg::GROUP_NONE) {
+            const auto line = group_lines_.find(r.group);
+            if (line != group_lines_.end()) s.file_line = line->second;
+            for (const Member& m : members_)
+                if (m.group == r.group) s.locations.push_back({m.space, m.addr});
+        }
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+
+void BreakpointModel::add_specs(const std::vector<jnext::script::BpSpec>& specs) {
+    for (const jnext::script::BpSpec& s : specs) {
+        if (s.file_line.empty()) {
+            const jnext::dbg::MemSpace sp = s.kind == jnext::script::BpSpec::Execute ? s.space
+                                                                                     : jnext::dbg::MemSpace::cpu();
+            add(s.kind, s.addr, sp);
+            set_enabled(s.kind, s.addr, s.enabled, sp);
+            continue;
+        }
+        // add_source_line() is not idempotent: look for the same places first.
+        const Row* same = nullptr;
+        for (const Row& r : rows_) {
+            if (!r.own || r.group == jnext::dbg::GROUP_NONE) continue;
+            std::vector<jnext::dbg::SourceAddress> places;
+            for (const Member& m : members_)
+                if (m.group == r.group) places.push_back({m.space, m.addr});
+            if (jnext::script::same_locations(places, s.locations)) {
+                same = &r;
+                break;
+            }
+        }
+        if (same) {
+            set_enabled(*same, s.enabled);
+            continue;
+        }
+        const jnext::dbg::GroupId g = add_source_line(QString::fromStdString(s.file_line));
+        if (g == jnext::dbg::GROUP_NONE || s.enabled) continue;
+        for (const Row& r : rows_)
+            if (r.group == g) { set_enabled(r, false); break; }
+    }
 }
 
 bool BreakpointModel::exists(int type, uint16_t addr, jnext::dbg::MemSpace space) const {
