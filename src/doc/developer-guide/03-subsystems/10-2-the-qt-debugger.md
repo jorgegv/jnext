@@ -33,6 +33,18 @@ nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.
 
+The model also converts its own rows to and from the breakpoint file codec
+(`script/bp_script.h`, see [3.10.6](13-the-debugger-scripting-language.md)):
+`script_specs()` returns them as `BpSpec` in list order, and `add_specs()` adds a
+file's breakpoints to the current set, applying the file's On state to each and
+reusing a source-line group already armed on the same places (`add_source_line()` is
+not idempotent). A source-line row is saved by the text it was set with, which the
+model keeps per group (`group_lines_`) and the codec checks against the source map's
+resolution. The manager's `on_save_breakpoints_script()` / `on_load_breakpoints_script()`
+behind the Breakpoints menu's *Save as Script...* / *Load from Script...* do the file
+dialogs, the write (`QSaveFile`) and the warning boxes; the last path is
+remembered for the session only. Rows: `QBPJ-*` in `debugger_verbs_test`.
+
 The Breakpoints panel, the disassembly gutter and context menu, and the window's
 Breakpoints menu all edit this one model. The panel lists every client's
 subscriptions; another client's are read-only and named by client id. The
