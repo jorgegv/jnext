@@ -61,6 +61,7 @@ enum class OptId {
     SdcardSha256,
     SdcardWrites,
     SdcardWritesReset,
+    NoSdcard,
     DelayedScreenshot,
     DelayedScreenshotTime,
     DelayedScreenshotFrames,
@@ -349,6 +350,16 @@ inline constexpr Option OPTIONS[] = {
       "stand-in's file included) before the card is mounted. Needs\n"
       "--sdcard-writes. A file that is\n"
       "not a jnext SD-writes file is refused, never removed." },
+    { "--no-sdcard", 0, Doc::Documented, OptId::NoSdcard,
+      "",
+      "Run a directly loaded NEX with no SD card: no NextZXOS, no\n"
+      "ROMs, no warm start. The NEX starts on the synthetic machine\n"
+      "and its files come from the esxDOS stand-in: implies\n"
+      "--esxdos-stub (its own directory), or give --esxdos-stub-root.\n"
+      "The first ROM code the program runs is logged as an error;\n"
+      "DivMMC, Multiface and the NMI buttons are off. Needs --load\n"
+      "of a .nex on the Next; excludes every --sdcard option,\n"
+      "--delayed-sdcard-insert-frames and --delayed-nmi" },
     // GH #417 - the three Startup settings that have a menu of their own
     // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every
     // other jnext.conf setting is reached with --set.

@@ -276,9 +276,16 @@ public:
 
     /// Why a card change would be refused right now, or empty when it would
     /// not: an RZX recording or playback (it replays one continuous run on one
-    /// card), and a directly loaded NEX holding its own file open (unmounting
-    /// drops the read overlay that serves that file).
+    /// card), a directly loaded NEX holding its own file open (unmounting
+    /// drops the read overlay that serves that file), and a --no-sdcard
+    /// session (GH #540), which has no card to change.
     std::string sd_card_change_refusal() const;
+
+    /// GH #540 - --no-sdcard: the error logged the first time the program
+    /// executed ROM code ("executed ROM code at $0038 (IM 1); --no-sdcard has
+    /// no ROM"), handed over once so a frontend can show it too. Empty when
+    /// there is none, or it was already taken.
+    std::string take_rom_fetch_report();
 
     /// Record a change for the frontend to perform at the end of its tick (after
     /// its frames, or at the paused instruction boundary when the debugger
@@ -1723,6 +1730,15 @@ private:
     static constexpr int FRAMEBUFFER_PIXELS = FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT;
 
     EmulatorConfig config_;
+    // GH #540 - --no-sdcard's ROM watch: armed by init() in that mode, cleared
+    // by the first fetch from a ROM (rom_fetch_watch_step_(), from the one
+    // execute() site). The previous slot's kind tells IM 1 and NMI apart from
+    // a jump to the same address.
+    bool             rom_fetch_watch_ = false;
+    Z80Cpu::SlotKind rom_watch_previous_slot_ = Z80Cpu::SlotKind::Other;
+    std::string      rom_fetch_report_;
+    void rom_fetch_watch_step_(uint16_t pc, bool fetched);
+    bool refuse_nmi_without_card_(const char* button) const;
     // Host-side state used by --esxdos-stub and direct extended-NEX loading.
     std::string nex_load_request_;
     std::optional<SdCardChange> sd_card_change_request_;   // GH #93

@@ -182,6 +182,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
     if (!preserve_memory) bump_time_epoch_();   // GH #369: a hard init restarts the clock's story
+    // GH #540 - with no card there is no ROM: report the first time the program runs any.
+    rom_fetch_watch_ = cfg.no_sdcard;
+    rom_watch_previous_slot_ = Z80Cpu::SlotKind::Other;
     // A recording in progress belongs to the configuration it began under: an
     // in-place init() (a reset, a machine change) must not let it finish under
     // the new one's key.
@@ -7111,9 +7114,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // would corrupt the demo's reset vector and break direct NEX
     // execution. (Pre-Wave-0.1 the Wave 0.1 follow-up commit added this
     // dual-gate after a 14-demo regression; semantics retained verbatim.)
+    //
+    // GH #540 - --no-sdcard counts as the card gate: its hard reset (a cold
+    // boot with the load dropped) runs the boot ROM as hardware does, which
+    // finds no card and stops at its own screen, instead of an empty ROM.
     if (!preserve_memory) {
         if (cfg.type == MachineType::ZXN_ISSUE2 &&
-            !cfg.sd_card_image.empty() &&
+            (!cfg.sd_card_image.empty() || cfg.no_sdcard) &&
             cfg.load_file.empty()) {
             const uint8_t* embedded_data = embedded_nextboot_rom_data();
             const size_t   embedded_size = embedded_nextboot_rom_size();
@@ -8299,6 +8306,11 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
                 machine_type_str(config_.type));
             return unavailable(0);
         }
+        if (config_.sd_card_image.empty() && config_.no_sdcard) {
+            Log::emulator()->info("warm start: skipped (--no-sdcard) - the program runs on "
+                                  "the synthetic machine, with no NextZXOS behind it");
+            return unavailable(0);
+        }
         if (config_.sd_card_image.empty()) {
             Log::emulator()->error("warm start: no SD image is mounted, so there is no "
                                    "firmware to boot - this load falls back to the "
@@ -8774,6 +8786,10 @@ std::string Emulator::take_nex_load_request()
 
 std::string Emulator::sd_card_change_refusal() const
 {
+    // GH #540 - the session has no card slot to change: nothing was booted
+    // from a card, and nothing would read one inserted now.
+    if (config_.no_sdcard)
+        return "this session runs with --no-sdcard, so it has no SD card";
     if (rzx_recorder_.is_recording())
         return "an RZX recording is being made (stop it first)";
     if (rzx_player_.is_playing())
@@ -11582,6 +11598,9 @@ uint64_t Emulator::step_one_instruction()
         const bool fetched = cpu_.fetched_opcode_last_execute();
         if (traced)
             trace_log_.set_newest_fetch(fetched ? mmu_.last_m1() : no_fetch_space);
+        // GH #540 - --no-sdcard only, until the first ROM fetch: one branch otherwise.
+        if (rom_fetch_watch_) [[unlikely]]
+            rom_fetch_watch_step_(pc_pre_exec, fetched);
 
         // GH #276 B4 — INS-20 PC coverage: "the PCs executed since clear".
         //
@@ -13121,8 +13140,51 @@ void Emulator::soft_reset()
 // (zxnext.vhd:6340-6371, 2089-2091).
 // ---------------------------------------------------------------------------
 
+// GH #540 - --no-sdcard has no Multiface or DivMMC ROM (they come from the card), so an
+// NMI button would send the CPU to $0066 of an empty ROM. Refused, and said.
+bool Emulator::refuse_nmi_without_card_(const char* button) const
+{
+    if (!config_.no_sdcard) return false;
+    Log::emulator()->warn("{} NMI refused: --no-sdcard has no ROM to service it", button);
+    return true;
+}
+
+// GH #540 - what most likely sent the CPU to `pc`, for the report below. Only the entry
+// points a program reaches without meaning to "call the ROM" are named.
+static std::string rom_fetch_cause(uint16_t pc, Z80Cpu::SlotKind previous)
+{
+    if (pc == 0x0038 && previous == Z80Cpu::SlotKind::Int) return "IM 1";
+    if (pc == 0x0066 && previous == Z80Cpu::SlotKind::Nmi) return "NMI";
+    if (pc == 0x0008) return "RST $08: a ROM error report, or an esxDOS call the stand-in does not answer";
+    if ((pc & 0xFFC7) == 0) return fmt::format("RST ${:02X}", pc);
+    return "a call or jump into the ROM";
+}
+
+void Emulator::rom_fetch_watch_step_(uint16_t pc, bool fetched)
+{
+    const Z80Cpu::SlotKind previous = rom_watch_previous_slot_;
+    rom_watch_previous_slot_ = cpu_.last_slot_kind();
+    if (!fetched) return;   // an INT, an NMI or the esxDOS stand-in: nothing was fetched
+    using K = jnext::dbg::MemSpace::Kind;
+    const K kind = mmu_.last_m1().kind;
+    // The boot ROM is not one of them: a hard reset runs it, and it stops at the
+    // firmware's no-card screen as on hardware.
+    if (kind != K::Rom && kind != K::AltRom && kind != K::DivMmcRom && kind != K::MultifaceRom)
+        return;
+    rom_fetch_watch_ = false;   // the first one only: what follows is its consequence
+    rom_fetch_report_ = fmt::format("executed ROM code at ${:04X} ({}); --no-sdcard has no ROM",
+                                    pc, rom_fetch_cause(pc, previous));
+    Log::emulator()->error("{}", rom_fetch_report_);
+}
+
+std::string Emulator::take_rom_fetch_report()
+{
+    return std::exchange(rom_fetch_report_, std::string());
+}
+
 void Emulator::on_hotkey_f9_mf_nmi()
 {
+    if (refuse_nmi_without_card_("Multiface")) return;
     // VHDL zxnext.vhd:6348, 2090 — `hotkey_m1` is a one-cycle pulse OR'd
     // into the MF assert; the gate at NR 0x06 bit 3 determines whether
     // the producer actually fires. We strobe the NmiSource button line
@@ -13154,6 +13216,7 @@ void Emulator::on_hotkey_f10_divmmc_nmi()
     // DivMMC port is disabled; honour it here so the strobe never
     // fires in that state. The NR 0x06 bit 4 gate is honoured
     // downstream in `NmiSource::nmi_assert_divmmc()`.
+    if (refuse_nmi_without_card_("DivMMC")) return;
     if (!divmmc_.port_io_enable()) {
         return;
     }
@@ -13305,10 +13368,16 @@ void Emulator::propagate_effective_port_enables(uint8_t override_reg,
     // DivMmc and Multiface gate themselves on NR 0x83 bit 0 / bit 1
     // (VHDL :2412 / :2415). When their gate falls low the FSM goes
     // inert (port-decode no longer reaches them).
+    //
+    // GH #540 - --no-sdcard holds both off whatever NR 0x83 says: their ROMs
+    // come from the card, so with none an automap entry point or an NMI would
+    // page in an empty ROM. An emulator convenience, not hardware: a real Next
+    // always has the two ROMs in flash.
+    const bool roms = !config_.no_sdcard;
     divmmc_.set_port_io_enable(
-        (effective_internal_port_enable(0x83, override_reg, override_val) & 0x01) != 0);
+        roms && (effective_internal_port_enable(0x83, override_reg, override_val) & 0x01) != 0);
     multiface_.set_enabled(
-        (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
+        roms && (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
 }
 
 uint8_t Emulator::port_df_read()
