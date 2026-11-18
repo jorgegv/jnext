@@ -90,6 +90,6 @@ To see what is on it, type `CD "d:"` and then `.ls`. Do not type `.nexload d:/ga
 the colon separates BASIC statements, so NextZXOS sees only `d`. Change into the drive
 first, or quote the path.
 
-Programs and ROMs always come from the first card. `--sdcard-file-add` works on any
+ROMs and the firmware always come from the first card. `--sdcard-file-add` works on any
 FAT32 image, so `jnext --sdcard card2.img --sdcard-file-add game.nex` puts a file on
 a second-card image.

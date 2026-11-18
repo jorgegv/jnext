@@ -7433,7 +7433,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     // GH #505: the second card, mounted exactly where card 0 is (hard reset
     // only). No ROM extraction, no digest baseline: it is never a ROM source.
-    if (!preserve_memory && !cfg.sd_card2_image.empty()) {
+    // Backstop: one image never in both slots, whatever route put the pair in the config.
+    if (!cfg.sd_card2_image.empty() && sdcard::same_image_file(cfg.sd_card2_image, cfg.sd_card_image)) {
+        Log::emulator()->error("the second SD card image '{}' is the first card's image; the second "
+                               "slot stays empty", cfg.sd_card2_image);
+        config_.sd_card2_image.clear();
+    } else if (!preserve_memory && !cfg.sd_card2_image.empty()) {
         if (sd_card2_.mount(cfg.sd_card2_image, cfg.sd_card2_readonly)) {
             Log::emulator()->info("Second SD card image mounted: '{}'", cfg.sd_card2_image);
         } else {
@@ -8824,7 +8829,11 @@ std::string Emulator::sd_card_cross_slot_refusal(const SdCardChange& change) con
 {
     if (change.image.empty()) return {};
     const SdCardDevice& other = change.slot == 0 ? sd_card2_ : sd_card_;
-    if (other.mounted() && sdcard::same_image_file(change.image, other.image_path()))
+    // The other slot's MOUNTED image, and its CONFIGURED one: card 0 keeps its path
+    // across an eject (the ROMs come from it), and a hard reset mounts it again.
+    const std::string& other_cfg = change.slot == 0 ? config_.sd_card2_image : config_.sd_card_image;
+    if ((other.mounted() && sdcard::same_image_file(change.image, other.image_path())) ||
+        sdcard::same_image_file(change.image, other_cfg))
         return "'" + change.image + "' is the image in the " +
                (change.slot == 0 ? "second" : "first") + " SD card slot; the two slots "
                "need two different images";
@@ -8891,8 +8900,7 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
         // reset after an eject keeps the slot empty, and after an insert the new card.
         if (change.image.empty()) {
             sd_card2_.unmount();
-            config_.sd_card2_image.clear();
-            config_.sd_card2_readonly = false;
+            config_.sd_card2_image.clear();   // the path only: --sdcard2-readonly is the session's
             Log::emulator()->info("Second SD card ejected");
         } else if (sd_card2_.mount(change.image, change.read_only)) {
             config_.sd_card2_image    = change.image;
