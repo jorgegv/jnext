@@ -422,19 +422,25 @@ int main()
         const bool fast = app->emulator().fastload_active();
         uint32_t s = 0;
         const uint64_t r0 = app->emulator().rendered_frames();
+        const uint64_t u0 = app->uploads_for_test();
         app->tick(s);
         const uint64_t r1 = app->emulator().rendered_frames();
+        const uint64_t u1 = app->uploads_for_test();
         app->tick(s);
         const uint64_t r2 = app->emulator().rendered_frames();
+        const uint64_t u2 = app->uploads_for_test();
         ft.t += 25000;
         app->tick(s);
         const uint64_t r3 = app->emulator().rendered_frames();
+        const uint64_t u3 = app->uploads_for_test();
         const uint32_t frames = app->emulator().frame_num();
         app->shutdown();
-        check("SDLT-13", "during fast load a tick inside RENDER_INTERVAL_MS of the last present does not present, and its frame skips the compositor (3 frames run: composited 1, 0, then 1 after 25 ms)",
-              ok && fast && frames == 3 && r1 - r0 == 1 && r2 == r1 && r3 - r2 == 1,
+        check("SDLT-13", "during fast load a tick inside RENDER_INTERVAL_MS of the last present does not present, and its frame skips the compositor (3 frames run: composited and presented 1, 0, then 1 after 25 ms)",
+              ok && fast && frames == 3 && r1 - r0 == 1 && r2 == r1 && r3 - r2 == 1 &&
+              u1 - u0 == 1 && u2 == u1 && u3 - u2 == 1,
               "fast=" + std::to_string(fast) + " frames=" + std::to_string(frames) + " r=" +
-              std::to_string(r0) + "/" + std::to_string(r1) + "/" + std::to_string(r2) + "/" + std::to_string(r3));
+              std::to_string(r0) + "/" + std::to_string(r1) + "/" + std::to_string(r2) + "/" + std::to_string(r3) +
+              " u=" + std::to_string(u0) + "/" + std::to_string(u1) + "/" + std::to_string(u2) + "/" + std::to_string(u3));
     }
 
     // --- SDLT-14: a due screenshot still presents during fast load ---------------------------------------------
@@ -454,14 +460,17 @@ int main()
         uint32_t s = 0;
         app->tick(s);                                    // presents (the first of the window)
         const uint64_t r1 = app->emulator().rendered_frames();
-        app->tick(s);                                    // same instant: only the due screenshot lets it composite
+        const uint64_t u1 = app->uploads_for_test();
+        app->tick(s);                                    // same instant: only the due screenshot lets it present
         const uint64_t r2 = app->emulator().rendered_frames();
+        const uint64_t u2 = app->uploads_for_test();
         app->shutdown();
         const bool written = fs::exists(shot, ec);
         fs::remove(shot, ec);
         check("SDLT-14", "a due screenshot still presents and composites during fast load, inside the throttle interval, and the file is written",
-              ok && r2 - r1 == 1 && written,
-              "r1=" + std::to_string(r1) + " r2=" + std::to_string(r2) + " written=" + std::to_string(written));
+              ok && r2 - r1 == 1 && u2 - u1 == 1 && written,
+              "r=" + std::to_string(r1) + "/" + std::to_string(r2) + " u=" + std::to_string(u1) + "/" + std::to_string(u2) +
+              " written=" + std::to_string(written));
     }
 
     std::printf("\n====================================================\n");

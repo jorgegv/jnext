@@ -794,6 +794,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
             display_.present();
             last_uploaded_gen_ = emulator_.framebuffer_generation();
             ++present_uploads_;
+            ++uploads_total_;
         }
         const uint64_t now_ms = SDL_GetTicks();
         if (now_ms - present_window_start_ms_ >= 1000) {
