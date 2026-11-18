@@ -242,6 +242,7 @@ BEGIN {
     M["cdb_record_test"]               = "z88dk CDB record decoder"
     M["c_value_test"]                  = "C value formatting (frames and values)"
     M["source_debug_test"]             = "Source debugging (backend)"
+    M["disasm_hint_test"]              = "Disassembly PC-line hint (GH #367)"
     M["reexport_test"]                 = "Source debugging (skoolkit/Ghidra export)"
     M["source_debug_posix_test"]       = "Source debugging (POSIX file types)"
     M["debugger_backend_test"]         = "Debugger Backend (GH #276)"

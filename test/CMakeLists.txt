@@ -73,6 +73,15 @@ endforeach()
 # Register as CTest target
 add_test(NAME fuse_z80_tests COMMAND fuse_z80_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
 
+# GH #367 - the Disassembly PC-line hint (taken / not taken, the memory operand's value). Pure
+# Z80 semantics: the oracles are UM0080, the FUSE event data (read here by a reader of its own)
+# and Z80Cpu executed once per swept instruction. Links jnext_debug + jnext_cpu only, so it runs in
+# every configuration (SDL-only, Windows, WebAssembly) like the FUSE suite.
+add_executable(disasm_hint_test debug/disasm_hint_test.cpp)
+target_link_libraries(disasm_hint_test PRIVATE jnext_debug jnext_cpu)
+target_include_directories(disasm_hint_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME disasm_hint_tests COMMAND disasm_hint_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
+
 # Z80Cpu /INT pulse-window machine-timing test (Task 2 CPU fix).
 # VHDL zxnext.vhd:2033 — pulse width 32 (48K/+3) vs 36 (128K/Pent/Next).
 # Standalone, no GoogleTest; jnext_cpu only (matches fuse_z80_test linkage).

@@ -4283,6 +4283,177 @@ static void test_disasm_columns() {
     }
 }
 
+// ── GH #367 - the PC line's hint ──────────────────────────────────────────────────────────────────
+static void test_pc_hint() {
+    set_group("QDHINT");
+    using jnext::dbg::MemSpace;
+    auto setup = [](Emulator& emu, MachineType t = MachineType::ZXN_ISSUE2) {
+        const bool built = build(emu, t);
+        emu.mmu().set_boot_rom_enabled(false);
+        return built;
+    };
+    auto set_regs = [](Emulator& emu, uint16_t pc, uint16_t af, uint16_t hl, uint16_t ix, uint16_t sp) {
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = pc; r.AF = af; r.HL = hl; r.IX = ix; r.SP = sp;
+        emu.cpu().set_registers(r);
+    };
+
+    {   // QDHINT-01: a taken / not taken branch, at the comment's column, in its own ink
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0x20, 0x05});   // JR NZ,$8007
+        set_regs(emu, 0x8000, 0x0000, 0, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const auto row = dcol_row(painted(&dis), "$8000");
+        const PaintedText* taken = dcol_item(row, "[taken]");
+        const QColor ink = palette_tint::ink(dis.palette(), DisasmPanel::hint_color());
+        const bool placed = taken && taken->pos.x() == dis.bytes_x(0) + 100 && taken->pen == ink &&
+                            ink != palette_tint::ink(dis.palette(), QColor(0x60, 0x80, 0x60));
+        set_regs(emu, 0x8000, 0x0040, 0, 0, 0xA000);
+        dis.refresh();
+        const bool not_taken = dcol_item(dcol_row(painted(&dis), "$8000"), "[not taken]") != nullptr;
+        check("QDHINT-01",
+              "Disassembly: JR NZ,$8007 at the PC with Z clear paints [taken] at bytes_x + 100 in the hint ink "
+              "(not the comment's); with Z set, after refresh, it paints [not taken]",
+              built && placed && not_taken,
+              fmt("taken=%d placed=%d not_taken=%d", taken != nullptr, placed, not_taken));
+    }
+    {   // QDHINT-02: the memory operand, on the PC line only; the copy carries no hint
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0xDD, 0x7E, 0x05, 0x7E});   // LD A,(IX+$05) ; LD A,(HL)
+        poke(emu, 0x9005, {0x3C});
+        set_regs(emu, 0x8000, 0, 0x9005, 0x9000, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const auto items = painted(&dis);
+        bool on_pc = false, elsewhere = false;
+        for (const PaintedText& t : items) if (t.text == "[($9005)=$3C]") on_pc = true;
+        for (const PaintedText& t : dcol_row(items, "$8003")) if (t.text.startsWith('[')) elsewhere = true;
+        dis.select_all_visible();
+        const QString copy = dis.selection_text(disasm_text::CopyFormat::WithAddresses);
+        dis.clear_selection();
+        check("QDHINT-02",
+              "Disassembly: LD A,(IX+$05) at the PC paints [($9005)=$3C]; the next line (LD A,(HL)) paints no hint, "
+              "line_hint(1) is empty, and the copy of the PC line has no hint in it",
+              built && on_pc && !elsewhere && dis.line_hint(1).isEmpty() && dis.line_hint(0) == "[($9005)=$3C]" &&
+                  copy.startsWith("$8000  DD 7E 05") && !copy.contains('['),
+              fmt("on_pc=%d elsewhere=%d hint1='%s' copy='%s'", on_pc, elsewhere, s(dis.line_hint(1)).c_str(),
+                  s(copy).c_str()));
+    }
+    {   // QDHINT-03: running shows nothing
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0x20, 0x05});
+        set_regs(emu, 0x8000, 0x0000, 0, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        dis.set_paused(false);
+        bool running_painted = false;
+        for (const PaintedText& t : painted(&dis)) if (t.text.startsWith('[')) running_painted = true;
+        const bool running_empty = dis.line_hint(0).isEmpty();
+        dis.set_paused(true);
+        dis.refresh();
+        check("QDHINT-03",
+              "Disassembly: while running line_hint() is empty and no hint is painted; paused again and refreshed it is back",
+              built && !running_painted && running_empty && dis.line_hint(0) == "[taken]",
+              fmt("painted=%d empty=%d back='%s'", running_painted, running_empty, s(dis.line_hint(0)).c_str()));
+    }
+    {   // QDHINT-04: RET cc names its target; the comment moves right of the hint
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0xC8});          // RET Z
+        poke(emu, 0xA000, {0x34, 0x12});
+        poke(emu, 0x8001, {0x00});
+        set_regs(emu, 0x8000, 0x0040, 0, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        dbg.set_user_label(dbg.source_page(0x1234), 0x1234, "ret_here");
+        dbg.set_user_comment(dbg.source_page(0x8000), 0x8000, "note");
+        dbg.set_user_comment(dbg.source_page(0x8001), 0x8001, "other");
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.set_annotation_backend(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const auto items = painted(&dis);
+        const auto pc_row = dcol_row(items, "$8000"), next_row = dcol_row(items, "$8001");
+        const PaintedText* hint = dcol_item(pc_row, "[taken -> ret_here]");
+        const PaintedText* note = dcol_item(pc_row, "; note");
+        const PaintedText* other = dcol_item(next_row, "; other");
+        QFont bold = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        bold.setPointSize(10);
+        bold.setBold(true);
+        const double adv = hint ? QFontMetrics(bold).horizontalAdvance(hint->text) : 0;
+        check("QDHINT-04",
+              "Disassembly: RET Z with Z set, SP holding $1234 named ret_here, paints [taken -> ret_here]; the PC "
+              "line's comment starts at or right of the hint's end, and a comment on another line keeps bytes_x + 100",
+              built && hint && note && other && note->pos.x() >= hint->pos.x() + adv &&
+                  other->pos.x() == dis.bytes_x(1) + 100,
+              fmt("hint=%d note=%d other=%d note_x=%.0f end=%.0f", hint != nullptr, note != nullptr, other != nullptr,
+                  note ? note->pos.x() : -1, hint ? hint->pos.x() + adv : -1));
+    }
+    {   // QDHINT-05: nothing moves on a +3
+        Emulator emu;
+        const bool built = setup(emu, MachineType::ZX_PLUS3);
+        poke(emu, 0x8000, {0x7E});          // LD A,(HL), HL in contended RAM
+        poke(emu, 0x6000, {0xA5});
+        set_regs(emu, 0x8000, 0, 0x6000, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        emu.mmu().set_p3_floating_bus_dat(0x3C);
+        for (int i = 0; i < 3; ++i) dis.refresh();
+        const uint8_t after_panel = emu.mmu().p3_floating_bus_dat();
+        const bool shown = dis.line_hint(0) == "[($6000)=$A5]";
+        (void)emu.mmu().read(0x6000);   // the control: a real read does move it
+        check("QDHINT-05",
+              "Disassembly: refreshing the PC line's hint on a +3 (LD A,(HL) with HL in contended RAM) leaves the "
+              "floating-bus latch alone, though the hint is shown (control: Mmu::read() moves it)",
+              built && shown && after_panel == 0x3C && emu.mmu().p3_floating_bus_dat() == 0xA5,
+              fmt("shown=%d latch=%02X", shown, after_panel));
+    }
+    {   // QDHINT-06: at a DivMMC instant entry the operand is read as the instruction's own data cycles do
+        Emulator emu;
+        const bool built = setup(emu);
+        emu.nextreg().write(0x50, 10);
+        emu.nextreg().write(0x0A, 0x10);   // automap enable
+        emu.nextreg().write(0xB8, 0x01);
+        emu.nextreg().write(0xB9, 0x01);
+        emu.nextreg().write(0xBA, 0x01);   // instant entry at $0000
+        emu.divmmc().rom_data()[0] = 0x7E; // LD A,(HL), fetched from the DivMMC ROM
+        emu.divmmc().rom_data()[5] = 0x22; // the byte its data cycle reads at $0005
+        poke(emu, 0x0005, {0x11});         // RAM page 10: what peek(Cpu) shows
+        set_regs(emu, 0x0000, 0, 0x0005, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.activate_follow_pc();
+        dis.refresh();
+        check("QDHINT-06",
+              "Disassembly: LD A,(HL) at a DivMMC instant entry (HL=$0005) shows the DivMMC ROM's byte [($0005)=$22], "
+              "which the instruction's own data cycle reads, not the RAM's $11 that peek shows",
+              built && dis.line_hint(0) == "[($0005)=$22]", s(dis.line_hint(0)));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -4314,6 +4485,7 @@ int main(int argc, char** argv) {
     test_long_address();
     test_annotations();
     test_disasm_columns();
+    test_pc_hint();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

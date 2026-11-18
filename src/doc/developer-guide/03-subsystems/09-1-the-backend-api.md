@@ -128,7 +128,7 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 | Area | Reads | Writes |
 |---|---|---|
 | registers | `registers()` | `set_register(by, RegId, v)`, one register at a time. Setting `PC` clears `halted` |
-| memory | `peek(space, addr, n, buf)`, `memory_reader()` | `poke(by, space, addr, n, buf)` |
+| memory | `peek(space, addr, n, buf)`, `memory_reader()`, `operand_reader()` | `poke(by, space, addr, n, buf)` |
 | paging | `mmu_slots()`, `paging_ports()`, `rom_select()` | `set_mmu_slot(by, slot, page)`, through the NR 0x50+slot write handler |
 | NextREG | `nextreg_peek(reg)`, `nextreg_selected()` | `nextreg_write(by, reg, v)`, which runs the register's own handler |
 | ports | — | `port_in(by, port)`, `port_out(by, port, v)`; both dispatch like the guest's `IN`/`OUT` and are perturbing by nature |

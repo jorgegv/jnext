@@ -15781,6 +15781,18 @@ void Emulator::predict_instruction_bytes(uint16_t pc, uint8_t out[4]) const
     for (int i = 0; i < 4; ++i) out[i] = p.b[i];
 }
 
+std::function<uint8_t(uint16_t)> Emulator::predict_data_reader(uint16_t pc) const
+{
+    const PredictedInstr p = predict_instruction_(pc);
+    const Mmu* mmu = &mmu_;
+    const bool divmmc = p.data_divmmc, mf = p.mf;
+    // A floating route answers 0xFF, as predict_instruction_() and finish_read_() do.
+    return [mmu, divmmc, mf](uint16_t a) -> uint8_t {
+        const Mmu::Route r = mmu->route_with(a, divmmc, mf);
+        return r.ptr ? *r.ptr : 0xFF;
+    };
+}
+
 void Emulator::debug_after_machine_transition_(bool discard_ring)
 {
     // The stop evidence and the pending Stop go regardless of whether a table is

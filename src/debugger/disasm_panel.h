@@ -82,6 +82,12 @@ public:
     /// ` ...` when the comment has more); "" for none or a line out of range.
     QString line_label(int line) const;
     QString line_comment(int line) const;
+    /// GH #367 - what the PC line shows after its bytes: whether a conditional branch is taken
+    /// (`[taken]`, `[not taken]`, `[taken -> addr]` for RET cc) or the value at the memory operand
+    /// (`[(addr)=$vv]`). "" unless the panel is paused and `line` is the PC line.
+    QString line_hint(int line) const;
+    /// GH #367 - the hint's ink before the palette tints it; distinct from the comment's.
+    static QColor hint_color() { return QColor(0x00, 0x60, 0xB0); }
     /// GH #387 - whether the Label column is shown: while the symbol table holds any label.
     bool label_column_shown() const;
     /// GH #387 - x of the mnemonic text of every line (for the layout rows).
@@ -229,6 +235,9 @@ private:
         /// the PC line's is `space` (the fetch prediction), any other line's is
         /// the live data route of its slot (`SlotInfo::now`, design 10.3).
         jnext::dbg::MemSpace mem = jnext::dbg::MemSpace::cpu();
+        /// GH #367 - the PC line's hint (`[taken]`, `[($9005)=$3C]`), computed when the lines are
+        /// built; "" on every other line and when the instruction has nothing to report.
+        std::string hint;
     };
     std::vector<DisasmEntry> entries_;
     jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;

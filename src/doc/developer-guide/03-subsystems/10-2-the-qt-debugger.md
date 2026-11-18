@@ -78,7 +78,7 @@ restart of the CPU panel's T-state count and draws that one label.
 |---|---|---|
 | CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | — |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
-| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
+| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
 | Stack | the words at and above SP, through `peek` | — |
 | Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's `EX (SP),HL` / `POP r; JP (r)` helpers and `l_case`; a `__z88dk_callee` body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP | — |
@@ -343,6 +343,23 @@ copies in full after its lines have scrolled away. The same file holds
 text cannot drift. `debugger_disasm_copy_test` drives the real panel with real
 events and reads the real clipboard.
 
+## The PC-line hint
+
+The hint at the end of the PC line (`[taken]`, `[($9005)=$3C]`) is computed by
+`src/debug/disasm_hint.*`, Qt-free, so any frontend can use it and its suite runs
+in every configuration. It is a small decoder of its own, next to `disasm.cpp`,
+and `disasm_hint_test` pins the two together over the whole opcode space. The
+rule for what counts as a memory operand is the operand the mnemonic names in
+parentheses; ports, block transfers, `RRD`/`RLD`, `PUSH`/`POP` and the Z80N
+opcodes get none. The instruction bytes are read through `memory_reader()` (the
+bytes the CPU will fetch) and the operand through `Debugger::operand_reader()`,
+the memory the instruction's own data cycles see. They differ at a DivMMC or
+Multiface entry point, where the M1 has already switched the overlay
+(`divmmc.vhd` loads `automap_hold` in the M1 and copies it to `automap_held` as
+soon as MREQ goes high), and equal `peek(Cpu)` everywhere else. The panel
+computes the hint in `disassemble_from()` and paints it only while paused, at
+the comment's column; the user comment moves right of it.
+
 ## Tests
 
 The Qt suites are gated on a Qt + debugger build and run in `make unit-test`:
@@ -351,4 +368,4 @@ controls), `debugger_panels_test` (each panel's displayed text), `debugger_video
 `debugger_inspect_watchpoint_test`, `debugger_persistent_bp_test`,
 `debugger_keymap_test`, `debugger_menu_test`, `debugger_disasm_copy_test`,
 `debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`, editing `QVARW-*`), and the window-geometry suites. The regression rows
-`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting.
+`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`.

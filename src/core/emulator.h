@@ -1050,6 +1050,15 @@ public:
     /// debugger's Disassembly, Step Over and ZRCP step logic read the code at
     /// the PC through this (GH #360 F1).
     void predict_instruction_bytes(uint16_t pc, uint8_t out[4]) const;
+
+    /// A reader of the memory the DATA cycles of the instruction at `pc` will see: the map
+    /// after its M1 has run. At a DivMMC entry point (instant, delayed, or the 0x1FF8-0x1FFF
+    /// unmap) and at the Multiface's 0x0066 fetch the M1 itself switches the overlay, so an
+    /// operand at 0x0000-0x3FFF is read from the map `predict_instruction_()` names as
+    /// `data_divmmc` / `mf` (divmmc.vhd:126-145, automap_hold loaded in the M1 and held as soon
+    /// as MREQ goes high; multiface.vhd:169-186). Anywhere else it is `Mmu::peek()`. Pure, and
+    /// valid until the machine next runs. GH #367.
+    std::function<uint8_t(uint16_t)> predict_data_reader(uint16_t pc) const;
     Renderer&     renderer()  { return renderer_; }
     Profiler&     profiler()  { return profiler_; }
     const Profiler& profiler() const { return profiler_; }

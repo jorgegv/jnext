@@ -1560,6 +1560,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-pc-line-hint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The PC-line hint
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tests" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3163,7 +3174,7 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Disassembly</td>
-<td><code>disasm_one()</code> over <code>memory_reader()</code>, with symbols, columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly</td>
+<td><code>disasm_one()</code> over <code>memory_reader()</code>, with symbols, the PC line's hint (<code>disasm_hint::pc_hint()</code> over <code>registers()</code>, <code>memory_reader()</code> and <code>operand_reader()</code>), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly</td>
 <td>breakpoints, through the model</td>
 </tr>
 <tr>
@@ -3456,6 +3467,21 @@ copies in full after its lines have scrolled away. The same file holds
 <code>apply_symbols()</code>, which the painter calls too, so the copied and the painted
 text cannot drift. <code>debugger_disasm_copy_test</code> drives the real panel with real
 events and reads the real clipboard.</p>
+<h2 id="the-pc-line-hint">The PC-line hint<a class="headerlink" href="#the-pc-line-hint" title="Permanent link">&para;</a></h2>
+<p>The hint at the end of the PC line (<code>[taken]</code>, <code>[($9005)=$3C]</code>) is computed by
+<code>src/debug/disasm_hint.*</code>, Qt-free, so any frontend can use it and its suite runs
+in every configuration. It is a small decoder of its own, next to <code>disasm.cpp</code>,
+and <code>disasm_hint_test</code> pins the two together over the whole opcode space. The
+rule for what counts as a memory operand is the operand the mnemonic names in
+parentheses; ports, block transfers, <code>RRD</code>/<code>RLD</code>, <code>PUSH</code>/<code>POP</code> and the Z80N
+opcodes get none. The instruction bytes are read through <code>memory_reader()</code> (the
+bytes the CPU will fetch) and the operand through <code>Debugger::operand_reader()</code>,
+the memory the instruction's own data cycles see. They differ at a DivMMC or
+Multiface entry point, where the M1 has already switched the overlay
+(<code>divmmc.vhd</code> loads <code>automap_hold</code> in the M1 and copies it to <code>automap_held</code> as
+soon as MREQ goes high), and equal <code>peek(Cpu)</code> everywhere else. The panel
+computes the hint in <code>disassemble_from()</code> and paints it only while paused, at
+the comment's column; the user comment moves right of it.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <p>The Qt suites are gated on a Qt + debugger build and run in <code>make unit-test</code>:
 <code>debugger_verbs_test</code> (the verbs, the pause edge and the rewind, trace and MAP
@@ -3463,7 +3489,7 @@ controls), <code>debugger_panels_test</code> (each panel's displayed text), <cod
 <code>debugger_inspect_watchpoint_test</code>, <code>debugger_persistent_bp_test</code>,
 <code>debugger_keymap_test</code>, <code>debugger_menu_test</code>, <code>debugger_disasm_copy_test</code>,
 <code>debugger_quit_gate_test</code>, <code>debugger_variables_panel_test</code> (the Variables tab, <code>QVAR-*</code>, editing <code>QVARW-*</code>), and the window-geometry suites. The regression rows
-<code>qt-host-probe-func</code> and <code>qt-host-order-func</code> exercise <code>QtApp</code>'s hosting.</p>
+<code>qt-host-probe-func</code> and <code>qt-host-order-func</code> exercise <code>QtApp</code>'s hosting. The hint's decoder suite, <code>disasm_hint_test</code> (<code>DHINT-*</code>), is not Qt-gated; the panel's rows are <code>QDHINT-*</code> in <code>debugger_panels_test</code>, and <code>operand_reader()</code>'s are <code>OPRD-*</code> in <code>source_debug_test</code>.</p>
 
 
 

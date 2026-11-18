@@ -309,7 +309,7 @@ struct LoopDriver {
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
 // ---------------------------------------------------------------------------
 // DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
-// `Result`" (`result.h`'s banner). These 52 read live machine state that always
+// `Result`" (`result.h`'s banner). These 53 read live machine state that always
 // exists, so they have no refusal case by construction and return their value
 // directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
 // `Expected<T>`, and moving one onto it is a claim that it cannot fail. The
@@ -328,8 +328,8 @@ struct LoopDriver {
 //                     active_ula_palette_bank, ula_screen_regs, clip_window,
 //                     turbosound_enabled, ay_mode, stereo_mode,
 //                     audio_mute_mask
-//   disasm/trace (9): disassemble, instruction_length, is_call_like,
-//                     memory_reader, call_stack, call_stack_enabled,
+//   disasm/trace (10): disassemble, instruction_length, is_call_like,
+//                     memory_reader, operand_reader, call_stack, call_stack_enabled,
 //                     trace_enabled, coverage_enabled, coverage
 //   model/symbols (8): input_state, subscriptions, events_fired_since, symbols,
 //                     lookup, lookup_name, ula_screen_dump, bookmarks
@@ -677,6 +677,16 @@ public:
     /// driven with no `Emulator*`. Without this the INS-11 promise of
     /// "`disasm_text::*`" is unreachable from a frontend.
     DisasmReadFn memory_reader() const;
+
+    /// INS-11 (GH #367, owner-approved addition to this frozen header) — a reader of the memory the
+    /// DATA cycles of the instruction at the PC will see, which `peek(Cpu)` does not show at a
+    /// DivMMC or Multiface entry point: there the M1 itself switches the overlay (divmmc.vhd:126-145,
+    /// `automap_hold` loaded during the M1 and `automap_held` as soon as MREQ goes high;
+    /// multiface.vhd:169-186), so an operand at 0x0000-0x3FFF comes from the post-M1 map. Elsewhere it
+    /// reads exactly what `peek(Cpu)` does. Const, no floating-bus latch, no watchpoint, no event; a
+    /// floating route answers 0xFF. Valid until the machine next runs. The PC-line hint of the
+    /// Disassembly panel reads its memory operand through this.
+    DisasmReadFn operand_reader() const;
 
     /// INS-12 — the shadow call stack, OLDEST first (`back()` is the newest frame).
     const std::vector<CallFrame>& call_stack() const;
