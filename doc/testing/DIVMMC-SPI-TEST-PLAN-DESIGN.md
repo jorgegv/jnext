@@ -458,6 +458,7 @@ bit 5 (`:3311-3314`, written in config mode only, `:5191-5194`, read back `:5912
 | SDSLOT-15 | divmmc_integration_test | `--sdcard2-writes` journal bound to the second image; card 0 has none |
 | SDSLOT-16 | divmmc_integration_test | Soft reset keeps the card initialised; a hard reset power-cycles it |
 | SDSLOT-17 | divmmc_integration_test | Rewind (`save_state`/`load_state`) carries the second card's FSM mid-CMD17 |
+| SDSLOT-18 | divmmc_integration_test | Back compatibility: a rewind stream without the second card's block loads; card 0 resumes mid-CMD17 and the second socket stays empty |
 
 Further rows of the issue (live change, `.jns`, Preferences) are added with their stages.
 

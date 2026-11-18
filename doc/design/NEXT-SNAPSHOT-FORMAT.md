@@ -184,7 +184,7 @@ zlib-compressed on-disk artefact with an identity header.
 
 **What #27 should reuse, verbatim in spirit and mostly in code:**
 
-- **Identity-before-payload ordering.** The 96-byte header is plain, the payload
+- **Identity-before-payload ordering.** The header is plain (96 bytes up to `JNEXTWS3`, 144 since `JNEXTWS4`), the payload
   deflated, so every refusal (wrong magic, wrong machine, wrong digest, wrong
   length, truncation) is answerable before a byte of unvalidated input is
   inflated. A guard that runs after the thing it guards is not one.
@@ -2854,7 +2854,7 @@ python3 -c "import zlib,sys; d=open(sys.argv[1],'rb').read(); \
 #   re-record, inflate the same way, and `cmp` against golden-savestate.bin
 ```
 
-Two notes an implementer needs. The header is **96 bytes, plain**, and its
+Two notes an implementer needs. The header is **plain** (96 bytes up to `JNEXTWS3`, 144 since `JNEXTWS4`), and its
 `plain_bytes` field (offset 16, u64 LE) states the exact expected length — check
 it. And a **`JNEXTWS1`** file (pre-compression, as still found on this box) has
 the payload *uncompressed*, so `d[96:]` is already the stream; check the magic

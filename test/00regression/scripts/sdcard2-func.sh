@@ -32,7 +32,7 @@ if want sdcard2-func; then
     mkdir -p "$W"
     MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
     missing=()
-    for tool in mformat mdir python3; do
+    for tool in mformat mdir; do
         command -v "$tool" &>/dev/null || missing+=("$tool")
     done
 

@@ -1542,7 +1542,8 @@ the machine boots or hard-resets; there is no card-detect line.
 - **\--sdcard-file-add** works on any FAT32 image, so `jnext --sdcard card2.img
   --sdcard-file-add FILE` puts a file on a second-card image.
 - A recording of the warm start is keyed on the second card as well (its size
-  and modification time), so changing it takes a new recording. Rewind carries
+  and modification time, and the contents of its **\--sdcard2-writes** file), so
+  changing it takes a new recording. Rewind carries
   its state.
 
 ## CHANGING THE CARD WHILE RUNNING

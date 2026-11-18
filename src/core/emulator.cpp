@@ -8255,12 +8255,19 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
         // recording boots with it mounted, so it is part of the machine.
         k.sd2_image_bytes = 0;
         k.sd2_image_mtime = 0;
+        k.sd2_journal_sha256 = {};
         if (ok && !config_.sd_card2_image.empty() &&
             !stat_sd_image_key(config_.sd_card2_image, k.sd2_image_bytes,
                                k.sd2_image_mtime)) {
             Log::emulator()->error("warm start: cannot stat the second SD image '{}'",
                                    config_.sd_card2_image);
             ok = false;
+        }
+        // The second card's write journal, folded as card 0's is: its image never
+        // changes, the card the guest sees does.
+        if (ok && !config_.sd_card2_image.empty()) {
+            if (const auto j2 = sd_write_journal::for_image(config_.sd_card2_image))
+                fold_journal_into_key(*j2, k.sd2_journal_sha256);
         }
         return ok;
     };

@@ -131,6 +131,11 @@ struct Identity {
     /// it is part of the machine's identity. Same refusal branch as card 0's.
     uint64_t sd2_image_bytes = 0;
     int64_t  sd2_image_mtime = 0;
+    /// The second card's write journal (`--sdcard2-writes`), folded as card 0's
+    /// is: SHA-256(zero digest || SHA-256(journaled sectors)); all zero = no
+    /// journal or an empty one. Its image never changes, the card the guest sees
+    /// does, so size and mtime alone would serve a stale recording.
+    std::array<uint8_t, 32> sd2_journal_sha256{};
     bool has_sha256() const {
         for (uint8_t b : sd_image_sha256) if (b) return true;
         return false;
@@ -208,6 +213,6 @@ void set_persist_hook(PersistHook hook);
 /// Byte length of the on-disk header that precedes the compressed payload.
 /// PLAIN — never compressed. See the file-layout comment in the .cpp for why
 /// the header is the one part that cannot be.
-constexpr size_t kHeaderBytes = 112;
+constexpr size_t kHeaderBytes = 144;
 
 }  // namespace warm_start

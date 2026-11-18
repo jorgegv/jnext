@@ -529,7 +529,7 @@ that prints are identical.
 
 **The cache** is `src/core/warm_start_cache.{h,cpp}`: the recording is made once
 per SD image by cold-booting it (about 3.5 s), and kept as one file per machine
-type under `<config-dir>/warm-start`, with a 96-byte header carrying the
+type under `<config-dir>/warm-start`, with a 144-byte header carrying the
 identity that invalidates it — the SD image's size and mtime (or, in digest
 mode, its SHA-256 and size, below), the machine type, a state-format version, a recording-procedure version (header offset 72,
 `warm_start::kRecordingVersion`: what the recorder does to reach the state it
@@ -652,10 +652,13 @@ thread at every cold boot that loads a program. **Accepted residual:** an
 image replaced or edited from outside with the same size and the same mtime
 (`cp -p`, `touch -r`) serves a stale recording; `--warm-start-regenerate` is the
 escape hatch. The key also holds the second SD card's (size, mtime) (0, 0 for
-none), since the recording boots with it mounted and the resident NextZXOS knows
-`D:`; a change of that card takes a new recording. The file magic is `JNEXTWS4`
-(layout generation); the header is 112 bytes, the stored length stays at
-offset 88 and the second card's size and mtime sit at 96 and 104.
+none, plus the digest of its `--sdcard2-writes` journal, folded as card 0's is,
+since its image never changes while the card does), since the recording boots with
+it mounted and the resident NextZXOS knows `D:`; a change of that card takes a new
+recording. The file magic is `JNEXTWS4`
+(layout generation); the header is 144 bytes, the stored length stays at
+offset 88 and the second card's size, mtime and write-journal digest sit at
+96, 104 and 112.
 
 **Tests.** `test/warm_start/warm_start_test.cpp` (`WSC-*` for the cache file,
 its four invalidation keys and the compressed payload; `WSR-*` for the

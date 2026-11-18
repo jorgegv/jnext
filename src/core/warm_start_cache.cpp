@@ -17,7 +17,7 @@ namespace {
 // File layout — a PLAIN header followed by a DEFLATED payload
 // ---------------------------------------------------------------------------
 //
-// The payload is zlib-compressed and the 96-byte header is not, deliberately.
+// The payload is zlib-compressed and the 144-byte header is not, deliberately.
 //
 // The header carries the four identity fields the loader validates BEFORE it
 // is willing to trust a byte of the payload. Compressing it would mean
@@ -25,7 +25,7 @@ namespace {
 // this machine's or this SD image's — i.e. doing the expensive work on
 // unvalidated input, and sizing the output buffer from a length read out of
 // that same input. Every refusal below (wrong magic, wrong machine, wrong
-// SD image key, wrong plain length, truncation) is answerable from 96 plain bytes,
+// SD image key, wrong plain length, truncation) is answerable from 144 plain bytes,
 // and that ordering — establish identity, then decompress — is what keeps the
 // length guard meaningful. A guard that runs after the thing it guards is not
 // one.
@@ -36,7 +36,7 @@ namespace {
 // reader with no way to learn its own output size except by trusting the
 // stream to tell it.
 //
-// The cost of keeping it plain is 96 bytes out of ~130 KB.
+// The cost of keeping it plain is 144 bytes out of ~130 KB.
 //
 // Measured on the real recording (2026-09-23): 2 293 061 plain bytes, of
 // which RAM is 91.5 % and 89.5 % of the whole file is zero. deflate level 9
@@ -60,7 +60,8 @@ namespace {
 //       88     8  STORED payload length       (u64 LE)  <- bytes on disk
 //       96     8  second SD image size        (u64 LE)  <- identity (0 = none)
 //      104     8  second SD image mtime       (i64 LE)  <- identity
-//      112   ...  zlib stream, exactly `stored` bytes
+//      112    32  second SD card's write-journal digest (zero = none) <- identity
+//      144   ...  zlib stream, exactly `stored` bytes
 //
 // "JNEXTWS4" — 8 bytes, no terminator. The trailing digit is a FILE-layout
 // generation, distinct from Identity::format_version (which versions the
@@ -68,7 +69,8 @@ namespace {
 // stream, and 2 -> 3 (GH #396) when the 64-byte SD digest field became the
 // image's size and mtime; the stream itself did not change either time, so
 // kFormatVersion did not. It went 3 -> 4 (GH #505) when the second SD card's
-// size and mtime joined the identity and the header grew to 112 bytes. An older
+// size, mtime and write-journal digest joined the identity and the header
+// grew to 144 bytes. An older
 // file therefore fails at the magic - the first and cheapest check - rather
 // than being read with the wrong layout.
 constexpr char kMagic[8] = {'J', 'N', 'E', 'X', 'T', 'W', 'S', '4'};
@@ -86,6 +88,7 @@ constexpr size_t kOffRecordingVer = 72;   // u32 - recording procedure version
 constexpr size_t kOffStoredBytes  = 88;   // u64 — compressed payload length
 constexpr size_t kOffSd2Bytes     = 96;   // u64 - second SD image size (0 = none)
 constexpr size_t kOffSd2Mtime     = 104;  // i64 - second SD image mtime
+constexpr size_t kOffSd2Journal   = 112;  // 32 bytes - second card's journal digest, zero = none
 
 void put_u32(uint8_t* p, uint32_t v) {
     p[0] = static_cast<uint8_t>(v);
@@ -248,6 +251,8 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
     std::memcpy(sd_sha.data(), hdr + kOffSdSha256, sd_sha.size());
     const uint64_t sd2_bytes = get_u64(hdr + kOffSd2Bytes);
     const int64_t  sd2_mtime = static_cast<int64_t>(get_u64(hdr + kOffSd2Mtime));
+    std::array<uint8_t, 32> sd2_jsha{};
+    std::memcpy(sd2_jsha.data(), hdr + kOffSd2Journal, sd2_jsha.size());
 
     // Each mismatch names BOTH values: a stale cache that silently served the
     // wrong machine is the worst failure this mechanism can have, so when it
@@ -279,7 +284,8 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
         }
         return false;
     }
-    if (sd2_bytes != want.sd2_image_bytes || sd2_mtime != want.sd2_image_mtime) {
+    if (sd2_bytes != want.sd2_image_bytes || sd2_mtime != want.sd2_image_mtime ||
+        sd2_jsha != want.sd2_journal_sha256) {
         why = "recorded with a different second SD card (size " +
               std::to_string(sd2_bytes) + ", mtime " + std::to_string(sd2_mtime) +
               " != size " + std::to_string(want.sd2_image_bytes) + ", mtime " +
@@ -372,6 +378,7 @@ bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& w
     std::memcpy(hdr + kOffSdSha256, id.sd_image_sha256.data(), id.sd_image_sha256.size());
     put_u64(hdr + kOffSd2Bytes, id.sd2_image_bytes);
     put_u64(hdr + kOffSd2Mtime, static_cast<uint64_t>(id.sd2_image_mtime));
+    std::memcpy(hdr + kOffSd2Journal, id.sd2_journal_sha256.data(), id.sd2_journal_sha256.size());
     put_u64(hdr + kOffStoredBytes, static_cast<uint64_t>(packed.size()));
 
     // Write to a sibling temporary and rename: a jnext killed mid-write must
