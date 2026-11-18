@@ -1,4 +1,4 @@
-// Browser rows BCARD-01..21 and 26..33: the card flow of the JavaScript API (GH #458), in headless Chromium
+// Browser rows BCARD-01..21 and 26..35: the card flow of the JavaScript API (GH #458), in headless Chromium
 // (make wasm-browser-test, spec card.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // The player makes NextZXOS's SD card in the page from the official distribution zip, after the
@@ -699,6 +699,36 @@ row('BCARD-33', 'without CompressionStream/DecompressionStream the card is kept 
   await putEntry(p, CACHE, KEY(SYN.cardSha256), Buffer.alloc(1 << 20, 9));
   const log3 = await revisit(p, D);
   must(gets(log3) === 1 && (await rec(p)).errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'visit 3: GETs ' + gets(log3));
+  await p.ctx.close();
+});
+
+row('BCARD-34', 'a v2 hit also deletes a v1 cache written meanwhile (an earlier release on the same origin): no request, v1 gone, the v2 entry unchanged and valid, the card is the native one', async () => {
+  const p = await warm();
+  const before = await entry(p, CACHE, KEY(SYN.cardSha256));
+  await putEntry(p, OLD, KEY(SYN.cardSha256), Buffer.alloc(16, 5));
+  const log = await revisit(p, D);
+  must(log.length === 0, 'requests to D: ' + JSON.stringify(log));
+  must(await p.evaluate(async (old) => await caches.has(old), OLD) === false, 'the v1 cache is still there');
+  const after = await entry(p, CACHE, KEY(SYN.cardSha256));
+  must(Buffer.compare(before, after) === 0 && await entrySha(p) === SYN.cardSha256, 'the v2 entry changed or is not a gzip of the card');
+  must((await rec(p)).errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'the card in memory');
+  await p.ctx.close();
+});
+
+row('BCARD-35', 'a failed v2 hit falls back to a good v1 entry: no request, v1 gone, v2 a valid gzip of the card again, the card is the native one', async () => {
+  const p = await warm();
+  const bad = Buffer.from(await entry(p, CACHE, KEY(SYN.cardSha256)));
+  bad[bad.length - 8] ^= 1;   // the CRC-32 of gzip's trailer
+  await putEntry(p, CACHE, KEY(SYN.cardSha256), bad);
+  await p.evaluate(async ([old, key]) => {
+    const r = await fetch('/syn/synthetic-card.img');
+    await (await caches.open(old)).put(key, new Response(await r.arrayBuffer()));
+  }, [OLD, KEY(SYN.cardSha256)]);
+  const log = await revisit(p, D);
+  must(log.length === 0, 'requests to D: ' + JSON.stringify(log));
+  must(await p.evaluate(async (old) => await caches.has(old), OLD) === false, 'the v1 cache is still there');
+  must(await entrySha(p) === SYN.cardSha256, 'the v2 entry is not a valid gzip of the card');
+  must((await rec(p)).errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'the card in memory');
   await p.ctx.close();
 });
 
