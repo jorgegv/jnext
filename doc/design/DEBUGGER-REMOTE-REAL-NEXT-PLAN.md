@@ -41,7 +41,7 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 - [ ] **R0.3** DZRP client session core (`DzrpClient`): CMD_INIT/CLOSE, sequence numbers 1..15, pipelining window, timeouts, NTF_PAUSE/NTF_LOG, profiles, send gate, wait hook, session token
 - [ ] **R0.4** Client links: outbound TCP over `esp::make_socket_transport`, an in-memory link pair for the suites, and the `test/dzrp_client_probe` driver R0.5 runs
 
-#### Sub-issue 2: early hardware checkpoint on the KS2 (owner)
+#### Sub-issue 2: early hardware checkpoint on the KS2 (board issue 4, the Kickstarter 2 board) (owner)
 
 - [ ] **R0.5** Owner-run on the KS2 (board issue 4) over dezogif_ng's WiFi ROM: connect while stopped, CMD_INIT, registers, memory, NextREGs, then one unsupported command to confirm the silent reset (Q10); confirms §2.4 before R1-R4 build on it
 
@@ -63,7 +63,7 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 - [ ] **R2.1** `DzrpTarget` inspection: registers, CPU memory, banks, slots, NextREGs, sprites; stop-time snapshot cache with pipelined refresh
 - [ ] **R2.2** Run control and execute breakpoints (normal mode, CMD 40/41); conditions, handlers and hit counts evaluated by the client
 - [ ] **R2.3** Watchpoints over CMD 42/43 as `Mem` subscriptions
-- [ ] **R2.7** Loopback parity suite: the remote facade over an in-process `DzrpServer` against `LocalTarget`, same programs, same answers (step rows land with sub-issue 6)
+- [ ] **R2.7** Loopback parity suite for the R2 capabilities (inspection, run control, execute breakpoints, watchpoints): the remote facade over an in-process `DzrpServer` against `LocalTarget`; sub-issues 6, 9, 10, 11 and 13 add their rows to the same suite
 
 #### Sub-issue 6: instruction stepping by temporary breakpoints
 
@@ -94,7 +94,7 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 
 - [ ] **R3.4** Call stack by stack walking (assembler return addresses, C frame pointers); Step Out by return address
 - [ ] **R3.5** C variables on a remote target; bulk reads where the target advertises them
-- [ ] **R3.6** Tests and docs for remote source-level debugging (needs sub-issue 10 too)
+- [ ] **R3.6** Tests and docs for remote source-level debugging (needs sub-issues 8 and 10 too)
 
 ### Phase R4: remote Next with dezogif_ng (proof of concept)
 
@@ -145,28 +145,34 @@ merged into the epic branch; a note says where part of the work can start earlie
 
 | Sub-issue | Tasks | Depends on | Can run in parallel with |
 |---|---|---|---|
-| 1 DZRP client core | R0.2, R0.3, R0.4 | none | 3 (its R0.1 part only) |
-| 2 Hardware checkpoint (owner) | R0.5 | 1 | 3 (its R0.1 part only) |
-| 3 Target seam and capabilities | R0.1, R1.1, R1.2 | 2 (R1.1 waits for R0.5; R0.1 may start at once) | 1, 2 (R0.1 only) |
-| 4 Qt greying and retargeting | R1.3, R1.4 | 3 | 5, 6, 9 |
-| 5 `DzrpTarget` for a remote jnext | R2.1, R2.2, R2.3, R2.7 | 1, 3 | 4, 6 (its successor function) |
+| 1 DZRP client core | R0.2, R0.3, R0.4 | none | none (but see the note on R0.1 below) |
+| 2 Hardware checkpoint (owner) | R0.5 | 1 | none (but see the note on R0.1 below) |
+| 3 Target seam and capabilities | R0.1, R1.1, R1.2 | 2 (R1.1 waits for R0.5; R0.1 may start at once) | none |
+| 4 Qt greying and retargeting | R1.3, R1.4 | 3 | 5, 6, 9, 10, 12, 13, 16 |
+| 5 `DzrpTarget` for a remote jnext | R2.1, R2.2, R2.3, R2.7 | 1, 3 | 4 |
 | 6 Stepping by temporary breakpoints | R2.4 | 3, 5 (the pure successor function and its oracle suite may start after 3) | 4, 7, 9 |
-| 7 Connect UI, CLI, Preferences | R2.5, R2.6 | 4, 5 | 6, 9, 10, 12 |
-| 8 Remote jnext end to end | R2.8, R2.9 | 6, 7 | 9, 10, 11, 12, 13 |
-| 9 Remote program, sidecars, build match | R3.1, R3.2 | 5 | 4, 6, 7, 8, 12 |
-| 10 Source line stepping | R3.3 | 6, 9 | 7, 8, 11, 12, 13 |
-| 11 Stack walking, C variables, source docs | R3.4, R3.5, R3.6 | 9 (R3.6 also 10) | 10, 12, 13 |
-| 12 dezogif_ng profile, simple-mode breakpoints | R4.1, R4.2 | 5, 6 | 7, 8, 9, 10, 11 |
-| 13 Program upload | R4.3 | 9, 12 | 10, 11, 16 |
+| 7 Connect UI, CLI, Preferences | R2.5, R2.6 | 4, 5 | 6, 9, 10, 12, 13, 16 |
+| 8 Remote jnext end to end | R2.8, R2.9 | 6, 7 | 9, 10, 12, 13, 16 |
+| 9 Remote program, sidecars, build match | R3.1, R3.2 | 5 | 4, 6, 7, 8, 12, 16 |
+| 10 Source line stepping | R3.3 | 6, 9 | 4, 7, 8, 12, 13, 14, 16 |
+| 11 Stack walking, C variables, source docs | R3.4, R3.5, R3.6 | 8, 9, 10 (R3.4 and R3.5 need only 9; R3.6 needs 8 and 10) | 12, 13, 14, 16 |
+| 12 dezogif_ng profile, simple-mode breakpoints | R4.1, R4.2 | 5, 6 | 4, 7, 8, 9, 10, 11 |
+| 13 Program upload | R4.3 | 9, 12 | 4, 7, 8, 10, 11, 16 |
 | 14 Emulated rig rows, real-Next docs | R4.5, R4.7 | 8, 12, 13 | 10, 11, 16 |
 | 15 Hardware validation (owner) | R4.6 | 11, 14 | 16 |
-| 16 Serial link (optional, post-PoC) | R4.4 | 12 | 13, 14, 15, 17 |
+| 16 Serial link (optional, post-PoC) | R4.4 | 12 | 4, 7, 8, 9, 10, 11, 13, 14, 15, 17, 18 |
 | 17 PoC verdict (owner gate) | R5.1, R5.2 | 15 | 16 |
-| 18 Custom shim (placeholder) | R6.1, R6.2, R6.3 | 17, and R5.2 saying yes | none |
+| 18 Custom shim (placeholder) | R6.1, R6.2, R6.3 | 17, and R5.2 saying yes | 16 |
+
+The parallel column is symmetric and lists no sub-issue that is a direct or indirect
+dependency or dependant of the row. Work inside a sub-issue that can start before its
+dependencies land is noted in the "Depends on" column: R0.1 (sub-issue 3) needs nothing and can
+run beside sub-issues 1 and 2; the successor function of sub-issue 6 needs only sub-issue 3;
+R3.4 and R3.5 (sub-issue 11) need only sub-issue 9.
 
 **Critical path:** 1 -> 2 -> 3 -> 5 -> 6 -> 12 -> 13 -> 14 -> 15 -> 17. Two side chains join it
 and must not fall behind: 3 -> 4 -> 7 -> 8 (sub-issue 14 needs the probe rows of 8), and
-5 -> 9 -> 10/11 (sub-issue 15 validates source stepping and C variables on the KS2). The two
+5 -> 9 -> 10 -> 11, with 11 also after 8 (sub-issue 15 validates source stepping and C variables on the KS2). The two
 owner-run steps (2 and 15) are on the path, so their timing is the owner's to plan; sub-issue
 3's R0.1 inventory and sub-issue 6's successor function are the work that can be done ahead of
 them. The host runs at most three builds or test runs at a time, so at most three branches are in active build and test together.
@@ -709,23 +715,29 @@ CI proves it on loopback. This is also the PoC's client, minus the dezogif profi
 - **Design.** `remote_target_test` builds, in one process, an `Emulator` with its local
   `Debugger` and a `DzrpServer`, and a remote `Debugger` over a `DzrpTarget` over the
   `MemoryLinkPair`. Each row runs the same scenario through the local facade and through the
-  remote one and compares: registers, memory, slots, breakpoints hit, step landings, C values
-  (R3.5). The remote facade's `DzrpClient` gets the local facade's `pump()` as its wait hook
+  remote one and compares registers, memory, slots, NextREGs, sprites, breakpoints and
+  watchpoints hit. Later sub-issues add their own parity rows to this suite: step landings
+  (R2.4, sub-issue 6), source resolution and build match (R3.1, R3.2, sub-issue 9), source steps
+  (R3.3, sub-issue 10), the rebuilt call stack and C values (R3.4, R3.5, sub-issue 11), and
+  upload (R4.3, sub-issue 13). The remote facade's `DzrpClient` gets the local facade's `pump()` as its wait hook
   (§3, D17) and the two ends distinct session tokens, which is what lets one thread wait on a
   server it hosts. The server is the "fake shim" the epic asks for on the jnext side, and it is
   not a fake: it is the shipped server.
 - **Tests.** Rows `RTG-`, declared in `test/unit-tests.conf` (Linux, SDL-only and Windows
   configurations: no Qt).
-- **Acceptance.** Every "remote jnext: yes" capability of §11 has at least one parity row.
-- **Depends on.** R2.1 to R2.3 (sub-issue 5); its step-landing rows are added by R2.4 (sub-issue 6).
+- **Acceptance.** Every R2 capability of §11's "remote jnext" column (inspection: registers,
+  memory, page and ROM views, slots, NextREGs, sprites; Run and Pause; execute breakpoints with
+  conditions; watchpoints) has at least one parity row. The other "remote jnext: yes" rows get
+  theirs from the sub-issues named in the design.
+- **Depends on.** R2.1 to R2.3 (sub-issue 5).
 
 ### R2.8 Functional rows
 
 - **Design.** A test-only executable `remote_target_probe` (built in `test/`, like
   `fuse_z80_test`; D10) connects a remote facade to a URI and runs a named scenario, printing
   rows. `remote-jnext-func`: start a headless jnext with `--dzrp-port 0` on a demo NEX, read the
-  logged port, run the probe (connect, registers, breakpoint, continue, hit, step, C variable,
-  disconnect). `remote-qt-func`: `xvfb-run -d` (with `-noreset`, HS-72/HS-89) a GUI jnext with
+  logged port, run the probe (connect, registers, breakpoint, continue, hit, step, disconnect;
+  R3.6 adds a source step and a C variable). `remote-qt-func`: `xvfb-run -d` (with `-noreset`, HS-72/HS-89) a GUI jnext with
   `--remote-target tcp:127.0.0.1:PORT` against the same target, assert the "connected to jnext"
   log line and a stop. Both in `test/00regression/functional_tests.conf`, `os=` as the
   harness allows (the probe row runs on linux, macos, windows).
@@ -827,12 +839,14 @@ over plain DZRP.
 
 - Functional: extend `remote-jnext-func` (or a sibling `remote-source-func`) with a source
   step and a C variable on a z88dk demo.
-- Docs: user guide `06-debugger/functions/14-source-level-debugging.md` and the new page; the
+- Docs: user guide `06-debugger/functions/14-source-level-debugging.md` and R2.9's new page; the
   developer guide's `07-source-level-debugging/05-breakpoints-steps-history.md` and
   `10-c-frames-and-values.md` gain the remote strategy.
 - **Acceptance.** The functional row green as a targeted row; `make docs-check` green; the
   pages say what a remote source step costs (round trips) and what stays local-only (Back,
   Reverse Continue).
+- **Depends on.** R2.8 and R2.9 (sub-issue 8: the probe, `remote-jnext-func` and the page it
+  extends), R3.3 (sub-issue 10) and R3.5.
 
 ---
 
@@ -1151,4 +1165,4 @@ for R5. The owner later withdrew an idea of a dezogif_ng git submodule; the plan
 | D20 | The emulated-rig rows use vendored prebuilt dezogif_ng ROMs, pinned by build number and sha256 with their MIT notice; no submodule | owner, Q4 (2026-11-18): no sjasmplus dependency, and a test of a binary the owner also runs on the KS2 | building the ROMs from source (a new pinned toolchain); a git submodule (the owner withdrew that idea) |
 | D21 | Upload is part of the PoC and is greyed on the dezogif 2.2 profile | owner, Q5; that stub advertises neither 5 nor 26, and a `CMD_SET_SLOT` + `CMD_WRITE_MEM` path would be designed blind against an untested stub | the `SET_SLOT` + `WRITE_MEM` fallback now (revisited when such a stub is on hand) |
 | D22 | R0.5 sends one unsupported command (24), last and once, through a test-only gate bypass in the probe | owner, Q10: confirm the silent reset on the KS2 at the cost of one session; the product client keeps no bypass | not exercising it (the round-2 plan) |
-| D23 | Tasks are grouped into 18 sub-issues: coupled or sequential tasks on the same files together, parallel ones apart; owner-run tasks and the gate on their own; R6 one placeholder | owner, 2026-11-18 ("group related tasks in the same subissue if possible, considering parallelization") | one sub-issue per task (35 issues, many tiny and strictly sequential) |
+| D23 | Tasks are grouped into 18 sub-issues: coupled or sequential tasks on the same files together, parallel ones apart; owner-run tasks and the gate on their own; R6 one placeholder | owner, 2026-11-18 ("group related tasks in the same subissue if possible, considering parallelization") | one sub-issue per task (36 issues, many tiny and strictly sequential) |
