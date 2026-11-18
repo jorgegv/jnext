@@ -69,8 +69,20 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
     // Names first: an unknown one is named before any shape is looked at.
     for (auto it = o.begin(); it != o.end(); ++it)
         if (!find_option(it.key())) return refuse(why, "unknown option '" + it.key() + "'");
+    // card: {source: 'none'} runs a NEX with no SD card at all (--no-sdcard): the page layer
+    // makes no card, so the internal $card entry is absent and must stay so.
+    const bool no_card = o.contains("card") && o["card"].is_object() && o["card"].contains("source") &&
+                         o["card"]["source"].is_string() && o["card"]["source"].get<std::string>() == "none";
+    if (no_card) {
+        if (o.contains("$card"))
+            return refuse(why, "card source 'none' with an SD card (an internal error of the page layer)");
+        if (!o.contains("file"))
+            return refuse(why, "card source 'none' needs file: with no SD card there is no NextZXOS menu to boot to");
+        if (o.contains("keepWrites"))
+            return refuse(why, "keepWrites needs an SD card to keep the writes of: not with card source 'none'");
+    }
     for (const Option& t : WEB_OPTIONS)
-        if (t.required && !o.contains(t.name))
+        if (t.required && !(no_card && t.internal) && !o.contains(t.name))
             return refuse(why, t.internal ? std::string("the SD card is missing (an internal error of the page layer)")
                                           : std::string(t.name) + " is required");
 
@@ -143,9 +155,13 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
                     const json& sv = it.value();
                     if (!sv.is_string() || (sv.get_ref<const std::string&>() != "auto" &&
                                             sv.get_ref<const std::string&>() != "fetch" &&
-                                            sv.get_ref<const std::string&>() != "pick"))
+                                            sv.get_ref<const std::string&>() != "pick" &&
+                                            sv.get_ref<const std::string&>() != "none"))
+                        // GH #540: 'none' is accepted, but this message is the one existing pages and
+                        // tests match, so it keeps naming the three sources that obtain a card.
                         return refuse(why, "option 'card': source must be 'auto', 'fetch' or 'pick'");
                 }
+                if (no_card) out.push_back(flag_spelling(cli::OptId::NoSdcard));
                 break;
             }
             const bool is_size = std::string(t.name) == "width" || std::string(t.name) == "height";

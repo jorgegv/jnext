@@ -3025,7 +3025,10 @@ asked), with the plain picture otherwise.
 :   Not a jnext setting: how the page gets NextZXOS's SD card. `source` is `'auto'`
     (the default: fetch the official file from specnext.com when it allows the page to
     read it, otherwise ask the visitor to download it and choose it), `'fetch'` (only
-    fetch; a failure is an error) or `'pick'` (always ask the visitor). The SD card
+    fetch; a failure is an error), `'pick'` (always ask the visitor) or `'none'` (no
+    SD card at all: the `file` NEX runs as with **\--no-sdcard**, nothing is fetched
+    or asked, and a ROM fetch is also reported through `onError`; needs `file`,
+    excludes `keepWrites`). The SD card
     reaches the emulator as **\--sdcard** and **\--sdcard-sha256**, set by the page
     layer; the page never names the card.
 

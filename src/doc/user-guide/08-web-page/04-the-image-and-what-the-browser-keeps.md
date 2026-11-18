@@ -136,6 +136,7 @@ how the first visit goes with the `card` option (`data-card-source` on the widge
 | `'auto'` (default) | The page checks whether specnext.com allows it to read the official file. If so, it downloads it (way 1); if not, or if the download fails, the player asks the visitor (way 2) and shows the reason. |
 | `'fetch'` | Only way 1. Use it once specnext.com allows pages to read the file; if it cannot be read, the page reports an error (`onError`) and does not ask the visitor. |
 | `'pick'` | Only way 2: the page always shows the download link and the file button, and makes no request to specnext.com. |
+| `'none'` | Neither: no SD card at all, as with `--no-sdcard`. The `file` NEX runs with no NextZXOS and no ROMs; nothing is downloaded, asked or kept. For a NEX that needs nothing but the esxDOS file calls, which the stand-in answers (give it a directory with `args: ['--esxdos-stub-root', DIR]`). An emulator convenience: a program that runs ROM code (an IM 1 interrupt, `RST $10`) does not work, and the first time it does `onError` says where, e.g. `executed ROM code at $0038 (IM 1); --no-sdcard has no ROM`. Needs `file`; `keepWrites` is refused. |
 
 - The widget and the example pages show the same player panel.
 - A page that shows its own status text can use `onProgress` ([8.2](02-options-and-the-player.md)):

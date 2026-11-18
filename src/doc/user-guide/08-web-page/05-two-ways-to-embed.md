@@ -23,7 +23,7 @@ The shortest working page. `jnext-VERSION.js` and `jnext-VERSION.wasm` sit besid
   jnext.mount(document.getElementById('player'), {
     file: 'game.nex',
     width: 640, height: 512,
-    card: { source: 'auto' }   // optional: 'auto' (default), 'fetch' or 'pick' (8.4)
+    card: { source: 'auto' }   // optional: 'auto' (default), 'fetch', 'pick' or 'none' (8.4)
   });
 </script>
 ```
@@ -66,7 +66,7 @@ Every element with the class `jnext-widget` gets a player, so a page can hold se
 
 | attribute | meaning | default |
 |---|---|---|
-| `data-card-source` | how the page gets NextZXOS's SD card (`card.source`, [8.4](04-the-image-and-what-the-browser-keeps.md)): `auto`, `fetch` or `pick` | `auto` |
+| `data-card-source` | how the page gets NextZXOS's SD card (`card.source`, [8.4](04-the-image-and-what-the-browser-keeps.md)): `auto`, `fetch`, `pick` or `none` | `auto` |
 | `data-poster` | a picture shown in the player before the click (`poster`, [8.2](02-options-and-the-player.md)) | none |
 | `data-file` | the program to run (`file`) | none: NextZXOS menu |
 | `data-width`, `data-height` | the screen size in CSS pixels | 640 and 512 |

@@ -9,7 +9,7 @@
 //
 // data-file                           the mount() option file: the program to run
 // data-poster                         the mount() option poster: a picture shown before the click
-// data-card-source                    the mount() option card.source: auto (default), fetch or pick:
+// data-card-source                    the mount() option card.source: auto (default), fetch, pick or none:
 //                                     how the player gets NextZXOS's SD card (user guide 8.4)
 // data-width, data-height             the screen size in CSS pixels (640 x 512)
 // data-keep-writes                    the mount() option keepWrites: keep the program's saves across
