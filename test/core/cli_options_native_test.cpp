@@ -1118,6 +1118,16 @@ int main() {
                           f && k, std::string("flag ") + (f ? "ok" : "refused") + ", --set " +
                                       (k ? "ok" : "refused"));
                 }
+                // SDSLOT-52 (GH #505): the second slot's delayed insert refuses a bad N and an
+                // empty FILE (an empty FILE would be an eject), as the first slot's does.
+                {
+                    std::vector<std::string> bad2;
+                    for (const char* a : {"5x f.img", "-1 f.img", "2147483648 f.img", "5 \"\""})
+                        if (run(std::string("--headless --machine 48k --delayed-sdcard2-insert-frames ") + a) == 0)
+                            bad2.push_back(std::string("accepted: ") + a);
+                    check("SDSLOT-52", "--delayed-sdcard2-insert-frames refuses a malformed or out-of-range N "
+                                       "and an empty FILE", bad2.empty(), join(bad2));
+                }
                 check("CLI-SET-12", "a flag and --set accept and refuse the same values of the same key (one per "
                                     "type: bool, int, float, word, machine, device id, keep, host list, combo, text)",
                       bad.empty(), join(bad));
