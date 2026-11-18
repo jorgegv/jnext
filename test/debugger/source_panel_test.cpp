@@ -4160,7 +4160,7 @@ SourcePanel* window_source_panel(Fixture& fx) {
 
 void test_source_context_menu() {
     const QStringList base{"Copy", "Copy with Addresses", "Select All", "Toggle Breakpoint", "Run to Here",
-                           "Show in Disassembly"};
+                           "Follow", "Show in Disassembly"};
     const std::string tmp = g_tmp->path().toStdString();
     {
         Fixture fx;
@@ -4585,7 +4585,7 @@ void test_source_context_menu() {
         dp->show_address(0xA000);
         const Popup p = right_click(dp, QPoint(120, 52 + 9));
         const QStringList want{"Copy", "Copy with Addresses", "Select All", "Toggle Breakpoint", "Run to Here",
-                               "Go to Address...", "Add Label...", "Remove Label", "Add Comment...",
+                               "Follow", "Go to Address...", "Add Label...", "Remove Label", "Add Comment...",
                                "Watch $4000", "Break on Read $4000", "Break on Write $4000"};
         check("QSRC-119", "the Disassembly's menu on a `LD HL,$4000` line (watch panel set, no symbols) lists "
                           "exactly Copy, Copy with Addresses, Select All, Toggle Breakpoint, Run to Here, Go to "
