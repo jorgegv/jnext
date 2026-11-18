@@ -1,9 +1,9 @@
-// Browser rows WBI-PW-01..08: the SD-card image and the warm start in the browser
+// Browser rows WBI-PW-01..09: the SD-card image and the warm start in the browser
 // (make wasm-browser-test, spec image.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // The page fetches the minimal card CROSS-ORIGIN from a stand-in host (the harness answers
 // http://img.example from the run's scratch directory, with or without CORS headers), checks
-// its SHA-256, keeps it in the Cache API, and persists only the warm-start recording in
+// its SHA-256, keeps it gzipped in the Cache API, and persists only the warm-start recording in
 // IndexedDB. Oracles: the native run of the same arguments ($SMOKE_ORACLE/tilemap.png), the
 // sha256sum of the card and of its zip (computed by browser-smoke.sh at run time), and the
 // plan's byte layout (the cache header holds the digest at offset 40).
@@ -13,6 +13,8 @@ import { Harness, pageUrl, waitFor, sleep } from './harness.mjs';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import zlib from 'zlib';
+import crypto from 'crypto';
 
 const E = process.env;
 const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE;
@@ -22,6 +24,22 @@ const ZIP = { url: 'http://img.example/card.img.zip', sha256: E.SMOKE_ZIP_SHA256
 const NEX = ['/nex/tilemap_demo.nex', '/media/tilemap_demo.nex'];
 const ARGS = ['--machine', 'next', '--silent', '--rtc', '2026-07-10T08:55:00', '--load', '/media/tilemap_demo.nex',
               '--delayed-screenshot', '/media/s.png', '--delayed-screenshot-frames', '150'];
+const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+// The kept entry of `url` as node bytes (it is moved as base64), or null.
+const entryBytes = async (page, url) => {
+  const b64 = await page.evaluate(async (u) => {
+    const c = await caches.open('jnext-sdcard-v2'); const r = await c.match(u);
+    if (!r) return null;
+    const d = new Uint8Array(await r.arrayBuffer()); let s = '';
+    for (let i = 0; i < d.length; i += 8192) s += String.fromCharCode.apply(null, d.subarray(i, i + 8192));
+    return btoa(s);
+  }, url);
+  return b64 === null ? null : Buffer.from(b64, 'base64');
+};
+const putEntry = (page, url, buf) => page.evaluate(async ([u, b64]) => {
+  const c = await caches.open('jnext-sdcard-v2');
+  await c.put(u, new Response(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))));
+}, [url, buf.toString('base64')]);
 const WS_FILE = '/jnext/warm-start/warm-start-m0.jwss';
 
 const h = new Harness({ build: BUILD, page: path.join(ROOT, 'test/browser/page'), web: path.join(ROOT, 'web'),
@@ -110,7 +128,7 @@ const tickGaps = (prog) => {
   return g;
 };
 const cfg = (image) => ({ args: ARGS, files: [NEX], image, idbfs: true });
-let mainPage = null;   // the context rows 01, 02, 06, 07 and 08 share: IndexedDB and the Cache API persist in it
+let mainPage = null;   // the context rows 01, 02, 06, 09, 07 and 08 share: IndexedDB and the Cache API persist in it
 const IDB_DUMP = () => new Promise((res, rej) => {
   const rq = indexedDB.open('/jnext/warm-start');
   rq.onerror = () => rej(rq.error);
@@ -192,7 +210,7 @@ row('WBI-PW-04', 'a wrong sha256 is refused with both digests, callMain never ru
   await visit(page, { args: ARGS, files: [NEX], image: { url: CARD.url, sha256: wrong }, idbfs: true });
   const e = await err(page);
   const started = await page.evaluate(() => window.jnextTest.started);
-  const cached = await page.evaluate(async (u) => { const c = await caches.open('jnext-sdcard-v1'); return (await c.keys()).map((r) => r.url).includes(u); }, CARD.url);
+  const cached = await page.evaluate(async (u) => { const c = await caches.open('jnext-sdcard-v2'); return (await c.keys()).map((r) => r.url).includes(u); }, CARD.url);
   must(/SHA-256 mismatch/.test(e || '') && e.includes(wrong) && e.includes(E.SMOKE_CARD_SHA256), 'error: ' + e);
   must(!started && !(await stderr(page)).some((l) => /SD card image mounted/.test(l)), 'the module ran');
   must(!cached, 'the refused image was cached');
@@ -210,26 +228,40 @@ row('WBI-PW-05', 'an image host without CORS is refused naming the URL and Acces
 });
 
 row('WBI-PW-06', 'a corrupted image cache entry is dropped: one network request, restore from IndexedDB, entry re-hashes right', async () => {
-  await mainPage.evaluate(async (u) => {
-    const c = await caches.open('jnext-sdcard-v1');
-    await c.put(u, new Response(new Uint8Array(1000)));
-  }, CARD.url);
+  // A VALID gzip of other bytes: the decompressor accepts it, so only the SHA-256 compare rejects it.
+  await putEntry(mainPage, CARD.url, zlib.gzipSync(Buffer.alloc(1000)));
   const before = imgReqs().length;
   await visit(mainPage, cfg(CARD));
   must(!(await err(mainPage)), 'page error: ' + (await err(mainPage)));
   await runToShot(mainPage);
   const log = (await stderr(mainPage)).join('\n');
-  const after = await mainPage.evaluate(async (u) => {
-    const c = await caches.open('jnext-sdcard-v1'); const r = await c.match(u);
-    const d = await crypto.subtle.digest('SHA-256', await r.arrayBuffer());
-    return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, '0')).join('');
-  }, CARD.url);
+  const after = sha256(zlib.gunzipSync(await entryBytes(mainPage, CARD.url)));
   must(imgReqs().length === before + 1, `${imgReqs().length - before} image requests`);
   must(/restored a recorded NextZXOS machine/.test(log), 'not restored');
   must(after === E.SMOKE_CARD_SHA256, 'cache entry hash ' + after);
 });
 
-row('WBI-PW-07', 'what persists: IndexedDB holds exactly the warm-start file, Cache Storage exactly the image, the card is in neither as a written copy', async () => {
+row('WBI-PW-09', 'an image cache entry with a wrong gzip CRC-32 but intact payload is dropped: one network request, restore from IndexedDB, entry valid again', async () => {
+  const good = await entryBytes(mainPage, CARD.url);
+  const bad = Buffer.from(good);
+  bad[bad.length - 8] ^= 1;   // RFC 1952: CRC-32 at len-8, ISIZE at len-4, little-endian
+  must(sha256(zlib.inflateRawSync(bad.subarray(10, bad.length - 8))) === E.SMOKE_CARD_SHA256, 'the payload is not the card');
+  let refused = false;
+  try { zlib.gunzipSync(bad); } catch (e) { refused = true; }
+  must(refused, 'node accepted the corrupted entry');
+  await putEntry(mainPage, CARD.url, bad);
+  const before = imgReqs().length;
+  await visit(mainPage, cfg(CARD));
+  must(!(await err(mainPage)), 'page error: ' + (await err(mainPage)));
+  await runToShot(mainPage);
+  const log = (await stderr(mainPage)).join('\n');
+  must(imgReqs().length === before + 1, `${imgReqs().length - before} image requests`);
+  must(/restored a recorded NextZXOS machine/.test(log), 'not restored');
+  const after = sha256(zlib.gunzipSync(await entryBytes(mainPage, CARD.url)));
+  must(after === E.SMOKE_CARD_SHA256, 'cache entry hash ' + after);
+});
+
+row('WBI-PW-07', 'what persists: IndexedDB holds exactly the warm-start file, Cache Storage exactly the image, gzipped, the card is in neither as a written copy', async () => {
   const idb = await mainPage.evaluate(IDB_DUMP);
   const files = idb.filter((e) => e.bytes >= 0);
   const cache = await mainPage.evaluate(async () => {
@@ -239,7 +271,13 @@ row('WBI-PW-07', 'what persists: IndexedDB holds exactly the warm-start file, Ca
   });
   must(files.length === 1 && files[0].key === WS_FILE, 'IndexedDB files: ' + JSON.stringify(idb));
   must(files[0].bytes < 1024 * 1024, 'the IndexedDB file is ' + files[0].bytes + ' bytes: a card copy?');
-  must(cache.length === 1 && cache[0] === 'jnext-sdcard-v1 ' + CARD.url, 'Cache Storage: ' + JSON.stringify(cache));
+  must(cache.length === 1 && cache[0] === 'jnext-sdcard-v2 ' + CARD.url, 'Cache Storage: ' + JSON.stringify(cache));
+  const stored = await entryBytes(mainPage, CARD.url);
+  const cardSize = fs.statSync(path.join(SCRATCH, 'card.img')).size;
+  must(stored[0] === 0x1f && stored[1] === 0x8b && stored[2] === 8, 'the entry is not gzip');
+  must(sha256(zlib.gunzipSync(stored)) === E.SMOKE_CARD_SHA256, 'the gunzipped entry is not the card');
+  must(stored.length < cardSize / 10, `the entry is ${stored.length} bytes of ${cardSize}`);
+  console.log(`# WBI-PW-07 the card is kept as ${stored.length} bytes (${cardSize} raw)`);
   const dbs = await mainPage.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
   must(dbs.every((n) => n === '/jnext/warm-start'), 'IndexedDB databases: ' + JSON.stringify(dbs));
 });
