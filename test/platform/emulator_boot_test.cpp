@@ -2578,8 +2578,10 @@ int main()
                 emu.init(with_ab);
                 EmulatorConfig frontend = with_ab;
                 bool frontend_set = false;
-                emu.change_sd_card({"", false, 1});
-                emu.change_sd_card({"", false, 0});
+                emu.request_sd_card_change({"", false, 1});
+                emulator_service_sd_card_change(emu, frontend, frontend_set);
+                emu.request_sd_card_change({"", false, 0});
+                emulator_service_sd_card_change(emu, frontend, frontend_set);
                 emu.request_sd_card_change({card_a, false, 1});
                 const auto ins = emulator_service_sd_card_change(emu, frontend, frontend_set);
                 emulator_frontend_cold_boot(emu, frontend, "", ColdBootHooks{});
