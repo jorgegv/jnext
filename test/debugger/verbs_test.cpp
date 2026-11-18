@@ -4070,7 +4070,7 @@ static void test_memory_tools_window() {
             fx.enable();
             DebuggerWindow* dbg = fx.dbg();
             QFile f(td.path() + "/f.bin");
-            f.open(QIODevice::WriteOnly);
+            if (!f.open(QIODevice::WriteOnly)) check("QMPW-02", desc, false, "cannot write the file");
             f.write(QByteArray(16, '\x5A'));
             f.close();
             dbg->memory_panel()->load_block(0x3FF8, std::nullopt, f.fileName());

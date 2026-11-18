@@ -105,17 +105,19 @@ int main() {
     }
     // MEMT-08
     {
-        V d(16, 0);
-        d[14] = 0x11; d[15] = 0x22;               // the first two bytes of a 3-byte pattern at the end
+        // The buffer holds 17 bytes but the search is given 16: byte 16 is the third byte of the pattern,
+        // so a match that ran past `size` would find it.
+        V d(17, 0);
+        d[14] = 0x11; d[15] = 0x22; d[16] = 0x33;  // the first two bytes of a 3-byte pattern at the end
         const Pattern p{{0x11, 0x22, 0x33}, {0xFF, 0xFF, 0xFF}};
-        const bool none = !find(d.data(), d.size(), p, 0);
+        const bool none = !find(d.data(), 16, p, 0);
         d[13] = 0x11; d[14] = 0x22; d[15] = 0x33;
-        auto at13 = find(d.data(), d.size(), p, 0);
-        auto w = find(d.data(), d.size(), p, 16);
+        auto at13 = find(d.data(), 16, p, 0);
+        auto w = find(d.data(), 16, p, 16);
         const Pattern big{V(17, 0), V(17, 0xFF)};
         check("MEMT-08", "find never matches past the end; from >= size wraps; a longer pattern is nullopt",
               none && at13 && at13->offset == 13 && w && w->offset == 13 && w->wrapped &&
-              !find(d.data(), d.size(), big, 0));
+              !find(d.data(), 16, big, 0));
     }
     // MEMT-09
     {
