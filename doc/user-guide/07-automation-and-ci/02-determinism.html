@@ -4328,6 +4328,11 @@ if the program switches. <code>--delayed-screenshot-frames</code> names one exac
 The same applies to the exit bound: <code>--delayed-automatic-exit-frames</code>
 overrides <code>--delayed-automatic-exit</code> when both are given. <strong>Use the frame forms
 for anything you intend to compare.</strong></p>
+<p><strong>Fast boot never gets in the way.</strong> The Next's fast boot (the first 15 seconds
+of a plain start at full speed) is not armed when the command line schedules
+work on the emulated timeline, loads a program or records, it has no effect
+under <code>--headless</code>, and it never changes the emulated machine, only how fast
+the host runs it.</p>
 <p><strong>Pin the clock.</strong> Anything that draws the date or time — the NextZXOS menu,
 most obviously — changes between runs. <code>--rtc</code> freezes it:</p>
 <pre><code class="language-console">$ jnext --headless --rtc &quot;2026-01-01 00:00:00&quot; ...

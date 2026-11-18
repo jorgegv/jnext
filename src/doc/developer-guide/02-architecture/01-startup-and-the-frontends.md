@@ -174,7 +174,10 @@ was terminated BY the signal, plus headless held paused by a DZRP client) and
   multiplier (`--speed`, `SdlApp::set_speed_percent()`) scales the whole-ms
   sleep, switches off audio pacing away from 1x and, above it, presents at most
   every `frame_sequencer::RENDER_INTERVAL_MS` — the same three things
-  `QtApp` does, done inline because this loop does not use the sequencer.
+  `QtApp` does, done inline because this loop does not use the sequencer. The
+  same present throttle applies while `Emulator::fastload_active()` holds (a
+  tape load, the fast boot): the renderer is vsynced, so presenting every
+  frame of a sprint would cap it near the display's refresh rate.
 - **`HeadlessApp`** (`src/platform/headless_app.h`) owns nothing but the
   `Emulator`. Its `run()` is a bare `run_frame()` loop with no sleep in it.
 

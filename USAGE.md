@@ -395,6 +395,24 @@ Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x. Clamped
 to 10..1000. Works in the GUI and the SDL-only build; **--headless**
 runs uncapped, so there it has no effect, and **jnext** warns.
 
+**--fast-boot** *SECONDS*  
+Run the first SECONDS of a plain Next start at maximum speed with the
+sound off, 0 to 60 (default 15, 0 = off). The firmware splash and the
+NextZXOS start-up pass in a few seconds instead of about twelve. It ends
+at once on the first key the guest sees (Shift is a good one: it does
+nothing else), when the time is up (counted as 50 frames per second),
+when a debugger stop happens, or when a load or machine change resets
+the machine; the key is delivered as usual. Only the Next machine, and
+never when a program is loaded at start (**--load**, **--inject**,
+**--rzx-play**), when the command line schedules work on the emulated
+timeline (**--delayed-screenshot**, **--delayed-automatic-exit**,
+**--delayed-pok-frames**, **--script**) or when a recording runs. It
+applies to the launch only: a later hard reset boots at normal speed. It
+never changes the emulated machine. To reach the firmware menu, press
+SPACE while the splash shows, or set it to 0. **--headless** runs
+uncapped already, so there it has no effect, and **jnext** warns. The
+same as `--set startup.fast_boot_seconds`.
+
 **--when-slow-prefer** *WHAT*  
 What to sacrifice on a host that cannot emulate in real time: `audio`
 (default) or `video`. It changes nothing on a host with headroom.
@@ -1434,6 +1452,10 @@ frontends.
 `startup.tape_auto_play` *true\|false*  
 Automatic tape play and stop; **--tape-auto-play** and
 **--no-tape-auto-play**. All frontends.
+
+`startup.fast_boot_seconds` *0..60*  
+Seconds of a plain Next start run at maximum speed, 0 = off;
+**--fast-boot**. The Qt window and the SDL-only build.
 
 `startup.when_slow_prefer` *audio\|video*  
 What a host too slow for real time sacrifices; **--when-slow-prefer**.

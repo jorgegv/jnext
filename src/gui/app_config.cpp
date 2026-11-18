@@ -246,6 +246,12 @@ void AppConfig::load() {
                && pct <= config_keys::info(KeyId::StartupEmulatorSpeedPercent).hi)
             data_.emulator_speed_percent = pct;
 
+        const int fast_boot_s = settings_.value(
+            N(KeyId::StartupFastBootSeconds), data_.fast_boot_seconds).toInt(&ok);
+        if (ok && fast_boot_s >= config_keys::info(KeyId::StartupFastBootSeconds).lo
+               && fast_boot_s <= config_keys::info(KeyId::StartupFastBootSeconds).hi)
+            data_.fast_boot_seconds = fast_boot_s;
+
         const int scale = settings_.value(
             N(KeyId::StartupWindowScale), data_.window_scale).toInt(&ok);
         if (ok && scale >= config_keys::info(KeyId::StartupWindowScale).lo
@@ -441,6 +447,7 @@ void AppConfig::save() const {
     settings_.setValue(N(KeyId::StartupMachineType), machine_type_to_key(data_.machine_type));
     settings_.setValue(N(KeyId::StartupCpuSpeed), static_cast<int>(data_.cpu_speed));
     settings_.setValue(N(KeyId::StartupEmulatorSpeedPercent), data_.emulator_speed_percent);
+    settings_.setValue(N(KeyId::StartupFastBootSeconds), data_.fast_boot_seconds);
     settings_.setValue(N(KeyId::StartupWindowScale), data_.window_scale);
     settings_.setValue(N(KeyId::StartupCrtFilter), data_.crt_filter);
     settings_.setValue(N(KeyId::StartupCrtShader), data_.crt_shader);

@@ -47,6 +47,20 @@ edge of real time:
   than two periods late, the backlog is dropped and the next tick runs at once;
   it used to wait a whole period first, which on a host that cannot keep up
   idled the machine every other tick while it was already behind.
+- **A sprint is bounded in wall time as well as in frames.** While
+  `Emulator::fastload_active()` holds, step (8) of the tick runs extra frames
+  in the one tick, up to `FASTLOAD_BURST_LIMIT` (200) and no longer than
+  `FASTLOAD_BURST_BUDGET_US` (50 ms) of wall clock, so the window repaints and
+  reads keys at 20 Hz even at the ~130 frames per second a Next boot reaches
+  (200 frames once blocked it for about 1.6 s). `fastload_active()` is true for
+  a tape being loaded and for the **fast boot window**: `arm_fast_boot()`
+  opens N emulated frames at launch (`main.cpp`, through `fast_boot::decide()`
+  in `src/platform/fast_boot.h`) in which a plain Next start runs uncapped with
+  the sound card unfed. The window counts frames in `end_of_frame()`, survives
+  the firmware's own soft reset, and closes on time up, the first guest key, a
+  debugger stop (any pause that is then resumed, between frames or inside one), `init()` without `preserve_memory`
+  and `load_state()`. It is host pacing only: not serialised, and it changes
+  no emulated state (`fast_boot_test`).
 - **The audio band's estimate stays within one device chunk of the reading**
   (`BandState::envelope_ms` in `src/platform/audio_pacing.h`, set from the
   opened device's buffer; see [Audio](../03-subsystems/04-audio.md)).
@@ -81,7 +95,7 @@ and no waits at the second.
 
 ## Frame start
 
-`run_frame()` (`src/core/emulator.cpp:10592`) opens with two steps that have to
+`run_frame()` (`src/core/emulator.cpp:10595`) opens with two steps that have to
 come before anything else. `service_esp_frame()` applies the replay gate and
 mirrors the ESP worker thread's state into the flag the hot path reads, and the
 rewind step modes get their chance to return early — if the debugger has asked
@@ -101,7 +115,7 @@ rather than start a fresh one. Calling `begin_new_frame()` in the middle of a
 frame would re-baseline the per-scanline change logs the compositor replays.
 The visible symptom is a frame that renders flat.
 
-`begin_new_frame()` (`src/core/emulator.cpp:9656`) does the following, in order:
+`begin_new_frame()` (`src/core/emulator.cpp:9659`) does the following, in order:
 
 1. Take a rewind snapshot, if rewind is enabled. Frame boundaries are chosen
    for this precisely because the scheduler queue is empty at that instant, so
@@ -154,7 +168,7 @@ A `.tzx` or `.wav` save also samples the tape-out level
 end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
-**Then `step_one_instruction()`** (`src/core/emulator.cpp:11187`), the one shared per-instruction
+**Then `step_one_instruction()`** (`src/core/emulator.cpp:11211`), the one shared per-instruction
 body. It picks exactly one of four things to do:
 
 - If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -239,7 +253,7 @@ stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11888`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11912`), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -284,7 +298,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:14143`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:14167`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA
