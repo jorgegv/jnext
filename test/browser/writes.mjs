@@ -22,6 +22,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import zlib from 'zlib';
 
 const E = process.env;
 const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE;
@@ -191,15 +192,23 @@ row('WBW-01', 'first visit with keepWrites: SAVE 1 OK; the stored record (key im
       const c = await caches.open(n);
       out[n] = [];
       for (const q of await c.keys()) {
-        const buf = await (await c.match(q)).arrayBuffer();
-        const d = await crypto.subtle.digest('SHA-256', buf);
-        out[n].push([q.url, [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')]);
+        const d = new Uint8Array(await (await c.match(q)).arrayBuffer());
+        let b = '';
+        for (let k = 0; k < d.length; k += 8192) b += String.fromCharCode.apply(null, d.subarray(k, k + 8192));
+        out[n].push([q.url, btoa(b)]);
       }
     }
     return out;
   });
-  must(JSON.stringify(Object.keys(cache)) === '["jnext-sdcard-v1"]' && cache['jnext-sdcard-v1'].length === 1 &&
-       cache['jnext-sdcard-v1'][0][1] === SHA, 'cache ' + JSON.stringify(cache));
+  // The entry is gzip (the card is kept compressed): gunzipped by node, its bytes are the card.
+  for (const n of Object.keys(cache)) {
+    cache[n] = cache[n].map(([u, b64]) => {
+      const raw = Buffer.from(b64, 'base64');
+      return [u, raw[0] === 0x1f && raw[1] === 0x8b ? crypto.createHash('sha256').update(zlib.gunzipSync(raw)).digest('hex') : 'not gzip'];
+    });
+  }
+  must(JSON.stringify(Object.keys(cache)) === '["jnext-sdcard-v2"]' && cache['jnext-sdcard-v2'].length === 1 &&
+       cache['jnext-sdcard-v2'][0][1] === SHA, 'cache ' + JSON.stringify(cache));
   const stray = main.reqs.filter((q) => {
     const u = new URL(q.url);
     const ok = (u.origin === AURL && /^\/(build|page|fixture)\//.test(u.pathname)) || q.url === IMAGE.url || u.pathname === '/favicon.ico';

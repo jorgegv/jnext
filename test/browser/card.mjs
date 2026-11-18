@@ -1,4 +1,4 @@
-// Browser rows BCARD-01..21: the card flow of the JavaScript API (GH #458), in headless Chromium
+// Browser rows BCARD-01..21 and 26..33: the card flow of the JavaScript API (GH #458), in headless Chromium
 // (make wasm-browser-test, spec card.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // The player makes NextZXOS's SD card in the page from the official distribution zip, after the
@@ -21,6 +21,8 @@ import { Harness, waitFor, sleep } from './harness.mjs';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import zlib from 'zlib';
+import crypto from 'crypto';
 
 const E = process.env;
 const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE;
@@ -32,7 +34,8 @@ const SYN = { size: Number(E.SMOKE_SYN_ZIP_SIZE), sha256: E.SMOKE_SYN_ZIP_SHA256
 const REAL = { size: Number(E.SMOKE_REAL_ZIP_SIZE), sha256: E.SMOKE_REAL_ZIP_SHA256 };
 const PINNED_CARD = E.SMOKE_PINNED_CARD_SHA256;
 const DISTRO_URL = E.SMOKE_DISTRO_URL;
-const CACHE = 'jnext-sdcard-v1';
+const CACHE = 'jnext-sdcard-v2', OLD = 'jnext-sdcard-v1';
+const SYN_CARD = path.join(SYN_DIR, 'synthetic-card.img');
 const KEY = (sha) => 'https://card.jnext.invalid/' + sha;
 const STATEMENTS = ["SpecNext's copyrighted software", 'JNEXT does not ship, host or serve', "stays in the visitor's browser"];
 
@@ -41,7 +44,7 @@ const h = new Harness({});   // launches and closes the pinned browser; every se
 const MIMES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.nex': 'application/octet-stream',
                 '.png': 'image/png' };
 const ROOTS = { build: BUILD, page: path.join(ROOT, 'test/browser/page'), nex: path.join(ROOT, 'test/00regression/nex'),
-                img: path.join(ROOT, 'test/00regression/img') };
+                img: path.join(ROOT, 'test/00regression/img'), syn: SYN_DIR };
 function serveFile(req, res) {
   const u = new URL(req.url, 'http://x');
   const m = /^\/([^/]+)\/([^/]+)$/.exec(u.pathname);
@@ -135,6 +138,41 @@ const kinds = (log) => log.map((r) => r.method);
 const panelText = (page, i = 0) => page.evaluate((i) => document.querySelector(`#p${i} .jnext-pick`).innerText, i);
 const lastLine = (page, i = 0) => page.evaluate((i) => document.querySelector(`#p${i} .jnext-pick-reason`).textContent, i);
 const P48 = { machine: '48k', muted: true };
+const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+// A stored entry as node bytes (moved as base64), or null; and the same stored from node bytes.
+const entry = async (page, name, key) => {
+  const b64 = await page.evaluate(async ([name, key]) => {
+    const r = await (await caches.open(name)).match(key);
+    if (!r) return null;
+    const d = new Uint8Array(await r.arrayBuffer()); let s = '';
+    for (let i = 0; i < d.length; i += 8192) s += String.fromCharCode.apply(null, d.subarray(i, i + 8192));
+    return btoa(s);
+  }, [name, key]);
+  return b64 === null ? null : Buffer.from(b64, 'base64');
+};
+const putEntry = (page, name, key, buf) => page.evaluate(async ([name, key, b64]) => {
+  await (await caches.open(name)).put(key, new Response(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
+}, [name, key, buf.toString('base64')]);
+// The gunzipped entry's SHA-256 with a FOREIGN reader (node's zlib); throws when node refuses it.
+const entrySha = async (page) => sha256(zlib.gunzipSync(await entry(page, CACHE, KEY(SYN.cardSha256))));
+// A fresh context that has made the card once (first visit through D), left on its fixture page.
+async function warm(ctxOpts) {
+  const p = await newPage(ctxOpts);
+  await open(p, [P48], SYNSEAM(D));
+  await click(p);
+  await waitReady(p);
+  must((await rec(p)).errors.length === 0, 'the first visit failed');
+  return p;
+}
+// Visit again through `x`; resolves when ready (or failed). Returns the requests it made to x.
+async function revisit(p, x) {
+  const n = x.log.length;
+  await open(p, [P48], SYNSEAM(x));
+  await click(p);
+  await waitReady(p);
+  return x.log.slice(n);
+}
+const gets = (log) => log.filter((q) => q.method === 'GET').length;
 
 // ---- rows ------------------------------------------------------------------------------------
 let main = null;   // BCARD-01 and 02 share one context: the Cache API persists in it
@@ -521,6 +559,146 @@ row('BCARD-21', 'a cache hit removes an older card entry (another digest under t
   must(D.log.length === n, 'the second visit made requests: ' + JSON.stringify(D.log.slice(n)));
   const keys = (await cacheKeys(p)).sort();
   must(JSON.stringify(keys) === JSON.stringify(['https://elsewhere.invalid/keep-me', KEY(SYN.cardSha256)].sort()), 'cache ' + JSON.stringify(keys));
+  await p.ctx.close();
+});
+
+row('BCARD-26', 'stored form: after a first visit Cache Storage is exactly the v2 cache with the card key (no v1); the entry is gzip, node gunzips it to the card (digest and length), and it is under a tenth of the card', async () => {
+  const p = await warm();
+  const all = await allCaches(p);
+  must(JSON.stringify(all) === JSON.stringify({ [CACHE]: [KEY(SYN.cardSha256)] }), 'caches ' + JSON.stringify(all));
+  const e = await entry(p, CACHE, KEY(SYN.cardSha256)), size = fs.statSync(SYN_CARD).size;
+  must(e[0] === 0x1f && e[1] === 0x8b && e[2] === 8, 'not gzip: ' + e.subarray(0, 4).toString('hex'));
+  const raw = zlib.gunzipSync(e);
+  must(sha256(raw) === SYN.cardSha256 && raw.length === size, `gunzipped ${raw.length} bytes, sha ${sha256(raw)}`);
+  must(e.length < size / 10, `the entry is ${e.length} bytes of ${size}`);
+  console.log(`# BCARD-26 stored ${e.length} bytes for a ${size} byte card`);
+  await p.ctx.close();
+});
+
+row('BCARD-27', 'a warm hit does not re-hash the card: no request to D, no SubtleCrypto digest over 1 MiB, the card is the native one, argv as before', async () => {
+  const p = await newPage();
+  await p.ctx.addInitScript(() => {
+    window.__bigDigests = 0;
+    const orig = SubtleCrypto.prototype.digest;
+    SubtleCrypto.prototype.digest = function (alg, data) { if (data && data.byteLength > (1 << 20)) window.__bigDigests++; return orig.call(this, alg, data); };
+  });
+  await open(p, [P48], SYNSEAM(D));
+  await click(p);
+  await waitReady(p);
+  const n = D.log.length;
+  await open(p, [P48], SYNSEAM(D));
+  const t0 = Date.now();
+  await click(p);
+  await waitReady(p);
+  const ms = Date.now() - t0;
+  const big = await p.evaluate(() => window.__bigDigests);   // before memCardSha, which digests the whole card itself
+  const r = await rec(p);
+  must(D.log.length === n, 'requests on the warm visit: ' + JSON.stringify(D.log.slice(n)));
+  must(big === 0, big + ' large digest(s) on the warm visit');
+  must(r.errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'errors ' + JSON.stringify(r.errors));
+  must(JSON.stringify(r.argv.slice(0, 4)) === JSON.stringify(['--sdcard', '/sdcard/image.img', '--sdcard-sha256', SYN.cardSha256]), 'argv ' + JSON.stringify(r.argv));
+  console.log(`# BCARD-27 warm visit ${ms} ms from the click to ready`);
+  await p.ctx.close();
+});
+
+// Corrupt the v2 entry of a warm context at `at` (an offset from the end), prove with node that the
+// payload is still the card, visit again: one GET, the card made again, the entry valid.
+async function corruptAndRevisit(at) {
+  const p = await warm();
+  const good = await entry(p, CACHE, KEY(SYN.cardSha256));
+  const bad = Buffer.from(good);
+  bad[bad.length - at] ^= 1;   // RFC 1952: CRC-32 at len-8, ISIZE at len-4, little-endian
+  must(good[3] === 0 && sha256(zlib.inflateRawSync(bad.subarray(10, bad.length - 8))) === SYN.cardSha256,
+       'the deflate payload is not the card, so the row would not isolate the trailer check');
+  let refused = false;
+  try { zlib.gunzipSync(bad); } catch (e) { refused = true; }
+  must(refused, 'node accepted the corrupted entry');
+  await putEntry(p, CACHE, KEY(SYN.cardSha256), bad);
+  const log = await revisit(p, D);
+  const r = await rec(p);
+  must(gets(log) === 1, 'GETs after the corruption: ' + gets(log));
+  must(r.errors.length === 0 && r.progress.some((q) => q[0] === 'build' && q[1] === 1), 'errors ' + JSON.stringify(r.errors) + ' progress ' + JSON.stringify(r.progress.slice(-3)));
+  must(await memCardSha(p) === SYN.cardSha256, 'the card was not made again');
+  must(await entrySha(p) === SYN.cardSha256, 'the entry is not a valid gzip of the card again');
+  await p.ctx.close();
+}
+
+row('BCARD-28', 'a gzip entry with a wrong CRC-32 but an intact payload is dropped: one GET, the card made again, the entry valid again', async () => {
+  await corruptAndRevisit(8);
+});
+
+row('BCARD-29', 'a gzip entry with its trailer cut (payload complete) is deleted at once (gone while the pick panel is up), then the picked zip makes the card and stores it again', async () => {
+  const p = await warm();
+  const good = await entry(p, CACHE, KEY(SYN.cardSha256));
+  const cut = good.subarray(0, good.length - 8);
+  must(sha256(zlib.inflateRawSync(cut.subarray(10))) === SYN.cardSha256, 'the payload is not complete without the trailer');
+  await putEntry(p, CACHE, KEY(SYN.cardSha256), cut);
+  const n = N.log.length;
+  await open(p, [P48], SYNSEAM(N));
+  await click(p);
+  await waitPanel(p);
+  must(!(await cacheKeys(p)).includes(KEY(SYN.cardSha256)), 'the cut entry is still in the cache');
+  const log = N.log.slice(n);
+  must(JSON.stringify(kinds(log)) === '["HEAD"]', 'requests ' + JSON.stringify(log));
+  await p.setInputFiles('#p0 .jnext-pick input[type=file]', SYN_ZIP);
+  await waitReady(p);
+  must((await rec(p)).errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'the card was not made from the picked file');
+  must(await entrySha(p) === SYN.cardSha256, 'the card was not stored again');
+  await p.ctx.close();
+});
+
+row('BCARD-30', 'a gzip entry with a wrong ISIZE but an intact payload is dropped: one GET, the card made again, the entry valid again', async () => {
+  await corruptAndRevisit(4);
+});
+
+row('BCARD-31', 'a good card of the old raw cache (v1) is moved to v2 gzipped with no download: the old cache is gone, the card is the native one', async () => {
+  const p = await newPage();
+  await open(p, [P48], SYNSEAM(D));
+  const nA = aLog.length;
+  await p.evaluate(async ([old, key]) => {
+    const r = await fetch('/syn/synthetic-card.img');
+    await (await caches.open(old)).put(key, new Response(await r.arrayBuffer()));
+  }, [OLD, KEY(SYN.cardSha256)]);
+  must(JSON.stringify(aLog.slice(nA)) === '["/syn/synthetic-card.img"]', 'requests to the page host: ' + JSON.stringify(aLog.slice(nA)));
+  const log = await revisit(p, D);
+  must(log.length === 0, 'requests to D: ' + JSON.stringify(log));
+  must(await p.evaluate(async (old) => await caches.has(old), OLD) === false, 'the v1 cache is still there');
+  const all = await allCaches(p);
+  must(JSON.stringify(all) === JSON.stringify({ [CACHE]: [KEY(SYN.cardSha256)] }), 'caches ' + JSON.stringify(all));
+  must(await entrySha(p) === SYN.cardSha256, 'the moved entry is not a gzip of the card');
+  must((await rec(p)).errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'the card in memory');
+  await p.ctx.close();
+});
+
+row('BCARD-32', 'a corrupted card in the old cache (v1) is not moved: the old cache is gone, one GET, the card made again and stored in v2', async () => {
+  const p = await newPage();
+  await open(p, [P48], SYNSEAM(D));
+  await p.evaluate(async ([old, key]) => {
+    await (await caches.open(old)).put(key, new Response(new Uint8Array(1 << 20).fill(9)));
+  }, [OLD, KEY(SYN.cardSha256)]);
+  const log = await revisit(p, D);
+  must(gets(log) === 1, 'GETs: ' + gets(log));
+  must(await p.evaluate(async (old) => await caches.has(old), OLD) === false, 'the v1 cache is still there');
+  must(await entrySha(p) === SYN.cardSha256, 'the v2 entry is not a gzip of the card');
+  must((await rec(p)).errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'the card in memory');
+  await p.ctx.close();
+});
+
+row('BCARD-33', 'without CompressionStream/DecompressionStream the card is kept raw and hashed on every hit: a raw entry, a warm hit with no request, a corrupted one dropped', async () => {
+  const p = await newPage();
+  await p.ctx.addInitScript(() => { delete window.CompressionStream; delete window.DecompressionStream; });
+  await open(p, [P48], SYNSEAM(D));
+  must(await p.evaluate(() => typeof CompressionStream + ' ' + typeof DecompressionStream) === 'undefined undefined', 'the streams are still there');
+  await click(p);
+  await waitReady(p);
+  const size = fs.statSync(SYN_CARD).size;
+  const e = await entry(p, CACHE, KEY(SYN.cardSha256));
+  must(e.length === size && sha256(e) === SYN.cardSha256 && !(e[0] === 0x1f && e[1] === 0x8b), `the entry is ${e.length} bytes, sha ${sha256(e)}`);
+  const log2 = await revisit(p, D);
+  must(log2.length === 0 && (await rec(p)).errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'visit 2: ' + JSON.stringify(log2));
+  await putEntry(p, CACHE, KEY(SYN.cardSha256), Buffer.alloc(1 << 20, 9));
+  const log3 = await revisit(p, D);
+  must(gets(log3) === 1 && (await rec(p)).errors.length === 0 && await memCardSha(p) === SYN.cardSha256, 'visit 3: GETs ' + gets(log3));
   await p.ctx.close();
 });
 
