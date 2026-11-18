@@ -2622,6 +2622,37 @@ int main()
                       made && made_c && kept && ins && ins->error.empty() && token == 0x0D,
                       "kept=" + std::to_string(kept) + " token=" + std::to_string(token));
             }
+
+            // SDSLOT-27: the cross-slot rule compares with the RIGHT config. (a) the normal remount:
+            // eject the first card and insert the SAME image back into slot 0 is accepted and the
+            // card reads again (the other slot's config is the second card's, not the first's);
+            // (b) a second slot that is configured but could not be mounted still refuses its path
+            // for the first slot.
+            {
+                Emulator emu;
+                emu.init(with_a);
+                EmulatorConfig frontend = with_a;
+                bool frontend_set = false;
+                emu.request_sd_card_change({"", false, 0});
+                emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const std::string again = emu.request_sd_card_change({card_a, false, 0});
+                const auto done = emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const int reads = card_sector0(emu.sd_card());
+
+                const std::string missing = (tmp / ("jnext-eb-missing-" + stamp + ".img")).string();
+                EmulatorConfig unmountable = with_a;
+                unmountable.sd_card2_image = missing;
+                Emulator cfg_only;
+                cfg_only.init(unmountable);
+                const std::string refused = cfg_only.request_sd_card_change({missing, false, 0});
+                check("SDSLOT-27",
+                      "ejecting the first card and inserting the same image back into slot 0 is accepted "
+                      "and the card reads again; a second slot that is configured but not mounted still "
+                      "refuses its path for the first slot",
+                      made && again.empty() && done && done->error.empty() && reads == 0xA1 &&
+                          !cfg_only.sd_card2().mounted() && !refused.empty(),
+                      "again='" + again + "' reads=" + std::to_string(reads) + " refused='" + refused + "'");
+            }
             std::remove(card_c.c_str());
         }
 
