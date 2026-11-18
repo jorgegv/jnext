@@ -5297,7 +5297,7 @@ static void test_cpu_shortcuts() {
             const QString page = QString::number(f.dbg->effective_page(0x8000));
             QFile sld(f.dir_path() + "/n.sld");
             const bool wrote = sld.open(QIODevice::WriteOnly);
-            sld.write(("|SLD.data.version|1\nmain.bas|10||0|pages.size:8192,pages.count:224,slots.count:8,"
+            sld.write(("|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
                        "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
                        "main.bas|10||0|" + page + "|32768|T|\n").toUtf8());
             sld.close();

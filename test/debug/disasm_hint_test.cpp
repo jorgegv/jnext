@@ -990,16 +990,16 @@ int main(int argc, char** argv) {
     // (FOLW-07). FOLW-08 runs each Code opcode once with the condition holding: 14 unconditional + 28 conditional per
     // variant x 3 + 8 ED = 134.
     Row f6 = folw_data_set();
-    f6.need(g_f6_cases == 1792 && g_f6_data == 0, "cases " + std::to_string(g_f6_cases) + " data " + std::to_string(g_f6_data));
+    f6.need(g_f6_cases == 1792 && g_f6_data == 656, "cases " + std::to_string(g_f6_cases) + " data " + std::to_string(g_f6_data));
     check("FOLW-06", "Follow: Data iff pc_hint is Memory, with its address, over the 1792 table opcodes", f6);
     Row f7 = folw_none_and_text(false);
-    f7.need(g_f7_none == 0, "none opcodes " + std::to_string(g_f7_none));
+    f7.need(g_f7_none == 1002, "none opcodes " + std::to_string(g_f7_none));
     check("FOLW-07", "Follow: None, with no data read, for every opcode that is neither a transfer nor a memory operand", f7);
     Row f8 = folw_sweep();
-    f8.need(g_f8_runs == 0, "runs " + std::to_string(g_f8_runs));
+    f8.need(g_f8_runs == 134, "runs " + std::to_string(g_f8_runs));
     check("FOLW-08", "Follow: Z80Cpu executes every transfer (also behind DD/FD) and lands on the followed address", f8);
     Row f9 = folw_none_and_text(true);
-    f9.need(g_f9_cases == 1792 && g_f9_code == 0, "cases " + std::to_string(g_f9_cases) + " code " + std::to_string(g_f9_code));
+    f9.need(g_f9_cases == 1792 && g_f9_code == 134, "cases " + std::to_string(g_f9_cases) + " code " + std::to_string(g_f9_code));
     check("FOLW-09", "Follow: Code iff disasm_one()'s text is a JP/JR/CALL/DJNZ/RST/RET (not JP (C)), over 1792 opcodes", f9);
 
     std::printf("\n======================================================\n");
