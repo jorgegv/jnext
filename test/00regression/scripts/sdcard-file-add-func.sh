@@ -323,7 +323,8 @@ if want sdcard-file-add-func; then
     # --- 7. the shared-image warning ------------------------------------------
     # Writing the default-location image is allowed but loud, because every run
     # given no --sdcard boots it. With an explicit --sdcard it must stay quiet,
-    # or the warning becomes noise nobody reads.
+    # or the warning becomes noise nobody reads, and it is not given either when
+    # --sdcard-writes sends the copy to a writes file (GH #507).
     run_add 0 "default-warns" --sdcard-file-add "$W/long.bin" \
                               --sdcard-file-dest /WARNCHK.BIN
     grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
@@ -365,6 +366,21 @@ if want sdcard-file-add-func; then
         || faults+=("--sdcard did not write into the image it names")
     mcopy -i "$CARD@@$OFF" ::/WARNCHK2.BIN "$W/leaked.bin" 2>/dev/null \
         && faults+=("--sdcard wrote into the DEFAULT image as well as the one it names")
+
+    # With --sdcard-writes the copy goes into the writes file, so the default image is NOT
+    # written and the warning would be false: the issue's own form (no --sdcard).
+    def_sha=$(sha256sum "$CARD" | cut -d' ' -f1)
+    run_add 0 "default-writes-quiet" --sdcard-file-add "$W/long.bin" \
+                                     --sdcard-file-dest /WARNCHK5.BIN \
+                                     --sdcard-writes "$W/def.jsdw"
+    grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
+        && faults+=("--sdcard-writes still printed the shared-image warning for the default image")
+    grep -q "kept in" <<< "$ADD_OUT" \
+        || faults+=("--sdcard-writes on the default image did not say where the copy was kept")
+    [[ "$(sha256sum "$CARD" | cut -d' ' -f1)" == "$def_sha" ]] \
+        || faults+=("--sdcard-writes on the default image still wrote the image")
+    [[ -s "$W/def.jsdw" ]] \
+        || faults+=("--sdcard-writes on the default image made no writes file")
 
     rm -rf "$W"
 

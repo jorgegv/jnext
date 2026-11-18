@@ -47,8 +47,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card write journal (GH #470) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card (POSIX-only rows) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD File Add (GH #269) |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD File Add (POSIX-only rows) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (GH #269) |      164 |      164 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (POSIX-only rows) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (case-sensitive host) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      181 |      181 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -223,6 +223,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16596**| **16596**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16612**| **16612**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

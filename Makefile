@@ -214,7 +214,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test flatpak-prefetch packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web package-web web-package-test wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build regression-wasm
+       package-contract-test minimal-image-test flatpak-prefetch packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web package-web web-package-test wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build wasm-function-size-check wasm-function-size-selftest regression-wasm
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -654,7 +654,7 @@ wasm-core: emsdk
 	bash test/wasm-core-check.sh build/wasm-core
 
 # Run the SDL-only unit suites built for WebAssembly, under node
-unit-test-wasm: unit-test-wasm-build sdcard-image
+unit-test-wasm: unit-test-wasm-build wasm-function-size-check sdcard-image
 	@# The same suite set `unit-test-sdl` runs, as Emscripten modules run by the
 	@# SDK's own node through test/node-run.sh. What node cannot stand in for (no
 	@# processes, threads or listening sockets) is declared absent with `# os:` in
@@ -691,6 +691,20 @@ unit-test-wasm-build: emsdk
 		"-DJNEXT_ENABLE_LTO=OFF" && \
 	$(CMAKE) --build $(BUILD_DIR_WASM_UNIT_TEST) -j$(JOBS)
 
+# Fail if a WebAssembly unit-test module holds a function over 256 KiB (V8 compiles one function whole)
+wasm-function-size-check: unit-test-wasm-build
+	@# Under node a wasm function is compiled whole and its compile memory grows faster
+	@# than its size: one long main() of a suite once cost 14.5 GB of RSS. The check
+	@# reads the largest function body of every module of the wasm test tree (the
+	@# bound and its measurements are in test/wasm-function-size.pl) and runs before
+	@# any suite, so an oversized one is refused in seconds instead of OOM-killing the
+	@# runner. It needs the names the test link keeps (--profiling-funcs).
+	@perl test/wasm-function-size.pl $(BUILD_DIR_WASM_UNIT_TEST)/test
+
+# Self-test wasm-function-size.pl: bound, offender naming, exit codes, and its Makefile wiring
+wasm-function-size-selftest:
+	@bash test/wasm-function-size-selftest.sh
+
 # Build the browser frontend jnext-<version>.js/.wasm into build/wasm-core
 wasm-web: wasm-core
 	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext_web
@@ -708,7 +722,7 @@ web-package-test:
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web package-web playwright sdl-release sdcard-image
-	@# BRW-01..34, WBI-PW-01..09, WEBAPI-01..31, WEBPKG-BR-01, WIDGET-01..17, BCARD-01..35 (the card flow, the poster, the stored form of the card and the wording of the pick path's refusals), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..34, WBI-PW-01..09, WEBAPI-01..31, WEBPKG-BR-01..07, WIDGET-01..17, BCARD-01..35 (the card flow, the poster, the stored form of the card and the wording of the pick path's refusals), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -950,7 +964,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card-selftest docs-tree-same-selftest traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test sdcard-image
+unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card-selftest wasm-function-size-selftest docs-tree-same-selftest traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test sdcard-image
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —

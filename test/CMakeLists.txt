@@ -24,6 +24,10 @@ if(EMSCRIPTEN)
     # shipped -O3 link of jnext is what the browser test covers; the unit suites test
     # the code, not the optimiser.
     add_link_options(-O1)
+    # Keep the function names in a name section, so test/wasm-function-size.pl (the
+    # `make wasm-function-size-check` guard) can name an oversized function. It adds
+    # that section only: the code section is byte-identical with and without it.
+    add_link_options(--profiling-funcs)
 endif()
 
 # GH #416: a compiler warning in a test is a test defect (it hid which side of

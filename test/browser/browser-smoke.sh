@@ -6,8 +6,8 @@
 #
 # Specs default to `smoke.mjs:34` (rows BRW-01..34, this directory) and `image.mjs:9`
 # (rows WBI-PW-01..09, the SD-card image and the warm start in the browser) and `api.mjs:31`
-# (rows WEBAPI-01..31, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
-# (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
+# (rows WEBAPI-01..31, the JavaScript API: jnext.mount and its controller) and `package.mjs:7`
+# (rows WEBPKG-BR-01..07: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
 # boots the example page), `card.mjs:31` (rows BCARD-01..21 and 26..35: the card flow of the page and the poster), `card-errors.mjs:4` (rows BCARD-22..25: how the pick path words a refusal, no browser), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
 # under touch-device emulation) and `writes.mjs:17` (rows WBW-01..17: the guest's writes
@@ -42,7 +42,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:31" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:31" "card-errors.mjs:4" "$@")
+SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:31" "package.mjs:7" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:31" "card-errors.mjs:4" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

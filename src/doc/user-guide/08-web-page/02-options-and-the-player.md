@@ -64,6 +64,9 @@ keyboard at the bottom of its box. The screen above it shrinks by the keyboard's
 
 The picture is a 640-pixel player, so it shows the full 58-key layout (see the widths below).
 
+- Your page needs `<meta name="viewport" content="width=device-width, initial-scale=1">` in its `<head>`.
+  Without it a phone lays the page out at 980 pixels and scales it down, and the keyboard
+  with it. The four example pages have it.
 - `touchKeyboard: 'auto'` (the default) shows it on a phone or tablet.
 - `'on'` shows it everywhere, `'off'` nowhere.
 - `player.showKeyboard(true)` or `false` decides while the page runs.

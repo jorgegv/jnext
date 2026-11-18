@@ -203,7 +203,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--sdcard-download-confirm`, `--sdcard-download-force` (auto-provision / force re-download of the fallback image)
 - `--sdcard-readonly` (write-protected card; the host file is never modified)
 - `--sdcard-writes FILE`, `--sdcard-writes-reset` (the image is never written: the machine's writes, and the esxDOS stand-in's file of a directly loaded NEX, go to FILE and are laid over the image on every run; reset discards them)
-- `--sdcard-file-add FILE [--sdcard-file-dest PATH]` copies a host file or directory tree into the SD image and exits
+- `--sdcard-file-add FILE [--sdcard-file-dest PATH]` copies a host file or directory tree into the SD image (with `--sdcard-writes`, into that file; the image is untouched) and exits
 - `--sdcard-file-force` overwrites an existing destination file
 - `--warm-start-regenerate` (force a fresh warm-start recording)
 - `--nex-args "LINE"` (argument line for a NEX V1.3 program)
