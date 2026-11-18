@@ -4510,7 +4510,7 @@ struct ToolRig {
 QString write_file(const QTemporaryDir& d, const QString& name, const QByteArray& data) {
     const QString p = d.path() + "/" + name;
     QFile f(p);
-    f.open(QIODevice::WriteOnly | QIODevice::Truncate);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return QString();
     f.write(data);
     return p;
 }
