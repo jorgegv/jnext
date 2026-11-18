@@ -14759,6 +14759,10 @@ void Emulator::close_fast_boot_(const char* reason)
 
 bool Emulator::load_state(StateReader& r)
 {
+    // GH #369: FIRST, not after the clock fields: a restore that fails at a
+    // sentinel returns with the machine partly written (its time included), and
+    // the epoch must have moved on that path too.
+    bump_time_epoch_();
     poll_stop_();   // GH #496: time may have moved; a watched pass belongs to the timeline being left
     tape_poll_.reset();   // GH #395: time may have moved backwards
     // GH #408 - and so may the fast-load window: it was opened by a block
@@ -15056,7 +15060,6 @@ bool Emulator::load_state(StateReader& r)
     // monotonic_tstates() stays the saved value and contention sees the
     // restored raster position.
     tstates_frame_base_ = r.read_u64();
-    bump_time_epoch_();   // GH #369: time moved without executing
     // GH #265 — what the CPU block restored against the counter (the /INT
     // window, the EI stamp) moves with it.
     cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));

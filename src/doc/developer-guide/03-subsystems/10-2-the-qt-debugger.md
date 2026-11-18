@@ -110,7 +110,7 @@ snapshot or program load, whoever or whatever started it). The counter restarts 
 new epoch. A soft reset leaves the epoch alone: the total runs on through one. Two restarts are pushed because
 the epoch cannot say where they start: `Reset` (a cold boot while running: counted from the reset, not from the
 next stop) and opening the window (nothing is observed while it is closed), both through
-`CpuPanel::restart_tstate_count()`. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `INS-07-04`..`INS-07-09`
+`CpuPanel::restart_tstate_count()`. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `INS-07-04`..`INS-07-10`
 (each epoch bump site, a remote client's included), `QPN-CPU-05`, `QTS-01`..`QTS-13`.
 
 **Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:988`)

@@ -8948,9 +8948,28 @@ static void gh428_rev_rows() {
             check("INS-07-07", "an in-place .jns restore moves it", saved && loaded && dbg.time_epoch() != e0);
         }
         {
-            Emulator other; build(other);
-            check("INS-07-08", "a new Emulator (a cold boot's machine) never reuses a value an older one held",
-                  other.time_epoch() != 0 && other.time_epoch() != emu.time_epoch());
+            Emulator first; build(first);
+            Emulator second; build(second);   // built the same way: only a process-wide source tells them apart
+            check("INS-07-08", "two Emulators built the same way never share a value (a cold boot's machine reuses none)",
+                  first.time_epoch() != 0 && second.time_epoch() != 0 &&
+                      first.time_epoch() != second.time_epoch() && first.time_epoch() != emu.time_epoch());
+        }
+        {
+            // A restore that FAILS at a sentinel has already written part of the
+            // machine, time included: the epoch moves on that path too.
+            Emulator te;
+            q_wp3_ring_machine(te, 10);
+            Debugger td(te);
+            const ClientId a = td.attach(client("A")).value;
+            for (int i = 0; i < 5; ++i) te.run_frame();
+            td.pause(a);
+            RewindBuffer* rb = te.rewind_buffer();
+            bool torn = true;
+            for (size_t i = 0; i + 1 < rb->depth(); ++i) torn = q_wp3_tear_slot(te, i) && torn;
+            const uint64_t e0 = td.time_epoch();
+            const Result failed = td.rewind_to_frame(a, td.rewind_range().oldest_frame);
+            check("INS-07-10", "a restore that fails at a sentinel (torn ring slot) still moves it",
+                  torn && failed == Result::RefusedCorrupt && td.time_epoch() != e0);
         }
         {
             Emulator re;

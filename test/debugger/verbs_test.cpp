@@ -3999,9 +3999,9 @@ static void test_tstates() {
 
     {
         // QtApp::cold_boot() for a menu / Quick Load, then the deferred in-place
-        // load a few ticks later (qt_app.cpp pre_frames()), which calls
-        // note_program_loaded(). A .jns restores its SAVED total, so time jumps
-        // forward without program_loads() moving.
+        // load a few ticks later (qt_app.cpp pre_frames()). A .jns restores its
+        // SAVED total, so time jumps forward without program_loads() moving; the
+        // restore goes through load_state(), which moves time_epoch().
         Fixture fx(MachineType::ZX48K, 0);
         const char* desc = "a deferred in-place .jns load after a cold boot restarts the count: the next "
                            "stop shows 0, not the saved session (no program_loads() involved)";
