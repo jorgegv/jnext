@@ -1509,7 +1509,7 @@ static void test_config_keys(QTemporaryDir& dir) {
             if (!expect.contains(k)) bad += "written but not in the table: " + k.toStdString() + "; ";
         for (const QString& k : expect)
             if (!in_file.contains(k)) bad += "in the table but not written: " + k.toStdString() + "; ";
-        check("AC-94", "every key save() writes is a config_keys row owned by AppConfig, and every such row is written (the debugger_keys family with all 17 actions)",
+        check("AC-94", "every key save() writes is a config_keys row owned by AppConfig, and every such row is written (the debugger_keys family with all 20 actions)",
               bad.empty() && in_file.size() == expect.size(), bad);
     }
 
