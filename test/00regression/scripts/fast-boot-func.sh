@@ -19,7 +19,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      the emulated timeline disarms it, with a warning, and the run exits 0.
 #   E  --headless --fast-boot 10 --delayed-automatic-exit-frames 1: the generic
 #      "no effect with --headless" warning, exit 0.
-#   F  one short windowed run per exclusion term of src/main.cpp (--inject,
+#   F  one short windowed run per exclusion term of src/main.cpp (--inject, --rzx-play,
 #      --delayed-screenshot, --delayed-automatic-exit in seconds, --script, --delayed-pok-frames
 #      (SDL only: the Qt window refuses it), --record, --wav-record, --rzx-record, --dac-trace,
 #      --record-script) with --fast-boot 10: the warning `fast boot: off (<reason>)`, so a term
@@ -158,8 +158,15 @@ if want fast-boot-func; then
                 || fb_faults+=("F $name: no warn line 'fast boot: off ($reason)'")
         }
         fb_case inject  "$JNEXT" "$fb_prog"  --inject "$fb_dir/inject.bin"
-        # --rzx-play has no case: the machine comes from the .rzx (never a Next: RZX cannot be recorded
-        # on one), so the not-Next reason always wins before the program term could.
+        # An explicit --machine next wins over the machine an .rzx recorded (GH #321), so the Next stays
+        # the machine and the program term is what keeps the window off. The .rzx is recorded here, on a 48K.
+        if timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine 48k \
+               --rzx-record "$fb_dir/in.rzx" --delayed-automatic-exit-frames 60 >"$fb_dir/f-mkrzx.log" 2>&1 \
+           && [[ -s "$fb_dir/in.rzx" ]]; then
+            fb_case rzxplay "$JNEXT" "$fb_prog"  --rzx-play "$fb_dir/in.rzx"
+        else
+            fb_faults+=("F rzxplay: could not record the .rzx fixture")
+        fi
         fb_case shot    "$JNEXT" "$fb_sched" --delayed-screenshot "$fb_dir/f.png" --delayed-screenshot-frames 100000
         fb_case exitsec "$JNEXT" "$fb_sched" --delayed-automatic-exit 1000
         fb_case script  "$JNEXT" "$fb_sched" --script "$SCRIPT_DIR/boot-commit-probe.jds"

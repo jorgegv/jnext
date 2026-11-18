@@ -260,6 +260,19 @@ int main()
               emu && closed && stays);
     }
     {
+        // Armed AFTER an earlier stop and resume: the stamp is taken at arm time, so that old stop does not count.
+        auto emu = make48k();
+        bool open = false;
+        if (emu) {
+            emu->debug_state().pause();
+            emu->debug_state().resume();
+            emu->arm_fast_boot(500);
+            emu->run_frame();
+            open = emu->fast_boot_frames_left() == 499 && emu->fastload_active();
+        }
+        check("FBT-13c", "a stop and resume BEFORE arm_fast_boot() does not close the window", emu && open);
+    }
+    {
         auto emu = make48k();
         uint32_t before = 0, after = 0;
         if (emu) {
