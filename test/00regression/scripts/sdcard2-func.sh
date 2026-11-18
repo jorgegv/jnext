@@ -51,6 +51,7 @@ if want sdcard2-func; then
         clone_a control
         clone_a writes
         clone_a warm
+        clone_a warmj
 
         # Card 2: 64 MiB, an MBR with one FAT32 (type 0x0C) partition from sector
         # 2048, formatted with one-sector clusters so it has more than 65 525 of them.
@@ -146,6 +147,29 @@ if want sdcard2-func; then
         else
             faults+=("warm: no warm-start cache was written for the run with a second card")
         fi
+
+        # warmj: the second card's WRITE JOURNAL is part of the key. Record with an (empty)
+        # journal, change the journal through jnext's own --sdcard-file-add, and the next run
+        # refuses the recording and takes a new one.
+        warmj_run() {   # warmj_run <label>
+            local label=$1 rc=0
+            JNEXT_CONFIG_DIR="$BASE/warmj" timeout --foreground --kill-after=5s 120s \
+                "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" --load "$WARM_NEX" \
+                         --sdcard2 "$CARD2" --sdcard2-writes "$W/wj.jsdw" \
+                         --delayed-automatic-exit-frames 10 > "$W/$label.log" 2>&1 || rc=$?
+            [[ $rc -eq 0 ]] || faults+=("$label: the run exited $rc")
+        }
+        warmj_run warmj1
+        rc=0
+        timeout --foreground --kill-after=5s 120s \
+            "$JNEXT" --sdcard "$CARD2" --sdcard-writes "$W/wj.jsdw" \
+                     --sdcard-file-add "$WARM_NEX" --sdcard-file-dest /JNOTE.NEX > "$W/warmj-add.log" 2>&1 || rc=$?
+        [[ $rc -eq 0 ]] || faults+=("warmj: changing the second card's journal exited $rc")
+        warmj_run warmj2
+        grep -qF "recorded with a different second SD card" "$W/warmj2.log" \
+            || faults+=("warmj: a changed second-card journal did not refuse the recording")
+        grep -qF "recorded a NextZXOS-resident machine" "$W/warmj2.log" \
+            || faults+=("warmj: the refused recording was not replaced by a new one")
 
         # refused: card 0 is CARD2 where the second card is the thing under test (the
         # run never starts: every refusal is at parse time, on a 48K headless machine).

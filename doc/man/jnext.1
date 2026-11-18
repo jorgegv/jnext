@@ -1942,7 +1942,9 @@ A soft reset keeps the card as it is; a hard reset power\-cycles it.
 file on a second\-card image.
 .IP \(bu 2
 A recording of the warm start is keyed on the second card as well (its
-size and modification time), so changing it takes a new recording.
+size and modification time, and the contents of its
+\f[B]\-\-sdcard2\-writes\f[R] file), so changing it takes a new
+recording.
 Rewind carries its state.
 .SS CHANGING THE CARD WHILE RUNNING
 \f[B]File > Insert SD Card Image\&...\f[R] swaps the card in the running
