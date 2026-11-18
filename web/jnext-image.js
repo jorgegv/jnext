@@ -33,7 +33,7 @@
 (function (root) {
   'use strict';
 
-  // v2 holds every entry gzipped where the browser can (see packed()). v1 (JNEXT 1.3.0 to 1.3.9)
+  // v2 holds every entry gzipped where the browser can (see packed()). v1 (earlier releases)
   // held the card raw: cachedCard moves a good v1 entry over and deletes the cache.
   var CACHE_NAME = 'jnext-sdcard-v2';
   var OLD_CACHE = 'jnext-sdcard-v1';
