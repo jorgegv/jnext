@@ -1287,6 +1287,14 @@ add_executable(tstate_counter_test debugger/tstate_counter_test.cpp)
 target_include_directories(tstate_counter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tstate_counter_tests COMMAND tstate_counter_test)
 
+# Debugger CPU panel register-edit policy (GH #368): field table, text parsing,
+# flag toggle, refusal text (src/debugger/reg_edit.h), no Qt. Registered
+# unconditionally; links jnext_debug for SymbolTable.
+add_executable(reg_edit_test debugger/reg_edit_test.cpp)
+target_link_libraries(reg_edit_test PRIVATE jnext_debug)
+target_include_directories(reg_edit_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME reg_edit_tests COMMAND reg_edit_test)
+
 # Pointer-capture motion policy (issue #37). Pure decision helper under test
 # (src/platform/pointer_capture.h) — no Qt, no SDL, so the logic the frontend
 # ships is reachable by CI even though its event handler is not.

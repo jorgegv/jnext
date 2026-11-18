@@ -76,7 +76,7 @@ restart of the CPU panel's T-state count and draws that one label.
 
 | Panel | Reads | Writes |
 |---|---|---|
-| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | — |
+| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | `set_register()`, one register per call: an overlay `QLineEdit` over the value labels, a click on a flag (`reg_edit.h`) |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
 | Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
@@ -112,6 +112,19 @@ the epoch cannot say where they start: `Reset` (a cold boot while running: count
 next stop) and opening the window (nothing is observed while it is closed), both through
 `CpuPanel::restart_tstate_count()`. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `INS-07-04`..`INS-07-10`
 (each epoch bump site, a remote client's included), `QPN-CPU-05`, `QTS-01`..`QTS-13`.
+
+**Editing the CPU panel.** The value widgets stay `QLabel`s in their layouts (the rows that read the panel find
+them there). An edit opens one `QLineEdit`, in no layout, over the label (a double-click, or the context menu's
+Edit Value...); Enter commits, Escape and focus-out cancel, and `set_paused(false)` cancels without committing:
+a value typed against one stop must not be written into the state after it. What a field is, how its text is
+read (`SymbolTable::resolve()` for the 16-bit ones, the rule every address box uses), the flag toggle and the
+refusal text are in `jnext::regedit` (`src/debugger/reg_edit.h`, pure, no Qt; `reg_edit_test`). A commit calls
+`Debugger::set_register(client_, ...)`, one register per call (IFF is two), and only for a changed value: the
+backend logs one `MUTATE` line and bumps `state_revision()`, so the next paused tick redraws every panel from the
+register file, with no refresh path of the panel's own. The client is the window's (`set_panels_client()`). A
+parse error or a refusal (RZX recording or playback) is the panel's `message()` signal, which the window shows with
+`show_rewind_refusal()`: the one status message `update_rewind_ui()` does not rewrite. Rows: `REGED-01`..`08`,
+`QREG-01`..`11`, `QREGW-01`..`04`.
 
 **Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:988`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:375`: ~4 Hz). Paused, it

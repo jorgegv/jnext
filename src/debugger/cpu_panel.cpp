@@ -2,6 +2,7 @@
 #include "qt/palette_tint_qt.h"   // GH #363
 #include <QApplication>
 #include "debug/debugger.h"
+#include "debugger/reg_edit.h"
 
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -10,8 +11,20 @@
 #include <QFont>
 #include <QPainter>
 #include <QString>
+#include <QMenu>
+#include <QContextMenuEvent>
+#include <QFocusEvent>
+#include <QKeyEvent>
+#include <QMouseEvent>
 
-CpuPanel::CpuPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
+#include <algorithm>
+
+namespace {
+// F bits of S Z H PV N C, the order of the flag labels (cpu_panel.cpp refresh()).
+constexpr int kFlagBit[6] = {7, 6, 4, 2, 1, 0};
+}  // namespace
+
+CpuPanel::CpuPanel(jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
     , dbg_(dbg)
 {
@@ -209,12 +222,157 @@ void CpuPanel::create_ui() {
 
     setMinimumWidth(200);
     setMaximumWidth(260);
+
+    // GH #368: editing. The values stay the QLabels above, in their layouts; one
+    // QLineEdit, in no layout, is laid over the label being edited.
+    values_ = {reg_af_, reg_bc_, reg_de_, reg_hl_, reg_af2_, reg_bc2_, reg_de2_, reg_hl2_,
+               reg_ix_, reg_iy_, reg_sp_, reg_pc_, reg_i_, reg_r_, reg_iff_, reg_im_};
+    flag_labels_ = {flag_s_, flag_z_, flag_h_, flag_pv_, flag_n_, flag_c_};
+    for (QLabel* l : values_) {
+        l->installEventFilter(this);
+        l->setToolTip(tr("Double-click to edit (while paused)"));
+    }
+    for (QLabel* l : flag_labels_) {
+        l->installEventFilter(this);
+        l->setToolTip(tr("Click to toggle (while paused)"));
+    }
+    editor_ = new QLineEdit(this);
+    editor_->setFont(mono);
+    editor_->setFrame(false);
+    editor_->hide();
+    editor_->installEventFilter(this);
+    connect(editor_, &QLineEdit::returnPressed, this, &CpuPanel::commit_edit);
 }
 
 void CpuPanel::set_paused(bool paused) {
     if (paused_ == paused) return;
     paused_ = paused;
+    // The machine is about to run: a value typed against the last stop would be
+    // written into a different state, so an open editor is cancelled, not committed.
+    if (!paused_) end_edit();
     update();
+}
+
+bool CpuPanel::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == editor_) {
+        if (event->type() == QEvent::KeyPress &&
+            static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+            end_edit();
+            return true;
+        }
+        if (event->type() == QEvent::FocusOut &&
+            static_cast<QFocusEvent*>(event)->reason() != Qt::PopupFocusReason) {
+            end_edit();   // clicking away cancels
+        }
+        return false;
+    }
+    for (size_t i = 0; i < values_.size(); ++i) {
+        if (watched != values_[i]) continue;
+        if (event->type() == QEvent::MouseButtonDblClick &&
+            static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
+            begin_edit(static_cast<int>(i));
+            return true;
+        }
+        if (event->type() == QEvent::ContextMenu) {
+            show_value_menu(static_cast<int>(i), static_cast<QContextMenuEvent*>(event)->globalPos());
+            return true;
+        }
+        return false;
+    }
+    for (size_t i = 0; i < flag_labels_.size(); ++i) {
+        if (watched != flag_labels_[i]) continue;
+        if (event->type() == QEvent::MouseButtonPress &&
+            static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
+            click_flag(kFlagBit[i]);
+            return true;
+        }
+        return false;
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+void CpuPanel::begin_edit(int field) {
+    if (!dbg_ || !paused_ || field < 0 || field >= static_cast<int>(values_.size())) return;
+    QLabel* lbl = values_[static_cast<size_t>(field)];
+    edit_field_ = field;
+    // Over the label, wide enough for a symbol name: out to the panel's right edge.
+    const QRect g = lbl->geometry();
+    editor_->setGeometry(g.x(), g.y(), std::max(g.width(), width() - g.x() - 2), g.height());
+    editor_->setText(lbl->text());
+    editor_->show();
+    editor_->raise();
+    editor_->setFocus(Qt::OtherFocusReason);
+    editor_->selectAll();
+}
+
+void CpuPanel::end_edit() {
+    if (edit_field_ < 0) return;
+    edit_field_ = -1;   // first: hiding the editor sends it a FocusOut
+    editor_->hide();
+}
+
+void CpuPanel::commit_edit() {
+    if (edit_field_ < 0) return;
+    const jnext::regedit::Field& f = jnext::regedit::fields()[static_cast<size_t>(edit_field_)];
+    const QString text = editor_->text();
+    end_edit();   // closes in every case; the next paused refresh redraws the label
+    if (!dbg_ || !paused_) return;
+
+    const jnext::regedit::Parsed p =
+        jnext::regedit::parse(f.kind, text.toStdString(), dbg_->symbols());
+    if (!p.ok) {
+        emit message(QString("%1: '%2' %3").arg(QString::fromLatin1(f.label), text,
+                                                QString::fromStdString(p.why)));
+        return;
+    }
+
+    using jnext::dbg::RegId;
+    const Z80Registers r = dbg_->registers();
+    // Each write only when the value changed: no MUTATE line, no revision bump.
+    auto write = [&](RegId reg, uint16_t now, uint16_t want) {
+        if (now == want) return true;
+        const jnext::dbg::Result res = dbg_->set_register(client_, reg, want);
+        if (jnext::dbg::ok(res)) return true;
+        emit message(QString::fromStdString(jnext::regedit::refusal_text(f.label, res)));
+        return false;
+    };
+    switch (f.reg) {
+    case RegId::AF:  write(f.reg, r.AF,  p.v0); break;
+    case RegId::BC:  write(f.reg, r.BC,  p.v0); break;
+    case RegId::DE:  write(f.reg, r.DE,  p.v0); break;
+    case RegId::HL:  write(f.reg, r.HL,  p.v0); break;
+    case RegId::AF2: write(f.reg, r.AF2, p.v0); break;
+    case RegId::BC2: write(f.reg, r.BC2, p.v0); break;
+    case RegId::DE2: write(f.reg, r.DE2, p.v0); break;
+    case RegId::HL2: write(f.reg, r.HL2, p.v0); break;
+    case RegId::IX:  write(f.reg, r.IX,  p.v0); break;
+    case RegId::IY:  write(f.reg, r.IY,  p.v0); break;
+    case RegId::SP:  write(f.reg, r.SP,  p.v0); break;
+    case RegId::PC:  write(f.reg, r.PC,  p.v0); break;
+    case RegId::I:   write(f.reg, r.I,   p.v0); break;
+    case RegId::R:   write(f.reg, r.R,   p.v0); break;
+    case RegId::IM:  write(f.reg, r.IM,  p.v0); break;
+    case RegId::IFF1:
+        if (write(RegId::IFF1, r.IFF1, p.v0)) write(RegId::IFF2, r.IFF2, p.v1);
+        break;
+    default: break;
+    }
+}
+
+void CpuPanel::click_flag(int bit) {
+    if (!dbg_ || !paused_) return;
+    const uint8_t f = static_cast<uint8_t>(dbg_->registers().AF & 0xFF);
+    const jnext::dbg::Result res =
+        dbg_->set_register(client_, jnext::dbg::RegId::F, jnext::regedit::toggle_flag(f, bit));
+    if (!jnext::dbg::ok(res))
+        emit message(QString::fromStdString(jnext::regedit::refusal_text("F", res)));
+}
+
+void CpuPanel::show_value_menu(int field, const QPoint& global_pos) {
+    QMenu menu(this);
+    QAction* edit = menu.addAction(tr("Edit Value\u2026"));
+    edit->setEnabled(dbg_ && paused_);
+    if (menu.exec(global_pos) == edit) begin_edit(field);
 }
 
 void CpuPanel::paintEvent(QPaintEvent* event) {

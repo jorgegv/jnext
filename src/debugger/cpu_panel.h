@@ -3,7 +3,11 @@
 #include <QWidget>
 #include <QLabel>
 #include <QCheckBox>
+#include <QLineEdit>
 
+#include <array>
+
+#include "debug/events.h"   // jnext::dbg::ClientId
 #include "debugger/tstate_counter.h"
 
 namespace jnext { namespace dbg { class Debugger; } }
@@ -12,14 +16,21 @@ namespace jnext { namespace dbg { class Debugger; } }
 class CpuPanel : public QWidget {
     Q_OBJECT
 public:
-    /// @param dbg  the debugger backend every read goes through (GH #278 WP4a);
-    ///             null shows nothing.
-    explicit CpuPanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
+    /// @param dbg  the debugger backend every read goes through (GH #278 WP4a),
+    ///             and, since GH #368, every register write (`set_register`);
+    ///             null shows nothing and writes nothing.
+    explicit CpuPanel(jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
+
+    /// The client a register edit is attributed to (the backend's MUTATE line).
+    /// The manager sets the debugger window's client while the window is open.
+    void set_client(jnext::dbg::ClientId by) { client_ = by; }
 
     /// Update display with current CPU state and MMU.
     void refresh();
 
     /// Set paused state — when not paused, panel shows gray overlay and skips updates.
+    /// Editing is a paused-only action: an open editor is cancelled, never committed,
+    /// when the machine resumes.
     void set_paused(bool paused);
 
     /// GH #369: count T-states from the machine's current time (value 0), where
@@ -28,14 +39,34 @@ public:
     /// window opening. Records a start point and draws one label; no paused gate.
     void restart_tstate_count();
 
+signals:
+    /// A refused or malformed edit, for the debugger window's status bar.
+    void message(const QString& text);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void create_ui();
 
-    const jnext::dbg::Debugger* dbg_;
+    // GH #368: edit in place. The value widgets stay QLabels; one QLineEdit
+    // (editor_, in no layout) is laid over the label being edited.
+    void begin_edit(int field);
+    void commit_edit();
+    void end_edit();
+    void click_flag(int bit);
+    void show_value_menu(int field, const QPoint& global_pos);
+
+    jnext::dbg::Debugger* dbg_;
+    jnext::dbg::ClientId client_ = jnext::dbg::CLIENT_NONE;
     bool paused_ = false;
+
+    // The 16 value labels, in regedit::fields() order.
+    std::array<QLabel*, 16> values_{};
+    std::array<QLabel*, 6> flag_labels_{};
+    QLineEdit* editor_ = nullptr;
+    int edit_field_ = -1;
 
     // Register value labels (hex display)
     QLabel* reg_af_ = nullptr;

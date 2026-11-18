@@ -1446,6 +1446,8 @@ void DebuggerWindow::set_attach_enabled(bool on) {
 void DebuggerWindow::create_panels() {
     // --- Create panels ---
     cpu_panel_ = new CpuPanel(&dbg_);
+    // GH #368: a refused or malformed register edit, held against update_rewind_ui()'s rewrite.
+    connect(cpu_panel_, &CpuPanel::message, this, &DebuggerWindow::show_rewind_refusal);
     disasm_panel_ = new DisasmPanel(&dbg_);
     memory_panel_ = new MemoryPanel(&dbg_);
     memory_panel_->setMinimumHeight(320);

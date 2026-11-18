@@ -46,6 +46,7 @@
 #include "debugger/callstack_panel.h"
 #include "debugger/copper_panel.h"
 #include "debugger/cpu_panel.h"
+#include "debugger/reg_edit.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
@@ -97,6 +98,9 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <array>
+#include <functional>
+#include <memory>
 #include <cstring>
 #include <map>
 #include <climits>
@@ -2245,6 +2249,389 @@ static void test_coverage_panels() {
               "so the blue R (and X) stay legible on the blue selection fill, in the light and the dark palette",
               light_r && light_x && dark_r,
               fmt("light R=%d X=%d dark R=%d", light_r, light_x, dark_r));
+    }
+}
+
+// ===========================================================================
+// QREG — GH #368: edit registers and flags in the CPU panel.
+//
+// No VHDL oracle: host debugger UI. The oracles are the issue's contract, the
+// facade's `set_register` (one write = one MUTATE line and one state_revision()
+// bump; refused under RZX), and UM0080's register and F layout. The value
+// widgets stay the QLabels QPN-CPU-01..05 find; an editor is a QLineEdit laid
+// over the label, so those rows are unchanged. Everything is driven as a user
+// does it: a double-click, typing, Enter; a click on a flag; a right-click.
+// ===========================================================================
+static QLineEdit* cpu_editor(CpuPanel& p) {
+    const auto es = p.findChildren<QLineEdit*>();
+    return es.isEmpty() ? nullptr : es.first();
+}
+
+static bool editor_open(CpuPanel& p) {
+    QLineEdit* e = cpu_editor(p);
+    return e && !e->isHidden();
+}
+
+static void label_mouse(QLabel* l, QEvent::Type t) {
+    const QPoint pos(2, 2);
+    QMouseEvent ev(t, QPointF(pos), QPointF(l->mapToGlobal(pos)), Qt::LeftButton,
+                   t == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(l, &ev);
+}
+
+/// Double-click the value named `name` ("BC: ").
+static bool open_editor(CpuPanel& p, const char* name) {
+    QLabel* l = grid_value(&p, QString::fromLatin1(name));
+    if (!l) return false;
+    label_mouse(l, QEvent::MouseButtonDblClick);
+    return editor_open(p);
+}
+
+/// Double-click `name`, type `text`, press Enter.
+static bool edit_value(CpuPanel& p, const char* name, const char* text) {
+    if (!open_editor(p, name)) return false;
+    QLineEdit* e = cpu_editor(p);
+    e->setText(QString::fromLatin1(text));
+    send_key(e, Qt::Key_Return);
+    return true;
+}
+
+static void click_flag_label(QLabel* l) {
+    label_mouse(l, QEvent::MouseButtonPress);
+    label_mouse(l, QEvent::MouseButtonRelease);
+}
+
+/// Right-click `w`; was its "Edit Value…" entry present and enabled? (Closed unpicked.)
+static int edit_entry_state(QWidget* w) {   // -1 absent, 0 disabled, 1 enabled
+    int state = -1;
+    bool seen = false;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || seen) return;
+        seen = true;
+        for (QAction* a : menu->actions())
+            if (visible(a->text()) == QString::fromUtf8("Edit Value…")) state = a->isEnabled() ? 1 : 0;
+        menu->close();
+    });
+    timer.start(1);
+    const QPoint pos(2, 2);
+    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, w->mapToGlobal(pos));
+    QApplication::sendEvent(w, &ev);
+    timer.stop();
+    QApplication::processEvents();
+    return state;
+}
+
+struct CpuFix {
+    Emulator emu;
+    std::unique_ptr<jnext::dbg::Debugger> dbg;
+    std::unique_ptr<CpuPanel> panel;
+    MutateLog log;
+    jnext::dbg::ClientId window = jnext::dbg::CLIENT_NONE;
+    QStringList messages;
+    bool ok = false;
+
+    explicit CpuFix(MachineType type = MachineType::ZX128K) {
+        if (!build(emu, type)) return;
+        dbg = std::make_unique<jnext::dbg::Debugger>(emu);
+        const jnext::dbg::ClientId rec =
+            dbg->attach(jnext::dbg::ClientInfo{"rec", jnext::dbg::ClientKind::Test}).value;
+        dbg->set_listener(rec, &log);
+        window = dbg->attach(jnext::dbg::ClientInfo{"win", jnext::dbg::ClientKind::Test}).value;
+        panel = std::make_unique<CpuPanel>(dbg.get());
+        panel->set_client(window);
+        QObject::connect(panel.get(), &CpuPanel::message, [this](const QString& m) { messages << m; });
+        panel->set_paused(true);
+        set_regs([](Z80Registers&) {});
+        ok = true;
+    }
+    void set_regs(const std::function<void(Z80Registers&)>& more) {
+        Z80Registers r = emu.cpu().get_registers();
+        r.AF = 0x1228; r.BC = 0x3456; r.DE = 0x789A; r.HL = 0xBCDE;
+        r.AF2 = 0x1357; r.BC2 = 0x2468; r.DE2 = 0x9ABC; r.HL2 = 0xDEF0;
+        r.IX = 0x4321; r.IY = 0x8765; r.SP = 0xFEDC; r.PC = 0x7000;
+        r.I = 0x3F; r.R = 0x5A; r.IFF1 = 1; r.IFF2 = 0; r.IM = 1;
+        r.halted = false;
+        more(r);
+        emu.cpu().set_registers(r);
+        panel->refresh();
+    }
+    Z80Registers regs() const { return emu.cpu().get_registers(); }
+    std::string want(const char* what, unsigned from, unsigned to) const {
+        return fmt("MUTATE reg %s 0x%X -> 0x%X by %u", what, from, to, static_cast<unsigned>(window));
+    }
+};
+
+/// The 17 register values, in a fixed order, for "only this one changed" checks.
+static std::array<unsigned, 17> reg_snap(const Z80Registers& r) {
+    return {r.AF, r.BC, r.DE, r.HL, r.AF2, r.BC2, r.DE2, r.HL2, r.IX, r.IY, r.SP, r.PC,
+            r.I, r.R, static_cast<unsigned>(r.IFF1), static_cast<unsigned>(r.IFF2), r.IM};
+}
+
+static void test_cpu_edit() {
+    set_group("QREG");
+
+    {
+        CpuFix f;
+        const char* desc = "a double-click on BC opens an editor showing 3456, selected; typing 1234 + "
+                           "Enter writes BC (one MUTATE line naming the window's client) and the label "
+                           "reads 1234 after the refresh; the right-click menu's Edit Value... opens it too";
+        if (!f.ok) { check("QREG-01", desc, false, "fixture"); }
+        else {
+            QLabel* bc = grid_value(f.panel.get(), "BC: ");
+            const bool opened = open_editor(*f.panel, "BC: ");
+            QLineEdit* e = cpu_editor(*f.panel);
+            const bool shows = e && e->text() == "3456" && e->selectedText() == "3456";
+            if (e) { e->setText("1234"); send_key(e, Qt::Key_Return); }
+            const bool closed = !editor_open(*f.panel);
+            const Z80Registers r = f.regs();
+            const std::string line = f.log.last();
+            f.panel->refresh();
+            const QString shown = text_of(bc);
+
+            PopupAnswer ans;
+            ans.wanted = QString::fromUtf8("Edit Value…");
+            context_menu_and_pick(bc, QPoint(2, 2), ans);
+            const bool via_menu = ans.found && editor_open(*f.panel) &&
+                                  cpu_editor(*f.panel)->text() == "1234";
+            if (QLineEdit* e2 = cpu_editor(*f.panel)) send_key(e2, Qt::Key_Escape);
+
+            check("QREG-01", desc,
+                  opened && shows && closed && r.BC == 0x1234 &&
+                      line == f.want("BC", 0x3456, 0x1234) && shown == "1234" && via_menu,
+                  fmt("opened=%d shows=%d closed=%d BC=%04X line='%s' shown='%s' via_menu=%d",
+                      opened, shows, closed, r.BC, line.c_str(), s(shown).c_str(), via_menu));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "each of the 12 register pairs takes its own edit and nothing else moves: "
+                           "the other 11 pairs, I, R, IFF1/2 and IM are unchanged";
+        if (!f.ok) { check("QREG-02", desc, false, "fixture"); }
+        else {
+            static const char* names[12] = {"AF: ", "BC: ", "DE: ", "HL: ", "AF': ", "BC': ",
+                                            "DE': ", "HL': ", "IX: ", "IY: ", "SP: ", "PC: "};
+            std::string bad;
+            for (int i = 0; i < 12; ++i) {
+                f.set_regs([](Z80Registers&) {});
+                const auto before = reg_snap(f.regs());
+                const unsigned nv = 0x0F10u + static_cast<unsigned>(i) * 0x0101u;
+                char txt[8];
+                std::snprintf(txt, sizeof txt, "%04X", nv);
+                if (!edit_value(*f.panel, names[i], txt)) { bad += fmt("%s no editor; ", names[i]); continue; }
+                auto want = before;
+                want[static_cast<size_t>(i)] = nv;
+                if (reg_snap(f.regs()) != want) bad += fmt("%s wrote the wrong register(s); ", names[i]);
+            }
+            check("QREG-02", desc, bad.empty(), bad);
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "I takes 7F (R unchanged); 100 is refused with a message naming it and writes nothing";
+        if (!f.ok) { check("QREG-03", desc, false, "fixture"); }
+        else {
+            const bool a = edit_value(*f.panel, "I: ", "7F");
+            const Z80Registers r = f.regs();
+            const uint64_t rev = f.dbg->state_revision();
+            const bool b = edit_value(*f.panel, "I: ", "100");
+            const bool msg = f.messages.size() == 1 && f.messages[0].contains("100");
+            check("QREG-03", desc,
+                  a && b && r.I == 0x7F && r.R == 0x5A && f.regs().I == 0x7F &&
+                      f.dbg->state_revision() == rev && msg,
+                  fmt("I=%02X R=%02X messages=%d '%s'", f.regs().I, f.regs().R, (int)f.messages.size(),
+                      f.messages.isEmpty() ? "" : s(f.messages[0]).c_str()));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "IFF 0/1 -> IFF1=0, IFF2=1; IM 2 -> IM=2; IM 3 -> a message and IM unchanged";
+        if (!f.ok) { check("QREG-04", desc, false, "fixture"); }
+        else {
+            const bool a = edit_value(*f.panel, "IFF: ", "0/1");
+            const Z80Registers r1 = f.regs();
+            const bool b = edit_value(*f.panel, "IM: ", "2");
+            const Z80Registers r2 = f.regs();
+            const bool c = edit_value(*f.panel, "IM: ", "3");
+            check("QREG-04", desc,
+                  a && b && c && !r1.IFF1 && r1.IFF2 && r2.IM == 2 && f.regs().IM == 2 &&
+                      f.messages.size() == 1,
+                  fmt("IFF=%d/%d IM=%d then %d, messages=%d", r1.IFF1, r1.IFF2, r2.IM, f.regs().IM,
+                      (int)f.messages.size()));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "Escape and focus-out each close the editor with no write; Enter on the "
+                           "unchanged text writes nothing (no revision bump, no MUTATE line)";
+        if (!f.ok) { check("QREG-05", desc, false, "fixture"); }
+        else {
+            const uint64_t rev = f.dbg->state_revision();
+            const size_t lines = f.log.lines.size();
+            bool esc = false, fo = false, same = false;
+            if (open_editor(*f.panel, "BC: ")) {
+                cpu_editor(*f.panel)->setText("1111");
+                send_key(cpu_editor(*f.panel), Qt::Key_Escape);
+                esc = !editor_open(*f.panel);
+            }
+            if (open_editor(*f.panel, "BC: ")) {
+                cpu_editor(*f.panel)->setText("2222");
+                QFocusEvent out(QEvent::FocusOut, Qt::OtherFocusReason);
+                QApplication::sendEvent(cpu_editor(*f.panel), &out);
+                fo = !editor_open(*f.panel);
+            }
+            if (open_editor(*f.panel, "BC: ")) {
+                send_key(cpu_editor(*f.panel), Qt::Key_Return);
+                same = !editor_open(*f.panel);
+            }
+            check("QREG-05", desc,
+                  esc && fo && same && f.regs().BC == 0x3456 && f.dbg->state_revision() == rev &&
+                      f.log.lines.size() == lines,
+                  fmt("esc=%d focus-out=%d unchanged=%d BC=%04X revision moved=%d lines +%d", esc, fo,
+                      same, f.regs().BC, f.dbg->state_revision() != rev, (int)(f.log.lines.size() - lines)));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "from F=28 (undocumented bits 5 and 3 set) a click on each of S Z H PV N C "
+                           "gives F = 28 ^ bit and lights exactly that flag; a second click restores 28";
+        if (!f.ok) { check("QREG-06", desc, false, "fixture"); }
+        else {
+            const char* names[6] = {"S", "Z", "H", "PV", "N", "C"};
+            const int bit_of[6] = {7, 6, 4, 2, 1, 0};
+            auto lit = [](QLabel* l) {
+                return l && l->styleSheet().contains("#00AA00") && l->styleSheet().contains("bold");
+            };
+            std::string bad;
+            for (int i = 0; i < 6; ++i) {
+                QLabel* l = box_value(f.panel.get(), "Flags: ", i + 1);
+                if (!l || l->text() != QLatin1String(names[i])) { bad += fmt("%s missing; ", names[i]); continue; }
+                const uint8_t bit = static_cast<uint8_t>(1u << bit_of[i]);
+                click_flag_label(l);
+                f.panel->refresh();
+                const uint8_t f1 = static_cast<uint8_t>(f.regs().AF & 0xFF);
+                bool only_this = true;
+                for (int k = 0; k < 6; ++k)
+                    if (lit(box_value(f.panel.get(), "Flags: ", k + 1)) != (k == i)) only_this = false;
+                click_flag_label(l);
+                f.panel->refresh();
+                const uint8_t f2 = static_cast<uint8_t>(f.regs().AF & 0xFF);
+                if (f1 != (0x28 ^ bit) || !only_this || f2 != 0x28 || (f.regs().AF >> 8) != 0x12)
+                    bad += fmt("%s: F=%02X then %02X lit-only-this=%d; ", names[i], f1, f2, only_this);
+            }
+            check("QREG-06", desc, bad.empty(), bad);
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "not paused: a double-click opens no editor, a flag click writes nothing, "
+                           "Edit Value... is disabled; paused it is enabled; an open editor is "
+                           "cancelled (not committed) by set_paused(false)";
+        if (!f.ok) { check("QREG-07", desc, false, "fixture"); }
+        else {
+            QLabel* bc = grid_value(f.panel.get(), "BC: ");
+            const int enabled_paused = edit_entry_state(bc);
+            const bool open_paused = open_editor(*f.panel, "BC: ");
+            cpu_editor(*f.panel)->setText("1234");
+            const uint64_t rev = f.dbg->state_revision();
+            f.panel->set_paused(false);
+            const bool cancelled = !editor_open(*f.panel) && f.regs().BC == 0x3456 &&
+                                   f.dbg->state_revision() == rev;
+
+            const bool open_running = open_editor(*f.panel, "DE: ");
+            click_flag_label(box_value(f.panel.get(), "Flags: ", 1));
+            const int state_running = edit_entry_state(bc);
+            check("QREG-07", desc,
+                  enabled_paused == 1 && open_paused && cancelled && !open_running &&
+                      f.regs().AF == 0x1228 && f.dbg->state_revision() == rev && state_running == 0,
+                  fmt("menu paused=%d open paused=%d cancelled=%d | running: open=%d AF=%04X menu=%d",
+                      enabled_paused, open_paused, cancelled, open_running, f.regs().AF, state_running));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "during an RZX recording or playback an edit is refused: BC unchanged, the "
+                           "editor closed, and the message is the RZX refusal text";
+        if (!f.ok) { check("QREG-08", desc, false, "fixture"); }
+        else {
+            f.emu.rzx_player().start(RzxRecording{});
+            const bool done = edit_value(*f.panel, "BC: ", "1234");
+            const bool closed = !editor_open(*f.panel);
+            f.emu.rzx_player().stop();
+            const std::string want = jnext::regedit::refusal_text("BC", jnext::dbg::Result::RefusedRzx);
+            check("QREG-08", desc,
+                  done && closed && f.regs().BC == 0x3456 && f.messages.size() == 1 &&
+                      s(f.messages[0]) == want,
+                  fmt("BC=%04X messages=%d '%s'", f.regs().BC, (int)f.messages.size(),
+                      f.messages.isEmpty() ? "" : s(f.messages[0]).c_str()));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "editing PC on a halted CPU: PC=8000, halted cleared, State reads Running";
+        if (!f.ok) { check("QREG-09", desc, false, "fixture"); }
+        else {
+            f.set_regs([](Z80Registers& r) { r.halted = true; });
+            const QString before = text_of(box_value(f.panel.get(), "State: "));
+            const bool done = edit_value(*f.panel, "PC: ", "8000");
+            f.panel->refresh();
+            const QString after = text_of(box_value(f.panel.get(), "State: "));
+            check("QREG-09", desc,
+                  done && before == "HALTED" && f.regs().PC == 0x8000 && !f.regs().halted && after == "Running",
+                  fmt("State '%s' -> '%s' PC=%04X halted=%d", s(before).c_str(), s(after).c_str(),
+                      f.regs().PC, f.regs().halted));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "PC takes a loaded label (main -> its address); an unknown name is refused "
+                           "with a message and nothing is written";
+        if (!f.ok) { check("QREG-10", desc, false, "fixture"); }
+        else {
+            QTemporaryDir dir;
+            f.dbg->load_map(write_map(dir, "reg.map", "main = $8123\n"), jnext::dbg::MapFormat::Simple);
+            const bool a = edit_value(*f.panel, "PC: ", "main");
+            const uint16_t pc1 = f.regs().PC;
+            const uint64_t rev = f.dbg->state_revision();
+            const bool b = edit_value(*f.panel, "PC: ", "zz!");
+            check("QREG-10", desc,
+                  a && b && pc1 == 0x8123 && f.regs().PC == 0x8123 && f.dbg->state_revision() == rev &&
+                      f.messages.size() == 1 && f.messages[0].contains("zz!"),
+                  fmt("PC=%04X then %04X messages=%d", pc1, f.regs().PC, (int)f.messages.size()));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "an edit of PC moves neither the T-states value nor time_epoch(): the "
+                           "counter shows the same value after the refresh";
+        if (!f.ok) { check("QREG-11", desc, false, "fixture"); }
+        else {
+            f.panel->refresh();
+            f.panel->refresh();
+            QLabel* t = box_value(f.panel.get(), "T-states: ");
+            const QString before = text_of(t);
+            const uint64_t epoch = f.dbg->time_epoch();
+            const uint64_t total = f.dbg->time().tstates_total;
+            const bool done = edit_value(*f.panel, "PC: ", "8000");
+            f.panel->refresh();
+            check("QREG-11", desc,
+                  done && f.regs().PC == 0x8000 && text_of(t) == before &&
+                      f.dbg->time_epoch() == epoch && f.dbg->time().tstates_total == total,
+                  fmt("'%s' -> '%s', epoch %llu -> %llu", s(before).c_str(), s(text_of(t)).c_str(),
+                      static_cast<unsigned long long>(epoch),
+                      static_cast<unsigned long long>(f.dbg->time_epoch())));
+        }
     }
 }
 
@@ -4476,6 +4863,7 @@ int main(int argc, char** argv) {
     test_nextreg_panel();
     test_watch_panel();
     test_panel_attribution();
+    test_cpu_edit();
     test_window_wiring();
     test_dark_palette();
     test_memory_panel();
