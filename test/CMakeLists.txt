@@ -1950,6 +1950,13 @@ if(ENABLE_QT_UI)
     target_include_directories(esp_status_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esp_status_tests COMMAND esp_status_test)
 
+    # GH #540 - --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" shown.
+    add_executable(no_sdcard_ui_test gui/no_sdcard_ui_test.cpp)
+    set_target_properties(no_sdcard_ui_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(no_sdcard_ui_test PRIVATE jnext_gui)
+    target_include_directories(no_sdcard_ui_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME no_sdcard_ui_tests COMMAND no_sdcard_ui_test)
+
     # File > Recent Files wiring (GH #406): what is recorded, the numbered
     # entries, Clear, a vanished file, persistence, the load-dialog seed.
     # Drives the REAL menu actions and load routes of an offscreen MainWindow.

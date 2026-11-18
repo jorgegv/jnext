@@ -708,6 +708,11 @@ private:
     // a fresh log whose sequence restarts at 0, so the sequence on its own can
     // repeat a value already rendered and leave the cell showing pre-reboot
     // text. The id never repeats. Common case is still two integer compares.
+    // GH #540 - "SD: none", shown only in a --no-sdcard session (set_emulator()),
+    // which also disables File > Insert / Eject SD Card: there is no card slot.
+    QLabel*  sd_label_          = nullptr;
+    QAction* insert_sd_action_  = nullptr;
+    QAction* eject_sd_action_   = nullptr;
     QLabel*       esp_label_    = nullptr;
     std::uint64_t esp_seen_id_  = 0;   // 0 = nothing rendered yet (ids start at 1)
     std::uint64_t esp_seen_seq_ = 0;

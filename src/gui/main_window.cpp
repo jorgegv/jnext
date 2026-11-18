@@ -414,6 +414,14 @@ void MainWindow::set_emulator(Emulator* emu) {
         mouse_dispatcher_.reset();
     }
     sync_machine_type_display();
+    // GH #540 - a --no-sdcard session has no card to insert or eject (the
+    // emulator refuses the change too; this says so before it is asked).
+    {
+        const bool no_card = emu && emu->config().no_sdcard;
+        if (insert_sd_action_) insert_sd_action_->setEnabled(!no_card);
+        if (eject_sd_action_)  eject_sd_action_->setEnabled(!no_card);
+        if (sd_label_)         sd_label_->setVisible(no_card);
+    }
     // GH #381 - a rebuilt machine is a different program: what the POK session
     // recorded to undo its trainers belongs to the one that is gone. The dialog,
     // if open, shows what memory holds now.
@@ -922,10 +930,10 @@ void MainWindow::create_menus() {
 
     // GH #93 — a live card change, for NextZXOS's REMOUNT ("Remove/insert SD
     // and press Y"). I and E are free in this popup.
-    QAction* insert_sd = file_menu->addAction(tr("&Insert SD Card Image..."));
-    connect(insert_sd, &QAction::triggered, this, &MainWindow::on_insert_sd);
-    QAction* eject_sd = file_menu->addAction(tr("&Eject SD Card"));
-    connect(eject_sd, &QAction::triggered, this, [this]() { handle_sd_card_path(QString()); });
+    insert_sd_action_ = file_menu->addAction(tr("&Insert SD Card Image..."));
+    connect(insert_sd_action_, &QAction::triggered, this, &MainWindow::on_insert_sd);
+    eject_sd_action_ = file_menu->addAction(tr("&Eject SD Card"));
+    connect(eject_sd_action_, &QAction::triggered, this, [this]() { handle_sd_card_path(QString()); });
 
     file_menu->addSeparator();
 
@@ -1565,7 +1573,15 @@ void MainWindow::create_statusbar() {
     statusBar()->addWidget(emu_speed_label_, 1);
     statusBar()->addWidget(tape_label_, 1);
     statusBar()->addWidget(esp_label_, 1);
+    // GH #540 - hidden unless the session runs --no-sdcard (set_emulator()).
+    sd_label_ = new QLabel(tr("SD: none"));
+    sd_label_->setMinimumWidth(70);
+    sd_label_->setAlignment(Qt::AlignCenter);
+    sd_label_->setToolTip(tr("--no-sdcard: no SD card, no NextZXOS and no ROMs"));
+    sd_label_->setVisible(false);
+
     statusBar()->addWidget(paused_label_, 1);
+    statusBar()->addWidget(sd_label_, 1);
     statusBar()->addPermanentWidget(machine_label_);
 }
 
