@@ -1893,6 +1893,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-the-line-at-pc-is-about-to-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the line at PC is about to do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-right-click-menu" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4457,6 +4468,28 @@ focus — click in it first if you have been typing somewhere else.</p>
   stopped redrawing — gives you the code that is in memory now.</li>
 <li>Copying with nothing selected does nothing; it never clears the clipboard.</li>
 </ul>
+<h2 id="what-the-line-at-pc-is-about-to-do">What the line at PC is about to do<a class="headerlink" href="#what-the-line-at-pc-is-about-to-do" title="Permanent link">&para;</a></h2>
+<p>While the machine is paused, the line at <code>PC</code> ends with a hint in blue, after
+its opcode bytes:</p>
+<ul>
+<li>For a conditional jump, call or return (<code>JP cc</code>, <code>JR cc</code>, <code>CALL cc</code>, <code>RET cc</code>)
+  and for <code>DJNZ</code>, it shows <code>[taken]</code> or <code>[not taken]</code>, judged from the current
+  flags (or from <code>B</code> for <code>DJNZ</code>). For <code>RET cc</code> a taken return also shows where
+  it goes, as <code>[taken -&gt; address]</code>, because the return address is on the stack
+  and not in the instruction.</li>
+<li>For an instruction with a memory operand written as <code>(HL)</code>, <code>(BC)</code>, <code>(DE)</code>,
+  <code>(IX+d)</code>, <code>(IY+d)</code>, <code>(nn)</code> or <code>(SP)</code>, it shows the address and the value
+  there, as <code>[(address)=$value]</code>: a byte, or a word for the 16-bit loads and
+  <code>EX (SP),HL</code>. For <code>(IX+d)</code> this is the only place the final address appears.
+  An address that has a label is shown by its name.</li>
+</ul>
+<p>The hint describes the instruction as it will run from the current state. It is
+read from the registers and memory without disturbing anything, and never from
+an I/O port, so an <code>IN</code> or <code>OUT</code> has none. At a DivMMC or Multiface entry
+point, where the instruction itself switches the memory in, the value is read
+from the memory the instruction will see. A pending interrupt can run before the instruction does,
+and then the hint does not apply. The hint is not copied with the listing, and
+it is not shown while the machine is running.</p>
 <h2 id="the-right-click-menu">The right-click menu<a class="headerlink" href="#the-right-click-menu" title="Permanent link">&para;</a></h2>
 <p>The right-click menu is where most of the day-to-day work happens:</p>
 <table>
