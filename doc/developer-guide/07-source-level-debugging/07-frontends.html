@@ -3193,7 +3193,7 @@ File list's cached items (<code>combo_files_</code>) and the reason <code>report
 <p><code>SourcePanel::refresh_()</code> (<code>source_panel.cpp:615</code>) runs while the machine is paused,
 whenever the window's paused stamp changed (<a href="../03-subsystems/10-2-the-qt-debugger.html">3.10.2</a>:
 the stamp carries a flag for "the loaded file changed on disk",
-<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:977</code>; the flag is
+<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:984</code>; the flag is
 <code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:574</code>). In order:</p>
 <ol>
 <li><code>update_buttons(paused)</code> (<code>source_panel.cpp:516</code>): the forward steps need a paused machine and a
@@ -3235,7 +3235,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 </ol>
 <p><code>follow_pc()</code> (<code>source_panel.cpp:580</code>) clears <code>placed_</code> and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-<code>DebuggerWindow::activate_follow_pc()</code> (<code>debugger_window.cpp:1617</code>) calls it, and
+<code>DebuggerWindow::activate_follow_pc()</code> (<code>debugger_window.cpp:1639</code>) calls it, and
 <code>apply_pause_state(true)</code> runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.</p>
 <h3 id="finding-the-file">Finding the file<a class="headerlink" href="#finding-the-file" title="Permanent link">&para;</a></h3>
@@ -3243,13 +3243,13 @@ already shown still puts the view back.</p>
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading <code>..</code> is dropped.
-<code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:314</code>) takes the
-configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3179</code>, fed by
-<code>apply_startup_config()</code>, <code>:2950</code>: the saved list with the command line's <code>--source-dir</code> or
+<code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:320</code>) takes the
+configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3180</code>, fed by
+<code>apply_startup_config()</code>, <code>:2951</code>: the saved list with the command line's <code>--source-dir</code> or
 <code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:459</code>)
-adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:326</code>). The effective
+adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:332</code>). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-<code>DebuggerManager::push_source_dirs()</code> (<code>debugger_manager.cpp:306</code>) on every change and again in <code>ensure_window()</code>, since the window is
+<code>DebuggerManager::push_source_dirs()</code> (<code>debugger_manager.cpp:312</code>) on every change and again in <code>ensure_window()</code>, since the window is
 created lazily. Locate derives the directory with <code>source_search::root_for()</code>, refuses a file of
 another name, and asks whether to save it; <code>source_dir_save_requested</code> is MainWindow's, which
 appends to <code>[paths] source_dirs</code> and refuses a directory that holds the list separator, as
@@ -3260,12 +3260,12 @@ manager announces each change (<code>source_dirs_changed</code>, because <code>s
 and MainWindow logs <code>Source search path: ...</code>.</p>
 <h3 id="loading-a-map-by-hand">Loading a map by hand<a class="headerlink" href="#loading-a-map-by-hand" title="Permanent link">&para;</a></h3>
 <p>The Source tab's <strong>Load Source Map...</strong> button and the Debug &gt; Source &gt; Load Source Map... item
-are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:871</code>). Its file dialog
+are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:878</code>). Its file dialog
 offers <code>*.sld</code>, <code>*.sld.txt</code> and <code>*.map</code>; the backend tells the format by content
 (<a href="03-loaders.html">7.3</a>), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 <code>load_map()</code>; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:913</code>):
+rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:920</code>):
 the log, and the main window's status bar for ten seconds.</p>
 <h3 id="colouring">Colouring<a class="headerlink" href="#colouring" title="Permanent link">&para;</a></h3>
 <p><code>SourceHighlighter</code> (<code>source_highlighter.*</code>, a <code>QSyntaxHighlighter</code> that exists only in
@@ -3313,7 +3313,7 @@ the log, and the main window's status bar for ten seconds.</p>
   viewport. <code>set_colour_scheme()</code> (<code>source_panel.cpp:565</code>) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections <code>refresh_()</code> builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  <code>DebuggerManager::set_source_scheme()</code> (<code>debugger_manager.cpp:320</code>) and pushed by
+  <code>DebuggerManager::set_source_scheme()</code> (<code>debugger_manager.cpp:326</code>) and pushed by
   <code>ensure_window()</code>, fed by <code>MainWindow::apply_startup_config()</code>.</li>
 <li><strong>What a scheme does not reach.</strong> The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -3376,7 +3376,7 @@ shows the labels and comments; the Source tab does not. How they are stored, sav
 <a href="04-6-user-annotations.html">7.4.6</a>, section 10.</p>
 <h3 id="selection-sync-with-the-disassembly">Selection sync with the Disassembly<a class="headerlink" href="#selection-sync-with-the-disassembly" title="Permanent link">&para;</a></h3>
 <p><code>DebuggerWindow::create_panels()</code> wires the two panels with four <code>connect()</code> calls
-(<code>connect()</code>, <code>debugger_window.cpp:1496-1510</code>), and nothing else couples them. Each carries only what the <em>user</em>
+(<code>connect()</code>, <code>debugger_window.cpp:1518-1532</code>), and nothing else couples them. Each carries only what the <em>user</em>
 did in its sender, so no move echoes.</p>
 <ul>
 <li><strong>Source to Disassembly.</strong> <code>SourcePanel::source_lines_selected(file, first, last, reveal)</code> is
