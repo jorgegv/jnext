@@ -175,7 +175,7 @@ void CpuPanel::create_ui() {
 
     top_layout->addLayout(state_row);
 
-    // === Row 5: T-states since the last stop + Accumulate (GH #369) ===
+    // === Rows 5-6: T-states since the last stop, and its Accumulate box (GH #369) ===
     auto* tstates_row = new QHBoxLayout();
     tstates_row->setSpacing(4);
 
@@ -188,18 +188,23 @@ void CpuPanel::create_ui() {
     tstates_row->addWidget(tstates_value_);
 
     tstates_row->addStretch();
+    top_layout->addLayout(tstates_row);
 
+    // The check box has its own line: beside a 12-digit value it needs 271 px
+    // and the panel is capped at 260 (QPN-CPU-05).
+    auto* accumulate_row = new QHBoxLayout();
     tstates_accumulate_ = new QCheckBox(tr("Accumulate"), this);
     tstates_accumulate_->setToolTip(
         tr("Add up the T-states across stops instead of counting from the last one"));
-    tstates_row->addWidget(tstates_accumulate_);
+    accumulate_row->addWidget(tstates_accumulate_);
+    accumulate_row->addStretch();
     // Straight to the counter: no refresh() and no manager, so no redraw count moves.
     connect(tstates_accumulate_, &QCheckBox::toggled, this, [this](bool on) {
         tstates_.set_accumulate(on);
         tstates_value_->setText(QString::number(tstates_.value()));
     });
 
-    top_layout->addLayout(tstates_row);
+    top_layout->addLayout(accumulate_row);
     top_layout->addStretch();
 
     setMinimumWidth(200);

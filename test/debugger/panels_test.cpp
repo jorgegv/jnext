@@ -638,7 +638,7 @@ static void test_cpu_panel() {
     // QPN-CPU-05 - GH #369: the T-states row. Its oracle is the issue's contract
     // (a "T-states" field, an Accumulate option, 0 at the first stop, unchanged
     // by a redraw that moves no time) and the panel's 260 px width cap: a
-    // 12-digit value and the check box both fit on the one row.
+    // 12-digit value and the check box each fit their row.
     {
         panel.refresh();
         panel.refresh();   // a second paused redraw, no execution between
@@ -652,13 +652,14 @@ static void test_cpu_panel() {
         int need = -1;
         const int avail = 260 - (panel.layout() ? panel.layout()->contentsMargins().left() +
                                                   panel.layout()->contentsMargins().right() : 0);
-        if (value) {
+        if (value && acc) {
             value->setText(QStringLiteral("999999999999"));   // 12 digits
+            int widest = 0;
             for (QHBoxLayout* h : panel.findChildren<QHBoxLayout*>())
-                if (h->indexOf(value) >= 0) {
-                    need = h->minimumSize().width();
-                    fits = need <= avail;
-                }
+                if (h->indexOf(value) >= 0 || h->indexOf(acc) >= 0)
+                    widest = std::max(widest, h->minimumSize().width());
+            need = widest;
+            fits = widest > 0 && widest <= avail;
             value->setText(shown);
         }
         check("QPN-CPU-05",
