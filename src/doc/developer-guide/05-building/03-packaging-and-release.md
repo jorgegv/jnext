@@ -334,7 +334,7 @@ image is its first entry, the inflated image is read by offset, and a directory 
 when its whole chain has gone by. A distribution whose layout would need a second pass (a
 directory's contents stored before the directory) is refused with a message naming the
 cluster; it is not worked around. Its memory is bounded: about 3 MB of heap for the 26.11
-distribution, about 35 MB with `/GAMES,/APPS`, under 50 MiB before any refusal (the FAT copy
+distribution, with `/GAMES,/APPS` the wasm heap grew by 21 MB (BCARD-41), under 50 MiB before any refusal (the FAT copy
 is capped at 16 MiB and the kept data at 32 MiB), and the card itself is a file (MEMFS in the
 browser, not the wasm heap). The 32 MiB bound counts what the builder keeps: each file's SIZE
 and each directory's clusters, not the source's clusters (the distribution's are 32 KiB, which

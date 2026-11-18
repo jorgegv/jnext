@@ -26,10 +26,10 @@
 ///   - the image's FAT #1 (fat_size x 512 bytes; 128.5 KiB for 26.11; refused above 16 MiB);
 ///   - the kept data and its directories: file SIZES plus directory clusters (not the source's
 ///     32 KiB clusters, which the builder does not hold): 2.5 MB for the boot set of 26.11,
-///     about 31.7 MB with /GAMES and /APPS; refused above 32 MiB, which cannot fit a 40 MiB
+///     31.7 MB counted with /GAMES and /APPS; refused above 32 MiB, which cannot fit a 40 MiB
 ///     card anyway, with the exact size and the limit;
 ///   - the FatFs work buffer, 64 KiB; the SHA-256 state.
-/// Total for 26.11: about 3 MB for the plain card, about 35 MB with /GAMES and /APPS. The card itself is a FILE (MEMFS in the browser: JS-side
+/// Total for 26.11: about 3 MB for the plain card; with /GAMES and /APPS the wasm heap grew by 21 MB (BCARD-41). The card itself is a FILE (MEMFS in the browser: JS-side
 /// storage, not the wasm heap). Inflation stops (InflateDone) as soon as the last wanted
 /// cluster has passed (about 166 MB into the image's 1 GiB), after which the rest of the zip
 /// is only hashed.
