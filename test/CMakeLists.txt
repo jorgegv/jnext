@@ -1022,6 +1022,15 @@ target_link_libraries(halt_batch_boot_test PRIVATE
 target_include_directories(halt_batch_boot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME halt_batch_boot_tests COMMAND halt_batch_boot_test)
 
+# GH #499 - fast boot: the decision table (src/platform/fast_boot.h), the core window, a real boot.
+add_executable(fast_boot_test platform/fast_boot_test.cpp)
+target_link_libraries(fast_boot_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(fast_boot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME fast_boot_tests COMMAND fast_boot_test)
+
 add_executable(halt_batch_corpus_1_test core/halt_batch_corpus_1_test.cpp)
 add_executable(halt_batch_corpus_2_test core/halt_batch_corpus_2_test.cpp)
 add_executable(halt_batch_corpus_3_test core/halt_batch_corpus_3_test.cpp)
@@ -1270,6 +1279,13 @@ target_include_directories(window_attach_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(window_attach_test PRIVATE
     JNEXT_DEBUGGER_WINDOW_SRC="${CMAKE_SOURCE_DIR}/src/debugger/debugger_window.cpp")
 add_test(NAME window_attach_tests COMMAND window_attach_test)
+
+# Debugger CPU panel T-state counter (GH #369). Pure start-point / accumulate
+# policy (src/debugger/tstate_counter.h), header-only, no Qt: registered
+# unconditionally like window_attach_test.
+add_executable(tstate_counter_test debugger/tstate_counter_test.cpp)
+target_include_directories(tstate_counter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tstate_counter_tests COMMAND tstate_counter_test)
 
 # Pointer-capture motion policy (issue #37). Pure decision helper under test
 # (src/platform/pointer_capture.h) — no Qt, no SDL, so the logic the frontend

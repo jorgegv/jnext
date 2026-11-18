@@ -82,6 +82,13 @@ namespace frame_sequencer {
 /// must still service repaints between bursts, so the sprint is bounded.
 inline constexpr int FASTLOAD_BURST_LIMIT = 200;
 
+/// GH #499 - the burst is also bounded by wall time: 200 frames took about
+/// 1.6 s at the ~127 fps a window-bound Next boot reaches, and the window
+/// repainted and read keys only once per burst. 50 ms keeps the event loop
+/// answering at 20 Hz; the scheduler resyncs after an overlong tick and ticks
+/// again at once, so the cost is one present and one event pass per 50 ms.
+inline constexpr int64_t FASTLOAD_BURST_BUDGET_US = 50000;
+
 /// Speed > 1x compositor throttle: present at most this often (ms).
 inline constexpr int64_t RENDER_INTERVAL_MS = 20;  // ~50 Hz presentation
 
@@ -296,7 +303,8 @@ public:
             int           burst    = 0;
             const int64_t burst_t0 = fx.now_us();
             while (fx.fastload_active() && burst < FASTLOAD_BURST_LIMIT - 1 &&
-                   !fx.paused()) {
+                   !fx.paused() &&
+                   fx.now_us() - burst_t0 < FASTLOAD_BURST_BUDGET_US) {
                 fx.run_frame(render_this_tick &&
                              render_policy::composite_frame_in_tick(
                                  burst, burst + 2, screenshot_due));

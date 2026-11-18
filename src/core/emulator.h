@@ -743,6 +743,15 @@ public:
     /// needed for tight IN A,(0xFE) loops): frame base + live FUSE counter.
     uint64_t monotonic_tstates() const;
 
+    /// GH #369 - a token for the CLOCK's continuity: it takes a new value
+    /// (unique across every Emulator in the process, never repeated) whenever
+    /// `monotonic_tstates()` may have moved other than by executing: a state
+    /// restore (`load_state()`: rewind, step back, a debugger state load), a
+    /// .jns restore, and a hard `init()` (construction, a cold boot's new
+    /// machine, an in-place .sna/.z80/.szx/.nex/.rzx load, a hard reset). A soft
+    /// reset does not change it: the clock runs on through one.
+    uint64_t time_epoch() const { return time_epoch_; }
+
     /// Access the video recorder.
     VideoRecorder& video_recorder() { return video_recorder_; }
     const VideoRecorder& video_recorder() const { return video_recorder_; }
@@ -836,7 +845,12 @@ public:
     ///     ROM trap served it a block within the last
     ///     FASTLOAD_TAPE_IDLE_FRAMES frames: the gap between a header and
     ///     its data, or a BASIC loader's next `LOAD ""CODE`.
+    ///
+    /// It also covers the fast-boot window (arm_fast_boot(), GH #499): the
+    /// one predicate for "run uncapped, sound card unfed" stays this one, so
+    /// the four platform consumers need no second one.
     bool fastload_active() const {
+        if (fast_boot_frames_left_ > 0) return true;
         if (phantom_typist_.wants_fastload()) return true;
         const bool fast_tape_pending =
             (tape_.is_loaded()     && tape_.fast_load()     && !tape_.at_end()) ||
@@ -844,6 +858,19 @@ public:
         if (!fast_tape_pending) return false;
         return keyboard_.auto_typing() || tape_fastload_frames_left_ > 0;
     }
+    /// GH #499 - fast boot: open a window of `frames` emulated frames in which
+    /// fastload_active() is true (the frontends run uncapped with the sound
+    /// card unfed). Armed once at launch by main.cpp (fast_boot::decide()).
+    /// Closed by: running out, a guest key, a debugger stop, init() without
+    /// preserve_memory (every load and machine change) and load_state(). A
+    /// soft reset keeps it: the Next firmware performs one itself to start
+    /// NextZXOS. Host pacing only: not serialised, changes no emulated state.
+    void arm_fast_boot(uint32_t frames) {
+        fast_boot_frames_left_ = frames; fast_boot_run_ = 0;
+        fast_boot_stops_ = debug_state_.stops_resumed();
+    }
+    /// GH #499 - frames left of that window (0: none).
+    uint32_t fast_boot_frames_left() const { return fast_boot_frames_left_; }
     /// GH #408 - frames a fast tape keeps the emulator uncapped after a
     /// ROM-trap load (one emulated second at 50 Hz). Measured on a synthetic
     /// `10 LOAD ""CODE : PAUSE n : LOAD ""CODE` loader (tap_loader_test
@@ -2398,6 +2425,11 @@ private:
     /// backwards across the per-frame rebase.
     uint64_t tstates_frame_base_ = 0;
 
+    /// `time_epoch()`: taken from one process-wide counter, so a new Emulator
+    /// (a cold boot) never reuses a value an earlier one handed out.
+    uint64_t time_epoch_ = 0;
+    void bump_time_epoch_();
+
     /// GH #265 follow-up (verifier finding 4) — the FUSE T-state counter is
     /// the contention path's raster position: derive_hc_vc() (z80_cpu.cpp)
     /// turns it into (hc, vc). It must therefore equal
@@ -2718,6 +2750,13 @@ private:
     // Host pacing only: not serialised (a restored machine sprints again at
     // its next trapped block).
     uint32_t         tape_fastload_frames_left_ = 0;
+    // GH #499 - fast-boot window (see arm_fast_boot()): frames left, and frames
+    // run since it was armed (for the log line). Host pacing only, not serialised.
+    uint32_t         fast_boot_frames_left_ = 0;
+    uint32_t         fast_boot_run_ = 0;
+    uint64_t         fast_boot_stops_ = 0;   // DebugState::stops_resumed() when armed: a stop and resume closes the window
+    /// Close the window, logging why (only when it was open).
+    void close_fast_boot_(const char* reason);
     /// GH #408 - the one rule for a deck change: whatever replaces or empties
     /// the decks outside a state restore (load_tap, load_tzx, load_wav,
     /// eject_tape) calls this, and the old tape's window goes with it. A .jns

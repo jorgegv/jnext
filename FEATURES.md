@@ -6,6 +6,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - ZX Spectrum 48K, 128K, +2A/+3, Pentagon 128 and ZX Spectrum Next machine types
 - Pentagon personality on the Next (`--machine pentagon`): 128K ROM and paging, uncontended 50 Hz timing, Covox on 0xFB
 - **Native NextZXOS cold boot** through the authentic FPGA chain (bootrom → TBBLUE.FW → NextZXOS) from an SD card image
+- Fast boot: a plain Next start runs its first 15 seconds at full speed with the sound off, until any key (`--fast-boot SECONDS`, Preferences > Startup)
 - FUSE-based Z80 core with all standard opcodes (100% pass rate on FUSE test suite)
 - All 26 Z80N extended opcodes (NEXTREG, MUL, LDIRX, barrel shifts, etc.)
 - Accurate memory contention for 48K, 128K, and +3 timing models
@@ -140,6 +141,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 
 ## Debugger
 - Separate debugger window with full panel layout
+- CPU panel T-state counter: T-states since the last stop, or accumulated across stops
 - Panels: CPU registers, disassembly, memory hex editor, MMU, stack, call stack
 - Memory panel physical-page view: `Slot 0-7` show the page mapped in the slot, `Page...` shows any NR page
 - Panels: video layers, sprites, copper, NextREG, audio, watches, breakpoints

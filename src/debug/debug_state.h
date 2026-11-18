@@ -357,6 +357,12 @@ public:
     /// class a pointer back into the backend.
     uint64_t resume_generation() const { return resume_gen_; }
 
+    /// GH #499 - how many times a machine that WAS paused has been resumed.
+    /// Unlike resume_generation() it is not bumped by a resume() on a running
+    /// machine, so the fast-boot window can tell "a stop happened" from a
+    /// routine call.
+    uint64_t stops_resumed() const { return stops_resumed_; }
+
     /// Drop the "the ring holds something" flag after the ring itself was
     /// emptied from outside a drain (the same restore path).
     void clear_ring_flag() {
@@ -741,7 +747,7 @@ private:
     /// is doing. Guarding here rather than at those call sites covers the ones
     /// that exist and the ones that do not yet.
     void unpause_() {
-        if (paused_) step_off_pending_ = true;
+        if (paused_) { step_off_pending_ = true; ++stops_resumed_; }
         paused_ = false;
         // GH #276 B2 — the stop evidence describes the stop the machine is
         // LEAVING. Cleared here rather than in resume(), because resume() is
@@ -804,6 +810,7 @@ private:
     uint16_t data_bp_addr_ = 0;
     // GH #276 B2 — see note_watch_stop() / note_magic_stop().
     uint64_t resume_gen_ = 0;
+    uint64_t stops_resumed_ = 0;   // GH #499
     bool     watch_stop_ = false;
     bool     watch_stop_is_write_ = false;
     bool     magic_stop_ = false;

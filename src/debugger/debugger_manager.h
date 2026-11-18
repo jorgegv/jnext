@@ -277,6 +277,9 @@ private:
     void ensure_window();
     void update_actions();
 
+    /// GH #369: the CPU panel's T-state count restarts at the current time.
+    void restart_tstate_count();
+
     /// THE ATTACH POLICY, in one place (see the class comment): become a
     /// backend client and request the live raster / stop being one.
     /// Idempotent.
@@ -332,13 +335,15 @@ private:
     /// closed). Every verb is attributed to it.
     jnext::dbg::ClientId client_ = jnext::dbg::CLIENT_NONE;
 
-    // jnext::dbg::Listener, installed for `client_` — only `on_log` is used: it
-    // RECORDS the backend's `REWIND REFUSED:` line (pushed synchronously inside
-    // the refused verb), and the slot that called the verb shows it. No UI work
-    // in the push; the pause state stays PULLED (check_breakpoint_hit()).
+    // jnext::dbg::Listener, installed for `client_` — only `on_log` and `on_reset`
+    // are used. `on_log` RECORDS the backend's `REWIND REFUSED:` line (pushed
+    // synchronously inside the refused verb), and the slot that called the verb
+    // shows it. `on_reset` records a T-state count restart (GH #369) and draws
+    // one label. No window-wide UI work in a push; the pause state stays PULLED
+    // (check_breakpoint_hit()).
     void on_paused(const jnext::dbg::PausedInfo&) override {}
     void on_resumed(jnext::dbg::ClientId) override {}
-    void on_reset(jnext::dbg::ResetKind) override {}
+    void on_reset(jnext::dbg::ResetKind) override { restart_tstate_count(); }
     void on_frame_ended(uint32_t) override {}
     void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
     void on_exit_requested(int) override {}

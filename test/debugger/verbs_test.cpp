@@ -64,6 +64,8 @@
 #include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
+#include <QBoxLayout>
+#include <QCheckBox>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -3696,6 +3698,339 @@ static void test_reexport_ui() {
     }
 }
 
+// ===========================================================================
+// QTS -- the CPU panel's T-state counter (GH #369), through the real manager,
+// window and panels.
+//
+// No VHDL oracle: host debugger UI. The oracles are the issue's contract (the
+// T-states since the last stop; Accumulate; restart when time goes backwards,
+// on a reset or a program load, or when the window opens) and the documented
+// Z80 T-states on uncontended memory: NOP 4, LD A,n 7, CALL nn 17, RET 10. The
+// fixture is a ZX48K with code at 0x8000 and the stack at 0xFF00 (only
+// 0x4000-0x7FFF is contended) and IFF1=0, so nothing else adds T-states.
+// ===========================================================================
+
+/// The value shown beside the CPU panel's "T-states: " label.
+static QString tstates_shown(Fixture& fx) {
+    CpuPanel* cpu = fx.dbg() ? fx.dbg()->cpu_panel() : nullptr;
+    QLabel* anchor = label_with_text(cpu, QStringLiteral("T-states: "));
+    if (!anchor) return QStringLiteral("<no label>");
+    for (QBoxLayout* b : cpu->findChildren<QBoxLayout*>()) {
+        const int idx = b->indexOf(anchor);
+        if (idx < 0) continue;
+        QLayoutItem* it = b->itemAt(idx + 1);
+        auto* v = it ? qobject_cast<QLabel*>(it->widget()) : nullptr;
+        return v ? v->text() : QStringLiteral("<no value>");
+    }
+    return QStringLiteral("<no row>");
+}
+
+static QCheckBox* tstates_box(Fixture& fx) {
+    CpuPanel* cpu = fx.dbg() ? fx.dbg()->cpu_panel() : nullptr;
+    if (!cpu) return nullptr;
+    for (QCheckBox* c : cpu->findChildren<QCheckBox*>())
+        if (c->text() == QLatin1String("Accumulate")) return c;
+    return nullptr;
+}
+
+static void test_tstates() {
+    set_group("QTS");
+
+    {
+        Fixture fx;
+        const char* desc = "Step Into shows each instruction's own cost: NOP 4, then LD A,n 7 (not 11)";
+        if (!fx.ok) { check("QTS-01", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x3E, 0x12, 0x18, 0xFE});   // NOP / LD A,0x12 / JR $
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->on_step_into();
+            const QString a = tstates_shown(fx);
+            fx.mgr->on_step_into();
+            const QString b = tstates_shown(fx);
+            check("QTS-01", desc, a == "4" && b == "7", fmt("'%s' '%s'", s(a).c_str(), s(b).c_str()));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "Step Over across a CALL shows the call and the routine: 17 + 10 = 27";
+        if (!fx.ok) { check("QTS-02", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0xCD, 0x10, 0x80, 0x18, 0xFE});   // CALL $8010 / JR $
+            fx.load(0x8010, {0xC9});                          // RET
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->on_step_over();
+            fx.tick_until_paused();
+            const QString v = tstates_shown(fx);
+            check("QTS-02", desc, fx.pc() == 0x8003 && v == "27",
+                  fmt("PC=%04X '%s'", fx.pc(), s(v).c_str()));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "Run to an Execute breakpoint shows the whole run: NOP, NOP, LD A,n = 15";
+        if (!fx.ok) { check("QTS-03", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x00, 0x3E, 0x12, 0x18, 0xFE});   // NOP NOP LD A,n / JR $
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8004);
+            fx.mgr->on_run();
+            fx.tick_until_paused();
+            const QString v = tstates_shown(fx);
+            check("QTS-03", desc, fx.pc() == 0x8004 && v == "15",
+                  fmt("PC=%04X '%s'", fx.pc(), s(v).c_str()));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "the Accumulate box adds stops up (0, 4, 11); unticking keeps 11 and "
+                           "the next stop shows its own 4";
+        QCheckBox* box = nullptr;
+        if (!fx.ok) { check("QTS-04", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x3E, 0x12, 0x00, 0x18, 0xFE});   // NOP / LD A,n / NOP / JR $
+            fx.regs(PROG);
+            fx.enable();
+            box = tstates_box(fx);
+            if (!box) { check("QTS-04", desc, false, "no Accumulate box"); }
+            else {
+                box->setChecked(true);
+                const QString z = tstates_shown(fx);
+                fx.mgr->on_step_into();
+                const QString a = tstates_shown(fx);
+                fx.mgr->on_step_into();
+                const QString b = tstates_shown(fx);
+                box->setChecked(false);
+                const QString k = tstates_shown(fx);
+                fx.mgr->on_step_into();
+                const QString n = tstates_shown(fx);
+                check("QTS-04", desc, z == "0" && a == "4" && b == "11" && k == "11" && n == "4",
+                      fmt("'%s' '%s' '%s' '%s' '%s'", s(z).c_str(), s(a).c_str(), s(b).c_str(),
+                          s(k).c_str(), s(n).c_str()));
+            }
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "paused redraws that move no time (ticks, a direct refresh) keep the value";
+        if (!fx.ok) { check("QTS-05", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->on_step_into();
+            const QString a = tstates_shown(fx);
+            for (int i = 0; i < 5; ++i) fx.tick();
+            fx.dbg()->cpu_panel()->refresh();
+            fx.dbg()->cpu_panel()->refresh();
+            const QString b = tstates_shown(fx);
+            check("QTS-05", desc, a == "4" && b == "4", fmt("'%s' '%s'", s(a).c_str(), s(b).c_str()));
+        }
+    }
+
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Step Back restarts at 0 with Accumulate on, and the next Step Into shows "
+                           "only its own cost";
+        QCheckBox* box = nullptr;
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QTS-06", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            box = tstates_box(fx);
+            if (!box) { check("QTS-06", desc, false, "no Accumulate box"); }
+            else {
+                box->setChecked(true);
+                fx.mgr->on_step_into();
+                fx.mgr->on_step_into();
+                fx.mgr->on_step_back();
+                const QString z = tstates_shown(fx);
+                const uint64_t t0 = fx.backend->time().tstates_total;
+                fx.mgr->on_step_into();
+                const uint64_t t1 = fx.backend->time().tstates_total;
+                const QString n = tstates_shown(fx);
+                check("QTS-06", desc,
+                      z == "0" && t1 > t0 && n == QString::number(t1 - t0),
+                      fmt("after Step Back '%s'; next '%s' (clock delta %llu)", s(z).c_str(),
+                          s(n).c_str(), static_cast<unsigned long long>(t1 - t0)));
+            }
+        }
+    }
+
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "a rewind to the oldest frame and a FORWARD rewind to the newest both "
+                           "restart the count at 0";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QTS-07", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 5);
+            const auto* rb = fx.emu.rewind_buffer();
+            const uint32_t oldest = rb->oldest_frame_num();
+            const uint32_t newest = rb->newest_frame_num();
+            fx.mgr->on_rewind_to_frame(oldest);
+            const QString a = tstates_shown(fx);
+            fx.mgr->on_rewind_to_frame(newest);
+            const QString b = tstates_shown(fx);
+            check("QTS-07", desc, newest > oldest && a == "0" && b == "0",
+                  fmt("frames %u..%u: '%s' '%s'", oldest, newest, s(a).c_str(), s(b).c_str()));
+        }
+    }
+
+    {
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "a cold boot while the machine runs restarts the count at the reset: "
+                           "the next stop shows now - the new machine's start";
+        if (!fx.ok) { check("QTS-08", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 1);
+            fx.mgr->on_run();
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, fx.emu.config(), std::string(), ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            const uint64_t t0 = fx.backend->time().tstates_total;
+            const QString at_reset = tstates_shown(fx);   // still running: the push repaints the label itself
+            for (int i = 0; i < 3; ++i) fx.tick();
+            fx.mgr->on_pause();
+            fx.tick();
+            const uint64_t now = fx.backend->time().tstates_total;
+            const QString v = tstates_shown(fx);
+            check("QTS-08", desc, now > t0 && v == QString::number(now - t0) && at_reset == "0",
+                  fmt("shown '%s' (at the reset '%s'), now %llu, start %llu", s(v).c_str(), s(at_reset).c_str(),
+                      static_cast<unsigned long long>(now), static_cast<unsigned long long>(t0)));
+        }
+    }
+
+    {
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "opening the debugger window restarts the count at that moment";
+        if (!fx.ok) { check("QTS-09", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 1);
+            fx.mgr->set_enabled(false);            // resumes the machine; window kept
+            for (int i = 0; i < 2; ++i) fx.emu.run_frame();
+            const uint64_t t0 = fx.backend->time().tstates_total;
+            fx.enable();
+            const QString at_open = tstates_shown(fx);   // machine running: the restart repaints the label itself
+            for (int i = 0; i < 2; ++i) fx.tick();
+            fx.mgr->on_pause();
+            fx.tick();
+            const uint64_t now = fx.backend->time().tstates_total;
+            const QString v = tstates_shown(fx);
+            check("QTS-09", desc, now > t0 && v == QString::number(now - t0) && at_open == "0",
+                  fmt("shown '%s', now %llu, window opened at %llu", s(v).c_str(),
+                      static_cast<unsigned long long>(now), static_cast<unsigned long long>(t0)));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "an in-place .jns restore (any in-place load) restarts the count at the next stop: 0, then the next step's own cost";
+        if (!fx.ok) { check("QTS-10", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x00, 0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->on_step_into();
+            const std::string jns = (QDir(g_tmp->path()).filePath("gh369b.jns")).toStdString();
+            const bool saved = fx.emu.save_jns_file(jns);
+            fx.mgr->on_step_into();
+            const bool loaded = fx.emu.load_jns_file(jns);
+            const uint64_t t0 = fx.backend->time().tstates_total;
+            fx.mgr->on_step_into();
+            const QString a = tstates_shown(fx);
+            const uint64_t t1 = fx.backend->time().tstates_total;
+            fx.mgr->on_step_into();
+            const QString b = tstates_shown(fx);
+            const uint64_t t2 = fx.backend->time().tstates_total;
+            check("QTS-10", desc, saved && loaded && a == "0" && t2 > t1 && b == QString::number(t2 - t1),
+                  fmt("saved=%d loaded=%d '%s' '%s' clock %llu %llu %llu", saved, loaded, s(a).c_str(), s(b).c_str(),
+                      (unsigned long long)t0, (unsigned long long)t1, (unsigned long long)t2));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "ticking Accumulate after a stop that showed 4 shows 0 at once, before any further stop";
+        QCheckBox* box = nullptr;
+        if (!fx.ok) { check("QTS-11", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->on_step_into();
+            const QString before = tstates_shown(fx);
+            box = tstates_box(fx);
+            if (box) box->setChecked(true);
+            const QString after = tstates_shown(fx);
+            check("QTS-11", desc, box && before == "4" && after == "0",
+                  fmt("'%s' then '%s'", s(before).c_str(), s(after).c_str()));
+        }
+    }
+
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "a REFUSED rewind (frame outside the ring) keeps the count on show";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QTS-12", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            fx.mgr->on_step_into();
+            const QString before = tstates_shown(fx);
+            fx.mgr->on_rewind_to_frame(99999);
+            const QString after = tstates_shown(fx);
+            check("QTS-12", desc, before != "0" && after == before,
+                  fmt("'%s' then '%s'", s(before).c_str(), s(after).c_str()));
+        }
+    }
+
+    {
+        // QtApp::cold_boot() for a menu / Quick Load, then the deferred in-place
+        // load a few ticks later (qt_app.cpp pre_frames()). A .jns restores its
+        // SAVED total, so time jumps forward without program_loads() moving; the
+        // restore goes through load_state(), which moves time_epoch().
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "a deferred in-place .jns load after a cold boot restarts the count: the next "
+                           "stop shows 0, not the saved session (no program_loads() involved)";
+        if (!fx.ok) { check("QTS-13", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 21);
+            const std::string jns = (QDir(g_tmp->path()).filePath("gh369.jns")).toStdString();
+            const bool saved = fx.emu.save_jns_file(jns);
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, fx.emu.config(), std::string(), ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            const bool loaded = emulator_apply_load(fx.emu, jns, false);   // the deferred in-place load: the saved total comes back
+            const uint64_t t0 = fx.backend->time().tstates_total;
+            fx.mgr->on_run();
+            for (int i = 0; i < 2; ++i) fx.tick();
+            fx.mgr->on_pause();
+            fx.tick();
+            const uint64_t now = fx.backend->time().tstates_total;
+            const QString v = tstates_shown(fx);
+            check("QTS-13", desc, saved && loaded && t0 > 100000 && now > t0 && v == "0",
+                  fmt("saved=%d loaded=%d shown '%s' (want 0; run since the load %llu), time at load %llu", saved, loaded,
+                      s(v).c_str(), static_cast<unsigned long long>(now - t0),
+                      static_cast<unsigned long long>(t0)));
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -3729,6 +4064,7 @@ int main(int argc, char** argv) {
     test_map_load();
     test_annotations_ui();
     test_reexport_ui();
+    test_tstates();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

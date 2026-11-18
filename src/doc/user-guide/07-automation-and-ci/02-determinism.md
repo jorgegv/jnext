@@ -12,6 +12,12 @@ The same applies to the exit bound: `--delayed-automatic-exit-frames`
 overrides `--delayed-automatic-exit` when both are given. **Use the frame forms
 for anything you intend to compare.**
 
+**Fast boot never gets in the way.** The Next's fast boot (the first 15 seconds
+of a plain start at full speed) is not armed when the command line schedules
+work on the emulated timeline, loads a program or records, it has no effect
+under `--headless`, and it never changes the emulated machine, only how fast
+the host runs it.
+
 **Pin the clock.** Anything that draws the date or time — the NextZXOS menu,
 most obviously — changes between runs. `--rtc` freezes it:
 

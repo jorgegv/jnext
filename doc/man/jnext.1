@@ -379,6 +379,30 @@ Clamped to 10..1000.
 Works in the GUI and the SDL\-only build; \f[B]\-\-headless\f[R] runs
 uncapped, so there it has no effect, and \f[B]jnext\f[R] warns.
 .TP
+\f[B]\-\-fast\-boot\f[R] \f[I]SECONDS\f[R]
+Run the first SECONDS of a plain Next start at maximum speed with the
+sound off, 0 to 60 (default 15, 0 = off).
+The firmware splash and the NextZXOS start\-up pass in a few seconds
+instead of about twelve.
+It ends at once on the first key the guest sees (Shift is a good one: it
+does nothing else), when the time is up (counted as 50 frames per
+second), when a debugger stop happens, or when a load or machine change
+resets the machine; the key is delivered as usual.
+Only the Next machine, and never when a program is loaded at start
+(\f[B]\-\-load\f[R], \f[B]\-\-inject\f[R], \f[B]\-\-rzx\-play\f[R]),
+when the command line schedules work on the emulated timeline
+(\f[B]\-\-delayed\-screenshot\f[R],
+\f[B]\-\-delayed\-automatic\-exit\f[R],
+\f[B]\-\-delayed\-pok\-frames\f[R], \f[B]\-\-script\f[R]) or when a
+recording runs.
+It applies to the launch only: a later hard reset boots at normal speed.
+It never changes the emulated machine.
+To reach the firmware menu, press SPACE while the splash shows, or set
+it to 0.
+\f[B]\-\-headless\f[R] runs uncapped already, so there it has no effect,
+and \f[B]jnext\f[R] warns.
+The same as \f[CR]\-\-set startup.fast_boot_seconds\f[R].
+.TP
 \f[B]\-\-when\-slow\-prefer\f[R] \f[I]WHAT\f[R]
 What to sacrifice on a host that cannot emulate in real time:
 \f[CR]audio\f[R] (default) or \f[CR]video\f[R].
@@ -1646,6 +1670,11 @@ All frontends.
 Automatic tape play and stop; \f[B]\-\-tape\-auto\-play\f[R] and
 \f[B]\-\-no\-tape\-auto\-play\f[R].
 All frontends.
+.TP
+\f[CR]startup.fast_boot_seconds\f[R] \f[I]0..60\f[R]
+Seconds of a plain Next start run at maximum speed, 0 = off;
+\f[B]\-\-fast\-boot\f[R].
+The Qt window and the SDL\-only build.
 .TP
 \f[CR]startup.when_slow_prefer\f[R] \f[I]audio|video\f[R]
 What a host too slow for real time sacrifices;

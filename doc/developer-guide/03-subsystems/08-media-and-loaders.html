@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3317,6 +3317,8 @@ routine is never intercepted, and real time is then the only way it will load.
 The real-time players cover the pure-EAR turbo loaders too: a TZX Direct
 Recording block (0x15) plays as a TZX block, and WAV playback interpolates the
 edge position inside a sample, which is what DeciLoad's 12k8 loader needs.</p>
+<p>(<code>fastload_active()</code> also covers the fast-boot window of a plain Next start;
+see <a href="../02-architecture/03-a-frame-end-to-end.html">A frame, end to end</a>.)</p>
 <p><strong>A fast load also runs the machine uncapped</strong>, so the BASIC between the blocks
 does not cost real time: <code>Emulator::fastload_active()</code> drops the frame pacing (the
 Qt frontend runs up to 200 frames per tick, the SDL one skips its delay) and the

@@ -21,3 +21,12 @@ Move with the cursor keys and select with **Enter**.
 
 If you reached this screen, everything works. The whole sequence takes a few
 seconds.
+
+**Fast boot.** A plain Next start (no program to load) runs its first 15
+seconds at full speed with the sound off, so the splash and the welcome pass
+quickly instead of taking about twelve seconds. Press any key to return to
+normal speed at once; **Shift** is a good choice, as it does nothing else. The
+key you press still reaches the program. To reach the firmware's own menu, press
+**Space** while the splash shows, or set **Fast boot** to Off in
+**Settings > Preferences** (`--fast-boot 0` for one run, `--fast-boot SECONDS`
+for another length).

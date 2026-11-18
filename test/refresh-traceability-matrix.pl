@@ -1137,6 +1137,7 @@ my %NO_MATRIX_SECTION = (
     'sdcard_upgrade_box_test' => 'SDL message box offering a newer NextZXOS image (host UI, GH #476)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
     'sdl_app_tick_test' => 'SdlApp::tick() host frame-loop iteration (host UI, GH #462)',
+    'fast_boot_test' => 'fast boot (GH #499): host pacing of the first seconds of a Next start; no hardware counterpart',
     'web_api_test' => 'browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465)',
     'browser_policy_test' => 'browser page rAF callback gate and refusals (host UI, GH #463)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
@@ -1175,6 +1176,7 @@ my %NO_MATRIX_SECTION = (
     # here would make this document's content depend on the host's build
     # configuration, which a traceability record must not.
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
+    'tstate_counter_test'       => 'debugger CPU panel T-state counter start point and accumulate policy (host GUI, no VHDL oracle)',
     'quit_cleanup_test'         => 'host shutdown ordering (GUI lifecycle)',
     'toolbar_icons_test'        => 'toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md)',
     'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',

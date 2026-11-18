@@ -267,6 +267,7 @@ BEGIN {
     M["debugger_halt_batch_test"]      = "Debugger HALT batch (GUI)"
     M["debugger_inspect_watchpoint_test"] = "Debugger Inspection Reads"
     M["window_attach_test"]            = "Debugger Window Attach"
+    M["tstate_counter_test"]          = "Debugger T-State Counter"
     M["debugger_window_size_test"]     = "Debugger Window Sizing"
     M["debugger_window_grow_test"]     = "Debugger Window Growing"
     M["debugger_accel_test"]           = "Debugger Accelerators"

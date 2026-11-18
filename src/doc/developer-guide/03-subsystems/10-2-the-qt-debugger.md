@@ -65,9 +65,10 @@ keeps for this, and it is presentation state, not a copy of the machine's.
 `QtApp::TickEffects::post_frames()`, for the Pause checkmark and the status
 bar's Paused cell, with or without the debugger built in.
 
-The listener records and returns: a listener runs inside `pump()` and does no UI
+The listener records and returns: a listener runs inside `pump()` and does no window-wide UI
 work. A breakpoint change another client made arrives as
-`SubscriptionsChanged`; the model records it and the tick publishes it.
+`SubscriptionsChanged`; the model records it and the tick publishes it. `Reset` records a
+restart of the CPU panel's T-state count and draws that one label.
 
 ## Panels
 
@@ -75,7 +76,7 @@ work. A breakpoint change another client made arrives as
 
 | Panel | Reads | Writes |
 |---|---|---|
-| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()` | — |
+| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | — |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
 | Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
@@ -97,9 +98,24 @@ reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
-**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:980`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:370`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:969`; `PausedStamp`,
+**The CPU panel's T-state counter.** Where a count starts is a frontend choice, as with ZRCP's partial
+counter (`get-tstates-partial` keeps its own base over `time().tstates_total`): the start point and the
+Accumulate policy live in `jnext::TstateCounter` (`src/debugger/tstate_counter.h`, pure, no Qt), fed by
+`CpuPanel::refresh()` on every paused redraw, so any stop counts, whoever caused it, and a redraw that moves no
+time changes nothing. One mechanism detects a discontinuity: `Debugger::time_epoch()`, a token the Emulator
+re-takes (from a process-wide counter, so a cold boot's new machine never repeats one) wherever time moves
+without executing: `load_state()` (Step Back, a rewind in either direction, another client's
+`load_state_bytes()`, a `.jns` restore, which runs through it), and a hard `init()` (a cold boot, a hard reset, every in-place
+snapshot or program load, whoever or whatever started it). The counter restarts at the first stop that sees a
+new epoch. A soft reset leaves the epoch alone: the total runs on through one. Two restarts are pushed because
+the epoch cannot say where they start: `Reset` (a cold boot while running: counted from the reset, not from the
+next stop) and opening the window (nothing is observed while it is closed), both through
+`CpuPanel::restart_tstate_count()`. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `INS-07-04`..`INS-07-10`
+(each epoch bump site, a remote client's included), `QPN-CPU-05`, `QTS-01`..`QTS-13`.
+
+**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:988`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:375`: ~4 Hz). Paused, it
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:977`; `PausedStamp`,
 `debugger_manager.h:245`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:
@@ -122,7 +138,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:574`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:960`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:968`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,

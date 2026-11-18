@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4330,6 +4330,15 @@
 <li><strong>State</strong> — <code>Running</code>, or <code>HALTED</code> in red when the CPU is in a <code>HALT</code></li>
 <li><strong>Screen</strong> — which bank the ULA is displaying (<code>Bank 5</code> or <code>Bank 7</code>), plus the
   Timex mode when one is active (<code>Alt</code>, <code>HiCol</code>, <code>HiRes</code>)</li>
+<li><strong>T-states</strong> — the CPU T-states executed since the last stop. After a single
+  step it is what that instruction took; after a run to a breakpoint, a Step Over
+  or a Pause, what the whole run took. Tick <strong>Accumulate</strong> to add the stops up
+  instead: the total starts at 0 when you tick it and grows across steps and
+  runs until you untick it. The count starts again at 0 at the next stop whenever time was moved without
+  running: Step Back, Frame Back, the rewind bar, Reverse Continue, a snapshot or
+  state load (also by a remote debugger), a program load or a hard reset; and when
+  the debugger window opens. A soft reset does not restart it. At 7, 14 or 28 MHz each instruction counts its own T-states at the
+  speed in force (a NOP is 4 at any speed).</li>
 </ul>
 <p>All values are read-only here; to change memory or a NextREG use the Memory or
 NextREG panels.</p>
