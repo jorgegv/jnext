@@ -49,6 +49,8 @@ if want sdcard2-func; then
         }
         clone_a d
         clone_a control
+        clone_a writes
+        clone_a warm
 
         # Card 2: 64 MiB, an MBR with one FAT32 (type 0x0C) partition from sector
         # 2048, formatted with one-sector clusters so it has more than 65 525 of them.
@@ -104,6 +106,46 @@ if want sdcard2-func; then
             || faults+=("d: NextZXOS did not run MAGIC.NEX from D:")
         grep -qF "Hello from ZX Next!" "$W/control.log" \
             && faults+=("control: MAGIC.NEX ran without a second card, so the d result proves nothing")
+
+        # writes: --sdcard2-writes binds the journal to the SECOND card's image (the mount of
+        # card 2 says it opened with a write journal) and the image is not written.
+        rc=0
+        cksum_before=$(cksum < "$CARD2")
+        JNEXT_CONFIG_DIR="$BASE/writes" timeout --foreground --kill-after=5s 120s \
+            "$JNEXT" --headless --machine 48k --rewind-buffer-size 0 \
+                     --sdcard2 "$CARD2" --sdcard2-writes "$W/w.jsdw" \
+                     --delayed-automatic-exit-frames 20 > "$W/writes.log" 2>&1 || rc=$?
+        [[ $rc -eq 0 ]] || faults+=("writes: the run exited $rc")
+        grep -qF "SD image opened with a write journal: $CARD2" "$W/writes.log" \
+            || faults+=("writes: the second card was not opened with a write journal")
+        grep -qF "second SD card writes are kept in $W/w.jsdw" "$W/writes.log" \
+            || faults+=("writes: the journal was not bound for the second card")
+        [[ "$(cksum < "$CARD2")" == "$cksum_before" ]] || faults+=("writes: the second card's image changed")
+
+        # warm: the warm-start recording boots with the second card and is keyed on it
+        # (header magic JNEXTWS4, the card's size at offset 96); a run without the card
+        # refuses it and records again.
+        WARM_NEX="$PROJECT_DIR/test/00regression/nex/tilemap_demo.nex"
+        warm_run() {   # warm_run <label> [extra args...]
+            local label=$1 rc=0; shift
+            JNEXT_CONFIG_DIR="$BASE/warm" timeout --foreground --kill-after=5s 120s \
+                "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" --load "$WARM_NEX" "$@" \
+                         --delayed-automatic-exit-frames 10 > "$W/$label.log" 2>&1 || rc=$?
+            [[ $rc -eq 0 ]] || faults+=("$label: the run exited $rc")
+        }
+        warm_run warm1 --sdcard2 "$CARD2"
+        wfile=$(ls "$BASE"/warm/warm-start/*.jwss 2>/dev/null | head -1 || true)
+        if [[ -s "$wfile" ]]; then
+            [[ "$(head -c 8 "$wfile")" == "JNEXTWS4" ]] || faults+=("warm: the cache magic is not JNEXTWS4")
+            wsize=$(dd if="$wfile" bs=1 skip=96 count=8 status=none | od -An -tu8 | tr -d ' ')
+            [[ "$wsize" == "$(stat -c%s "$CARD2")" ]] \
+                || faults+=("warm: the second card's size is not in the cache header (got '$wsize')")
+            warm_run warm2
+            grep -qF "recorded with a different second SD card" "$W/warm2.log" \
+                || faults+=("warm: a run without the second card did not refuse the recording")
+        else
+            faults+=("warm: no warm-start cache was written for the run with a second card")
+        fi
 
         # refused: card 0 is CARD2 where the second card is the thing under test (the
         # run never starts: every refusal is at parse time, on a 48K headless machine).
