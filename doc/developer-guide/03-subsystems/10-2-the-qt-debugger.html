@@ -3388,7 +3388,8 @@ refuse a value by name, makes <code>render_combo()</code> canonical, and makes t
 testable without a widget. <code>validate_combo()</code> refuses the combinations that
 would break something else: anything without Ctrl, Alt or Meta that is not
 <code>F1</code>-<code>F12</code> (the Memory panel types hex with bare keys), <code>Alt</code>+letter (the menu
-bar's), <code>Alt</code>+<code>1</code>..<code>8</code> (the script host keys), and <code>Ctrl+C</code> / <code>Ctrl+A</code>.</p>
+bar's), <code>Alt</code>+<code>1</code>..<code>8</code> (the script host keys), <code>Ctrl+C</code> / <code>Ctrl+A</code>, and, where
+the host modifier is Command, Command+<code>L</code> (Reload Last File).</p>
 <p><strong>A chord both windows bind is a warning, not a conflict.</strong> <code>Qt::WindowShortcut</code>
 matches against the active window, and each window keeps its own binding, so a
 chord the emulator window binds (<code>harvest_host_chords()</code> reads them off the real
@@ -3398,6 +3399,16 @@ Preferences tab refuses such a capture. <code>build_keymap()</code> resolves a h
 file deterministically — explicit beats default, the earlier action beats the
 later, the loser is left unbound — and every refusal becomes a <code>LoadIssue</code> that
 <code>MainWindow</code> logs at error level and the tab lists.</p>
+<p><strong>File &gt; Reload Last File is not a keymap action.</strong> The debugger window's File menu holds its
+OWN <code>QAction</code>, carrying the host chord (<code>host_shortcuts::sequence()</code>, Alt+L; Command+L on
+macOS). <code>DebuggerManager::set_reload_action()</code> hands the manager the emulator window's
+<code>reload_last_action_</code>, and <code>DebuggerWindow::set_reload_source()</code> connects the two: triggering
+forwards to that action, and <code>QAction::changed</code> mirrors its enabled state. So there is one
+handler (the File &gt; Open route, with the Recent Files bookkeeping) and one enabled state.
+Two designs were rejected. One shared <code>QAction</code> would be invisible to the guards, which walk
+<code>findChildren()</code> of the debugger window, and <code>jnext_debugger</code> cannot name <code>MainWindow</code>.
+<code>Debugger::load()</code> is an in-place load with no Recent Files bookkeeping, and it drops the
+<code>SidecarLoad</code>, so a refused map would only be logged.</p>
 <p><code>MainWindow</code> keeps the map in effect in <code>debug_keys_</code>. Both its forwarding of
 the five execution keys (<code>run</code>, <code>pause</code>, <code>step_into</code>, <code>step_over</code>, <code>step_out</code>)
 and the push into <code>DebuggerWindow::set_keymap()</code> read that member, so the two

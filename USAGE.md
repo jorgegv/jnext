@@ -2525,12 +2525,13 @@ MAPPING** below).
 **File**  
 Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
 opens POK Trainers instead, without a reset), Recent Files (the last ten
-loaded, newest first) and Reload Last File (Alt+L), Insert SD Card Image
-/ Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4
-Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save
-Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
-(Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot
-(Alt+Shift+F9) (see **JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
+loaded, newest first) and Reload Last File (Alt+L; also in the debugger
+window’s File menu), Insert SD Card Image / Eject SD Card (see
+**CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) /
+Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save Screenshot
+(Alt+S), Quick Screenshot (Alt+K), Save Snapshot (Alt+Shift+S), Quick
+Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see
+**JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
 
 **Save Screenshot…** asks for a name; the extension chooses the format
 (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
