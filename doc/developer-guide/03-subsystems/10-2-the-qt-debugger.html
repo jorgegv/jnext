@@ -3119,6 +3119,17 @@ access mask. An I/O address <code>00</code>-<code>FF</code> is a low-byte match 
 nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.</p>
+<p>The model also converts its own rows to and from the breakpoint file codec
+(<code>script/bp_script.h</code>, see <a href="13-the-debugger-scripting-language.html">3.10.6</a>):
+<code>script_specs()</code> returns them as <code>BpSpec</code> in list order, and <code>add_specs()</code> adds a
+file's breakpoints to the current set, applying the file's On state to each and
+reusing a source-line group already armed on the same places (<code>add_source_line()</code> is
+not idempotent). A source-line row is saved by the text it was set with, which the
+model keeps per group (<code>group_lines_</code>) and the codec checks against the source map's
+resolution. The manager's <code>on_save_breakpoints_script()</code> / <code>on_load_breakpoints_script()</code>
+behind the Breakpoints menu's <em>Save as Script...</em> / <em>Load from Script...</em> do the file
+dialogs, the write (<code>QSaveFile</code>) and the warning boxes; the last path is
+remembered for the session only. Rows: <code>QBPJ-*</code> in <code>debugger_verbs_test</code>.</p>
 <p>The Breakpoints panel, the disassembly gutter and context menu, and the window's
 Breakpoints menu all edit this one model. The panel lists every client's
 subscriptions; another client's are read-only and named by client id. The

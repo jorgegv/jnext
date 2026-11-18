@@ -3017,10 +3017,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#address-filters-execute-read-write" class="md-nav__link">
+  <a href="#address-filters-execute-read-write-read_write" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Address filters: execute, read, write
+        Address filters: execute, read, write, read_write
       
     </span>
   </a>
@@ -4499,6 +4499,10 @@ describe this occurrence of the event.</p>
 <td>a memory read or write</td>
 </tr>
 <tr>
+<td><code>read_write</code> <em>addr</em></td>
+<td>a memory read or a write, as one rule</td>
+</tr>
+<tr>
 <td><code>io_read</code> <em>port</em>, <code>io_write</code> <em>port</em></td>
 <td>a port read or write</td>
 </tr>
@@ -4609,12 +4613,13 @@ delivered at one boundary; if more happen (a Copper program busy through a
 long <code>LDIR</code>, say) the first 512 are delivered and the run logs <code>SCRIPT: event
 ring overflowed at CYCLE …, N events dropped</code> — a script cannot see the
 dropped ones, and it is told so rather than left to guess.</p>
-<h2 id="address-filters-execute-read-write">Address filters: <code>execute</code>, <code>read</code>, <code>write</code><a class="headerlink" href="#address-filters-execute-read-write" title="Permanent link">&para;</a></h2>
+<h2 id="address-filters-execute-read-write-read_write">Address filters: <code>execute</code>, <code>read</code>, <code>write</code>, <code>read_write</code><a class="headerlink" href="#address-filters-execute-read-write-read_write" title="Permanent link">&para;</a></h2>
 <pre><code>on execute 0x0038 do …                 ; one address
 on write 0x4000..0x57FF do …           ; an inclusive range
 on write @buffer..(@buffer + 255) do … ; symbols and expressions
 on write 0x5C00..0x5CFF page 0x0A do … ; …and only when the slot holds page 0x0A
 on write page 0x0A..0x0B do …          ; any address, while in pages 0x0A..0x0B
+on read_write 0x9000 do …              ; a read or a write of 0x9000, one rule
 on execute page 0x00 do …              ; any instruction in page 0x00
 on execute main.c:19 do …              ; a source line (needs a source map)
 on execute &quot;my dir/main.c:19&quot; do …     ; the same, for a name with spaces
@@ -4638,12 +4643,14 @@ up to 16 pages.</p>
 <th><code>execute</code></th>
 <th><code>read</code></th>
 <th><code>write</code></th>
+<th><code>read_write</code></th>
 <th>Meaning</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>ADDR</code></td>
+<td>✓</td>
 <td>✓</td>
 <td>✓</td>
 <td>✓</td>
@@ -4654,11 +4661,13 @@ up to 16 pages.</p>
 <td>✓</td>
 <td>✓</td>
 <td>✓</td>
+<td>✓</td>
 <td>the physical 8K page behind <code>ADDR</code></td>
 </tr>
 <tr>
 <td><code>VALUE</code></td>
 <td></td>
+<td>✓</td>
 <td>✓</td>
 <td>✓</td>
 <td>the byte read or written</td>
@@ -4668,11 +4677,13 @@ up to 16 pages.</p>
 <td></td>
 <td></td>
 <td>✓</td>
+<td></td>
 <td>the byte before the write</td>
 </tr>
 <tr>
 <td><code>SOURCE</code></td>
 <td></td>
+<td>✓</td>
 <td>✓</td>
 <td>✓</td>
 <td>who did it: <code>CPU</code>, <code>DMA</code> or <code>COPPER</code></td>
@@ -4682,10 +4693,14 @@ up to 16 pages.</p>
 <td>✓</td>
 <td>✓</td>
 <td>✓</td>
+<td>✓</td>
 <td>the instruction</td>
 </tr>
 </tbody>
 </table>
+<p><code>read_write</code> takes the same filters as <code>write</code> and fires on both kinds of
+access; it carries no <code>PREV</code>, because a read has no previous byte. It is the
+rule the Breakpoints panel's Read/Write type becomes in a saved breakpoint file.</p>
 <p>One caveat on <code>PAGE</code>: the DivMMC, Multiface and Layer 2 overlays sit in front
 of the MMU, and a write one of them captures is still seen (which is what you
 want when guarding memory) but <code>PAGE</code> names the MMU slot's page, not the
