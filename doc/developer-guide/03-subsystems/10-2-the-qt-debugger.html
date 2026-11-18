@@ -3249,7 +3249,7 @@ snapshot or program load, whoever or whatever started it). The counter restarts 
 new epoch. A soft reset leaves the epoch alone: the total runs on through one. Two restarts are pushed because
 the epoch cannot say where they start: <code>Reset</code> (a cold boot while running: counted from the reset, not from the
 next stop) and opening the window (nothing is observed while it is closed), both through
-<code>CpuPanel::restart_tstate_count()</code>. Rows: <code>TSC-01</code>..<code>TSC-11</code> (<code>tstate_counter_test</code>), <code>INS-07-04</code>..<code>INS-07-09</code>
+<code>CpuPanel::restart_tstate_count()</code>. Rows: <code>TSC-01</code>..<code>TSC-11</code> (<code>tstate_counter_test</code>), <code>INS-07-04</code>..<code>INS-07-10</code>
 (each epoch bump site, a remote client's included), <code>QPN-CPU-05</code>, <code>QTS-01</code>..<code>QTS-13</code>.</p>
 <p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:988</code>)
 redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:375</code>: ~4 Hz). Paused, it
