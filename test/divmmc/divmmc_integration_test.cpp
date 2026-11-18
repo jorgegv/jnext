@@ -520,6 +520,10 @@ static void test_second_sd_card() {
         Emulator emu;
         emu.init(two_card_config(card_a, card_b));
         PortSd g{emu};
+        // A Next booted with a card starts in config mode (the firmware runs there);
+        // leave it as the firmware does ("010" keeps the machine type, :5147-5149).
+        emu.port().out(0x243B, 0x03);
+        emu.port().out(0x253B, 0x02);
         const bool cfg_mode = emu.nextreg().nr_03_config_mode();
         emu.port().out(0x243B, 0x0A);
         emu.port().out(0x253B, 0x20);               // ignored outside config mode
