@@ -1,8 +1,9 @@
 // NextZXOS's SD card in the browser: the card is made in the visitor's browser from the
 // official distribution zip on specnext.com (fetched by the page when specnext.com
-// allows it, or chosen by the visitor after downloading it), checked, kept in the Cache API
-// under the card's own SHA-256, and put in the in-memory filesystem. The zip itself is never
-// kept. It also persists in IndexedDB the warm-start recording and, for a page that asks
+// allows it, or chosen by the visitor after downloading it), checked, kept gzipped in the Cache
+// API under the card's own SHA-256 (about 1.1 MB for the 40 MiB card, which is mostly zeros;
+// raw where the browser has no compression streams), and put in the in-memory filesystem. The
+// zip itself is never kept. It also persists in IndexedDB the warm-start recording and, for a page that asks
 // (keepWrites), the sectors the guest wrote to the card and the file JNEXT's esxDOS
 // stand-in keeps for it (one journal file holds both).
 //
@@ -32,7 +33,10 @@
 (function (root) {
   'use strict';
 
-  var CACHE_NAME = 'jnext-sdcard-v1';
+  // v2 holds every entry gzipped where the browser can (see packed()). v1 (earlier releases)
+  // held the card raw: cachedCard moves a good v1 entry over and deletes the cache.
+  var CACHE_NAME = 'jnext-sdcard-v2';
+  var OLD_CACHE = 'jnext-sdcard-v1';
   // Cache keys of the built card: one per card SHA-256. The host is a reserved name that can
   // never be fetched, so the key is only a label.
   var CARD_HOST = 'https://card.jnext.invalid/';
@@ -60,6 +64,26 @@
     }
   }
 
+  // Read a stream to its end into one buffer. A stream that errors (a decompressor that finds a
+  // bad checksum or a cut input) rejects here, because that is only known at the end.
+  function readAll(stream, onChunk) {
+    var reader = stream.getReader(), chunks = [], got = 0;
+    function pump() {
+      return reader.read().then(function (r) {
+        if (r.done) return null;
+        chunks.push(r.value);
+        got += r.value.length;
+        if (onChunk) onChunk(got);
+        return pump();
+      });
+    }
+    return pump().then(function () {
+      var out = new Uint8Array(got), off = 0;
+      for (var i = 0; i < chunks.length; i++) { out.set(chunks[i], off); off += chunks[i].length; }
+      return out;
+    });
+  }
+
   // Read a response body, reporting received/total when the length is known and
   // the body is not content-encoded (otherwise the byte count does not match).
   function readBody(resp, onProgress) {
@@ -69,21 +93,30 @@
     if (!resp.body || !resp.body.getReader) {
       return resp.arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
     }
-    var reader = resp.body.getReader(), chunks = [], got = 0;
-    function pump() {
-      return reader.read().then(function (r) {
-        if (r.done) return null;
-        chunks.push(r.value);
-        got += r.value.length;
-        if (total > 0 && onProgress) onProgress('download', Math.min(got / total, 1));
-        return pump();
-      });
-    }
-    return pump().then(function () {
-      var out = new Uint8Array(got), off = 0;
-      for (var i = 0; i < chunks.length; i++) { out.set(chunks[i], off); off += chunks[i].length; }
-      return out;
+    return readAll(resp.body, function (got) {
+      if (total > 0 && onProgress) onProgress('download', Math.min(got / total, 1));
     });
+  }
+
+  // The stored form of a card, in ONE place. Gzip where the browser has both compression
+  // streams (the card is mostly zeros: 40 MiB becomes about 1.1 MB); the bytes as they are
+  // otherwise. Evaluated at call time.
+  function canGzip() {
+    return typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
+  }
+
+  function packed(bytes) {
+    return canGzip()
+      ? new Response(new Response(bytes).body.pipeThrough(new CompressionStream('gzip')))
+      : new Response(bytes);
+  }
+
+  // The bytes of a stored entry. For the gzip form the decompressor checks the CRC-32 and the
+  // length in gzip's trailer and rejects a cut or altered entry, only at the end of the stream:
+  // any rejection here means the entry is not the card.
+  function unpacked(resp) {
+    if (!canGzip()) return resp.arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
+    return readAll(resp.body.pipeThrough(new DecompressionStream('gzip')));
   }
 
   function fetchImage(spec, onProgress) {
@@ -102,13 +135,14 @@
       }
       return cache.match(url).then(function (hit) {
         if (!hit) return null;
-        return hit.arrayBuffer().then(function (ab) {
-          var bytes = new Uint8Array(ab);
-          return digest(bytes).then(function (got) {
-            if (got === want) return done(bytes);
-            // Corrupted or replaced: forget it and go to the network.
-            return cache.delete(url).then(function () { return null; });
-          });
+        // Its key is the URL, which does not bind the digest: the hash is checked on every hit,
+        // on top of the gzip checksum.
+        return unpacked(hit).then(function (bytes) {
+          return digest(bytes).then(function (got) { return got === want ? bytes : null; });
+        }, function () { return null; }).then(function (bytes) {
+          if (bytes) return done(bytes);
+          // Corrupted or replaced: forget it and go to the network.
+          return cache.delete(url).then(function () { return null; });
         });
       }).then(function (cached) {
         if (cached) return cached;
@@ -126,7 +160,7 @@
           return digest(bytes).then(function (got) {
             if (got !== want) throw new Error('SHA-256 mismatch for ' + url + ': got ' + got + ', expected ' + want);
             // A quota error is not fatal: this session goes on, the next visit downloads again.
-            return cache.put(url, new Response(bytes)).catch(function (e) {
+            return Promise.resolve().then(function () { return cache.put(url, packed(bytes)); }).catch(function (e) {
               console.warn('jnext: the image could not be cached: ' + e);
             }).then(function () { return done(bytes); });
           });
@@ -180,29 +214,60 @@
 
   function cardKey(pins) { return CARD_HOST + pins.cardSha256; }
 
-  // The card kept by an earlier visit: re-hashed every time (a corrupted entry is deleted and
-  // reported as a miss); a hit also removes any OTHER card entry (an older release's).
+  // The card kept by an earlier visit. A gzip entry is checked by gzip's own CRC-32 and length
+  // (nothing is hashed: the key is the card's SHA-256, which the builder proved before the entry
+  // was written); a raw entry (a browser without compression streams) is hashed every time.
+  // An entry that fails is deleted and reported as a miss. A good entry of the old raw cache
+  // (v1) is moved over once, with one hash, and the old cache is deleted either way. A hit also
+  // removes any OTHER card entry (an older release's).
   function cachedCard(Module, pins) {
     return Promise.resolve().then(function () {
       needSecureContext();
       return caches.open(CACHE_NAME);
     }).then(function (cache) {
       var key = cardKey(pins);
-      return cache.match(key).then(function (hit) {
-        if (!hit) return null;
-        return hit.arrayBuffer().then(function (ab) {
-          var bytes = new Uint8Array(ab);
-          return digest(bytes).then(function (got) {
-            if (got !== pins.cardSha256) return cache.delete(key).then(function () { return null; });
-            return cache.keys().then(function (keys) {
-              return Promise.all(keys.filter(function (k) { return k.url.indexOf(CARD_HOST) === 0 && k.url !== key; })
-                                     .map(function (k) { return cache.delete(k); }));
-            }).then(function () {
-              Module.FS.mkdirTree('/sdcard');
-              Module.FS.writeFile(CARD_PATH, bytes);
-              return { path: CARD_PATH, sha256: got };
+      function kept(hit) {
+        return unpacked(hit).then(function (bytes) {
+          if (canGzip()) return bytes;
+          return digest(bytes).then(function (got) { return got === pins.cardSha256 ? bytes : null; });
+        }, function () { return null; }).then(function (bytes) {
+          return bytes ? bytes : cache.delete(key).then(function () { return null; });
+        });
+      }
+      function migrated() {
+        return caches.has(OLD_CACHE).then(function (has) {
+          if (!has) return null;
+          return caches.open(OLD_CACHE).then(function (old) {
+            return old.match(key);
+          }).then(function (hit) {
+            if (!hit) return null;
+            return hit.arrayBuffer().then(function (ab) {
+              var bytes = new Uint8Array(ab);
+              return digest(bytes).then(function (got) {
+                if (got !== pins.cardSha256) return null;
+                return Promise.resolve().then(function () { return cache.put(key, packed(bytes)); }).catch(function (e) {
+                  console.warn('jnext: the SD card could not be cached: ' + e);
+                }).then(function () { return bytes; });
+              });
             });
+          }).catch(function () { return null; }).then(function (bytes) {
+            return caches.delete(OLD_CACHE).then(function () { return bytes; });
           });
+        });
+      }
+      return cache.match(key).then(function (hit) {
+        return hit ? kept(hit) : null;
+      }).then(function (bytes) {
+        return bytes ? caches.delete(OLD_CACHE).then(function () { return bytes; }) : migrated();
+      }).then(function (bytes) {
+        if (!bytes) return null;
+        return cache.keys().then(function (keys) {
+          return Promise.all(keys.filter(function (k) { return k.url.indexOf(CARD_HOST) === 0 && k.url !== key; })
+                                 .map(function (k) { return cache.delete(k); }));
+        }).then(function () {
+          Module.FS.mkdirTree('/sdcard');
+          Module.FS.writeFile(CARD_PATH, bytes);
+          return { path: CARD_PATH, sha256: pins.cardSha256 };
         });
       });
     });
@@ -294,7 +359,7 @@
       var bytes = Module.FS.readFile(CARD_PATH);
       return caches.open(CACHE_NAME).then(function (cache) {
         // A quota error is not fatal: this session goes on, the next visit makes the card again.
-        return cache.put(cardKey(pins), new Response(bytes)).catch(function (e) {
+        return Promise.resolve().then(function () { return cache.put(cardKey(pins), packed(bytes)); }).catch(function (e) {
           console.warn('jnext: the SD card could not be cached: ' + e);
         });
       }).then(function () { return { path: CARD_PATH, sha256: sha }; });

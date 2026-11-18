@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4521,8 +4521,10 @@ downloaded or built before the click). It then goes one of two ways.</p>
 <h2 id="later-visits">Later visits<a class="headerlink" href="#later-visits" title="Permanent link">&para;</a></h2>
 <p>A later visit to the same site needs no download and no file.</p>
 <ul>
-<li>The card the browser kept is checked against its SHA-256 every time. A card that no
-  longer matches is deleted and made again, as on a first visit.</li>
+<li>The card the browser kept is stored compressed and checked every time by the compressed
+  copy's own checksum. A card that fails it is deleted and made again, as on a first visit.</li>
+<li>A card kept by an earlier JNEXT release is converted on the first visit, with no
+  download.</li>
 <li>For a <code>.nex</code> program the recorded machine is brought back (<code>restore</code>) instead of booting
   NextZXOS again. A corrupted recording is made again.</li>
 <li>A <code>.tap</code>, a <code>.tzx</code> or a <code>.wav</code> starts directly in 48K BASIC, and an <code>.rzx</code> on the
@@ -4540,7 +4542,7 @@ downloaded or built before the click). It then goes one of two ways.</p>
 <tbody>
 <tr>
 <td>the SD card</td>
-<td>Cache Storage: one entry of about 40 MiB, named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it)</td>
+<td>Cache Storage: one entry of about 1.1 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it)</td>
 </tr>
 <tr>
 <td>the warm-start recording</td>
@@ -4556,6 +4558,8 @@ downloaded or built before the click). It then goes one of two ways.</p>
 <li>Nothing else is kept: no settings, nor screenshots or snapshots
   (<a href="03-itch-and-limits.html">8.3</a>).</li>
 <li>The official file the card was made from is not kept.</li>
+<li>A browser too old to compress and decompress data in the page keeps the card
+  uncompressed, about 40 MiB, and checks it by its SHA-256 on every visit instead.</li>
 <li>Several players on one page share the recording.</li>
 <li>If the browser's storage is full, the session still runs and the next visit makes the
   card again.</li>
