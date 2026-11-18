@@ -3193,7 +3193,8 @@ precisely that with <code>log_gate_test</code> and got a clean green run for it.
   <code>KILLED by SIGKILL after Ns, before the 300s bound (out of memory?)</code>. The usual
   killer is the kernel's out-of-memory killer, for example on a WebAssembly suite
   whose one huge function makes node compile gigabytes, and the label keeps that
-  from reading as a slow test.</li>
+  from reading as a slow test. <code>make wasm-function-size-check</code> refuses such a suite
+  before any of them runs (see <a href="../05-building/01-make-targets.html">5.1</a>).</li>
 </ul>
 <p><code>make unit-test</code> exits non-zero whenever a suite fails, and the harness prints
 an explicit <code>UNIT TESTS FAILED</code> banner so that the grand-total line — the one

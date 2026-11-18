@@ -71,6 +71,14 @@ handful of rules:
   there unchanged; see [4.2](02-declared-suites-and-pinned-counts.md).
   A test that needs a process, a thread or a listening socket (the WebAssembly
   build has none) belongs in a suite declared `# os: native`.
+- Keep every function of a suite small. Under node a WebAssembly function is
+  compiled whole, and its compile memory grows faster than its size: one suite's
+  `main()` of 1.5 MB once needed 14.5 GB. `make unit-test-wasm` refuses a module with
+  a function body over 256 KiB (`make wasm-function-size-check`). Split a long
+  `main()` at its section boundaries into `[[gnu::noinline]] static` part functions
+  that `main()` calls in order, and put the state the parts share in a struct passed
+  by reference. `noinline` is required: with one caller each, the optimiser inlines
+  the parts straight back into `main()`.
 - Under node `getpid()` is the constant 42, so a scratch name built from it is not
   unique; the runner gives every run a private `TMPDIR`, which is where
   `std::filesystem::temp_directory_path()` points.
