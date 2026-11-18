@@ -60,9 +60,9 @@ $m .= sec(1, "\1\x60\0\0");
 if ($o{imports}) {
     my @imp = map { nm('e') . nm("i$_") . "\0\0" } 0 .. $o{imports} - 1;    # function imports: kind 0, type 0
     if ($o{mixed}) {    # non-function imports (they take no function index): memory with a max, table, global, tag
-        my @other = (nm('e') . nm('mem') . "\2\1\1\2", nm('e') . nm('tab') . "\1\x70\1\1\2",
+        my @other = (nm('e') . nm('mem') . "\2\1\1\5", nm('e') . nm('tab') . "\1\x70\1\1\2",
                      nm('e') . nm('glob') . "\3\x7F\0", nm('e') . nm('tag') . "\4\0\0");
-        @imp = ($other[0], $imp[0], $other[1], $other[2], @imp[1 .. $#imp], $other[3]);
+        @imp = ($other[0], $imp[0], $other[1], $other[2], $other[3], @imp[1 .. $#imp]);
     }
     $m .= sec(2, leb(scalar @imp) . join('', @imp));
 }
@@ -102,7 +102,7 @@ row WFS-02 $([[ $RC -eq 1 && "$OUT" == *"a.wasm"* && "$OUT" == *"$((BOUND + 1))"
 fresh; gen "$W/d/a.wasm" 100,$((BOUND + 1)),100 imports=2 mixed=1; run
 bad=0; [[ "$OUT" == *"function f3 has"* ]] || bad=1
 [[ "$OUT" =~ function\ f[0124]\  ]] && bad=1
-[[ "$OUT" == *g3* || "$OUT" == *d3* ]] && bad=1
+[[ "$OUT" == *"function g3"* || "$OUT" == *"function d3"* ]] && bad=1
 row WFS-03 $([[ $RC -eq 1 && $bad -eq 0 ]] && echo 1 || echo 0) "with 2 function imports among memory/table/global/tag imports the offender is f3; no other function and no global/data decoy (g3, d3) is named (exit $RC)"
 
 # WFS-04

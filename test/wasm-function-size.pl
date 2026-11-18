@@ -89,6 +89,7 @@ sub analyse {
                 elsif ($kind == 4) { $sec->byte; $sec->leb }                                    # tag
                 else { die "unknown import kind $kind\n" }
             }
+            die "malformed import section (not consumed exactly)\n" unless $sec->eof;
         } elsif ($id == 10) {    # code section: a vector of size-prefixed bodies
             my $n = $sec->leb;
             for (1 .. $n) {
@@ -96,6 +97,7 @@ sub analyse {
                 $sec->bytes($bs);
                 push @bodies, $bs;
             }
+            die "malformed code section (not consumed exactly)\n" unless $sec->eof;
         } elsif ($id == 0) {     # custom section: the "name" one carries the function names
             my $cname = $sec->name;
             if ($cname eq 'name') {
