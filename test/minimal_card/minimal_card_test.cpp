@@ -1127,11 +1127,17 @@ int main() {
         const Image bi = build_image(fb);
         const uint64_t total = counted(fb, bi, canon({"/GAMES/big"}));
         const Run r = build(minimal_card::Input::Image, bi.bytes, c2, with_dirs({"/GAMES/big"}));
-        check("MCARD-32", "a requested directory holding a 33 MiB file: refused, the message names the exact counted total (file sizes plus directory clusters) and 33554432, no output file",
+        // The same image cut before the huge file's data: past the bound files are counted, not
+        // waited for, so the exact total is still reported (not "at least").
+        const Image bt = build_image(fb, [] { LayoutOpts o; o.trim_before = "huge.bin"; return o; }());
+        const Run rt = build(minimal_card::Input::Image, bt.bytes, c2, with_dirs({"/GAMES/big"}));
+        check("MCARD-32", "a requested directory holding a 33 MiB file: refused, the message names the exact counted total (file sizes plus directory clusters) and 33554432, no output file; the same with the data cut off still gives the exact total",
               r.st == minimal_card::Status::Error && r.err.find("requested paths") != std::string::npos &&
                   r.err.find(": " + std::to_string(total) + " bytes") != std::string::npos &&
-                  r.err.find("33554432") != std::string::npos && !exists(c2),
-              r.err + " expect " + std::to_string(total));
+                  r.err.find("33554432") != std::string::npos && !exists(c2) &&
+                  rt.st == minimal_card::Status::Error && rt.err.find(": " + std::to_string(total) + " bytes") != std::string::npos &&
+                  rt.err.find("at least") == std::string::npos,
+              r.err + " | " + rt.err + " expect " + std::to_string(total));
         std::remove(c2.c_str());
     }
 
