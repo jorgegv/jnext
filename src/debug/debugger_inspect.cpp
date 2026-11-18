@@ -664,6 +664,8 @@ Time Debugger::time() const {
     return t;
 }
 
+uint64_t Debugger::time_epoch() const { return impl_->emu.time_epoch(); }
+
 MachineInfo Debugger::machine() const {
     MachineInfo mi;
     const MachineTiming& t  = impl_->emu.timing();

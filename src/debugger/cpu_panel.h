@@ -22,10 +22,10 @@ public:
     /// Set paused state — when not paused, panel shows gray overlay and skips updates.
     void set_paused(bool paused);
 
-    /// GH #369: count T-states from the machine's current time (value 0), for
-    /// the discontinuities the counter cannot see from a paused observation
-    /// (a cold boot while running, a rewind jumping forward, the window
-    /// opening). Records a start point and draws one label; no paused gate.
+    /// GH #369: count T-states from the machine's current time (value 0), where
+    /// the start matters and `time_epoch()` alone cannot give it: a cold boot
+    /// while running (count from the reset, not from the next stop) and the
+    /// window opening. Records a start point and draws one label; no paused gate.
     void restart_tstate_count();
 
 protected:

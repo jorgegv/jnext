@@ -97,6 +97,7 @@
 #include <memory>
 #include <set>
 #include <fstream>
+#include <filesystem>
 
 #include <cstdint>
 #include <cstdio>
@@ -8910,6 +8911,72 @@ static void gh428_rev_rows() {
               t.tstates_total == emu.monotonic_tstates());
         check("INS-07-02", "cycle_in_frame is the offset into this frame",
               t.cycle_in_frame == emu.clock().get() - emu.current_frame_cycle());
+
+        // GH #369 - time_epoch(): the clock's continuity token. Equal across
+        // EXECUTION and a soft reset (time runs on); a new value after every way
+        // time is moved without executing (rows below, one per bump site).
+        {
+            const uint64_t e0 = dbg.time_epoch();
+            emu.run_frame();
+            emu.run_frame();
+            const uint64_t e1 = dbg.time_epoch();
+            emu.soft_reset();
+            const uint64_t e2 = dbg.time_epoch();
+            check("INS-07-04", "time_epoch() does not move across execution or a soft reset",
+                  e0 == e1 && e1 == e2, std::to_string(e0) + " " + std::to_string(e1) + " " + std::to_string(e2));
+        }
+        {
+            const uint64_t e0 = dbg.time_epoch();
+            emu.init(emu.config());
+            check("INS-07-05", "an in-place hard init (a hard reset, an in-place snapshot or program load) moves it",
+                  dbg.time_epoch() != e0);
+        }
+        {
+            const ClientId other = dbg.attach(client("REMOTE")).value;
+            const auto bytes = dbg.save_state_bytes(other, jnext::dbg::SaveStateMode::AdvanceToBoundary).value;
+            const uint64_t e0 = dbg.time_epoch();
+            const Result r = dbg.load_state_bytes(other, bytes.data(), bytes.size());
+            check("INS-07-06", "another client's load_state_bytes() moves it, even to the same instant",
+                  r == Result::Ok && dbg.time_epoch() != e0);
+        }
+        {
+            const std::string jns = (std::filesystem::temp_directory_path() / "gh369_epoch.jns").string();
+            const bool saved = emu.save_jns_file(jns);
+            const uint64_t e0 = dbg.time_epoch();
+            const bool loaded = emu.load_jns_file(jns);
+            std::filesystem::remove(jns);
+            check("INS-07-07", "an in-place .jns restore moves it", saved && loaded && dbg.time_epoch() != e0);
+        }
+        {
+            Emulator other; build(other);
+            check("INS-07-08", "a new Emulator (a cold boot's machine) never reuses a value an older one held",
+                  other.time_epoch() != 0 && other.time_epoch() != emu.time_epoch());
+        }
+        {
+            Emulator re;
+            q_wp3_ring_machine(re, 10);
+            Debugger rd(re);
+            const ClientId a = rd.attach(client("A")).value;
+            for (int i = 0; i < 4; ++i) re.run_frame();
+            rd.pause(a);
+            const uint64_t e0 = rd.time_epoch();
+            const Result back = rd.step_back(a, 1);
+            const uint64_t e1 = rd.time_epoch();
+            const uint32_t oldest = re.rewind_buffer()->oldest_frame_num();
+            const uint32_t newest = re.rewind_buffer()->newest_frame_num();
+            const Result r_old = rd.rewind_to_frame(a, oldest);
+            const uint64_t e2 = rd.time_epoch();
+            const Result r_new = rd.rewind_to_frame(a, newest);
+            const uint64_t e3 = rd.time_epoch();
+            const Result refused = rd.rewind_to_frame(a, 99999);
+            const uint64_t e4 = rd.time_epoch();
+            check("INS-07-09", "Step Back and a rewind to a frame, backward AND forward, each move it; a refused rewind does not",
+                  back == Result::Ok && r_old == Result::Ok && r_new == Result::Ok &&
+                      e1 != e0 && e2 != e1 && e3 != e2 &&
+                      refused != Result::Ok && e4 == e3,
+                  std::to_string(e0) + " " + std::to_string(e1) + " " + std::to_string(e2) + " " +
+                      std::to_string(e3) + " " + std::to_string(e4));
+        }
 
         const auto mi = dbg.machine();
         check("INS-19-01", "machine() reports BOTH clock domains, 8 master cycles per T-state",

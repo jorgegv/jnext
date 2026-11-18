@@ -15,10 +15,10 @@ The full Z80 state at the paused instruction:
   step it is what that instruction took; after a run to a breakpoint, a Step Over
   or a Pause, what the whole run took. Tick **Accumulate** to add the stops up
   instead: the total starts at 0 when you tick it and grows across steps and
-  runs until you untick it. The count starts again at 0 when time goes back
-  (Step Back, Frame Back, the rewind bar, Reverse Continue), after a hard reset
-  or a program load, and when the debugger window opens; a soft reset does not
-  restart it. At 7, 14 or 28 MHz each instruction counts its own T-states at the
+  runs until you untick it. The count starts again at 0 at the next stop whenever time was moved without
+  running: Step Back, Frame Back, the rewind bar, Reverse Continue, a snapshot or
+  state load (also by a remote debugger), a program load or a hard reset; and when
+  the debugger window opens. A soft reset does not restart it. At 7, 14 or 28 MHz each instruction counts its own T-states at the
   speed in force (a NOP is 4 at any speed).
 
 All values are read-only here; to change memory or a NextREG use the Memory or

@@ -88,14 +88,14 @@ int main()
     {
         TstateCounter p;
         p.observe(1000, 0); p.observe(1004, 0);
-        p.observe(990, 0); const uint64_t p0 = p.value();
-        p.observe(994, 0); const uint64_t p1 = p.value();
+        p.observe(990, 1); const uint64_t p0 = p.value();
+        p.observe(994, 1); const uint64_t p1 = p.value();
         TstateCounter a;
         a.observe(1000, 0); a.set_accumulate(true);
         a.observe(1004, 0); a.observe(1011, 0);
-        a.observe(1005, 0); const uint64_t a0 = a.value();
-        a.observe(1009, 0); const uint64_t a1 = a.value();
-        check("TSC-06", "time going backwards restarts at 0 in both modes",
+        a.observe(1005, 1); const uint64_t a0 = a.value();
+        a.observe(1009, 1); const uint64_t a1 = a.value();
+        check("TSC-06", "a new epoch with time BACKWARDS (a rewind) restarts at 0 in both modes",
               p0 == 0 && p1 == 4 && a0 == 0 && a1 == 4, seq({p0, p1, a0, a1}));
     }
     {
@@ -121,10 +121,13 @@ int main()
         TstateCounter c;
         c.observe(1000, 0);
         c.observe(1004, 0); const uint64_t a = c.value();
-        c.observe(1010, 1); const uint64_t b = c.value();
-        c.observe(1014, 1); const uint64_t d = c.value();
-        check("TSC-09", "a program load restarts at that stop",
-              a == 4 && b == 0 && d == 4, seq({a, b, d}));
+        c.observe(9000, 1); const uint64_t b = c.value();   // time jumped FORWARD with a new epoch
+        c.observe(9004, 1); const uint64_t d = c.value();
+        c.set_accumulate(true);
+        c.observe(9010, 2); const uint64_t e = c.value();   // and again while accumulating
+        c.observe(9013, 2); const uint64_t f = c.value();
+        check("TSC-09", "a new epoch with time FORWARD (a state or program load) restarts at that stop, both modes",
+              a == 4 && b == 0 && d == 4 && e == 0 && f == 3, seq({a, b, d, e, f}));
     }
     {
         TstateCounter c;

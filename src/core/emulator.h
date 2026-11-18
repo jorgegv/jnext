@@ -743,6 +743,15 @@ public:
     /// needed for tight IN A,(0xFE) loops): frame base + live FUSE counter.
     uint64_t monotonic_tstates() const;
 
+    /// GH #369 - a token for the CLOCK's continuity: it takes a new value
+    /// (unique across every Emulator in the process, never repeated) whenever
+    /// `monotonic_tstates()` may have moved other than by executing: a state
+    /// restore (`load_state()`: rewind, step back, a debugger state load), a
+    /// .jns restore, and a hard `init()` (construction, a cold boot's new
+    /// machine, an in-place .sna/.z80/.szx/.nex/.rzx load, a hard reset). A soft
+    /// reset does not change it: the clock runs on through one.
+    uint64_t time_epoch() const { return time_epoch_; }
+
     /// Access the video recorder.
     VideoRecorder& video_recorder() { return video_recorder_; }
     const VideoRecorder& video_recorder() const { return video_recorder_; }
@@ -2388,6 +2397,11 @@ private:
     /// re-seeding the FUSE counter, so `monotonic_tstates()` never goes
     /// backwards across the per-frame rebase.
     uint64_t tstates_frame_base_ = 0;
+
+    /// `time_epoch()`: taken from one process-wide counter, so a new Emulator
+    /// (a cold boot) never reuses a value an earlier one handed out.
+    uint64_t time_epoch_ = 0;
+    void bump_time_epoch_();
 
     /// GH #265 follow-up (verifier finding 4) — the FUSE T-state counter is
     /// the contention path's raster position: derive_hc_vc() (z80_cpu.cpp)

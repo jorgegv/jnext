@@ -227,7 +227,7 @@ void CpuPanel::paintEvent(QPaintEvent* event) {
 
 void CpuPanel::restart_tstate_count() {
     if (!dbg_) return;
-    tstates_.restart(dbg_->time().tstates_total, dbg_->program_loads());
+    tstates_.restart(dbg_->time().tstates_total, dbg_->time_epoch());
     tstates_value_->setText(QString::number(tstates_.value()));
 }
 
@@ -236,7 +236,7 @@ void CpuPanel::refresh() {
     if (!paused_) return;
 
     // GH #369: a paused observation is a stop.
-    tstates_.observe(dbg_->time().tstates_total, dbg_->program_loads());   // INS-07
+    tstates_.observe(dbg_->time().tstates_total, dbg_->time_epoch());   // INS-07
     tstates_value_->setText(QString::number(tstates_.value()));
 
     const Z80Registers regs = dbg_->registers();   // INS-01

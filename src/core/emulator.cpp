@@ -1,4 +1,5 @@
 #include "core/emulator.h"
+#include <atomic>
 #include "debug/ram_page.h"
 #include "debug/event_table.h"
 #include "save/state_desc.h"
@@ -171,9 +172,16 @@ void fold_journal_into_key(const sd_write_journal::Journal& j,
 
 }  // namespace
 
+void Emulator::bump_time_epoch_()
+{
+    static std::atomic<uint64_t> next{1};
+    time_epoch_ = next.fetch_add(1, std::memory_order_relaxed);
+}
+
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    if (!preserve_memory) bump_time_epoch_();   // GH #369: a hard init restarts the clock's story
     // A recording in progress belongs to the configuration it began under: an
     // in-place init() (a reset, a machine change) must not let it finish under
     // the new one's key.
@@ -15015,6 +15023,7 @@ bool Emulator::load_state(StateReader& r)
     // monotonic_tstates() stays the saved value and contention sees the
     // restored raster position.
     tstates_frame_base_ = r.read_u64();
+    bump_time_epoch_();   // GH #369: time moved without executing
     // GH #265 — what the CPU block restored against the counter (the /INT
     // window, the EI stamp) moves with it.
     cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));

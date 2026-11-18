@@ -3899,13 +3899,14 @@ static void test_tstates() {
             emulator_frontend_cold_boot(fx.emu, fx.emu.config(), std::string(), ColdBootHooks{});
             fx.backend->on_cold_boot_done();
             const uint64_t t0 = fx.backend->time().tstates_total;
+            const QString at_reset = tstates_shown(fx);   // still running: the push repaints the label itself
             for (int i = 0; i < 3; ++i) fx.tick();
             fx.mgr->on_pause();
             fx.tick();
             const uint64_t now = fx.backend->time().tstates_total;
             const QString v = tstates_shown(fx);
-            check("QTS-08", desc, now > t0 && v == QString::number(now - t0),
-                  fmt("shown '%s', now %llu, start %llu", s(v).c_str(),
+            check("QTS-08", desc, now > t0 && v == QString::number(now - t0) && at_reset == "0",
+                  fmt("shown '%s' (at the reset '%s'), now %llu, start %llu", s(v).c_str(), s(at_reset).c_str(),
                       static_cast<unsigned long long>(now), static_cast<unsigned long long>(t0)));
         }
     }
@@ -3922,12 +3923,13 @@ static void test_tstates() {
             for (int i = 0; i < 2; ++i) fx.emu.run_frame();
             const uint64_t t0 = fx.backend->time().tstates_total;
             fx.enable();
+            const QString at_open = tstates_shown(fx);   // machine running: the restart repaints the label itself
             for (int i = 0; i < 2; ++i) fx.tick();
             fx.mgr->on_pause();
             fx.tick();
             const uint64_t now = fx.backend->time().tstates_total;
             const QString v = tstates_shown(fx);
-            check("QTS-09", desc, now > t0 && v == QString::number(now - t0),
+            check("QTS-09", desc, now > t0 && v == QString::number(now - t0) && at_open == "0",
                   fmt("shown '%s', now %llu, window opened at %llu", s(v).c_str(),
                       static_cast<unsigned long long>(now), static_cast<unsigned long long>(t0)));
         }
@@ -3935,19 +3937,96 @@ static void test_tstates() {
 
     {
         Fixture fx;
-        const char* desc = "an in-place program load restarts the count at the next stop (0, then NOP = 4)";
+        const char* desc = "an in-place .jns restore (any in-place load) restarts the count at the next stop: 0, then the next step's own cost";
         if (!fx.ok) { check("QTS-10", desc, false, "fixture"); }
         else {
             fx.load(PROG, {0x00, 0x00, 0x00, 0x18, 0xFE});
             fx.regs(PROG);
             fx.enable();
             fx.mgr->on_step_into();
-            fx.backend->note_program_replaced();
+            const std::string jns = (QDir(g_tmp->path()).filePath("gh369b.jns")).toStdString();
+            const bool saved = fx.emu.save_jns_file(jns);
+            fx.mgr->on_step_into();
+            const bool loaded = fx.emu.load_jns_file(jns);
+            const uint64_t t0 = fx.backend->time().tstates_total;
             fx.mgr->on_step_into();
             const QString a = tstates_shown(fx);
+            const uint64_t t1 = fx.backend->time().tstates_total;
             fx.mgr->on_step_into();
             const QString b = tstates_shown(fx);
-            check("QTS-10", desc, a == "0" && b == "4", fmt("'%s' '%s'", s(a).c_str(), s(b).c_str()));
+            const uint64_t t2 = fx.backend->time().tstates_total;
+            check("QTS-10", desc, saved && loaded && a == "0" && t2 > t1 && b == QString::number(t2 - t1),
+                  fmt("saved=%d loaded=%d '%s' '%s' clock %llu %llu %llu", saved, loaded, s(a).c_str(), s(b).c_str(),
+                      (unsigned long long)t0, (unsigned long long)t1, (unsigned long long)t2));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "ticking Accumulate after a stop that showed 4 shows 0 at once, before any further stop";
+        QCheckBox* box = nullptr;
+        if (!fx.ok) { check("QTS-11", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->on_step_into();
+            const QString before = tstates_shown(fx);
+            box = tstates_box(fx);
+            if (box) box->setChecked(true);
+            const QString after = tstates_shown(fx);
+            check("QTS-11", desc, box && before == "4" && after == "0",
+                  fmt("'%s' then '%s'", s(before).c_str(), s(after).c_str()));
+        }
+    }
+
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "a REFUSED rewind (frame outside the ring) keeps the count on show";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QTS-12", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            fx.mgr->on_step_into();
+            const QString before = tstates_shown(fx);
+            fx.mgr->on_rewind_to_frame(99999);
+            const QString after = tstates_shown(fx);
+            check("QTS-12", desc, before != "0" && after == before,
+                  fmt("'%s' then '%s'", s(before).c_str(), s(after).c_str()));
+        }
+    }
+
+    {
+        // QtApp::cold_boot() for a menu / Quick Load, then the deferred in-place
+        // load a few ticks later (qt_app.cpp pre_frames()), which calls
+        // note_program_loaded(). A .jns restores its SAVED total, so time jumps
+        // forward without program_loads() moving.
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "a deferred in-place .jns load after a cold boot restarts the count: the next "
+                           "stop shows 0, not the saved session (no program_loads() involved)";
+        if (!fx.ok) { check("QTS-13", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 21);
+            const std::string jns = (QDir(g_tmp->path()).filePath("gh369.jns")).toStdString();
+            const bool saved = fx.emu.save_jns_file(jns);
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, fx.emu.config(), std::string(), ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            const bool loaded = emulator_apply_load(fx.emu, jns, false);   // the deferred in-place load: the saved total comes back
+            const uint64_t t0 = fx.backend->time().tstates_total;
+            fx.mgr->on_run();
+            for (int i = 0; i < 2; ++i) fx.tick();
+            fx.mgr->on_pause();
+            fx.tick();
+            const uint64_t now = fx.backend->time().tstates_total;
+            const QString v = tstates_shown(fx);
+            check("QTS-13", desc, saved && loaded && t0 > 100000 && now > t0 && v == "0",
+                  fmt("saved=%d loaded=%d shown '%s' (want 0; run since the load %llu), time at load %llu", saved, loaded,
+                      s(v).c_str(), static_cast<unsigned long long>(now - t0),
+                      static_cast<unsigned long long>(t0)));
         }
     }
 }

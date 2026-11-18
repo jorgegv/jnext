@@ -642,9 +642,6 @@ void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
         return;
     }
 
-    // The ring can jump FORWARD (rewind bar, Jump Here): not a backwards-time
-    // restart the T-state counter could see for itself.
-    restart_tstate_count();
     apply_pause_state(true);
 }
 

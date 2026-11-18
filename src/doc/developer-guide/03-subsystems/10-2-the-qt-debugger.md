@@ -76,7 +76,7 @@ restart of the CPU panel's T-state count and draws that one label.
 
 | Panel | Reads | Writes |
 |---|---|---|
-| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `program_loads()` | — |
+| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | — |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
 | Disassembly | `disasm_one()` over `memory_reader()`, with symbols, columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
@@ -102,13 +102,16 @@ the two views of the breakpoints.
 counter (`get-tstates-partial` keeps its own base over `time().tstates_total`): the start point and the
 Accumulate policy live in `jnext::TstateCounter` (`src/debugger/tstate_counter.h`, pure, no Qt), fed by
 `CpuPanel::refresh()` on every paused redraw, so any stop counts, whoever caused it, and a redraw that moves no
-time changes nothing. The counter restarts by itself when the total goes backwards (Step Back, Reverse Continue,
-another client's rewind) or `program_loads()` moved. Three discontinuities it cannot see are pushed through
-`CpuPanel::restart_tstate_count()`: `Reset` (a cold boot while running), `on_rewind_to_frame()` (the ring can
-jump forward) and opening the window (no listener while it is closed). A soft reset does not restart it: the
-total runs on through one. Limit: another client's forward jump (`load_state_bytes()`, a forward ring jump) or an
-in-place load made outside `Debugger::load()` is counted at the next stop, as the backend raises no signal for
-it. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `QPN-CPU-05`, `QTS-01`..`QTS-10`.
+time changes nothing. One mechanism detects a discontinuity: `Debugger::time_epoch()`, a token the Emulator
+re-takes (from a process-wide counter, so a cold boot's new machine never repeats one) wherever time moves
+without executing: `load_state()` (Step Back, a rewind in either direction, another client's
+`load_state_bytes()`), a `.jns` restore, and a hard `init()` (a cold boot, a hard reset, every in-place
+snapshot or program load, whoever or whatever started it). The counter restarts at the first stop that sees a
+new epoch. A soft reset leaves the epoch alone: the total runs on through one. Two restarts are pushed because
+the epoch cannot say where they start: `Reset` (a cold boot while running: counted from the reset, not from the
+next stop) and opening the window (nothing is observed while it is closed), both through
+`CpuPanel::restart_tstate_count()`. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `INS-07-04`..`INS-07-09`
+(each epoch bump site, a remote client's included), `QPN-CPU-05`, `QTS-01`..`QTS-13`.
 
 **Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:991`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:375`: ~4 Hz). Paused, it

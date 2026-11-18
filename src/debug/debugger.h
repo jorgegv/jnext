@@ -607,6 +607,17 @@ public:
     /// INS-07 / TIME-01 — the deterministic clock.
     Time time() const;
 
+    /// GH #369 (frozen-interface addition approved by the owner, 2026-11-18, for
+    /// exactly this) - the clock's continuity token. `time().tstates_total` only
+    /// runs forward by executing; this value changes whenever the machine's time
+    /// was moved WITHOUT executing, by ANY client or the frontend: a state
+    /// restore (rewind, Step Back, `load_state_bytes()`), a .jns restore, a hard
+    /// init (a cold boot's new machine, an in-place snapshot or program load, a
+    /// hard reset). A soft reset does not change it. Never repeats a value;
+    /// compare for equality only. A client that measures time across stops
+    /// (the CPU panel's T-state counter) restarts its count when it moves.
+    uint64_t time_epoch() const;
+
     /// INS-08 — the 128 decoded sprites.
     std::vector<SpriteInfo> sprites() const;
 

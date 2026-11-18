@@ -7,8 +7,8 @@
 // counter (zrcp_server.cpp keeps its own base): so the start point and the
 // Accumulate policy live here, pure (no Qt, no I/O), and the panel feeds it.
 //
-// A "stop" is any paused observation, `observe(now, loads)`, where `now` is
-// Time::tstates_total and `loads` is Debugger::program_loads().
+// A "stop" is any paused observation, `observe(now, epoch)`, where `now` is
+// Time::tstates_total and `epoch` is Debugger::time_epoch().
 //
 //   * not accumulating: value = T-states since the previous stop;
 //   * accumulating: value = T-states since Accumulate was ticked (or since the
@@ -16,14 +16,14 @@
 //   * a stop seen at the same time as the last one changes nothing (a redraw
 //     with no time moved);
 //   * the count restarts (value 0, counting from `now`) when the machine was
-//     never seen, when a program load happened since the last stop (`loads`
-//     moved), or when time went BACKWARDS (`now` below the last stop): Step
-//     Back, source Step Back, Reverse Continue, another client's rewind, a cold
-//     boot seen while paused. Those backward verbs need no explicit hook: their
-//     landings are strictly earlier than the stop before them.
-//   * discontinuities this net cannot see (a cold boot while running, a rewind
-//     jumping FORWARD through the ring, the window opening) are pushed with an
-//     explicit restart() by the panel's owner.
+//     never seen, or when `epoch` (Debugger::time_epoch()) moved since the last
+//     stop: time was moved without executing, by anyone: a rewind (either
+//     direction), Step Back, a state load, a cold boot, an in-place load. One
+//     mechanism for all of them, whoever caused them.
+//   * what epoch cannot say is WHERE the count starts for a restart seen only
+//     at a later stop (a cold boot while running: the count is wanted from the
+//     reset, not from the next stop), and the window opening (nothing is
+//     observed while it is closed): the panel's owner pushes restart() there.
 
 #include <cstdint>
 
@@ -31,11 +31,12 @@ namespace jnext {
 
 class TstateCounter {
 public:
-    /// The machine is seen STOPPED at `now`.
-    void observe(uint64_t now, uint64_t loads)
+    /// The machine is seen STOPPED at `now` (Time::tstates_total), with
+    /// `epoch` = Debugger::time_epoch().
+    void observe(uint64_t now, uint64_t epoch)
     {
-        if (!seen_ || loads != loads_ || now < last_) {   // loads moved or time went backwards
-            restart(now, loads);
+        if (!seen_ || epoch != epoch_) {
+            restart(now, epoch);
             return;
         }
         if (now == last_) return;
@@ -45,12 +46,12 @@ public:
     }
 
     /// Count from `now`: the value is 0 and the next stop counts from here.
-    void restart(uint64_t now, uint64_t loads)
+    void restart(uint64_t now, uint64_t epoch)
     {
         seen_ = true;
         anchor_ = last_ = now;
         value_ = 0;
-        loads_ = loads;
+        epoch_ = epoch;
     }
 
     /// Ticking starts a new total at the current stop; unticking keeps the
@@ -72,7 +73,7 @@ private:
     uint64_t anchor_ = 0;
     uint64_t last_ = 0;
     uint64_t value_ = 0;
-    uint64_t loads_ = 0;
+    uint64_t epoch_ = 0;
 };
 
 } // namespace jnext
