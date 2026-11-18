@@ -4250,8 +4250,9 @@ static void test_nav_window() {
             }
             const uint16_t at_pc = dis->view_address();
             const bool recorded = dis->can_go_back();
+            const bool caret_at_pc = dis->selected_address() == 0x6000;
             const bool back = dis->go_back() && dis->view_address() == before;
-            check("QNAVW-05", desc, pc && at_pc != before && dis->selected_address() == 0x6000 && recorded && back,
+            check("QNAVW-05", desc, pc && at_pc != before && caret_at_pc && recorded && back,
                   fmt("before %04X after click %04X recorded=%d back=%d", before, at_pc, recorded, back));
         }
     }
