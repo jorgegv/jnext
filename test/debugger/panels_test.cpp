@@ -2617,7 +2617,9 @@ static void test_cpu_edit() {
                            "counter shows the same value after the refresh";
         if (!f.ok) { check("QREG-11", desc, false, "fixture"); }
         else {
+            poke(f.emu, 0x7000, {0x00});          // NOP at the PC: one step costs 4 T-states
             f.panel->refresh();
+            f.dbg->step_into(f.window);
             f.panel->refresh();
             QLabel* t = box_value(f.panel.get(), "T-states: ");
             const QString before = text_of(t);
@@ -2626,7 +2628,7 @@ static void test_cpu_edit() {
             const bool done = edit_value(*f.panel, "PC: ", "8000");
             f.panel->refresh();
             check("QREG-11", desc,
-                  done && f.regs().PC == 0x8000 && text_of(t) == before &&
+                  done && before == "4" && f.regs().PC == 0x8000 && text_of(t) == before &&
                       f.dbg->time_epoch() == epoch && f.dbg->time().tstates_total == total,
                   fmt("'%s' -> '%s', epoch %llu -> %llu", s(before).c_str(), s(text_of(t)).c_str(),
                       static_cast<unsigned long long>(epoch),

@@ -36,6 +36,23 @@ struct Hint {
 /// operand it reports (and the RET cc return address).
 Hint pc_hint(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn& data);
 
+/// What Follow does on an instruction (GH #366): jump the Disassembly to a code address, or show a
+/// data address in the Memory panel.
+struct Follow {
+    enum class Kind { None, Code, Data };
+    Kind     kind = Kind::None;
+    uint16_t addr = 0;
+};
+
+/// What Follow does on the instruction at `at` (not necessarily the PC), from the registers NOW.
+/// Code: JP, CALL, JR, DJNZ and RST targets (a conditional's whether or not its condition holds),
+/// JP (HL)/(IX)/(IY) (the register), RET/RETI/RETN (the word at SP, read through `data`). Data: the
+/// one memory operand the mnemonic names (pc_hint()'s Memory set). None: everything else, JP (C)
+/// included (its target needs a port read, which this never does). `code` reads the instruction
+/// bytes (Debugger::memory_reader()); `data` the stack word and the operand (pass operand_reader()
+/// when `at` is the PC, a peek(MemSpace::cpu()) reader otherwise).
+Follow follow_target(const Z80Registers& r, uint16_t at, const DisasmReadFn& code, const DisasmReadFn& data);
+
 /// "[taken]", "[not taken]", "[taken -> T]" (RET cc only, T named by `namer` or $XXXX),
 /// "[(A)=$VV]" / "[(A)=$VVVV]" (A named by `namer` or $XXXX; the value is never named);
 /// "" for None.
