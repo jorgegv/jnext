@@ -19,7 +19,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      the emulated timeline disarms it, with a warning, and the run exits 0.
 #   E  --headless --fast-boot 10 --delayed-automatic-exit-frames 1: the generic
 #      "no effect with --headless" warning, exit 0.
-#   F  one short windowed run per exclusion term of src/main.cpp (--inject, --rzx-play,
+#   F  one short windowed run per exclusion term of src/main.cpp (--inject,
 #      --delayed-screenshot, --delayed-automatic-exit in seconds, --script, --delayed-pok-frames
 #      (SDL only: the Qt window refuses it), --record, --wav-record, --rzx-record, --dac-trace,
 #      --record-script) with --fast-boot 10: the warning `fast boot: off (<reason>)`, so a term
@@ -145,11 +145,6 @@ if want fast-boot-func; then
         # --- F: every exclusion term, one windowed run each ---
         printf '\xc9' > "$fb_dir/inject.bin"
         printf 'NScreen\nM  8 16384 171 0\nY\n' > "$fb_dir/t.pok"
-        if ! timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next --sdcard-readonly \
-               ${SD_CARD_ARGS[@]+"${SD_CARD_ARGS[@]}"} --rzx-record "$fb_dir/in.rzx" \
-               --delayed-automatic-exit-frames 60 >"$fb_dir/f-rzx.log" 2>&1 || [[ ! -s "$fb_dir/in.rzx" ]]; then
-            fb_faults+=("F: could not record the .rzx fixture")
-        fi
         fb_prog="a program is loaded at start"
         fb_sched="the command line schedules work on the emulated timeline"
         fb_rec="a recording is running"
@@ -163,11 +158,12 @@ if want fast-boot-func; then
                 || fb_faults+=("F $name: no warn line 'fast boot: off ($reason)'")
         }
         fb_case inject  "$JNEXT" "$fb_prog"  --inject "$fb_dir/inject.bin"
-        fb_case rzxplay "$JNEXT" "$fb_prog"  --rzx-play "$fb_dir/in.rzx"
+        # --rzx-play has no case: the machine comes from the .rzx (never a Next: RZX cannot be recorded
+        # on one), so the not-Next reason always wins before the program term could.
         fb_case shot    "$JNEXT" "$fb_sched" --delayed-screenshot "$fb_dir/f.png" --delayed-screenshot-frames 100000
         fb_case exitsec "$JNEXT" "$fb_sched" --delayed-automatic-exit 1000
         fb_case script  "$JNEXT" "$fb_sched" --script "$SCRIPT_DIR/boot-commit-probe.jds"
-        fb_case pok     "$fb_sdl" "$fb_sched" --delayed-pok-frames 100000 "$fb_dir/t.pok"
+        fb_case pok     "$fb_sdl" "$fb_sched" --delayed-pok-frames 100000 "$fb_dir/t.pok" --pok-trainers 1
         fb_case record  "$JNEXT" "$fb_rec"   --record "$fb_dir/f.mp4"
         fb_case wavrec  "$JNEXT" "$fb_rec"   --wav-record "$fb_dir/f.wav"
         fb_case rzxrec  "$JNEXT" "$fb_rec"   --rzx-record "$fb_dir/f.rzx"
