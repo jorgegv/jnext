@@ -3152,7 +3152,7 @@ work. A breakpoint change another client made arrives as
 <code>SubscriptionsChanged</code>; the model records it and the tick publishes it. <code>Reset</code> records a
 restart of the CPU panel's T-state count and draws that one label.</p>
 <h2 id="panels">Panels<a class="headerlink" href="#panels" title="Permanent link">&para;</a></h2>
-<p><code>DebuggerWindow::create_panels()</code> creates fifteen:</p>
+<p><code>DebuggerWindow::create_panels()</code> creates sixteen:</p>
 <table>
 <thead>
 <tr>
@@ -3165,7 +3165,7 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 <tr>
 <td>CPU Registers</td>
 <td><code>registers()</code>, <code>paging_ports()</code>, <code>ula_screen_regs()</code>, <code>time()</code> (<code>tstates_total</code>), <code>time_epoch()</code></td>
-<td>—</td>
+<td><code>set_register()</code>, one register per call: an overlay <code>QLineEdit</code> over the value labels, a click on a flag (<code>reg_edit.h</code>); a click or the menu on an address-like value asks the window to show it (Disassembly, Memory, Source)</td>
 </tr>
 <tr>
 <td>MMU</td>
@@ -3174,7 +3174,7 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Disassembly</td>
-<td><code>disasm_one()</code> over <code>memory_reader()</code>, with symbols, the PC line's hint (<code>disasm_hint::pc_hint()</code> over <code>registers()</code>, <code>memory_reader()</code> and <code>operand_reader()</code>), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly</td>
+<td><code>disasm_one()</code> over <code>memory_reader()</code>, with symbols, the PC line's hint (<code>disasm_hint::pc_hint()</code> over <code>registers()</code>, <code>memory_reader()</code> and <code>operand_reader()</code>), Follow (<code>disasm_hint::follow_target()</code>) and Back/Forward (<code>NavHistory</code>, <code>nav_history.h</code>), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly</td>
 <td>breakpoints, through the model</td>
 </tr>
 <tr>
@@ -3238,6 +3238,11 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 <td>the source steps and loads, through <code>DebuggerManager</code></td>
 </tr>
 <tr>
+<td>Symbols</td>
+<td><code>symbols().symbols()</code> (the toolchain's labels and the user's), <code>shown_name()</code>, <code>source_page()</code>, <code>source_map().lookup()</code>, <code>state_revision()</code></td>
+<td>—</td>
+</tr>
+<tr>
 <td>Variables</td>
 <td><code>c_frames()</code>, <code>c_locals()</code>, <code>c_globals()</code>, <code>c_children()</code>, <code>c_variables_status()</code>, <code>call_stack()</code>, <code>mmu_slots()</code>: the C variables of a call frame and the globals, as a tree, a value editable in place through <code>write_c_value()</code> (<a href="../07-source-level-debugging/07-frontends.html">7.7</a>)</td>
 <td>—</td>
@@ -3262,6 +3267,35 @@ the epoch cannot say where they start: <code>Reset</code> (a cold boot while run
 next stop) and opening the window (nothing is observed while it is closed), both through
 <code>CpuPanel::restart_tstate_count()</code>. Rows: <code>TSC-01</code>..<code>TSC-11</code> (<code>tstate_counter_test</code>), <code>INS-07-04</code>..<code>INS-07-10</code>
 (each epoch bump site, a remote client's included), <code>QPN-CPU-05</code>, <code>QTS-01</code>..<code>QTS-13</code>.</p>
+<p><strong>Editing the CPU panel.</strong> The value widgets stay <code>QLabel</code>s in their layouts (the rows that read the panel find
+them there). An edit opens one <code>QLineEdit</code>, in no layout, over the label (a double-click, or the context menu's
+Edit Value...); Enter commits, Escape and focus-out cancel, and <code>set_paused(false)</code> cancels without committing:
+a value typed against one stop must not be written into the state after it. What a field is, how its text is
+read (<code>SymbolTable::resolve()</code> for the 16-bit ones, the rule every address box uses), the flag toggle and the
+refusal text are in <code>jnext::regedit</code> (<code>src/debugger/reg_edit.h</code>, pure, no Qt; <code>reg_edit_test</code>). A commit calls
+<code>Debugger::set_register(client_, ...)</code>, one register per call (IFF is two), and only for a changed value: the
+backend logs one <code>MUTATE</code> line and bumps <code>state_revision()</code>, so the next paused tick redraws every panel from the
+register file, with no refresh path of the panel's own. The client is the window's (<code>set_panels_client()</code>). A
+parse error or a refusal (RZX recording or playback) is the panel's <code>message()</code> signal, which the window shows with
+<code>show_rewind_refusal()</code>: the one status message <code>update_rewind_ui()</code> does not rewrite. Rows: <code>REGED-01</code>..<code>08</code>,
+<code>QREG-01</code>..<code>11</code>, <code>QREGW-01</code>..<code>04</code>.</p>
+<p><strong>Navigation (Follow, Back, Forward).</strong> <code>disasm_hint::follow_target(r, at, code, data)</code> (<code>src/debug/disasm_hint.h</code>, Qt-free,
+beside <code>pc_hint()</code> and sharing its DD/FD prefix walk) says what Follow does on the instruction at <code>at</code>: a code address
+(JP, CALL, JR, DJNZ and RST targets, a conditional's whether or not it holds; <code>JP (HL)/(IX)/(IY)</code>; RET, RETI and RETN
+through <code>data</code>), a data address (the one memory operand <code>pc_hint()</code> reports) or nothing (<code>JP (C)</code> needs a port read, which no
+debugger read does). The PC line reads its operand through <code>operand_reader()</code>, any other line through a <code>peek(Cpu)</code> reader.
+History is <code>jnext::NavHistory&lt;Loc&gt;</code> (<code>src/debugger/nav_history.h</code>, pure; depth 100): the Disassembly's <code>Loc</code> is its top
+line and caret, so Back is exact; the Source tab's is the address of the cursor line's first instruction mapped now. What
+records is one rule: a jump the user (or another panel on their behalf) made through <code>show_address()</code>, the Address box or
+Go to PC; the automatic re-centre on a stop, scrolling and the keys do not. The window's Follow, Back and Forward are
+bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</code>; F12, Alt+Left, Alt+Right) installed by <code>apply_keymap()</code>, in no menu (the
+shape <code>debugger_accel_test</code> pins), acting on the Source tab when its text has the focus. A memory operand goes through
+<code>show_in_memory_requested()</code> to <code>MemoryPanel::show_address()</code>, which leaves a slot or page view first. Rows: <code>FOLW-01</code>..<code>09</code>,
+<code>NAVH-01</code>..<code>07</code>, <code>QNAV-*</code>, <code>QSRCN-*</code>, <code>QNAVW-*</code>.</p>
+<p><strong>The Symbols tab</strong> (<code>symbols_panel.cpp</code>) lists <code>symbols().symbols()</code> and rebuilds its rows only when <code>state_revision()</code>
+moved; the greying of a paged label whose page is not what <code>source_page()</code> reports at its address is redone on every
+refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label: the Disassembly shows the
+CPU's map. Rows: <code>QSYML-*</code>.</p>
 <p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:988</code>)
 redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:375</code>: ~4 Hz). Paused, it
 redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:977</code>; <code>PausedStamp</code>,
