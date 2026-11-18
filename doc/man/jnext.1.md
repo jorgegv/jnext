@@ -195,6 +195,28 @@ naming the option and the value, and exits with status 1.
     **\--sdcard-writes**. A file that is not a **jnext** SD-writes file is
     refused, never removed.
 
+**\--sdcard2** *FILE*
+:   Mount SD-card image *FILE* (`.img`) in the **second SD card slot**, which
+    NextZXOS sees as the next drive after the first card's partitions (D: for a
+    first card with one). There is no default and no download: the slot is empty
+    unless this is given. ROMs are read from the first card only. A *FILE* that
+    is not a readable regular file, a ZIP archive, or the same file as
+    **\--sdcard**, is refused (exit status 1). See **A SECOND SD CARD**.
+
+**\--sdcard2-readonly**
+:   Open the second card's image read-only, as **\--sdcard-readonly** does for
+    the first. Requires **\--sdcard2**.
+
+**\--sdcard2-writes** *FILE*
+:   Keep the writes the emulated machine makes to the second card in *FILE*
+    instead of its image, as **\--sdcard-writes** does for the first card; *FILE*
+    belongs to that image, identified by its size and modification time.
+    Requires **\--sdcard2**; excludes **\--sdcard2-readonly**.
+
+**\--sdcard2-writes-reset**
+:   Discard the writes kept in the **\--sdcard2-writes** *FILE* before the card
+    is mounted. Requires **\--sdcard2-writes**.
+
 **\--sdcard-file-add** *FILE*
 :   Copy host *FILE* — a file, or a directory with everything in it — into the
     SD-card image and **exit without starting emulation**. Without
@@ -1498,6 +1520,30 @@ machine's writes are kept in *FILE* and laid over it on every run.
 
 The mounted image is also the SD card the emulated machine sees at runtime,
 through the SPI/DivMMC path: NextZXOS reads its files from it.
+
+## A SECOND SD CARD
+
+The Next board has two SD sockets. **\--sdcard2** *FILE* puts a second card in
+the second one. NextZXOS maps every FAT partition of every card to a drive
+letter, first card first: with one partition on the first card, the second
+card's first partition is **D:**. Type `CD "d:"` to enter it (`.nexload d:/x.nex`
+does not work: `:` separates BASIC statements, so quote the path or `CD` first).
+NextZXOS finds its drives at start-up, so the card must be in the slot before
+the machine boots or hard-resets; there is no card-detect line.
+
+- The second card is a plain image of its own (a partition table and a FAT
+  partition, for example a copy of a real card made with `dd`, or one built with
+  `sfdisk` and `mformat`). It must not be the first card's file.
+- ROMs and the firmware always come from the first card: the second one is never
+  read for them, and is not downloaded or upgraded.
+- It follows the first card's rules: **\--sdcard2-readonly**,
+  **\--sdcard2-writes** and **\--sdcard2-writes-reset** work as their first-card
+  twins. A soft reset keeps the card as it is; a hard reset power-cycles it.
+- **\--sdcard-file-add** works on any FAT32 image, so `jnext --sdcard card2.img
+  --sdcard-file-add FILE` puts a file on a second-card image.
+- A recording of the warm start is keyed on the second card as well (its size
+  and modification time), so changing it takes a new recording. Rewind carries
+  its state.
 
 ## CHANGING THE CARD WHILE RUNNING
 

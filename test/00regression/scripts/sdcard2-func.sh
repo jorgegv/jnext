@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# One functional test of the regression suite. Sourced by regression.sh (the
+# driver); also directly executable: the lib then self-initializes and
+# standalone_summary prints the totals.
+# shellcheck source=test/00regression/test-functions.inc
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
+
+# GH #505 - the second SD card (--sdcard2). The Next board has two SD sockets;
+# NextZXOS maps the second card's first FAT partition to the next drive letter
+# after card 0's (D:). The card is a 64 MiB image built HERE at run time (an MBR
+# with one FAT32 partition at 1 MiB, mformat; no NextZXOS byte, nothing to commit)
+# holding MAGIC.NEX, copied on by jnext's own --sdcard-file-add and checked with
+# mdir, a foreign reader. Oracle: NextZXOS's own drive mapping, observed: the
+# program prints "Hello from ZX Next!" to the magic port only if it was read off D:.
+#
+#   d        --sdcard2 card2: `CD "d:"` then `.nexload magic.nex` runs it.
+#   control  the same keystrokes with no --sdcard2: the file is not reachable, so
+#            the line must NOT appear (without it, `d` proves nothing).
+#   refused  every unusable --sdcard2 / --sdcard2-* combination fails the run
+#            (exit != 0) with its reason on stderr.
+#
+# (A live insert and the Qt probe are covered by further legs: see the stage list
+# in the GH #505 plan.) Every card is a private reflink clone under $RUN_DIR; the
+# harness's EXIT trap removes them. This row installs no trap of its own (GH #153).
+if want sdcard2-func; then
+    begin_func sdcard2-func
+
+    faults=()
+    BASE="$RUN_DIR/private/sdcard2"
+    W="$BASE/work"
+    mkdir -p "$W"
+    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    missing=()
+    for tool in mformat mdir python3; do
+        command -v "$tool" &>/dev/null || missing+=("$tool")
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        fail_row " (tools absent: ${missing[*]})"
+    elif [[ ! -f "$MASTER" ]]; then
+        skip_row " (no SD-card image clone for this run)"
+    else
+        export MTOOLS_SKIP_CHECK=1
+        clone_a() {   # clone_a <name> - a config dir whose fallback card 0 is a clone of the master
+            mkdir -p "$BASE/$1/sdcard"
+            cp --reflink=auto "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+            sd_card_sidecars "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+        }
+        clone_a d
+        clone_a control
+
+        # Card 2: 64 MiB, an MBR with one FAT32 (type 0x0C) partition from sector
+        # 2048, formatted with one-sector clusters so it has more than 65 525 of them.
+        CARD2="$W/card2.img"
+        OFF=1048576
+        SECTORS=$(( (64 * 1024 * 1024 - OFF) / 512 ))
+        truncate -s $((64 * 1024 * 1024)) "$CARD2"
+        printf '\x0c' | dd of="$CARD2" bs=1 seek=$((0x1BE + 4)) conv=notrunc status=none
+        printf '\x00\x08\x00\x00' | dd of="$CARD2" bs=1 seek=$((0x1BE + 8)) conv=notrunc status=none
+        printf "$(printf '\\x%02x\\x%02x\\x%02x\\x%02x' $((SECTORS & 255)) $(((SECTORS >> 8) & 255)) $(((SECTORS >> 16) & 255)) $(((SECTORS >> 24) & 255)))" \
+            | dd of="$CARD2" bs=1 seek=$((0x1BE + 12)) conv=notrunc status=none
+        printf '\x55\xaa' | dd of="$CARD2" bs=1 seek=510 conv=notrunc status=none
+        LANG=C mformat -i "$CARD2@@$OFF" -F -T "$SECTORS" -h 255 -s 63 -c 1 :: </dev/null >/dev/null 2>&1 \
+            || faults+=("harness: mformat could not build card 2")
+        # jnext's own --sdcard-file-add onto a card that is not NextZXOS's.
+        rc=0
+        timeout --foreground --kill-after=5s 120s \
+            "$JNEXT" --sdcard "$CARD2" \
+                     --sdcard-file-add "$PROJECT_DIR/test/00regression/nex/magic_port_demo.nex" \
+                     --sdcard-file-dest /MAGIC.NEX > "$W/add.log" 2>&1 || rc=$?
+        [[ $rc -eq 0 ]] || faults+=("--sdcard-file-add onto card 2 exited $rc")
+        LANG=C mdir -i "$CARD2@@$OFF" :: </dev/null 2>/dev/null | grep -qi 'MAGIC *NEX' \
+            || faults+=("mdir does not list MAGIC.NEX on card 2")
+
+        # Frame-based, boot-timeline frames (bf) like sdcard-swap-func: SPACE@400
+        # skips the welcome tour, DOWN+ENTER reach the command line; then
+        # CD "d:" ENTER and `.nexload magic.nex` ENTER (`.nexload d:/x` would not
+        # work: ":" separates BASIC statements).
+        keys=()
+        kadd() { local v; v=$(bf "$1") || exit 2; keys+=(--delayed-keypress-frames "$v" "$2"); }
+        kadd 577 space; kadd 647 down; kadd 677 enter
+        f=737
+        for k in c d space sym+p d : sym+p enter; do kadd "$f" "$k"; f=$((f + 15)); done
+        f=$((f + 60))
+        for k in . n e x l o a d space m a g i c . n e x enter; do kadd "$f" "$k"; f=$((f + 15)); done
+        exit_frame=$(bf $((f + 400)))
+
+        d_run() {   # d_run <name> [extra args...]
+            local name=$1 rc=0; shift
+            JNEXT_CONFIG_DIR="$BASE/$name" timeout --foreground --kill-after=5s 300s \
+                "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
+                         --magic-port 0xCAFE --magic-port-mode line \
+                         "${keys[@]}" "$@" \
+                         --delayed-automatic-exit-frames "$exit_frame" \
+                > "$W/$name.log" 2>&1 || rc=$?
+            [[ $rc -eq 0 ]] || faults+=("$name: the NextZXOS run exited $rc")
+        }
+        d_run d --sdcard2 "$CARD2"
+        d_run control
+        grep -qF "Second SD card image mounted: '$CARD2'" "$W/d.log" \
+            || faults+=("d: the second card was not mounted")
+        grep -qF "Hello from ZX Next!" "$W/d.log" \
+            || faults+=("d: NextZXOS did not run MAGIC.NEX from D:")
+        grep -qF "Hello from ZX Next!" "$W/control.log" \
+            && faults+=("control: MAGIC.NEX ran without a second card, so the d result proves nothing")
+
+        # refused: card 0 is CARD2 where the second card is the thing under test (the
+        # run never starts: every refusal is at parse time, on a 48K headless machine).
+        short_run() {   # short_run <label> <expect-in-log> [jnext args...]
+            local label=$1 want=$2 rc=0; shift 2
+            timeout --foreground --kill-after=5s 120s \
+                "$JNEXT" --headless --machine 48k --rewind-buffer-size 0 \
+                         --delayed-automatic-exit-frames 5 "$@" > "$W/$label.log" 2>&1 || rc=$?
+            [[ $rc -ne 0 ]] || faults+=("$label: exited 0")
+            grep -qF -- "$want" "$W/$label.log" || faults+=("$label: no '$want' in the log")
+        }
+        cp --reflink=auto "$CARD2" "$W/card2b.img"
+        ln -sf card2.img "$W/link.img"
+        printf 'PK\005\006%018d' 0 > "$W/empty.zip"
+        short_run same "need two different images" --sdcard "$CARD2" --sdcard2 "$CARD2"
+        short_run symlink "need two different images" --sdcard "$CARD2" --sdcard2 "$W/link.img"
+        short_run dotted "need two different images" --sdcard "$CARD2" --sdcard2 "$W/./card2.img"
+        short_run missing "cannot open '$W/no-such.img'" --sdcard "$CARD2" --sdcard2 "$W/no-such.img"
+        short_run dir "is not a file" --sdcard "$CARD2" --sdcard2 "$W"
+        short_run zip "is a ZIP archive" --sdcard "$CARD2" --sdcard2 "$W/empty.zip"
+        short_run wro "cannot be combined with --sdcard2-readonly" --sdcard "$CARD2" \
+            --sdcard2 "$W/card2b.img" --sdcard2-writes "$W/w.jsdw" --sdcard2-readonly
+        short_run reset "--sdcard2-writes-reset needs --sdcard2-writes FILE" --sdcard "$CARD2" \
+            --sdcard2 "$W/card2b.img" --sdcard2-writes-reset
+        short_run rdonly "--sdcard2-readonly needs --sdcard2 FILE" --sdcard "$CARD2" --sdcard2-readonly
+        short_run wonly "--sdcard2-writes needs --sdcard2 FILE" --sdcard "$CARD2" \
+            --sdcard2-writes "$W/w.jsdw"
+    fi
+
+    if [[ ${#faults[@]} -eq 0 ]]; then
+        pass_row " (NextZXOS ran MAGIC.NEX from D:; control did not; refusals pinned)"
+    else
+        fail_row " (${#faults[@]} fault(s) in the second SD card)"
+        printf '      %s\n' "${faults[@]}"
+    fi
+fi
+
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || standalone_summary
