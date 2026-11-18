@@ -409,6 +409,9 @@ void DebuggerWindow::apply_keymap() {
     bind(source_out_action_,     Action::SourceStepOut);
     bind(source_back_action_,    Action::SourceStepBack);
     bind(source_reverse_action_, Action::SourceReverseContinue);
+    bind(follow_action_,         Action::Follow);       // GH #366
+    bind(back_action_,           Action::GoBack);
+    bind(forward_action_,        Action::GoForward);
 
     // The captions. "F5: Continue" is "<key>: <name>" with the key dropped
     // when the action is unbound — so the default keymap reproduces exactly
