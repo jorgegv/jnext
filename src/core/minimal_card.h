@@ -4,12 +4,14 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "core/sdcard_provisioner.h"
 
 /// The minimal NextZXOS SD card (GH #458): a 40 MiB FAT32 card with 512-byte clusters that
-/// holds only the boot set (TBBLUE.FW, MACHINES, NEXTZXOS, SYS, LICENSE.md, README.md) plus
-/// jnext's two patches (the default MACHINES/NEXT/config.ini, and the known 16 KB zx81.rom
+/// holds only the boot set (TBBLUE.FW, MACHINES, NEXTZXOS, SYS, LICENSE.md, README.md), plus
+/// any paths the caller asks for (Expect::dirs, GH #509: each with its parent directories, the
+/// rest of the parents not copied), plus jnext's two patches (the default MACHINES/NEXT/config.ini, and the known 16 KB zx81.rom
 /// twice), made from the official specnext.com distribution zip, or from the 1 GB
 /// cspect-next-1gb.img inside it.
 ///
@@ -22,10 +24,12 @@
 /// forward pass, a few MiB of state. The bound (state it, BCARD-14 measures it):
 ///   - zlib inflate state and window, about 45 KiB; a 64 KiB inflate output buffer;
 ///   - the image's FAT #1 (fat_size x 512 bytes; 128.5 KiB for 26.11; refused above 16 MiB);
-///   - the boot set's data and its directories (2.3 MB for 26.11; refused above 32 MiB, which
-///     cannot fit a 40 MiB card anyway);
+///   - the kept data and its directories: file SIZES plus directory clusters (not the source's
+///     32 KiB clusters, which the builder does not hold): 2.5 MB for the boot set of 26.11,
+///     about 31.7 MB with /GAMES and /APPS; refused above 32 MiB, which cannot fit a 40 MiB
+///     card anyway, with the exact size and the limit;
 ///   - the FatFs work buffer, 64 KiB; the SHA-256 state.
-/// Total for 26.11: about 3 MB. The card itself is a FILE (MEMFS in the browser: JS-side
+/// Total for 26.11: about 3 MB for the plain card, about 35 MB with /GAMES and /APPS. The card itself is a FILE (MEMFS in the browser: JS-side
 /// storage, not the wasm heap). Inflation stops (InflateDone) as soon as the last wanted
 /// cluster has passed (about 166 MB into the image's 1 GiB), after which the rest of the zip
 /// is only hashed.
@@ -63,7 +67,14 @@ struct Expect {
     std::string card_sha256;          // the finished card; a mismatch removes it
     std::string zx81_known_sha256 = sdcard::kZx81Rom16kSha256;  // test seam, as patch_image_fat32
     uint32_t    card_sectors = 40 * 2048;                      // test seam (a too-small card)
+    std::vector<std::string> dirs;    // GH #509: more of the distribution; empty = the boot set only
 };
+
+/// Extra distribution paths (GH #509): checked and put in canonical form (ASCII lower case,
+/// no trailing '/', sorted). false + why (naming the entry) on the first bad one: not an
+/// absolute path, '/', an empty, '.' or '..' element, a backslash or control character, a
+/// boot-set name, the same path twice, a path inside another given one.
+bool canonical_dirs(const std::vector<std::string>& in, std::vector<std::string>& out, std::string& why);
 Expect pinned(Input in);
 
 class Builder {

@@ -495,6 +495,98 @@ void expected_paths(const FNode& n, const std::string& prefix, bool top, std::ma
     }
 }
 
+
+// GH #509: fixture() with a GAMES tree on the root (not part of fixture() itself: MCARD-02/13 rest on
+// its layout). Mixed case, distinct attributes and times. The nodes are named so that none equals
+// "a.sys" or "next" (LayoutOpts::reverse is by exact name).
+FNode fixture_games() {
+    FNode root = fixture();
+    FNode games = dirn("GAMES", 0x00, 0x5A40, 0x9000);
+    FNode nx = dirn("NEXT", 0x01, 0x5A41, 0x9200);
+    FNode g1 = dirn("G1", 0x00, 0x5A42, 0x9400);
+    g1.kids.push_back(file("a.nex", pattern(9000, 40), 0x20, 0x5A43, 0x9600));
+    FNode sub = dirn("sub", 0x02, 0x5A44, 0x9800);
+    sub.kids.push_back(file("b.bin", pattern(5000, 41), 0x21, 0x5A45, 0x9A00));
+    g1.kids.push_back(sub);
+    nx.kids.push_back(g1);
+    FNode g2 = dirn("g2", 0x00, 0x5A46, 0x9C00);
+    g2.kids.push_back(file("c.nex", pattern(4500, 42), 0x20, 0x5A47, 0x9E00));
+    nx.kids.push_back(g2);
+    games.kids.push_back(nx);
+    FNode classic = dirn("CLASSIC", 0x00, 0x5A48, 0xA000);
+    classic.kids.push_back(file("d.tap", pattern(3000, 43), 0x20, 0x5A49, 0xA200));
+    games.kids.push_back(classic);
+    root.kids.push_back(games);
+    return root;
+}
+
+bool is_boot_name(const std::string& n) {
+    const std::string l = lower(n);
+    return l == "tbblue.fw" || l == "machines" || l == "nextzxos" || l == "sys" || l == "license.md" || l == "readme.md";
+}
+
+// What a card with the canonical requested `dirs` holds: the boot set, and each requested path with
+// its subtree and its ancestors (keys "0:/lower/case/path").
+void want_list(const FNode& n, const std::string& prefix, const std::vector<std::string>& dirs, bool top, bool whole,
+               std::map<std::string, const FNode*>& out) {
+    for (const auto& k : n.kids) {
+        const std::string p = prefix + "/" + lower(k.name);
+        bool keep = whole || (top && is_boot_name(k.name));
+        bool partial = false, all = keep;
+        for (const std::string& d : dirs) {
+            const std::string rel = p.substr(2);   // drop "0:"
+            if (d == rel) { keep = true; all = true; }
+            else if (k.dir && d.size() > rel.size() && d.compare(0, rel.size(), rel) == 0 && d[rel.size()] == '/') { keep = true; partial = true; }
+        }
+        if (!keep) continue;
+        out[p] = &k;
+        if (k.dir) want_list(k, p, dirs, false, all && !partial, out);
+    }
+}
+
+// The card at `path` against the fixture `fx` for the (canonical) `dirs`: "" when the file set, every
+// file's bytes, and every file's and directory's date, time and R/H/S/A bits equal the fixture's.
+std::string verify_list(const std::string& path, const FNode& fx, const std::vector<std::string>& dirs,
+                        const std::vector<uint8_t>& rom16) {
+    std::map<std::string, const FNode*> want;
+    want_list(fx, "0:", dirs, true, false, want);
+    Card c(path);
+    if (!c.ok) return " card does not mount";
+    std::map<std::string, FILINFO> got;
+    c.walk("0:", got);
+    std::set<std::string> have, expect;
+    for (auto& kv : got) have.insert(kv.first);
+    for (auto& kv : want) expect.insert(kv.first);
+    expect.insert("0:/machines/next/config.ini");
+    std::string d;
+    for (const auto& h : have) if (!expect.count(h)) d += " extra:" + h;
+    for (const auto& e : expect) if (!have.count(e)) d += " missing:" + e;
+    for (auto& kv : want) {
+        FILINFO fi{};
+        if (f_stat(kv.first.c_str(), &fi) != FR_OK) { d += " nostat:" + kv.first; continue; }
+        const uint8_t mask = AM_RDO | AM_HID | AM_SYS | AM_ARC;
+        if (fi.fdate != kv.second->wdate || fi.ftime != kv.second->wtime || (fi.fattrib & mask) != (kv.second->attr & mask))
+            d += " meta:" + kv.first;
+        if (kv.second->dir) continue;
+        std::vector<uint8_t> got_data, want_data = kv.second->data;
+        if (kv.first == "0:/machines/next/zx81.rom") want_data.insert(want_data.end(), rom16.begin(), rom16.end());
+        if (!c.read(kv.first, got_data) || got_data != want_data) d += " differs:" + kv.first;
+    }
+    return d;
+}
+
+// The bytes the builder must count for `dirs`: file sizes plus directory clusters (by the image's layout).
+uint64_t counted(const FNode& fx, const Image& im, const std::vector<std::string>& dirs) {
+    std::map<std::string, const FNode*> want;
+    want_list(fx, "0:", dirs, true, false, want);
+    uint64_t t = im.chains.at("<root>").size() * static_cast<uint64_t>(kBpc);
+    for (auto& kv : want) {
+        const FNode& n = *kv.second;
+        t += n.dir ? im.chains.at(n.name).size() * static_cast<uint64_t>(kBpc) : (n.declared ? n.declared : n.data.size());
+    }
+    return t;
+}
+
 }  // namespace
 
 int main() {
@@ -947,6 +1039,177 @@ int main() {
         }
         check("MCARD-27", "a duplicate root name: the first entry is the one copied (the card equals the one without the duplicate)",
               r.st == minimal_card::Status::Done && first && r.sha == main_run.sha, r.err);
+        std::remove(c2.c_str());
+    }
+
+
+    // ---- GH #509: extra distribution paths (Expect::dirs) ------------------------------------------------
+    const FNode fxg = fixture_games();
+    const Image img_g = build_image(fxg);
+    const std::vector<uint8_t> zip_g = make_zip(img_g.bytes);
+    auto with_dirs = [&](std::vector<std::string> d) { minimal_card::Expect e = ex0; e.dirs = std::move(d); return e; };
+    auto canon = [](std::vector<std::string> in) {
+        std::vector<std::string> out;
+        std::string why;
+        minimal_card::canonical_dirs(in, out, why);
+        return out;
+    };
+
+    // MCARD-28: a whole requested directory.
+    {
+        const std::string c2 = tmp_path("card-d1.img");
+        std::remove(c2.c_str());
+        const Run r = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/APPS"}));
+        const std::string d = r.st == minimal_card::Status::Done ? verify_list(c2, fxg, canon({"/APPS"}), rom16) : " " + r.err;
+        Card c(c2);
+        std::vector<uint8_t> x;
+        check("MCARD-28", "dirs {/APPS}: the card holds the boot set, config.ini and APPS/x.bin, byte-identical, with the fixture's attributes and times",
+              d.empty() && c.read("0:/APPS/x.bin", x) && x == std::vector<uint8_t>(2 << 20, 0x5A), d);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-29: a path below the root: its parents are created, their other children are not.
+    {
+        const std::string c2 = tmp_path("card-d2.img");
+        std::remove(c2.c_str());
+        const Run r = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/GAMES/NEXT/G1"}));
+        std::string d = r.st == minimal_card::Status::Done ? verify_list(c2, fxg, canon({"/GAMES/NEXT/G1"}), rom16) : " " + r.err;
+        bool shape = false;
+        if (r.st == minimal_card::Status::Done) {
+            Card c(c2);
+            FILINFO fi{};
+            shape = f_stat("0:/GAMES/NEXT/G1/sub/b.bin", &fi) == FR_OK && f_stat("0:/GAMES/NEXT/g2", &fi) != FR_OK &&
+                    f_stat("0:/GAMES/CLASSIC", &fi) != FR_OK && f_stat("0:/APPS", &fi) != FR_OK;
+        }
+        check("MCARD-29", "dirs {/GAMES/NEXT/G1}: GAMES and GAMES/NEXT exist with their own attributes and times, G1's subtree is complete, G2, CLASSIC and APPS are absent",
+              d.empty() && shape, d);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-30: case, a trailing slash and the order of the list do not change the card.
+    {
+        const std::string c1 = tmp_path("card-d3a.img"), c2 = tmp_path("card-d3b.img");
+        std::remove(c1.c_str());
+        std::remove(c2.c_str());
+        const Run a = build(minimal_card::Input::Zip, zip_g, c1, with_dirs({"/games/next/g1/", "/APPS"}));
+        const Run b = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/APPS", "/GAMES/NEXT/G1"}));
+        check("MCARD-30", "{/games/next/g1/, /APPS} and {/APPS, /GAMES/NEXT/G1} give the same card sha256",
+              a.st == minimal_card::Status::Done && b.st == minimal_card::Status::Done && !a.sha.empty() && a.sha == b.sha,
+              a.err + b.err);
+        std::remove(c1.c_str());
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-31: a path not in the distribution is refused, naming every missing one.
+    {
+        const std::string c2 = tmp_path("card-d4.img");
+        std::remove(c2.c_str());
+        const Run r = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/GAMES/NOPE", "/NOPE2", "/APPS"}));
+        check("MCARD-31", "{/GAMES/NOPE, /NOPE2, /APPS}: refused naming /games/nope and /nope2 (not /apps), no output file",
+              r.st == minimal_card::Status::Error && r.err.find("/games/nope") != std::string::npos &&
+                  r.err.find("/nope2") != std::string::npos && r.err.find("/apps") == std::string::npos && !exists(c2),
+              r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-32: over the bound with a list: the refusal names the exact total and the limit.
+    {
+        const std::string c2 = tmp_path("card-d5.img");
+        std::remove(c2.c_str());
+        FNode fb = fixture();
+        FNode games = dirn("GAMES", 0x00, 0x5A40, 0x9000);
+        FNode big = dirn("big", 0x00, 0x5A41, 0x9200);
+        FNode f = file("huge.bin", {}, 0x20, 0x5A42, 0x9400);
+        f.declared = 33ull << 20;
+        big.kids.push_back(f);
+        games.kids.push_back(big);
+        fb.kids.push_back(games);
+        const Image bi = build_image(fb);
+        const uint64_t total = counted(fb, bi, canon({"/GAMES/big"}));
+        const Run r = build(minimal_card::Input::Image, bi.bytes, c2, with_dirs({"/GAMES/big"}));
+        check("MCARD-32", "a requested directory holding a 33 MiB file: refused, the message names the exact counted total (file sizes plus directory clusters) and 33554432, no output file",
+              r.st == minimal_card::Status::Error && r.err.find("requested paths") != std::string::npos &&
+                  r.err.find(": " + std::to_string(total) + " bytes") != std::string::npos &&
+                  r.err.find("33554432") != std::string::npos && !exists(c2),
+              r.err + " expect " + std::to_string(total));
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-33: the bound counts file sizes, not the source's clusters.
+    {
+        const std::string c2 = tmp_path("card-d6.img");
+        std::remove(c2.c_str());
+        FNode fm = fixture();
+        FNode games = dirn("GAMES", 0x00, 0x5A40, 0x9000);
+        FNode many = dirn("many", 0x00, 0x5A41, 0x9200);
+        for (int i = 0; i < 8400; ++i) {
+            char nm[16];
+            std::snprintf(nm, sizeof nm, "f%04d.bin", i);
+            many.kids.push_back(file(nm, std::vector<uint8_t>(1, static_cast<uint8_t>(i)), 0x20, 0x5A42, 0x9400));
+        }
+        games.kids.push_back(many);
+        fm.kids.push_back(games);
+        const Run r = build(minimal_card::Input::Image, build_image(fm).bytes, c2, with_dirs({"/GAMES/many"}));
+        size_t n = 0;
+        bool sample = false;
+        if (r.st == minimal_card::Status::Done) {
+            Card c(c2);
+            std::map<std::string, FILINFO> got;
+            c.walk("0:/GAMES/many", got);
+            n = got.size();
+            std::vector<uint8_t> x;
+            sample = c.read("0:/GAMES/many/f8399.bin", x) && x.size() == 1 && x[0] == static_cast<uint8_t>(8399);
+        }
+        check("MCARD-33", "8400 one-byte files in a requested directory (34 MiB in 4 KiB clusters, 8 KiB of data): accepted, every file present",
+              r.st == minimal_card::Status::Done && n == 8400 && sample, r.err + " n=" + std::to_string(n));
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-34: canonical_dirs refuses each bad entry with its own reason naming the entry.
+    {
+        struct C { std::vector<std::string> in; const char* token; };
+        const C cases[] = {{{"GAMES"}, "'GAMES'"}, {{"/"}, "'/'"}, {{""}, "''"}, {{"/A//B"}, "'/A//B'"},
+                           {{"/A/../B"}, "'/A/../B'"}, {{"/A/./B"}, "'/A/./B'"}, {{"/A\\B"}, "'/A\\B'"},
+                           {{std::string("/A\x01")}, "control"}, {{"/SYS"}, "'/SYS'"}, {{"/machines/next"}, "'/machines/next'"},
+                           {{"/TBBLUE.FW"}, "'/TBBLUE.FW'"}, {{"/APPS", "/apps"}, "'/apps'"},
+                           {{"/GAMES", "/GAMES/NEXT"}, "'/games/next'"}};
+        std::string bad;
+        std::set<std::string> reasons;
+        for (const C& c : cases) {
+            std::vector<std::string> out;
+            std::string why;
+            if (minimal_card::canonical_dirs(c.in, out, why) || why.find(c.token) == std::string::npos) bad += " " + std::string(c.token) + ":" + why;
+            reasons.insert(why.substr(why.find("' ") == std::string::npos ? 0 : why.find("' ")));
+        }
+        // the Builder refuses a bad list on its first feed, writing nothing
+        const std::string c2 = tmp_path("card-d7.img");
+        std::remove(c2.c_str());
+        const Run r = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/SYS"}));
+        check("MCARD-34", "canonical_dirs refuses GAMES, /, '', /A//B, /A/../B, /A/./B, a backslash, a control character, /SYS, /machines/next, /TBBLUE.FW, a duplicate and a nested path, each naming the entry; the Builder refuses a bad list with no output file",
+              bad.empty() && reasons.size() >= 8 && r.st == minimal_card::Status::Error && r.err.find("/SYS") != std::string::npos && !exists(c2),
+              bad + " " + r.err);
+    }
+
+    // MCARD-35: the canonical form, and an empty list is the plain card.
+    {
+        std::vector<std::string> out;
+        std::string why;
+        const bool ok = minimal_card::canonical_dirs({"/GAMES/", "/apps"}, out, why) &&
+                        out == std::vector<std::string>{"/apps", "/games"};
+        const std::string c1 = tmp_path("card-d8a.img"), c2 = tmp_path("card-d8b.img");
+        std::remove(c1.c_str());
+        std::remove(c2.c_str());
+        minimal_card::Expect pinned_style = ex0;
+        pinned_style.card_sha256 = main_run.sha;
+        const Run a = build(minimal_card::Input::Zip, zip, c1, pinned_style);   // dirs empty: the pin still applies
+        minimal_card::Expect wrong = pinned_style;
+        wrong.card_sha256 = std::string(64, '1');
+        const Run b = build(minimal_card::Input::Zip, zip, c2, wrong);
+        check("MCARD-35", "canonical_dirs({/GAMES/, /apps}) = {/apps, /games}; with no dirs the card equals the plain one, its pinned sha256 is still checked and a wrong one refused",
+              ok && a.st == minimal_card::Status::Done && a.sha == main_run.sha &&
+                  b.st == minimal_card::Status::Error && b.err.find("not the expected one") != std::string::npos,
+              why + a.err + b.err);
+        std::remove(c1.c_str());
         std::remove(c2.c_str());
     }
 

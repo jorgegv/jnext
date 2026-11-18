@@ -18,6 +18,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -53,6 +54,11 @@ bool in_boot_set(const std::string& name) {
     for (const char* b : kBootSet)
         if (ieq(name, b)) return true;
     return false;
+}
+
+std::string lower_of(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
 }
 
 std::string basename_of(const std::string& n) {
@@ -100,6 +106,7 @@ struct Rec {
     uint16_t    wdate = 0, wtime = 0;
     uint32_t    size = 0;
     int         chain = -1;
+    bool        partial = false;   // GH #509: the root or an ancestor of a requested path: only some kids are kept
     std::vector<int> kids;
 };
 
@@ -109,10 +116,20 @@ struct Chain {
     std::vector<uint8_t>  buf;
     int                   rec = 0;   // the owner (0 = the root directory)
     bool                  is_dir = false;
+    size_t                bytes = 0; // what is kept: a file's size, a directory's clusters (GH #509)
 };
 
 class ImageStage {
 public:
+    // The canonical (lower case, sorted) requested paths, before the first byte.
+    void set_dirs(const std::vector<std::string>& d) { dirs_ = d; }
+    // The retained bytes passed the cap: the total counted so far (a lower bound until done).
+    bool over() const { return over_; }
+    std::string over_message() const {
+        return std::string(dirs_.empty() ? "the boot set" : "the boot set and the requested paths") +
+               " is larger than the card: " + (done_over_ ? "" : "at least ") + std::to_string(retained_) +
+               " bytes, the limit is " + std::to_string(kRetainCap) + " (32 MiB)";
+    }
     bool failed() const { return !err_.empty(); }
     const std::string& error() const { return err_; }
     bool done() const { return done_; }
@@ -161,6 +178,14 @@ public:
             for (int k : recs_[0].kids)
                 if (ieq(recs_[static_cast<size_t>(k)].name, b)) { found = true; break; }
             if (!found) { why = std::string(b) + " is not in the distribution's SD image"; return false; }
+        }
+        std::string missing;
+        for (const std::string& d : dirs_)
+            if (!found_.count(d)) missing += (missing.empty() ? "" : ", ") + d;
+        if (!missing.empty()) {
+            why = std::string(std::count(missing.begin(), missing.end(), ',') ? "the requested paths " : "the requested path ") +
+                  missing + (std::count(missing.begin(), missing.end(), ',') ? " are" : " is") + " not in the distribution";
+            return false;
         }
         out.root.clear();
         for (int k : recs_[0].kids) out.root.push_back(node_of(k));
@@ -227,10 +252,15 @@ private:
         }
     }
 
+    // `bytes` is what the card keeps of the chain: a file's size, a directory's clusters. The
+    // source's clusters (32 KiB in the distribution) are not what is held, so they are not
+    // what is counted (GH #509). Past the cap the total is still counted, but files are no
+    // longer registered (no buffer), so the refusal can name the exact size.
     void register_chain(int rec, const std::vector<uint32_t>& cl, bool is_dir, uint32_t cur,
-                        const std::string& path) {
-        retained_ += static_cast<uint64_t>(cl.size()) * bpc_;
-        if (retained_ > kRetainCap) { fail("the boot set is larger than the card (more than 32 MiB at " + path + ")"); return; }
+                        const std::string& path, uint64_t bytes) {
+        retained_ += bytes;
+        if (retained_ > kRetainCap) over_ = true;
+        if (over_ && !is_dir) return;
         for (uint32_t c : cl) {
             if (c <= cur) {
                 fail("the distribution's layout needs a second pass over the zip, which this builder does not do (cluster " +
@@ -241,7 +271,8 @@ private:
         }
         Chain ch;
         ch.clusters = cl;
-        ch.buf.assign(cl.size() * bpc_, 0);
+        ch.buf.assign(static_cast<size_t>(bytes), 0);
+        ch.bytes = static_cast<size_t>(bytes);
         ch.rec = rec;
         ch.is_dir = is_dir;
         chains_.push_back(std::move(ch));
@@ -256,7 +287,8 @@ private:
         recs_[0].is_dir = true;
         std::vector<uint32_t> cl;
         if (!walk(root_cluster_, 0, "the root directory", cl)) return;
-        register_chain(0, cl, true, 0, "");
+        recs_[0].partial = true;
+        register_chain(0, cl, true, 0, "", static_cast<uint64_t>(cl.size()) * bpc_);
     }
 
     size_t data(const uint8_t* p, size_t n) {
@@ -265,8 +297,11 @@ private:
         const size_t off = static_cast<size_t>(rel % bpc_);
         const size_t take = std::min<size_t>(n, bpc_ - off);
         auto it = owner_.find(c);
-        if (it != owner_.end())
-            std::memcpy(chains_[it->second.first].buf.data() + it->second.second * bpc_ + off, p, take);
+        if (it != owner_.end()) {
+            Chain& ch = chains_[it->second.first];
+            const size_t dest = it->second.second * bpc_ + off;
+            if (dest < ch.bytes) std::memcpy(ch.buf.data() + dest, p, std::min(take, ch.bytes - dest));   // the last cluster is clamped
+        }
         advance(take);
         if (off + take == bpc_) {
             if (it != owner_.end()) {
@@ -275,7 +310,10 @@ private:
                 --outstanding_;
                 if (++chains_[ci].got == chains_[ci].clusters.size() && chains_[ci].is_dir) dir_complete(ci, c);
             }
-            if (!failed() && outstanding_ == 0) done_ = true;
+            if (!failed() && outstanding_ == 0) {
+                if (over_) { done_over_ = true; fail(over_message()); }
+                else done_ = true;
+            }
         }
         return take;
     }
@@ -287,14 +325,30 @@ private:
         const std::string pdir = recs_[static_cast<size_t>(parent)].path;
         for (const Fat32Entry& e : ents) {
             if (failed()) return;
-            if (parent == 0) {
-                if (!in_boot_set(e.name)) continue;
+            bool partial = false;
+            if (recs_[static_cast<size_t>(parent)].partial) {
+                // The root keeps the boot set; every partial directory keeps the requested
+                // paths and the directories on the way to one (GH #509).
+                const std::string lp = lower_of(pdir) + "/" + lower_of(e.name);
+                bool keep = parent == 0 && in_boot_set(e.name);
+                if (!keep) {
+                    for (const std::string& d : dirs_) {
+                        if (d == lp) { keep = true; found_.insert(d); break; }
+                        if (e.is_dir && d.size() > lp.size() && d.compare(0, lp.size(), lp) == 0 && d[lp.size()] == '/') {
+                            keep = true;
+                            partial = true;
+                            break;
+                        }
+                    }
+                }
+                if (!keep) continue;
                 bool dup = false;
-                for (int k : recs_[0].kids)
+                for (int k : recs_[static_cast<size_t>(parent)].kids)
                     if (ieq(recs_[static_cast<size_t>(k)].name, e.name)) dup = true;
                 if (dup) continue;   // the first one wins, as the old script's `head -n1`
             }
             Rec r;
+            r.partial = partial;
             r.name = e.name;
             r.path = pdir + "/" + e.name;
             r.is_dir = e.is_dir;
@@ -306,16 +360,19 @@ private:
             const int ri = static_cast<int>(recs_.size() - 1);
             recs_[static_cast<size_t>(parent)].kids.push_back(ri);
             std::vector<uint32_t> cl;
+            uint64_t kept = 0;
             if (e.is_dir) {
                 if (e.cluster < 2) continue;   // an empty directory
                 if (!walk(e.cluster, 0, r.path, cl)) return;
+                kept = static_cast<uint64_t>(cl.size()) * bpc_;
             } else if (e.size > 0) {
                 if (e.cluster < 2) { fail(r.path + " has data but no clusters"); return; }
                 if (!walk(e.cluster, (e.size + bpc_ - 1) / bpc_, r.path, cl)) return;
+                kept = e.size;
             } else {
                 continue;
             }
-            register_chain(ri, cl, e.is_dir, cur, r.path);
+            register_chain(ri, cl, e.is_dir, cur, r.path, kept);
         }
     }
 
@@ -350,6 +407,9 @@ private:
     std::map<uint32_t, std::pair<size_t, size_t>> owner_;   // cluster -> (chain, index in chain)
     size_t outstanding_ = 0;
     uint64_t retained_ = 0;
+    bool over_ = false, done_over_ = false;
+    std::vector<std::string> dirs_;
+    std::set<std::string> found_;
 };
 
 }  // namespace
@@ -592,6 +652,7 @@ struct Builder::Impl {
             fail("this is not the image of " + name + ": its SHA-256 is " + digest + ", expected " + ex.image_sha256);
             return Status::Error;
         }
+        if (img.over()) { fail(img.over_message()); return Status::Error; }   // before the truncation: the size is the news
         if (!img.done()) {
             fail(in == Input::Zip && z != Z::Tail && z != Z::Image
                      ? "the zip holds no cspect-next-1gb.img"
@@ -608,6 +669,45 @@ struct Builder::Impl {
         return Status::Done;
     }
 };
+
+bool canonical_dirs(const std::vector<std::string>& in, std::vector<std::string>& out, std::string& why) {
+    out.clear();
+    for (const std::string& raw : in) {
+        auto bad = [&](const char* reason) { why = "'" + raw + "' " + reason; return false; };
+        std::string s = raw;
+        if (s.empty()) return bad("is empty");
+        if (s[0] != '/') return bad("does not start with '/'");
+        for (char c : s)
+            if (c == '\\') return bad("has a backslash");
+            else if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F) return bad("has a control character");
+        if (s == "/") return bad("is the whole distribution");
+        if (s.back() == '/') s.pop_back();
+        std::string first;
+        size_t at = 1;
+        while (true) {
+            const size_t e = s.find('/', at);
+            const std::string el = s.substr(at, e == std::string::npos ? std::string::npos : e - at);
+            if (el.empty()) return bad("has an empty element");
+            if (el == "." || el == "..") return bad("has a '.' or '..' element");
+            if (at == 1) first = el;
+            if (e == std::string::npos) break;
+            at = e + 1;
+        }
+        if (in_boot_set(first)) return bad("is part of the boot set, which is always on the card");
+        out.push_back(lower_of(s));
+    }
+    std::sort(out.begin(), out.end());
+    for (size_t i = 1; i < out.size(); ++i) {
+        const std::string& a = out[i - 1];
+        const std::string& b = out[i];
+        if (a == b) { why = "'" + b + "' is given twice"; return false; }
+        if (b.size() > a.size() && b.compare(0, a.size(), a) == 0 && b[a.size()] == '/') {
+            why = "'" + b + "' is inside '" + a + "', which is also given";
+            return false;
+        }
+    }
+    return true;
+}
 
 Expect pinned(Input in) {
     Expect e;
@@ -626,6 +726,10 @@ Builder::Builder(Input in, std::string out_path, Expect expect) : p_(new Impl) {
     p_->in = in;
     p_->out = std::move(out_path);
     p_->ex = std::move(expect);
+    std::vector<std::string> canon;
+    std::string why;
+    if (!canonical_dirs(p_->ex.dirs, canon, why)) { p_->fail("option dirs: " + why); return; }
+    p_->img.set_dirs(canon);
 }
 Builder::~Builder() = default;
 Status Builder::feed(const uint8_t* p, size_t n) { return p_->feed(p, n); }

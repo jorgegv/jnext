@@ -11,6 +11,8 @@
 // data-poster                         the mount() option poster: a picture shown before the click
 // data-card-source                    the mount() option card.source: auto (default), fetch or pick:
 //                                     how the player gets NextZXOS's SD card (user guide 8.4)
+// data-card-dirs                      the mount() option card.dirs: more of the distribution on the card,
+//                                     comma-separated absolute paths, e.g. /GAMES,/APPS (user guide 8.4)
 // data-width, data-height             the screen size in CSS pixels (640 x 512)
 // data-keep-writes                    the mount() option keepWrites: keep the program's saves across
 //                                     reloads (any value but "false"); el.jnextPlayer.resetCard() clears them
@@ -198,7 +200,10 @@
       // nothing to control: the toolbar goes back to disabled. Later errors leave a running player alone.
       onError: function (message) { ui.say('error: ' + message, true); if (!ui.started) ui.disable(); }
     };
+    var cardDirs = (el.getAttribute('data-card-dirs') || '').split(',').map(function (d) { return d.trim(); })
+                     .filter(function (d) { return d; });
     if (el.getAttribute('data-card-source')) options.card = { source: el.getAttribute('data-card-source') };
+    if (cardDirs.length) options.card = Object.assign(options.card || {}, { dirs: cardDirs });
     if (el.getAttribute('data-poster')) options.poster = el.getAttribute('data-poster');
     if (el.getAttribute('data-file')) options.file = el.getAttribute('data-file');
     if (el.getAttribute('data-touch-keyboard')) options.touchKeyboard = el.getAttribute('data-touch-keyboard');

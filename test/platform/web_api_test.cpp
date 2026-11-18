@@ -528,6 +528,40 @@ int main()
               good && bad.empty(), bad);
     }
 
+    // --- WAPI-CARD-04: card.dirs accepted (GH #509) -------------------------------------------------
+    {
+        bool good = true;
+        for (const char* v : {"{\"dirs\":[]}", "{\"dirs\":[\"/GAMES\"]}",
+                              "{\"source\":\"pick\",\"dirs\":[\"/APPS\",\"/GAMES/\"]}"}) {
+            const Result r = run("{" + IMG + ",\"card\":" + v + "}");
+            if (!r.ok || r.argv != Argv{"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX}) good = false;
+        }
+        check("WAPI-CARD-04", "card dirs [], ['/GAMES'] and {source:'pick', dirs:['/APPS','/GAMES/']} are accepted and add nothing to argv", good);
+    }
+
+    // --- WAPI-CARD-05: card.dirs refused, naming card and the entry ---------------------------------
+    {
+        struct C { const char* json; const char* entry; };
+        const C cases[] = {{"\"/GAMES\"", "dirs"}, {"[5]", "dirs"}, {"[\"GAMES\"]", "GAMES"}, {"[\"/\"]", "'/'"},
+                           {"[\"/a/../b\"]", "/a/../b"}, {"[\"/SYS\"]", "/SYS"}, {"[\"/APPS\",\"/apps\"]", "/apps"},
+                           {"[\"/GAMES\",\"/GAMES/Next\"]", "/games/next"}};
+        std::string bad;
+        for (const C& c : cases) {
+            const Result r = run("{" + IMG + ",\"card\":{\"dirs\":" + std::string(c.json) + "}}");
+            if (r.ok || !r.argv.empty() || r.why.find("card") == std::string::npos || r.why.find(c.entry) == std::string::npos)
+                bad += std::string(" ") + c.json + " -> " + r.why;
+        }
+        check("WAPI-CARD-05", "card dirs: a string, [5], ['GAMES'], ['/'], ['/a/../b'], ['/SYS'], a duplicate and a nested path are refused naming card and the entry",
+              bad.empty(), bad);
+    }
+
+    // --- WAPI-CARD-06: the shape message names the keys ---------------------------------------------
+    {
+        const Result r = run("{" + IMG + ",\"card\":5}");
+        check("WAPI-CARD-06", "a card that is not an object is refused as \"option 'card' must be an object {source, dirs}\"",
+              !r.ok && r.why == "option 'card' must be an object {source, dirs}", r.why);
+    }
+
     // --- WAPI-CARD-02: the old `image` option is gone --------------------------------------------
     {
         const Result r = run("{" + IMG + ",\"image\":{\"url\":\"u\",\"sha256\":\"" + HEX + "\"}}");
