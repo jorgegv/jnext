@@ -4872,9 +4872,10 @@ static void test_memory_panel_tools() {
         const int before = r.mem->selected_address();
         r.msgs.clear();
         const bool seen3 = via_dialog([&]() { find->trigger(); }, [](QDialog* d) { d->reject(); });
-        check("QMPT-16", "Find dialog from the menu: text then hex, answers remembered, Cancel changes nothing",
+        check("QMPT-16", "Find dialog from the menu: text then hex, answers remembered, Cancel changes nothing, no panel child left",
               r.built && seen1 && seen2 && seen3 && a == 0x8100 && m1 == "Found at $8100" && prefilled == QStringList({"JNEXT"}) &&
-                  b == 0x8100 && r.msgs.isEmpty() && r.mem->selected_address() == before,
+                  b == 0x8100 && r.msgs.isEmpty() && r.mem->selected_address() == before &&
+                  r.mem->findChildren<QLineEdit*>().size() == 1 && r.mem->findChildren<QComboBox*>().size() == 1,
               s(m1) + " " + s(prefilled.join("|")));
     }
 
