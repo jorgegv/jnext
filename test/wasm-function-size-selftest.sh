@@ -18,6 +18,7 @@
 #   WFS-07   a directory with no .wasm: exit 2 (cannot check)
 #   WFS-08a  a file with a bad magic: exit 2
 #   WFS-08b  a module truncated inside its code section: exit 2
+#   WFS-08c  a trailing byte in the import section, or in the code section, is exit 2 (not consumed exactly)
 #   WFS-09   a module without a name section: exit 2, and the report says so
 #   WFS-10   the Makefile wires it: unit-test-wasm needs the check, the check runs the script on
 #            the wasm test tree, unit-test needs the self-test
@@ -29,7 +30,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 CHECK="$HERE/wasm-function-size.pl"
 BOUND=262144
-EXPECTED_ROWS=11
+EXPECTED_ROWS=12
 
 total=0; passed=0; failed=0
 row() {  # row ID OK(0|1) TEXT
@@ -41,7 +42,7 @@ row() {  # row ID OK(0|1) TEXT
 W=$(mktemp -d "${TMPDIR:-/tmp}/wfs.XXXXXX") || exit 1
 trap 'rm -rf "$W"' EXIT
 
-# gen.pl <out> <bodies comma list> [imports=K] [mixed=1] [names=0|1] [data=BYTES] [cut=1]
+# gen.pl <out> <bodies comma list> [imports=K] [mixed=1] [trail_imp=1] [trail_code=1] [names=0|1] [data=BYTES] [cut=1]
 # Type section (one () -> ()), K imported functions (mixed=1: with a memory, table, global and tag import among them), function section, code section whose body i is
 # 0x00 (no locals) + (size-2) x 0x01 (nop) + 0x0B (end), so its LEB size prefix is exactly `size`;
 # an optional data section; an optional name section (function index i is named "f<i>").
@@ -49,7 +50,7 @@ trap 'rm -rf "$W"' EXIT
 cat >"$W/gen.pl" <<'PERL'
 use strict; use warnings;
 my ($out, $bodies, @opt) = @ARGV;
-my %o = (imports => 0, names => 1, data => 0, cut => 0, mixed => 0);
+my %o = (imports => 0, names => 1, data => 0, cut => 0, mixed => 0, trail_imp => 0, trail_code => 0);
 for (@opt) { my ($k, $v) = split /=/; $o{$k} = $v }
 sub leb { my $n = shift; my $r = ''; while (1) { my $b = $n & 0x7F; $n >>= 7; if ($n) { $r .= chr($b | 0x80) } else { $r .= chr($b); last } } $r }
 sub sec { my ($id, $p) = @_; chr($id) . leb(length $p) . $p }
@@ -64,12 +65,12 @@ if ($o{imports}) {
                      nm('e') . nm('glob') . "\3\x7F\0", nm('e') . nm('tag') . "\4\0\0");
         @imp = ($other[0], $imp[0], $other[1], $other[2], $other[3], @imp[1 .. $#imp]);
     }
-    $m .= sec(2, leb(scalar @imp) . join('', @imp));
+    $m .= sec(2, leb(scalar @imp) . join('', @imp) . ($o{trail_imp} ? "\0" : ''));
 }
 $m .= sec(3, leb(scalar @b) . ("\0" x @b));
 my $code = leb(scalar @b);
 $code .= leb($_) . "\0" . ("\1" x ($_ - 2)) . "\x0B" for @b;
-$m .= sec(10, $code);
+$m .= sec(10, $code . ($o{trail_code} ? "\0" : ''));
 my $cut_at = length($m) - 200;
 $m .= sec(11, "\1\1" . leb($o{data}) . ("\0" x $o{data})) if $o{data};
 if ($o{names}) {
@@ -130,6 +131,11 @@ row WFS-08a $([[ $RC -eq 2 ]] && echo 1 || echo 0) "a file with a bad magic is e
 # WFS-08b
 fresh; gen "$W/d/a.wasm" 1000,1000 cut=1; run
 row WFS-08b $([[ $RC -eq 2 && "$OUT" == *"truncated"* ]] && echo 1 || echo 0) "a module cut inside its code section is exit 2, saying truncated (exit $RC)"
+
+# WFS-08c
+fresh; gen "$W/d/a.wasm" 1000 imports=1 trail_imp=1; run; rc_i=$RC; out_i=$OUT
+fresh; gen "$W/d/a.wasm" 1000 trail_code=1; run; rc_c=$RC; out_c=$OUT
+row WFS-08c $([[ $rc_i -eq 2 && "$out_i" == *"malformed import section"* && $rc_c -eq 2 && "$out_c" == *"malformed code section"* ]] && echo 1 || echo 0) "one trailing byte in the import section (exit $rc_i) or in the code section (exit $rc_c) is exit 2, naming the section"
 
 # WFS-09
 fresh; gen "$W/d/a.wasm" 1000 names=0; run
