@@ -3147,8 +3147,9 @@ handful of rules:</p>
   a function body over 256 KiB (<code>make wasm-function-size-check</code>). Split a long
   <code>main()</code> at its section boundaries into <code>[[gnu::noinline]] static</code> part functions
   that <code>main()</code> calls in order, and put the state the parts share in a struct passed
-  by reference. <code>noinline</code> is required: with one caller each, the optimiser inlines
-  the parts straight back into <code>main()</code>.</li>
+  by reference. Keep <code>noinline</code> on every part: a static function with one caller is
+  what the optimiser inlines back into its caller when the function is small enough,
+  and that would rebuild the one huge function.</li>
 <li>Under node <code>getpid()</code> is the constant 42, so a scratch name built from it is not
   unique; the runner gives every run a private <code>TMPDIR</code>, which is where
   <code>std::filesystem::temp_directory_path()</code> points.</li>
