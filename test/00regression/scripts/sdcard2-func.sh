@@ -260,7 +260,7 @@ if want sdcard2-func; then
                 "$JNEXT" --machine 48k --delayed-sdcard2-insert-frames 5 "$W/card2b.img" \
                 > "$W/windowed.log" 2>&1 || rc=$?
             [[ $rc -ne 0 ]] || faults+=("windowed: exited 0")
-            grep -qF "--delayed-sdcard2-insert-frames requires --headless" "$W/windowed.log" \
+            grep -qF -- "--delayed-sdcard2-insert-frames requires --headless" "$W/windowed.log" \
                 || faults+=("windowed: no 'requires --headless' in the log")
         }
         QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy windowed_run
