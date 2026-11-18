@@ -59,6 +59,7 @@
 #include "script/script_host.h"
 #include "debugger/sprite_panel.h"
 #include "debugger/stack_panel.h"
+#include "debugger/symbols_panel.h"
 #include "debugger/watch_panel.h"
 #include "memory/mmu.h"
 #include "peripheral/copper.h"
@@ -2330,6 +2331,8 @@ struct CpuFix {
     MutateLog log;
     jnext::dbg::ClientId window = jnext::dbg::CLIENT_NONE;
     QStringList messages;
+    QTemporaryDir dir;
+    QString dir_path() const { return dir.path(); }
     bool ok = false;
 
     explicit CpuFix(MachineType type = MachineType::ZX128K) {
@@ -4843,6 +4846,514 @@ static void test_pc_hint() {
     }
 }
 
+// ===========================================================================
+// QNAV -- GH #366: Follow, Back and Forward in the Disassembly.
+//
+// No VHDL oracle: host debugger UI. The oracles are UM0080 (where each transfer goes), the issue's
+// contract (Follow a branch target or a memory operand; Back/Forward history), and the established
+// Back/Forward convention. Driven as a user does it: a click on a line, then Follow.
+// ===========================================================================
+struct NavFix {
+    Emulator emu;
+    std::unique_ptr<jnext::dbg::Debugger> dbg;
+    std::unique_ptr<DisasmPanel> dis;
+    int mem_requests = 0;
+    uint16_t mem_addr = 0;
+    bool ok = false;
+
+    NavFix() {
+        if (!build(emu, MachineType::ZX48K)) return;
+        dbg = std::make_unique<jnext::dbg::Debugger>(emu);
+        dis = std::make_unique<DisasmPanel>(dbg.get());
+        dis->resize(700, 400);
+        dis->set_paused(true);
+        QObject::connect(dis.get(), &DisasmPanel::show_in_memory_requested,
+                         [this](uint16_t a) { ++mem_requests; mem_addr = a; });
+        regs(0x7000, 0x1000, 0xB000);
+        ok = true;
+    }
+    void code(uint16_t a, std::initializer_list<uint8_t> b) { poke(emu, a, b); }
+    void regs(uint16_t pc, uint16_t hl, uint16_t sp) {
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = pc; r.HL = hl; r.SP = sp; r.AF = 0;
+        emu.cpu().set_registers(r);
+    }
+    void view(uint16_t a) { view_disasm_at(dis.get(), a); dis->refresh(); }
+    void click(int row) { dcol_click(dis.get(), 200, row); }
+    bool shows(const char* addr_text) { return !dcol_row(painted(dis.get()), addr_text).empty(); }
+};
+
+/// Right-click the disassembly row `row`: {present, enabled, tooltip} of its "Follow" entry.
+struct FollowEntry { bool present = false; bool enabled = false; QString tip; };
+static FollowEntry follow_entry(DisasmPanel* p, int row) {
+    FollowEntry r;
+    bool seen = false;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || seen) return;
+        seen = true;
+        for (QAction* a : menu->actions())
+            if (a->text() == QLatin1String("Follow")) { r.present = true; r.enabled = a->isEnabled(); r.tip = a->toolTip(); }
+        menu->close();
+    });
+    timer.start(1);
+    const QPoint pos(200, 52 + row * 18 + 9);
+    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, p->mapToGlobal(pos));
+    QApplication::sendEvent(p, &ev);
+    timer.stop();
+    QApplication::processEvents();
+    return r;
+}
+
+static void test_disasm_nav() {
+    set_group("QNAV");
+
+    {
+        NavFix f;
+        const char* desc = "Follow on CALL $9000 moves the caret to $9000 (in view); Back returns to the CALL line with "
+                           "the view exactly as it was; Forward goes to $9000 again";
+        if (!f.ok) { check("QNAV-01", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0xCD, 0x00, 0x90});
+            f.code(0x9000, {0x00, 0x00});
+            f.view(0x8000);
+            f.click(0);
+            const uint16_t top = f.dis->view_address();
+            f.dis->follow();
+            const bool there = f.dis->selected_address() == 0x9000 && f.shows("$9000");
+            const bool back = f.dis->go_back() && f.dis->selected_address() == 0x8000 && f.dis->view_address() == top;
+            const bool fwd = f.dis->go_forward() && f.dis->selected_address() == 0x9000;
+            check("QNAV-01", desc, there && back && fwd,
+                  fmt("there=%d back=%d (sel %04X view %04X want %04X) fwd=%d", there, back,
+                      f.dis->selected_address(), f.dis->view_address(), top, fwd));
+        }
+    }
+
+    {
+        const char* desc = "Follow on JP (HL) with HL=$A000 goes to $A000; on RET with SP holding $1234, to $1234";
+        NavFix a;
+        NavFix b;
+        if (!a.ok || !b.ok) { check("QNAV-02", desc, false, "fixture"); }
+        else {
+            a.code(0x8000, {0xE9});
+            a.regs(0x7000, 0xA000, 0xB000);
+            a.view(0x8000); a.click(0); a.dis->follow();
+            b.code(0x8000, {0xC9});
+            b.code(0xB000, {0x34, 0x12});
+            b.view(0x8000); b.click(0); b.dis->follow();
+            check("QNAV-02", desc, a.dis->selected_address() == 0xA000 && b.dis->selected_address() == 0x1234,
+                  fmt("JP (HL) -> %04X, RET -> %04X", a.dis->selected_address(), b.dis->selected_address()));
+        }
+    }
+
+    {
+        NavFix f;
+        const char* desc = "Follow on LD A,($5C40) emits show_in_memory_requested($5C40) once; the view, the "
+                           "caret and both histories are unchanged";
+        if (!f.ok) { check("QNAV-03", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0x3A, 0x40, 0x5C});
+            f.view(0x8000); f.click(0);
+            const uint16_t top = f.dis->view_address();
+            f.dis->follow();
+            check("QNAV-03", desc,
+                  f.mem_requests == 1 && f.mem_addr == 0x5C40 && f.dis->view_address() == top &&
+                      f.dis->selected_address() == 0x8000 && !f.dis->can_go_back() && !f.dis->can_go_forward(),
+                  fmt("requests=%d addr=%04X view=%04X back=%d", f.mem_requests, f.mem_addr, f.dis->view_address(),
+                      f.dis->can_go_back()));
+        }
+    }
+
+    {
+        NavFix a;
+        NavFix b;
+        const char* desc = "Follow on NOP and on ED 98 (JP (C)) does nothing: no signal, no history change";
+        if (!a.ok || !b.ok) { check("QNAV-04", desc, false, "fixture"); }
+        else {
+            a.code(0x8000, {0x00});
+            a.view(0x8000); a.click(0); a.dis->follow();
+            b.code(0x8000, {0xED, 0x98});
+            b.view(0x8000); b.click(0); b.dis->follow();
+            check("QNAV-04", desc,
+                  a.mem_requests == 0 && b.mem_requests == 0 && !a.dis->can_go_back() && !b.dis->can_go_back() &&
+                      a.dis->selected_address() == 0x8000 && b.dis->selected_address() == 0x8000);
+        }
+    }
+
+    {
+        NavFix a, b, c;
+        const char* desc = "the address box (Enter) and the Go to PC button each record; activate_follow_pc() "
+                           "and the arrow / PageDown keys do not";
+        if (!a.ok || !b.ok || !c.ok) { check("QNAV-05", desc, false, "fixture"); }
+        else {
+            a.view(0x8000);
+            auto* edit = a.dis->findChild<QLineEdit*>();
+            if (edit) { edit->setText("9000"); send_key(edit, Qt::Key_Return); }
+            const bool box = a.dis->can_go_back();
+
+            b.code(0x8000, {0x00, 0x00});
+            b.view(0x8000); b.click(0);
+            QPushButton* goto_pc = nullptr;
+            for (QPushButton* p : b.dis->findChildren<QPushButton*>())
+                if (p->text() == QLatin1String("Go to PC")) goto_pc = p;
+            if (goto_pc) goto_pc->click();
+            const bool button = b.dis->can_go_back();
+
+            c.code(0x8000, {0x00, 0x00, 0x00});
+            c.view(0x8000); c.click(0);
+            c.dis->activate_follow_pc();
+            send_key(c.dis.get(), Qt::Key_Down);
+            send_key(c.dis.get(), Qt::Key_PageDown);
+            const bool quiet = !c.dis->can_go_back();
+            check("QNAV-05", desc, edit && goto_pc && box && button && quiet,
+                  fmt("box=%d button=%d quiet=%d", box, button, quiet));
+        }
+    }
+
+    {
+        NavFix f;
+        const char* desc = "show_address() of the address the caret is already on records nothing; to another address it does";
+        if (!f.ok) { check("QNAV-06", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0x00, 0x00});
+            f.view(0x8000); f.click(0);
+            f.dis->show_address(0x8000);
+            const bool same = !f.dis->can_go_back();
+            f.dis->show_address(0x9000);
+            check("QNAV-06", desc, same && f.dis->can_go_back());
+        }
+    }
+
+    {
+        NavFix f;
+        const char* desc = "the context menu's Follow is enabled on a CALL line with the target in its tooltip, "
+                           "disabled on NOP";
+        if (!f.ok) { check("QNAV-07", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0xCD, 0x00, 0x90, 0x00});
+            f.view(0x8000);
+            const FollowEntry call = follow_entry(f.dis.get(), 0);
+            const FollowEntry nop = follow_entry(f.dis.get(), 1);
+            check("QNAV-07", desc,
+                  call.present && call.enabled && call.tip.contains("$9000") && nop.present && !nop.enabled,
+                  fmt("call present=%d enabled=%d tip='%s'; nop present=%d enabled=%d", call.present, call.enabled,
+                      s(call.tip).c_str(), nop.present, nop.enabled));
+        }
+    }
+
+    {
+        NavFix f;
+        const char* desc = "can_go_back() / can_go_forward() follow the history: none, then back only, then forward only";
+        if (!f.ok) { check("QNAV-08", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0xCD, 0x00, 0x90});
+            f.view(0x8000); f.click(0);
+            const bool none = !f.dis->can_go_back() && !f.dis->can_go_forward();
+            f.dis->follow();
+            const bool one = f.dis->can_go_back() && !f.dis->can_go_forward();
+            f.dis->go_back();
+            const bool two = !f.dis->can_go_back() && f.dis->can_go_forward();
+            check("QNAV-08", desc, none && one && two, fmt("none=%d after follow=%d after back=%d", none, one, two));
+        }
+    }
+}
+
+// ===========================================================================
+// QSYML -- GH #366: the Symbols tab (symbols_panel.cpp).
+// Oracle: the issue's contract (every label, filter, a banked label is not shown as always mapped)
+// and the backend's own table: symbols().symbols(), shown_name(), source_page().
+// ===========================================================================
+static QStringList menu_entries(QWidget* w, const QPoint& pos) {
+    QStringList out;
+    bool seen = false;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || seen) return;
+        seen = true;
+        for (QAction* a : menu->actions())
+            if (!a->isSeparator()) out << visible(a->text()) + (a->isEnabled() ? "|1" : "|0");
+        menu->close();
+    });
+    timer.start(1);
+    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, w->mapToGlobal(pos));
+    QApplication::sendEvent(w, &ev);
+    timer.stop();
+    QApplication::processEvents();
+    return out;
+}
+
+struct SymFix {
+    Emulator emu;
+    std::unique_ptr<jnext::dbg::Debugger> dbg;
+    std::unique_ptr<SymbolsPanel> panel;
+    QTemporaryDir dir;
+    std::vector<uint16_t> to_dis;
+    bool ok = false;
+    jnext::dbg::MemSpace p10 = jnext::dbg::MemSpace::page(0x10);
+
+    explicit SymFix(const char* map_text = "start = $8000\nmain_loop = $8010\nLoop2 = $8020\ncounter = $9000\n",
+                    jnext::dbg::MapFormat fmt_ = jnext::dbg::MapFormat::Simple, bool user_label = true) {
+        if (!build(emu, MachineType::ZXN_ISSUE2)) return;
+        emu.nextreg().write(0x56, 0x0E);          // $C000 is not page $10
+        dbg = std::make_unique<jnext::dbg::Debugger>(emu);
+        dbg->load_map(write_map(dir, "sym.map", map_text), fmt_);
+        if (user_label) dbg->set_user_label(p10, 0xC000, "banked");
+        panel = std::make_unique<SymbolsPanel>(dbg.get());
+        panel->resize(500, 400);
+        QObject::connect(panel.get(), &SymbolsPanel::show_in_disassembly_requested,
+                         [this](uint16_t a) { to_dis.push_back(a); });
+        panel->show();
+        QApplication::processEvents();
+        panel->refresh();
+        ok = true;
+    }
+    QTableWidget* table() { return panel->findChild<QTableWidget*>(); }
+    QLabel* count() {
+        for (QLabel* l : panel->findChildren<QLabel*>())
+            if (l->text().contains(" of ")) return l;
+        return nullptr;
+    }
+    int visible_rows() {
+        int n = 0;
+        QTableWidget* t = table();
+        for (int i = 0; t && i < t->rowCount(); ++i) if (!t->isRowHidden(i)) ++n;
+        return n;
+    }
+};
+
+static void test_symbols_panel() {
+    set_group("QSYML");
+
+    {
+        SymFix f;
+        const char* desc = "one row per label of symbols().symbols(), each with Name, Address and Memory (a paged "
+                           "label shows its page, an unpaged one 'any'); the row count equals symbols().size()";
+        if (!f.ok) { check("QSYML-01", desc, false, "fixture"); }
+        else {
+            QTableWidget* t = f.table();
+            const char* want[5][3] = {{"start", "$8000", "any"}, {"main_loop", "$8010", "any"},
+                                      {"Loop2", "$8020", "any"}, {"counter", "$9000", "any"},
+                                      {"banked", "$C000", "P10"}};
+            std::string bad;
+            for (int r = 0; r < 5; ++r)
+                for (int c = 0; c < 3; ++c)
+                    if (cell(f.panel.get(), r, c) != QLatin1String(want[r][c]))
+                        bad += fmt("(%d,%d)'%s' ", r, c, s(cell(f.panel.get(), r, c)).c_str());
+            check("QSYML-01", desc,
+                  bad.empty() && t->rowCount() == 5 && f.dbg->symbols().size() == 5 && t->columnCount() == 3, bad);
+        }
+    }
+
+    {
+        SymFix f;
+        const char* desc = "the filter LOOP (any case) keeps main_loop and Loop2 and not start; the count reads 2 of 5";
+        if (!f.ok) { check("QSYML-02", desc, false, "fixture"); }
+        else {
+            auto* filter = f.panel->findChild<QLineEdit*>();
+            if (filter) filter->setText("LOOP");
+            QTableWidget* t = f.table();
+            bool start_hidden = false, ml = false, l2 = false;
+            for (int i = 0; i < t->rowCount(); ++i) {
+                const QString n = t->item(i, 0)->text();
+                if (n == "start") start_hidden = t->isRowHidden(i);
+                if (n == "main_loop") ml = !t->isRowHidden(i);
+                if (n == "Loop2") l2 = !t->isRowHidden(i);
+            }
+            QLabel* c = f.count();
+            check("QSYML-02", desc, filter && start_hidden && ml && l2 && f.visible_rows() == 2 && c && c->text() == "2 of 5",
+                  fmt("start hidden=%d main_loop=%d Loop2=%d count '%s'", start_hidden, ml, l2,
+                      c ? s(c->text()).c_str() : "<none>"));
+        }
+    }
+
+    {
+        SymFix f;
+        const char* desc = "a paged label whose page is not mapped is greyed with the 'not mapped' tooltip, and "
+                           "activating it emits nothing and shows the message; a mapped row emits "
+                           "show_in_disassembly_requested(addr)";
+        if (!f.ok) { check("QSYML-03", desc, false, "fixture"); }
+        else {
+            QTableWidget* t = f.table();
+            const QString tip = t->item(4, 0)->toolTip();
+            const bool greyed = tip.contains("not mapped at $C000 now") && t->item(4, 0)->toolTip() == t->item(4, 2)->toolTip();
+            emit t->cellDoubleClicked(4, 0);
+            const bool none = f.to_dis.empty();
+            QString msg;
+            for (QLabel* l : f.panel->findChildren<QLabel*>()) if (l->text().contains("not mapped")) msg = l->text();
+            emit t->cellDoubleClicked(0, 0);
+            check("QSYML-03", desc,
+                  greyed && none && msg == tip && f.to_dis == std::vector<uint16_t>{0x8000} && t->item(0, 0)->toolTip().isEmpty(),
+                  fmt("tip '%s' none=%d msg '%s' emitted=%d", s(tip).c_str(), none, s(msg).c_str(), (int)f.to_dis.size()));
+        }
+    }
+
+    {
+        SymFix f;
+        const char* desc = "a second load_map rebuilds the rows (the revision moved); a write of NR 0x56 that maps the "
+                           "page, with no revision move, un-greys the row at the next refresh()";
+        if (!f.ok) { check("QSYML-04", desc, false, "fixture"); }
+        else {
+            f.dbg->load_map(write_map(f.dir, "sym2.map", "start = $8000\nextra = $8030\n"), jnext::dbg::MapFormat::Simple);
+            f.panel->refresh();
+            QTableWidget* t = f.table();
+            const bool rebuilt = t->rowCount() == 3 && cell(f.panel.get(), 1, 0) == "extra";   // start, extra, banked
+            int banked = -1;
+            for (int i = 0; i < t->rowCount(); ++i) if (t->item(i, 0)->text() == "banked") banked = i;
+            const bool grey = banked >= 0 && !t->item(banked, 0)->toolTip().isEmpty();
+            const uint64_t rev = f.dbg->state_revision();
+            f.emu.nextreg().write(0x56, 0x10);
+            const bool no_rev = f.dbg->state_revision() == rev;
+            f.panel->refresh();
+            const bool lit = banked >= 0 && t->item(banked, 0)->toolTip().isEmpty();
+            check("QSYML-04", desc, rebuilt && grey && no_rev && lit,
+                  fmt("rebuilt=%d grey=%d revision kept=%d un-greyed=%d", rebuilt, grey, no_rev, lit));
+        }
+    }
+
+    {
+        SymFix f;
+        const char* desc = "the context menu: Show in Disassembly and Show in Memory are disabled for the unmapped row "
+                           "and enabled for a mapped one; Show in Source is absent with no source map";
+        if (!f.ok) { check("QSYML-05", desc, false, "fixture"); }
+        else {
+            QTableWidget* t = f.table();
+            const QPoint banked = t->visualRect(t->model()->index(4, 0)).center();
+            const QPoint start = t->visualRect(t->model()->index(0, 0)).center();
+            const QStringList un = menu_entries(t->viewport(), banked);
+            const QStringList on = menu_entries(t->viewport(), start);
+            const QStringList want_un{"Show in Disassembly|0", "Show in Memory|0"};
+            const QStringList want_on{"Show in Disassembly|1", "Show in Memory|1"};
+            check("QSYML-05", desc, un == want_un && on == want_on,
+                  "unmapped: " + s(un.join(",")) + " mapped: " + s(on.join(",")));
+        }
+    }
+
+    {
+        SymFix f("_counter = $9000 ; addr, public, , a_c, code_compiler, a.c::counter::0::0:1\n",
+                 jnext::dbg::MapFormat::Z88dk, false);
+        const char* desc = "a z88dk C symbol _counter is listed under its C name, counter";
+        if (!f.ok) { check("QSYML-06", desc, false, "fixture"); }
+        else {
+            QTableWidget* t = f.table();
+            check("QSYML-06", desc, t->rowCount() >= 1 && cell(f.panel.get(), 0, 0) == "counter",
+                  t->rowCount() ? s(cell(f.panel.get(), 0, 0)) : std::string("<no rows>"));
+        }
+    }
+
+    {
+        SymFix f;
+        const char* desc = "a user label appears in the list at the next refresh, without a map reload";
+        if (!f.ok) { check("QSYML-07", desc, false, "fixture"); }
+        else {
+            const int before = f.table()->rowCount();
+            f.dbg->set_user_label(jnext::dbg::MemSpace::cpu(), 0x8100, "mine");
+            f.panel->refresh();
+            bool found = false;
+            QTableWidget* t = f.table();
+            for (int i = 0; i < t->rowCount(); ++i) if (t->item(i, 0)->text() == "mine") found = true;
+            check("QSYML-07", desc, found && t->rowCount() == before + 1,
+                  fmt("rows %d -> %d found=%d", before, t->rowCount(), found));
+        }
+    }
+}
+
+// ===========================================================================
+// QRCLK -- GH #366: the CPU panel's register shortcuts (a click, the context menu).
+// Oracle: the issue's contract (clicking a register opens its value in the disassembly).
+// ===========================================================================
+static void test_cpu_shortcuts() {
+    set_group("QRCLK");
+
+    {
+        CpuFix f;
+        const char* desc = "a left click on the HL value emits show_in_disassembly_requested(HL); a click on AF, I, "
+                           "R, IFF or IM emits nothing";
+        if (!f.ok) { check("QRCLK-01", desc, false, "fixture"); }
+        else {
+            std::vector<uint16_t> got;
+            QObject::connect(f.panel.get(), &CpuPanel::show_in_disassembly_requested,
+                             [&](uint16_t a) { got.push_back(a); });
+            click_flag_label(grid_value(f.panel.get(), "HL: "));
+            const bool hl = got == std::vector<uint16_t>{0xBCDE};
+            got.clear();
+            for (const char* n : {"AF: ", "I: ", "R: ", "IFF: ", "IM: "}) click_flag_label(grid_value(f.panel.get(), n));
+            check("QRCLK-01", desc, hl && got.empty(), fmt("HL ok=%d others=%d", hl, (int)got.size()));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "the SP menu has Show in Disassembly, Show in Memory and Edit Value...; Show in Memory emits "
+                           "show_in_memory_requested(SP); the AF menu has only Edit Value...";
+        if (!f.ok) { check("QRCLK-02", desc, false, "fixture"); }
+        else {
+            std::vector<uint16_t> mem;
+            QObject::connect(f.panel.get(), &CpuPanel::show_in_memory_requested, [&](uint16_t a) { mem.push_back(a); });
+            QLabel* sp = grid_value(f.panel.get(), "SP: ");
+            const QString edit = QString::fromUtf8("Edit Value…");
+            const QStringList sp_items = menu_entries(sp, QPoint(2, 2));
+            const QStringList af_items = menu_entries(grid_value(f.panel.get(), "AF: "), QPoint(2, 2));
+            PopupAnswer ans;
+            ans.wanted = QStringLiteral("Show in Memory");
+            context_menu_and_pick(sp, QPoint(2, 2), ans);
+            check("QRCLK-02", desc,
+                  sp_items == QStringList{"Show in Disassembly|1", "Show in Memory|1", edit + "|1"} &&
+                      af_items == QStringList{edit + "|1"} && mem == std::vector<uint16_t>{0xFEDC},
+                  "SP: " + s(sp_items.join(",")) + " AF: " + s(af_items.join(",")));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "not paused: a click emits nothing and the menu's entries are disabled";
+        if (!f.ok) { check("QRCLK-03", desc, false, "fixture"); }
+        else {
+            f.panel->set_paused(false);
+            std::vector<uint16_t> got;
+            QObject::connect(f.panel.get(), &CpuPanel::show_in_disassembly_requested,
+                             [&](uint16_t a) { got.push_back(a); });
+            QLabel* hl = grid_value(f.panel.get(), "HL: ");
+            click_flag_label(hl);
+            const QStringList items = menu_entries(hl, QPoint(2, 2));
+            const QString edit = QString::fromUtf8("Edit Value…");
+            check("QRCLK-03", desc,
+                  got.empty() && items == QStringList{"Show in Disassembly|0", "Show in Memory|0", edit + "|0"},
+                  s(items.join(",")));
+        }
+    }
+
+    {
+        CpuFix f(MachineType::ZX48K);
+        const char* desc = "Show in Source is absent with no source map; with one it is enabled exactly when a source "
+                           "line covers the value";
+        if (!f.ok) { check("QRCLK-04", desc, false, "fixture"); }
+        else {
+            f.set_regs([](Z80Registers& r) { r.PC = 0x8000; r.HL = 0x4000; });
+            QLabel* pc = grid_value(f.panel.get(), "PC: ");
+            QLabel* hl = grid_value(f.panel.get(), "HL: ");
+            const bool absent = !menu_entries(pc, QPoint(2, 2)).join(",").contains("Show in Source");
+            const QString page = QString::number(f.dbg->effective_page(0x8000));
+            QFile sld(f.dir_path() + "/n.sld");
+            sld.open(QIODevice::WriteOnly);
+            sld.write(("|SLD.data.version|1\nmain.bas|10||0|pages.size:8192,pages.count:224,slots.count:8,"
+                       "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+                       "main.bas|10||0|" + page + "|32768|T|\n").toUtf8());
+            sld.close();
+            f.dbg->load_source_map((f.dir_path() + "/n.sld").toStdString(), false);
+            f.panel->refresh();
+            const QStringList pc_items = menu_entries(pc, QPoint(2, 2));
+            const QStringList hl_items = menu_entries(hl, QPoint(2, 2));
+            const bool on = pc_items.contains("Show in Source|1");
+            const bool off = hl_items.contains("Show in Source|0");
+            check("QRCLK-04", desc, absent && on && off,
+                  "PC: " + s(pc_items.join(",")) + " HL: " + s(hl_items.join(",")));
+        }
+    }
+}
+
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -4876,6 +5387,9 @@ int main(int argc, char** argv) {
     test_annotations();
     test_disasm_columns();
     test_pc_hint();
+    test_disasm_nav();
+    test_symbols_panel();
+    test_cpu_shortcuts();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

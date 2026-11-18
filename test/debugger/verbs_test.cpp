@@ -52,6 +52,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/memory_panel.h"
 #include "debugger/mmu_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/stack_panel.h"
@@ -67,6 +68,8 @@
 #include <QApplication>
 #include <QBoxLayout>
 #include <QCheckBox>
+#include <QTabWidget>
+#include <QComboBox>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -4191,6 +4194,68 @@ static void test_cpu_edit_window() {
     }
 }
 
+// ===========================================================================
+// QNAVW -- GH #366: navigation through the real window.
+// Oracle: the issue's contract (Follow a memory operand shows it in the Memory panel; clicking a
+// register opens its value in the Disassembly; Back returns).
+// ===========================================================================
+static void test_nav_window() {
+    set_group("QNAVW");
+
+    {
+        Fixture fx;
+        const char* desc = "Follow on a memory operand raises the Memory tab and selects the operand address in the "
+                           "Memory panel's CPU View, also when the panel was in a Slot view before";
+        if (!fx.ok) { check("QNAVW-04", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x3A, 0x40, 0x5C, 0x18, 0xFB});   // LD A,($5C40) / JR $8000
+            fx.regs(PROG);
+            fx.enable();
+            MemoryPanel* mem = fx.dbg()->memory_panel();
+            auto* combo = mem->findChild<QComboBox*>();
+            if (combo) combo->setCurrentIndex(1);   // Slot 0
+            auto* tabs = qobject_cast<QTabWidget*>(mem->parentWidget()->parentWidget());
+            if (tabs) tabs->setCurrentIndex(0);     // Stack
+            DisasmPanel* dis = fx.dbg()->disasm_panel();
+            dis->show_address(PROG);                // the caret on the LD
+            dis->follow();
+            check("QNAVW-04", desc,
+                  combo && tabs && combo->currentIndex() == 0 && mem->selected_address() == 0x5C40 &&
+                      tabs->currentWidget() == mem,
+                  fmt("view %d selected %04X tab is memory %d", combo ? combo->currentIndex() : -1,
+                      mem->selected_address(), tabs ? tabs->currentWidget() == mem : 0));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "a click on PC in the window's CPU panel moves the Disassembly to PC and records it; Back "
+                           "returns the view to where it was";
+        if (!fx.ok) { check("QNAVW-05", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            DisasmPanel* dis = fx.dbg()->disasm_panel();
+            if (auto* sb = dis->findChild<QScrollBar*>()) sb->setValue(0x4000);
+            fx.tick();
+            const uint16_t before = dis->view_address();
+            QLabel* pc = window_reg_label(fx, "PC: ");
+            if (pc) {
+                const QPoint pos(2, 2);
+                QMouseEvent press(QEvent::MouseButtonPress, QPointF(pos), QPointF(pc->mapToGlobal(pos)),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(pc, &press);
+            }
+            const uint16_t at_pc = dis->view_address();
+            const bool recorded = dis->can_go_back();
+            const bool back = dis->go_back() && dis->view_address() == before;
+            check("QNAVW-05", desc, pc && at_pc != before && dis->selected_address() == PROG && recorded && back,
+                  fmt("before %04X after click %04X recorded=%d back=%d", before, at_pc, recorded, back));
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -4226,6 +4291,7 @@ int main(int argc, char** argv) {
     test_reexport_ui();
     test_tstates();
     test_cpu_edit_window();
+    test_nav_window();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
