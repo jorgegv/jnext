@@ -156,7 +156,8 @@ Once the suites have run, one fails when it:
   `KILLED by SIGKILL after Ns, before the 300s bound (out of memory?)`. The usual
   killer is the kernel's out-of-memory killer, for example on a WebAssembly suite
   whose one huge function makes node compile gigabytes, and the label keeps that
-  from reading as a slow test.
+  from reading as a slow test. `make wasm-function-size-check` refuses such a suite
+  before any of them runs (see [5.1](../05-building/01-make-targets.md)).
 
 `make unit-test` exits non-zero whenever a suite fails, and the harness prints
 an explicit `UNIT TESTS FAILED` banner so that the grand-total line — the one

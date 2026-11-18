@@ -3147,6 +3147,18 @@ with <code>setpriv</code>, as the wine runner does; and forwards TERM and INT an
 node's exit status. What node cannot stand in for (processes, threads, listening
 sockets) is declared absent with <code># os: native</code>, and the run names every absent
 suite in its NOTICE. It needs the SD image like the other two.</p>
+<p><code>make unit-test-wasm</code> also runs <code>make wasm-function-size-check</code> first, before any
+suite. Under node a WebAssembly function is compiled whole and its compile memory
+grows faster than its size (one suite's <code>main()</code> of 1.5 MB once needed 14.5 GB), so
+<code>test/wasm-function-size.pl</code> reads the largest function body of every module in
+<code>build/wasm-unit-test/test</code> and fails, naming the module and the function, when one is
+over 256 KiB: an oversized suite is refused in seconds instead of OOM-killing the
+runner. The bound sits above the largest function the core itself contributes
+(about 180 KB) and below the size where the measured compile memory turns steep. The
+test link keeps function names (<code>--profiling-funcs</code>, test tree only; it adds a name
+section and leaves the code unchanged), and a module without that section is an error,
+never a pass. <code>make wasm-function-size-selftest</code>, a prerequisite of <code>make unit-test</code>,
+checks the checker against synthetic modules and needs no SDK.</p>
 <p><code>make regression-wasm</code> runs the regression suite's screenshot rows against
 <code>build/wasm-core/jnext.js</code> under node (<code>wasm-core</code> is a prerequisite, so the WCORE
 rows run first; the native helpers and the host <code>jnext</code> that derives the SD master
