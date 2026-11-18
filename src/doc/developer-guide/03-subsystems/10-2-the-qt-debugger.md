@@ -72,13 +72,13 @@ restart of the CPU panel's T-state count and draws that one label.
 
 ## Panels
 
-`DebuggerWindow::create_panels()` creates fifteen:
+`DebuggerWindow::create_panels()` creates sixteen:
 
 | Panel | Reads | Writes |
 |---|---|---|
-| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | `set_register()`, one register per call: an overlay `QLineEdit` over the value labels, a click on a flag (`reg_edit.h`) |
+| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | `set_register()`, one register per call: an overlay `QLineEdit` over the value labels, a click on a flag (`reg_edit.h`); a click or the menu on an address-like value asks the window to show it (Disassembly, Memory, Source) |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
-| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
+| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), Follow (`disasm_hint::follow_target()`) and Back/Forward (`NavHistory`, `nav_history.h`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
 | Stack | the words at and above SP, through `peek` | — |
 | Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's `EX (SP),HL` / `POP r; JP (r)` helpers and `l_case`; a `__z88dk_callee` body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP | — |
@@ -91,6 +91,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
+| Symbols | `symbols().symbols()` (the toolchain's labels and the user's), `shown_name()`, `source_page()`, `source_map().lookup()`, `state_revision()` | — |
 | Variables | `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `c_variables_status()`, `call_stack()`, `mmu_slots()`: the C variables of a call frame and the globals, as a tree, a value editable in place through `write_c_value()` ([7.7](../07-source-level-debugging/07-frontends.md)) | — |
 
 Five panels (CPU, Disassembly, Stack, Call Stack, Variables) update only while paused:
@@ -125,6 +126,25 @@ register file, with no refresh path of the panel's own. The client is the window
 parse error or a refusal (RZX recording or playback) is the panel's `message()` signal, which the window shows with
 `show_rewind_refusal()`: the one status message `update_rewind_ui()` does not rewrite. Rows: `REGED-01`..`08`,
 `QREG-01`..`11`, `QREGW-01`..`04`.
+
+**Navigation (Follow, Back, Forward).** `disasm_hint::follow_target(r, at, code, data)` (`src/debug/disasm_hint.h`, Qt-free,
+beside `pc_hint()` and sharing its DD/FD prefix walk) says what Follow does on the instruction at `at`: a code address
+(JP, CALL, JR, DJNZ and RST targets, a conditional's whether or not it holds; `JP (HL)/(IX)/(IY)`; RET, RETI and RETN
+through `data`), a data address (the one memory operand `pc_hint()` reports) or nothing (`JP (C)` needs a port read, which no
+debugger read does). The PC line reads its operand through `operand_reader()`, any other line through a `peek(Cpu)` reader.
+History is `jnext::NavHistory<Loc>` (`src/debugger/nav_history.h`, pure; depth 100): the Disassembly's `Loc` is its top
+line and caret, so Back is exact; the Source tab's is the address of the cursor line's first instruction mapped now. What
+records is one rule: a jump the user (or another panel on their behalf) made through `show_address()`, the Address box or
+Go to PC; the automatic re-centre on a stop, scrolling and the keys do not. The window's Follow, Back and Forward are
+bindable actions (`follow`, `go_back`, `go_forward`; F12, Alt+Left, Alt+Right) installed by `apply_keymap()`, in no menu (the
+shape `debugger_accel_test` pins), acting on the Source tab when its text has the focus. A memory operand goes through
+`show_in_memory_requested()` to `MemoryPanel::show_address()`, which leaves a slot or page view first. Rows: `FOLW-01`..`09`,
+`NAVH-01`..`07`, `QNAV-*`, `QSRCN-*`, `QNAVW-*`.
+
+**The Symbols tab** (`symbols_panel.cpp`) lists `symbols().symbols()` and rebuilds its rows only when `state_revision()`
+moved; the greying of a paged label whose page is not what `source_page()` reports at its address is redone on every
+refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label: the Disassembly shows the
+CPU's map. Rows: `QSYML-*`.
 
 **Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:988`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:375`: ~4 Hz). Paused, it

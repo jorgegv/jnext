@@ -112,6 +112,32 @@ from the memory the instruction will see. A pending interrupt can run before the
 and then the hint does not apply. The hint is not copied with the listing, and
 it is not shown while the machine is running.
 
+## Navigating: Follow, Back and Forward
+
+**Follow** (**F12**) takes the line with the caret (the `PC` line when there is none) to
+where it goes:
+
+- a jump, call or relative jump (`JP`, `CALL`, `JR`, `DJNZ`, `RST`) goes to its target. A
+  conditional one is followed whether or not its condition holds: Follow is about the
+  operand, and the hint on the `PC` line already says taken or not;
+- `JP (HL)`, `JP (IX)` and `JP (IY)` go to the register as it is now, and `RET`, `RETI`
+  and `RETN` (conditional or not) to the return address at `SP` as it is now;
+- an instruction with a memory operand (`(HL)`, `(BC)`, `(DE)`, `(IX+d)`, `(IY+d)`,
+  `(nn)`, `(SP)`) shows that address in the [Memory](04-memory.md) panel, in its CPU
+  view, and raises its tab. The Disassembly does not move;
+- anything else does nothing. `JP (C)` has no target: it needs a port read, which the
+  debugger never does.
+
+**Back** (**Alt+Left**) and **Forward** (**Alt+Right**) return through the places the view left
+by a jump: the last 100 are kept, and Back puts the view and the caret exactly where they were.
+A jump is a Follow, the Address box, **Go to PC**, and a request from another panel: **Show in
+Disassembly** from the Source tab, a click on a register or a row of the
+[Symbols](17-symbols.md) tab. The automatic re-centre on every stop, scrolling and the keys
+do not record. Jumping somewhere new discards what Forward could have gone back to. When the
+keyboard focus is in the Source tab's text, the three keys act on the Source tab instead.
+
+The three keys are rebindable: [Changing the keys](../functions/09-changing-the-keys.md).
+
 ## The right-click menu
 
 The right-click menu is where most of the day-to-day work happens:

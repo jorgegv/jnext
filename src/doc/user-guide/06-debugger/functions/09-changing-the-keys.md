@@ -7,7 +7,7 @@ the combination you want. Click **Reset** on a row to put that one back, or
 Apply, and Apply takes effect immediately in both windows — you do not have to
 restart JNEXT.
 
-The seventeen commands, and what they are bound to out of the box:
+The twenty commands, and what they are bound to out of the box:
 
 | Command | Default | Also reachable from |
 |---|---|---|
@@ -28,6 +28,9 @@ The seventeen commands, and what they are bound to out of the box:
 | Source Step Out | **Ctrl+F8** | Source tab, **Debug ▸ Source** |
 | Source Step Back | *unbound* | Source tab, **Debug ▸ Source** |
 | Source Reverse Continue | *unbound* | Source tab, **Debug ▸ Source** |
+| Follow | **F12** | the Disassembly or Source tab ([navigating](../panels/03-disassembly.md#navigating-follow-back-and-forward)) |
+| Back | **Alt+Left** | the same |
+| Forward | **Alt+Right** | the same |
 
 Five ship with no key at all (Run to Cursor, Run to End of Frame, Run to End of
 Scan Line, Source Step Back and Source Reverse Continue). They are not

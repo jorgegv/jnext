@@ -21,6 +21,15 @@ The full Z80 state at the paused instruction:
   the debugger window opens. A soft reset does not restart it. At 7, 14 or 28 MHz each instruction counts its own T-states at the
   speed in force (a NOP is 4 at any speed).
 
+## Showing a value elsewhere
+
+While paused, a **single click** on an address-like value (`BC` `DE` `HL`, their alternates, `IX`
+`IY` `SP` `PC`) shows it in the [Disassembly](03-disassembly.md); **Back** there undoes it. (The
+first click of a double-click, which edits, does this too.) The right-click menu on those values
+adds **Show in Disassembly**, **Show in Memory** and, with a source map, **Show in Source** (disabled
+where no source line covers the value). `AF`, `I`, `R`, `IFF` and `IM` have only **Edit Value...**.
+While the machine runs the entries are disabled.
+
 ## Editing
 
 While the machine is paused you can change any value here in place:
