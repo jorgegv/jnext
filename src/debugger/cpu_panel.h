@@ -2,6 +2,9 @@
 
 #include <QWidget>
 #include <QLabel>
+#include <QCheckBox>
+
+#include "debugger/tstate_counter.h"
 
 namespace jnext { namespace dbg { class Debugger; } }
 
@@ -18,6 +21,12 @@ public:
 
     /// Set paused state — when not paused, panel shows gray overlay and skips updates.
     void set_paused(bool paused);
+
+    /// GH #369: count T-states from the machine's current time (value 0), for
+    /// the discontinuities the counter cannot see from a paused observation
+    /// (a cold boot while running, a rewind jumping forward, the window
+    /// opening). Records a start point and draws one label; no paused gate.
+    void restart_tstate_count();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -47,6 +56,11 @@ private:
     QLabel* reg_im_ = nullptr;
     QLabel* reg_halted_ = nullptr;
     QLabel* ula_screen_ = nullptr;
+
+    // GH #369: T-states since the last stop (start point lives in the frontend).
+    jnext::TstateCounter tstates_;
+    QLabel* tstates_value_ = nullptr;
+    QCheckBox* tstates_accumulate_ = nullptr;
 
     // Individual flag labels
     QLabel* flag_s_ = nullptr;

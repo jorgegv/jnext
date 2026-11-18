@@ -515,6 +515,7 @@ static void test_cpu_panel() {
         check("QPN-CPU-02", "fixture: 128K machine", false);
         check("QPN-CPU-03", "fixture: 128K machine", false);
         check("QPN-CPU-04", "fixture: 128K machine", false);
+        check("QPN-CPU-05", "fixture: 128K machine", false);
         return;
     }
     jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
@@ -632,6 +633,41 @@ static void test_cpu_panel() {
               "Screen names the ULA bank from port 0x7FFD bit 3 and the Timex "
               "mode from port 0xFF bits 2:0 (1 Alt, 2/3 HiCol, 6/7 HiRes)",
               bad.empty(), bad);
+    }
+
+    // QPN-CPU-05 - GH #369: the T-states row. Its oracle is the issue's contract
+    // (a "T-states" field, an Accumulate option, 0 at the first stop, unchanged
+    // by a redraw that moves no time) and the panel's 260 px width cap: a
+    // 12-digit value and the check box both fit on the one row.
+    {
+        panel.refresh();
+        panel.refresh();   // a second paused redraw, no execution between
+        QLabel* value = box_value(&panel, "T-states: ");
+        const QString shown = text_of(value);
+        QCheckBox* acc = nullptr;
+        for (QCheckBox* c : panel.findChildren<QCheckBox*>())
+            if (c->text() == QLatin1String("Accumulate")) acc = c;
+
+        bool fits = false;
+        int need = -1;
+        const int avail = 260 - (panel.layout() ? panel.layout()->contentsMargins().left() +
+                                                  panel.layout()->contentsMargins().right() : 0);
+        if (value) {
+            value->setText(QStringLiteral("999999999999"));   // 12 digits
+            for (QHBoxLayout* h : panel.findChildren<QHBoxLayout*>())
+                if (h->indexOf(value) >= 0) {
+                    need = h->minimumSize().width();
+                    fits = need <= avail;
+                }
+            value->setText(shown);
+        }
+        check("QPN-CPU-05",
+              "a \"T-states: \" row shows 0 at the first paused refresh and again after a "
+              "second with no execution, beside an unchecked \"Accumulate\" box, and a "
+              "12-digit value plus the box fit the panel's 260 px width",
+              shown == QLatin1String("0") && acc && !acc->isChecked() && fits,
+              fmt("value='%s' box=%d row needs %d of %d px", s(shown).c_str(), acc != nullptr,
+                  need, avail));
     }
 }
 

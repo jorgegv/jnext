@@ -65,9 +65,10 @@ keeps for this, and it is presentation state, not a copy of the machine's.
 `QtApp::TickEffects::post_frames()`, for the Pause checkmark and the status
 bar's Paused cell, with or without the debugger built in.
 
-The listener records and returns: a listener runs inside `pump()` and does no UI
+The listener records and returns: a listener runs inside `pump()` and does no window-wide UI
 work. A breakpoint change another client made arrives as
-`SubscriptionsChanged`; the model records it and the tick publishes it.
+`SubscriptionsChanged`; the model records it and the tick publishes it. `Reset` records a
+restart of the CPU panel's T-state count and draws that one label.
 
 ## Panels
 
@@ -75,7 +76,7 @@ work. A breakpoint change another client made arrives as
 
 | Panel | Reads | Writes |
 |---|---|---|
-| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()` | — |
+| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `program_loads()` | — |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
 | Disassembly | `disasm_one()` over `memory_reader()`, with symbols, columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
@@ -96,6 +97,18 @@ Five panels (CPU, Disassembly, Stack, Call Stack, Variables) update only while p
 reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
+
+**The CPU panel's T-state counter.** Where a count starts is a frontend choice, as with ZRCP's partial
+counter (`get-tstates-partial` keeps its own base over `time().tstates_total`): the start point and the
+Accumulate policy live in `jnext::TstateCounter` (`src/debugger/tstate_counter.h`, pure, no Qt), fed by
+`CpuPanel::refresh()` on every paused redraw, so any stop counts, whoever caused it, and a redraw that moves no
+time changes nothing. The counter restarts by itself when the total goes backwards (Step Back, Reverse Continue,
+another client's rewind) or `program_loads()` moved. Three discontinuities it cannot see are pushed through
+`CpuPanel::restart_tstate_count()`: `Reset` (a cold boot while running), `on_rewind_to_frame()` (the ring can
+jump forward) and opening the window (no listener while it is closed). A soft reset does not restart it: the
+total runs on through one. Limit: another client's forward jump (`load_state_bytes()`, a forward ring jump) or an
+in-place load made outside `Debugger::load()` is counted at the next stop, as the backend raises no signal for
+it. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `QPN-CPU-05`, `QTS-01`..`QTS-10`.
 
 **Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:980`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:370`: ~4 Hz). Paused, it

@@ -202,6 +202,9 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
 
         // Create the debugger window lazily.
         ensure_window();
+        // The listener is not installed while the window is closed, so a cold
+        // boot then was never pushed: counting starts when the window opens.
+        restart_tstate_count();
         debugger_window_->show();
         debugger_window_->raise();
         debugger_window_->activateWindow();
@@ -639,7 +642,15 @@ void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
         return;
     }
 
+    // The ring can jump FORWARD (rewind bar, Jump Here): not a backwards-time
+    // restart the T-state counter could see for itself.
+    restart_tstate_count();
     apply_pause_state(true);
+}
+
+void DebuggerManager::restart_tstate_count() {
+    if (debugger_window_ && debugger_window_->cpu_panel())
+        debugger_window_->cpu_panel()->restart_tstate_count();
 }
 
 void DebuggerManager::on_load_map_z88dk() {
