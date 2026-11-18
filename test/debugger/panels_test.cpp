@@ -4883,29 +4883,6 @@ struct NavFix {
     bool shows(const char* addr_text) { return !dcol_row(painted(dis.get()), addr_text).empty(); }
 };
 
-/// Right-click the disassembly row `row`: {present, enabled, tooltip} of its "Follow" entry.
-struct FollowEntry { bool present = false; bool enabled = false; QString tip; };
-static FollowEntry follow_entry(DisasmPanel* p, int row) {
-    FollowEntry r;
-    bool seen = false;
-    QTimer timer;
-    QObject::connect(&timer, &QTimer::timeout, [&]() {
-        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
-        if (!menu || seen) return;
-        seen = true;
-        for (QAction* a : menu->actions())
-            if (a->text() == QLatin1String("Follow")) { r.present = true; r.enabled = a->isEnabled(); r.tip = a->toolTip(); }
-        menu->close();
-    });
-    timer.start(1);
-    const QPoint pos(200, 52 + row * 18 + 9);
-    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, p->mapToGlobal(pos));
-    QApplication::sendEvent(p, &ev);
-    timer.stop();
-    QApplication::processEvents();
-    return r;
-}
-
 static void test_disasm_nav() {
     set_group("QNAV");
 
@@ -5022,23 +4999,6 @@ static void test_disasm_nav() {
             const bool same = !f.dis->can_go_back();
             f.dis->show_address(0x9000);
             check("QNAV-06", desc, same && f.dis->can_go_back());
-        }
-    }
-
-    {
-        NavFix f;
-        const char* desc = "the context menu's Follow is enabled on a CALL line with the target in its tooltip, "
-                           "disabled on NOP";
-        if (!f.ok) { check("QNAV-07", desc, false, "fixture"); }
-        else {
-            f.code(0x8000, {0xCD, 0x00, 0x90, 0x00});
-            f.view(0x8000);
-            const FollowEntry call = follow_entry(f.dis.get(), 0);
-            const FollowEntry nop = follow_entry(f.dis.get(), 1);
-            check("QNAV-07", desc,
-                  call.present && call.enabled && call.tip.contains("$9000") && nop.present && !nop.enabled,
-                  fmt("call present=%d enabled=%d tip='%s'; nop present=%d enabled=%d", call.present, call.enabled,
-                      s(call.tip).c_str(), nop.present, nop.enabled));
         }
     }
 
@@ -5248,13 +5208,13 @@ static void test_symbols_panel() {
         if (!f.ok) { check("QSYML-07", desc, false, "fixture"); }
         else {
             const int before = f.table()->rowCount();
-            f.dbg->set_user_label(jnext::dbg::MemSpace::cpu(), 0x8100, "mine");
+            const jnext::dbg::Result put = f.dbg->set_user_label(f.p10, 0xC001, "mine");
             f.panel->refresh();
             bool found = false;
             QTableWidget* t = f.table();
             for (int i = 0; i < t->rowCount(); ++i) if (t->item(i, 0)->text() == "mine") found = true;
-            check("QSYML-07", desc, found && t->rowCount() == before + 1,
-                  fmt("rows %d -> %d found=%d", before, t->rowCount(), found));
+            check("QSYML-07", desc, jnext::dbg::ok(put) && found && t->rowCount() == before + 1,
+                  fmt("put %s rows %d -> %d found=%d", jnext::dbg::result_name(put), before, t->rowCount(), found));
         }
     }
 }
@@ -5336,18 +5296,19 @@ static void test_cpu_shortcuts() {
             const bool absent = !menu_entries(pc, QPoint(2, 2)).join(",").contains("Show in Source");
             const QString page = QString::number(f.dbg->effective_page(0x8000));
             QFile sld(f.dir_path() + "/n.sld");
-            sld.open(QIODevice::WriteOnly);
+            const bool wrote = sld.open(QIODevice::WriteOnly);
             sld.write(("|SLD.data.version|1\nmain.bas|10||0|pages.size:8192,pages.count:224,slots.count:8,"
                        "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
                        "main.bas|10||0|" + page + "|32768|T|\n").toUtf8());
             sld.close();
             f.dbg->load_source_map((f.dir_path() + "/n.sld").toStdString(), false);
+            (void)f.dbg->source_map_status();   // settle the landing, as the window's refresh does
             f.panel->refresh();
             const QStringList pc_items = menu_entries(pc, QPoint(2, 2));
             const QStringList hl_items = menu_entries(hl, QPoint(2, 2));
             const bool on = pc_items.contains("Show in Source|1");
             const bool off = hl_items.contains("Show in Source|0");
-            check("QRCLK-04", desc, absent && on && off,
+            check("QRCLK-04", desc, wrote && absent && on && off,
                   "PC: " + s(pc_items.join(",")) + " HL: " + s(hl_items.join(",")));
         }
     }

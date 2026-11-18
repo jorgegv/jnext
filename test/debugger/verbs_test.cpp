@@ -4233,11 +4233,13 @@ static void test_nav_window() {
                            "returns the view to where it was";
         if (!fx.ok) { check("QNAVW-05", desc, false, "fixture"); }
         else {
-            fx.load(PROG, {0x00, 0x00, 0x18, 0xFE});
-            fx.regs(PROG);
+            fx.load(0x6000, {0x00, 0x00, 0x18, 0xFE});
+            fx.regs(0x6000);
             fx.enable();
+            fx.dbg()->show();
+            QApplication::processEvents();
             DisasmPanel* dis = fx.dbg()->disasm_panel();
-            if (auto* sb = dis->findChild<QScrollBar*>()) sb->setValue(0x4000);
+            if (auto* sb = dis->findChild<QScrollBar*>()) sb->setValue(0x2000);
             fx.tick();
             const uint16_t before = dis->view_address();
             QLabel* pc = window_reg_label(fx, "PC: ");
@@ -4250,7 +4252,7 @@ static void test_nav_window() {
             const uint16_t at_pc = dis->view_address();
             const bool recorded = dis->can_go_back();
             const bool back = dis->go_back() && dis->view_address() == before;
-            check("QNAVW-05", desc, pc && at_pc != before && dis->selected_address() == PROG && recorded && back,
+            check("QNAVW-05", desc, pc && at_pc != before && dis->selected_address() == 0x6000 && recorded && back,
                   fmt("before %04X after click %04X recorded=%d back=%d", before, at_pc, recorded, back));
         }
     }

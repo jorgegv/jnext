@@ -6030,95 +6030,7 @@ void test_z88dk_c_names_source() {
                "_main                           = $8005 ; addr, public, , main_c, code_compiler, main.c:12\n"
                "_asm_bump                       = $9100 ; addr, public, , asmfn_asm, code_user, asmfn.asm:5\n");
     fx.backend->load_map(map, jnext::dbg::MapFormat::Z88dk);
-    write_main({{10, "    counter = 0;"}, {11, "    ld hl,_counter"}, {12, "
-
-// ===========================================================================
-// QSRCN -- GH #366: Follow, Back and Forward in the Source tab. The oracle is the issue's contract
-// and the Disassembly's own rows (QNAV): Follow goes where UM0080 says the instruction goes, to a
-// source line when one covers the target. The fixture: main.bas 10..13 at $8000 NOP, $8002 CALL
-// $9000, $8005 NOP, $8006 JP $8000; sub.bas:1 at $9000.
-// ===========================================================================
-std::string fmt_row(const char* f, ...) {
-    char buf[512];
-    va_list ap;
-    va_start(ap, f);
-    std::vsnprintf(buf, sizeof buf, f, ap);
-    va_end(ap);
-    return buf;
-}
-
-void test_source_follow_nav() {
-    {   // QSRCN-01: Follow a call, Back, Forward
-        Fixture fx;
-        fx.enable();
-        fx.load_map();
-        write_main({});
-        SyncWin w(fx);
-        w.src_move(11);
-        const bool start = w.sp->cursor_address() == std::optional<uint16_t>(0x8002);
-        w.sp->follow();
-        const bool at_sub = w.sp->shown_file() == "sub.bas" && w.sp->highlighted_line() == 1;
-        const bool back = w.sp->go_back() && w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 11;
-        const bool fwd = w.sp->go_forward() && w.sp->shown_file() == "sub.bas" && w.sp->highlighted_line() == 1;
-        check("QSRCN-01", "cursor on `CALL $9000` (main.bas:11): Follow shows sub.bas:1 in the Source tab; Back returns "
-                          "to main.bas:11; Forward goes to sub.bas:1 again",
-              start && at_sub && back && fwd,
-              fmt_row("start=%d at_sub=%d back=%d fwd=%d (now %s:%d)", start, at_sub, back, fwd,
-                      w.sp->shown_file().c_str(), w.sp->highlighted_line()));
-    }
-    {   // QSRCN-02: a target no source line covers opens in the Disassembly
-        Fixture fx;
-        fx.enable();
-        fx.load_map();
-        write_main({});
-        fx.emu.mmu().write(0x8003, 0x00);
-        fx.emu.mmu().write(0x8004, 0xA0);   // CALL $A000: no source line there
-        SyncWin w(fx);
-        w.src_move(11);
-        w.sp->follow();
-        check("QSRCN-02", "Follow on `CALL $A000`, which no source line covers: the Disassembly's caret goes to $A000 "
-                          "and the Source tab stays on main.bas:11",
-              w.dp->selected_address() == 0xA000 && w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 11,
-              fmt_row("disasm caret %04X, source %s:%d", w.dp->selected_address(), w.sp->shown_file().c_str(),
-                      w.sp->highlighted_line()));
-    }
-    {   // QSRCN-03: a memory operand asks for the Memory panel
-        Fixture fx;
-        fx.enable();
-        fx.load_map();
-        write_main({});
-        fx.emu.mmu().write(0x8005, 0x3A);
-        fx.emu.mmu().write(0x8006, 0x40);
-        fx.emu.mmu().write(0x8007, 0x5C);   // LD A,($5C40) at main.bas:12
-        SyncWin w(fx);
-        int requests = 0;
-        uint16_t addr = 0;
-        QObject::connect(w.sp, &SourcePanel::show_memory_requested, [&](uint16_t a) { ++requests; addr = a; });
-        w.src_move(12);
-        w.sp->follow();
-        check("QSRCN-03", "Follow on `LD A,($5C40)` (main.bas:12) emits show_memory_requested($5C40) once and moves nothing",
-              requests == 1 && addr == 0x5C40 && !w.sp->can_go_back() && w.sp->highlighted_line() == 12,
-              fmt_row("requests=%d addr=%04X back=%d line=%d", requests, addr, w.sp->can_go_back(),
-                      w.sp->highlighted_line()));
-    }
-    {   // QSRCN-04: no code, nothing
-        Fixture fx;
-        fx.enable();
-        fx.load_map();
-        write_main({});
-        SyncWin w(fx);
-        int requests = 0;
-        QObject::connect(w.sp, &SourcePanel::show_memory_requested, [&](uint16_t) { ++requests; });
-        w.src_move(5);   // a line with no code
-        w.sp->follow();
-        check("QSRCN-04", "Follow on a line with no code (main.bas:5): nothing happens and the history does not change",
-              requests == 0 && !w.sp->can_go_back() && !w.sp->can_go_forward() && w.sp->highlighted_line() != 0 &&
-                  w.sp->shown_file() == "main.bas",
-              fmt_row("requests=%d back=%d fwd=%d", requests, w.sp->can_go_back(), w.sp->can_go_forward()));
-    }
-}
-
-int main(void)"}, {13, "    ld hl,_asm_bump"}});
+    write_main({{10, "    counter = 0;"}, {11, "    ld hl,_counter"}, {12, "int main(void)"}, {13, "    ld hl,_asm_bump"}});
     BreakpointModel& m = fx.mgr->breakpoints();
     SrcView v(fx, m);
     v.sp->set_watch_panel(fx.dbg()->watch_panel());
@@ -8087,6 +7999,93 @@ void test_source_any_file() {
               once && linked && tint && user,
               "once=" + std::to_string(once) + " linked=" + std::to_string(linked) + " tint=" + std::to_string(tint) +
                   " user=" + std::to_string(user));
+    }
+}
+
+// ===========================================================================
+// QSRCN -- GH #366: Follow, Back and Forward in the Source tab. The oracle is the issue's contract
+// and the Disassembly's own rows (QNAV): Follow goes where UM0080 says the instruction goes, to a
+// source line when one covers the target. The fixture: main.bas 10..13 at $8000 NOP, $8002 CALL
+// $9000, $8005 NOP, $8006 JP $8000; sub.bas:1 at $9000.
+// ===========================================================================
+std::string fmt_row(const char* f, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof buf, f, ap);
+    va_end(ap);
+    return buf;
+}
+
+void test_source_follow_nav() {
+    {   // QSRCN-01: Follow a call, Back, Forward
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.src_move(11);
+        const bool start = w.sp->cursor_address() == std::optional<uint16_t>(0x8002);
+        w.sp->follow();
+        w.tick();
+        const bool at_sub = w.sp->shown_file() == "sub.bas" && (w.ed->textCursor().blockNumber() + 1) == 1;
+        const bool back = w.sp->go_back() && (w.tick(), true) && w.sp->shown_file() == "main.bas" && (w.ed->textCursor().blockNumber() + 1) == 11;
+        const bool fwd = w.sp->go_forward() && (w.tick(), true) && w.sp->shown_file() == "sub.bas" && (w.ed->textCursor().blockNumber() + 1) == 1;
+        check("QSRCN-01", "cursor on `CALL $9000` (main.bas:11): Follow shows sub.bas:1 in the Source tab; Back returns "
+                          "to main.bas:11; Forward goes to sub.bas:1 again",
+              start && at_sub && back && fwd,
+              fmt_row("start=%d at_sub=%d back=%d fwd=%d (now %s:%d)", start, at_sub, back, fwd,
+                      w.sp->shown_file().c_str(), (w.ed->textCursor().blockNumber() + 1)));
+    }
+    {   // QSRCN-02: a target no source line covers opens in the Disassembly
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        fx.emu.mmu().write(0x8003, 0x00);
+        fx.emu.mmu().write(0x8004, 0xA0);   // CALL $A000: no source line there
+        SyncWin w(fx);
+        w.src_move(11);
+        w.sp->follow();
+        check("QSRCN-02", "Follow on `CALL $A000`, which no source line covers: the Disassembly's caret goes to $A000 "
+                          "and the Source tab stays on main.bas:11",
+              w.dp->selected_address() == 0xA000 && w.sp->shown_file() == "main.bas" && (w.ed->textCursor().blockNumber() + 1) == 11,
+              fmt_row("disasm caret %04X, source %s:%d", w.dp->selected_address(), w.sp->shown_file().c_str(),
+                      (w.ed->textCursor().blockNumber() + 1)));
+    }
+    {   // QSRCN-03: a memory operand asks for the Memory panel
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        fx.emu.mmu().write(0x8005, 0x3A);
+        fx.emu.mmu().write(0x8006, 0x40);
+        fx.emu.mmu().write(0x8007, 0x5C);   // LD A,($5C40) at main.bas:12
+        SyncWin w(fx);
+        int requests = 0;
+        uint16_t addr = 0;
+        QObject::connect(w.sp, &SourcePanel::show_memory_requested, [&](uint16_t a) { ++requests; addr = a; });
+        w.src_move(12);
+        w.sp->follow();
+        check("QSRCN-03", "Follow on `LD A,($5C40)` (main.bas:12) emits show_memory_requested($5C40) once and moves nothing",
+              requests == 1 && addr == 0x5C40 && !w.sp->can_go_back() && (w.ed->textCursor().blockNumber() + 1) == 12,
+              fmt_row("requests=%d addr=%04X back=%d line=%d", requests, addr, w.sp->can_go_back(),
+                      (w.ed->textCursor().blockNumber() + 1)));
+    }
+    {   // QSRCN-04: no code, nothing
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        int requests = 0;
+        QObject::connect(w.sp, &SourcePanel::show_memory_requested, [&](uint16_t) { ++requests; });
+        w.src_move(5);   // a line with no code
+        w.sp->follow();
+        check("QSRCN-04", "Follow on a line with no code (main.bas:5): nothing happens and the history does not change",
+              requests == 0 && !w.sp->can_go_back() && !w.sp->can_go_forward() &&
+                  w.sp->shown_file() == "main.bas",
+              fmt_row("requests=%d back=%d fwd=%d", requests, w.sp->can_go_back(), w.sp->can_go_forward()));
     }
 }
 

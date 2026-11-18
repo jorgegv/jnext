@@ -1009,15 +1009,6 @@ void SourcePanel::place_(uint16_t addr)
     set_disasm_selection(addr, addr, addr);
 }
 
-std::optional<uint16_t> SourcePanel::cursor_address() const
-{
-    if (!dbg_ || shown_file_.empty() || !dbg_->state().paused) return std::nullopt;
-    const int line = editor_->textCursor().blockNumber() + 1;
-    if (line < 1 || line > file_line_count(editor_->document())) return std::nullopt;
-    const LineState st = line_state(line);
-    if (st.placed.empty()) return std::nullopt;
-    return st.placed.front().address;
-}
 
 void SourcePanel::record_jump_(uint16_t target)
 {
@@ -1045,25 +1036,6 @@ bool SourcePanel::go_forward()
     return true;
 }
 
-disasm_hint::Follow SourcePanel::follow_of_line(int line) const
-{
-    if (!dbg_ || shown_file_.empty() || !dbg_->state().paused) return {};
-    if (line < 1 || line > file_line_count(editor_->document())) return {};
-    const LineState st = line_state(line);
-    if (st.placed.empty()) return {};
-    const uint16_t at = st.placed.front().address;
-    const Z80Registers r = dbg_->registers();
-    const DisasmReadFn code = dbg_->memory_reader();
-    const jnext::dbg::Debugger* dbg = dbg_;
-    const DisasmReadFn data = at == r.PC
-        ? dbg_->operand_reader()
-        : DisasmReadFn([dbg](uint16_t a) -> uint8_t {
-              uint8_t b = 0;
-              dbg->peek(jnext::dbg::MemSpace::cpu(), a, 1, &b);
-              return b;
-          });
-    return disasm_hint::follow_target(r, at, code, data);
-}
 
 void SourcePanel::follow()
 {
@@ -1208,6 +1180,36 @@ SourcePanel::LineState SourcePanel::line_state(int line) const
             }))
             ++st.armed;
     return st;
+}
+
+std::optional<uint16_t> SourcePanel::cursor_address() const
+{
+    if (!dbg_ || shown_file_.empty() || !dbg_->state().paused) return std::nullopt;
+    const int line = editor_->textCursor().blockNumber() + 1;
+    if (line < 1 || line > file_line_count(editor_->document())) return std::nullopt;
+    const LineState st = line_state(line);
+    if (st.placed.empty()) return std::nullopt;
+    return st.placed.front().address;
+}
+
+disasm_hint::Follow SourcePanel::follow_of_line(int line) const
+{
+    if (!dbg_ || shown_file_.empty() || !dbg_->state().paused) return {};
+    if (line < 1 || line > file_line_count(editor_->document())) return {};
+    const LineState st = line_state(line);
+    if (st.placed.empty()) return {};
+    const uint16_t at = st.placed.front().address;
+    const Z80Registers r = dbg_->registers();
+    const DisasmReadFn code = dbg_->memory_reader();
+    const jnext::dbg::Debugger* dbg = dbg_;
+    const DisasmReadFn data = at == r.PC
+        ? dbg_->operand_reader()
+        : DisasmReadFn([dbg](uint16_t a) -> uint8_t {
+              uint8_t b = 0;
+              dbg->peek(jnext::dbg::MemSpace::cpu(), a, 1, &b);
+              return b;
+          });
+    return disasm_hint::follow_target(r, at, code, data);
 }
 
 SourcePanel::LineMark SourcePanel::line_mark(int line) const
@@ -1414,19 +1416,6 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
     run_to->setEnabled(!st.starts.empty());
     if (st.starts.empty()) run_to->setToolTip(nocode);
     connect(run_to, &QAction::triggered, this, [this, where]() { emit run_to_line_requested(where); });
-
-    // GH #366 - Follow on this line.
-    {
-        const disasm_hint::Follow f = follow_of_line(line);
-        QAction* a = menu.addAction(tr("Follow"));
-        if (f.kind == disasm_hint::Follow::Kind::None) {
-            a->setEnabled(false);
-        } else {
-            const QString t = QString::asprintf("$%04X", f.addr);
-            a->setToolTip(f.kind == disasm_hint::Follow::Kind::Code ? t : tr("%1 in Memory").arg(t));
-            connect(a, &QAction::triggered, this, [this, line]() { follow_line(line); });
-        }
-    }
 
     menu.addSeparator();
     auto place_text = [this](const SourceAddress& s) {

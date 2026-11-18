@@ -984,6 +984,11 @@ int main(int argc, char** argv) {
     check("FOLW-03", "Follow: JP (HL) / (IX) / (IY) are the register; JP (C) has no target", folw_register_jumps());
     check("FOLW-04", "Follow: RET, RET cc, RETI, RETN and the aliases are the word at SP, wrapping at 64K", folw_returns());
     check("FOLW-05", "Follow decodes at `at`, never reading the code at r.PC", folw_at());
+    // Counts derived by hand from UM0080: Code opcodes 42 transfers (JP nn, CALL nn, JR, DJNZ, 8 RST, RET, JP (HL), 8 JP cc,
+    // 8 CALL cc, 4 JR cc, 8 RET cc) plain, behind DD and behind FD = 126, + 8 ED RETI/RETN forms = 134 (FOLW-09).
+    // Data: 34 plain + 32 CB + 8 ED + 35 per prefix (70) + 256 per DDCB/FDCB (512) = 656 (FOLW-06). None: 1792 - 134 - 656 = 1002
+    // (FOLW-07). FOLW-08 runs each Code opcode once with the condition holding: 14 unconditional + 28 conditional per
+    // variant x 3 + 8 ED = 134.
     Row f6 = folw_data_set();
     f6.need(g_f6_cases == 1792 && g_f6_data == 0, "cases " + std::to_string(g_f6_cases) + " data " + std::to_string(g_f6_data));
     check("FOLW-06", "Follow: Data iff pc_hint is Memory, with its address, over the 1792 table opcodes", f6);
