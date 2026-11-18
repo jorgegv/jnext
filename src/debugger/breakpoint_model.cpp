@@ -338,7 +338,7 @@ void BreakpointModel::add_specs(const std::vector<jnext::script::BpSpec>& specs)
         const Row* same = nullptr;
         for (const Row& r : rows_) {
             if (!r.own || r.group == jnext::dbg::GROUP_NONE) continue;
-            std::vector<jnext::dbg::SourceAddress> places;
+            std::vector<::SourceAddress> places;
             for (const Member& m : members_)
                 if (m.group == r.group) places.push_back({m.space, m.addr});
             if (jnext::script::same_locations(places, s.locations)) {

@@ -31,12 +31,12 @@ struct BpSpec {
     uint16_t        addr  = 0;                      ///< address, or port (<= 0xFF: low-byte decode)
     dbg::MemSpace   space = dbg::MemSpace::cpu();   ///< Execute only
     std::string     file_line;                      ///< Execute only; non-empty = a source line
-    std::vector<dbg::SourceAddress> locations;      ///< a source line's members, in resolve() order
+    std::vector<::SourceAddress> locations;      ///< a source line's members, in resolve() order
     bool            enabled = true;
 };
 bool operator==(const BpSpec& a, const BpSpec& b);
 /// The same places, whatever order they are listed in.
-bool same_locations(std::vector<dbg::SourceAddress> a, std::vector<dbg::SourceAddress> b);
+bool same_locations(std::vector<::SourceAddress> a, std::vector<::SourceAddress> b);
 
 struct BpScript {
     std::string              text;

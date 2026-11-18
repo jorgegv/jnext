@@ -101,7 +101,7 @@ struct Fix {
         load_map();
     }
     void load_map() { dbg->load_source_map(sld, false); }
-    std::vector<jnext::dbg::SourceAddress> line10() const {
+    std::vector<::SourceAddress> line10() const {
         return dbg->source_map().resolve("main.bas:10").starts;
     }
 };
@@ -118,7 +118,7 @@ static BpSpec qualified(MemSpace sp, uint16_t addr, bool enabled = true) {
     s.space  = sp;
     return s;
 }
-static BpSpec source_line(const std::string& text, std::vector<jnext::dbg::SourceAddress> locs,
+static BpSpec source_line(const std::string& text, std::vector<::SourceAddress> locs,
                           bool enabled = true) {
     BpSpec s;
     s.file_line = text;

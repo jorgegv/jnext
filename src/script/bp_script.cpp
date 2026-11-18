@@ -44,12 +44,12 @@ bool is_symbol_name(const std::string& n) {
 
 }  // namespace
 
-bool same_locations(std::vector<dbg::SourceAddress> a, std::vector<dbg::SourceAddress> b) {
+bool same_locations(std::vector<::SourceAddress> a, std::vector<::SourceAddress> b) {
     if (a.size() != b.size()) return false;
-    auto key = [](const dbg::SourceAddress& x) {
+    auto key = [](const ::SourceAddress& x) {
         return std::make_tuple(static_cast<int>(x.space.kind), x.space.index, x.address);
     };
-    auto less = [&](const dbg::SourceAddress& x, const dbg::SourceAddress& y) { return key(x) < key(y); };
+    auto less = [&](const ::SourceAddress& x, const ::SourceAddress& y) { return key(x) < key(y); };
     std::sort(a.begin(), a.end(), less);
     std::sort(b.begin(), b.end(), less);
     for (size_t i = 0; i < a.size(); ++i)
@@ -195,7 +195,7 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
         s.enabled = !r.disabled;
 
         if (!ev.file_line.empty()) {
-            const dbg::SourceResolution res = dbg.source_map().resolve(ev.file_line);
+            const ::SourceResolution res = dbg.source_map().resolve(ev.file_line);
             if (res.starts.empty()) {
                 std::string why;
                 if (dbg.source_map().empty())
