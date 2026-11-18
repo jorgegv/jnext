@@ -5416,6 +5416,16 @@ a directly loaded NEX keeps its own file open, when <em>FILE</em> is not a
 readable file, or when another insert is due in the same frame - or
 if the automatic exit comes first. An empty <em>FILE</em> is rejected.
 Repeatable. Requires <strong>--headless</strong>.</dd>
+<dt><strong>--delayed-sdcard2-insert-frames</strong> <em>N</em> <em>FILE</em></dt>
+<dd>The same for the <strong>second SD card</strong> slot: insert <em>FILE</em> there after
+<em>N</em> emulated frames, as <strong>File &gt; Insert Second SD Card Image</strong> does
+(see <strong>A SECOND SD CARD</strong>). The card keeps <strong>--sdcard2-readonly</strong>.
+The run exits non-zero under the same refusals as
+<strong>--delayed-sdcard-insert-frames</strong>, and when <em>FILE</em> is the image the
+first slot has mounted. NextZXOS finds its drives at start-up, so to
+see the card use a hard reset (the environment variable
+<code>JNEXT_DELAYED_RESET_FRAMES</code>, or NextZXOS’s own). Repeatable.
+Requires <strong>--headless</strong>.</dd>
 <dt><strong>--delayed-pok-frames</strong> <em>N</em> <em>FILE</em></dt>
 <dd>Apply trainers from the POK file <em>FILE</em> after <em>N</em> emulated frames,
 once the program has loaded. This is how a <code>.pok</code> file is used in
@@ -5749,6 +5759,9 @@ All frontends.</dd>
 <dt><code>paths.sd_card_path</code> <em>FILE</em></dt>
 <dd>The SD card image; <strong>--sdcard</strong>. Empty means none given. All
 frontends.</dd>
+<dt><code>paths.sd_card2_path</code> <em>FILE</em></dt>
+<dd>The image in the second SD card slot; <strong>--sdcard2</strong>. Empty means no
+second card. All frontends.</dd>
 <dt><code>paths.screenshot_dir</code> <em>PATH</em></dt>
 <dd>The directory the Save Screenshot dialog opens in. The Qt window.</dd>
 <dt><code>paths.source_dirs</code> <em>DIRS</em></dt>

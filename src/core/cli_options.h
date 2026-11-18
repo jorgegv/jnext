@@ -836,7 +836,7 @@ inline constexpr Option OPTIONS[] = {
       "RZX records or plays; a refusal fails the run" },
     // GH #505 - the same for the second SD card slot.
     { "--delayed-sdcard2-insert-frames", 2, Doc::Documented, OptId::DelayedSdcard2InsertFrames,
-      "FRAMES FILE",
+      "N FILE",
       "Insert SD-card image FILE in the second SD card slot after\n"
       "N emulated frames, as File > Insert Second SD Card Image\n"
       "does (headless only, repeatable). Keeps --sdcard2-readonly.\n"

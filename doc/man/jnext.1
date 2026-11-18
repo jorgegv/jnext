@@ -1281,6 +1281,20 @@ An empty \f[I]FILE\f[R] is rejected.
 Repeatable.
 Requires \f[B]\-\-headless\f[R].
 .TP
+\f[B]\-\-delayed\-sdcard2\-insert\-frames\f[R] \f[I]N\f[R] \f[I]FILE\f[R]
+The same for the \f[B]second SD card\f[R] slot: insert \f[I]FILE\f[R]
+there after \f[I]N\f[R] emulated frames, as \f[B]File > Insert Second SD
+Card Image\f[R] does (see \f[B]A SECOND SD CARD\f[R]).
+The card keeps \f[B]\-\-sdcard2\-readonly\f[R].
+The run exits non\-zero under the same refusals as
+\f[B]\-\-delayed\-sdcard\-insert\-frames\f[R], and when \f[I]FILE\f[R]
+is the image the first slot has mounted.
+NextZXOS finds its drives at start\-up, so to see the card use a hard
+reset (the environment variable \f[CR]JNEXT_DELAYED_RESET_FRAMES\f[R],
+or NextZXOS\(cqs own).
+Repeatable.
+Requires \f[B]\-\-headless\f[R].
+.TP
 \f[B]\-\-delayed\-pok\-frames\f[R] \f[I]N\f[R] \f[I]FILE\f[R]
 Apply trainers from the POK file \f[I]FILE\f[R] after \f[I]N\f[R]
 emulated frames, once the program has loaded.
@@ -1727,6 +1741,11 @@ The SD card image; \f[B]\-\-sdcard\f[R].
 Empty means none given.
 All frontends.
 .TP
+\f[CR]paths.sd_card2_path\f[R] \f[I]FILE\f[R]
+The image in the second SD card slot; \f[B]\-\-sdcard2\f[R].
+Empty means no second card.
+All frontends.
+.TP
 \f[CR]paths.screenshot_dir\f[R] \f[I]PATH\f[R]
 The directory the Save Screenshot dialog opens in.
 The Qt window.
@@ -1975,6 +1994,23 @@ size and modification time, and the contents of its
 \f[B]\-\-sdcard2\-writes\f[R] file), so changing it takes a new
 recording.
 Rewind carries its state.
+.IP \(bu 2
+The card can also come from \f[B]Preferences > Paths > Second SD card
+image\f[R] (\f[CR]paths.sd_card2_path\f[R], reachable with
+\f[B]\-\-set\f[R]) when \f[B]\-\-sdcard2\f[R] is not given.
+A saved path that no longer exists is logged and leaves the slot empty;
+only an explicit \f[B]\-\-sdcard2\f[R] refuses to start.
+.IP \(bu 2
+The slot is optional: with nothing in it the machine behaves exactly as
+it did before the slot existed.
+.IP \(bu 2
+One image never goes in both slots: \f[B]\-\-sdcard2\f[R], a Preferences
+path, \f[B]File > Insert\f[R] and the delayed inserts all refuse the
+file the other slot has mounted (two cards writing one FAT would corrupt
+it).
+.IP \(bu 2
+The slot can be changed while the machine runs (see \f[B]CHANGING THE
+CARD WHILE RUNNING\f[R]).
 .SS CHANGING THE CARD WHILE RUNNING
 \f[B]File > Insert SD Card Image\&...\f[R] swaps the card in the running
 machine, and \f[B]File > Eject SD Card\f[R] takes it out; nothing is
@@ -1982,12 +2018,24 @@ reset.
 The Next has no card\-detect line, so the guest is not told: use
 NextZXOS\(cqs \f[B]REMOUNT\f[R], which asks you to \f[I]Remove/insert SD
 and press Y\f[R] \- change the card, then press Y.
+.PP
+\f[B]File > Insert Second SD Card Image\&...\f[R] and \f[B]File > Eject
+Second SD Card\f[R] do the same for the second slot, which NextZXOS sees
+as the next drive (see \f[B]A SECOND SD CARD\f[R]): its drive appears at
+the next hard reset or REMOUNT.
+A hard reset after an eject of the second card keeps the slot empty, and
+after an insert keeps the new card: unlike the first card, its path is
+not kept for the ROMs.
+The inserted card is write\-protected exactly when
+\f[B]\-\-sdcard2\-readonly\f[R] was given.
+These two menu items have no keyboard mnemonic.
 .IP \(bu 2
 The ROMs are not re\-read: they were loaded at power\-on, as on
 hardware.
 A later hard reset, or loading a program, reads them from the inserted
 card.
-After an eject, those put the last inserted card back.
+After an eject, those put the last inserted card back (the first card
+only).
 .IP \(bu 2
 Refused while an RZX recording is made or played, and while a directly
 loaded NEX keeps its own file open.
@@ -3049,12 +3097,12 @@ eat a key the guest needs; the only Ctrl chords are Ctrl+F5 and Ctrl+F6
 Load a program (Alt+O \- NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
 opens POK Trainers instead, without a reset), Recent Files (the last ten
 loaded, newest first) and Reload Last File (Alt+L), Insert SD Card Image
-/ Eject SD Card (see \f[B]CHANGING THE CARD WHILE RUNNING\f[R]), Record
-MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
-RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
-(Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot
-(Alt+Shift+F9) (see \f[B]JNEXT SNAPSHOTS\f[R] above), Quit (Alt+Q or
-Alt+F4).
+/ Eject SD Card and the same for the second SD card (see \f[B]CHANGING
+THE CARD WHILE RUNNING\f[R]), Record MPEG4 Video (Ctrl+F5) / Stop
+(Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save Screenshot (Alt+S),
+Quick Screenshot (Alt+K), Save Snapshot (Alt+Shift+S), Quick Save
+Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see
+\f[B]JNEXT SNAPSHOTS\f[R] above), Quit (Alt+Q or Alt+F4).
 .RS
 .PP
 \f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses

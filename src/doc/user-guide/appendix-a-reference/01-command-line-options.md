@@ -1108,6 +1108,17 @@ with status 1.
     if the automatic exit comes first. An empty *FILE* is rejected.
     Repeatable. Requires **--headless**.
 
+**--delayed-sdcard2-insert-frames** *N* *FILE*
+:   The same for the **second SD card** slot: insert *FILE* there after
+    *N* emulated frames, as **File \> Insert Second SD Card Image** does
+    (see **A SECOND SD CARD**). The card keeps **--sdcard2-readonly**.
+    The run exits non-zero under the same refusals as
+    **--delayed-sdcard-insert-frames**, and when *FILE* is the image the
+    first slot has mounted. NextZXOS finds its drives at start-up, so to
+    see the card use a hard reset (the environment variable
+    `JNEXT_DELAYED_RESET_FRAMES`, or NextZXOS’s own). Repeatable.
+    Requires **--headless**.
+
 **--delayed-pok-frames** *N* *FILE*
 :   Apply trainers from the POK file *FILE* after *N* emulated frames,
     once the program has loaded. This is how a `.pok` file is used in
@@ -1483,6 +1494,10 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 `paths.sd_card_path` *FILE*
 :   The SD card image; **--sdcard**. Empty means none given. All
     frontends.
+
+`paths.sd_card2_path` *FILE*
+:   The image in the second SD card slot; **--sdcard2**. Empty means no
+    second card. All frontends.
 
 `paths.screenshot_dir` *PATH*
 :   The directory the Save Screenshot dialog opens in. The Qt window.
