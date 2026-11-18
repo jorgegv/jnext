@@ -912,7 +912,7 @@ Load-bearing rationale that used to live as long comments inside
   worth keeping: nine matched their pattern in the `-M` list, while a Qt include
   fails the *"could not be preprocessed with `-I<src>` alone"* arm before it ever
   reaches the Qt pattern, because Qt6 lives in `/usr/include/qt6` — not a default
-  include path here or in the Fedora 44 CI container. The property is enforced
+  include path here or in the fedora:45 CI container. The property is enforced
   ten times over; the Qt pattern is belt to that arm's braces, and the lint says
   so at the pattern. An earlier version of this paragraph said "nine", which is
   what reading "SDL and Qt are both on a system include path" off the lint's own

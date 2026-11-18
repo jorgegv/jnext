@@ -254,7 +254,7 @@ is the guard: it regenerates into a temporary directory and diffs, so a stale
 committed output is a hard failure rather than something a reviewer has to
 spot. It also fails when pandoc is absent, or is a different version than the
 one that produced the committed outputs: a check that cannot verify is not a
-pass (CI, on Fedora 44, is the reference).
+pass (CI, on Fedora 45, is the reference).
 
 `make docs-man` needs pandoc:
 

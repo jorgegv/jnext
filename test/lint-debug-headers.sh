@@ -32,7 +32,7 @@
 #
 # Qt is NOT the same case, and the pattern below says so rather than implying it:
 # Qt6 lives in `/usr/include/qt6`, which is not a default include path here or in
-# the Fedora 44 CI container, so a Qt include never reaches the pattern — it fails
+# the fedora:45 CI container, so a Qt include never reaches the pattern; it fails
 # the "could not be preprocessed with -I<src> alone" arm above it instead. The
 # property is enforced either way; which ARM enforces it differs, and an earlier
 # version of this comment claimed SDL and Qt were "both" on a system path, which

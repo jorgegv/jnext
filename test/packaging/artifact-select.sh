@@ -20,6 +20,17 @@ artifact_version() {
     printf '%s\n' "$v"
 }
 
+# rpm_artifact_name <X.Y.Z>: print the rpm file name make package-rpm produces on this
+# host, jnext-<X.Y.Z>-1<dist>.x86_64.rpm, or fail. <dist> is the host's rpm %{?dist}
+# (.fc45 on Fedora 45): CPack sets the release to 1%{?dist} (CPACK_RPM_PACKAGE_RELEASE_DIST)
+# and lets rpmbuild name the file, so the same rpm macro decides the name.
+rpm_artifact_name() {
+    local dist
+    command -v rpm >/dev/null 2>&1 || { echo "rpm_artifact_name: rpm is not installed, so the dist tag is unknown" >&2; return 1; }
+    dist=$(rpm --eval '%{?dist}' 2>/dev/null) || { echo "rpm_artifact_name: rpm --eval failed" >&2; return 1; }
+    printf 'jnext-%s-1%s.x86_64.rpm\n' "$1" "$dist"
+}
+
 # clear_artifacts <dir> <glob> — delete earlier artifacts matching <glob> in
 # <dir> before a build, so a leftover can never stand in for the new one.
 # Only regular files directly in <dir> are touched.

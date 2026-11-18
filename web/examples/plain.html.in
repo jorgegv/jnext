@@ -6,7 +6,10 @@
 <title>JNEXT in a web page</title>
 <style>
   body { margin: 1em; font: 14px sans-serif; }
-  #player { width: 640px; height: 512px; }
+  /* 640 x 512 on a desktop; on a narrower screen it shrinks to fit, keeping the 5:4 shape. The
+     player's own box carries inline pixel sizes, hence the !important. */
+  #player { width: 640px; max-width: 100%; aspect-ratio: 5 / 4; }
+  #player .jnext-player { width: 100% !important; height: 100% !important; }
   #status { margin: .5em 0; font-family: monospace; }
   button { margin-right: .3em; }
 </style>

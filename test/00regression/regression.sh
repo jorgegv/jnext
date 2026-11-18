@@ -234,7 +234,7 @@ regression_lanes
 # `strace -f -qq -e trace=execve -e status=successful` over a full run,
 # intersected with the program names that appear in the harness files above;
 # re-derive the same way after changing any of them. `hostname` is absent from
-# fedora:44 and only a fallback-guarded call (its fallback, uname, is listed).
+# the fedora:45 CI container and only a fallback-guarded call (its fallback, uname, is listed).
 # Present = an executable on PATH (`type -P`, never a builtin) that does not
 # answer `--version` with 126/127 ("cannot execute" / "not found").
 reg_missing=""

@@ -53,8 +53,11 @@ hypothetical worry: a run here once printed `62 pass, 1 fail` and
 ## Why a Fedora container
 
 Three of the eight `ci.yml` jobs — `test`, `qt5-guard` and `package` — run in a
-pinned Fedora container: the same image `release.yml` builds the rpm and Windows
-artifacts in, and the same distribution family the maintainer develops on. (The
+pinned Fedora container, `fedora:45`: the same image `release.yml` builds the
+Windows artifacts and the Fedora 45 rpm in, and the same distribution family the
+maintainer develops on. It follows the current Fedora release: when a new one
+ships, every Fedora container and cache key moves to it together, and both guides
+are re-rendered there. (The
 remaining five cannot: `macos`, `macos-intel`, `macos-unit` and `macos-regression`
 need a macOS runner, and `flatpak` runs
 in the Flathub `flatpak-github-actions` image, because that is where
@@ -70,7 +73,7 @@ shipped an older pandoc than the maintainer's failed `docs-check` on every run
 from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.
 
-The container tracks the `updates` repository of fedora:44, so CI can receive a newer
+The container tracks the `updates` repository of fedora:45, so CI can receive a newer
 package than a developer host that has not upgraded yet: `unit-test-win` was once red on
 CI under wine 11.20 and green on a host with 11.0. To see CI's package set locally, build an
 image from `ci.yml`'s two install lists (the test dependencies, and the MinGW and wine
@@ -109,8 +112,8 @@ dependency set and checks out the repository with submodules; then
   `~/.cache/jnext/tools/emsdk-6.0.13`, which the leg caches under a key carrying
   the version and the pins, so a hit only skips the downloads;
 - **`browser`** runs `make wasm-browser-test`: the browser frontend in the pinned
-  Chromium headless shell (rows BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08 for the image and
-  the warm start, WEBAPI-01 to WEBAPI-29 for the JavaScript API, WIDGET-01 to WIDGET-17 for the widget, WBW-01 to WBW-17 for the kept writes, TKB-01 to TKB-17 for the on-screen keyboard, and WBENCH-01 to WBENCH-12, the arithmetic of the browser bench;
+  Chromium headless shell (rows BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-08 for the image and
+  the warm start, WEBAPI-01 to WEBAPI-31 for the JavaScript API, WEBPKG-BR-01 to WEBPKG-BR-07 for the shipped zip, WIDGET-01 to WIDGET-17 for the widget, BCARD-01 to BCARD-25 for the card flow, WBW-01 to WBW-17 for the kept writes, BSN-01 to BSN-11 for snapshots, BRZ-01 to BRZ-12 for RZX, BCRT-01 to BCRT-13 for the CRT effect, TKB-01 to TKB-17 for the on-screen keyboard, and WBENCH-01 to WBENCH-12, the arithmetic of the browser bench;
   [5.6](06-the-browser-build.md)). Besides the emsdk cache it caches Playwright
   (`~/.cache/jnext/tools/playwright-1.65.0`, keyed by the version and the two pin
   prefixes) and uses the SD-image cache: the run turns the cached distribution
@@ -118,7 +121,7 @@ dependency set and checks out the repository with submodules; then
   and the leg's one artifact step uploads exactly `build/wasm-core/jnext-*-web.zip`,
   which cannot carry it. The run also builds the browser package (`make package-web`
   is a prerequisite of `wasm-browser-test`, so there is no step of its own), and its
-  row WEBPKG-BR-01 boots the extracted zip; the zip is uploaded as `jnext-web-zip`.
+  row WEBPKG-BR-01 boots the extracted zip (02 to 07 check its example pages on a phone-sized screen); the zip is uploaded as `jnext-web-zip`.
   The dnf list carries the shared libraries the headless shell links, and `zip`.
 
 They used to be steps of one job, so the 28-minute build matrix and the
@@ -203,7 +206,7 @@ and compression is off since the packages are already compressed.
 | `jnext-windows-x86-legacy-zip` | `jnext-<v>-windows-x86-legacy.zip` | `package` |
 | `jnext-windows-x64-sdl-zip` | `jnext-<v>-windows-x64-sdl.zip` | `package` (repo-internal, not a release asset) |
 | `jnext-windows-x86-sdl-zip` | `jnext-<v>-windows-x86-sdl.zip` | `package` (repo-internal, not a release asset) |
-| `jnext-linux-rpm` | `jnext-<v>-1.x86_64.rpm` | `package` |
+| `jnext-linux-rpm` | `jnext-<v>-1.fc45.x86_64.rpm` | `package` |
 | `jnext-source-zip` | `jnext-<v>-src.zip` | `package` |
 | `jnext-web-zip` | `jnext-<v>-web.zip` | `test` (`browser` leg) |
 | `jnext-macos-arm64-dmg` | `jnext-<v>-macos-arm64.dmg` | `macos` |
@@ -252,8 +255,12 @@ is not, nothing builds, and the tag remains a private history marker.
 When it is, seven artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
 containers, one per supported release, because `dpkg-shlibdeps` bakes the
 container's own library package names into the dependency list, so a deb built
-in one release's container is uninstallable on the next. `rpm` builds in the
-pinned Fedora container, so that its dependencies are Fedora-native. Then `src`,
+in one release's container is uninstallable on the next. `rpm` is a matrix over
+pinned `fedora:44` and `fedora:45` containers, the current and previous Fedora,
+so that each rpm's dependencies are that release's own; CPack names each with
+its dist tag (`jnext-<v>-1.fc45.x86_64.rpm`), so the two never collide. The
+packages track the two supported Fedora releases and the two latest Ubuntu LTS
+releases. Then `src`,
 `windows` (three zips from one Fedora container), `flatpak` (one line, calling
 `flatpak-build.yml`), `web` (`make package-web` in a Fedora container: the browser
 zip, with the Emscripten SDK cache of the `test` job and no SD image, since the

@@ -7939,8 +7939,7 @@ static void gh428_rev_rows() {
     }
 }
 
-int main() {
-    std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
+[[gnu::noinline]] static void backend_part_01() {
 
     // =======================================================================
     // CTL-01 / CTL-02 — pause and run
@@ -8396,6 +8395,9 @@ int main() {
         check("CTL-13-05", "and reads as Breakpoint, not as the run-to completing",
               dbg.state().pause_reason.kind == PauseReason::Kind::Breakpoint);
     }
+}
+
+[[gnu::noinline]] static void backend_part_02() {
 
     // =======================================================================
     // F1 — peek() does not perturb
@@ -8866,6 +8868,9 @@ int main() {
               dbg.paging_ports().port_7ffd == 0x03,
               hex(dbg.paging_ports().port_7ffd));
     }
+}
+
+[[gnu::noinline]] static void backend_part_03() {
 
     // =======================================================================
     // INS-04 / INS-05 — NextREG and ports
@@ -9322,6 +9327,9 @@ int main() {
               std::to_string(diffs) + " differ, " + std::to_string(transparent) +
                   " not opaque, split=" + std::to_string(split));
     }
+}
+
+[[gnu::noinline]] static void backend_part_04() {
     {
         // GH #304 Part B — the fallback colour is one 9-bit colour everywhere.
         // zxnext.vhd:7214 and :6990: `fallback & (fallback(1) or fallback(0))`,
@@ -9866,6 +9874,9 @@ int main() {
                       "/" + hex(col28) + " live=" + std::to_string(emu.layer2().scroll_x()));
         }
     }
+}
+
+[[gnu::noinline]] static void backend_part_05() {
 
     // =======================================================================
     // GH #278 WP4d review round 1 — INS-14-18..20: the port 0x303B bits the
@@ -10495,6 +10506,9 @@ int main() {
                       "addrs: " + bad_addrs + "map names: " + present(dbg, kMap, kMapN));
         }
     }
+}
+
+[[gnu::noinline]] static void backend_part_06() {
 
     // =======================================================================
     // PEND — the verbs a later sub-package owns refuse, they do not misbehave
@@ -10980,6 +10994,9 @@ int main() {
               a0.value[2] == 0x11 && a1.value[2] == 0x22 && a2.value[2] == 0x33,
               hex(a0.value[2]) + "/" + hex(a1.value[2]) + "/" + hex(a2.value[2]));
     }
+}
+
+[[gnu::noinline]] static void backend_part_07() {
     {
         // INS-16's two composed port values had no row.
         Emulator emu; build(emu);
@@ -11450,6 +11467,9 @@ int main() {
               !t2.mem_would_match(0x1000, 0, Access::Write) &&
               !t2.mem_would_match(0x1FFF, 0, Access::Read));
     }
+}
+
+[[gnu::noinline]] static void backend_part_08() {
 
     // The physical-page forms, and `on_slot_remapped`'s reason to exist.
     {
@@ -11903,6 +11923,9 @@ int main() {
               (t.shrink_ring_for_test(99999),
                t.ring_capacity() == jnext::dbg::LATCH_RING_CAPACITY));
     }
+}
+
+[[gnu::noinline]] static void backend_part_09() {
 
     // ── EVT-TBL-HIST — the INS-17 delivery history ──────────────────────
     {
@@ -12366,6 +12389,9 @@ int main() {
         check("EVT-NR-07", "and the register really took the value",
               emu.nextreg().peek(0x15) == 0x07);
     }
+}
+
+[[gnu::noinline]] static void backend_part_10() {
     {
         // The register-set filter's negative arm.
         Emulator emu;
@@ -12833,6 +12859,9 @@ int main() {
               "calls=" + std::to_string(calls_in_replay) + "/" + std::to_string(calls) +
                   " n=" + std::to_string(live.size()));
     }
+}
+
+[[gnu::noinline]] static void backend_part_11() {
 
     // ── EVT-TIME — Frame, Scanline, Cycle ────────────────────────────────
     {
@@ -13306,6 +13335,9 @@ int main() {
         check("EVT-COP-23", "a restarted program reaches the HALT and latches again",
               rec.evs.size() == 2, "n=" + std::to_string(rec.evs.size()));
     }
+}
+
+[[gnu::noinline]] static void backend_part_12() {
     {
         // A satisfied WAIT. Given a whole frame the Copper's cvc sweeps every
         // line, so a WAIT on any line in range is satisfied exactly once.
@@ -13776,6 +13808,9 @@ int main() {
               pc_of(emu) == 0x8007,
               "pc=" + hex(pc_of(emu)));
     }
+}
+
+[[gnu::noinline]] static void backend_part_13() {
     {
         // A handler may unsubscribe itself mid-drain, and the drain must survive
         // it (contract 4: a removal is a tombstone, compaction is deferred).
@@ -14251,6 +14286,9 @@ int main() {
               "n=" + std::to_string(dbg.events_fired_since(0).size()) +
                   " pc=" + hex(pc_of(emu)));
     }
+}
+
+[[gnu::noinline]] static void backend_part_14() {
 
     {
         // THE QT PATH. `Impl::arm()` clears the event-stop latch, and every backend
@@ -14735,6 +14773,9 @@ int main() {
         check("EVT-NR-23", "and the register really took it",
               emu.nextreg().peek(0x16) == 0x42);
     }
+}
+
+[[gnu::noinline]] static void backend_part_15() {
     {
         // The filter's negative arm, which is the half a frontend depends on: a
         // {source=Cpu} subscription must NOT see the DMA's write.
@@ -15205,6 +15246,9 @@ int main() {
                              "pending-Stop latch was consumed, not left standing",
               t_states > 100, "tstates=" + std::to_string(t_states));
     }
+}
+
+[[gnu::noinline]] static void backend_part_16() {
 
     // ── EVT-REPLAY-10..12 — B-9: the execute_gate replay guard ─────────────
     //
@@ -15700,6 +15744,9 @@ int main() {
               dbg.subscriptions(true).size() == 1 &&
               dbg.subscriptions(true).front().id == sub.value);
     }
+}
+
+[[gnu::noinline]] static void backend_part_17() {
 
 
     // =======================================================================
@@ -16166,6 +16213,9 @@ int main() {
               dbg.state().paused);
         dbg.detach(b);
     }
+}
+
+[[gnu::noinline]] static void backend_part_18() {
     // ── GH #280 N1 — WHO INHERITS A PAUSE (owner decision 2026-10-01: "the
     // pause should belong to the one remaining"). A detaching client never
     // releases its pause while an arming client remains; the pause passes to
@@ -16624,6 +16674,9 @@ int main() {
         check("SES-01-15", "and NO client's detach resumes it",
               dbg.detach(a) == Result::Ok && dbg.state().paused);
     }
+}
+
+[[gnu::noinline]] static void backend_part_19() {
 
     // ── SES-02 — the listener fan-out ──────────────────────────────────────
     {
@@ -17094,6 +17147,9 @@ int main() {
               handler_calls > 0 && inside_hint.remote_attached && !inside_hint.paused);
         dbg.remove_service(svc);
     }
+}
+
+[[gnu::noinline]] static void backend_part_20() {
     {
         // ORDER INSIDE pump(): the notification sync runs BEFORE the services are
         // flushed, so a `Paused` the listener queues in THIS pump goes out on the
@@ -17546,6 +17602,9 @@ int main() {
                   " raster_in=" + (raster_inside ? "1" : "0"));
         dbg.detach(a);
     }
+}
+
+[[gnu::noinline]] static void backend_part_21() {
 
     // ── SES-06 — the message sink, and its own log channel ─────────────────
     {
@@ -18010,6 +18069,9 @@ int main() {
         check("CTL-12-31", "mapping the watched page in again re-arms its new slot",
               emu.debug_state().breakpoints().wr_watch_slot_armed(0x8000));
     }
+}
+
+[[gnu::noinline]] static void backend_part_22() {
     {
         // M82's gap: CTL-15's re-application. A load whose driver DOES replace the
         // machine must leave every subscription able to fire — the in-place case
@@ -18463,6 +18525,9 @@ int main() {
                   same, where);
         }
     }
+}
+
+[[gnu::noinline]] static void backend_part_23() {
     {
         // ── FIX ROUND 1 — THE EDGE DETECTOR ACROSS A REBUILD ──────────────────
         //
@@ -18941,6 +19006,9 @@ int main() {
                       std::to_string(events));
         }
     }
+}
+
+[[gnu::noinline]] static void backend_part_24() {
     {
         // CTL-12 RULE 2 / CTL-15 — the ENABLE FLAGS a client set through a verb
         // (call-stack tracking, the trace, `persistent_breakpoints`) live on the
@@ -19542,6 +19610,9 @@ int main() {
                       " paused=" + (dbg.state().paused ? "1" : "0"));
         }
     }
+}
+
+[[gnu::noinline]] static void backend_part_25() {
 
     // ── R2 — the ctor/dtor publication pairing, as ONE invariant ───────────
     {
@@ -19700,6 +19771,36 @@ int main() {
               dbg.state().pause_reason.by == jnext::dbg::CLIENT_NONE,
               "kind=" + std::to_string(static_cast<int>(dbg.state().pause_reason.kind)));
     }
+
+}
+
+int main() {
+    std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
+    backend_part_01();
+    backend_part_02();
+    backend_part_03();
+    backend_part_04();
+    backend_part_05();
+    backend_part_06();
+    backend_part_07();
+    backend_part_08();
+    backend_part_09();
+    backend_part_10();
+    backend_part_11();
+    backend_part_12();
+    backend_part_13();
+    backend_part_14();
+    backend_part_15();
+    backend_part_16();
+    backend_part_17();
+    backend_part_18();
+    backend_part_19();
+    backend_part_20();
+    backend_part_21();
+    backend_part_22();
+    backend_part_23();
+    backend_part_24();
+    backend_part_25();
 
     // GH #276 B4
     b4_coverage_rows();

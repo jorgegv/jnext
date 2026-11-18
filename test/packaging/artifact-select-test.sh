@@ -14,6 +14,10 @@
 #   6. artifact_version reads version.yaml, and fails on a malformed one
 #   7. packaging-test.sh has no `| head -1` artifact pick left, and every
 #      package row clears its artifacts before building and picks after
+#   8. rpm_artifact_name carries the host's rpm %{?dist} (a stand-in rpm prints
+#      .fc99, or nothing), and fails with no rpm on PATH
+#   9. the rpm name has one source: CMakeLists.txt turns the dist tag on, and no
+#      rpm consumer spells the undated jnext-$VER-1.x86_64.rpm any more
 #
 set -u
 
@@ -105,6 +109,29 @@ if [ -z "$leftover" ] && [ "$picks" -ge 9 ] && [ "$picks" -eq "$clears" ]; then
     ok "packaging-test.sh: no ls|head artifact pick; $picks rows pick, each clears first"
 else
     bad "packaging-test.sh: picks=$picks clears=$clears; leftover ls|head: ${leftover:-none}"
+fi
+
+# 8: a stand-in rpm decides the dist tag, so the row holds on any host
+mkdir -p "$tmp/fc99" "$tmp/nodist" "$tmp/empty"
+printf '#!/bin/sh\necho .fc99\n' > "$tmp/fc99/rpm"; printf '#!/bin/sh\necho\n' > "$tmp/nodist/rpm"
+chmod +x "$tmp/fc99/rpm" "$tmp/nodist/rpm"
+n99=$(PATH="$tmp/fc99"; rpm_artifact_name 9.9.10 2>/dev/null)
+n0=$(PATH="$tmp/nodist"; rpm_artifact_name 9.9.10 2>/dev/null)
+(PATH="$tmp/empty"; rpm_artifact_name 9.9.10 >/dev/null 2>&1); rc=$?
+if [ "$n99" = jnext-9.9.10-1.fc99.x86_64.rpm ] && [ "$n0" = jnext-9.9.10-1.x86_64.rpm ] && [ "$rc" -ne 0 ]; then
+    ok "rpm_artifact_name carries rpm's dist tag ($n99, $n0 with none), fails with no rpm"
+else
+    bad "rpm_artifact_name: .fc99 gave '$n99', no dist gave '$n0', no rpm rc=$rc"
+fi
+
+# 9
+dist_on=$(grep -cE '^set\(CPACK_RPM_PACKAGE_RELEASE_DIST ON\)' "$repo/CMakeLists.txt")
+undated=$(grep -nF -- '$VER-1.x86_64.rpm' "$pt" "$repo/test/regression-package.sh")
+uses=$(grep -lF 'rpm_artifact_name "$VER"' "$pt" "$repo/test/regression-package.sh" | wc -l)
+if [ "$dist_on" -eq 1 ] && [ -z "$undated" ] && [ "$uses" -eq 2 ]; then
+    ok "CMakeLists.txt turns the rpm dist tag on; packaging-test.sh and regression-package.sh name the rpm through rpm_artifact_name"
+else
+    bad "rpm name: dist ON lines=$dist_on, consumers using rpm_artifact_name=$uses, undated names: ${undated:-none}"
 fi
 
 printf "\n${BOLD}=== Results ===${RESET}\n"

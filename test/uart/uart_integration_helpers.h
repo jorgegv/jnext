@@ -775,7 +775,7 @@ bool process_alive(int pid) {
     // A zombie is not running, but kill(pid, 0) still succeeds on it. The
     // stand-in becomes one when stop() SIGKILLs it together with its watchdog
     // parent: it is re-parented to PID 1, and a container's PID 1 (CI's
-    // fedora:44 job) need not reap it. Field 3 of /proc/<pid>/stat is the
+    // fedora:45 job) need not reap it. Field 3 of /proc/<pid>/stat is the
     // state; the name before it is parenthesised and may contain spaces.
     // Read with read(2), not a stream: the process may be reaped between the
     // open and the read, which then fails with ESRCH, and libstdc++'s filebuf

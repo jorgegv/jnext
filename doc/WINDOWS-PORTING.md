@@ -45,7 +45,7 @@ without the platform plugin it still cannot open a window.
 ## CI
 
 `.github/workflows/release.yml`'s `windows` job runs **the same `make
-package-win`** inside a `fedora:44` container — the identical recipe a developer
+package-win`** inside a `fedora:45` container — the identical recipe a developer
 runs locally, not a CI-only reimplementation. It has run green on a real hosted
 runner and shipped `jnext-0.98.19-windows-x64.zip`, confirmed working on real
 Windows hardware.
