@@ -144,7 +144,7 @@ if want fast-boot-func; then
 
         # --- F: every exclusion term, one windowed run each ---
         printf '\xc9' > "$fb_dir/inject.bin"
-        printf 'NScreen\nM  8 16384 171 0\nY\n' > "$fb_dir/t.pok"
+        printf 'NScreen\nZ  8 16384 171 0\nY\n' > "$fb_dir/t.pok"
         fb_prog="a program is loaded at start"
         fb_sched="the command line schedules work on the emulated timeline"
         fb_rec="a recording is running"
