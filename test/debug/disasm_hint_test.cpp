@@ -511,9 +511,13 @@ static Row fuse_rows(const std::vector<FuseCase>& cases, const std::map<std::str
         }
         if (h.kind == Hint::Kind::Memory) {
             ++g_f26_total;
-            std::multiset<uint16_t> want, got;
+            std::set<uint16_t> want, got;
             for (int w = 0; w < h.width; ++w) want.insert(static_cast<uint16_t>(h.addr + w));
-            for (int w = 0; w < h.width && k + w < data.size(); ++w) got.insert(data[k + w].addr);
+            // a single-instruction case has no other data access: ALL the events after its own bytes are
+            // the operand's (so a width reported too short is seen); in a multi-instruction case only
+            // the first `width` can be attributed to the first instruction
+            for (size_t w = 0; k + w < data.size() && (c.limit == 1 || w < static_cast<size_t>(h.width)); ++w)
+                got.insert(data[k + w].addr);
             r26.need(want == got, "case " + c.name + " addresses");
             if (k < data.size() && data[k].type == "MR") ++g_f26_mr;
             for (int w = 0; w < h.width && k + w < data.size(); ++w) {
