@@ -3288,8 +3288,8 @@ History is <code>jnext::NavHistory&lt;Loc&gt;</code> (<code>src/debugger/nav_his
 line and caret, so Back is exact; the Source tab's is the address of the cursor line's first instruction mapped now. What
 records is one rule: a jump the user (or another panel on their behalf) made through <code>show_address()</code>, the Address box or
 Go to PC; the automatic re-centre on a stop, scrolling and the keys do not. The window's Follow, Back and Forward are
-bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</code>; F12, Alt+Left, Alt+Right) installed by <code>apply_keymap()</code>, in no menu (the
-shape <code>debugger_accel_test</code> pins), acting on the Source tab when its text has the focus. A memory operand goes through
+bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</code>; F12, Alt+Left, Alt+Right) installed by <code>apply_keymap()</code>, listed in the Go menu
+(with Symbols, which raises the Symbols tab), acting on the Source tab when its text has the focus. A memory operand goes through
 <code>show_in_memory_requested()</code> to <code>MemoryPanel::show_address()</code>, which leaves a slot or page view first. Rows: <code>FOLW-01</code>..<code>09</code>,
 <code>NAVH-01</code>..<code>07</code>, <code>QNAV-*</code>, <code>QSRCN-*</code>, <code>QNAVW-*</code>.</p>
 <p><strong>The Symbols tab</strong> (<code>symbols_panel.cpp</code>) lists <code>symbols().symbols()</code> and rebuilds its rows only when <code>state_revision()</code>
