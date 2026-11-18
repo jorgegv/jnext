@@ -1382,8 +1382,8 @@ The entries say which frontends use the key: the Qt window, the SDL-only build
 :   The SD card image; **\--sdcard**. Empty means none given. All frontends.
 
 `paths.sd_card2_path` *FILE*
-:   The image in the second SD card slot; **\--sdcard2**. Empty means no second
-    card. All frontends.
+:   The image in the second SD card slot; **\--sdcard2** gives the same. Empty
+    means no second card. All frontends.
 
 `paths.screenshot_dir` *PATH*
 :   The directory the Save Screenshot dialog opens in. The Qt window.
