@@ -3020,15 +3020,16 @@ static void interrupt_machine(Machine& m) {
         divmmc_instant_machine(m);
         m.emu.divmmc().rom_data()[5] = 0x22;
         m.emu.mmu().write(0x0005, 0x11);
-        bool same_ram = true;
+        m.dbg->nextreg_write(m.a, 0x52, 0xE5);   // slot 2 ($4000) floating (zxnext.vhd:3061): reads 0xFF
+        bool same_ram = operand(m, 0x4000) == 0xFF && peeked(m, 0x4000) == 0xFF;
         const uint16_t probes[] = {0x0000, 0x0005, 0x1FFF, 0x2000, 0x3FFF, 0x4000, 0x8005, 0xC000, 0xFFFF};
         for (uint16_t a : probes) same_ram = same_ram && operand(m, a) == peeked(m, a);
         m.dbg->step_into(m.a);   // CALL $0000
         m.dbg->step_into(m.a);   // INC A, in the DivMMC ROM; the PC is now $0001 with the DivMMC held
-        bool same_held = m.pc() == 0x0001;
+        bool same_held = m.pc() == 0x0001 && operand(m, 0x4000) == 0xFF && peeked(m, 0x4000) == 0xFF;
         for (uint16_t a : probes) same_held = same_held && operand(m, a) == peeked(m, a);
         check("OPRD-03", "away from an entry point operand_reader() equals peek(Cpu) over the whole map: "
-                         "with the DivMMC armed and the PC at $8000, and with it active (PC at $0001)",
+                         "with the DivMMC armed and the PC at $8000, and with it active (PC at $0001); a floating slot ($4000, NR 0x52 = 0xE5) reads 0xFF through both",
               same_ram && same_held && peeked(m, 5) == 0x22,
               std::string("armed=") + (same_ram ? "1" : "0") + " held=" + (same_held ? "1" : "0") + " pc=" + hex(m.pc()));
     }

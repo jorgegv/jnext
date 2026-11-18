@@ -149,8 +149,8 @@ Hint pc_hint(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn
     const uint16_t idx = last == 0xDD ? r.IX : r.IY;
     Hint h = decode(r, code, data, a, prefixes > 0, idx, &consumed);
     // disasm_ddfd() recurses once per prefix an opcode does not consume; past kMaxPrefixChain it
-    // shows a `DB $DD` line of its own instead. The prefixes before the last never consume.
-    if (prefixes > 1 && prefixes - 2 >= kMaxPrefixChain) return Hint{};
+    // shows a `DB $DD` line of its own instead. The prefixes before the last never consume, which
+    // is what the `kMaxPrefixChain + 1` limit above enforces; the last one only if it consumes.
     if (prefixes > 0 && !consumed && prefixes - 1 >= kMaxPrefixChain) return Hint{};
     return h;
 }

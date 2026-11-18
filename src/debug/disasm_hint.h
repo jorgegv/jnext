@@ -30,7 +30,8 @@ struct Hint {
 };
 
 /// `code` reads the instruction bytes (pass Debugger::memory_reader(): the bytes the CPU will fetch
-/// and the ones the panel shows); `data` reads the operand (pass a peek(MemSpace::cpu()) reader).
+/// and the ones the panel shows); `data` reads the operand (pass
+/// Debugger::operand_reader(); peek(MemSpace::cpu()) differs from it at a DivMMC/Multiface entry point).
 /// Neither may disturb the machine; the helper never reads a port, and calls `data` only for the
 /// operand it reports (and the RET cc return address).
 Hint pc_hint(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn& data);

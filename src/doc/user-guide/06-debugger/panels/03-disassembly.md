@@ -107,7 +107,7 @@ its opcode bytes:
 The hint describes the instruction as it will run from the current state. It is
 read from the registers and memory without disturbing anything, and never from
 an I/O port, so an `IN` or `OUT` has none. At a DivMMC or Multiface entry
-point, where the instruction itself switches the memory in, the value is read
+point, where the instruction itself switches that memory in or out, the value is read
 from the memory the instruction will see. A pending interrupt can run before the instruction does,
 and then the hint does not apply. The hint is not copied with the listing, and
 it is not shown while the machine is running.
