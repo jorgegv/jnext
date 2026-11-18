@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.5</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.11</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.5</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.11</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4597,12 +4597,13 @@ stand-in keeps for a directly loaded NEX (see <strong>esxDOS calls from a
 directly loaded NEX</strong>), stored when the program closes it and handed
 back to the stand-in at the next start, whatever the program: it
 belongs to the card, not to the NEX that wrote it. Excludes
-<strong>--sdcard-readonly</strong> and <strong>--sdcard-file-add</strong>. A recording of the
-warm start is keyed on the image and on <em>FILE</em>’s sectors, so it is
-taken again after the machine has written one; the stand-in’s file
-is not card state and does not change it. Files read from the image
-by the host (the ROMs, a snapshot’s card identity) do not see the
-writes. See <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
+<strong>--sdcard-readonly</strong>; with <strong>--sdcard-file-add</strong> the copy goes into
+<em>FILE</em> and the image is not written. A recording of the warm start
+is keyed on the image and on <em>FILE</em>’s sectors, so it is taken again
+after the machine has written one; the stand-in’s file is not card
+state and does not change it. Files read from the image by the host
+(the ROMs, a snapshot’s card identity) do not see the writes. See
+<a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
 image</a>.</dd>
 <dt><strong>--sdcard-writes-reset</strong></dt>
 <dd>Discard the writes kept in the <strong>--sdcard-writes</strong> <em>FILE</em> before the
@@ -4616,8 +4617,9 @@ Without <strong>--sdcard-file-dest</strong> it lands in the root of the card
 under its own name. Give it once per run. The image written is the
 one <strong>--sdcard</strong> names, or the default-location image when
 <strong>--sdcard</strong> is omitted — in which case a loud warning says so,
-because that image is shared with every other run. See <strong>PUTTING A
-FILE ON THE CARD</strong>.</dd>
+because that image is shared with every other run. With
+<strong>--sdcard-writes</strong> the copy goes into that file instead and the
+image is not written. See <strong>PUTTING A FILE ON THE CARD</strong>.</dd>
 <dt><strong>--sdcard-file-dest</strong> <em>PATH</em></dt>
 <dd>Optional. The path on the card that <strong>--sdcard-file-add</strong>’s <em>FILE</em>
 becomes, from the root of the card (<code>/NEXTZXOS/DRV-A.DSK</code>). The

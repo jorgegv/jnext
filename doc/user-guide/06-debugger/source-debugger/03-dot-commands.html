@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.5</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.11</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.5</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.11</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4333,9 +4333,12 @@ on master too). It writes <code>PROG</code> (the command, in capitals, whatever 
 <code>prog_CODE.bin</code> together: the binary is the identity check (see
 <a href="05-loading-a-source-map.html">Loading a source map</a>).</p>
 <ol>
-<li>Put <code>PROG</code> on the card: <code>jnext --sdcard-file-add PROG --sdcard-file-dest /DOT/PROG</code>.</li>
+<li>Put <code>PROG</code> on the card: <code>jnext --sdcard-file-add PROG --sdcard-file-dest /DOT/PROG</code>.
+   Add <code>--sdcard-writes dev.jsdw</code> to keep the card image pristine: the command then goes
+   into <code>dev.jsdw</code> instead.</li>
 <li>
-<p>Start JNEXT with the map and <strong>no</strong> <code>--load</code>: <code>jnext --source-map prog.map</code> (or <strong>Load
+<p>Start JNEXT with the map and <strong>no</strong> <code>--load</code>: <code>jnext --source-map prog.map</code> (or add
+   the same <code>--sdcard-writes dev.jsdw</code> if you used it above; or <strong>Load
    Source Map...</strong> in the debugger). The map attaches at once and says <em>Source map not
    verified yet: it is checked when the dot command runs</em>. The log line is (z88dk 2.4 and
    master alike):</p>

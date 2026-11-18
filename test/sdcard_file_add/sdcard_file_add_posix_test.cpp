@@ -13,6 +13,8 @@
 
 #include "sdcard_file_add_includes.h"
 #include <sys/stat.h>   // mkfifo, chmod
+#include <sys/resource.h> // RLIMIT_FSIZE
+#include <csignal>
 #include <unistd.h>       // geteuid, syscall
 #include "../dac_caps_dropped.h"
 
@@ -250,6 +252,94 @@ void test_tree_posix() {
     }
 }
 
+// RLIMIT_FSIZE soft limit, restored by the destructor (as in sdcard_posix_test).
+// Nothing may be printed while it is low: stdout may be a file past the limit.
+struct FsizeLimit {
+    rlimit saved{};
+    bool active = false;
+    void lower(rlim_t bytes) {
+        if (!active) getrlimit(RLIMIT_FSIZE, &saved);
+        rlimit r = saved;
+        r.rlim_cur = bytes;
+        active = setrlimit(RLIMIT_FSIZE, &r) == 0;
+    }
+    void restore() {
+        if (active) { setrlimit(RLIMIT_FSIZE, &saved); active = false; }
+    }
+    ~FsizeLimit() { restore(); }
+};
+
+// SDFA-JP01, JP02: journal mode opens the image read-only; a journal append
+// that really fails is reported against the writes file, with no torn record.
+void test_journal_posix() {
+    const fs::path img = g_scratch / "jp1.img";
+    std::string why, err;
+    if (!make_fixture(img, why)) {
+        std::printf("FATAL: cannot build fixture image (%s)\n", why.c_str());
+        std::exit(2);
+    }
+    std::error_code ec;
+    const fs::path src = g_scratch / "jp-DOTEST";
+    write_host_file(src, payload(3000, 220));
+
+    // JP01. Root opens a 0444 file for writing, so as root the two DAC
+    // capabilities are dropped for the row (see DacCapsDropped).
+    {
+        DacCapsDropped caps;
+        if (::geteuid() == 0 && !caps.drop()) {
+            skip("SDFA-JP01", "a journal-mode add works on a read-only image, which image mode refuses",
+                 "running as root and capset refused dropping CAP_DAC_OVERRIDE");
+        } else {
+            const uint64_t before = file_digest(img);
+            ::chmod(img.c_str(), 0444);
+            sd_write_journal::forget_all_for_test();
+            const FileAddStatus plain =
+                sdcard::add_file_to_image(img.string(), src.string(), "/DOT/DOTEST", false, err);
+            const fs::path jf = g_scratch / "jp1.jsdw";
+            bind_journal(img, jf);
+            const FileAddStatus st =
+                sdcard::add_file_to_image(img.string(), src.string(), "/DOT/DOTEST", false, err);
+            ::chmod(img.c_str(), 0644);
+            check("SDFA-JP01", "a journal-mode add works on a read-only image, which image mode refuses",
+                  plain == FileAddStatus::ImageUnusable && st == FileAddStatus::Ok &&
+                  file_digest(img) == before && fs::exists(jf, ec), err);
+            sd_write_journal::forget_all_for_test();
+        }
+    }
+
+    // JP02. The limit leaves room for two whole records and 100 bytes of a
+    // third, so the append is torn and the file must go back to two.
+    {
+        std::signal(SIGXFSZ, SIG_IGN);
+        const fs::path img2 = g_scratch / "jp2.img";
+        if (!make_fixture(img2, why)) {
+            std::printf("FATAL: cannot build fixture image (%s)\n", why.c_str());
+            std::exit(2);
+        }
+        const fs::path big = g_scratch / "jp-big";
+        write_host_file(big, payload(20000, 221));
+        const fs::path jf = g_scratch / "jp2w.jsdw";
+        const uint64_t before = file_digest(img2);
+        sd_write_journal::forget_all_for_test();
+        bind_journal(img2, jf);
+        FileAddStatus st;
+        {
+            FsizeLimit lim;
+            lim.lower(64 + 2 * 516 + 100);
+            st = sdcard::add_file_to_image(img2.string(), big.string(), "/BIG", false, err);
+        }
+        const uint64_t len = fs::exists(jf, ec) ? fs::file_size(jf, ec) : 0;
+        sd_write_journal::forget_all_for_test();
+        const bool rebound = bind_journal(img2, jf, true);
+        check("SDFA-JP02", "a failing journal append returns ImageUnusable naming the writes file, with no torn record",
+              st == FileAddStatus::ImageUnusable &&
+              err.find("'" + jf.string() + "'") != std::string::npos &&
+              err.find("'" + img2.string() + "'") == std::string::npos &&
+              len > 64 && (len - 64) % 516 == 0 && rebound && file_digest(img2) == before, err);
+        sd_write_journal::forget_all_for_test();
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -271,6 +361,7 @@ int main() {
     test_writes_posix();
     test_defaults_posix();
     test_tree_posix();
+    test_journal_posix();
 
     fs::remove_all(g_scratch, ec);
 

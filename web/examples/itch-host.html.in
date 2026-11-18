@@ -2,10 +2,15 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A page that embeds a JNEXT game</title>
 <style>
   body { margin: 1em; font: 14px sans-serif; }
   iframe { width: 640px; height: 512px; border: 1px solid #888; }
+  /* A screen narrower than the frame: fit it, keeping the 5:4 shape. */
+  @media (max-width: 680px) {
+    iframe { box-sizing: border-box; max-width: 100%; height: auto; aspect-ratio: 5 / 4; }
+  }
 </style>
 </head>
 <body>
