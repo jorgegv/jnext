@@ -16,6 +16,7 @@ class BreakpointModel;
 class DebuggerManager;
 namespace jnext { namespace dbg { class Debugger; } }
 class CpuPanel;
+class SymbolsPanel;
 class DisasmPanel;
 class MemoryPanel;
 class VideoPanel;
@@ -112,6 +113,7 @@ public:
 
     // Panel accessors for signal wiring
     CpuPanel* cpu_panel() { return cpu_panel_; }
+    SymbolsPanel* symbols_panel() { return symbols_panel_; }   // GH #366
     DisasmPanel* disasm_panel() { return disasm_panel_; }
     WatchPanel* watch_panel() { return watch_panel_; }
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
@@ -239,6 +241,7 @@ private:
 
     // Panels
     CpuPanel* cpu_panel_ = nullptr;
+    SymbolsPanel* symbols_panel_ = nullptr;
     DisasmPanel* disasm_panel_ = nullptr;
     MemoryPanel* memory_panel_ = nullptr;
     VideoPanel* video_panel_ = nullptr;

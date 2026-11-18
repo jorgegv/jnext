@@ -20,6 +20,7 @@
 #include "debugger/callstack_panel.h"
 #include "debugger/variables_panel.h"
 #include "debugger/source_panel.h"
+#include "debugger/symbols_panel.h"
 
 #include "debugger/debugger_manager.h"
 #include "debug/debugger.h"
@@ -1471,6 +1472,7 @@ void DebuggerWindow::create_panels() {
     cpu_panel_ = new CpuPanel(&dbg_);
     // GH #368: a refused or malformed register edit, held against update_rewind_ui()'s rewrite.
     connect(cpu_panel_, &CpuPanel::message, this, &DebuggerWindow::show_rewind_refusal);
+    // GH #366 - a register click or menu entry shows its value (wired where the targets exist, below).
     disasm_panel_ = new DisasmPanel(&dbg_);
     memory_panel_ = new MemoryPanel(&dbg_);
     memory_panel_->setMinimumHeight(320);
@@ -1514,6 +1516,9 @@ void DebuggerWindow::create_panels() {
     // in set_debugger_manager()).
     source_panel_ = new SourcePanel(&dbg_);
     tab_widget_->addTab(source_panel_, tr("Source"));
+    // GH #366 - every label the backend knows, filterable.
+    symbols_panel_ = new SymbolsPanel(&dbg_);
+    tab_widget_->addTab(symbols_panel_, tr("Symbols"));
 
     tab_widget_->setMinimumWidth(380);
 
@@ -1531,6 +1536,22 @@ void DebuggerWindow::create_panels() {
     // GH #423 - the Source tab's "Show in Disassembly".
     connect(source_panel_, &SourcePanel::show_address_requested, disasm_panel_,
             &DisasmPanel::show_address);
+
+    // GH #366 - the CPU panel's register shortcuts.
+    connect(cpu_panel_, &CpuPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);
+    connect(cpu_panel_, &CpuPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
+    connect(cpu_panel_, &CpuPanel::show_in_source_requested, this, [this](uint16_t addr) {
+        source_panel_->show_address(addr);
+        tab_widget_->setCurrentWidget(source_panel_);
+    });
+
+    // GH #366 - the Symbols tab asks for a place to be shown.
+    connect(symbols_panel_, &SymbolsPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);
+    connect(symbols_panel_, &SymbolsPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
+    connect(symbols_panel_, &SymbolsPanel::show_in_source_requested, this, [this](uint16_t addr) {
+        source_panel_->show_address(addr);
+        tab_widget_->setCurrentWidget(source_panel_);
+    });
 
     // GH #366 - Follow on a memory operand shows it in the Memory panel; a history change refreshes
     // the Back/Forward enabled state.
@@ -1791,6 +1812,7 @@ void DebuggerWindow::apply_address_style() {
     if (callstack_panel_) callstack_panel_->set_address_style(address_style_);
     if (variables_panel_) variables_panel_->set_address_style(address_style_);
     if (source_panel_) source_panel_->set_address_style(address_style_);
+    if (symbols_panel_) symbols_panel_->set_address_style(address_style_);
     if (BreakpointModel* m = breakpoint_model()) m->set_address_style(address_style_);
 }
 
@@ -1800,6 +1822,7 @@ void DebuggerWindow::refresh_panels() {
     (void)dbg_.source_map_status();
     sync_coverage_action();
     if (cpu_panel_) cpu_panel_->refresh();
+    if (symbols_panel_) symbols_panel_->refresh();   // GH #366
     if (disasm_panel_) disasm_panel_->refresh();
     if (memory_panel_) memory_panel_->refresh();
     if (video_panel_) video_panel_->refresh();

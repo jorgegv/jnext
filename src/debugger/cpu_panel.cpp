@@ -20,6 +20,16 @@
 #include <algorithm>
 
 namespace {
+// The value of a 16-bit register (the navigable ones; GH #366).
+uint16_t reg_value(const Z80Registers& r, jnext::dbg::RegId id) {
+    using R = jnext::dbg::RegId;
+    switch (id) {
+    case R::AF: return r.AF;   case R::BC: return r.BC;   case R::DE: return r.DE;   case R::HL: return r.HL;
+    case R::AF2: return r.AF2; case R::BC2: return r.BC2; case R::DE2: return r.DE2; case R::HL2: return r.HL2;
+    case R::IX: return r.IX;   case R::IY: return r.IY;   case R::SP: return r.SP;   case R::PC: return r.PC;
+    default: return 0;
+    }
+}
 // F bits of S Z H PV N C, the order of the flag labels (cpu_panel.cpp refresh()).
 constexpr int kFlagBit[6] = {7, 6, 4, 2, 1, 0};
 }  // namespace
@@ -273,6 +283,14 @@ bool CpuPanel::eventFilter(QObject* watched, QEvent* event) {
             begin_edit(static_cast<int>(i));
             return true;
         }
+        // GH #366: a single click on an address-like value shows it in the Disassembly. The first
+        // click of a double-click (the edit gesture) does it too; Back undoes it.
+        if (event->type() == QEvent::MouseButtonPress &&
+            static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
+            if (dbg_ && paused_ && jnext::regedit::fields()[i].navigable)
+                emit show_in_disassembly_requested(reg_value(dbg_->registers(), jnext::regedit::fields()[i].reg));
+            return false;
+        }
         if (event->type() == QEvent::ContextMenu) {
             show_value_menu(static_cast<int>(i), static_cast<QContextMenuEvent*>(event)->globalPos());
             return true;
@@ -369,13 +387,38 @@ void CpuPanel::click_flag(int bit) {
 }
 
 void CpuPanel::show_value_menu(int field, const QPoint& global_pos) {
+    const jnext::regedit::Field& f = jnext::regedit::fields()[static_cast<size_t>(field)];
+    const bool live = dbg_ && paused_;
     QMenu menu(this);
+    menu.setToolTipsVisible(true);
+    QAction* dis = nullptr;
+    QAction* mem = nullptr;
+    QAction* src = nullptr;
+    uint16_t v = 0;
+    if (f.navigable) {
+        if (live) v = reg_value(dbg_->registers(), f.reg);
+        dis = menu.addAction(tr("Show in Disassembly"));
+        mem = menu.addAction(tr("Show in Memory"));
+        if (dbg_ && !dbg_->source_map().empty()) {
+            src = menu.addAction(tr("Show in Source"));
+            src->setEnabled(live && dbg_->source_map().lookup(dbg_->source_page(v), v));
+        }
+        dis->setEnabled(live);
+        mem->setEnabled(live);
+        menu.addSeparator();
+    }
     QAction* edit = menu.addAction(tr("Edit Value\u2026"));
-    edit->setEnabled(dbg_ && paused_);
-    bool picked = false;
-    connect(edit, &QAction::triggered, &menu, [&picked]() { picked = true; });
+    edit->setEnabled(live);
+    QAction* chosen = nullptr;
+    for (QAction* a : {dis, mem, src, edit})
+        if (a) connect(a, &QAction::triggered, &menu, [&chosen, a]() { chosen = a; });
     menu.exec(global_pos);
-    if (picked) begin_edit(field);   // after the popup closed: it gives the focus back on close
+    // after the popup closed: it gives the focus back on close, which would cancel a new editor
+    if (!chosen) return;
+    if (chosen == edit) begin_edit(field);
+    else if (chosen == dis) emit show_in_disassembly_requested(v);
+    else if (chosen == mem) emit show_in_memory_requested(v);
+    else if (chosen == src) emit show_in_source_requested(v);
 }
 
 void CpuPanel::paintEvent(QPaintEvent* event) {

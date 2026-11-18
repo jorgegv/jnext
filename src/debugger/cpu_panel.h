@@ -42,6 +42,11 @@ public:
 signals:
     /// A refused or malformed edit, for the debugger window's status bar.
     void message(const QString& text);
+    /// GH #366 - a navigable value (BC DE HL BC' DE' HL' IX IY SP PC) was clicked or asked for
+    /// from its menu: put `addr` in the Disassembly / the Memory panel / the Source tab.
+    void show_in_disassembly_requested(uint16_t addr);
+    void show_in_memory_requested(uint16_t addr);
+    void show_in_source_requested(uint16_t addr);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
