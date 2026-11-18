@@ -169,14 +169,16 @@ uses the source tap (A3.4 on A2.4).
 A1.13) lands on `main` on its own, so sub-issues 6-11 may be *worked on* in parallel with
 sub-issues 2-5 as the table allows, but they **merge into the epic branch only after the Phase 1
 merge into `main`**. Sub-issues that touch the same file also merge one at a time, the second
-rebased on the first: 5 and 8 both edit `src/audio/mixer.{h,cpp}`; 2, 3 and 4 all edit the audio
-handlers in `src/core/emulator.cpp`; every sub-issue with a Qt part edits `audio_panel.cpp`.
+rebased on the first: 5, 8 and 11 all edit `src/audio/mixer.{h,cpp}`; 2 and 5 both edit
+`src/audio/turbosound.{h,cpp}` (A1.5's status returns, A1.12's channel mask); 2, 3 and 4 all edit
+the audio handlers in `src/core/emulator.cpp`; every sub-issue with a Qt part edits
+`audio_panel.cpp`.
 
 **Critical path:** 1 -> 2 -> 3 -> 6 -> 10 (13 tasks: A1.1-A1.4, A1.5-A1.6, A1.7-A1.8,
 A2.1-A2.2, A3.1-A3.3), with 1 -> 2 -> 3 -> 6 -> 7 as long in sub-issues but shorter in tasks.
-For Phase 1 alone it is 1 -> 2 -> 3 -> 4, then A1.13 and the merge into `main`. Sub-issues 5, 8
-and 11 can start as soon as sub-issue 1 has merged into the epic branch, and A2.6 (the first half
-of 9) can start at once.
+For Phase 1 alone it is 1 -> 2 -> 3 -> 4, then A1.13 and the merge into `main`. Sub-issues 5 and
+8 can start as soon as sub-issue 1 has merged into the epic branch, and 11 as soon as 8 has; A2.6
+(the first half of 9) can start at once.
 
 ---
 
@@ -798,8 +800,9 @@ placeholder that points at unfinished work except the Tracker and Scopes sub-tab
   `amplitude` from the AY and YM tables; DAC A-D after writes; port families after NR 0x84 and
   NR 0x88 with the expansion bus on; beeper EAR/MIC/tape EAR; `excluded`; the host gains. Plus
   `AIZ-05`: 1000 `audio_state()` calls mid-frame leave the state bytes unchanged.
-- **Acceptance.** Every field of `AudioState` is asserted by at least one row with a VHDL or
-  register-map citation; no field is computed from the panel.
+- **Acceptance.** Every field of `AudioState` is asserted by at least one row: against the VHDL
+  or the register map, or against the host settings for the host fields (gains, mutes,
+  `synthesis_on`); no field is computed from the panel.
 - **Depends on.** A1.1.
 
 ### A1.4 Audio tab with sub-tabs, and the Chips sub-tab
