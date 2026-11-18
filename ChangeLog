@@ -5,13 +5,17 @@
 ### User Features
 - Fast boot: a plain Next start runs its first 15 seconds at full speed with the sound off; any key ends it (`--fast-boot`, Preferences)
 - Browser: the SD card is kept compressed, about 1.1 MB of the visitor's storage instead of 40 MiB
+- `--sdcard-file-add` works with `--sdcard-writes`: files go into the writes file and the card image stays untouched
 
 ### Developer Features
 - Disassembly: the PC line shows whether a conditional jump, call or return is taken, and the value at its memory operand
 - Debugger CPU panel shows the T-states since the last stop, with an Accumulate option
 
+### Bug Fixes
+- Web example pages fit a phone screen instead of being laid out at desktop width and shrunk
+
 ### Contributors in this release
-- @janko-jj
+- @janko-jj, @derekfountain
 
 ## v1.3.5 (2026-11-17)
 
