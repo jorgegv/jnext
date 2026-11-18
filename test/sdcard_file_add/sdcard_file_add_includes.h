@@ -11,9 +11,11 @@
 #include "core/fat32_image.h"
 #include "core/fatfs_diskio.h"
 #include "core/sd_rom_extractor.h"
+#include "peripheral/sd_write_journal.h"
 
 extern "C" {
 #include "third_party/fatfs/ff.h"
+#include "third_party/fatfs/diskio.h"
 }
 
 #include <algorithm>
@@ -24,6 +26,7 @@ extern "C" {
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 #include "../row_id.h"

@@ -30,7 +30,8 @@ its size and modification time) and is refused for another one; delete it, or ad
 `--sdcard-writes-reset`, to start from the image again. It holds only the sectors the
 machine wrote, so it stays small, plus the one file that JNEXT's esxDOS stand-in keeps
 for a NEX loaded directly (see "Running programs"): that file is stored when the
-program closes it and is there at the next run.
+program closes it and is there at the next run. `--sdcard-file-add` works with it too:
+the file you add goes into *FILE* and the image stays untouched.
 
 ## Changing the card while JNEXT runs
 

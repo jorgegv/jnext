@@ -17,7 +17,10 @@ on master too). It writes `PROG` (the command, in capitals, whatever the `-o` na
 [Loading a source map](05-loading-a-source-map.md)).
 
 1. Put `PROG` on the card: `jnext --sdcard-file-add PROG --sdcard-file-dest /DOT/PROG`.
-2. Start JNEXT with the map and **no** `--load`: `jnext --source-map prog.map` (or **Load
+   Add `--sdcard-writes dev.jsdw` to keep the card image pristine: the command then goes
+   into `dev.jsdw` instead.
+2. Start JNEXT with the map and **no** `--load`: `jnext --source-map prog.map` (or add
+   the same `--sdcard-writes dev.jsdw` if you used it above; or **Load
    Source Map...** in the debugger). The map attaches at once and says *Source map not
    verified yet: it is checked when the dot command runs*. The log line is (z88dk 2.4 and
    master alike):
