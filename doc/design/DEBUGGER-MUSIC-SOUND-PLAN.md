@@ -11,7 +11,8 @@ the epic rule: the batch gate on the epic branch's tip and a green CI run on the
 branch (CLAUDE.md, merge protocol steps 1 and 2).
 
 The scope is the owner's. It comes from #224's "UPDATE 2026/11/17: scope (approved by
-jorgegv, 2026-11-17)" block and its Decisions 1-9, and this plan does not reopen it:
+jorgegv, 2026-11-17)" block and its Decisions 1-11 (10 and 11 added 2026-11-18), and this plan
+does not reopen it:
 
 - **Phase 1, see and stop.** (1) A decoded chip view with notes and cents, envelope glyph,
   note and position, and a hex toggle. (2) Routing and "why is it silent": DAC values,
@@ -33,7 +34,9 @@ jorgegv, 2026-11-17)" block and its Decisions 1-9, and this plan does not reopen
   sub-tabs: Chips, DAC & Beeper, Log, Tracker, Scopes. (7) Epic branch, this document first,
   one sub-issue per item. (8) Phase 3 is part of this epic. (9) The `.psg` writer is checked
   against Fuse's recording of the same 128K program; this document decides whether a pinned
-  ZXTune is also provisioned (§7.2: it is not).
+  ZXTune is also provisioned (§7.2: it is not). (10) Phase 1 merges into `main` on its own
+  when it is done; Phases 2 and 3 follow on the epic branch. (11) The `.jds` accessor is
+  `ay[c, r]`, matching `phys[page, offset]`, with no grammar change.
 - **Out of scope** (from the issue): player-variable decoding, FFT, piano roll, VGM and YM
   export, editing registers from the panel, beeper pitch decoding, audio over DZRP, GDB or
   ZRCP, Pi I2S stream analysis, and the SDL frontend (the CLI items 3, 10 and 11 still work in
@@ -50,9 +53,12 @@ suite), A1.2 (the mute fix and the invisibility harness) and A1.3 (`audio_state(
 sub-issue 1, because the decoded chip view is their first consumer and A1.3's own rows already
 use the harness. Each sub-issue updates the user guide, developer guide and man page for what it
 changes (a new flag's man page entry has to land with it, or `make cli-check` fails). The three
-doc tasks A1.13, A2.8 and A3.5 are the closing consolidation pass of their phase, placed in that
-phase's last sub-issue. When sub-issue 5 is merged into the epic branch, Phase 1 is complete and
-the epic branch merges into `main` (owner, 2026-11-18); sub-issues 6-11 then continue on it.
+doc tasks A1.13, A2.8 and A3.5 are the closing consolidation pass of their phase. They are
+**epic-level tasks**, tracked on #224 itself and done on the epic branch before the phase's merge
+into `main`, so that no sub-issue has to wait for the whole phase (§ "Sub-issues and
+parallelization"). When sub-issues 1-5 and A1.13 are merged into the epic branch, Phase 1 is
+complete and the epic branch merges into `main` (decision 10); sub-issues 6-11 then continue on
+it.
 
 ### Phase A1: see and stop
 
@@ -82,6 +88,9 @@ the epic branch merges into `main` (owner, 2026-11-18); sub-issues 6-11 then con
 #### Sub-issue 5: solo and mute per channel (scope item 5)
 
 - [ ] **A1.12** Per-channel mute and solo: the 13-bit host mask in TurboSound and the Mixer, backend verbs, `AUDIO_CHANNEL_MUTE` in the DSL, Solo and Mute controls
+
+#### Epic-level task before the Phase 1 merge into `main`
+
 - [ ] **A1.13** Phase 1 doc pass: user guide Audio page, developer guide 3.4, 3.9 and 3.10.2, scripting quick reference, FEATURES.md, banner recount
 
 ### Phase A2: see over time
@@ -104,6 +113,9 @@ the epic branch merges into `main` (owner, 2026-11-18); sub-issues 6-11 then con
 
 - [ ] **A2.6** Read-only CTC and DMA queries (INS-25)
 - [ ] **A2.7** Sample-stream view in DAC & Beeper: rate, intervals, jitter and gaps per writer, beside the CTC and DMA pacing
+
+#### Epic-level task after sub-issues 6-9
+
 - [ ] **A2.8** Phase 2 doc pass: user guide (tracker, timing, scopes, sample stream), developer guide 3.4 and 3.9, FEATURES.md, banner recount
 
 ### Phase A3: take it elsewhere
@@ -117,7 +129,54 @@ the epic branch merges into `main` (owner, 2026-11-18); sub-issues 6-11 then con
 #### Sub-issue 11: per-source WAV stems (scope item 11)
 
 - [ ] **A3.4** Per-source WAV stems before host gain (AY0-2, DAC, beeper, Pi, mix), `--wav-record-stems DIR`, GUI start/stop
+
+#### Epic-level task before the final merge into `main`
+
 - [ ] **A3.5** Phase 3 doc pass, FEATURES.md, the epic's bench record and the ChangeLog draft
+
+## Sub-issues and parallelization
+
+The 11 sub-issues are the owner's (decision 7, confirmed 2026-11-18). "Depends on" is taken from
+the tasks' Depends lines (§5 to §7), lifted to sub-issues; "Can run in parallel with" is every
+other sub-issue that is neither a direct nor an indirect dependency of it, nor depends on it,
+directly or indirectly. That relation is symmetric by construction (computed from the graph, not
+by hand). The doc passes A1.13, A2.8 and A3.5 are epic-level and depend on every sub-issue of
+their phase.
+
+| Sub-issue | Tasks | Depends on | Can run in parallel with |
+|---|---|---|---|
+| 1. Decoded chip view | A1.1, A1.2, A1.3, A1.4 | none | none |
+| 2. Routing and dropped writes | A1.5, A1.6 | 1 | 5, 8, 11 |
+| 3. Audio write log | A1.7, A1.8 | 1, 2 | 5, 8, 11 |
+| 4. Audio-write breakpoints and DSL | A1.9, A1.10, A1.11 | 3 | 5, 6, 7, 8, 9, 10, 11 |
+| 5. Channel mute and solo | A1.12 | 1 | 2, 3, 4, 6, 7, 8, 9, 10, 11 |
+| 6. Tracker view | A2.1, A2.2 | 3 | 4, 5, 8, 9, 11 |
+| 7. Player timing | A2.3 | 6 | 4, 5, 8, 9, 10, 11 |
+| 8. Oscilloscopes and meters | A2.4, A2.5 | 1 | 2, 3, 4, 5, 6, 7, 9, 10 |
+| 9. DAC sample-stream view | A2.6, A2.7 | 3 | 4, 5, 6, 7, 8, 10, 11 |
+| 10. `.psg` export | A3.1, A3.2, A3.3 | 6 | 4, 5, 7, 8, 9, 11 |
+| 11. WAV stems | A3.4 | 8 | 2, 3, 4, 5, 6, 7, 9, 10 |
+
+Where the edges come from: 2 needs `audio_state()` (A1.5 on A1.3); 3 needs the drop
+classification its records carry (A1.7 on A1.5); 4 latches at the tap (A1.9 on A1.7); 5 needs
+the audible copy and the Chips sub-tab (A1.12 on A1.2, A1.4); 6 groups log entries (A2.1 on
+A1.7, A2.2 on A1.8); 7 uses the frame grouping (A2.3 on A2.1); 8 reads the hardware aggregate
+and lives in the Audio tab (A2.4 on A1.2, A2.5 on A1.4); 9 reads DAC writes from the log (A2.7
+on A1.7; A2.6 alone has no dependency); 10's writer uses the frame accumulator (A3.1 on A2.1); 11
+uses the source tap (A3.4 on A2.4).
+
+**Merge order is stricter than dependency** (decision 10). Phase 1 (sub-issues 1-5, then
+A1.13) lands on `main` on its own, so sub-issues 6-11 may be *worked on* in parallel with
+sub-issues 2-5 as the table allows, but they **merge into the epic branch only after the Phase 1
+merge into `main`**. Sub-issues that touch the same file also merge one at a time, the second
+rebased on the first: 5 and 8 both edit `src/audio/mixer.{h,cpp}`; 2, 3 and 4 all edit the audio
+handlers in `src/core/emulator.cpp`; every sub-issue with a Qt part edits `audio_panel.cpp`.
+
+**Critical path:** 1 -> 2 -> 3 -> 6 -> 10 (13 tasks: A1.1-A1.4, A1.5-A1.6, A1.7-A1.8,
+A2.1-A2.2, A3.1-A3.3), with 1 -> 2 -> 3 -> 6 -> 7 as long in sub-issues but shorter in tasks.
+For Phase 1 alone it is 1 -> 2 -> 3 -> 4, then A1.13 and the merge into `main`. Sub-issues 5, 8
+and 11 can start as soon as sub-issue 1 has merged into the epic branch, and A2.6 (the first half
+of 9) can start at once.
 
 ---
 
@@ -335,8 +394,8 @@ address, so it is **not** counted (D6).
   which run only when a write is discarded. The AY drops are decided inside `TurboSound` and
   `AyChip`, so `reg_addr()` and `reg_write()` return a small status enum instead of `void`
   (A1.5), and the handler adds one compare per AY port write (`if (st != Applied)`), never per
-  instruction. The decision logic stays where it is, with no copy in `emulator.cpp` that could
-  drift. The counters are always on: the user gets the answer even if they open the panel after
+  instruction. The decision logic stays where it is, plus one test on the ignored-write branch
+  of `reg_addr()`, with no copy in `emulator.cpp` that could drift. The counters are always on: the user gets the answer even if they open the panel after
   the problem happened. They are plain counters held by `Emulator`, outside `describe_state()`.
 - **Mixer.** `accumulate_impl_()` gains `if (source_tap_)` with a null pointer by default:
   one well-predicted branch per instruction slice, the same cost class as the existing
@@ -780,7 +839,9 @@ placeholder that points at unfinished work except the Tracker and Scopes sub-tab
   ChipSelectTurboOff, SelectIgnored}` and `TurboSound::reg_write()` returns `AyWriteStatus
   {Applied, HeldInReset, AddressHigh}` (from `AyChip::write_data()`'s `addr_ & 0x10` test), and
   the Emulator handler maps a non-`Applied` status to a reason. That is one compare per AY port
-  write, and no copy of TurboSound's logic exists in `emulator.cpp` to drift from it (§4.1). A
+  write, and no copy of TurboSound's logic exists in `emulator.cpp` to drift from it (§4.1).
+  The one new test is inside `TurboSound::reg_addr()`, on its already-ignored branch: it tells
+  `ChipSelectTurboOff` from `SelectIgnored` by the command pattern. A
   dropped write also goes to the tap (A1.7) with `AudioFlag::Dropped` when the tap is active.
   `clear_audio_drops()` zeroes the counters, which are excluded from `describe_state()` and
   untouched by reset.
@@ -980,7 +1041,10 @@ placeholder that points at unfinished work except the Tracker and Scopes sub-tab
   `mixer.cpp:149-162`). The DAC channel test shares the existing per-slice branch: the Mixer
   folds both masks into the one byte `mix()` already tests (`mute_mask_ != AudioMute::NONE`,
   `mixer.cpp:143`, gaining a bit that means "a DAC channel is muted"), so an unmuted run still
-  pays exactly one branch. The mask is not machine state: not reset, not serialised. The
+  pays exactly one branch. Today `set_mute_mask()` overwrites the whole byte, so each of the two
+  setters (`set_mute_mask()` and the new `set_dac_channel_mute()`) must keep the other's bits,
+  and `mute_mask()` must strip the internal bit so that it still returns only `AudioMute`
+  bits. The mask is not machine state: not reset, not serialised. The
   backend verbs are as in §4.4, with a MUTATE log line. In the DSL, `AUDIO_CHANNEL_MUTE` is a
   live name, readable and assignable (`set AUDIO_CHANNEL_MUTE = 0x1FE`), mirroring `AUDIO_MUTE`
   (`names.cpp` `LIVE[]`, `script_engine.cpp:794-796`). GUI: a Mute and a Solo button per channel row
@@ -1002,7 +1066,10 @@ placeholder that points at unfinished work except the Tracker and Scopes sub-tab
   list grows by that name. `DAP-` rows: Solo on B of AY1 sets the mask to
   `ALL & ~ay_bit(1,1)`, and un-solo restores the earlier mask.
 - **Mutations.** Map a bit to the wrong channel: its ACM row dies. Mute the DAC channel to 0
-  instead of 0x80: the midpoint row dies. Serialise the mask: AIZ-09 dies.
+  instead of 0x80: the midpoint row dies. Serialise the mask: AIZ-09 dies. Let either setter
+  overwrite the shared byte: an `ACM-` row that sets a source mute and then a channel mute
+  (and the reverse order) dies. Return the internal bit from `mute_mask()`: an `ACM-` row
+  comparing `mute_mask()` with the `AudioMute` value set dies.
 - **Acceptance.** All 13 channels can be muted and soloed from the panel and from `.jds`, the
   serialised state never changes, and an unmuted run executes the same mixer branches as today
   (A1.7's bench method, run again here).
@@ -1312,8 +1379,8 @@ row instead.
 - **Files.** `src/core/cli_options.h`, `src/main.cpp`, loop owners, `audio_panel.cpp`,
   `doc/man/jnext.1.md`.
 - **Tests.** Regression row `psg-record-func`: `--headless --machine 128k --inject
-  psg_fixture.bin --inject-org 8000 --inject-pc 8000` (the injection `audio-envelope-func`
-  already uses) with `--psg-record`, then the file is compared to `psg_fixture.fuse.psg` after
+  psg_fixture.bin --inject-org 8000 --inject-pc 8000 --inject-delay 100` (the injection and
+  boot delay `audio-envelope-func.sh:63-64` already uses on the 128K boot) with `--psg-record`, then the file is compared to `psg_fixture.fuse.psg` after
   the same normalisation (the path through `main.cpp` that unit rows cannot reach), and no
   `-ay1` file exists. `DAP-` row for the GUI start/stop. `make cli-check`.
 - **Acceptance.** `psg-record-func`, `make cli-check` and `make docs-check` green;
@@ -1455,8 +1522,8 @@ No owner question is open. The owner answered both of the first draft's question
 | D17 | Per-channel solo and mute act on an audible copy in TurboSound and the Mixer | it keeps ACB, mono and pan exact and leaves the serialised hardware outputs alone (F1) | muting in the panel by rewriting AY volumes (machine state) |
 | D18 | Player timing lives in the Tracker sub-tab and the sample-stream view in DAC & Beeper | decision 6 names five sub-tabs; both are views of data those sub-tabs already show | two extra sub-tabs |
 | D19 | F1's fix adds a new serialised hardware aggregate under the existing `pcm_l`/`pcm_r` keys and keeps `pcm_left()`/`chip_pcm()` as the audible output | the snapshot format is unchanged, the Mixer is untouched, and `DAP-08..15` and `AYC-16` keep passing without edits | repurpose `pcm_left()` as the hardware value (rewrites the existing mute rows and the Mixer's read) |
-| D20 | AY drops are reported by `TurboSound::reg_addr()`/`reg_write()` returning a status, mapped to a reason in the Emulator handler | the decision stays in the one place that makes it, so it cannot drift; one compare per AY write | re-testing `reset_held()`, the address bit and the select pattern in `emulator.cpp` before each write (a copy of TurboSound's logic) |
-| D21 | 26 tasks grouped into 11 sub-issues, one per scope item; A1.1-A1.3 go to sub-issue 1 and each phase's doc pass to its last sub-issue | decision 7 (one sub-issue per item) with a work breakdown fine enough to review; A1.1-A1.3 are first consumed by the decoded view | one sub-issue per task (26, against decision 7); a separate groundwork sub-issue (a twelfth issue no scope item names) |
+| D20 | AY drops are reported by `TurboSound::reg_addr()`/`reg_write()` returning a status, mapped to a reason in the Emulator handler | the decision stays in the one place that makes it, plus one test on the ignored-write branch (to tell a select command with TurboSound off from any other ignored value), so it cannot drift; one compare per AY write | re-testing `reset_held()`, the address bit and the select pattern in `emulator.cpp` before each write (a copy of TurboSound's logic) |
+| D21 | 23 tasks grouped into 11 sub-issues, one per scope item, and the three phase doc passes kept as epic-level tasks on #224; A1.1-A1.3 go to sub-issue 1 | decision 7 (one sub-issue per item) with a work breakdown fine enough to review; A1.1-A1.3 are first consumed by the decoded view; a doc pass inside a sub-issue would make that sub-issue depend on its whole phase and serialise it | one sub-issue per task (26, against decision 7); a separate groundwork sub-issue (a twelfth issue no scope item names); the doc passes inside each phase's last sub-issue (round 2 of this plan) |
 
 ---
 
