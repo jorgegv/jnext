@@ -3235,14 +3235,18 @@ when `scanlines` was also asked), with the plain picture otherwise.
 
 ### JavaScript options
 
-`card` *{source}*  
+`card` *{source, dirs}*  
 Not a jnext setting: how the page gets NextZXOS’s SD card. `source` is
 `'auto'` (the default: fetch the official file from specnext.com when it
 allows the page to read it, otherwise ask the visitor to download it and
 choose it), `'fetch'` (only fetch; a failure is an error) or `'pick'`
 (always ask the visitor). The SD card reaches the emulator as
 **--sdcard** and **--sdcard-sha256**, set by the page layer; the page
-never names the card.
+never names the card. `dirs` is an array of absolute paths in the
+distribution (`['/GAMES', '/APPS']`): the card then also holds each path
+with everything below it and the directories above it, case does not
+matter, and a malformed path, a path of the boot set, a duplicate or a
+nested one is refused. The default is none: the boot card only.
 
 `poster` *URL*  
 Not a jnext setting: a picture, a screenshot of the program, shown in

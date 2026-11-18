@@ -4191,6 +4191,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#carddirs-more-of-nextzxos-on-the-card" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        card.dirs: more of NextZXOS on the card
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#the-stored-saves-in-detail" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4487,7 +4498,9 @@ browser the page needs that card too, and this is how it gets it.</p>
 <p>The card is a small boot card (40 MiB) with only what NextZXOS needs to reach its menu
 and to warm-start a program, not the 1 GB distribution image. The browser build is made
 and tested for that card.</p>
-<p>The page author does nothing for any of this: the player's default does it all.</p>
+<p>The page author does nothing for any of this: the player's default does it all. A page
+that wants more of NextZXOS on the card, such as its <code>/GAMES</code> and <code>/APPS</code> directories, can
+ask for it with <code>card.dirs</code> (<a href="#carddirs-more-of-nextzxos-on-the-card">below</a>).</p>
 <h2 id="the-first-visit-two-ways">The first visit, two ways<a class="headerlink" href="#the-first-visit-two-ways" title="Permanent link">&para;</a></h2>
 <p>The first visit to a site starts when the visitor clicks the player (nothing is
 downloaded or built before the click). It then goes one of two ways.</p>
@@ -4542,7 +4555,7 @@ downloaded or built before the click). It then goes one of two ways.</p>
 <tbody>
 <tr>
 <td>the SD card</td>
-<td>Cache Storage: one entry of about 1.1 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it)</td>
+<td>Cache Storage: one entry of about 1.1 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it). A card with more of NextZXOS on it (<code>card.dirs</code>) is a further entry, much larger (about FIFTEEN_MB MB for <code>/GAMES</code> and <code>/APPS</code>)</td>
 </tr>
 <tr>
 <td>the warm-start recording</td>
@@ -4593,8 +4606,20 @@ it is refused on the player's panel only (no <code>onError</code>), because the 
 <td>A <code>mount()</code> option is misspelt or of the wrong type. Nothing has been downloaded yet.</td>
 </tr>
 <tr>
-<td><code>option 'card' must be an object {source}</code>, <code>option 'card': unknown key '&lt;key&gt;'</code> or <code>option 'card': source must be 'auto', 'fetch' or 'pick'</code></td>
+<td><code>option 'card' must be an object {source, dirs}</code>, <code>option 'card': unknown key '&lt;key&gt;'</code> or <code>option 'card': source must be 'auto', 'fetch' or 'pick'</code></td>
 <td>The <code>card</code> option is not what <a href="02-options-and-the-player.html">8.2</a> and this page describe.</td>
+</tr>
+<tr>
+<td><code>option 'card': dirs must be an array of strings</code> or <code>option 'card': dirs: '&lt;path&gt;' ...</code></td>
+<td><code>card.dirs</code> is not a list of absolute paths, or the named path is refused (no leading <code>/</code>, <code>/</code> alone, an empty, <code>.</code> or <code>..</code> part, a backslash, a part of the boot card, a path given twice, or one inside another). Nothing has been downloaded yet.</td>
+</tr>
+<tr>
+<td><code>the requested path &lt;path&gt; is not in the distribution</code></td>
+<td><code>card.dirs</code> names a path NextZXOS does not have (the message gives it in lower case). Correct the list: it is the page's, not the visitor's file.</td>
+</tr>
+<tr>
+<td><code>the boot set and the requested paths are larger than the card: &lt;N&gt; bytes, the limit is 33554432 (32 MiB)</code></td>
+<td><code>card.dirs</code> asks for more than the 40 MiB card takes. The message gives what was asked for and the limit. Ask for less.</td>
 </tr>
 <tr>
 <td><code>this file is not sn-emulator-26.11.zip from specnext.com ...</code></td>
@@ -4708,6 +4733,32 @@ how the first visit goes with the <code>card</code> option (<code>data-card-sour
 <li>The download's progress is measured against the <code>Content-Length</code> specnext.com sends when
   it does not compress the file, and otherwise against the known size of the official file,
   so it is reported either way.</li>
+</ul>
+<h3 id="carddirs-more-of-nextzxos-on-the-card"><code>card.dirs</code>: more of NextZXOS on the card<a class="headerlink" href="#carddirs-more-of-nextzxos-on-the-card" title="Permanent link">&para;</a></h3>
+<p>The boot card has only what NextZXOS needs to start. A page whose visitors want more of
+what the distribution holds, its games or its programs, can ask for those directories
+(<code>data-card-dirs</code> on the widget, <a href="05-two-ways-to-embed.html">8.5</a>):</p>
+<pre><code class="language-js">jnext.mount(el, { card: { dirs: ['/GAMES', '/APPS'] } });
+</code></pre>
+<ul>
+<li>Each entry is an absolute path in the distribution, from its root. The whole directory is
+  copied with everything below it, and the directories above it are made too, with the names,
+  dates and attributes they have in the distribution. A path such as <code>/GAMES/Next/Nextoid</code>
+  copies that one directory and makes <code>/GAMES</code> and <code>/GAMES/Next</code> empty of anything else.</li>
+<li>Capital letters do not matter, and neither do a trailing <code>/</code> or the order of the list.</li>
+<li>The default is no list: the boot card only.</li>
+<li>The boot card's own directories are always there and are refused in the list, as is <code>/</code>
+  alone (the whole distribution does not fit).</li>
+<li>The card is 40 MiB whatever the list. What the list asks for has to fit in 32 MiB together
+  with the boot card. In this release <code>/GAMES</code> is 23.2 MB, <code>/APPS</code> 3.7 MB and <code>/DEMOS</code> 2.1 MB
+  as files, so <code>/GAMES</code> and <code>/APPS</code> fit together and adding <code>/DEMOS</code> does not. The count is
+  of the files plus the distribution's directories.</li>
+<li>Every list makes its own card. It is made the first time, kept as a further entry in the
+  browser (about FIFTEEN_MB MB for <code>/GAMES</code> and <code>/APPS</code>), and used by later visits without
+  a download. It has its own warm-start recording and its own saves.</li>
+<li>The browser builds it using about 35 MB of memory for <code>/GAMES</code> and <code>/APPS</code>.</li>
+<li>A page that changes its list leaves the card of the old list in the visitor's browser
+  until the next JNEXT release.</li>
 </ul>
 <h3 id="the-stored-saves-in-detail">The stored saves in detail<a class="headerlink" href="#the-stored-saves-in-detail" title="Permanent link">&para;</a></h3>
 <ul>

@@ -246,7 +246,7 @@ flow, and the builder (`src/core/minimal_card.cpp`, the same code as the native
   in v2 moves a good v1 entry over (one SHA-256, then `packed()`), and the v1 cache is
   deleted on that visit whatever it held. On a hit, the entries of that host that belong to
   OTHER releases are removed (those whose key is neither `<host><card sha256>` nor under it).
-  A page with `card.dirs` ([8.4](../../user-guide/08-web-page/04-the-image-and-what-the-browser-keeps.md))
+  A page with `card.dirs` (user guide 8.4)
   gets a card with no pinned digest, kept under
   `<host><card sha256>/r<recipe>/<the canonical list as JSON, URI-encoded>`: the release's identity,
   the builder recipe (a change that alters only list cards bumps it), and the list. Its
