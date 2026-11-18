@@ -4137,12 +4137,14 @@ static void test_bp_script() {
             oi.name = "other";
             oi.kind = jnext::dbg::ClientKind::Test;
             const jnext::dbg::ClientId other = a.fx.backend->attach(oi).value;
+            a.fx.backend->pump(jnext::dbg::PumpBudget{});   // settle the attach: the first pump only primes
             jnext::dbg::Subscription sub;
             sub.kind = jnext::dbg::EventKind::Execute;
             sub.filter.lo = sub.filter.hi = 0x8100;
             sub.action = jnext::dbg::Action::Stop;
             a.fx.backend->subscribe(other, sub);
-            m.sync();   // the push the tick would have published
+            a.fx.backend->pump(jnext::dbg::PumpBudget{});   // delivers the push, as a tick's pump does
+            m.sync();
             saved = m.script_specs();
             a.run("Save as Script...", g_tmp->filePath(QStringLiteral("bpj-rt.jds")));
             const std::string text = slurp_file(g_tmp->filePath(QStringLiteral("bpj-rt.jds")).toStdString());
