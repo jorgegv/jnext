@@ -72,7 +72,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6262 | 6262 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6262**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5747**. Rows the 218 suites declared in `test/unit-tests.conf` run live: **16624**.
+Rows the sections above carry: **6262**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5747**. Rows the 217 suites declared in `test/unit-tests.conf` run live: **16612**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -84,7 +84,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 167 suites (10961 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 166 suites (10949 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -99,8 +99,8 @@ These 167 suites (10961 live rows) have no VHDL-derived plan row to map, so they
 | `phantom_typist_test` | 26 | jnext auto-typing state machine (host keystroke injection) |
 | `esp_wiring_test` | 127 | jnext host ESP policy/visibility/wiring, no core counterpart |
 | `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
-| `sdcard_file_add_test` | 150 | FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
-| `sdcard_file_add_posix_test` | 13 | rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
+| `sdcard_file_add_test` | 164 | FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
+| `sdcard_file_add_posix_test` | 15 | rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_file_add_linux_test` | 1 | SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `fat32_image_test` | 17 | FAT32 on-disk format (host image reader) |
 | `sdcard_provisioner_test` | 181 | jnext SD-image download/patch policy (host side) |
@@ -131,12 +131,11 @@ These 167 suites (10961 live rows) have no VHDL-derived plan row to map, so they
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 94 | host mouse-capture policy (window-manager behaviour) |
 | `frame_deadline_test` | 47 | host frame-deadline scheduling (wall-clock) |
-| `fast_boot_test` | 24 | fast boot (GH #499): host pacing of the first seconds of a Next start; no hardware counterpart |
-| `frame_sequencer_test` | 118 | host frame sequencer (wall-clock run/present ordering) |
+| `frame_sequencer_test` | 116 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 182 | host key latch/debounce compensation; guest matrix is `## Input` |
-| `sdl_app_tick_test` | 14 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
+| `sdl_app_tick_test` | 12 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
 | `browser_policy_test` | 29 | browser page rAF callback gate and refusals (host UI, GH #463) |
 | `web_api_test` | 26 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |

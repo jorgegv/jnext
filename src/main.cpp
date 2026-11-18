@@ -1752,18 +1752,13 @@ int main(int argc, char* argv[]) {
     // says "and then run this" contradicts it, and --sdcard-readonly says
     // "never write the image" to a mode whose whole job is writing it. Both
     // used to be the #138 failure shape: accepted, and one of them silently
-    // ignored.
+    // ignored. --sdcard-writes is NOT refused: the copy then goes into the
+    // writes file and the image is left alone (GH #507).
     if (sdcard_file_add_count > 0) {
         if (sdcard_readonly) {
             fprintf(stderr,
                     "--sdcard-file-add cannot be combined with --sdcard-readonly: "
                     "it exists to write the image.\n");
-            return 1;
-        }
-        if (!sdcard_writes_file.empty()) {
-            fprintf(stderr,
-                    "--sdcard-file-add cannot be combined with --sdcard-writes: "
-                    "it writes the image itself.\n");
             return 1;
         }
         // The closed set is "the program to run": --load, the bare file name
@@ -2092,7 +2087,9 @@ int main(int argc, char* argv[]) {
         // symlink to it, or a case-different spelling all name the default
         // image, and a warning a relative path defeats is one that goes
         // missing exactly when it matters.
-        if (sdcard::same_image_file(sd_card_image,
+        // Not given when the copy goes into a writes file: the image is not written.
+        if (sdcard_writes_file.empty() &&
+            sdcard::same_image_file(sd_card_image,
                                     sdcard::default_sdcard_image_path())) {
             std::fprintf(stderr,
                 "warning: writing into the DEFAULT SD-card image\n"
@@ -2113,18 +2110,23 @@ int main(int argc, char* argv[]) {
             std::fprintf(stderr, "error: --sdcard-file-add: %s\n", add_err.c_str());
             return static_cast<int>(st);
         }
+        // In journal mode the copy is in the writes file, not the image.
+        const std::string kept = sdcard_writes_file.empty()
+            ? std::string()
+            : ", kept in " + sdcard_writes_file + " (the image is not written)";
         if (summary.is_dir) {
             std::fprintf(stdout,
                          "Copied directory '%s' to '%s' in %s (%u file(s), "
-                         "%u new director%s)\n",
+                         "%u new director%s)%s\n",
                          sdcard_file_add.c_str(), summary.dest.c_str(),
                          sd_card_image.c_str(), summary.files,
                          summary.dirs_created,
-                         summary.dirs_created == 1 ? "y" : "ies");
+                         summary.dirs_created == 1 ? "y" : "ies",
+                         kept.c_str());
         } else {
-            std::fprintf(stdout, "Copied '%s' to '%s' in %s\n",
+            std::fprintf(stdout, "Copied '%s' to '%s' in %s%s\n",
                          sdcard_file_add.c_str(), summary.dest.c_str(),
-                         sd_card_image.c_str());
+                         sd_card_image.c_str(), kept.c_str());
         }
         return 0;
     }

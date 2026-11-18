@@ -1,4 +1,4 @@
-// Browser row WEBPKG-BR-01: the SHIPPED zip boots (make wasm-browser-test, spec package.mjs).
+// Browser rows WEBPKG-BR-01..07: the SHIPPED zip boots (01) and its example pages declare the device viewport (02..05), and plain.html and itch-host.html fit a phone-wide page (06, 07) (make wasm-browser-test, spec package.mjs).
 // Run by browser-smoke.sh on the SDK's node, after it extracted jnext-<ver>-web.zip (made by
 // `make package-web`) with a foreign reader (python3 -m zipfile) into SMOKE_PKG/jnext-<ver>-web.
 //
@@ -70,6 +70,61 @@ row('WEBPKG-BR-01', 'the extracted zip alone boots plain.html: click to start, r
   must(wasm.type === 'application/wasm', 'wasm type ' + wasm.type);
   must(msgs.length === 0, msgs.join('; '));
   must(st === 'running', 'state ' + st);
+});
+
+// The shipped example pages declare a device-width viewport: without it a phone lays them out at 980
+// px and scales them down, which also shrinks the on-screen keyboard to nothing. Oracle: the HTML
+// Living Standard / CSSOM View meaning of `width=device-width` under mobile emulation: the layout
+// viewport's width (documentElement.clientWidth) equals the device width.
+const DEVICE_WIDTH = 390;
+async function mobileLayoutWidth(pageName) {
+  const ctx = await h.browser.newContext({ viewport: { width: DEVICE_WIDTH, height: 780 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  await page.goto(`${AURL}/${pageName}`, { waitUntil: 'domcontentloaded' });
+  const w = await page.evaluate(() => document.documentElement.clientWidth);
+  await ctx.close();
+  return w;
+}
+row('WEBPKG-BR-02', 'plain.html of the extracted zip lays out at the device width on a phone (viewport meta)', async () => {
+  const w = await mobileLayoutWidth('plain.html'); must(w === DEVICE_WIDTH, 'layout width ' + w);
+});
+row('WEBPKG-BR-03', 'widget.html of the extracted zip lays out at the device width on a phone (viewport meta)', async () => {
+  const w = await mobileLayoutWidth('widget.html'); must(w === DEVICE_WIDTH, 'layout width ' + w);
+});
+row('WEBPKG-BR-04', 'itch-game.html of the extracted zip lays out at the device width on a phone (viewport meta)', async () => {
+  const w = await mobileLayoutWidth('itch-game.html'); must(w === DEVICE_WIDTH, 'layout width ' + w);
+});
+row('WEBPKG-BR-05', 'itch-host.html of the extracted zip lays out at the device width on a phone (viewport meta)', async () => {
+  const w = await mobileLayoutWidth('itch-host.html'); must(w === DEVICE_WIDTH, 'layout width ' + w);
+});
+
+// The fixed 640 px player boxes of plain.html and itch-host.html must fit a portrait phone: no
+// horizontal overflow of the page, and the player fully inside the layout viewport. Oracle: CSSOM
+// View, documentElement.scrollWidth === clientWidth means nothing overflows horizontally.
+async function mobileFit(pageName, selector) {
+  const ctx = await h.browser.newContext({ viewport: { width: DEVICE_WIDTH, height: 780 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  await page.goto(`${AURL}/${pageName}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector(selector);
+  await page.waitForTimeout(500);
+  const r = await page.evaluate((sel) => {
+    const e = document.querySelector(sel).getBoundingClientRect();
+    const d = document.documentElement;
+    return { sw: d.scrollWidth, cw: d.clientWidth, left: e.left, right: e.right, w: e.width, h: e.height };
+  }, selector);
+  await ctx.close();
+  return r;
+}
+function mustFit(r) {
+  must(r.sw === r.cw, `scrollWidth ${r.sw} != clientWidth ${r.cw}`);
+  must(r.left >= 0 && r.right <= r.cw, `player spans ${r.left}..${r.right} in a ${r.cw} px viewport`);
+  must(Math.abs(r.w / r.h - 1.25) < 0.02, `player shape ${r.w}x${r.h} is not 5:4`);
+}
+row('WEBPKG-BR-06', 'plain.html of the extracted zip fits its player in a phone-wide page: no horizontal overflow', async () => {
+  mustFit(await mobileFit('plain.html', '#player'));
+});
+row('WEBPKG-BR-07', 'itch-host.html of the extracted zip fits its game frame in a phone-wide page: no horizontal overflow', async () => {
+  mustFit(await mobileFit('itch-host.html', '#game'));
 });
 
 let pass = 0, fail = 0;

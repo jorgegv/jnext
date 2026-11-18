@@ -212,8 +212,9 @@ keeps for a directly loaded NEX (see \f[B]esxDOS calls from a directly
 loaded NEX\f[R]), stored when the program closes it and handed back to
 the stand\-in at the next start, whatever the program: it belongs to the
 card, not to the NEX that wrote it.
-Excludes \f[B]\-\-sdcard\-readonly\f[R] and
-\f[B]\-\-sdcard\-file\-add\f[R].
+Excludes \f[B]\-\-sdcard\-readonly\f[R]; with
+\f[B]\-\-sdcard\-file\-add\f[R] the copy goes into \f[I]FILE\f[R] and
+the image is not written.
 A recording of the warm start is keyed on the image and on
 \f[I]FILE\f[R]\(cqs sectors, so it is taken again after the machine has
 written one; the stand\-in\(cqs file is not card state and does not
@@ -241,6 +242,8 @@ The image written is the one \f[B]\-\-sdcard\f[R] names, or the
 default\-location image when \f[B]\-\-sdcard\f[R] is omitted \(em in
 which case a loud warning says so, because that image is shared with
 every other run.
+With \f[B]\-\-sdcard\-writes\f[R] the copy goes into that file instead
+and the image is not written.
 See \f[B]PUTTING A FILE ON THE CARD\f[R].
 .TP
 \f[B]\-\-sdcard\-file\-dest\f[R] \f[I]PATH\f[R]
@@ -2012,6 +2015,35 @@ jnext warns loudly when that happens.
 It does not make a backup: these are gigabyte files, and
 \f[CR]cp \-\-reflink=auto\f[R] is instant on a copy\-on\-write
 filesystem.
+.PP
+With \f[B]\-\-sdcard\-writes\f[R] \f[I]FILE\f[R] the copy goes into
+\f[I]FILE\f[R] instead, and the image is opened read\-only and never
+written, so a card shared by other runs stays as it is and no warning
+about the default image is given.
+The next run that is given the same image and \f[I]FILE\f[R] boots a
+card that has the file:
+.IP
+.EX
+jnext \-\-sdcard\-file\-add DOTEST \-\-sdcard\-file\-dest /DOT/DOTEST \-\-sdcard\-writes dev.jsdw
+jnext \-\-sdcard\-writes dev.jsdw
+.EE
+.PP
+The rules are those of a copy into the image.
+A second add of the same destination is refused (exit 4) and
+\f[I]FILE\f[R] is left alone; with \f[B]\-\-sdcard\-file\-force\f[R] it
+is replaced, and replacing a file by one of the same size does not make
+\f[I]FILE\f[R] grow.
+\f[B]\-\-sdcard\-writes\-reset\f[R] starts again from the image.
+Adds accumulate in \f[I]FILE\f[R], together with anything a run of the
+machine wrote and the file the esxDOS stand\-in keeps.
+\f[I]FILE\f[R] holds a copy of everything added, so for a big tree a
+private copy of the image is the better tool.
+A \f[I]FILE\f[R] that holds a rewritten partition table or boot sector
+of the card is refused (exit 5) before anything is written, because the
+card the machine sees is then not the one the copy would be laid out
+for; \f[B]\-\-sdcard\-writes\-reset\f[R] starts again.
+The warm\-start recording is taken again by the next \f[B]\-\-load\f[R],
+as after any write to the card.
 .PP
 The image must be a spec\-valid FAT32 (at least 65525 clusters) \(em the
 same thing the Next\(cqs own firmware requires.
@@ -4427,7 +4459,9 @@ Nothing was written.
 5
 The SD image is missing, is not an MBR\-partitioned FAT32 image, holds a
 filesystem this build will not mount (an under\-clustered one), or could
-not be written.
+not be written, or, with \f[B]\-\-sdcard\-writes\f[R], the writes file
+could not be written or holds a rewritten partition table or boot
+sector.
 .TP
 6
 The card has no room \(em not enough free space, or a directory with no

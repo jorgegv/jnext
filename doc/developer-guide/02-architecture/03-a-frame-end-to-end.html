@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.6</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.11</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.6</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.11</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3092,7 +3092,7 @@ edge of real time:</p>
   in <code>src/platform/fast_boot.h</code>) in which a plain Next start runs uncapped with
   the sound card unfed. The window counts frames in <code>end_of_frame()</code>, survives
   the firmware's own soft reset, and closes on time up, the first guest key, a
-  debugger stop (a frame resumed after one), <code>init()</code> without <code>preserve_memory</code>
+  debugger stop (any pause that is then resumed, between frames or inside one), <code>init()</code> without <code>preserve_memory</code>
   and <code>load_state()</code>. It is host pacing only: not serialised, and it changes
   no emulated state (<code>fast_boot_test</code>).</li>
 <li><strong>The audio band's estimate stays within one device chunk of the reading</strong>
@@ -3188,7 +3188,7 @@ A <code>.tzx</code> or <code>.wav</code> save also samples the tape-out level
 (<code>Emulator::tape_out_level()</code>) at port 0xFE writes, while a tape plays, and at the
 end of the frame; see
 <a href="../03-subsystems/08-media-and-loaders.html">3.8</a>.</p>
-<p><strong>Then <code>step_one_instruction()</code></strong> (<code>src/core/emulator.cpp:11209</code>), the one shared per-instruction
+<p><strong>Then <code>step_one_instruction()</code></strong> (<code>src/core/emulator.cpp:11211</code>), the one shared per-instruction
 body. It picks exactly one of four things to do:</p>
 <ul>
 <li>If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -3269,7 +3269,7 @@ single-step once kept its own copy of this cluster, silently lost the IM2 tick
 and both /INT polls, and so delivered no interrupts at all while you were
 stepping.</p>
 <p><strong>Then a data-breakpoint check</strong>, which returns early if one fired.</p>
-<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:11910</code>), the
+<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:11912</code>), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -3310,7 +3310,7 @@ the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
 edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:14165</code>) renders nothing at all. What it does is
+<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:14167</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

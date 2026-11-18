@@ -83,6 +83,12 @@ nothing ([8.4](04-the-image-and-what-the-browser-keeps.md)).
 | `itch-game.html` | The page of an itch.io upload ([8.3](03-itch-and-limits.md)) |
 | `itch-host.html` | A page that embeds `itch-game.html` in an `iframe`, as itch.io does |
 
+All four declare a device-width viewport, so a phone lays them out at its own width instead of
+980 px. `plain.html`, `itch-host.html` and `itch-game.html` also fit the player to a phone's
+width. The widget keeps the size it is given (640 x 512 unless you set `data-width` and
+`data-height`, [8.5](05-two-ways-to-embed.md)), so on a phone set them to fit. A page of
+your own needs the same `<meta name="viewport">` tag ([8.2](02-options-and-the-player.md#phones-and-tablets)).
+
 ## Advanced configuration
 
 **Query string of the examples**

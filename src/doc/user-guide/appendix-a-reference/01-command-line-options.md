@@ -184,12 +184,13 @@ with status 1.
     directly loaded NEX**), stored when the program closes it and handed
     back to the stand-in at the next start, whatever the program: it
     belongs to the card, not to the NEX that wrote it. Excludes
-    **--sdcard-readonly** and **--sdcard-file-add**. A recording of the
-    warm start is keyed on the image and on *FILE*’s sectors, so it is
-    taken again after the machine has written one; the stand-in’s file
-    is not card state and does not change it. Files read from the image
-    by the host (the ROMs, a snapshot’s card identity) do not see the
-    writes. See [Why JNEXT needs an SD-card
+    **--sdcard-readonly**; with **--sdcard-file-add** the copy goes into
+    *FILE* and the image is not written. A recording of the warm start
+    is keyed on the image and on *FILE*’s sectors, so it is taken again
+    after the machine has written one; the stand-in’s file is not card
+    state and does not change it. Files read from the image by the host
+    (the ROMs, a snapshot’s card identity) do not see the writes. See
+    [Why JNEXT needs an SD-card
     image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md).
 
 **--sdcard-writes-reset**
@@ -205,8 +206,9 @@ with status 1.
     under its own name. Give it once per run. The image written is the
     one **--sdcard** names, or the default-location image when
     **--sdcard** is omitted — in which case a loud warning says so,
-    because that image is shared with every other run. See **PUTTING A
-    FILE ON THE CARD**.
+    because that image is shared with every other run. With
+    **--sdcard-writes** the copy goes into that file instead and the
+    image is not written. See **PUTTING A FILE ON THE CARD**.
 
 **--sdcard-file-dest** *PATH*
 :   Optional. The path on the card that **--sdcard-file-add**’s *FILE*
