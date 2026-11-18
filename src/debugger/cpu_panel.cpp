@@ -407,7 +407,7 @@ void CpuPanel::show_value_menu(int field, const QPoint& global_pos) {
         mem->setEnabled(live);
         menu.addSeparator();
     }
-    QAction* edit = menu.addAction(tr("Edit Value\u2026"));
+    QAction* edit = menu.addAction(tr("Edit Value..."));
     edit->setEnabled(live);
     QAction* chosen = nullptr;
     for (QAction* a : {dis, mem, src, edit})

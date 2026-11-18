@@ -2302,7 +2302,7 @@ static void click_flag_label(QLabel* l) {
     label_mouse(l, QEvent::MouseButtonRelease);
 }
 
-/// Right-click `w`; was its "Edit Value…" entry present and enabled? (Closed unpicked.)
+/// Right-click `w`; was its "Edit Value..." entry present and enabled? (Closed unpicked.)
 static int edit_entry_state(QWidget* w) {   // -1 absent, 0 disabled, 1 enabled
     int state = -1;
     bool seen = false;
@@ -2312,7 +2312,7 @@ static int edit_entry_state(QWidget* w) {   // -1 absent, 0 disabled, 1 enabled
         if (!menu || seen) return;
         seen = true;
         for (QAction* a : menu->actions())
-            if (visible(a->text()) == QString::fromUtf8("Edit Value…")) state = a->isEnabled() ? 1 : 0;
+            if (visible(a->text()) == QString::fromLatin1("Edit Value...")) state = a->isEnabled() ? 1 : 0;
         menu->close();
     });
     timer.start(1);
@@ -2394,7 +2394,7 @@ static void test_cpu_edit() {
             const QString shown = text_of(bc);
 
             PopupAnswer ans;
-            ans.wanted = QString::fromUtf8("Edit Value…");
+            ans.wanted = QString::fromLatin1("Edit Value...");
             context_menu_and_pick(bc, QPoint(2, 2), ans);
             const bool via_menu = ans.found && editor_open(*f.panel) &&
                                   cpu_editor(*f.panel)->text() == "1234";
@@ -5252,7 +5252,7 @@ static void test_cpu_shortcuts() {
             std::vector<uint16_t> mem;
             QObject::connect(f.panel.get(), &CpuPanel::show_in_memory_requested, [&](uint16_t a) { mem.push_back(a); });
             QLabel* sp = grid_value(f.panel.get(), "SP: ");
-            const QString edit = QString::fromUtf8("Edit Value…");
+            const QString edit = QString::fromLatin1("Edit Value...");
             const QStringList sp_items = menu_entries(sp, QPoint(2, 2));
             const QStringList af_items = menu_entries(grid_value(f.panel.get(), "AF: "), QPoint(2, 2));
             PopupAnswer ans;
@@ -5277,7 +5277,7 @@ static void test_cpu_shortcuts() {
             QLabel* hl = grid_value(f.panel.get(), "HL: ");
             click_flag_label(hl);
             const QStringList items = menu_entries(hl, QPoint(2, 2));
-            const QString edit = QString::fromUtf8("Edit Value…");
+            const QString edit = QString::fromLatin1("Edit Value...");
             check("QRCLK-03", desc,
                   got.empty() && items == QStringList{"Show in Disassembly|0", "Show in Memory|0", edit + "|0"},
                   s(items.join(",")));
