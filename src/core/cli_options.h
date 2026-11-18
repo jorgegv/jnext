@@ -1104,6 +1104,9 @@ inline const char* browser_refusal(OptId id) {
     case OptId::Map: case OptId::Annotations:
     case OptId::ImportSkoolkit: case OptId::ImportGhidra:
         return "not available in the browser build (the script host is not part of it)";
+    case OptId::Sdcard2: case OptId::Sdcard2Readonly:
+    case OptId::Sdcard2Writes: case OptId::Sdcard2WritesReset:
+        return "not available in the browser build (a page has no second SD card)";
     default:
         return nullptr;
     }

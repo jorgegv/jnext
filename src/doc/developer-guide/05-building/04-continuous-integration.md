@@ -112,8 +112,8 @@ dependency set and checks out the repository with submodules; then
   `~/.cache/jnext/tools/emsdk-6.0.13`, which the leg caches under a key carrying
   the version and the pins, so a hit only skips the downloads;
 - **`browser`** runs `make wasm-browser-test`: the browser frontend in the pinned
-  Chromium headless shell (rows BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08 for the image and
-  the warm start, WEBAPI-01 to WEBAPI-29 for the JavaScript API, WIDGET-01 to WIDGET-17 for the widget, WBW-01 to WBW-17 for the kept writes, TKB-01 to TKB-17 for the on-screen keyboard, and WBENCH-01 to WBENCH-12, the arithmetic of the browser bench;
+  Chromium headless shell (rows BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-08 for the image and
+  the warm start, WEBAPI-01 to WEBAPI-31 for the JavaScript API, WEBPKG-BR-01 to WEBPKG-BR-07 for the shipped zip, WIDGET-01 to WIDGET-17 for the widget, BCARD-01 to BCARD-25 for the card flow, WBW-01 to WBW-17 for the kept writes, BSN-01 to BSN-11 for snapshots, BRZ-01 to BRZ-12 for RZX, BCRT-01 to BCRT-13 for the CRT effect, TKB-01 to TKB-17 for the on-screen keyboard, and WBENCH-01 to WBENCH-12, the arithmetic of the browser bench;
   [5.6](06-the-browser-build.md)). Besides the emsdk cache it caches Playwright
   (`~/.cache/jnext/tools/playwright-1.65.0`, keyed by the version and the two pin
   prefixes) and uses the SD-image cache: the run turns the cached distribution
@@ -121,7 +121,7 @@ dependency set and checks out the repository with submodules; then
   and the leg's one artifact step uploads exactly `build/wasm-core/jnext-*-web.zip`,
   which cannot carry it. The run also builds the browser package (`make package-web`
   is a prerequisite of `wasm-browser-test`, so there is no step of its own), and its
-  row WEBPKG-BR-01 boots the extracted zip; the zip is uploaded as `jnext-web-zip`.
+  row WEBPKG-BR-01 boots the extracted zip (02 to 07 check its example pages on a phone-sized screen); the zip is uploaded as `jnext-web-zip`.
   The dnf list carries the shared libraries the headless shell links, and `zip`.
 
 They used to be steps of one job, so the 28-minute build matrix and the

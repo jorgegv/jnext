@@ -3140,7 +3140,8 @@ that says so: **\--nextpi**, **\--nextpi-dir**, **\--nextpi-release**,
 **\--esp-ip-address-after**, **\--record**, **\--dzrp-port**, **\--gdb-port**,
 **\--zrcp-port**, **\--debug-listen-address**, **\--script**, **\--script-key**,
 **\--record-script**, **\--map**, **\--annotations**, **\--import-skoolkit**,
-**\--import-ghidra**, **\--headless** (it would block the tab for ever)
+**\--import-ghidra**, **\--sdcard2**, **\--sdcard2-readonly**, **\--sdcard2-writes**,
+**\--sdcard2-writes-reset**, **\--headless** (it would block the tab for ever)
 and **\--rzx-record** (a page records from JavaScript, see The player). The settings of the refused flags are refused
 when given as set entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
 `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`.

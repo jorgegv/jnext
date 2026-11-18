@@ -651,6 +651,51 @@ static void test_second_sd_card() {
                   again[0], again[1], again[2]));
     }
 
+    // SDSLOT-18: back compatibility. A rewind stream recorded before the second card existed
+    // (it ends after card 0's FSM) still loads: card 0 resumes mid-transfer, card 2 stays
+    // as a power-on empty socket, and the reader consumed the whole shorter stream.
+    {
+        const std::string pa = make_pattern_card(dir, "oa.img");
+        Emulator emu;
+        emu.init(two_card_config(pa, ""));
+        SdCardDevice& sd = emu.sd_card();
+        auto cmd = [&sd](uint8_t c, uint32_t arg) {
+            const uint8_t bytes[6] = {static_cast<uint8_t>(0x40 | c), static_cast<uint8_t>(arg >> 24),
+                                      static_cast<uint8_t>(arg >> 16), static_cast<uint8_t>(arg >> 8),
+                                      static_cast<uint8_t>(arg), 0x95};
+            for (uint8_t b : bytes) (void)sd.receive(b);
+            for (int i = 0; i < 16; ++i) {
+                const uint8_t r = sd.send();
+                if (r != 0xFF) return r;
+            }
+            return uint8_t{0xFF};
+        };
+        cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+        const uint8_t r1 = cmd(17, 2);
+        bool tok = false;
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) { tok = true; break; }
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+        StateWriter one;
+        emu.sd_card2().save_state(one);
+        const size_t card2_block = one.position() + sizeof(uint32_t);   // FSM + sentinel
+        const size_t old_size = buf.size() - card2_block;
+        sd.reset();
+        StateReader r(buf.data(), old_size);
+        const bool loaded = emu.load_state(r);
+        const uint8_t a0 = sd.send(), a1 = sd.send();
+        check("SDSLOT-18",
+              "a rewind stream without the second card's block (as recorded before it existed) "
+              "loads: the whole shorter stream is consumed, card 0 resumes its CMD17 stream "
+              "(bytes 10, 11) and the second socket stays empty",
+              tok && r1 == 0x00 && loaded && !r.out_of_bounds() && r.position() == old_size &&
+                  a0 == 10 && a1 == 11 && !emu.sd_card2().transfer_in_flight(),
+              fmt("loaded=%d pos=%zu/%zu a=%d,%d", loaded, r.position(), old_size, a0, a1));
+    }
+
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
