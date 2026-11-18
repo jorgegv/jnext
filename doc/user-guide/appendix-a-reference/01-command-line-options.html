@@ -4717,6 +4717,24 @@ elsewhere <strong>jnext</strong> warns and ignores it.</dd>
 Clamped to 10..1000. Works in the GUI and the SDL-only build;
 <strong>--headless</strong> runs uncapped, so there it has no effect, and
 <strong>jnext</strong> warns.</dd>
+<dt><strong>--fast-boot</strong> <em>SECONDS</em></dt>
+<dd>Run the first SECONDS of a plain Next start at maximum speed with
+the sound off, 0 to 60 (default 15, 0 = off). The firmware splash
+and the NextZXOS start-up pass in a few seconds instead of about
+twelve. It ends at once on the first key the guest sees (Shift is a
+good one: it does nothing else), when the time is up (counted as 50
+frames per second), when a debugger stop happens, or when a load or
+machine change resets the machine; the key is delivered as usual.
+Only the Next machine, and never when a program is loaded at start
+(<strong>--load</strong>, <strong>--inject</strong>, <strong>--rzx-play</strong>), when the command line
+schedules work on the emulated timeline (<strong>--delayed-screenshot</strong>,
+<strong>--delayed-automatic-exit</strong>, <strong>--delayed-pok-frames</strong>,
+<strong>--script</strong>) or when a recording runs. It applies to the launch
+only: a later hard reset boots at normal speed. It never changes the
+emulated machine. To reach the firmware menu, press SPACE while the
+splash shows, or set it to 0. <strong>--headless</strong> runs uncapped already,
+so there it has no effect, and <strong>jnext</strong> warns. The same as
+<code>--set startup.fast_boot_seconds</code>.</dd>
 <dt><strong>--when-slow-prefer</strong> <em>WHAT</em></dt>
 <dd>
 <p>What to sacrifice on a host that cannot emulate in real time:
@@ -5693,6 +5711,9 @@ All frontends.</dd>
 <dt><code>startup.tape_auto_play</code> <em>true|false</em></dt>
 <dd>Automatic tape play and stop; <strong>--tape-auto-play</strong> and
 <strong>--no-tape-auto-play</strong>. All frontends.</dd>
+<dt><code>startup.fast_boot_seconds</code> <em>0..60</em></dt>
+<dd>Seconds of a plain Next start run at maximum speed, 0 = off;
+<strong>--fast-boot</strong>. The Qt window and the SDL-only build.</dd>
 <dt><code>startup.when_slow_prefer</code> <em>audio|video</em></dt>
 <dd>What a host too slow for real time sacrifices;
 <strong>--when-slow-prefer</strong>. The Qt window and the SDL-only build.</dd>
