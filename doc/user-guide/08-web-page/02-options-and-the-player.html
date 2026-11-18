@@ -4701,6 +4701,9 @@ keyboard at the bottom of its box. The screen above it shrinks by the keyboard's
 <p><img alt="The on-screen keyboard on a phone, in a 640-pixel player" src="../img/web-touch-keyboard.png" /></p>
 <p>The picture is a 640-pixel player, so it shows the full 58-key layout (see the widths below).</p>
 <ul>
+<li>Your page needs <code>&lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;</code> in its <code>&lt;head&gt;</code>.
+  Without it a phone lays the page out at 980 pixels and scales it down, and the keyboard
+  with it. The four example pages have it.</li>
 <li><code>touchKeyboard: 'auto'</code> (the default) shows it on a phone or tablet.</li>
 <li><code>'on'</code> shows it everywhere, <code>'off'</code> nowhere.</li>
 <li><code>player.showKeyboard(true)</code> or <code>false</code> decides while the page runs.</li>
