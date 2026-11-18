@@ -201,7 +201,7 @@ void test_stackless_nmi()
         SdCardDevice probe;
         StateWriter  m;
         probe.save_state(m);
-        return m.position() + sizeof(uint32_t);
+        return 2 * (m.position() + sizeof(uint32_t));   // two cards since GH #505
     }();
     Emulator old_snapshot_emu;
     fresh_emulator(old_snapshot_emu);
