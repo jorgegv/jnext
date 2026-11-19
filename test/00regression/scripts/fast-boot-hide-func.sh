@@ -18,19 +18,23 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # firmware's soft reset ("[preserve_memory=1 soft-reset]" in the log) every real
 # frame is non-black (uniform grey 0.71, then the welcome screen).
 #
-#   G  Qt, --fast-boot 60 --set startup.fast_boot_hide_screen=true: black one second
-#      after the soft reset; the extra log line; a host Shift ends it ("key press") and
-#      one second later the window is not black.
-#   H  Qt control, the same without the hide: NOT black at the same moment, and no extra
-#      log line. It proves the capture can see a real screen, so G's black is not vacuous.
+#   G  Qt, --fast-boot 60 --set startup.fast_boot_hide_screen=true: every capture taken while
+#      the window is open is black, there is at least one, the extra log line is there, and
+#      the window grabbed 0.7 s after "fast boot: ended" is not black.
+#   H  Qt control, the same without the hide: at least one capture taken while the window is
+#      open is NOT black, and no extra log line. It proves the capture can see a real screen,
+#      so G's black is not vacuous.
 #   I  the SDL-only build, as G.
 #   I2 the SDL-only build, as H.
 #   J  Qt, the SAVED preference (jnext.conf [startup] fast_boot_seconds=2 and
 #      fast_boot_hide_screen=true, no command-line setting): the extra log line, the window
 #      ends by time up, and half a second after the soft reset (at normal speed) it is not black.
 #
-# A capture taken while the log already says "fast boot: ended" is not a hidden-window
-# capture: that is a FAIL of the row, never a pass.
+# Fast boot runs the 3000 frames of --fast-boot 60 in a few seconds on a quiet host, faster
+# than a host key can be sent and a screen read, so G, H, I and I2 grab the window in a loop
+# for as long as the log does not say "fast boot: ended", and a grab only counts if the log
+# still did not say it AFTER the grab. The host key that ends the window is covered by
+# fast-boot-func and the unit rows (FBT-32), not here.
 #
 # No `trap`, every timeout escalates to SIGKILL, xvfb-run -d with -noreset, and
 # no pipeline ends in a quiet grep: grep is asked alone, on the log file.
@@ -44,13 +48,13 @@ if want fast-boot-hide-func; then
     fh_faults=()
     fh_black_line="fast boot: the screen stays black until it ends"
 
-    # One windowed run: $1 binary, $2 prefix of the files it writes (<prefix>.log, -mid.png,
-    # -post.png, .premature), $3 mode (key: capture mid-boot, press Shift, capture again;
-    # timeup: capture once, after the soft reset), then jnext's arguments.
+    # One windowed run: $1 binary, $2 prefix of the files it writes (<prefix>.log, -mid-N.png,
+    # -post.png), $3 mode (window: grab the window in a loop while fast boot is open, then once
+    # 0.7 s after it ended; timeup: one grab, 0.5 s after the soft reset), then jnext's arguments.
     # shellcheck disable=SC2016
     fh_run() {
         local bin="$1" pre="$2" mode="$3"; shift 3
-        rm -f "$pre".log "$pre"-mid.png "$pre"-post.png "$pre".premature
+        rm -f "$pre".log "$pre"-mid-*.png "$pre"-post.png
         env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
         timeout --kill-after=5s 240s \
         xvfb-run -d --server-args="-screen 0 1280x1024x24 -noreset" bash -c '
@@ -59,35 +63,34 @@ if want fast-boot-hide-func; then
             log="$pre.log"
             "$bin" "$@" >"$log" 2>&1 &
             pid=$!
-            for _ in $(seq 1 600); do
-                grep -qF "soft-reset" "$log" 2>/dev/null && break
-                sleep 0.2
-            done
             wid=""
-            for _ in $(seq 1 100); do
+            for _ in $(seq 1 300); do
                 wid=$(xdotool search --onlyvisible --name "ZX Spectrum Next Emulator" 2>/dev/null | head -1) || true
                 [ -n "$wid" ] && break
-                sleep 0.2
+                grep -qF "fast boot: ended" "$log" 2>/dev/null && break
+                sleep 0.05
             done
-            if [ -n "$wid" ]; then
-                if [ "$mode" = key ]; then sleep 1; else sleep 0.5; fi
-                if [ "$mode" = key ] && grep -qF "fast boot: ended" "$log" 2>/dev/null; then : >"$pre.premature"; fi
-                import -window "$wid" "png:$pre-mid.png" 2>/dev/null || true
-                if [ "$mode" = key ]; then
-                    X=0; Y=0; WIDTH=0; HEIGHT=0
-                    eval "$(xdotool getwindowgeometry --shell "$wid" 2>/dev/null)"
-                    # No window manager: keys go to the window under the pointer.
-                    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) 2>/dev/null || true
-                    sleep 1
-                    xdotool key --delay 80 shift 2>/dev/null || true
-                    for _ in $(seq 1 150); do
-                        grep -qF "fast boot: ended (key press)" "$log" 2>/dev/null && break
-                        sleep 0.2
-                    done
-                    sleep 1
-                    import -window "$wid" "png:$pre-post.png" 2>/dev/null || true
-                fi
+            if [ "$mode" = window ]; then
+                n=0
+                while [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null && [ $n -lt 200 ]; do
+                    n=$((n + 1))
+                    import -window "$wid" "png:$pre-mid-$n.png" 2>/dev/null || true
+                    # A grab that finished after the window closed shows nothing about it.
+                    if grep -qF "fast boot: ended" "$log" 2>/dev/null; then rm -f "$pre-mid-$n.png"; fi
+                done
+                for _ in $(seq 1 600); do
+                    grep -qF "fast boot: ended" "$log" 2>/dev/null && break
+                    sleep 0.2
+                done
+                sleep 0.7
+            else
+                for _ in $(seq 1 600); do
+                    grep -qF "soft-reset" "$log" 2>/dev/null && break
+                    sleep 0.2
+                done
+                sleep 0.5
             fi
+            [ -n "$wid" ] && import -window "$wid" "png:$pre-post.png" 2>/dev/null
             kill -TERM "$pid" 2>/dev/null
             wait "$pid" 2>/dev/null
             exit 0
@@ -104,28 +107,28 @@ if want fast-boot-hide-func; then
     fh_is_black() { [[ -n "$1" ]] && awk -v m="$1" 'BEGIN { exit !(m + 0 == 0) }'; }
     fh_not_black() { [[ -n "$1" ]] && awk -v m="$1" 'BEGIN { exit !(m + 0 > 0) }'; }
 
-    # fh_phase LABEL BINARY PREFIX HIDE(1|0) jnext-args...: a key-ended phase, G/H/I/I2.
+    # fh_phase LABEL BINARY PREFIX HIDE(1|0) jnext-args...: G, H, I, I2.
     fh_phase() {
         local label="$1" bin="$2" pre="$fh_dir/$3" hide="$4"; shift 4
-        local extra=()
+        local extra=() f m n=0 black=0 lit=0 post
         [[ "$hide" == 1 ]] && extra=(--set startup.fast_boot_hide_screen=true)
-        fh_run "$bin" "$pre" key \
+        fh_run "$bin" "$pre" window \
             --machine next --sdcard-readonly ${SD_CARD_ARGS[@]+"${SD_CARD_ARGS[@]}"} --fast-boot 60 \
             ${extra[@]+"${extra[@]}"} "$@"
-        if [[ -e "$pre.premature" ]]; then
-            fh_faults+=("$label: fast boot had already ended at the mid-boot capture (harness fault)")
-            return
-        fi
-        local mid post
-        mid=$(fh_max "$pre-mid.png"); post=$(fh_max "$pre-post.png")
+        for f in "$pre"-mid-*.png; do
+            [[ -e "$f" ]] || continue
+            n=$((n + 1)); m=$(fh_max "$f")
+            if fh_is_black "$m"; then black=$((black + 1)); elif fh_not_black "$m"; then lit=$((lit + 1)); fi
+        done
+        post=$(fh_max "$pre-post.png")
         if [[ "$hide" == 1 ]]; then
             fh_has "$pre.log" "$fh_black_line" || fh_faults+=("$label: no '$fh_black_line' line")
-            fh_is_black "$mid" || fh_faults+=("$label: the window was not black mid-boot (max=${mid:-unreadable})")
-            fh_has "$pre.log" "fast boot: ended (key press)" || fh_faults+=("$label: a host Shift did not end the window")
-            fh_not_black "$post" || fh_faults+=("$label: the window stayed black after the key (max=${post:-unreadable})")
+            [[ $n -gt 0 ]] || fh_faults+=("$label: no capture inside the fast-boot window (harness fault)")
+            [[ $lit -eq 0 ]] || fh_faults+=("$label: $lit of $n captures inside the window were not black")
+            fh_not_black "$post" || fh_faults+=("$label: the window stayed black after fast boot ended (max=${post:-unreadable})")
         else
             if fh_has "$pre.log" "$fh_black_line"; then fh_faults+=("$label: the black line without the setting"); fi
-            fh_not_black "$mid" || fh_faults+=("$label: the control window was black mid-boot (max=${mid:-unreadable}): the capture sees nothing")
+            [[ $lit -gt 0 ]] || fh_faults+=("$label: the control never showed a real screen inside the window ($n captures): the capture sees nothing")
         fi
     }
 
@@ -156,7 +159,7 @@ if want fast-boot-hide-func; then
         fh_not_black "$fh_j" || fh_faults+=("J: the window was black after the time-up (max=${fh_j:-unreadable})")
 
         if [[ ${#fh_faults[@]} -eq 0 ]]; then
-            pass_row " (Qt and SDL windows black while fast boot hides the screen, real after a key; the control windows real; the saved preference real after time up)"
+            pass_row " (Qt and SDL windows black while fast boot hides the screen, real after it ends; the control windows real inside it; the saved preference real after time up)"
         else
             fail_row " ($(IFS='|'; echo "${fh_faults[*]}"))"
         fi
