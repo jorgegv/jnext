@@ -17,11 +17,24 @@
 /// Until WP4c the GUI's breakpoints lived in the core's `BreakpointSet`, which
 /// the Breakpoints panel and the disassembly gutter observed. They are now
 /// `jnext::dbg::Debugger` subscriptions (REQ-qt-13d): single-address
-/// `Execute`, `Mem` and `Port` subscriptions, and `IntAck` / `Nmi` ones (GH #372,
-/// no address), with no condition, `once = false` and the `Stop` action, owned
-/// by this model's client. READ_WRITE is ONE
+/// `Execute`, `Mem` and `Port` subscriptions, and `IntAck` / `Nmi` ones, with no
+/// condition and `once = false`, owned by this model's client. A breakpoint
+/// stops (the static `Stop` action, no handler) unless it is COUNT-ONLY (GH #372):
+/// `Continue` plus a handler of this model that counts. READ_WRITE is ONE
 /// subscription with an access mask (REQ-qt-13c). The backend's table is the
-/// only model; this class holds no breakpoint of its own.
+/// only model; this class holds no breakpoint of its own beyond the extras it
+/// cannot report (which of its subscriptions are count-only) and the hit counts.
+///
+/// HIT COUNTS (GH #372) need no backend counter, and they are the script
+/// engine's own split: a Stop breakpoint is counted from `PausedInfo::matched` in
+/// `on_paused()` (it stays a static Stop with no handler, which ZRCP's
+/// `other_breakpoint_at` and the step loops depend on); a count-only one counts in
+/// its handler. A count is runtime state: it is not saved, and it dies with the
+/// subscription (an Edit is a new one).
+///
+/// THE GUTTERS draw and toggle PLAIN breakpoints only (not count-only): the
+/// `(type, addr, space)` API below means the plain one, whatever else sits at the
+/// address.
 ///
 /// THE OWNER IS A NON-ARMING OBSERVER CLIENT (REQ-qt-32, `ClientInfo::observer`),
 /// attached for this object's lifetime. That is what lets the user's
@@ -73,6 +86,8 @@ public:
         bool     live    = true;
         /// This GUI's own row: editable. Another client's is read-only.
         bool     own     = false;
+        /// This GUI's count-only breakpoint: counts, never stops (GH #372).
+        bool     count_only = false;
         QString  type_text;     ///< the Type column
         QString  addr_text;     ///< the Address column
     };
@@ -85,25 +100,32 @@ public:
     /// Execute row comes first, then the rest in creation order.
     const std::vector<Row>& rows() const { return rows_; }
 
-    /// Create a breakpoint, ENABLED. Idempotent: one that already exists keeps
-    /// its own enabled flag (GH #225 — a second gutter click must not re-arm a
-    /// breakpoint the user disabled).
+    /// Create a PLAIN breakpoint (it stops), ENABLED. Idempotent: one that already
+    /// exists keeps its own enabled flag (GH #225 — a second gutter click must not
+    /// re-arm a breakpoint the user disabled).
     ///
     /// `space` qualifies an Execute breakpoint with the memory that must
     /// supply the opcode (E23-09); every other type, and the default, is
     /// unqualified. A qualified and an unqualified breakpoint at one address
-    /// are two rows. Interrupt and NMI take no address. These act on ONE subscription (a group's member too);
-    /// a whole group goes through the Row overloads below.
+    /// are two rows. Interrupt and NMI take no address. These act on ONE
+    /// subscription (a group's member too); a whole group goes through the Row
+    /// overloads below.
     void add(int type, uint16_t addr, jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu());
+    /// GH #372 - the same, with the count-only choice. Idempotent on (type,
+    /// address, space, count_only): a count-only and a plain breakpoint at one
+    /// address are two rows. The spec's `file_line` is not read (see
+    /// `add_source_line`).
+    void add(const jnext::script::BpSpec& spec);
     void remove(int type, uint16_t addr, jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu());
     /// No-op if there is no such breakpoint or the flag already has that value.
     void set_enabled(int type, uint16_t addr, bool enabled,
-                     jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu());
+                     jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu(),
+                     bool count_only = false);
 
     /// E23-09 -- a breakpoint on a source line (`file:line`): one group, every
     /// place the line compiled to. Returns the group, or `GROUP_NONE` when the
     /// backend refuses it (no live map, no code at that line).
-    jnext::dbg::GroupId add_source_line(const QString& file_line);
+    jnext::dbg::GroupId add_source_line(const QString& file_line, bool count_only = false);
     /// Remove / enable the row as listed: a group row acts on every location.
     void remove(const Row& row);
     void set_enabled(const Row& row, bool enabled);
@@ -115,6 +137,12 @@ public:
     /// each. A breakpoint that exists keeps its row and takes the state; a source
     /// line already armed on exactly those places is not added twice.
     void add_specs(const std::vector<jnext::script::BpSpec>& specs);
+
+    /// GH #372 - how many times the row fired since it was made or the counts were
+    /// reset: a group's is the sum over its places. 0 for another client's row.
+    uint64_t hits(const Row& row) const;
+    /// Zero every own row's count (the Breakpoints panel's Reset Hits).
+    void reset_hits();
 
     /// Remove every breakpoint THIS GUI owns. Other clients' are not the GUI's
     /// to delete.
@@ -168,6 +196,10 @@ signals:
     /// The listed state changed; `kinds` is a `jnext::dbg::EventKindMask` of
     /// the kinds whose rows changed (all three for a master-switch flip).
     void changed(uint32_t kinds);
+    /// GH #372 - a count moved (or was reset). Emitted ONCE per `sync()` however
+    /// many hits there were, and never as `changed()`, which would repaint the
+    /// gutter every frame a hot breakpoint fires.
+    void hits_changed();
 
 private:
     /// Re-read the backend's listing, rebuild rows_, and emit changed() with
@@ -183,14 +215,23 @@ private:
         bool                 enabled;
         bool                 live;
         jnext::dbg::GroupId  group;
+        bool                 count_only;
     };
     const Member* find_own_(int type, uint16_t addr,
-                            jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu()) const;
+                            jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu(),
+                            bool count_only = false) const;
+    /// What the backend cannot report about an own subscription, by id.
+    struct Extra {
+        bool count_only = false;
+    };
+    /// The ids of every own subscription of group `g` (all of them, however many).
+    std::vector<jnext::dbg::EventId> group_ids_(jnext::dbg::GroupId g) const;
+    jnext::dbg::Subscription sub_for_(const jnext::script::BpSpec& spec);
 
     // jnext::dbg::Listener — only the subscription push is used; the pause
     // state is PULLED by DebuggerManager (§4.1), so the rest are deliberately
     // empty.
-    void on_paused(const jnext::dbg::PausedInfo&) override {}
+    void on_paused(const jnext::dbg::PausedInfo& info) override;
     void on_resumed(jnext::dbg::ClientId) override {}
     void on_reset(jnext::dbg::ResetKind) override {}
     void on_frame_ended(uint32_t) override {}
@@ -202,6 +243,9 @@ private:
     jnext::dbg::ClientId  client_ = jnext::dbg::CLIENT_NONE;
     std::vector<Row>      rows_;
     std::vector<Member>   members_;
+    std::map<jnext::dbg::EventId, Extra>    extras_;
+    std::map<jnext::dbg::EventId, uint64_t> hits_;
+    bool hits_dirty_ = false;
     /// The text each own source-line group was set with (what `resolve()` took).
     std::map<jnext::dbg::GroupId, std::string> group_lines_;
     /// What the last publish saw, per listed id: its kind and whether it was

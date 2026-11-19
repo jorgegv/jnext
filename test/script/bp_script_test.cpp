@@ -437,6 +437,11 @@ static std::vector<jnext::dbg::SubscriptionInfo> engine_subs(const Debugger& d, 
     return out;
 }
 
+static BpSpec counted(BpSpec b) {
+    b.count_only = true;
+    return b;
+}
+
 // ---- GH #372: Interrupt / NMI -----------------------------------
 
 static void save_interrupt_rows(Fix& f) {
@@ -469,6 +474,48 @@ static void save_interrupt_rows(Fix& f) {
         check("BPJ-25", "bp_kind_name gives the Type column's eight names for kinds 0..7 and the port rule is 00FF below 0100, "
                         "FFFF from it",
               bad.empty() && bp_port_mask_for(0x00FF) == 0x00FF && bp_port_mask_for(0x0100) == 0xFFFF, bad);
+    }
+}
+
+static void save_count_rows(Fix& f) {
+    const Debugger& d = *f.dbg;
+    const std::vector<BpSpec> in = {counted(spec(BpSpec::Execute, 0x8000)), counted(spec(BpSpec::Read, 0x9000)),
+                                    counted(spec(BpSpec::IoRead, 0x00FE)), counted(spec(BpSpec::Interrupt, 0)),
+                                    counted(spec(BpSpec::Execute, 0x8001, false)), spec(BpSpec::Write, 0x9001)};
+    {
+        const BpScript o = bp_script_text(in, d);
+        const std::string want = kHeader +
+            "bp1: on execute 0x8000 do end\n"
+            "bp2: on read 0x9000 do end\n"
+            "bp3: on io_read 0xFE do end\n"
+            "bp4: on interrupt do end\n"
+            "disabled bp5: on execute 0x8001 do end\n"
+            "bp6: on write 0x9001 do stop end\n";
+        check("BPJ-26", "a count-only breakpoint is a rule with an EMPTY body (`do end`) for Execute, Read, IO Read, Interrupt "
+                        "and a disabled one; a plain one still ends in `do stop end`",
+              o.text == want && o.refused.empty(), o.text);
+    }
+    {
+        const BpRead a = bp_specs_from_script("on execute 0x8000 do end\non execute 0x8001 do stop end\n", d);
+        const BpRead rt = bp_specs_from_script(bp_script_text(in, d).text, d);
+        const BpRead log = bp_specs_from_script("on execute 0x8000 do log \"x\" end\n", d);
+        check("BPJ-27", "`do end` decodes to count_only and `do stop end` does not; the saved set reads back equal; a body of "
+                        "`log` is still refused with one positioned error",
+              a.ok() && a.specs.size() == 2 && a.specs[0].count_only && !a.specs[1].count_only && rt.ok() && rt.specs == in &&
+                  !log.ok() && log.specs.empty() && log.errors.size() == 1 && log.errors[0].pos.line == 1,
+              specs_str(a.specs) + dstr(a.errors) + specs_str(rt.specs) + dstr(rt.errors) + dstr(log.errors));
+    }
+    {
+        Fix g;
+        const auto starts = g.line10();
+        const std::vector<BpSpec> src = {counted(source_line("main.bas:10", starts))};
+        const BpScript o = bp_script_text(src, *g.dbg);
+        const BpRead rt = bp_specs_from_script(o.text, *g.dbg);
+        check("BPJ-29", "a count-only source line is `on execute \"FILE:LINE\" do end` and reads back with its places = "
+                        "resolve().starts and count_only set",
+              o.text == kHeader + "bp1: on execute \"main.bas:10\" do end\n" && rt.ok() && rt.specs == src &&
+                  rt.specs.size() == 1 && rt.specs[0].count_only && same_locations(rt.specs[0].locations, starts),
+              o.text + specs_str(rt.specs) + dstr(rt.errors));
     }
 }
 
@@ -540,6 +587,31 @@ static void engine_interrupt_rows() {
                         "Nmi and a disabled IntAck subscription, in order",
               lr.ok() && lr.warnings.empty() && same, dstr(lr.errors) + dstr(lr.warnings) + std::to_string(subs.size()));
     }
+    {
+        Fix g;
+        const auto starts = g.line10();
+        const std::vector<BpSpec> in = {counted(spec(BpSpec::Execute, 0x8000)), counted(spec(BpSpec::Read, 0x9000)),
+                                        counted(spec(BpSpec::IoRead, 0x00FE, false)), counted(spec(BpSpec::Interrupt, 0)),
+                                        counted(source_line("main.bas:10", starts))};
+        const BpScript o = bp_script_text(in, *g.dbg);
+        ScriptEngine eng(*g.dbg);
+        const LoadResult lr = eng.load(o.text, "count.jds");
+        const auto subs = engine_subs(*g.dbg, eng);
+        const auto want = expected_subs(in);
+        std::string miss;
+        if (subs.size() != want.size()) miss = "count " + std::to_string(subs.size()) + " vs " + std::to_string(want.size());
+        for (size_t i = 0; i < subs.size() && i < want.size(); ++i) {
+            const auto& sb = subs[i];
+            const Expect& w = want[i];
+            bool same = sb.kind == w.kind && sb.enabled == w.enabled && sb.action == jnext::dbg::Action::Continue && sb.has_handler;
+            if (w.kind == EventKind::Execute || w.kind == EventKind::Mem) same = same && sb.filter.lo == w.lo && sb.filter.hi == w.hi;
+            if (w.kind == EventKind::Port) same = same && sb.filter.port_mask == w.port_mask && sb.filter.port_value == w.port_value;
+            if (!same) miss += " #" + std::to_string(i);
+        }
+        check("BPJ-28", "the count-only text loads in a ScriptEngine with no error or warning and registers every rule as "
+                        "action Continue with a handler, with the specs' kind, filter and On flag (one per source-line place)",
+              lr.ok() && lr.warnings.empty() && miss.empty(), dstr(lr.errors) + dstr(lr.warnings) + miss);
+    }
 }
 
 int main() {
@@ -550,6 +622,7 @@ int main() {
         save_rows2(f);
         load_rows(f);
         save_interrupt_rows(f);
+        save_count_rows(f);
     }
     engine_rows();
     engine_interrupt_rows();

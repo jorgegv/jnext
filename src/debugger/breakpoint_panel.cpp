@@ -20,6 +20,7 @@ static constexpr int COL_ENABLED = 0;
 static constexpr int COL_TYPE    = 1;
 static constexpr int COL_ADDR    = 2;
 static constexpr int COL_SYMBOL  = 3;
+static constexpr int COL_HITS    = 4;   // GH #372: appended, columns 0-3 do not move
 
 BreakpointPanel::BreakpointPanel(QWidget* parent)
     : QWidget(parent)
@@ -43,6 +44,14 @@ BreakpointPanel::BreakpointPanel(QWidget* parent)
     auto* remove_btn = new QPushButton(tr("Remove"), this);
     connect(remove_btn, &QPushButton::clicked, this, &BreakpointPanel::on_remove);
     btn_row->addWidget(remove_btn);
+
+    // GH #372 - zero every own row's hit count.
+    auto* reset_btn = new QPushButton(tr("Reset Hits"), this);
+    reset_btn->setToolTip(tr("Zero the Hits count of every breakpoint of this window."));
+    connect(reset_btn, &QPushButton::clicked, this, [this] {
+        if (model_) model_->reset_hits();
+    });
+    btn_row->addWidget(reset_btn);
 
     btn_row->addStretch();
 
@@ -68,18 +77,20 @@ BreakpointPanel::BreakpointPanel(QWidget* parent)
 
     // Table. Enabled first: it is a control, not data, and every debugger that
     // has one puts it in the leading column.
-    table_ = new QTableWidget(0, 4, this);
+    table_ = new QTableWidget(0, 5, this);
     table_->setHorizontalHeaderLabels(
-        {tr("On"), tr("Type"), tr("Address"), tr("Symbol / Source")});
+        {tr("On"), tr("Type"), tr("Address"), tr("Symbol / Source"), tr("Hits")});
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setAlternatingRowColors(true);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->horizontalHeader()->setStretchLastSection(true);
+    table_->horizontalHeader()->setStretchLastSection(false);
+    table_->horizontalHeader()->setSectionResizeMode(COL_SYMBOL, QHeaderView::Stretch);
     table_->verticalHeader()->setVisible(false);
     table_->setColumnWidth(0, 32);
     table_->setColumnWidth(1, 90);
     table_->setColumnWidth(2, 95);   // room for a page qualifier: "$8000 @12"
+    table_->setColumnWidth(COL_HITS, 64);
 
     QFont mono("Monospace", 10);
     mono.setStyleHint(QFont::Monospace);
@@ -110,8 +121,11 @@ void BreakpointPanel::set_model(BreakpointModel* model)
     // Every kind matters here: this table holds Execute AND data breakpoints.
     // Qt drops the connection when either side is destroyed, which is what
     // BreakpointSet's remove_observer() in the destructor used to do by hand.
-    if (model_)
+    if (model_) {
         connect(model_, &BreakpointModel::changed, this, [this](uint32_t) { refresh(); });
+        // GH #372 - a count moved: the Hits cells only, not a rebuild.
+        connect(model_, &BreakpointModel::hits_changed, this, [this] { refresh_hits(); });
+    }
     refresh();
 }
 
@@ -193,9 +207,26 @@ void BreakpointPanel::refresh()
         if (e.locations > 1) sym += tr(" (%n locations)", nullptr, e.locations);
         auto* sym_item = new QTableWidgetItem(sym);
         table_->setItem(i, COL_SYMBOL, sym_item);
+
+        table_->setItem(i, COL_HITS, new QTableWidgetItem());
     }
 
     updating_ = false;
+    refresh_hits();
+}
+
+void BreakpointPanel::refresh_hits()
+{
+    if (!model_) return;
+    const bool was = updating_;
+    updating_ = true;
+    for (int i = 0; i < static_cast<int>(entries_.size()) && i < table_->rowCount(); ++i) {
+        QTableWidgetItem* it = table_->item(i, COL_HITS);
+        if (!it) continue;
+        it->setText(entries_[i].own ? QString::number(model_->hits(entries_[i])) : QString());
+        it->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    }
+    updating_ = was;
 }
 
 // GH #225 — a click on a row's Enabled checkbox.
@@ -269,6 +300,12 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
     connect(type_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg, sync_fields);
     sync_fields();
 
+    // GH #372 - count the hits, never stop.
+    auto* count_only = new QCheckBox(tr("Count hits only (don't stop)"), &dlg);
+    count_only->setObjectName(QStringLiteral("bp_dialog_count_only"));
+    count_only->setChecked(target.count_only);
+    form->addRow(QString(), count_only);
+
     // Why OK did not close the dialog. Hidden until there is a reason.
     auto* error = new QLabel(&dlg);
     error->setObjectName(QStringLiteral("bp_dialog_error"));
@@ -290,7 +327,7 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
         const std::string text = addr_edit->text().trimmed().toStdString();
         const int type = type_combo->currentIndex();
         if (type == BreakpointModel::Interrupt || type == BreakpointModel::Nmi) {
-            target = BpTarget{0, jnext::dbg::MemSpace::cpu(), QString()};
+            target = BpTarget{0, jnext::dbg::MemSpace::cpu(), QString(), count_only->isChecked()};
             type_index = type;
             return true;
         }
@@ -306,14 +343,15 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
                               resolved->space && type == BreakpointModel::Execute
                                   ? *resolved->space
                                   : jnext::dbg::MemSpace::cpu(),
-                              QString()};
+                              QString(), count_only->isChecked()};
             type_index = type;
             return true;
         }
         SourceResolution src;
         if (dbg_) src = dbg_->source_map().resolve(text);
         if (!src.starts.empty() && type == BreakpointModel::Execute) {
-            target = BpTarget{0, jnext::dbg::MemSpace::cpu(), QString::fromStdString(text)};
+            target = BpTarget{0, jnext::dbg::MemSpace::cpu(), QString::fromStdString(text),
+                              count_only->isChecked()};
             type_index = type;
             return true;
         }
@@ -342,8 +380,16 @@ void BreakpointPanel::on_add()
     // No repaint call here: the mutation notified, and it notified the RIGHT
     // views — the gutter only for an Execute breakpoint, because a data
     // breakpoint changes nothing the gutter draws.
-    if (!target.source_line.isEmpty()) model_->add_source_line(target.source_line);
-    else                               model_->add(type_index, target.addr, target.space);
+    if (!target.source_line.isEmpty()) {
+        model_->add_source_line(target.source_line, target.count_only);
+    } else {
+        jnext::script::BpSpec s;
+        s.kind       = static_cast<jnext::script::BpSpec::Kind>(type_index);
+        s.addr       = target.addr;
+        s.space      = target.space;
+        s.count_only = target.count_only;
+        model_->add(s);
+    }
 }
 
 void BreakpointPanel::on_edit()
@@ -355,6 +401,7 @@ void BreakpointPanel::on_edit()
     if (!old.own) return;           // another client's: read-only (REQ-qt-13d)
     int type_index = old.type;
     BpTarget target;
+    target.count_only = old.count_only;
 
     if (!show_bp_dialog(tr("Edit Breakpoint"), old.addr, old.space, type_index, target))
         return;
@@ -366,14 +413,20 @@ void BreakpointPanel::on_edit()
     // whose address the user corrects must come back still disabled. add()
     // always creates enabled, hence the explicit re-apply.
     if (!target.source_line.isEmpty()) {
-        const jnext::dbg::GroupId g = model_->add_source_line(target.source_line);
+        const jnext::dbg::GroupId g = model_->add_source_line(target.source_line, target.count_only);
         if (g == jnext::dbg::GROUP_NONE) return;
         if (!old.enabled)
             for (const auto& r : model_->rows())
                 if (r.group == g) { model_->set_enabled(r, false); break; }
     } else {
-        model_->add(type_index, target.addr, target.space);
-        model_->set_enabled(type_index, target.addr, old.enabled, target.space);
+        jnext::script::BpSpec s;
+        s.kind       = static_cast<jnext::script::BpSpec::Kind>(type_index);
+        s.addr       = target.addr;
+        s.space      = target.space;
+        s.count_only = target.count_only;
+        model_->add(s);
+        const auto sp = s.kind == jnext::script::BpSpec::Execute ? s.space : jnext::dbg::MemSpace::cpu();
+        model_->set_enabled(type_index, target.addr, old.enabled, sp, target.count_only);
     }
     // Each of the mutations above notified; the last one left the table
     // showing the edited breakpoint. Nothing to repaint by hand.

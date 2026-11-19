@@ -2,6 +2,7 @@
 #include "debugger/memory_text.h"
 
 #include <algorithm>
+#include <set>
 
 using jnext::dbg::Access;
 using jnext::dbg::EventKind;
@@ -29,8 +30,8 @@ static_assert(same_kind(BreakpointModel::Execute, BpSpec::Execute) && same_kind(
               same_kind(BreakpointModel::Interrupt, BpSpec::Interrupt) && same_kind(BreakpointModel::Nmi, BpSpec::Nmi),
               "BreakpointModel::Type and the codec's BpSpec::Kind are one numbering");
 
-// The subscription one GUI breakpoint is: a single address, no condition, no
-// handler, not once, the Stop action (REQ-qt-13d). READ_WRITE is ONE row with
+// The subscription one PLAIN GUI breakpoint is: a single address, no condition,
+// no handler, not once, the Stop action (REQ-qt-13d). READ_WRITE is ONE row with
 // both access bits (REQ-qt-13c). Interrupt and NMI are `IntAck` / `Nmi` with the
 // default filter (they have no address).
 Subscription sub_for(int type, uint16_t addr, jnext::dbg::MemSpace space) {
@@ -68,13 +69,15 @@ Subscription sub_for(int type, uint16_t addr, jnext::dbg::MemSpace space) {
     return s;
 }
 
-// The inverse: which of the types this listed subscription IS, or -1 when
-// it is something the Add dialog cannot express. Only such a subscription can
-// be this GUI's own editable row.
-int type_of(const SubscriptionInfo& si) {
+// The inverse: which of the types this listed subscription IS, or -1 when it is
+// something the Add dialog cannot express. Only such a subscription can be this
+// GUI's own editable row. `counted`: it is one of this GUI's count-only ones
+// (Continue plus a handler); any other handler is not the dialog's.
+int type_of(const SubscriptionInfo& si, bool counted) {
     const auto& f = si.filter;
-    if (si.has_condition || si.has_handler || si.once ||
-        si.action != jnext::dbg::Action::Stop ||
+    if (si.has_condition || si.once ||
+        si.has_handler != counted ||
+        si.action != (counted ? jnext::dbg::Action::Continue : jnext::dbg::Action::Stop) ||
         !f.pages.empty() || f.source != jnext::dbg::EventSource::Any)
         return -1;
     // The legacy page qualifier (DZRP, the DSL) is not the Add dialog's.
@@ -158,18 +161,23 @@ void BreakpointModel::publish_() {
     std::vector<Row>    rows;
     std::vector<Member> members;
     std::vector<Seen>   seen;
+    std::set<jnext::dbg::EventId> listed;
     for (const SubscriptionInfo& si : dbg_.subscriptions(/*include_transient=*/false)) {
+        listed.insert(si.id);
         Row r;
         r.id      = si.id;
-        r.type    = type_of(si);
+        const auto ex = extras_.find(si.id);
+        const bool counted = si.owner == client_ && ex != extras_.end() && ex->second.count_only;
+        r.type    = type_of(si, counted);
         r.enabled = si.enabled;
         r.live    = si.live;
         r.own     = si.owner == client_ && r.type >= 0;
+        r.count_only = r.own && counted;
         const bool port = si.kind == EventKind::Port;
         const bool addressless = r.type == Interrupt || r.type == Nmi;
         r.addr = addressless ? 0 : port ? si.filter.port_value : si.filter.lo;
         if (si.kind == EventKind::Execute) r.space = si.filter.space;
-        if (r.own) members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live, si.group});
+        if (r.own) members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live, si.group, r.count_only});
         // E23-09 -- the members of one source breakpoint are ONE row: the
         // lowest address's, enabled only while every location is, live while
         // any is.
@@ -193,6 +201,7 @@ void BreakpointModel::publish_() {
         }
         if (r.type >= 0) {
             r.type_text = QString::fromLatin1(bp_kind_name(static_cast<BpSpec::Kind>(r.type)));
+            if (r.count_only) r.type_text += QStringLiteral(" (count only)");
             if (!addressless)
                 r.addr_text = address_text(r.addr, r.space, style_, memtext::next_layout(&dbg_));
         } else {
@@ -246,6 +255,12 @@ void BreakpointModel::publish_() {
         it = listed ? std::next(it) : group_lines_.erase(it);
     }
 
+    // A count and an extra live exactly as long as their subscription.
+    for (auto it = extras_.begin(); it != extras_.end();)
+        it = listed.count(it->first) ? std::next(it) : extras_.erase(it);
+    for (auto it = hits_.begin(); it != hits_.end();)
+        it = listed.count(it->first) ? std::next(it) : hits_.erase(it);
+
     rows_        = std::move(rows);
     members_     = std::move(members);
     seen_        = std::move(seen);
@@ -254,32 +269,107 @@ void BreakpointModel::publish_() {
 }
 
 void BreakpointModel::sync() {
-    if (!dirty_) return;
-    dirty_ = false;
-    publish_();
+    if (dirty_) {
+        dirty_ = false;
+        publish_();
+    }
+    if (hits_dirty_) {
+        hits_dirty_ = false;
+        emit hits_changed();
+    }
+}
+
+// GH #372 - a Stop breakpoint is counted here, from what the boundary matched:
+// it stays a static Stop with no handler. (A count-only one counts in its own
+// handler and never stops, so it is not in `matched` as a stop.) Only this GUI's
+// own ids count.
+void BreakpointModel::on_paused(const jnext::dbg::PausedInfo& info) {
+    for (const jnext::dbg::Hit& h : info.matched)
+        for (const Member& m : members_)
+            if (m.id == h.event_id && !m.count_only) {
+                ++hits_[m.id];
+                hits_dirty_ = true;
+                break;
+            }
+}
+
+uint64_t BreakpointModel::hits(const Row& row) const {
+    if (!row.own) return 0;
+    uint64_t n = 0;
+    for (const Member& m : members_) {
+        if (row.group != jnext::dbg::GROUP_NONE ? m.group != row.group : m.id != row.id) continue;
+        const auto h = hits_.find(m.id);
+        if (h != hits_.end()) n += h->second;
+    }
+    return n;
+}
+
+void BreakpointModel::reset_hits() {
+    hits_.clear();
+    hits_dirty_ = false;
+    emit hits_changed();
 }
 
 const BreakpointModel::Member* BreakpointModel::find_own_(int type, uint16_t addr,
-                                                          jnext::dbg::MemSpace space) const {
+                                                          jnext::dbg::MemSpace space,
+                                                          bool count_only) const {
     for (const Member& m : members_)
-        if (m.type == type && m.addr == addr && m.space == space) return &m;
+        if (m.type == type && m.addr == addr && m.space == space && m.count_only == count_only) return &m;
     return nullptr;
 }
 
+std::vector<jnext::dbg::EventId> BreakpointModel::group_ids_(jnext::dbg::GroupId g) const {
+    std::vector<jnext::dbg::EventId> ids;
+    for (const SubscriptionInfo& si : dbg_.subscriptions(/*include_transient=*/false))
+        if (si.owner == client_ && si.group == g) ids.push_back(si.id);
+    return ids;
+}
+
+// The subscription a breakpoint is, plain or count-only. A count-only one is
+// `Continue` plus this model's counting handler, exactly what the script engine
+// registers for `do end`; the handler cannot outlive the model, because the
+// destructor detaches the client, which removes its subscriptions (SES-01).
+jnext::dbg::Subscription BreakpointModel::sub_for_(const BpSpec& spec) {
+    Subscription s = sub_for(spec.kind, spec.addr, spec.space);
+    if (spec.count_only) {
+        s.action  = jnext::dbg::Action::Continue;
+        s.handler = [this](const jnext::dbg::Event& e, jnext::dbg::Debugger&) {
+            ++hits_[e.id];
+            hits_dirty_ = true;
+            return jnext::dbg::Action::Continue;
+        };
+    }
+    return s;
+}
+
 void BreakpointModel::add(int type, uint16_t addr, jnext::dbg::MemSpace space) {
+    BpSpec s;
+    s.kind  = static_cast<BpSpec::Kind>(type);
+    s.addr  = addr;
+    s.space = space;
     if (type < Execute || type > Nmi) return;
-    if (type != Execute) space = jnext::dbg::MemSpace::cpu();
-    if (type == Interrupt || type == Nmi) addr = 0;
-    if (find_own_(type, addr, space)) return;
-    dbg_.subscribe(client_, sub_for(type, addr, space));
+    add(s);
+}
+
+void BreakpointModel::add(const BpSpec& in) {
+    if (in.kind > BpSpec::Nmi) return;
+    BpSpec s = in;
+    if (s.kind != BpSpec::Execute) s.space = jnext::dbg::MemSpace::cpu();
+    if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi) s.addr = 0;
+    if (find_own_(s.kind, s.addr, s.space, s.count_only)) return;
+    const auto id = dbg_.subscribe(client_, sub_for_(s));
+    if (id && s.count_only) extras_[id.value].count_only = true;
     publish_();
 }
 
-jnext::dbg::GroupId BreakpointModel::add_source_line(const QString& file_line) {
-    const auto g = dbg_.subscribe_source_line(
-        client_, file_line.toStdString(), sub_for(Execute, 0, jnext::dbg::MemSpace::cpu()));
+jnext::dbg::GroupId BreakpointModel::add_source_line(const QString& file_line, bool count_only) {
+    BpSpec like;
+    like.count_only = count_only;
+    const auto g = dbg_.subscribe_source_line(client_, file_line.toStdString(), sub_for_(like));
     if (!g) return jnext::dbg::GROUP_NONE;
     group_lines_[g.value] = file_line.toStdString();
+    if (count_only)
+        for (jnext::dbg::EventId id : group_ids_(g.value)) extras_[id].count_only = true;
     publish_();
     return g.value;
 }
@@ -298,8 +388,8 @@ void BreakpointModel::remove(const Row& row) {
 }
 
 void BreakpointModel::set_enabled(int type, uint16_t addr, bool enabled,
-                                  jnext::dbg::MemSpace space) {
-    const Member* m = find_own_(type, addr, space);
+                                  jnext::dbg::MemSpace space, bool count_only) {
+    const Member* m = find_own_(type, addr, space, count_only);
     if (!m || m->enabled == enabled) return;
     dbg_.set_enabled(client_, m->id, enabled);
     publish_();
@@ -328,6 +418,7 @@ std::vector<jnext::script::BpSpec> BreakpointModel::script_specs() const {
         s.addr    = r.addr;
         s.space   = r.space;
         s.enabled = r.enabled;
+        s.count_only = r.count_only;
         if (r.group != jnext::dbg::GROUP_NONE) {
             const auto line = group_lines_.find(r.group);
             if (line != group_lines_.end()) s.file_line = line->second;
@@ -342,16 +433,17 @@ std::vector<jnext::script::BpSpec> BreakpointModel::script_specs() const {
 void BreakpointModel::add_specs(const std::vector<jnext::script::BpSpec>& specs) {
     for (const jnext::script::BpSpec& s : specs) {
         if (s.file_line.empty()) {
-            const jnext::dbg::MemSpace sp = s.kind == jnext::script::BpSpec::Execute ? s.space
-                                                                                     : jnext::dbg::MemSpace::cpu();
-            add(s.kind, s.addr, sp);
-            set_enabled(s.kind, s.addr, s.enabled, sp);
+            add(s);
+            // add() normalises the same way: the space is an Execute's alone, and
+            // Interrupt / NMI have no address.
+            set_enabled(s.kind, s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi ? 0 : s.addr, s.enabled,
+                        s.kind == BpSpec::Execute ? s.space : jnext::dbg::MemSpace::cpu(), s.count_only);
             continue;
         }
         // add_source_line() is not idempotent: look for the same places first.
         const Row* same = nullptr;
         for (const Row& r : rows_) {
-            if (!r.own || r.group == jnext::dbg::GROUP_NONE) continue;
+            if (!r.own || r.group == jnext::dbg::GROUP_NONE || r.count_only != s.count_only) continue;
             std::vector<::SourceAddress> places;
             for (const Member& m : members_)
                 if (m.group == r.group) places.push_back({m.space, m.addr});
@@ -364,7 +456,7 @@ void BreakpointModel::add_specs(const std::vector<jnext::script::BpSpec>& specs)
             set_enabled(*same, s.enabled);
             continue;
         }
-        const jnext::dbg::GroupId g = add_source_line(QString::fromStdString(s.file_line));
+        const jnext::dbg::GroupId g = add_source_line(QString::fromStdString(s.file_line), s.count_only);
         if (g == jnext::dbg::GROUP_NONE || s.enabled) continue;
         for (const Row& r : rows_)
             if (r.group == g) { set_enabled(r, false); break; }
@@ -397,7 +489,7 @@ bool BreakpointModel::pc_marked_live(uint16_t addr, jnext::dbg::MemSpace space) 
 std::vector<BreakpointModel::PcBreakpoint> BreakpointModel::pc_breakpoints() const {
     std::vector<PcBreakpoint> out;
     for (const Member& m : members_)
-        if (m.type == Execute) out.push_back(PcBreakpoint{m.addr, m.space, m.live});
+        if (m.type == Execute && !m.count_only) out.push_back(PcBreakpoint{m.addr, m.space, m.live});
     return out;
 }
 

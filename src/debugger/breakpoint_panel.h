@@ -64,10 +64,14 @@ private:
         uint16_t addr = 0;
         jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
         QString source_line;
+        bool count_only = false;   ///< in: the row being edited; out: the dialog's choice
     };
-    /// `addr` / `space` seed the text.
+    /// `addr` / `space` seed the text; `target.count_only` seeds the checkbox.
     bool show_bp_dialog(const QString& title, uint16_t addr, jnext::dbg::MemSpace space,
                         int& type_index, BpTarget& target);
+
+    /// GH #372 - rewrite only the Hits cells from the model's counts.
+    void refresh_hits();
 
     /// GH #225 — apply the check state of the Enabled cell `row` to the model.
     void apply_enabled_cell(int row, bool enabled);

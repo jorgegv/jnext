@@ -132,7 +132,7 @@ std::string where_of(const BpSpec& s) {
 
 bool operator==(const BpSpec& a, const BpSpec& b) {
     return a.kind == b.kind && a.addr == b.addr && a.space == b.space && a.file_line == b.file_line &&
-           a.enabled == b.enabled && same_locations(a.locations, b.locations);
+           a.enabled == b.enabled && a.count_only == b.count_only && same_locations(a.locations, b.locations);
 }
 
 BpScript bp_script_text(const std::vector<BpSpec>& specs, const dbg::Debugger& dbg) {
@@ -151,7 +151,7 @@ BpScript bp_script_text(const std::vector<BpSpec>& specs, const dbg::Debugger& d
             continue;
         }
         out.text += std::string(s.enabled ? "" : "disabled ") + "bp" + std::to_string(++n) + ": " +
-                    rule + " do stop end\n";
+                    rule + (s.count_only ? " do end\n" : " do stop end\n");
     }
     return out;
 }
@@ -203,11 +203,13 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
         }
         if (r.once)  { fail(out, r.pos, not_a_bp("`once`")); return out; }
         if (r.when)  { fail(out, r.when->pos, not_a_bp("`when`")); return out; }
-        if (r.body.size() != 1 || r.body[0].kind != ActionKind::Stop) {
-            fail(out, r.body.empty() ? r.pos : r.body[0].pos, not_a_bp("the body is not a lone `stop`"));
+        // An empty body counts the breakpoint's hits and never stops (GH #372).
+        if (r.body.size() > 1 || (r.body.size() == 1 && r.body[0].kind != ActionKind::Stop)) {
+            fail(out, r.body[0].pos, not_a_bp("the body is not empty or a lone `stop`"));
             return out;
         }
-        if (r.body[0].s1) { fail(out, r.body[0].pos, not_a_bp("`stop` with a message")); return out; }
+        if (!r.body.empty() && r.body[0].s1) { fail(out, r.body[0].pos, not_a_bp("`stop` with a message")); return out; }
+        s.count_only = r.body.empty();
         s.enabled = !r.disabled;
         if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi) {
             out.specs.push_back(std::move(s));

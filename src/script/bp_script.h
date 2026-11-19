@@ -8,8 +8,9 @@
 // written approximately), and how a file is READ back into breakpoints. The Qt
 // BreakpointModel only converts between its rows and `BpSpec`.
 //
-// A breakpoint is `LABEL: on EVENT FILTER do stop end`; the language's
-// grammar of record is doc/design/debug-subsystem/dsl-frontend.md section 2.1.
+// A breakpoint is `LABEL: on EVENT FILTER do stop end` (`do end` for one that
+// only counts its hits, GH #372); the language's grammar of record is
+// doc/design/debug-subsystem/dsl-frontend.md section 2.1.
 // ---------------------------------------------------------------------------
 
 #include <cstdint>
@@ -33,6 +34,7 @@ struct BpSpec {
     std::string     file_line;                      ///< Execute only; non-empty = a source line
     std::vector<::SourceAddress> locations;      ///< a source line's members, in resolve() order
     bool            enabled = true;
+    bool            count_only = false;             ///< counts its hits and never stops (`do end`)
 };
 /// THE type-name table: the Type column's text for each kind, "?" past the last.
 const char* bp_kind_name(BpSpec::Kind k);
