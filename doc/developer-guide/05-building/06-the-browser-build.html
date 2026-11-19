@@ -3577,11 +3577,15 @@ the user-facing-docs lint and its scope).</p>
 <code>jnext-&lt;ver&gt;-web.zip</code> with CPython's <code>zipfile</code> and writes <code>build/pages</code>: the zip's files minus the
 four example pages, plus <code>index.html</code>, made from <code>web/pages/index.html.in</code> with the version of
 <code>version.yaml</code>. The page holds one widget with <code>data-card-dirs="/APPS,/GAMES"</code> and <code>data-nmi</code>. The
-script refuses, and removes the output, when the site is not exactly that list, when any name ends
-in an image, program, archive or recording extension (<code>.img .mmc .zip .nex .tap .tzx .sna .szx .z80
-.jns .rzx .wav .raw</code>, any case, any depth), or when the wasm exceeds 16 MiB or the site 24 MiB. The
+script refuses, and removes the output, when the site is not exactly that list, when any name has
+an image, ROM, disk-image, program, recording or archive extension as a dot-separated part (<code>.img .mmc
+.rom .bin .dsk .trd .scl .hdf .vhd .mdr .p .nex .tap .tzx .sna .szx .z80 .jns .rzx .wav .raw .zip .gz
+.tgz .bz2 .xz .7z .rar .tar</code>, any case, any depth, so <code>x.img.gz</code> too) or ends in a dot or whitespace,
+when a file starts with an archive signature or holds a boot-sector mark at byte 510 (a WebAssembly
+module is exempt), when a zip entry is a symlink, has a <code>..</code> or absolute path, lies outside the top folder
+or repeats a name, when a required file is missing, or when the wasm exceeds 16 MiB or the site 24 MiB. The
 site never holds NextZXOS, the distribution or a program: the visitor's browser downloads the
-distribution from specnext.com. <code>test/packaging/pages-site-test.sh</code> (PSITE-01 to 05, hermetic) pins
+distribution from specnext.com. <code>test/packaging/pages-site-test.sh</code> (PSITE-01 to 06, hermetic) pins
 the script and the workflow wiring; <code>test/browser/pages.mjs</code> (PAGES-01 and 02) serves <code>build/pages</code>
 alone, and <code>wasm-browser-test</code> has <code>pages-site</code> as a prerequisite.</p>
 
