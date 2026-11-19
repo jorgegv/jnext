@@ -10695,6 +10695,14 @@ void Emulator::service_esp_frame()
 
 void Emulator::run_frame()
 {
+    {   // diag: GH #498 planner measurement, removed before hand-back
+        static const bool d_cs = std::getenv("JNEXT_DIAG498_CS") != nullptr;
+        static const bool d_rs = std::getenv("JNEXT_DIAG498_RASTER") != nullptr;
+        static const bool d_at = std::getenv("JNEXT_DIAG498_ATTACH") != nullptr;
+        if (d_cs && !call_stack_.enabled()) call_stack_.set_enabled(true);
+        if (d_rs && !debug_state_.live_raster()) debug_state_.set_live_raster(true);
+        if (d_at && !debug_state_.clients_attached()) debug_state_.set_clients_attached(true);
+    }
     // For the whole of this call, memory and port accesses are the EMULATED
     // MACHINE's, so watchpoints may fire. See DebugState::
     // GuestExecutionScope: outside these scopes they may not, which is what
