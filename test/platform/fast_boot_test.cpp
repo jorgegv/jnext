@@ -350,7 +350,7 @@ int main()
             emu->run_frame();
             after = emu->fast_boot_hides_screen();
         }
-        check("FBT-30", "arm_fast_boot(100, true): fast_boot_hides_screen() is true before any frame and after 1 frame",
+        check("FBT-30", "arm_fast_boot(100) with hide_screen set: fast_boot_hides_screen() holds before any frame and after 1 frame",
               emu && before && after);
     }
     {
