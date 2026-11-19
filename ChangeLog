@@ -12,6 +12,7 @@
 - Debugger CPU panel shows the T-states since the last stop, with an Accumulate option
 - Debugger: Breakpoints > Save as Script / Load from Script keep your breakpoints in a .jds file; scripts gain `on read_write`
 - Debugger Memory panel: find hex bytes (wildcards, mask) or text; save, load and fill memory blocks
+- Debugger window gets File > Reload Last File (Alt+L): reload the rebuilt program with its maps, breakpoints kept
 
 ### Bug Fixes
 - Web example pages fit a phone screen instead of being laid out at desktop width and shrunk
