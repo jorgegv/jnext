@@ -61,6 +61,7 @@ enum class OptId {
     SdcardSha256,
     SdcardWrites,
     SdcardWritesReset,
+    NoSdcard,
     Sdcard2,
     Sdcard2Readonly,
     Sdcard2Writes,
@@ -354,6 +355,17 @@ inline constexpr Option OPTIONS[] = {
       "stand-in's file included) before the card is mounted. Needs\n"
       "--sdcard-writes. A file that is\n"
       "not a jnext SD-writes file is refused, never removed." },
+    { "--no-sdcard", 0, Doc::Documented, OptId::NoSdcard,
+      "",
+      "Run a directly loaded NEX with no SD card: no NextZXOS, no\n"
+      "ROMs, no warm start. The NEX starts on the synthetic machine\n"
+      "and its files come from the esxDOS stand-in: implies\n"
+      "--esxdos-stub (its own directory), or give --esxdos-stub-root.\n"
+      "The first ROM code the program runs is logged as an error;\n"
+      "DivMMC, Multiface and the NMI buttons are off. Needs --load\n"
+      "of a .nex on the Next; excludes every --sdcard and --sdcard2\n"
+      "option, --delayed-sdcard-insert-frames,\n"
+      "--delayed-sdcard2-insert-frames and --delayed-nmi" },
     // GH #505 - the second SD card (the board's second socket; NextZXOS maps it
     // to the next drive letter, D: with a one-partition card 0).
     { "--sdcard2", 1, Doc::Documented, OptId::Sdcard2,

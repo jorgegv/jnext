@@ -199,6 +199,33 @@ with status 1.
     the image as it is. Requires **--sdcard-writes**. A file that is not
     a **jnext** SD-writes file is refused, never removed.
 
+**--no-sdcard**
+:   Run a directly loaded NEX with no SD card at all: no NextZXOS, no
+    ROMs and no warm start. An emulator convenience, like the esxDOS
+    stand-in: a real Next always has its ROMs. The NEX starts on the
+    synthetic machine **--load** has always assembled when there is no
+    firmware, and every esxDOS call it makes is answered by the
+    stand-in: it implies **--esxdos-stub**, so the NEX’s own directory
+    is served, unless **--esxdos-stub-root** names another. For a
+    program that uses no ROM routine and no NextZXOS service beyond the
+    esxDOS file calls. **The ROM area is empty**: the first time the
+    program executes code from a ROM (an IM 1 interrupt at \$0038, **RST
+    \$10**, a call into the ROM) **jnext** logs an error naming the
+    address and the likely cause,
+    e.g. `executed ROM code at $0038 (IM 1); --no-sdcard has no ROM`,
+    and the program will hang or show garbage. DivMMC and the Multiface
+    are held off, the NMI buttons are refused, File \> Insert SD Card
+    Image… and Eject SD Card are disabled and the status bar shows **SD:
+    none**. A hard reset runs the boot ROM, which stops at its no-card
+    screen as on hardware; the program is not loaded again. Requires
+    **--load** of a **.nex** (directly or in a **.zip**) on the Next (a
+    machine saved in Preferences other than the Next is refused too:
+    give **--machine next**), and excludes every **--sdcard** and
+    **--sdcard2** option, **--warm-start-regenerate**,
+    **--delayed-sdcard-insert-frames**,
+    **--delayed-sdcard2-insert-frames** and **--delayed-nmi**. In a
+    browser page it is `card: { source: 'none' }`.
+
 **--sdcard2** *FILE*
 :   Mount SD-card image *FILE* (`.img`) in the **second SD card slot**,
     which NextZXOS sees as the next drive after the first card’s

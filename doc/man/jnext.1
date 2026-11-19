@@ -231,6 +231,40 @@ Requires \f[B]\-\-sdcard\-writes\f[R].
 A file that is not a \f[B]jnext\f[R] SD\-writes file is refused, never
 removed.
 .TP
+\f[B]\-\-no\-sdcard\f[R]
+Run a directly loaded NEX with no SD card at all: no NextZXOS, no ROMs
+and no warm start.
+An emulator convenience, like the esxDOS stand\-in: a real Next always
+has its ROMs.
+The NEX starts on the synthetic machine \f[B]\-\-load\f[R] has always
+assembled when there is no firmware, and every esxDOS call it makes is
+answered by the stand\-in: it implies \f[B]\-\-esxdos\-stub\f[R], so the
+NEX\(cqs own directory is served, unless
+\f[B]\-\-esxdos\-stub\-root\f[R] names another.
+For a program that uses no ROM routine and no NextZXOS service beyond
+the esxDOS file calls.
+\f[B]The ROM area is empty\f[R]: the first time the program executes
+code from a ROM (an IM 1 interrupt at $0038, \f[B]RST $10\f[R], a call
+into the ROM) \f[B]jnext\f[R] logs an error naming the address and the
+likely cause,
+e.g.\ \f[CR]executed ROM code at $0038 (IM 1); \-\-no\-sdcard has no ROM\f[R],
+and the program will hang or show garbage.
+DivMMC and the Multiface are held off, the NMI buttons are refused, File
+> Insert SD Card Image\&...
+and Eject SD Card are disabled and the status bar shows \f[B]SD:
+none\f[R].
+A hard reset runs the boot ROM, which stops at its no\-card screen as on
+hardware; the program is not loaded again.
+Requires \f[B]\-\-load\f[R] of a \f[B].nex\f[R] (directly or in a
+\f[B].zip\f[R]) on the Next (a machine saved in Preferences other than
+the Next is refused too: give \f[B]\-\-machine next\f[R]), and excludes
+every \f[B]\-\-sdcard\f[R] and \f[B]\-\-sdcard2\f[R] option,
+\f[B]\-\-warm\-start\-regenerate\f[R],
+\f[B]\-\-delayed\-sdcard\-insert\-frames\f[R],
+\f[B]\-\-delayed\-sdcard2\-insert\-frames\f[R] and
+\f[B]\-\-delayed\-nmi\f[R].
+In a browser page it is \f[CR]card: { source: \(aqnone\(aq }\f[R].
+.TP
 \f[B]\-\-sdcard2\f[R] \f[I]FILE\f[R]
 Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]) in the \f[B]second
 SD card slot\f[R], which NextZXOS sees as the next drive after the first
@@ -4153,8 +4187,12 @@ Not a jnext setting: how the page gets NextZXOS\(cqs SD card.
 \f[CR]source\f[R] is \f[CR]\(aqauto\(aq\f[R] (the default: fetch the
 official file from specnext.com when it allows the page to read it,
 otherwise ask the visitor to download it and choose it),
-\f[CR]\(aqfetch\(aq\f[R] (only fetch; a failure is an error) or
-\f[CR]\(aqpick\(aq\f[R] (always ask the visitor).
+\f[CR]\(aqfetch\(aq\f[R] (only fetch; a failure is an error),
+\f[CR]\(aqpick\(aq\f[R] (always ask the visitor) or
+\f[CR]\(aqnone\(aq\f[R] (no SD card at all: the \f[CR]file\f[R] NEX runs
+as with \f[B]\-\-no\-sdcard\f[R], nothing is fetched or asked, and a ROM
+fetch is also reported through \f[CR]onError\f[R]; needs
+\f[CR]file\f[R], excludes \f[CR]keepWrites\f[R]).
 The SD card reaches the emulator as \f[B]\-\-sdcard\f[R] and
 \f[B]\-\-sdcard\-sha256\f[R], set by the page layer; the page never
 names the card.

@@ -1143,6 +1143,8 @@ my %NO_MATRIX_SECTION = (
     'web_api_test' => 'browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465)',
     'browser_policy_test' => 'browser page rAF callback gate and refusals (host UI, GH #463)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
+    'no_sdcard_test' => '--no-sdcard (GH #540): a NEX with no SD card and no ROMs, an emulator convenience like the esxDOS stand-in; a real Next always has its ROMs, so the core has nothing to cite',
+    'no_sdcard_ui_test' => '--no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
     # jnext-internal contracts. `cli_options_test` is checked against the man
