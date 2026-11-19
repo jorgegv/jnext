@@ -2223,13 +2223,13 @@ it on load: a different card is refused unless **--snapshot-mode**
 saving and loading is at your own risk. A second SD card (see **A SECOND
 SD CARD**) that was mounted when the file was saved is recorded and
 checked the same way: a snapshot that had one is refused when none is
-mounted, or a different one is, unless **--snapshot-mode** `force`; a
-snapshot saved without one, including every file written by an older
-**jnext**, is not refused for one mounted now (a warning).
-**--snapshot-mode** `strict` additionally turns the state-model and
-ROM-digest warnings into refusals, and **--snapshot-compression** `off`
-writes the members stored rather than deflated, so the file can be read
-with `unzip -p`.
+mounted, and refused when a different one is unless **--snapshot-mode**
+`force` (which does not override the missing card); a snapshot saved
+without one, including every file written by an older **jnext**, is not
+refused for one mounted now (a warning). **--snapshot-mode** `strict`
+additionally turns the state-model and ROM-digest warnings into
+refusals, and **--snapshot-compression** `off` writes the members stored
+rather than deflated, so the file can be read with `unzip -p`.
 
 It does contain **all of RAM**, which on a Next includes NextZXOS and
 DivMMC ROM code paged into it. Those are not redistributable: keep your

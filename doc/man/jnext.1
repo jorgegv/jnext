@@ -2602,10 +2602,11 @@ The card\(cqs contents are not checked: changing the card between saving
 and loading is at your own risk.
 A second SD card (see \f[B]A SECOND SD CARD\f[R]) that was mounted when
 the file was saved is recorded and checked the same way: a snapshot that
-had one is refused when none is mounted, or a different one is, unless
-\f[B]\-\-snapshot\-mode\f[R] \f[CR]force\f[R]; a snapshot saved without
-one, including every file written by an older \f[B]jnext\f[R], is not
-refused for one mounted now (a warning).
+had one is refused when none is mounted, and refused when a different
+one is unless \f[B]\-\-snapshot\-mode\f[R] \f[CR]force\f[R] (which does
+not override the missing card); a snapshot saved without one, including
+every file written by an older \f[B]jnext\f[R], is not refused for one
+mounted now (a warning).
 \f[B]\-\-snapshot\-mode\f[R] \f[CR]strict\f[R] additionally turns the
 state\-model and ROM\-digest warnings into refusals, and
 \f[B]\-\-snapshot\-compression\f[R] \f[CR]off\f[R] writes the members
