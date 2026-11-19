@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.24</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.25</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.24</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.25</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3216,7 +3216,7 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Watches</td>
-<td>byte, word or long at user addresses, through <code>peek</code>; a C variable row (<code>read_c_value()</code>, <code>c_frames()</code>, <code>c_variables_status()</code>), read only while paused</td>
+<td>byte, word or long at user addresses, through <code>peek</code>; an Expression row (<code>script::eval_expr()</code> at every refresh, paused or running; the dialog checks it with <code>compile_expr()</code> in the <code>None</code> scope); a C variable row (<code>read_c_value()</code>, <code>c_frames()</code>, <code>c_variables_status()</code>), read only while paused</td>
 <td>—</td>
 </tr>
 <tr>

@@ -166,6 +166,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Source breakpoints by `file:line` or symbol, with gutter click, right-click menu and syntax colouring in selectable schemes
 - Source tab and Disassembly stay in sync, and the Call Stack shows each call's source line
 - **C variables**: Variables tab shows parameters, locals, globals and statics with C types, structs, arrays, pointers and z88dk floats
+- Watch expressions: any debugger-script expression as a watch (registers, `mem16[@ptr]`, `phys[]`), errors shown in its row
 - C watches, value editing, `cvar()` in scripts and ZRCP, GDB `monitor locals`/`globals`/`print`/`set var`
 - Disassembly select & copy as assembly that pastes into a source file, or "Copy with Addresses" for bug reports
 - Disassembly PC line shows whether a conditional branch is taken and the value at the instruction's memory operand

@@ -48,6 +48,10 @@ public:
     /// Refresh all watch values from current emulator memory state.
     void refresh();
 
+    /// GH #373 - watch a `.jds` expression (registers, `mem16[@ptr]`, `phys[]`, symbols). Its value is evaluated at every `refresh()`, paused or
+    /// running; a failure is shown in the Value cell. The text is not validated here (the dialog does that).
+    void add_expr_watch(const std::string& expr, const std::string& label = {});
+
     /// Add a watch entry.
     void add_watch(uint16_t addr, const std::string& label, int type = 0);
 
@@ -67,20 +71,21 @@ public slots:
 private:
     void update_table();
     bool show_watch_dialog(const QString& title, uint16_t& addr,
-                           std::string& label, int& type);
+                           std::string& label, int& type, std::string& expr);
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
     QTableWidget* table_ = nullptr;
     jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
 
-    enum WatchType { BYTE = 0, WORD = 1, LONG = 2 };
+    enum WatchType { BYTE = 0, WORD = 1, LONG = 2, EXPR = 3 };   // EXPR: the dialog's combo index only, a Memory row never holds it
 
     struct WatchEntry {
         uint16_t addr = 0;
         std::string label;
         WatchType type = BYTE;
-        enum class Kind { Memory, CVariable } kind = Kind::Memory;
+        enum class Kind { Memory, CVariable, Expression } kind = Kind::Memory;
         CVarWatch cvar;   // CVariable
+        std::string expr; // Expression
         QStringList shown = QStringList({QString(), QString(), QString(), QString(), QString()});   // CVariable: the columns as last read
         bool refused = false;   // CVariable: the Value is text, not a value
     };
