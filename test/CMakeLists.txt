@@ -88,6 +88,12 @@ target_link_libraries(mem_tools_test PRIVATE jnext_debug)
 target_include_directories(mem_tools_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME mem_tools_tests COMMAND mem_tools_test)
 
+# GH #371 - the Graphics tab's sprite-pattern and tile-definition decoders (Qt-free, std only).
+add_executable(gfx_decode_test debug/gfx_decode_test.cpp)
+target_link_libraries(gfx_decode_test PRIVATE jnext_debug)
+target_include_directories(gfx_decode_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME gfx_decode_tests COMMAND gfx_decode_test)
+
 # Z80Cpu /INT pulse-window machine-timing test (Task 2 CPU fix).
 # VHDL zxnext.vhd:2033 — pulse width 32 (48K/+3) vs 36 (128K/Pent/Next).
 # Standalone, no GoogleTest; jnext_cpu only (matches fuse_z80_test linkage).
