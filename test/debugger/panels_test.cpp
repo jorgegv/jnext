@@ -57,6 +57,8 @@
 #include "debugger/nextreg_panel.h"
 #include "debugger/script_panel.h"
 #include "script/script_host.h"
+#include "script/expr_compiler.h"
+#include "script/diagnostic.h"
 #include "debugger/sprite_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/symbols_panel.h"
@@ -1641,6 +1643,159 @@ static void test_watch_panel() {
               fmt("%s %s %s %s %s", s(wcell(&wp, 8, 3)).c_str(), s(wcell(&wp, 9, 3)).c_str(),
                   s(wcell(&wp, 10, 3)).c_str(), s(wcell(&wp, 11, 3)).c_str(),
                   s(wcell(&wp, 12, 3)).c_str()));
+    }
+
+    // QWP-13..17 - GH #373: a watch can be a .jds expression, evaluated at every refresh().
+    // Oracles: the expression language (src/script/expr_compiler.h, the user guide's Reading the
+    // Machine page: signed int32, upper-case registers, mem16 little-endian), plain arithmetic for
+    // the "$hex (decimald)" text (2, 4 or 8 digits by magnitude), zxnext.vhd:5159 (MMU2 = 0x0A at
+    // reset: on a 48K, 0x4000-0x5FFF is physical page 0x0A, so phys[0x0A, 0x100] is CPU 0x4100),
+    // and the library's own eval_expr for the text of an error.
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        poke(emu, 0x9000, {0xA1, 0xB2});
+        wp.add_expr_watch("mem16[0x9000]");
+        wp.add_expr_watch("mem16[0x9000]", "ptr");
+        auto* lbl = watch_table(&wp) ? watch_table(&wp)->item(1, 1) : nullptr;
+        check("QWP-13",
+              "an expression watch row: empty Address and Memory, Type Expression, Label = the "
+              "expression (or the given label, tooltip = the expression), Value $B2A1 (45729d)",
+              built && wp.watch_count() == 2 && wcell(&wp, 0, 0).isEmpty() &&
+                  wcell(&wp, 0, 1) == "mem16[0x9000]" && wcell(&wp, 0, 2) == "Expression" &&
+                  wcell(&wp, 0, 3) == "$B2A1 (45729d)" && wcell(&wp, 0, 4).isEmpty() &&
+                  wcell(&wp, 1, 1) == "ptr" && lbl && lbl->toolTip() == "mem16[0x9000]" &&
+                  wcell(&wp, 1, 3) == "$B2A1 (45729d)",
+              fmt("row0=%s|%s|%s|%s|%s row1 label=%s tip=%s", s(wcell(&wp, 0, 0)).c_str(),
+                  s(wcell(&wp, 0, 1)).c_str(), s(wcell(&wp, 0, 2)).c_str(),
+                  s(wcell(&wp, 0, 3)).c_str(), s(wcell(&wp, 0, 4)).c_str(),
+                  s(wcell(&wp, 1, 1)).c_str(), s(lbl ? lbl->toolTip() : QString("<none>")).c_str()));
+    }
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        auto setregs = [&](uint16_t hl, uint8_t a) {
+            Z80Registers r = emu.cpu().get_registers();
+            r.HL = hl;
+            r.AF = static_cast<uint16_t>(a << 8);
+            emu.cpu().set_registers(r);
+        };
+        setregs(0x1234, 0x3F);
+        wp.add_expr_watch("HL");
+        wp.add_expr_watch("A");
+        wp.add_expr_watch("HL + 1");
+        const bool first = wcell(&wp, 0, 3) == "$1234 (4660d)" && wcell(&wp, 1, 3) == "$3F (63d)" &&
+                           wcell(&wp, 2, 3) == "$1235 (4661d)";
+        setregs(0x00FF, 0x00);
+        wp.set_paused(false);
+        wp.refresh();
+        const bool running = wcell(&wp, 0, 3) == "$FF (255d)" && wcell(&wp, 1, 3) == "$00 (0d)" &&
+                             wcell(&wp, 2, 3) == "$0100 (256d)";
+        setregs(0x0200, 0x01);
+        wp.set_paused(true);
+        wp.refresh();
+        const bool paused = wcell(&wp, 0, 3) == "$0200 (512d)" && wcell(&wp, 1, 3) == "$01 (1d)" &&
+                            wcell(&wp, 2, 3) == "$0201 (513d)";
+        check("QWP-14",
+              "register expressions are re-evaluated by refresh(), running and paused",
+              built && first && running && paused,
+              fmt("first=%d running=%d (%s %s %s) paused=%d (%s %s %s)", first, running,
+                  s(wcell(&wp, 0, 3)).c_str(), s(wcell(&wp, 1, 3)).c_str(),
+                  s(wcell(&wp, 2, 3)).c_str(), paused, s(wcell(&wp, 0, 3)).c_str(),
+                  s(wcell(&wp, 1, 3)).c_str(), s(wcell(&wp, 2, 3)).c_str()));
+    }
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        const char* exprs[] = {"0", "255", "256", "65535", "65536", "0 - 1", "0 - 2147483647 - 1"};
+        const char* want[] = {"$00 (0d)", "$FF (255d)", "$0100 (256d)", "$FFFF (65535d)",
+                              "$00010000 (65536d)", "$FFFFFFFF (-1d)", "$80000000 (-2147483648d)"};
+        for (const char* e : exprs) wp.add_expr_watch(e);
+        bool ok = built;
+        std::string got;
+        for (int i = 0; i < 7; ++i) {
+            ok = ok && wcell(&wp, i, 3) == want[i];
+            got += s(wcell(&wp, i, 3)) + " ";
+        }
+        check("QWP-15",
+              "the value text is $hex (signed decimald) with 2, 4 or 8 hex digits by value, at "
+              "every boundary: 0, 255, 256, 65535, 65536, -1, -2147483648",
+              ok, got);
+    }
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        const std::string map = write_map(*g_tmp, "expr.map", "ptr = $9000\n");
+        dbg.load_map(map, jnext::dbg::MapFormat::Simple);
+        poke(emu, 0x9000, {0xA1, 0xB2});
+        poke(emu, 0x4100, {0x5A});
+        wp.add_expr_watch("mem16[@ptr]");
+        wp.add_expr_watch("@ptr");
+        wp.add_expr_watch("phys[0x0A, 0x100]");
+        const bool first = wcell(&wp, 0, 3) == "$B2A1 (45729d)" && wcell(&wp, 1, 3) == "$9000 (36864d)" &&
+                           wcell(&wp, 2, 3) == "$5A (90d)";
+        poke(emu, 0x4100, {0x77});
+        wp.refresh();
+        check("QWP-16",
+              "@symbol and phys[] expressions: mem16[@ptr] = $B2A1, @ptr = $9000, phys[0x0A, 0x100] "
+              "is the byte at CPU 0x4100 and follows a second poke",
+              built && first && wcell(&wp, 2, 3) == "$77 (119d)",
+              fmt("first=%d %s %s %s then %s", first, s(wcell(&wp, 0, 3)).c_str(),
+                  s(wcell(&wp, 1, 3)).c_str(), s(wcell(&wp, 2, 3)).c_str(),
+                  s(wcell(&wp, 2, 3)).c_str()));
+    }
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        auto setA = [&](uint8_t a) {
+            Z80Registers r = emu.cpu().get_registers();
+            r.AF = static_cast<uint16_t>(a << 8);
+            emu.cpu().set_registers(r);
+        };
+        setA(0);
+        wp.add_expr_watch("100 / A");
+        wp.add_expr_watch("mem[0x10000]");
+        wp.add_expr_watch("ADDR");
+        const std::string want0 = jnext::script::eval_expr("100 / A", dbg).errors.empty()
+                                      ? std::string() : jnext::script::eval_expr("100 / A", dbg).errors[0].to_string();
+        const std::string want1 = jnext::script::eval_expr("mem[0x10000]", dbg).errors.empty()
+                                      ? std::string() : jnext::script::eval_expr("mem[0x10000]", dbg).errors[0].to_string();
+        const std::string want2 = jnext::script::eval_expr("ADDR", dbg).errors.empty()
+                                      ? std::string() : jnext::script::eval_expr("ADDR", dbg).errors[0].to_string();
+        QTableWidgetItem* it0 = watch_table(&wp) ? watch_table(&wp)->item(0, 3) : nullptr;
+        const QColor ph = wp.palette().color(QPalette::PlaceholderText);
+        const bool coloured = it0 && it0->data(Qt::ForegroundRole).isValid() &&
+                              it0->data(Qt::ForegroundRole).value<QColor>() == ph;
+        const bool errs = s(wcell(&wp, 0, 3)) == want0 && want0.find("division by zero") != std::string::npos &&
+                          !wcell(&wp, 0, 3).contains('$') && s(wcell(&wp, 1, 3)) == want1 &&
+                          want1.find("outside 0..0xFFFF") != std::string::npos &&
+                          s(wcell(&wp, 2, 3)) == want2 && !want2.empty();
+        setA(4);
+        wp.refresh();
+        it0 = watch_table(&wp) ? watch_table(&wp)->item(0, 3) : nullptr;
+        const bool recovered = wcell(&wp, 0, 3) == "$19 (25d)" && it0 && !it0->data(Qt::ForegroundRole).isValid();
+        check("QWP-17",
+              "an expression that fails at run time shows the library's own message in the "
+              "placeholder colour (division by zero, mem[] out of range, an event payload name), "
+              "and recovers with a number and a cleared colour",
+              built && errs && coloured && recovered,
+              fmt("errs=%d coloured=%d recovered=%d row0=%s", errs, coloured, recovered,
+                  s(wcell(&wp, 0, 3)).c_str()));
     }
 
     // QWP-05..07 — the three disassembly routes, through the REAL window: the

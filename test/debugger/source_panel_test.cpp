@@ -49,6 +49,8 @@
 #include "debugger/source_panel.h"
 #include "debugger/symbols_panel.h"
 #include "debugger/watch_panel.h"
+#include "script/expr_compiler.h"
+#include "script/diagnostic.h"
 
 #include <QAbstractButton>
 #include <QDateTime>
@@ -843,6 +845,139 @@ void test_watch_dialog_refused() {
               shown_ok == 1 && cell(wp, 0, 0) == QStringLiteral("$8005"),
           "shown=" + std::to_string(shown) + " reason=" + s(reason) +
               " ok_shown=" + std::to_string(shown_ok));
+}
+
+// ── GH #373: expression watches through the real dialog ───────────────
+
+/// Answer the Add / Edit Watch dialog: type `text` into the address box and pick combo `index`
+/// (-1 leaves it), then OK. A dialog shown again after a refused OK is rejected; its error text
+/// and the number of times it was shown are returned through `reason` and the result.
+static int watch_dialog(WatchPanel* wp, bool edit, const QString& text, int index,
+                        QString* reason = nullptr, QString* prefill = nullptr, int* combo_before = nullptr,
+                        const QString& label = QString()) {
+    return drive_modals(
+        [&](QWidget* w, int n) {
+            auto* dlg = qobject_cast<QDialog*>(w);
+            if (!dlg) return;
+            if (n == 0) {
+                const auto edits = dlg->findChildren<QLineEdit*>();
+                auto* combo = dlg->findChild<QComboBox*>();
+                if (prefill && !edits.isEmpty()) *prefill = edits[0]->text();
+                if (combo_before && combo) *combo_before = combo->currentIndex();
+                if (!edits.isEmpty()) edits[0]->setText(text);
+                if (!label.isEmpty() && edits.size() > 1) edits[1]->setText(label);
+                if (combo && index >= 0) combo->setCurrentIndex(index);
+                dlg->accept();
+                return;
+            }
+            if (auto* err = dlg->findChild<QLabel*>(QStringLiteral("watch_dialog_error")))
+                if (err->isVisible() && reason) *reason = err->text();
+            dlg->reject();
+        },
+        [&]() { if (edit) wp->on_edit_watch(); else wp->on_add_watch(); });
+}
+
+void test_watch_expressions() {
+    Fixture fx;
+    fx.enable();
+    WatchPanel* wp = fx.dbg() ? fx.dbg()->watch_panel() : nullptr;
+    if (!wp) {
+        check("QWX-01", "Watches panel", false);
+        check("QWX-04", "Watches panel", false);
+        check("QWX-02", "Watches panel", false);
+        check("QWX-03", "Watches panel", false);
+        return;
+    }
+    // QWX-01 - Type Expression reads the text as the language does: BC is the register, never
+    // the address $00BC (control: the same text as Type Byte is the address).
+    {
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.BC = 0x1234;
+        fx.emu.cpu().set_registers(r);
+        const int s1 = watch_dialog(wp, false, "BC", 3);
+        const int s2 = watch_dialog(wp, false, "BC", 0);
+        check("QWX-01",
+              "Add Watch with Type Expression and text BC adds an expression row (empty Address, "
+              "Value $1234 (4660d)); the same text as Type Byte is the address $00BC",
+              s1 == 1 && s2 == 1 && wp->watch_count() == 2 && cell(wp, 0, 0).isEmpty() &&
+                  cell(wp, 0, 2) == QStringLiteral("Expression") &&
+                  cell(wp, 0, 3) == QStringLiteral("$1234 (4660d)") &&
+                  cell(wp, 1, 0) == QStringLiteral("$00BC") && cell(wp, 1, 2) == QStringLiteral("Byte"),
+              "shown " + std::to_string(s1) + "/" + std::to_string(s2) + " row0=" + s(cell(wp, 0, 0)) +
+                  "|" + s(cell(wp, 0, 3)) + " row1=" + s(cell(wp, 1, 0)));
+    }
+    // QWX-02 - what does not compile is refused at OK, the dialog stays open with the
+    // compiler's message, and nothing is added. Control: a valid expression closes at once.
+    {
+        const int before = wp->watch_count();
+        bool ok = true;
+        std::string detail;
+        for (const char* bad : {"ADDR", "1 +", "@nosuch", "changed(A)"}) {
+            QString reason;
+            const int shown = watch_dialog(wp, false, bad, 3, &reason);
+            // the library is the oracle for its own message
+            const auto c = jnext::script::compile_expr(
+                bad, jnext::script::PayloadScope::none(), {jnext::script::symbols_of(*fx.backend), {}});
+            const QString want = c.errors.empty()
+                ? QString()
+                : QStringLiteral("Not an expression: ") + QString::fromStdString(c.errors.front().to_string());
+            ok = ok && shown == 2 && !want.isEmpty() && reason == want && wp->watch_count() == before;
+            detail += std::string(bad) + "=" + std::to_string(shown) + ":" + s(reason) + " ";
+        }
+        const int shown_ok = watch_dialog(wp, false, "mem[0x9000]", 3);
+        check("QWX-02",
+              "Type Expression refuses an event payload name, a syntax error, an unknown symbol and "
+              "a script-only form at OK with the compiler's message and adds nothing; a valid "
+              "expression closes the dialog and adds one row",
+              ok && shown_ok == 1 && wp->watch_count() == before + 1, detail);
+    }
+    // QWX-03 - Edit converts both ways and pre-fills an expression row with its text.
+    {
+        auto* t = wp->findChild<QTableWidget*>();
+        const int row = wp->watch_count() - 1;   // the mem[0x9000] row
+        if (t) t->setCurrentCell(row, 0);
+        QString prefill;
+        int combo = -1;
+        watch_dialog(wp, true, "HL", -1, nullptr, &prefill, &combo);
+        const bool stays = cell(wp, row, 2) == QStringLiteral("Expression") &&
+                           cell(wp, row, 1) == QStringLiteral("HL") && cell(wp, row, 0).isEmpty();
+        watch_dialog(wp, true, "9000", 0);
+        const bool to_mem = cell(wp, row, 0) == QStringLiteral("$9000") &&
+                            cell(wp, row, 2) == QStringLiteral("Byte");
+        watch_dialog(wp, true, "mem[0x9000]", 3);
+        const bool to_expr = cell(wp, row, 0).isEmpty() && cell(wp, row, 2) == QStringLiteral("Expression") &&
+                             cell(wp, row, 1) == QStringLiteral("mem[0x9000]");
+        check("QWX-03",
+              "Edit of an expression row opens with its text and Type Expression; HL keeps it an "
+              "expression; Type Byte with 9000 turns it into a Memory row; a Memory row edited to "
+              "Type Expression becomes an expression row",
+              prefill == QStringLiteral("mem[0x9000]") && combo == 3 && stays && to_mem && to_expr,
+              "prefill=" + s(prefill) + " combo=" + std::to_string(combo) + " " + std::to_string(stays) +
+                  std::to_string(to_mem) + std::to_string(to_expr));
+    }
+    // QWX-04 - a known @symbol compiles in the dialog (the issue's own mem16[@ptr]) and the typed
+    // Label is kept, with the expression as its tooltip.
+    {
+        const std::string mem = g_tmp->path().toStdString() + "/expr.Memory.txt";
+        write_text(mem, "9000: ._ptr\n");
+        fx.backend->load_map(mem, jnext::dbg::MapFormat::NextBuild);
+        fx.emu.mmu().write(0x9000, 0xA1);
+        fx.emu.mmu().write(0x9001, 0xB2);
+        const int before = wp->watch_count();
+        const int shown = watch_dialog(wp, false, "mem16[@ptr]", 3, nullptr, nullptr, nullptr, "p");
+        auto* t = wp->findChild<QTableWidget*>();
+        QTableWidgetItem* lab = t ? t->item(before, 1) : nullptr;
+        check("QWX-04",
+              "Type Expression with mem16[@ptr] on a loaded map closes the dialog at the first OK, "
+              "the row shows the word at the symbol, and the typed Label is kept with the "
+              "expression as its tooltip",
+              shown == 1 && wp->watch_count() == before + 1 &&
+                  cell(wp, before, 3) == QStringLiteral("$B2A1 (45729d)") &&
+                  cell(wp, before, 1) == QStringLiteral("p") && lab &&
+                  lab->toolTip() == QStringLiteral("mem16[@ptr]"),
+              "shown=" + std::to_string(shown) + " value=" + s(cell(wp, before, 3)) +
+                  " label=" + s(cell(wp, before, 1)));
+    }
 }
 
 // ── B2: the gutter removes the breakpoint it draws ─────────────────────
@@ -8274,6 +8409,7 @@ int main(int argc, char** argv) {
     test_address_fields();
     test_watch_labels();
     test_watch_dialog_refused();
+    test_watch_expressions();
     test_gutter();
     test_edit_type_refused();
     test_breakpoint_page_rows();

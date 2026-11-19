@@ -2661,7 +2661,8 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   suspended execute breakpoint is drawn in the gutter as a hollow ring rather
   than a filled dot
 - **Watch expressions** - byte, word or long at arbitrary addresses, with
-  custom labels; and C variables pinned from the Variables tab (a local follows
+  custom labels; debugger-script expressions (registers, `mem16[@ptr]`,
+  `phys[]`) evaluated live; and C variables pinned from the Variables tab (a local follows
   its function and says so when it is out of scope; read at each stop)
 - **Video panels** - All layers (the real composite, through the live
   compositor), ULA (primary and shadow), Layer 2 (active and shadow), Sprites,
