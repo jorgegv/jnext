@@ -4,8 +4,8 @@
 > Issue: GH #540.
 > Tests: `test/core/no_sdcard_test.cpp` (NOSD-ROM-01..09, NOSD-DEV-01..04),
 > `test/gui/no_sdcard_ui_test.cpp` (NOSDUI-01..04),
-> `test/platform/web_api_test.cpp` (WAPI-CARD-04),
-> `test/browser/card.mjs` (BCARD-36..38), regression row `no-sdcard-func`.
+> `test/platform/web_api_test.cpp` (WAPI-CARD-07, WAPI-CARD-08),
+> `test/browser/card.mjs` (BCARD-45..47), regression row `no-sdcard-func`.
 
 ## 1. Use case
 
