@@ -173,7 +173,7 @@ static void save_rows(Fix& f) {
             "bp6: on io_write 0x243B do stop end\n"
             "bp7: on io_read 0xFF do stop end\n"
             "bp8: on io_write 0x0100 do stop end\n";
-        check("BPJ-01", "the six GUI types are six rules: execute, read, write, read_write, io_read (two digits for a "
+        check("BPJ-01", "the six GUI types and the port spelling boundary (0xFF, 0x0100) are eight rules: execute, read, write, read_write, io_read (two digits for a "
                         "low-byte port, up to 0xFF), io_write (four, from 0x0100), each ending in a newline; nothing refused",
               o.text == want && o.refused.empty(), o.text);
     }

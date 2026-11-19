@@ -4056,8 +4056,10 @@ static const char* const kBpjSld =
 
 namespace {
 struct BpjFix {
-    Fixture fx;
-    explicit BpjFix() : fx(MachineType::ZXN_ISSUE2) {
+    // On the heap: a Fixture holds a whole Emulator, and a stack frame with one per row overflows 8 MB.
+    std::unique_ptr<Fixture> own;
+    Fixture& fx;
+    explicit BpjFix() : own(std::make_unique<Fixture>(MachineType::ZXN_ISSUE2)), fx(*own) {
         if (!fx.ok) return;
         fx.regs(0x8000);
         fx.backend->load_source_map(write_file("bpj.sld", kBpjSld), false);
