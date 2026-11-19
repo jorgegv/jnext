@@ -1180,6 +1180,7 @@ my %NO_MATRIX_SECTION = (
     # here would make this document's content depend on the host's build
     # configuration, which a traceability record must not.
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
+    'dock_layout_test'          => 'debugger dockable-panel layout grammar (GH #377; host UI, no VHDL oracle)',
     'tstate_counter_test'       => 'debugger CPU panel T-state counter start point and accumulate policy (host GUI, no VHDL oracle)',
     'reg_edit_test'             => 'debugger CPU panel register edit parsing (host UI policy; no VHDL oracle)',
     'nav_history_test'          => 'debugger Disassembly/Source back/forward history (host UI policy; no VHDL oracle)',
