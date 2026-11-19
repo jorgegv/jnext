@@ -184,7 +184,7 @@ zlib-compressed on-disk artefact with an identity header.
 
 **What #27 should reuse, verbatim in spirit and mostly in code:**
 
-- **Identity-before-payload ordering.** The 96-byte header is plain, the payload
+- **Identity-before-payload ordering.** The header is plain (96 bytes up to `JNEXTWS3`, 144 since `JNEXTWS4`), the payload
   deflated, so every refusal (wrong magic, wrong machine, wrong digest, wrong
   length, truncation) is answerable before a byte of unvalidated input is
   inflated. A guard that runs after the thing it guards is not one.
@@ -1799,6 +1799,30 @@ A timestamp alone could not serve as the stamp either: jnext's own writes move
 it, outside tools preserve it (`cp -p`, `touch -r`), and coarse filesystems
 round it. So the card is simply assumed to be as the snapshot left it.
 
+### 11.5 The second SD card (GH #505)
+
+The board has a second SD socket, which NextZXOS maps to the next drive (D:), and
+JNEXT can mount a card there (`--sdcard2`). The snapshot carries it additively, and only
+when one is mounted, so the slot is optional and a snapshot taken without it is
+byte-for-byte what it was before the slot existed:
+
+- **`media.sdcard2`**: the same object as `media.sdcard` (`mounted_path`, `read_only`,
+  `identity`, `informational`), produced by the same code. Absent when no second card
+  was mounted.
+- **`state/sdcard2.json`**: the second card's SPI state machine, the same declaration as
+  `state/sdcard.json`, written (and listed in `manifest.subsystems`) only when a card is
+  mounted. A reader restores it when the file has it; a file without it is not an error
+  and not a warning (no second card was there to remember).
+- **Verdict**, the first card's rules worded for the second slot: the snapshot had one and
+  none is mounted: **refuse**; had none and one is mounted: a **warning**; identity differs
+  or is unknown: **refuse**, unless `--snapshot-mode force` (then a warning naming both);
+  read-only differs: a warning. The reason is the first card's: NextZXOS caches D:'s FAT
+  state in RAM, and restoring onto a different card corrupts it on the next write.
+- **Versions.** `format_version` stays 1: both additions are optional and named. A reader
+  that predates the slot reports one warning for the unknown `media.sdcard2` key, skips the
+  `state/sdcard2.json` member (which it does not know) without a message, and restores
+  everything else.
+
 ## 12. Compatibility rules and the unknown-member rule
 
 SZX's convention (settled point 7) is "unknown chunk types must be ignored". ZIP
@@ -2854,7 +2878,7 @@ python3 -c "import zlib,sys; d=open(sys.argv[1],'rb').read(); \
 #   re-record, inflate the same way, and `cmp` against golden-savestate.bin
 ```
 
-Two notes an implementer needs. The header is **96 bytes, plain**, and its
+Two notes an implementer needs. The header is **plain** (96 bytes up to `JNEXTWS3`, 144 since `JNEXTWS4`), and its
 `plain_bytes` field (offset 16, u64 LE) states the exact expected length — check
 it. And a **`JNEXTWS1`** file (pre-compression, as still found on this box) has
 the payload *uncompressed*, so `d[96:]` is already the stream; check the magic

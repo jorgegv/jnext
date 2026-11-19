@@ -1,4 +1,4 @@
-// Browser rows BCARD-01..21 and 26..44: the card flow of the JavaScript API (GH #458), in headless Chromium
+// Browser rows BCARD-01..21 and 26..47: the card flow of the JavaScript API (GH #458), in headless Chromium
 // (make wasm-browser-test, spec card.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // The player makes NextZXOS's SD card in the page from the official distribution zip, after the
@@ -964,6 +964,55 @@ row('BCARD-43', 'the widget: data-card-dirs="/APPS, /GAMES" builds the native --
   const st = await bad.evaluate(() => document.querySelector('.jnext-widget .jw-status').textContent);
   must(st.includes("option 'card': dirs: 'SYS' does not start with '/'"), 'status: ' + st);
   await p.ctx.close(); await bad.ctx.close();
+});
+
+// GH #540 - card: {source: 'none'}: a NEX with no SD card (--no-sdcard). The programs are the
+// project's own demos (demo/magic_port_demo, demo/copper_demo).
+const NONE = { machine: 'next', muted: true, card: { source: 'none' } };
+
+row('BCARD-45', "card source 'none': no request to the distribution host, no card in the page's file system; ready fires, argv starts --no-sdcard and has --load, no --sdcard; a program that stays in RAM reports nothing", async () => {
+  const n = D.log.length;
+  const p = await newPage();
+  await open(p, [{ ...NONE, file: '/nex/magic_port_demo.nex' }], SYNSEAM(D));
+  await click(p);
+  await waitReady(p);
+  await sleep(1500);   // a ROM fetch would be reported within the first frames
+  const r = await rec(p);
+  must(r.errors.length === 0 && r.state === 'running', 'errors ' + JSON.stringify(r.errors) + ' state ' + r.state);
+  must(r.argv[0] === '--no-sdcard' && r.argv.includes('--load') && !r.argv.includes('--sdcard'), 'argv ' + JSON.stringify(r.argv));
+  must(D.log.length === n, 'requests to the distribution host: ' + JSON.stringify(D.log.slice(n)));
+  const card = await p.evaluate(() => { try { window.player0._module.FS.stat('/sdcard/image.img'); return true; } catch (e) { return false; } });
+  must(!card, 'an SD card image is in the file system');
+  await p.ctx.close();
+});
+
+row('BCARD-46', "card source 'none': a program that runs ROM code (IM 1) is reported once through onError, naming the address and the cause", async () => {
+  const p = await newPage();
+  await open(p, [{ ...NONE, file: '/nex/copper_demo.nex' }], SYNSEAM(D));
+  await click(p);
+  await waitFor(p, () => window.apiTest.players[0].errors.length > 0, null, 120000);
+  await sleep(1500);   // only the first fetch is reported: no second message follows
+  const r = await rec(p);
+  must(JSON.stringify(r.errors) === JSON.stringify(['executed ROM code at $0038 (IM 1); --no-sdcard has no ROM']),
+       'errors ' + JSON.stringify(r.errors));
+  await p.ctx.close();
+});
+
+row('BCARD-47', "card source 'none' is refused at mount() with keepWrites, with card.dirs, and without a file, before any request", async () => {
+  const n = D.log.length;
+  const cases = [
+    [{ ...NONE, file: '/nex/magic_port_demo.nex', keepWrites: true }, "keepWrites needs an SD card to keep the writes of: not with card source 'none'"],
+    [{ ...NONE, file: '/nex/magic_port_demo.nex', card: { source: 'none', dirs: ['/GAMES'] } }, "card.dirs needs an SD card: not with card source 'none'"],
+    [{ ...NONE }, "card source 'none' needs file: with no SD card there is no NextZXOS menu to boot to"],
+  ];
+  for (const [opt, want] of cases) {
+    const p = await newPage();
+    await open(p, [opt], SYNSEAM(D));
+    const r = await rec(p);
+    must(r.mountError && r.mountError.includes(want), `${JSON.stringify(opt)} -> ${r.mountError}`);
+    await p.ctx.close();
+  }
+  must(D.log.length === n, 'a request reached the distribution host: ' + JSON.stringify(D.log.slice(n)));
 });
 
 // ---- run -------------------------------------------------------------------------------------

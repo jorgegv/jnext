@@ -120,6 +120,7 @@ private:
 
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;
+    QLineEdit* sd_card2_path_edit_  = nullptr;
     QLineEdit* screenshot_dir_edit_ = nullptr;
 
     // GH #420 - Paths > Source search path (a debugger build only); one directory per

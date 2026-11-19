@@ -193,7 +193,8 @@ void test_stackless_nmi()
     // builds its own emulator rather than reusing one that might have any.
     constexpr std::size_t kHostFs      = 2 * sizeof(uint16_t) + sizeof(uint32_t);
     // The FIFTH is GH #27 S6's SD-card SPI FSM, which follows the host-FS
-    // block and is last. MEASURED rather than written as a number: the block
+    // block, and the SIXTH the second card's (GH #505): the two SD cards' SPI
+    // FSMs (card 0, then the second card) come last. MEASURED rather than written as a number: the block
     // is a fixed-width declaration, so a bare `SdCardDevice` in measure mode
     // is exactly as wide as the one in the stream, and this arithmetic cannot
     // go stale the way a literal would when the FSM gains a field.
@@ -201,7 +202,7 @@ void test_stackless_nmi()
         SdCardDevice probe;
         StateWriter  m;
         probe.save_state(m);
-        return m.position() + sizeof(uint32_t);
+        return 2 * (m.position() + sizeof(uint32_t));   // two cards since GH #505
     }();
     Emulator old_snapshot_emu;
     fresh_emulator(old_snapshot_emu);

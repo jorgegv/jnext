@@ -2413,6 +2413,250 @@ int main()
                   "why='" + why + "'");
         }
 
+        // --- SDSLOT-20..24: the second card's live change (GH #505) ---------------
+        // Oracle: the slot rules of the plan. Slot 1 is the second socket
+        // (zxnext.vhd spi_ss_sd1_n); its configured path follows an EJECT too, since
+        // the ROMs come from card 0 and card 2 has no power-on role.
+        {
+            EmulatorConfig with_ab = with_a;
+            with_ab.sd_card2_image = card_b;
+            const std::string card_c = (tmp / ("jnext-eb-card-c-" + stamp + ".img")).string();
+            const bool made_c = write_card(card_c, 0xC3);
+
+            // SDSLOT-20: a request is only a request; both configs follow an insert.
+            {
+                Emulator emu;
+                emu.init(with_a);
+                EmulatorConfig frontend = with_a;
+                bool frontend_set = false;
+                const std::string refused = emu.request_sd_card_change({card_b, true, 1});
+                const int before = card_sector0(emu.sd_card2());
+                const auto outcome = emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const int after = card_sector0(emu.sd_card2());
+                const int first = card_sector0(emu.sd_card());
+                const int write = card_write_response(emu.sd_card2());
+                check("SDSLOT-20",
+                      "a slot 1 insert changes nothing until serviced; then the second card reads "
+                      "its new image write-protected, both configs follow it and the first card "
+                      "is untouched",
+                      made && refused.empty() && before == -1 && outcome && outcome->error.empty() &&
+                          after == 0xB2 && write == 0x0D && first == 0xA1 &&
+                          emu.config().sd_card2_image == card_b && emu.config().sd_card2_readonly &&
+                          frontend.sd_card2_image == card_b && frontend.sd_card2_readonly &&
+                          frontend_set && emu.config().sd_card_image == card_a,
+                      "before=" + std::to_string(before) + " after=" + std::to_string(after) +
+                          " first=" + std::to_string(first) + " write=" + std::to_string(write));
+            }
+
+            // SDSLOT-21: an eject clears the configured path (unlike card 0's), so a hard
+            // reset keeps the slot empty; an insert then a hard reset keeps the new card.
+            {
+                Emulator emu;
+                emu.init(with_ab);
+                EmulatorConfig frontend = with_ab;
+                bool frontend_set = false;
+                emu.request_sd_card_change({"", false, 1});
+                const auto ej = emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const int ejected = card_sector0(emu.sd_card2());
+                const bool cleared = emu.config().sd_card2_image.empty() &&
+                                     frontend.sd_card2_image.empty() && frontend_set &&
+                                     emu.config().sd_card_image == card_a;
+                emulator_frontend_cold_boot(emu, frontend, "", ColdBootHooks{});
+                const int after_reset = card_sector0(emu.sd_card2());
+                emu.request_sd_card_change({card_c, false, 1});
+                const auto ins = emulator_service_sd_card_change(emu, frontend, frontend_set);
+                emulator_frontend_cold_boot(emu, frontend, "", ColdBootHooks{});
+                const int kept = card_sector0(emu.sd_card2());
+                check("SDSLOT-21",
+                      "a slot 1 eject empties the slot and clears the configured path in both configs; "
+                      "a hard reset leaves it empty; an insert then a hard reset keeps the new card",
+                      made && made_c && ej && ej->error.empty() && ejected == -1 && cleared &&
+                          after_reset == -1 && ins && ins->error.empty() && kept == 0xC3 &&
+                          emu.config().sd_card2_image == card_c,
+                      "ejected=" + std::to_string(ejected) + " after_reset=" +
+                          std::to_string(after_reset) + " kept=" + std::to_string(kept));
+            }
+
+            // SDSLOT-22: one image never goes in both slots, by any route.
+            {
+                Emulator emu;
+                emu.init(with_ab);
+                const std::string to_second = emu.request_sd_card_change({card_a, false, 1});
+                const std::string to_first  = emu.request_sd_card_change({card_b, false, 0});
+                const bool queued = emu.take_sd_card_change_request().has_value();
+                const std::string direct = emu.change_sd_card({card_a, false, 1});
+                const int s1 = card_sector0(emu.sd_card2());
+                const int s0 = card_sector0(emu.sd_card());
+                // Ejecting card 0 does not lift the rule for the second slot: card 0 keeps its
+                // CONFIGURED path (the ROMs come from it) and a hard reset mounts it again. Ejecting
+                // the second card does lift it for card 0 (its path is cleared with the eject).
+                emu.change_sd_card({"", false, 0});
+                const std::string after_eject0 = emu.change_sd_card({card_a, false, 1});
+                emu.change_sd_card({"", false, 1});
+                const std::string after_eject1 = emu.change_sd_card({card_b, false, 0});
+                check("SDSLOT-22",
+                      "inserting the image the other slot has mounted is refused, in both directions, "
+                      "at request time and when performed, and nothing changes; an ejected first card "
+                      "still refuses its image for the second slot (its path is kept), an ejected "
+                      "second card does not refuse its old image for the first",
+                      made && !to_second.empty() && !to_first.empty() && !queued && !direct.empty() &&
+                          s1 == 0xB2 && s0 == 0xA1 && !after_eject0.empty() && after_eject1.empty(),
+                      "to_second='" + to_second + "' s1=" + std::to_string(s1) +
+                          " s0=" + std::to_string(s0) + " after_eject0='" + after_eject0 +
+                          "' after_eject1='" + after_eject1 + "'");
+            }
+
+            // SDSLOT-23: refused while an RZX records; a slot 1 change pending across a cold
+            // boot is carried and made after it, with its slot.
+            {
+                const std::string rec = (tmp / ("jnext-eb-sd2-rzx-" + stamp + ".rzx")).string();
+                Emulator emu;
+                emu.init(with_a);
+                const bool started = emu.start_rzx_recording(rec);
+                const std::string refused = emu.request_sd_card_change({card_b, false, 1});
+                const bool queued = emu.take_sd_card_change_request().has_value();
+                const std::string direct = emu.change_sd_card({card_b, false, 1});
+                emulator_finish_rzx(emu, rec);
+                std::remove(rec.c_str());
+
+                Emulator carrier;
+                carrier.init(with_a);
+                carrier.request_sd_card_change({card_b, false, 1});
+                emulator_cold_boot(carrier, with_a);
+                const auto carried = carrier.take_sd_card_change_request();
+                check("SDSLOT-23",
+                      "a slot 1 change is refused while an RZX records (nothing queued, a direct change "
+                      "refused, the slot stays empty); a pending one survives a cold boot with its slot",
+                      started && !refused.empty() && !queued && !direct.empty() &&
+                          card_sector0(emu.sd_card2()) == -1 && emu.config().sd_card2_image.empty() &&
+                          carried && carried->image == card_b && carried->slot == 1,
+                      "refused='" + refused + "' slot=" +
+                          std::to_string(carried ? carried->slot : -1));
+            }
+
+            // SDSLOT-24: a card ejected mid-transfer and a hard reset leave the second card's
+            // protocol state reset (the sd_card2_.reset() on a hard reset; unmount() resets
+            // too, so this pins the observable, not which of the two did it).
+            {
+                Emulator emu;
+                emu.init(with_ab);
+                EmulatorConfig frontend = with_ab;
+                bool frontend_set = false;
+                SdCardDevice& sd2 = emu.sd_card2();
+                auto cmd = [&sd2](uint8_t c, uint32_t arg) {
+                    const uint8_t bytes[6] = {static_cast<uint8_t>(0x40 | c), static_cast<uint8_t>(arg >> 24),
+                                              static_cast<uint8_t>(arg >> 16), static_cast<uint8_t>(arg >> 8),
+                                              static_cast<uint8_t>(arg), 0x95};
+                    for (uint8_t b : bytes) (void)sd2.receive(b);
+                    for (int i = 0; i < 16; ++i) {
+                        const uint8_t r = sd2.send();
+                        if (r != 0xFF) return r;
+                    }
+                    return uint8_t{0xFF};
+                };
+                cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+                const uint8_t r1 = cmd(17, 0);
+                bool tok = false;
+                for (int i = 0; i < 16; ++i) if (sd2.send() == 0xFE) { tok = true; break; }
+                const bool streaming = sd2.transfer_in_flight();
+                emu.request_sd_card_change({"", false, 1});
+                emulator_service_sd_card_change(emu, frontend, frontend_set);
+                emulator_frontend_cold_boot(emu, frontend, "", ColdBootHooks{});
+                check("SDSLOT-24",
+                      "a second card ejected in the middle of a CMD17 transfer, then a hard reset, "
+                      "has no transfer in flight and answers like an empty socket",
+                      made && r1 == 0x00 && tok && streaming &&
+                          !emu.sd_card2().transfer_in_flight() && card_sector0(emu.sd_card2()) == -1,
+                      "streaming=" + std::to_string(streaming));
+            }
+
+            // SDSLOT-25: the route that used to put one image in both slots. Eject both, insert the
+            // boot card's image in the second slot, hard reset: refused at insert time; and a
+            // config that names the same file twice (any other route) mounts it once, in slot 1.
+            {
+                Emulator emu;
+                emu.init(with_ab);
+                EmulatorConfig frontend = with_ab;
+                bool frontend_set = false;
+                emu.request_sd_card_change({"", false, 1});
+                emulator_service_sd_card_change(emu, frontend, frontend_set);
+                emu.request_sd_card_change({"", false, 0});
+                emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const std::string refused = emu.request_sd_card_change({card_a, false, 1});
+                const auto ins = emulator_service_sd_card_change(emu, frontend, frontend_set);   // nothing queued
+                emulator_frontend_cold_boot(emu, frontend, "", ColdBootHooks{});
+
+                EmulatorConfig twice = with_a;
+                twice.sd_card2_image = card_a;
+                Emulator dup;
+                dup.init(twice);
+                check("SDSLOT-25",
+                      "after both cards are ejected, inserting the first card's image in the second slot "
+                      "is refused, and after the hard reset the two slots do not hold one file; a config "
+                      "that names one file twice leaves the second slot empty",
+                      made && !refused.empty() && !ins && emu.sd_card().mounted() &&
+                          !emu.sd_card2().mounted() && dup.sd_card().mounted() &&
+                          !dup.sd_card2().mounted() && dup.config().sd_card2_image.empty(),
+                      "refused='" + refused + "' card2 mounted=" +
+                          std::to_string(emu.sd_card2().mounted()));
+            }
+
+            // SDSLOT-26: --sdcard2-readonly is the session's: an eject keeps it in both configs, so
+            // the next insert is write-protected too (the menu takes it from the config).
+            {
+                EmulatorConfig ro = with_ab;
+                ro.sd_card2_readonly = true;
+                Emulator emu;
+                emu.init(ro);
+                EmulatorConfig frontend = ro;
+                bool frontend_set = false;
+                emu.request_sd_card_change({"", false, 1});
+                emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const bool kept = emu.config().sd_card2_readonly && frontend.sd_card2_readonly;
+                emu.request_sd_card_change({card_c, emu.config().sd_card2_readonly, 1});
+                const auto ins = emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const int token = card_write_response(emu.sd_card2());
+                check("SDSLOT-26",
+                      "after a second-card eject the read-only flag stays in both configs, and the "
+                      "card inserted next answers a CMD24 with the 0x0D write-protect token",
+                      made && made_c && kept && ins && ins->error.empty() && token == 0x0D,
+                      "kept=" + std::to_string(kept) + " token=" + std::to_string(token));
+            }
+
+            // SDSLOT-27: the cross-slot rule compares with the RIGHT config. (a) the normal remount:
+            // eject the first card and insert the SAME image back into slot 0 is accepted and the
+            // card reads again (the other slot's config is the second card's, not the first's);
+            // (b) a second slot that is configured but could not be mounted still refuses its path
+            // for the first slot.
+            {
+                Emulator emu;
+                emu.init(with_a);
+                EmulatorConfig frontend = with_a;
+                bool frontend_set = false;
+                emu.request_sd_card_change({"", false, 0});
+                emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const std::string again = emu.request_sd_card_change({card_a, false, 0});
+                const auto done = emulator_service_sd_card_change(emu, frontend, frontend_set);
+                const int reads = card_sector0(emu.sd_card());
+
+                const std::string missing = (tmp / ("jnext-eb-missing-" + stamp + ".img")).string();
+                EmulatorConfig unmountable = with_a;
+                unmountable.sd_card2_image = missing;
+                Emulator cfg_only;
+                cfg_only.init(unmountable);
+                const std::string refused = cfg_only.request_sd_card_change({missing, false, 0});
+                check("SDSLOT-27",
+                      "ejecting the first card and inserting the same image back into slot 0 is accepted "
+                      "and the card reads again; a second slot that is configured but not mounted still "
+                      "refuses its path for the first slot",
+                      made && again.empty() && done && done->error.empty() && reads == 0xA1 &&
+                          !cfg_only.sd_card2().mounted() &&
+                          refused.find("second SD card slot") != std::string::npos,
+                      "again='" + again + "' reads=" + std::to_string(reads) + " refused='" + refused + "'");
+            }
+            std::remove(card_c.c_str());
+        }
+
         // EB-72: a ZIP archive is not a card (its local-header magic, whatever
         // the name); the card in the slot and the configured path stay.
         {

@@ -93,7 +93,7 @@
       o[k] = typeof v === 'function' ? true : v;
     });
     if (o.file !== undefined && fileSpec(o.file)) o.file = file;
-    o['$card'] = card;
+    if (card) o['$card'] = card;   // card.source 'none': no card, the core runs --no-sdcard
     if (o.keepWrites === true) o.keepWrites = writes;
     else if (o.keepWrites === false) delete o.keepWrites;
     return o;
@@ -534,6 +534,8 @@
     // The SD card: a development card the seam names (localhost only), the one a visit kept, or
     // one made now from the official zip. -> Promise<{path, sha256}>, the card in /sdcard/image.img.
     function obtainCard(seam, pins) {
+      // 'none': a NEX that needs no NextZXOS runs with no card; nothing is fetched or asked.
+      if (noCard) { progress('download', 1); return Promise.resolve(null); }
       if (seam && seam.card) {
         return JnextImage.fetchImage(seam.card, progress).then(function (image) {
           var inst = JnextImage.installImage(mod, image);
@@ -562,6 +564,7 @@
       });
     }
 
+    var noCard = !!(options.card && options.card.source === 'none');
     var wasmUrl = typeof options.wasmUrl === 'string' ? options.wasmUrl : DEFAULT_WASM;
     var seam = JnextImage.devSeam();
     var pins = null;
@@ -583,7 +586,7 @@
       pins = JnextImage.distribution(mod, seam);
       // Early validation: names, shapes, types. No request has been made yet, so a refused
       // page costs nothing.
-      argvOf(mod, substitute(options, 'x', { path: '/sdcard/image.img', sha256: pins.cardSha256 },
+      argvOf(mod, substitute(options, 'x', noCard ? null : { path: '/sdcard/image.img', sha256: pins.cardSha256 },
                              '/jnext/card-writes/x.jsdw'));
       // card.dirs (more of the distribution on the card): the builder's canonical form of the list
       // is part of the card's identity. (A development card the seam names ignores it: that card

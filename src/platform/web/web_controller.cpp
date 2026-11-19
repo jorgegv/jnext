@@ -92,6 +92,10 @@ void after_tick(SdlApp& app, bool /*more*/)
         g_load_failed = false;
         event("error", "failed to load '" + g_load_failed_file + "'");
     }
+    // GH #540 - card source 'none': the program ran ROM code, which this mode does not have.
+    // Logged by the emulator; the page hears it through onError (the widget's status line).
+    if (std::string rom = app.emulator().take_rom_fetch_report(); !rom.empty())
+        event("error", rom);
     if (g_want_frame && app.emulator().framebuffer_generation() != g_gen_mark) {
         g_want_frame = false;
         event("ready");
