@@ -301,6 +301,9 @@ my @SUBSYS = (
     # merging scopes would let either vouch for the other. No plan doc — the
     # rows were written from the VHDL directly, not from a *-TEST-PLAN-DESIGN.
     ['## Raster State — `test/debug/raster_state_test.cpp`', 'raster_state_test'],
+    # GH #371 - the debugger Graphics tab's pattern and tile decoders. Cited from sprites.vhd and
+    # tilemap.vhd (master) in each check(); no plan doc, the rows were written from the VHDL directly.
+    ['## Debugger Graphics decoders — `test/debug/gfx_decode_test.cpp`', 'gfx_decode_test'],
     # CPU-side regression suites. Separate `##` sections rather than companions
     # of `## Z80N`: that section is the data-driven FUSE runner's, its rows are
     # opcode names, and merging scopes would let one vouch for the other.
