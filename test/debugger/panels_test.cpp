@@ -5038,6 +5038,264 @@ static void test_pc_hint() {
     }
 }
 
+// ── GH #542 - where a taken jump, call or return on the PC line goes ───────────────────────────────
+static void test_pc_transfer() {
+    set_group("QDDEST");
+    auto setup = [](Emulator& emu) {
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        return built;
+    };
+    auto set_regs = [](Emulator& emu, uint16_t pc, uint16_t af, uint16_t hl, uint16_t sp) {
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = pc; r.AF = af; r.HL = hl; r.SP = sp;
+        emu.cpu().set_registers(r);
+    };
+    const QString UP(QChar(0x2191)), DOWN(QChar(0x2193)), SELF(QChar(0x21BA));
+    const QString MARK = QStringLiteral("[<- PC]");
+    // the number of lines whose line_destination() is the marker, and the first such line
+    auto marks = [&](const DisasmPanel& d, int* first = nullptr) {
+        int n = 0;
+        for (int i = 0; i < 64; ++i)
+            if (d.line_destination(i) == MARK) { if (!n && first) *first = i; ++n; }
+        return n;
+    };
+    auto painted_mark = [&](DisasmPanel* d) {
+        int n = 0;
+        for (const PaintedText& t : painted(d)) if (t.text == MARK) ++n;
+        return n;
+    };
+    auto painted_arrow = [&](DisasmPanel* d) {
+        int n = 0;
+        for (const PaintedText& t : painted(d))
+            if (t.text.endsWith(UP) || t.text.endsWith(DOWN) || t.text.endsWith(SELF)) ++n;
+        return n;
+    };
+    QFont bold = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    bold.setPointSize(10);
+    bold.setBold(true);
+    QFont regular = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    regular.setPointSize(10);
+
+    {   // QDDEST-01
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0x20, 0x05});   // JR NZ,$8007
+        set_regs(emu, 0x8000, 0x0000, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const auto items = painted(&dis);
+        const auto pc_row = dcol_row(items, "$8000");
+        const PaintedText* taken = dcol_item(pc_row, "[taken]");
+        const PaintedText* arrow = dcol_item(pc_row, DOWN);
+        const QColor ink = palette_tint::ink(dis.palette(), DisasmPanel::hint_color());
+        const bool arrow_ok = taken && arrow && arrow->pen == ink &&
+                              arrow->pos.x() >= taken->pos.x() + QFontMetrics(bold).horizontalAdvance("[taken]");
+        int dline = -1;
+        const int n = marks(dis, &dline);
+        const auto drow = dcol_row(items, "$8007");
+        const PaintedText* mark = dcol_item(drow, MARK);
+        const bool mark_ok = n == 1 && dline >= 0 && mark && mark->pen == ink &&
+                             mark->pos.x() == dis.bytes_x(dline) + 100;
+        const bool acc_ok = dis.line_transfer(0) == DOWN && dis.line_hint(0) == "[taken]";
+        set_regs(emu, 0x8000, 0x0040, 0, 0xA000);
+        dis.refresh();
+        const bool off_ok = dis.line_transfer(0).isEmpty() && dis.line_hint(0) == "[not taken]" &&
+                            marks(dis) == 0 && painted_mark(&dis) == 0 && painted_arrow(&dis) == 0;
+        check("QDDEST-01",
+              "Disassembly: JR NZ,$8007 taken paints the down arrow after [taken] in the hint ink and [<- PC] at "
+              "bytes_x + 100 on the $8007 row only (line_hint stays [taken]); not taken paints neither",
+              built && arrow_ok && mark_ok && acc_ok && off_ok,
+              fmt("arrow=%d mark=%d acc=%d off=%d", arrow_ok, mark_ok, acc_ok, off_ok));
+    }
+    {   // QDDEST-02
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0xC3, 0x34, 0x12});   // JP $1234
+        set_regs(emu, 0x8000, 0, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const bool up = dcol_item(dcol_row(painted(&dis), "$8000"), UP) && marks(dis) == 0 && painted_mark(&dis) == 0;
+        poke(emu, 0x8000, {0xC3, 0x00, 0xF0});   // JP $F000
+        dis.refresh();
+        const bool down = dcol_item(dcol_row(painted(&dis), "$8000"), DOWN) && marks(dis) == 0 && painted_mark(&dis) == 0;
+        check("QDDEST-02",
+              "Disassembly: JP $1234 (destination out of view) paints the up arrow, JP $F000 the down arrow, and no line is marked",
+              built && up && down, fmt("up=%d down=%d", up, down));
+    }
+    {   // QDDEST-03
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0xC9});
+        poke(emu, 0xA000, {0x34, 0x12});
+        set_regs(emu, 0x8000, 0, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        dbg.set_user_label(dbg.source_page(0x1234), 0x1234, "ret_here");
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.set_annotation_backend(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const bool ret = dcol_item(dcol_row(painted(&dis), "$8000"), "[-> ret_here] " + UP) != nullptr;
+        poke(emu, 0x8000, {0xE9});            // JP (HL)
+        set_regs(emu, 0x8000, 0, 0x8005, 0xA000);
+        dis.refresh();
+        const auto items = painted(&dis);
+        const bool jp = dcol_item(dcol_row(items, "$8000"), "[-> $8005] " + DOWN) != nullptr &&
+                        dcol_item(dcol_row(items, "$8005"), MARK) != nullptr && marks(dis) == 1;
+        poke(emu, 0x8000, {0xC8});            // RET Z taken: the hint names the target already
+        set_regs(emu, 0x8000, 0x0040, 0, 0xA000);
+        dis.refresh();
+        const bool retcc = dis.line_hint(0) == "[taken -> ret_here]" && dis.line_transfer(0) == UP;
+        check("QDDEST-03",
+              "Disassembly: RET paints [-> ret_here] and the up arrow, JP (HL) [-> $8005] and the down arrow with $8005 "
+              "marked, RET Z taken keeps [taken -> ret_here] and only the arrow",
+              built && ret && jp && retcc, fmt("ret=%d jp=%d retcc=%d", ret, jp, retcc));
+    }
+    {   // QDDEST-04
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0x18, 0xFE});   // JR $
+        set_regs(emu, 0x8000, 0, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        check("QDDEST-04",
+              "Disassembly: JR $ shows the self arrow and marks no line, the PC line included",
+              built && dis.line_transfer(0) == SELF && marks(dis) == 0 && painted_mark(&dis) == 0 &&
+                  dcol_item(dcol_row(painted(&dis), "$8000"), SELF) != nullptr,
+              s(dis.line_transfer(0)));
+    }
+    {   // QDDEST-05
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0x20, 0x05});
+        set_regs(emu, 0x8000, 0x0000, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        dis.set_paused(false);
+        bool silent = painted_mark(&dis) == 0 && painted_arrow(&dis) == 0 && marks(dis) == 0;
+        for (int i = 0; i < 64; ++i) silent = silent && dis.line_transfer(i).isEmpty() && dis.line_destination(i).isEmpty();
+        dis.set_paused(true);
+        dis.refresh();
+        check("QDDEST-05",
+              "Disassembly: while running no arrow or [<- PC] is painted or returned; paused and refreshed they are back",
+              built && silent && dis.line_transfer(0) == DOWN && marks(dis) == 1,
+              fmt("silent=%d back='%s'", silent, s(dis.line_transfer(0)).c_str()));
+    }
+    {   // QDDEST-06
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0x20, 0x05});
+        set_regs(emu, 0x8000, 0x0000, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        dbg.set_user_comment(dbg.source_page(0x8000), 0x8000, "pcnote");
+        dbg.set_user_comment(dbg.source_page(0x8007), 0x8007, "destnote");
+        dbg.set_user_comment(dbg.source_page(0x8002), 0x8002, "plain");
+        DisasmPanel dis(&dbg);
+        dis.set_annotation_backend(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const auto items = painted(&dis);
+        const auto pc_row = dcol_row(items, "$8000"), d_row = dcol_row(items, "$8007"), p_row = dcol_row(items, "$8002");
+        const PaintedText* arrow = dcol_item(pc_row, DOWN);
+        const PaintedText* pcnote = dcol_item(pc_row, "; pcnote");
+        const PaintedText* mark = dcol_item(d_row, MARK);
+        const PaintedText* dnote = dcol_item(d_row, "; destnote");
+        const PaintedText* plain = dcol_item(p_row, "; plain");
+        const bool pc_moved = arrow && pcnote && pcnote->pos.x() >= arrow->pos.x() + QFontMetrics(bold).horizontalAdvance(DOWN);
+        const bool d_moved = mark && dnote && dnote->pos.x() >= mark->pos.x() + QFontMetrics(regular).horizontalAdvance(MARK);
+        const bool plain_ok = plain && plain->pos.x() == dis.bytes_x(1) + 100;
+        dis.select_all_visible();
+        const QString copy = dis.selection_text(disasm_text::CopyFormat::WithAddresses);
+        dis.clear_selection();
+        const bool copy_ok = !copy.contains(MARK) && !copy.contains(DOWN) && !copy.contains(UP) && !copy.contains(SELF);
+        check("QDDEST-06",
+              "Disassembly: the PC line's comment starts right of the arrow, the destination row's right of [<- PC], an "
+              "unrelated comment keeps bytes_x + 100, and the copy carries neither marker nor arrow",
+              built && pc_moved && d_moved && plain_ok && copy_ok,
+              fmt("pc=%d dest=%d plain=%d copy=%d", pc_moved, d_moved, plain_ok, copy_ok));
+    }
+    {   // QDDEST-07
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0x18, 0x01});          // JR $8003
+        poke(emu, 0x8002, {0x21, 0x00, 0x00});    // LD HL,0: no line starts at $8003
+        set_regs(emu, 0x8000, 0, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        check("QDDEST-07",
+              "Disassembly: a target inside an instruction ($8003 inside LD HL,nn) marks no line; the arrow still shows",
+              built && marks(dis) == 0 && painted_mark(&dis) == 0 && dis.line_transfer(0) == DOWN,
+              fmt("marks=%d", marks(dis)));
+    }
+    {   // QDDEST-08
+        Emulator emu;
+        const bool built = setup(emu);
+        poke(emu, 0x8000, {0xC3, 0x00, 0x90});   // JP $9000
+        set_regs(emu, 0x8000, 0, 0, 0xA000);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8FF0);
+        dis.refresh();
+        bool pc_in_view = false;
+        for (const PaintedText& t : painted(&dis)) if (t.text == "$8000") pc_in_view = true;
+        check("QDDEST-08",
+              "Disassembly: with the PC line scrolled out of view the destination line ($9000) still paints [<- PC]",
+              built && !pc_in_view && dcol_item(dcol_row(painted(&dis), "$9000"), MARK) != nullptr,
+              fmt("pc_in_view=%d", pc_in_view));
+    }
+    {   // QDDEST-09
+        Emulator emu;
+        const bool built = setup(emu);
+        emu.nextreg().write(0x50, 10);
+        emu.nextreg().write(0x0A, 0x10);
+        emu.nextreg().write(0xB8, 0x01);
+        emu.nextreg().write(0xB9, 0x01);
+        emu.nextreg().write(0xBA, 0x01);
+        emu.divmmc().rom_data()[0] = 0xC9;       // RET, fetched from the DivMMC ROM
+        emu.divmmc().rom_data()[0x10] = 0x34;
+        emu.divmmc().rom_data()[0x11] = 0x12;    // the word its data cycles read
+        poke(emu, 0x0010, {0x78, 0x56});         // RAM page 10: what peek(Cpu) shows
+        set_regs(emu, 0x0000, 0, 0, 0x0010);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.activate_follow_pc();
+        dis.refresh();
+        check("QDDEST-09",
+              "Disassembly: RET at a DivMMC instant entry shows [-> $1234] and the down arrow (the DivMMC ROM's stack word), "
+              "not [-> $5678] (what peek shows)",
+              built && dis.line_transfer(0) == "[-> $1234] " + DOWN, s(dis.line_transfer(0)));
+    }
+}
+
 // ===========================================================================
 // QNAV -- GH #366: Follow, Back and Forward in the Disassembly.
 //
@@ -6379,6 +6637,7 @@ int main(int argc, char** argv) {
     test_annotations();
     test_disasm_columns();
     test_pc_hint();
+    test_pc_transfer();
     test_disasm_nav();
     test_symbols_panel();
     test_cpu_shortcuts();

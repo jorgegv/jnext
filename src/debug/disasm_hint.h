@@ -58,4 +58,21 @@ Follow follow_target(const Z80Registers& r, uint16_t at, const DisasmReadFn& cod
 /// "" for None.
 std::string format_hint(const Hint& h, const disasm_text::SymbolNamer& namer);
 
+/// GH #542 - where the instruction at the PC sends the PC, when it transfers control.
+struct Transfer {
+    enum class Dir { Up, Down, Here };
+    bool     taken  = false;      // the PC goes somewhere other than the next instruction (a conditional only when it holds)
+    uint16_t target = 0;
+    Dir      dir    = Dir::Here;  // target < PC: Up; > PC: Down; == PC: Here (unsigned: the panel's linear order)
+    bool     hidden = false;      // the target is written nowhere on the PC line: RET/RETI/RETN (stack), JP (HL)/(IX)/(IY)
+                                  // (register). False for RET cc, whose "[taken -> T]" hint names it.
+};
+
+/// `code`/`data` exactly as for pc_hint(). Never reads a port; JP (C), HALT and the repeating block
+/// instructions are not transfers.
+Transfer pc_transfer(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn& data);
+
+/// "[-> T]" when t.taken && t.hidden (T named by `namer` or $XXXX), else "".
+std::string format_transfer(const Transfer& t, const disasm_text::SymbolNamer& namer);
+
 } // namespace disasm_hint

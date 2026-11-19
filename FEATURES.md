@@ -170,6 +170,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - C watches, value editing, `cvar()` in scripts and ZRCP, GDB `monitor locals`/`globals`/`print`/`set var`
 - Disassembly select & copy as assembly that pastes into a source file, or "Copy with Addresses" for bug reports
 - Disassembly PC line shows whether a conditional branch is taken and the value at the instruction's memory operand
+- Disassembly PC line shows where a taken jump, call or return goes: an up/down arrow, the destination line marked when in view, the target of RET and JP (HL)
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
 - Debugger window: File > Reload Last File (Alt+L) reloads the rebuilt program with its maps, breakpoints kept
