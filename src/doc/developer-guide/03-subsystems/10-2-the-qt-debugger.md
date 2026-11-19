@@ -98,7 +98,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Breakpoints | every client's subscriptions, through `BreakpointModel` | the GUI's own |
 | Video | `raster()` in all four counter domains plus the ULA fetch phase, and `render_layer()` for each of the eight views | — |
 | Sprites | `sprites()` | — |
-| Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
+| Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `palette_priority()` (the Palettes `Pri` column), `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
 | Copper | `copper()` | — |
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |

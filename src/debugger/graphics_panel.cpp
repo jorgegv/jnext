@@ -226,9 +226,9 @@ void GraphicsPanel::create_ui() {
             {"Tilemap first", PaletteId::TilemapFirst},   {"Tilemap second", PaletteId::TilemapSecond}};
         for (const Bank& b : banks) pal_bank_->addItem(b.name, static_cast<int>(b.id));
         v->addWidget(pal_bank_);
-        pal_table_ = new QTableWidget(256, 4, page);
+        pal_table_ = new QTableWidget(256, 5, page);
         pal_table_->setObjectName("gfxPalTable");
-        pal_table_->setHorizontalHeaderLabels({"#", "Colour", "RGB333", "Hex"});
+        pal_table_->setHorizontalHeaderLabels({"#", "Colour", "RGB333", "Hex", "Pri"});
         pal_table_->setFont(mono);
         pal_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         pal_table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -238,8 +238,11 @@ void GraphicsPanel::create_ui() {
         pal_table_->setColumnWidth(1, 60);
         pal_table_->setColumnWidth(2, 80);
         pal_table_->setColumnWidth(3, 60);
+        pal_table_->setColumnWidth(4, 40);
+        pal_table_->horizontalHeaderItem(4)->setToolTip(
+            tr("Stored priority bit (bit 15 of the palette word, NR 0x44 bit 7). Only Layer 2 palettes use it."));
         for (int i = 0; i < 256; ++i) {
-            for (int c = 0; c < 4; ++c) {
+            for (int c = 0; c < 5; ++c) {
                 auto* item = new QTableWidgetItem();
                 item->setTextAlignment(Qt::AlignCenter);
                 pal_table_->setItem(i, c, item);
@@ -395,11 +398,16 @@ void GraphicsPanel::render_palettes() {
     for (int i = 0; i < pal_bank_->count(); ++i)
         pal_bank_->setItemText(i, QString::fromLatin1(names[i]) + (active[i] ? " (active)" : ""));
 
-    const std::vector<uint16_t> pal = dbg_->palette(static_cast<PaletteId>(pal_bank_->currentData().toInt()));
+    const PaletteId bank = static_cast<PaletteId>(pal_bank_->currentData().toInt());
+    const std::vector<uint16_t> pal = dbg_->palette(bank);
+    const std::vector<uint8_t> pri = dbg_->palette_priority(bank);
     for (int i = 0; i < 256; ++i) {
         const uint16_t v = static_cast<size_t>(i) < pal.size() ? pal[static_cast<size_t>(i)] : 0;
         pal_table_->item(i, 1)->setBackground(QColor::fromRgba(jnext::dbg::rgb333_to_argb(v)));
         pal_table_->item(i, 2)->setText(QString::asprintf("%d %d %d", (v >> 6) & 7, (v >> 3) & 7, v & 7));
         pal_table_->item(i, 3)->setText(QString::asprintf("%03X", v & 0x1FF));
+        // Bit 1 of the stored field is bit 15 of the palette word, the priority bit.
+        const bool p = static_cast<size_t>(i) < pri.size() && (pri[static_cast<size_t>(i)] & 0x02);
+        pal_table_->item(i, 4)->setText(p ? "P" : "-");
     }
 }

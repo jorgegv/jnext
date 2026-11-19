@@ -557,6 +557,22 @@ uint16_t PaletteManager::entry_rgb333(PaletteId target, uint8_t index) const
     return 0;
 }
 
+uint8_t PaletteManager::entry_priority(PaletteId target, uint8_t index) const
+{
+    const int bank = (static_cast<int>(target) >= 4) ? 1 : 0;
+    switch (target) {
+        case PaletteId::ULA_FIRST:
+        case PaletteId::ULA_SECOND:      return ula_priority_[bank][index] & 0x03;
+        case PaletteId::LAYER2_FIRST:
+        case PaletteId::LAYER2_SECOND:   return layer2_priority_[bank][index] & 0x03;
+        case PaletteId::SPRITE_FIRST:
+        case PaletteId::SPRITE_SECOND:   return sprite_priority_[bank][index] & 0x03;
+        case PaletteId::TILEMAP_FIRST:
+        case PaletteId::TILEMAP_SECOND:  return tilemap_priority_[bank][index] & 0x03;
+    }
+    return 0;
+}
+
 void PaletteManager::set_entry_rgb333(PaletteId target, uint8_t index,
                                       uint16_t rgb333, uint8_t priority)
 {

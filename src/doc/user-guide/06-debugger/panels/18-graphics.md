@@ -20,8 +20,10 @@ Three sub-tabs:
   is not drawn; a text-mode pixel is not drawn when its colour equals the global transparent colour
   (NextREG 0x14).
 - **Palettes** lists all 256 entries of any of the eight banks (ULA, Layer 2, Sprites and Tilemap, each first and
-  second), with the colour, its RGB333 values (red green blue, 0 to 7 each) and the 9-bit value in hex. The bank
-  each layer is reading now is marked `(active)`.
+  second), with the colour, its RGB333 values (red green blue, 0 to 7 each), the 9-bit value in hex and **Pri**: `P`
+  when the entry's priority bit is set, `-` when not (every bank stores it, but only Layer 2 palettes use it: a
+  Layer 2 pixel with the bit set is drawn above the other layers). The bank each layer is reading now is marked
+  `(active)`.
 
 Patterns and tiles are shown as stored, without the mirror or rotate a sprite or map entry may apply. Transparent
 pixels show a checkerboard. **Click** a cell to outline it and read where it lives in memory below the atlas.

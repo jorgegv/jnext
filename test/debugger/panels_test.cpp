@@ -6447,7 +6447,7 @@ static void test_graphics_panel() {
     {
         GfxFix f;
         if (!f.ok) {
-            check("QGFX-11", "fixture", false); check("QGFX-12", "fixture", false);
+            check("QGFX-11", "fixture", false); check("QGFX-12", "fixture", false); check("QGFX-15", "fixture", false);
         } else {
             f.sub(2);
             QComboBox* bank = f.combo("gfxPalBank");
@@ -6488,6 +6488,25 @@ static void test_graphics_panel() {
             const bool fst = t->item(0x20, 3)->text() != "0FF";
             check("QGFX-12", "Palettes per bank: after set_palette(SpriteSecond, 20, 0FF) 'Sprites second' row 20 reads '3 7 7', "
                              "'0FF'; 'Sprites first' row 20 does not", sec && fst);
+
+            // QGFX-15: the Pri column
+            auto wr = [&](uint8_t sel, uint8_t second) {
+                f.nr(0x43, sel); f.nr(0x40, 5); f.nr(0x44, 0x00); f.nr(0x44, second); f.nr(0x43, 0x00);
+            };
+            wr(0x10, 0x81);
+            bank->setCurrentIndex(2);   // Layer 2 first
+            const bool l2_on = t->item(5, 4)->text() == "P" && t->item(4, 4)->text() == "-";
+            wr(0x10, 0x01);
+            bank->setCurrentIndex(0);
+            bank->setCurrentIndex(2);
+            const bool l2_off = t->item(5, 4)->text() == "-";
+            wr(0x60, 0x81);
+            bank->setCurrentIndex(5);   // Sprites second
+            const bool spr_on = t->item(5, 4)->text() == "P";
+            check("QGFX-15", "Palettes Pri column: Layer 2 first entry 5 reads P after an NR 0x44 second write of 81 and - after 01; "
+                             "Sprites second entry 5 reads P after 81 (stored for every bank) - VHDL zxnext.vhd:7025",
+                  l2_on && l2_off && spr_on,
+                  std::string(l2_on ? "" : "L2 on? ") + (l2_off ? "" : "L2 off? ") + (spr_on ? "" : "spr? "));
         }
     }
 
