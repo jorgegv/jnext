@@ -3264,7 +3264,9 @@ AST type:</p>
 <li><code>eval_expr(text, debugger)</code> evaluates once, in the no-event scope.</li>
 </ul>
 <p>The engine compiles every <code>when</code> through the same code, via <code>make_condition()</code>
-in the evaluator. The ZRCP server (<a href="12-the-zrcp-server.html">3.10.5</a>) is the other
+in the evaluator. The Qt Watches panel calls <code>eval_expr()</code> at every refresh for its
+Expression rows, and <code>compile_expr()</code> in the no-event scope to check one when it
+is added. The ZRCP server (<a href="12-the-zrcp-server.html">3.10.5</a>) is the other
 caller: <code>src/remote/zrcp/zrcp_condition.*</code> translates ZEsarUX's breakpoint
 dialect into this grammar — tokenising and grouping as ZEsarUX does, emitting a
 fully bracketed expression — and compiles it here, so it owns no evaluator. The

@@ -65,8 +65,9 @@ WatchPanel::WatchPanel(QWidget* parent)
 
 // GH #373: "$<hex> (<signed decimal>d)", 2, 4 or 8 hex digits by magnitude (the language is signed int32; a negative is its two's complement).
 static QString expr_value_text(int32_t v) {
-    const int digits = (v >= 0 && v <= 0xFF) ? 2 : (v >= 0x100 && v <= 0xFFFF) ? 4 : 8;
-    return QString::asprintf("$%0*X (%dd)", digits, static_cast<unsigned>(v), static_cast<int>(v));
+    const unsigned u = static_cast<unsigned>(v);
+    const int digits = u <= 0xFF ? 2 : u <= 0xFFFF ? 4 : 8;
+    return QString::asprintf("$%0*X (%dd)", digits, u, static_cast<int>(v));
 }
 
 void WatchPanel::refresh() {

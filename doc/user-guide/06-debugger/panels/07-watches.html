@@ -4361,7 +4361,13 @@ symbol is labelled with it; a z88dk C symbol is labelled with its C name
 (<code>counter</code>, also when you typed <code>_counter</code>). A <strong>C variable</strong> is added from the <a href="16-variables.html">Variables</a> tab (right-click ▸
 <strong>Watch</strong>): its row shows the variable's path, the C type, the value and where it is, is read at each stop (not while the
 machine runs), and cannot be edited. A local says <code>(in function)</code> and reads in the newest call of that function, or
-<code>out of scope</code> when there is none. See
+<code>out of scope</code> when there is none. An <strong>expression</strong> watch (Type ▸ <strong>Expression</strong> in the Add/Edit dialog) shows the value of any
+<a href="../scripting/04-reading-the-machine.html">debugger-script expression</a>: registers (<code>HL</code>, <code>A</code>), <code>mem16[@ptr]</code>, <code>phys[0x0A, 0x100]</code>,
+symbols (<code>@name</code>) and arithmetic. Names are upper case, and <code>4000</code> is decimal there (use <code>$4000</code> or <code>0x4000</code> for hex), so <code>BC</code>
+is the register, not the address <code>$00BC</code>. A text that does not compile, or that names an event's data (<code>ADDR</code>), is refused
+with the reason when you press OK. The value is re-evaluated at every stop and about four times a second while the machine
+runs; an expression that fails at run time (a division by zero, <code>mem[]</code> out of range) shows its error in the Value cell
+until it succeeds again. An expression row has no address or Memory column. See
 <a href="../functions/04-watches-and-watch-sizes.html">Watches and watch sizes</a> for what the sizes mean.</p>
 
 
