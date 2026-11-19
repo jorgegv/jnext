@@ -140,6 +140,8 @@ public:
     /// suite that drives both sees the pacing grid without depending on how fast the host runs a tick.
     /// GH #499: frames uploaded and presented to the display since start (a throttled tick presents none).
     uint64_t uploads_for_test() const { return uploads_total_; }
+    /// GH #544: the generation of the last uploaded frame (fast_boot::HIDDEN_GENERATION while the screen is hidden).
+    uint64_t last_upload_generation_for_test() const { return last_uploaded_gen_; }
     void set_pacing_time_for_test(std::function<int64_t()> now_us, std::function<void(uint32_t)> sleep_ms) {
         pacing_now_us_ = std::move(now_us);
         pacing_sleep_ms_ = std::move(sleep_ms);

@@ -1732,6 +1732,24 @@ static void test_source_scheme(QTemporaryDir& dir) {
           saved_word);
 }
 
+// AC-102 / AC-103 (GH #544): `[startup] fast_boot_hide_screen`, a Bool launch setting, default off.
+// Oracle: the key row (Bool, default false) and the plan's round-trip; read back from the real file.
+static void test_fast_boot_hide(QTemporaryDir& dir) {
+    set_group("AC-FBHIDE");
+    const QString p0 = fresh_ini_path(dir, "fbhide-default");
+    AppConfig d(p0);
+    d.load();
+    check("AC-102", "fast_boot_hide_screen defaults to false (a fresh struct and a load with no file)",
+          !AppConfigData().fast_boot_hide_screen && !d.data().fast_boot_hide_screen);
+    const QString p1 = fresh_ini_path(dir, "fbhide-true");
+    { AppConfig w(p1); w.load(); w.data().fast_boot_hide_screen = true; w.save(); }
+    AppConfig r(p1);
+    r.load();
+    const std::string raw = raw_text(p1, "startup/fast_boot_hide_screen");
+    check("AC-103", "fast_boot_hide_screen=true saves as [startup] fast_boot_hide_screen=true and loads back true",
+          r.data().fast_boot_hide_screen && raw == "true", raw);
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -1763,6 +1781,7 @@ int main() {
     test_merge_cli_assignments(dir);
     test_source_dirs(dir);
     test_source_scheme(dir);
+    test_fast_boot_hide(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {
