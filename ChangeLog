@@ -14,6 +14,8 @@
 - Debugger: Breakpoints > Save as Script / Load from Script keep your breakpoints in a .jds file; scripts gain `on read_write`
 - Debugger Memory panel: find hex bytes (wildcards, mask) or text; save, load and fill memory blocks
 - Debugger window gets File > Reload Last File (Alt+L): reload the rebuilt program with its maps, breakpoints kept
+- Debugger CPU panel: edit registers, flags, IFF and IM in place while paused
+- Disassembly navigation: Follow jumps and memory operands, Back/Forward history, a Symbols list and register shortcuts
 
 ### Bug Fixes
 - Web example pages fit a phone screen instead of being laid out at desktop width and shrunk
