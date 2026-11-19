@@ -871,7 +871,7 @@ int main() {
         { std::ofstream f(c2, std::ios::binary); f << "keep"; }
         const Run r = build(minimal_card::Input::Zip, zip, c2, ex0);
         std::string content;
-        {   // closed before the remove below: under node (wasm) removing a file that is still open leaves it behind
+        {   // closed before the remove below: an open file cannot be removed on Windows (wine included), and the card stays in /tmp
             std::ifstream f(c2, std::ios::binary);
             content.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         }
@@ -1064,10 +1064,14 @@ int main() {
         std::remove(c2.c_str());
         const Run r = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/APPS"}));
         const std::string d = r.st == minimal_card::Status::Done ? verify_list(c2, fxg, canon({"/APPS"}), rom16) : " " + r.err;
-        Card c(c2);
-        std::vector<uint8_t> x;
+        bool x_ok = false;
+        {   // closed before the remove below (an open file cannot be removed on Windows)
+            Card c(c2);
+            std::vector<uint8_t> x;
+            x_ok = c.read("0:/APPS/x.bin", x) && x == std::vector<uint8_t>(2 << 20, 0x5A);
+        }
         check("MCARD-28", "dirs {/APPS}: the card holds the boot set, config.ini and APPS/x.bin, byte-identical, with the fixture's attributes and times",
-              d.empty() && c.read("0:/APPS/x.bin", x) && x == std::vector<uint8_t>(2 << 20, 0x5A), d);
+              d.empty() && x_ok, d);
         std::remove(c2.c_str());
     }
 
