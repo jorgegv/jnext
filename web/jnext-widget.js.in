@@ -34,8 +34,6 @@
 
   var SCRIPT = document.currentScript;
   var BASE = SCRIPT && SCRIPT.src ? SCRIPT.src : document.baseURI;
-  // The one switch of the NMI button's design: false = opt-in (data-nmi), true = always present.
-  var NMI_ALWAYS = false;
   var CORE = new URL('jnext-@PROJECT_VERSION@.js', BASE).href;
 
   var LIGHT = '--jw-bg:#f4f5f7;--jw-fg:#1d2330;--jw-bar:#e3e6ec;--jw-line:#c5cad4;' +
@@ -146,7 +144,7 @@
       else if (pl.state === 'running') pl.pause();
     });
     button('Reset', 'reset', function () { ui.player.reset().catch(function () {}); });
-    if (NMI_ALWAYS || el.hasAttribute('data-nmi')) {
+    if (el.hasAttribute('data-nmi')) {
       ui.nmiBtn = button('NMI', 'nmi', function () { ui.player.nmi().catch(function () {}); });
       ui.nmiBtn.title = 'NMI button (F9)';
     }

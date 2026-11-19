@@ -113,7 +113,7 @@ the man page's browser section is diffed against the table and the refusal
 functions by `web_api_test` (run by `make cli-check`). The controller
 (`web_controller.cpp`, a source of `jnext_web` only) holds the exported calls
 (`jnext_web_pause`, `jnext_web_reset`, `jnext_web_load`, `jnext_web_save_snapshot`,
-`jnext_web_rzx_record`, `jnext_web_rzx_stop`, `jnext_web_set_volume`, `jnext_web_quit`) and, through `SdlApp::set_on_load_applied` and `after_tick`, tells
+`jnext_web_nmi` (the Multiface NMI, `player.nmi()`; refused under `--no-sdcard`, which has no ROM to service it), `jnext_web_rzx_record`, `jnext_web_rzx_stop`, `jnext_web_set_volume`, `jnext_web_quit`) and, through `SdlApp::set_on_load_applied` and `after_tick`, tells
 the page when the program is in the machine and a frame has followed (the `ready`
 event, `Module.jnextEvent`). `jnext_web_load_applied`, `jnext_web_gain_db`,
 `jnext_web_frame_period_ms` and `jnext_web_cpu_mhz` (the frame period and the
@@ -455,3 +455,17 @@ name, so the seam is honoured there too.
 Rows: BCARD (`test/browser/card.mjs`: the probe, fetch, pick, cache and seam paths, and the
 build of the real distribution when cached) and LUDC (`test/lint-user-docs-card-selftest.sh`:
 the user-facing-docs lint and its scope).
+
+## The Pages demo site
+
+`make pages-site` (prerequisite `package-web`) runs `packaging/web/pages-site.sh`, which reads
+`jnext-<ver>-web.zip` with CPython's `zipfile` and writes `build/pages`: the zip's files minus the
+four example pages, plus `index.html`, made from `web/pages/index.html.in` with the version of
+`version.yaml`. The page holds one widget with `data-card-dirs="/APPS,/GAMES"` and `data-nmi`. The
+script refuses, and removes the output, when the site is not exactly that list, when any name ends
+in an image, program, archive or recording extension (`.img .mmc .zip .nex .tap .tzx .sna .szx .z80
+.jns .rzx .wav .raw`, any case, any depth), or when the wasm exceeds 16 MiB or the site 24 MiB. The
+site never holds NextZXOS, the distribution or a program: the visitor's browser downloads the
+distribution from specnext.com. `test/packaging/pages-site-test.sh` (PSITE-01 to 05, hermetic) pins
+the script and the workflow wiring; `test/browser/pages.mjs` (PAGES-01 and 02) serves `build/pages`
+alone, and `wasm-browser-test` has `pages-site` as a prerequisite.

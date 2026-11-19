@@ -55,7 +55,7 @@ What the widget gives you:
 - a rounded frame with a title bar;
 - a progress bar while NextZXOS's card is made and the machine starts;
 - the usual "click to start" overlay (over the `data-poster` picture when there is one);
-- a toolbar: Pause or Resume, Reset, Mute or Unmute, Fullscreen;
+- a toolbar: Pause or Resume, Reset, Mute or Unmute, Fullscreen, and NMI when the element has `data-nmi`;
 - a status line.
 
 Every element with the class `jnext-widget` gets a player, so a page can hold several.
@@ -73,6 +73,7 @@ Every element with the class `jnext-widget` gets a player, so a page can hold se
 | `data-width`, `data-height` | the screen size in CSS pixels | 640 and 512 |
 | `data-keep-writes` | keep the program's saves across reloads (`keepWrites`); any value but `false`. `el.jnextPlayer.resetCard()` clears them | off |
 | `data-touch-keyboard` | the on-screen keyboard (`touchKeyboard`): `auto`, `on` or `off` | `auto`: shown on a phone or tablet |
+| `data-nmi` | add an NMI button after Reset (the Multiface NMI, F9: it opens NextZXOS's NMI Menu); it stays disabled with `data-card-source="none"`, which has no Multiface ROM. Any value | off |
 | `data-title` | the title bar text | `JNEXT` |
 | `data-theme` | `light` or `dark` | the visitor's browser setting |
 

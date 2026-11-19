@@ -41,6 +41,7 @@ Program formats `file` accepts:
 | `pause()`, `resume()` | Stop and restart the frame loop. |
 | `reset(kind)` | `'program'` (default): restart the program; with no program, the same as `'hard'`. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
 | `load(file)` | Load another program (same forms as `file`) while the machine runs. Resolves when it is in the machine. |
+| `nmi()` | Press the NMI button (the Multiface one, as F9): NextZXOS's NMI Menu opens. Returns a promise; it rejects when the machine is not running, and with card source `'none'` (no Multiface ROM), with the reason as the error message and nothing sent to `onError`. |
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `saveSnapshot()` | Resolves to a `Uint8Array` holding a `.jns` snapshot of the running machine. |
 | `startRzxRecording()`, `stopRzxRecording()` | Record the machine and collect the `.rzx` file. |

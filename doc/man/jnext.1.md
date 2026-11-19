@@ -3188,7 +3188,7 @@ asked), with the plain picture otherwise.
 `state` is `waiting`, `starting`, `running`, `paused`, `exited` or `destroyed`;
 `ready` is a promise for the first ready. `pause()` and `resume()` stop and restart
 the frame loop. `reset(kind)` restarts the program (`'program'`, the default; with no program it powers on again),
-powers the machine on again (`'hard'`) or resets it (`'soft'`). `load(file)` loads
+powers the machine on again (`'hard'`) or resets it (`'soft'`). `nmi()` presses the NMI button (the Multiface one, as F9 and the case button "NMI"), which opens NextZXOS's NMI Menu; it rejects, with the reason as the error message, when the machine is not running or the card source is `'none'` (no Multiface ROM). `load(file)` loads
 another program while the machine runs. `saveSnapshot()` resolves to the bytes of a
 `.jns` snapshot of the running machine (**\--snapshot-compression** applies), for the page
 to offer as a download or give back to `load()` as `{data, name}`. `startRzxRecording()` starts
