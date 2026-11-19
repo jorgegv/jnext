@@ -28,8 +28,14 @@ the debugger costs nothing — no breakpoint checking, no call-stack tracking, n
 panel refreshes. Closing it also resumes the machine if it was paused.
 
 The debugger opens in its own window, positioned to the right of the emulator
-window. It has its own menu bar — **Debug**, **Go**, **Script**, **Map**, **Breakpoints**,
+window. It has its own menu bar — **File**, **Debug**, **Go**, **Script**, **Map**, **Breakpoints**,
 **Watches** and **Window** — and a control toolbar along the bottom.
+
+**File ▸ Reload Last File** (Alt+L) is the emulator window's command of the same name,
+available here too: it loads the newest entry of the emulator window's **File ▸ Recent
+Files** again, with the program's symbols and source map. A map you loaded by hand stays
+loaded. Breakpoints and watches are kept, and a paused machine stays paused at the new
+program counter. The entry is greyed out while the list is empty.
 
 **Window ▸ Attach to emulator window** keeps it pinned to the emulator's
 right-hand edge as you drag or resize that window; the setting is remembered

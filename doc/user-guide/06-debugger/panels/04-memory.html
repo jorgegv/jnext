@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1861,6 +1861,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="04-memory.html" class="md-nav__link md-nav__link--active">
         
   
@@ -1877,6 +1895,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#find-save-load-and-fill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Find, save, load and fill
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -4381,6 +4429,42 @@ would, so ROM stays read-only; in a slot or <code>Page...</code> view they write
 itself, where an overlay does not see them, and a ROM slot stays read-only. While an RZX recording or playback is running an edit is
 refused — a write the recording does not contain would make its replay go
 wrong — and the byte keeps its value.</p>
+<h2 id="find-save-load-and-fill">Find, save, load and fill<a class="headerlink" href="#find-save-load-and-fill" title="Permanent link">&para;</a></h2>
+<p>Right-click the panel (or press the <strong>Menu</strong> key or <strong>Shift+F10</strong>) for the tools menu:
+<strong>Find...</strong>, <strong>Find Next</strong>, <strong>Save Block...</strong>, <strong>Load Block...</strong> and <strong>Fill Block...</strong>. A right-click on a
+byte selects it first. <strong>Find Next</strong> is greyed until you have made a find. Each tool answers in the
+debugger window's status bar, where the text stays for a few seconds like a rewind refusal.</p>
+<p>All four work on the view the selector shows. A start address is in that view's own numbering: the CPU
+address in <code>CPU View</code>, the offset inside the 8K page (<code>0000</code>-<code>1FFF</code>) in a slot or <code>Page...</code> view. The Start
+box takes a number or a symbol, like the Addr box, and opens on the selected byte (or the first row on
+screen). Lengths are in hex (<code>1B00</code>, <code>$1B00</code> or <code>0x1B00</code>), like every number in the panel.</p>
+<ul>
+<li><strong>Find</strong> looks for hex bytes or text. In hex mode the pattern is pairs of digits, spaced or not
+  (<code>CD 34 12</code>, <code>cd3412</code>); a <code>?</code> stands for any digit, so <code>CD ?? 80</code> matches <code>CD</code> then any byte then <code>80</code>,
+  and <code>2?</code> matches <code>$20</code>-<code>$2F</code>. The optional <strong>Mask</strong> is hex bytes of the same count: where a mask bit is
+  0 the byte's bit is ignored (<code>FF 00 FE</code> ignores the middle byte and the low bit of the last). In text
+  mode, tick <strong>Text</strong>: printable ASCII, and <strong>Match case</strong> off matches <code>key</code> against <code>KEY</code>. The search
+  covers the selected view only (the 64K of <code>CPU View</code>, or the 8K of a slot or page), starting at the
+  selected byte (or the top of the view), and the first matching byte becomes the selection. <strong>Find
+  Next</strong> continues from the byte after it, and wraps round to the top of the view, saying <code>(wrapped)</code>.
+  The Disassembly follows a hit when the byte has a CPU address: in <code>CPU View</code> its own, in a slot view the
+  slot's, in a <code>Page...</code> view the lowest slot that maps the page. A page no slot maps cannot be shown
+  there, and the message says so.</li>
+<li><strong>Save Block</strong> writes <code>Length</code> bytes from <code>Start</code> to a file, raw, as the view shows them.</li>
+<li><strong>Load Block</strong> reads a raw file into memory at <code>Start</code>. Leave <strong>Length</strong> blank to load the whole
+  file; a Length shorter than the file loads only that much. A file shorter than the Length loads what
+  it has, and the message says <code>Loaded 4 of 8 bytes ... the file holds only 4 bytes</code>.</li>
+<li><strong>Fill Block</strong> repeats the <strong>Value</strong> (hex bytes: <code>00</code>, <code>DE AD BE</code>) over <code>Length</code> bytes from <code>Start</code>; the
+  last repetition is cut to fit.</li>
+</ul>
+<p>A block in <code>CPU View</code> never wraps past <code>$FFFF</code>: a block that would is refused (Save, Fill) or cut there
+(Load, with the reason in the message). A block in a slot or <code>Page...</code> view carries on into the following
+pages, up to page <code>DF</code>. Bytes that fall on ROM are skipped, and the message says how many landed (<code>Loaded 8
+of 16 bytes ... the rest is ROM, which is read-only</code>); a Load or Fill that lands nothing because the whole
+block is ROM says <code>ROM is read-only</code>.</p>
+<p>Load and Fill work while the machine runs, like typing a byte, and count as a memory edit for
+<a href="../functions/07-backward-execution-rewind.html">rewind</a>. Like an edit, they are refused while an RZX
+recording or playback is running. Find and Save only read, so they work in both.</p>
 
 
 

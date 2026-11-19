@@ -175,7 +175,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   file the toolchain layer was loaded from (`toolchain_symbols().loaded_file()` in `add_annotation_actions()`, `toolchain_note`,
   `annotation_menu.cpp:95-98`; `state_of()`, `:24`, only says whether a label is there). The panels hold a `const Debugger*` for reading; the writes go
   through the non-const pointer `DebuggerManager` hands them with `set_annotation_backend()`
-  (`src/debugger/debugger_manager.cpp:396` and `:400`), and each panel's `annotations_changed()` signal makes the
+  (`src/debugger/debugger_manager.cpp:405` and `:409`), and each panel's `annotations_changed()` signal makes the
   manager refresh the panels.
 - **The Disassembly draws it.** `label_column_shown()` (`disasm_panel.cpp:1137`) is true while the symbol table
   (the composed reader, section 9) holds any label; then the **Label** column sits between the BP column and the
@@ -192,19 +192,19 @@ The same two views edit the store and draw it; nothing here changes what the sto
   formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
-  (`connect`, `src/debugger/debugger_window.cpp:926-930`), connected to `DebuggerManager::on_open_annotations()`
-  (`debugger_manager.cpp:793`), `on_save_annotations()` (`:769`) and `on_save_annotations_as()` (`:759`); Save with no
+  (`connect`, `src/debugger/debugger_window.cpp:921-925`), connected to `DebuggerManager::on_open_annotations()`
+  (`debugger_manager.cpp:866`), `on_save_annotations()` (`:778`) and `on_save_annotations_as()` (`:768`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).
 - **Unsaved changes (D11).** `DebuggerManager` keeps `saved_revision_` (`debugger_manager.h`), the backend's
   `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
-  `confirm_discard_annotations()` (`debugger_manager.cpp:775`) asks Save / Discard / Cancel when they differ, and is
+  `confirm_discard_annotations()` (`debugger_manager.cpp:848`) asks Save / Discard / Cancel when they differ, and is
   asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
-  (`confirm_discard_annotations`, `src/gui/main_window.cpp:3881`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
+  (`confirm_discard_annotations`, `src/gui/main_window.cpp:3882`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
-  SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3878`) asks nothing: it logs that the unsaved changes were
+  SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3879`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:740`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:395`), makes that file
+  (`debugger_manager.cpp:749`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:395`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.

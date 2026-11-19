@@ -129,6 +129,7 @@ rule        ::= [ [ "disabled" ] IDENT ":" ] "on" event [ "once" ] [ "when" expr
 event       ::= "execute"  addr_spec
               | "read"     addr_spec
               | "write"    addr_spec
+              | "read_write" addr_spec             # a read or a write: one Mem subscription, both access bits
               | "io_read"  port_spec
               | "io_write" port_spec
               | "nextreg"  reg_spec                # NextREG write (CPU or Copper)
@@ -284,13 +285,13 @@ Event payload, valid only inside the matching rule body:
 
 | Name | Events | Meaning |
 |---|---|---|
-| `ADDR` | read/write/execute | logical address hit |
-| `VALUE` | read/write/io_*/nextreg | byte read or written (nextreg: the value written; the register is already committed at delivery, so `nextreg[REG] == VALUE`) |
+| `ADDR` | read/write/read_write/execute | logical address hit |
+| `VALUE` | read/write/read_write/io_*/nextreg | byte read or written (nextreg: the value written; the register is already committed at delivery, so `nextreg[REG] == VALUE`) |
 | `PREV` | nextreg | the register's value before the write (backend payload `prev`, peeked at the hook) |
-| `PAGE` | read/write/execute | physical 8K page behind `ADDR` at the time of the access — `Mmu::get_effective_page(ADDR >> 13)`. On `execute` it is derived at delivery as `page[PC >> 13]` (the backend's Execute payload carries `pc` only). **Overlay caveat**: `Mmu::write` latches the watch before the Multiface / DivMMC / Layer 2 overlays (`mmu.h:418-450`), so a write that an overlay then captures is seen (good for 3(a)) but `PAGE` is the MMU slot's page, not the overlay's target |
+| `PAGE` | read/write/read_write/execute | physical 8K page behind `ADDR` at the time of the access — `Mmu::get_effective_page(ADDR >> 13)`. On `execute` it is derived at delivery as `page[PC >> 13]` (the backend's Execute payload carries `pc` only). **Overlay caveat**: `Mmu::write` latches the watch before the Multiface / DivMMC / Layer 2 overlays (`mmu.h:418-450`), so a write that an overlay then captures is seen (good for 3(a)) but `PAGE` is the MMU slot's page, not the overlay's target |
 | `PORT` | io_read/io_write | full 16-bit port |
 | `REG` | nextreg | register number |
-| `SOURCE` | read/write/nextreg, io_read/io_write | one of the constants `CPU` (0), `DMA` (1), `COPPER` (2), declared in the grammar. A DMA byte whose destination is a port raises `io_write` with `SOURCE == DMA` (REQ-dsl-27 ACCEPTED) |
+| `SOURCE` | read/write/read_write/nextreg, io_read/io_write | one of the constants `CPU` (0), `DMA` (1), `COPPER` (2), declared in the grammar. A DMA byte whose destination is a port raises `io_write` with `SOURCE == DMA` (REQ-dsl-27 ACCEPTED) |
 | `PC` | all | **pre-execution PC of the instruction that caused the event** (REQ-dsl-12), not the CPU's live PC |
 | `KEY` | hostkey | 1..8 |
 | `CPC`, `HC_ULA`, `CVC` | copper move/wait/halt | Copper program counter (0..1023) and the raster position of the Copper step; `REG`/`VALUE` on `move`; `WAIT_V`, `WAIT_H` (the WAIT's vpos and hpos threshold) on `wait`. **Inside a `copper` rule `HC_ULA`/`CVC` are the payload values (the step's position) and shadow the live state names** — delivery is ≤1 instruction late, so the two can differ; use `RAW_HC`/`RAW_VC` for the live beam if needed |
@@ -1660,7 +1661,8 @@ WP4.
 | `execute A..B [page P]` | `Execute`, `lo..hi`, optional `page` |
 | `execute page P1..P2` | **one `Execute` per page** over 0..0xFFFF, at most 16 (F3) |
 | `read` / `write A..B [page P]` | `Mem`, access Read / Write, range, optional `page` (the AND form) |
-| `read` / `write page P1..P2` | ONE `Mem` whose page SET is P1..P2 — the backend's filter, never a `PAGE ==` predicate |
+| `read_write A..B [page P]` | `Mem`, access ReadWrite (both bits, one subscription), as `write` in every other respect; no `PREV` (a read has none). The Breakpoints panel's Read/Write breakpoint is this rule (GH #376) |
+| `read` / `write` / `read_write page P1..P2` | ONE `Mem` whose page SET is P1..P2 — the backend's filter, never a `PAGE ==` predicate |
 | `io_read` / `io_write P` | `Port`: mask `0x00FF` for P ≤ 0xFF (GH #222), else `0xFFFF` |
 | `io_* mask M value V` | `Port`, as written |
 | `io_* P1..P2` | `Port` matching every port, plus the engine's inclusive range condition — on the LOW byte when the range lies in 0x00..0xFF, exactly otherwise, as a single port decodes (GH #222). A range straddling 0xFF is a load error |

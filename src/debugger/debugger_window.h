@@ -91,6 +91,11 @@ public:
     /// advertising a key that no longer works.
     void set_keymap(const jnext::dbgkeys::Keymap& km);
 
+    /// GH #374 - File > Reload Last File forwards to `host` (the emulator window's action) and
+    /// mirrors its enabled state. Null disables the item.
+    void set_reload_source(QAction* host);
+    QAction* reload_action() const { return reload_action_; }
+
     const jnext::dbgkeys::Keymap& keymap() const { return keymap_; }
 
     /// Re-attach this window to the right-hand edge of the given main window.
@@ -284,6 +289,8 @@ private:
     // MEASURED give-up is recoverable by re-enabling the toggle.
     bool     attach_platform_blocked_ = false;
     QAction* attach_action_ = nullptr;
+    QAction* reload_action_ = nullptr;   // GH #374
+    QMetaObject::Connection reload_trigger_conn_, reload_enable_conn_;
     // Sequences the deferred landing checks and counts consecutive misses.
     // Pure logic, unit-tested in test/debugger/window_attach_test.cpp.
     jnext::AttachMoveTracker attach_tracker_;

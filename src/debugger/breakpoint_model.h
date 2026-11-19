@@ -4,10 +4,13 @@
 #include <QString>
 
 #include <cstdint>
+#include <map>
+#include <string>
 #include <vector>
 
 #include "debug/debugger.h"
 #include "debug/long_address.h"
+#include "script/bp_script.h"
 
 /// GH #278 WP4c — the Qt GUI's breakpoints, as BACKEND SUBSCRIPTIONS.
 ///
@@ -103,6 +106,15 @@ public:
     /// Remove / enable the row as listed: a group row acts on every location.
     void remove(const Row& row);
     void set_enabled(const Row& row, bool enabled);
+    /// GH #376 - this GUI's own rows as the codec spells them (`bp_script.h`), in
+    /// `rows()` order. A source-line row carries the text it was set with and its
+    /// members' places.
+    std::vector<jnext::script::BpSpec> script_specs() const;
+    /// Add a breakpoint file's rows to the current set, with the file's On state on
+    /// each. A breakpoint that exists keeps its row and takes the state; a source
+    /// line already armed on exactly those places is not added twice.
+    void add_specs(const std::vector<jnext::script::BpSpec>& specs);
+
     /// Remove every breakpoint THIS GUI owns. Other clients' are not the GUI's
     /// to delete.
     void clear_all();
@@ -169,6 +181,7 @@ private:
         jnext::dbg::MemSpace space;
         bool                 enabled;
         bool                 live;
+        jnext::dbg::GroupId  group;
     };
     const Member* find_own_(int type, uint16_t addr,
                             jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu()) const;
@@ -188,6 +201,8 @@ private:
     jnext::dbg::ClientId  client_ = jnext::dbg::CLIENT_NONE;
     std::vector<Row>      rows_;
     std::vector<Member>   members_;
+    /// The text each own source-line group was set with (what `resolve()` took).
+    std::map<jnext::dbg::GroupId, std::string> group_lines_;
     /// What the last publish saw, per listed id: its kind and whether it was
     /// enabled / live. A row's filter cannot change without a new id.
     struct Seen {

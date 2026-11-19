@@ -716,6 +716,34 @@ static void event_rows() {
               e && e->type == SEvt::Read && is_int(e->lo, 0x4000) && is_int(e->hi, 0x5AFF));
     }
     {
+        // `read_write` is the filter of `write`, under its own event type.
+        const ParseResult a = P("on read_write 0x9000 do end");
+        const ParseResult b = P("on read_write 0x9000..0x90FF do end");
+        const ParseResult c = P("on read_write 0x9000 page 0x0A do end");
+        const ParseResult d = P("on read_write page 0x0A..0x0B do end");
+        const EventSpec *ea = ev0(a), *eb = ev0(b), *ec = ev0(c), *ed = ev0(d);
+        check("PARSE-RW-01", "`on read_write` takes `write`'s address filters: one address, a range, `page`, page only",
+              ea && eb && ec && ed && ea->type == SEvt::ReadWrite && is_int(ea->lo, 0x9000) && !ea->hi &&
+                  eb->type == SEvt::ReadWrite && is_int(eb->lo, 0x9000) && is_int(eb->hi, 0x90FF) &&
+                  ec->type == SEvt::ReadWrite && is_int(ec->page_lo, 0x0A) && !ec->page_only &&
+                  ed->type == SEvt::ReadWrite && ed->page_only && is_int(ed->page_lo, 0x0A) &&
+                  is_int(ed->page_hi, 0x0B) && !ed->lo);
+    }
+    {
+        const std::vector<Diagnostic> ok = P_check(
+            "on read_write 0x9000 when ADDR == 1 and VALUE == 2 and PAGE == 3 and SOURCE == 0 and PC == 4 do end");
+        const std::vector<Diagnostic> prev = P_check("on read_write 0x9000 when PREV == 1 do end");
+        check("PARSE-RW-02", "in a `read_write` rule ADDR VALUE PAGE SOURCE PC check clean and PREV is a load error "
+                             "(a read carries none)",
+              ok.empty() && one_err_at(prev, 1, 27, "not available in a memory event"), dstr(ok) + dstr(prev));
+    }
+    {
+        check("PARSE-RW-03", "`read_write` is reserved: it can be neither a variable nor a label",
+              err_at(P("var read_write = 1").error, 1, 5, "reserved") &&
+                  err_at(P("read_write: on frame do end").error, 1, 1, "reserved"),
+              dstr(P("var read_write = 1").error) + dstr(P("read_write: on frame do end").error));
+    }
+    {
         const ParseResult r = P("on write 0xC000..0xFFFF page 0x22 do end");
         const EventSpec* e = ev0(r);
         check("PARSE-EV-PAGE-QUAL", "`on write LO..HI page P` — a range qualified by a physical page",

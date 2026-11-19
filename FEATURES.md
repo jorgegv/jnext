@@ -144,6 +144,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - CPU panel T-state counter: T-states since the last stop, or accumulated across stops
 - Panels: CPU registers, disassembly, memory hex editor, MMU, stack, call stack
 - Memory panel physical-page view: `Slot 0-7` show the page mapped in the slot, `Page...` shows any NR page
+- Memory panel tools: find hex bytes (wildcards, mask) or text, save/load a block to a raw binary file, fill a block
 - Panels: video layers, sprites, copper, NextREG, audio, watches, breakpoints
 - Video panel "All layers" view: the real composite, as in the emulator window
 - Video panel "Background" view: the NR 0x4A fallback colour per scanline
@@ -154,6 +155,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - PC/data/read/write breakpoints with watchpoints
 - I/O port breakpoints: IO Read on `IN`, IO Write on `OUT`, by low byte or exact 16-bit port
 - Breakpoint enable/disable per row, plus a master switch
+- Breakpoints saved to and loaded from a `.jds` script (Breakpoints > Save as Script / Load from Script); scripts gain `on read_write`
 - Symbol table from Z88DK MAP files and sjasmplus `--sym` / `--exp` files (`--map` or the Map menu), with inline symbol names in disassembly, and the 48K ROM's names from the symbol map every package ships (Map > Load MAP File > Simple Format)
 - **Source-level debugging**: z88dk `-debug` maps and listings and sjasmplus SLD maps give C and assembly source lines, NextBuild / Boriel `Memory.txt` gives symbols (`--source-map FILE`) (user guide: The Source Debugger)
 - Banked code matched by page, with identity checks against the linker's section binaries
@@ -167,6 +169,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Disassembly PC line shows whether a conditional branch is taken and the value at the instruction's memory operand
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
+- Debugger window: File > Reload Last File (Alt+L) reloads the rebuilt program with its maps, breakpoints kept
 - Redefinable debugger keys: all twenty debugger commands under Settings > Preferences > Debugger Keys
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
 - Rewind preserves the SD card's SPI protocol state, so streaming programs resume correctly
