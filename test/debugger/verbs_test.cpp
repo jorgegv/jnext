@@ -350,7 +350,7 @@ QRgb ball_colour(QPushButton* b) {
 // it rejects whatever else appears, so a dialog that keeps re-opening (a file
 // dialog refusing its answer) ends the row instead of the suite.
 struct Modals {
-    struct Seen { QString kind, title, text, filters; int icon = 0; };   // icon: a QMessageBox's (GH #389)
+    struct Seen { QString kind, title, text, filters; int icon = 0; QString initial = QString(); };   // icon: a QMessageBox's (GH #389); initial: a file dialog's file-name text when it opened (GH #376)
 
     QString                    file_path;            // for a QFileDialog
     QStringList                file_paths;           // GH #389: the files of a multi-select dialog (ExistingFiles)
@@ -398,7 +398,11 @@ struct Modals {
         }
         if (seen.size() >= kMaxModals) { dlg->reject(); return; }
         if (auto* fd = qobject_cast<QFileDialog*>(w)) {
-            seen.push_back({"file", fd->windowTitle(), {}, fd->nameFilters().join(QStringLiteral(";;"))});
+            {
+                Seen fs{"file", fd->windowTitle(), {}, fd->nameFilters().join(QStringLiteral(";;"))};
+                if (auto* le = fd->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) fs.initial = le->text();
+                seen.push_back(fs);
+            }
             if (cancel_files) { dlg->reject(); return; }
             if (fd->fileMode() == QFileDialog::ExistingFiles || fd->fileMode() == QFileDialog::Directory) {
                 // The widget dialog takes the typed names: a quoted list for several files, the path for a directory.
@@ -4062,10 +4066,12 @@ struct BpjFix {
     BreakpointModel& model() { return fx.mgr->breakpoints(); }
     QMenu* bp_menu() { return menu_named(fx.dbg()->menuBar(), "Breakpoints"); }
     // Run a menu item that opens a file dialog (answered with `path`) and boxes; returns what was seen.
-    std::vector<Modals::Seen> run(const char* item, const QString& path, bool cancel = false) {
+    std::vector<Modals::Seen> run(const char* item, const QString& path, bool cancel = false,
+                                  std::function<void()> after_accept = {}) {
         Modals mo;
         mo.file_path = path;
         mo.cancel_files = cancel;
+        mo.after_file_accept = std::move(after_accept);
         if (QAction* a = item_named(bp_menu(), item)) a->trigger();
         mo.timer.stop();
         return mo.seen;
@@ -4248,6 +4254,74 @@ static void test_bp_script() {
     }
 }
 
+// Split from test_bp_script(): every row's fixture holds a whole Emulator on the stack, and one frame
+// with all of them overflows the 8 MB stack.
+static void test_bp_script_more() {
+    set_group("QBPJ");
+    using BM = BreakpointModel;
+    {   // QBPJ-11
+        BpjFix g;
+        g.model().add_source_line(QStringLiteral("main.bas:10"));
+        const auto places = g.model().script_specs()[0].locations;
+        write_file("bpj-off.jds", "disabled bp1: on execute \"main.bas:10\" do stop end\n");
+        write_file("bpj-on.jds", "bp1: on execute \"main.bas:10\" do stop end\n");
+        g.run("Load from Script...", g_tmp->filePath(QStringLiteral("bpj-off.jds")));
+        const bool off = g.model().rows().size() == 1 && !g.model().rows()[0].enabled &&
+                         g.model().rows()[0].group != jnext::dbg::GROUP_NONE &&
+                         jnext::script::same_locations(g.model().script_specs()[0].locations, places);
+        g.run("Load from Script...", g_tmp->filePath(QStringLiteral("bpj-on.jds")));
+        const bool on = g.model().rows().size() == 1 && g.model().rows()[0].enabled &&
+                        jnext::script::same_locations(g.model().script_specs()[0].locations, places);
+        check("QBPJ-11", "loading a source line onto the group already armed there gives it the file's On state, both ways "
+                         "(enabled group + `disabled` line: off; then an enabled line: on), one row, same places",
+              places.size() == 2 && off && on);
+    }
+    {   // QBPJ-12
+        BpjFix g;
+        g.model().add(BM::Execute, 0x8000);
+        const QString dir = g_tmp->filePath(QStringLiteral("bpj-gone"));
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/x.jds");
+        const auto seen = g.run("Save as Script...", path, false, [dir]() { QDir(dir).removeRecursively(); });
+        const Modals::Seen* box = nullptr;
+        for (const auto& m : seen) if (m.kind == "box") box = &m;
+        check("QBPJ-12", "a Save that cannot write gives one 'Save Failed' box naming the path, no 'Not Saved' box and no file",
+              count_kind(seen, "box") == 1 && box && box->title == "Save Failed" && box->text.contains(path) &&
+                  !QFile::exists(path),
+              box ? s(box->title) + " " + s(box->text) : std::string("(no box)"));
+    }
+    {   // QBPJ-13
+        BpjFix g;
+        g.model().add(BM::Execute, 0x8000);
+        const auto before = g.model().script_specs();
+        write_file("bpj-vanish.jds", "on read 0x9000 do stop end\n");
+        const QString path = g_tmp->filePath(QStringLiteral("bpj-vanish.jds"));
+        const auto seen = g.run("Load from Script...", path, false, [path]() { QFile::remove(path); });
+        const Modals::Seen* box = nullptr;
+        for (const auto& m : seen) if (m.kind == "box") box = &m;
+        check("QBPJ-13", "a Load of a file that cannot be read gives one 'Load Failed' box naming it and changes no row",
+              count_kind(seen, "box") == 1 && box && box->title == "Load Failed" && box->text.contains(path) &&
+                  g.model().script_specs() == before,
+              box ? s(box->text) : std::string("(no box)"));
+    }
+    {   // QBPJ-14
+        BpjFix g;
+        g.model().add(BM::Execute, 0x8000);
+        const QString saved = g_tmp->filePath(QStringLiteral("bpj-mem.jds"));
+        g.run("Save as Script...", saved);
+        const auto s1 = g.run("Load from Script...", saved);          // opens on the file the Save used
+        write_file("bpj-mem2.jds", "on read 0x9000 do stop end\n");
+        const QString other = g_tmp->filePath(QStringLiteral("bpj-mem2.jds"));
+        g.run("Load from Script...", other);
+        const auto s2 = g.run("Save as Script...", other + QStringLiteral(".keep"));   // opens on the file the Load used
+        check("QBPJ-14", "the last path seeds both dialogs: a Load opens on the file the Save wrote, and a Save on the file "
+                         "the Load read",
+              count_kind(s1, "file") == 1 && s1[0].initial == QStringLiteral("bpj-mem.jds") &&
+                  count_kind(s2, "file") == 1 && s2[0].initial == QStringLiteral("bpj-mem2.jds"),
+              s1.empty() || s2.empty() ? std::string("(no dialog)") : s(s1[0].initial) + " | " + s(s2[0].initial));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -4283,6 +4357,7 @@ int main(int argc, char** argv) {
     test_reexport_ui();
     test_tstates();
     test_bp_script();
+    test_bp_script_more();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

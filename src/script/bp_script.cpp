@@ -102,8 +102,14 @@ std::string rule_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& why
     }
     const auto key = dbg.symbols().find_name(*name);
     const auto addr = dbg.lookup_name(*name);
-    if (!key || !key->space || !(*key->space == s.space) || !addr || *addr != s.addr) {
+    if (!key || !key->space || !(*key->space == s.space) || !addr) {
         why = "the symbol `" + *name + "` does not name that memory";
+        return "";
+    }
+    if (*addr != s.addr) {
+        char b[48];
+        std::snprintf(b, sizeof b, " names $%04X, not $%04X", *addr, s.addr);
+        why = "the symbol `" + *name + "`" + b;
         return "";
     }
     return "on execute @" + *name;

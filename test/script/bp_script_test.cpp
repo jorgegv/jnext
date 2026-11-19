@@ -76,7 +76,9 @@ static const char* const kSld =
     "main.bas|11||0|20|49154|T|\n"
     "x.asm|1||0|20|49152|L|,banked,,\n"
     "x.asm|2||0|21|49168|L|,odd-name,,\n"
-    "x.asm|3||0|-1|32770|L|,gen,,\n";
+    "x.asm|3||0|-1|32770|L|,gen,,\n"
+    "x.asm|4||0|20|49160|L|,dup,,\n"
+    "x.asm|5||0|20|49170|L|,dup,,\n";
 
 static std::string tmp_path(const std::string& leaf) {
     struct Dir {
@@ -159,7 +161,8 @@ static void save_rows(Fix& f) {
     {
         const std::vector<BpSpec> in = {
             spec(BpSpec::Execute, 0x8000),  spec(BpSpec::Read, 0x9000),   spec(BpSpec::Write, 0x9001),
-            spec(BpSpec::ReadWrite, 0x9002), spec(BpSpec::IoRead, 0x00FE), spec(BpSpec::IoWrite, 0x243B)};
+            spec(BpSpec::ReadWrite, 0x9002), spec(BpSpec::IoRead, 0x00FE), spec(BpSpec::IoWrite, 0x243B),
+            spec(BpSpec::IoRead, 0x00FF), spec(BpSpec::IoWrite, 0x0100)};
         const BpScript o = bp_script_text(in, d);
         const std::string want = kHeader +
             "bp1: on execute 0x8000 do stop end\n"
@@ -167,9 +170,11 @@ static void save_rows(Fix& f) {
             "bp3: on write 0x9001 do stop end\n"
             "bp4: on read_write 0x9002 do stop end\n"
             "bp5: on io_read 0xFE do stop end\n"
-            "bp6: on io_write 0x243B do stop end\n";
+            "bp6: on io_write 0x243B do stop end\n"
+            "bp7: on io_read 0xFF do stop end\n"
+            "bp8: on io_write 0x0100 do stop end\n";
         check("BPJ-01", "the six GUI types are six rules: execute, read, write, read_write, io_read (two digits for a "
-                        "low-byte port), io_write (four), each ending in a newline; nothing refused",
+                        "low-byte port, up to 0xFF), io_write (four, from 0x0100), each ending in a newline; nothing refused",
               o.text == want && o.refused.empty(), o.text);
     }
     {
@@ -262,6 +267,37 @@ static void save_rows(Fix& f) {
     }
 }
 
+static void save_rows2(Fix& f) {
+    const Debugger& d = *f.dbg;
+    {
+        // Two labels `dup` in page 20 ($C008, $C012): find_name("dup") is the first one.
+        const auto l1 = d.symbols().lookup(MemSpace::page(20), 0xC008);
+        const auto l2 = d.symbols().lookup(MemSpace::page(20), 0xC012);
+        const auto key = d.symbols().find_name("dup");
+        const BpScript o = bp_script_text({qualified(MemSpace::page(20), 0xC008), qualified(MemSpace::page(20), 0xC012)}, d);
+        check("BPJ-20", "two labels of one name in one page: the first address is written `@dup`, the second is refused "
+                        "(it would reload at the first) and the refusal names the address mismatch",
+              l1 && l2 && *l1 == "dup" && *l2 == "dup" && key && key->addr == 0xC008 && o.refused.size() == 1 &&
+                  o.text.find("bp1: on execute @dup do stop end") != std::string::npos &&
+                  o.text.find("bp2:") == std::string::npos &&
+                  o.refused[0] == "Execute $C012 P14: the symbol `dup` names $C008, not $C012",
+              o.text);
+    }
+    {
+        // The right addresses, in another memory (page 30; the map builds them in pages 20 and 21).
+        auto moved = f.line10();
+        for (auto& l : moved) l.space = MemSpace::page(30);
+        const BpScript o = bp_script_text({source_line("main.bas:10", moved)}, d);
+        const BpSpec a = source_line("main.bas:10", f.line10());
+        const BpSpec b = source_line("main.bas:10", moved);
+        check("BPJ-21", "a source line whose places have the right addresses in another memory is refused; two specs "
+                        "differing only in a place's memory are neither equal nor the same places",
+              o.refused.size() == 1 && o.text.find("bp1:") == std::string::npos && !(a == b) &&
+                  !same_locations(a.locations, b.locations) && a == a && same_locations(a.locations, f.line10()),
+              o.text);
+    }
+}
+
 // ---- load --------------------------------------------------------------------
 
 static void load_rows(Fix& f) {
@@ -310,6 +346,8 @@ static void load_rows(Fix& f) {
             "on io_read mask 0xFF value 0xFE do stop end\n",
             "on io_read 0xFE..0xFF do stop end\n",
             "on execute 0x8000+1 do stop end\n",
+            "on execute 0x10000 do stop end\n",
+            "on read 0x10000 do stop end\n",
             "on frame do stop end\n",
             "on stop do stop end\n",
             "on nextreg 0x07 do stop end\n",
@@ -320,7 +358,7 @@ static void load_rows(Fix& f) {
             if (r.ok() || !r.specs.empty() || r.errors.size() != 1 || r.errors[0].pos.line != 1) miss += std::string("[") + t + "] ";
         }
         check("BPJ-14", "each of var, once, when, a message, two actions, log, a range, page, page-only, mask/value, an "
-                        "io range, an expression address, on frame, on stop, on nextreg is refused with one positioned "
+                        "io range, an expression address, an address past 0xFFFF (execute and read), on frame, on stop, on nextreg is refused with one positioned "
                         "error and no specs",
               miss.empty(), miss);
     }
@@ -454,6 +492,7 @@ int main() {
     {
         Fix f;
         save_rows(f);
+        save_rows2(f);
         load_rows(f);
     }
     engine_rows();

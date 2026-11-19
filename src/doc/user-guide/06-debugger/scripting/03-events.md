@@ -32,7 +32,7 @@ access; that is why a script can look at anything without disturbing it.
 | Event | The rule runs |
 |---|---|
 | `execute`, `cycle`, `hostkey` | **before** the instruction at `PC` |
-| `read`, `write`, `io_read`, `io_write`, DMA, Copper | **after** the instruction that caused it |
+| `read`, `write`, `read_write`, `io_read`, `io_write`, DMA, Copper | **after** the instruction that caused it |
 | `nextreg` by the Copper or the DMA | after the instruction during which it happened |
 | `nextreg` by the CPU | **one instruction later**: a CPU NextREG write commits after its instruction's events are delivered. `PC` still names the instruction that wrote it |
 | `interrupt`, `nmi`, `reset` | at the boundary where it happened |
