@@ -26,6 +26,7 @@
 
 #include "debug/debugger.h"
 #include "debug/disasm_hint.h"
+#include "debugger/follow_reader.h"
 #include "debugger/memory_text.h"
 #include "debug/symbol_table.h"
 #include "debugger/watch_panel.h"
@@ -270,16 +271,7 @@ disasm_hint::Follow DisasmPanel::follow_of_line(int line) const
     const uint16_t at = entries_[line].line.addr;
     const Z80Registers r = dbg_->registers();
     const DisasmReadFn code = dbg_->memory_reader();
-    // The PC instruction's data cycles see the map as its own fetch leaves it (operand_reader); any
-    // other line is read as the CPU map is now.
-    const jnext::dbg::Debugger* dbg = dbg_;
-    const DisasmReadFn data = entries_[line].is_current_pc
-        ? dbg_->operand_reader()
-        : DisasmReadFn([dbg](uint16_t a) -> uint8_t {
-              uint8_t b = 0;
-              dbg->peek(jnext::dbg::MemSpace::cpu(), a, 1, &b);
-              return b;
-          });
+    const DisasmReadFn data = follow_data_reader(dbg_, entries_[line].is_current_pc);
     return disasm_hint::follow_target(r, at, code, data);
 }
 

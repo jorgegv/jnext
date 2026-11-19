@@ -15,7 +15,7 @@ every memory, or the page (`P20`) for one that belongs to a banked page.
   name: nothing happens, and the panel says why. It lights up again as soon as the page is paged
   in.
 - The right-click menu offers **Show in Disassembly**, **Show in Source** (with a source map; disabled
-  where no line covers the label) and **Show in Memory**. The first and last are disabled for a
+  where no line covers the label) and **Show in Memory**. All three are disabled for a
   label that is not paged in.
 
 The list is rebuilt when a map is loaded or a label changes, not on every step.

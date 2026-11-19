@@ -56,6 +56,7 @@
 #include "debugger/mmu_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/stack_panel.h"
+#include "debugger/symbols_panel.h"
 #include "debugger/video_panel.h"
 #include "debugger/watch_panel.h"
 #include "memory/mmu.h"
@@ -4254,6 +4255,59 @@ static void test_nav_window() {
             const bool back = dis->go_back() && dis->view_address() == before;
             check("QNAVW-05", desc, pc && at_pc != before && caret_at_pc && recorded && back,
                   fmt("before %04X after click %04X recorded=%d back=%d", before, at_pc, recorded, back));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "the window's Back and Forward are enabled per the history: both off at the start, Back "
+                           "after a Follow, Forward after a Back";
+        if (!fx.ok) { check("QNAVW-06", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0xCD, 0x00, 0x90, 0x18, 0xFB});
+            fx.regs(PROG);
+            fx.enable();
+            QAction* back = nullptr;
+            QAction* fwd = nullptr;
+            for (QAction* a : fx.dbg()->findChildren<QAction*>()) {
+                if (a->text() == QLatin1String("Back")) back = a;
+                if (a->text() == QLatin1String("Forward")) fwd = a;
+            }
+            DisasmPanel* dis = fx.dbg()->disasm_panel();
+            const bool start = back && fwd && !back->isEnabled() && !fwd->isEnabled();
+            dis->show_address(PROG);
+            dis->follow();
+            const bool after_follow = back && fwd && back->isEnabled() && !fwd->isEnabled();
+            dis->go_back();
+            dis->go_back();   // the show_address() above recorded the view it left, too
+            const bool after_back = back && fwd && !back->isEnabled() && fwd->isEnabled();
+            check("QNAVW-06", desc, start && after_follow && after_back,
+                  fmt("start=%d follow=%d back=%d", start, after_follow, after_back));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "Go > Symbols raises the Symbols tab and puts the keyboard in its filter box";
+        if (!fx.ok) { check("QNAVW-07", desc, false, "fixture"); }
+        else {
+            fx.enable();
+            fx.dbg()->show();
+            QApplication::processEvents();
+            QAction* sym = nullptr;
+            for (QAction* top : fx.dbg()->menuBar()->actions())
+                if (top->menu() && top->text().remove(QLatin1Char('&')) == QLatin1String("Go"))
+                    for (QAction* a : top->menu()->actions())
+                        if (a->text().remove(QLatin1Char('&')) == QLatin1String("Symbols")) sym = a;
+            SymbolsPanel* sp = fx.dbg()->symbols_panel();
+            auto* tabs = sp ? qobject_cast<QTabWidget*>(sp->parentWidget()->parentWidget()) : nullptr;
+            if (tabs) tabs->setCurrentIndex(0);
+            if (sym) sym->trigger();
+            QLineEdit* filter = sp ? sp->findChild<QLineEdit*>() : nullptr;
+            check("QNAVW-07", desc,
+                  sym && tabs && filter && tabs->currentWidget() == sp && fx.dbg()->focusWidget() == filter,
+                  fmt("action=%d tab raised=%d filter focused=%d", sym != nullptr,
+                      tabs && tabs->currentWidget() == sp, filter && fx.dbg()->focusWidget() == filter));
         }
     }
 }

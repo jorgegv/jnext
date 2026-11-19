@@ -183,7 +183,12 @@ void SymbolsPanel::show_menu_(int row, const QPoint& global)
     QAction* src = nullptr;
     if (dbg_ && !dbg_->source_map().empty()) {
         src = menu.addAction(tr("Show in Source"));
-        if (!dbg_->source_map().lookup(r.space ? *r.space : dbg_->source_page(addr), addr)) {
+        // The Source tab shows the line of what the CPU map supplies at the address, so it is offered only
+        // for a label that is mapped now (like Show in Disassembly and Show in Memory).
+        if (!mapped) {
+            src->setEnabled(false);
+            src->setToolTip(unmapped_text_(r));
+        } else if (!dbg_->source_map().lookup(dbg_->source_page(addr), addr)) {
             src->setEnabled(false);
             src->setToolTip(tr("no source line at $%1").arg(QString::asprintf("%04X", addr)));
         }

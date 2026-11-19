@@ -2616,6 +2616,42 @@ static void test_cpu_edit() {
 
     {
         CpuFix f;
+        const char* desc = "during an RZX playback a flag click is refused: F unchanged and the message is the RZX "
+                           "refusal text for F";
+        if (!f.ok) { check("QREG-12", desc, false, "fixture"); }
+        else {
+            f.emu.rzx_player().start(RzxRecording{});
+            click_flag_label(box_value(f.panel.get(), "Flags: ", 1));
+            f.emu.rzx_player().stop();
+            const std::string want = jnext::regedit::refusal_text("F", jnext::dbg::Result::RefusedRzx);
+            check("QREG-12", desc,
+                  (f.regs().AF & 0xFF) == 0x28 && f.messages.size() == 1 && s(f.messages[0]) == want,
+                  fmt("F=%02X messages=%d '%s'", f.regs().AF & 0xFF, (int)f.messages.size(),
+                      f.messages.isEmpty() ? "" : s(f.messages[0]).c_str()));
+        }
+    }
+
+    {
+        CpuFix f;
+        const char* desc = "a focus-out caused by a popup (the editor's own right-click menu) does not cancel the "
+                           "edit; any other focus-out does";
+        if (!f.ok) { check("QREG-13", desc, false, "fixture"); }
+        else {
+            bool kept = false, closed = false;
+            if (open_editor(*f.panel, "BC: ")) {
+                QFocusEvent popup(QEvent::FocusOut, Qt::PopupFocusReason);
+                QApplication::sendEvent(cpu_editor(*f.panel), &popup);
+                kept = editor_open(*f.panel);
+                QFocusEvent other(QEvent::FocusOut, Qt::OtherFocusReason);
+                QApplication::sendEvent(cpu_editor(*f.panel), &other);
+                closed = !editor_open(*f.panel);
+            }
+            check("QREG-13", desc, kept && closed, fmt("kept=%d closed=%d", kept, closed));
+        }
+    }
+
+    {
+        CpuFix f;
         const char* desc = "an edit of PC moves neither the T-states value nor time_epoch(): the "
                            "counter shows the same value after the refresh";
         if (!f.ok) { check("QREG-11", desc, false, "fixture"); }
@@ -5043,6 +5079,89 @@ static void test_disasm_nav() {
     }
     {
         NavFix f;
+        const char* desc = "Back after Forward returns to the place Forward left, in the caret and the highlighted "
+                           "selection too: after Back and after Forward the selection is {caret, caret}";
+        if (!f.ok) { check("QNAV-09", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0xCD, 0x00, 0x90});
+            f.code(0x9000, {0x00, 0x00});
+            f.view(0x8000);
+            f.click(0);
+            const uint16_t top = f.dis->view_address();
+            f.dis->follow();
+            uint16_t lo = 1, hi = 2;
+            f.dis->go_back();
+            const bool back_sel = f.dis->selection_range(lo, hi) && lo == 0x8000 && hi == 0x8000;
+            f.dis->go_forward();
+            const bool fwd_sel = f.dis->selection_range(lo, hi) && lo == 0x9000 && hi == 0x9000;
+            const bool again = f.dis->go_back() && f.dis->selected_address() == 0x8000 && f.dis->view_address() == top;
+            check("QNAV-09", desc, back_sel && fwd_sel && again,
+                  fmt("back sel=%d forward sel=%d back again=%d", back_sel, fwd_sel, again));
+        }
+    }
+
+    {
+        Emulator emu;
+        const char* desc = "Follow on a RET at a DivMMC instant entry reads the return address as the instruction's "
+                           "own data cycles do (the DivMMC ROM word), not peek(Cpu); with no caret it acts on the PC line";
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        if (!built) { check("QNAV-10", desc, false, "fixture"); }
+        else {
+            emu.mmu().set_boot_rom_enabled(false);
+            emu.nextreg().write(0x50, 10);
+            emu.nextreg().write(0x0A, 0x10);
+            emu.nextreg().write(0xB8, 0x01);
+            emu.nextreg().write(0xB9, 0x01);
+            emu.nextreg().write(0xBA, 0x01);
+            emu.divmmc().rom_data()[0] = 0xC9;       // RET, fetched from the DivMMC ROM
+            emu.divmmc().rom_data()[0x10] = 0x34;
+            emu.divmmc().rom_data()[0x11] = 0x12;    // the word its data cycles read at SP
+            poke(emu, 0x0010, {0x78, 0x56});         // RAM: what peek(Cpu) shows
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x0000; r.SP = 0x0010;
+            emu.cpu().set_registers(r);
+            jnext::dbg::Debugger dbg(emu);
+            DisasmPanel dis(&dbg);
+            dis.resize(700, 400);
+            dis.set_paused(true);
+            dis.activate_follow_pc();
+            dis.refresh();
+            dis.follow();
+            check("QNAV-10", desc, dis.selected_address() == 0x1234,
+                  fmt("followed to %04X (want 1234; peek would say 5678)", dis.selected_address()));
+        }
+    }
+
+    {
+        NavFix f;
+        const char* desc = "Follow with no caret acts on the PC line: CALL $9000 at PC goes to $9000";
+        if (!f.ok) { check("QNAV-11", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0xCD, 0x00, 0x90});
+            f.regs(0x8000, 0x1000, 0xB000);
+            f.view(0x8000);
+            f.dis->follow();
+            check("QNAV-11", desc, f.dis->selected_address() == 0x9000, fmt("at %04X", f.dis->selected_address()));
+        }
+    }
+
+    {
+        NavFix f;
+        const char* desc = "triggering the context menu's Follow on a CALL line follows that line";
+        if (!f.ok) { check("QNAV-12", desc, false, "fixture"); }
+        else {
+            f.code(0x8000, {0xCD, 0x00, 0x90, 0x00});
+            f.view(0x8000);
+            PopupAnswer ans;
+            ans.wanted = QStringLiteral("Follow");
+            context_menu_and_pick(f.dis.get(), QPoint(200, 52 + 9), ans);
+            check("QNAV-12", desc, ans.found && f.dis->selected_address() == 0x9000,
+                  fmt("found=%d at %04X", ans.found, f.dis->selected_address()));
+        }
+    }
+
+    {
+        NavFix f;
         const char* desc = "can_go_back() / can_go_forward() follow the history: none, then back only, then forward only";
         if (!f.ok) { check("QNAV-08", desc, false, "fixture"); }
         else {
@@ -5238,6 +5357,20 @@ static void test_symbols_panel() {
             QTableWidget* t = f.table();
             check("QSYML-06", desc, t->rowCount() >= 1 && cell(f.panel.get(), 0, 0) == "counter",
                   t->rowCount() ? s(cell(f.panel.get(), 0, 0)) : std::string("<no rows>"));
+        }
+    }
+
+    {
+        SymFix f;
+        const char* desc = "an address-style switch to Physical redraws the Memory column at the next refresh";
+        if (!f.ok) { check("QSYML-08", desc, false, "fixture"); }
+        else {
+            const QString before = cell(f.panel.get(), 4, 2);
+            f.panel->set_address_style(jnext::dbg::AddressStyle::Physical);
+            f.panel->refresh();
+            const QString after = cell(f.panel.get(), 4, 2);
+            check("QSYML-08", desc, before == "P10" && after != before && after.startsWith('$'),
+                  "before '" + s(before) + "' after '" + s(after) + "'");
         }
     }
 

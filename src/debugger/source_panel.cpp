@@ -4,6 +4,7 @@
 #include "debugger/breakpoint_model.h"
 #include "qt/palette_tint_qt.h"
 #include "debug/debugger.h"
+#include "debugger/follow_reader.h"
 #include "debugger/memory_text.h"
 #include "debug/source_search.h"
 #include "debug/disasm.h"
@@ -1201,14 +1202,7 @@ disasm_hint::Follow SourcePanel::follow_of_line(int line) const
     const uint16_t at = st.placed.front().address;
     const Z80Registers r = dbg_->registers();
     const DisasmReadFn code = dbg_->memory_reader();
-    const jnext::dbg::Debugger* dbg = dbg_;
-    const DisasmReadFn data = at == r.PC
-        ? dbg_->operand_reader()
-        : DisasmReadFn([dbg](uint16_t a) -> uint8_t {
-              uint8_t b = 0;
-              dbg->peek(jnext::dbg::MemSpace::cpu(), a, 1, &b);
-              return b;
-          });
+    const DisasmReadFn data = follow_data_reader(dbg_, at == r.PC);
     return disasm_hint::follow_target(r, at, code, data);
 }
 
@@ -1423,6 +1417,7 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
         QAction* a = menu.addAction(tr("Follow"));
         if (f.kind == disasm_hint::Follow::Kind::None) {
             a->setEnabled(false);
+            if (st.starts.empty()) a->setToolTip(nocode);
         } else {
             const QString t = QString::asprintf("$%04X", f.addr);
             a->setToolTip(f.kind == disasm_hint::Follow::Kind::Code ? t : tr("%1 in Memory").arg(t));

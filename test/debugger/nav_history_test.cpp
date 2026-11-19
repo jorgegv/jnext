@@ -109,6 +109,18 @@ int main()
         check("NAVH-07", "clear() empties both lists", !h.can_back() && !h.can_forward());
     }
 
+    {
+        H h;
+        h.record(1); h.record(2);
+        const auto a = h.back(3);        // 2
+        const auto b = h.forward(2);     // 3
+        const bool undo = h.can_back();
+        const auto c = h.back(3);        // the place Forward left: 2
+        check("NAVH-08", "Back after Forward returns the place Forward left",
+              a && *a == 2 && b && *b == 3 && undo && c && *c == 2 && h.can_forward(),
+              seq({a ? *a : -1, b ? *b : -1, c ? *c : -1}));
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;

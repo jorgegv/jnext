@@ -28,7 +28,7 @@ the debugger costs nothing — no breakpoint checking, no call-stack tracking, n
 panel refreshes. Closing it also resumes the machine if it was paused.
 
 The debugger opens in its own window, positioned to the right of the emulator
-window. It has its own menu bar — **Debug**, **Script**, **Map**, **Breakpoints**,
+window. It has its own menu bar — **Debug**, **Go**, **Script**, **Map**, **Breakpoints**,
 **Watches** and **Window** — and a control toolbar along the bottom.
 
 **Window ▸ Attach to emulator window** keeps it pinned to the emulator's
