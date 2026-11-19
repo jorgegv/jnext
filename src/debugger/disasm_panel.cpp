@@ -271,7 +271,7 @@ disasm_hint::Follow DisasmPanel::follow_of_line(int line) const
     const uint16_t at = entries_[line].line.addr;
     const Z80Registers r = dbg_->registers();
     const DisasmReadFn code = dbg_->memory_reader();
-    const DisasmReadFn data = follow_data_reader(dbg_, entries_[line].is_current_pc);
+    const DisasmReadFn data = follow_data_reader(dbg_, at);
     return disasm_hint::follow_target(r, at, code, data);
 }
 
