@@ -3213,7 +3213,7 @@ that says so: **\--nextpi**, **\--nextpi-dir**, **\--nextpi-release**,
 **\--sdcard2-writes-reset**, **\--headless** (it would block the tab for ever)
 and **\--rzx-record** (a page records from JavaScript, see The player). The settings of the refused flags are refused
 when given as set entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
-`nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`.
+`nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`, `paths.sd_card2_path`.
 
 # EXAMPLES
 
