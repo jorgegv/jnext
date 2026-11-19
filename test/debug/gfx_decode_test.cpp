@@ -185,8 +185,12 @@ int main() {
         const uint8_t want[8] = {0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48};
         bool ok = ran;
         for (int i = 0; ok && i < 8; ++i) ok = out[i].index == want[i] && !out[i].transparent;
-        check("GFXD-11", "4-bit tile pixels: bytes 12 34 56 78, off 4, NR 0x4C F -> indices 41..48, none transparent "
-                         "- VHDL tilemap.vhd:382-383", ok);
+        // The offset is attribute bits 7:4, all four of them: off B -> B1..B8.
+        Til hi{};
+        ok = ok && decode_tile(bank.data(), bank.size(), false, 0x0C, false, 0, 0xB, 0xF, 0, nullptr, hi);
+        for (int i = 0; ok && i < 8; ++i) ok = hi[i].index == (0xB0 | (i + 1)) && !hi[i].transparent;
+        check("GFXD-11", "4-bit tile pixels: bytes 12 34 56 78, off 4, NR 0x4C F -> indices 41..48, none transparent; off B -> B1..B8 "
+                         "(all four attribute bits 7:4) - VHDL tilemap.vhd:382-383", ok);
     }
     // GFXD-12
     {

@@ -7005,6 +7005,172 @@ static void test_graphics_panel() {
     }
 }
 
+// ── Graphics tab, review round 1 (GH #371) ──────────────────────────────────
+
+static void gfx_click(GfxAtlas* a, int x, int y) {
+    const QPoint pos(x, y);
+    QMouseEvent ev(QEvent::MouseButtonPress, QPointF(pos), QPointF(a->mapToGlobal(pos)), Qt::LeftButton,
+                   Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(a, &ev);
+}
+
+static std::string gfx_actives(QComboBox* bank) {
+    std::string got;
+    for (int i = 0; i < bank->count(); ++i)
+        if (bank->itemText(i).endsWith("(active)")) got += s(bank->itemText(i)) + ";";
+    return got;
+}
+
+static void test_graphics_panel_review() {
+    set_group("QGFX");
+    using jnext::dbg::PaletteId;
+
+    // QGFX-16, QGFX-17: bank 5 beyond its first 8 KB page, and the base's top bit
+    {
+        GfxFix f;
+        if (!f.ok) { check("QGFX-16", "fixture", false); check("QGFX-17", "fixture", false); }
+        else {
+            const uint8_t cols[4] = {1, 2, 3, 4};
+            const uint16_t rgb[4] = {0x1C0, 0x038, 0x007, 0x1FF};
+            for (int i = 0; i < 4; ++i) f.set_pal(0x30, cols[i], rgb[i]);
+            f.set_pal(0x30, 0x00, 0x0A5);
+            f.set_pal(0x30, 0x05, 0x111);
+            f.set_pal(0x30, 0x06, 0x1B6);
+            f.sub(1);
+            // QGFX-16: NR 0x6F = 0C: tile 160 sits at bank offset 0x0C00 + 160*32 = 0x2000 = page 0B offset 0
+            f.nr(0x6F, 0x0C);
+            const bool a = f.poke_page(0x0B, 0, {0x12, 0x34});
+            const bool b = f.poke_page(0x0A, 0, {0x56, 0x78});   // control: must NOT show in tile 160
+            f.panel->refresh();
+            const QImage& im = f.til()->image();
+            bool ok = a && b;
+            for (int i = 0; i < 4; ++i) ok = ok && im.pixel(i, 80) == f.argb(PaletteId::TilemapFirst, cols[i]);
+            check("QGFX-16", "Tiles: the upper half of bank 5 is page 0B: with NR 0x6F = 0C tile 160 (atlas cell 160) shows page 0B "
+                             "offset 0 (12 34 -> indices 1..4), not the page 0A bytes 56 78 poked at the same offset",
+                  ok && im.pixel(0, 80) != f.argb(PaletteId::TilemapFirst, 5));
+
+            // QGFX-17: NR 0x6F = 2C: base bit 5 set, tile 0 at bank offset 0x2C00 = page 0B + 0x0C00
+            f.nr(0x6F, 0x2C);
+            const bool c = f.poke_page(0x0B, 0x0C00, {0x12, 0x34});
+            f.panel->refresh();
+            const QImage& i2 = f.til()->image();
+            bool ok2 = c;
+            for (int i = 0; i < 4; ++i) ok2 = ok2 && i2.pixel(i, 0) == f.argb(PaletteId::TilemapFirst, cols[i]);
+            const QString src = f.label("gfxTileSource")->text();
+            check("QGFX-17", "Tiles: NR 0x6F = 2C (base bit 5 set) in bank 5 puts tile 0 at 0x2C00 (page 0B + 0C00); the source "
+                             "line names 0x2C00",
+                  ok2 && src.contains("0x2C00") && src.contains("bank 5"), s(src));
+        }
+    }
+
+    // QGFX-18: each active select alone
+    {
+        GfxFix f;
+        if (!f.ok) check("QGFX-18", "fixture", false);
+        else {
+            f.sub(2);
+            QComboBox* bank = f.combo("gfxPalBank");
+            struct Case { uint8_t nr43, nr6b; const char* want; };
+            const Case cases[] = {
+                {0x02, 0x00, "ULA second (active);Layer 2 first (active);Sprites first (active);Tilemap first (active);"},
+                {0x04, 0x00, "ULA first (active);Layer 2 second (active);Sprites first (active);Tilemap first (active);"},
+                {0x08, 0x00, "ULA first (active);Layer 2 first (active);Sprites second (active);Tilemap first (active);"},
+                {0x00, 0x10, "ULA first (active);Layer 2 first (active);Sprites first (active);Tilemap second (active);"}};
+            std::string bad;
+            for (const Case& c : cases) {
+                f.nr(0x43, c.nr43);
+                f.nr(0x6B, c.nr6b);
+                f.panel->refresh();
+                if (gfx_actives(bank) != c.want) bad += fmt(" 43=%02X 6B=%02X got '%s'", c.nr43, c.nr6b, gfx_actives(bank).c_str());
+            }
+            check("QGFX-18", "Palettes '(active)': each select alone moves exactly its layer's mark: NR 0x43 bit 1 = ULA, bit 2 = "
+                             "Layer 2, bit 3 = Sprites, NR 0x6B bit 4 = Tilemap - VHDL zxnext.vhd:6045, :6826", bad.empty(), bad);
+        }
+    }
+
+    // QGFX-19: clicking a cell
+    {
+        GfxFix f;
+        if (!f.ok) check("QGFX-19", "fixture", false);
+        else {
+            std::string bad;
+            auto expect = [&](GfxAtlas* a, int want_sel, QLabel* lab, const char* want_text, const char* what) {
+                if (a->selected() != want_sel || lab->text() != want_text)
+                    bad += fmt(" %s: selected %d '%s'", what, a->selected(), s(lab->text()).c_str());
+            };
+            // Patterns: 48 px cells (16 px at scale 3), 8 per row
+            gfx_click(f.pat(), 2 * 48 + 10, 5 * 48 + 10);
+            expect(f.pat(), 0x2A, f.label("gfxPatInfo"), "Pattern 2A: pattern RAM 0x2A00-0x2AFF", "8-bit");
+            f.panel->findChild<QRadioButton*>("gfxPatFmt4")->setChecked(true);
+            gfx_click(f.pat(), 5 * 48 + 10, 10 * 48 + 10);
+            expect(f.pat(), 0x55, f.label("gfxPatInfo"), "Pattern 55: pattern RAM 0x2A80-0x2AFF", "4-bit");
+            // Tiles: 24 px cells (8 px at scale 3), 16 per row
+            f.sub(1);
+            f.nr(0x6F, 0x0C);
+            f.panel->refresh();
+            gfx_click(f.til(), 15 * 24 + 10, 1 * 24 + 10);
+            expect(f.til(), 0x1F, f.label("gfxTileInfo"), "Tile 01F: bank 5 0x0FE0-0x0FFF", "4-bit tile");
+            f.nr(0x6B, 0x08);
+            f.panel->refresh();
+            gfx_click(f.til(), 5 * 24 + 10, 2 * 24 + 10);
+            expect(f.til(), 0x25, f.label("gfxTileInfo"), "Tile 025: bank 5 0x0D28-0x0D2F", "text tile");
+            check("QGFX-19", "clicking an atlas cell selects it and names where it lives: 8-bit pattern 2A = RAM 2A00-2AFF, 4-bit "
+                             "pattern 55 = 2A80-2AFF (sprites.vhd:962-963), 4-bit tile 1F at base 0C = bank 5 0FE0-0FFF, text-mode "
+                             "tile 25 = 0D28-0D2F (tilemap.vhd:394, :403)", bad.empty(), bad);
+        }
+    }
+
+    // QGFX-20: viewing the machine does not perturb it
+    {
+        GfxFix f;
+        if (!f.ok) check("QGFX-20", "fixture", false);
+        else {
+            // Mid pattern upload (slot select 03 -> offset 0300, 5 bytes in) and mid NR 0x44 pair (first byte written).
+            f.emu.sprites().write_slot_select(0x03);
+            for (uint8_t b : {0x11, 0x22, 0x33, 0x44, 0x55}) f.emu.sprites().write_pattern(b);
+            f.nr(0x43, 0x20);
+            f.nr(0x40, 0x30);
+            f.nr(0x44, 0xE0);
+            auto snapshot = [&]() {
+                std::vector<uint32_t> v;
+                const auto ram = f.dbg->pattern_ram();
+                for (size_t i = 0; i < ram.size; ++i) v.push_back(ram.data[i]);
+                for (int id = 0; id < 8; ++id) {
+                    for (uint16_t c : f.dbg->palette(static_cast<PaletteId>(id))) v.push_back(c);
+                    for (uint8_t c : f.dbg->palette_priority(static_cast<PaletteId>(id))) v.push_back(c);
+                }
+                v.push_back(f.emu.sprites().pattern_offset());
+                v.push_back(f.emu.palette().get_index());
+                v.push_back(f.emu.palette().nine_bit_first_written());
+                for (int r : {0x40, 0x43, 0x44, 0x4B, 0x4C, 0x6B, 0x6F}) v.push_back(f.dbg->nextreg_peek(static_cast<uint8_t>(r)));
+                return v;
+            };
+            const std::vector<uint32_t> before = snapshot();
+            f.sub(0);
+            f.panel->findChild<QRadioButton*>("gfxPatFmt4")->setChecked(true);
+            f.panel->refresh();
+            f.panel->findChild<QRadioButton*>("gfxPatFmt8")->setChecked(true);
+            f.sub(1);
+            f.sub(2);
+            f.combo("gfxPalBank")->setCurrentIndex(5);
+            f.combo("gfxPalBank")->setCurrentIndex(0);
+            const bool same = snapshot() == before;
+            // the guest's next writes land where they would have
+            f.emu.sprites().write_pattern(0x77);
+            f.nr(0x44, 0x81);
+            const auto ram = f.dbg->pattern_ram();
+            const bool pat = ram.data[0x305] == 0x77 && ram.data[0x304] == 0x55;
+            const bool pal = f.dbg->palette(PaletteId::SpriteFirst)[0x30] == 0x1C1 &&
+                             f.dbg->palette_priority(PaletteId::SpriteFirst)[0x30] == 2;
+            check("QGFX-20", "refreshing all three sub-tabs (patterns 8- and 4-bit, tiles, palettes) mid pattern upload and mid NR 0x44 "
+                             "pair leaves the pattern RAM, all 8 palettes and priorities, the pattern offset, the palette cursor and "
+                             "its half-written state and the read-back registers unchanged; the next write_pattern lands at 0305 and "
+                             "the next NR 0x44 completes sprite entry 30 as 1C1 with priority 2",
+                  same && pat && pal, fmt("same=%d pat=%d pal=%d", same, pat, pal));
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -7044,6 +7210,7 @@ int main(int argc, char** argv) {
     test_cpu_shortcuts();
     test_memory_panel_tools();
     test_graphics_panel();
+    test_graphics_panel_review();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

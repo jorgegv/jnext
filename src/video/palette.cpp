@@ -423,8 +423,9 @@ uint8_t PaletteManager::read_8bit() const
 // NextREG 0x44 — 9-bit palette read (RRR.GGG.BBB.priority).
 // VHDL zxnext.vhd:6047-6048:
 //     port_253b_dat <= nr_palette_dat(10:9) & "00000" & nr_palette_dat(0);
-// bits 7:6 = priority (2 bits, stored only for Layer 2 entries via NR 0x44
-//            second write; ULA/sprite/tilemap entries have priority "00"),
+// bits 7:6 = priority (2 bits, stored for every bank by the NR 0x44 second
+//            write, zxnext.vhd:6972 and :7025; only Layer 2 reads it back
+//            into the compositor, :7039-7050; an NR 0x41 write stores "00"),
 // bits 5:1 = constant zero, bit 0 = blue LSB at (target, index).
 //
 // VERIFY4 / pass-4 — pre-fix the NR 0x44 readback fell through to the bare
