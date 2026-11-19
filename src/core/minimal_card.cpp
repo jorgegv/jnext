@@ -260,11 +260,13 @@ private:
                         const std::string& path, uint64_t bytes) {
         retained_ += bytes;
         if (retained_ > kRetainCap) over_ = true;
-        if (is_dir) live_dirs_ += bytes;
         if (over_ && !is_dir) return;
-        // Past the cap the directories are still read (to count the rest), but what they may
-        // hold at once is bounded: the distribution's are about 3 MB in all.
-        if (over_ && live_dirs_ > kRetainCap) { fail(over_message()); return; }
+        // Past the cap the directories are still read (to count the rest), but what is HELD at
+        // once, the files buffered before the crossing plus the directories not yet parsed, may
+        // not pass the cap: refused before the buffer exists (the distribution's directories are
+        // about 3 MB in all).
+        if (over_ && held_ + bytes > kRetainCap) { fail(over_message()); return; }
+        held_ += bytes;
         for (uint32_t c : cl) {
             if (c <= cur) {
                 fail("the distribution's layout needs a second pass over the zip, which this builder does not do (cluster " +
@@ -324,7 +326,7 @@ private:
 
     void dir_complete(size_t ci, uint32_t cur) {
         const int parent = chains_[ci].rec;
-        live_dirs_ -= chains_[ci].bytes;
+        held_ -= chains_[ci].bytes;
         std::vector<Fat32Entry> ents = fat32_parse_dir(chains_[ci].buf);
         std::vector<uint8_t>().swap(chains_[ci].buf);
         const std::string pdir = recs_[static_cast<size_t>(parent)].path;
@@ -413,7 +415,7 @@ private:
     size_t outstanding_ = 0;
     uint64_t retained_ = 0;
     bool over_ = false, done_over_ = false;
-    uint64_t live_dirs_ = 0;   // directory bytes registered and not yet parsed
+    uint64_t held_ = 0;   // bytes buffered now: kept files, and directories not yet parsed
     std::vector<std::string> dirs_;
     std::set<std::string> found_;
 };

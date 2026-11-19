@@ -870,8 +870,11 @@ int main() {
         const std::string c2 = tmp_path("card-exists.img");
         { std::ofstream f(c2, std::ios::binary); f << "keep"; }
         const Run r = build(minimal_card::Input::Zip, zip, c2, ex0);
-        std::ifstream f(c2, std::ios::binary);
-        std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        std::string content;
+        {   // closed before the remove below: under node (wasm) removing a file that is still open leaves it behind
+            std::ifstream f(c2, std::ios::binary);
+            content.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        }
         check("MCARD-15", "an existing destination file: refused, its bytes unchanged",
               r.st == minimal_card::Status::Error && r.err.find("exists") != std::string::npos && content == "keep", r.err);
         std::remove(c2.c_str());
@@ -1275,6 +1278,86 @@ int main() {
                   ro.err.find(": " + std::to_string(cap + 1) + " bytes") != std::string::npos && !exists(c2),
               ra.err + " | " + ro.err);
         std::remove(c1.c_str());
+        std::remove(c2.c_str());
+    }
+
+
+    // MCARD-38: past the cap what is HELD counts, not the directories alone: a 31 MiB boot-set file registers
+    // under the cap, then a 30 MiB directory chain takes the total over it and is refused from feed().
+    {
+        const uint32_t spc = 64, reserved = 32, fat_sectors = 16, lba = 63, nf = 992, nd = 960;
+        const uint32_t nclu = 1 + nf + nd;
+        const uint64_t part = static_cast<uint64_t>(lba) * 512;
+        const uint64_t data_off = part + static_cast<uint64_t>(reserved + 2 * fat_sectors) * 512;
+        std::vector<uint8_t> b(static_cast<size_t>(data_off) + 32768, 0);   // the root cluster is the only data
+        const uint32_t total = reserved + 2 * fat_sectors + nclu * spc;
+        b[0x1BE] = 0x80; b[0x1BE + 4] = 0x0C; w32(b, 0x1BE + 8, lba); w32(b, 0x1BE + 12, total);
+        b[510] = 0x55; b[511] = 0xAA;
+        const size_t v = static_cast<size_t>(part);
+        w16(b, v + 11, 512); b[v + 13] = spc; w16(b, v + 14, reserved); b[v + 16] = 2;
+        w32(b, v + 32, total); w32(b, v + 36, fat_sectors); w32(b, v + 44, 2);
+        b[v + 510] = 0x55; b[v + 511] = 0xAA;
+        const size_t fat0 = v + static_cast<size_t>(reserved) * 512;
+        auto fat = [&](uint32_t c, uint32_t val) { w32(b, fat0 + 4 * static_cast<size_t>(c), val); };
+        fat(2, 0x0FFFFFFF);
+        for (uint32_t i = 0; i < nf; ++i) fat(3 + i, i + 1 < nf ? 4 + i : 0x0FFFFFFF);
+        for (uint32_t i = 0; i < nd; ++i) fat(3 + nf + i, i + 1 < nd ? 4 + nf + i : 0x0FFFFFFF);
+        auto entry = [&](size_t at, const char* name11, uint8_t attr, uint32_t cluster, uint32_t size) {
+            uint8_t* e = &b[static_cast<size_t>(data_off) + at];
+            std::memcpy(e, name11, 11);
+            e[11] = attr;
+            w16(b, static_cast<size_t>(data_off) + at + 26, cluster & 0xFFFF);
+            w16(b, static_cast<size_t>(data_off) + at + 20, cluster >> 16);
+            w32(b, static_cast<size_t>(data_off) + at + 28, size);
+        };
+        entry(0, "TBBLUE  FW ", 0x20, 3, nf * 32768u - 100);
+        entry(32, "SYS        ", 0x10, 3 + nf, 0);
+        const std::string c2 = tmp_path("card-d11.img");
+        std::remove(c2.c_str());
+        minimal_card::Builder bd(minimal_card::Input::Image, c2, ex0);
+        const minimal_card::Status st = bd.feed(b.data(), b.size());
+        check("MCARD-38", "a 31 MiB boot-set file registered under the cap, then a 30 MiB directory chain: refused from feed() (held bytes pass the cap together), no output file",
+              st == minimal_card::Status::Error && bd.error().find("at least") != std::string::npos && !exists(c2), bd.error());
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-39: the directories released as they are parsed: past the cap, a chain of 130 nested directories of 66
+    // clusters each (35 MB in all, only one live at a time) still gets the exact total, not "at least".
+    {
+        const int levels = 130, fillers = 400;
+        FNode fb = fixture();
+        FNode big = dirn("big", 0x00, 0x5A41, 0x9200);
+        FNode f = file("huge.bin", {}, 0x20, 0x5A42, 0x9400);
+        f.declared = 33ull << 20;
+        big.kids.push_back(f);
+        fb.kids.push_back(big);
+        auto name = [](int i) { char n[8]; std::snprintf(n, sizeof n, "d%03d", i); return std::string(n); };
+        // innermost first; each level holds `fillers` zero-size files with 250-character names (not wanted: skipped
+        // at no cost) that make its directory 66 clusters
+        FNode inner = dirn(name(levels), 0x00, 0x5A43, 0x9600);
+        std::string path = "/" + name(levels);
+        for (int l = levels - 1; l >= 1; --l) {
+            FNode d = dirn(name(l), 0x00, 0x5A43, 0x9600);
+            for (int k = 0; k < fillers; ++k) {
+                char tail[8];
+                std::snprintf(tail, sizeof tail, "%04d", k);
+                d.kids.push_back(file(std::string(250, 'x') + tail, {}, 0x20, 0x5A44, 0x9800));
+            }
+            d.kids.push_back(std::move(inner));
+            inner = std::move(d);
+            path = "/" + name(l) + path;
+        }
+        fb.kids.push_back(std::move(inner));
+        const Image im = build_image(fb);
+        const std::vector<std::string> want = canon({"/big", path});
+        const uint64_t total = counted(fb, im, want);
+        const std::string c2 = tmp_path("card-d12.img");
+        std::remove(c2.c_str());
+        const Run r = build(minimal_card::Input::Image, im.bytes, c2, with_dirs({"/big", path}));
+        check("MCARD-39", "past the cap, 130 nested directories (35 MB of directory clusters, one live at a time): refused with the exact counted total, not 'at least'",
+              r.st == minimal_card::Status::Error && r.err.find(": " + std::to_string(total) + " bytes") != std::string::npos &&
+                  r.err.find("at least") == std::string::npos && !exists(c2),
+              r.err + " expect " + std::to_string(total));
         std::remove(c2.c_str());
     }
 
