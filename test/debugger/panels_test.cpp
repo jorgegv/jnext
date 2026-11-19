@@ -1645,7 +1645,7 @@ static void test_watch_panel() {
                   s(wcell(&wp, 12, 3)).c_str()));
     }
 
-    // QWP-13..17 — GH #373: a watch can be a .jds expression, evaluated at every refresh().
+    // QWP-13..17 - GH #373: a watch can be a .jds expression, evaluated at every refresh().
     // Oracles: the expression language (src/script/expr_compiler.h, the user guide's Reading the
     // Machine page: signed int32, upper-case registers, mem16 little-endian), plain arithmetic for
     // the "$hex (decimald)" text (2, 4 or 8 digits by magnitude), zxnext.vhd:5159 (MMU2 = 0x0A at
