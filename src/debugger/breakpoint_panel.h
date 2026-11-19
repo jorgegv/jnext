@@ -84,7 +84,7 @@ private:
     bool updating_ = false;
 
     // The rows as last listed (BreakpointModel::Row: type is the Add dialog's
-    // index 0..5 — Execute, Read, Write, Read/Write, IO Read, IO Write — or -1
+    // index 0..7 — Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt, NMI — or -1
     // for a subscription it cannot express; `enabled` is the row's own flag,
     // not the master; `own` marks this GUI's editable rows).
     std::vector<BreakpointModel::Row> entries_;

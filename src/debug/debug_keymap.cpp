@@ -38,6 +38,8 @@ const ActionInfo kActions[ACTION_COUNT] = {
     { Action::Follow,                "follow",                  "Follow",                   bare(Key::F12)          },
     { Action::GoBack,                "go_back",                 "Back",                     with(MOD_ALT, Key::Left)  },
     { Action::GoForward,             "go_forward",              "Forward",                  with(MOD_ALT, Key::Right) },
+    // GH #372: Debug > Run to Next Interrupt, unbound like its sibling run-to actions.
+    { Action::RunToInterrupt,        "run_to_interrupt",        "Run to Next Interrupt",    unbound()               },
 };
 
 struct KeyName { Key key; const char* name; };

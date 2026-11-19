@@ -15,8 +15,6 @@ namespace script {
 
 namespace {
 
-const char* const kTypeNames[] = {"Execute", "Read", "Write", "Read/Write", "IO Read", "IO Write"};
-
 // A port of 0x00-0xFF is a low-byte match, a higher one exact (the Add dialog's
 // rule, and the engine's `io_read` rule): the digit count tells which.
 std::string hex_for(const BpSpec& s) {
@@ -43,6 +41,14 @@ bool is_symbol_name(const std::string& n) {
 }
 
 }  // namespace
+
+const char* bp_kind_name(BpSpec::Kind k) {
+    static const char* const names[] = {"Execute", "Read", "Write", "Read/Write",
+                                        "IO Read", "IO Write", "Interrupt", "NMI"};
+    return k < sizeof names / sizeof *names ? names[k] : "?";
+}
+
+uint16_t bp_port_mask_for(uint16_t addr) { return addr <= 0x00FF ? 0x00FF : 0xFFFF; }
 
 bool same_locations(std::vector<::SourceAddress> a, std::vector<::SourceAddress> b) {
     if (a.size() != b.size()) return false;
@@ -75,6 +81,8 @@ std::string rule_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& why
         case BpSpec::ReadWrite: return "on read_write " + hex_for(s);
         case BpSpec::IoRead:    return "on io_read " + hex_for(s);
         case BpSpec::IoWrite:   return "on io_write " + hex_for(s);
+        case BpSpec::Interrupt: return "on interrupt";
+        case BpSpec::Nmi:       return "on nmi";
         case BpSpec::Execute:   break;
     }
     if (!s.file_line.empty()) {
@@ -137,7 +145,7 @@ BpScript bp_script_text(const std::vector<BpSpec>& specs, const dbg::Debugger& d
         std::string why;
         const std::string rule = rule_for(s, dbg, why);
         if (rule.empty()) {
-            const std::string msg = std::string(kTypeNames[s.kind]) + " " + where_of(s) + ": " + why;
+            const std::string msg = std::string(bp_kind_name(s.kind)) + " " + where_of(s) + ": " + why;
             out.refused.push_back(msg);
             out.text += "; not saved: " + msg + "\n";
             continue;
@@ -189,6 +197,8 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
             case EventType::ReadWrite: s.kind = BpSpec::ReadWrite; break;
             case EventType::IoRead:    s.kind = BpSpec::IoRead; break;
             case EventType::IoWrite:   s.kind = BpSpec::IoWrite; break;
+            case EventType::Interrupt: s.kind = BpSpec::Interrupt; break;
+            case EventType::Nmi:       s.kind = BpSpec::Nmi; break;
             default: fail(out, ev.pos, not_a_bp("another kind of event")); return out;
         }
         if (r.once)  { fail(out, r.pos, not_a_bp("`once`")); return out; }
@@ -199,6 +209,10 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
         }
         if (r.body[0].s1) { fail(out, r.body[0].pos, not_a_bp("`stop` with a message")); return out; }
         s.enabled = !r.disabled;
+        if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi) {
+            out.specs.push_back(std::move(s));
+            continue;
+        }
 
         if (!ev.file_line.empty()) {
             const ::SourceResolution res = dbg.source_map().resolve(ev.file_line);

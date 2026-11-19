@@ -1,6 +1,6 @@
 # Breakpoints: execute, read, write, I/O
 
-JNEXT has three kinds of breakpoint.
+JNEXT has four kinds of breakpoint.
 
 **Execute** breakpoints fire before the instruction at that address is
 executed. Set one by clicking the disassembly gutter, from the right-click
@@ -18,7 +18,7 @@ address from an immediate or from a register's current contents.
 **I/O** breakpoints fire on a port access: **IO Read** on an `IN`, **IO Write**
 on an `OUT`. They stop the machine the same way data breakpoints do — after
 the instruction that made the access — and they are set from the Breakpoints
-panel's **Add** dialog, where they are the last two entries in the type list.
+panel's **Add** dialog, as the two entries after Read/Write.
 
 The address you type is a *port*, and ZX ports are not addressed like memory:
 an address of **00**–**FF** matches any port with that low byte, and an address
@@ -37,7 +37,16 @@ Read and write are separate breakpoints; if you want both on a port, add both.
 An I/O breakpoint never fires on a *memory* access at the same number, and a
 memory breakpoint never fires on a port access.
 
-**Breakpoints ▸ Clear All Breakpoints** removes all three kinds at once.
+**Interrupt** and **NMI** breakpoints fire when the CPU takes a maskable interrupt or a
+non-maskable one. They have no address (the field is greyed out in the dialog) and stop the
+machine at the first instruction of the handler: `PC` is `$0038` for an interrupt in
+interrupt mode 1 (the 48K ROM's) and `$0066` for an NMI. They are the last two entries in the
+Add dialog's type list. A maskable interrupt only happens with interrupts enabled, so on a
+program that never executes `EI` an Interrupt breakpoint never fires. The Multiface's button is
+one way to raise an NMI. For a single stop at the next interrupt, without leaving a breakpoint
+behind, use **Debug ▸ Run to Next Interrupt**.
+
+**Breakpoints ▸ Clear All Breakpoints** removes all four kinds at once.
 
 ## Saving and loading breakpoints
 
@@ -53,6 +62,8 @@ disabled bp2: on read_write 0x9000 do stop end
 bp3: on io_read 0xFE do stop end
 bp4: on execute "main.bas:10" do stop end
 bp5: on execute @banked do stop end
+bp6: on interrupt do stop end
+bp7: on nmi do stop end
 ```
 
 The file keeps each breakpoint's type, address and **On** state. A source-line breakpoint is
@@ -72,7 +83,7 @@ another client (GDB, ZRCP, DZRP, a script) set, and the master switch.
 Breakpoints** first for that). A breakpoint that already exists takes the **On** state
 the file gives it, and a source line that is already armed on the same places is not added
 twice. A file is loaded whole or not at all: anything that is not a plain breakpoint (a
-condition, a range, `once`, a message, other events) is refused with the line and column,
+condition, a range, `once`, a message, other events than the ones the panel has) is refused with the line and column,
 and nothing is added. The same file runs from the command line with `jnext --script FILE`.
 
 ## Turning them off instead of deleting them
@@ -91,7 +102,7 @@ not armed. Stepping and **Run to Here** are unaffected by the master switch.
 
 ## Closing the debugger window disarms them
 
-All three kinds are checked only while the debugger window is **open**. Close it
+All four kinds are checked only while the debugger window is **open**. Close it
 and your breakpoints stay in the list but nothing stops at them — the
 emulator skips the check entirely so that a machine nobody is watching runs
 at full speed.

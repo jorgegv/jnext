@@ -686,11 +686,11 @@ static void test_debug_keys_defaults(QTemporaryDir& dir) {
     // user binding, so the list is pinned rather than merely used.
     std::string ids;
     for (int i = 0; i < ACTION_COUNT; ++i) ids += std::string(action_table()[i].id) + " ";
-    check("DK-03", "the action ids are exactly the twenty published names",
+    check("DK-03", "the action ids are exactly the twenty-one published names",
           ids == "run pause step_into step_over step_out step_back frame_back "
                  "run_to_cursor run_to_eof run_to_eosl trace_toggle trace_export "
                  "source_step_into source_step_over source_step_out source_step_back "
-                 "source_reverse_continue follow go_back go_forward ",
+                 "source_reverse_continue follow go_back go_forward run_to_interrupt ",
           ids);
 }
 
@@ -1509,7 +1509,7 @@ static void test_config_keys(QTemporaryDir& dir) {
             if (!expect.contains(k)) bad += "written but not in the table: " + k.toStdString() + "; ";
         for (const QString& k : expect)
             if (!in_file.contains(k)) bad += "in the table but not written: " + k.toStdString() + "; ";
-        check("AC-94", "every key save() writes is a config_keys row owned by AppConfig, and every such row is written (the debugger_keys family with all 20 actions)",
+        check("AC-94", "every key save() writes is a config_keys row owned by AppConfig, and every such row is written (the debugger_keys family with all 21 actions)",
               bad.empty() && in_file.size() == expect.size(), bad);
     }
 

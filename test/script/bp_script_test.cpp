@@ -424,6 +424,11 @@ static std::vector<Expect> expected_subs(const std::vector<BpSpec>& specs) {
                 out.push_back({EventKind::Port, 0, 0, MemSpace::cpu(), static_cast<uint16_t>(s.addr <= 0xFF ? 0x00FF : 0xFFFF),
                                s.addr, s.kind == BpSpec::IoRead ? Access::Read : Access::Write, s.enabled});
                 break;
+            case BpSpec::Interrupt:
+            case BpSpec::Nmi:
+                out.push_back({s.kind == BpSpec::Interrupt ? EventKind::IntAck : EventKind::Nmi, 0, 0, MemSpace::cpu(), 0, 0,
+                               Access::ReadWrite, s.enabled});
+                break;
         }
     }
     return out;
@@ -434,6 +439,41 @@ static std::vector<jnext::dbg::SubscriptionInfo> engine_subs(const Debugger& d, 
     for (const auto& s : d.subscriptions(true))
         if (s.owner == e.client()) out.push_back(s);
     return out;
+}
+
+// ---- GH #372: Interrupt / NMI -----------------------------------
+
+static void save_interrupt_rows(Fix& f) {
+    const Debugger& d = *f.dbg;
+    const std::vector<BpSpec> ints = {spec(BpSpec::Interrupt, 0), spec(BpSpec::Nmi, 0), spec(BpSpec::Interrupt, 0, false)};
+    {
+        const BpScript o = bp_script_text(ints, d);
+        const std::string want = kHeader +
+            "bp1: on interrupt do stop end\n"
+            "bp2: on nmi do stop end\n"
+            "disabled bp3: on interrupt do stop end\n";
+        check("BPJ-22", "Interrupt and NMI are `on interrupt` / `on nmi` rules (the DSL's own events), a disabled one is "
+                        "`disabled bp3: ...`; nothing refused",
+              o.text == want && o.refused.empty(), o.text);
+    }
+    {
+        const BpRead r = bp_specs_from_script("on interrupt do stop end\non nmi do stop end\n", *f.dbg);
+        const BpRead rt = bp_specs_from_script(bp_script_text(ints, d).text, d);
+        check("BPJ-23", "`on interrupt` / `on nmi` decode to kinds Interrupt / Nmi with no address, and the saved set reads back "
+                        "equal",
+              r.ok() && r.specs.size() == 2 && r.specs[0].kind == BpSpec::Interrupt && r.specs[1].kind == BpSpec::Nmi &&
+                  r.specs[0].addr == 0 && rt.ok() && rt.specs == ints,
+              specs_str(r.specs) + dstr(r.errors) + specs_str(rt.specs) + dstr(rt.errors));
+    }
+    {
+        const char* names[] = {"Execute", "Read", "Write", "Read/Write", "IO Read", "IO Write", "Interrupt", "NMI"};
+        std::string bad;
+        for (int k = 0; k < 8; ++k)
+            if (std::string(bp_kind_name(static_cast<BpSpec::Kind>(k))) != names[k]) bad += std::to_string(k) + " ";
+        check("BPJ-25", "bp_kind_name gives the Type column's eight names for kinds 0..7 and the port rule is 00FF below 0100, "
+                        "FFFF from it",
+              bad.empty() && bp_port_mask_for(0x00FF) == 0x00FF && bp_port_mask_for(0x0100) == 0xFFFF, bad);
+    }
 }
 
 static void engine_rows() {
@@ -487,6 +527,25 @@ static void engine_rows() {
     }
 }
 
+// BPJ-24: the ENGINE as the foreign reader of the Interrupt / NMI spellings.
+static void engine_interrupt_rows() {
+    {
+        Fix g;
+        const std::vector<BpSpec> in = {spec(BpSpec::Interrupt, 0), spec(BpSpec::Nmi, 0), spec(BpSpec::Interrupt, 0, false)};
+        const BpScript o = bp_script_text(in, *g.dbg);
+        ScriptEngine eng(*g.dbg);
+        const LoadResult lr = eng.load(o.text, "int.jds");
+        const auto subs = engine_subs(*g.dbg, eng);
+        bool same = subs.size() == 3;
+        if (same)
+            same = subs[0].kind == EventKind::IntAck && subs[0].enabled && subs[1].kind == EventKind::Nmi && subs[1].enabled &&
+                   subs[2].kind == EventKind::IntAck && !subs[2].enabled;
+        check("BPJ-24", "the Interrupt / NMI text loads in a ScriptEngine with no error or warning and registers an IntAck, an "
+                        "Nmi and a disabled IntAck subscription, in order",
+              lr.ok() && lr.warnings.empty() && same, dstr(lr.errors) + dstr(lr.warnings) + std::to_string(subs.size()));
+    }
+}
+
 int main() {
     std::printf("bp_script_test (GH #376)\n");
     {
@@ -494,8 +553,10 @@ int main() {
         save_rows(f);
         save_rows2(f);
         load_rows(f);
+        save_interrupt_rows(f);
     }
     engine_rows();
+    engine_interrupt_rows();
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;

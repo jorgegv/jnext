@@ -237,10 +237,13 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
     type_combo->addItem(tr("Read/Write"));
     type_combo->addItem(tr("IO Read"));
     type_combo->addItem(tr("IO Write"));
+    type_combo->addItem(tr("Interrupt"));
+    type_combo->addItem(tr("NMI"));
     type_combo->setCurrentIndex(type_index);
     form->addRow(tr("Type:"), type_combo);
 
     auto* addr_edit = new QLineEdit(&dlg);
+    addr_edit->setObjectName(QStringLiteral("bp_dialog_address"));
     addr_edit->setPlaceholderText("e.g. 4000, $4000, symbol or file.bas:12");
     // A breakpoint on a source line edits as that line.
     QString initial = QString::asprintf("%04X", addr);
@@ -257,6 +260,14 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
     form->addRow(QString(), new QLabel(
         tr("IO Read/Write: 00-FF matches any port with that low byte\n"
            "(FE = the ULA); 0100 and up matches that exact port (243B)."), &dlg));
+
+    // Interrupt and NMI have no address: the field is off for them.
+    const auto sync_fields = [type_combo, addr_edit] {
+        const int t = type_combo->currentIndex();
+        addr_edit->setEnabled(t != BreakpointModel::Interrupt && t != BreakpointModel::Nmi);
+    };
+    connect(type_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg, sync_fields);
+    sync_fields();
 
     // Why OK did not close the dialog. Hidden until there is a reason.
     auto* error = new QLabel(&dlg);
@@ -278,6 +289,11 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
     while (dlg.exec() == QDialog::Accepted) {
         const std::string text = addr_edit->text().trimmed().toStdString();
         const int type = type_combo->currentIndex();
+        if (type == BreakpointModel::Interrupt || type == BreakpointModel::Nmi) {
+            target = BpTarget{0, jnext::dbg::MemSpace::cpu(), QString()};
+            type_index = type;
+            return true;
+        }
         // A number or a symbol first; then, for an Execute breakpoint, a source
         // line, which arms every place it compiled to, each tied to the memory
         // that supplies it.

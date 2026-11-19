@@ -39,6 +39,7 @@
 #include "debug/breakpoints.h"
 #include "debug/call_stack.h"
 #include "debug/debug_state.h"
+#include "debug/debug_keymap.h"
 #include "debug/disasm_text.h"
 #include "debug/rewind_buffer.h"
 #include "debug/source_file.h"
@@ -4709,6 +4710,361 @@ static void test_nav_window() {
     }
 }
 
+
+// ===========================================================================
+// QBPX / QRTI -- GH #372: the Breakpoints panel's Interrupt and NMI types, and
+// Debug > Run to Next Interrupt.
+//
+// Oracles: the backend's own rows WK-INT-01 / WK-NMI-01 (an IntAck stop lands on
+// PC 0x0038 in IM 1, an NMI on 0x0066: Zilog UM0080) and the machine itself:
+// each row is asserted by where a REAL 48K stops, never by reading a
+// subscription back. The panel's cells are read as the user sees them.
+// ===========================================================================
+namespace {
+
+struct BpoFix {
+    std::unique_ptr<Fixture> own;
+    Fixture& fx;
+    explicit BpoFix(bool paused = false, MachineType t = MachineType::ZX48K)
+        : own(std::make_unique<Fixture>(t, 0, paused)), fx(*own) {}
+    BreakpointModel& model() { return fx.mgr->breakpoints(); }
+    BreakpointPanel* panel() { return fx.dbg()->breakpoint_panel(); }
+    QTableWidget* table() { return panel()->findChild<QTableWidget*>(); }
+    QString cell(int row, int col) { return table_cell(panel(), row, col); }
+    /// The post-frames sequence of the real loop: the frame, THEN the backend's pump (which delivers
+    /// a stop to the listeners), then the manager's check and the panels.
+    void tick() {
+        if (!fx.emu.debug_state().paused()) fx.emu.run_frame();
+        fx.backend->pump(jnext::dbg::PumpBudget{});
+        fx.mgr->check_breakpoint_hit();
+        fx.mgr->refresh_panels();
+    }
+    bool tick_until_paused(int max_ticks = 8) {
+        for (int i = 0; i < max_ticks && !fx.paused(); ++i) tick();
+        return fx.paused();
+    }
+    /// The first backend subscription (any owner, transients included) that `pred` accepts.
+    bool any_sub(const std::function<bool(const jnext::dbg::SubscriptionInfo&)>& pred) {
+        for (const auto& si : fx.backend->subscriptions(true))
+            if (pred(si)) return true;
+        return false;
+    }
+    bool any_intack() {
+        return any_sub([](const jnext::dbg::SubscriptionInfo& si) { return si.kind == jnext::dbg::EventKind::IntAck; });
+    }
+};
+
+// What the Add / Edit dialog showed and did while `drive_bp_dialog` drove it.
+struct BpoDlg {
+    bool        opened = false;
+    QStringList items;                    // the Type combo's texts, in order
+    int         seed_type = -1;           // the combo's index when it opened
+    QString     seed_addr;
+    bool        seed_count = false;
+    bool        addr_enabled_after = true;   // the address field's state once `act` ran
+    QString     error;                    // the reason shown when OK was refused
+};
+
+BpoDlg drive_bp_dialog(const std::function<void(QDialog*)>& act, const std::function<void()>& open,
+                       bool accept = true) {
+    BpoDlg r;
+    int n = 0;
+    QTimer timer;
+    QElapsedTimer since;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* dlg = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dlg || !dlg->isVisible()) { since.invalidate(); return; }
+        if (!since.isValid()) since.start();
+        else if (since.elapsed() > 20000) { dlg->reject(); return; }
+        auto* combo = dlg->findChild<QComboBox*>();
+        auto* addr  = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_address"));
+        auto* cnt   = dlg->findChild<QCheckBox*>(QStringLiteral("bp_dialog_count_only"));
+        if (n++ == 0) {
+            r.opened = true;
+            if (combo) {
+                for (int i = 0; i < combo->count(); ++i) r.items << combo->itemText(i);
+                r.seed_type = combo->currentIndex();
+            }
+            if (addr) r.seed_addr = addr->text();
+            r.seed_count = cnt && cnt->isChecked();
+            if (act) act(dlg);
+            r.addr_enabled_after = addr && addr->isEnabled();
+            if (accept) dlg->accept(); else dlg->reject();
+            return;
+        }
+        // The dialog is up again: OK was refused. Take the reason and give up.
+        auto* err = dlg->findChild<QLabel*>(QStringLiteral("bp_dialog_error"));
+        r.error = err ? err->text() : QString();
+        dlg->reject();
+    });
+    timer.start(1);
+    open();
+    timer.stop();
+    QApplication::processEvents();
+    return r;
+}
+
+/// Make the dialog say: type index `type` (-1 = keep), address text (null = keep), count-only (-1 = keep).
+std::function<void(QDialog*)> fill(int type, const QString& addr = QString(), int count = -1) {
+    return [=](QDialog* d) {
+        if (type >= 0)
+            if (auto* c = d->findChild<QComboBox*>()) c->setCurrentIndex(type);
+        if (!addr.isNull())
+            if (auto* a = d->findChild<QLineEdit*>(QStringLiteral("bp_dialog_address"))) a->setText(addr);
+        if (count >= 0)
+            if (auto* k = d->findChild<QCheckBox*>(QStringLiteral("bp_dialog_count_only"))) k->setChecked(count != 0);
+    };
+}
+
+/// Another client's subscription, made and pushed as a tick's pump would.
+jnext::dbg::ClientId other_client_sub(Fixture& fx, BreakpointModel& m, const jnext::dbg::Subscription& sub) {
+    jnext::dbg::ClientInfo oi;
+    oi.name = "other";
+    oi.kind = jnext::dbg::ClientKind::Test;
+    const jnext::dbg::ClientId other = fx.backend->attach(oi).value;
+    fx.backend->pump(jnext::dbg::PumpBudget{});   // settle the attach: the first pump only primes
+    fx.backend->subscribe(other, sub);
+    fx.backend->pump(jnext::dbg::PumpBudget{});
+    m.sync();
+    return other;
+}
+
+// 8000  FB        EI
+// 8001  76        HALT
+// 8002  18 FD     JR $8001
+const std::initializer_list<uint8_t> kEiHalt = {0xFB, 0x76, 0x18, 0xFD};
+
+void regs_im1(Fixture& fx, uint16_t pc) {
+    fx.regs(pc, [](Z80Registers& r) { r.IM = 1; });
+}
+
+}  // namespace
+
+static void test_bp_interrupt() {
+    set_group("QBPX");
+    using BM = BreakpointModel;
+    {   // QBPX-01
+        BpoFix g(/*paused=*/true);
+        const char* desc = "the Add dialog's Type combo holds the eight names in order (the first six unchanged); choosing "
+                           "Interrupt turns the address field off; OK adds one own row Interrupt with an empty Address: a "
+                           "static IntAck Stop with no handler or condition";
+        if (!g.fx.ok) { check("QBPX-01", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            const BpoDlg d = drive_bp_dialog(fill(BM::Interrupt), [&] { g.panel()->on_add(); });
+            const QStringList want = {"Execute", "Read", "Write", "Read/Write", "IO Read", "IO Write", "Interrupt", "NMI"};
+            bool sub_ok = false;
+            if (g.model().rows().size() == 1)
+                for (const auto& si : g.fx.backend->subscriptions(false))
+                    if (si.id == g.model().rows()[0].id)
+                        sub_ok = si.kind == jnext::dbg::EventKind::IntAck && si.action == jnext::dbg::Action::Stop &&
+                                 !si.has_handler && !si.has_condition && si.owner == g.model().client();
+            const bool row_ok = g.model().rows().size() == 1 && g.model().rows()[0].own &&
+                                g.model().rows()[0].type == BM::Interrupt &&
+                                g.model().rows()[0].type_text == QString::fromLatin1(jnext::script::bp_kind_name(jnext::script::BpSpec::Interrupt)) &&
+                                g.model().rows()[0].addr_text.isEmpty();
+            check("QBPX-01", desc,
+                  d.opened && d.items == want && !d.addr_enabled_after && row_ok && sub_ok &&
+                      g.cell(0, 1) == "Interrupt" && g.cell(0, 2).isEmpty(),
+                  fmt("opened=%d items=%s addr_enabled=%d row_ok=%d sub_ok=%d cells='%s'|'%s'", d.opened,
+                      s(d.items.join(",")).c_str(), d.addr_enabled_after, row_ok, sub_ok, s(g.cell(0, 1)).c_str(),
+                      s(g.cell(0, 2)).c_str()));
+        }
+    }
+    {   // QBPX-02
+        BpoFix g;
+        const char* desc = "on a real 48K (IM 1, EI, HALT loop) an Interrupt breakpoint pauses at PC 0x0038, and a Run pauses "
+                           "there again at the NEXT frame interrupt";
+        if (!g.fx.ok) { check("QBPX-02", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kEiHalt);
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            g.model().add(BM::Interrupt, 0);
+            const bool first = g.tick_until_paused();
+            const uint16_t pc1 = g.fx.pc();
+            const uint64_t c1 = g.fx.emu.clock().get();
+            // Back into the HALT loop with interrupts on: the handler at 0x0038 is the ROM's, which
+            // this fixture may not hold (0xFF fill = RST 38h forever), so the row does not rely on it.
+            g.fx.regs(PROG + 1, [](Z80Registers& r) { r.IM = 1; r.IFF1 = 1; r.IFF2 = 1; });
+            g.fx.mgr->on_run();
+            const bool second = g.tick_until_paused();
+            const uint64_t c2 = g.fx.emu.clock().get();
+            check("QBPX-02", desc,
+                  first && pc1 == 0x0038 && second && g.fx.pc() == 0x0038 &&
+                      c2 - c1 >= g.fx.emu.timing().master_cycles_per_frame / 2,
+                  fmt("first=%d pc=%04X second=%d pc=%04X cycles=%llu", first, pc1, second, g.fx.pc(),
+                      static_cast<unsigned long long>(c2 - c1)));
+        }
+    }
+    {   // QBPX-03
+        BpoFix g;
+        const char* desc = "an NMI breakpoint pauses at PC 0x0066 after the Multiface button is pressed";
+        if (!g.fx.ok) { check("QBPX-03", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, {0x00, 0x18, 0xFD});
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(BM::Nmi, 0);
+            g.fx.emu.nmi_source().set_mf_enable(true);
+            g.fx.backend->press_nmi(g.model().client(), jnext::dbg::NmiButton::Mf);
+            const bool hit = g.tick_until_paused();
+            check("QBPX-03", desc, hit && g.fx.pc() == 0x0066, fmt("paused=%d pc=%04X", hit, g.fx.pc()));
+        }
+    }
+    {   // QBPX-04
+        BpoFix g(/*paused=*/true);
+        const char* desc = "another client's IntAck Stop lists as `Interrupt (client N)` with an empty Address and a read-only "
+                           "On cell: the text is what it was before the type existed";
+        if (!g.fx.ok) { check("QBPX-04", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            jnext::dbg::Subscription sub;
+            sub.kind   = jnext::dbg::EventKind::IntAck;
+            sub.action = jnext::dbg::Action::Stop;
+            const jnext::dbg::ClientId other = other_client_sub(g.fx, g.model(), sub);
+            g.fx.mgr->refresh_panels();
+            const QString want = QStringLiteral("Interrupt (client %1)").arg(other);
+            const bool one = g.model().rows().size() == 1;
+            const bool row_ok = one && !g.model().rows()[0].own && g.model().rows()[0].type_text == want &&
+                                g.model().rows()[0].addr_text.isEmpty();
+            QTableWidgetItem* on = g.table() ? g.table()->item(0, 0) : nullptr;
+            check("QBPX-04", desc,
+                  row_ok && g.cell(0, 1) == want && g.cell(0, 2).isEmpty() && on &&
+                      !(on->flags() & Qt::ItemIsUserCheckable),
+                  fmt("rows=%d type='%s' addr='%s'", int(g.model().rows().size()),
+                      one ? s(g.model().rows()[0].type_text).c_str() : "", one ? s(g.model().rows()[0].addr_text).c_str() : ""));
+        }
+    }
+    {   // QBPX-05
+        BpoFix g(/*paused=*/true);
+        const char* desc = "Edit on an Interrupt row seeds the Type with Interrupt; changing it to NMI replaces the row and "
+                           "carries the disabled On state";
+        if (!g.fx.ok) { check("QBPX-05", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            g.model().add(BM::Interrupt, 0);
+            g.model().set_enabled(BM::Interrupt, 0, false);
+            g.table()->setCurrentCell(0, 1);
+            const BpoDlg d = drive_bp_dialog(fill(BM::Nmi), [&] { g.panel()->on_edit(); });
+            check("QBPX-05", desc,
+                  d.opened && d.seed_type == BM::Interrupt && g.model().rows().size() == 1 &&
+                      g.model().rows()[0].type == BM::Nmi && !g.model().rows()[0].enabled && g.model().rows()[0].own,
+                  fmt("seed=%d rows=%d type=%d enabled=%d", d.seed_type, int(g.model().rows().size()),
+                      g.model().rows().empty() ? -2 : g.model().rows()[0].type,
+                      g.model().rows().empty() ? -1 : g.model().rows()[0].enabled));
+        }
+    }
+}
+
+static void test_run_to_interrupt() {
+    set_group("QRTI");
+    using BM = BreakpointModel;
+    const char* kItem = "Run to Next Interrupt";
+    {   // QRTI-01
+        BpoFix g(/*paused=*/true);
+        const char* desc = "the Debug menu holds Run to Next Interrupt right after Run to End of Scan Line, with no shortcut "
+                           "by default, and its keymap id is run_to_interrupt";
+        if (!g.fx.ok) { check("QRTI-01", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            QMenu* debug = menu_named(g.fx.dbg()->menuBar(), "Debug");
+            int eosl = -1, rti = -1, i = 0;
+            QAction* a = nullptr;
+            if (debug)
+                for (QAction* act : debug->actions()) {
+                    if (visible(act->text()) == "Run to End of Scan Line") eosl = i;
+                    if (visible(act->text()) == kItem) { rti = i; a = act; }
+                    ++i;
+                }
+            check("QRTI-01", desc,
+                  eosl >= 0 && rti == eosl + 1 && a && a->shortcuts().isEmpty() &&
+                      std::string(jnext::dbgkeys::info(jnext::dbgkeys::Action::RunToInterrupt).id) == "run_to_interrupt",
+                  fmt("eosl=%d rti=%d", eosl, rti));
+        }
+    }
+    {   // QRTI-02
+        BpoFix g(/*paused=*/true);
+        const char* desc = "paused on a 48K with EI and a HALT loop, the action runs the machine and pauses at PC 0x0038; "
+                           "afterwards no IntAck subscription is left, and the panel never listed one";
+        if (!g.fx.ok) { check("QRTI-02", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kEiHalt);
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            QAction* a = debug_item(g.fx.dbg(), kItem);
+            if (a) a->trigger();
+            const bool ran = !g.fx.paused();
+            bool listed = false;
+            for (int i = 0; i < 8 && !g.fx.paused(); ++i) {
+                g.tick();
+                listed = listed || !g.model().rows().empty() || g.table()->rowCount() != 0;
+            }
+            check("QRTI-02", desc,
+                  a && ran && g.fx.paused() && g.fx.pc() == 0x0038 && !g.any_intack() && !listed,
+                  fmt("ran=%d paused=%d pc=%04X armed=%d listed=%d", ran, g.fx.paused(), g.fx.pc(), g.any_intack(), listed));
+        }
+    }
+    {   // QRTI-03
+        BpoFix g(/*paused=*/true);
+        const char* desc = "with the master switch off the action still pauses at 0x0038 (a transient is exempt from it)";
+        if (!g.fx.ok) { check("QRTI-03", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kEiHalt);
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            g.model().set_master_enabled(false);
+            QAction* a = debug_item(g.fx.dbg(), kItem);
+            if (a) a->trigger();
+            g.tick_until_paused();
+            check("QRTI-03", desc, a && g.fx.paused() && g.fx.pc() == 0x0038 && !g.model().master_enabled(),
+                  fmt("paused=%d pc=%04X", g.fx.paused(), g.fx.pc()));
+        }
+    }
+    {   // QRTI-04
+        BpoFix g(/*paused=*/true);
+        const char* desc = "an own Execute breakpoint reached before the interrupt stops there first; nothing IntAck stays "
+                           "armed, and a following Run does not stop at 0x0038";
+        if (!g.fx.ok) { check("QRTI-04", desc, false, "fixture"); }
+        else {
+            // 8000 EI; 8001 NOP; 8002 NOP (breakpoint); 8003 HALT; 8004 JR 8003
+            g.fx.load(PROG, {0xFB, 0x00, 0x00, 0x76, 0x18, 0xFD});
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            g.model().add(BM::Execute, 0x8002);
+            QAction* a = debug_item(g.fx.dbg(), kItem);
+            if (a) a->trigger();
+            g.tick_until_paused();
+            const bool at_bp = g.fx.paused() && g.fx.pc() == 0x8002;
+            const bool clean = !g.any_intack();
+            g.fx.mgr->on_run();
+            for (int i = 0; i < 4; ++i) g.tick();
+            check("QRTI-04", desc, a && at_bp && clean && !g.fx.paused(),
+                  fmt("at_bp=%d pc=%04X clean=%d paused-after-run=%d", at_bp, g.fx.pc(), clean, g.fx.paused()));
+        }
+    }
+    {   // QRTI-05
+        BpoFix g(/*paused=*/false);
+        const char* desc = "on a running machine the action is a no-op (nothing armed, still running); an explicit Pause right "
+                           "after arming leaves no transient IntAck behind";
+        if (!g.fx.ok) { check("QRTI-05", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kEiHalt);
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            QAction* a = debug_item(g.fx.dbg(), kItem);
+            if (a) a->trigger();
+            const bool noop = !g.any_intack() && !g.fx.paused();
+            g.fx.mgr->on_pause();
+            // Arm from the paused machine, then pause before any interrupt has come.
+            if (a) a->trigger();
+            g.fx.mgr->on_pause();
+            const bool dropped = !g.any_intack() && g.fx.paused();
+            check("QRTI-05", desc, a && noop && dropped, fmt("noop=%d dropped=%d armed=%d", noop, dropped, g.any_intack()));
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -4747,6 +5103,8 @@ int main(int argc, char** argv) {
     test_nav_window();
     test_bp_script();
     test_bp_script_more();
+    test_bp_interrupt();
+    test_run_to_interrupt();
     test_memory_tools_window();
 
     std::printf("\n=====================================\n");

@@ -25,13 +25,28 @@ the default (`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
 **The breakpoints' owner** is a non-arming observer client, attached by
 `BreakpointModel` (`src/debugger/breakpoint_model.*`) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
-`Execute`, `Mem` and `Port` subscriptions with no condition, `once = false` and
+`Execute`, `Mem` and `Port` subscriptions, and the addressless `IntAck` and `Nmi`
+ones (the Interrupt and NMI types), with no condition, `once = false` and
 action `Stop`. READ, WRITE and READ_WRITE are one `Mem` subscription with an
 access mask. An I/O address `00`-`FF` is a low-byte match (`port_mask 0x00FF`);
 `0100` and up is exact. Because the observer never detaches and arms
 nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.
+
+`BreakpointModel::Type` and the codec's `BpSpec::Kind` are one numbering (a
+`static_assert` pins it), and the codec owns the type-name table (`bp_kind_name()`)
+and the port rule (`bp_port_mask_for()`): the model has no copy of either. Another
+client's `IntAck` or `Nmi` Stop subscription is a typed but read-only row, with an empty
+Address.
+
+**Run to Next Interrupt** (Debug menu, the `run_to_interrupt` keymap action, unbound by
+default) is not a backend verb. `DebuggerManager::on_run_to_interrupt()` arms a
+*transient* `IntAck` Stop subscription and calls `run()`: the transient is hidden from the
+panel, exempt from the master switch, and dropped by the backend at the next stop or an
+explicit `pause()` (the DeZog "arm, then continue" contract in `Impl::run_verb`). A refused
+`run()` unsubscribes it. Rows: `QRTI-*` in `debugger_verbs_test`, `QKM-RTI-01` in
+`debugger_keymap_test`.
 
 The model also converts its own rows to and from the breakpoint file codec
 (`script/bp_script.h`, see [3.10.6](13-the-debugger-scripting-language.md)):

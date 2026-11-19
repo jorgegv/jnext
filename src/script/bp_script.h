@@ -26,14 +26,19 @@ namespace script {
 
 /// One GUI breakpoint. `Kind` is BreakpointModel::Type, value for value.
 struct BpSpec {
-    enum Kind : uint8_t { Execute = 0, Read, Write, ReadWrite, IoRead, IoWrite };
+    enum Kind : uint8_t { Execute = 0, Read, Write, ReadWrite, IoRead, IoWrite, Interrupt, Nmi };
     Kind            kind  = Execute;
-    uint16_t        addr  = 0;                      ///< address, or port (<= 0xFF: low-byte decode)
+    uint16_t        addr  = 0;                      ///< address, or port (<= 0xFF: low-byte decode); 0 for Interrupt / Nmi
     dbg::MemSpace   space = dbg::MemSpace::cpu();   ///< Execute only
     std::string     file_line;                      ///< Execute only; non-empty = a source line
     std::vector<::SourceAddress> locations;      ///< a source line's members, in resolve() order
     bool            enabled = true;
 };
+/// THE type-name table: the Type column's text for each kind, "?" past the last.
+const char* bp_kind_name(BpSpec::Kind k);
+/// THE port decode rule (GH #222): a port of 00-FF is a LOW-BYTE match, 0100 and
+/// up that exact 16-bit port, so the exact port 0x00xx cannot be named.
+uint16_t bp_port_mask_for(uint16_t addr);
 bool operator==(const BpSpec& a, const BpSpec& b);
 /// The same places, whatever order they are listed in.
 bool same_locations(std::vector<::SourceAddress> a, std::vector<::SourceAddress> b);

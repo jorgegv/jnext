@@ -17,19 +17,22 @@ namespace {
 constexpr EventKindMask kGuiKinds =
     kind_bit(EventKind::Execute) | kind_bit(EventKind::Mem) | kind_bit(EventKind::Port);
 
-const char* const kTypeNames[] = {"Execute", "Read", "Write", "Read/Write",
-                                  "IO Read", "IO Write"};
+using jnext::script::BpSpec;
+using jnext::script::bp_kind_name;
+using jnext::script::bp_port_mask_for;
 
-// GH #222 — a port is decoded by address-line masking. The Add dialog's rule,
-// unchanged from the BreakpointSet it replaces: 00-FF is a LOW-BYTE match (any
-// port whose low byte it is — FE catches every ULA access); 0100 and up is that
-// exact 16-bit port. So the exact port 0x00xx cannot be named, which no Next
-// port needs.
-uint16_t port_mask_for(uint16_t addr) { return addr <= 0x00FF ? 0x00FF : 0xFFFF; }
+constexpr bool same_kind(int a, int b) { return a == b; }
+static_assert(same_kind(BreakpointModel::Execute, BpSpec::Execute) && same_kind(BreakpointModel::Read, BpSpec::Read) &&
+              same_kind(BreakpointModel::Write, BpSpec::Write) &&
+              same_kind(BreakpointModel::ReadWrite, BpSpec::ReadWrite) &&
+              same_kind(BreakpointModel::IoRead, BpSpec::IoRead) && same_kind(BreakpointModel::IoWrite, BpSpec::IoWrite) &&
+              same_kind(BreakpointModel::Interrupt, BpSpec::Interrupt) && same_kind(BreakpointModel::Nmi, BpSpec::Nmi),
+              "BreakpointModel::Type and the codec's BpSpec::Kind are one numbering");
 
 // The subscription one GUI breakpoint is: a single address, no condition, no
 // handler, not once, the Stop action (REQ-qt-13d). READ_WRITE is ONE row with
-// both access bits (REQ-qt-13c).
+// both access bits (REQ-qt-13c). Interrupt and NMI are `IntAck` / `Nmi` with the
+// default filter (they have no address).
 Subscription sub_for(int type, uint16_t addr, jnext::dbg::MemSpace space) {
     Subscription s;
     s.action = jnext::dbg::Action::Stop;
@@ -51,15 +54,21 @@ Subscription sub_for(int type, uint16_t addr, jnext::dbg::MemSpace space) {
         case BreakpointModel::IoRead:
         case BreakpointModel::IoWrite:
             s.kind              = EventKind::Port;
-            s.filter.port_mask  = port_mask_for(addr);
+            s.filter.port_mask  = bp_port_mask_for(addr);
             s.filter.port_value = addr;
             s.access = type == BreakpointModel::IoRead ? Access::Read : Access::Write;
+            break;
+        case BreakpointModel::Interrupt:
+            s.kind = EventKind::IntAck;
+            break;
+        case BreakpointModel::Nmi:
+            s.kind = EventKind::Nmi;
             break;
     }
     return s;
 }
 
-// The inverse: which of the six types this listed subscription IS, or -1 when
+// The inverse: which of the types this listed subscription IS, or -1 when
 // it is something the Add dialog cannot express. Only such a subscription can
 // be this GUI's own editable row.
 int type_of(const SubscriptionInfo& si) {
@@ -82,10 +91,12 @@ int type_of(const SubscriptionInfo& si) {
             if (si.access == Access::ReadWrite) return BreakpointModel::ReadWrite;
             return -1;
         case EventKind::Port:
-            if (f.port_mask != port_mask_for(f.port_value)) return -1;
+            if (f.port_mask != bp_port_mask_for(f.port_value)) return -1;
             if (si.access == Access::Read)  return BreakpointModel::IoRead;
             if (si.access == Access::Write) return BreakpointModel::IoWrite;
             return -1;
+        case EventKind::IntAck: return BreakpointModel::Interrupt;
+        case EventKind::Nmi:    return BreakpointModel::Nmi;
         default:
             return -1;
     }
@@ -155,7 +166,8 @@ void BreakpointModel::publish_() {
         r.live    = si.live;
         r.own     = si.owner == client_ && r.type >= 0;
         const bool port = si.kind == EventKind::Port;
-        r.addr = port ? si.filter.port_value : si.filter.lo;
+        const bool addressless = r.type == Interrupt || r.type == Nmi;
+        r.addr = addressless ? 0 : port ? si.filter.port_value : si.filter.lo;
         if (si.kind == EventKind::Execute) r.space = si.filter.space;
         if (r.own) members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live, si.group});
         // E23-09 -- the members of one source breakpoint are ONE row: the
@@ -180,8 +192,9 @@ void BreakpointModel::publish_() {
             r.group = si.group;
         }
         if (r.type >= 0) {
-            r.type_text = QString::fromLatin1(kTypeNames[r.type]);
-            r.addr_text = address_text(r.addr, r.space, style_, memtext::next_layout(&dbg_));
+            r.type_text = QString::fromLatin1(bp_kind_name(static_cast<BpSpec::Kind>(r.type)));
+            if (!addressless)
+                r.addr_text = address_text(r.addr, r.space, style_, memtext::next_layout(&dbg_));
         } else {
             r.type_text = kind_text(si);
             if (port)
@@ -254,8 +267,9 @@ const BreakpointModel::Member* BreakpointModel::find_own_(int type, uint16_t add
 }
 
 void BreakpointModel::add(int type, uint16_t addr, jnext::dbg::MemSpace space) {
-    if (type < Execute || type > IoWrite) return;
+    if (type < Execute || type > Nmi) return;
     if (type != Execute) space = jnext::dbg::MemSpace::cpu();
+    if (type == Interrupt || type == Nmi) addr = 0;
     if (find_own_(type, addr, space)) return;
     dbg_.subscribe(client_, sub_for(type, addr, space));
     publish_();

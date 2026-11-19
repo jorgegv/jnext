@@ -2,9 +2,10 @@
 
 ![Breakpoints panel](../../img/debugger-breakpoints.png)
 
-Every breakpoint in one list, sorted by address: an **On** checkbox, the type,
-the address and — with a MAP file loaded — the symbol at that address, or with
-a source map the source line. The Add dialog takes a symbol or, for an Execute
+Every breakpoint in one list, sorted by address: an **On** checkbox, the type
+(Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt or NMI), the address
+(empty for Interrupt and NMI, which have none) and — with a MAP file loaded — the symbol at
+that address, or with a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (`main.bas:120`); see
 [Breakpoints on a source line](../source-debugger/06-breakpoints-and-steps.md).
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.

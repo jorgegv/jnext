@@ -17,8 +17,9 @@
 /// Until WP4c the GUI's breakpoints lived in the core's `BreakpointSet`, which
 /// the Breakpoints panel and the disassembly gutter observed. They are now
 /// `jnext::dbg::Debugger` subscriptions (REQ-qt-13d): single-address
-/// `Execute`, `Mem` and `Port` subscriptions with no condition, `once = false`
-/// and the `Stop` action, owned by this model's client. READ_WRITE is ONE
+/// `Execute`, `Mem` and `Port` subscriptions, and `IntAck` / `Nmi` ones (GH #372,
+/// no address), with no condition, `once = false` and the `Stop` action, owned
+/// by this model's client. READ_WRITE is ONE
 /// subscription with an access mask (REQ-qt-13c). The backend's table is the
 /// only model; this class holds no breakpoint of its own.
 ///
@@ -48,8 +49,8 @@
 class BreakpointModel : public QObject, private jnext::dbg::Listener {
     Q_OBJECT
 public:
-    /// The Add dialog's six types, in its combo order.
-    enum Type { Execute = 0, Read, Write, ReadWrite, IoRead, IoWrite };
+    /// The Add dialog's types, in its combo order (the codec's `BpSpec::Kind`).
+    enum Type { Execute = 0, Read, Write, ReadWrite, IoRead, IoWrite, Interrupt, Nmi };
 
     /// One LISTED subscription, whoever owns it (REQ-qt-13d).
     struct Row {
@@ -91,7 +92,7 @@ public:
     /// `space` qualifies an Execute breakpoint with the memory that must
     /// supply the opcode (E23-09); every other type, and the default, is
     /// unqualified. A qualified and an unqualified breakpoint at one address
-    /// are two rows. These act on ONE subscription (a group's member too);
+    /// are two rows. Interrupt and NMI take no address. These act on ONE subscription (a group's member too);
     /// a whole group goes through the Row overloads below.
     void add(int type, uint16_t addr, jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu());
     void remove(int type, uint16_t addr, jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu());
