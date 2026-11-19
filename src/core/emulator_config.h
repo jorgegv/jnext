@@ -190,6 +190,9 @@ struct EmulatorConfig {
     // unit-test fixtures; not allowed at the CLI level — main.cpp errors
     // out when --sdcard is missing).
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)
+    // --no-sdcard: the empty sd_card_image above is what the user asked for
+    // (a NEX on the synthetic machine), not a missing card to complain about.
+    bool        no_sdcard = false;
     // Open the SD image read-only, so the emulated machine sees a
     // write-protected card and the host file is never modified (GH #77).
     bool        sd_card_readonly = false;

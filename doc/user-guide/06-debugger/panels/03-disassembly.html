@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.25</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.26</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.25</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.26</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4567,7 +4567,9 @@ with the listing, and none of them is shown while the machine is running.</p>
 P04  $8758      PUSH AF           F5
  ...
 P04  $8767      JR Z,$8756        28 ED      [taken] ↑
-P04  $8771      RET               C9         [-&gt; $8E02] ↓
+</code></pre>
+<p>Stopped on a <code>RET</code> instead (a separate stop), the <code>PC</code> line reads:</p>
+<pre><code class="language-text">P04  $8771      RET               C9         [-&gt; $8E02] ↓
 </code></pre>
 <p>The marked line shows the memory mapped now, like every line other than the <code>PC</code> line:
 after <code>RST $08</code> into DivMMC the jump maps the DivMMC ROM in, and the line at <code>$0008</code> still

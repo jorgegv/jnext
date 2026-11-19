@@ -122,6 +122,8 @@ BEGIN {
     M["snapshot_test"]                 = "Snapshot container + descriptor (.jns, GH #27)"
     M["sd_identity_test"]              = "Snapshot SD identity (.jns, GH #27 S7)"
     M["second_sd_jns_test"]            = "Second SD card in a .jns (GH #505)"
+    M["no_sdcard_test"]                = "--no-sdcard: a NEX with no SD card and no ROMs (GH #540)"
+    M["no_sdcard_ui_test"]             = "--no-sdcard in the window (GH #540)"
     M["sd_no_digest_linux_test"]       = "Snapshot/warm start: no whole-card read (GH #396)"
     M["jns_host_path_linux_test"]      = "Snapshot: non-UTF-8 host path does not abort a save (GH #401)"
     M["quick_snapshot_posix_test"]     = "Quick snapshots: prune never follows a symlink (GH #321)"

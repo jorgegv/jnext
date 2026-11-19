@@ -349,6 +349,7 @@ int main(int argc, char* argv[]) {
     bool        sdcard_sha256_given = false;
     std::string sdcard_writes_file;    // --sdcard-writes FILE
     bool        sdcard_writes_reset = false;
+    bool        no_sdcard = false;
     std::string sd_card2_image;        // --sdcard2 FILE: the second SD card (GH #505)
     bool        sdcard2_readonly = false;
     bool        sd_card2_from_prefs = false;   // the path came from Preferences, not the CLI
@@ -815,6 +816,9 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SdcardWritesReset:
                 sdcard_writes_reset = true;
+                break;
+            case cli::OptId::NoSdcard:
+                no_sdcard = true;
                 break;
             case cli::OptId::Sdcard2:
                 sd_card2_image = v[0];
@@ -1642,6 +1646,60 @@ int main(int argc, char* argv[]) {
         load_file = extracted;
     }
 
+    // --no-sdcard: a NEX that never touches NextZXOS runs on the synthetic
+    // machine with no card at all (no ROMs, no warm start); its files come from
+    // the esxDOS stand-in. Anything that needs a card, or a ROM to run, is
+    // refused rather than silently ignored.
+    if (no_sdcard) {
+        const char* card_opt = (sdcard_cli_given || !sd_card_image.empty()) ? "--sdcard"   // also its --set spelling
+                             : sdcard_download_confirm         ? "--sdcard-download-confirm"
+                             : sdcard_download_force           ? "--sdcard-download-force"
+                             : !sdcard_upgrade_arg.empty()     ? "--sdcard-upgrade"
+                             : sdcard_readonly                 ? "--sdcard-readonly"
+                             : sdcard_file_add_count > 0       ? "--sdcard-file-add"
+                             : sdcard_file_dest_count > 0      ? "--sdcard-file-dest"
+                             : sdcard_file_force               ? "--sdcard-file-force"
+                             : sdcard_sha256_given             ? "--sdcard-sha256"
+                             : !sdcard_writes_file.empty()     ? "--sdcard-writes"
+                             : sdcard_writes_reset             ? "--sdcard-writes-reset"
+                             : !sd_card2_image.empty()         ? "--sdcard2"
+                             : sdcard2_readonly                ? "--sdcard2-readonly"
+                             : !sdcard2_writes_file.empty()    ? "--sdcard2-writes"
+                             : sdcard2_writes_reset            ? "--sdcard2-writes-reset"
+                             : warm_start_regenerate           ? "--warm-start-regenerate"
+                             : !delayed_sd_inserts.empty()     ? (delayed_sd_inserts.front().slot == 1
+                                                                  ? "--delayed-sdcard2-insert-frames"
+                                                                  : "--delayed-sdcard-insert-frames")
+                                                               : nullptr;
+        if (card_opt) {
+            fprintf(stderr, "--no-sdcard cannot be combined with %s: there is no SD card.\n", card_opt);
+            return 1;
+        }
+        // The NMI buttons page in the Multiface or DivMMC ROM, which come from the card.
+        if (!delayed_nmis.empty()) {
+            fprintf(stderr, "--no-sdcard cannot be combined with --delayed-nmi: there is no ROM to "
+                            "service an NMI.\n");
+            return 1;
+        }
+        if (machine_type != MachineType::ZXN_ISSUE2) {
+            fprintf(stderr, "--no-sdcard needs the Next: the other machines run from ROMs on the SD card.\n");
+            return 1;
+        }
+        std::string ext;
+        if (auto dot = load_file.rfind('.'); dot != std::string::npos) {
+            ext = load_file.substr(dot);
+            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        if (load_file.empty() || ext != ".nex") {
+            fprintf(stderr, "--no-sdcard needs --load of a .nex (directly, or in a .zip): with no SD card "
+                            "there are no ROMs to run anything else.\n");
+            return 1;
+        }
+        // With no card nothing but the stand-in can answer a file call, so it
+        // serves the NEX's own directory unless --esxdos-stub-root names one.
+        esxdos_stub = true;
+    }
+
     // RZX combinations that cannot do what they say. Each used to be accepted
     // and to do something else without a word: the second RZX silently won,
     // the loaded program was wiped by the recording's own snapshot, and a
@@ -1941,13 +1999,13 @@ int main(int argc, char* argv[]) {
             session_debug_keys_given = true;
         }
 #endif
-        if (sd_card_image.empty() && !gui_app_config.data().sd_card_path.isEmpty()) {
+        if (!no_sdcard && sd_card_image.empty() && !gui_app_config.data().sd_card_path.isEmpty()) {
             sd_card_image = gui_app_config.data().sd_card_path.toStdString();
         }
         // GH #505: the saved second-card path, when no --sdcard2 / --set gave one. A saved
         // path that no longer works is logged and leaves the slot empty (only an explicit
         // flag refuses to start); a card that equals the first one is not mounted twice.
-        if (sd_card2_image.empty() && !gui_app_config.data().sd_card2_path.isEmpty()) {
+        if (!no_sdcard && sd_card2_image.empty() && !gui_app_config.data().sd_card2_path.isEmpty()) {
             const std::string saved = gui_app_config.data().sd_card2_path.toStdString();
             const std::string why = Emulator::sd_image_refusal(saved);
             if (!why.empty()) {
@@ -1992,7 +2050,7 @@ int main(int argc, char* argv[]) {
                         "never offered an upgrade.\n");
         return 1;
     }
-    {
+    if (!no_sdcard) {
         sdcard::ProvisionOptions opts;
         opts.explicit_path   = sd_card_image;
         if (sdcard_upgrade_arg == "ask")        opts.upgrade_mode = sdcard::UpgradeMode::Ask;
@@ -2338,6 +2396,14 @@ int main(int argc, char* argv[]) {
 #endif
         return machine_type;
     }();
+    // --no-sdcard runs the Next's synthetic machine: the saved Preferences machine joins the CLI
+    // one in the merge above, so the check made with the CLI value alone (above) cannot see it.
+    if (no_sdcard && configured_machine != MachineType::ZXN_ISSUE2) {
+        fprintf(stderr, "--no-sdcard needs the Next: the other machines run from ROMs on the SD card "
+                        "(the saved machine is %s: give --machine next).\n",
+                machine_type_str(configured_machine));
+        return 1;
+    }
     const MachineType startup_machine = emulator_startup_machine(
         load_file.empty() ? rzx_play_file : load_file, configured_machine, machine_type_set);
 #ifndef __EMSCRIPTEN__
@@ -2500,6 +2566,7 @@ int main(int argc, char* argv[]) {
         cfg.type = configured_machine;
         cfg.sd_card_image = sd_card_image;
         cfg.sd_card_readonly = sdcard_readonly;
+        cfg.no_sdcard = no_sdcard;
         cfg.sd_card2_image = sd_card2_image;
         cfg.sd_card2_readonly = sdcard2_readonly;
         if (!sdcard_sha256_norm.empty()) {
