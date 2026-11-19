@@ -580,6 +580,13 @@ int main()
               r.ok ? join(r.argv) : r.why);
     }
 
+    // --- WAPI-CARD-08: card source 'none' with card.dirs is refused, naming both -------------------
+    {
+        const Result r = run("{\"card\":{\"source\":\"none\",\"dirs\":[\"/GAMES\"]},\"file\":\"/media/0-g.nex\"}");
+        check("WAPI-CARD-08", "card:{source:'none', dirs:['/GAMES']} is refused as \"card.dirs needs an SD card: not with card source 'none'\"",
+              !r.ok && r.argv.empty() && r.why == "card.dirs needs an SD card: not with card source 'none'", r.why);
+    }
+
     // --- WAPI-CARD-02: the old `image` option is gone --------------------------------------------
     {
         const Result r = run("{" + IMG + ",\"image\":{\"url\":\"u\",\"sha256\":\"" + HEX + "\"}}");

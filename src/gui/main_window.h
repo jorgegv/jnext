@@ -314,12 +314,12 @@ public:
     // suite can drive them without a file dialog. They REQUEST the change
     // (Emulator::request_sd_card_change()); the frontend performs it at the end
     // of its tick. A refusal is reported at once, in a dialog.
-    void handle_sd_card_path(const QString& path);
+    void handle_sd_card_path(const QString& path, int slot = 0);
 
     /// The frontend performed the change (`image` empty = eject; `error` empty
     /// = success): say so on the status bar, and in a dialog — posted to the
     /// event loop, as this is called from inside a frame tick — when it failed.
-    void sd_card_change_finished(const QString& image, const QString& error);
+    void sd_card_change_finished(const QString& image, const QString& error, int slot = 0);
 
     // A load that failed: one warning dialog naming the file (the loader's
     // log line says why). Shown now — callers inside the frame tick use
@@ -469,6 +469,7 @@ private:
     void on_pok_trainers();
     void on_pok_open();
     void on_insert_sd();
+    void on_insert_sd2();
     void on_reset();
     void on_soft_reset();
     void on_machine_type(MachineType type);
@@ -713,6 +714,8 @@ private:
     QLabel*  sd_label_          = nullptr;
     QAction* insert_sd_action_  = nullptr;
     QAction* eject_sd_action_   = nullptr;
+    QAction* insert_sd2_action_ = nullptr;   // GH #505, disabled with --no-sdcard (GH #540)
+    QAction* eject_sd2_action_  = nullptr;
     QLabel*       esp_label_    = nullptr;
     std::uint64_t esp_seen_id_  = 0;   // 0 = nothing rendered yet (ids start at 1)
     std::uint64_t esp_seen_seq_ = 0;

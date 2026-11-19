@@ -998,10 +998,11 @@ row('BCARD-46', "card source 'none': a program that runs ROM code (IM 1) is repo
   await p.ctx.close();
 });
 
-row('BCARD-47', "card source 'none' is refused at mount() with keepWrites, and without a file, before any request", async () => {
+row('BCARD-47', "card source 'none' is refused at mount() with keepWrites, with card.dirs, and without a file, before any request", async () => {
   const n = D.log.length;
   const cases = [
     [{ ...NONE, file: '/nex/magic_port_demo.nex', keepWrites: true }, "keepWrites needs an SD card to keep the writes of: not with card source 'none'"],
+    [{ ...NONE, file: '/nex/magic_port_demo.nex', card: { source: 'none', dirs: ['/GAMES'] } }, "card.dirs needs an SD card: not with card source 'none'"],
     [{ ...NONE }, "card source 'none' needs file: with no SD card there is no NextZXOS menu to boot to"],
   ];
   for (const [opt, want] of cases) {

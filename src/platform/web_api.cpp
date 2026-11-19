@@ -81,6 +81,8 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
             return refuse(why, "card source 'none' needs file: with no SD card there is no NextZXOS menu to boot to");
         if (o.contains("keepWrites"))
             return refuse(why, "keepWrites needs an SD card to keep the writes of: not with card source 'none'");
+        if (o["card"].contains("dirs"))
+            return refuse(why, "card.dirs needs an SD card: not with card source 'none'");
     }
     for (const Option& t : WEB_OPTIONS)
         if (t.required && !(no_card && t.internal) && !o.contains(t.name))

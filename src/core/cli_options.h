@@ -62,6 +62,10 @@ enum class OptId {
     SdcardWrites,
     SdcardWritesReset,
     NoSdcard,
+    Sdcard2,
+    Sdcard2Readonly,
+    Sdcard2Writes,
+    Sdcard2WritesReset,
     DelayedScreenshot,
     DelayedScreenshotTime,
     DelayedScreenshotFrames,
@@ -149,6 +153,7 @@ enum class OptId {
     DelayedNmi,
     DelayedNmiFrames,
     DelayedSdcardInsertFrames,
+    DelayedSdcard2InsertFrames,
     DelayedPokFrames,
     PokTrainers,
     RewindBufferSize,
@@ -358,8 +363,32 @@ inline constexpr Option OPTIONS[] = {
       "--esxdos-stub (its own directory), or give --esxdos-stub-root.\n"
       "The first ROM code the program runs is logged as an error;\n"
       "DivMMC, Multiface and the NMI buttons are off. Needs --load\n"
-      "of a .nex on the Next; excludes every --sdcard option,\n"
-      "--delayed-sdcard-insert-frames and --delayed-nmi" },
+      "of a .nex on the Next; excludes every --sdcard and --sdcard2\n"
+      "option, --delayed-sdcard-insert-frames,\n"
+      "--delayed-sdcard2-insert-frames and --delayed-nmi" },
+    // GH #505 - the second SD card (the board's second socket; NextZXOS maps it
+    // to the next drive letter, D: with a one-partition card 0).
+    { "--sdcard2", 1, Doc::Documented, OptId::Sdcard2,
+      "FILE",
+      "Mount SD card image FILE (.img) in the second SD card slot,\n"
+      "which NextZXOS sees as the next drive after the first card's\n"
+      "partitions (D: for a one-partition first card). No download,\n"
+      "no default: the slot is empty unless this is given. ROMs are\n"
+      "read from the first card only. Not in the browser build." },
+    { "--sdcard2-readonly", 0, Doc::Documented, OptId::Sdcard2Readonly,
+      "",
+      "Open the second SD card image read-only; the host file is\n"
+      "never written. Needs --sdcard2." },
+    { "--sdcard2-writes", 1, Doc::Documented, OptId::Sdcard2Writes,
+      "FILE",
+      "Keep the guest's writes to the second SD card in FILE\n"
+      "instead of the image, as --sdcard-writes does for the first\n"
+      "card (FILE belongs to the image's size and modification\n"
+      "time). Needs --sdcard2; excludes --sdcard2-readonly." },
+    { "--sdcard2-writes-reset", 0, Doc::Documented, OptId::Sdcard2WritesReset,
+      "",
+      "Discard the writes kept in the --sdcard2-writes FILE before\n"
+      "the card is mounted. Needs --sdcard2-writes." },
     // GH #417 - the three Startup settings that have a menu of their own
     // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every
     // other jnext.conf setting is reached with --set.
@@ -817,6 +846,15 @@ inline constexpr Option OPTIONS[] = {
       "File > Insert SD Card Image does (headless only,\n"
       "repeatable). Keeps --sdcard-readonly. Refused while an\n"
       "RZX records or plays; a refusal fails the run" },
+    // GH #505 - the same for the second SD card slot.
+    { "--delayed-sdcard2-insert-frames", 2, Doc::Documented, OptId::DelayedSdcard2InsertFrames,
+      "N FILE",
+      "Insert SD-card image FILE in the second SD card slot after\n"
+      "N emulated frames, as File > Insert Second SD Card Image\n"
+      "does (headless only, repeatable). Keeps --sdcard2-readonly.\n"
+      "Refused for the image in the first slot, and while an RZX\n"
+      "records or plays; a refusal fails the run. NextZXOS finds\n"
+      "the card after a hard reset (JNEXT_DELAYED_RESET_FRAMES)" },
     // GH #381 (owner decision Q1, 2026-10-18) - a POK trainer file applied from the
     // command line, for the runs that have no Machine > POK Trainers... window: headless and
     // the SDL-only window. TWO rows because the arity is at most 2 (CLI-TBL-03) and because
@@ -1094,6 +1132,9 @@ inline const char* browser_refusal(OptId id) {
     case OptId::Map: case OptId::Annotations:
     case OptId::ImportSkoolkit: case OptId::ImportGhidra:
         return "not available in the browser build (the script host is not part of it)";
+    case OptId::Sdcard2: case OptId::Sdcard2Readonly:
+    case OptId::Sdcard2Writes: case OptId::Sdcard2WritesReset:
+        return "not available in the browser build (a page has no second SD card)";
     default:
         return nullptr;
     }

@@ -2619,3 +2619,10 @@ add_test(NAME web_api_tests COMMAND web_api_test)
 # on a Spanish desktop. Must stay LAST — it applies to the add_test()s seen so far.
 get_property(JNEXT_REGISTERED_TESTS DIRECTORY PROPERTY TESTS)
 set_tests_properties(${JNEXT_REGISTERED_TESTS} PROPERTIES ENVIRONMENT "LC_ALL=C")
+
+# GH #505 stage 3: the second SD card in a .jns (media.sdcard2, state/sdcard2.json). Builds its own tiny
+# FAT32 images at run time; needs no SD image fixture.
+add_executable(second_sd_jns_test snapshot/second_sd_jns_test.cpp)
+target_link_libraries(second_sd_jns_test PRIVATE jnext_core)
+target_include_directories(second_sd_jns_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME second_sd_jns_tests COMMAND second_sd_jns_test)

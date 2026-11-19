@@ -146,6 +146,78 @@
               ],
               "type": "object"
             },
+            "sdcard2": {
+              "additionalProperties": false,
+              "properties": {
+                "content_stamp": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "mtime_utc": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^([0-9a-f]{64})?$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "identity": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fat32_volume_id": {
+                      "pattern": "^([0-9a-f]{8})?$",
+                      "type": "string"
+                    },
+                    "image_bytes": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "mbr_partition_table_sha256": {
+                      "pattern": "^([0-9a-f]{64})?$",
+                      "type": "string"
+                    },
+                    "partition_lba": {
+                      "maximum": 4294967295,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "fat32_volume_id",
+                    "image_bytes",
+                    "mbr_partition_table_sha256",
+                    "partition_lba"
+                  ],
+                  "type": "object"
+                },
+                "informational": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fat32_bs_vollab": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fat32_bs_vollab"
+                  ],
+                  "type": "object"
+                },
+                "mounted_path": {
+                  "type": "string"
+                },
+                "read_only": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "identity",
+                "informational",
+                "mounted_path",
+                "read_only"
+              ],
+              "type": "object"
+            },
             "tape": {
               "additionalProperties": false,
               "properties": {

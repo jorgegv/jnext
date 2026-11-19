@@ -48,6 +48,9 @@
 // `resets=1`: its client reset destroyed the machine with the guest's request
 // still pending on it, and the guest reset never happened.
 //
+// `JNEXT_HOST_PROBE=sdcard2:<image>` is the same script for the second SD card
+// slot (GH #505); its lines read `sdcard2: ...`.
+//
 // `JNEXT_HOST_PROBE=sdcard:<image>` pins the loop owner's SD-card change poll
 // (GH #93). Ten frames in, IN ONE PUMP, the probe requests the card change File
 // > Insert SD Card Image… requests AND raises the guest hard-reset request
@@ -86,8 +89,11 @@ public:
         if (!v || !*v) return nullptr;
         const std::string mode(v);
         const bool order = mode == "order";
-        const std::string card = mode.rfind("sdcard:", 0) == 0 ? mode.substr(7) : std::string();
-        return std::unique_ptr<HostProbe>(new HostProbe(emu, dbg, order, card));
+        const bool second = mode.rfind("sdcard2:", 0) == 0;   // GH #505: the second slot
+        const std::string card = second                    ? mode.substr(8)
+                               : mode.rfind("sdcard:", 0) == 0 ? mode.substr(7)
+                                                               : std::string();
+        return std::unique_ptr<HostProbe>(new HostProbe(emu, dbg, order, card, second ? 1 : 0));
     }
 
     ~HostProbe() override {
@@ -164,8 +170,8 @@ public:
     void on_log(jnext::dbg::LogLevel, const std::string&) override {}
 
 private:
-    HostProbe(Emulator& emu, jnext::dbg::Debugger& dbg, bool order, std::string card)
-        : emu_(emu), dbg_(dbg), order_(order), card_(std::move(card)) {
+    HostProbe(Emulator& emu, jnext::dbg::Debugger& dbg, bool order, std::string card, int slot)
+        : emu_(emu), dbg_(dbg), order_(order), card_(std::move(card)), card_slot_(slot) {
         id_ = dbg_.attach(jnext::dbg::ClientInfo{"hostprobe", jnext::dbg::ClientKind::Test})
                   .value;
         dbg_.set_listener(id_, this);
@@ -241,22 +247,29 @@ private:
             case 0:
                 if (frames_ >= 10) {
                     const std::string why = emu_.request_sd_card_change(
-                        {card_, emu_.config().sd_card_readonly});
+                        {card_,
+                         card_slot_ == 1 ? emu_.config().sd_card2_readonly
+                                         : emu_.config().sd_card_readonly,
+                         card_slot_});
                     resets_at_request_ = resets_;
                     waited_            = 0;
                     emu_.request_hard_reset();   // the guest path, same pump
-                    Log::platform()->info("HOSTPROBE sdcard: change and hard reset requested{}",
+                    Log::platform()->info("HOSTPROBE sdcard{}: change and hard reset requested{}",
+                                          card_slot_ == 1 ? "2" : "",
                                           why.empty() ? std::string() : ", change refused: " + why);
                     phase_ = 1;
                 }
                 break;
             case 1:
                 if (resets_ > resets_at_request_) {
-                    Log::platform()->info("HOSTPROBE sdcard: same-tick-reset card={}",
-                                          emu_.config().sd_card_image == card_ ? "new" : "old");
+                    const std::string& now = card_slot_ == 1 ? emu_.config().sd_card2_image
+                                                             : emu_.config().sd_card_image;
+                    Log::platform()->info("HOSTPROBE sdcard{}: same-tick-reset card={}",
+                                          card_slot_ == 1 ? "2" : "", now == card_ ? "new" : "old");
                     phase_ = 2;
                 } else if (++waited_ > 200) {
-                    Log::platform()->info("HOSTPROBE sdcard: the hard reset never came");
+                    Log::platform()->info("HOSTPROBE sdcard{}: the hard reset never came",
+                                          card_slot_ == 1 ? "2" : "");
                     phase_ = 2;
                 }
                 break;
@@ -275,6 +288,7 @@ private:
     jnext::dbg::Debugger& dbg_;
     const bool            order_       = false;   ///< `JNEXT_HOST_PROBE=order`
     const std::string     card_;                  ///< `JNEXT_HOST_PROBE=sdcard:<image>`
+    const int             card_slot_   = 0;       ///< 1 for `sdcard2:<image>` (GH #505)
     bool                  order_armed_ = false;
     bool                  order_fired_ = false;
     jnext::dbg::ClientId  id_ = jnext::dbg::CLIENT_NONE;

@@ -420,6 +420,8 @@ void MainWindow::set_emulator(Emulator* emu) {
         const bool no_card = emu && emu->config().no_sdcard;
         if (insert_sd_action_) insert_sd_action_->setEnabled(!no_card);
         if (eject_sd_action_)  eject_sd_action_->setEnabled(!no_card);
+        if (insert_sd2_action_) insert_sd2_action_->setEnabled(!no_card);
+        if (eject_sd2_action_)  eject_sd2_action_->setEnabled(!no_card);
         if (sd_label_)         sd_label_->setVisible(no_card);
     }
     // GH #381 - a rebuilt machine is a different program: what the POK session
@@ -935,6 +937,13 @@ void MainWindow::create_menus() {
     connect(insert_sd_action_, &QAction::triggered, this, &MainWindow::on_insert_sd);
     eject_sd_action_ = file_menu->addAction(tr("&Eject SD Card"));
     connect(eject_sd_action_, &QAction::triggered, this, [this]() { handle_sd_card_path(QString()); });
+    // GH #505 - the second SD card slot (NextZXOS maps it to the next drive, D:).
+    // No mnemonics on purpose: the menu bar's accelerator set is pinned and each of
+    // these would need a letter this popup has not got to spare.
+    insert_sd2_action_ = file_menu->addAction(tr("Insert Second SD Card Image..."));
+    connect(insert_sd2_action_, &QAction::triggered, this, &MainWindow::on_insert_sd2);
+    eject_sd2_action_ = file_menu->addAction(tr("Eject Second SD Card"));
+    connect(eject_sd2_action_, &QAction::triggered, this, [this]() { handle_sd_card_path(QString(), 1); });
 
     file_menu->addSeparator();
 
@@ -2146,30 +2155,51 @@ void MainWindow::on_insert_sd() {
     if (!path.isEmpty()) handle_sd_card_path(path);
 }
 
-void MainWindow::handle_sd_card_path(const QString& path) {
-    if (!emulator_) return;
-    // --sdcard-readonly is a property of the session, not of one card: an
-    // inserted card is write-protected exactly when the launch card was.
-    const std::string why = emulator_->request_sd_card_change(
-        {path.toStdString(), emulator_->config().sd_card_readonly});
-    if (why.empty()) return;
-    QMessageBox::warning(this, tr("SD Card"),
-        tr("The SD card cannot be changed now: %1.").arg(QString::fromStdString(why)));
+void MainWindow::on_insert_sd2() {
+    QString current = emulator_ ? QString::fromStdString(emulator_->config().sd_card2_image)
+                                : QString();
+    if (current.isEmpty()) current = app_config_.data().sd_card2_path;
+    if (current.isEmpty() && emulator_)
+        current = QString::fromStdString(emulator_->config().sd_card_image);
+    if (current.isEmpty()) current = app_config_.data().sd_card_path;
+    QString path = QFileDialog::getOpenFileName(
+        this, tr("Insert Second SD Card Image"), QFileInfo(current).absolutePath(),
+        tr("Disk Images (*.img *.bin *.raw);;All Files (*)"));
+    if (!path.isEmpty()) handle_sd_card_path(path, 1);
 }
 
-void MainWindow::sd_card_change_finished(const QString& image, const QString& error) {
+void MainWindow::handle_sd_card_path(const QString& path, int slot) {
+    if (!emulator_) return;
+    // --sdcard-readonly is a property of the session, not of one card: an
+    // inserted card is write-protected exactly when the launch card was (the
+    // second slot has its own, --sdcard2-readonly).
+    const bool ro = slot == 1 ? emulator_->config().sd_card2_readonly
+                              : emulator_->config().sd_card_readonly;
+    const std::string why = emulator_->request_sd_card_change({path.toStdString(), ro, slot});
+    if (why.empty()) return;
+    QMessageBox::warning(this, slot == 1 ? tr("Second SD Card") : tr("SD Card"),
+        (slot == 1 ? tr("The second SD card cannot be changed now: %1.")
+                   : tr("The SD card cannot be changed now: %1."))
+            .arg(QString::fromStdString(why)));
+}
+
+void MainWindow::sd_card_change_finished(const QString& image, const QString& error, int slot) {
+    const bool second = slot == 1;
     if (error.isEmpty()) {
-        const QString msg = image.isEmpty() ? tr("SD card ejected")
-                                            : tr("SD card inserted: %1").arg(image);
+        const QString msg = image.isEmpty()
+            ? (second ? tr("Second SD card ejected") : tr("SD card ejected"))
+            : (second ? tr("Second SD card inserted: %1") : tr("SD card inserted: %1")).arg(image);
         statusBar()->showMessage(msg, 5000);
         Log::platform()->info("status bar: {}", msg.toStdString());   // sdcard-swap-func reads it
         return;
     }
-    statusBar()->showMessage(tr("SD card change failed: %1").arg(error), 5000);
+    statusBar()->showMessage((second ? tr("Second SD card change failed: %1")
+                                     : tr("SD card change failed: %1")).arg(error), 5000);
     if (unattended_) return;   // logged by the emulator; nobody to answer a dialog
-    QTimer::singleShot(0, this, [this, error]() {
-        QMessageBox::warning(this, tr("SD Card"),
-            tr("The SD card could not be changed: %1.").arg(error));
+    QTimer::singleShot(0, this, [this, error, second]() {
+        QMessageBox::warning(this, second ? tr("Second SD Card") : tr("SD Card"),
+            (second ? tr("The second SD card could not be changed: %1.")
+                    : tr("The SD card could not be changed: %1.")).arg(error));
     });
 }
 

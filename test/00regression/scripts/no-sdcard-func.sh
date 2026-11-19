@@ -15,8 +15,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      no ROM fetch is reported; exit 0
 #   B  the IM 1 probe (no-sdcard-probe.py): prints IM1-ARMED, then the first
 #      frame interrupt fetches $0038 from the empty ROM, which is logged once
-#   C  each refusal exits 1 with its message: a card option, a delayed card
-#      insert, a delayed NMI, a machine other than the Next, a non-.nex load
+#   C  each refusal exits 1 with its message: a card option (either slot), a delayed card
+#      insert (either slot), a delayed NMI, a machine other than the Next, a non-.nex load
 #      and no --load at all
 if want no-sdcard-func; then
     begin_func no-sdcard-func
@@ -63,6 +63,9 @@ if want no-sdcard-func; then
     done <<EOF
 --no-sdcard cannot be combined with --sdcard: there is no SD card.|--sdcard $TMP_DIR/card.img --load $ns_dir/hostfs.nex
 --no-sdcard cannot be combined with --delayed-sdcard-insert-frames: there is no SD card.|--delayed-sdcard-insert-frames 10 $TMP_DIR/card.img --load $ns_dir/hostfs.nex
+--no-sdcard cannot be combined with --sdcard2: there is no SD card.|--sdcard2 $TMP_DIR/card2.img --load $ns_dir/hostfs.nex
+--no-sdcard cannot be combined with --sdcard2-readonly: there is no SD card.|--sdcard2-readonly --load $ns_dir/hostfs.nex
+--no-sdcard cannot be combined with --delayed-sdcard2-insert-frames: there is no SD card.|--delayed-sdcard2-insert-frames 10 $TMP_DIR/card2.img --load $ns_dir/hostfs.nex
 --no-sdcard cannot be combined with --delayed-nmi: there is no ROM to service an NMI.|--delayed-nmi 1 mf --load $ns_dir/hostfs.nex
 --no-sdcard needs the Next: the other machines run from ROMs on the SD card.|--machine 48k --load $ns_dir/hostfs.nex
 --no-sdcard needs --load of a .nex (directly, or in a .zip): with no SD card there are no ROMs to run anything else.|--load $TMP_DIR/prog.tap
@@ -72,7 +75,7 @@ EOF
     if [[ "$a_rc" -eq 1 && "$a_slice" -ge 1 && "$a_ok" -ge 1 && "$a_err" -eq 0 && "$a_skip" -eq 1 \
           && "$a_card" -eq 0 && "$a_rom" -eq 0 && "$a_noimg" -eq 0 \
           && "$b_armed" -ge 1 && "$b_rom" -eq 1 && "$b_any" -eq 1 && -z "$c_bad" ]]; then
-        pass_row " (NEX dir served with no card, warm start skipped, IM 1 ROM fetch reported once, 6 refusals)"
+        pass_row " (NEX dir served with no card, warm start skipped, IM 1 ROM fetch reported once, 9 refusals)"
     else
         fail_row " (A clean-exit=$a_rc want1 slice=$a_slice ok=$a_ok err=$a_err skip-log=$a_skip want1 card=$a_card want0 rom=$a_rom want0 no-image-error=$a_noimg want0; B armed=$b_armed rom-im1=$b_rom want1 any-rom=$b_any want1; C refused wrongly:${c_bad:- none})"
     fi

@@ -602,6 +602,20 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
         }
     }
 
+    // ── media.sdcard2 (GH #505): only when a second card is MOUNTED, so a snapshot taken
+    // without one is byte-for-byte what it was before the slot existed ──────────────
+    if (sd_card2_.mounted()) {
+        std::string card_why;
+        if (!jnext::describe_sdcard_for_snapshot(sd_card2_.image_path(),
+                                                 config_.sd_card2_readonly,
+                                                 m.sdcard2, card_why)) {
+            Log::emulator()->warn("save_jns: second SD identity unavailable: {}", card_why);
+            report.warnings.push_back(
+                "the mounted second SD card could not be identified (" + card_why +
+                "); this snapshot will not verify it on restore");
+        }
+    }
+
     // ── media.roms (§8, §10.2 P3) ───────────────────────────────────────
     //
     // The ROM this machine is RUNNING, not the file it came from: `rom_` is
@@ -675,6 +689,13 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
     cpu_.marshal_for_describe();   // the FUSE-only EI grace / iff2 quirk flag (GH #402 review)
     visit_jns_subsystems(v);
     if (!v.ok) return false;
+    // The second card's SPI state machine travels with it: a member of its own, written only
+    // when a card is mounted (an older reader lists it as unknown; a file without it loads
+    // exactly as before, which is every file taken without a second card).
+    if (sd_card2_.mounted()) {
+        v("sdcard2", sd_card2_);
+        if (!v.ok) return false;
+    }
 
     // ── §9.5(4): the esxDOS handle table, a variable-length list ────────
     //
@@ -875,6 +896,15 @@ bool Emulator::check_jns(const uint8_t* data, std::size_t len,
 
     env.constructible_ram_kb = { static_cast<uint32_t>(ram_.size() / 1024) };
 
+    if (sd_card2_.mounted()) {
+        std::string card_why;
+        if (!jnext::describe_sdcard_for_snapshot(sd_card2_.image_path(),
+                                                 config_.sd_card2_readonly,
+                                                 env.card2, card_why)) {
+            Log::emulator()->warn("load_jns: the mounted second SD card could not be "
+                                  "identified: {}", card_why);
+        }
+    }
     if (!config_.sd_card_image.empty()) {
         std::string card_why;
         // Tier 1 only (GH #396): a few sectors, never the whole image.
@@ -979,6 +1009,9 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     lv.report   = &report;
     lv.why      = &why;
     visit_jns_subsystems(lv);
+    // The second card's FSM, when the file carries one (see save_jns). A file without the
+    // member is NOT warned about: it simply was not taken with a second card.
+    if (lv.ok && zip.has(state_member("sdcard2"))) lv("sdcard2", sd_card2_);
     if (!lv.ok) {
         // A refusal HERE is not the same class as one above: the machine has
         // been partly written and is not trustworthy. Say so the way

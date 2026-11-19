@@ -161,12 +161,40 @@ the same token and reopens the image. This runtime path is entirely separate fro
 host-side FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`, which pulls the
 ROM images out of the same file at startup.
 
+The board has two SD sockets, and the master models both: index 0 is `spi_ss_sd0_n`
+(`port_e7_reg(0)`) and holds `sd_card_`, index 1 is `spi_ss_sd1_n` (`port_e7_reg(1)`)
+and holds `sd_card2_`, a distinct `SdCardDevice` of its own, mounted from
+`EmulatorConfig::sd_card2_image` (`--sdcard2`) at hard reset exactly where card 0
+is, and empty (the pulled-up MISO, every byte `0xFF`) when no image is given.
+The two share SCK, MOSI and MISO and differ only by chip select, and NR `0x0A`
+bit 5 swaps which of the two a port `0xE7` write reaches. Attaching the *same*
+device to both selects is a bug: NextZXOS probes the second socket on every boot
+and then sees a phantom second card. The second card is never read for ROMs (the
+extractor takes `sd_card_image` only), has no download, upgrade or
+`--sdcard-sha256`, and its protocol state travels in the rewind stream after
+card 0's. NextZXOS maps its first partition to the next drive letter (`D:`) and
+detects drives at startup only.
+
 The card can be changed while the machine runs (`Emulator::change_sd_card()`):
 `mount()` is a full `reset()` of the protocol state, so the guest has to
 initialise the new card from CMD0, which is what NextZXOS's REMOUNT does after
 its "press Y". There is no card-detect line to model — the Next's SD port is five
 pins (`zxnext_top_issue2.vhd:60-64`). The ROMs are not re-extracted on a change;
 the next power-on reads them from the new card.
+
+A change names its slot (`SdCardChange::slot`, 0 for the first card, 1 for the second)
+and acts on that slot's device and config fields; one change is pending at a time
+across both. Three rules differ for the second card. An **eject** clears
+`sd_card2_image` in the emulator's and the frontend's config (card 0's path is kept,
+because the ROMs are read from it at power-on), so a hard reset after an eject keeps
+the slot empty. The read-overlay refusal is card 0's only. And an insert of the
+image the *other* slot has mounted is refused (`sd_card_cross_slot_refusal()`, by
+`sdcard::same_image_file`) at request time and again when performed: two devices
+writing one FAT is the phantom-card hazard again, whichever route asks (File >
+Insert, `--delayed-sdcard2-insert-frames`, the host probe). The frontends route
+the slot through `emulator_service_sd_card_change()`; the Qt window words its status
+line per slot, and the headless `--delayed-sdcard2-insert-frames` is the same list
+as card 0's with a slot field.
 
 The card serves **both SD capacity classes**, and which one it is is decided by
 the host, not by the image. ACMD41's HCS bit is latched during init, CMD58
