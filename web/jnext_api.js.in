@@ -320,6 +320,15 @@
       mod._jnext_web_reset(k);
       return afterFrames();
     };
+    // The NMI button (Multiface): opens NextZXOS's NMI Menu. Refused, with the reason, when the
+    // card source is 'none' (no Multiface ROM). A refusal is the call's own error, not onError.
+    player.nmi = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      var why = mod._jnext_web_nmi();
+      if (why) return Promise.reject(new Error(mod.UTF8ToString(why)));
+      return afterFrames();
+    };
     // Forget what the guest wrote to the card (keepWrites) and restart the program.
     player.resetCard = function () {
       live();

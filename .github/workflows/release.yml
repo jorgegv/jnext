@@ -36,6 +36,9 @@ name: Release
 #   * web     → `make package-web` in a fedora:45 container: jnext-<ver>-web.zip,
 #               the browser build (js + wasm, example pages, licences). Never a
 #               NextZXOS image: that job restores no SD image.
+#   * pages   → after `publish` only: the reusable .github/workflows/pages.yml builds the
+#               live demo site (`make pages-site`) from the release tag and deploys it to
+#               GitHub Pages. Never an image or a game: the site guard refuses them.
 #   * macos   → `make package-macos` native on macos-15 (proven green on a
 #               real runner in v0.98.34). No longer continue-on-error since
 #               issue #61: it carries the GH #46 verify-bundle gate, and a gate
@@ -613,3 +616,15 @@ jobs:
             ChangeLog
           generate_release_notes: true
           fail_on_unmatched_files: false
+
+  # ---- pages: the live demo site, after a public release is published ------
+  # Not on a `release: published` trigger: the Release is made with GITHUB_TOKEN, whose events
+  # start no workflow. The called workflow's permissions cannot exceed the ones given here.
+  pages:
+    needs: [gate, publish]
+    if: success() && needs.gate.outputs.publish == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

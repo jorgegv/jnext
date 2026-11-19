@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JNEXT in your browser</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 700px; margin: 0 auto; padding: 1em; color: #1d2330; background: #fff; }
+  h1 { margin: .4em 0 .2em; }
+  .note { font-size: 14px; color: #4a5160; }
+  @media (prefers-color-scheme: dark) { body { color: #e6e9f0; background: #14161c; } .note { color: #aab1c0; } a { color: #8fb4ff; } }
+</style>
+</head>
+<body>
+<h1>JNEXT in your browser</h1>
+<p>JNEXT @PROJECT_VERSION@, a ZX Spectrum Next emulator, running as WebAssembly. Click the screen to start NextZXOS.
+Problems and ideas go to <a href="https://github.com/jorgegv/jnext/issues">the issue tracker</a>.</p>
+<div class="jnext-widget" data-title="NextZXOS" data-card-dirs="/APPS,/GAMES" data-nmi></div>
+<p class="note">NextZXOS comes from SpecNext's official distribution, which your browser downloads from specnext.com
+the first time you click. This site hosts none of it, and your browser keeps the SD card it builds.</p>
+<script src="jnext-widget.js"></script>
+</body>
+</html>
