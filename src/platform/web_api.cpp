@@ -1,4 +1,5 @@
 #include "platform/web_api.h"
+#include "core/minimal_card.h"
 
 #include "third_party/nlohmann-json/nlohmann/json.hpp"
 
@@ -80,6 +81,8 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
             return refuse(why, "card source 'none' needs file: with no SD card there is no NextZXOS menu to boot to");
         if (o.contains("keepWrites"))
             return refuse(why, "keepWrites needs an SD card to keep the writes of: not with card source 'none'");
+        if (o["card"].contains("dirs"))
+            return refuse(why, "option 'card': dirs adds to the SD card, and card source 'none' has none");
     }
     for (const Option& t : WEB_OPTIONS)
         if (t.required && !(no_card && t.internal) && !o.contains(t.name))
@@ -149,8 +152,19 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
         }
         case Kind::Host: {
             if (std::string(t.name) == "card") {
-                if (!v.is_object()) return bad(t.name, "an object {source}");
+                if (!v.is_object()) return bad(t.name, "an object {source, dirs}");
                 for (auto it = v.begin(); it != v.end(); ++it) {
+                    if (it.key() == "dirs") {   // GH #509: extra distribution paths, one canonicaliser (minimal_card)
+                        if (!it.value().is_array()) return refuse(why, "option 'card': dirs must be an array of strings");
+                        std::vector<std::string> in, canon;
+                        for (const json& d : it.value()) {
+                            if (!d.is_string()) return refuse(why, "option 'card': dirs must be an array of strings");
+                            in.push_back(d.get<std::string>());
+                        }
+                        std::string dwhy;
+                        if (!minimal_card::canonical_dirs(in, canon, dwhy)) return refuse(why, "option 'card': dirs: " + dwhy);
+                        continue;
+                    }
                     if (it.key() != "source") return refuse(why, "option 'card': unknown key '" + it.key() + "'");
                     const json& sv = it.value();
                     if (!sv.is_string() || (sv.get_ref<const std::string&>() != "auto" &&

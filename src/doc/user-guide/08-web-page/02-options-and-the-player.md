@@ -10,7 +10,7 @@
 | `machine` | string | `--machine`. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |
 | `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in [8.3](03-itch-and-limits.md) and [8.4](04-the-image-and-what-the-browser-keeps.md). |
-| `card` | `{source}` | How the page gets NextZXOS's SD card ([8.4](04-the-image-and-what-the-browser-keeps.md)). The default, `'auto'`, is the right choice for most pages; `'none'` runs a NEX that needs no NextZXOS with no card at all. The page never names an address or a digest. |
+| `card` | `{source, dirs}` | How the page gets NextZXOS's SD card, and which more of its directories go on it ([8.4](04-the-image-and-what-the-browser-keeps.md)). The default, `'auto'`, is the right choice for most pages, and no `dirs` is the boot card only; `'none'` runs a NEX that needs no NextZXOS with no card at all. The page never names an address or a digest. |
 | `touchKeyboard` | `'auto'`, `'on'` or `'off'` | `--touch-keyboard`: the on-screen keyboard. `'auto'` (default) shows it on a phone or tablet, `'on'` always, `'off'` never. See "Keyboard", below. |
 | `onProgress`, `onReady`, `onError` | functions | Events, below. |
 

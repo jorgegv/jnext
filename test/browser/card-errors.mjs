@@ -5,6 +5,7 @@
 //   BCARD-22  a failed read of the chosen file: "the chosen file could not be read: ..."
 //   BCARD-23  the card could not be made here ("cannot write ..."): "the card could not be made in this browser: ..."
 //   BCARD-24  a structural refusal ("not a zip file"): "this file is not <file> from specnext.com (...)"
+//   BCARD-44  a refusal about the page's card.dirs (GH #509): the message as it is, the visitor's file is not blamed
 //   BCARD-25  a failure AFTER a successful build (reading the card back throws): "the card could not be made in this browser: ..."
 import { createRequire } from 'module';
 import path from 'path';
@@ -51,6 +52,14 @@ row('BCARD-24', 'a structural refusal (not a zip file) says this file is not the
 row('BCARD-25', 'a failure after the build succeeded (reading the card back throws): the card could not be made in this browser, not that the file is wrong', async () => {
   const m = await outcome(J.buildFromFile(stub(0, 'abc', 'Cannot enlarge memory arrays'), PINS, file(goodStream()), () => {}));
   must(m === 'the card could not be made in this browser: Cannot enlarge memory arrays', m);
+});
+
+row('BCARD-44', 'a builder refusal about the page\'s list ("the requested path ... is not in the distribution", or the over-bound message) is thrown as it is, not as "this file is not ... from specnext.com"', async () => {
+  const a = 'the requested path /x is not in the distribution';
+  const b = 'the boot set and the requested paths are larger than the card: 34545842 bytes, the limit is 33554432 (32 MiB)';
+  const ma = await outcome(J.buildFromFile(stub(3, a), PINS, file(goodStream()), () => {}));
+  const mb = await outcome(J.buildFromFile(stub(3, b), PINS, file(goodStream()), () => {}));
+  must(ma === a && mb === b, ma + ' | ' + mb);
 });
 
 let pass = 0, fail = 0;

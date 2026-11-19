@@ -528,19 +528,56 @@ int main()
               good && bad.empty(), bad);
     }
 
-    // --- WAPI-CARD-04: card:{source:'none'} runs the NEX with no card (--no-sdcard) --------------
+    // --- WAPI-CARD-04: card.dirs accepted (GH #509) -------------------------------------------------
+    {
+        bool good = true;
+        for (const char* v : {"{\"dirs\":[]}", "{\"dirs\":[\"/GAMES\"]}",
+                              "{\"source\":\"pick\",\"dirs\":[\"/APPS\",\"/GAMES/\"]}"}) {
+            const Result r = run("{" + IMG + ",\"card\":" + v + "}");
+            if (!r.ok || r.argv != Argv{"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX}) good = false;
+        }
+        check("WAPI-CARD-04", "card dirs [], ['/GAMES'] and {source:'pick', dirs:['/APPS','/GAMES/']} are accepted and add nothing to argv", good);
+    }
+
+    // --- WAPI-CARD-05: card.dirs refused, naming card and the entry ---------------------------------
+    {
+        struct C { const char* json; const char* entry; };
+        const C cases[] = {{"\"/GAMES\"", "dirs"}, {"[5]", "dirs"}, {"[\"GAMES\"]", "GAMES"}, {"[\"/\"]", "'/'"},
+                           {"[\"/a/../b\"]", "/a/../b"}, {"[\"/SYS\"]", "/SYS"}, {"[\"/APPS\",\"/apps\"]", "/apps"},
+                           {"[\"/GAMES\",\"/GAMES/Next\"]", "/games/next"},
+                           {"[\"/GAMES\",\"/GAMES-X\",\"/GAMES/Next\"]", "/games/next"}};
+        std::string bad;
+        for (const C& c : cases) {
+            const Result r = run("{" + IMG + ",\"card\":{\"dirs\":" + std::string(c.json) + "}}");
+            if (r.ok || !r.argv.empty() || r.why.find("card") == std::string::npos || r.why.find(c.entry) == std::string::npos)
+                bad += std::string(" ") + c.json + " -> " + r.why;
+        }
+        check("WAPI-CARD-05", "card dirs: a string, [5], ['GAMES'], ['/'], ['/a/../b'], ['/SYS'], a duplicate, a nested path and a nested path with a sibling sorted between them are refused naming card and the entry",
+              bad.empty(), bad);
+    }
+
+    // --- WAPI-CARD-06: the shape message names the keys ---------------------------------------------
+    {
+        const Result r = run("{" + IMG + ",\"card\":5}");
+        check("WAPI-CARD-06", "a card that is not an object is refused as \"option 'card' must be an object {source, dirs}\"",
+              !r.ok && r.why == "option 'card' must be an object {source, dirs}", r.why);
+    }
+
+    // --- WAPI-CARD-07: card:{source:'none'} runs the NEX with no card (--no-sdcard) --------------
     {
         const Result r = run("{\"card\":{\"source\":\"none\"},\"file\":\"/media/0-g.nex\"}");
         const Result with_card = run("{" + IMG + ",\"card\":{\"source\":\"none\"},\"file\":\"/media/0-g.nex\"}");
         const Result no_file = run("{\"card\":{\"source\":\"none\"}}");
         const Result keep = run("{\"card\":{\"source\":\"none\"},\"file\":\"/media/0-g.nex\","
                                 "\"keepWrites\":\"/jnext/card-writes/k.jsdw\"}");
+        const Result dirs = run("{\"card\":{\"source\":\"none\",\"dirs\":[\"/GAMES\"]},\"file\":\"/media/0-g.nex\"}");
         const Result no_card_auto = run("{\"card\":{\"source\":\"auto\"},\"file\":\"/media/0-g.nex\"}");
-        check("WAPI-CARD-04", "card:{source:'none'} with a file and no $card gives --no-sdcard --load <file>; "
-                              "with a $card, without a file, or with keepWrites it is refused; any other source still needs $card",
+        check("WAPI-CARD-07", "card:{source:'none'} with a file and no $card gives --no-sdcard --load <file>; "
+                              "with a $card, without a file, with keepWrites or with dirs it is refused; any other source still needs $card",
               r.ok && r.argv == Argv{"--no-sdcard", "--load", "/media/0-g.nex"} &&
               !with_card.ok && !no_file.ok && no_file.why.find("file") != std::string::npos &&
               !keep.ok && keep.why.find("keepWrites") != std::string::npos &&
+              !dirs.ok && dirs.why.find("dirs") != std::string::npos &&
               !no_card_auto.ok && no_card_auto.why == "the SD card is missing (an internal error of the page layer)",
               r.ok ? join(r.argv) : r.why);
     }

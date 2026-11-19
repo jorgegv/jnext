@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1710,6 +1710,8 @@
       
         
       
+        
+      
     
     
     
@@ -2240,6 +2242,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#follow-back-and-forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Follow, Back and Forward
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#right-click-menu" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2274,6 +2287,34 @@
     
   
     Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="17-symbols.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symbols
   
 
     
@@ -4498,6 +4539,14 @@ the CPU's line again. A click on an instruction of the CPU's own line is not bro
 <p>The tint is a pale violet in Light and a dark violet in Dark and Borland; it differs from the
 current-line bar and the coverage tint in every scheme. Nothing is configurable: the two views always
 follow each other.</p>
+<h3 id="follow-back-and-forward">Follow, Back and Forward<a class="headerlink" href="#follow-back-and-forward" title="Permanent link">&para;</a></h3>
+<p><strong>Follow</strong> (<strong>F12</strong>), <strong>Back</strong> (<strong>Alt+Left</strong>) and <strong>Forward</strong> (<strong>Alt+Right</strong>) work here when the
+keyboard focus is in the source text. Follow acts on the first instruction of the cursor line that
+is mapped now, with the same targets as the <a href="03-disassembly.html#navigating-follow-back-and-forward">Disassembly</a>:
+a target with a source line is shown here, one with none opens in the Disassembly, a memory
+operand opens in the Memory panel, and a line with no code does nothing. Back and Forward
+return through the lines left by a Follow, by Show in Source, and by choosing another file
+(the line that was left, not the new file's top).</p>
 <h3 id="right-click-menu">Right-click menu<a class="headerlink" href="#right-click-menu" title="Permanent link">&para;</a></h3>
 <p>Right-click in the text, or in the gutter, for the same actions the disassembly offers,
 on the line under the pointer. A right-click outside the selection first selects that line;

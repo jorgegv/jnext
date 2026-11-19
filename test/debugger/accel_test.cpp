@@ -343,18 +343,24 @@ static void test_accelerators(Fixture& fx)
         // mnemonics in the Map popup and two items each, &skoolkit Control Files... and &Ghidra Symbols...):
         // 11 -> 13 popups, 54 -> 60 mnemonics, no shortcut.
         // GH #480: + Debug > Source's Open Source &File... (F, free in that popup): 60 -> 61.
-        const bool as_expected = top == 6
-                              && popup_scopes.size() == 13
-                              && menu_accels.size() == 61
-                              && shortcuts == 24;
+        // GH #376: + the Breakpoints menu's &Save as Script... and &Load from Script... (S and L, free in that popup):
+        // two more mnemonics, no new popup, no shortcut: 61 -> 63.
+        // GH #374: + the &File menu (one popup, its title's mnemonic; Reload Last File has none) and its Alt+L: 6 -> 7 menus, 13 -> 14 popups, 63 -> 64 mnemonics, 24 -> 25 shortcuts.
+        // GH #366: + the &Go menu (one menu, one popup; its own mnemonic and &Symbols) and the F12 / Alt+Left /
+        // Alt+Right shortcuts of Follow, Back and Forward: 7 -> 8 menus, 14 -> 15 popups, 64 -> 66 mnemonics,
+        // 25 -> 28 shortcuts (recounted from the harvest; an authorized tally pin).
+        const bool as_expected = top == 8
+                              && popup_scopes.size() == 15
+                              && menu_accels.size() == 66
+                              && shortcuts == 28;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
         // four size checks cannot establish (add one menu and delete another
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 6), popups=%zu (want 13), mnemonics=%zu (want 61), "
-                  "shortcuts=%zu (want 24)",
+              fmt("menus=%zu (want 8), popups=%zu (want 15), mnemonics=%zu (want 66), "
+                  "shortcuts=%zu (want 28)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }
 }

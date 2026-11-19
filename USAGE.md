@@ -1535,11 +1535,12 @@ The key combination of a debugger action, like the **Preferences**
 Debugger Keys tab: *ACTION* is `run`, `pause`, `step_into`, `step_over`,
 `step_out`, `step_back`, `frame_back`, `run_to_cursor`, `run_to_eof`,
 `run_to_eosl`, `trace_toggle`, `trace_export`, `source_step_into`,
-`source_step_over`, `source_step_out`, `source_step_back` or
-`source_reverse_continue`, and `none` unbinds it. A combination that is
-not legal there, or that another action already holds (unless the same
-command line frees it), is refused with exit status 1 before the window
-opens. The Qt window with the debugger.
+`source_step_over`, `source_step_out`, `source_step_back`,
+`source_reverse_continue`, `follow`, `go_back` or `go_forward`, and
+`none` unbinds it. A combination that is not legal there, or that
+another action already holds (unless the same command line frees it), is
+refused with exit status 1 before the window opens. The Qt window with
+the debugger.
 
 `source.colour_scheme` *auto\|light\|dark\|borland*  
 The colour scheme of the debugger’s Source tab, like the **Preferences**
@@ -2548,12 +2549,13 @@ MAPPING** below).
 **File**  
 Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
 opens POK Trainers instead, without a reset), Recent Files (the last ten
-loaded, newest first) and Reload Last File (Alt+L), Insert SD Card Image
-/ Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4
-Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save
-Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
-(Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot
-(Alt+Shift+F9) (see **JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
+loaded, newest first) and Reload Last File (Alt+L; also in the debugger
+window’s File menu), Insert SD Card Image / Eject SD Card (see
+**CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) /
+Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save Screenshot
+(Alt+S), Quick Screenshot (Alt+K), Save Snapshot (Alt+Shift+S), Quick
+Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see
+**JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
 
 **Save Screenshot…** asks for a name; the extension chooses the format
 (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
@@ -2782,7 +2784,8 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   bytes - or with the right-click menu’s **Copy with Addresses** to keep
   both
 - **Memory hex editor** - full 64K, hex and ASCII, inline editing,
-  page/bank selector
+  page/bank selector; find (hex with wildcards and a mask, or text), and
+  save, load or fill a block, from its right-click menu
 - **Stack** - SP-relative word view, SP row highlighted
 - **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution; a
   click on a row chooses the C frame the Variables tab shows
@@ -2849,22 +2852,25 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   setting survives program loads and resets; the recorded history does
   not
 
-| Key      | Action             |
-|----------|--------------------|
-| F2       | Enable Trace       |
-| F3       | Export Trace       |
-| F5       | Run / Continue     |
-| F6       | Single Step (into) |
-| F7       | Step Over          |
-| F8       | Step Out           |
-| F9       | Pause / Break      |
-| Ctrl+F6  | Source Step Into   |
-| Ctrl+F7  | Source Step Over   |
-| Ctrl+F8  | Source Step Out    |
-| Shift+F6 | Frame Back         |
-| Shift+F7 | Step Back          |
+| Key       | Action             |
+|-----------|--------------------|
+| F2        | Enable Trace       |
+| F3        | Export Trace       |
+| F5        | Run / Continue     |
+| F6        | Single Step (into) |
+| F7        | Step Over          |
+| F8        | Step Out           |
+| F9        | Pause / Break      |
+| Ctrl+F6   | Source Step Into   |
+| Ctrl+F7   | Source Step Over   |
+| Ctrl+F8   | Source Step Out    |
+| Shift+F6  | Frame Back         |
+| Shift+F7  | Step Back          |
+| F12       | Follow             |
+| Alt+Left  | Back               |
+| Alt+Right | Forward            |
 
-Those are defaults. All seventeen debugger commands - the twelve above
+Those are defaults. All twenty debugger commands - the fifteen above
 plus Run to Cursor, Run to End of Frame, Run to End of Scan Line, Source
 Step Back and Source Reverse Continue, which ship unbound - can be
 rebound under **Settings \> Preferences \> Debugger Keys** in the
@@ -3258,7 +3264,7 @@ when `scanlines` was also asked), with the plain picture otherwise.
 
 ### JavaScript options
 
-`card` *{source}*  
+`card` *{source, dirs}*  
 Not a jnext setting: how the page gets NextZXOS’s SD card. `source` is
 `'auto'` (the default: fetch the official file from specnext.com when it
 allows the page to read it, otherwise ask the visitor to download it and
@@ -3266,9 +3272,13 @@ choose it), `'fetch'` (only fetch; a failure is an error), `'pick'`
 (always ask the visitor) or `'none'` (no SD card at all: the `file` NEX
 runs as with **--no-sdcard**, nothing is fetched or asked, and a ROM
 fetch is also reported through `onError`; needs `file`, excludes
-`keepWrites`). The SD card reaches the emulator as **--sdcard** and
-**--sdcard-sha256**, set by the page layer; the page never names the
-card.
+`keepWrites` and `dirs`). The SD card reaches the emulator as
+**--sdcard** and **--sdcard-sha256**, set by the page layer; the page
+never names the card. `dirs` is an array of absolute paths in the
+distribution (`['/GAMES', '/APPS']`): the card then also holds each path
+with everything below it and the directories above it, case does not
+matter, and a malformed path, a path of the boot set, a duplicate or a
+nested one is refused. The default is none: the boot card only.
 
 `poster` *URL*  
 Not a jnext setting: a picture, a screenshot of the program, shown in

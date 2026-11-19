@@ -1779,7 +1779,8 @@ Debugger Keys tab: \f[I]ACTION\f[R] is \f[CR]run\f[R], \f[CR]pause\f[R],
 \f[CR]run_to_eof\f[R], \f[CR]run_to_eosl\f[R], \f[CR]trace_toggle\f[R],
 \f[CR]trace_export\f[R], \f[CR]source_step_into\f[R],
 \f[CR]source_step_over\f[R], \f[CR]source_step_out\f[R],
-\f[CR]source_step_back\f[R] or \f[CR]source_reverse_continue\f[R], and
+\f[CR]source_step_back\f[R], \f[CR]source_reverse_continue\f[R],
+\f[CR]follow\f[R], \f[CR]go_back\f[R] or \f[CR]go_forward\f[R], and
 \f[CR]none\f[R] unbinds it.
 A combination that is not legal there, or that another action already
 holds (unless the same command line frees it), is refused with exit
@@ -3015,13 +3016,13 @@ eat a key the guest needs; the only Ctrl chords are Ctrl+F5 and Ctrl+F6
 \f[B]File\f[R]
 Load a program (Alt+O \- NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
 opens POK Trainers instead, without a reset), Recent Files (the last ten
-loaded, newest first) and Reload Last File (Alt+L), Insert SD Card Image
-/ Eject SD Card (see \f[B]CHANGING THE CARD WHILE RUNNING\f[R]), Record
-MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
-RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
-(Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot
-(Alt+Shift+F9) (see \f[B]JNEXT SNAPSHOTS\f[R] above), Quit (Alt+Q or
-Alt+F4).
+loaded, newest first) and Reload Last File (Alt+L; also in the debugger
+window\(cqs File menu), Insert SD Card Image / Eject SD Card (see
+\f[B]CHANGING THE CARD WHILE RUNNING\f[R]), Record MPEG4 Video (Ctrl+F5)
+/ Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save Screenshot
+(Alt+S), Quick Screenshot (Alt+K), Save Snapshot (Alt+Shift+S), Quick
+Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see
+\f[B]JNEXT SNAPSHOTS\f[R] above), Quit (Alt+Q or Alt+F4).
 .RS
 .PP
 \f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses
@@ -3378,7 +3379,8 @@ column, no opcode bytes \- or with the right\-click menu\(cqs \f[B]Copy
 with Addresses\f[R] to keep both
 .IP \(bu 2
 \f[B]Memory hex editor\f[R] \- full 64K, hex and ASCII, inline editing,
-page/bank selector
+page/bank selector; find (hex with wildcards and a mask, or text), and
+save, load or fill a block, from its right\-click menu
 .IP \(bu 2
 \f[B]Stack\f[R] \- SP\-relative word view, SP row highlighted
 .IP \(bu 2
@@ -3535,10 +3537,25 @@ Shift+F7
 T}@T{
 Step Back
 T}
+T{
+F12
+T}@T{
+Follow
+T}
+T{
+Alt+Left
+T}@T{
+Back
+T}
+T{
+Alt+Right
+T}@T{
+Forward
+T}
 .TE
 .PP
 Those are defaults.
-All seventeen debugger commands \- the twelve above plus Run to Cursor,
+All twenty debugger commands \- the fifteen above plus Run to Cursor,
 Run to End of Frame, Run to End of Scan Line, Source Step Back and
 Source Reverse Continue, which ship unbound \- can be rebound under
 \f[B]Settings > Preferences > Debugger Keys\f[R] in the emulator window,
@@ -4038,7 +4055,7 @@ If the shader cannot run, the player logs one line starting
 plain picture otherwise.
 .SS JavaScript options
 .TP
-\f[CR]card\f[R] \f[I]{source}\f[R]
+\f[CR]card\f[R] \f[I]{source, dirs}\f[R]
 Not a jnext setting: how the page gets NextZXOS\(cqs SD card.
 \f[CR]source\f[R] is \f[CR]\(aqauto\(aq\f[R] (the default: fetch the
 official file from specnext.com when it allows the page to read it,
@@ -4048,10 +4065,16 @@ otherwise ask the visitor to download it and choose it),
 \f[CR]\(aqnone\(aq\f[R] (no SD card at all: the \f[CR]file\f[R] NEX runs
 as with \f[B]\-\-no\-sdcard\f[R], nothing is fetched or asked, and a ROM
 fetch is also reported through \f[CR]onError\f[R]; needs
-\f[CR]file\f[R], excludes \f[CR]keepWrites\f[R]).
+\f[CR]file\f[R], excludes \f[CR]keepWrites\f[R] and \f[CR]dirs\f[R]).
 The SD card reaches the emulator as \f[B]\-\-sdcard\f[R] and
 \f[B]\-\-sdcard\-sha256\f[R], set by the page layer; the page never
 names the card.
+\f[CR]dirs\f[R] is an array of absolute paths in the distribution
+(\f[CR][\(aq/GAMES\(aq, \(aq/APPS\(aq]\f[R]): the card then also holds
+each path with everything below it and the directories above it, case
+does not matter, and a malformed path, a path of the boot set, a
+duplicate or a nested one is refused.
+The default is none: the boot card only.
 .TP
 \f[CR]poster\f[R] \f[I]URL\f[R]
 Not a jnext setting: a picture, a screenshot of the program, shown in

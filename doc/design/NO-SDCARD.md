@@ -4,8 +4,8 @@
 > Issue: GH #540.
 > Tests: `test/core/no_sdcard_test.cpp` (NOSD-ROM-01..07, NOSD-DEV-01..04),
 > `test/gui/no_sdcard_ui_test.cpp` (NOSDUI-01..03),
-> `test/platform/web_api_test.cpp` (WAPI-CARD-04),
-> `test/browser/card.mjs` (BCARD-36..38), regression row `no-sdcard-func`.
+> `test/platform/web_api_test.cpp` (WAPI-CARD-07),
+> `test/browser/card.mjs` (BCARD-45..47), regression row `no-sdcard-func`.
 
 ## 1. Use case
 
@@ -55,7 +55,8 @@ Refused at start, each with its own message (exit status 1):
 | no `--load`, or a file that is not a `.nex` (directly or in a `.zip`) | `--no-sdcard needs --load of a .nex (directly, or in a .zip): with no SD card there are no ROMs to run anything else.` |
 
 In a page, `card: { source: 'none' }` is refused at `mount()` without `file`,
-and with `keepWrites` (there is no card to keep the writes of). The existing
+with `keepWrites` (there is no card to keep the writes of) and with `dirs`
+(there is no card to add them to). The existing
 message for an unknown source keeps its wording (`source must be 'auto',
 'fetch' or 'pick'`): pages and tests match it.
 

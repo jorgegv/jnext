@@ -82,6 +82,12 @@ target_link_libraries(disasm_hint_test PRIVATE jnext_debug jnext_cpu)
 target_include_directories(disasm_hint_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME disasm_hint_tests COMMAND disasm_hint_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
 
+# GH #370 - the Memory panel's find / fill / block-split helper (Qt-free, no file I/O).
+add_executable(mem_tools_test debug/mem_tools_test.cpp)
+target_link_libraries(mem_tools_test PRIVATE jnext_debug)
+target_include_directories(mem_tools_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME mem_tools_tests COMMAND mem_tools_test)
+
 # Z80Cpu /INT pulse-window machine-timing test (Task 2 CPU fix).
 # VHDL zxnext.vhd:2033 — pulse width 32 (48K/+3) vs 36 (128K/Pent/Next).
 # Standalone, no GoogleTest; jnext_cpu only (matches fuse_z80_test linkage).
@@ -1287,6 +1293,19 @@ add_executable(tstate_counter_test debugger/tstate_counter_test.cpp)
 target_include_directories(tstate_counter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tstate_counter_tests COMMAND tstate_counter_test)
 
+# Debugger CPU panel register-edit policy (GH #368): field table, text parsing,
+# flag toggle, refusal text (src/debugger/reg_edit.h), no Qt. Registered
+# unconditionally; links jnext_debug for SymbolTable.
+add_executable(reg_edit_test debugger/reg_edit_test.cpp)
+target_link_libraries(reg_edit_test PRIVATE jnext_debug)
+target_include_directories(reg_edit_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME reg_edit_tests COMMAND reg_edit_test)
+
+# Debugger view back/forward history (GH #366): src/debugger/nav_history.h, header-only, no Qt.
+add_executable(nav_history_test debugger/nav_history_test.cpp)
+target_include_directories(nav_history_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME nav_history_tests COMMAND nav_history_test)
+
 # Pointer-capture motion policy (issue #37). Pure decision helper under test
 # (src/platform/pointer_capture.h) — no Qt, no SDL, so the logic the frontend
 # ships is reachable by CI even though its event handler is not.
@@ -1798,6 +1817,20 @@ if(NOT EMSCRIPTEN)
         JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
         JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
     add_test(NAME script_events_tests COMMAND script_events_test)
+endif()
+
+# GH #376 - the Breakpoints panel's breakpoint file: the Qt-free codec between GUI
+# breakpoints and `.jds` rules (src/script/bp_script.cpp), over a real Next
+# Debugger. `gate: none`.
+if(NOT EMSCRIPTEN)
+    add_executable(bp_script_test script/bp_script_test.cpp)
+    target_link_libraries(bp_script_test PRIVATE
+        jnext_script
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(bp_script_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME bp_script_tests COMMAND bp_script_test)
 endif()
 
 # GH #26 WP6 (#20) — the recorder: input edges, captures, header, warnings, a
@@ -2501,8 +2534,9 @@ if(ENABLE_DEBUGGER)
             jnext_gui jnext_debugger
             jnext_core jnext_cpu jnext_memory jnext_video
             jnext_audio jnext_port jnext_peripheral jnext_input
-            jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-        target_include_directories(debugger_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+            jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+            Qt${JNEXT_QT_MAJOR}::Test)
+        target_include_directories(debugger_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
         add_test(NAME debugger_menu_tests COMMAND debugger_menu_test)
     endif()
 endif()

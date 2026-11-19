@@ -131,9 +131,14 @@ Hint decode(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn&
 
 } // namespace
 
-Hint pc_hint(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn& data) {
-    // The DD/FD chain: the last prefix picks IX or IY.
-    uint16_t a = r.PC;
+namespace {
+
+// The DD/FD chain at `at`: where the opcode is (`a`), how many prefixes precede it, and which index
+// register the last one names. false: past kMaxPrefixChain disasm_one() shows `DB $DD`, which is no
+// instruction.
+struct Walk { uint16_t a; int prefixes; uint16_t idx; };
+bool walk_prefixes(const Z80Registers& r, uint16_t at, const DisasmReadFn& code, Walk* w) {
+    uint16_t a = at;
     int prefixes = 0;
     uint8_t last = 0;
     while (prefixes <= kMaxPrefixChain + 2) {
@@ -143,16 +148,70 @@ Hint pc_hint(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn
         ++prefixes;
         a = static_cast<uint16_t>(a + 1);
     }
-    if (prefixes > kMaxPrefixChain + 1) return Hint{};
+    if (prefixes > kMaxPrefixChain + 1) return false;
+    w->a = a;
+    w->prefixes = prefixes;
+    w->idx = last == 0xDD ? r.IX : r.IY;
+    return true;
+}
+
+} // namespace
+
+Hint pc_hint(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn& data) {
+    // The DD/FD chain: the last prefix picks IX or IY.
+    Walk w;
+    if (!walk_prefixes(r, r.PC, code, &w)) return Hint{};
 
     bool consumed = false;
-    const uint16_t idx = last == 0xDD ? r.IX : r.IY;
-    Hint h = decode(r, code, data, a, prefixes > 0, idx, &consumed);
+    Hint h = decode(r, code, data, w.a, w.prefixes > 0, w.idx, &consumed);
     // disasm_ddfd() recurses once per prefix an opcode does not consume; past kMaxPrefixChain it
     // shows a `DB $DD` line of its own instead. The prefixes before the last never consume, which
     // is what the `kMaxPrefixChain + 1` limit above enforces; the last one only if it consumes.
-    if (prefixes > 0 && !consumed && prefixes - 1 >= kMaxPrefixChain) return Hint{};
+    if (w.prefixes > 0 && !consumed && w.prefixes - 1 >= kMaxPrefixChain) return Hint{};
     return h;
+}
+
+Follow follow_target(const Z80Registers& r, uint16_t at, const DisasmReadFn& code, const DisasmReadFn& data) {
+    Follow f;
+    Walk w;
+    if (!walk_prefixes(r, at, code, &w)) return f;
+
+    bool consumed = false;
+    const Hint h = decode(r, code, data, w.a, w.prefixes > 0, w.idx, &consumed);
+    if (w.prefixes > 0 && !consumed && w.prefixes - 1 >= kMaxPrefixChain) return f;   // `DB $DD`
+
+    auto code_at = [&f](uint16_t a) { f.kind = Follow::Kind::Code; f.addr = a; return f; };
+    // A conditional branch is followed whether or not its condition holds: Follow is about the
+    // operand, and the PC-line hint already says taken or not.
+    if (h.kind == Hint::Kind::Branch) return code_at(h.target);
+    if (h.kind == Hint::Kind::Memory) {
+        f.kind = Follow::Kind::Data;
+        f.addr = h.addr;
+        return f;
+    }
+
+    // The unconditional transfers pc_hint() does not report (it hints conditionals only).
+    const uint16_t a = w.a;
+    const uint8_t op = code(a);
+    switch (op) {
+    case 0xC3: case 0xCD:                                   // JP nn / CALL nn
+        return code_at(u16(code, static_cast<uint16_t>(a + 1)));
+    case 0x18:                                              // JR e
+        return code_at(rel(code, static_cast<uint16_t>(a + 1), static_cast<uint16_t>(a + 2)));
+    case 0xC9:                                              // RET
+        return code_at(u16(data, r.SP));
+    case 0xE9:                                              // JP (HL) / JP (IX) / JP (IY)
+        return code_at(w.prefixes > 0 ? w.idx : r.HL);
+    case 0xED: {
+        const uint8_t e = code(static_cast<uint16_t>(a + 1));
+        if ((e & 0xC7) == 0x45) return code_at(u16(data, r.SP));   // RETN / RETI and the aliases
+        return f;                                                  // ED 98 JP (C) needs a port read
+    }
+    default: break;
+    }
+    if ((op & 0xC7) == 0xC7)                                // RST p
+        return code_at(static_cast<uint16_t>(op & 0x38));
+    return f;
 }
 
 std::string format_hint(const Hint& h, const disasm_text::SymbolNamer& namer) {

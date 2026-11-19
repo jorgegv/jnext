@@ -50,7 +50,7 @@ inline constexpr Option WEB_OPTIONS[] = {
       "Internal: the SD card the page layer made ({path, sha256}); never given by a page", true },
     { "card", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
       "how the page obtains the SD card",
-      "How the page gets NextZXOS's SD card: {source: 'auto' | 'fetch' | 'pick' | 'none'}; 'none' runs a NEX with no card (--no-sdcard)" },
+      "How the page gets NextZXOS's SD card: {source: 'auto' | 'fetch' | 'pick' | 'none', dirs: ['/PATH', ...]}; 'none' runs a NEX with no card (--no-sdcard)" },
     { "poster", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
       "a picture the page shows before the click",
       "A picture shown in the player area before the player is started" },

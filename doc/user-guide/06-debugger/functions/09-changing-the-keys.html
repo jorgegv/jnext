@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1708,6 +1708,8 @@
       
         
       
+        
+      
     
     
     
@@ -2192,6 +2194,34 @@
     
   
     Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/17-symbols.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symbols
   
 
     
@@ -4396,7 +4426,7 @@ the combination you want. Click <strong>Reset</strong> on a row to put that one 
 <strong>Reset All to Defaults</strong> for the lot. Nothing is written until you press OK or
 Apply, and Apply takes effect immediately in both windows — you do not have to
 restart JNEXT.</p>
-<p>The seventeen commands, and what they are bound to out of the box:</p>
+<p>The twenty commands, and what they are bound to out of the box:</p>
 <table>
 <thead>
 <tr>
@@ -4491,6 +4521,21 @@ restart JNEXT.</p>
 <td><em>unbound</em></td>
 <td>Source tab, <strong>Debug ▸ Source</strong></td>
 </tr>
+<tr>
+<td>Follow</td>
+<td><strong>F12</strong></td>
+<td>the Disassembly or Source tab (<a href="../panels/03-disassembly.html#navigating-follow-back-and-forward">navigating</a>)</td>
+</tr>
+<tr>
+<td>Back</td>
+<td><strong>Alt+Left</strong></td>
+<td>the same</td>
+</tr>
+<tr>
+<td>Forward</td>
+<td><strong>Alt+Right</strong></td>
+<td>the same</td>
+</tr>
 </tbody>
 </table>
 <p>Five ship with no key at all (Run to Cursor, Run to End of Frame, Run to End of
@@ -4522,7 +4567,7 @@ that no longer works.</p>
   and letter keys, and the disassembly has an address box. <code>Shift+F6</code> is fine:
   the key is still a function key.</li>
 <li><strong>Alt + a letter.</strong> The debugger's menu bar owns those. <code>Alt+F5</code> is accepted (and so is <code>Alt+Shift+F6</code>), but <strong>Alt+Shift+F5</strong> and <strong>Alt+Shift+F9</strong> are refused: they are the emulator window's Quick Save and Quick Load Snapshot.
-  On a Mac the host shortcuts are Cmd chords, and the same two sets move with them: <strong>Cmd+1</strong> to <strong>Cmd+8</strong> (the script host keys) and <strong>Cmd+Shift+F5</strong> / <strong>Cmd+Shift+F9</strong> are refused there, and the Option forms are free.</li>
+  On a Mac the host shortcuts are Cmd chords, and the same two sets move with them: <strong>Cmd+1</strong> to <strong>Cmd+8</strong> (the script host keys) and <strong>Cmd+Shift+F5</strong> / <strong>Cmd+Shift+F9</strong> are refused there, and so is <strong>Cmd+L</strong> (Reload Last File, in both windows), and the Option forms are free.</li>
 <li><strong>Ctrl+C and Ctrl+A.</strong> The disassembly panel's Copy and Select All.</li>
 <li><strong>A combination another debugger command already has.</strong> Rebind that one
   first. This is refused rather than silently taken over, because Qt answers

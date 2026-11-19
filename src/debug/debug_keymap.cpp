@@ -34,6 +34,10 @@ const ActionInfo kActions[ACTION_COUNT] = {
     { Action::SourceStepOut,         "source_step_out",         "Source Step Out",          with(MOD_CTRL, Key::F8) },
     { Action::SourceStepBack,        "source_step_back",        "Source Step Back",         unbound()               },
     { Action::SourceReverseContinue, "source_reverse_continue", "Source Reverse Continue",  unbound()               },
+    // GH #366: F12 is the IDE's "go to definition"; Alt+Left/Right the desktop Back/Forward.
+    { Action::Follow,                "follow",                  "Follow",                   bare(Key::F12)          },
+    { Action::GoBack,                "go_back",                 "Back",                     with(MOD_ALT, Key::Left)  },
+    { Action::GoForward,             "go_forward",              "Forward",                  with(MOD_ALT, Key::Right) },
 };
 
 struct KeyName { Key key; const char* name; };
@@ -205,6 +209,14 @@ bool validate_combo(const Combo& c, std::string& why, bool host_mod_is_ctrl) {
     // is. Alt+9 and Alt+0 stay bindable.
     if (c.mods == host_mod && c.key >= Key::Num1 && c.key <= Key::Num8) {
         why = std::string(host_txt) + "+1.." + host_txt + "+8 are the script host keys";
+        return false;
+    }
+
+    // GH #374: <host>+L is File > Reload Last File in BOTH windows. On Linux Alt+L is already
+    // refused above (Alt+letter); on macOS it is Command+L (Qt Ctrl), which would otherwise be a
+    // same-window duplicate in the debugger window (GH #124).
+    if (c.mods == host_mod && c.key == Key::L) {
+        why = std::string(host_txt) + "+L is Reload Last File";
         return false;
     }
 

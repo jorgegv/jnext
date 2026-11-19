@@ -1,4 +1,4 @@
-// Browser rows BCARD-01..21 and 26..38: the card flow of the JavaScript API (GH #458), in headless Chromium
+// Browser rows BCARD-01..21, 26..43 and 45..47: the card flow of the JavaScript API (GH #458), in headless Chromium
 // (make wasm-browser-test, spec card.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // The player makes NextZXOS's SD card in the page from the official distribution zip, after the
@@ -14,6 +14,8 @@
 //   D  a distribution host WITH Access-Control-Allow-Origin: *; E one WITHOUT; F one that never
 //      answers a HEAD. BCARD-09 serves a page from https://other.example (a routed origin) to prove the
 //      seam is ignored off localhost.
+// BCARD-36..44 (GH #509) cover card.dirs, more of the distribution on the card: the native tool's cards with
+// --dirs are the oracles (SMOKE_SYN_DIRS_CARD_SHA256 for the synthetic zip, SMOKE_REAL_DIRS_CARD_SHA256 for the real one).
 // Oracles: the native tool's card of the synthetic zip (SMOKE_SYN_CARD_SHA256), the pinned card
 // digest of the release (SMOKE_PINNED_CARD_SHA256), the native run of tilemap_demo.nex
 // ($SMOKE_ORACLE/tilemap.png), the three statements of the user guide's 8.4 page.
@@ -31,12 +33,16 @@ const MODULE = `/build/jnext-${VERSION}.js`;
 const SYN_DIR = E.SMOKE_SYN_DIR;
 const SYN_ZIP = path.join(SYN_DIR, 'synthetic-distro.zip');
 const SYN = { size: Number(E.SMOKE_SYN_ZIP_SIZE), sha256: E.SMOKE_SYN_ZIP_SHA256, cardSha256: E.SMOKE_SYN_CARD_SHA256 };
+const SYN_DIRS = E.SMOKE_SYN_DIRS_CARD_SHA256, REAL_DIRS = E.SMOKE_REAL_DIRS_CARD_SHA256;
 const REAL = { size: Number(E.SMOKE_REAL_ZIP_SIZE), sha256: E.SMOKE_REAL_ZIP_SHA256 };
 const PINNED_CARD = E.SMOKE_PINNED_CARD_SHA256;
 const DISTRO_URL = E.SMOKE_DISTRO_URL;
 const CACHE = 'jnext-sdcard-v2', OLD = 'jnext-sdcard-v1';
 const SYN_CARD = path.join(SYN_DIR, 'synthetic-card.img');
 const KEY = (sha) => 'https://card.jnext.invalid/' + sha;
+// A card with extra paths: release key + builder recipe + the canonical list as JSON (web/jnext-image.js cardKey).
+const LKEY = (recipe, dirs) => KEY(SYN.cardSha256) + '/r' + recipe + '/' + encodeURIComponent(JSON.stringify(dirs));
+const SHA_HEADER = 'X-Jnext-Card-Sha256';
 const STATEMENTS = ["SpecNext's copyrighted software", 'JNEXT does not ship, host or serve', "stays in the visitor's browser"];
 
 const h = new Harness({});   // launches and closes the pinned browser; every server below is real
@@ -732,11 +738,239 @@ row('BCARD-35', 'a failed v2 hit falls back to a good v1 entry: no request, v1 g
   await p.ctx.close();
 });
 
+
+// ---- GH #509: card.dirs ----------------------------------------------------------------------
+const DIRS_AG = ['/APPS', '/GAMES'];
+const CANON_AG = ['/apps', '/games'];
+const recipeOf = (page) => page.evaluate(() => {
+  const m = window.player0._module, ptr = m._jnext_card_distribution(), r = JSON.parse(m.UTF8ToString(ptr)).recipe;
+  m._free(ptr);
+  return r;
+});
+const headerOf = (page, key) => page.evaluate(async ([name, key, hn]) => {
+  const r = await (await caches.open(name)).match(key);
+  return r ? r.headers.get(hn) : undefined;
+}, [CACHE, key, SHA_HEADER]);
+const putEntryH = (page, key, buf, headers) => page.evaluate(async ([name, key, b64, headers]) => {
+  await (await caches.open(name)).put(key, new Response(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), { headers }));
+}, [CACHE, key, buf.toString('base64'), headers]);
+const argv4 = (sha) => JSON.stringify(['--sdcard', '/sdcard/image.img', '--sdcard-sha256', sha]);
+// Visit through D with card.dirs = dirs (and `extra` card keys); resolves when ready.
+async function visitDirs(p, dirs, extra = {}, x = D) {
+  const n = x.log.length;
+  await open(p, [{ ...P48, card: { dirs, ...extra } }], SYNSEAM(x));
+  await click(p);
+  await waitReady(p);
+  return x.log.slice(n);
+}
+async function listEntrySha(p, key) { return sha256(zlib.gunzipSync(await entry(p, CACHE, key))); }
+
+row('BCARD-36', 'card.dirs [/APPS, /GAMES], auto, CORS: one HEAD and one GET; the card in memory and argv are the native --dirs card; Cache Storage holds exactly the list key (gzip, header = the card sha256); a stand-in with a wrong card sha256 and no dirs is still refused', async () => {
+  const p = await newPage();
+  const log = await visitDirs(p, DIRS_AG);
+  const r = await rec(p);
+  must(r.errors.length === 0, 'errors ' + JSON.stringify(r.errors));
+  must(JSON.stringify(kinds(log)) === '["HEAD","GET"]', 'requests ' + JSON.stringify(log));
+  must(await memCardSha(p) === SYN_DIRS && SYN_DIRS !== SYN.cardSha256, 'card ' + await memCardSha(p) + ' != ' + SYN_DIRS);
+  must(JSON.stringify(r.argv.slice(0, 4)) === argv4(SYN_DIRS), 'argv ' + JSON.stringify(r.argv));
+  const key = LKEY(await recipeOf(p), CANON_AG);
+  const all = await allCaches(p);
+  must(JSON.stringify(all) === JSON.stringify({ [CACHE]: [key] }), 'caches ' + JSON.stringify(all));
+  const e = await entry(p, CACHE, key);
+  must(e[0] === 0x1f && e[1] === 0x8b && sha256(zlib.gunzipSync(e)) === SYN_DIRS, 'the entry is not a gzip of the card');
+  must(await headerOf(p, key) === SYN_DIRS, 'header ' + await headerOf(p, key));
+  await p.ctx.close();
+  // the clear of the pinned card digest is for a list only: a plain stand-in with a wrong one is refused
+  const q = await newPage();
+  const wrong = { distribution: { url: url(D, '/synthetic-distro.zip'), ...SYN, cardSha256: '1'.repeat(64) } };
+  await open(q, [{ ...P48, card: { source: 'fetch' } }], wrong);
+  await click(q);
+  await waitFor(q, () => window.apiTest.players[0].errors.length > 0, null, 120000);
+  must(JSON.stringify((await rec(q)).errors).includes('not the expected one'), 'errors ' + JSON.stringify((await rec(q)).errors));
+  await q.ctx.close();
+});
+
+row('BCARD-37', 'from BCARD-36, a second visit with [/games, /apps/]: no request to D, no SubtleCrypto digest over 1 MiB, the card and argv are the native --dirs card', async () => {
+  const p = await newPage();
+  await p.ctx.addInitScript(() => {
+    window.__bigDigests = 0;
+    const orig = SubtleCrypto.prototype.digest;
+    SubtleCrypto.prototype.digest = function (alg, data) { if (data && data.byteLength > (1 << 20)) window.__bigDigests++; return orig.call(this, alg, data); };
+  });
+  await visitDirs(p, DIRS_AG);
+  const log = await visitDirs(p, ['/games', '/apps/']);
+  const big = await p.evaluate(() => window.__bigDigests);
+  const r = await rec(p);
+  must(log.length === 0, 'requests on the second visit: ' + JSON.stringify(log));
+  must(big === 0, big + ' large digest(s) on the warm visit');
+  must(r.errors.length === 0 && await memCardSha(p) === SYN_DIRS, 'errors ' + JSON.stringify(r.errors));
+  must(JSON.stringify(r.argv.slice(0, 4)) === argv4(SYN_DIRS), 'argv ' + JSON.stringify(r.argv));
+  await p.ctx.close();
+});
+
+row('BCARD-38', 'the plain card and a list card live side by side: each is made once, a hit keeps both, and deletes only the card keys of other releases', async () => {
+  const p = await newPage();
+  await open(p, [P48], SYNSEAM(D));
+  await click(p);
+  await waitReady(p);
+  const l1 = await visitDirs(p, DIRS_AG);
+  must(gets(l1) === 1, 'the list visit made ' + gets(l1) + ' GETs');
+  const key = LKEY(await recipeOf(p), CANON_AG);
+  const both = [KEY(SYN.cardSha256), key].sort();
+  must(JSON.stringify((await cacheKeys(p)).sort()) === JSON.stringify(both), 'keys ' + JSON.stringify(await cacheKeys(p)));
+  const n = D.log.length;
+  await open(p, [P48], SYNSEAM(D));
+  await click(p);
+  await waitReady(p);
+  must(D.log.length === n && await memCardSha(p) === SYN.cardSha256, 'the plain card was made again');
+  must(JSON.stringify((await cacheKeys(p)).sort()) === JSON.stringify(both), 'keys after the plain hit ' + JSON.stringify(await cacheKeys(p)));
+  await p.evaluate(async ([name]) => {
+    const c = await caches.open(name);
+    await c.put('https://card.jnext.invalid/' + 'f'.repeat(64) + '/r1/x', new Response(new Uint8Array(16)));
+    await c.put('https://card.jnext.invalid/' + 'e'.repeat(64), new Response(new Uint8Array(16)));
+  }, [CACHE]);
+  const l2 = await visitDirs(p, DIRS_AG);
+  must(l2.length === 0 && await memCardSha(p) === SYN_DIRS, 'the list card was made again: ' + JSON.stringify(l2));
+  must(JSON.stringify((await cacheKeys(p)).sort()) === JSON.stringify(both), 'keys after the list hit ' + JSON.stringify(await cacheKeys(p)));
+  await p.ctx.close();
+});
+
+row('BCARD-39', 'card.dirs [/GAMES/NOPE], fetch: onError names /games/nope and does not blame the file; nothing is cached', async () => {
+  const p = await newPage();
+  await open(p, [{ ...P48, card: { source: 'fetch', dirs: ['/GAMES/NOPE'] } }], SYNSEAM(D));
+  await click(p);
+  await waitFor(p, () => window.apiTest.players[0].errors.length > 0, null, 120000);
+  const e = JSON.stringify((await rec(p)).errors);
+  must(e.includes('/games/nope') && !e.includes('this file is not'), 'errors ' + e);
+  must((await cacheKeys(p)).length === 0, 'cache ' + JSON.stringify(await cacheKeys(p)));
+  await p.ctx.close();
+});
+
+row('BCARD-40', 'a list entry without a header, or with a malformed one, is dropped (one GET, rebuilt, the header valid again); without the compression streams the entry is raw, a warm hit re-hashes it against the header, a corrupted one is dropped', async () => {
+  const p = await newPage();
+  await visitDirs(p, DIRS_AG);
+  const key = LKEY(await recipeOf(p), CANON_AG);
+  const good = await entry(p, CACHE, key);
+  for (const [what, headers] of [['no header', {}], ['malformed header', { [SHA_HEADER]: 'zz' }]]) {
+    await putEntryH(p, key, good, headers);
+    const log = await visitDirs(p, DIRS_AG);
+    must(gets(log) === 1, what + ': GETs ' + gets(log));
+    must((await rec(p)).errors.length === 0 && await memCardSha(p) === SYN_DIRS, what + ': the card');
+    must(await headerOf(p, key) === SYN_DIRS && await listEntrySha(p, key) === SYN_DIRS, what + ': the entry is not valid again');
+  }
+  await p.ctx.close();
+  const q = await newPage();
+  await q.ctx.addInitScript(() => { delete window.CompressionStream; delete window.DecompressionStream; });
+  await visitDirs(q, DIRS_AG);
+  const raw = await entry(q, CACHE, key);
+  must(sha256(raw) === SYN_DIRS && !(raw[0] === 0x1f && raw[1] === 0x8b) && await headerOf(q, key) === SYN_DIRS, 'the raw entry: ' + raw.length + ' bytes, sha ' + sha256(raw));
+  const log2 = await visitDirs(q, DIRS_AG);
+  must(log2.length === 0 && (await rec(q)).errors.length === 0 && await memCardSha(q) === SYN_DIRS, 'raw warm visit: ' + JSON.stringify(log2));
+  await putEntryH(q, key, Buffer.alloc(1 << 20, 9), { [SHA_HEADER]: SYN_DIRS });
+  const log3 = await visitDirs(q, DIRS_AG);
+  must(gets(log3) === 1 && (await rec(q)).errors.length === 0 && await memCardSha(q) === SYN_DIRS, 'corrupted raw entry: GETs ' + gets(log3));
+  await q.ctx.close();
+});
+
+row('BCARD-41', 'REAL data, card.dirs [/GAMES, /APPS]: the wasm builder makes the native --dirs card from a zip of the real image, tilemap_demo.nex warm-starts to the native screenshot (0 pixels), the heap grew by at most 48 MiB; build time, heap and stored size are reported', async () => {
+  const p = await newPage();
+  const real = { distribution: { url: url(D, '/real-distro.zip'), ...REAL } };
+  const opts = { machine: 'next', muted: true, file: '/nex/tilemap_demo.nex', card: { dirs: ['/GAMES', '/APPS'] },
+                 args: ['--rtc', '2026-07-10T08:55:00', '--delayed-screenshot', '/media/s.png', '--delayed-screenshot-frames', '150'] };
+  await open(p, [opts], real);
+  const heap0 = await p.evaluate(() => window.apiTest.players[0].player._module.HEAPU8.length);
+  const t0 = Date.now();
+  await click(p);
+  await waitFor(p, () => window.apiTest.players[0].progress.some((q) => q[0] === 'build' && q[1] === 1) || window.apiTest.players[0].errors.length > 0, null, 600000);
+  const tBuild = Date.now() - t0;
+  const heap1 = await p.evaluate(() => window.apiTest.players[0].player._module.HEAPU8.length);
+  await waitReady(p, 0, 900000);
+  const r = await rec(p);
+  must(r.errors.length === 0, 'errors ' + JSON.stringify(r.errors));
+  must(await memCardSha(p) === REAL_DIRS, 'the wasm card ' + await memCardSha(p) + ' != the native ' + REAL_DIRS);
+  const stored = await p.evaluate(async ([name]) => {
+    const c = await caches.open(name), ks = await c.keys();
+    return Promise.all(ks.map(async (k) => [k.url, (await (await c.match(k)).arrayBuffer()).byteLength]));
+  }, [CACHE]);
+  console.log(`  BCARD-41 info: build ${tBuild} ms from the click; heap ${heap0} -> ${heap1} (+${heap1 - heap0}); stored ${JSON.stringify(stored.map((x) => x[1]))} bytes`);
+  must(stored.length === 1 && stored[0][1] > 0, 'stored ' + JSON.stringify(stored));
+  must(heap1 - heap0 <= 48 * 1048576, `heap ${heap0} -> ${heap1}: +${heap1 - heap0}`);
+  await waitFor(p, () => { try { return window.apiTest.players[0].player._module.FS.analyzePath('/media/s.png').exists; } catch (e) { return false; } }, null, 300000);
+  const b64 = await p.evaluate(() => {
+    const d = window.player0._module.FS.readFile('/media/s.png'); let s = '';
+    for (let k = 0; k < d.length; k += 8192) s += String.fromCharCode.apply(null, d.subarray(k, k + 8192));
+    return btoa(s);
+  });
+  const util = await (await h.browser.newContext()).newPage();
+  await util.goto('about:blank');
+  const dec = async (buf) => {
+    const o = await util.evaluate(async (b) => {
+      const bytes = Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
+      const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }), { colorSpaceConversion: 'none' });
+      const c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext('2d'); g.drawImage(bmp, 0, 0);
+      const d = g.getImageData(0, 0, bmp.width, bmp.height).data;
+      let s = ''; for (let i = 0; i < d.length; i += 8192) s += String.fromCharCode.apply(null, d.subarray(i, i + 8192));
+      return { w: bmp.width, h: bmp.height, b64: btoa(s) };
+    }, buf.toString('base64'));
+    return { w: o.w, h: o.h, d: Buffer.from(o.b64, 'base64') };
+  };
+  const got = await dec(Buffer.from(b64, 'base64')), want = await dec(fs.readFileSync(path.join(ORACLE, 'tilemap.png')));
+  let bad = got.w !== want.w || got.h !== want.h ? -1 : 0;
+  if (bad === 0) for (let i = 0; i < got.d.length; i += 4) if (got.d[i] !== want.d[i] || got.d[i + 1] !== want.d[i + 1] || got.d[i + 2] !== want.d[i + 2]) bad++;
+  must(bad === 0, `${bad} pixels differ from the native run`);
+  await p.ctx.close();
+});
+
+row('BCARD-42', 'refused card.dirs fail at mount, before any request: a string, a path without the leading slash, a boot-set path', async () => {
+  const cases = [
+    [{ card: { dirs: '/GAMES' } }, "option 'card': dirs must be an array of strings"],
+    [{ card: { dirs: ['GAMES'] } }, "option 'card': dirs: 'GAMES' does not start with '/'"],
+    [{ card: { dirs: ['/SYS'] } }, "option 'card': dirs: '/SYS' is part of the boot set"],
+  ];
+  const n = D.log.length;
+  for (const [opt, want] of cases) {
+    const p = await newPage();
+    await open(p, [{ ...P48, ...opt }], SYNSEAM(D));
+    const r = await rec(p);
+    must(r.mountError && r.mountError.includes(want), `${JSON.stringify(opt)} -> ${r.mountError}`);
+    await p.ctx.close();
+  }
+  must(D.log.length === n, 'a request reached the distribution host: ' + JSON.stringify(D.log.slice(n)));
+});
+
+row('BCARD-43', 'the widget: data-card-dirs="/APPS, /GAMES" builds the native --dirs card; data-card-dirs="SYS" is refused in the status line in the error colour', async () => {
+  const p = await newPage();
+  await p.addInitScript((dev) => { window['jnextDev'] = dev; }, SYNSEAM(D));
+  await p.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelector('.jnext-widget').setAttribute('data-card-dirs', '/APPS, /GAMES');
+    }, { once: true, capture: true });
+  });
+  await p.goto(AURL + '/build/widget.html');
+  await waitFor(p, () => { const e = document.querySelector('.jnext-widget'); return e && e.jnextPlayer; }, null, 120000);
+  await p.locator('.jnext-widget .jnext-overlay').click({ timeout: 120000, noWaitAfter: true });
+  await waitFor(p, () => !!document.querySelector('.jnext-widget').jnextPlayer.argv, null, 300000);
+  const argv = await p.evaluate(() => document.querySelector('.jnext-widget').jnextPlayer.argv.slice(0, 4));
+  must(JSON.stringify(argv) === argv4(SYN_DIRS), 'argv ' + JSON.stringify(argv));
+  const bad = await newPage();
+  await bad.addInitScript((dev) => { window['jnextDev'] = dev; }, SYNSEAM(D));
+  await bad.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelector('.jnext-widget').setAttribute('data-card-dirs', 'SYS');
+    }, { once: true, capture: true });
+  });
+  await bad.goto(AURL + '/build/widget.html');
+  await waitFor(bad, () => document.querySelector('.jnext-widget .jw-status').className.includes('jw-error'), null, 120000);
+  const st = await bad.evaluate(() => document.querySelector('.jnext-widget .jw-status').textContent);
+  must(st.includes("option 'card': dirs: 'SYS' does not start with '/'"), 'status: ' + st);
+  await p.ctx.close(); await bad.ctx.close();
+});
+
 // GH #540 - card: {source: 'none'}: a NEX with no SD card (--no-sdcard). The programs are the
 // project's own demos (demo/magic_port_demo, demo/copper_demo).
 const NONE = { machine: 'next', muted: true, card: { source: 'none' } };
 
-row('BCARD-36', "card source 'none': no request to the distribution host, no card in the page's file system; ready fires, argv starts --no-sdcard and has --load, no --sdcard; a program that stays in RAM reports nothing", async () => {
+row('BCARD-45', "card source 'none': no request to the distribution host, no card in the page's file system; ready fires, argv starts --no-sdcard and has --load, no --sdcard; a program that stays in RAM reports nothing", async () => {
   const n = D.log.length;
   const p = await newPage();
   await open(p, [{ ...NONE, file: '/nex/magic_port_demo.nex' }], SYNSEAM(D));
@@ -752,7 +986,7 @@ row('BCARD-36', "card source 'none': no request to the distribution host, no car
   await p.ctx.close();
 });
 
-row('BCARD-37', "card source 'none': a program that runs ROM code (IM 1) is reported once through onError, naming the address and the cause", async () => {
+row('BCARD-46', "card source 'none': a program that runs ROM code (IM 1) is reported once through onError, naming the address and the cause", async () => {
   const p = await newPage();
   await open(p, [{ ...NONE, file: '/nex/copper_demo.nex' }], SYNSEAM(D));
   await click(p);
@@ -764,11 +998,12 @@ row('BCARD-37', "card source 'none': a program that runs ROM code (IM 1) is repo
   await p.ctx.close();
 });
 
-row('BCARD-38', "card source 'none' is refused at mount() with keepWrites, and without a file, before any request", async () => {
+row('BCARD-47', "card source 'none' is refused at mount() with keepWrites, without a file and with dirs, before any request", async () => {
   const n = D.log.length;
   const cases = [
     [{ ...NONE, file: '/nex/magic_port_demo.nex', keepWrites: true }, "keepWrites needs an SD card to keep the writes of: not with card source 'none'"],
     [{ ...NONE }, "card source 'none' needs file: with no SD card there is no NextZXOS menu to boot to"],
+    [{ ...NONE, file: '/nex/magic_port_demo.nex', card: { source: 'none', dirs: ['/GAMES'] } }, "option 'card': dirs adds to the SD card, and card source 'none' has none"],
   ];
   for (const [opt, want] of cases) {
     const p = await newPage();

@@ -18,7 +18,9 @@ The card is a small boot card (40 MiB) with only what NextZXOS needs to reach it
 and to warm-start a program, not the 1 GB distribution image. The browser build is made
 and tested for that card.
 
-The page author does nothing for any of this: the player's default does it all.
+The page author does nothing for any of this: the player's default does it all. A page
+that wants more of NextZXOS on the card, such as its `/GAMES` and `/APPS` directories, can
+ask for it with `card.dirs` ([below](#carddirs-more-of-nextzxos-on-the-card)).
 
 ## The first visit, two ways
 
@@ -66,7 +68,7 @@ A later visit to the same site needs no download and no file.
 
 | what | where |
 |---|---|
-| the SD card | Cache Storage: one entry of about 1.1 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it) |
+| the SD card | Cache Storage: one entry of about 1.1 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it). A card with more of NextZXOS on it (`card.dirs`) is a further entry, much larger (about 15 MB for `/GAMES` and `/APPS`) |
 | the warm-start recording | IndexedDB |
 | the saves, with `keepWrites` | IndexedDB, in a database of its own |
 
@@ -102,7 +104,10 @@ it is refused on the player's panel only (no `onError`), because the visitor can
 | message | what it means |
 |---|---|
 | `unknown option '<name>'` or `option '<name>' must be ...` | A `mount()` option is misspelt or of the wrong type. Nothing has been downloaded yet. |
-| `option 'card' must be an object {source}`, `option 'card': unknown key '<key>'` or `option 'card': source must be 'auto', 'fetch' or 'pick'` | The `card` option is not what [8.2](02-options-and-the-player.md) and this page describe. |
+| `option 'card' must be an object {source, dirs}`, `option 'card': unknown key '<key>'` or `option 'card': source must be 'auto', 'fetch' or 'pick'` | The `card` option is not what [8.2](02-options-and-the-player.md) and this page describe. |
+| `option 'card': dirs must be an array of strings` or `option 'card': dirs: '<path>' ...` | `card.dirs` is not a list of absolute paths, or the named path is refused (no leading `/`, `/` alone, an empty, `.` or `..` part, a backslash, a part of the boot card, a path given twice, or one inside another). Nothing has been downloaded yet. |
+| `the requested path <path> is not in the distribution` | `card.dirs` names a path NextZXOS does not have (the message gives it in lower case). Correct the list: it is the page's, not the visitor's file. |
+| `the boot set and the requested paths are larger than the card: <N> bytes, the limit is 33554432 (32 MiB)` | `card.dirs` asks for more than the 40 MiB card takes. The message gives what was asked for and the limit. Ask for less. |
 | `this file is not sn-emulator-26.11.zip from specnext.com ...` | The visitor chose a different file: the message gives its size, or says its SHA-256 differs. The visitor has to download the official file from specnext.com (the link is on the panel) and choose that one. |
 | `the chosen file could not be read: ...` or `the card could not be made in this browser: ...` | On the panel. The browser could not read the file the visitor chose (it changed or moved after it was chosen), or could not make or store the card (memory or storage). The file is not at fault: choose it again, or free some space. |
 | `cannot read the NextZXOS distribution from specnext.com: ...` | `card.source` is `'fetch'` and the file could not be read: specnext.com does not allow the page to read it, the visitor is offline, or the download failed. Use `'auto'` or `'pick'`. |
@@ -136,7 +141,7 @@ how the first visit goes with the `card` option (`data-card-source` on the widge
 | `'auto'` (default) | The page checks whether specnext.com allows it to read the official file. If so, it downloads it (way 1); if not, or if the download fails, the player asks the visitor (way 2) and shows the reason. |
 | `'fetch'` | Only way 1. Use it once specnext.com allows pages to read the file; if it cannot be read, the page reports an error (`onError`) and does not ask the visitor. |
 | `'pick'` | Only way 2: the page always shows the download link and the file button, and makes no request to specnext.com. |
-| `'none'` | Neither: no SD card at all, as with `--no-sdcard`. The `file` NEX runs with no NextZXOS and no ROMs; nothing is downloaded, asked or kept. For a NEX that needs nothing but the esxDOS file calls, which the stand-in answers (give it a directory with `args: ['--esxdos-stub-root', DIR]`). An emulator convenience: a program that runs ROM code (an IM 1 interrupt, `RST $10`) does not work, and the first time it does `onError` says where, e.g. `executed ROM code at $0038 (IM 1); --no-sdcard has no ROM`. Needs `file`; `keepWrites` is refused. |
+| `'none'` | Neither: no SD card at all, as with `--no-sdcard`. The `file` NEX runs with no NextZXOS and no ROMs; nothing is downloaded, asked or kept. For a NEX that needs nothing but the esxDOS file calls, which the stand-in answers (give it a directory with `args: ['--esxdos-stub-root', DIR]`). An emulator convenience: a program that runs ROM code (an IM 1 interrupt, `RST $10`) does not work, and the first time it does `onError` says where, e.g. `executed ROM code at $0038 (IM 1); --no-sdcard has no ROM`. Needs `file`; `keepWrites` and `dirs` are refused. |
 
 - The widget and the example pages show the same player panel.
 - A page that shows its own status text can use `onProgress` ([8.2](02-options-and-the-player.md)):
@@ -144,6 +149,35 @@ how the first visit goes with the `card` option (`data-card-source` on the widge
 - The download's progress is measured against the `Content-Length` specnext.com sends when
   it does not compress the file, and otherwise against the known size of the official file,
   so it is reported either way.
+
+### `card.dirs`: more of NextZXOS on the card
+
+The boot card has only what NextZXOS needs to start. A page whose visitors want more of
+what the distribution holds, its games or its programs, can ask for those directories
+(`data-card-dirs` on the widget, [8.5](05-two-ways-to-embed.md)):
+
+```js
+jnext.mount(el, { card: { dirs: ['/GAMES', '/APPS'] } });
+```
+
+- Each entry is an absolute path in the distribution, from its root. The whole directory is
+  copied with everything below it, and the directories above it are made too, with the names,
+  dates and attributes they have in the distribution. A path such as `/GAMES/Next/Nextoid`
+  copies that one directory and makes `/GAMES` and `/GAMES/Next` empty of anything else.
+- Capital letters do not matter, and neither do a trailing `/` or the order of the list.
+- The default is no list: the boot card only.
+- The boot card's own directories are always there and are refused in the list, as is `/`
+  alone (the whole distribution does not fit).
+- The card is 40 MiB whatever the list. What the list asks for has to fit in 32 MiB together
+  with the boot card. In this release `/GAMES` is 23.2 MB, `/APPS` 3.7 MB and `/DEMOS` 2.1 MB
+  as files, so `/GAMES` and `/APPS` fit together and adding `/DEMOS` does not. The count is
+  of the files plus the distribution's directories.
+- Every list makes its own card. It is made the first time, kept as a further entry in the
+  browser (about 15 MB for `/GAMES` and `/APPS`), and used by later visits without
+  a download. It has its own warm-start recording and its own saves.
+- While it builds the card for `/GAMES` and `/APPS` the page's memory grows by about 21 MB.
+- A page that changes its list leaves the card of the old list in the visitor's browser
+  until the next JNEXT release.
 
 ### The stored saves in detail
 

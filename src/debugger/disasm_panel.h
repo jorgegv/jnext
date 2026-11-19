@@ -11,10 +11,12 @@
 #include <string>
 #include <vector>
 #include "debug/disasm.h"
+#include "debug/disasm_hint.h"
 #include "debug/disasm_text.h"
 #include "debug/events.h"
 #include "debug/long_address.h"
 #include "debugger/breakpoint_glyph.h"
+#include "debugger/nav_history.h"
 
 class QAction;
 class BreakpointModel;
@@ -64,8 +66,29 @@ public:
     /// Run to Cursor and a copy act on it): the Source tab's "Show in Disassembly".
     void show_address(uint16_t addr);
 
-    /// Activate "Follow PC" mode (called when Break or Step is used).
+    /// Activate "Follow PC" mode (called when Break or Step is used). Does not record a
+    /// jump: it is the automatic re-centre on every stop.
     void activate_follow_pc();
+
+    // --- GH #366: Follow, Back, Forward ---
+
+    /// What Follow does on line `line` of the view (disasm_hint::follow_target() at that line's
+    /// address, from the registers now; the PC line reads its operand through operand_reader()).
+    /// None while the machine runs.
+    disasm_hint::Follow follow_of_line(int line) const;
+    /// Follow on the caret line (the PC line when there is no caret): a code target is shown here
+    /// (a recorded jump); a memory operand is announced by show_in_memory_requested(); nothing
+    /// for None.
+    void follow();
+    /// Follow on line `line` (the context menu's entry).
+    void follow_line(int line);
+    /// Back and Forward through the jumps recorded. Return whether the view moved.
+    bool go_back();
+    bool go_forward();
+    bool can_go_back() const { return history_.can_back(); }
+    bool can_go_forward() const { return history_.can_forward(); }
+    /// The address of the top line of the view.
+    uint16_t view_address() const { return view_addr_; }
 
     /// Set paused state — when not paused, the panel grays out and stops updating.
     void set_paused(bool paused);
@@ -171,6 +194,10 @@ signals:
     void selection_changed(uint16_t lo, uint16_t hi, uint16_t caret);
     /// GH #347 - the menu's Show in Source on `addr`.
     void show_source_requested(uint16_t addr);
+    /// GH #366 - Follow on a memory operand: show `addr` in the Memory panel.
+    void show_in_memory_requested(uint16_t addr);
+    /// GH #366 - the Back/Forward lists changed (the Go menu's enabled state).
+    void history_changed();
     /// GH #387 - a menu entry changed a label or a comment: the manager refreshes the panels.
     void annotations_changed();
 
@@ -199,6 +226,18 @@ private:
     void set_selection(uint16_t addr, bool extend);
     bool line_selected(uint16_t addr) const;
     void navigate_to_address(const QString& text);
+    /// GH #366 - where the view is: its top line and the caret line's address.
+    struct Loc {
+        uint16_t top = 0;
+        std::optional<uint16_t> caret;
+        bool operator==(const Loc& o) const { return top == o.top && caret == o.caret; }
+    };
+    Loc here_() const;
+    /// Record the place a jump to `target` leaves (nothing when `target` is the caret line already).
+    void record_jump_(uint16_t target);
+    void restore_(const Loc& loc);
+    /// show_address() without recording.
+    void place_(uint16_t addr);
     /// Centre the view on `addr`, leaving the selection alone (the address box).
     void center_on(uint16_t addr);
     /// The gutter click and the context menu's Toggle Breakpoint: remove the
@@ -291,4 +330,6 @@ private:
     WatchPanel* watch_panel_ = nullptr;
 
     QPointer<BreakpointModel> bp_model_;
+
+    jnext::NavHistory<Loc> history_;   // GH #366
 };

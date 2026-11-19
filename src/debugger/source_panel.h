@@ -11,7 +11,9 @@
 #include <string>
 #include <vector>
 
+#include "debug/disasm_hint.h"
 #include "debug/long_address.h"
+#include "debugger/nav_history.h"
 
 class BreakpointModel;
 class QAction;
@@ -120,8 +122,27 @@ public:
     /// line with an instruction of the range is tinted. Ignored while the machine runs or
     /// no map is loaded; an address with no source line leaves the view and tints nothing.
     void set_disasm_selection(uint16_t lo, uint16_t hi, uint16_t caret);
-    /// The Disassembly menu's Show in Source: as a one-address selection, centred.
+    /// The Disassembly menu's Show in Source: as a one-address selection, centred. A recorded jump
+    /// (GH #366: Back returns to the line it left).
     void show_address(uint16_t addr);
+
+    // --- GH #366: Follow, Back, Forward on the cursor line ---
+
+    /// The address of the first instruction of the cursor line that is mapped now, none when the
+    /// line has no code, no file is shown or the machine runs. It is what a history entry holds.
+    std::optional<uint16_t> cursor_address() const;
+    /// What Follow does on source line `line` (one-based): disasm_hint::follow_target() on the
+    /// line's first placed instruction. None for a line without code, and while the machine runs.
+    disasm_hint::Follow follow_of_line(int line) const;
+    /// Follow on the cursor line. A code target with a source line is shown here; one without
+    /// opens in the Disassembly (show_address_requested()); a memory operand is announced by
+    /// show_memory_requested().
+    void follow();
+    void follow_line(int line);
+    bool go_back();
+    bool go_forward();
+    bool can_go_back() const { return history_.can_back(); }
+    bool can_go_forward() const { return history_.can_forward(); }
     /// Go to PC Line: end browsing and put the view on the PC's line.
     void go_to_pc_line();
     /// Whether the view is led away from the PC: an address the Disassembly led to, or a file
@@ -171,6 +192,10 @@ signals:
     void run_to_line_requested(const QString& file_line);
     /// GH #423 - Show in Disassembly: put the Disassembly on `addr`.
     void show_address_requested(uint16_t addr);
+    /// GH #366 - Follow on a memory operand: show `addr` in the Memory panel.
+    void show_memory_requested(uint16_t addr);
+    /// GH #366 - the Back/Forward lists changed (the Go menu's enabled state).
+    void history_changed();
     /// GH #387 - a menu entry changed a label or a comment: the manager refreshes the panels.
     void annotations_changed();
     /// GH #347 - the lines the Source cursor or selection covers, `first..last` of `file`
@@ -265,6 +290,9 @@ private:
     // and the map it was in. The Disassembly's range, whose lines are tinted. The guard around the
     // panel's own cursor moves, and the lines last announced.
     std::optional<uint16_t> browse_addr_;
+    jnext::NavHistory<std::optional<uint16_t>> history_;   // GH #366: cursor-line addresses
+    void record_jump_(uint16_t target);
+    void place_(uint16_t addr);
     std::string browse_file_;   // GH #480: the file chosen from the File list; exclusive with browse_addr_
     std::string browse_map_;
     struct DisasmRange { uint16_t lo, hi, caret; };

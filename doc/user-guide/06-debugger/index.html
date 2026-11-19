@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1708,6 +1708,8 @@
       
         
       
+        
+      
     
     
     
@@ -2192,6 +2194,34 @@
     
   
     Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="panels/17-symbols.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symbols
   
 
     
@@ -4331,8 +4361,13 @@ emulator toolbar. The same actions close it. While it is closed
 the debugger costs nothing — no breakpoint checking, no call-stack tracking, no
 panel refreshes. Closing it also resumes the machine if it was paused.</p>
 <p>The debugger opens in its own window, positioned to the right of the emulator
-window. It has its own menu bar — <strong>Debug</strong>, <strong>Script</strong>, <strong>Map</strong>, <strong>Breakpoints</strong>,
+window. It has its own menu bar — <strong>File</strong>, <strong>Debug</strong>, <strong>Go</strong>, <strong>Script</strong>, <strong>Map</strong>, <strong>Breakpoints</strong>,
 <strong>Watches</strong> and <strong>Window</strong> — and a control toolbar along the bottom.</p>
+<p><strong>File ▸ Reload Last File</strong> (Alt+L) is the emulator window's command of the same name,
+available here too: it loads the newest entry of the emulator window's <strong>File ▸ Recent
+Files</strong> again, with the program's symbols and source map. A map you loaded by hand stays
+loaded. Breakpoints and watches are kept, and a paused machine stays paused at the new
+program counter. The entry is greyed out while the list is empty.</p>
 <p><strong>Window ▸ Attach to emulator window</strong> keeps it pinned to the emulator's
 right-hand edge as you drag or resize that window; the setting is remembered
 between sessions. This needs a window system that lets an application position
