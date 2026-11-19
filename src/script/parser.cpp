@@ -207,10 +207,11 @@ private:
         ev.pos = cur().pos;
         if (!is(Tok::Ident)) fail(cur().pos, "expected an event after `on`, found " + describe(cur()));
         const std::string w = cur().text;
-        if (w == "execute" || w == "read" || w == "write") {
+        if (w == "execute" || w == "read" || w == "write" || w == "read_write") {
             ev.type = w == "execute" ? EventType::Execute
                     : w == "read"    ? EventType::Read
-                                     : EventType::Write;
+                    : w == "write"   ? EventType::Write
+                                     : EventType::ReadWrite;
             take();
             if (ev.type == EventType::Execute && (is(Tok::FileLine) || string_is_source_line())) {
                 parse_source_line(ev);

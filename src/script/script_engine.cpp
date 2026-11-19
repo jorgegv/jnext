@@ -319,11 +319,13 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
     switch (ev.type) {
         case EventType::Execute:
         case EventType::Read:
-        case EventType::Write: {
+        case EventType::Write:
+        case EventType::ReadWrite: {
             Subscription s = base;
             s.kind = ev.type == EventType::Execute ? EventKind::Execute : EventKind::Mem;
             if (ev.type == EventType::Read)  s.access = Access::Read;
             if (ev.type == EventType::Write) s.access = Access::Write;
+            if (ev.type == EventType::ReadWrite) s.access = Access::ReadWrite;
             if (!ev.file_line.empty()) {
                 // GH #346: one subscription per start of the line, each in the
                 // memory the map built it for (the GUI group's resolver).
@@ -1080,6 +1082,7 @@ static std::string describe_event(const Rule& r, const std::vector<dbg::Subscrip
         case EventType::Execute:   s = "execute"; break;
         case EventType::Read:      s = "read"; break;
         case EventType::Write:     s = "write"; break;
+        case EventType::ReadWrite: s = "read_write"; break;
         case EventType::IoRead:    s = "io_read"; break;
         case EventType::IoWrite:   s = "io_write"; break;
         case EventType::NextReg:   s = "nextreg"; break;
@@ -1104,6 +1107,7 @@ static std::string describe_event(const Rule& r, const std::vector<dbg::Subscrip
         case EventType::Execute:
         case EventType::Read:
         case EventType::Write:
+        case EventType::ReadWrite:
             if (e.page_only) {
                 const unsigned p1 = e.type == EventType::Execute ? t.front().filter.page : f.pages.front();
                 const unsigned p2 = e.type == EventType::Execute ? t.back().filter.page : f.pages.back();

@@ -145,14 +145,18 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - CPU panel T-state counter: T-states since the last stop, or accumulated across stops
 - Panels: CPU registers, disassembly, memory hex editor, MMU, stack, call stack
 - Memory panel physical-page view: `Slot 0-7` show the page mapped in the slot, `Page...` shows any NR page
+- Memory panel tools: find hex bytes (wildcards, mask) or text, save/load a block to a raw binary file, fill a block
 - Panels: video layers, sprites, copper, NextREG, audio, watches, breakpoints
 - Video panel "All layers" view: the real composite, as in the emulator window
 - Video panel "Background" view: the NR 0x4A fallback colour per scanline
 - Video panel raster indicator: beam position in all four hardware counter domains, frame diagram and ULA fetch read-out
 - Audio panel per-source mute: AY #0/#1/#2, DAC and Beeper silenced independently without affecting emulation
+- Disassembly navigation: Follow (F12) jumps, calls, returns and memory operands, Back/Forward history (Alt+Left/Right), a Symbols tab, and register-click shortcuts to the Disassembly, Memory and Source
+- CPU panel: edit registers, flags, IFF and IM in place while paused (double-click a value, click a flag), with symbols accepted for 16-bit values
 - PC/data/read/write breakpoints with watchpoints
 - I/O port breakpoints: IO Read on `IN`, IO Write on `OUT`, by low byte or exact 16-bit port
 - Breakpoint enable/disable per row, plus a master switch
+- Breakpoints saved to and loaded from a `.jds` script (Breakpoints > Save as Script / Load from Script); scripts gain `on read_write`
 - Symbol table from Z88DK MAP files and sjasmplus `--sym` / `--exp` files (`--map` or the Map menu), with inline symbol names in disassembly, and the 48K ROM's names from the symbol map every package ships (Map > Load MAP File > Simple Format)
 - **Source-level debugging**: z88dk `-debug` maps and listings and sjasmplus SLD maps give C and assembly source lines, NextBuild / Boriel `Memory.txt` gives symbols (`--source-map FILE`) (user guide: The Source Debugger)
 - Banked code matched by page, with identity checks against the linker's section binaries
@@ -166,7 +170,8 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Disassembly PC line shows whether a conditional branch is taken and the value at the instruction's memory operand
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
-- Redefinable debugger keys: all seventeen debugger commands under Settings > Preferences > Debugger Keys
+- Debugger window: File > Reload Last File (Alt+L) reloads the rebuilt program with its maps, breakpoints kept
+- Redefinable debugger keys: all twenty debugger commands under Settings > Preferences > Debugger Keys
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
 - Rewind preserves the SD card's SPI protocol state, so streaming programs resume correctly
 - Save Snapshot while paused mid-frame completes the frame and saves at the boundary
@@ -193,7 +198,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 ## Browser build
 
 - Embed JNEXT in a web page or an itch.io game with `jnext.mount()`; pause, reset, load and volume from JavaScript; several players per page; every option is a command-line flag or `--set` key, documented in the man page and diffed against the code; published with every public release as `jnext-<version>-web.zip`, ready to host; a copy-and-paste widget (one `div`, one script tag) with light and dark themes, title bar, progress bar and pause/reset/mute/fullscreen toolbar; the desktop's CRT effect (scanlines, soft scanlines, TV, PC monitor) on WebGL, off by default, through `--crt` in `args` or the `startup.crt_*` settings in `set`.
-- The browser makes its NextZXOS SD card from the official specnext.com distribution (fetched by the page, or downloaded and chosen by the visitor) and keeps it for the site; nothing of NextZXOS is shipped or hosted by JNEXT. An optional `poster` picture (`data-poster`) shows in the player before the click, which is what starts the download.
+- The browser makes its NextZXOS SD card from the official specnext.com distribution (fetched by the page, or downloaded and chosen by the visitor) and keeps it for the site; nothing of NextZXOS is shipped or hosted by JNEXT. A page can ask for more of the distribution on the card (`card.dirs`, `data-card-dirs`, such as `/GAMES` and `/APPS`). An optional `poster` picture (`data-poster`) shows in the player before the click, which is what starts the download.
 - `keepWrites` (or `data-keep-writes` on the widget) keeps what a program writes to the SD card, and the esxDOS save of a directly loaded NEX, across page reloads, in the visitor's own browser, one record per card and page; `player.resetCard()` clears it.
 - An on-screen Spectrum Next keyboard for phones and tablets (`touchKeyboard`, `--touch-keyboard`, `data-touch-keyboard`, `player.showKeyboard()`): the 40 keys of a 48K or the Next's 58, latching Caps and Symbol Shift, several fingers at once, typed through the same path as a PC keyboard.
 - `.wav` tapes load in a page (in real time, as from a cassette).

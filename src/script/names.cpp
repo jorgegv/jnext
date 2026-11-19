@@ -11,7 +11,7 @@ const char* const RESERVED[] = {
     // structure
     "var", "disabled", "on", "once", "when", "do", "end",
     // events and their qualifiers
-    "execute", "read", "write", "io_read", "io_write", "nextreg", "frame", "scanline",
+    "execute", "read", "write", "read_write", "io_read", "io_write", "nextreg", "frame", "scanline",
     "cycle", "interrupt", "nmi", "reset", "hostkey", "stop", "copper", "move", "wait",
     "halt", "at", "dma", "start", "byte", "page", "mask", "value",
     // actions

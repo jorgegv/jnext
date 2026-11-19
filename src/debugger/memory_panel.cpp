@@ -17,6 +17,17 @@
 #include <QPaintEvent>
 #include <QInputDialog>
 #include <QSignalBlocker>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QDialog>
+#include <QFormLayout>
+#include <QDialogButtonBox>
+#include <QCheckBox>
+#include <QPushButton>
+#include <QFileDialog>
+#include <QFile>
+#include <QFileInfo>
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -228,6 +239,11 @@ int MemoryPanel::total_rows() const {
 // ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
+
+void MemoryPanel::show_address(uint16_t addr) {
+    if (page_selector_ && page_selector_->currentIndex() != 0) page_selector_->setCurrentIndex(0);
+    navigate_to_address(addr);
+}
 
 void MemoryPanel::navigate_to_address(uint16_t addr) {
     int row = addr / BYTES_PER_ROW;
@@ -681,4 +697,418 @@ void MemoryPanel::wheelEvent(QWheelEvent* event) {
 void MemoryPanel::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     update_scroll_bar();
+}
+
+// ---------------------------------------------------------------------------
+// GH #370 - find, and save / load / fill a block
+// ---------------------------------------------------------------------------
+
+namespace mt = jnext::dbg::memtools;
+
+namespace {
+
+QString hex_bytes_text(const std::vector<uint8_t>& v) {
+    QStringList l;
+    for (uint8_t b : v) l << QString::asprintf("%02X", b);
+    return l.join(' ');
+}
+
+}  // namespace
+
+void MemoryPanel::fill_context_menu(QMenu& menu) {
+    // The actions are the MENU's children: nothing here may stay a child of the panel, because
+    // callers find the Addr box and the view selector with findChild<>().
+    menu.addAction(tr("Find..."), this, [this]() { show_find_dialog(); });
+    QAction* next = menu.addAction(tr("Find Next"), this, [this]() { find_next(); });
+    next->setEnabled(last_pattern_.has_value());
+    menu.addSeparator();
+    menu.addAction(tr("Save Block..."), this, [this]() { show_save_dialog(); });
+    menu.addAction(tr("Load Block..."), this, [this]() { show_load_dialog(); });
+    menu.addAction(tr("Fill Block..."), this, [this]() { show_fill_dialog(); });
+}
+
+void MemoryPanel::contextMenuEvent(QContextMenuEvent* event) {
+    if (event->reason() == QContextMenuEvent::Mouse) {
+        int row, col;
+        if (hit_test(event->pos().x(), event->pos().y(), row, col)) {
+            selected_addr_ = (scroll_offset_ + row) * BYTES_PER_ROW + col;
+            const int max_addr = total_rows() * BYTES_PER_ROW - 1;
+            if (selected_addr_ > max_addr) selected_addr_ = max_addr;
+            edit_nibble_ = 0;
+            edit_value_ = 0;
+            update();
+        }
+    }
+    QMenu menu(this);
+    fill_context_menu(menu);
+    menu.exec(event->globalPos());
+    event->accept();
+}
+
+// The Start every dialog offers: the selected byte, else the first visible row.
+uint32_t MemoryPanel::start_default() const {
+    return selected_addr_ >= 0 ? static_cast<uint32_t>(selected_addr_)
+                               : static_cast<uint32_t>(scroll_offset_) * BYTES_PER_ROW;
+}
+
+// A start the way the Addr box takes it: a number or a symbol.
+bool MemoryPanel::parse_start(const QString& verb, const QString& text, uint32_t& start) {
+    const std::string t = text.trimmed().toStdString();
+    const auto a = dbg_ ? dbg_->symbols().resolve(t) : SymbolTable().resolve(t);
+    if (!a) {
+        emit message(verb + tr(" refused: not an address: '%1'").arg(text.trimmed()));
+        return false;
+    }
+    start = *a;
+    return true;
+}
+
+// WHERE a block's first byte lives. The view bound is checked BEFORE locate(), which masks a
+// Slot or Page offset to 13 bits and would turn $2000 into $0000.
+bool MemoryPanel::locate_start(const QString& verb, uint32_t start, Where& w) {
+    const bool cpu = !page_selector_ || page_selector_->currentIndex() == 0;
+    if (!cpu && start >= 0x2000) {
+        emit message(verb + tr(" refused: the start is outside the 8K page"));
+        return false;
+    }
+    w = cpu ? Where{jnext::dbg::MemSpace::cpu(), start} : locate(static_cast<uint16_t>(start));
+    return true;
+}
+
+bool MemoryPanel::plan_block(const QString& verb, uint32_t start, uint32_t len, Block& b) {
+    if (!dbg_) {
+        emit message(verb + tr(" refused: no debugger"));
+        return false;
+    }
+    if (!locate_start(verb, start, b.w)) return false;
+    std::string why;
+    auto chunks = mt::split_block(b.w.space, b.w.addr, len, &why);
+    if (!chunks) {
+        emit message(verb + tr(" refused: ") + QString::fromStdString(why));
+        return false;
+    }
+    b.chunks = std::move(*chunks);
+    return true;
+}
+
+// `offset $0100 of ROM0` for a space, `$4000` for the CPU view; the address is the SPACE's.
+QString MemoryPanel::loc_text(const Where& w, uint32_t space_addr) const {
+    if (w.space.kind == jnext::dbg::MemSpace::Kind::Cpu)
+        return QString::asprintf("$%04X", space_addr);
+    return QString::asprintf("offset $%04X of ", space_addr) +
+           QString::fromStdString(jnext::dbg::space_tag(w.space));
+}
+
+// One poke per chunk (one MUTATE line, one RZX check, one rewind mark each); stops at the first
+// chunk that does not land whole. Returns the bytes that landed.
+size_t MemoryPanel::write_chunks(const Block& b, const uint8_t* data, jnext::dbg::Result* stop) {
+    size_t landed = 0, off = 0;
+    *stop = jnext::dbg::Result::Ok;
+    for (const mt::Chunk& c : b.chunks) {
+        const auto r = dbg_->poke(client_, c.space, c.addr, c.len, data + off);
+        landed += r.value;
+        off += c.len;
+        if (r.status != jnext::dbg::Result::Ok) {
+            *stop = r.status;
+            break;
+        }
+    }
+    return landed;
+}
+
+// The refusals Load and Fill share. True when it said something (nothing landed).
+bool MemoryPanel::report_write_refusal(const QString& verb, size_t landed, jnext::dbg::Result stop) {
+    using jnext::dbg::Result;
+    if (stop == Result::RefusedRzx) {
+        emit message(verb + tr(" refused: memory cannot be changed while an RZX recording or "
+                               "playback is running (stop it first)"));
+        return true;
+    }
+    if (landed == 0 && stop != Result::Ok) {
+        emit message(verb + tr(" refused: ") +
+                     (stop == Result::RefusedReadOnly ? tr("ROM is read-only")
+                                                      : QString::fromLatin1(jnext::dbg::result_name(stop))));
+        return true;
+    }
+    return false;
+}
+
+void MemoryPanel::run_find(const mt::Pattern& p, size_t from) {
+    if (!dbg_) return;
+    const bool cpu = !page_selector_ || page_selector_->currentIndex() == 0;
+    const size_t size = cpu ? 0x10000 : 0x2000;
+    const Where base = locate(0);
+    std::vector<uint8_t> buf(size, 0);
+    const auto r = dbg_->peek(base.space, base.addr, size, buf.data());
+    if (r.value != size) {
+        emit message(tr("Find: could not read %1").arg(page_selector_->currentText()));
+        return;
+    }
+    const auto hit = mt::find(buf.data(), size, p, from);
+    if (!hit) {
+        emit message(tr("Not found in %1").arg(page_selector_->currentText()));
+        return;
+    }
+    const uint32_t off = static_cast<uint32_t>(hit->offset);
+    navigate_to_address(static_cast<uint16_t>(off));
+
+    // The CPU address the Disassembly can show: the view's own in CPU View, the slot's in a Slot
+    // view, the lowest slot that MAPS the page in a Page view (SlotInfo::space), else none.
+    int cpu_addr = -1;
+    const int mode = page_selector_->currentIndex();
+    if (mode == 0) {
+        cpu_addr = static_cast<int>(off);
+    } else if (mode == PAGE_ITEM) {
+        const auto slot_info = dbg_->mmu_slots();
+        for (int k = 0; k < 8; ++k)
+            if (slot_info[k].space == jnext::dbg::MemSpace::page(static_cast<uint16_t>(page_))) {
+                cpu_addr = k * 0x2000 + static_cast<int>(off);
+                break;
+            }
+    } else {
+        cpu_addr = (mode - 1) * 0x2000 + static_cast<int>(off);
+    }
+    QString text = tr("Found at %1").arg(loc_text(base, base.addr + off));
+    if (hit->wrapped) text += tr(" (wrapped)");
+    if (cpu_addr < 0) text += tr("; not mapped in any slot, so the Disassembly does not move");
+    if (cpu_addr >= 0) emit show_in_disassembly_requested(static_cast<uint16_t>(cpu_addr));
+    emit message(text);
+}
+
+void MemoryPanel::find(const mt::Pattern& p) {
+    last_pattern_ = p;
+    run_find(p, selected_addr_ >= 0 ? static_cast<size_t>(selected_addr_) : 0);
+}
+
+void MemoryPanel::find_next() {
+    if (!last_pattern_) return;
+    run_find(*last_pattern_, selected_addr_ >= 0 ? static_cast<size_t>(selected_addr_) + 1 : 0);
+}
+
+void MemoryPanel::save_block(uint32_t start, uint32_t len, const QString& path) {
+    Block b;
+    if (!plan_block(tr("Save"), start, len, b)) return;
+    const QString name = QFileInfo(path).fileName();
+    QByteArray data(static_cast<qsizetype>(len), 0);
+    size_t off = 0;
+    for (const mt::Chunk& c : b.chunks) {
+        const auto r = dbg_->peek(c.space, c.addr, c.len, reinterpret_cast<uint8_t*>(data.data()) + off);
+        if (r.value != c.len) {
+            emit message(tr("Save failed: could not read the memory"));
+            return;
+        }
+        off += c.len;
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate) || f.write(data) != data.size()) {
+        emit message(tr("Save failed: %1: %2").arg(name, f.errorString()));
+        return;
+    }
+    emit message(tr("Saved %1 bytes from %2 to %3").arg(len).arg(loc_text(b.w, b.w.addr), name));
+}
+
+void MemoryPanel::load_block(uint32_t start, std::optional<uint32_t> len, const QString& path) {
+    const QString verb = tr("Load");
+    if (!dbg_) {
+        emit message(verb + tr(" refused: no debugger"));
+        return;
+    }
+    Where w;
+    if (!locate_start(verb, start, w)) return;
+    const QString name = QFileInfo(path).fileName();
+    if (!QFileInfo(path).isFile()) {
+        emit message(tr("Load failed: %1: not a file").arg(name));
+        return;
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        emit message(tr("Load failed: %1: %2").arg(name, f.errorString()));
+        return;
+    }
+    const QByteArray data = f.readAll();
+    const uint32_t F = static_cast<uint32_t>(data.size());
+    if (F == 0) {
+        emit message(tr("Load refused: %1 is empty").arg(name));
+        return;
+    }
+    const uint32_t M = len ? *len : F;
+    const uint32_t room = mt::block_room(w.space, w.addr);
+    const uint32_t T = std::min(std::min(M, F), room);
+    std::string why;
+    if (T == 0) {
+        mt::split_block(w.space, w.addr, M ? 1 : 0, &why);   // names what is wrong with the start
+        emit message(verb + tr(" refused: ") + QString::fromStdString(why));
+        return;
+    }
+    Block b;
+    b.w = w;
+    auto chunks = mt::split_block(w.space, w.addr, T, &why);
+    if (!chunks) {
+        emit message(verb + tr(" refused: ") + QString::fromStdString(why));
+        return;
+    }
+    b.chunks = std::move(*chunks);
+    jnext::dbg::Result stop;
+    const size_t L = write_chunks(b, reinterpret_cast<const uint8_t*>(data.constData()), &stop);
+    update();
+    if (report_write_refusal(verb, L, stop)) return;
+    if (L == M) {
+        emit message(tr("Loaded %1 bytes at %2 from %3").arg(M).arg(loc_text(w, w.addr), name));
+        return;
+    }
+    QStringList why_not;
+    if (F < M) why_not << tr("the file holds only %1 bytes").arg(F);
+    if (room < std::min(M, F)) {
+        // Only Cpu and Page blocks get here: a ROM space refuses the poke with nothing landed.
+        why_not << (w.space.kind == jnext::dbg::MemSpace::Kind::Cpu
+                        ? tr("the rest would run past $FFFF")
+                        : tr("the rest would run past page DF"));
+    }
+    if (L < T) why_not << tr("the rest is ROM, which is read-only");
+    emit message(tr("Loaded %1 of %2 bytes at %3 from %4: %5")
+                     .arg(L).arg(M).arg(loc_text(w, w.addr), name, why_not.join("; ")));
+}
+
+void MemoryPanel::fill_block(uint32_t start, uint32_t len, const std::vector<uint8_t>& value) {
+    const QString verb = tr("Fill");
+    Block b;
+    if (!plan_block(verb, start, len, b)) return;
+    const std::vector<uint8_t> buf = mt::fill_buffer(value, len);
+    jnext::dbg::Result stop;
+    const size_t L = write_chunks(b, buf.data(), &stop);
+    update();
+    if (report_write_refusal(verb, L, stop)) return;
+    const QString hex = hex_bytes_text(value);
+    if (L == len)
+        emit message(tr("Filled %1 bytes at %2 with %3").arg(len).arg(loc_text(b.w, b.w.addr), hex));
+    else
+        emit message(tr("Filled %1 of %2 bytes at %3 with %4: the rest is ROM, which is read-only")
+                         .arg(L).arg(len).arg(loc_text(b.w, b.w.addr), hex));
+}
+
+// ---- the dialogs: stack objects parented to the panel, gone when they return ------------------
+
+namespace {
+
+QLineEdit* add_row(QFormLayout* form, QDialog* dlg, const QString& label, const QString& text) {
+    auto* e = new QLineEdit(text, dlg);
+    form->addRow(label, e);
+    return e;
+}
+
+QDialogButtonBox* add_buttons(QFormLayout* form, QDialog* dlg) {
+    auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dlg);
+    QObject::connect(box, &QDialogButtonBox::accepted, dlg, &QDialog::accept);
+    QObject::connect(box, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
+    form->addRow(box);
+    return box;
+}
+
+}  // namespace
+
+void MemoryPanel::show_find_dialog() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Find"));
+    auto* form = new QFormLayout(&dlg);
+    QLineEdit* pat = add_row(form, &dlg, tr("Pattern:"), find_text_);
+    QLineEdit* mask = add_row(form, &dlg, tr("Mask (optional):"), find_mask_);
+    auto* text = new QCheckBox(tr("Text"), &dlg);
+    text->setChecked(find_text_mode_);
+    form->addRow(text);
+    auto* match_case = new QCheckBox(tr("Match case"), &dlg);
+    match_case->setChecked(find_match_case_);
+    form->addRow(match_case);
+    auto sync = [=]() {
+        mask->setEnabled(!text->isChecked());
+        match_case->setEnabled(text->isChecked());
+    };
+    connect(text, &QCheckBox::toggled, &dlg, sync);
+    sync();
+    add_buttons(form, &dlg);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    find_text_ = pat->text();
+    find_mask_ = mask->text();
+    find_text_mode_ = text->isChecked();
+    find_match_case_ = match_case->isChecked();
+    std::string why;
+    const auto p = find_text_mode_
+        ? mt::text_pattern(find_text_.toStdString(), find_match_case_, &why)
+        : mt::parse_hex_pattern(find_text_.toStdString(), find_mask_.toStdString(), &why);
+    if (!p) {
+        emit message(tr("Find: ") + QString::fromStdString(why));
+        return;
+    }
+    find(*p);
+}
+
+void MemoryPanel::show_save_dialog() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Save Block"));
+    auto* form = new QFormLayout(&dlg);
+    QLineEdit* start = add_row(form, &dlg, tr("Start:"), QString::asprintf("$%04X", start_default()));
+    QLineEdit* len = add_row(form, &dlg, tr("Length (hex):"), QString());
+    QLineEdit* file = add_row(form, &dlg, tr("File:"), QString());
+    auto* browse = new QPushButton(tr("Browse..."), &dlg);
+    connect(browse, &QPushButton::clicked, &dlg, [&]() {
+        const QString f = QFileDialog::getSaveFileName(&dlg, tr("Save Block"), file->text());
+        if (!f.isEmpty()) file->setText(f);
+    });
+    form->addRow(browse);
+    add_buttons(form, &dlg);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    uint32_t s;
+    std::string why;
+    const auto l = mt::parse_length(len->text().toStdString(), &why);
+    if (!l) { emit message(tr("Save refused: ") + QString::fromStdString(why)); return; }
+    if (!parse_start(tr("Save"), start->text(), s)) return;
+    save_block(s, *l, file->text());
+}
+
+void MemoryPanel::show_load_dialog() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Load Block"));
+    auto* form = new QFormLayout(&dlg);
+    QLineEdit* file = add_row(form, &dlg, tr("File:"), QString());
+    auto* browse = new QPushButton(tr("Browse..."), &dlg);
+    connect(browse, &QPushButton::clicked, &dlg, [&]() {
+        const QString f = QFileDialog::getOpenFileName(&dlg, tr("Load Block"), file->text());
+        if (!f.isEmpty()) file->setText(f);
+    });
+    form->addRow(browse);
+    QLineEdit* start = add_row(form, &dlg, tr("Start:"), QString::asprintf("$%04X", start_default()));
+    QLineEdit* len = add_row(form, &dlg, tr("Length (hex, blank = whole file):"), QString());
+    add_buttons(form, &dlg);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    uint32_t s;
+    std::optional<uint32_t> l;
+    if (!len->text().trimmed().isEmpty()) {
+        std::string why;
+        l = mt::parse_length(len->text().toStdString(), &why);
+        if (!l) { emit message(tr("Load refused: ") + QString::fromStdString(why)); return; }
+    }
+    if (!parse_start(tr("Load"), start->text(), s)) return;
+    load_block(s, l, file->text());
+}
+
+void MemoryPanel::show_fill_dialog() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Fill Block"));
+    auto* form = new QFormLayout(&dlg);
+    QLineEdit* start = add_row(form, &dlg, tr("Start:"), QString::asprintf("$%04X", start_default()));
+    QLineEdit* len = add_row(form, &dlg, tr("Length (hex):"), QString());
+    QLineEdit* value = add_row(form, &dlg, tr("Value (hex bytes):"), QString());
+    add_buttons(form, &dlg);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    std::string why;
+    const auto l = mt::parse_length(len->text().toStdString(), &why);
+    if (!l) { emit message(tr("Fill refused: ") + QString::fromStdString(why)); return; }
+    const auto v = mt::parse_fill(value->text().toStdString(), &why);
+    if (!v) { emit message(tr("Fill refused: ") + QString::fromStdString(why)); return; }
+    uint32_t s;
+    if (!parse_start(tr("Fill"), start->text(), s)) return;
+    fill_block(s, *l, *v);
 }

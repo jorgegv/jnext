@@ -506,9 +506,11 @@ void apply_audio_fixture(Emulator& emu) {
 /// empty Breakpoints table and a gutter with no breakpoint dot. Returns false,
 /// and the run fails, if the panel does not then list all four rows — an empty
 /// picture of a list must not be written quietly again.
-bool apply_debug_fixture(DebuggerManager* mgr, DebuggerWindow* dbg) {
+bool apply_debug_fixture(DebuggerManager* mgr, DebuggerWindow* dbg, uint16_t halt_pc) {
     BreakpointModel* bpm = &mgr->breakpoints();
-    bpm->add(BreakpointModel::Execute,   0x0C8F);   // the ROM HALT the boot sits on
+    // The ROM HALT the boot sits on: the PC at capture time, not a literal (the address moves with
+    // the SD card's ROM: $0C8F on the 24.11 card, $0CB5 on 26.11).
+    bpm->add(BreakpointModel::Execute,   halt_pc);
     bpm->add(BreakpointModel::Execute,   0x8000);
     bpm->add(BreakpointModel::Write,     0x5C78);   // FRAMES, the 48K frame counter
     bpm->add(BreakpointModel::ReadWrite, 0x5C3B);   // FLAGS
@@ -916,7 +918,14 @@ int main(int argc, char** argv)
     // one of them sits on the ROM loop the boot is in, so an armed set would
     // stop the run above on its first instruction and the frame would never
     // be drawn.
-    if (!apply_debug_fixture(mgr, dbg)) return 1;
+    if (!emu.cpu().is_halted()) {
+        std::fprintf(stderr,
+            "docshot: the CPU is not on a HALT at capture time (PC %04X); the fixture's execute\n"
+            "  breakpoint is meant for the ROM HALT the boot sits on, refusing to capture.\n",
+            emu.cpu().get_registers().PC);
+        return 1;
+    }
+    if (!apply_debug_fixture(mgr, dbg, emu.cpu().get_registers().PC)) return 1;
     mgr->refresh_panels();   // the MANAGER's — see run_to_last_paper_line()
     settle();
 

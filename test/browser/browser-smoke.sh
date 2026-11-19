@@ -8,7 +8,7 @@
 # (rows WBI-PW-01..09, the SD-card image and the warm start in the browser) and `api.mjs:31`
 # (rows WEBAPI-01..31, the JavaScript API: jnext.mount and its controller) and `package.mjs:7`
 # (rows WEBPKG-BR-01..07: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
-# boots the example page), `card.mjs:31` (rows BCARD-01..21 and 26..35: the card flow of the page and the poster), `card-errors.mjs:4` (rows BCARD-22..25: how the pick path words a refusal, no browser), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
+# boots the example page), `card.mjs:39` (rows BCARD-01..21 and 26..43: the card flow of the page, the poster and card.dirs), `card-errors.mjs:5` (rows BCARD-22..25 and 44: how the pick path words a refusal, no browser), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
 # under touch-device emulation) and `writes.mjs:17` (rows WBW-01..17: the guest's writes
 # kept across page loads, against a native journal oracle), `snapshots.mjs:11` (rows BSN-01..11: .sna, .z80,
@@ -42,7 +42,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:31" "package.mjs:7" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:31" "card-errors.mjs:4" "$@")
+SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:31" "package.mjs:7" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:39" "card-errors.mjs:5" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -243,9 +243,21 @@ REAL_ZIP_SIZE=$(stat -c %s "$SCRATCH/real-distro.zip")
 PINNED_CARD_SHA256=$(sed -n '/^const Pins kDistribution/,/^};/p' "$ROOT/src/core/sdcard_provisioner.cpp" | grep -oE '"[0-9a-f]{64}"' | sed -n 3p | tr -d '"')
 PINNED_URL=$(sed -n 's/^ *"\(https:[^"]*\)";$/\1/p' "$ROOT/src/core/sdcard_provisioner.cpp" | head -n1)
 
+# card.dirs (GH #509): the native tool's cards with --dirs, the byte oracles of BCARD-36 (synthetic) and
+# BCARD-41 (real). Only the digests are kept: the cards are deleted at once.
+"$CARD_TOOL" --unpinned --dirs /APPS,/GAMES "$SCRATCH/syn/synthetic-distro.zip" "$SCRATCH/syn/dirs-card.img" >"$SCRATCH/out/syn-dirs-card.log" 2>&1 \
+    || { cat "$SCRATCH/out/syn-dirs-card.log" >&2; die "cannot build the --dirs card of the synthetic distribution"; }
+SYN_DIRS_CARD_SHA256=$(sha256sum "$SCRATCH/syn/dirs-card.img" | cut -d' ' -f1)
+rm -f "$SCRATCH/syn/dirs-card.img"
+"$CARD_TOOL" --dirs /GAMES,/APPS "$DIST" "$SCRATCH/real-dirs-card.img" >"$SCRATCH/out/real-dirs-card.log" 2>&1 \
+    || { cat "$SCRATCH/out/real-dirs-card.log" >&2; die "cannot build the --dirs card of the real image"; }
+REAL_DIRS_CARD_SHA256=$(sha256sum "$SCRATCH/real-dirs-card.img" | cut -d' ' -f1)
+rm -f "$SCRATCH/real-dirs-card.img"
+
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg" \
        SMOKE_SYN_DIR="$SCRATCH/syn" SMOKE_SYN_CARD_SHA256="$SYN_CARD_SHA256" SMOKE_SYN_ZIP_SHA256="$SYN_ZIP_SHA256" SMOKE_SYN_ZIP_SIZE="$SYN_ZIP_SIZE" \
+       SMOKE_SYN_DIRS_CARD_SHA256="$SYN_DIRS_CARD_SHA256" SMOKE_REAL_DIRS_CARD_SHA256="$REAL_DIRS_CARD_SHA256" \
        SMOKE_REAL_ZIP_SHA256="$REAL_ZIP_SHA256" SMOKE_REAL_ZIP_SIZE="$REAL_ZIP_SIZE" SMOKE_PINNED_CARD_SHA256="$PINNED_CARD_SHA256" SMOKE_DISTRO_URL="$PINNED_URL"
 
 TOTAL=0; PASS=0; FAIL=0; SKIP=0; FAULT=0

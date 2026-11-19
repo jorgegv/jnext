@@ -25,7 +25,6 @@ the two can never disagree. For building jnext from source, see
   - [Settings for --set](#settings-for---set)
 - [MACHINES](#machines)
 - [SD CARD AND ROMS](#sd-card-and-roms)
-  - [A SECOND SD CARD](#a-second-sd-card)
   - [CHANGING THE CARD WHILE RUNNING](#changing-the-card-while-running)
   - [PUTTING A FILE ON THE CARD](#putting-a-file-on-the-card)
 - [LOADING PROGRAMS](#loading-programs)
@@ -280,29 +279,6 @@ Discard the writes kept in the **--sdcard-writes** *FILE* before the
 card is mounted, the stand-in’s file included, so the run starts on the
 image as it is. Requires **--sdcard-writes**. A file that is not a
 **jnext** SD-writes file is refused, never removed.
-
-**--sdcard2** *FILE*  
-Mount SD-card image *FILE* (`.img`) in the **second SD card slot**,
-which NextZXOS sees as the next drive after the first card’s partitions
-(D: for a first card with one). There is no default and no download: the
-slot is empty unless this is given. ROMs are read from the first card
-only. A *FILE* that is not a readable regular file, a ZIP archive, or
-the same file as **--sdcard**, is refused (exit status 1). See **A
-SECOND SD CARD**.
-
-**--sdcard2-readonly**  
-Open the second card’s image read-only, as **--sdcard-readonly** does
-for the first. Requires **--sdcard2**.
-
-**--sdcard2-writes** *FILE*  
-Keep the writes the emulated machine makes to the second card in *FILE*
-instead of its image, as **--sdcard-writes** does for the first card;
-*FILE* belongs to that image, identified by its size and modification
-time. Requires **--sdcard2**; excludes **--sdcard2-readonly**.
-
-**--sdcard2-writes-reset**  
-Discard the writes kept in the **--sdcard2-writes** *FILE* before the
-card is mounted. Requires **--sdcard2-writes**.
 
 **--sdcard-file-add** *FILE*  
 Copy host *FILE* — a file, or a directory with everything in it — into
@@ -1138,17 +1114,6 @@ or when another insert is due in the same frame - or if the automatic
 exit comes first. An empty *FILE* is rejected. Repeatable. Requires
 **--headless**.
 
-**--delayed-sdcard2-insert-frames** *N* *FILE*  
-The same for the **second SD card** slot: insert *FILE* there after *N*
-emulated frames, as **File \> Insert Second SD Card Image** does (see
-**A SECOND SD CARD**). The card keeps **--sdcard2-readonly**. The run
-exits non-zero under the same refusals as
-**--delayed-sdcard-insert-frames**, and when *FILE* is the image the
-first slot has mounted. NextZXOS finds its drives at start-up, so to see
-the card use a hard reset (the environment variable
-`JNEXT_DELAYED_RESET_FRAMES`, or NextZXOS’s own). Repeatable. Requires
-**--headless**.
-
 **--delayed-pok-frames** *N* *FILE*  
 Apply trainers from the POK file *FILE* after *N* emulated frames, once
 the program has loaded. This is how a `.pok` file is used in the runs
@@ -1508,10 +1473,6 @@ The directory the Load dialogs open in. The Qt window.
 `paths.sd_card_path` *FILE*  
 The SD card image; **--sdcard**. Empty means none given. All frontends.
 
-`paths.sd_card2_path` *FILE*  
-The image in the second SD card slot; **--sdcard2** gives the same.
-Empty means no second card. All frontends.
-
 `paths.screenshot_dir` *PATH*  
 The directory the Save Screenshot dialog opens in. The Qt window.
 
@@ -1551,11 +1512,12 @@ The key combination of a debugger action, like the **Preferences**
 Debugger Keys tab: *ACTION* is `run`, `pause`, `step_into`, `step_over`,
 `step_out`, `step_back`, `frame_back`, `run_to_cursor`, `run_to_eof`,
 `run_to_eosl`, `trace_toggle`, `trace_export`, `source_step_into`,
-`source_step_over`, `source_step_out`, `source_step_back` or
-`source_reverse_continue`, and `none` unbinds it. A combination that is
-not legal there, or that another action already holds (unless the same
-command line frees it), is refused with exit status 1 before the window
-opens. The Qt window with the debugger.
+`source_step_over`, `source_step_out`, `source_step_back`,
+`source_reverse_continue`, `follow`, `go_back` or `go_forward`, and
+`none` unbinds it. A combination that is not legal there, or that
+another action already holds (unless the same command line frees it), is
+refused with exit status 1 before the window opens. The Qt window with
+the debugger.
 
 `source.colour_scheme` *auto\|light\|dark\|borland*  
 The colour scheme of the debugger’s Source tab, like the **Preferences**
@@ -1692,47 +1654,6 @@ over it on every run.
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
 
-### A SECOND SD CARD
-
-The Next board has two SD sockets. **--sdcard2** *FILE* puts a second
-card in the second one. NextZXOS maps every FAT partition of every card
-to a drive letter, first card first: with one partition on the first
-card, the second card’s first partition is **D:**. Type `CD "d:"` to
-enter it (`.nexload d:/x.nex` does not work: `:` separates BASIC
-statements, so quote the path or `CD` first). NextZXOS finds its drives
-at start-up, so the card must be in the slot before the machine boots or
-hard-resets; there is no card-detect line.
-
-- The second card is a plain image of its own (a partition table and a
-  FAT partition, for example a copy of a real card made with `dd`, or
-  one built with `sfdisk` and `mformat`). It must not be the first
-  card’s file.
-- ROMs and the firmware always come from the first card: the second one
-  is never read for them, and is not downloaded or upgraded.
-- It follows the first card’s rules: **--sdcard2-readonly**,
-  **--sdcard2-writes** and **--sdcard2-writes-reset** work as their
-  first-card twins. A soft reset keeps the card as it is; a hard reset
-  power-cycles it.
-- **--sdcard-file-add** works on any FAT32 image, so
-  `jnext --sdcard card2.img --sdcard-file-add FILE` puts a file on a
-  second-card image.
-- A recording of the warm start is keyed on the second card as well (its
-  size and modification time, and the contents of its
-  **--sdcard2-writes** file), so changing it takes a new recording.
-  Rewind carries its state.
-- The card can also come from **Preferences \> Paths \> Second SD card
-  image** (`paths.sd_card2_path`, reachable with **--set**) when
-  **--sdcard2** is not given. A saved path that no longer exists is
-  logged and leaves the slot empty; only an explicit **--sdcard2**
-  refuses to start.
-- The slot is optional: with nothing in it the machine behaves exactly
-  as it did before the slot existed.
-- One image never goes in both slots: **--sdcard2**, a Preferences path,
-  **File \> Insert** and the delayed inserts all refuse the file the
-  other slot has mounted (two cards writing one FAT would corrupt it).
-- The slot can be changed while the machine runs (see **CHANGING THE
-  CARD WHILE RUNNING**).
-
 ### CHANGING THE CARD WHILE RUNNING
 
 **File \> Insert SD Card Image…** swaps the card in the running machine,
@@ -1741,27 +1662,16 @@ has no card-detect line, so the guest is not told: use NextZXOS’s
 **REMOUNT**, which asks you to *Remove/insert SD and press Y* - change
 the card, then press Y.
 
-**File \> Insert Second SD Card Image…** and **File \> Eject Second SD
-Card** do the same for the second slot, which NextZXOS sees as the next
-drive (see **A SECOND SD CARD**): its drive appears at the next hard
-reset or REMOUNT. A hard reset after an eject of the second card keeps
-the slot empty, and after an insert keeps the new card: unlike the first
-card, its path is not kept for the ROMs. The inserted card is
-write-protected exactly when **--sdcard2-readonly** was given. These two
-menu items have no keyboard mnemonic.
-
 - The ROMs are not re-read: they were loaded at power-on, as on
   hardware. A later hard reset, or loading a program, reads them from
   the inserted card. After an eject, those put the last inserted card
-  back (the first card only).
+  back.
 - Refused while an RZX recording is made or played, and while a directly
   loaded NEX keeps its own file open. The rewind history is discarded.
 - A `.jns` snapshot records the card it was taken on. Once a *different*
   card is in (another FAT32 volume, partition table or size; a copy of
   the same card is the same card) it refuses to load: insert the
-  original card again, or pass **--snapshot-mode** `force`. The second
-  SD card, when one was mounted, is recorded and checked the same way
-  (see **JNEXT SNAPSHOTS**).
+  original card again, or pass **--snapshot-mode** `force`.
 
 ### PUTTING A FILE ON THE CARD
 
@@ -2220,13 +2130,7 @@ The file does **not** contain the SD card - a card image is a gigabyte,
 and it holds NextZXOS. It records the card’s identity instead and checks
 it on load: a different card is refused unless **--snapshot-mode**
 `force`. The card’s contents are not checked: changing the card between
-saving and loading is at your own risk. A second SD card (see **A SECOND
-SD CARD**) that was mounted when the file was saved is recorded and
-checked the same way: a snapshot that had one is refused when none is
-mounted, and refused when a different one is unless **--snapshot-mode**
-`force` (which does not override the missing card); a snapshot saved
-without one, including every file written by an older **jnext**, is not
-refused for one mounted now (a warning). **--snapshot-mode** `strict`
+saving and loading is at your own risk. **--snapshot-mode** `strict`
 additionally turns the state-model and ROM-digest warnings into
 refusals, and **--snapshot-compression** `off` writes the members stored
 rather than deflated, so the file can be read with `unzip -p`.
@@ -2622,13 +2526,13 @@ MAPPING** below).
 **File**  
 Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
 opens POK Trainers instead, without a reset), Recent Files (the last ten
-loaded, newest first) and Reload Last File (Alt+L), Insert SD Card Image
-/ Eject SD Card and the same for the second SD card (see **CHANGING THE
-CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6),
-Play RZX / Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick
-Screenshot (Alt+K), Save Snapshot (Alt+Shift+S), Quick Save Snapshot
-(Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see **JNEXT
-SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
+loaded, newest first) and Reload Last File (Alt+L; also in the debugger
+window’s File menu), Insert SD Card Image / Eject SD Card (see
+**CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) /
+Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save Screenshot
+(Alt+S), Quick Screenshot (Alt+K), Save Snapshot (Alt+Shift+S), Quick
+Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see
+**JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
 
 **Save Screenshot…** asks for a name; the extension chooses the format
 (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
@@ -2857,7 +2761,8 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   bytes - or with the right-click menu’s **Copy with Addresses** to keep
   both
 - **Memory hex editor** - full 64K, hex and ASCII, inline editing,
-  page/bank selector
+  page/bank selector; find (hex with wildcards and a mask, or text), and
+  save, load or fill a block, from its right-click menu
 - **Stack** - SP-relative word view, SP row highlighted
 - **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution; a
   click on a row chooses the C frame the Variables tab shows
@@ -2924,22 +2829,25 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   setting survives program loads and resets; the recorded history does
   not
 
-| Key      | Action             |
-|----------|--------------------|
-| F2       | Enable Trace       |
-| F3       | Export Trace       |
-| F5       | Run / Continue     |
-| F6       | Single Step (into) |
-| F7       | Step Over          |
-| F8       | Step Out           |
-| F9       | Pause / Break      |
-| Ctrl+F6  | Source Step Into   |
-| Ctrl+F7  | Source Step Over   |
-| Ctrl+F8  | Source Step Out    |
-| Shift+F6 | Frame Back         |
-| Shift+F7 | Step Back          |
+| Key       | Action             |
+|-----------|--------------------|
+| F2        | Enable Trace       |
+| F3        | Export Trace       |
+| F5        | Run / Continue     |
+| F6        | Single Step (into) |
+| F7        | Step Over          |
+| F8        | Step Out           |
+| F9        | Pause / Break      |
+| Ctrl+F6   | Source Step Into   |
+| Ctrl+F7   | Source Step Over   |
+| Ctrl+F8   | Source Step Out    |
+| Shift+F6  | Frame Back         |
+| Shift+F7  | Step Back          |
+| F12       | Follow             |
+| Alt+Left  | Back               |
+| Alt+Right | Forward            |
 
-Those are defaults. All seventeen debugger commands - the twelve above
+Those are defaults. All twenty debugger commands - the fifteen above
 plus Run to Cursor, Run to End of Frame, Run to End of Scan Line, Source
 Step Back and Source Reverse Continue, which ship unbound - can be
 rebound under **Settings \> Preferences \> Debugger Keys** in the
@@ -3333,14 +3241,18 @@ when `scanlines` was also asked), with the plain picture otherwise.
 
 ### JavaScript options
 
-`card` *{source}*  
+`card` *{source, dirs}*  
 Not a jnext setting: how the page gets NextZXOS’s SD card. `source` is
 `'auto'` (the default: fetch the official file from specnext.com when it
 allows the page to read it, otherwise ask the visitor to download it and
 choose it), `'fetch'` (only fetch; a failure is an error) or `'pick'`
 (always ask the visitor). The SD card reaches the emulator as
 **--sdcard** and **--sdcard-sha256**, set by the page layer; the page
-never names the card.
+never names the card. `dirs` is an array of absolute paths in the
+distribution (`['/GAMES', '/APPS']`): the card then also holds each path
+with everything below it and the directories above it, case does not
+matter, and a malformed path, a path of the boot set, a duplicate or a
+nested one is refused. The default is none: the boot card only.
 
 `poster` *URL*  
 Not a jnext setting: a picture, a screenshot of the program, shown in
@@ -3469,13 +3381,11 @@ a message that says so: **--nextpi**, **--nextpi-dir**,
 **--gdb-port**, **--zrcp-port**, **--debug-listen-address**,
 **--script**, **--script-key**, **--record-script**, **--map**,
 **--annotations**, **--import-skoolkit**, **--import-ghidra**,
-**--sdcard2**, **--sdcard2-readonly**, **--sdcard2-writes**,
-**--sdcard2-writes-reset**, **--headless** (it would block the tab for
-ever) and **--rzx-record** (a page records from JavaScript, see The
-player). The settings of the refused flags are refused when given as set
-entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`,
-`nextpi.dir`, `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`,
-`nextpi.qemu_args`.
+**--headless** (it would block the tab for ever) and **--rzx-record** (a
+page records from JavaScript, see The player). The settings of the
+refused flags are refused when given as set entries too: `esp.enabled`,
+`esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`, `nextpi.release`,
+`nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`.
 
 ## EXAMPLES
 

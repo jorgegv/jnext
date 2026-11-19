@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QObject>
 #include <QAction>
+#include <QPointer>
 #include <QToolBar>
 #include <memory>
 
@@ -111,6 +112,10 @@ public:
     /// Applies immediately when a window already exists.
     void set_keymap(const jnext::dbgkeys::Keymap& km);
 
+    /// GH #374 - the emulator window's File > Reload Last File, which the debugger window's File menu
+    /// forwards to. Held here because the window is created lazily (as set_keymap()).
+    void set_reload_action(QAction* host);
+
     /// GH #387 - the annotations project file (.jdp): the one `--annotations` loaded at start-up (so
     /// Save writes back to it and nothing is unsaved), or the last one opened or saved. Empty = none yet.
     void set_annotations_file(const QString& path);
@@ -179,6 +184,10 @@ public slots:
     void on_open_annotations();
     void on_save_annotations();
     void on_save_annotations_as();
+    /// Breakpoints > Save as Script... / Load from Script...: this GUI's own breakpoints as a `.jds`
+    /// file of plain `stop` rules, and back (script/bp_script.h). Load adds to the current set.
+    void on_save_breakpoints_script();
+    void on_load_breakpoints_script();
     /// GH #389 stage C: Map > Import > skoolkit Control Files... / Ghidra Symbols... (several files, one
     /// store change) and Map > Export > the same two (a directory).
     void on_import_skoolkit();
@@ -232,6 +241,9 @@ private:
     void import_re_files(bool skoolkit);
     void export_re_files(bool skoolkit);
     bool save_annotations_to(const QString& path);
+    bool save_breakpoints_script_to(const QString& path);
+    bool load_breakpoints_script_from(const QString& path);
+    QString  bp_script_file_;   // the last path either Breakpoints script dialog used (not persisted)
     QString  annotations_file_;
     uint64_t saved_revision_ = 0;   // annotations_revision() at the last open / save / --annotations
     /// GH #428 — everything a paused panel can show that a tick can see
@@ -357,6 +369,7 @@ private:
     // The separate debugger window (created lazily on first enable)
     DebuggerWindow* debugger_window_ = nullptr;
     jnext::dbgkeys::Keymap keymap_;      // GH #1
+    QPointer<QAction> reload_action_;    // GH #374
     std::optional<bool> attach_override_;   // GH #417
     std::optional<bool> physical_override_; // GH #360
     QStringList configured_source_dirs_;    // GH #420

@@ -75,6 +75,7 @@
 #include "debug/debug_state.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "debugger/disasm_panel.h"
 #include "gui/host_chords.h"
 #include "gui/main_window.h"
 #include "gui/preferences_dialog.h"
@@ -1012,6 +1013,104 @@ void test_source_keys() {
 }
 
 
+// ── QNAVW: Follow, Back and Forward are bindable window commands (GH #366) ──
+//
+// Oracle: the owner-approved defaults F12 / Alt+Left / Alt+Right (free in the debugger window and in
+// DKH-01, legal for validate_combo) and the GH #1 keymap contract (apply_keymap() installs every
+// shortcut, from the user's keymap). The firing rows go through the real platform key path.
+
+QAction* action_named(QWidget* w, const char* text) {
+    for (QAction* a : all_actions(w))
+        if (a->text() == QLatin1String(text)) return a;
+    return nullptr;
+}
+
+void test_nav_keys() {
+    {
+        DebuggerFixture fx;
+        const char* desc = "Follow, Back and Forward carry F12, Alt+Left and Alt+Right and sit in the Go menu with Symbols";
+        if (!fx.ok) { check("QNAVW-01", desc, false, "fixture failed"); }
+        else {
+            QAction* f = action_named(fx.dbg, "Follow");
+            QAction* b = action_named(fx.dbg, "Back");
+            QAction* w = action_named(fx.dbg, "Forward");
+            // ... and they sit in the Go menu with Symbols
+            QMenu* go = nullptr;
+            for (QAction* top : fx.dbg->menuBar()->actions())
+                if (top->menu() && top->text().remove(QLatin1Char('&')) == QLatin1String("Go")) go = top->menu();
+            bool in_menu = false, symbols = false;
+            if (go)
+                for (QAction* a : go->actions()) {
+                    if (a == f || a == b || a == w) in_menu = true;
+                    if (a->text().remove(QLatin1Char('&')) == QLatin1String("Symbols")) symbols = true;
+                }
+            check("QNAVW-01", desc,
+                  go && in_menu && symbols && f && b && w && f->shortcut() == to_key_sequence(parsed("F12")) &&
+                      b->shortcut() == to_key_sequence(parsed("Alt+Left")) &&
+                      w->shortcut() == to_key_sequence(parsed("Alt+Right")),
+                  f && b && w ? (f->shortcut().toString() + " " + b->shortcut().toString() + " " + w->shortcut().toString()).toStdString()
+                              : std::string("an action is missing"));
+        }
+    }
+
+    {
+        DebuggerFixture fx;
+        const char* desc = "with the Disassembly focused and the caret on a CALL, a real F12 moves the caret to the "
+                           "target and Alt+Left returns";
+        if (!fx.ok) { check("QNAVW-02", desc, false, "fixture failed"); }
+        else {
+            fx.emu.mmu().write(0x8000, 0xCD); fx.emu.mmu().write(0x8001, 0x00); fx.emu.mmu().write(0x8002, 0x90);
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = 0x7000; r.SP = 0xFF00;
+            fx.emu.cpu().set_registers(r);
+            fx.emu.debug_state().pause();
+            fx.mgr->on_pause();
+            settle(100);
+            DisasmPanel* dis = fx.dbg->disasm_panel();
+            dis->show_address(0x8000);
+            dis->setFocus(Qt::OtherFocusReason);
+            settle(60);
+            press_shortcut(fx.dbg, parsed("F12"));
+            const uint16_t there = dis->selected_address();
+            press_shortcut(fx.dbg, parsed("Alt+Left"));
+            const uint16_t back = dis->selected_address();
+            check("QNAVW-02", desc, there == 0x9000 && back == 0x8000,
+                  "after F12 " + std::to_string(there) + ", after Alt+Left " + std::to_string(back));
+        }
+    }
+
+    {
+        DebuggerFixture fx;
+        const char* desc = "rebinding follow to Ctrl+F12 moves the action's shortcut: Ctrl+F12 fires it and F12 no longer does";
+        if (!fx.ok) { check("QNAVW-03", desc, false, "fixture failed"); }
+        else {
+            fx.emu.mmu().write(0x8000, 0xCD); fx.emu.mmu().write(0x8001, 0x00); fx.emu.mmu().write(0x8002, 0x90);
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = 0x7000; r.SP = 0xFF00;
+            fx.emu.cpu().set_registers(r);
+            fx.emu.debug_state().pause();
+            fx.mgr->on_pause();
+            settle(100);
+            Keymap km;
+            km.set(Action::Follow, parsed("Ctrl+F12"));
+            fx.dbg->set_keymap(km);
+            QApplication::processEvents();
+            DisasmPanel* dis = fx.dbg->disasm_panel();
+            dis->show_address(0x8000);
+            dis->setFocus(Qt::OtherFocusReason);
+            settle(60);
+            press_shortcut(fx.dbg, parsed("F12"));
+            const uint16_t old_key = dis->selected_address();
+            press_shortcut(fx.dbg, parsed("Ctrl+F12"));
+            const uint16_t new_key = dis->selected_address();
+            QAction* f = action_named(fx.dbg, "Follow");
+            check("QNAVW-03", desc,
+                  f && f->shortcut() == to_key_sequence(parsed("Ctrl+F12")) && old_key == 0x8000 && new_key == 0x9000,
+                  "F12 -> " + std::to_string(old_key) + ", Ctrl+F12 -> " + std::to_string(new_key));
+        }
+    }
+}
+
 // ── DBGF: the debugger window's menu bar must not take the keyboard ────────
 //
 // GH #268 was reported against the EMULATOR window, where a bare Alt tap hands
@@ -1281,6 +1380,7 @@ int main(int argc, char** argv) {
     test_main_window_pushes_keymap();
     test_keymap_survives_a_late_window();
     test_source_keys();
+    test_nav_keys();
     test_debugger_menu_focus();
     test_script_keys();
 

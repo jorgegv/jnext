@@ -21,7 +21,7 @@ namespace {
 
 void usage(std::FILE* to) {
     std::fprintf(to,
-        "Usage: make-minimal-card [--unpinned] [--expect-zip-sha256 HEX] <INPUT> <card.img>\n"
+        "Usage: make-minimal-card [--unpinned] [--expect-zip-sha256 HEX] [--dirs LIST] <INPUT> <card.img>\n"
         "  INPUT  the official distribution zip, the cspect-next-1gb.img inside it, or - for\n"
         "         the zip on standard input. The kind is detected from the bytes.\n"
         "  --unpinned            for synthetic test fixtures only: skip every pinned digest\n"
@@ -29,6 +29,10 @@ void usage(std::FILE* to) {
         "  --expect-zip-sha256   test tooling: replace the pinned zip SHA-256 (and drop its size\n"
         "                        check) with this one, for a zip made at run time from the image;\n"
         "                        the pinned card SHA-256 still applies\n"
+        "  --dirs LIST           more of the distribution on the card: comma-separated absolute\n"
+        "                        paths (/GAMES,/APPS), each copied with its subtree and its parent\n"
+        "                        directories; case does not matter. The card then has no pinned\n"
+        "                        SHA-256 (the zip and image pins still apply)\n"
         "The card is copyrighted NextZXOS content: never commit, attach, upload or host it.\n");
 }
 
@@ -36,7 +40,8 @@ void usage(std::FILE* to) {
 
 int main(int argc, char** argv) {
     bool unpinned = false;
-    std::string zip_override;
+    std::string zip_override, dirs_arg;
+    bool have_dirs = false;
     std::vector<std::string> pos;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -44,6 +49,10 @@ int main(int argc, char** argv) {
         else if (a == "--expect-zip-sha256") {
             if (i + 1 >= argc) { usage(stderr); return 2; }
             zip_override = argv[++i];
+        } else if (a == "--dirs") {
+            if (i + 1 >= argc) { usage(stderr); return 2; }
+            dirs_arg = argv[++i];
+            have_dirs = true;
         } else if (a == "--help" || a == "-h") { usage(stdout); return 0; }
         else if (a.size() > 1 && a[0] == '-') { usage(stderr); return 2; }
         else pos.push_back(a);
@@ -77,6 +86,21 @@ int main(int argc, char** argv) {
 
     minimal_card::Expect ex = unpinned ? minimal_card::Expect() : minimal_card::pinned(kind);
     if (!zip_override.empty()) { ex.zip_sha256 = zip_override; ex.zip_size = 0; }
+    if (have_dirs) {
+        // The widget's own syntax: split on ',', trim, drop empty items.
+        size_t at = 0;
+        while (at <= dirs_arg.size()) {
+            size_t e = dirs_arg.find(',', at);
+            if (e == std::string::npos) e = dirs_arg.size();
+            std::string item = dirs_arg.substr(at, e - at);
+            const size_t b = item.find_first_not_of(" \t");
+            item = b == std::string::npos ? std::string() : item.substr(b, item.find_last_not_of(" \t") - b + 1);
+            if (!item.empty()) ex.dirs.push_back(item);
+            at = e + 1;
+        }
+        // A card with extra paths has no pinned SHA-256: no per-list pin can exist.
+        if (!ex.dirs.empty()) ex.card_sha256.clear();
+    }
     const std::string out = fs::absolute(fs::path(dst), ec).lexically_normal().string();
     minimal_card::Builder b(kind, out, ex);
     while (n > 0) {

@@ -714,6 +714,210 @@ static Row text_agreement() {
     return row;
 }
 
+
+// ---- GH #366: Follow ------------------------------------------------------------------------
+// Oracle: UM0080 (the transfer instructions' targets), jnext's Z80Cpu for where a transfer really goes
+// (FOLW-08), disasm_one()'s text for what is a transfer at all (FOLW-09), pc_hint() for the memory operand.
+static Follow fol(const Z80Registers& r, uint16_t at, const Img& i) { return follow_target(r, at, reader(i), reader(i)); }
+static bool is_code(const Follow& f, uint16_t a) { return f.kind == Follow::Kind::Code && f.addr == a; }
+
+static Row folw_unconditional() {
+    Row row;
+    {   Img i; i.put(0x8000, {0xC3, 0x34, 0x12}); row.need(is_code(fol(regs(), 0x8000, i), 0x1234), "JP nn"); }
+    {   Img i; i.put(0x8000, {0xCD, 0x78, 0x56}); row.need(is_code(fol(regs(), 0x8000, i), 0x5678), "CALL nn"); }
+    for (uint8_t d : {uint8_t(5), uint8_t(0xFE)}) {
+        const uint16_t t = d == 5 ? 0x8007 : 0x8000;
+        Img i; i.put(0x8000, {0x18, d}); row.need(is_code(fol(regs(), 0x8000, i), t), "JR e d=" + hx(d));
+        Img j; j.put(0x8000, {0x10, d}); row.need(is_code(fol(regs(), 0x8000, j), t), "DJNZ d=" + hx(d));
+    }
+    for (int n = 0; n < 8; ++n) {
+        Img i; i.m[0x8000] = static_cast<uint8_t>(0xC7 | (n << 3));
+        row.need(is_code(fol(regs(), 0x8000, i), static_cast<uint16_t>(n * 8)), "RST " + hx(n * 8));
+    }
+    return row;
+}
+
+static Row folw_conditional() {
+    Row row;
+    for (int cc = 0; cc < 8; ++cc)
+        for (uint8_t f : {uint8_t(0x00), uint8_t(0xFF)}) {
+            Z80Registers r = regs(); r.AF = f;
+            Img a; a.put(0x8000, {static_cast<uint8_t>(0xC2 | (cc << 3)), 0x34, 0x12});
+            Img b; b.put(0x8000, {static_cast<uint8_t>(0xC4 | (cc << 3)), 0x34, 0x12});
+            row.need(is_code(fol(r, 0x8000, a), 0x1234), std::string("JP ") + kCC[cc].name + " F=" + hx(f));
+            row.need(is_code(fol(r, 0x8000, b), 0x1234), std::string("CALL ") + kCC[cc].name + " F=" + hx(f));
+            if (cc < 4) {
+                Img c; c.put(0x8000, {static_cast<uint8_t>(0x20 | (cc << 3)), 0x05});
+                row.need(is_code(fol(r, 0x8000, c), 0x8007), std::string("JR ") + kCC[cc].name + " F=" + hx(f));
+            }
+        }
+    return row;
+}
+
+static Row folw_register_jumps() {
+    Row row;
+    { Img i; i.m[0x8000] = 0xE9; row.need(is_code(fol(regs(), 0x8000, i), 0x3000), "JP (HL)"); }
+    { Img i; i.put(0x8000, {0xDD, 0xE9}); row.need(is_code(fol(regs(), 0x8000, i), 0x4000), "JP (IX)"); }
+    { Img i; i.put(0x8000, {0xFD, 0xE9}); row.need(is_code(fol(regs(), 0x8000, i), 0x5000), "JP (IY)"); }
+    { Img i; i.put(0x8000, {0xED, 0x98}); row.need(fol(regs(), 0x8000, i).kind == Follow::Kind::None, "JP (C) has no target"); }
+    return row;
+}
+
+static Row folw_returns() {
+    Row row;
+    std::vector<std::vector<uint8_t>> codes = {{0xC9}, {0xED, 0x4D}};
+    for (uint8_t e : {0x45, 0x55, 0x5D, 0x65, 0x6D, 0x75, 0x7D}) codes.push_back({0xED, e});
+    for (int cc = 0; cc < 8; ++cc) codes.push_back({static_cast<uint8_t>(0xC0 | (cc << 3))});
+    for (const auto& c : codes) {
+        Img i; for (size_t k = 0; k < c.size(); ++k) i.m[0x8000 + k] = c[k];
+        i.put(0xA000, {0x34, 0x12});
+        row.need(is_code(fol(regs(), 0x8000, i), 0x1234), "return " + hx(c.back()));
+        Img w; for (size_t k = 0; k < c.size(); ++k) w.m[0x8000 + k] = c[k];
+        w.m[0xFFFF] = 0x34; w.m[0x0000] = 0x12;
+        Z80Registers r = regs(); r.SP = 0xFFFF;
+        row.need(is_code(fol(r, 0x8000, w), 0x1234), "return wrap " + hx(c.back()));
+        // the return address is a DATA read: the code image holds nothing at SP
+        Img code_only; for (size_t k = 0; k < c.size(); ++k) code_only.m[0x8000 + k] = c[k];
+        Img data_only; data_only.put(0xA000, {0x34, 0x12});
+        row.need(is_code(follow_target(regs(), 0x8000, reader(code_only), reader(data_only)), 0x1234),
+                 "return " + hx(c.back()) + " reads its address through `data`");
+    }
+    return row;
+}
+
+static Row folw_at() {
+    Row row;
+    Img i; i.put(0x8000, {0xCD, 0x34, 0x12});
+    Z80Registers r = regs(); r.PC = 0;
+    int reads_at_pc = 0;
+    const DisasmReadFn code = [&](uint16_t a) -> uint8_t { if (a == 0) ++reads_at_pc; return i.m[a]; };
+    const Follow f = follow_target(r, 0x8000, code, reader(i));
+    row.need(is_code(f, 0x1234), "decoded at `at`, not at PC");
+    row.need(reads_at_pc == 0, "the code reader was never asked for r.PC");
+    return row;
+}
+
+static int g_f6_cases, g_f6_data;
+static Row folw_data_set() {
+    Row row;
+    auto one = [&](std::initializer_list<uint8_t> code, const std::string& what) {
+        Img i; uint16_t a = 0x8000; for (uint8_t b : code) i.m[a++] = b;
+        Z80Registers r = regs();
+        const Hint h = pc_hint(r, reader(i), reader(i));
+        const Follow f = fol(r, 0x8000, i);
+        ++g_f6_cases;
+        const bool mem = h.kind == Hint::Kind::Memory;
+        if (mem) ++g_f6_data;
+        row.need((f.kind == Follow::Kind::Data) == mem, what + " data iff memory hint");
+        if (mem) row.need(f.addr == h.addr, what + " address");
+    };
+    for (int op = 0; op < 256; ++op) one({static_cast<uint8_t>(op), 0x05, 0x70, 0x00}, "plain " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xCB, static_cast<uint8_t>(op)}, "CB " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xED, static_cast<uint8_t>(op), 0x05, 0x70}, "ED " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xDD, static_cast<uint8_t>(op), 0x05, 0x70, 0x00}, "DD " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xFD, static_cast<uint8_t>(op), 0xFB, 0x70, 0x00}, "FD " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xDD, 0xCB, 0x05, static_cast<uint8_t>(op)}, "DDCB " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xFD, 0xCB, 0xFB, static_cast<uint8_t>(op)}, "FDCB " + hx(op));
+    return row;
+}
+
+// disasm_one()'s text: is this a transfer Follow takes to a code address?
+static bool transfer_text(const std::string& m) {
+    return (m.rfind("JP ", 0) == 0 && m != "JP (C)") || m.rfind("JR ", 0) == 0 || m.rfind("CALL ", 0) == 0 ||
+           m.rfind("DJNZ", 0) == 0 || m.rfind("RST ", 0) == 0 || m.rfind("RET", 0) == 0;
+}
+
+static int g_f7_none, g_f9_cases, g_f9_code;
+static Row folw_none_and_text(bool text_row) {
+    Row row;
+    auto one = [&](std::initializer_list<uint8_t> code, const std::string& what) {
+        Img i; uint16_t a = 0x8000; for (uint8_t b : code) i.m[a++] = b;
+        Z80Registers r = regs();
+        const DisasmReadFn rdf = reader(i);
+        const std::string m = disasm_one(0x8000, rdf).mnemonic;
+        int data_reads = 0;
+        const Follow f = follow_target(r, 0x8000, rdf, reader(i, &data_reads));
+        const bool mem = pc_hint(r, rdf, rdf).kind == Hint::Kind::Memory;
+        const bool code_text = transfer_text(m);
+        if (text_row) {
+            ++g_f9_cases;
+            if (f.kind == Follow::Kind::Code) ++g_f9_code;
+            row.need((f.kind == Follow::Kind::Code) == code_text, what + " '" + m + "' code iff transfer text");
+        } else {
+            if (!code_text && !mem) {
+                ++g_f7_none;
+                row.need(f.kind == Follow::Kind::None && data_reads == 0, what + " '" + m + "' none, no data read");
+            } else if (code_text && m.rfind("RET", 0) != 0) {
+                row.need(data_reads == 0, what + " '" + m + "' no data read");
+            }
+        }
+    };
+    for (int op = 0; op < 256; ++op) one({static_cast<uint8_t>(op), 0x05, 0x70, 0x00}, "plain " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xCB, static_cast<uint8_t>(op)}, "CB " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xED, static_cast<uint8_t>(op), 0x05, 0x70}, "ED " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xDD, static_cast<uint8_t>(op), 0x05, 0x70, 0x00}, "DD " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xFD, static_cast<uint8_t>(op), 0xFB, 0x70, 0x00}, "FD " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xDD, 0xCB, 0x05, static_cast<uint8_t>(op)}, "DDCB " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xFD, 0xCB, 0xFB, static_cast<uint8_t>(op)}, "FDCB " + hx(op));
+    return row;
+}
+
+static int g_f8_runs;
+static Row folw_sweep() {
+    Row row;
+    RecMem mem; NullIo io; Z80Cpu cpu(mem, io);
+    // every transfer opcode: unprefixed, behind DD and behind FD (ED forms unprefixed only)
+    std::vector<std::vector<uint8_t>> ops;
+    for (uint8_t o : {0xC3, 0xCD, 0x18, 0x10, 0xC9, 0xE9}) ops.push_back({o, 0x20, 0x90});
+    for (int n = 0; n < 8; ++n) ops.push_back({static_cast<uint8_t>(0xC7 | (n << 3)), 0, 0});
+    for (int cc = 0; cc < 8; ++cc) {
+        ops.push_back({static_cast<uint8_t>(0xC2 | (cc << 3)), 0x20, 0x90});
+        ops.push_back({static_cast<uint8_t>(0xC4 | (cc << 3)), 0x20, 0x90});
+        ops.push_back({static_cast<uint8_t>(0xC0 | (cc << 3)), 0, 0});
+        if (cc < 4) ops.push_back({static_cast<uint8_t>(0x20 | (cc << 3)), 0x20, 0});
+    }
+    std::vector<std::vector<uint8_t>> ed_ops;
+    for (uint8_t e : {0x4D, 0x45, 0x55, 0x5D, 0x65, 0x6D, 0x75, 0x7D}) ed_ops.push_back({0xED, e, 0, 0});
+    auto run = [&](const std::vector<uint8_t>& bytes, uint8_t f, const std::string& what) {
+        std::memset(mem.ram, 0, sizeof mem.ram);
+        for (size_t k = 0; k < bytes.size(); ++k) mem.ram[0x8000 + k] = bytes[k];
+        mem.ram[0xA000] = 0x00; mem.ram[0xA001] = 0x90;
+        Z80Registers r{};
+        r.PC = 0x8000; r.SP = 0xA000; r.AF = f; r.BC = 0x0200; r.HL = 0x3000; r.IX = 0x4000; r.IY = 0x5000;
+        *fuse_z80_tstates_ptr() = 0;
+        cpu.set_registers(r);
+        RecMem& m = mem;
+        const DisasmReadFn rdf = [&m](uint16_t x) -> uint8_t { return m.ram[x]; };
+        const Follow fl = follow_target(r, 0x8000, rdf, rdf);
+        cpu.execute();
+        ++g_f8_runs;
+        row.need(fl.kind == Follow::Kind::Code && cpu.pc() == fl.addr, what + " F=" + hx(f) + " -> " + hx(fl.addr) +
+                 " but the CPU went to " + hx(cpu.pc()));
+    };
+    for (int pv = 0; pv < 3; ++pv)
+        for (const auto& o : ops) {
+            std::vector<uint8_t> b;
+            if (pv) b.push_back(pv == 1 ? 0xDD : 0xFD);
+            b.insert(b.end(), o.begin(), o.end());
+            const uint8_t op = o[0];
+            // a flag byte that takes the condition (0xFF takes M, C, PE, Z; 0x00 takes NZ, NC, PO, P)
+            const bool cond = op != 0xC3 && op != 0xCD && op != 0x18 && op != 0xC9 && op != 0xE9 && op != 0x10 &&
+                              (op & 0xC7) != 0xC7;
+            if (!cond) { run(b, 0x00, "op " + hx(op) + " pv " + std::to_string(pv)); continue; }
+            for (uint8_t f : {uint8_t(0x00), uint8_t(0xFF)}) {
+                // run only when the condition holds: the CPU then lands on the target
+                const int cc = (op >> 3) & 7;
+                const int base = (op & 0xE7) == 0x20 ? ((op >> 3) & 3) : cc;
+                const uint8_t mask[8] = {0x40, 0x40, 0x01, 0x01, 0x04, 0x04, 0x80, 0x80};
+                const bool when_set = (op & 0xE7) == 0x20 ? (base & 1) : (base & 1);
+                const bool holds = ((f & mask[(op & 0xE7) == 0x20 ? base : cc]) != 0) == when_set;
+                if (holds) run(b, f, "op " + hx(op) + " pv " + std::to_string(pv));
+            }
+        }
+    for (const auto& b : ed_ops) run(b, 0x00, "ED " + hx(b[1]));
+    return row;
+}
+
 int main(int argc, char** argv) {
     std::printf("\n======================================================\n");
     std::printf("Disassembly PC-line hint tests (GH #367)\n");
@@ -779,6 +983,29 @@ int main(int argc, char** argv) {
     Row r30 = text_agreement();
     r30.need(g_t30_cases == 1792, "opcode cases " + std::to_string(g_t30_cases));
     check("DHINT-30", "text agreement with disasm_one() over the plain, CB, ED, DD, FD, DDCB and FDCB tables (1792 opcodes)", r30);
+
+    check("FOLW-01", "Follow: JP nn, CALL nn, JR e and DJNZ (d = +5, -2) at+2+d, RST 00..38", folw_unconditional());
+    check("FOLW-02", "Follow: JP cc / CALL cc / JR cc go to the operand with the flags clear and set", folw_conditional());
+    check("FOLW-03", "Follow: JP (HL) / (IX) / (IY) are the register; JP (C) has no target", folw_register_jumps());
+    check("FOLW-04", "Follow: RET, RET cc, RETI, RETN and the aliases are the word at SP, wrapping at 64K", folw_returns());
+    check("FOLW-05", "Follow decodes at `at`, never reading the code at r.PC", folw_at());
+    // Counts derived by hand from UM0080: Code opcodes 42 transfers (JP nn, CALL nn, JR, DJNZ, 8 RST, RET, JP (HL), 8 JP cc,
+    // 8 CALL cc, 4 JR cc, 8 RET cc) plain, behind DD and behind FD = 126, + 8 ED RETI/RETN forms = 134 (FOLW-09).
+    // Data: 34 plain + 32 CB + 8 ED + 35 per prefix (70) + 256 per DDCB/FDCB (512) = 656 (FOLW-06). None: 1792 - 134 - 656 = 1002
+    // (FOLW-07). FOLW-08 runs each Code opcode once with the condition holding: 14 unconditional + 28 conditional per
+    // variant x 3 + 8 ED = 134.
+    Row f6 = folw_data_set();
+    f6.need(g_f6_cases == 1792 && g_f6_data == 656, "cases " + std::to_string(g_f6_cases) + " data " + std::to_string(g_f6_data));
+    check("FOLW-06", "Follow: Data iff pc_hint is Memory, with its address, over the 1792 table opcodes", f6);
+    Row f7 = folw_none_and_text(false);
+    f7.need(g_f7_none == 1002, "none opcodes " + std::to_string(g_f7_none));
+    check("FOLW-07", "Follow: None, with no data read, for every opcode that is neither a transfer nor a memory operand", f7);
+    Row f8 = folw_sweep();
+    f8.need(g_f8_runs == 134, "runs " + std::to_string(g_f8_runs));
+    check("FOLW-08", "Follow: Z80Cpu executes every transfer (also behind DD/FD) and lands on the followed address", f8);
+    Row f9 = folw_none_and_text(true);
+    f9.need(g_f9_cases == 1792 && g_f9_code == 134, "cases " + std::to_string(g_f9_cases) + " code " + std::to_string(g_f9_code));
+    check("FOLW-09", "Follow: Code iff disasm_one()'s text is a JP/JR/CALL/DJNZ/RST/RET (not JP (C)), over 1792 opcodes", f9);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
