@@ -3283,7 +3283,7 @@ parse error or a refusal (RZX recording or playback) is the panel's <code>messag
 beside <code>pc_hint()</code> and sharing its DD/FD prefix walk) says what Follow does on the instruction at <code>at</code>: a code address
 (JP, CALL, JR, DJNZ and RST targets, a conditional's whether or not it holds; <code>JP (HL)/(IX)/(IY)</code>; RET, RETI and RETN
 through <code>data</code>), a data address (the one memory operand <code>pc_hint()</code> reports) or nothing (<code>JP (C)</code> needs a port read, which no
-debugger read does). The PC line reads its operand through <code>operand_reader()</code>, any other line through a <code>peek(Cpu)</code> reader.
+debugger read does). The PC line reads its operand through <code>operand_reader()</code>, any other line through a <code>peek(Cpu)</code> reader (one helper, <code>follow_reader.h</code>, for the Disassembly and the Source tab).
 History is <code>jnext::NavHistory&lt;Loc&gt;</code> (<code>src/debugger/nav_history.h</code>, pure; depth 100): the Disassembly's <code>Loc</code> is its top
 line and caret, so Back is exact; the Source tab's is the address of the cursor line's first instruction mapped now. What
 records is one rule: a jump the user (or another panel on their behalf) made through <code>show_address()</code>, the Address box or
@@ -3294,8 +3294,8 @@ bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</c
 <code>NAVH-01</code>..<code>07</code>, <code>QNAV-*</code>, <code>QSRCN-*</code>, <code>QNAVW-*</code>.</p>
 <p><strong>The Symbols tab</strong> (<code>symbols_panel.cpp</code>) lists <code>symbols().symbols()</code> and rebuilds its rows only when <code>state_revision()</code>
 moved; the greying of a paged label whose page is not what <code>source_page()</code> reports at its address is redone on every
-refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label: the Disassembly shows the
-CPU's map. Rows: <code>QSYML-*</code>.</p>
+refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
+Source tab show the CPU's map. Rows: <code>QSYML-*</code>.</p>
 <p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:989</code>)
 redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:375</code>: ~4 Hz). Paused, it
 redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:978</code>; <code>PausedStamp</code>,
@@ -3319,7 +3319,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse <em>movement</em> is not counted: hover
   and Kempston mouse capture must not redraw a paused window;</li>
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
-  loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:574</code>), so an edit on disk still shows.</li>
+  loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:575</code>), so an edit on disk still shows.</li>
 </ul>
 <p><code>refresh_window()</code> (<code>debugger_manager.cpp:969</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the

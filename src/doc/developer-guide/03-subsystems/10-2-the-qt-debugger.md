@@ -131,7 +131,7 @@ parse error or a refusal (RZX recording or playback) is the panel's `message()` 
 beside `pc_hint()` and sharing its DD/FD prefix walk) says what Follow does on the instruction at `at`: a code address
 (JP, CALL, JR, DJNZ and RST targets, a conditional's whether or not it holds; `JP (HL)/(IX)/(IY)`; RET, RETI and RETN
 through `data`), a data address (the one memory operand `pc_hint()` reports) or nothing (`JP (C)` needs a port read, which no
-debugger read does). The PC line reads its operand through `operand_reader()`, any other line through a `peek(Cpu)` reader.
+debugger read does). The PC line reads its operand through `operand_reader()`, any other line through a `peek(Cpu)` reader (one helper, `follow_reader.h`, for the Disassembly and the Source tab).
 History is `jnext::NavHistory<Loc>` (`src/debugger/nav_history.h`, pure; depth 100): the Disassembly's `Loc` is its top
 line and caret, so Back is exact; the Source tab's is the address of the cursor line's first instruction mapped now. What
 records is one rule: a jump the user (or another panel on their behalf) made through `show_address()`, the Address box or
@@ -143,8 +143,8 @@ bindable actions (`follow`, `go_back`, `go_forward`; F12, Alt+Left, Alt+Right) i
 
 **The Symbols tab** (`symbols_panel.cpp`) lists `symbols().symbols()` and rebuilds its rows only when `state_revision()`
 moved; the greying of a paged label whose page is not what `source_page()` reports at its address is redone on every
-refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label: the Disassembly shows the
-CPU's map. Rows: `QSYML-*`.
+refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
+Source tab show the CPU's map. Rows: `QSYML-*`.
 
 **Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:989`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:375`: ~4 Hz). Paused, it
@@ -169,7 +169,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
   and Kempston mouse capture must not redraw a paused window;
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
-  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:574`), so an edit on disk still shows.
+  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:575`), so an edit on disk still shows.
 
 `refresh_window()` (`debugger_manager.cpp:969`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
