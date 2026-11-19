@@ -2396,6 +2396,14 @@ int main(int argc, char* argv[]) {
 #endif
         return machine_type;
     }();
+    // --no-sdcard runs the Next's synthetic machine: the saved Preferences machine joins the CLI
+    // one in the merge above, so the check made with the CLI value alone (above) cannot see it.
+    if (no_sdcard && configured_machine != MachineType::ZXN_ISSUE2) {
+        fprintf(stderr, "--no-sdcard needs the Next: the other machines run from ROMs on the SD card "
+                        "(the saved machine is %s: give --machine next).\n",
+                machine_type_str(configured_machine));
+        return 1;
+    }
     const MachineType startup_machine = emulator_startup_machine(
         load_file.empty() ? rzx_play_file : load_file, configured_machine, machine_type_set);
 #ifndef __EMSCRIPTEN__

@@ -213,9 +213,11 @@ naming the option and the value, and exits with status 1.
     the status bar shows **SD: none**. A hard reset runs the boot ROM, which
     stops at its no-card screen as on hardware; the program is not loaded
     again. Requires **\--load** of a **.nex** (directly or in a **.zip**) on
-    the Next, and excludes every **\--sdcard** option,
-    **\--warm-start-regenerate**, **\--delayed-sdcard-insert-frames** and
-    **\--delayed-nmi**. In a browser page it is `card: { source: 'none' }`.
+    the Next (a machine saved in Preferences other than the Next is refused
+    too: give **\--machine next**), and excludes every **\--sdcard** and
+    **\--sdcard2** option, **\--warm-start-regenerate**,
+    **\--delayed-sdcard-insert-frames**, **\--delayed-sdcard2-insert-frames**
+    and **\--delayed-nmi**. In a browser page it is `card: { source: 'none' }`.
 
 **\--sdcard2** *FILE*
 :   Mount SD-card image *FILE* (`.img`) in the **second SD card slot**, which

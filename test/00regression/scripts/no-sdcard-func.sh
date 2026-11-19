@@ -18,6 +18,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   C  each refusal exits 1 with its message: a card option (either slot), a delayed card
 #      insert (either slot), a delayed NMI, a machine other than the Next, a non-.nex load
 #      and no --load at all
+#   D  the window with a saved 48K in Preferences and no --machine: refused (exit 1)
 if want no-sdcard-func; then
     begin_func no-sdcard-func
 
@@ -72,12 +73,22 @@ if want no-sdcard-func; then
 --no-sdcard needs --load of a .nex (directly, or in a .zip): with no SD card there are no ROMs to run anything else.|
 EOF
 
+    # D: the window boots the machine saved in Preferences when --machine is not given, so a
+    # saved 48K must be refused too (the CLI-only check let it boot a ROM-less 48K).
+    mkdir -p "$TMP_DIR/cfg48"
+    printf '[startup]\nmachine_type=48k\n' > "$TMP_DIR/cfg48/jnext.conf"
+    d_rc=0
+    ns_d=$(env JNEXT_CONFIG_DIR="$TMP_DIR/cfg48" QT_QPA_PLATFORM=offscreen \
+        timeout --foreground --kill-after=5s 60s "$JNEXT" --no-sdcard --load "$ns_dir/hostfs.nex" \
+        --delayed-automatic-exit-frames 120 2>&1) || d_rc=$?
+    d_msg=$(has "--no-sdcard needs the Next: the other machines run from ROMs on the SD card (the saved machine is 48K: give --machine next)." "$ns_d")
+
     if [[ "$a_rc" -eq 1 && "$a_slice" -ge 1 && "$a_ok" -ge 1 && "$a_err" -eq 0 && "$a_skip" -eq 1 \
           && "$a_card" -eq 0 && "$a_rom" -eq 0 && "$a_noimg" -eq 0 \
-          && "$b_armed" -ge 1 && "$b_rom" -eq 1 && "$b_any" -eq 1 && -z "$c_bad" ]]; then
-        pass_row " (NEX dir served with no card, warm start skipped, IM 1 ROM fetch reported once, 9 refusals)"
+          && "$b_armed" -ge 1 && "$b_rom" -eq 1 && "$b_any" -eq 1 && -z "$c_bad" && "$d_rc" -eq 1 && "$d_msg" -eq 1 ]]; then
+        pass_row " (NEX dir served with no card, warm start skipped, IM 1 ROM fetch reported once, 9 refusals, a saved 48K refused)"
     else
-        fail_row " (A clean-exit=$a_rc want1 slice=$a_slice ok=$a_ok err=$a_err skip-log=$a_skip want1 card=$a_card want0 rom=$a_rom want0 no-image-error=$a_noimg want0; B armed=$b_armed rom-im1=$b_rom want1 any-rom=$b_any want1; C refused wrongly:${c_bad:- none})"
+        fail_row " (A clean-exit=$a_rc want1 slice=$a_slice ok=$a_ok err=$a_err skip-log=$a_skip want1 card=$a_card want0 rom=$a_rom want0 no-image-error=$a_noimg want0; B armed=$b_armed rom-im1=$b_rom want1 any-rom=$b_any want1; C refused wrongly:${c_bad:- none}; D saved-48K exit=$d_rc want1 message=$d_msg want1)"
     fi
 fi
 
