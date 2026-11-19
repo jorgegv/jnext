@@ -18,11 +18,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # firmware's soft reset ("[preserve_memory=1 soft-reset]" in the log) every real
 # frame is non-black (uniform grey 0.71, then the welcome screen).
 #
-#   G  Qt, --fast-boot 60 --set startup.fast_boot_hide_screen=true: every capture taken while
-#      the window is open is black, there is at least one, the extra log line is there, and
-#      the window grabbed 0.7 s after "fast boot: ended" is not black.
-#   H  Qt control, the same without the hide: at least one capture taken while the window is
-#      open is NOT black, and no extra log line. It proves the capture can see a real screen,
+#   G  Qt, --fast-boot 60 --set startup.fast_boot_hide_screen=true: the window grabbed frozen at
+#      the soft reset, inside the window, is black; the extra log line is there; and the window
+#      grabbed 0.7 s after "fast boot: ended" is not black.
+#   H  Qt control, the same without the hide: the frozen grab is NOT black, and no extra log line. It proves the capture can see a real screen,
 #      so G's black is not vacuous.
 #   I  the SDL-only build, as G.
 #   I2 the SDL-only build, as H.
@@ -30,11 +29,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      fast_boot_hide_screen=true, no command-line setting): the extra log line, the window
 #      ends by time up, and half a second after the soft reset (at normal speed) it is not black.
 #
-# Fast boot runs the 3000 frames of --fast-boot 60 in a few seconds on a quiet host, faster
-# than a host key can be sent and a screen read, so G, H, I and I2 grab the window in a loop
-# for as long as the log does not say "fast boot: ended", and a grab only counts if the log
-# still did not say it AFTER the grab. The host key that ends the window is covered by
-# fast-boot-func and the unit rows (FBT-32), not here.
+# Fast boot runs the 3000 frames of --fast-boot 60 in a few seconds on a quiet host, faster than
+# a host key can be sent and a screen read. So G, H, I and I2 SIGSTOP the emulator at the firmware's
+# soft reset (a frame the real screen is not black on), grab the frozen window, and let it go on; a
+# grab only counts if the log still lacks "fast boot: ended" after the stop. The host key that ends
+# the window is covered by fast-boot-func and the unit rows (FBT-32), not here.
 #
 # No `trap`, every timeout escalates to SIGKILL, xvfb-run -d with -noreset, and
 # no pipeline ends in a quiet grep: grep is asked alone, on the log file.
@@ -71,14 +70,17 @@ if want fast-boot-hide-func; then
                 sleep 0.05
             done
             if [ "$mode" = window ]; then
-                n=0
-                while [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null && [ $n -lt 200 ]; do
-                    n=$((n + 1))
-                    import -window "$wid" "png:$pre-mid-$n.png" 2>/dev/null || true
-                    # A grab that finished after the window closed shows nothing about it.
-                    if grep -qF "fast boot: ended" "$log" 2>/dev/null; then rm -f "$pre-mid-$n.png"; fi
-                    sleep 0.2
+                # Freeze the emulator at the firmware soft reset, still inside the window, and grab
+                # the frozen window: a stopped process cannot finish fast boot under the grab.
+                for _ in $(seq 1 6000); do
+                    grep -qF "soft-reset" "$log" 2>/dev/null && break
+                    sleep 0.02
                 done
+                kill -STOP "$pid" 2>/dev/null
+                if [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null; then
+                    import -window "$wid" "png:$pre-mid-1.png" 2>/dev/null || true
+                fi
+                kill -CONT "$pid" 2>/dev/null
                 for _ in $(seq 1 600); do
                     grep -qF "fast boot: ended" "$log" 2>/dev/null && break
                     sleep 0.2
