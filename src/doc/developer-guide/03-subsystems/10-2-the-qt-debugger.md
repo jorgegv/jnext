@@ -91,7 +91,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | — |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
 | Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
-| Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
+| Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store; the whole view for Find, the block for Save | `poke`, one per chunk (`memtools::split_block`) |
 | Stack | the words at and above SP, through `peek` | — |
 | Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's `EX (SP),HL` / `POP r; JP (r)` helpers and `l_case`; a `__z88dk_callee` body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP | — |
 | Watches | byte, word or long at user addresses, through `peek`; a C variable row (`read_c_value()`, `c_frames()`, `c_variables_status()`), read only while paused | — |
@@ -384,6 +384,30 @@ soon as MREQ goes high), and equal `peek(Cpu)` everywhere else. The panel
 computes the hint in `disassemble_from()` and paints it only while paused, at
 the comment's column; the user comment moves right of it.
 
+## The Memory panel's tools
+
+Find, Save Block, Load Block and Fill Block live in the Memory panel's context menu
+(`MemoryPanel::fill_context_menu()`, reached by `contextMenuEvent()`: right-click, the Menu key,
+Shift+F10). The Qt-free half is `src/debug/mem_tools.*` (`jnext::dbg::memtools`): the pattern grammar
+and matcher (hex pairs with `?` nibble wildcards and an optional mask, or ASCII text reduced to the same
+bytes-and-mask form), the fill value, the hex length, and `split_block()`, which turns a block in a
+space into the chunks the backend's verbs can take. It does no file I/O, so its suite runs in every
+configuration; the panel does the `QFile` work.
+
+A block is in the selected view's space (`locate()`): `Cpu` in the CPU view, the slot's `SlotInfo::space`
+or the picked `Page{n}` in the others. A `Cpu` block is one chunk and never wraps; a `Page` block is one
+chunk per 8K page, running on through the following pages to page `DF`; a ROM space is one chunk inside its
+16K image. The panel checks the start against the 8K view before `locate()`, which masks the offset to 13
+bits. Every write is then ONE `Debugger::poke()` per chunk, never a byte loop: a block lands as one MUTATE
+line, one RZX check and one rewind mark per chunk, and a `Cpu` poke reports how many bytes landed (a
+partial ROM drop is `RefusedReadOnly` with the count), which the message reports as `L of M`.
+
+The tools answer through `MemoryPanel::message()`, which the window connects to `show_rewind_refusal()`
+(the status bar, held), and a find hit with a CPU address through `show_in_disassembly_requested()` to
+the Disassembly. The dialogs are stack `QDialog`s parented to the panel and gone when they return:
+nothing may stay a child of the panel, because callers and rows find the Addr box and the view selector
+with `findChild<>()`.
+
 ## Tests
 
 The Qt suites are gated on a Qt + debugger build and run in `make unit-test`:
@@ -392,4 +416,4 @@ controls), `debugger_panels_test` (each panel's displayed text), `debugger_video
 `debugger_inspect_watchpoint_test`, `debugger_persistent_bp_test`,
 `debugger_keymap_test`, `debugger_menu_test`, `debugger_disasm_copy_test`,
 `debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`, editing `QVARW-*`), and the window-geometry suites. The regression rows
-`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`.
+`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`. The Memory panel tools' helper suite, `mem_tools_test` (`MEMT-*`), is not Qt-gated either; the panel's rows are `QMPT-*` in `debugger_panels_test` and the window's `QMPW-*` in `debugger_verbs_test`.

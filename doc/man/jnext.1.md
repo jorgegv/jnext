@@ -2547,7 +2547,8 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   as assembly only - no address column, no opcode bytes - or with the
   right-click menu's **Copy with Addresses** to keep both
 - **Memory hex editor** - full 64K, hex and ASCII, inline editing, page/bank
-  selector
+  selector; find (hex with wildcards and a mask, or text), and save, load or
+  fill a block, from its right-click menu
 - **Stack** - SP-relative word view, SP row highlighted
 - **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution; a click on
   a row chooses the C frame the Variables tab shows

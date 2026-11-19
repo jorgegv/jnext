@@ -32,8 +32,8 @@ emulator window redrawn to match. The status bar reports the buffer's size in
 frames and megabytes, and when you are rewound it shows which frame you are on,
 numbered as the slider numbers it. Running forward again from a rewound frame
 discards the frames after it: the slider then ends at the frame you are on.
-So does changing the machine from the debugger while rewound — a memory,
-register or NextREG edit, a script's `set`, a state load: the frames after it
+So does changing the machine from the debugger while rewound — a memory edit
+(typed, or a Memory panel Load or Fill Block), a register or NextREG edit, a script's `set`, a state load: the frames after it
 were recorded without that change, so they are dropped, and the slider can no
 longer go forward into them. Press **F5** to carry on from there.
 

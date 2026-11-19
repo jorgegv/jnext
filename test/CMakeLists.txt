@@ -82,6 +82,12 @@ target_link_libraries(disasm_hint_test PRIVATE jnext_debug jnext_cpu)
 target_include_directories(disasm_hint_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME disasm_hint_tests COMMAND disasm_hint_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
 
+# GH #370 - the Memory panel's find / fill / block-split helper (Qt-free, no file I/O).
+add_executable(mem_tools_test debug/mem_tools_test.cpp)
+target_link_libraries(mem_tools_test PRIVATE jnext_debug)
+target_include_directories(mem_tools_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME mem_tools_tests COMMAND mem_tools_test)
+
 # Z80Cpu /INT pulse-window machine-timing test (Task 2 CPU fix).
 # VHDL zxnext.vhd:2033 — pulse width 32 (48K/+3) vs 36 (128K/Pent/Next).
 # Standalone, no GoogleTest; jnext_cpu only (matches fuse_z80_test linkage).
