@@ -6,6 +6,7 @@
 - Fast boot: a plain Next start runs its first 15 seconds at full speed with the sound off; any key ends it (`--fast-boot`, Preferences)
 - Browser: the SD card is kept compressed, about 1.1 MB of the visitor's storage instead of 40 MiB
 - `--sdcard-file-add` works with `--sdcard-writes`: files go into the writes file and the card image stays untouched
+- Browser: a page can put more of the NextZXOS distribution on the SD card (`data-card-dirs`, e.g. /GAMES,/APPS)
 
 ### Developer Features
 - Disassembly: the PC line shows whether a conditional jump, call or return is taken, and the value at its memory operand
