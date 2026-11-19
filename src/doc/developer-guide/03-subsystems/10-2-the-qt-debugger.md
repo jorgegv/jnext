@@ -90,7 +90,7 @@ restart of the CPU panel's T-state count and draws that one label.
 |---|---|---|
 | CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | `set_register()`, one register per call: an overlay `QLineEdit` over the value labels, a click on a flag (`reg_edit.h`); a click or the menu on an address-like value asks the window to show it (Disassembly, Memory, Source) |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
-| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), Follow (`disasm_hint::follow_target()`) and Back/Forward (`NavHistory`, `nav_history.h`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
+| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), where the PC goes (`disasm_hint::pc_transfer()`, the destination marker), Follow (`disasm_hint::follow_target()`) and Back/Forward (`NavHistory`, `nav_history.h`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store; the whole view for Find, the block for Save | `poke`, one per chunk (`memtools::split_block`) |
 | Stack | the words at and above SP, through `peek` | — |
 | Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's `EX (SP),HL` / `POP r; JP (r)` helpers and `l_case`; a `__z88dk_callee` body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP | — |
@@ -416,6 +416,19 @@ Multiface entry point, where the M1 has already switched the overlay
 soon as MREQ goes high), and equal `peek(Cpu)` everywhere else. The panel
 computes the hint in `disassemble_from()` and paints it only while paused, at
 the comment's column; the user comment moves right of it.
+
+Where a taken jump, call or return goes is `disasm_hint::pc_transfer()`, in the same
+files: it is built from `pc_hint()` (a conditional is taken or not) and `follow_target()`
+(every unconditional target), so no decoder is added. `Transfer::dir` is the unsigned
+address compare, because the panel is a linear $0000-$FFFF listing (a `JR` that wraps
+from $FFF0 to $0012 points up). `hidden` is set for `RET`, `RETI`, `RETN` and `JP (rr)`,
+whose target the line does not write; `RET cc` is not hidden, its hint names the target.
+`disassemble_from()` calls it through `follow_data_reader()` at the PC and marks the
+entry whose start address is the target (an exact start, not "covers"), whether or not
+the PC line is in view. The arrow and the `[<- PC]` marker are positioned in
+`paintEvent()` but drawn after the comment, so the items before them keep their order;
+`line_transfer()` and `line_destination()` are the accessors, and `line_hint()` is
+unchanged.
 
 ## The Memory panel's tools
 
