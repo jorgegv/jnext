@@ -1759,7 +1759,9 @@ menu items have no keyboard mnemonic.
 - A `.jns` snapshot records the card it was taken on. Once a *different*
   card is in (another FAT32 volume, partition table or size; a copy of
   the same card is the same card) it refuses to load: insert the
-  original card again, or pass **--snapshot-mode** `force`.
+  original card again, or pass **--snapshot-mode** `force`. The second
+  SD card, when one was mounted, is recorded and checked the same way
+  (see **JNEXT SNAPSHOTS**).
 
 ### PUTTING A FILE ON THE CARD
 
@@ -2218,10 +2220,16 @@ The file does **not** contain the SD card - a card image is a gigabyte,
 and it holds NextZXOS. It records the card’s identity instead and checks
 it on load: a different card is refused unless **--snapshot-mode**
 `force`. The card’s contents are not checked: changing the card between
-saving and loading is at your own risk. **--snapshot-mode** `strict`
-additionally turns the state-model and ROM-digest warnings into
-refusals, and **--snapshot-compression** `off` writes the members stored
-rather than deflated, so the file can be read with `unzip -p`.
+saving and loading is at your own risk. A second SD card (see **A SECOND
+SD CARD**) that was mounted when the file was saved is recorded and
+checked the same way: a snapshot that had one is refused when none is
+mounted, or a different one is, unless **--snapshot-mode** `force`; a
+snapshot saved without one, including every file written by an older
+**jnext**, is not refused for one mounted now (a warning).
+**--snapshot-mode** `strict` additionally turns the state-model and
+ROM-digest warnings into refusals, and **--snapshot-compression** `off`
+writes the members stored rather than deflated, so the file can be read
+with `unzip -p`.
 
 It does contain **all of RAM**, which on a Next includes NextZXOS and
 DivMMC ROM code paged into it. Those are not redistributable: keep your
