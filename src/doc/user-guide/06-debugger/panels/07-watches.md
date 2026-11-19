@@ -18,5 +18,5 @@ symbols (`@name`) and arithmetic. Names are upper case, and `4000` is decimal th
 is the register, not the address `$00BC`. A text that does not compile, or that names an event's data (`ADDR`), is refused
 with the reason when you press OK. The value is re-evaluated at every stop and about four times a second while the machine
 runs; an expression that fails at run time (a division by zero, `mem[]` out of range) shows its error in the Value cell
-until it succeeds again. An expression row has no address or Memory column. See
+until it succeeds again. An expression row has no address or Memory column. Switching an existing row's Type to Expression keeps the text in the address box, and Expression mode reads `9000` as the number 9000, not the byte at `$9000`; write `mem[0x9000]` for that. See
 [Watches and watch sizes](../functions/04-watches-and-watch-sizes.md) for what the sizes mean.

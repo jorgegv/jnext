@@ -49,6 +49,8 @@
 #include "debugger/source_panel.h"
 #include "debugger/symbols_panel.h"
 #include "debugger/watch_panel.h"
+#include "script/expr_compiler.h"
+#include "script/diagnostic.h"
 
 #include <QAbstractButton>
 #include <QDateTime>
@@ -851,7 +853,8 @@ void test_watch_dialog_refused() {
 /// (-1 leaves it), then OK. A dialog shown again after a refused OK is rejected; its error text
 /// and the number of times it was shown are returned through `reason` and the result.
 static int watch_dialog(WatchPanel* wp, bool edit, const QString& text, int index,
-                        QString* reason = nullptr, QString* prefill = nullptr, int* combo_before = nullptr) {
+                        QString* reason = nullptr, QString* prefill = nullptr, int* combo_before = nullptr,
+                        const QString& label = QString()) {
     return drive_modals(
         [&](QWidget* w, int n) {
             auto* dlg = qobject_cast<QDialog*>(w);
@@ -862,6 +865,7 @@ static int watch_dialog(WatchPanel* wp, bool edit, const QString& text, int inde
                 if (prefill && !edits.isEmpty()) *prefill = edits[0]->text();
                 if (combo_before && combo) *combo_before = combo->currentIndex();
                 if (!edits.isEmpty()) edits[0]->setText(text);
+                if (!label.isEmpty() && edits.size() > 1) edits[1]->setText(label);
                 if (combo && index >= 0) combo->setCurrentIndex(index);
                 dlg->accept();
                 return;
@@ -879,6 +883,7 @@ void test_watch_expressions() {
     WatchPanel* wp = fx.dbg() ? fx.dbg()->watch_panel() : nullptr;
     if (!wp) {
         check("QWX-01", "Watches panel", false);
+        check("QWX-04", "Watches panel", false);
         check("QWX-02", "Watches panel", false);
         check("QWX-03", "Watches panel", false);
         return;
@@ -910,8 +915,13 @@ void test_watch_expressions() {
         for (const char* bad : {"ADDR", "1 +", "@nosuch", "changed(A)"}) {
             QString reason;
             const int shown = watch_dialog(wp, false, bad, 3, &reason);
-            ok = ok && shown == 2 && reason.startsWith(QStringLiteral("Not an expression: ")) &&
-                 reason.size() > 19 && wp->watch_count() == before;
+            // the library is the oracle for its own message
+            const auto c = jnext::script::compile_expr(
+                bad, jnext::script::PayloadScope::none(), {jnext::script::symbols_of(*fx.backend), {}});
+            const QString want = c.errors.empty()
+                ? QString()
+                : QStringLiteral("Not an expression: ") + QString::fromStdString(c.errors.front().to_string());
+            ok = ok && shown == 2 && !want.isEmpty() && reason == want && wp->watch_count() == before;
             detail += std::string(bad) + "=" + std::to_string(shown) + ":" + s(reason) + " ";
         }
         const int shown_ok = watch_dialog(wp, false, "mem[0x9000]", 3);
@@ -944,6 +954,29 @@ void test_watch_expressions() {
               prefill == QStringLiteral("mem[0x9000]") && combo == 3 && stays && to_mem && to_expr,
               "prefill=" + s(prefill) + " combo=" + std::to_string(combo) + " " + std::to_string(stays) +
                   std::to_string(to_mem) + std::to_string(to_expr));
+    }
+    // QWX-04 - a known @symbol compiles in the dialog (the issue's own mem16[@ptr]) and the typed
+    // Label is kept, with the expression as its tooltip.
+    {
+        const std::string mem = g_tmp->path().toStdString() + "/expr.Memory.txt";
+        write_text(mem, "9000: ._ptr\n");
+        fx.backend->load_map(mem, jnext::dbg::MapFormat::NextBuild);
+        fx.emu.mmu().write(0x9000, 0xA1);
+        fx.emu.mmu().write(0x9001, 0xB2);
+        const int before = wp->watch_count();
+        const int shown = watch_dialog(wp, false, "mem16[@ptr]", 3, nullptr, nullptr, nullptr, "p");
+        auto* t = wp->findChild<QTableWidget*>();
+        QTableWidgetItem* lab = t ? t->item(before, 1) : nullptr;
+        check("QWX-04",
+              "Type Expression with mem16[@ptr] on a loaded map closes the dialog at the first OK, "
+              "the row shows the word at the symbol, and the typed Label is kept with the "
+              "expression as its tooltip",
+              shown == 1 && wp->watch_count() == before + 1 &&
+                  cell(wp, before, 3) == QStringLiteral("$B2A1 (45729d)") &&
+                  cell(wp, before, 1) == QStringLiteral("p") && lab &&
+                  lab->toolTip() == QStringLiteral("mem16[@ptr]"),
+              "shown=" + std::to_string(shown) + " value=" + s(cell(wp, before, 3)) +
+                  " label=" + s(cell(wp, before, 1)));
     }
 }
 
