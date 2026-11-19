@@ -5490,7 +5490,7 @@ static void test_cpu_shortcuts() {
 }
 
 
-=======
+// ===========================================================================
 // QMPT - GH #370: the Memory panel's tools (Find, Save / Load / Fill Block).
 //
 // Oracle: the issue's stated behaviour and the backend's documented poke / peek contract and its
