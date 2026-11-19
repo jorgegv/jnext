@@ -167,6 +167,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Disassembly PC line shows whether a conditional branch is taken and the value at the instruction's memory operand
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
+- Debugger window: File > Reload Last File (Alt+L) reloads the rebuilt program with its maps, breakpoints kept
 - Redefinable debugger keys: all seventeen debugger commands under Settings > Preferences > Debugger Keys
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
 - Rewind preserves the SD card's SPI protocol state, so streaming programs resume correctly

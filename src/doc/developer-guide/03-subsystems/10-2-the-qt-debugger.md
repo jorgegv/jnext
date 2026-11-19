@@ -125,10 +125,10 @@ next stop) and opening the window (nothing is observed while it is closed), both
 `CpuPanel::restart_tstate_count()`. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `INS-07-04`..`INS-07-10`
 (each epoch bump site, a remote client's included), `QPN-CPU-05`, `QTS-01`..`QTS-13`.
 
-**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1054`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:382`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1043`; `PausedStamp`,
-`debugger_manager.h:252`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1061`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:388`: ~4 Hz). Paused, it
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1050`; `PausedStamp`,
+`debugger_manager.h:257`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:
 
@@ -150,7 +150,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:574`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:1034`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:1041`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -159,18 +159,18 @@ is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
 
 **The window's opening size.** A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
-`debugger_window.cpp:509`, queued from the first `showEvent()`); a size restored from the config file is left
+`debugger_window.cpp:523`, queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
 it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
-(`kMaxInitialFitPasses`, `debugger_window.h:204`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:231`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:209`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:236`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
 at most `kMaxFitEchoes` = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-(`resizeEvent()`, `debugger_window.cpp:496-507`); any other size is the user's and ends the fit
-(`end_fit_()`, `debugger_window.cpp:480`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
-pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:533-538`), after which every size is the user's and the remembered sizes are
+(`resizeEvent()`, `debugger_window.cpp:510-521`); any other size is the user's and ends the fit
+(`end_fit_()`, `debugger_window.cpp:494`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
+pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:547-552`), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (`fit_passes_queued_`, `queue_fit_pass_()`), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's), `GR-08` (an earlier request landing while a pass is queued), `GR-09` (a user resize while the fit runs stands), `GR-10` (each late answer counts once: the 7th stands) and `GR-11` (a loop stalled past the grace window does not end the fit), `GR-12` (the bound holds on the pass's own path), `GR-13` and `GR-14` (the grace waits for the pass a re-ask, or a late answer, queued), in `debugger_window_grow_test`; `GR-09` to `GR-14` use a window no window manager sees.
 
@@ -263,7 +263,8 @@ refuse a value by name, makes `render_combo()` canonical, and makes the grammar
 testable without a widget. `validate_combo()` refuses the combinations that
 would break something else: anything without Ctrl, Alt or Meta that is not
 `F1`-`F12` (the Memory panel types hex with bare keys), `Alt`+letter (the menu
-bar's), `Alt`+`1`..`8` (the script host keys), and `Ctrl+C` / `Ctrl+A`.
+bar's), `Alt`+`1`..`8` (the script host keys), `Ctrl+C` / `Ctrl+A`, and, where
+the host modifier is Command, Command+`L` (Reload Last File).
 
 **A chord both windows bind is a warning, not a conflict.** `Qt::WindowShortcut`
 matches against the active window, and each window keeps its own binding, so a
@@ -274,6 +275,17 @@ Preferences tab refuses such a capture. `build_keymap()` resolves a hand-edited
 file deterministically — explicit beats default, the earlier action beats the
 later, the loser is left unbound — and every refusal becomes a `LoadIssue` that
 `MainWindow` logs at error level and the tab lists.
+
+**File > Reload Last File is not a keymap action.** The debugger window's File menu holds its
+OWN `QAction`, carrying the host chord (`host_shortcuts::sequence()`, Alt+L; Command+L on
+macOS). `DebuggerManager::set_reload_action()` hands the manager the emulator window's
+`reload_last_action_`, and `DebuggerWindow::set_reload_source()` connects the two: triggering
+forwards to that action, and `QAction::changed` mirrors its enabled state. So there is one
+handler (the File > Open route, with the Recent Files bookkeeping) and one enabled state.
+Two designs were rejected. One shared `QAction` would be invisible to the guards, which walk
+`findChildren()` of the debugger window, and `jnext_debugger` cannot name `MainWindow`.
+`Debugger::load()` is an in-place load with no Recent Files bookkeeping, and it drops the
+`SidecarLoad`, so a refused map would only be logged.
 
 `MainWindow` keeps the map in effect in `debug_keys_`. Both its forwarding of
 the five execution keys (`run`, `pause`, `step_into`, `step_over`, `step_out`)

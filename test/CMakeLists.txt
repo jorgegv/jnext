@@ -2504,8 +2504,9 @@ if(ENABLE_DEBUGGER)
             jnext_gui jnext_debugger
             jnext_core jnext_cpu jnext_memory jnext_video
             jnext_audio jnext_port jnext_peripheral jnext_input
-            jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-        target_include_directories(debugger_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+            jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+            Qt${JNEXT_QT_MAJOR}::Test)
+        target_include_directories(debugger_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
         add_test(NAME debugger_menu_tests COMMAND debugger_menu_test)
     endif()
 endif()
