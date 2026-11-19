@@ -2525,12 +2525,13 @@ MAPPING** below).
 **File**  
 Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
 opens POK Trainers instead, without a reset), Recent Files (the last ten
-loaded, newest first) and Reload Last File (Alt+L), Insert SD Card Image
-/ Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4
-Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save
-Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
-(Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot
-(Alt+Shift+F9) (see **JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
+loaded, newest first) and Reload Last File (Alt+L; also in the debugger
+window’s File menu), Insert SD Card Image / Eject SD Card (see
+**CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) /
+Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save Screenshot
+(Alt+S), Quick Screenshot (Alt+K), Save Snapshot (Alt+Shift+S), Quick
+Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see
+**JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
 
 **Save Screenshot…** asks for a name; the extension chooses the format
 (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
@@ -2759,7 +2760,8 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   bytes - or with the right-click menu’s **Copy with Addresses** to keep
   both
 - **Memory hex editor** - full 64K, hex and ASCII, inline editing,
-  page/bank selector
+  page/bank selector; find (hex with wildcards and a mask, or text), and
+  save, load or fill a block, from its right-click menu
 - **Stack** - SP-relative word view, SP row highlighted
 - **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution; a
   click on a row chooses the C frame the Variables tab shows

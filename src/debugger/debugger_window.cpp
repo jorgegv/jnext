@@ -376,6 +376,20 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     apply_keymap();
 }
 
+void DebuggerWindow::set_reload_source(QAction* host) {
+    // GH #374: the emulator window's Reload Last File. Forward the trigger, mirror the enabled state.
+    QObject::disconnect(reload_trigger_conn_);
+    QObject::disconnect(reload_enable_conn_);
+    if (!host) {
+        reload_action_->setEnabled(false);
+        return;
+    }
+    reload_trigger_conn_ = connect(reload_action_, &QAction::triggered, host, &QAction::trigger);
+    reload_enable_conn_  = connect(host, &QAction::changed, reload_action_,
+                                   [this, host]() { reload_action_->setEnabled(host->isEnabled()); });
+    reload_action_->setEnabled(host->isEnabled());
+}
+
 void DebuggerWindow::set_keymap(const jnext::dbgkeys::Keymap& km) {
     keymap_ = km;
     apply_keymap();
@@ -637,6 +651,14 @@ void DebuggerWindow::create_menus() {
     //     and the guest keys ARE already released when this window takes the
     //     keyboard, by the emulator window's own focusOutEvent.
     jnext::disable_alt_menu_navigation(bar, this);
+
+    // GH #374 - File > Reload Last File: the emulator window's command, reachable from here. A host
+    // shortcut like the script keys (not a keymap action: the keymap refuses Alt+letter); its handler
+    // and enabled state are the emulator window's (set_reload_source()). F: free in this menu bar.
+    QMenu* file_menu = bar->addMenu(tr("&File"));
+    reload_action_ = file_menu->addAction(tr("Reload Last File"));
+    reload_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::ReloadLast));
+    reload_action_->setEnabled(false);   // until a host action says otherwise
 
     // --- Debug menu ---
     QMenu* debug_menu = bar->addMenu(tr("&Debug"));
@@ -963,6 +985,12 @@ void DebuggerWindow::create_menus() {
         // (REQ-qt-13d). The model notifies both views.
         if (BreakpointModel* m = breakpoint_model()) m->clear_all();
     });
+
+    bp_menu->addSeparator();
+    QAction* save_bp_script = bp_menu->addAction(tr("&Save as Script..."));
+    connect(save_bp_script, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_breakpoints_script);
+    QAction* load_bp_script = bp_menu->addAction(tr("&Load from Script..."));
+    connect(load_bp_script, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_breakpoints_script);
 
     // --- Watches menu ---
     QMenu* watches_menu = bar->addMenu(tr("&Watches"));
@@ -1449,6 +1477,10 @@ void DebuggerWindow::create_panels() {
     disasm_panel_ = new DisasmPanel(&dbg_);
     memory_panel_ = new MemoryPanel(&dbg_);
     memory_panel_->setMinimumHeight(320);
+    // GH #370: the Memory panel's tool messages, held like a refusal; a match moves the Disassembly.
+    connect(memory_panel_, &MemoryPanel::message, this, &DebuggerWindow::show_rewind_refusal);
+    connect(memory_panel_, &MemoryPanel::show_in_disassembly_requested, disasm_panel_,
+            &DisasmPanel::show_address);
     video_panel_ = new VideoPanel(&dbg_);
     sprite_panel_ = new SpritePanel(&dbg_);
     copper_panel_ = new CopperPanel(&dbg_);

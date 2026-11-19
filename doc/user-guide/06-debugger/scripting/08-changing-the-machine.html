@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4579,7 +4579,7 @@ on frame 125 do exit 0 end
 <td><strong>the instruction at <code>PC</code> itself</strong>: <code>set PC = …</code> redirects before anything runs, and <code>set A = 0xFF</code> is the value the instruction reads</td>
 </tr>
 <tr>
-<td><code>read</code>, <code>write</code>, <code>io_read</code>, <code>io_write</code>, <code>nextreg</code>, <code>copper</code>, <code>dma</code>, <code>interrupt</code>, <code>nmi</code> (after the instruction)</td>
+<td><code>read</code>, <code>write</code>, <code>read_write</code>, <code>io_read</code>, <code>io_write</code>, <code>nextreg</code>, <code>copper</code>, <code>dma</code>, <code>interrupt</code>, <code>nmi</code> (after the instruction)</td>
 <td><strong>the next instruction</strong>. The instruction that raised the event has completed with its own effects: <code>set mem[ADDR] = PREV</code> after a caught write undoes it before anyone reads it, but the write did happen</td>
 </tr>
 <tr>

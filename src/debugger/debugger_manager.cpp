@@ -25,7 +25,9 @@
 #include <QEvent>
 #include <QCoreApplication>
 #include <QFileDialog>
+#include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QMessageBox>
 #include <QStatusBar>
 
@@ -295,6 +297,12 @@ void DebuggerManager::set_keymap(const jnext::dbgkeys::Keymap& km) {
         debugger_window_->set_keymap(km);
 }
 
+void DebuggerManager::set_reload_action(QAction* host) {
+    reload_action_ = host;
+    if (debugger_window_)
+        debugger_window_->set_reload_source(host);
+}
+
 QStringList DebuggerManager::source_dirs() const {
     QStringList all;
     for (const QStringList* list : {&configured_source_dirs_, &located_source_dirs_})
@@ -342,6 +350,7 @@ void DebuggerManager::ensure_window() {
     // about: rebinding and then opening the debugger for the first time left
     // the toolbar on the old keys.
     debugger_window_->set_keymap(keymap_);
+    debugger_window_->set_reload_source(reload_action_);   // GH #374
     // GH #420 - the same for the Source tab's search path, and its Locate File... .
     if (auto* sp = debugger_window_->source_panel()) {
         connect(sp, &SourcePanel::source_dir_located, this, &DebuggerManager::on_source_dir_located);
@@ -769,6 +778,70 @@ void DebuggerManager::on_save_annotations()
 {
     if (annotations_file_.isEmpty()) on_save_annotations_as();
     else save_annotations_to(annotations_file_);
+}
+
+bool DebuggerManager::save_breakpoints_script_to(const QString& path)
+{
+    const jnext::script::BpScript out =
+        jnext::script::bp_script_text(bp_model_->script_specs(), dbg_);
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly) || f.write(out.text.data(), static_cast<qint64>(out.text.size())) < 0 ||
+        !f.commit()) {
+        QMessageBox::warning(main_window_, QObject::tr("Save Failed"),
+            QObject::tr("Could not save the breakpoints to:\n%1\n\n%2").arg(path, f.errorString()));
+        return false;
+    }
+    bp_script_file_ = path;
+    if (!out.refused.empty()) {
+        QString list;
+        for (const std::string& r : out.refused) list += QStringLiteral("\n- ") + QString::fromStdString(r);
+        QMessageBox::warning(main_window_, QObject::tr("Breakpoints Not Saved"),
+            QObject::tr("%n breakpoint(s) have no .jds spelling and were left out of %1:", nullptr,
+                        static_cast<int>(out.refused.size())).arg(path) + list);
+    }
+    return true;
+}
+
+void DebuggerManager::on_save_breakpoints_script()
+{
+    QString path = QFileDialog::getSaveFileName(
+        main_window_, QObject::tr("Save Breakpoints as Script"), bp_script_file_,
+        QObject::tr("Debugger scripts (*.jds);;All files (*)"));
+    if (path.isEmpty()) return;
+    if (QFileInfo(path).suffix().isEmpty()) path += QStringLiteral(".jds");
+    save_breakpoints_script_to(path);
+}
+
+bool DebuggerManager::load_breakpoints_script_from(const QString& path)
+{
+    QFile f(path);
+    QString why;
+    jnext::script::BpRead rd;
+    if (!f.open(QIODevice::ReadOnly)) {
+        why = path + QStringLiteral(": ") + f.errorString();
+    } else {
+        rd = jnext::script::bp_specs_from_script(QString::fromUtf8(f.readAll()).toStdString(), dbg_);
+        for (const jnext::script::Diagnostic& d : rd.errors)
+            why += QStringLiteral("%1:%2:%3: %4\n").arg(path).arg(d.pos.line).arg(d.pos.column)
+                       .arg(QString::fromStdString(d.message));
+    }
+    if (!why.isEmpty()) {
+        QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
+            QObject::tr("Could not load breakpoints from:\n%1\n\n%2").arg(path, why.trimmed()));
+        return false;
+    }
+    bp_script_file_ = path;
+    bp_model_->add_specs(rd.specs);
+    return true;
+}
+
+void DebuggerManager::on_load_breakpoints_script()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Load Breakpoints from Script"), bp_script_file_,
+        QObject::tr("Debugger scripts (*.jds);;All files (*)"));
+    if (path.isEmpty()) return;
+    load_breakpoints_script_from(path);
 }
 
 bool DebuggerManager::confirm_discard_annotations()

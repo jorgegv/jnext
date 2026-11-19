@@ -968,6 +968,7 @@ my %NO_MATRIX_SECTION = (
     'fuse_z80_test' => 'data-driven FUSE runner, no per-row IDs',
     'z80n_test'     => 'data-driven FUSE-style runner, opcode names not row IDs',
     'disasm_hint_test' => 'debugger PC-line hint decoder (Z80 semantics, FUSE oracle; no VHDL oracle)',
+    'mem_tools_test' => 'debugger Memory panel find/fill/block-split helper (host UI policy; no VHDL oracle)',
 
     # ── Narrative sections ───────────────────────────────────────────
     # Hand-maintained tables that summarise ID *ranges* ("XNEX-01..04") or
@@ -1225,6 +1226,7 @@ my %NO_MATRIX_SECTION = (
     'script_parse_test'         => 'debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger',
     'script_eval_test'          => 'debugger scripting language evaluator (GH #26, jnext-internal); the T80N core has no debugger',
     'script_events_test'        => 'debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger',
+    'bp_script_test'            => 'Breakpoints panel breakpoint file, .jds codec (GH #376, jnext-internal); the T80N core has no debugger',
     'script_record_test'        => 'debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger',
     # GH #280 — the ZRCP adapter. Its oracle is ZEsarUX 12.0's own replies (the
     # design's transcripts) and DeZog's ZEsarUX client, not the FPGA; the

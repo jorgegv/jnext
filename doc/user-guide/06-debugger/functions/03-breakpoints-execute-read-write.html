@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2434,6 +2434,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#saving-and-loading-breakpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saving and loading breakpoints
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#turning-them-off-instead-of-deleting-them" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4410,6 +4421,35 @@ lost.</p>
 An I/O breakpoint never fires on a <em>memory</em> access at the same number, and a
 memory breakpoint never fires on a port access.</p>
 <p><strong>Breakpoints ▸ Clear All Breakpoints</strong> removes all three kinds at once.</p>
+<h2 id="saving-and-loading-breakpoints">Saving and loading breakpoints<a class="headerlink" href="#saving-and-loading-breakpoints" title="Permanent link">&para;</a></h2>
+<p><strong>Breakpoints ▸ Save as Script…</strong> writes the debugger window's own breakpoints to a
+<code>.jds</code> file (the <a href="../scripting/index.html">debugger scripting language</a>), and
+<strong>Breakpoints ▸ Load from Script…</strong> reads one back, in this session or a later one. Each
+breakpoint is one plain rule that stops the machine:</p>
+<pre><code>; jnext debugger breakpoints (Breakpoints &gt; Save as Script).
+bp1: on execute 0x8000 do stop end
+disabled bp2: on read_write 0x9000 do stop end
+bp3: on io_read 0xFE do stop end
+bp4: on execute &quot;main.bas:10&quot; do stop end
+bp5: on execute @banked do stop end
+</code></pre>
+<p>The file keeps each breakpoint's type, address and <strong>On</strong> state. A source-line breakpoint is
+written as its line, so it arms every place the line compiled to when you load it. An Execute
+breakpoint tied to the memory its code lives in (<code>$C000 P14</code> in the list) is written as the
+symbol that names that address in that memory, so loading it needs the same symbols
+loaded first.</p>
+<p>A breakpoint that has no faithful spelling is <strong>left out, never written approximately</strong>:
+the file gets a <code>; not saved:</code> comment where it would have been, and one warning box lists
+what was left out. That happens to a qualified Execute breakpoint no symbol names, to a source
+line that was partly removed in the Disassembly or that the loaded source map no longer
+resolves, and to a file name a script string cannot hold. Not saved either: breakpoints that
+another client (GDB, ZRCP, DZRP, a script) set, and the master switch.</p>
+<p><strong>Load adds to the breakpoints you have</strong>; it does not replace them (use <strong>Clear All
+Breakpoints</strong> first for that). A breakpoint that already exists takes the <strong>On</strong> state
+the file gives it, and a source line that is already armed on the same places is not added
+twice. A file is loaded whole or not at all: anything that is not a plain breakpoint (a
+condition, a range, <code>once</code>, a message, other events) is refused with the line and column,
+and nothing is added. The same file runs from the command line with <code>jnext --script FILE</code>.</p>
 <h2 id="turning-them-off-instead-of-deleting-them">Turning them off instead of deleting them<a class="headerlink" href="#turning-them-off-instead-of-deleting-them" title="Permanent link">&para;</a></h2>
 <p>Each row of the <a href="../panels/08-breakpoints.html">Breakpoints panel</a> carries an
 <strong>On</strong> checkbox, and the panel carries a <strong>Breakpoints enabled</strong> master switch.

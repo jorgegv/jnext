@@ -60,7 +60,7 @@ does. A file that has been deleted since is dropped from the list and the status
 bar says so. A program started with **--load** is recorded once it has loaded; a
 load that failed, and Quick Load, are not. Like Load NEX File…, an entry cold-boots the machine, so a
 `.tap` or `.tzx` entry boots and auto-loads rather than just inserting the tape.
-**File > Reload Last File** (Alt+L) loads the newest entry again in one keystroke, handy
+**File > Reload Last File** (Alt+L; also in the debugger window's File menu) loads the newest entry again in one keystroke, handy
 when you rebuild a program and want to run it again. **Clear Recent Files** empties the list. The list is kept between runs in
 `~/.jnext/jnext.conf` (`[recent] files`), and **Load NEX File…** and **Open Tape
 File…** open with the file you loaded last selected when it is still in the
