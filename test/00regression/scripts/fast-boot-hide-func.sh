@@ -67,7 +67,7 @@ if want fast-boot-hide-func; then
             for _ in $(seq 1 300); do
                 wid=$(xdotool search --onlyvisible --name "ZX Spectrum Next Emulator" 2>/dev/null | head -1) || true
                 [ -n "$wid" ] && break
-                grep -qF "fast boot: ended" "$log" 2>/dev/null && break
+                [ "$mode" = window ] && grep -qF "fast boot: ended" "$log" 2>/dev/null && break
                 sleep 0.05
             done
             if [ "$mode" = window ]; then
