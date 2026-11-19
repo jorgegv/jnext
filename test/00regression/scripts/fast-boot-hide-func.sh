@@ -77,6 +77,7 @@ if want fast-boot-hide-func; then
                     import -window "$wid" "png:$pre-mid-$n.png" 2>/dev/null || true
                     # A grab that finished after the window closed shows nothing about it.
                     if grep -qF "fast boot: ended" "$log" 2>/dev/null; then rm -f "$pre-mid-$n.png"; fi
+                    sleep 0.2
                 done
                 for _ in $(seq 1 600); do
                     grep -qF "fast boot: ended" "$log" 2>/dev/null && break
@@ -155,7 +156,7 @@ if want fast-boot-hide-func; then
         fh_has "$fh_dir/j.log" "$fh_black_line" || fh_faults+=("J: no '$fh_black_line' line for the saved preference")
         fh_has "$fh_dir/j.log" "fast boot: ended (time up) after 100 frames" \
             || fh_faults+=("J: the window did not end by time up after 100 frames")
-        fh_j=$(fh_max "$fh_dir/j-mid.png")
+        fh_j=$(fh_max "$fh_dir/j-post.png")
         fh_not_black "$fh_j" || fh_faults+=("J: the window was black after the time-up (max=${fh_j:-unreadable})")
 
         if [[ ${#fh_faults[@]} -eq 0 ]]; then
