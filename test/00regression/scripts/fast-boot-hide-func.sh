@@ -173,7 +173,7 @@ if want fast-boot-hide-func; then
         fh_not_black "$fh_j" || fh_faults+=("J: the window was black after the time-up (max=${fh_j:-unreadable})")
 
         if [[ ${#fh_faults[@]} -eq 0 ]]; then
-            pass_row " (Qt and SDL windows black while fast boot hides the screen, real after it ends; the control windows real inside it; the saved preference real after time up)"
+            pass_row " (Qt window black while fast boot hides the screen, SDL --set wired, both real after it ends; the control windows real inside it; the saved preference real after time up)"
         else
             fail_row " ($(IFS='|'; echo "${fh_faults[*]}"))"
         fi
