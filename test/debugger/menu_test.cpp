@@ -3414,6 +3414,33 @@ static void test_reload_last_from_debugger()
             }
         }
     }
+    // DRL-07: the usual order - a program is loaded BEFORE the debugger window first exists. The
+    // host action is already enabled then, so the item must be enabled at creation, not only
+    // after a later `changed` (that arrives only on a flip).
+    {
+        MainWindowFixture fx;
+        std::string handed;
+        int handed_n = 0;
+        bool en = false, once = false;
+        if (fx.ok) {
+            fx.win.set_load_file_callback([&](const std::string& p, bool) { handed = p; ++handed_n; });
+            for (const std::string& f : {a, b}) {
+                fx.win.handle_load_path(QString::fromStdString(f));
+                fx.win.load_finished(f, true);
+            }
+            handed_n = 0; handed.clear();
+            fx.win.debugger_manager()->set_enabled(true);   // creates the window now
+            DebuggerWindow* dbg = fx.win.debugger_manager()->debugger_window_ptr();
+            if (dbg && dbg->reload_action()) {
+                en = dbg->reload_action()->isEnabled();
+                dbg->reload_action()->trigger();
+                once = handed_n == 1 && handed == b;
+            }
+        }
+        check("DRL-07", "a debugger window created AFTER a load has Reload Last File enabled at once, "
+                        "and triggering it loads the newest file once",
+              fx.ok && en && once, fmt("en=%d n=%d %s", (int)en, handed_n, handed.c_str()));
+    }
     if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
 }
 
