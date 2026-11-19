@@ -2050,7 +2050,8 @@ different card is refused unless **\--snapshot-mode** `force`. The card's
 contents are not checked: changing the card between saving and loading is at
 your own risk. A second SD card (see **A SECOND SD CARD**) that was mounted when
 the file was saved is recorded and checked the same way: a snapshot that had one is
-refused when none is mounted, or a different one is, unless **\--snapshot-mode** `force`;
+refused when none is mounted, and refused when a different one is unless **\--snapshot-mode**
+`force` (which does not override the missing card);
 a snapshot saved without one, including every file written by an older **jnext**, is not
 refused for one mounted now (a warning). **\--snapshot-mode** `strict` additionally turns the state-model and
 ROM-digest warnings into refusals, and **\--snapshot-compression** `off` writes

@@ -406,13 +406,22 @@ int main() {
             return std::any_of(r.warnings.begin(), r.warnings.end(),
                                [&](const std::string& s) { return s.find(t) != std::string::npos; });
         };
+        // How many warnings name the second card (or its member) at all.
+        const auto second_count = [](const std::vector<std::string>& w) {
+            return std::count_if(w.begin(), w.end(), [](const std::string& s) {
+                return s.find("sdcard2") != std::string::npos || s.find("second") != std::string::npos;
+            });
+        };
         check("SDSLOT-47",
               "a .jns saved without a second card has no media.sdcard2, no state/sdcard2.json and no sdcard2 "
               "entry in its subsystem list; it loads with no second-card warning onto a machine without one, "
               "and with exactly the 'no second SD card' warning (no refusal) onto a machine that has one",
               made && wrote && opened && !m.sdcard2.present && !member && !in_list && ok1 &&
-                  !has(r1, "second") && ok2 && has(r2, "no second SD card"),
-              det("wrote=%d opened=%d member=%d ok1=%d ok2=%d %s", wrote, opened, member, ok1, ok2,
+                  second_count(rep.warnings) == 0 && second_count(r1.warnings) == 0 && ok2 &&
+                  has(r2, "no second SD card") && second_count(r2.warnings) == 1,
+              det("wrote=%d opened=%d member=%d ok1=%d ok2=%d save-warn=%ld r1=%ld r2=%ld %s", wrote, opened,
+                  member, ok1, ok2, static_cast<long>(second_count(rep.warnings)),
+                  static_cast<long>(second_count(r1.warnings)), static_cast<long>(second_count(r2.warnings)),
                   why.c_str()));
     }
 

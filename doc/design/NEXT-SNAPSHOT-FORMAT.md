@@ -1819,8 +1819,9 @@ byte-for-byte what it was before the slot existed:
   read-only differs: a warning. The reason is the first card's: NextZXOS caches D:'s FAT
   state in RAM, and restoring onto a different card corrupts it on the next write.
 - **Versions.** `format_version` stays 1: both additions are optional and named. A reader
-  that predates the slot sees `media.sdcard2` as an unknown key and `state/sdcard2.json` as
-  an unlisted member, and says so (section 12); it restores the rest.
+  that predates the slot reports one warning for the unknown `media.sdcard2` key, skips the
+  `state/sdcard2.json` member (which it does not know) without a message, and restores
+  everything else.
 
 ## 12. Compatibility rules and the unknown-member rule
 
