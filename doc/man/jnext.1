@@ -4024,7 +4024,7 @@ If the shader cannot run, the player logs one line starting
 plain picture otherwise.
 .SS JavaScript options
 .TP
-\f[CR]card\f[R] \f[I]{source}\f[R]
+\f[CR]card\f[R] \f[I]{source, dirs}\f[R]
 Not a jnext setting: how the page gets NextZXOS\(cqs SD card.
 \f[CR]source\f[R] is \f[CR]\(aqauto\(aq\f[R] (the default: fetch the
 official file from specnext.com when it allows the page to read it,
@@ -4034,6 +4034,12 @@ otherwise ask the visitor to download it and choose it),
 The SD card reaches the emulator as \f[B]\-\-sdcard\f[R] and
 \f[B]\-\-sdcard\-sha256\f[R], set by the page layer; the page never
 names the card.
+\f[CR]dirs\f[R] is an array of absolute paths in the distribution
+(\f[CR][\(aq/GAMES\(aq, \(aq/APPS\(aq]\f[R]): the card then also holds
+each path with everything below it and the directories above it, case
+does not matter, and a malformed path, a path of the boot set, a
+duplicate or a nested one is refused.
+The default is none: the boot card only.
 .TP
 \f[CR]poster\f[R] \f[I]URL\f[R]
 Not a jnext setting: a picture, a screenshot of the program, shown in

@@ -6,7 +6,7 @@
 // This file knows no command-line flag and no --set key: the whole options
 // object goes to the emulator (jnext_web_argv, src/platform/web_api.cpp), which
 // owns the table that turns it into a command line. The only option names used
-// here are the ones this layer acts on itself: card, poster, file, keepWrites,
+// here are the ones this layer acts on itself: card ({source, dirs}), poster, file, keepWrites,
 // width, height, wasmUrl and the three callbacks.
 //
 // Nothing is downloaded or built until the visitor clicks the player. The SD card of
@@ -585,6 +585,12 @@
       // page costs nothing.
       argvOf(mod, substitute(options, 'x', { path: '/sdcard/image.img', sha256: pins.cardSha256 },
                              '/jnext/card-writes/x.jsdw'));
+      // card.dirs (more of the distribution on the card): the builder's canonical form of the list
+      // is part of the card's identity. (A development card the seam names ignores it: that card
+      // is whatever the developer serves.)
+      if (options.card && Array.isArray(options.card.dirs) && options.card.dirs.length) {
+        pins.dirs = JnextImage.canonicalDirs(mod, options.card.dirs);
+      }
       return JnextImage.mountWarmStartStore(mod);
     }).then(function () {
       say('Click to start');
