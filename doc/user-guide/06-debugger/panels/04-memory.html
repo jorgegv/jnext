@@ -4433,8 +4433,8 @@ pages, up to page <code>DF</code>. Bytes that fall on ROM are skipped, and the m
 of 16 bytes ... the rest is ROM, which is read-only</code>); a Load or Fill that lands nothing because the whole
 block is ROM says <code>ROM is read-only</code>.</p>
 <p>Load and Fill work while the machine runs, like typing a byte, and count as a memory edit for
-<a href="../functions/07-backward-execution-rewind.html">rewind</a>: they are refused while an RZX recording or
-playback is running, as an edit is. Find and Save only read, so they work in both.</p>
+<a href="../functions/07-backward-execution-rewind.html">rewind</a>. Like an edit, they are refused while an RZX
+recording or playback is running. Find and Save only read, so they work in both.</p>
 
 
 
