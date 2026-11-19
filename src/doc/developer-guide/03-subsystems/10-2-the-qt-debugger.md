@@ -84,7 +84,7 @@ restart of the CPU panel's T-state count and draws that one label.
 
 ## Panels
 
-`DebuggerWindow::create_panels()` creates sixteen:
+`DebuggerWindow::create_panels()` creates eighteen:
 
 | Panel | Reads | Writes |
 |---|---|---|
@@ -98,6 +98,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Breakpoints | every client's subscriptions, through `BreakpointModel` | the GUI's own |
 | Video | `raster()` in all four counter domains plus the ULA fetch phase, and `render_layer()` for each of the eight views | — |
 | Sprites | `sprites()` | — |
+| Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
 | Copper | `copper()` | — |
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
@@ -417,6 +418,25 @@ soon as MREQ goes high), and equal `peek(Cpu)` everywhere else. The panel
 computes the hint in `disassemble_from()` and paints it only while paused, at
 the comment's column; the user comment moves right of it.
 
+## The Graphics tab
+
+The Graphics tab (`GraphicsPanel`, `src/debugger/graphics_panel.*`) has three sub-tabs: **Patterns** (the
+64 8-bit or 128 4-bit sprite patterns of pattern RAM), **Tiles** (the tilemap's tile definitions) and
+**Palettes** (all eight banks, with `(active)` on the one each layer reads). It reads through the facade only
+and draws only while its tab is the current one (`render_count()` is the test seam). Format and source follow the
+live registers: the tile format, count and base come from NR 0x6B and NR 0x6F, and the transparency from NR 0x4B,
+NR 0x4C and NR 0x14; only the palette bank and offset are the user's. A pattern or tile is drawn untransformed. The
+tile bytes are read from the BRAM the tilemap fetches (pages 0A/0B for bank 5, 0E for bank 7), never from the
+CPU map.
+
+The Qt-free half is `src/debug/gfx_decode.*` (`jnext::dbg::gfx`, a sibling of `mem_tools.h`, not one of the frozen
+facade headers): `decode_pattern()` and `decode_tile()` return, per pixel, the palette index the layer looks up and
+whether the layer draws it, following `sprites.vhd` and `tilemap.vhd`, and `tile_byte_addr()` gives the tile's
+byte address (the 6-bit base add that wraps inside the bank, and the 8 KB wrap of bank 7). The panel applies the
+colour (`palette()` through `rgb333_to_argb()`) itself. `GfxAtlas` is the one widget both atlases use: its
+`image()` is the unscaled picture, with alpha 0 where a pixel is transparent, painted over the Video panel's
+checkerboard.
+
 ## The Memory panel's tools
 
 Find, Save Block, Load Block and Fill Block live in the Memory panel's context menu
@@ -449,4 +469,4 @@ controls), `debugger_panels_test` (each panel's displayed text), `debugger_video
 `debugger_inspect_watchpoint_test`, `debugger_persistent_bp_test`,
 `debugger_keymap_test`, `debugger_menu_test`, `debugger_disasm_copy_test`,
 `debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`, editing `QVARW-*`), and the window-geometry suites. The regression rows
-`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`. The Memory panel tools' helper suite, `mem_tools_test` (`MEMT-*`), is not Qt-gated either; the panel's rows are `QMPT-*` in `debugger_panels_test` and the window's `QMPW-*` in `debugger_verbs_test`.
+`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`. The Memory panel tools' helper suite, `mem_tools_test` (`MEMT-*`), is not Qt-gated either; the panel's rows are `QMPT-*` in `debugger_panels_test` and the window's `QMPW-*` in `debugger_verbs_test`. The Graphics decoders' suite, `gfx_decode_test` (`GFXD-*`, VHDL as oracle), is not Qt-gated; the tab's rows are `QGFX-*` in `debugger_panels_test`.

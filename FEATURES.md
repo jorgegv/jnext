@@ -145,7 +145,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Panels: CPU registers, disassembly, memory hex editor, MMU, stack, call stack
 - Memory panel physical-page view: `Slot 0-7` show the page mapped in the slot, `Page...` shows any NR page
 - Memory panel tools: find hex bytes (wildcards, mask) or text, save/load a block to a raw binary file, fill a block
-- Panels: video layers, sprites, copper, NextREG, audio, watches, breakpoints
+- Panels: video layers, sprites, graphics (sprite patterns, tile definitions, all eight palettes), copper, NextREG, audio, watches, breakpoints
 - Video panel "All layers" view: the real composite, as in the emulator window
 - Video panel "Background" view: the NR 0x4A fallback colour per scanline
 - Video panel raster indicator: beam position in all four hardware counter domains, frame diagram and ULA fetch read-out
