@@ -1799,6 +1799,29 @@ A timestamp alone could not serve as the stamp either: jnext's own writes move
 it, outside tools preserve it (`cp -p`, `touch -r`), and coarse filesystems
 round it. So the card is simply assumed to be as the snapshot left it.
 
+### 11.5 The second SD card (GH #505)
+
+The board has a second SD socket, which NextZXOS maps to the next drive (D:), and
+JNEXT can mount a card there (`--sdcard2`). The snapshot carries it additively, and only
+when one is mounted, so the slot is optional and a snapshot taken without it is
+byte-for-byte what it was before the slot existed:
+
+- **`media.sdcard2`**: the same object as `media.sdcard` (`mounted_path`, `read_only`,
+  `identity`, `informational`), produced by the same code. Absent when no second card
+  was mounted.
+- **`state/sdcard2.json`**: the second card's SPI state machine, the same declaration as
+  `state/sdcard.json`, written (and listed in `manifest.subsystems`) only when a card is
+  mounted. A reader restores it when the file has it; a file without it is not an error
+  and not a warning (no second card was there to remember).
+- **Verdict**, the first card's rules worded for the second slot: the snapshot had one and
+  none is mounted: **refuse**; had none and one is mounted: a **warning**; identity differs
+  or is unknown: **refuse**, unless `--snapshot-mode force` (then a warning naming both);
+  read-only differs: a warning. The reason is the first card's: NextZXOS caches D:'s FAT
+  state in RAM, and restoring onto a different card corrupts it on the next write.
+- **Versions.** `format_version` stays 1: both additions are optional and named. A reader
+  that predates the slot sees `media.sdcard2` as an unknown key and `state/sdcard2.json` as
+  an unlisted member, and says so (section 12); it restores the rest.
+
 ## 12. Compatibility rules and the unknown-member rule
 
 SZX's convention (settled point 7) is "unknown chunk types must be ignored". ZIP
