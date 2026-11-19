@@ -918,6 +918,238 @@ static Row folw_sweep() {
     return row;
 }
 
+// ---- GH #542: where the PC goes -------------------------------------------------------------
+// Oracle: UM0080 (transfer targets, the cc table), the FUSE final PC of every single-instruction case
+// (PCXF-11) and jnext's Z80Cpu (FUSE 1356/1356) for where each swept opcode really lands (PCXF-12).
+static Transfer xf(const Z80Registers& r, const Img& i) { return pc_transfer(r, reader(i), reader(i)); }
+static bool is_xf(const Transfer& t, uint16_t target, Transfer::Dir d, bool hidden) {
+    return t.taken && t.target == target && t.dir == d && t.hidden == hidden;
+}
+using Dir = Transfer::Dir;
+
+static Row pcxf_unconditional() {
+    Row row;
+    {   Img i; i.put(0x8000, {0xC3, 0x34, 0x12}); row.need(is_xf(xf(regs(), i), 0x1234, Dir::Up, false), "JP nn"); }
+    {   Img i; i.put(0x8000, {0xCD, 0x00, 0x90}); row.need(is_xf(xf(regs(), i), 0x9000, Dir::Down, false), "CALL nn"); }
+    {   Img i; i.put(0x8000, {0x18, 0x05});       row.need(is_xf(xf(regs(), i), 0x8007, Dir::Down, false), "JR +5"); }
+    for (int n = 0; n < 8; ++n) {
+        Img i; i.m[0x8000] = static_cast<uint8_t>(0xC7 | (n << 3));
+        row.need(is_xf(xf(regs(), i), static_cast<uint16_t>(n * 8), Dir::Up, false), "RST " + hx(n * 8));
+    }
+    return row;
+}
+
+static Row pcxf_conditional() {
+    Row row;
+    for (int cc = 0; cc < 8; ++cc)
+        for (uint8_t f : flag_set(cc)) {
+            Z80Registers r = regs(); r.AF = f;
+            const bool t = cc_taken(cc, f);
+            Img a; a.put(0x8000, {static_cast<uint8_t>(0xC2 | (cc << 3)), 0x34, 0x12});
+            Img b; b.put(0x8000, {static_cast<uint8_t>(0xC4 | (cc << 3)), 0x00, 0x90});
+            const std::string w = std::string(kCC[cc].name) + " F=" + hx(f);
+            const Transfer ta = xf(r, a), tb = xf(r, b);
+            row.need(ta.taken == t && (!t || is_xf(ta, 0x1234, Dir::Up, false)), "JP " + w);
+            row.need(tb.taken == t && (!t || is_xf(tb, 0x9000, Dir::Down, false)), "CALL " + w);
+            row.need(ta.taken == hint(r, a).taken, "JP agrees with pc_hint " + w);
+            if (cc < 4) {
+                Img c; c.put(0x8000, {static_cast<uint8_t>(0x20 | (cc << 3)), 0x05});
+                const Transfer tc = xf(r, c);
+                row.need(tc.taken == t && (!t || is_xf(tc, 0x8007, Dir::Down, false)), "JR " + w);
+            }
+        }
+    for (int b : {2, 1}) {
+        Z80Registers r = regs(); r.BC = static_cast<uint16_t>(b << 8);
+        Img i; i.put(0x8000, {0x10, 0x05});
+        const Transfer t = xf(r, i);
+        row.need(t.taken == (b == 2) && (b != 2 || is_xf(t, 0x8007, Dir::Down, false)), "DJNZ B=" + std::to_string(b));
+    }
+    return row;
+}
+
+static Row pcxf_ret_cc() {
+    Row row;
+    for (int cc = 0; cc < 8; ++cc)
+        for (uint8_t f : flag_set(cc)) {
+            Z80Registers r = regs(); r.AF = f;
+            Img i; i.m[0x8000] = static_cast<uint8_t>(0xC0 | (cc << 3)); i.put(0xA000, {0x34, 0x12});
+            const Transfer t = xf(r, i);
+            row.need(t.taken == cc_taken(cc, f), std::string("RET ") + kCC[cc].name + " F=" + hx(f));
+            if (t.taken) row.need(is_xf(t, 0x1234, Dir::Up, false), "RET cc taken, not hidden");
+            else row.need(t.target == 0 && !t.hidden && t.dir == Dir::Here, "RET cc not taken is empty");
+        }
+    return row;
+}
+
+static Row pcxf_returns() {
+    Row row;
+    std::vector<std::vector<uint8_t>> codes = {{0xC9}, {0xED, 0x4D}};
+    for (uint8_t e : {0x45, 0x55, 0x5D, 0x65, 0x6D, 0x75, 0x7D}) codes.push_back({0xED, e});
+    for (const auto& c : codes) {
+        Img i; for (size_t k = 0; k < c.size(); ++k) i.m[0x8000 + k] = c[k];
+        i.put(0xA000, {0x34, 0x12});
+        row.need(is_xf(xf(regs(), i), 0x1234, Dir::Up, true), "return " + hx(c.back()));
+        Img w; for (size_t k = 0; k < c.size(); ++k) w.m[0x8000 + k] = c[k];
+        w.m[0xFFFF] = 0x34; w.m[0x0000] = 0x12;
+        Z80Registers r = regs(); r.SP = 0xFFFF;
+        row.need(is_xf(xf(r, w), 0x1234, Dir::Up, true), "return wrap " + hx(c.back()));
+    }
+    return row;
+}
+
+static Row pcxf_register_jumps() {
+    Row row;
+    { Img i; i.m[0x8000] = 0xE9;                 row.need(is_xf(xf(regs(), i), 0x3000, Dir::Up, true), "JP (HL)"); }
+    { Img i; i.put(0x8000, {0xDD, 0xE9});        row.need(is_xf(xf(regs(), i), 0x4000, Dir::Up, true), "JP (IX)"); }
+    { Img i; i.put(0x8000, {0xFD, 0xE9});        row.need(is_xf(xf(regs(), i), 0x5000, Dir::Up, true), "JP (IY)"); }
+    return row;
+}
+
+static Row pcxf_not_transfers() {
+    Row row;
+    std::vector<std::vector<uint8_t>> ops = {{0xED, 0x98}, {0x76}, {0xDD, 0x76}, {0x00}, {0x7E}, {0xE5}};
+    for (uint8_t e : {0xB0, 0xB1, 0xB2, 0xB3, 0xB8, 0xB9, 0xBA, 0xBB, 0xB4, 0xBC, 0xB6, 0xB7}) ops.push_back({0xED, e});
+    for (const auto& o : ops) {
+        Img i; for (size_t k = 0; k < o.size(); ++k) i.m[0x8000 + k] = o[k];
+        const Transfer t = xf(regs(), i);
+        row.need(!t.taken && !t.hidden, "not a transfer " + hx(o.back()));
+    }
+    return row;
+}
+
+static Row pcxf_direction() {
+    Row row;
+    {   Img i; i.put(0x8000, {0xC3, 0xFF, 0x7F}); row.need(xf(regs(), i).dir == Dir::Up, "$7FFF is Up"); }
+    {   Img i; i.put(0x8000, {0xC3, 0x01, 0x80}); row.need(xf(regs(), i).dir == Dir::Down, "$8001 is Down"); }
+    {   Img i; i.put(0x8000, {0x18, 0xFE});       row.need(xf(regs(), i).dir == Dir::Here, "JR $"); }
+    {   Z80Registers r = regs(); r.BC = 0x0200;
+        Img i; i.put(0x8000, {0x10, 0xFE});       row.need(xf(r, i).taken && xf(r, i).dir == Dir::Here, "DJNZ $"); }
+    {   Img i; i.put(0x8000, {0xC3, 0x00, 0x80}); row.need(xf(regs(), i).dir == Dir::Here, "JP self"); }
+    {   Z80Registers r = regs(); r.PC = 0xFFF0;
+        Img i; i.put(0xFFF0, {0x18, 0x20});       row.need(is_xf(xf(r, i), 0x0012, Dir::Up, false), "JR wraps up"); }
+    {   Z80Registers r = regs(); r.PC = 0x0005;
+        Img i; i.put(0x0005, {0x18, 0xF0});       row.need(is_xf(xf(r, i), 0xFFF7, Dir::Down, false), "JR wraps down"); }
+    return row;
+}
+
+static Row pcxf_format() {
+    Row row;
+    const disasm_text::SymbolNamer none;
+    const disasm_text::SymbolNamer namer = [](uint16_t a) -> std::optional<std::string> {
+        if (a == 0x1234) return "ret_here";
+        return std::nullopt;
+    };
+    Img ret; ret.m[0x8000] = 0xC9; ret.put(0xA000, {0x34, 0x12});
+    row.need(format_transfer(xf(regs(), ret), none) == "[-> $1234]", "RET plain");
+    row.need(format_transfer(xf(regs(), ret), namer) == "[-> ret_here]", "RET named");
+    Img jx; jx.put(0x8000, {0xDD, 0xE9});
+    row.need(format_transfer(xf(regs(), jx), none) == "[-> $4000]", "JP (IX) plain");
+    Img jp; jp.put(0x8000, {0xC3, 0x34, 0x12});
+    row.need(format_transfer(xf(regs(), jp), namer).empty(), "JP nn is empty");
+    Img rz; rz.m[0x8000] = 0xC8; rz.put(0xA000, {0x34, 0x12});
+    Z80Registers z = regs(); z.AF = 0x40;
+    row.need(format_transfer(xf(z, rz), namer).empty(), "RET cc taken is empty");
+    z.AF = 0x00;
+    row.need(format_transfer(xf(z, rz), namer).empty(), "RET cc not taken is empty");
+    return row;
+}
+
+static Row pcxf_prefixes() {
+    Row row;
+    {   Img i; i.put(0x8000, {0xDD, 0xC3, 0x34, 0x12}); row.need(is_xf(xf(regs(), i), 0x1234, Dir::Up, false), "DD JP nn"); }
+    {   Img i; i.put(0x8000, {0xDD, 0x18, 0x05});       row.need(is_xf(xf(regs(), i), 0x8008, Dir::Down, false), "DD JR"); }
+    {   Img i; i.put(0x8000, {0xDD, 0xC9}); i.put(0xA000, {0x34, 0x12});
+        row.need(is_xf(xf(regs(), i), 0x1234, Dir::Up, true), "DD RET"); }
+    {   Img i; i.put(0x8000, {0xDD, 0xFD, 0xE9}); row.need(is_xf(xf(regs(), i), 0x5000, Dir::Up, true), "DD FD JP (IY)"); }
+    {   Img i; i.put(0x8000, {0xFD, 0xDD, 0xE9}); row.need(is_xf(xf(regs(), i), 0x4000, Dir::Up, true), "FD DD JP (IX)"); }
+    {   Img i; for (int k = 0; k < 65; ++k) i.m[0x8000 + k] = 0xDD;
+        i.put(0x8000 + 65, {0xC3, 0x34, 0x12});
+        row.need(!xf(regs(), i).taken, "65-prefix chain is DB, no transfer"); }
+    {   Img i; for (int k = 0; k < 64; ++k) i.m[0x8000 + k] = 0xDD;
+        i.put(0x8000 + 64, {0xC3, 0x34, 0x12});
+        row.need(is_xf(xf(regs(), i), 0x1234, Dir::Up, false), "64-prefix chain is still a JP"); }
+    return row;
+}
+
+static Row pcxf_readers() {
+    Row row;
+    Img code; code.m[0x8000] = 0xC9;
+    Img data; data.put(0xA000, {0x34, 0x12});
+    row.need(is_xf(pc_transfer(regs(), reader(code), reader(data)), 0x1234, Dir::Up, true), "RET: opcode from code, stack from data");
+    Img onlydata; onlydata.m[0x8000] = 0xC9;
+    row.need(!pc_transfer(regs(), reader(Img()), reader(onlydata)).taken, "a C9 only in data is no transfer");
+    return row;
+}
+
+static int g_x11_taken, g_x11_fall, g_x11_halt, g_x11_repeat, g_x11_multi;
+static Row pcxf_fuse(const std::vector<FuseCase>& cases, const std::map<std::string, FuseExp>& exp) {
+    Row row;
+    for (const FuseCase& c : cases) {
+        auto it = exp.find(c.name);
+        if (it == exp.end()) { row.need(false, "no expected for " + c.name); continue; }
+        if (c.limit != 1) { ++g_x11_multi; continue; }
+        Img img; fuse_img(c, img);
+        const Z80Registers r = fuse_regs(c);
+        const Transfer t = xf(r, img);
+        const uint16_t fall = static_cast<uint16_t>(r.PC + instruction_length(r.PC, reader(img)));
+        const uint16_t fin = it->second.pc;
+        uint16_t a = r.PC;
+        while (img.m[a] == 0xDD || img.m[a] == 0xFD) ++a;
+        const uint8_t op = img.m[a], ed = img.m[static_cast<uint16_t>(a + 1)];
+        const bool rep = op == 0xED && (ed & 0xE4) == 0xA0 && (ed & 0x10);   // LDIR/CPIR/INIR/OTIR and the D forms
+        if (t.taken) { ++g_x11_taken; row.need(fin == t.target, "case " + c.name + " final PC " + hx(fin) + " target " + hx(t.target)); }
+        else if (op == 0x76) { ++g_x11_halt; }
+        else if (rep) { ++g_x11_repeat; row.need(fin == r.PC || fin == fall, "case " + c.name + " repeat"); }
+        else { ++g_x11_fall; row.need(fin == fall, "case " + c.name + " fall-through " + hx(fin) + " vs " + hx(fall)); }
+    }
+    return row;
+}
+
+static int g_x12_runs, g_x12_taken, g_x12_fall, g_x12_halt, g_x12_repeat, g_x12_jpc;
+static Row pcxf_sweep() {
+    Row row;
+    RecMem mem; NullIo io; Z80Cpu cpu(mem, io);
+    struct St { uint8_t f; uint16_t bc; };
+    auto one = [&](std::initializer_list<uint8_t> code, const std::string& what) {
+        for (St st : {St{0x00, 0x0200}, St{0xFF, 0x0100}}) {
+            std::memset(mem.ram, 0, sizeof mem.ram);
+            uint16_t a = 0x8000; for (uint8_t b : code) mem.ram[a++] = b;
+            mem.ram[0xA000] = 0x00; mem.ram[0xA001] = 0x90;
+            Z80Registers r{};
+            r.PC = 0x8000; r.SP = 0xA000; r.AF = static_cast<uint16_t>(st.f << 0); r.BC = st.bc;
+            r.HL = 0x3000; r.IX = 0x4000; r.IY = 0x5000;
+            *fuse_z80_tstates_ptr() = 0;
+            cpu.set_registers(r);
+            RecMem& m = mem;
+            const DisasmReadFn rdf = [&m](uint16_t x) -> uint8_t { return m.ram[x]; };
+            const Transfer t = pc_transfer(r, rdf, rdf);
+            const uint16_t fall = static_cast<uint16_t>(0x8000 + instruction_length(0x8000, rdf));
+            uint16_t p = 0x8000;
+            while (mem.ram[p] == 0xDD || mem.ram[p] == 0xFD) ++p;
+            const uint8_t op = mem.ram[p], ed = mem.ram[static_cast<uint16_t>(p + 1)];
+            const bool halt = op == 0x76;
+            const bool jpc = op == 0xED && ed == 0x98;
+            const bool rep = op == 0xED && (((ed & 0xE4) == 0xA0 && (ed & 0x10)) || ed == 0xB4 || ed == 0xBC || ed == 0xB6 || ed == 0xB7);
+            cpu.execute();
+            ++g_x12_runs;
+            const std::string w = what + " F=" + hx(st.f) + " BC=" + hx(st.bc);
+            if (t.taken) { ++g_x12_taken; row.need(cpu.pc() == t.target, w + " target " + hx(t.target) + " cpu " + hx(cpu.pc())); }
+            else if (halt) { ++g_x12_halt; }
+            else if (jpc) { ++g_x12_jpc; }
+            else if (rep) { ++g_x12_repeat; row.need(cpu.pc() == 0x8000 || cpu.pc() == fall, w + " repeat " + hx(cpu.pc())); }
+            else { ++g_x12_fall; row.need(cpu.pc() == fall, w + " fall-through " + hx(cpu.pc()) + " vs " + hx(fall)); }
+        }
+    };
+    for (int op = 0; op < 256; ++op) one({static_cast<uint8_t>(op), 0x05, 0x70, 0x00}, "plain " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xCB, static_cast<uint8_t>(op)}, "CB " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xED, static_cast<uint8_t>(op), 0x05, 0x70}, "ED " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xDD, static_cast<uint8_t>(op), 0x05, 0x70, 0x00}, "DD " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xFD, static_cast<uint8_t>(op), 0xFB, 0x70, 0x00}, "FD " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xDD, 0xCB, 0x05, static_cast<uint8_t>(op)}, "DDCB " + hx(op));
+    for (int op = 0; op < 256; ++op) one({0xFD, 0xCB, 0xFB, static_cast<uint8_t>(op)}, "FDCB " + hx(op));
+    return row;
+}
+
 int main(int argc, char** argv) {
     std::printf("\n======================================================\n");
     std::printf("Disassembly PC-line hint tests (GH #367)\n");
@@ -1006,6 +1238,35 @@ int main(int argc, char** argv) {
     Row f9 = folw_none_and_text(true);
     f9.need(g_f9_cases == 1792 && g_f9_code == 134, "cases " + std::to_string(g_f9_cases) + " code " + std::to_string(g_f9_code));
     check("FOLW-09", "Follow: Code iff disasm_one()'s text is a JP/JR/CALL/DJNZ/RST/RET (not JP (C)), over 1792 opcodes", f9);
+
+    check("PCXF-01", "pc_transfer: JP nn, CALL nn, JR e and the 8 RSTs are taken, with target and direction, not hidden", pcxf_unconditional());
+    check("PCXF-02", "pc_transfer: JP cc / CALL cc / JR cc / DJNZ taken iff their condition holds, target as pc_hint", pcxf_conditional());
+    check("PCXF-03", "pc_transfer: RET cc taken iff its condition holds, target the word at SP, not hidden (the hint names it)", pcxf_ret_cc());
+    check("PCXF-04", "pc_transfer: RET, RETI, RETN and the aliases: the word at SP (wrapping at 64K), hidden", pcxf_returns());
+    check("PCXF-05", "pc_transfer: JP (HL) / (IX) / (IY): the register, hidden", pcxf_register_jumps());
+    check("PCXF-06", "pc_transfer: JP (C), HALT, the repeating block ops, NOP, LD A,(HL) and PUSH are no transfer", pcxf_not_transfers());
+    check("PCXF-07", "pc_transfer: direction is the unsigned compare (Up, Down, Here, wrapping JR)", pcxf_direction());
+    check("PCXF-08", "format_transfer: exact [-> T] strings, named or $XXXX, empty unless taken and hidden", pcxf_format());
+    check("PCXF-09", "pc_transfer: DD/FD prefixes (last wins, ignored by JP/JR/RET, 64 vs 65 chain)", pcxf_prefixes());
+    check("PCXF-10", "pc_transfer: the opcode is read through code, the stack word through data", pcxf_readers());
+    Row x11 = pcxf_fuse(cases, exp);
+    x11.need(loaded, "FUSE data not loaded");
+    // 1333 single-instruction cases (DHINT-27's domain) = 51 taken + 1281 fall-through + 1 HALT. The block ops are all
+    // multi-instruction FUSE cases (a tstate limit above 1), so the repeat class is empty here; the 23 multi are the domain bound.
+    // 51 taken = DHINT-25's 28 taken conditionals + 23 unconditional transfers.
+    x11.need(g_x11_taken == 51 && g_x11_fall == 1281 && g_x11_halt == 1 && g_x11_repeat == 0 && g_x11_multi == 23,
+             "taken " + std::to_string(g_x11_taken) + " fall " + std::to_string(g_x11_fall) + " halt " + std::to_string(g_x11_halt) +
+             " repeat " + std::to_string(g_x11_repeat) + " multi " + std::to_string(g_x11_multi));
+    check("PCXF-11", "FUSE oracle: every single-instruction case ends at pc_transfer's target, or falls through, or is HALT / a block repeat", x11);
+    // 3584 = 1792 opcodes x 2 states. taken 181 = per state-pair 13 unconditional (JP, CALL, JR, RET, JP (HL), 8 RST) x 3 variants x 2
+    // + DJNZ (B=2 only) x 3 + 8 ED RETI/RETN x 2 + 14 conditionals per state x 2 x 3 variants (28 JP/CALL/RET cc + 4 JR cc, half hold per state).
+    // halt 6 = (76, DD 76, FD 76) x 2; jpc 2 = ED 98 x 2; repeat 24 = (ED B0-B3, B8-BB, LDIRX, LDDRX, LDIRSCALE, LDPIRX) 12 x 2.
+    Row x12 = pcxf_sweep();
+    x12.need(g_x12_runs == 3584 && g_x12_taken == 181 && g_x12_fall == 3371 && g_x12_halt == 6 &&
+                 g_x12_repeat == 24 && g_x12_jpc == 2,
+             "runs " + std::to_string(g_x12_runs) + " taken " + std::to_string(g_x12_taken) + " fall " + std::to_string(g_x12_fall) +
+             " halt " + std::to_string(g_x12_halt) + " repeat " + std::to_string(g_x12_repeat) + " jpc " + std::to_string(g_x12_jpc));
+    check("PCXF-12", "Z80Cpu sweep: every table opcode from two states lands on pc_transfer's target, or falls through, or is a named class (3584 runs)", x12);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

@@ -109,8 +109,41 @@ read from the registers and memory without disturbing anything, and never from
 an I/O port, so an `IN` or `OUT` has none. At a DivMMC or Multiface entry
 point, where the instruction itself switches that memory in or out, the value is read
 from the memory the instruction will see. A pending interrupt can run before the instruction does,
-and then the hint does not apply. The hint is not copied with the listing, and
-it is not shown while the machine is running.
+and then the hint and the arrow and marker below do not apply. The hint, the arrow and the marker are not copied
+with the listing, and none of them is shown while the machine is running.
+
+### Where it goes
+
+A jump, call or return that will be taken shows where it goes:
+
+- an arrow after the hint: ↑ when the destination is above in the listing, ↓ when it is
+  below, ↺ when it is the line itself (`JR $`). A condition that does not hold shows
+  nothing more, and neither do `JP (C)`, `HALT` and the repeating block instructions
+  (`LDIR` and the like), which are not jumps;
+- the destination line, when it is in the view, shows `[<- PC]` in the same blue column.
+  It stays marked when you scroll the `PC` line out of view, so you can follow the arrow
+  to it. A destination inside an instruction, as the listing decodes it, marks no line:
+  Follow (**F12**) shows the code decoded from there;
+- `RET`, `RETI`, `RETN` and `JP (HL)` / `(IX)` / `(IY)` write their destination nowhere on
+  the line, so it is shown before the arrow, as `[-> address]` (by name when it has a
+  label).
+
+```text
+P04  $8756      LD A,$05          3E 05      [<- PC]
+P04  $8758      PUSH AF           F5
+ ...
+P04  $8767      JR Z,$8756        28 ED      [taken] ↑
+```
+
+Stopped on a `RET` instead (a separate stop), the `PC` line reads:
+
+```text
+P04  $8771      RET               C9         [-> $8E02] ↓
+```
+
+The marked line shows the memory mapped now, like every line other than the `PC` line:
+after `RST $08` into DivMMC the jump maps the DivMMC ROM in, and the line at `$0008` still
+shows the ROM mapped now.
 
 ## Navigating: Follow, Back and Forward
 

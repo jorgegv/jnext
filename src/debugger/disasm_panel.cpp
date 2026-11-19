@@ -354,10 +354,17 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
     const BreakpointModel* bps = bp_model_.data();
     const auto sinfo = dbg_->mmu_slots();   // GH #360: the Mem column of the non-PC lines
 
+    // GH #542 - where the PC instruction sends the PC; the operand route at the PC is the one
+    // follow_data_reader() names. Computed even if the PC line is out of view: the destination
+    // line is marked either way.
+    const disasm_hint::Transfer xfer = disasm_hint::pc_transfer(
+        dbg_->registers(), read_fn, follow_data_reader(dbg_, current_pc));
+
     uint16_t cur = addr;
     for (int i = 0; i < count; ++i) {
         DisasmEntry entry;
         entry.line = disasm_one(cur, read_fn);
+        entry.is_destination = xfer.taken && xfer.dir != disasm_hint::Transfer::Dir::Here && cur == xfer.target;
         entry.is_current_pc = (cur == current_pc);
         // GH #225 — two questions, not one: does a breakpoint EXIST here,
         // and can it fire? paintEvent draws a filled dot for the second and a
@@ -378,6 +385,7 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
             // port read.
             entry.hint = disasm_hint::format_hint(
                 disasm_hint::pc_hint(dbg_->registers(), read_fn, dbg_->operand_reader()), namer());
+            entry.xfer = xfer;
         }
         entries_.push_back(entry);
 
@@ -783,12 +791,21 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // GH #367 - the PC line's hint, at the comment's column in its own ink (measured with the
         // font active on this line: the PC line is bold); the user's comment moves right of it.
         int comment_x = bx + BYTES_WIDTH;
+        const int space_w = painter.fontMetrics().horizontalAdvance(QLatin1Char(' '));
         const QString hint = line_hint(i);
         if (!hint.isEmpty()) {
             painter.setPen(palette_tint::ink(palette(), hint_color()));
             painter.drawText(comment_x, text_y, hint);
-            comment_x += painter.fontMetrics().horizontalAdvance(hint) + painter.fontMetrics().horizontalAdvance(QLatin1Char(' ')) * 2;
+            comment_x += painter.fontMetrics().horizontalAdvance(hint) + space_w * 2;
         }
+        // GH #542 - the transfer (PC line) and the destination marker, positioned here but drawn
+        // after the comment so the existing items keep their call order.
+        const QString xfer = line_transfer(i);
+        const QString dest = line_destination(i);
+        const int xfer_x = comment_x;
+        if (!xfer.isEmpty()) comment_x += painter.fontMetrics().horizontalAdvance(xfer) + space_w * 2;
+        const int dest_x = bx + BYTES_WIDTH;
+        if (!dest.isEmpty()) comment_x = dest_x + painter.fontMetrics().horizontalAdvance(dest) + space_w * 2;
 
         // GH #387 - the user's comment after the bytes column, in muted ink.
         const QString comment = line_comment(i);
@@ -796,6 +813,9 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
             painter.setPen(palette_tint::ink(palette(), QColor(0x60, 0x80, 0x60)));
             painter.drawText(comment_x, text_y, comment);
         }
+        painter.setPen(palette_tint::ink(palette(), hint_color()));
+        if (!xfer.isEmpty()) painter.drawText(xfer_x, text_y, xfer);
+        if (!dest.isEmpty()) painter.drawText(dest_x, text_y, dest);
 
         if (entry.is_current_pc) {
             painter.setFont(mono_font_);
@@ -1189,6 +1209,24 @@ QString DisasmPanel::line_hint(int line) const
     if (!paused_ || line < 0 || line >= static_cast<int>(entries_.size())) return QString();
     const auto& e = entries_[line];
     return e.is_current_pc ? QString::fromStdString(e.hint) : QString();
+}
+
+QString DisasmPanel::line_transfer(int line) const
+{
+    if (!paused_ || line < 0 || line >= static_cast<int>(entries_.size())) return QString();
+    const auto& e = entries_[line];
+    if (!e.is_current_pc || !e.xfer.taken) return QString();
+    QString s = QString::fromStdString(disasm_hint::format_transfer(e.xfer, namer()));
+    if (!s.isEmpty()) s += QLatin1Char(' ');
+    using Dir = disasm_hint::Transfer::Dir;
+    s += QChar(e.xfer.dir == Dir::Up ? 0x2191 : e.xfer.dir == Dir::Down ? 0x2193 : 0x21BA);
+    return s;
+}
+
+QString DisasmPanel::line_destination(int line) const
+{
+    if (!paused_ || line < 0 || line >= static_cast<int>(entries_.size())) return QString();
+    return entries_[line].is_destination ? QStringLiteral("[<- PC]") : QString();
 }
 
 QString DisasmPanel::line_comment(int line) const
