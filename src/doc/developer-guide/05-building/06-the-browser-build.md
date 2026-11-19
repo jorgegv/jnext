@@ -462,10 +462,14 @@ the user-facing-docs lint and its scope).
 `jnext-<ver>-web.zip` with CPython's `zipfile` and writes `build/pages`: the zip's files minus the
 four example pages, plus `index.html`, made from `web/pages/index.html.in` with the version of
 `version.yaml`. The page holds one widget with `data-card-dirs="/APPS,/GAMES"` and `data-nmi`. The
-script refuses, and removes the output, when the site is not exactly that list, when any name ends
-in an image, program, archive or recording extension (`.img .mmc .zip .nex .tap .tzx .sna .szx .z80
-.jns .rzx .wav .raw`, any case, any depth), or when the wasm exceeds 16 MiB or the site 24 MiB. The
+script refuses, and removes the output, when the site is not exactly that list, when any name has
+an image, ROM, disk-image, program, recording or archive extension as a dot-separated part (`.img .mmc
+.rom .bin .dsk .trd .scl .hdf .vhd .mdr .p .nex .tap .tzx .sna .szx .z80 .jns .rzx .wav .raw .zip .gz
+.tgz .bz2 .xz .7z .rar .tar`, any case, any depth, so `x.img.gz` too) or ends in a dot or whitespace,
+when a file starts with an archive signature or holds a boot-sector mark at byte 510 (a WebAssembly
+module is exempt), when a zip entry is a symlink, has a `..` or absolute path, lies outside the top folder
+or repeats a name, when a required file is missing, or when the wasm exceeds 16 MiB or the site 24 MiB. The
 site never holds NextZXOS, the distribution or a program: the visitor's browser downloads the
-distribution from specnext.com. `test/packaging/pages-site-test.sh` (PSITE-01 to 05, hermetic) pins
+distribution from specnext.com. `test/packaging/pages-site-test.sh` (PSITE-01 to 06, hermetic) pins
 the script and the workflow wiring; `test/browser/pages.mjs` (PAGES-01 and 02) serves `build/pages`
 alone, and `wasm-browser-test` has `pages-site` as a prerequisite.

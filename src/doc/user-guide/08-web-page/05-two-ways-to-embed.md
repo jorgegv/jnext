@@ -55,7 +55,7 @@ What the widget gives you:
 - a rounded frame with a title bar;
 - a progress bar while NextZXOS's card is made and the machine starts;
 - the usual "click to start" overlay (over the `data-poster` picture when there is one);
-- a toolbar: Pause or Resume, Reset, Mute or Unmute, Fullscreen, and NMI when the element has `data-nmi`;
+- a toolbar: Pause or Resume, Reset, NMI (when the element has `data-nmi`), Mute or Unmute, Fullscreen;
 - a status line.
 
 Every element with the class `jnext-widget` gets a player, so a page can hold several.

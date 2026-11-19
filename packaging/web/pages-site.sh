@@ -14,8 +14,13 @@
 # of it, and no game. The guard, on the zip's entries and again on the tree written:
 #   - the file list must be exactly index.html plus the zip's entries minus the example pages
 #     (an extra file is refused), and must hold jnext-<ver>.js, .wasm and jnext-widget.js;
-#   - a name ending in .img .mmc .zip .nex .tap .tzx .sna .szx .z80 .jns .rzx .wav or .raw is
-#     refused at any depth, in any case;
+#   - a name with any of these as a dot-separated part (so x.img.gz and x.nex.txt too) is refused at
+#     any depth, in any case: images and ROMs (img mmc rom bin dsk trd scl hdf vhd mdr p), programs
+#     and snapshots (nex tap tzx sna szx z80 jns rzx wav raw) and archives or compressed files (zip
+#     gz tgz bz2 xz 7z rar tar); so is a name ending in a dot or whitespace;
+#   - a file whose content starts with a zip, gzip, bzip2, xz, 7z or rar signature, or whose bytes
+#     510 and 511 are 55 AA (a boot sector; a WebAssembly module is exempt), is refused whatever its
+#     name;
 #   - the wasm at most 16 MiB (an image embedded raw into the module is 40 MiB), the whole
 #     site at most 24 MiB;
 #   - no entry is an absolute path, contains .., or is a symlink.
@@ -61,7 +66,18 @@ zpath, ver, template, stage = sys.argv[1:5]
 top = "jnext-%s-web/" % ver
 MiB = 1 << 20
 PAGES = {"plain.html", "itch-host.html", "itch-game.html", "widget.html"}
-BANNED = re.compile(r"\.(img|mmc|zip|nex|tap|tzx|sna|szx|z80|jns|rzx|wav|raw)$", re.I)
+BANNED = {"img", "mmc", "rom", "bin", "dsk", "trd", "scl", "hdf", "vhd", "mdr", "p",
+          "nex", "tap", "tzx", "sna", "szx", "z80", "jns", "rzx", "wav", "raw",
+          "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "tar"}
+MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00", b"7z\xbc\xaf\x27\x1c", b"Rar!")
+def banned_name(r):
+    base = r.rsplit("/", 1)[-1]
+    if base != base.rstrip(". \t\r\n") or not base: return True
+    return any(part.lower() in BANNED for part in base.split(".")[1:])
+def banned_content(d):
+    if d.startswith(MAGIC): return True
+    # a module with the WebAssembly preamble is not a boot sector, whatever bytes 510 and 511 are
+    return len(d) >= 512 and d[510:512] == b"\x55\xaa" and not d.startswith(b"\0asm\x01\0\0\0")
 errs = []
 def bad(m): errs.append(m)
 try:
@@ -79,7 +95,7 @@ for i in z.infolist():
     if r in files: bad("duplicate entry %s" % n); continue
     files[r] = i
 for r in sorted(files):
-    if BANNED.search(r): bad("%s has a program, archive or image name" % r)
+    if banned_name(r): bad("%s has a program, archive, ROM or image name" % r)
 need = ["jnext-%s.js" % ver, "jnext-%s.wasm" % ver, "jnext-widget.js"]
 for r in need:
     if r not in files: bad("the zip has no %s" % r)
@@ -97,7 +113,9 @@ if not errs:
     for r in keep:
         d = os.path.join(stage, r)
         os.makedirs(os.path.dirname(d), exist_ok=True)
-        with open(d, "wb") as f: f.write(z.read(files[r]))
+        data = z.read(files[r])
+        if banned_content(data): bad("%s holds an archive, image or boot sector, whatever its name" % r); continue
+        with open(d, "wb") as f: f.write(data)
         os.chmod(d, 0o644)
     with open(os.path.join(stage, "index.html"), "w", encoding="utf-8", newline="") as f: f.write(page)
     os.chmod(os.path.join(stage, "index.html"), 0o644)
@@ -111,7 +129,7 @@ if not errs:
     if got != set(keep) | {"index.html"}:
         bad("the site holds %s, expected exactly index.html and the package files" % sorted(got ^ (set(keep) | {"index.html"})))
     for g in sorted(got):
-        if BANNED.search(g): bad("the site holds %s, a program, archive or image name" % g)
+        if banned_name(g): bad("the site holds %s, a program, archive, ROM or image name" % g)
 for e in errs: print("pages-site: refused: " + e, file=sys.stderr)
 sys.exit(1 if errs else 0)
 ' "$ZIP" "$VER" "$TEMPLATE" "$STAGE"; then

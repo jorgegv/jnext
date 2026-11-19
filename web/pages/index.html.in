@@ -17,7 +17,7 @@
 Problems and ideas go to <a href="https://github.com/jorgegv/jnext/issues">the issue tracker</a>.</p>
 <div class="jnext-widget" data-title="NextZXOS" data-card-dirs="/APPS,/GAMES" data-nmi></div>
 <p class="note">NextZXOS comes from SpecNext's official distribution, which your browser downloads from specnext.com
-the first time you click. This site hosts none of it, and your browser keeps the SD card it builds.</p>
+(or asks you to) the first time you click. This site hosts none of it, and your browser keeps the SD card it builds.</p>
 <script src="jnext-widget.js"></script>
 </body>
 </html>

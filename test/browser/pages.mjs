@@ -22,7 +22,10 @@ const PKG = path.join(E.SMOKE_PKG, `jnext-${VERSION}-web`);
 const SITE = path.join(ROOT, 'build/pages');
 const REAL_DIRS = E.SMOKE_REAL_DIRS_CARD_SHA256;
 const REAL = { size: Number(E.SMOKE_REAL_ZIP_SIZE), sha256: E.SMOKE_REAL_ZIP_SHA256 };
-const BANNED = /\.(img|mmc|zip|nex|tap|tzx|sna|szx|z80|jns|rzx|wav|raw)$/i;
+// The same list as packaging/web/pages-site.sh: a name with one of these as a dot-separated part, or ending in a dot or whitespace.
+const BANNED_PARTS = new Set(['img', 'mmc', 'rom', 'bin', 'dsk', 'trd', 'scl', 'hdf', 'vhd', 'mdr', 'p', 'nex', 'tap', 'tzx', 'sna', 'szx', 'z80',
+  'jns', 'rzx', 'wav', 'raw', 'zip', 'gz', 'tgz', 'bz2', 'xz', '7z', 'rar', 'tar']);
+const BANNED = { test: (n) => { const b = n.split('/').pop(); return b === '' || /[.\s]$/.test(b) || b.split('.').slice(1).some((x) => BANNED_PARTS.has(x.toLowerCase())); } };
 const EXAMPLES = ['plain.html', 'itch-host.html', 'itch-game.html', 'widget.html'];
 
 const h = new Harness({});
@@ -85,7 +88,7 @@ const listTree = (dir) => {
   return out.sort();
 };
 
-row('PAGES-01', 'the served site is index.html plus the extracted package minus the four example pages; the page has a title, the issues link and no error', async () => {
+row('PAGES-01', 'the served site is index.html plus the extracted package minus the four example pages; the page has a title, the issues link, the toolbar Pause, Reset, NMI (enabled), Mute, Fullscreen and no error', async () => {
   const want = [...listTree(PKG).filter((n) => !EXAMPLES.includes(n)), 'index.html'].sort();
   const got = listTree(SITE);
   must(JSON.stringify(got) === JSON.stringify(want), `site ${JSON.stringify(got)} != package-derived ${JSON.stringify(want)}`);
@@ -95,11 +98,14 @@ row('PAGES-01', 'the served site is index.html plus the extracted package minus 
     title: document.title, h1: document.querySelector('h1').textContent,
     issues: [...document.querySelectorAll('a')].map((a) => a.href).filter((u) => u.includes('github.com')),
     widgets: document.querySelectorAll('.jnext-widget').length, dirs: document.querySelector('.jnext-widget').getAttribute('data-card-dirs'),
-    version: document.querySelector('p').textContent }));
+    version: document.querySelector('p').textContent,
+    buttons: [...document.querySelectorAll('.jnext-widget .jw-btn')].map((b) => b.textContent),
+    nmiOn: !document.querySelector('.jnext-widget [data-jw=nmi]').disabled }));
   await page.close();
   must(info.title.includes('JNEXT') && info.h1.includes('JNEXT'), 'title ' + JSON.stringify(info));
   must(info.issues.includes('https://github.com/jorgegv/jnext/issues'), 'links ' + JSON.stringify(info.issues));
   must(info.widgets === 1 && info.dirs === '/APPS,/GAMES', 'widget ' + JSON.stringify(info));
+  must(JSON.stringify(info.buttons) === JSON.stringify(['Pause', 'Reset', 'NMI', 'Mute', 'Fullscreen']) && info.nmiOn, 'toolbar ' + JSON.stringify([info.buttons, info.nmiOn]));
   must(info.version.includes(`JNEXT ${VERSION},`), 'version text ' + info.version);
   must(page.msgs.length === 0, page.msgs.join('; '));
   must(aLog.filter((r) => r.status === 404 && r.name !== 'favicon.ico').length === 0, '404s ' + JSON.stringify(aLog.filter((r) => r.status === 404)));
