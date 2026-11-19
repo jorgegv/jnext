@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      no ROM fetch is reported; exit 0
 #   B  the IM 1 probe (no-sdcard-probe.py): prints IM1-ARMED, then the first
 #      frame interrupt fetches $0038 from the empty ROM, which is logged once
-#   C  each refusal exits 1 with its message: a card option (either slot), a delayed card
+#   C  each refusal exits 1 with its message: a card option (either slot, --set spelling included), a delayed card
 #      insert (either slot), a delayed NMI, a machine other than the Next, a non-.nex load
 #      and no --load at all
 #   D  the window with a saved 48K in Preferences and no --machine: refused (exit 1)
@@ -64,6 +64,7 @@ if want no-sdcard-func; then
     done <<EOF
 --no-sdcard cannot be combined with --sdcard: there is no SD card.|--sdcard $TMP_DIR/card.img --load $ns_dir/hostfs.nex
 --no-sdcard cannot be combined with --delayed-sdcard-insert-frames: there is no SD card.|--delayed-sdcard-insert-frames 10 $TMP_DIR/card.img --load $ns_dir/hostfs.nex
+--no-sdcard cannot be combined with --sdcard: there is no SD card.|--set paths.sd_card_path=$TMP_DIR/card.img --load $ns_dir/hostfs.nex
 --no-sdcard cannot be combined with --sdcard2: there is no SD card.|--sdcard2 $TMP_DIR/card2.img --load $ns_dir/hostfs.nex
 --no-sdcard cannot be combined with --sdcard2-readonly: there is no SD card.|--sdcard2-readonly --load $ns_dir/hostfs.nex
 --no-sdcard cannot be combined with --delayed-sdcard2-insert-frames: there is no SD card.|--delayed-sdcard2-insert-frames 10 $TMP_DIR/card2.img --load $ns_dir/hostfs.nex

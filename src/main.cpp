@@ -1651,7 +1651,7 @@ int main(int argc, char* argv[]) {
     // the esxDOS stand-in. Anything that needs a card, or a ROM to run, is
     // refused rather than silently ignored.
     if (no_sdcard) {
-        const char* card_opt = sdcard_cli_given                ? "--sdcard"
+        const char* card_opt = (sdcard_cli_given || !sd_card_image.empty()) ? "--sdcard"   // also its --set spelling
                              : sdcard_download_confirm         ? "--sdcard-download-confirm"
                              : sdcard_download_force           ? "--sdcard-download-force"
                              : !sdcard_upgrade_arg.empty()     ? "--sdcard-upgrade"
