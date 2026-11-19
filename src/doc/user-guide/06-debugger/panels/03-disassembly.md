@@ -133,6 +133,11 @@ P04  $8756      LD A,$05          3E 05      [<- PC]
 P04  $8758      PUSH AF           F5
  ...
 P04  $8767      JR Z,$8756        28 ED      [taken] ↑
+```
+
+Stopped on a `RET` instead (a separate stop), the `PC` line reads:
+
+```text
 P04  $8771      RET               C9         [-> $8E02] ↓
 ```
 

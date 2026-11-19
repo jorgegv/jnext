@@ -244,7 +244,7 @@ did in its sender, so no move echoes.
   under a `SyncScope` (`syncing_`), so that slot stays silent, and ends with `emit_lines_(false, ...)`,
   so a stop tints the PC statement's other instructions without scrolling.
   `DisasmPanel::set_source_lines()` (`disasm_panel.cpp:543`) stores the range; a row is linked
-  (`source_linked()`, `linked_at_()`, `:522-530`) when `lookup_all()` in its own space has a location
+  (`source_linked()`, `linked_at_()`, `:530-540`) when `lookup_all()` in its own space has a location
   on a selected line of that file, the primary or not. `paintEvent` fills a linked row with
   `source_sync_colors::linked()` before the PC row, the selection and the coverage bar. With `reveal`
   and no linked row in view, the view centres on the first start of `resolve(file:line)` that is
