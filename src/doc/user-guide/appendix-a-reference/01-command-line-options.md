@@ -222,6 +222,7 @@ with status 1.
     and excludes every **--sdcard** option, **--warm-start-regenerate**,
     **--delayed-sdcard-insert-frames** and **--delayed-nmi**. In a
     browser page it is `card: { source: 'none' }`.
+
 **--sdcard2** *FILE*
 :   Mount SD-card image *FILE* (`.img`) in the **second SD card slot**,
     which NextZXOS sees as the next drive after the first card’s

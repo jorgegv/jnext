@@ -4756,7 +4756,7 @@ how the first visit goes with the <code>card</code> option (<code>data-card-sour
 </tr>
 <tr>
 <td><code>'none'</code></td>
-<td>Neither: no SD card at all, as with <code>--no-sdcard</code>. The <code>file</code> NEX runs with no NextZXOS and no ROMs; nothing is downloaded, asked or kept. For a NEX that needs nothing but the esxDOS file calls, which the stand-in answers (give it a directory with <code>args: ['--esxdos-stub-root', DIR]</code>). An emulator convenience: a program that runs ROM code (an IM 1 interrupt, <code>RST $10</code>) does not work, and the first time it does <code>onError</code> says where, e.g. <code>executed ROM code at $0038 (IM 1); --no-sdcard has no ROM</code>. Needs <code>file</code>; <code>keepWrites</code> is refused.</td>
+<td>Neither: no SD card at all, as with <code>--no-sdcard</code>. The <code>file</code> NEX runs with no NextZXOS and no ROMs; nothing is downloaded, asked or kept. For a NEX that needs nothing but the esxDOS file calls, which the stand-in answers (give it a directory with <code>args: ['--esxdos-stub-root', DIR]</code>). An emulator convenience: a program that runs ROM code (an IM 1 interrupt, <code>RST $10</code>) does not work, and the first time it does <code>onError</code> says where, e.g. <code>executed ROM code at $0038 (IM 1); --no-sdcard has no ROM</code>. Needs <code>file</code>; <code>keepWrites</code> and <code>dirs</code> are refused (there is no card to keep writes on or to add directories to).</td>
 </tr>
 </tbody>
 </table>

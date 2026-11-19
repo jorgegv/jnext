@@ -4640,6 +4640,29 @@ image</a>.</dd>
 card is mounted, the stand-in’s file included, so the run starts on
 the image as it is. Requires <strong>--sdcard-writes</strong>. A file that is not
 a <strong>jnext</strong> SD-writes file is refused, never removed.</dd>
+<dt><strong>--no-sdcard</strong></dt>
+<dd>Run a directly loaded NEX with no SD card at all: no NextZXOS, no
+ROMs and no warm start. An emulator convenience, like the esxDOS
+stand-in: a real Next always has its ROMs. The NEX starts on the
+synthetic machine <strong>--load</strong> has always assembled when there is no
+firmware, and every esxDOS call it makes is answered by the
+stand-in: it implies <strong>--esxdos-stub</strong>, so the NEX’s own directory
+is served, unless <strong>--esxdos-stub-root</strong> names another. For a
+program that uses no ROM routine and no NextZXOS service beyond the
+esxDOS file calls. <strong>The ROM area is empty</strong>: the first time the
+program executes code from a ROM (an IM 1 interrupt at \$0038, <strong>RST
+\$10</strong>, a call into the ROM) <strong>jnext</strong> logs an error naming the
+address and the likely cause,
+e.g. <code>executed ROM code at $0038 (IM 1); --no-sdcard has no ROM</code>,
+and the program will hang or show garbage. DivMMC and the Multiface
+are held off, the NMI buttons are refused, File &gt; Insert SD Card
+Image… and Eject SD Card are disabled and the status bar shows <strong>SD:
+none</strong>. A hard reset runs the boot ROM, which stops at its no-card
+screen as on hardware; the program is not loaded again. Requires
+<strong>--load</strong> of a <strong>.nex</strong> (directly or in a <strong>.zip</strong>) on the Next,
+and excludes every <strong>--sdcard</strong> option, <strong>--warm-start-regenerate</strong>,
+<strong>--delayed-sdcard-insert-frames</strong> and <strong>--delayed-nmi</strong>. In a
+browser page it is <code>card: { source: 'none' }</code>.</dd>
 <dt><strong>--sdcard2</strong> <em>FILE</em></dt>
 <dd>Mount SD-card image <em>FILE</em> (<code>.img</code>) in the <strong>second SD card slot</strong>,
 which NextZXOS sees as the next drive after the first card’s
