@@ -106,7 +106,7 @@ on frame 125 do exit 0 end
 | The rule's event | A `set` or `out` is seen by |
 |---|---|
 | `execute`, `cycle`, `hostkey` (before the instruction) | **the instruction at `PC` itself**: `set PC = …` redirects before anything runs, and `set A = 0xFF` is the value the instruction reads |
-| `read`, `write`, `io_read`, `io_write`, `nextreg`, `copper`, `dma`, `interrupt`, `nmi` (after the instruction) | **the next instruction**. The instruction that raised the event has completed with its own effects: `set mem[ADDR] = PREV` after a caught write undoes it before anyone reads it, but the write did happen |
+| `read`, `write`, `read_write`, `io_read`, `io_write`, `nextreg`, `copper`, `dma`, `interrupt`, `nmi` (after the instruction) | **the next instruction**. The instruction that raised the event has completed with its own effects: `set mem[ADDR] = PREV` after a caught write undoes it before anyone reads it, but the write did happen |
 | `frame`, `scanline` | the next instruction |
 
 One exception to watch: a CPU `NEXTREG` write commits *after* its instruction's

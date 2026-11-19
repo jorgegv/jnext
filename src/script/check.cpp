@@ -119,6 +119,7 @@ PayloadScope scope_of(const EventSpec& ev) {
         case EventType::Execute:   return PayloadScope(EventKind::Execute);
         case EventType::Read:      return PayloadScope::mem(Access::Read);
         case EventType::Write:     return PayloadScope::mem(Access::Write);
+        case EventType::ReadWrite: return PayloadScope::mem(Access::ReadWrite);
         case EventType::IoRead:    return PayloadScope::port(Access::Read);
         case EventType::IoWrite:   return PayloadScope::port(Access::Write);
         case EventType::NextReg:   return PayloadScope(EventKind::NextRegWrite);
