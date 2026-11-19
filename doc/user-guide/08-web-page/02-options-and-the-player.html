@@ -4694,6 +4694,10 @@
 <td>Load another program (same forms as <code>file</code>) while the machine runs. Resolves when it is in the machine.</td>
 </tr>
 <tr>
+<td><code>nmi()</code></td>
+<td>Press the NMI button (the Multiface one, as F9): NextZXOS's NMI Menu opens. Returns a promise; it rejects when the machine is not running, and with card source <code>'none'</code> (no Multiface ROM), with the reason as the error message and nothing sent to <code>onError</code>.</td>
+</tr>
+<tr>
 <td><code>setVolume(v)</code></td>
 <td>Master level, 0 (silent) to 1; anything else throws a <code>RangeError</code>. A player started <code>muted</code> has no audio device.</td>
 </tr>

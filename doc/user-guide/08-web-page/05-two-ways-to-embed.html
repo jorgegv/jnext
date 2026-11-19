@@ -4519,7 +4519,7 @@ is yours to add: see <a href="02-options-and-the-player.html">8.2</a>.</p>
 <li>a rounded frame with a title bar;</li>
 <li>a progress bar while NextZXOS's card is made and the machine starts;</li>
 <li>the usual "click to start" overlay (over the <code>data-poster</code> picture when there is one);</li>
-<li>a toolbar: Pause or Resume, Reset, Mute or Unmute, Fullscreen;</li>
+<li>a toolbar: Pause or Resume, Reset, Mute or Unmute, Fullscreen, and NMI when the element has <code>data-nmi</code>;</li>
 <li>a status line.</li>
 </ul>
 <p>Every element with the class <code>jnext-widget</code> gets a player, so a page can hold several.</p>
@@ -4568,6 +4568,11 @@ is yours to add: see <a href="02-options-and-the-player.html">8.2</a>.</p>
 <td><code>data-touch-keyboard</code></td>
 <td>the on-screen keyboard (<code>touchKeyboard</code>): <code>auto</code>, <code>on</code> or <code>off</code></td>
 <td><code>auto</code>: shown on a phone or tablet</td>
+</tr>
+<tr>
+<td><code>data-nmi</code></td>
+<td>add an NMI button after Reset (the Multiface NMI, F9: it opens NextZXOS's NMI Menu); it stays disabled with <code>data-card-source="none"</code>, which has no Multiface ROM. Any value</td>
+<td>off</td>
 </tr>
 <tr>
 <td><code>data-title</code></td>

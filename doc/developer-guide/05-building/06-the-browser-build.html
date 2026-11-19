@@ -2200,6 +2200,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-pages-demo-site" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Pages demo site
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3202,7 +3213,7 @@ the man page's browser section is diffed against the table and the refusal
 functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The controller
 (<code>web_controller.cpp</code>, a source of <code>jnext_web</code> only) holds the exported calls
 (<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_save_snapshot</code>,
-<code>jnext_web_rzx_record</code>, <code>jnext_web_rzx_stop</code>, <code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
+<code>jnext_web_nmi</code> (the Multiface NMI, <code>player.nmi()</code>; refused under <code>--no-sdcard</code>, which has no ROM to service it), <code>jnext_web_rzx_record</code>, <code>jnext_web_rzx_stop</code>, <code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
 the page when the program is in the machine and a frame has followed (the <code>ready</code>
 event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code>, <code>jnext_web_gain_db</code>,
 <code>jnext_web_frame_period_ms</code> and <code>jnext_web_cpu_mhz</code> (the frame period and the
@@ -3561,6 +3572,18 @@ name, so the seam is honoured there too.</p>
 <p>Rows: BCARD (<code>test/browser/card.mjs</code>: the probe, fetch, pick, cache and seam paths, and the
 build of the real distribution when cached) and LUDC (<code>test/lint-user-docs-card-selftest.sh</code>:
 the user-facing-docs lint and its scope).</p>
+<h2 id="the-pages-demo-site">The Pages demo site<a class="headerlink" href="#the-pages-demo-site" title="Permanent link">&para;</a></h2>
+<p><code>make pages-site</code> (prerequisite <code>package-web</code>) runs <code>packaging/web/pages-site.sh</code>, which reads
+<code>jnext-&lt;ver&gt;-web.zip</code> with CPython's <code>zipfile</code> and writes <code>build/pages</code>: the zip's files minus the
+four example pages, plus <code>index.html</code>, made from <code>web/pages/index.html.in</code> with the version of
+<code>version.yaml</code>. The page holds one widget with <code>data-card-dirs="/APPS,/GAMES"</code> and <code>data-nmi</code>. The
+script refuses, and removes the output, when the site is not exactly that list, when any name ends
+in an image, program, archive or recording extension (<code>.img .mmc .zip .nex .tap .tzx .sna .szx .z80
+.jns .rzx .wav .raw</code>, any case, any depth), or when the wasm exceeds 16 MiB or the site 24 MiB. The
+site never holds NextZXOS, the distribution or a program: the visitor's browser downloads the
+distribution from specnext.com. <code>test/packaging/pages-site-test.sh</code> (PSITE-01 to 05, hermetic) pins
+the script and the workflow wiring; <code>test/browser/pages.mjs</code> (PAGES-01 and 02) serves <code>build/pages</code>
+alone, and <code>wasm-browser-test</code> has <code>pages-site</code> as a prerequisite.</p>
 
 
 

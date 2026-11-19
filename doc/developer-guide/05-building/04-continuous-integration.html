@@ -3335,6 +3335,9 @@ releases. Then <code>src</code>,
 <code>flatpak-build.yml</code>), <code>web</code> (<code>make package-web</code> in a Fedora container: the browser
 zip, with the Emscripten SDK cache of the <code>test</code> job and no SD image, since the
 zip never holds one) <code>macos</code> and <code>macos-intel</code>.
+A public release also deploys the live demo: the <code>pages</code> job (after <code>publish</code>, same gate) calls the reusable
+<code>pages.yml</code>, which builds <code>make pages-site</code> and deploys it with <code>actions/deploy-pages</code> under the <code>github-pages</code>
+environment. <code>pages.yml</code> can also be dispatched by hand from <code>main</code> or a <code>v*</code> tag.
 Finally <strong><code>publish</code></strong> attaches everything to a GitHub Release, gated on
 <code>if: success() &amp;&amp; needs.gate.outputs.publish == 'true'</code>.</p>
 <p>That explicit <code>success()</code> is what makes a failed artifact job withhold the
