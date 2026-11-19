@@ -23,7 +23,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      grabbed 0.7 s after "fast boot: ended" is not black.
 #   H  Qt control, the same without the hide: the frozen grab is NOT black, and no extra log line. It proves the capture can see a real screen,
 #      so G's black is not vacuous.
-#   I  the SDL-only build, as G.
+#   I  the SDL-only build, as G but with no grab inside the window (an `import` of that window hangs
+#      the X server, see the call below); the black frame is pinned by sdl_app_tick_test.
 #   I2 the SDL-only build, as H.
 #   J  Qt, the SAVED preference (jnext.conf [startup] fast_boot_seconds=2 and
 #      fast_boot_hide_screen=true, no command-line setting): the extra log line, the window
@@ -69,7 +70,7 @@ if want fast-boot-hide-func; then
                 [ "$mode" = window ] && grep -qF "fast boot: ended" "$log" 2>/dev/null && break
                 sleep 0.05
             done
-            if [ "$mode" = window ]; then
+            if [ "$mode" = window ] || [ "$mode" = nomid ]; then
                 # Freeze the emulator at the firmware soft reset, still inside the window, and grab
                 # the frozen window: a stopped process cannot finish fast boot under the grab.
                 for _ in $(seq 1 6000); do
@@ -77,7 +78,7 @@ if want fast-boot-hide-func; then
                     sleep 0.02
                 done
                 kill -STOP "$pid" 2>/dev/null
-                if [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null; then
+                if [ "$mode" = window ] && [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null; then
                     import -window "$wid" "png:$pre-mid-1.png" 2>/dev/null || true
                 fi
                 kill -CONT "$pid" 2>/dev/null
@@ -110,12 +111,14 @@ if want fast-boot-hide-func; then
     fh_is_black() { [[ -n "$1" ]] && awk -v m="$1" 'BEGIN { exit !(m + 0 == 0) }'; }
     fh_not_black() { [[ -n "$1" ]] && awk -v m="$1" 'BEGIN { exit !(m + 0 > 0) }'; }
 
-    # fh_phase LABEL BINARY PREFIX HIDE(1|0) jnext-args...: G, H, I, I2.
+    # fh_phase LABEL BINARY PREFIX HIDE(1|0) GRAB(1|0) jnext-args...: G, H, I, I2. GRAB=0 skips the
+    # frozen grab (see I below) and so the black check; the rest of the phase still runs.
     fh_phase() {
-        local label="$1" bin="$2" pre="$fh_dir/$3" hide="$4"; shift 4
+        local label="$1" bin="$2" pre="$fh_dir/$3" hide="$4" grab="$5"; shift 5
         local extra=() f m n=0 black=0 lit=0 post
         [[ "$hide" == 1 ]] && extra=(--set startup.fast_boot_hide_screen=true)
-        fh_run "$bin" "$pre" window \
+        local fmode=window; [[ "$grab" == 1 ]] || fmode=nomid
+        fh_run "$bin" "$pre" "$fmode" \
             --machine next --sdcard-readonly ${SD_CARD_ARGS[@]+"${SD_CARD_ARGS[@]}"} --fast-boot 60 \
             ${extra[@]+"${extra[@]}"} "$@"
         for f in "$pre"-mid-*.png; do
@@ -126,8 +129,10 @@ if want fast-boot-hide-func; then
         post=$(fh_max "$pre-post.png")
         if [[ "$hide" == 1 ]]; then
             fh_has "$pre.log" "$fh_black_line" || fh_faults+=("$label: no '$fh_black_line' line")
-            [[ $n -gt 0 ]] || fh_faults+=("$label: no capture inside the fast-boot window (harness fault)")
-            [[ $lit -eq 0 ]] || fh_faults+=("$label: $lit of $n captures inside the window were not black")
+            if [[ "$grab" == 1 ]]; then
+                [[ $n -gt 0 ]] || fh_faults+=("$label: no capture inside the fast-boot window (harness fault)")
+                [[ $lit -eq 0 ]] || fh_faults+=("$label: $lit of $n captures inside the window were not black")
+            fi
             fh_not_black "$post" || fh_faults+=("$label: the window stayed black after fast boot ended (max=${post:-unreadable})")
         else
             if fh_has "$pre.log" "$fh_black_line"; then fh_faults+=("$label: the black line without the setting"); fi
@@ -145,10 +150,16 @@ if want fast-boot-hide-func; then
         fail_row " (SDL-only binary not built: $fh_sdl; run 'make sdl-release')"
     else
         rm -f "$fh_conf"
-        fh_phase G  "$JNEXT"   g  1
-        fh_phase H  "$JNEXT"   h  0
-        fh_phase I  "$fh_sdl"  i  1
-        fh_phase I2 "$fh_sdl"  i2 0
+        fh_phase G  "$JNEXT"   g  1 1
+        fh_phase H  "$JNEXT"   h  0 1
+        # I: no grab inside the window. An `import` of the SDL window while its only presented frame
+        # is the held black one hangs the X server (measured: the app and `import` both stall until
+        # the row's timeout; the same grab of the control window, which presents on every tick, is
+        # fine). The SDL black frame is pinned by sdl_app_tick_test SDLT-15..17; here I checks the
+        # wiring (--set reaches the arming in the SDL-only binary: the log line) and the real
+        # screen after the window ends.
+        fh_phase I  "$fh_sdl"  i  1 0
+        fh_phase I2 "$fh_sdl"  i2 0 1
 
         # --- J: Qt, the saved preference, ended by time up ---
         printf '[startup]\nfast_boot_seconds=2\nfast_boot_hide_screen=true\n' > "$fh_conf"
