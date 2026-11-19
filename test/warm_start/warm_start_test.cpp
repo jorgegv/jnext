@@ -1090,6 +1090,73 @@ int main()
                   refused(id, "recorded by a different recording procedure (version 0"),
                   why);
         }
+
+        // GH #505: the second SD card is part of the machine the recording is of.
+        // Oracle for the layout: the header table in warm_start_cache.cpp (offsets
+        // 96 and 104, after the stored length at 88; magic "JNEXTWS4").
+        {
+            warm_start::Identity with2 = id;
+            with2.sd2_image_bytes = 0x1122334455667788ull;
+            with2.sd2_image_mtime = 0x0102030405060708ll;
+            warm_start::store(with2, state, why);
+            const bool loads_same = [&] {
+                out.clear();
+                return warm_start::load(with2, out, why) && out == state;
+            }();
+            const bool without_refused =
+                refused(id, "recorded with a different second SD card");
+            warm_start::store(id, state, why);              // a file made WITHOUT a second card
+            const bool with_refused =
+                refused(with2, "recorded with a different second SD card");
+            warm_start::Identity other2 = with2;
+            other2.sd2_image_mtime += 1;
+            warm_start::store(with2, state, why);
+            const bool mtime_refused =
+                refused(other2, "recorded with a different second SD card");
+            check("SDSLOT-30",
+                  "a recording made with a second SD card (size, mtime) loads only for the same "
+                  "card: refused for none, for another mtime, and vice versa; the same card loads",
+                  loads_same && without_refused && with_refused && mtime_refused, why);
+        }
+        {
+            warm_start::Identity with2 = id;
+            with2.sd2_image_bytes = 0x1122334455667788ull;
+            with2.sd2_image_mtime = 0x0102030405060708ll;
+            for (size_t i = 0; i < with2.sd2_journal_sha256.size(); ++i)
+                with2.sd2_journal_sha256[i] = static_cast<uint8_t>(0xC0 + i);
+            warm_start::store(with2, state, why);
+            const auto raw = read_file(warm_start::cache_path(0));
+            bool jd_ok = raw.size() >= 144;
+            for (size_t i = 0; jd_ok && i < 32; ++i) jd_ok = raw[112 + i] == 0xC0 + i;
+            const bool layout = raw.size() == warm_start::kHeaderBytes + le64(raw, 88) &&
+                                warm_start::kHeaderBytes == 144 && jd_ok &&
+                                le64(raw, 96) == with2.sd2_image_bytes &&
+                                static_cast<int64_t>(le64(raw, 104)) == with2.sd2_image_mtime &&
+                                std::memcmp(raw.data(), "JNEXTWS4", 8) == 0;
+            const uint8_t three = '3';
+            poke(warm_start::cache_path(0), 7, &three, 1);   // a previous-generation magic
+            out.clear();
+            why.clear();
+            const bool old_refused = !warm_start::load(with2, out, why) &&
+                                     why.find("is not a jnext warm-start file") != std::string::npos;
+            check("SDSLOT-31",
+                  "the header carries the second card's size, mtime and write-journal digest at "
+                  "offsets 96, 104 and 112 (144-byte header, magic JNEXTWS4); a JNEXTWS3 file is refused at the magic",
+                  layout && old_refused, why);
+        }
+        {
+            EmulatorConfig live;
+            live.type = MachineType::ZXN_ISSUE2;
+            live.sd_card_image = "a.img";
+            live.sd_card2_image = "b.img";
+            live.sd_card2_readonly = true;
+            const EmulatorConfig b = Emulator::warm_start_boot_config(live);
+            check("SDSLOT-32",
+                  "the recorder boots the same machine: warm_start_boot_config keeps the second "
+                  "SD card and its read-only flag (the resident NextZXOS must know D:)",
+                  b.sd_card2_image == "b.img" && b.sd_card2_readonly && b.sd_card_image == "a.img",
+                  b.sd_card2_image);
+        }
     }
 
     // ── store() refusals ─────────────────────────────────────────────
@@ -2569,6 +2636,73 @@ int main()
                       det("bound=%d w0=%d planted=%d hit1=%d w1=%d hit2=%d restored=%d diff=%d",
                           bound, w0, planted, hit1, w1, hit2, tap.count(kRestored),
                           tap.count(kDiffImage)));
+            }
+            // SDSLOT-33 (GH #505): the second card's journal is part of the key, like card 0's
+            // (WSR-SDW-02): its image never changes, the card the guest sees does. Same oracle as
+            // the rows above (SHA-256(zero digest || SHA-256(records)), built here from known writes).
+            {
+                const std::string card = fresh("sdslot33.img");
+                const std::string card2 = g_dir + "/sdslot33-b.img";
+                blob(card2);
+                fs::remove(card2 + ".jsdw", ec);
+                const bool bound = bind_j(card2, "");
+                auto make2 = [&](Emulator& e) {
+                    EmulatorConfig c;
+                    c.type = MachineType::ZXN_ISSUE2;
+                    c.rewind_buffer_frames = 0;
+                    c.sd_card_image = card;
+                    c.sd_card2_image = card2;
+                    e.init(c);
+                };
+                // The journal is written directly: a guest CMD24 would also move the process-wide
+                // write generation, which drops the in-memory state for a reason that is not the key.
+                auto write2 = [&](Emulator&, uint32_t sector, uint8_t fill) {
+                    const auto j2 = swj::for_image(card2);
+                    const std::vector<uint8_t> data(512, fill);
+                    return j2 && j2->commit(sector, data.data());
+                };
+                // Plant a recording keyed on card 0 (size, mtime) AND card 2 (size, mtime, journal).
+                auto plant2 = [&](const Digest& jd) {
+                    auto probe_heap = std::make_unique<Emulator>();
+                    make2(*probe_heap);
+                    StateWriter measure;
+                    probe_heap->save_state(measure);
+                    std::vector<uint8_t> st(measure.position());
+                    StateWriter w(st.data(), st.size());
+                    probe_heap->save_state(w);
+                    warm_start::Identity pid;
+                    pid.machine_type = static_cast<uint8_t>(MachineType::ZXN_ISSUE2);
+                    pid.format_version = warm_start::kFormatVersion;
+                    pid.plain_bytes = st.size();
+                    pid.sd_image_bytes = fs::file_size(card, ec);
+                    pid.sd_image_mtime = mtime_of(card);
+                    pid.sd2_image_bytes = fs::file_size(card2, ec);
+                    pid.sd2_image_mtime = mtime_of(card2);
+                    pid.sd2_journal_sha256 = jd;
+                    std::string pwhy;
+                    return warm_start::store(pid, st, pwhy);
+                };
+                auto e0_heap = std::make_unique<Emulator>();
+                make2(*e0_heap);
+                const bool w0 = write2(*e0_heap, 3, 0x11);
+                const bool planted = plant2(folded(Digest{}, {{3, 0x11}}));
+                LogTap tap(Log::emulator());
+                auto e1_heap = std::make_unique<Emulator>();
+                make2(*e1_heap);
+                const bool hit1 = e1_heap->ensure_warm_start_state();
+                const bool w1 = write2(*e0_heap, 9, 0x22);
+                auto e2_heap = std::make_unique<Emulator>();
+                make2(*e2_heap);
+                const bool hit2 = e2_heap->ensure_warm_start_state();
+                check("SDSLOT-33",
+                      "a recording planted under the second card's folded journal digest is restored "
+                      "by the next Emulator with the same journal, and refused once that journal "
+                      "holds one more sector",
+                      bound && w0 && planted && hit1 && w1 && !hit2 && tap.count(kRestored) == 1 &&
+                          tap.count("recorded with a different second SD card") >= 1,
+                      det("bound=%d w0=%d planted=%d hit1=%d w1=%d hit2=%d restored=%d diff=%d",
+                          bound, w0, planted, hit1, w1, hit2, tap.count(kRestored),
+                          tap.count("recorded with a different second SD card")));
             }
             // WSR-SDW-03: journal mode is exact: an own write is no staleness.
             {

@@ -518,11 +518,13 @@ int main() {
     }
 
     // SETK-24 (GH #459): the browser build refuses --set of exactly the keys whose
-    // dedicated flag it refuses (cli::browser_refusal): the eight esp.* / nextpi.* ones.
+    // dedicated flag it refuses (cli::browser_refusal): the eight esp.* / nextpi.* ones and,
+    // since GH #505 (owner decision 2026-11-19: refuse), paths.sd_card2_path (--sdcard2).
     {
         const std::set<std::string> want = {
             "esp.enabled", "esp.allowed_hosts", "nextpi.enabled", "nextpi.dir",
             "nextpi.release", "nextpi.qemu_binary", "nextpi.audio", "nextpi.qemu_args",
+            "paths.sd_card2_path",
         };
         std::set<std::string> got;
         std::string bad;
@@ -533,8 +535,23 @@ int main() {
             if ((sec == "esp" || sec == "nextpi") && !refused) bad += full_name(k) + " not refused ";
         }
         if (got != want) bad += "refused set differs";
-        check("SETK-24", "the keys refused by the browser build are exactly the 8 esp.* and nextpi.* ones, "
-                         "and every key of those two sections is among them", bad.empty(), bad);
+        check("SETK-24", "the keys refused by the browser build are exactly the 8 esp.* and nextpi.* ones "
+                         "plus paths.sd_card2_path, and every key of those two sections is among them", bad.empty(), bad);
+    }
+
+    // SDSLOT-53 (GH #505, owner decision 2026-11-19): the browser build refuses the second card's
+    // path through --set exactly as it refuses --sdcard2, naming the browser build; the first
+    // card's path (--sdcard, which a page does give) is not refused.
+    {
+        const config_keys::Key* sd2 = config_keys::find("paths", "sd_card2_path");
+        const config_keys::Key* sd1 = config_keys::find("paths", "sd_card_path");
+        const char* why = sd2 ? config_keys::browser_refusal(*sd2) : nullptr;
+        check("SDSLOT-53",
+              "--set paths.sd_card2_path is refused by the browser build, with a reason naming it, and "
+              "paths.sd_card_path is not",
+              sd2 && sd1 && why && std::string(why).find("browser build") != std::string::npos &&
+                  config_keys::browser_refusal(*sd1) == nullptr,
+              why ? why : "not refused");
     }
 
     // SETK-CRT-01: the browser build runs the CRT effect, so exactly the three startup.crt_*

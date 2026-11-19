@@ -60,10 +60,6 @@ static std::string dstr(const std::vector<Diagnostic>& ds) {
 
 // ---- fixture ---------------------------------------------------------------
 
-static const char* const kDevice =
-    "|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
-    "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n";
-
 // main.bas:10 is compiled at TWO places (page 20 $C000 and page 21 $C100); line
 // 11 at one. Labels: `banked` (page 20 $C000), `odd-name` (page 21 $C010, a
 // name outside the @name grammar) and an UNPAGED `gen` at $8002.

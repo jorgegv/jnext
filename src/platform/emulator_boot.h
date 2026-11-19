@@ -531,7 +531,13 @@ emulator_service_sd_card_change(Emulator& emu, EmulatorConfig& frontend_cfg,
     std::optional<Emulator::SdCardChange> request = emu.take_sd_card_change_request();
     if (!request) return std::nullopt;
     SdCardChangeOutcome outcome{*request, emu.change_sd_card(*request)};
-    if (outcome.error.empty() && !request->image.empty()) {
+    if (outcome.error.empty() && request->slot == 1) {
+        // The second card's path follows an eject too (it has no ROM role): see
+        // Emulator::change_sd_card().
+        frontend_cfg.sd_card2_image = request->image;
+        if (!request->image.empty()) frontend_cfg.sd_card2_readonly = request->read_only;
+        frontend_cfg_set               = true;
+    } else if (outcome.error.empty() && !request->image.empty()) {
         frontend_cfg.sd_card_image    = request->image;
         frontend_cfg.sd_card_readonly = request->read_only;
         frontend_cfg_set              = true;

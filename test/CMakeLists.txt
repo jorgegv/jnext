@@ -1420,6 +1420,16 @@ target_link_libraries(nmi_integration_test PRIVATE
 target_include_directories(nmi_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nmi_integration_tests COMMAND nmi_integration_test)
 
+# GH #540 - --no-sdcard: the ROM-fetch report, DivMMC / Multiface held off, the
+# NMI buttons and SD card changes refused, on an Emulator with no card.
+add_executable(no_sdcard_test core/no_sdcard_test.cpp)
+target_link_libraries(no_sdcard_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(no_sdcard_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME no_sdcard_tests COMMAND no_sdcard_test)
+
 # Atic Atac Next regressions (GH #84): physical DivMMC ROM SRAM,
 # stackless NMI, and post-RETN DivMMC/Multiface overlay timing.
 # All fixtures are generated at runtime; no game data is shipped.
@@ -1972,6 +1982,13 @@ if(ENABLE_QT_UI)
     target_link_libraries(esp_status_test PRIVATE jnext_gui)
     target_include_directories(esp_status_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esp_status_tests COMMAND esp_status_test)
+
+    # GH #540 - --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" shown.
+    add_executable(no_sdcard_ui_test gui/no_sdcard_ui_test.cpp)
+    set_target_properties(no_sdcard_ui_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(no_sdcard_ui_test PRIVATE jnext_gui)
+    target_include_directories(no_sdcard_ui_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME no_sdcard_ui_tests COMMAND no_sdcard_ui_test)
 
     # File > Recent Files wiring (GH #406): what is recorded, the numbered
     # entries, Clear, a vanished file, persistence, the load-dialog seed.
@@ -2602,3 +2619,10 @@ add_test(NAME web_api_tests COMMAND web_api_test)
 # on a Spanish desktop. Must stay LAST — it applies to the add_test()s seen so far.
 get_property(JNEXT_REGISTERED_TESTS DIRECTORY PROPERTY TESTS)
 set_tests_properties(${JNEXT_REGISTERED_TESTS} PROPERTIES ENVIRONMENT "LC_ALL=C")
+
+# GH #505 stage 3: the second SD card in a .jns (media.sdcard2, state/sdcard2.json). Builds its own tiny
+# FAT32 images at run time; needs no SD image fixture.
+add_executable(second_sd_jns_test snapshot/second_sd_jns_test.cpp)
+target_link_libraries(second_sd_jns_test PRIVATE jnext_core)
+target_include_directories(second_sd_jns_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME second_sd_jns_tests COMMAND second_sd_jns_test)

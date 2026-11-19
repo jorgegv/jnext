@@ -2955,6 +2955,57 @@ void group_ss() {
                   rx_swap0, cnt_swap0, rx_swap1, cnt_swap1));
     }
 
+    // SDSLOT-01 (GH #505): the discriminative companion of SS-14. Two DISTINCT
+    // devices, one per socket, are told apart by the select: spi_ss_sd0_n =
+    // port_e7_reg(0), spi_ss_sd1_n = port_e7_reg(1) (zxnext.vhd:3331-3332), the
+    // one shared MISO (:3278-3280) carrying whichever slave is selected. The
+    // port-0xE7 decode (:3311-3314) gives "10" -> SD0 and "01" -> SD1 with
+    // NR 0x0A bit 5 clear, and the opposite with it set. Unlike SS-14's one
+    // mock on both selects, a swap that routed to the wrong device, or a
+    // select that reached both, fails here.
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice dev0, dev1;
+        dev0.next_response = 0x11;
+        dev1.next_response = 0x22;
+        m.attach_device(0, &dev0);
+        m.attach_device(1, &dev1);
+        auto xfer = [&](uint8_t cs) {
+            m.write_cs(0xFF);
+            m.write_cs(cs);
+            m.write_data(0xA5);
+            return m.read_data();
+        };
+        auto counts = [&]() { return std::make_pair(dev0.exchange_count, dev1.exchange_count); };
+
+        m.set_sd_swap(false);
+        dev0.exchange_count = dev1.exchange_count = 0;
+        const uint8_t a01 = xfer(0x01);             // "01" -> SD1
+        const auto    c01 = counts();
+        dev0.exchange_count = dev1.exchange_count = 0;
+        const uint8_t a02 = xfer(0x02);             // "10" -> SD0
+        const auto    c02 = counts();
+
+        m.set_sd_swap(true);
+        dev0.exchange_count = dev1.exchange_count = 0;
+        const uint8_t b01 = xfer(0x01);             // swapped: "01" -> SD0
+        dev0.exchange_count = dev1.exchange_count = 0;
+        const uint8_t b02 = xfer(0x02);             // swapped: "10" -> SD1
+        const auto    c02s = counts();
+
+        check("SDSLOT-01",
+              "two distinct devices on the two sockets: with NR 0x0A bit 5 clear write 0x01 "
+              "reaches SD1 only and 0x02 SD0 only; with it set they swap; the shared MISO "
+              "carries only the selected slave (VHDL zxnext.vhd:3311-3314, :3331-3332, "
+              ":3278-3280)",
+              a01 == 0x22 && c01.first == 0 && c01.second >= 1 &&
+              a02 == 0x11 && c02.first >= 1 && c02.second == 0 &&
+              b01 == 0x11 && b02 == 0x22 && c02s.first == 0 && c02s.second >= 1,
+              fmt("a01=%02x c=%d/%d a02=%02x c=%d/%d b01=%02x b02=%02x c=%d/%d",
+                  a01, c01.first, c01.second, a02, c02.first, c02.second, b01, b02,
+                  c02s.first, c02s.second));
+    }
+
     // SS-15 (TASK2-VERIFY11 V11-DIVMMC-01): SpiMaster::reset() must pulse
     // `deselect()` on every currently-selected device before clearing the
     // CS register, mirroring VHDL zxnext.vhd:3308-3309 (`port_e7_reg <=

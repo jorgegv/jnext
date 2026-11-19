@@ -871,7 +871,8 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     if (auto sd = emulator_service_sd_card_change(a.emulator_, a.config_, a.config_set_);
         sd && a.main_window_) {
         a.main_window_->sd_card_change_finished(QString::fromStdString(sd->change.image),
-                                                QString::fromStdString(sd->error));
+                                                QString::fromStdString(sd->error),
+                                                sd->change.slot);
     }
     if (std::string load_file = a.emulator_.take_nex_load_request(); !load_file.empty()) {
         a.cold_boot(load_file);

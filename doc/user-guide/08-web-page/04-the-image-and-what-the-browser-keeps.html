@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.27</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.27</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4753,6 +4753,10 @@ how the first visit goes with the <code>card</code> option (<code>data-card-sour
 <tr>
 <td><code>'pick'</code></td>
 <td>Only way 2: the page always shows the download link and the file button, and makes no request to specnext.com.</td>
+</tr>
+<tr>
+<td><code>'none'</code></td>
+<td>Neither: no SD card at all, as with <code>--no-sdcard</code>. The <code>file</code> NEX runs with no NextZXOS and no ROMs; nothing is downloaded, asked or kept. For a NEX that needs nothing but the esxDOS file calls, which the stand-in answers (give it a directory with <code>args: ['--esxdos-stub-root', DIR]</code>). An emulator convenience: a program that runs ROM code (an IM 1 interrupt, <code>RST $10</code>) does not work, and the first time it does <code>onError</code> says where, e.g. <code>executed ROM code at $0038 (IM 1); --no-sdcard has no ROM</code>. Needs <code>file</code>; <code>keepWrites</code> and <code>dirs</code> are refused (there is no card to keep writes on or to add directories to).</td>
 </tr>
 </tbody>
 </table>

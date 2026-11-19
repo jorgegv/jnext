@@ -12,6 +12,7 @@
 #include "core/program_archive.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
+#include "core/sdcard_file_add.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
 #include "core/sha256.h"
@@ -182,6 +183,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
     if (!preserve_memory) bump_time_epoch_();   // GH #369: a hard init restarts the clock's story
+    // GH #540 - with no card there is no ROM: report the first time the program runs any.
+    rom_fetch_watch_ = cfg.no_sdcard;
+    rom_watch_previous_slot_ = Z80Cpu::SlotKind::Other;
     // A recording in progress belongs to the configuration it began under: an
     // in-place init() (a reset, a machine change) must not let it finish under
     // the new one's key.
@@ -456,6 +460,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // storm at PC=$18FB (102 CMD0 cycles in 4 s).
     if (!preserve_memory) {
         sd_card_.reset();
+        sd_card2_.reset();   // same reason: an external card, GH #505
     }
 
     renderer_.reset(/*hard=*/!preserve_memory);   // GH #263, see palette_ above
@@ -6963,7 +6968,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // dual-attach made the same initialized card answer NextZXOS's
     // slot-1 probe as a phantom second card (the zx_go reference
     // emulator documents this exact bug causing an infinite mount loop).
-    spi_.attach_device(0, &sd_card_);  // SD card in socket 0; socket 1 empty
+    // GH #505: socket 1 (spi_ss_sd1_n = port_e7_reg(1), zxnext.vhd:3331) gets
+    // its OWN, distinct device, the second SD card. Never the same device on
+    // both selects (that is the phantom-card bug above); an unmounted
+    // sd_card2_ answers like an empty socket (0xFF).
+    spi_.attach_device(0, &sd_card_);   // SD card 0 (spi_ss_sd0_n)
+    spi_.attach_device(1, &sd_card2_);  // second SD card (spi_ss_sd1_n)
 
     // GH #251 — teach the UART how to ask whether the joystick-connector serial
     // mux has taken a channel over (zxnext.vhd:3340-3346, :3537). Installed
@@ -7111,9 +7121,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // would corrupt the demo's reset vector and break direct NEX
     // execution. (Pre-Wave-0.1 the Wave 0.1 follow-up commit added this
     // dual-gate after a 14-demo regression; semantics retained verbatim.)
+    //
+    // GH #540 - --no-sdcard counts as the card gate: its hard reset (a cold
+    // boot with the load dropped) runs the boot ROM as hardware does, which
+    // finds no card and stops at its own screen, instead of an empty ROM.
     if (!preserve_memory) {
         if (cfg.type == MachineType::ZXN_ISSUE2 &&
-            !cfg.sd_card_image.empty() &&
+            (!cfg.sd_card_image.empty() || cfg.no_sdcard) &&
             cfg.load_file.empty()) {
             const uint8_t* embedded_data = embedded_nextboot_rom_data();
             const size_t   embedded_size = embedded_nextboot_rom_size();
@@ -7422,6 +7436,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         } else {
             Log::emulator()->warn("could not mount SD card image: '{}'", cfg.sd_card_image);
+        }
+    }
+    // GH #505: the second card, mounted exactly where card 0 is (hard reset
+    // only). No ROM extraction, no digest baseline: it is never a ROM source.
+    // Backstop: one image never in both slots, whatever route put the pair in the config.
+    if (!cfg.sd_card2_image.empty() && sdcard::same_image_file(cfg.sd_card2_image, cfg.sd_card_image)) {
+        Log::emulator()->error("the second SD card image '{}' is the first card's image; the second "
+                               "slot stays empty", cfg.sd_card2_image);
+        config_.sd_card2_image.clear();
+    } else if (!preserve_memory && !cfg.sd_card2_image.empty()) {
+        if (sd_card2_.mount(cfg.sd_card2_image, cfg.sd_card2_readonly)) {
+            Log::emulator()->info("Second SD card image mounted: '{}'", cfg.sd_card2_image);
+        } else {
+            Log::emulator()->warn("could not mount second SD card image: '{}'",
+                                  cfg.sd_card2_image);
         }
     }
 
@@ -8232,6 +8261,7 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
     // A card with a write journal (--sdcard-writes) is never written itself:
     // its key is exact (the journal is read live) and folds the journal in.
     const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+    std::string stat_failed = config_.sd_card_image;   // the card whose stat failed (GH #505)
     auto read_key = [&](warm_start::Identity& k) {
         bool ok;
         if (digest_for_image(config_, digest)) {
@@ -8246,12 +8276,28 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
                                    k.sd_image_mtime);
         }
         if (ok && journal) fold_journal_into_key(*journal, k.sd_image_sha256);
+        // GH #505: the second card's key (size + mtime; 0/0 = none). The
+        // recording boots with it mounted, so it is part of the machine.
+        k.sd2_image_bytes = 0;
+        k.sd2_image_mtime = 0;
+        k.sd2_journal_sha256 = {};
+        if (ok && !config_.sd_card2_image.empty() &&
+            !stat_sd_image_key(config_.sd_card2_image, k.sd2_image_bytes,
+                               k.sd2_image_mtime)) {
+            stat_failed = config_.sd_card2_image;
+            ok = false;
+        }
+        // The second card's write journal, folded as card 0's is: its image never
+        // changes, the card the guest sees does.
+        if (ok && !config_.sd_card2_image.empty()) {
+            if (const auto j2 = sd_write_journal::for_image(config_.sd_card2_image))
+                fold_journal_into_key(*j2, k.sd2_journal_sha256);
+        }
         return ok;
     };
     auto fail_stat = [&]() {
         Log::emulator()->error("warm start: cannot stat SD image '{}' - this load "
-                               "falls back to the synthetic machine",
-                               config_.sd_card_image);
+                               "falls back to the synthetic machine", stat_failed);
         warm_start_state_.clear();
         warm_start_failed_image_ = config_.sd_card_image;
         return unavailable(0);
@@ -8297,6 +8343,11 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
                 "warm start: not applicable on the {} - only the Next boots firmware, so "
                 "there is nothing to record",
                 machine_type_str(config_.type));
+            return unavailable(0);
+        }
+        if (config_.sd_card_image.empty() && config_.no_sdcard) {
+            Log::emulator()->info("warm start: skipped (--no-sdcard) - the program runs on "
+                                  "the synthetic machine, with no NextZXOS behind it");
             return unavailable(0);
         }
         if (config_.sd_card_image.empty()) {
@@ -8772,8 +8823,12 @@ std::string Emulator::take_nex_load_request()
     return request;
 }
 
-std::string Emulator::sd_card_change_refusal() const
+std::string Emulator::sd_card_change_refusal(int slot) const
 {
+    // GH #540 - the session has no card slot to change: nothing was booted
+    // from a card, and nothing would read one inserted now.
+    if (config_.no_sdcard)
+        return "this session runs with --no-sdcard, so it has no SD card";
     if (rzx_recorder_.is_recording())
         return "an RZX recording is being made (stop it first)";
     if (rzx_player_.is_playing())
@@ -8781,14 +8836,30 @@ std::string Emulator::sd_card_change_refusal() const
     // unmount() drops the read overlay, and with it the file a directly loaded
     // extended NEX keeps open (load_nex()): the running program would lose it
     // mid-read. On hardware that file lives on the card being pulled.
-    if (sd_card_.has_read_overlay())
+    if (slot == 0 && sd_card_.has_read_overlay())
         return "the loaded NEX program keeps its own file open on the card";
+    return {};
+}
+
+std::string Emulator::sd_card_cross_slot_refusal(const SdCardChange& change) const
+{
+    if (change.image.empty()) return {};
+    const SdCardDevice& other = change.slot == 0 ? sd_card2_ : sd_card_;
+    // The other slot's MOUNTED image, and its CONFIGURED one: card 0 keeps its path
+    // across an eject (the ROMs come from it), and a hard reset mounts it again.
+    const std::string& other_cfg = change.slot == 0 ? config_.sd_card2_image : config_.sd_card_image;
+    if ((other.mounted() && sdcard::same_image_file(change.image, other.image_path())) ||
+        sdcard::same_image_file(change.image, other_cfg))
+        return "'" + change.image + "' is the image in the " +
+               (change.slot == 0 ? "second" : "first") + " SD card slot; the two slots "
+               "need two different images";
     return {};
 }
 
 std::string Emulator::request_sd_card_change(SdCardChange change)
 {
-    std::string why = sd_card_change_refusal();
+    std::string why = sd_card_change_refusal(change.slot);
+    if (why.empty()) why = sd_card_cross_slot_refusal(change);
     // One change at a time: a second request in the same tick used to REPLACE
     // the first, so the card asked for first silently never went in.
     if (why.empty() && sd_card_change_request_)
@@ -8815,27 +8886,49 @@ void Emulator::carry_sd_card_change(SdCardChange change)
     request_sd_card_change(std::move(change));
 }
 
+std::string Emulator::sd_image_refusal(const std::string& image)
+{
+    // A directory opens as an ifstream on some platforms, so ask the
+    // filesystem what it is first.
+    std::error_code ec;
+    if (std::filesystem::exists(image, ec) && !std::filesystem::is_regular_file(image, ec))
+        return "'" + image + "' is not a file";
+    if (!std::ifstream(image, std::ios::binary).is_open())
+        return "cannot open '" + image + "'";
+    if (program_archive::is_archive_path(image))
+        return "'" + image + "' is a ZIP archive, not an SD card image; unzip it first";
+    return {};
+}
+
 std::string Emulator::change_sd_card(const SdCardChange& change)
 {
-    std::string why = sd_card_change_refusal();
-    if (why.empty() && !change.image.empty()) {
-        // A directory opens as an ifstream on some platforms, so ask the
-        // filesystem what it is first.
-        std::error_code ec;
-        if (std::filesystem::exists(change.image, ec) &&
-            !std::filesystem::is_regular_file(change.image, ec))
-            why = "'" + change.image + "' is not a file";
-        else if (!std::ifstream(change.image, std::ios::binary).is_open())
-            why = "cannot open '" + change.image + "'";
-        else if (program_archive::is_archive_path(change.image))
-            why = "'" + change.image + "' is a ZIP archive, not an SD card image; unzip it first";
-    }
+    std::string why = sd_card_change_refusal(change.slot);
+    if (why.empty() && !change.image.empty()) why = sd_image_refusal(change.image);
+    if (why.empty()) why = sd_card_cross_slot_refusal(change);
     if (!why.empty()) {
         Log::emulator()->error("SD card change refused: {}", why);
         return why;
     }
 
-    if (change.image.empty()) {
+    if (change.slot == 1) {
+        // The second card (GH #505). Unlike card 0 its configured path follows an
+        // EJECT too: it has no power-on role (the ROMs come from card 0), so a hard
+        // reset after an eject keeps the slot empty, and after an insert the new card.
+        if (change.image.empty()) {
+            sd_card2_.unmount();
+            config_.sd_card2_image.clear();   // the path only: --sdcard2-readonly is the session's
+            Log::emulator()->info("Second SD card ejected");
+        } else if (sd_card2_.mount(change.image, change.read_only)) {
+            config_.sd_card2_image    = change.image;
+            config_.sd_card2_readonly = change.read_only;
+            Log::emulator()->info("Second SD card inserted: '{}'{}", change.image,
+                                  change.read_only ? " (read-only)" : "");
+        } else {
+            config_.sd_card2_image.clear();
+            why = "could not mount '" + change.image + "'; the slot is empty";
+            Log::emulator()->error("Second SD card change: {}", why);
+        }
+    } else if (change.image.empty()) {
         sd_card_.unmount();
         Log::emulator()->info("SD card ejected");
     } else if (sd_card_.mount(change.image, change.read_only)) {
@@ -11582,6 +11675,9 @@ uint64_t Emulator::step_one_instruction()
         const bool fetched = cpu_.fetched_opcode_last_execute();
         if (traced)
             trace_log_.set_newest_fetch(fetched ? mmu_.last_m1() : no_fetch_space);
+        // GH #540 - --no-sdcard only, until the first ROM fetch: one branch otherwise.
+        if (rom_fetch_watch_) [[unlikely]]
+            rom_fetch_watch_step_(pc_pre_exec, fetched);
 
         // GH #276 B4 — INS-20 PC coverage: "the PCs executed since clear".
         //
@@ -13121,8 +13217,51 @@ void Emulator::soft_reset()
 // (zxnext.vhd:6340-6371, 2089-2091).
 // ---------------------------------------------------------------------------
 
+// GH #540 - --no-sdcard has no Multiface or DivMMC ROM (they come from the card), so an
+// NMI button would send the CPU to $0066 of an empty ROM. Refused, and said.
+bool Emulator::refuse_nmi_without_card_(const char* button) const
+{
+    if (!config_.no_sdcard) return false;
+    Log::emulator()->warn("{} NMI refused: --no-sdcard has no ROM to service it", button);
+    return true;
+}
+
+// GH #540 - what most likely sent the CPU to `pc`, for the report below. Only the entry
+// points a program reaches without meaning to "call the ROM" are named.
+static std::string rom_fetch_cause(uint16_t pc, Z80Cpu::SlotKind previous)
+{
+    if (pc == 0x0038 && previous == Z80Cpu::SlotKind::Int) return "IM 1";
+    if (pc == 0x0066 && previous == Z80Cpu::SlotKind::Nmi) return "NMI";
+    if (pc == 0x0008) return "RST $08: a ROM error report, or an esxDOS call the stand-in does not answer";
+    if ((pc & 0xFFC7) == 0) return fmt::format("RST ${:02X}", pc);
+    return "a call or jump into the ROM";
+}
+
+void Emulator::rom_fetch_watch_step_(uint16_t pc, bool fetched)
+{
+    const Z80Cpu::SlotKind previous = rom_watch_previous_slot_;
+    rom_watch_previous_slot_ = cpu_.last_slot_kind();
+    if (!fetched) return;   // an INT, an NMI or the esxDOS stand-in: nothing was fetched
+    using K = jnext::dbg::MemSpace::Kind;
+    const K kind = mmu_.last_m1().kind;
+    // The boot ROM is not one of them: a hard reset runs it, and it stops at the
+    // firmware's no-card screen as on hardware.
+    if (kind != K::Rom && kind != K::AltRom && kind != K::DivMmcRom && kind != K::MultifaceRom)
+        return;
+    rom_fetch_watch_ = false;   // the first one only: what follows is its consequence
+    rom_fetch_report_ = fmt::format("executed ROM code at ${:04X} ({}); --no-sdcard has no ROM",
+                                    pc, rom_fetch_cause(pc, previous));
+    Log::emulator()->error("{}", rom_fetch_report_);
+}
+
+std::string Emulator::take_rom_fetch_report()
+{
+    return std::exchange(rom_fetch_report_, std::string());
+}
+
 void Emulator::on_hotkey_f9_mf_nmi()
 {
+    if (refuse_nmi_without_card_("Multiface")) return;
     // VHDL zxnext.vhd:6348, 2090 — `hotkey_m1` is a one-cycle pulse OR'd
     // into the MF assert; the gate at NR 0x06 bit 3 determines whether
     // the producer actually fires. We strobe the NmiSource button line
@@ -13154,6 +13293,7 @@ void Emulator::on_hotkey_f10_divmmc_nmi()
     // DivMMC port is disabled; honour it here so the strobe never
     // fires in that state. The NR 0x06 bit 4 gate is honoured
     // downstream in `NmiSource::nmi_assert_divmmc()`.
+    if (refuse_nmi_without_card_("DivMMC")) return;
     if (!divmmc_.port_io_enable()) {
         return;
     }
@@ -13305,10 +13445,16 @@ void Emulator::propagate_effective_port_enables(uint8_t override_reg,
     // DivMmc and Multiface gate themselves on NR 0x83 bit 0 / bit 1
     // (VHDL :2412 / :2415). When their gate falls low the FSM goes
     // inert (port-decode no longer reaches them).
+    //
+    // GH #540 - --no-sdcard holds both off whatever NR 0x83 says: their ROMs
+    // come from the card, so with none an automap entry point or an NMI would
+    // page in an empty ROM. An emulator convenience, not hardware: a real Next
+    // always has the two ROMs in flash.
+    const bool roms = !config_.no_sdcard;
     divmmc_.set_port_io_enable(
-        (effective_internal_port_enable(0x83, override_reg, override_val) & 0x01) != 0);
+        roms && (effective_internal_port_enable(0x83, override_reg, override_val) & 0x01) != 0);
     multiface_.set_enabled(
-        (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
+        roms && (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
 }
 
 uint8_t Emulator::port_df_read()
@@ -14729,7 +14875,8 @@ void Emulator::save_state(StateWriter& w) const
     // loader was streaming a CMD18 multi-block read restored a card that was
     // no longer streaming and the replayed frames got R1/token framing where
     // sector bytes belonged. Appended last, after esxdos_hostfs, so every
-    // byte before it is exactly where S5b left it.
+    // byte before it is exactly where S5b left it. (GH #505 appends the second
+    // card's FSM after it.)
     //
     // Only the PROTOCOL state travels. The mounted image is an external
     // resource: it is recorded by reopenable identity in a `.jns` manifest
@@ -14737,6 +14884,9 @@ void Emulator::save_state(StateWriter& w) const
     // the esxDOS handles above are.
     sd_card_.save_state(w);
     put_sentinel();   // "sdcard"
+    // GH #505: the second card's FSM, appended after card 0's.
+    sd_card2_.save_state(w);
+    put_sentinel();   // "sdcard2"
 
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
@@ -15218,6 +15368,11 @@ bool Emulator::load_state(StateReader& r)
     if (!r.eof()) {
         sd_card_.load_state(r);
         if (!check_sentinel("sdcard")) return false;
+        // GH #505: the second card, appended after card 0's FSM.
+        if (!r.eof()) {
+            sd_card2_.load_state(r);
+            if (!check_sentinel("sdcard2")) return false;
+        }
     }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
