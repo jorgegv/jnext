@@ -1796,6 +1796,20 @@ if(NOT EMSCRIPTEN)
     add_test(NAME script_events_tests COMMAND script_events_test)
 endif()
 
+# GH #376 - the Breakpoints panel's breakpoint file: the Qt-free codec between GUI
+# breakpoints and `.jds` rules (src/script/bp_script.cpp), over a real Next
+# Debugger. `gate: none`.
+if(NOT EMSCRIPTEN)
+    add_executable(bp_script_test script/bp_script_test.cpp)
+    target_link_libraries(bp_script_test PRIVATE
+        jnext_script
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(bp_script_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME bp_script_tests COMMAND bp_script_test)
+endif()
+
 # GH #26 WP6 (#20) — the recorder: input edges, captures, header, warnings, a
 # cold boot, and the record -> emit -> replay round trip on a fresh machine;
 # ScriptHost's `--record-script`. Qt-free: `gate: none`.

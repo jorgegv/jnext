@@ -3358,6 +3358,39 @@ static void src_rows() {
                                     "second rule fires on the page the load maps (Page{20})",
               ok && held && loaded && g.dbg->state().paused && g.emu.cpu().get_registers().PC == 0xC000, g.sink.tail(3));
     }
+    {
+        // `read_write` registers ONE Mem subscription with both access bits
+        // (dsl-frontend.md section 2.1 / Appendix I.2); `page` is carried as for `write`.
+        Rig g(kPark);
+        const bool ok = g.load("on read_write 0x9000 do log \"x\" end\n"
+                               "on read_write 0x9100..0x91FF page 0x0A do log \"x\" end\n");
+        const auto s = g.subs();
+        const auto r = g.eng->rules();
+        check("DSL-RW-01", "`on read_write` is one Mem subscription, access ReadWrite, lo/hi as written, `page` "
+                           "carried; the Script tab lists it as `read_write 9000`",
+              ok && s.size() == 2 && s[0].kind == EventKind::Mem && s[0].access == Access::ReadWrite &&
+                  s[0].filter.lo == 0x9000 && s[0].filter.hi == 0x9000 && s[1].access == Access::ReadWrite &&
+                  s[1].filter.lo == 0x9100 && s[1].filter.hi == 0x91FF && s[1].filter.page == 0x0A &&
+                  r.size() == 2 && r[0].event == "read_write 9000",
+              dstr(g.last.errors) + " " + show(s) + (r.empty() ? "" : " " + r[0].event));
+    }
+    {
+        // 8000 LD A,(9000h)   8003 INC A   8004 LD (9000h),A   8007 JR $
+        const std::vector<uint8_t> prog = {0x3A, 0x00, 0x90, 0x3C, 0x32, 0x00, 0x90, 0x18, 0xFE};
+        Rig c(prog);
+        c.emu.mmu().write(0x9000, 0x42);
+        const bool cok = c.load("on read_write 0x9000 do log \"rw ${VALUE}\" end\n");
+        c.frames(2);
+        const bool both = c.sink.count("rw 66") == 1 && c.sink.count("rw 67") == 1 && c.hits(0) == 2;
+        Rig s(prog);
+        s.emu.mmu().write(0x9000, 0x42);
+        const bool sok = s.load("on read_write 0x9000 do stop end\n");
+        s.frames(2);
+        check("DSL-RW-02", "on a real 48K a counting `read_write` rule fires on the read (VALUE 66) and on the write "
+                           "(67); a stop-only one pauses after the read instruction, PC on the next",
+              cok && both && sok && s.paused() && s.pc() == 0x8003,
+              dstr(c.last.errors) + c.sink.tail(3) + " pc=" + hex(s.pc()));
+    }
 }
 
 int main() {

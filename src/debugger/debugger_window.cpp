@@ -964,6 +964,12 @@ void DebuggerWindow::create_menus() {
         if (BreakpointModel* m = breakpoint_model()) m->clear_all();
     });
 
+    bp_menu->addSeparator();
+    QAction* save_bp_script = bp_menu->addAction(tr("&Save as Script..."));
+    connect(save_bp_script, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_breakpoints_script);
+    QAction* load_bp_script = bp_menu->addAction(tr("&Load from Script..."));
+    connect(load_bp_script, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_breakpoints_script);
+
     // --- Watches menu ---
     QMenu* watches_menu = bar->addMenu(tr("&Watches"));
 

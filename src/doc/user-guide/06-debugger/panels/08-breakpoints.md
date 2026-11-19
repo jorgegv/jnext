@@ -8,6 +8,9 @@ a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (`main.bas:120`); see
 [Breakpoints on a source line](../source-debugger/06-breakpoints-and-steps.md).
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.
+**Breakpoints ▸ Save as Script…** keeps your own breakpoints in a file and
+**Load from Script…** brings them back
+([how](../functions/03-breakpoints-execute-read-write.md#saving-and-loading-breakpoints)).
 The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.
 A breakpoint qualified with the memory its opcode comes from reads `$8005 P04` or
 `$0008 DIVROM` in the address column

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3130,6 +3130,17 @@ access mask. An I/O address <code>00</code>-<code>FF</code> is a low-byte match 
 nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.</p>
+<p>The model also converts its own rows to and from the breakpoint file codec
+(<code>script/bp_script.h</code>, see <a href="13-the-debugger-scripting-language.html">3.10.6</a>):
+<code>script_specs()</code> returns them as <code>BpSpec</code> in list order, and <code>add_specs()</code> adds a
+file's breakpoints to the current set, applying the file's On state to each and
+reusing a source-line group already armed on the same places (<code>add_source_line()</code> is
+not idempotent). A source-line row is saved by the text it was set with, which the
+model keeps per group (<code>group_lines_</code>) and the codec checks against the source map's
+resolution. The manager's <code>on_save_breakpoints_script()</code> / <code>on_load_breakpoints_script()</code>
+behind the Breakpoints menu's <em>Save as Script...</em> / <em>Load from Script...</em> do the file
+dialogs, the write (<code>QSaveFile</code>) and the warning boxes; the last path is
+remembered for the session only. Rows: <code>QBPJ-*</code> in <code>debugger_verbs_test</code>.</p>
 <p>The Breakpoints panel, the disassembly gutter and context menu, and the window's
 Breakpoints menu all edit this one model. The panel lists every client's
 subscriptions; another client's are read-only and named by client id. The
@@ -3273,10 +3284,10 @@ the epoch cannot say where they start: <code>Reset</code> (a cold boot while run
 next stop) and opening the window (nothing is observed while it is closed), both through
 <code>CpuPanel::restart_tstate_count()</code>. Rows: <code>TSC-01</code>..<code>TSC-11</code> (<code>tstate_counter_test</code>), <code>INS-07-04</code>..<code>INS-07-10</code>
 (each epoch bump site, a remote client's included), <code>QPN-CPU-05</code>, <code>QTS-01</code>..<code>QTS-13</code>.</p>
-<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:988</code>)
-redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:375</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:977</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:245</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1054</code>)
+redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:382</code>: ~4 Hz). Paused, it
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1043</code>; <code>PausedStamp</code>,
+<code>debugger_manager.h:252</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:</p>
 <ul>
@@ -3290,7 +3301,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   subscription verb (<code>subscribe</code>, <code>subscribe_source_line</code>, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
   breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;</li>
-<li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:157</code>), installed on <code>qApp</code>
+<li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:159</code>), installed on <code>qApp</code>
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse <em>movement</em> is not counted: hover
@@ -3298,7 +3309,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
   loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:574</code>), so an edit on disk still shows.</li>
 </ul>
-<p><code>refresh_window()</code> (<code>debugger_manager.cpp:968</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
+<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1034</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <code>take_panel_refresh_count()</code> counts the
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,
