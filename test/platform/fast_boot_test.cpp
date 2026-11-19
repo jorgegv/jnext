@@ -459,10 +459,12 @@ int main()
             emu2->run_frame();
             emu2->debug_state().pause();
             emu2->run_frame();
-            bp_real = emu2->fast_boot_frames_left() > 0 && !emu2->fast_boot_hides_screen();
+            bp_real = !emu2->fast_boot_hides_screen();   // run_frame() while stopped also closes the window (GH #499)
         }
         check("FBT-34", "a pause or a stop inside a frame shows the real screen while stopped, and after the resume",
-              emu && emu2 && paused_real && resumed_real && bp_real);
+              emu && emu2 && paused_real && resumed_real && bp_real,
+              "paused=" + std::to_string(paused_real) + " resumed=" + std::to_string(resumed_real) +
+              " bp=" + std::to_string(bp_real));
     }
     {
         constexpr int W = 640, H = 256;
