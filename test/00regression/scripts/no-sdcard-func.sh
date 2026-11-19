@@ -19,6 +19,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      insert (either slot), a delayed NMI, a machine other than the Next, a non-.nex load
 #      and no --load at all
 #   D  the window with a saved 48K in Preferences and no --machine: refused (exit 1)
+#   E  the window with sd_card_path and sd_card2_path saved in Preferences: both ignored
+#      (exit 0, neither path read or logged)
 if want no-sdcard-func; then
     begin_func no-sdcard-func
 
@@ -84,12 +86,22 @@ EOF
         --delayed-automatic-exit-frames 120 2>&1) || d_rc=$?
     d_msg=$(has "--no-sdcard needs the Next: the other machines run from ROMs on the SD card (the saved machine is 48K: give --machine next)." "$ns_d")
 
+    # E: card images saved in Preferences are not read in this mode (nothing is opened or logged).
+    mkdir -p "$TMP_DIR/cfgE"
+    printf '[paths]\nsd_card_path=%s\nsd_card2_path=%s\n' "$TMP_DIR/saved-card1.img" "$TMP_DIR/saved-card2.img" > "$TMP_DIR/cfgE/jnext.conf"
+    e_rc=0
+    ns_e=$(env JNEXT_CONFIG_DIR="$TMP_DIR/cfgE" QT_QPA_PLATFORM=offscreen \
+        timeout --foreground --kill-after=5s 60s "$JNEXT" --no-sdcard --load "$ns_dir/hostfs.nex" \
+        --delayed-automatic-exit-frames 120 2>&1) || e_rc=$?
+    e_one=$(has "saved-card1.img" "$ns_e"); e_two=$(has "saved-card2.img" "$ns_e")
+
     if [[ "$a_rc" -eq 1 && "$a_slice" -ge 1 && "$a_ok" -ge 1 && "$a_err" -eq 0 && "$a_skip" -eq 1 \
           && "$a_card" -eq 0 && "$a_rom" -eq 0 && "$a_noimg" -eq 0 \
-          && "$b_armed" -ge 1 && "$b_rom" -eq 1 && "$b_any" -eq 1 && -z "$c_bad" && "$d_rc" -eq 1 && "$d_msg" -eq 1 ]]; then
-        pass_row " (NEX dir served with no card, warm start skipped, IM 1 ROM fetch reported once, 9 refusals, a saved 48K refused)"
+          && "$b_armed" -ge 1 && "$b_rom" -eq 1 && "$b_any" -eq 1 && -z "$c_bad" && "$d_rc" -eq 1 && "$d_msg" -eq 1 \
+          && "$e_rc" -eq 0 && "$e_one" -eq 0 && "$e_two" -eq 0 ]]; then
+        pass_row " (NEX dir served with no card, warm start skipped, IM 1 ROM fetch reported once, 9 refusals, a saved 48K refused, saved card paths ignored)"
     else
-        fail_row " (A clean-exit=$a_rc want1 slice=$a_slice ok=$a_ok err=$a_err skip-log=$a_skip want1 card=$a_card want0 rom=$a_rom want0 no-image-error=$a_noimg want0; B armed=$b_armed rom-im1=$b_rom want1 any-rom=$b_any want1; C refused wrongly:${c_bad:- none}; D saved-48K exit=$d_rc want1 message=$d_msg want1)"
+        fail_row " (A clean-exit=$a_rc want1 slice=$a_slice ok=$a_ok err=$a_err skip-log=$a_skip want1 card=$a_card want0 rom=$a_rom want0 no-image-error=$a_noimg want0; B armed=$b_armed rom-im1=$b_rom want1 any-rom=$b_any want1; C refused wrongly:${c_bad:- none}; D saved-48K exit=$d_rc want1 message=$d_msg want1; E saved-cards exit=$e_rc want0 card1-named=$e_one want0 card2-named=$e_two want0)"
     fi
 fi
 

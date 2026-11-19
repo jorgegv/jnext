@@ -1,7 +1,7 @@
 // ===========================================================================
 // --no-sdcard in the GUI (GH #540): the session has no card slot, so the
 // window says so. File > Insert SD Card Image... and Eject SD Card are
-// disabled, and the status bar shows "SD: none". A session with a card (or
+// disabled (the second slot's too), and the status bar shows "SD: none". A session with a card (or
 // without the mode) shows neither: the status bar is as it always was.
 //
 // Asserted on what the user sees: the actions by their menu text and the
@@ -83,6 +83,8 @@ struct Fixture {
 
 const QString kInsert = QStringLiteral("&Insert SD Card Image...");
 const QString kEject  = QStringLiteral("&Eject SD Card");
+const QString kInsert2 = QStringLiteral("Insert Second SD Card Image...");
+const QString kEject2  = QStringLiteral("Eject Second SD Card");
 
 }  // namespace
 
@@ -120,6 +122,20 @@ int main(int argc, char** argv)
         QAction* ej  = action(f.win, kEject);
         check("NOSDUI-03", "without --no-sdcard: no SD cell, and both card actions are enabled",
               sd_cell(f.win) == nullptr && ins && ej && ins->isEnabled() && ej->isEnabled());
+    }
+
+    {
+        Fixture off{true}, on{false};
+        QAction* i1 = action(off.win, kInsert2);
+        QAction* e1 = action(off.win, kEject2);
+        QAction* i2 = action(on.win, kInsert2);
+        QAction* e2 = action(on.win, kEject2);
+        check("NOSDUI-04", "File > Insert / Eject Second SD Card Image are disabled with --no-sdcard, enabled without it",
+              i1 && e1 && i2 && e2 && !i1->isEnabled() && !e1->isEnabled() && i2->isEnabled() && e2->isEnabled(),
+              std::string("no-sdcard: insert2=") + (i1 ? (i1->isEnabled() ? "enabled" : "disabled") : "missing") +
+              " eject2=" + (e1 ? (e1->isEnabled() ? "enabled" : "disabled") : "missing") +
+              "; control: insert2=" + (i2 ? (i2->isEnabled() ? "enabled" : "disabled") : "missing") +
+              " eject2=" + (e2 ? (e2->isEnabled() ? "enabled" : "disabled") : "missing"));
     }
 
     std::printf("\n============================================\n");
