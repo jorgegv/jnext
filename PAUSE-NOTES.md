@@ -15,7 +15,7 @@ S1 rows, tally pins (DK-03, SETK-05, AC-94, DACC-05, manifest 21->25 / 147->157 
 Verified (build/ tree, LANG=C): bp_script_test 25/25, debugger_keymap_test 48/48, debugger_verbs_test 157/157
 (QBPX-02 first used the ROM handler and failed; it now re-seeds the HALT loop instead).
 Mutations killed: S1-M2 (BPJ-22/23/24), S1-M7 codec table edit (BPJ-25; QBPX-01 not run for it).
-NOT run yet: S1-M1, M3, M4, M5, M6 (spec ready: scratchpad s1multi.json + mmulti.py, combined run on
+NOT run yet: S1-M1, M3, M4, M5, M6 (spec ready: ~/tmp/gh372-full/scratch/s1multi.json + mmulti.py, combined run on
 keymap + verbs suites; the rows differ per mutation so one run attributes them).
 Not run: accel_test (DACC-05), app_config_test (DK-03, AC-94), config_keys_test (SETK-05) after the pin edits.
 
@@ -28,8 +28,8 @@ Not run: accel_test (DACC-05), app_config_test (DK-03, AC-94), config_keys_test 
 4. Commit S1 (name the tally pins in the message).
 5. S2: full S1+S2 copies of the six source files and bp_script_test are in ~/tmp/gh372-full (the static_assert there
    uses enum-compare; replace by the `same_kind(int,int)` form now in the tree). S2 verbs rows draft:
-   scratchpad s2_verbs.inc (QBPX-06..17), docs patch: scratchpad s2_docs.py. Manifest S2: bp_script_test 25->29, verbs 157->169.
+   ~/tmp/gh372-full/scratch/s2_verbs.inc (QBPX-06..17), docs patch: ~/tmp/gh372-full/scratch/s2_docs.py. Manifest S2: bp_script_test 25->29, verbs 157->169.
    Add `#include "script/script_engine.h"` to verbs_test; call test_bp_hits(), test_bp_hits_more() in main.
 6. S2 gate and mutations S2-M1..M9, commit. Then S3 per plan (BPJ-14 edit as above).
-Scratchpad: /tmp/claude-1000/-home-jorgegv-src-spectrum-jnext/6c1f1e33-05b1-47c6-bd47-92af799e1c89/scratchpad/
+Scratch files (copied to ~/tmp/gh372-full/scratch/): 
 (mutate.sh, mmulti.py, s1multi.json, s2_verbs.inc, s2_docs.py). Mutation helpers restore from backups; the tree has no mutation applied now.
