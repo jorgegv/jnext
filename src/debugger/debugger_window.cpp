@@ -1455,6 +1455,10 @@ void DebuggerWindow::create_panels() {
     disasm_panel_ = new DisasmPanel(&dbg_);
     memory_panel_ = new MemoryPanel(&dbg_);
     memory_panel_->setMinimumHeight(320);
+    // GH #370: the Memory panel's tool messages, held like a refusal; a match moves the Disassembly.
+    connect(memory_panel_, &MemoryPanel::message, this, &DebuggerWindow::show_rewind_refusal);
+    connect(memory_panel_, &MemoryPanel::show_in_disassembly_requested, disasm_panel_,
+            &DisasmPanel::show_address);
     video_panel_ = new VideoPanel(&dbg_);
     sprite_panel_ = new SpritePanel(&dbg_);
     copper_panel_ = new CopperPanel(&dbg_);

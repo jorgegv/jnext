@@ -6,11 +6,19 @@
 #include <QLabel>
 #include <QScrollBar>
 
+#include <optional>
+#include <vector>
+
 #include "debug/events.h"   // jnext::dbg::ClientId
 #include "debug/inspect.h"  // jnext::dbg::MemSpace
 #include "debug/long_address.h"
+#include "debug/mem_tools.h"
+#include "debug/result.h"
 
 namespace jnext { namespace dbg { class Debugger; } }
+
+class QMenu;
+class QContextMenuEvent;
 
 /// Memory hex editor panel (shown as QDockWidget content).
 /// Custom-painted hex editor with address/hex/ASCII columns,
@@ -37,7 +45,38 @@ public:
 
     QSize sizeHint() const override;
 
+    // ---- GH #370: find, and save / load / fill a block -------------------------------------
+    // Reached from the panel's context menu (right-click, Menu key, Shift+F10); the dialogs
+    // call the same functions. A block is in the SELECTED VIEW's numbering: the CPU address in
+    // CPU View, the offset within the 8K page in a Slot or Page view. Each answer goes out as
+    // `message()` (the debugger window holds it in its status bar).
+
+    /// Fill `menu` with Find..., Find Next, a separator, Save Block..., Load Block...,
+    /// Fill Block.... The actions belong to the menu, never to the panel.
+    void fill_context_menu(QMenu& menu);
+
+    /// The selected byte as a view offset, -1 = none.
+    int selected_address() const { return selected_addr_; }
+
+    /// Search the selected view for `p`, from the selected byte (inclusive) or the view start.
+    void find(const jnext::dbg::memtools::Pattern& p);
+    /// The last pattern again, from the byte after the selection (or the view start).
+    void find_next();
+    /// Write `len` bytes from `start` to a raw binary file.
+    void save_block(uint32_t start, uint32_t len, const QString& path);
+    /// Read a raw binary file into memory at `start`; no `len` = the whole file.
+    void load_block(uint32_t start, std::optional<uint32_t> len, const QString& path);
+    /// Repeat `value` over `len` bytes from `start`.
+    void fill_block(uint32_t start, uint32_t len, const std::vector<uint8_t>& value);
+
+signals:
+    /// What a find / save / load / fill did, or why it refused.
+    void message(const QString& text);
+    /// A find hit has a CPU address: the Disassembly should show it.
+    void show_in_disassembly_requested(uint16_t addr);
+
 protected:
+    void contextMenuEvent(QContextMenuEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
@@ -85,6 +124,24 @@ private:
     /// false (and changes nothing) on cancel or a number outside 00-DF.
     bool choose_page();
 
+    // GH #370 helpers (memory_panel.cpp).
+    struct Block {
+        Where                                 w;       // where the start lives
+        std::vector<jnext::dbg::memtools::Chunk> chunks;
+    };
+    bool plan_block(const QString& verb, uint32_t start, uint32_t len, Block& b);
+    bool locate_start(const QString& verb, uint32_t start, Where& w);
+    QString loc_text(const Where& w, uint32_t space_addr) const;
+    size_t write_chunks(const Block& b, const uint8_t* data, jnext::dbg::Result* stop);
+    bool report_write_refusal(const QString& verb, size_t landed, jnext::dbg::Result stop);
+    void run_find(const jnext::dbg::memtools::Pattern& p, size_t from);
+    uint32_t start_default() const;
+    bool parse_start(const QString& verb, const QString& text, uint32_t& start);
+    void show_find_dialog();
+    void show_save_dialog();
+    void show_load_dialog();
+    void show_fill_dialog();
+
     /// Get the total address range for current view.
     int total_rows() const;
 
@@ -115,6 +172,11 @@ private:
     int selected_addr_ = -1;       // currently selected byte address (-1 = none)
     int edit_nibble_ = 0;          // 0 = high nibble next, 1 = low nibble entered
     uint8_t edit_value_ = 0;       // partial edit value
+
+    // GH #370: the last find, and the last answers of the Find dialog.
+    std::optional<jnext::dbg::memtools::Pattern> last_pattern_;
+    QString find_text_, find_mask_;
+    bool    find_text_mode_ = false, find_match_case_ = true;
 
     // Layout constants
     static constexpr int BYTES_PER_ROW = 16;

@@ -968,6 +968,7 @@ my %NO_MATRIX_SECTION = (
     'fuse_z80_test' => 'data-driven FUSE runner, no per-row IDs',
     'z80n_test'     => 'data-driven FUSE-style runner, opcode names not row IDs',
     'disasm_hint_test' => 'debugger PC-line hint decoder (Z80 semantics, FUSE oracle; no VHDL oracle)',
+    'mem_tools_test' => 'debugger Memory panel find/fill/block-split helper (host UI policy; no VHDL oracle)',
 
     # ── Narrative sections ───────────────────────────────────────────
     # Hand-maintained tables that summarise ID *ranges* ("XNEX-01..04") or
