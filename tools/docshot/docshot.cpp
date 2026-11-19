@@ -918,6 +918,13 @@ int main(int argc, char** argv)
     // one of them sits on the ROM loop the boot is in, so an armed set would
     // stop the run above on its first instruction and the frame would never
     // be drawn.
+    if (!emu.cpu().is_halted()) {
+        std::fprintf(stderr,
+            "docshot: the CPU is not on a HALT at capture time (PC %04X); the fixture's execute\n"
+            "  breakpoint is meant for the ROM HALT the boot sits on, refusing to capture.\n",
+            emu.cpu().get_registers().PC);
+        return 1;
+    }
     if (!apply_debug_fixture(mgr, dbg, emu.cpu().get_registers().PC)) return 1;
     mgr->refresh_panels();   // the MANAGER's — see run_to_last_paper_line()
     settle();

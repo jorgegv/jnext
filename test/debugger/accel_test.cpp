@@ -343,10 +343,12 @@ static void test_accelerators(Fixture& fx)
         // mnemonics in the Map popup and two items each, &skoolkit Control Files... and &Ghidra Symbols...):
         // 11 -> 13 popups, 54 -> 60 mnemonics, no shortcut.
         // GH #480: + Debug > Source's Open Source &File... (F, free in that popup): 60 -> 61.
-        // GH #374: + the &File menu (one popup, its title's mnemonic; Reload Last File has none) and its Alt+L: 6 -> 7 menus, 13 -> 14 popups, 61 -> 62 mnemonics, 24 -> 25 shortcuts.
+        // GH #376: + the Breakpoints menu's &Save as Script... and &Load from Script... (S and L, free in that popup):
+        // two more mnemonics, no new popup, no shortcut: 61 -> 63.
+        // GH #374: + the &File menu (one popup, its title's mnemonic; Reload Last File has none) and its Alt+L: 6 -> 7 menus, 13 -> 14 popups, 63 -> 64 mnemonics, 24 -> 25 shortcuts.
         const bool as_expected = top == 7
                               && popup_scopes.size() == 14
-                              && menu_accels.size() == 62
+                              && menu_accels.size() == 64
                               && shortcuts == 25;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
@@ -354,7 +356,7 @@ static void test_accelerators(Fixture& fx)
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 7), popups=%zu (want 14), mnemonics=%zu (want 62), "
+              fmt("menus=%zu (want 7), popups=%zu (want 14), mnemonics=%zu (want 64), "
                   "shortcuts=%zu (want 25)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }
