@@ -2,7 +2,10 @@
 // official distribution zip on specnext.com (fetched by the page when specnext.com
 // allows it, or chosen by the visitor after downloading it), checked, kept gzipped in the Cache
 // API under the card's own SHA-256 (about 1.1 MB for the 40 MiB card, which is mostly zeros;
-// raw where the browser has no compression streams), and put in the in-memory filesystem. The
+// raw where the browser has no compression streams), and put in the in-memory filesystem. A page
+// that asks for more of the distribution on the card (card.dirs, e.g. /GAMES and /APPS) gets a card
+// of its own, kept under its own key (release, builder recipe, the canonical list) with its SHA-256
+// in the X-Jnext-Card-Sha256 header, since no pinned digest can exist for a list. The
 // zip itself is never kept. It also persists in IndexedDB the warm-start recording and, for a page that asks
 // (keepWrites), the sectors the guest wrote to the card and the file JNEXT's esxDOS
 // stand-in keeps for it (one journal file holds both).
@@ -12,7 +15,8 @@
 //
 //   JnextImage.devSeam()                              -> object | null  (localhost only, see the developer guide)
 //   JnextImage.distribution(Module, seam)             -> pins {url, file, size, zipSha256, cardSha256, ...}
-//   JnextImage.cachedCard(Module, pins)               -> Promise<{path, sha256} | null>
+//   JnextImage.canonicalDirs(Module, dirs)            -> array  (the builder's canonical form; throws on a bad list)
+//   JnextImage.cachedCard(Module, pins)               -> Promise<{path, sha256} | null>   (pins.dirs: the list, if any)
 //   JnextImage.probe(pins, timeoutMs)                 -> Promise<{ok, reason}>
 //   JnextImage.fetchDistribution(Module, pins, onProgress)  -> Promise<{path, sha256}>
 //   JnextImage.buildFromFile(Module, pins, file, onProgress) -> Promise<{path, sha256}>
@@ -41,6 +45,8 @@
   // never be fetched, so the key is only a label.
   var CARD_HOST = 'https://card.jnext.invalid/';
   var CARD_PATH = '/sdcard/image.img';
+  // The header of a list card's entry: the builder's SHA-256 of the card (see cachedCard).
+  var SHA_HEADER = 'X-Jnext-Card-Sha256';
   var PROBE_MS = 15000;
   var WARM_START_DIR = '/jnext/warm-start';
   var WRITES_DIR = '/jnext/card-writes';
@@ -105,10 +111,12 @@
     return typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
   }
 
-  function packed(bytes) {
+  // `sha`, when given, is stored in the SHA_HEADER header (a card with extra paths).
+  function packed(bytes, sha) {
+    var init = sha ? { headers: (function (h) { h[SHA_HEADER] = sha; return h; })({}) } : undefined;
     return canGzip()
-      ? new Response(new Response(bytes).body.pipeThrough(new CompressionStream('gzip')))
-      : new Response(bytes);
+      ? new Response(new Response(bytes).body.pipeThrough(new CompressionStream('gzip')), init)
+      : new Response(bytes, init);
   }
 
   // The bytes of a stored entry. For the gzip form the decompressor checks the CRC-32 and the
@@ -212,26 +220,57 @@
     return pins;
   }
 
-  function cardKey(pins) { return CARD_HOST + pins.cardSha256; }
+  function hasDirs(pins) { return !!(pins.dirs && pins.dirs.length); }
+
+  // The plain card: one key per release (its SHA-256). A card with extra paths: the release, the
+  // builder's recipe (it covers a change that alters only list cards) and the canonical list as
+  // JSON (a join could make two lists one key).
+  function cardKey(pins) {
+    return CARD_HOST + pins.cardSha256 +
+           (hasDirs(pins) ? '/r' + pins.recipe + '/' + encodeURIComponent(JSON.stringify(pins.dirs)) : '');
+  }
+
+  // The canonical form of a page's list of extra distribution paths: the builder's own rules
+  // (core/minimal_card.cpp), never copied here. Throws, naming the entry, on a bad list.
+  function canonicalDirs(Module, dirs) {
+    var p = Module.stringToNewUTF8(JSON.stringify(dirs));
+    var r = JSON.parse(takeString(Module, Module._jnext_card_dirs(p)));
+    Module._free(p);
+    if (r.error) throw new Error("option 'card': dirs: " + r.error);
+    return r.dirs;
+  }
 
   // The card kept by an earlier visit. A gzip entry is checked by gzip's own CRC-32 and length
   // (nothing is hashed: the key is the card's SHA-256, which the builder proved before the entry
   // was written); a raw entry (a browser without compression streams) is hashed every time.
+  // A card with extra paths has no pinned SHA-256: its entry carries the builder's in the
+  // SHA_HEADER header (written by this code into the origin's own cache, the same trust as the
+  // key), which a gzip hit returns without hashing and a raw hit is hashed against; an entry
+  // without a well-formed header is deleted and is a miss.
   // An entry that fails is deleted and reported as a miss. A good entry of the old raw cache
   // (v1) is moved over once, with one hash, and the old cache is deleted either way. A hit also
-  // removes any OTHER card entry (an older release's).
+  // removes the card entries of OTHER releases (a page may use the plain card and a card with
+  // extra paths: both of this release stay; a page that changes its list leaves the old list's
+  // entry until the next release).
   function cachedCard(Module, pins) {
     return Promise.resolve().then(function () {
       needSecureContext();
       return caches.open(CACHE_NAME);
     }).then(function (cache) {
       var key = cardKey(pins);
+      var prefix = CARD_HOST + pins.cardSha256;
+      // -> {bytes, sha256} | null
       function kept(hit) {
+        var want = pins.cardSha256;
+        if (hasDirs(pins)) {
+          want = hit.headers.get(SHA_HEADER);
+          if (!/^[0-9a-f]{64}$/.test(want || '')) return cache.delete(key).then(function () { return null; });
+        }
         return unpacked(hit).then(function (bytes) {
           if (canGzip()) return bytes;
-          return digest(bytes).then(function (got) { return got === pins.cardSha256 ? bytes : null; });
+          return digest(bytes).then(function (got) { return got === want ? bytes : null; });
         }, function () { return null; }).then(function (bytes) {
-          return bytes ? bytes : cache.delete(key).then(function () { return null; });
+          return bytes ? { bytes: bytes, sha256: want } : cache.delete(key).then(function () { return null; });
         });
       }
       function migrated() {
@@ -247,27 +286,28 @@
                 if (got !== pins.cardSha256) return null;
                 return Promise.resolve().then(function () { return cache.put(key, packed(bytes)); }).catch(function (e) {
                   console.warn('jnext: the SD card could not be cached: ' + e);
-                }).then(function () { return bytes; });
+                }).then(function () { return { bytes: bytes, sha256: pins.cardSha256 }; });
               });
             });
-          }).catch(function () { return null; }).then(function (bytes) {
-            return caches.delete(OLD_CACHE).then(function () { return bytes; });
+          }).catch(function () { return null; }).then(function (found) {
+            return caches.delete(OLD_CACHE).then(function () { return found; });
           });
         });
       }
       return cache.match(key).then(function (hit) {
         return hit ? kept(hit) : null;
-      }).then(function (bytes) {
-        return bytes ? caches.delete(OLD_CACHE).then(function () { return bytes; }) : migrated();
-      }).then(function (bytes) {
-        if (!bytes) return null;
+      }).then(function (found) {
+        return found ? caches.delete(OLD_CACHE).then(function () { return found; }) : migrated();
+      }).then(function (found) {
+        if (!found) return null;
         return cache.keys().then(function (keys) {
-          return Promise.all(keys.filter(function (k) { return k.url.indexOf(CARD_HOST) === 0 && k.url !== key; })
-                                 .map(function (k) { return cache.delete(k); }));
+          return Promise.all(keys.filter(function (k) {
+            return k.url.indexOf(CARD_HOST) === 0 && k.url !== prefix && k.url.indexOf(prefix + '/') !== 0;
+          }).map(function (k) { return cache.delete(k); }));
         }).then(function () {
           Module.FS.mkdirTree('/sdcard');
-          Module.FS.writeFile(CARD_PATH, bytes);
-          return { path: CARD_PATH, sha256: pins.cardSha256 };
+          Module.FS.writeFile(CARD_PATH, found.bytes);
+          return { path: CARD_PATH, sha256: found.sha256 };
         });
       });
     });
@@ -298,8 +338,10 @@
   }
 
   function expectJson(pins) {
-    if (!pins.standIn) return 0;
-    return JSON.stringify({ file: pins.file, zipSha256: pins.zipSha256, size: pins.size, cardSha256: pins.cardSha256 });
+    if (!pins.standIn) return hasDirs(pins) ? JSON.stringify({ dirs: pins.dirs }) : 0;   // the C defaults are the pins
+    var o = { file: pins.file, zipSha256: pins.zipSha256, size: pins.size, cardSha256: pins.cardSha256 };
+    if (hasDirs(pins)) o.dirs = pins.dirs;
+    return JSON.stringify(o);
   }
 
   // Push a ReadableStream of the official zip through the builder, one chunk at a time. The
@@ -359,7 +401,7 @@
       var bytes = Module.FS.readFile(CARD_PATH);
       return caches.open(CACHE_NAME).then(function (cache) {
         // A quota error is not fatal: this session goes on, the next visit makes the card again.
-        return Promise.resolve().then(function () { return cache.put(cardKey(pins), packed(bytes)); }).catch(function (e) {
+        return Promise.resolve().then(function () { return cache.put(cardKey(pins), packed(bytes, hasDirs(pins) ? sha : undefined)); }).catch(function (e) {
           console.warn('jnext: the SD card could not be cached: ' + e);
         });
       }).then(function () { return { path: CARD_PATH, sha256: sha }; });
@@ -399,6 +441,9 @@
       // file is not at fault.
       if (e && e.fromRead) throw new Error('the chosen file could not be read: ' + m);
       if (!e || !e.fromBuilder) throw new Error('the card could not be made in this browser: ' + m);
+      // The page's list of extra paths is at fault (a path the distribution does not hold, or more
+      // than the card takes), not the visitor's file.
+      if (/requested path/.test(m)) throw new Error(m);
       if (/^this is not /.test(m)) throw notIt('its SHA-256 differs');
       // The card could not be made or stored here (memory, storage, the builder's own check of its
       // result): the official file would fail the same way, so it is not the file's fault.
@@ -491,7 +536,7 @@
   }
 
   var api = { fetchImage: fetchImage, installImage: installImage, mountWarmStartStore: mountWarmStartStore,
-              devSeam: devSeam, distribution: distribution, cachedCard: cachedCard, probe: probe,
+              devSeam: devSeam, distribution: distribution, cachedCard: cachedCard, canonicalDirs: canonicalDirs, probe: probe,
               fetchDistribution: fetchDistribution, buildFromFile: buildFromFile,
               cardWritesKey: cardWritesKey, loadCardWrites: loadCardWrites, saveCardWrites: saveCardWrites,
               CACHE_NAME: CACHE_NAME, WARM_START_DIR: WARM_START_DIR, CARD_HOST: CARD_HOST };
