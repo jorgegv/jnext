@@ -336,9 +336,12 @@ with status 1.
     **--script**) or when a recording runs. It applies to the launch
     only: a later hard reset boots at normal speed. It never changes the
     emulated machine. To reach the firmware menu, press SPACE while the
-    splash shows, or set it to 0. **--headless** runs uncapped already,
-    so there it has no effect, and **jnext** warns. The same as
-    `--set startup.fast_boot_seconds`.
+    splash shows, or set it to 0.
+    `--set startup.fast_boot_hide_screen=true` keeps the window black
+    until fast boot ends, so the first picture is the screen it ends on;
+    screenshots, recordings and the debugger still see the real screen.
+    **--headless** runs uncapped already, so there it has no effect, and
+    **jnext** warns. The same as `--set startup.fast_boot_seconds`.
 
 **--when-slow-prefer** *WHAT*
 
@@ -1442,6 +1445,11 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 `startup.fast_boot_seconds` *0..60*
 :   Seconds of a plain Next start run at maximum speed, 0 = off;
     **--fast-boot**. The Qt window and the SDL-only build.
+
+`startup.fast_boot_hide_screen` *true\|false*
+:   Keep the window black while fast boot runs; any key, a pause or a
+    debugger stop shows the screen at once. Default false. The Qt window
+    and the SDL-only build.
 
 `startup.when_slow_prefer` *audio\|video*
 :   What a host too slow for real time sacrifices;
