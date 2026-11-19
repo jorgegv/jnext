@@ -219,15 +219,17 @@ int main() {
     // GFXD-14, GFXD-15
     {
         Ram bank(0x4000, 0);
-        bank[0] = 0x81;
+        bank[0] = 0x81;   // row 0: bits 7 and 0
+        bank[1] = 0x80;   // row 1: bit 7 only (0x81 alone is its own mirror image)
         std::vector<uint16_t> pal(256, 0);
         Til a{};
         const bool r1 = decode_tile(bank.data(), bank.size(), false, 0, true, 0, 0x55, 0, 0xFF, pal.data(), a);
         const uint8_t want[8] = {0xAB, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAB};
         bool ok = r1;
         for (int i = 0; ok && i < 8; ++i) ok = a[i].index == want[i];
-        check("GFXD-14", "text-mode bit order and index: byte 81, off7 55 -> pixel 0 = AB, pixels 1..6 = AA, pixel 7 = AB "
-                         "- VHDL tilemap.vhd:385-386", ok);
+        ok = ok && a[8].index == 0xAB && a[15].index == 0xAA;
+        check("GFXD-14", "text-mode bit order and index: byte 81, off7 55 -> pixel 0 = AB, pixels 1..6 = AA, pixel 7 = AB; byte 80 -> "
+                         "pixel 0 = AB, pixel 7 = AA - VHDL tilemap.vhd:385-386", ok);
 
         pal[0xAA] = 0x1C6;   // >>1 = 0xE3
         pal[0xAB] = 0x1C4;   // >>1 = 0xE2
