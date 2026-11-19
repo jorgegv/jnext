@@ -17,6 +17,7 @@
 - Debugger window gets File > Reload Last File (Alt+L): reload the rebuilt program with its maps, breakpoints kept
 - Debugger CPU panel: edit registers, flags, IFF and IM in place while paused
 - Disassembly navigation: Follow jumps and memory operands, Back/Forward history, a Symbols list and register shortcuts
+- Debugger Watches: a watch can be a .jds expression (registers, mem16[@ptr], phys[], symbols), updated live
 
 ### Bug Fixes
 - Web example pages fit a phone screen instead of being laid out at desktop width and shrunk
