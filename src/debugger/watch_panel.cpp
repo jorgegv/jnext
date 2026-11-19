@@ -1,6 +1,8 @@
 #include "debugger/watch_panel.h"
 #include "debug/debugger.h"
 #include "debugger/memory_text.h"
+#include "script/expr_compiler.h"
+#include "script/diagnostic.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -61,6 +63,12 @@ WatchPanel::WatchPanel(QWidget* parent)
     layout->addWidget(table_, 1);
 }
 
+// GH #373: "$<hex> (<signed decimal>d)", 2, 4 or 8 hex digits by magnitude (the language is signed int32; a negative is its two's complement).
+static QString expr_value_text(int32_t v) {
+    const int digits = (v >= 0 && v <= 0xFF) ? 2 : (v >= 0x100 && v <= 0xFFFF) ? 4 : 8;
+    return QString::asprintf("$%0*X (%dd)", digits, static_cast<unsigned>(v), static_cast<int>(v));
+}
+
 void WatchPanel::refresh() {
     if (!dbg_) return;
 
@@ -88,6 +96,17 @@ void WatchPanel::refresh() {
             if (paused_) refresh_c_row(i, w);   // while running a C row keeps the text of the last stop
             continue;
         }
+        if (w.kind == WatchEntry::Kind::Expression) {
+            // GH #373: every refresh, paused or running; no cached compile, so a reloaded map is followed
+            const auto r = jnext::script::eval_expr(w.expr, *dbg_);
+            if (auto* item = i < table_->rowCount() ? table_->item(i, 3) : nullptr) {
+                item->setText(r.ok ? expr_value_text(r.value)
+                                   : QString::fromStdString(r.errors.empty() ? std::string("error") : r.errors.front().to_string()));
+                item->setData(Qt::ForegroundRole,
+                              r.ok ? QVariant() : QVariant(palette().color(QPalette::PlaceholderText)));
+            }
+            continue;
+        }
         QString value_str;
 
         switch (w.type) {
@@ -112,6 +131,8 @@ void WatchPanel::refresh() {
                 value_str = hexdec(8, val);
                 break;
             }
+            case EXPR:   // handled above
+                break;
         }
 
         if (i < table_->rowCount()) {
@@ -204,6 +225,16 @@ void WatchPanel::add_c_watch(const CVarWatch& cv) {
     update_table();
 }
 
+void WatchPanel::add_expr_watch(const std::string& expr, const std::string& label) {
+    WatchEntry entry;
+    entry.kind = WatchEntry::Kind::Expression;
+    entry.expr = expr;
+    entry.label = label;
+    entry.type = EXPR;
+    watches_.push_back(entry);
+    update_table();
+}
+
 void WatchPanel::add_watch(uint16_t addr, const std::string& label, int type) {
     WatchEntry entry;
     entry.addr = addr;
@@ -221,7 +252,7 @@ void WatchPanel::remove_selected() {
 }
 
 bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
-                                    std::string& label, int& type)
+                                    std::string& label, int& type, std::string& expr)
 {
     QDialog dlg(this);
     dlg.setWindowTitle(title);
@@ -230,9 +261,9 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     auto* form = new QFormLayout(&dlg);
 
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000, $4000 or a symbol");
-    addr_edit->setText(QString::asprintf("%04X", addr));
-    form->addRow(tr("Address or symbol:"), addr_edit);
+    addr_edit->setPlaceholderText("e.g. 4000, $4000 or a symbol (an expression with Type Expression)");
+    addr_edit->setText(type == EXPR ? QString::fromStdString(expr) : QString::asprintf("%04X", addr));
+    form->addRow(tr("Address, symbol or expression:"), addr_edit);
 
     auto* label_edit = new QLineEdit(&dlg);
     label_edit->setPlaceholderText("(optional)");
@@ -243,6 +274,7 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     type_combo->addItem(tr("Byte"));
     type_combo->addItem(tr("Word"));
     type_combo->addItem(tr("Long"));
+    type_combo->addItem(tr("Expression"));   // last: indices 0..2 are unchanged
     type_combo->setCurrentIndex(type);
     form->addRow(tr("Type:"), type_combo);
 
@@ -266,12 +298,29 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     // Only Cancel gives up.
     std::string entered;
     std::optional<uint16_t> resolved;
+    bool is_expr = false;
     while (dlg.exec() == QDialog::Accepted) {
         entered = addr_edit->text().trimmed().toStdString();
+        if (type_combo->currentIndex() == EXPR) {
+            // GH #373: an expression is compiled in no event, so an event payload name or a script-only form is refused here
+            using namespace jnext::script;
+            const auto c = compile_expr(entered, PayloadScope::none(),
+                                        {dbg_ ? symbols_of(*dbg_) : SymbolResolver{}, {}});
+            if (c) { is_expr = true; break; }
+            error->setText(tr("Not an expression: %1").arg(QString::fromStdString(c.errors.front().to_string())));
+            error->show();
+            continue;
+        }
         resolved = dbg_ ? dbg_->symbols().resolve(entered) : SymbolTable().resolve(entered);
         if (resolved) break;
         error->setText(tr("Not an address or symbol: %1").arg(addr_edit->text().trimmed()));
         error->show();
+    }
+    if (is_expr) {
+        expr = entered;
+        label = label_edit->text().trimmed().toStdString();
+        type = EXPR;
+        return true;
     }
     if (!resolved) return false;
     addr = *resolved;
@@ -293,8 +342,11 @@ void WatchPanel::on_add_watch() {
     uint16_t addr = 0;
     std::string label;
     int type = 0;
-    if (show_watch_dialog(tr("Add Watch"), addr, label, type))
-        add_watch(addr, label, type);
+    std::string expr;
+    if (show_watch_dialog(tr("Add Watch"), addr, label, type, expr)) {
+        if (type == EXPR) add_expr_watch(expr, label);
+        else add_watch(addr, label, type);
+    }
 }
 
 void WatchPanel::on_edit_watch() {
@@ -306,11 +358,14 @@ void WatchPanel::on_edit_watch() {
     uint16_t addr = w.addr;
     std::string label = w.label;
     int type = static_cast<int>(w.type);
+    std::string expr = w.expr;
 
-    if (show_watch_dialog(tr("Edit Watch"), addr, label, type)) {
+    if (show_watch_dialog(tr("Edit Watch"), addr, label, type, expr)) {
         w.addr = addr;
         w.label = label;
         w.type = static_cast<WatchType>(type);
+        w.kind = type == EXPR ? WatchEntry::Kind::Expression : WatchEntry::Kind::Memory;
+        w.expr = type == EXPR ? expr : std::string();
         update_table();
     }
 }
@@ -318,13 +373,14 @@ void WatchPanel::on_edit_watch() {
 void WatchPanel::update_table() {
     table_->setRowCount(static_cast<int>(watches_.size()));
 
-    static const char* type_names[] = {"Byte", "Word", "Long"};
+    static const char* type_names[] = {"Byte", "Word", "Long", "Expression"};
 
     for (int i = 0; i < static_cast<int>(watches_.size()); ++i) {
         const auto& w = watches_[i];
 
         const bool c = w.kind == WatchEntry::Kind::CVariable;
-        auto* addr_item = new QTableWidgetItem(c ? w.shown[0] : QString::asprintf("$%04X", w.addr));
+        const bool x = w.kind == WatchEntry::Kind::Expression;
+        auto* addr_item = new QTableWidgetItem(c ? w.shown[0] : x ? QString() : QString::asprintf("$%04X", w.addr));
         table_->setItem(i, 0, addr_item);
 
         QString label = QString::fromStdString(w.label);
@@ -332,7 +388,9 @@ void WatchPanel::update_table() {
             label = QString::fromStdString(w.cvar.path);
             if (!w.cvar.function.empty()) label += " (in " + QString::fromStdString(w.cvar.function) + ")";
         }
+        if (x && label.isEmpty()) label = QString::fromStdString(w.expr);
         auto* label_item = new QTableWidgetItem(label);
+        if (x) label_item->setToolTip(QString::fromStdString(w.expr));
         table_->setItem(i, 1, label_item);
 
         auto* type_item = new QTableWidgetItem(c ? w.shown[2] : QString(type_names[w.type]));

@@ -128,7 +128,9 @@ AST type:
 - `eval_expr(text, debugger)` evaluates once, in the no-event scope.
 
 The engine compiles every `when` through the same code, via `make_condition()`
-in the evaluator. The ZRCP server ([3.10.5](12-the-zrcp-server.md)) is the other
+in the evaluator. The Qt Watches panel calls `eval_expr()` at every refresh for its
+Expression rows, and `compile_expr()` in the no-event scope to check one when it
+is added. The ZRCP server ([3.10.5](12-the-zrcp-server.md)) is the other
 caller: `src/remote/zrcp/zrcp_condition.*` translates ZEsarUX's breakpoint
 dialect into this grammar — tokenising and grouping as ZEsarUX does, emitting a
 fully bracketed expression — and compiles it here, so it owns no evaluator. The
