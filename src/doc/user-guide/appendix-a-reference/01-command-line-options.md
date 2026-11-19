@@ -1568,10 +1568,10 @@ use the key: the Qt window, the SDL-only build (both interactive) or
     `run_to_eof`, `run_to_eosl`, `trace_toggle`, `trace_export`,
     `source_step_into`, `source_step_over`, `source_step_out`,
     `source_step_back`, `source_reverse_continue`, `follow`, `go_back`,
-    `go_forward` or `run_to_interrupt`, and `none` unbinds it. A combination that is not
-    legal there, or that another action already holds (unless the same
-    command line frees it), is refused with exit status 1 before the
-    window opens. The Qt window with the debugger.
+    `go_forward` or `run_to_interrupt`, and `none` unbinds it. A
+    combination that is not legal there, or that another action already
+    holds (unless the same command line frees it), is refused with exit
+    status 1 before the window opens. The Qt window with the debugger.
 
 `source.colour_scheme` *auto\|light\|dark\|borland*
 :   The colour scheme of the debugger’s Source tab, like the

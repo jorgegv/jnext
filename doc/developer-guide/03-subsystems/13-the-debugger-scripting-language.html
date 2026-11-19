@@ -3157,7 +3157,7 @@ code departs from it. This page describes the code.</p>
 </tr>
 <tr>
 <td><code>bp_script.{h,cpp}</code></td>
-<td>the Breakpoints panel's breakpoint file: <code>bp_script_text()</code> spells a list of <code>BpSpec</code> (the panel's six breakpoint types, a symbol-qualified Execute, a source line) as plain <code>LABEL: on EVENT FILTER do stop end</code> rules and refuses what has no faithful spelling (a <code>; not saved:</code> comment and a <code>refused</code> line, never <code>page N</code>); <code>bp_specs_from_script()</code> reads such a file back, all or nothing, refusing everything that is not one plain <code>stop</code> breakpoint. Qt-free: <code>BreakpointModel::script_specs()</code> / <code>add_specs()</code> are the Qt glue</td>
+<td>the Breakpoints panel's breakpoint file: <code>bp_script_text()</code> spells a list of <code>BpSpec</code> (the panel's breakpoint types, including the addressless <code>on interrupt</code> / <code>on nmi</code>, a symbol-qualified Execute, a source line) as plain <code>LABEL: on EVENT FILTER do stop end</code> rules and refuses what has no faithful spelling (a <code>; not saved:</code> comment and a <code>refused</code> line, never <code>page N</code>); <code>bp_specs_from_script()</code> reads such a file back, all or nothing, refusing everything that is not one plain <code>stop</code> breakpoint. Qt-free: <code>BreakpointModel::script_specs()</code> / <code>add_specs()</code> are the Qt glue</td>
 </tr>
 <tr>
 <td><code>script_host.{h,cpp}</code></td>
@@ -3584,7 +3584,7 @@ and <a href="10-7-extending-the-debug-subsystem.html">3.10.7</a>), and have its 
 </tr>
 <tr>
 <td><code>bp_script_test</code></td>
-<td>the breakpoint file codec (BPJ-*): the spelling of every breakpoint type, each refusal, the round trip, the decoder's refusals, and the engine as an independent reader of the saved text</td>
+<td>the breakpoint file codec (BPJ-*): the spelling of every breakpoint type (Interrupt and NMI included), each refusal, the round trip, the decoder's refusals, and the engine as an independent reader of the saved text</td>
 </tr>
 <tr>
 <td><code>script_record_test</code></td>

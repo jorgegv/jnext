@@ -37,6 +37,8 @@ Read and write are separate breakpoints; if you want both on a port, add both.
 An I/O breakpoint never fires on a *memory* access at the same number, and a
 memory breakpoint never fires on a port access.
 
+## Interrupt and NMI breakpoints
+
 **Interrupt** and **NMI** breakpoints fire when the CPU takes a maskable interrupt or a
 non-maskable one. They have no address (the field is greyed out in the dialog) and stop the
 machine at the first instruction of the handler: `PC` is `$0038` for an interrupt in
