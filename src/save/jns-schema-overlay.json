@@ -429,6 +429,83 @@
                 }
               }
             },
+            "sdcard2": {
+              "_why": "GH #505 — the second SD card slot, the same object as `sdcard`. Absent when no second card was mounted (every snapshot older than the slot), which is a different fact from a card with an empty identity.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "identity",
+                "informational",
+                "mounted_path",
+                "read_only"
+              ],
+              "properties": {
+                "mounted_path": {
+                  "type": "string"
+                },
+                "read_only": {
+                  "type": "boolean"
+                },
+                "identity": {
+                  "_why": "Tier 1 — 'is this the same card?'. Every field is one a FILE WRITE DOES NOT TOUCH, because jnext opens the image read-write and a whole-image digest would report a mismatch against the very card the snapshot was taken on.",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "fat32_volume_id",
+                    "image_bytes",
+                    "mbr_partition_table_sha256",
+                    "partition_lba"
+                  ],
+                  "properties": {
+                    "image_bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "mbr_partition_table_sha256": {
+                      "type": "string",
+                      "pattern": "^([0-9a-f]{64})?$"
+                    },
+                    "fat32_volume_id": {
+                      "type": "string",
+                      "pattern": "^([0-9a-f]{8})?$"
+                    },
+                    "partition_lba": {
+                      "_why": "§11.3 / §6.2 — an MBR partition entry's start LBA is a FOUR-BYTE field, read as rd_u32(pe + 8) (sd_rom_extractor.cpp:100), so 2^32-1 is the largest value that can come from one. The reader enforces the same bound (jns_container.cpp, via get_u32_key); this maximum is here so the published schema agrees with it instead of both sides being silently open. It is the one manifest u64 whose §6.2 bound is PROVED on both sides — image_bytes, deliberately, is not.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    }
+                  }
+                },
+                "informational": {
+                  "_why": "§11.3 — carried and NEVER compared. BS_VolLab is a stale copy of a label whose authority is the root-directory ATTR_VOLUME_ID entry, and a tool that rewrites it would produce a FALSE REFUSAL on the same physical card.",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "fat32_bs_vollab"
+                  ],
+                  "properties": {
+                    "fat32_bs_vollab": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "content_stamp": {
+                  "_why": "retired (GH #396): written by jnext 1.1.0-1.1.75, ignored by readers and never written now.",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^([0-9a-f]{64})?$"
+                    },
+                    "mtime_utc": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
             "roms": {
               "_why": "§10.2 P3 — ROM identity. DIGESTS, never content: N3 forbids redistributing firmware, so a .jns records what the ROMs were and never carries them. Absent when the writer recorded none, which is a different fact from a machine with no ROMs.",
               "type": "object",

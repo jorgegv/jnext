@@ -195,6 +195,14 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
   a snapshot that refused over a renamed card would be a snapshot nobody reads
   the warnings of.
 
+If a **second SD card** (D:) was in its slot when you saved, the snapshot records it
+too and applies the same rules to it: load it with the same second card in the slot
+(a different one is refused, `--snapshot-mode force` overrides, and no card at all is
+refused), because NextZXOS keeps D:'s file system in memory just as it does C:'s. A
+snapshot taken without a second card is not refused when you load it with one in the
+slot (you get a warning), and a snapshot saved by an older JNEXT loads exactly as it
+always did.
+
 ## Do not share a `.jns`
 
 A snapshot contains **all of RAM**, and on a Next that includes the NextZXOS
