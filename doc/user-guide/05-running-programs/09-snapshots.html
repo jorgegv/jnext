@@ -4784,6 +4784,13 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
   a snapshot that refused over a renamed card would be a snapshot nobody reads
   the warnings of.</li>
 </ul>
+<p>If a <strong>second SD card</strong> (D:) was in its slot when you saved, the snapshot records it
+too and applies the same rules to it: load it with the same second card in the slot
+(a different one is refused, <code>--snapshot-mode force</code> overrides, and no card at all is
+refused), because NextZXOS keeps D:'s file system in memory just as it does C:'s. A
+snapshot taken without a second card is not refused when you load it with one in the
+slot (you get a warning), and a snapshot saved by an older JNEXT loads exactly as it
+always did.</p>
 <h2 id="do-not-share-a-jns">Do not share a <code>.jns</code><a class="headerlink" href="#do-not-share-a-jns" title="Permanent link">&para;</a></h2>
 <p>A snapshot contains <strong>all of RAM</strong>, and on a Next that includes the NextZXOS
 and DivMMC ROM code paged into it. Those are not ours to redistribute and they

@@ -42,11 +42,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 AT command engine |      499 |      499 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DivMMC + SPI          |      155 |      155 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DivMMC (int, SRAM map) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DivMMC + SPI          |      156 |      156 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DivMMC (int, SRAM map) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       93 |       93 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card write journal (GH #470) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card write journal (GH #470) |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card (POSIX-only rows) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (GH #269) |      164 |      164 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -57,10 +57,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SHA-256 backends (GH #459) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Minimal NextZXOS card builder (GH #458) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Warm start (GH #234)  |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Warm start (GH #234)  |      120 |      120 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start on a real card (GH #464) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Second SD card in a .jns (GH #505) |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot/warm start: no whole-card read (GH #396) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot: non-UTF-8 host path does not abort a save (GH #401) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      212 |      212 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -85,7 +86,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Screenshot output (PNG/.SCR) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |      126 |      126 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Emulator Boot (ESP thread) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Fullscreen Sync (GH #404) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -112,7 +113,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options (real binary) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options (real binary) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | jnext.conf key table (GH #417) |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (child process) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -184,7 +185,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Breakpoint file codec (GH #376) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZRCP remote debugger adapter (GH #280) |      231 |      231 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect rules (pure) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |      176 |      176 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |      177 |      177 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Mouse Release Gesture (GH #365) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -230,6 +231,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      295 |      295 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16911**| **16911**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16947**| **16947**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

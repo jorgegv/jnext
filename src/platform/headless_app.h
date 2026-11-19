@@ -144,7 +144,7 @@ public:
     /// performed after the tick's frame). A refused or failed change fails the
     /// run, as does a second insert due in the same tick.
     /// Repeatable: each call queues one independent change.
-    void set_delayed_sdcard_insert(const std::string& image, int delay_frames);
+    void set_delayed_sdcard_insert(const std::string& image, int delay_frames, int slot = 0);
 
     /// GH #381 (owner Q1) - --delayed-pok-frames N FILE with --pok-trainers LIST:
     /// the request main() has read and checked (jnext::pok::make_cli_request),
@@ -261,6 +261,7 @@ private:
     struct DelayedSdInsert {
         std::string image;
         int         countdown;  // in frames
+        int         slot = 0;   // 0 = first card, 1 = second (GH #505)
     };
     std::vector<DelayedSdInsert> delayed_sd_inserts_;
 

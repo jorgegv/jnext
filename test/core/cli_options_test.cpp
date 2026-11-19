@@ -1032,6 +1032,7 @@ int main() {
             "--dzrp-port", "--gdb-port", "--zrcp-port", "--debug-listen-address",
             "--script", "--script-key", "--record-script", "--map", "--annotations",
             "--import-skoolkit", "--import-ghidra",
+            "--sdcard2", "--sdcard2-readonly", "--sdcard2-writes", "--sdcard2-writes-reset",
         };
         std::set<std::string> got;
         for (const cli::Option& o : cli::OPTIONS)
@@ -1039,9 +1040,9 @@ int main() {
         std::vector<std::string> extra, missing;
         for (const std::string& g : got) if (!want.count(g)) extra.push_back(g);
         for (const std::string& w : want) if (!got.count(w)) missing.push_back(w);
-        check("CLI-WEB-01", "the spellings the browser build refuses are exactly the 25 of NextPi, "
-                            "the ESP-01, --record, the debugger servers and the script host",
-              got.size() == 25 && extra.empty() && missing.empty(),
+        check("CLI-WEB-01", "the spellings the browser build refuses are exactly the 29 of NextPi, "
+                            "the ESP-01, --record, the debugger servers, the script host and the second SD card",
+              got.size() == 29 && extra.empty() && missing.empty(),
               "extra: " + join(extra) + "; missing: " + join(missing));
     }
     {

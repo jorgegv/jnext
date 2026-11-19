@@ -4430,10 +4430,10 @@ static int test_s5b_duplicated_ram_removed()
     // backing, so that array IS the store and still travels (§4.3(2)).
     {
         struct { MachineType type; const char* name; size_t want; } cases[] = {
-            { MachineType::ZXN_ISSUE2, "next",   2154307 },
-            { MachineType::ZX48K,      "48k",    2162499 },
-            { MachineType::ZX128K,     "128k",   2162499 },
-            { MachineType::ZX_PLUS3,   "plus3",  2162499 },
+            { MachineType::ZXN_ISSUE2, "next",   2154900 },
+            { MachineType::ZX48K,      "48k",    2163092 },
+            { MachineType::ZX128K,     "128k",   2163092 },
+            { MachineType::ZX_PLUS3,   "plus3",  2163092 },
         };
         bool all_ok = true;
         std::string detail;
@@ -4453,7 +4453,7 @@ static int test_s5b_duplicated_ram_removed()
         }
         if (!all_ok) fprintf(stderr, "  JNSX-S5B-LENGTHS: %s\n", detail.c_str());
         check("JNSX-S5B-LENGTHS", all_ok,
-              "the stream is 2 154 307 bytes on the Next and 2 162 499 on "
+              "the stream is 2 154 900 bytes on the Next and 2 163 092 on "
               "48K/128K/+3 — every deliberate change to the byte stream is a "
               "number in a test rather than a fact in a commit message, and "
               "the machine-dependence is exactly the Multiface array and "
@@ -4462,8 +4462,9 @@ static int test_s5b_duplicated_ram_removed()
               "§10.2 P13) and the SD card's SPI FSM (589 + its 4-byte "
               "sentinel, §10.2 P1); GH #290 adds 1: the tail block's "
               "cvc_offset_delta; GH #450 adds 11: the keyboard's guest view "
-              "(held flag, extended copy, eight matrix rows). All four deltas "
-              "are machine-independent, so "
+              "(held flag, extended copy, eight matrix rows); GH #505 adds 593: "
+              "the second SD card's SPI FSM (589 + its 4-byte sentinel). All "
+              "five deltas are machine-independent, so "
               "the 8 192-byte gap between the two numbers is unchanged");
     }
 
@@ -4613,10 +4614,11 @@ static int test_s5b_duplicated_ram_removed()
     // only when nothing else would catch the change is one nobody can reason
     // about.
     check("S5B-WARMSTART-VERSION",
-          warm_start::kFormatVersion == 4,
-          "the warm-start state-stream format version is 4: S5b changed the "
+          warm_start::kFormatVersion == 5,
+          "the warm-start state-stream format version is 5: S5b changed the "
           "shape of Emulator::save_state, S6 changed it again (mf_type + "
-          "the SD FSM) and GH #290 again (the tail's cvc_offset_delta), and "
+          "the SD FSM), GH #290 again (the tail's cvc_offset_delta) and GH "
+          "#505 again (the second SD card's FSM), and "
           "a cache recorded by an older jnext would otherwise be read "
           "field-for-field wrong");
 

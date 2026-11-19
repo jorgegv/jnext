@@ -501,6 +501,7 @@ int main() {
                 {"--delayed-nmi",        "", " mf", "0", SECS_HI, {"5x", "35791395", "-1"}},
                 {"--delayed-nmi-frames", "", " mf", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--delayed-sdcard-insert-frames", "", " img", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--delayed-sdcard2-insert-frames", "", " img", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--delayed-pok-frames", "", " pok", "0", INT_HI, {"5x", "2147483648", "-1"}},   // GH #381
                 {"--rewind-buffer-size",       "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--compositor-trace-frame",   "", "", "0", INT_HI, {"7junk", "2147483648", "-1"}},
@@ -1109,6 +1110,24 @@ int main() {
                         bad.push_back("--esp-allow without the ESP: " + e2);
                     if (run(base + " --set esp.allowed_hosts= --delayed-automatic-exit-frames 1") != 0)
                         bad.push_back("--set esp.allowed_hosts= (empty) refused with the ESP off");
+                }
+                // SDSLOT-51 (GH #505): the second card's path is reachable through its flag AND --set.
+                {
+                    const bool f = run("--sdcard2 \"/a b/c.img\" --version") == 0;
+                    const bool k = run("--set paths.sd_card2_path=\"/a b/c.img\" --version") == 0;
+                    check("SDSLOT-51", "--sdcard2 FILE and --set paths.sd_card2_path=FILE are both accepted",
+                          f && k, std::string("flag ") + (f ? "ok" : "refused") + ", --set " +
+                                      (k ? "ok" : "refused"));
+                }
+                // SDSLOT-52 (GH #505): the second slot's delayed insert refuses a bad N and an
+                // empty FILE (an empty FILE would be an eject), as the first slot's does.
+                {
+                    std::vector<std::string> bad2;
+                    for (const char* a : {"5x f.img", "-1 f.img", "2147483648 f.img", "5 \"\""})
+                        if (run(std::string("--headless --machine 48k --delayed-sdcard2-insert-frames ") + a) == 0)
+                            bad2.push_back(std::string("accepted: ") + a);
+                    check("SDSLOT-52", "--delayed-sdcard2-insert-frames refuses a malformed or out-of-range N "
+                                       "and an empty FILE", bad2.empty(), join(bad2));
                 }
                 check("CLI-SET-12", "a flag and --set accept and refuse the same values of the same key (one per "
                                     "type: bool, int, float, word, machine, device id, keep, host list, combo, text)",

@@ -194,6 +194,13 @@ struct EmulatorConfig {
     // write-protected card and the host file is never modified (GH #77).
     bool        sd_card_readonly = false;
 
+    // The SECOND SD card (GH #505): the board's second socket, spi_ss_sd1_n =
+    // port_e7_reg(1) (zxnext.vhd:3331), which NextZXOS maps to the next drive
+    // after card 0's partitions (D:). Empty = empty socket. Never a ROM source:
+    // the boot card (card 0) is the only one the ROM extractor reads.
+    std::string sd_card2_image;
+    bool        sd_card2_readonly = false;
+
     // GH #234 — warm start: apply a loaded program on top of a RECORDING of a
     // real firmware boot (nextboot.rom -> TBBLUE.FW -> NextZXOS) instead of the
     // machine Emulator::init() assembles. Next-only; 48k/128k/plus3 have no
