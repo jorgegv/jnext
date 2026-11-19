@@ -121,6 +121,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     nextpi_qemu_args_edit_->setText(current.nextpi_qemu_args);
     last_load_dir_edit_->setText(current.last_load_dir);
     sd_card_path_edit_->setText(current.sd_card_path);
+    sd_card2_path_edit_->setText(current.sd_card2_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
     if (source_dirs_edit_) source_dirs_edit_->setPlainText(current.source_dirs.join(QLatin1Char('\n')));
     if (source_scheme_combo_)
@@ -564,6 +565,10 @@ QWidget* PreferencesDialog::build_paths_tab() {
                  &PreferencesDialog::browse_directory);
     add_path_row(tr("Default SD card image:"), sd_card_path_edit_,
                  &PreferencesDialog::browse_sd_image);
+    // GH #505 - empty = nothing in the second socket. NextZXOS maps it to the next
+    // drive (D:) and finds it at start-up, so it takes effect at the next reset.
+    add_path_row(tr("Second SD card image:"), sd_card2_path_edit_,
+                 &PreferencesDialog::browse_sd_image);
     add_path_row(tr("Screenshot directory:"), screenshot_dir_edit_,
                  &PreferencesDialog::browse_directory);
 
@@ -742,6 +747,7 @@ AppConfigData PreferencesDialog::collect() const {
     }
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
+    cfg.sd_card2_path  = sd_card2_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();
     // GH #420 - trimmed, blank lines and exact duplicates dropped, order kept. No
     // existence check: a missing directory just finds nothing.

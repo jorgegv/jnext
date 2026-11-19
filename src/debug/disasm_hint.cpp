@@ -214,6 +214,39 @@ Follow follow_target(const Z80Registers& r, uint16_t at, const DisasmReadFn& cod
     return f;
 }
 
+Transfer pc_transfer(const Z80Registers& r, const DisasmReadFn& code, const DisasmReadFn& data) {
+    Transfer t;
+    const Hint h = pc_hint(r, code, data);
+    bool hidden = false;
+    if (h.kind == Hint::Kind::Branch) {
+        if (!h.taken) return t;
+        t.target = h.target;
+    } else {
+        const Follow f = follow_target(r, r.PC, code, data);
+        if (f.kind != Follow::Kind::Code) return t;
+        t.target = f.addr;
+        Walk w;
+        if (!walk_prefixes(r, r.PC, code, &w)) return Transfer{};
+        const uint8_t op = code(w.a);
+        hidden = op == 0xC9 || op == 0xE9
+              || (op == 0xED && (code(static_cast<uint16_t>(w.a + 1)) & 0xC7) == 0x45);
+    }
+    t.taken  = true;
+    t.hidden = hidden;
+    t.dir    = t.target < r.PC ? Transfer::Dir::Up : t.target > r.PC ? Transfer::Dir::Down : Transfer::Dir::Here;
+    return t;
+}
+
+std::string format_transfer(const Transfer& t, const disasm_text::SymbolNamer& namer) {
+    if (!t.taken || !t.hidden) return std::string();
+    if (namer) {
+        if (auto s = namer(t.target)) return "[-> " + *s + "]";
+    }
+    char b[16];
+    std::snprintf(b, sizeof b, "[-> $%04X]", t.target);
+    return b;
+}
+
 std::string format_hint(const Hint& h, const disasm_text::SymbolNamer& namer) {
     auto name = [&](uint16_t a) {
         if (namer) {

@@ -251,6 +251,9 @@ struct Manifest {
     Model       model;
     Capture     capture;
     SdCardInfo  sdcard;
+    /// `media.sdcard2`: the second SD card slot (GH #505). Absent (present == false) in every
+    /// snapshot taken without one, which is every snapshot older than the slot.
+    SdCardInfo  sdcard2;
     RomDigests  roms;
     TapeInfo    tape;
     PreviewInfo preview;
@@ -307,6 +310,9 @@ struct ReaderEnv {
 
     /// The card mounted RIGHT NOW (`present == false` when none is).
     SdCardInfo card;
+
+    /// The card in the second slot RIGHT NOW (`present == false` when none is).
+    SdCardInfo card2;
 
     /// §10.2 P3 — the ROMs the CURRENT machine has, for the digest
     /// comparison. Only names present in BOTH are compared.

@@ -168,27 +168,29 @@ std::string manifest_to_json(const Manifest& m) {
     j["capture"] = cap;
 
     json media = json::object();
-    if (m.sdcard.present) {
+    // `sdcard` and `sdcard2` (GH #505) are the same object, written by the same code.
+    auto card_json = [](const SdCardInfo& c) {
         json sd = json::object();
-        sd["mounted_path"] = m.sdcard.mounted_path;
-        sd["read_only"]    = m.sdcard.read_only;
+        sd["mounted_path"] = c.mounted_path;
+        sd["read_only"]    = c.read_only;
 
         json id = json::object();
-        id["image_bytes"]     = m.sdcard.identity.image_bytes;
-        id["mbr_partition_table_sha256"]      = m.sdcard.identity.mbr_partition_table_sha256;
-        id["fat32_volume_id"] = m.sdcard.identity.fat32_volume_id;
-        id["partition_lba"]   = m.sdcard.identity.partition_lba;
+        id["image_bytes"]     = c.identity.image_bytes;
+        id["mbr_partition_table_sha256"]      = c.identity.mbr_partition_table_sha256;
+        id["fat32_volume_id"] = c.identity.fat32_volume_id;
+        id["partition_lba"]   = c.identity.partition_lba;
         sd["identity"] = id;
 
         // Carried, never compared (§11.3).
         json info = json::object();
-        info["fat32_bs_vollab"] = m.sdcard.vollab;
+        info["fat32_bs_vollab"] = c.vollab;
         sd["informational"] = info;
 
         // No `content_stamp` (GH #396): written by jnext 1.1.0-1.1.75, retired.
-
-        media["sdcard"] = sd;
-    }
+        return sd;
+    };
+    if (m.sdcard.present)  media["sdcard"]  = card_json(m.sdcard);
+    if (m.sdcard2.present) media["sdcard2"] = card_json(m.sdcard2);
 
     // §10.2 P3 — ROM identity. Omitted entirely rather than emitted empty
     // when the writer recorded none: an empty object reads as "this machine
@@ -407,25 +409,30 @@ bool manifest_parse(const std::string& text, Manifest& out,
         // and until then they are ignored exactly as §12.2 says unknown keys
         // are.
         note_unknown(unknown_keys, "media.", med,
-                     {"sdcard", "roms", "boot_rom_sha256", "tape",
+                     {"sdcard", "sdcard2", "roms", "boot_rom_sha256", "tape",
                       "esxdos_root"});
 
-        if (med.contains("sdcard")) {
-            const json& sd = med.at("sdcard");
+        // `sdcard` (the first card) and `sdcard2` (the second SD card slot, GH #505) share
+        // one grammar: the same object, parsed by the same code, into its own SdCardInfo.
+        for (const char* card_key : {"sdcard", "sdcard2"}) {
+        if (med.contains(card_key)) {
+            SdCardInfo& dst = (card_key[6] == '\0') ? out.sdcard : out.sdcard2;
+            const std::string kq = std::string("media.") + card_key;
+            const json& sd = med.at(card_key);
             if (!sd.is_object()) {
-                why = "manifest.media.sdcard is not an object";
+                why = "manifest." + kq + " is not an object";
                 return false;
             }
-            out.sdcard.present = true;
-            const std::string where = "manifest.media.sdcard";
+            dst.present = true;
+            const std::string where = "manifest." + kq;
             bool present = false;
-            if (!get_str_key(sd, "mounted_path", out.sdcard.mounted_path, where,
+            if (!get_str_key(sd, "mounted_path", dst.mounted_path, where,
                              why) ||
-                !get_bool_key(sd, "read_only", out.sdcard.read_only, present,
+                !get_bool_key(sd, "read_only", dst.read_only, present,
                               where, why)) {
                 return false;
             }
-            note_unknown(unknown_keys, "media.sdcard.", sd,
+            note_unknown(unknown_keys, kq + ".", sd,
                          {"mounted_path", "read_only", "identity",
                           "informational", "content_stamp" /* retired */});
 
@@ -435,12 +442,12 @@ bool manifest_parse(const std::string& text, Manifest& out,
                     why = where + ".identity is not an object";
                     return false;
                 }
-                if (!get_u64_key(id, "image_bytes", out.sdcard.identity.image_bytes,
+                if (!get_u64_key(id, "image_bytes", dst.identity.image_bytes,
                                  where + ".identity", why) ||
-                    !get_str_key(id, "mbr_partition_table_sha256", out.sdcard.identity.mbr_partition_table_sha256,
+                    !get_str_key(id, "mbr_partition_table_sha256", dst.identity.mbr_partition_table_sha256,
                                  where + ".identity", why) ||
                     !get_str_key(id, "fat32_volume_id",
-                                 out.sdcard.identity.fat32_volume_id,
+                                 dst.identity.fat32_volume_id,
                                  where + ".identity", why)) {
                     return false;
                 }
@@ -484,9 +491,9 @@ bool manifest_parse(const std::string& text, Manifest& out,
                     // intent locally instead of depending on a reset in
                     // another function, and because a future non-zero default
                     // would make it load-bearing with no other warning.
-                    if (lba_present) out.sdcard.identity.partition_lba = lba;
+                    if (lba_present) dst.identity.partition_lba = lba;
                 }
-                note_unknown(unknown_keys, "media.sdcard.identity.", id,
+                note_unknown(unknown_keys, kq + ".identity.", id,
                              {"image_bytes", "mbr_partition_table_sha256", "fat32_volume_id",
                               "partition_lba"});
             }
@@ -496,17 +503,18 @@ bool manifest_parse(const std::string& text, Manifest& out,
                     why = where + ".informational is not an object";
                     return false;
                 }
-                if (!get_str_key(inf, "fat32_bs_vollab", out.sdcard.vollab,
+                if (!get_str_key(inf, "fat32_bs_vollab", dst.vollab,
                                  where + ".informational", why)) {
                     return false;
                 }
-                note_unknown(unknown_keys, "media.sdcard.informational.", inf,
+                note_unknown(unknown_keys, kq + ".informational.", inf,
                              {"fat32_bs_vollab"});
             }
             // `content_stamp` is RETIRED (GH #396, owner 2026-10-22): jnext
             // 1.1.0-1.1.75 wrote it, nothing reads it any more. It is listed
             // as known above so it is not reported as unknown, and it is never
             // parsed: whatever its shape, an old file cannot be refused for it.
+        }
         }
 
         // ── §10.2 P3 — ROM identity ─────────────────────────────────────
@@ -1052,6 +1060,51 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
         // left it; changing it in between is at the user's risk.
         // `informational.fat32_bs_vollab` is deliberately not compared here,
         // and there is deliberately no warning for it either (§11.3).
+    }
+
+    // ── Second SD card identity (GH #505) ────────────────────────────────
+    //
+    // The same rules as the first card's, worded for the second slot. NextZXOS caches
+    // D:'s FAT state in RAM, so restoring onto another card corrupts it on the next
+    // write: that is why a different card is refused and not merely warned about.
+    // A snapshot WITHOUT a second card (every snapshot older than the slot) is judged
+    // exactly as before: no card is wanted, and one mounted now is only a warning.
+    if (manifest.sdcard2.present && !env.card2.present) {
+        return refuse(v, "the snapshot was taken with the second SD card at " +
+                             quote(manifest.sdcard2.mounted_path) +
+                             " mounted (volume label " +
+                             quote(manifest.sdcard2.vollab) +
+                             "); no second card is mounted now");
+    }
+    if (!manifest.sdcard2.present && env.card2.present) {
+        v.warnings.push_back("the snapshot was taken with no second SD card; " +
+                             quote(env.card2.mounted_path) +
+                             " is mounted in the second slot now");
+    }
+    if (manifest.sdcard2.present && env.card2.present) {
+        const bool identity_same =
+            manifest.sdcard2.identity == env.card2.identity;
+        const bool identity_known = manifest.sdcard2.identity.populated() &&
+                                    env.card2.identity.populated();
+        if (!identity_same || !identity_known) {
+            const std::string detail =
+                "snapshot [" + manifest.sdcard2.identity.describe() +
+                "] vs mounted [" + env.card2.identity.describe() + "]";
+            if (!env.force_sdcard) {
+                return refuse(v, "the mounted second SD card is not the one the "
+                                 "snapshot was taken on: " + detail);
+            }
+            v.warnings.push_back(
+                "the mounted second SD card is not the one the snapshot was taken "
+                "on, but --snapshot-mode force was given: " + detail);
+        }
+        if (manifest.sdcard2.read_only != env.card2.read_only) {
+            v.warnings.push_back(
+                std::string("the snapshot was taken with the second card mounted ") +
+                (manifest.sdcard2.read_only ? "read-only" : "writable") +
+                " and it is mounted " +
+                (env.card2.read_only ? "read-only" : "writable") + " now");
+        }
     }
 
     // ── ROM identity (§8, §10.2 P3) ──────────────────────────────────────

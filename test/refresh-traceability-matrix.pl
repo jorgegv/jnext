@@ -1022,6 +1022,7 @@ my %NO_MATRIX_SECTION = (
     'sha256_test'             => 'SHA-256 of every backend (OpenSSL, BCrypt, the portable WebAssembly one; host utility): NIST FIPS 180-2 Appendix B and the NIST CSRC SHA-2 example as oracles, coreutils sha256sum for the rest; the FPGA core has no counterpart',
     'sdcard_provisioner_posix_test' => 'PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side)',
     'snapshot_test'           => 'the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file',
+    'second_sd_jns_test'      => 'the second SD card in a .jns (GH #505 stage 3): media.sdcard2 and the state/sdcard2.json member, with the first card\'s refusal/warning matrix (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3) applied to the second slot, and the optional-slot rule: a snapshot without one is byte-for-byte what it was before the slot existed. The oracle is that design section; the container rows build their files by hand',
     'sd_identity_test'        => 'the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces',
     'jns_host_path_linux_test' => 'GH #401: a non-UTF-8 host path is written with U+FFFD and never aborts a .jns save; jnext-internal host behaviour, the FPGA core has no counterpart',
     'sd_no_digest_linux_test' => 'GH #396: no whole-card read on .jns save/probe/load or a warm-start hit, measured by Linux /proc/self/io rchar; jnext-internal host behaviour (a UI-thread stall), the FPGA core has no counterpart',
@@ -1145,6 +1146,8 @@ my %NO_MATRIX_SECTION = (
     'web_api_test' => 'browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465)',
     'browser_policy_test' => 'browser page rAF callback gate and refusals (host UI, GH #463)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
+    'no_sdcard_test' => '--no-sdcard (GH #540): a NEX with no SD card and no ROMs, an emulator convenience like the esxDOS stand-in; a real Next always has its ROMs, so the core has nothing to cite',
+    'no_sdcard_ui_test' => '--no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
     # jnext-internal contracts. `cli_options_test` is checked against the man

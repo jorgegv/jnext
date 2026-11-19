@@ -90,8 +90,8 @@ the SDL-only and Windows trees test it): an absolute name; then the map's direct
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
 `DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:323`) takes the
-configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3180`, fed by
-`apply_startup_config()`, `:2951`: the saved list with the command line's `--source-dir` or
+configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3226`, fed by
+`apply_startup_config()`, `:2997`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:460`)
 adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:335`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
@@ -243,14 +243,14 @@ did in its sender, so no move echoes.
   panel makes itself (the PC placement of `refresh_()`, a text load, `set_disasm_selection()`) runs
   under a `SyncScope` (`syncing_`), so that slot stays silent, and ends with `emit_lines_(false, ...)`,
   so a stop tints the PC statement's other instructions without scrolling.
-  `DisasmPanel::set_source_lines()` (`disasm_panel.cpp:535`) stores the range; a row is linked
-  (`source_linked()`, `linked_at_()`, `:522-530`) when `lookup_all()` in its own space has a location
+  `DisasmPanel::set_source_lines()` (`disasm_panel.cpp:543`) stores the range; a row is linked
+  (`source_linked()`, `linked_at_()`, `:530-540`) when `lookup_all()` in its own space has a location
   on a selected line of that file, the primary or not. `paintEvent` fills a linked row with
   `source_sync_colors::linked()` before the PC row, the selection and the coverage bar. With `reveal`
   and no linked row in view, the view centres on the first start of `resolve(file:line)` that is
   mapped now; otherwise it never moves.
 - **Disassembly to Source.** `DisasmPanel::selection_changed(lo, hi, caret)` comes from the user paths
-  only (`notify_selection_()`, `disasm_panel.cpp:510`: a press, a drag, a navigation key, Select All, the menu's
+  only (`notify_selection_()`, `disasm_panel.cpp:518`: a press, a drag, a navigation key, Select All, the menu's
   collapse), when the triple differs from the last one sent. `show_address()` and a refresh do not
   emit; `set_source_lines()` forgets the last triple, so the next click on the same lines is a change
   again. `SourcePanel::set_disasm_selection()` (`source_panel.cpp:981`) is ignored while running or

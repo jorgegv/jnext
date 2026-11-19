@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.27</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.27</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3207,7 +3207,7 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Disassembly</td>
-<td><code>disasm_one()</code> over <code>memory_reader()</code>, with symbols, the PC line's hint (<code>disasm_hint::pc_hint()</code> over <code>registers()</code>, <code>memory_reader()</code> and <code>operand_reader()</code>), Follow (<code>disasm_hint::follow_target()</code>) and Back/Forward (<code>NavHistory</code>, <code>nav_history.h</code>), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly</td>
+<td><code>disasm_one()</code> over <code>memory_reader()</code>, with symbols, the PC line's hint (<code>disasm_hint::pc_hint()</code> over <code>registers()</code>, <code>memory_reader()</code> and <code>operand_reader()</code>), where the PC goes (<code>disasm_hint::pc_transfer()</code>, the destination marker), Follow (<code>disasm_hint::follow_target()</code>) and Back/Forward (<code>NavHistory</code>, <code>nav_history.h</code>), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly</td>
 <td>breakpoints, through the model</td>
 </tr>
 <tr>
@@ -3227,7 +3227,7 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Watches</td>
-<td>byte, word or long at user addresses, through <code>peek</code>; a C variable row (<code>read_c_value()</code>, <code>c_frames()</code>, <code>c_variables_status()</code>), read only while paused</td>
+<td>byte, word or long at user addresses, through <code>peek</code>; an Expression row (<code>script::eval_expr()</code> at every refresh, paused or running; the dialog checks it with <code>compile_expr()</code> in the <code>None</code> scope); a C variable row (<code>read_c_value()</code>, <code>c_frames()</code>, <code>c_variables_status()</code>), read only while paused</td>
 <td>—</td>
 </tr>
 <tr>
@@ -3565,6 +3565,18 @@ Multiface entry point, where the M1 has already switched the overlay
 soon as MREQ goes high), and equal <code>peek(Cpu)</code> everywhere else. The panel
 computes the hint in <code>disassemble_from()</code> and paints it only while paused, at
 the comment's column; the user comment moves right of it.</p>
+<p>Where a taken jump, call or return goes is <code>disasm_hint::pc_transfer()</code>, in the same
+files: it is built from <code>pc_hint()</code> (a conditional is taken or not) and <code>follow_target()</code>
+(every unconditional target), so no decoder is added. <code>Transfer::dir</code> is the unsigned
+address compare, because the panel is a linear $0000-$FFFF listing (a <code>JR</code> that wraps
+from $FFF0 to $0012 points up). <code>hidden</code> is set for <code>RET</code>, <code>RETI</code>, <code>RETN</code> and <code>JP (rr)</code>,
+whose target the line does not write; <code>RET cc</code> is not hidden, its hint names the target.
+<code>disassemble_from()</code> calls it through <code>follow_data_reader()</code> at the PC and marks the
+entry whose start address is the target (an exact start, not "covers"), whether or not
+the PC line is in view. The arrow and the <code>[&lt;- PC]</code> marker are positioned in
+<code>paintEvent()</code> but drawn after the comment, so the items before them keep their order;
+<code>line_transfer()</code> and <code>line_destination()</code> are the accessors, and <code>line_hint()</code> is
+unchanged.</p>
 <h2 id="the-graphics-tab">The Graphics tab<a class="headerlink" href="#the-graphics-tab" title="Permanent link">&para;</a></h2>
 <p>The Graphics tab (<code>GraphicsPanel</code>, <code>src/debugger/graphics_panel.*</code>) has three sub-tabs: <strong>Patterns</strong> (the
 64 8-bit or 128 4-bit sprite patterns of pattern RAM), <strong>Tiles</strong> (the tilemap's tile definitions) and
