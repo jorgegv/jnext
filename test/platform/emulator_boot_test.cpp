@@ -2650,7 +2650,8 @@ int main()
                       "and the card reads again; a second slot that is configured but not mounted still "
                       "refuses its path for the first slot",
                       made && again.empty() && done && done->error.empty() && reads == 0xA1 &&
-                          !cfg_only.sd_card2().mounted() && !refused.empty(),
+                          !cfg_only.sd_card2().mounted() &&
+                          refused.find("second SD card slot") != std::string::npos,
                       "again='" + again + "' reads=" + std::to_string(reads) + " refused='" + refused + "'");
             }
             std::remove(card_c.c_str());

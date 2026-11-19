@@ -60,6 +60,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Warm start on a real card (GH #464) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Second SD card in a .jns (GH #505) |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot/warm start: no whole-card read (GH #396) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot: non-UTF-8 host path does not abort a save (GH #401) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      212 |      212 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -226,6 +227,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      121 |      121 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16741**| **16741**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16750**| **16750**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
