@@ -103,7 +103,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - WAV: RIFF/PCM EAR bit playback (8/16-bit, mono/stereo) with sub-sample edge interpolation
 - RZX playback in every frontend, on the machine the recording was made on
 - RZX recording on 48K, 128K or +3 (refused on a Next)
-- Programs inside `.zip` archives (`game.tap.zip`, `game.nex.zip`) load directly via `--load`, a bare filename or File > Load
+- Programs inside `.zip` archives (`game.tap.zip`, `game.nex.zip`) load directly via `--load`, a bare filename or File > Load; a zipped NEX game also gets the data files beside it, served through the esxDOS stand-in (command line, File > Load, web page `file`)
 - POK trainer files (WoS `.pok`): Machine > POK Trainers... applies and removes trainers on the running machine
 - POK trainers from the command line: `--delayed-pok-frames N FILE` with `--pok-trainers`
 

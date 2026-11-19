@@ -48,8 +48,8 @@ with status 1.
 :   Load a program. The format is detected from the extension: `.nex`,
     `.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`.
     (`.rzx` is accepted here and plays back, as **--rzx-play**.) A
-    `.zip` archive holding one of them loads that program (see the
-    [`.zip`
+    `.zip` archive holding one of them loads that program, and a NEX in
+    one also gets its directory in the archive (see the [`.zip`
     entry](../05-running-programs/index.md#programs-in-zip-archives)).
 
     `.jns` is jnext’s own whole-machine snapshot (see [5.9
@@ -649,7 +649,9 @@ with status 1.
     as if it had been given as *DIR* (below): read-only unless
     **--esxdos-stub-writable** is also given, and in place of the
     in-memory file. To keep the in-memory file, load the NEX without
-    **--esxdos-stub**.
+    **--esxdos-stub**. A NEX loaded from a `.zip` is served its
+    directory in the archive with no flag at all (see the [`.zip`
+    entry](../05-running-programs/index.md#programs-in-zip-archives)).
 
 **--esxdos-stub-root** *DIR*
 
@@ -657,7 +659,8 @@ with status 1.
     and directory calls, instead of the single in-memory file. Implies
     **--esxdos-stub**. Read-only unless **--esxdos-stub-writable** is
     also given. *DIR* replaces the default of **--esxdos-stub**, the
-    directory of the loaded NEX.
+    directory of the loaded NEX, and the directory of a NEX loaded from
+    a `.zip`.
 
     **Which programs see *DIR*, and which do not.** A NEX loaded with
     **--load** sees it, and so do dot commands: those reach the
@@ -696,11 +699,12 @@ with status 1.
 :   Allow the guest to create, truncate, write, delete and rename files,
     make and remove directories, and set or clear the read-only bit of
     files under **--esxdos-stub-root**, or in the directory of the
-    loaded NEX when no root is given: the program can delete any file
-    there. Off by default, and deliberately a separate flag: a guest
-    write changes a real file on the host immediately, and rewinding the
-    emulator cannot undo it. Reads are fully rewindable; writes,
-    deletions and renames are not.
+    loaded NEX when no root is given (for a NEX from a `.zip`, in the
+    extracted copy, never in the archive): the program can delete any
+    file there. Off by default, and deliberately a separate flag: a
+    guest write changes a real file on the host immediately, and
+    rewinding the emulator cannot undo it. Reads are fully rewindable;
+    writes, deletions and renames are not.
 
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of
