@@ -1178,7 +1178,8 @@ int main() {
                            {{"/A/../B"}, "'/A/../B'"}, {{"/A/./B"}, "'/A/./B'"}, {{"/A\\B"}, "'/A\\B'"},
                            {{std::string("/A\x01")}, "control"}, {{"/SYS"}, "'/SYS'"}, {{"/machines/next"}, "'/machines/next'"},
                            {{"/TBBLUE.FW"}, "'/TBBLUE.FW'"}, {{"/APPS", "/apps"}, "'/apps'"},
-                           {{"/GAMES", "/GAMES/NEXT"}, "'/games/next'"}};
+                           {{"/GAMES", "/GAMES/NEXT"}, "'/games/next'"},
+                           {{"/GAMES", "/GAMES-X", "/GAMES/NEXT"}, "'/games/next'"}};
         std::string bad;
         std::set<std::string> reasons;
         for (const C& c : cases) {
@@ -1191,7 +1192,7 @@ int main() {
         const std::string c2 = tmp_path("card-d7.img");
         std::remove(c2.c_str());
         const Run r = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/SYS"}));
-        check("MCARD-34", "canonical_dirs refuses GAMES, /, '', /A//B, /A/../B, /A/./B, a backslash, a control character, /SYS, /machines/next, /TBBLUE.FW, a duplicate and a nested path, each naming the entry; the Builder refuses a bad list with no output file",
+        check("MCARD-34", "canonical_dirs refuses GAMES, /, '', /A//B, /A/../B, /A/./B, a backslash, a control character, /SYS, /machines/next, /TBBLUE.FW, a duplicate and a nested path (also with a sibling sorting between them), each naming the entry; the Builder refuses a bad list with no output file",
               bad.empty() && reasons.size() >= 8 && r.st == minimal_card::Status::Error && r.err.find("/SYS") != std::string::npos && !exists(c2),
               bad + " " + r.err);
     }
@@ -1215,6 +1216,64 @@ int main() {
               ok && a.st == minimal_card::Status::Done && a.sha == main_run.sha &&
                   b.st == minimal_card::Status::Error && b.err.find("not the expected one") != std::string::npos,
               why + a.err + b.err);
+        std::remove(c1.c_str());
+        std::remove(c2.c_str());
+    }
+
+
+    // MCARD-36: a directory chain far over the cap is refused from feed(), before any of it is read.
+    {
+        // An invented image: MBR, BPB, and a FAT whose root directory is a chain of 2000 clusters of 32 KiB
+        // (65 MB, twice the cap). Nothing after the first data byte is ever fed.
+        const uint32_t nclu = 2000, spc = 64, reserved = 32, fat_sectors = 16, lba = 63;
+        const uint64_t part = static_cast<uint64_t>(lba) * 512;
+        const uint64_t data_off = part + static_cast<uint64_t>(reserved + 2 * fat_sectors) * 512;
+        std::vector<uint8_t> b(static_cast<size_t>(data_off) + 512, 0);
+        const uint32_t total = reserved + 2 * fat_sectors + nclu * spc;
+        b[0x1BE] = 0x80; b[0x1BE + 4] = 0x0C; w32(b, 0x1BE + 8, lba); w32(b, 0x1BE + 12, total);
+        b[510] = 0x55; b[511] = 0xAA;
+        const size_t v = static_cast<size_t>(part);
+        w16(b, v + 11, 512); b[v + 13] = spc; w16(b, v + 14, reserved); b[v + 16] = 2;
+        w32(b, v + 32, total); w32(b, v + 36, fat_sectors); w32(b, v + 44, 2);
+        b[v + 510] = 0x55; b[v + 511] = 0xAA;
+        const size_t fat0 = v + static_cast<size_t>(reserved) * 512;
+        for (uint32_t c = 2; c < 2 + nclu; ++c) w32(b, fat0 + 4 * static_cast<size_t>(c), c + 1 < 2 + nclu ? c + 1 : 0x0FFFFFFF);
+        const std::string c2 = tmp_path("card-d9.img");
+        std::remove(c2.c_str());
+        minimal_card::Builder bd(minimal_card::Input::Image, c2, ex0);
+        const minimal_card::Status st = bd.feed(b.data(), b.size());
+        check("MCARD-36", "a root directory chain of 65 MB (twice the cap): refused from feed() with the exact-size message, before its data is read, no output file",
+              st == minimal_card::Status::Error && bd.error().find("larger than the card") != std::string::npos && !exists(c2),
+              bd.error());
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-37: the cap is straddled: exactly 33554432 counted bytes is accepted, one more is refused naming it.
+    {
+        auto tree = [](uint64_t sz) {
+            FNode fb = fixture();
+            FNode games = dirn("GAMES", 0x00, 0x5A40, 0x9000);
+            FNode edge = dirn("edge", 0x00, 0x5A41, 0x9200);
+            FNode f = file("e.bin", {}, 0x20, 0x5A42, 0x9400);
+            f.declared = sz;
+            edge.kids.push_back(f);
+            games.kids.push_back(edge);
+            fb.kids.push_back(games);
+            return fb;
+        };
+        const uint64_t cap = 32ull << 20, probe = 1ull << 20;
+        const FNode f0 = tree(probe);
+        const uint64_t fixed = counted(f0, build_image(f0), canon({"/GAMES/edge"})) - probe;   // everything but e.bin
+        const std::string c1 = tmp_path("card-d10a.img"), c2 = tmp_path("card-d10b.img");
+        std::remove(c1.c_str());
+        std::remove(c2.c_str());
+        const FNode fa = tree(cap - fixed), fo = tree(cap - fixed + 1);
+        const Run ra = build(minimal_card::Input::Image, build_image(fa).bytes, c1, with_dirs({"/GAMES/edge"}));
+        const Run ro = build(minimal_card::Input::Image, build_image(fo).bytes, c2, with_dirs({"/GAMES/edge"}));
+        check("MCARD-37", "a list counting exactly 33554432 bytes is accepted; one byte more is refused naming 33554433, no output file",
+              ra.st == minimal_card::Status::Done && ro.st == minimal_card::Status::Error &&
+                  ro.err.find(": " + std::to_string(cap + 1) + " bytes") != std::string::npos && !exists(c2),
+              ra.err + " | " + ro.err);
         std::remove(c1.c_str());
         std::remove(c2.c_str());
     }

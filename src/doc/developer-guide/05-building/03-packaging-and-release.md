@@ -315,7 +315,7 @@ is test tooling: it replaces the pinned zip digest (and drops the size check) wi
 of a zip made at run time from the image, and the pinned card digest still applies; the
 `minimal-sdcard-image-func` regression row uses it.
 
-**More of the distribution (`--dirs`, GH #509).** `--dirs /GAMES,/APPS` (the widget's own
+**More of the distribution (`--dirs`).** `--dirs /GAMES,/APPS` (the widget's own
 syntax: comma-separated, each item trimmed, empty items dropped) is `Expect::dirs`, the
 list a page gives as `card.dirs` / `data-card-dirs`. Each path is copied with its subtree, and
 its ancestors are created with the source's own names, attributes and times (the other

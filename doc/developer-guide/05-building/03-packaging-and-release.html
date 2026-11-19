@@ -3419,7 +3419,7 @@ synthetic fixtures of the tests and is not for real distributions. <code>--expec
 is test tooling: it replaces the pinned zip digest (and drops the size check) with the digest
 of a zip made at run time from the image, and the pinned card digest still applies; the
 <code>minimal-sdcard-image-func</code> regression row uses it.</p>
-<p><strong>More of the distribution (<code>--dirs</code>, GH #509).</strong> <code>--dirs /GAMES,/APPS</code> (the widget's own
+<p><strong>More of the distribution (<code>--dirs</code>).</strong> <code>--dirs /GAMES,/APPS</code> (the widget's own
 syntax: comma-separated, each item trimmed, empty items dropped) is <code>Expect::dirs</code>, the
 list a page gives as <code>card.dirs</code> / <code>data-card-dirs</code>. Each path is copied with its subtree, and
 its ancestors are created with the source's own names, attributes and times (the other

@@ -544,14 +544,15 @@ int main()
         struct C { const char* json; const char* entry; };
         const C cases[] = {{"\"/GAMES\"", "dirs"}, {"[5]", "dirs"}, {"[\"GAMES\"]", "GAMES"}, {"[\"/\"]", "'/'"},
                            {"[\"/a/../b\"]", "/a/../b"}, {"[\"/SYS\"]", "/SYS"}, {"[\"/APPS\",\"/apps\"]", "/apps"},
-                           {"[\"/GAMES\",\"/GAMES/Next\"]", "/games/next"}};
+                           {"[\"/GAMES\",\"/GAMES/Next\"]", "/games/next"},
+                           {"[\"/GAMES\",\"/GAMES-X\",\"/GAMES/Next\"]", "/games/next"}};
         std::string bad;
         for (const C& c : cases) {
             const Result r = run("{" + IMG + ",\"card\":{\"dirs\":" + std::string(c.json) + "}}");
             if (r.ok || !r.argv.empty() || r.why.find("card") == std::string::npos || r.why.find(c.entry) == std::string::npos)
                 bad += std::string(" ") + c.json + " -> " + r.why;
         }
-        check("WAPI-CARD-05", "card dirs: a string, [5], ['GAMES'], ['/'], ['/a/../b'], ['/SYS'], a duplicate and a nested path are refused naming card and the entry",
+        check("WAPI-CARD-05", "card dirs: a string, [5], ['GAMES'], ['/'], ['/a/../b'], ['/SYS'], a duplicate, a nested path and a nested path with a sibling sorted between them are refused naming card and the entry",
               bad.empty(), bad);
     }
 

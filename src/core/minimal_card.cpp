@@ -260,7 +260,11 @@ private:
                         const std::string& path, uint64_t bytes) {
         retained_ += bytes;
         if (retained_ > kRetainCap) over_ = true;
+        if (is_dir) live_dirs_ += bytes;
         if (over_ && !is_dir) return;
+        // Past the cap the directories are still read (to count the rest), but what they may
+        // hold at once is bounded: the distribution's are about 3 MB in all.
+        if (over_ && live_dirs_ > kRetainCap) { fail(over_message()); return; }
         for (uint32_t c : cl) {
             if (c <= cur) {
                 fail("the distribution's layout needs a second pass over the zip, which this builder does not do (cluster " +
@@ -320,6 +324,7 @@ private:
 
     void dir_complete(size_t ci, uint32_t cur) {
         const int parent = chains_[ci].rec;
+        live_dirs_ -= chains_[ci].bytes;
         std::vector<Fat32Entry> ents = fat32_parse_dir(chains_[ci].buf);
         std::vector<uint8_t>().swap(chains_[ci].buf);
         const std::string pdir = recs_[static_cast<size_t>(parent)].path;
@@ -408,6 +413,7 @@ private:
     size_t outstanding_ = 0;
     uint64_t retained_ = 0;
     bool over_ = false, done_over_ = false;
+    uint64_t live_dirs_ = 0;   // directory bytes registered and not yet parsed
     std::vector<std::string> dirs_;
     std::set<std::string> found_;
 };
@@ -697,15 +703,18 @@ bool canonical_dirs(const std::vector<std::string>& in, std::vector<std::string>
         out.push_back(lower_of(s));
     }
     std::sort(out.begin(), out.end());
-    for (size_t i = 1; i < out.size(); ++i) {
-        const std::string& a = out[i - 1];
-        const std::string& b = out[i];
-        if (a == b) { why = "'" + b + "' is given twice"; return false; }
-        if (b.size() > a.size() && b.compare(0, a.size(), a) == 0 && b[a.size()] == '/') {
-            why = "'" + b + "' is inside '" + a + "', which is also given";
-            return false;
+    // Every pair, not only neighbours: a sibling whose name has a character below '/' sorts between a
+    // path and its child (/games, /games-x, /games/next).
+    for (size_t j = 1; j < out.size(); ++j)
+        for (size_t i = 0; i < j; ++i) {
+            const std::string& a = out[i];
+            const std::string& b = out[j];
+            if (a == b) { why = "'" + b + "' is given twice"; return false; }
+            if (b.size() > a.size() && b.compare(0, a.size(), a) == 0 && b[a.size()] == '/') {
+                why = "'" + b + "' is inside '" + a + "', which is also given";
+                return false;
+            }
         }
-    }
     return true;
 }
 
