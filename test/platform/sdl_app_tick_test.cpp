@@ -490,13 +490,16 @@ int main()
         const uint64_t r1 = app->emulator().rendered_frames();
         const uint64_t u1 = app->uploads_for_test();
         const uint64_t g1 = app->last_upload_generation_for_test();
+        const uint32_t* px = app->last_upload_pixels_for_test();
+        const bool black = px && px != app->emulator().get_framebuffer() && px[0] == 0xFF000000u &&
+                           px[640 * 256 - 1] == 0xFF000000u;
         ft.t += 25000;
         app->tick(s);
         const uint64_t r2 = app->emulator().rendered_frames();
         const uint64_t u2 = app->uploads_for_test();
         app->shutdown();
-        check("SDLT-15", "armed with hide: tick 1 composites and uploads once under HIDDEN_GENERATION; a tick 25 ms later composites but uploads nothing (the black frame is held)",
-              ok && r1 - r0 == 1 && u1 - u0 == 1 && g1 == fast_boot::HIDDEN_GENERATION && r2 - r1 == 1 && u2 == u1,
+        check("SDLT-15", "armed with hide: tick 1 composites and uploads once, a black frame (not the emulator's pixels) under HIDDEN_GENERATION; a tick 25 ms later composites but uploads nothing (the black frame is held)",
+              ok && r1 - r0 == 1 && u1 - u0 == 1 && g1 == fast_boot::HIDDEN_GENERATION && black && r2 - r1 == 1 && u2 == u1,
               "r=" + std::to_string(r0) + "/" + std::to_string(r1) + "/" + std::to_string(r2) +
               " u=" + std::to_string(u0) + "/" + std::to_string(u1) + "/" + std::to_string(u2) +
               " gen=" + std::to_string(g1));
@@ -538,9 +541,10 @@ int main()
         const uint64_t u1 = app->uploads_for_test();
         const uint64_t g1 = app->last_upload_generation_for_test();
         const uint64_t fbgen = app->emulator().framebuffer_generation();
+        const bool real_px = app->last_upload_pixels_for_test() == app->emulator().get_framebuffer();
         app->shutdown();
-        check("SDLT-17", "armed without hide: tick 1 uploads the emulator's own generation (the default path is untouched)",
-              ok && u1 - u0 == 1 && g1 == fbgen && g1 != fast_boot::HIDDEN_GENERATION,
+        check("SDLT-17", "armed without hide: tick 1 uploads the emulator's own pixels and generation (the default path is untouched)",
+              ok && u1 - u0 == 1 && g1 == fbgen && g1 != fast_boot::HIDDEN_GENERATION && real_px,
               "u=" + std::to_string(u0) + "/" + std::to_string(u1) + " gen=" + std::to_string(g1) +
               " fbgen=" + std::to_string(fbgen));
     }

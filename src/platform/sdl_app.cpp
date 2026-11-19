@@ -796,6 +796,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
             display_.upload_frame(shown.pixels, fb_w, fb_h);
             display_.present();
             last_uploaded_gen_ = shown.generation;
+            last_uploaded_pixels_ = shown.pixels;
             ++present_uploads_;
             ++uploads_total_;
         }
