@@ -71,5 +71,5 @@ of 16 bytes ... the rest is ROM, which is read-only`); a Load or Fill that lands
 block is ROM says `ROM is read-only`.
 
 Load and Fill work while the machine runs, like typing a byte, and count as a memory edit for
-[rewind](../functions/07-backward-execution-rewind.md): they are refused while an RZX recording or
-playback is running, as an edit is. Find and Save only read, so they work in both.
+[rewind](../functions/07-backward-execution-rewind.md). Like an edit, they are refused while an RZX
+recording or playback is running. Find and Save only read, so they work in both.

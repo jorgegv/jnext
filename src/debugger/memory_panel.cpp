@@ -954,11 +954,10 @@ void MemoryPanel::load_block(uint32_t start, std::optional<uint32_t> len, const 
     QStringList why_not;
     if (F < M) why_not << tr("the file holds only %1 bytes").arg(F);
     if (room < std::min(M, F)) {
+        // Only Cpu and Page blocks get here: a ROM space refuses the poke with nothing landed.
         why_not << (w.space.kind == jnext::dbg::MemSpace::Kind::Cpu
                         ? tr("the rest would run past $FFFF")
-                        : w.space.kind == jnext::dbg::MemSpace::Kind::Rom
-                              ? tr("the rest would run past the end of ROM%1").arg(w.space.index)
-                              : tr("the rest would run past page DF"));
+                        : tr("the rest would run past page DF"));
     }
     if (L < T) why_not << tr("the rest is ROM, which is read-only");
     emit message(tr("Loaded %1 of %2 bytes at %3 from %4: %5")

@@ -149,6 +149,15 @@ int main() {
               a && *a == 0x1B00 && b && *b == 0x1B00 && c && *c == 0x1B00 && z && *z == 0 && bad &&
               w == "not a hex length: 'xyz'", w);
     }
+    // MEMT-15
+    {
+        std::string w1, w2;
+        const auto ok8 = parse_length("FFFFFFFF", nullptr);
+        const bool r = !parse_length("123456789", &w1) && !parse_length("$123456789", &w2);
+        check("MEMT-15", "hex length: 8 digits are the most (FFFFFFFF parses; 9 digits are refused with the exact text)",
+              ok8 && *ok8 == 0xFFFFFFFFu && r && w1 == "not a hex length: '123456789'" &&
+              w2 == "not a hex length: '$123456789'", w1 + " / " + w2);
+    }
     // MEMT-12
     {
         std::string w1, w2, w3;

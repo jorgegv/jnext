@@ -442,7 +442,8 @@ struct PopupAnswer {
     QStringList items;
 };
 
-void context_menu_and_pick(QWidget* w, const QPoint& pos, PopupAnswer& ans) {
+void context_menu_and_pick(QWidget* w, const QPoint& pos, PopupAnswer& ans,
+                           QContextMenuEvent::Reason reason = QContextMenuEvent::Mouse) {
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, [&ans]() {
         auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
@@ -460,7 +461,7 @@ void context_menu_and_pick(QWidget* w, const QPoint& pos, PopupAnswer& ans) {
         menu->close();
     });
     timer.start(1);
-    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, w->mapToGlobal(pos));
+    QContextMenuEvent ev(reason, pos, w->mapToGlobal(pos));
     QApplication::sendEvent(w, &ev);
     timer.stop();
     QApplication::processEvents();
@@ -4943,6 +4944,215 @@ static void test_memory_panel_tools() {
         check("QMPT-18", "a refused pattern in the Find dialog is reported and moves nothing",
               r.built && r.last() == "Find: odd number of hex digits in 'CD3'" && r.mem->selected_address() == 0x8000,
               s(r.last()));
+    }
+
+    // QMPT-19
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x8040, {'J', 'N', 'E', 'X', 'T'});
+        r.mem->find(text("JNEXT"));          // arms Find Next
+        r.msgs.clear();
+        go_to(r.mem.get(), "8030");
+        const auto items = painted(r.mem.get());
+        QPoint at;
+        for (size_t i = 0; i + 4 < items.size(); ++i)
+            if (items[i].text == "$8030") at = QPoint(static_cast<int>(items[i + 4].pos.x()) + 2,
+                                                       static_cast<int>(items[i + 4].pos.y()) - 3);
+        PopupAnswer a1;
+        context_menu_and_pick(r.mem.get(), at, a1);            // a right-click on the byte $8033
+        const int clicked = r.mem->selected_address();
+        PopupAnswer a2;
+        a2.wanted = "Find Next";
+        context_menu_and_pick(r.mem.get(), at, a2);            // and one of its entries runs
+        const QString ran = r.last();
+        go_to(r.mem.get(), "8030");
+        PopupAnswer a3;
+        context_menu_and_pick(r.mem.get(), QPoint(at.x() + 3 * 24, at.y()), a3, QContextMenuEvent::Keyboard);
+        check("QMPT-19", "a real context-menu event opens the five-item menu, a right-click selects the byte first, "
+                         "a menu key does not, and an item runs",
+              r.built && at != QPoint() && a1.seen &&
+                  a1.items == QStringList({"Find...", "Find Next", "Save Block...", "Load Block...", "Fill Block..."}) &&
+                  clicked == 0x8033 && a2.found && ran == "Found at $8040" && a3.seen &&
+                  r.mem->selected_address() == 0x8030,
+              fmt("at=%d,%d items=%s clicked=%X ran=%s sel=%X", at.x(), at.y(), s(a1.items.join("|")).c_str(), clicked,
+                  s(ran).c_str(), r.mem->selected_address()));
+    }
+
+    // QMPT-20
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x8000, {0xCD, 0x12, 0x81});
+        r.put(MemSpace::cpu(), 0x8010, {0xCD, 0x12, 0x80});
+        go_to(r.mem.get(), "7FF0");
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        via_dialog([&]() { menu.actions()[0]->trigger(); }, [](QDialog* d) {
+            auto e = d->findChildren<QLineEdit*>();   // Pattern, Mask
+            e[0]->setText("CD ?? 80");
+            e[1]->setText("FF 00 FE");
+            d->accept();
+        });
+        check("QMPT-20", "Find dialog: the Mask field is used (CD ?? 80 with mask FF 00 FE hits $8000, not $8010)",
+              r.built && r.mem->selected_address() == 0x8000 && r.last() == "Found at $8000", s(r.last()));
+    }
+
+    // QMPT-21
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x9000, {'J', 'N', 'E', 'X', 'T'});
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        via_dialog([&]() { menu.actions()[0]->trigger(); }, [](QDialog* d) {
+            d->findChildren<QLineEdit*>()[0]->setText("jnext");
+            check_named(d, "Text")->setChecked(true);
+            check_named(d, "Match case")->setChecked(false);
+            d->accept();
+        });
+        const QString off = r.last();
+        r.msgs.clear();
+        via_dialog([&]() { menu.actions()[0]->trigger(); }, [](QDialog* d) {
+            check_named(d, "Match case")->setChecked(true);
+            d->accept();
+        });
+        check("QMPT-21", "Find dialog: Match case off finds jnext in JNEXT, on does not",
+              r.built && off == "Found at $9000" && r.last() == "Not found in CPU View", s(off) + " / " + s(r.last()));
+    }
+
+    // QMPT-22
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.put(MemSpace::cpu(), 0x9000, {'J', 'N', 'E', 'X', 'T'});
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        via_dialog([&]() { menu.actions()[0]->trigger(); }, [](QDialog* d) {
+            d->findChildren<QLineEdit*>()[0]->setText("JNEXT");
+            check_named(d, "Text")->setChecked(true);
+            d->accept();
+        });
+        r.msgs.clear();
+        via_dialog([&]() { menu.actions()[0]->trigger(); }, [](QDialog* d) {
+            check_named(d, "Text")->setChecked(false);
+            d->findChildren<QLineEdit*>()[0]->setText("4A 4E");
+            d->accept();
+        });
+        check("QMPT-22", "Find dialog: unticking Text searches hex again (4A 4E hits $9000, as text it would not)",
+              r.built && r.last() == "Found at $9000", s(r.last()));
+    }
+
+    // QMPT-23
+    {
+        ToolRig r(MachineType::ZX48K);
+        const QByteArray f = ramp(16, 1);
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        const QString path = write_file(td, "f.bin", f);
+        via_dialog([&]() { menu.actions()[4]->trigger(); }, [&](QDialog* d) {
+            auto e = d->findChildren<QLineEdit*>();   // File, Start, Length
+            e[0]->setText(path);
+            e[1]->setText("9000");
+            e[2]->setText("4");
+            d->accept();
+        });
+        check("QMPT-23", "Load dialog: a Length shorter than the file loads only that much",
+              r.built && r.last() == "Loaded 4 bytes at $9000 from f.bin" &&
+                  r.peek(MemSpace::cpu(), 0x9000, 5) == std::vector<uint8_t>({0, 1, 2, 3, 0}),
+              s(r.last()));
+    }
+
+    // QMPT-24
+    {
+        ToolRig r(MachineType::ZX48K);
+        const auto rom_before = r.peek(MemSpace::cpu(), 0, 4);
+        r.mem->fill_block(0x3FF8, 16, {0xAA});
+        const QString m1 = r.last();
+        const bool part = r.peek(MemSpace::cpu(), 0x4000, 8) == std::vector<uint8_t>(8, 0xAA);
+        r.mem->fill_block(0, 4, {0xAA});
+        const QString m2 = r.last();
+        select_view(r.mem.get(), 1);          // Slot 0 = ROM0
+        r.mem->fill_block(0, 4, {0xAA});
+        check("QMPT-24", "Fill across ROM/RAM says L of N and why; a Fill into ROM only is refused (CPU View and ROM slot)",
+              r.built && part && m1 == "Filled 8 of 16 bytes at $3FF8 with AA: the rest is ROM, which is read-only" &&
+                  m2 == "Fill refused: ROM is read-only" && r.last() == m2 && r.peek(MemSpace::cpu(), 0, 4) == rom_before,
+              s(m1) + " / " + s(m2) + " / " + s(r.last()));
+    }
+
+    // QMPT-25
+    {
+        ToolRig r(MachineType::ZX48K);
+        r.mem->load_block(0xFFF0, 0x40, write_file(td, "f.bin", ramp(32, 3)));
+        check("QMPT-25", "Load stopped by both the file and the end of memory gives both reasons",
+              r.built && r.last() == "Loaded 16 of 64 bytes at $FFF0 from f.bin: the file holds only 32 bytes; "
+                                     "the rest would run past $FFFF",
+              s(r.last()));
+    }
+
+    // QMPT-26
+    {
+        ToolRig r(MachineType::ZXN_ISSUE2);
+        select_page_view(r.mem.get(), "DF");
+        r.mem->load_block(0x1F00, std::nullopt, write_file(td, "f.bin", ramp(512, 1)));
+        check("QMPT-26", "Load into the last page (DF) stops at its end and says past page DF",
+              r.built && r.last() == "Loaded 256 of 512 bytes at offset $1F00 of PDF from f.bin: the rest would run past page DF",
+              s(r.last()));
+    }
+
+    // QMPT-27
+    {
+        ToolRig r(MachineType::ZX48K);
+        const QString empty = write_file(td, "e.bin", QByteArray());
+        r.mem->load_block(0x8000, std::nullopt, empty);
+        const QString m1 = r.last();
+        r.mem->load_block(0x8000, std::nullopt, td.path() + "/nope.bin");
+        const QString m2 = r.last();
+        r.mem->load_block(0x8000, std::nullopt, td.path());
+        const QString m3 = r.last();
+        check("QMPT-27", "Load refusals: an empty file, a missing path, a directory",
+              r.built && m1 == "Load refused: e.bin is empty" && m2 == "Load failed: nope.bin: not a file" &&
+                  m3 == "Load failed: " + QFileInfo(td.path()).fileName() + ": not a file",
+              s(m1) + " / " + s(m2) + " / " + s(m3));
+    }
+
+    // QMPT-28
+    {
+        ToolRig n(MachineType::ZXN_ISSUE2);
+        const QString path = write_file(td, "f.bin", ramp(8, 1));
+        n.mem->load_block(0x8000, 0, path);
+        const QString m1 = n.last();
+        n.dbg->set_mmu_slot(jnext::dbg::CLIENT_NONE, 6, 0xE0);   // a slot paged to no memory
+        select_view(n.mem.get(), 7);
+        n.mem->load_block(0, std::nullopt, path);
+        check("QMPT-28", "Load names why nothing can land: Length 0, and a slot paged to no memory",
+              n.built && m1 == "Load refused: the length is 0" &&
+                  n.last() == "Load refused: the slot is paged to no memory",
+              s(m1) + " / " + s(n.last()));
+    }
+
+    // QMPT-29
+    {
+        ToolRig r(MachineType::ZX48K);
+        QMenu menu;
+        r.mem->fill_context_menu(menu);
+        via_dialog([&]() { menu.actions()[5]->trigger(); }, [](QDialog* d) {
+            auto e = d->findChildren<QLineEdit*>();   // Start, Length, Value
+            e[0]->setText("zz9");
+            e[1]->setText("4");
+            e[2]->setText("AA");
+            d->accept();
+        });
+        check("QMPT-29", "a Start that is neither a number nor a symbol is refused by name",
+              r.built && r.last() == "Fill refused: not an address: 'zz9'" && r.log.lines.empty(), s(r.last()));
+    }
+
+    // QMPT-30
+    {
+        ToolRig r(MachineType::ZXN_ISSUE2);
+        r.dbg->set_mmu_slot(jnext::dbg::CLIENT_NONE, 3, 0x20);
+        r.dbg->set_mmu_slot(jnext::dbg::CLIENT_NONE, 6, 0x20);
+        r.put(MemSpace::page(0x20), 0x123, p8);
+        select_page_view(r.mem.get(), "20");
+        r.mem->find(p8_pat());
+        check("QMPT-30", "a Page view hit shows the LOWEST slot that maps the page ($6123, not $C123)",
+              r.built && r.shown == std::vector<int>({0x6123}), r.shown.empty() ? "none" : fmt("%X", r.shown[0]));
     }
 }
 

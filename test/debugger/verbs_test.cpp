@@ -4034,7 +4034,7 @@ static void test_tstates() {
     }
 }
 
-// ── QMPW — GH #370: the Memory panel's tool messages in the real window ─────────────────────
+// ── QMPW - GH #370: the Memory panel's tool messages in the real window ─────────────────────
 //
 // Oracle: the issue (a find moves the Disassembly; every write is one backend poke) and the
 // debugger window's documented rewind wall (§4.2a: a debugger change is marked on the ring, so
