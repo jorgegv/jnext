@@ -1292,8 +1292,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     "undo them");
         }
     } else {
-        // No explicit root: an implicit one (the loaded NEX's directory, set
-        // by load_nex()) does not outlive a re-init, like direct_nex_esxdos_.
+        // No explicit root: an implicit one (the loaded NEX's directory or a data
+        // archive's, set by load_nex()) does not outlive a re-init, like direct_nex_esxdos_.
         esxdos_hostfs_.clear();
     }
     const bool esxdos_tracing = Log::esxdos()->should_log(spdlog::level::trace);
@@ -8634,8 +8634,36 @@ bool Emulator::load_nex(const std::string& path)
     // With --esxdos-stub and no --esxdos-stub-root, the NEX's own directory is
     // the esxDOS root (read-only unless --esxdos-stub-writable). It follows
     // every NEX load, and init() ends it. A NEX extracted from an archive has
-    // no directory of its own on disk.
-    if (config_.esxdos_stub && config_.esxdos_stub_root.empty()) {
+    // no directory of its own on disk, unless it came out of a data archive
+    // (GH #541): then the directory the archive's NEX was in is served, with no
+    // --esxdos-stub needed, and an explicit --esxdos-stub-root still wins.
+    std::string data_archive;
+    if (program_archive::in_archive_directory(active_nex_path_, data_archive)) {
+        if (!config_.esxdos_stub_root.empty()) {
+            Log::emulator()->info(
+                "the files of '{}' are not served: --esxdos-stub-root {} is",
+                data_archive, config_.esxdos_stub_root);
+        } else {
+            const std::string dir =
+                std::filesystem::path(active_nex_path_).parent_path().string();
+            std::string why;
+            if (!esxdos_hostfs_.configure(dir, config_.esxdos_stub_writable, why)) {
+                Log::emulator()->error(
+                    "esxdos host directory: cannot serve '{}': {}", dir, why);
+            } else {
+                Log::emulator()->info(
+                    "esxdos host directory: {} ({}), the files of '{}'",
+                    esxdos_hostfs_.root().string(),
+                    config_.esxdos_stub_writable ? "read-write" : "read-only",
+                    data_archive);
+                if (config_.esxdos_stub_writable)
+                    Log::emulator()->warn(
+                        "--esxdos-stub-writable: guest writes, deletions and renames "
+                        "change the extracted copy immediately, never the archive; "
+                        "rewinding the emulator cannot undo them");
+            }
+        }
+    } else if (config_.esxdos_stub && config_.esxdos_stub_root.empty()) {
         std::string archive, member;
         if (program_archive::extracted_from(path, archive, member)) {
             Log::emulator()->info(
