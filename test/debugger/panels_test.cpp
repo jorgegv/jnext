@@ -6383,8 +6383,17 @@ static void test_graphics_panel() {
             bool px = true;
             for (int i = 0; i < 4; ++i)
                 px = px && i7.pixel(16 + i, 0) == f.argb(PaletteId::TilemapFirst, static_cast<uint8_t>(0x51 + i));
+            // Active follows NR 0x6B bit 4: with it set the same tile shows the tilemap-second colours.
+            f.set_pal(0x70, 0x51, 0x1FF);
+            f.set_pal(0x30, 0x51, 0x007);
+            f.nr(0x6B, 0x10);
+            f.panel->refresh();
+            px = px && f.til()->image().pixel(16, 0) == f.argb(PaletteId::TilemapSecond, 0x51) &&
+                 f.argb(PaletteId::TilemapSecond, 0x51) != f.argb(PaletteId::TilemapFirst, 0x51);
+            f.nr(0x6B, 0x00);
+            f.panel->refresh();
             check("QGFX-07", "Tiles from bank 5: NR 0x6F = 0C, tile 2 (bytes 12 34 at page 0A + 0C40), offset 5 -> tilemap-first "
-                             "indices 51..54; the source line names bank 5 and 0x0C00",
+                             "indices 51..54; the source line names bank 5 and 0x0C00; Active follows NR 0x6B bit 4",
                   poked && px && src.contains("bank 5") && src.contains("0x0C00"), s(src));
             f.spin("gfxTileOffset")->setValue(0);
 
