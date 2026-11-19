@@ -124,6 +124,16 @@ The tint is a pale violet in Light and a dark violet in Dark and Borland; it dif
 current-line bar and the coverage tint in every scheme. Nothing is configurable: the two views always
 follow each other.
 
+### Follow, Back and Forward
+
+**Follow** (**F12**), **Back** (**Alt+Left**) and **Forward** (**Alt+Right**) work here when the
+keyboard focus is in the source text. Follow acts on the first instruction of the cursor line that
+is mapped now, with the same targets as the [Disassembly](03-disassembly.md#navigating-follow-back-and-forward):
+a target with a source line is shown here, one with none opens in the Disassembly, a memory
+operand opens in the Memory panel, and a line with no code does nothing. Back and Forward
+return through the lines left by a Follow, by Show in Source, and by choosing another file
+(the line that was left, not the new file's top).
+
 ### Right-click menu
 
 Right-click in the text, or in the gutter, for the same actions the disassembly offers,

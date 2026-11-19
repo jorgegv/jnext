@@ -1,4 +1,5 @@
 #include "debugger/debugger_window.h"
+#include <QApplication>
 #include "gui/host_shortcuts.h"   // GH #403
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "qt/debug_keymap_qt.h"
@@ -19,6 +20,7 @@
 #include "debugger/callstack_panel.h"
 #include "debugger/variables_panel.h"
 #include "debugger/source_panel.h"
+#include "debugger/symbols_panel.h"
 
 #include "debugger/debugger_manager.h"
 #include "debug/debugger.h"
@@ -376,6 +378,20 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     apply_keymap();
 }
 
+void DebuggerWindow::set_reload_source(QAction* host) {
+    // GH #374: the emulator window's Reload Last File. Forward the trigger, mirror the enabled state.
+    QObject::disconnect(reload_trigger_conn_);
+    QObject::disconnect(reload_enable_conn_);
+    if (!host) {
+        reload_action_->setEnabled(false);
+        return;
+    }
+    reload_trigger_conn_ = connect(reload_action_, &QAction::triggered, host, &QAction::trigger);
+    reload_enable_conn_  = connect(host, &QAction::changed, reload_action_,
+                                   [this, host]() { reload_action_->setEnabled(host->isEnabled()); });
+    reload_action_->setEnabled(host->isEnabled());
+}
+
 void DebuggerWindow::set_keymap(const jnext::dbgkeys::Keymap& km) {
     keymap_ = km;
     apply_keymap();
@@ -407,6 +423,9 @@ void DebuggerWindow::apply_keymap() {
     bind(source_out_action_,     Action::SourceStepOut);
     bind(source_back_action_,    Action::SourceStepBack);
     bind(source_reverse_action_, Action::SourceReverseContinue);
+    bind(follow_action_,         Action::Follow);       // GH #366
+    bind(back_action_,           Action::GoBack);
+    bind(forward_action_,        Action::GoForward);
 
     // The captions. "F5: Continue" is "<key>: <name>" with the key dropped
     // when the action is unbound — so the default keymap reproduces exactly
@@ -638,6 +657,14 @@ void DebuggerWindow::create_menus() {
     //     keyboard, by the emulator window's own focusOutEvent.
     jnext::disable_alt_menu_navigation(bar, this);
 
+    // GH #374 - File > Reload Last File: the emulator window's command, reachable from here. A host
+    // shortcut like the script keys (not a keymap action: the keymap refuses Alt+letter); its handler
+    // and enabled state are the emulator window's (set_reload_source()). F: free in this menu bar.
+    QMenu* file_menu = bar->addMenu(tr("&File"));
+    reload_action_ = file_menu->addAction(tr("Reload Last File"));
+    reload_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::ReloadLast));
+    reload_action_->setEnabled(false);   // until a host action says otherwise
+
     // --- Debug menu ---
     QMenu* debug_menu = bar->addMenu(tr("&Debug"));
 
@@ -690,6 +717,28 @@ void DebuggerWindow::create_menus() {
         else if (disasm_panel_) disasm_panel_->run_to_selected();
     });
     addAction(run_to_cursor_action_);
+
+    // GH #366 - Follow / Back / Forward: bindable window commands, listed in the Go menu below.
+    follow_action_ = new QAction(tr("Follow"), this);
+    connect(follow_action_, &QAction::triggered, this, [this]() {
+        if (source_has_focus()) source_panel_->follow();
+        else if (disasm_panel_) disasm_panel_->follow();
+    });
+    addAction(follow_action_);
+    back_action_ = new QAction(tr("Back"), this);
+    connect(back_action_, &QAction::triggered, this, [this]() {
+        if (source_has_focus()) source_panel_->go_back();
+        else if (disasm_panel_) disasm_panel_->go_back();
+    });
+    addAction(back_action_);
+    forward_action_ = new QAction(tr("Forward"), this);
+    connect(forward_action_, &QAction::triggered, this, [this]() {
+        if (source_has_focus()) source_panel_->go_forward();
+        else if (disasm_panel_) disasm_panel_->go_forward();
+    });
+    addAction(forward_action_);
+    connect(qApp, &QApplication::focusChanged, this, [this]() { update_nav_actions(); });
+    update_nav_actions();
 
     debug_menu->addSeparator();
 
@@ -839,6 +888,21 @@ void DebuggerWindow::create_menus() {
     QAction* rewind_size_action = rewind_menu->addAction(tr("Rewind &Buffer Size..."));
     connect(rewind_size_action, &QAction::triggered, this, &DebuggerWindow::show_rewind_buffer_size_dialog);
 
+    // --- Go menu (GH #366): the navigation commands and the Symbols tab. G is free among this bar's
+    // mnemonics (D, S, M, B, W, N). The three actions are the window commands created above; their keys
+    // come from apply_keymap(). Symbols has no key of its own.
+    QMenu* go_menu = bar->addMenu(tr("&Go"));
+    go_menu->addAction(follow_action_);
+    go_menu->addAction(back_action_);
+    go_menu->addAction(forward_action_);
+    go_menu->addSeparator();
+    QAction* symbols_action = go_menu->addAction(tr("&Symbols"));
+    connect(symbols_action, &QAction::triggered, this, [this]() {
+        if (!symbols_panel_) return;
+        tab_widget_->setCurrentWidget(symbols_panel_);
+        symbols_panel_->focus_filter();
+    });
+
     // --- Script menu (GH #26 WP5, dsl-frontend.md §6.4) ---
     // Alt+S: free among this bar's mnemonics (D, S, M, B, W, N).
     QMenu* script_menu = bar->addMenu(tr("&Script"));
@@ -963,6 +1027,12 @@ void DebuggerWindow::create_menus() {
         // (REQ-qt-13d). The model notifies both views.
         if (BreakpointModel* m = breakpoint_model()) m->clear_all();
     });
+
+    bp_menu->addSeparator();
+    QAction* save_bp_script = bp_menu->addAction(tr("&Save as Script..."));
+    connect(save_bp_script, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_breakpoints_script);
+    QAction* load_bp_script = bp_menu->addAction(tr("&Load from Script..."));
+    connect(load_bp_script, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_breakpoints_script);
 
     // --- Watches menu ---
     QMenu* watches_menu = bar->addMenu(tr("&Watches"));
@@ -1446,9 +1516,16 @@ void DebuggerWindow::set_attach_enabled(bool on) {
 void DebuggerWindow::create_panels() {
     // --- Create panels ---
     cpu_panel_ = new CpuPanel(&dbg_);
+    // GH #368: a refused or malformed register edit, held against update_rewind_ui()'s rewrite.
+    connect(cpu_panel_, &CpuPanel::message, this, &DebuggerWindow::show_rewind_refusal);
+    // GH #366 - a register click or menu entry shows its value (wired where the targets exist, below).
     disasm_panel_ = new DisasmPanel(&dbg_);
     memory_panel_ = new MemoryPanel(&dbg_);
     memory_panel_->setMinimumHeight(320);
+    // GH #370: the Memory panel's tool messages, held like a refusal; a match moves the Disassembly.
+    connect(memory_panel_, &MemoryPanel::message, this, &DebuggerWindow::show_rewind_refusal);
+    connect(memory_panel_, &MemoryPanel::show_in_disassembly_requested, disasm_panel_,
+            &DisasmPanel::show_address);
     video_panel_ = new VideoPanel(&dbg_);
     sprite_panel_ = new SpritePanel(&dbg_);
     copper_panel_ = new CopperPanel(&dbg_);
@@ -1489,6 +1566,9 @@ void DebuggerWindow::create_panels() {
     // in set_debugger_manager()).
     source_panel_ = new SourcePanel(&dbg_);
     tab_widget_->addTab(source_panel_, tr("Source"));
+    // GH #366 - every label the backend knows, filterable.
+    symbols_panel_ = new SymbolsPanel(&dbg_);
+    tab_widget_->addTab(symbols_panel_, tr("Symbols"));
 
     tab_widget_->setMinimumWidth(380);
 
@@ -1506,6 +1586,29 @@ void DebuggerWindow::create_panels() {
     // GH #423 - the Source tab's "Show in Disassembly".
     connect(source_panel_, &SourcePanel::show_address_requested, disasm_panel_,
             &DisasmPanel::show_address);
+
+    // GH #366 - the CPU panel's register shortcuts.
+    connect(cpu_panel_, &CpuPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);
+    connect(cpu_panel_, &CpuPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
+    connect(cpu_panel_, &CpuPanel::show_in_source_requested, this, [this](uint16_t addr) {
+        source_panel_->show_address(addr);
+        tab_widget_->setCurrentWidget(source_panel_);
+    });
+
+    // GH #366 - the Symbols tab asks for a place to be shown.
+    connect(symbols_panel_, &SymbolsPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);
+    connect(symbols_panel_, &SymbolsPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
+    connect(symbols_panel_, &SymbolsPanel::show_in_source_requested, this, [this](uint16_t addr) {
+        source_panel_->show_address(addr);
+        tab_widget_->setCurrentWidget(source_panel_);
+    });
+
+    // GH #366 - Follow on a memory operand shows it in the Memory panel; a history change refreshes
+    // the Back/Forward enabled state.
+    connect(disasm_panel_, &DisasmPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
+    connect(source_panel_, &SourcePanel::show_memory_requested, this, &DebuggerWindow::show_in_memory);
+    connect(disasm_panel_, &DisasmPanel::history_changed, this, &DebuggerWindow::update_nav_actions);
+    connect(source_panel_, &SourcePanel::history_changed, this, &DebuggerWindow::update_nav_actions);
 
     // GH #347 - selection sync, both ways, and the Disassembly menu's Show in Source. The
     // Disassembly tells the Source tab only of selections the user made; the Source tab tells it
@@ -1567,6 +1670,7 @@ void DebuggerWindow::create_panels() {
 
     // --- Bottom: memory tabs (left) | watches+breakpoints tabs (right) ---
     auto* memory_tab_widget = new QTabWidget();
+    memory_tab_widget_ = memory_tab_widget;
     memory_tab_widget->setTabPosition(QTabWidget::North);
     memory_tab_widget->addTab(stack_panel_, tr("Stack"));
     memory_tab_widget->addTab(callstack_panel_, tr("Call Stack"));
@@ -1612,6 +1716,24 @@ void DebuggerWindow::create_panels() {
     scroll->setWidgetResizable(true);   // splitter still fills a roomy window
     scroll->setFrameShape(QFrame::NoFrame);
     setCentralWidget(scroll);
+}
+
+bool DebuggerWindow::source_has_focus() const {
+    return source_panel_ && source_panel_->has_text_focus();
+}
+
+void DebuggerWindow::update_nav_actions() {
+    const bool src = source_has_focus();
+    const bool back = src ? source_panel_->can_go_back() : (disasm_panel_ && disasm_panel_->can_go_back());
+    const bool fwd = src ? source_panel_->can_go_forward() : (disasm_panel_ && disasm_panel_->can_go_forward());
+    if (back_action_) back_action_->setEnabled(back);
+    if (forward_action_) forward_action_->setEnabled(fwd);
+}
+
+void DebuggerWindow::show_in_memory(uint16_t addr) {
+    if (!memory_panel_) return;
+    memory_panel_->show_address(addr);
+    if (memory_tab_widget_) memory_tab_widget_->setCurrentWidget(memory_panel_);
 }
 
 void DebuggerWindow::activate_follow_pc() {
@@ -1740,6 +1862,7 @@ void DebuggerWindow::apply_address_style() {
     if (callstack_panel_) callstack_panel_->set_address_style(address_style_);
     if (variables_panel_) variables_panel_->set_address_style(address_style_);
     if (source_panel_) source_panel_->set_address_style(address_style_);
+    if (symbols_panel_) symbols_panel_->set_address_style(address_style_);
     if (BreakpointModel* m = breakpoint_model()) m->set_address_style(address_style_);
 }
 
@@ -1749,6 +1872,7 @@ void DebuggerWindow::refresh_panels() {
     (void)dbg_.source_map_status();
     sync_coverage_action();
     if (cpu_panel_) cpu_panel_->refresh();
+    if (symbols_panel_) symbols_panel_->refresh();   // GH #366
     if (disasm_panel_) disasm_panel_->refresh();
     if (memory_panel_) memory_panel_->refresh();
     if (video_panel_) video_panel_->refresh();

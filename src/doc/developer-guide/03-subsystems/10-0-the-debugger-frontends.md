@@ -110,7 +110,7 @@ a write.
 | `step_back`, `rewind_to_frame`, rewind buffer | ✓ | — | — | — | — | — |
 | `reset` | — | — | ✓ | ✓ | — | — |
 | `load` | — | — | — | ✓ | — | — |
-| registers | r | r w | r w | r w | r w | — |
+| registers | r w | r w | r w | r w | r w | — |
 | `peek` / `poke` | r w | r w | r w | r w | r w | — |
 | MMU slots, paging | r | r w | r w | r | r | — |
 | NextREG | r w | r | r w | r w | r w | r |

@@ -136,7 +136,7 @@ struct Expr {
 // ---------------------------------------------------------------------------
 
 enum class EventType : uint8_t {
-    Execute, Read, Write, IoRead, IoWrite, NextReg, Frame, Scanline, Cycle,
+    Execute, Read, Write, ReadWrite, IoRead, IoWrite, NextReg, Frame, Scanline, Cycle,
     Interrupt, Nmi, Reset, HostKey, Stop, Copper, Dma,
 };
 
@@ -147,7 +147,7 @@ enum class DmaSub : uint8_t { Start, Byte, End };
 /// evaluated here: the filter bounds are resolved when the rule is registered.
 ///
 /// Which fields a type uses:
-///   Execute/Read/Write, Dma Byte:  addr_spec — `lo`[`..hi`] [`page` page_lo],
+///   Execute/Read/Write/ReadWrite, Dma Byte:  addr_spec — `lo`[`..hi`] [`page` page_lo],
 ///                                  or the page-only form `page` page_lo[`..page_hi`]
 ///                                  (`page_only`, `lo` null). Dma Byte may have none.
 ///   IoRead/IoWrite:                `lo`[`..hi`], or `mask` + `value`

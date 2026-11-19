@@ -7,7 +7,7 @@ the combination you want. Click **Reset** on a row to put that one back, or
 Apply, and Apply takes effect immediately in both windows — you do not have to
 restart JNEXT.
 
-The seventeen commands, and what they are bound to out of the box:
+The twenty commands, and what they are bound to out of the box:
 
 | Command | Default | Also reachable from |
 |---|---|---|
@@ -28,6 +28,9 @@ The seventeen commands, and what they are bound to out of the box:
 | Source Step Out | **Ctrl+F8** | Source tab, **Debug ▸ Source** |
 | Source Step Back | *unbound* | Source tab, **Debug ▸ Source** |
 | Source Reverse Continue | *unbound* | Source tab, **Debug ▸ Source** |
+| Follow | **F12** | the Disassembly or Source tab ([navigating](../panels/03-disassembly.md#navigating-follow-back-and-forward)) |
+| Back | **Alt+Left** | the same |
+| Forward | **Alt+Right** | the same |
 
 Five ship with no key at all (Run to Cursor, Run to End of Frame, Run to End of
 Scan Line, Source Step Back and Source Reverse Continue). They are not
@@ -66,7 +69,7 @@ Four kinds of combination are refused, and the dialog says which and why:
   and letter keys, and the disassembly has an address box. `Shift+F6` is fine:
   the key is still a function key.
 - **Alt + a letter.** The debugger's menu bar owns those. `Alt+F5` is accepted (and so is `Alt+Shift+F6`), but **Alt+Shift+F5** and **Alt+Shift+F9** are refused: they are the emulator window's Quick Save and Quick Load Snapshot.
-  On a Mac the host shortcuts are Cmd chords, and the same two sets move with them: **Cmd+1** to **Cmd+8** (the script host keys) and **Cmd+Shift+F5** / **Cmd+Shift+F9** are refused there, and the Option forms are free.
+  On a Mac the host shortcuts are Cmd chords, and the same two sets move with them: **Cmd+1** to **Cmd+8** (the script host keys) and **Cmd+Shift+F5** / **Cmd+Shift+F9** are refused there, and so is **Cmd+L** (Reload Last File, in both windows), and the Option forms are free.
 - **Ctrl+C and Ctrl+A.** The disassembly panel's Copy and Select All.
 - **A combination another debugger command already has.** Rebind that one
   first. This is refused rather than silently taken over, because Qt answers

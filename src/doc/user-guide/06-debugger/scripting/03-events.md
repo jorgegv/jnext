@@ -9,6 +9,7 @@ describe this occurrence of the event.
 |---|---|
 | `execute` *addr* | an instruction about to execute |
 | `read` *addr*, `write` *addr* | a memory read or write |
+| `read_write` *addr* | a memory read or a write, as one rule |
 | `io_read` *port*, `io_write` *port* | a port read or write |
 | `nextreg` *reg* | a NextREG write, by the CPU or the Copper |
 | `frame` [*n*] | the end of a frame |
@@ -31,7 +32,7 @@ access; that is why a script can look at anything without disturbing it.
 | Event | The rule runs |
 |---|---|
 | `execute`, `cycle`, `hostkey` | **before** the instruction at `PC` |
-| `read`, `write`, `io_read`, `io_write`, DMA, Copper | **after** the instruction that caused it |
+| `read`, `write`, `read_write`, `io_read`, `io_write`, DMA, Copper | **after** the instruction that caused it |
 | `nextreg` by the Copper or the DMA | after the instruction during which it happened |
 | `nextreg` by the CPU | **one instruction later**: a CPU NextREG write commits after its instruction's events are delivered. `PC` still names the instruction that wrote it |
 | `interrupt`, `nmi`, `reset` | at the boundary where it happened |
@@ -59,7 +60,7 @@ long `LDIR`, say) the first 512 are delivered and the run logs `SCRIPT: event
 ring overflowed at CYCLE …, N events dropped` — a script cannot see the
 dropped ones, and it is told so rather than left to guess.
 
-## Address filters: `execute`, `read`, `write`
+## Address filters: `execute`, `read`, `write`, `read_write`
 
 ```
 on execute 0x0038 do …                 ; one address
@@ -67,6 +68,7 @@ on write 0x4000..0x57FF do …           ; an inclusive range
 on write @buffer..(@buffer + 255) do … ; symbols and expressions
 on write 0x5C00..0x5CFF page 0x0A do … ; …and only when the slot holds page 0x0A
 on write page 0x0A..0x0B do …          ; any address, while in pages 0x0A..0x0B
+on read_write 0x9000 do …              ; a read or a write of 0x9000, one rule
 on execute page 0x00 do …              ; any instruction in page 0x00
 on execute main.c:19 do …              ; a source line (needs a source map)
 on execute "my dir/main.c:19" do …     ; the same, for a name with spaces
@@ -87,14 +89,18 @@ up to 16 pages.
 
 Payload:
 
-| Name | `execute` | `read` | `write` | Meaning |
-|---|---|---|---|---|
-| `ADDR` | ✓ | ✓ | ✓ | the address |
-| `PAGE` | ✓ | ✓ | ✓ | the physical 8K page behind `ADDR` |
-| `VALUE` | | ✓ | ✓ | the byte read or written |
-| `PREV` | | | ✓ | the byte before the write |
-| `SOURCE` | | ✓ | ✓ | who did it: `CPU`, `DMA` or `COPPER` |
-| `PC` | ✓ | ✓ | ✓ | the instruction |
+| Name | `execute` | `read` | `write` | `read_write` | Meaning |
+|---|---|---|---|---|---|
+| `ADDR` | ✓ | ✓ | ✓ | ✓ | the address |
+| `PAGE` | ✓ | ✓ | ✓ | ✓ | the physical 8K page behind `ADDR` |
+| `VALUE` | | ✓ | ✓ | ✓ | the byte read or written |
+| `PREV` | | | ✓ | | the byte before the write |
+| `SOURCE` | | ✓ | ✓ | ✓ | who did it: `CPU`, `DMA` or `COPPER` |
+| `PC` | ✓ | ✓ | ✓ | ✓ | the instruction |
+
+`read_write` takes the same filters as `write` and fires on both kinds of
+access; it carries no `PREV`, because a read has no previous byte. It is the
+rule the Breakpoints panel's Read/Write type becomes in a saved breakpoint file.
 
 One caveat on `PAGE`: the DivMMC, Multiface and Layer 2 overlays sit in front
 of the MMU, and a write one of them captures is still seen (which is what you

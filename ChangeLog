@@ -6,10 +6,16 @@
 - Fast boot: a plain Next start runs its first 15 seconds at full speed with the sound off; any key ends it (`--fast-boot`, Preferences)
 - Browser: the SD card is kept compressed, about 1.1 MB of the visitor's storage instead of 40 MiB
 - `--sdcard-file-add` works with `--sdcard-writes`: files go into the writes file and the card image stays untouched
+- Browser: a page can put more of the NextZXOS distribution on the SD card (`data-card-dirs`, e.g. /GAMES,/APPS)
 
 ### Developer Features
 - Disassembly: the PC line shows whether a conditional jump, call or return is taken, and the value at its memory operand
 - Debugger CPU panel shows the T-states since the last stop, with an Accumulate option
+- Debugger: Breakpoints > Save as Script / Load from Script keep your breakpoints in a .jds file; scripts gain `on read_write`
+- Debugger Memory panel: find hex bytes (wildcards, mask) or text; save, load and fill memory blocks
+- Debugger window gets File > Reload Last File (Alt+L): reload the rebuilt program with its maps, breakpoints kept
+- Debugger CPU panel: edit registers, flags, IFF and IM in place while paused
+- Disassembly navigation: Follow jumps and memory operands, Back/Forward history, a Symbols list and register shortcuts
 
 ### Bug Fixes
 - Web example pages fit a phone screen instead of being laid out at desktop width and shrunk

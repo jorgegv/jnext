@@ -279,7 +279,7 @@ tree, not installed and not packaged). The tool replaced an earlier mtools shell
 mtools, `sfdisk`, root or hard link in the way any more, and it runs wherever JNEXT builds.
 
 ```bash
-make-minimal-card [--unpinned] [--expect-zip-sha256 HEX] <INPUT> <card.img>
+make-minimal-card [--unpinned] [--expect-zip-sha256 HEX] [--dirs LIST] <INPUT> <card.img>
 ```
 
 It is built with the rest of the tree, as `build/tools/make-minimal-card/make-minimal-card`
@@ -315,14 +315,32 @@ is test tooling: it replaces the pinned zip digest (and drops the size check) wi
 of a zip made at run time from the image, and the pinned card digest still applies; the
 `minimal-sdcard-image-func` regression row uses it.
 
+**More of the distribution (`--dirs`).** `--dirs /GAMES,/APPS` (the widget's own
+syntax: comma-separated, each item trimmed, empty items dropped) is `Expect::dirs`, the
+list a page gives as `card.dirs` / `data-card-dirs`. Each path is copied with its subtree, and
+its ancestors are created with the source's own names, attributes and times (the other
+children of an ancestor are not). `minimal_card::canonical_dirs` is the one place that checks a
+list and puts it in canonical form (ASCII lower case, no trailing `/`, sorted), and
+`web_api.cpp`, the builder, the tool and (through `jnext_card_dirs`) the page's JavaScript all
+call it: a malformed entry, `/`, a boot-set name, a duplicate and a path inside another given
+one are refused, naming the entry. A path the distribution does not hold is refused at build,
+naming every missing one. A card with extra paths has no pinned card digest (no per-list pin
+can exist): the tool and `jnext_card_begin` clear `Expect::card_sha256` for a non-empty list, and
+the zip and image pins still apply in full. `/GAMES,/APPS` of 26.11 is accepted; adding `/DEMOS`
+is refused with its size.
+
 **One pass.** The builder reads the zip once, from byte 0, in the order it is stored: the
 image is its first entry, the inflated image is read by offset, and a directory is parsed
 when its whole chain has gone by. A distribution whose layout would need a second pass (a
 directory's contents stored before the directory) is refused with a message naming the
 cluster; it is not worked around. Its memory is bounded: about 3 MB of heap for the 26.11
-distribution, under 50 MiB before any refusal (the FAT copy is capped at 16 MiB and the
-boot set at 32 MiB), and the card itself is a file (MEMFS in the browser, not the wasm
-heap).
+distribution, with `/GAMES,/APPS` the wasm heap grew by 21 MB (BCARD-41), under 50 MiB before any refusal (the FAT copy
+is capped at 16 MiB and the kept data at 32 MiB), and the card itself is a file (MEMFS in the
+browser, not the wasm heap). The 32 MiB bound counts what the builder keeps: each file's SIZE
+and each directory's clusters, not the source's clusters (the distribution's are 32 KiB, which
+would count `/GAMES` and `/APPS` as 40.66 MiB when they are 30.26 MiB of files and
+directories). Past the bound it goes on counting but stops buffering, so the refusal gives the
+exact total and the limit, and a truncated image is reported as "at least N bytes".
 
 The boot set (`TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `LICENSE.md`, `README.md`)
 is copied with the source's own spelling and metadata, and JNEXT's two patches (the
@@ -335,8 +353,8 @@ from your own download, the card digest from `make-minimal-card` on it, and the 
 number only if the builder changed what it writes. The tests (MINIMG-01 and the
 `minimal-sdcard-image-func` regression row) fail on a partial update.
 
-Tests: `minimal_card_test` (`MCARD-01..16` and `18..27`, on a synthetic distribution built in the test; `MCARD-17`, recipe 3 unchanged, is in `fat32_image_test`; every tree, the wasm one included), the
-`make minimal-image-test` shell suite (15 rows: the tool on the cached image and on a synthetic zip, read back with mtools, sfdisk and python's zipfile) and the `minimal-sdcard-image-func` regression row,
+Tests: `minimal_card_test` (`MCARD-01..16` and `18..35`, on a synthetic distribution built in the test; `MCARD-17`, recipe 3 unchanged, is in `fat32_image_test`; every tree, the wasm one included), the
+`make minimal-image-test` shell suite (21 rows, `MINIMG-21..26` for `--dirs`: the tool on the cached image and on a synthetic zip, read back with mtools, sfdisk and python's zipfile) and the `minimal-sdcard-image-func` regression row,
 which boots the card to the NextZXOS menu and warm-starts a NEX, both compared with the
 full card's references.
 

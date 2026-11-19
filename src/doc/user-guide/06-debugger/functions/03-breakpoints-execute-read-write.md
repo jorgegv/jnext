@@ -39,6 +39,42 @@ memory breakpoint never fires on a port access.
 
 **Breakpoints ▸ Clear All Breakpoints** removes all three kinds at once.
 
+## Saving and loading breakpoints
+
+**Breakpoints ▸ Save as Script…** writes the debugger window's own breakpoints to a
+`.jds` file (the [debugger scripting language](../scripting/index.md)), and
+**Breakpoints ▸ Load from Script…** reads one back, in this session or a later one. Each
+breakpoint is one plain rule that stops the machine:
+
+```
+; jnext debugger breakpoints (Breakpoints > Save as Script).
+bp1: on execute 0x8000 do stop end
+disabled bp2: on read_write 0x9000 do stop end
+bp3: on io_read 0xFE do stop end
+bp4: on execute "main.bas:10" do stop end
+bp5: on execute @banked do stop end
+```
+
+The file keeps each breakpoint's type, address and **On** state. A source-line breakpoint is
+written as its line, so it arms every place the line compiled to when you load it. An Execute
+breakpoint tied to the memory its code lives in (`$C000 P14` in the list) is written as the
+symbol that names that address in that memory, so loading it needs the same symbols
+loaded first.
+
+A breakpoint that has no faithful spelling is **left out, never written approximately**:
+the file gets a `; not saved:` comment where it would have been, and one warning box lists
+what was left out. That happens to a qualified Execute breakpoint no symbol names, to a source
+line that was partly removed in the Disassembly or that the loaded source map no longer
+resolves, and to a file name a script string cannot hold. Not saved either: breakpoints that
+another client (GDB, ZRCP, DZRP, a script) set, and the master switch.
+
+**Load adds to the breakpoints you have**; it does not replace them (use **Clear All
+Breakpoints** first for that). A breakpoint that already exists takes the **On** state
+the file gives it, and a source line that is already armed on the same places is not added
+twice. A file is loaded whole or not at all: anything that is not a plain breakpoint (a
+condition, a range, `once`, a message, other events) is refused with the line and column,
+and nothing is added. The same file runs from the command line with `jnext --script FILE`.
+
 ## Turning them off instead of deleting them
 
 Each row of the [Breakpoints panel](../panels/08-breakpoints.md) carries an

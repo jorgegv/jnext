@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.22</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.17</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.22</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3156,6 +3156,10 @@ code departs from it. This page describes the code.</p>
 <td><code>ScriptEngine</code>: loaded scripts as backend subscriptions; the actions; stop and exit</td>
 </tr>
 <tr>
+<td><code>bp_script.{h,cpp}</code></td>
+<td>the Breakpoints panel's breakpoint file: <code>bp_script_text()</code> spells a list of <code>BpSpec</code> (the panel's six breakpoint types, a symbol-qualified Execute, a source line) as plain <code>LABEL: on EVENT FILTER do stop end</code> rules and refuses what has no faithful spelling (a <code>; not saved:</code> comment and a <code>refused</code> line, never <code>page N</code>); <code>bp_specs_from_script()</code> reads such a file back, all or nothing, refusing everything that is not one plain <code>stop</code> breakpoint. Qt-free: <code>BreakpointModel::script_specs()</code> / <code>add_specs()</code> are the Qt glue</td>
+</tr>
+<tr>
 <td><code>script_host.{h,cpp}</code></td>
 <td><code>ScriptHost</code>: what the three loop owners hold to run <code>--script</code>, <code>--script-key</code>, <code>--map</code> and <code>--record-script</code></td>
 </tr>
@@ -3276,6 +3280,9 @@ own <code>Listener</code>. <code>load(text, file)</code> does four things, in th
 <li>only then registers each rule (<code>subscriptions_for()</code>).</li>
 </ol>
 <p>A script with any error registers nothing.</p>
+<p><code>on read_write ADDR</code> is <code>read</code> and <code>write</code> in one rule: the same filters as <code>write</code>, registered as one
+<code>Mem</code> subscription whose access is <code>ReadWrite</code> (what the Breakpoints panel's Read/Write type is), with
+no <code>PREV</code>, since a read has no previous byte.</p>
 <p><code>on execute FILE:LINE</code> is resolved here, in <code>subscriptions_for()</code>, by
 <code>SourceMap::resolve()</code> (the resolver the GUI's source breakpoints use): one
 template per start, <code>filter.lo = hi = address</code> and <code>filter.space</code> the start's
@@ -3574,8 +3581,16 @@ and <a href="10-7-extending-the-debug-subsystem.html">3.10.7</a>), and have its 
 <td>the engine on real 48K and Next machines, the <code>ScriptHost</code> (SCRIPT-HOST-*) and the stop/exit rules</td>
 </tr>
 <tr>
+<td><code>bp_script_test</code></td>
+<td>the breakpoint file codec (BPJ-*): the spelling of every breakpoint type, each refusal, the round trip, the decoder's refusals, and the engine as an independent reader of the saved text</td>
+</tr>
+<tr>
 <td><code>script_record_test</code></td>
 <td>the recorder, including a record → emit → replay round trip on a fresh machine (REC-RT-*)</td>
+</tr>
+<tr>
+<td>QBPJ-* (<code>debugger_verbs_test</code>)</td>
+<td>Breakpoints &gt; Save as Script / Load from Script through the real menu, dialogs and boxes, and a round trip into a fresh session</td>
 </tr>
 <tr>
 <td>QSCR-<em> (<code>debugger_panels_test</code>), DKSK-</em> (<code>debugger_keymap_test</code>), H-SCRIPT-<em> (<code>host_hotkey_test</code>), HKL-SK-</em> (<code>host_key_latch_test</code>)</td>

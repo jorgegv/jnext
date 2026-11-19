@@ -33,6 +33,18 @@ nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.
 
+The model also converts its own rows to and from the breakpoint file codec
+(`script/bp_script.h`, see [3.10.6](13-the-debugger-scripting-language.md)):
+`script_specs()` returns them as `BpSpec` in list order, and `add_specs()` adds a
+file's breakpoints to the current set, applying the file's On state to each and
+reusing a source-line group already armed on the same places (`add_source_line()` is
+not idempotent). A source-line row is saved by the text it was set with, which the
+model keeps per group (`group_lines_`) and the codec checks against the source map's
+resolution. The manager's `on_save_breakpoints_script()` / `on_load_breakpoints_script()`
+behind the Breakpoints menu's *Save as Script...* / *Load from Script...* do the file
+dialogs, the write (`QSaveFile`) and the warning boxes; the last path is
+remembered for the session only. Rows: `QBPJ-*` in `debugger_verbs_test`.
+
 The Breakpoints panel, the disassembly gutter and context menu, and the window's
 Breakpoints menu all edit this one model. The panel lists every client's
 subscriptions; another client's are read-only and named by client id. The
@@ -72,14 +84,14 @@ restart of the CPU panel's T-state count and draws that one label.
 
 ## Panels
 
-`DebuggerWindow::create_panels()` creates fifteen:
+`DebuggerWindow::create_panels()` creates sixteen:
 
 | Panel | Reads | Writes |
 |---|---|---|
-| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | — |
+| CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()`, `time()` (`tstates_total`), `time_epoch()` | `set_register()`, one register per call: an overlay `QLineEdit` over the value labels, a click on a flag (`reg_edit.h`); a click or the menu on an address-like value asks the window to show it (Disassembly, Memory, Source) |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
-| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
-| Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
+| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, the PC line's hint (`disasm_hint::pc_hint()` over `registers()`, `memory_reader()` and `operand_reader()`), Follow (`disasm_hint::follow_target()`) and Back/Forward (`NavHistory`, `nav_history.h`), columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
+| Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store; the whole view for Find, the block for Save | `poke`, one per chunk (`memtools::split_block`) |
 | Stack | the words at and above SP, through `peek` | — |
 | Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's `EX (SP),HL` / `POP r; JP (r)` helpers and `l_case`; a `__z88dk_callee` body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP | — |
 | Watches | byte, word or long at user addresses, through `peek`; a C variable row (`read_c_value()`, `c_frames()`, `c_variables_status()`), read only while paused | — |
@@ -91,6 +103,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
+| Symbols | `symbols().symbols()` (the toolchain's labels and the user's), `shown_name()`, `source_page()`, `source_map().lookup()`, `state_revision()` | — |
 | Variables | `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `c_variables_status()`, `call_stack()`, `mmu_slots()`: the C variables of a call frame and the globals, as a tree, a value editable in place through `write_c_value()` ([7.7](../07-source-level-debugging/07-frontends.md)) | — |
 
 Five panels (CPU, Disassembly, Stack, Call Stack, Variables) update only while paused:
@@ -113,10 +126,42 @@ next stop) and opening the window (nothing is observed while it is closed), both
 `CpuPanel::restart_tstate_count()`. Rows: `TSC-01`..`TSC-11` (`tstate_counter_test`), `INS-07-04`..`INS-07-10`
 (each epoch bump site, a remote client's included), `QPN-CPU-05`, `QTS-01`..`QTS-13`.
 
-**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:988`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:375`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:977`; `PausedStamp`,
-`debugger_manager.h:245`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+**Editing the CPU panel.** The value widgets stay `QLabel`s in their layouts (the rows that read the panel find
+them there). An edit opens one `QLineEdit`, in no layout, over the label (a double-click, or the context menu's
+Edit Value...); Enter commits, Escape and focus-out cancel, and `set_paused(false)` cancels without committing:
+a value typed against one stop must not be written into the state after it. What a field is, how its text is
+read (`SymbolTable::resolve()` for the 16-bit ones, the rule every address box uses), the flag toggle and the
+refusal text are in `jnext::regedit` (`src/debugger/reg_edit.h`, pure, no Qt; `reg_edit_test`). A commit calls
+`Debugger::set_register(client_, ...)`, one register per call (IFF is two), and only for a changed value: the
+backend logs one `MUTATE` line and bumps `state_revision()`, so the next paused tick redraws every panel from the
+register file, with no refresh path of the panel's own. The client is the window's (`set_panels_client()`). A
+parse error or a refusal (RZX recording or playback) is the panel's `message()` signal, which the window shows with
+`show_rewind_refusal()`: the one status message `update_rewind_ui()` does not rewrite. Rows: `REGED-01`..`08`,
+`QREG-01`..`11`, `QREGW-01`..`04`.
+
+**Navigation (Follow, Back, Forward).** `disasm_hint::follow_target(r, at, code, data)` (`src/debug/disasm_hint.h`, Qt-free,
+beside `pc_hint()` and sharing its DD/FD prefix walk) says what Follow does on the instruction at `at`: a code address
+(JP, CALL, JR, DJNZ and RST targets, a conditional's whether or not it holds; `JP (HL)/(IX)/(IY)`; RET, RETI and RETN
+through `data`), a data address (the one memory operand `pc_hint()` reports) or nothing (`JP (C)` needs a port read, which no
+debugger read does). The PC line reads its operand through `operand_reader()`, any other line through a `peek(Cpu)` reader (one helper, `follow_reader.h`, for the Disassembly and the Source tab).
+History is `jnext::NavHistory<Loc>` (`src/debugger/nav_history.h`, pure; depth 100): the Disassembly's `Loc` is its top
+line and caret, so Back is exact; the Source tab's is the address of the cursor line's first instruction mapped now. What
+records is one rule: a jump the user (or another panel on their behalf) made through `show_address()`, the Address box or
+Go to PC; the automatic re-centre on a stop, scrolling and the keys do not. The window's Follow, Back and Forward are
+bindable actions (`follow`, `go_back`, `go_forward`; F12, Alt+Left, Alt+Right) installed by `apply_keymap()`, listed in the Go menu
+(with Symbols, which raises the Symbols tab), acting on the Source tab when its text has the focus. A memory operand goes through
+`show_in_memory_requested()` to `MemoryPanel::show_address()`, which leaves a slot or page view first. Rows: `FOLW-01`..`09`,
+`NAVH-01`..`07`, `QNAV-*`, `QSRCN-*`, `QNAVW-*`.
+
+**The Symbols tab** (`symbols_panel.cpp`) lists `symbols().symbols()` and rebuilds its rows only when `state_revision()`
+moved; the greying of a paged label whose page is not what `source_page()` reports at its address is redone on every
+refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
+Source tab show the CPU's map. Rows: `QSYML-*`.
+
+**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1062`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:388`: ~4 Hz). Paused, it
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1051`; `PausedStamp`,
+`debugger_manager.h:257`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:
 
@@ -130,15 +175,15 @@ everything, the Video tab's composited frame included, fifty times a second. The
   subscription verb (`subscribe`, `subscribe_source_line`, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
   breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;
-- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:157`), installed on `qApp`
+- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:160`), installed on `qApp`
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
   and Kempston mouse capture must not redraw a paused window;
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
-  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:574`), so an edit on disk still shows.
+  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:575`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:968`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:1042`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -147,18 +192,18 @@ is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
 
 **The window's opening size.** A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
-`debugger_window.cpp:509`, queued from the first `showEvent()`); a size restored from the config file is left
+`debugger_window.cpp:528`, queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
 it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
-(`kMaxInitialFitPasses`, `debugger_window.h:204`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:231`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:211`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:238`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
 at most `kMaxFitEchoes` = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-(`resizeEvent()`, `debugger_window.cpp:496-507`); any other size is the user's and ends the fit
-(`end_fit_()`, `debugger_window.cpp:480`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
-pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:533-538`), after which every size is the user's and the remembered sizes are
+(`resizeEvent()`, `debugger_window.cpp:510-521`); any other size is the user's and ends the fit
+(`end_fit_()`, `debugger_window.cpp:499`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
+pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:547-552`), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (`fit_passes_queued_`, `queue_fit_pass_()`), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's), `GR-08` (an earlier request landing while a pass is queued), `GR-09` (a user resize while the fit runs stands), `GR-10` (each late answer counts once: the 7th stands) and `GR-11` (a loop stalled past the grace window does not end the fit), `GR-12` (the bound holds on the pass's own path), `GR-13` and `GR-14` (the grace waits for the pass a re-ask, or a late answer, queued), in `debugger_window_grow_test`; `GR-09` to `GR-14` use a window no window manager sees.
 
@@ -251,7 +296,8 @@ refuse a value by name, makes `render_combo()` canonical, and makes the grammar
 testable without a widget. `validate_combo()` refuses the combinations that
 would break something else: anything without Ctrl, Alt or Meta that is not
 `F1`-`F12` (the Memory panel types hex with bare keys), `Alt`+letter (the menu
-bar's), `Alt`+`1`..`8` (the script host keys), and `Ctrl+C` / `Ctrl+A`.
+bar's), `Alt`+`1`..`8` (the script host keys), `Ctrl+C` / `Ctrl+A`, and, where
+the host modifier is Command, Command+`L` (Reload Last File).
 
 **A chord both windows bind is a warning, not a conflict.** `Qt::WindowShortcut`
 matches against the active window, and each window keeps its own binding, so a
@@ -262,6 +308,17 @@ Preferences tab refuses such a capture. `build_keymap()` resolves a hand-edited
 file deterministically — explicit beats default, the earlier action beats the
 later, the loser is left unbound — and every refusal becomes a `LoadIssue` that
 `MainWindow` logs at error level and the tab lists.
+
+**File > Reload Last File is not a keymap action.** The debugger window's File menu holds its
+OWN `QAction`, carrying the host chord (`host_shortcuts::sequence()`, Alt+L; Command+L on
+macOS). `DebuggerManager::set_reload_action()` hands the manager the emulator window's
+`reload_last_action_`, and `DebuggerWindow::set_reload_source()` connects the two: triggering
+forwards to that action, and `QAction::changed` mirrors its enabled state. So there is one
+handler (the File > Open route, with the Recent Files bookkeeping) and one enabled state.
+Two designs were rejected. One shared `QAction` would be invisible to the guards, which walk
+`findChildren()` of the debugger window, and `jnext_debugger` cannot name `MainWindow`.
+`Debugger::load()` is an in-place load with no Recent Files bookkeeping, and it drops the
+`SidecarLoad`, so a refused map would only be logged.
 
 `MainWindow` keeps the map in effect in `debug_keys_`. Both its forwarding of
 the five execution keys (`run`, `pause`, `step_into`, `step_over`, `step_out`)
@@ -360,6 +417,30 @@ soon as MREQ goes high), and equal `peek(Cpu)` everywhere else. The panel
 computes the hint in `disassemble_from()` and paints it only while paused, at
 the comment's column; the user comment moves right of it.
 
+## The Memory panel's tools
+
+Find, Save Block, Load Block and Fill Block live in the Memory panel's context menu
+(`MemoryPanel::fill_context_menu()`, reached by `contextMenuEvent()`: right-click, the Menu key,
+Shift+F10). The Qt-free half is `src/debug/mem_tools.*` (`jnext::dbg::memtools`): the pattern grammar
+and matcher (hex pairs with `?` nibble wildcards and an optional mask, or ASCII text reduced to the same
+bytes-and-mask form), the fill value, the hex length, and `split_block()`, which turns a block in a
+space into the chunks the backend's verbs can take. It does no file I/O, so its suite runs in every
+configuration; the panel does the `QFile` work.
+
+A block is in the selected view's space (`locate()`): `Cpu` in the CPU view, the slot's `SlotInfo::space`
+or the picked `Page{n}` in the others. A `Cpu` block is one chunk and never wraps; a `Page` block is one
+chunk per 8K page, running on through the following pages to page `DF`; a ROM space is one chunk inside its
+16K image. The panel checks the start against the 8K view before `locate()`, which masks the offset to 13
+bits. Every write is then ONE `Debugger::poke()` per chunk, never a byte loop: a block lands as one MUTATE
+line, one RZX check and one rewind mark per chunk, and a `Cpu` poke reports how many bytes landed (a
+partial ROM drop is `RefusedReadOnly` with the count), which the message reports as `L of M`.
+
+The tools answer through `MemoryPanel::message()`, which the window connects to `show_rewind_refusal()`
+(the status bar, held), and a find hit with a CPU address through `show_in_disassembly_requested()` to
+the Disassembly. The dialogs are stack `QDialog`s parented to the panel and gone when they return:
+nothing may stay a child of the panel, because callers and rows find the Addr box and the view selector
+with `findChild<>()`.
+
 ## Tests
 
 The Qt suites are gated on a Qt + debugger build and run in `make unit-test`:
@@ -368,4 +449,4 @@ controls), `debugger_panels_test` (each panel's displayed text), `debugger_video
 `debugger_inspect_watchpoint_test`, `debugger_persistent_bp_test`,
 `debugger_keymap_test`, `debugger_menu_test`, `debugger_disasm_copy_test`,
 `debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`, editing `QVARW-*`), and the window-geometry suites. The regression rows
-`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`.
+`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`. The Memory panel tools' helper suite, `mem_tools_test` (`MEMT-*`), is not Qt-gated either; the panel's rows are `QMPT-*` in `debugger_panels_test` and the window's `QMPW-*` in `debugger_verbs_test`.

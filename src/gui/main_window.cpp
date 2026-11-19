@@ -442,6 +442,7 @@ void MainWindow::set_emulator(Emulator* emu) {
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_ && emu) {
         debugger_mgr_ = new DebuggerManager(this, *debugger_, this);
+        debugger_mgr_->set_reload_action(reload_last_action_);   // GH #374
         debugger_mgr_->set_script_host(script_host_);   // GH #26 WP5
         // Debugger starts disabled — main window stays fixed-size.
         // GH #1 — hand it the user's key bindings straight away: the window is

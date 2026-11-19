@@ -14,6 +14,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -51,8 +52,25 @@ extern "C" EMSCRIPTEN_KEEPALIVE char* jnext_card_distribution()
     return dup(j.dump());
 }
 
+// The canonical form of a page's extra distribution paths (GH #509): the input is a JSON array
+// of strings; the result is malloc'd JSON, {"dirs":[...]} or {"error":"..."} (JS frees it).
+// The rules live in minimal_card::canonical_dirs only; JS never re-implements them.
+extern "C" EMSCRIPTEN_KEEPALIVE char* jnext_card_dirs(const char* json_array)
+{
+    nlohmann::json j = json_array ? nlohmann::json::parse(json_array, nullptr, false) : nlohmann::json();
+    std::vector<std::string> in, out;
+    std::string why;
+    if (j.is_discarded() || !j.is_array()) return dup("{\"error\":\"dirs is not an array\"}");
+    for (const auto& d : j) {
+        if (!d.is_string()) return dup("{\"error\":\"dirs holds a non-string\"}");
+        in.push_back(d.get<std::string>());
+    }
+    if (!minimal_card::canonical_dirs(in, out, why)) return dup(nlohmann::json{{"error", why}}.dump());
+    return dup(nlohmann::json{{"dirs", out}}.dump());
+}
+
 // Start a build of the zip into out_path. expect_json null: the production pins. Otherwise
-// an object whose present keys {file, zipSha256, size, cardSha256} replace those pins (the
+// an object whose present keys {file, zipSha256, size, cardSha256} replace those pins, and `dirs` (an array of strings) adds paths (the
 // localhost development seam: a stand-in zip; an empty string or 0 = not checked).
 // 0 = begun, 3 = refused (jnext_card_error says why).
 extern "C" EMSCRIPTEN_KEEPALIVE int jnext_card_begin(const char* out_path, const char* expect_json)
@@ -67,6 +85,15 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_card_begin(const char* out_path, const
         if (j.contains("zipSha256") && j["zipSha256"].is_string()) ex.zip_sha256 = j["zipSha256"].get<std::string>();
         if (j.contains("size") && j["size"].is_number_unsigned()) ex.zip_size = j["size"].get<uint64_t>();
         if (j.contains("cardSha256") && j["cardSha256"].is_string()) ex.card_sha256 = j["cardSha256"].get<std::string>();
+        if (j.contains("dirs")) {
+            if (!j["dirs"].is_array()) { g_error = "jnext_card_begin: dirs is not an array"; return 3; }
+            for (const auto& d : j["dirs"]) {
+                if (!d.is_string()) { g_error = "jnext_card_begin: dirs holds a non-string"; return 3; }
+                ex.dirs.push_back(d.get<std::string>());
+            }
+            // A card with extra paths has no pinned SHA-256 (the seam's stand-in one is the plain card's).
+            if (!ex.dirs.empty()) ex.card_sha256.clear();
+        }
     }
     g_builder.reset(new minimal_card::Builder(minimal_card::Input::Zip, out_path ? out_path : "", ex));
     return 0;

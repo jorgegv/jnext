@@ -47,6 +47,7 @@
 #include "debugger/memory_panel.h"
 #include "debugger/source_highlighter.h"
 #include "debugger/source_panel.h"
+#include "debugger/symbols_panel.h"
 #include "debugger/watch_panel.h"
 
 #include <QAbstractButton>
@@ -93,6 +94,7 @@
 #include <vector>
 #include <chrono>
 #include <cstdint>
+#include <cstdarg>
 #include <cstdio>
 #include <algorithm>
 #include <filesystem>
@@ -4159,7 +4161,7 @@ SourcePanel* window_source_panel(Fixture& fx) {
 
 void test_source_context_menu() {
     const QStringList base{"Copy", "Copy with Addresses", "Select All", "Toggle Breakpoint", "Run to Here",
-                           "Show in Disassembly"};
+                           "Follow", "Show in Disassembly"};
     const std::string tmp = g_tmp->path().toStdString();
     {
         Fixture fx;
@@ -4171,7 +4173,7 @@ void test_source_context_menu() {
         if (!v.ed) { check("QSRC-99", "the Source tab has an editor", false); return; }
         const Popup p = right_click(v.ed->viewport(), QPoint(5, v.row_y(12)));
         check("QSRC-99", "a real right click on line 12's text pops the menu: Copy, Copy with Addresses, "
-                         "Select All, Toggle Breakpoint, Run to Here, Show in Disassembly; Copy is Ctrl+C and "
+                         "Select All, Toggle Breakpoint, Run to Here, Follow, Show in Disassembly; Copy is Ctrl+C and "
                          "Select All Ctrl+A; Qt's stock Copy Link Location is gone",
               p.seen && p.items == base && p.chords.contains("Copy=Ctrl+C") &&
                   p.chords.contains("Select All=Ctrl+A"),
@@ -4584,10 +4586,10 @@ void test_source_context_menu() {
         dp->show_address(0xA000);
         const Popup p = right_click(dp, QPoint(120, 52 + 9));
         const QStringList want{"Copy", "Copy with Addresses", "Select All", "Toggle Breakpoint", "Run to Here",
-                               "Go to Address...", "Add Label...", "Remove Label", "Add Comment...",
+                               "Follow", "Go to Address...", "Add Label...", "Remove Label", "Add Comment...",
                                "Watch $4000", "Break on Read $4000", "Break on Write $4000"};
         check("QSRC-119", "the Disassembly's menu on a `LD HL,$4000` line (watch panel set, no symbols) lists "
-                          "exactly Copy, Copy with Addresses, Select All, Toggle Breakpoint, Run to Here, Go to "
+                          "exactly Copy, Copy with Addresses, Select All, Toggle Breakpoint, Run to Here, Follow, Go to "
                           "Address..., the three annotation entries (GH #387), Watch $4000, Break on Read $4000, Break on Write $4000, in that order",
               p.seen && p.items == want, s(p.items.join("|")));
     }
@@ -8001,6 +8003,252 @@ void test_source_any_file() {
     }
 }
 
+// ===========================================================================
+// QSRCN -- GH #366: Follow, Back and Forward in the Source tab. The oracle is the issue's contract
+// and the Disassembly's own rows (QNAV): Follow goes where UM0080 says the instruction goes, to a
+// source line when one covers the target. The fixture: main.bas 10..13 at $8000 NOP, $8002 CALL
+// $9000, $8005 NOP, $8006 JP $8000; sub.bas:1 at $9000.
+// ===========================================================================
+std::string fmt_row(const char* f, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof buf, f, ap);
+    va_end(ap);
+    return buf;
+}
+
+void test_source_follow_nav() {
+    {   // QSRCN-01: Follow a call, Back, Forward
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.src_move(11);
+        const bool start = w.sp->cursor_address() == std::optional<uint16_t>(0x8002);
+        w.sp->follow();
+        w.tick();
+        const bool at_sub = w.sp->shown_file() == "sub.bas" && (w.ed->textCursor().blockNumber() + 1) == 1;
+        const bool back = w.sp->go_back() && (w.tick(), true) && w.sp->shown_file() == "main.bas" && (w.ed->textCursor().blockNumber() + 1) == 11;
+        const bool fwd = w.sp->go_forward() && (w.tick(), true) && w.sp->shown_file() == "sub.bas" && (w.ed->textCursor().blockNumber() + 1) == 1;
+        check("QSRCN-01", "cursor on `CALL $9000` (main.bas:11): Follow shows sub.bas:1 in the Source tab; Back returns "
+                          "to main.bas:11; Forward goes to sub.bas:1 again",
+              start && at_sub && back && fwd,
+              fmt_row("start=%d at_sub=%d back=%d fwd=%d (now %s:%d)", start, at_sub, back, fwd,
+                      w.sp->shown_file().c_str(), (w.ed->textCursor().blockNumber() + 1)));
+    }
+    {   // QSRCN-02: a target no source line covers opens in the Disassembly
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        fx.emu.mmu().write(0x8003, 0x00);
+        fx.emu.mmu().write(0x8004, 0xA0);   // CALL $A000: no source line there
+        SyncWin w(fx);
+        w.src_move(11);
+        w.sp->follow();
+        check("QSRCN-02", "Follow on `CALL $A000`, which no source line covers: the Disassembly's caret goes to $A000 "
+                          "and the Source tab stays on main.bas:11",
+              w.dp->selected_address() == 0xA000 && w.sp->shown_file() == "main.bas" && (w.ed->textCursor().blockNumber() + 1) == 11,
+              fmt_row("disasm caret %04X, source %s:%d", w.dp->selected_address(), w.sp->shown_file().c_str(),
+                      (w.ed->textCursor().blockNumber() + 1)));
+    }
+    {   // QSRCN-03: a memory operand asks for the Memory panel
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        fx.emu.mmu().write(0x8005, 0x3A);
+        fx.emu.mmu().write(0x8006, 0x40);
+        fx.emu.mmu().write(0x8007, 0x5C);   // LD A,($5C40) at main.bas:12
+        SyncWin w(fx);
+        int requests = 0;
+        uint16_t addr = 0;
+        QObject::connect(w.sp, &SourcePanel::show_memory_requested, [&](uint16_t a) { ++requests; addr = a; });
+        w.src_move(12);
+        w.sp->follow();
+        check("QSRCN-03", "Follow on `LD A,($5C40)` (main.bas:12) emits show_memory_requested($5C40) once and moves nothing",
+              requests == 1 && addr == 0x5C40 && !w.sp->can_go_back() && (w.ed->textCursor().blockNumber() + 1) == 12,
+              fmt_row("requests=%d addr=%04X back=%d line=%d", requests, addr, w.sp->can_go_back(),
+                      (w.ed->textCursor().blockNumber() + 1)));
+    }
+    {   // QSRCN-04: no code, nothing
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        int requests = 0;
+        QObject::connect(w.sp, &SourcePanel::show_memory_requested, [&](uint16_t) { ++requests; });
+        w.src_move(5);   // a line with no code
+        w.sp->follow();
+        check("QSRCN-04", "Follow on a line with no code (main.bas:5): nothing happens and the history does not change",
+              requests == 0 && !w.sp->can_go_back() && !w.sp->can_go_forward() &&
+                  w.sp->shown_file() == "main.bas",
+              fmt_row("requests=%d back=%d fwd=%d", requests, w.sp->can_go_back(), w.sp->can_go_forward()));
+    }
+    {   // QSRCN-05: the window's Follow acts on the Source tab with the focus in its text, else on the Disassembly
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        QAction* follow = nullptr;
+        for (QAction* a : fx.dbg()->findChildren<QAction*>())
+            if (a->text() == QLatin1String("Follow")) follow = a;
+        w.src_move(11);
+        w.ed->setFocus(Qt::OtherFocusReason);
+        if (follow) follow->trigger();
+        w.tick();
+        const bool in_source = w.sp->shown_file() == "sub.bas" && w.dp->selected_address() != 0x9000;
+        // the same action with the focus out of the text goes to the Disassembly
+        w.sp->go_back();
+        w.tick();
+        w.dp->setFocus(Qt::OtherFocusReason);
+        w.dp->show_address(0x8002);
+        if (follow) follow->trigger();
+        const bool in_disasm = w.dp->selected_address() == 0x9000;
+        check("QSRCN-05", "the window's Follow action goes to the Source tab when the focus is in its text and to the "
+                          "Disassembly otherwise",
+              follow && in_source && in_disasm,
+              fmt_row("action=%d in_source=%d in_disasm=%d", follow != nullptr, in_source, in_disasm));
+    }
+    {   // QSRCN-06: Back after Forward, in the Source tab too
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.src_move(11);
+        w.sp->follow();
+        w.tick();
+        w.sp->go_back();
+        w.tick();
+        w.sp->go_forward();
+        w.tick();
+        const bool again = w.sp->can_go_back() && w.sp->go_back() && (w.tick(), true) && w.sp->shown_file() == "main.bas" &&
+                           (w.ed->textCursor().blockNumber() + 1) == 11;
+        check("QSRCN-06", "after Follow, Back and Forward, Back returns to main.bas:11 again",
+              again, fmt_row("shown %s:%d", w.sp->shown_file().c_str(), (w.ed->textCursor().blockNumber() + 1)));
+    }
+    {   // QSRCN-07: the context menu's Follow follows its own line; a line with no code says why
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        QMenu none;
+        w.sp->fill_context_menu(none, 3, -1);
+        QAction* f3 = nullptr;
+        for (QAction* a : none.actions()) if (a->text() == QLatin1String("Follow")) f3 = a;
+        QMenu menu;
+        w.sp->fill_context_menu(menu, 11, -1);
+        QAction* f11 = nullptr;
+        for (QAction* a : menu.actions()) if (a->text() == QLatin1String("Follow")) f11 = a;
+        const bool enabled = f11 && f11->isEnabled() && f11->toolTip() == "$9000";
+        if (f11) f11->trigger();
+        w.tick();
+        const bool followed = w.sp->shown_file() == "sub.bas";
+        check("QSRCN-07", "the Source menu's Follow on `CALL $9000` is enabled with $9000 in its tooltip and, triggered, "
+                          "shows sub.bas; on a line with no code it is disabled with the \"no code at main.bas:3\" tooltip",
+              enabled && followed && f3 && !f3->isEnabled() && f3->toolTip() == "no code at main.bas:3",
+              fmt_row("enabled=%d followed=%d f3=%d en=%d tip='%s'", enabled, followed, f3 != nullptr, f3 && f3->isEnabled(), f3 ? f3->toolTip().toStdString().c_str() : ""));
+    }
+    {   // QSRCN-08: the window's Back and Forward act on the Source tab with the focus in its text
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        QAction* back = nullptr;
+        QAction* fwd = nullptr;
+        for (QAction* a : fx.dbg()->findChildren<QAction*>()) {
+            if (a->text() == QLatin1String("Back")) back = a;
+            if (a->text() == QLatin1String("Forward")) fwd = a;
+        }
+        w.src_move(11);
+        w.sp->follow();
+        w.tick();
+        w.ed->setFocus(Qt::OtherFocusReason);
+        emit qApp->focusChanged(nullptr, nullptr);   // the window refreshes the actions' enabled state on a focus change
+        if (back) back->trigger();
+        w.tick();
+        const bool backed = w.sp->shown_file() == "main.bas" && (w.ed->textCursor().blockNumber() + 1) == 11;
+        if (fwd) fwd->trigger();
+        w.tick();
+        const bool forwarded = w.sp->shown_file() == "sub.bas";
+        check("QSRCN-08", "with the focus in the Source text, the window's Back returns to main.bas:11 and Forward to sub.bas",
+              back && fwd && backed && forwarded, fmt_row("backed=%d forwarded=%d", backed, forwarded));
+    }
+    {   // QSRCN-09: choosing another file in the File list records the line it leaves
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.src_move(11);
+        w.sp->open_file("sub.bas");
+        w.tick();
+        const bool recorded = w.sp->shown_file() == "sub.bas" && w.sp->can_go_back();
+        const bool back = w.sp->go_back() && (w.tick(), true) && w.sp->shown_file() == "main.bas" &&
+                          (w.ed->textCursor().blockNumber() + 1) == 11;
+        check("QSRCN-09", "open_file(sub.bas) from main.bas:11 records that line; Back returns to it",
+              recorded && back, fmt_row("recorded=%d back=%d", recorded, back));
+    }
+    {   // QSYML-09: Show in Source in the Symbols tab: enabled for a label mapped now, disabled for a banked label
+        // whose own page is not mapped (though a source line exists in that page AND in the mapped one)
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80);
+        const std::string other = std::to_string(fx.p80 + 1);
+        fx.backend->load_source_map(write_sld("symsrc.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|13||0|" + a + "|32774|T|\n" +
+            "sub.bas|1||0|" + other + "|32774|T|\n"), false);
+        write_main({});
+        const jnext::dbg::MemSpace here = fx.backend->source_page(0x8000);
+        fx.backend->set_user_label(here, 0x8000, "mapped_label");
+        fx.backend->set_user_label(jnext::dbg::MemSpace::page(static_cast<uint8_t>(fx.p80 + 1)), 0x8006, "banked_label");
+        SyncWin w(fx);
+        SymbolsPanel* sy = fx.dbg()->symbols_panel();
+        sy->refresh();
+        QTableWidget* t = sy->findChild<QTableWidget*>();
+        auto states = [&](const char* name, bool trigger_source) {
+            QPoint pos;
+            for (int i = 0; t && i < t->rowCount(); ++i)
+                if (t->item(i, 0)->text() == QLatin1String(name)) pos = t->visualRect(t->model()->index(i, 0)).center();
+            int state = -1;
+            bool seen = false;
+            QTimer timer;
+            QObject::connect(&timer, &QTimer::timeout, [&]() {
+                auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                if (!menu || seen) return;
+                seen = true;
+                for (QAction* act : menu->actions())
+                    if (act->text() == QLatin1String("Show in Source")) {
+                        state = act->isEnabled() ? 1 : 0;
+                        if (trigger_source && act->isEnabled()) act->trigger();
+                    }
+                menu->close();
+            });
+            timer.start(1);
+            QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, t->viewport()->mapToGlobal(pos));
+            QApplication::sendEvent(t->viewport(), &ev);
+            timer.stop();
+            QApplication::processEvents();
+            return state;
+        };
+        const int banked = states("banked_label", false);
+        const int mapped = states("mapped_label", true);
+        w.tick();
+        check("QSYML-09", "Show in Source is disabled for a banked label whose page is not mapped, and enabled for a label "
+                          "mapped now, which shows main.bas:10 in the Source tab",
+              banked == 0 && mapped == 1 && w.sp->shown_file() == "main.bas" && (w.ed->textCursor().blockNumber() + 1) == 10,
+              fmt_row("banked=%d mapped=%d shown %s:%d", banked, mapped, w.sp->shown_file().c_str(),
+                      (w.ed->textCursor().blockNumber() + 1)));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -8071,6 +8319,7 @@ int main(int argc, char** argv) {
     test_annotations_menu();      // GH #387 stage 2
     test_source_sync_review();    // GH #347 stage 2, review 1
     test_source_any_file();       // GH #480
+    test_source_follow_nav();     // GH #366
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
