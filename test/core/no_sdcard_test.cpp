@@ -226,6 +226,32 @@ static void group_rom()
         check("NOSD-ROM-07", "a program running in RAM it mapped at $0000 is not reported",
               r.empty() && pc == 0x0000, fmt("pc=$%04X report='%s'", pc, r.c_str()));
     }
+
+    // DI; RST $38 - the same address as the IM 1 vector, reached by an opcode: the
+    // previous slot is not an interrupt acknowledge, so the cause is the RST, not IM 1.
+    {
+        Emulator emu;
+        build(emu, true);
+        poke(emu, 0xC000, {0xF3, 0xFF, 0x18, 0xFE});
+        start_at_c000(emu);
+        frames(emu, 1);
+        const std::string r = emu.take_rom_fetch_report();
+        check("NOSD-ROM-08", "RST $38 by opcode is reported at $0038 as RST $38, not as IM 1",
+              r == std::string("executed ROM code at $0038 (RST $38)") + kTail, "report='" + r + "'");
+    }
+
+    // DI; NEXTREG $06,$08; NEXTREG $02,$08; JR $ - the program's own Multiface software NMI
+    // (NR 0x06 bit 3 opens the gate, NR 0x02 bit 3 strobes it), taken at $0066.
+    {
+        Emulator emu;
+        build(emu, true);
+        poke(emu, 0xC000, {0xF3, 0xED, 0x91, 0x06, 0x08, 0xED, 0x91, 0x02, 0x08, 0x18, 0xFE});
+        start_at_c000(emu);
+        frames(emu, 1);
+        const std::string r = emu.take_rom_fetch_report();
+        check("NOSD-ROM-09", "a program's own software NMI (NR 0x02 bit 3) is reported at $0066 as NMI",
+              r == std::string("executed ROM code at $0066 (NMI)") + kTail, "report='" + r + "'");
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

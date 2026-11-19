@@ -2,7 +2,7 @@
 
 > Status: **implemented** (all frontends; the browser as `card: { source: 'none' }`).
 > Issue: GH #540.
-> Tests: `test/core/no_sdcard_test.cpp` (NOSD-ROM-01..07, NOSD-DEV-01..04),
+> Tests: `test/core/no_sdcard_test.cpp` (NOSD-ROM-01..09, NOSD-DEV-01..04),
 > `test/gui/no_sdcard_ui_test.cpp` (NOSDUI-01..03),
 > `test/platform/web_api_test.cpp` (WAPI-CARD-04),
 > `test/browser/card.mjs` (BCARD-36..38), regression row `no-sdcard-func`.
@@ -51,7 +51,7 @@ Refused at start, each with its own message (exit status 1):
 |-------------|---------|
 | any `--sdcard*` option, `--warm-start-regenerate`, `--delayed-sdcard-insert-frames` | `--no-sdcard cannot be combined with X: there is no SD card.` |
 | `--delayed-nmi` | `--no-sdcard cannot be combined with --delayed-nmi: there is no ROM to service an NMI.` |
-| a machine other than the Next | `--no-sdcard needs the Next: the other machines run from ROMs on the SD card.` |
+| a machine other than the Next (`--machine`, or the machine saved in Preferences when the window is used) | `--no-sdcard needs the Next: the other machines run from ROMs on the SD card.` (the Preferences case adds the saved machine and `give --machine next`) |
 | no `--load`, or a file that is not a `.nex` (directly or in a `.zip`) | `--no-sdcard needs --load of a .nex (directly, or in a .zip): with no SD card there are no ROMs to run anything else.` |
 
 In a page, `card: { source: 'none' }` is refused at `mount()` without `file`,
