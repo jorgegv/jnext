@@ -150,6 +150,8 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Video panel "Background" view: the NR 0x4A fallback colour per scanline
 - Video panel raster indicator: beam position in all four hardware counter domains, frame diagram and ULA fetch read-out
 - Audio panel per-source mute: AY #0/#1/#2, DAC and Beeper silenced independently without affecting emulation
+- Disassembly navigation: Follow (F12) jumps, calls, returns and memory operands, Back/Forward history (Alt+Left/Right), a Symbols tab, and register-click shortcuts to the Disassembly, Memory and Source
+- CPU panel: edit registers, flags, IFF and IM in place while paused (double-click a value, click a flag), with symbols accepted for 16-bit values
 - PC/data/read/write breakpoints with watchpoints
 - I/O port breakpoints: IO Read on `IN`, IO Write on `OUT`, by low byte or exact 16-bit port
 - Breakpoint enable/disable per row, plus a master switch
@@ -168,7 +170,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
 - Debugger window: File > Reload Last File (Alt+L) reloads the rebuilt program with its maps, breakpoints kept
-- Redefinable debugger keys: all seventeen debugger commands under Settings > Preferences > Debugger Keys
+- Redefinable debugger keys: all twenty debugger commands under Settings > Preferences > Debugger Keys
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
 - Rewind preserves the SD card's SPI protocol state, so streaming programs resume correctly
 - Save Snapshot while paused mid-frame completes the frame and saves at the boundary

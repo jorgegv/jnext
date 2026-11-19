@@ -1512,11 +1512,12 @@ The key combination of a debugger action, like the **Preferences**
 Debugger Keys tab: *ACTION* is `run`, `pause`, `step_into`, `step_over`,
 `step_out`, `step_back`, `frame_back`, `run_to_cursor`, `run_to_eof`,
 `run_to_eosl`, `trace_toggle`, `trace_export`, `source_step_into`,
-`source_step_over`, `source_step_out`, `source_step_back` or
-`source_reverse_continue`, and `none` unbinds it. A combination that is
-not legal there, or that another action already holds (unless the same
-command line frees it), is refused with exit status 1 before the window
-opens. The Qt window with the debugger.
+`source_step_over`, `source_step_out`, `source_step_back`,
+`source_reverse_continue`, `follow`, `go_back` or `go_forward`, and
+`none` unbinds it. A combination that is not legal there, or that
+another action already holds (unless the same command line frees it), is
+refused with exit status 1 before the window opens. The Qt window with
+the debugger.
 
 `source.colour_scheme` *auto\|light\|dark\|borland*  
 The colour scheme of the debugger’s Source tab, like the **Preferences**
@@ -2828,22 +2829,25 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   setting survives program loads and resets; the recorded history does
   not
 
-| Key      | Action             |
-|----------|--------------------|
-| F2       | Enable Trace       |
-| F3       | Export Trace       |
-| F5       | Run / Continue     |
-| F6       | Single Step (into) |
-| F7       | Step Over          |
-| F8       | Step Out           |
-| F9       | Pause / Break      |
-| Ctrl+F6  | Source Step Into   |
-| Ctrl+F7  | Source Step Over   |
-| Ctrl+F8  | Source Step Out    |
-| Shift+F6 | Frame Back         |
-| Shift+F7 | Step Back          |
+| Key       | Action             |
+|-----------|--------------------|
+| F2        | Enable Trace       |
+| F3        | Export Trace       |
+| F5        | Run / Continue     |
+| F6        | Single Step (into) |
+| F7        | Step Over          |
+| F8        | Step Out           |
+| F9        | Pause / Break      |
+| Ctrl+F6   | Source Step Into   |
+| Ctrl+F7   | Source Step Over   |
+| Ctrl+F8   | Source Step Out    |
+| Shift+F6  | Frame Back         |
+| Shift+F7  | Step Back          |
+| F12       | Follow             |
+| Alt+Left  | Back               |
+| Alt+Right | Forward            |
 
-Those are defaults. All seventeen debugger commands - the twelve above
+Those are defaults. All twenty debugger commands - the fifteen above
 plus Run to Cursor, Run to End of Frame, Run to End of Scan Line, Source
 Step Back and Source Reverse Continue, which ship unbound - can be
 rebound under **Settings \> Preferences \> Debugger Keys** in the

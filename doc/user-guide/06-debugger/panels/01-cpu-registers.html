@@ -1710,6 +1710,8 @@
       
         
       
+        
+      
     
     
     
@@ -1775,6 +1777,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU registers
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="01-cpu-registers.html" class="md-nav__link md-nav__link--active">
         
   
@@ -1791,6 +1811,47 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#showing-a-value-elsewhere" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Showing a value elsewhere
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2204,6 +2265,34 @@
     
   
     Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="17-symbols.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symbols
   
 
     
@@ -4340,8 +4429,40 @@
   the debugger window opens. A soft reset does not restart it. At 7, 14 or 28 MHz each instruction counts its own T-states at the
   speed in force (a NOP is 4 at any speed).</li>
 </ul>
-<p>All values are read-only here; to change memory or a NextREG use the Memory or
-NextREG panels.</p>
+<h2 id="showing-a-value-elsewhere">Showing a value elsewhere<a class="headerlink" href="#showing-a-value-elsewhere" title="Permanent link">&para;</a></h2>
+<p>While paused, a <strong>single click</strong> on an address-like value (<code>BC</code> <code>DE</code> <code>HL</code>, their alternates, <code>IX</code>
+<code>IY</code> <code>SP</code> <code>PC</code>) shows it in the <a href="03-disassembly.html">Disassembly</a>; <strong>Back</strong> there undoes it. (The
+first click of a double-click, which edits, does this too.) The right-click menu on those values
+adds <strong>Show in Disassembly</strong>, <strong>Show in Memory</strong> and, with a source map, <strong>Show in Source</strong> (disabled
+where no source line covers the value). <code>AF</code>, <code>I</code>, <code>R</code>, <code>IFF</code> and <code>IM</code> have only <strong>Edit Value...</strong>.
+While the machine runs the entries are disabled.</p>
+<h2 id="editing">Editing<a class="headerlink" href="#editing" title="Permanent link">&para;</a></h2>
+<p>While the machine is paused you can change any value here in place:</p>
+<ul>
+<li><strong>Double-click</strong> a register value, type the new value and press <strong>Enter</strong>.
+  <strong>Escape</strong>, or clicking anywhere else, cancels; so does resuming the machine.
+  A right-click offers <strong>Edit Value...</strong> as well.</li>
+<li>The 16-bit registers take a hexadecimal number (<code>1234</code>, <code>$1234</code>, <code>0x1234</code>) or a
+  symbol, as the address boxes do: a number is read first, and <code>@name</code> always means
+  the symbol. Typing <code>main</code> into <code>PC</code> sets it to the label's address.</li>
+<li><code>I</code> and <code>R</code> take one or two hex digits, <code>IFF</code> takes <code>IFF1/IFF2</code> as <code>1/0</code>, and
+  <code>IM</code> takes 0, 1 or 2.</li>
+<li>A single click on a flag (<code>S Z H PV N C</code>) toggles it. The two undocumented bits
+  of F are kept; change them through <code>AF</code>.</li>
+<li>Entering the value a register already has changes nothing. A value that does not
+  parse is reported in the status bar and nothing is written.</li>
+<li>Editing <code>PC</code> takes the CPU out of a <code>HALT</code>: <strong>State</strong> then shows <code>Running</code>.</li>
+<li>An edit is refused, with a status-bar message, while an RZX recording is being
+  made or played.</li>
+<li>Editing does not change the <strong>T-states</strong> value: it counts executed time, and an
+  edit executes nothing; the next step counts the instruction at the new <code>PC</code>.</li>
+<li>With the rewind buffer on, an edit discards the frames after it, like any other
+  change from the debugger. <strong>Step Back</strong> across the edit is then refused;
+  <strong>Frame Back</strong> to the start of the frame undoes it. See
+  <a href="../functions/07-backward-execution-rewind.html#when-a-rewind-is-refused">When a rewind is refused</a>.</li>
+</ul>
+<p>While the machine runs the panel is greyed and nothing can be edited; to change
+memory or a NextREG use the Memory or NextREG panels.</p>
 
 
 

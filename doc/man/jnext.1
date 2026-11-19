@@ -1748,7 +1748,8 @@ Debugger Keys tab: \f[I]ACTION\f[R] is \f[CR]run\f[R], \f[CR]pause\f[R],
 \f[CR]run_to_eof\f[R], \f[CR]run_to_eosl\f[R], \f[CR]trace_toggle\f[R],
 \f[CR]trace_export\f[R], \f[CR]source_step_into\f[R],
 \f[CR]source_step_over\f[R], \f[CR]source_step_out\f[R],
-\f[CR]source_step_back\f[R] or \f[CR]source_reverse_continue\f[R], and
+\f[CR]source_step_back\f[R], \f[CR]source_reverse_continue\f[R],
+\f[CR]follow\f[R], \f[CR]go_back\f[R] or \f[CR]go_forward\f[R], and
 \f[CR]none\f[R] unbinds it.
 A combination that is not legal there, or that another action already
 holds (unless the same command line frees it), is refused with exit
@@ -3505,10 +3506,25 @@ Shift+F7
 T}@T{
 Step Back
 T}
+T{
+F12
+T}@T{
+Follow
+T}
+T{
+Alt+Left
+T}@T{
+Back
+T}
+T{
+Alt+Right
+T}@T{
+Forward
+T}
 .TE
 .PP
 Those are defaults.
-All seventeen debugger commands \- the twelve above plus Run to Cursor,
+All twenty debugger commands \- the fifteen above plus Run to Cursor,
 Run to End of Frame, Run to End of Scan Line, Source Step Back and
 Source Reverse Continue, which ship unbound \- can be rebound under
 \f[B]Settings > Preferences > Debugger Keys\f[R] in the emulator window,

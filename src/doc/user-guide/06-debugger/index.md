@@ -28,7 +28,7 @@ the debugger costs nothing — no breakpoint checking, no call-stack tracking, n
 panel refreshes. Closing it also resumes the machine if it was paused.
 
 The debugger opens in its own window, positioned to the right of the emulator
-window. It has its own menu bar — **File**, **Debug**, **Script**, **Map**, **Breakpoints**,
+window. It has its own menu bar — **File**, **Debug**, **Go**, **Script**, **Map**, **Breakpoints**,
 **Watches** and **Window** — and a control toolbar along the bottom.
 
 **File ▸ Reload Last File** (Alt+L) is the emulator window's command of the same name,

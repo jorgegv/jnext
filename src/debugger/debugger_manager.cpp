@@ -139,6 +139,7 @@ void DebuggerManager::set_panels_client() {
     if (auto* p = debugger_window_->audio_panel())   p->set_client(client_);
     if (auto* p = debugger_window_->memory_panel())  p->set_client(client_);
     if (auto* p = debugger_window_->variables_panel()) p->set_client(client_);   // GH #437: an edit is logged as the window's client
+    if (auto* p = debugger_window_->cpu_panel())       p->set_client(client_);   // GH #368: so is a register edit
 }
 
 void DebuggerManager::apply_pause_state(bool paused) {

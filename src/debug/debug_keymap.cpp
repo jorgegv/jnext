@@ -34,6 +34,10 @@ const ActionInfo kActions[ACTION_COUNT] = {
     { Action::SourceStepOut,         "source_step_out",         "Source Step Out",          with(MOD_CTRL, Key::F8) },
     { Action::SourceStepBack,        "source_step_back",        "Source Step Back",         unbound()               },
     { Action::SourceReverseContinue, "source_reverse_continue", "Source Reverse Continue",  unbound()               },
+    // GH #366: F12 is the IDE's "go to definition"; Alt+Left/Right the desktop Back/Forward.
+    { Action::Follow,                "follow",                  "Follow",                   bare(Key::F12)          },
+    { Action::GoBack,                "go_back",                 "Back",                     with(MOD_ALT, Key::Left)  },
+    { Action::GoForward,             "go_forward",              "Forward",                  with(MOD_ALT, Key::Right) },
 };
 
 struct KeyName { Key key; const char* name; };

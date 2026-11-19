@@ -16,6 +16,7 @@ class BreakpointModel;
 class DebuggerManager;
 namespace jnext { namespace dbg { class Debugger; } }
 class CpuPanel;
+class SymbolsPanel;
 class DisasmPanel;
 class MemoryPanel;
 class VideoPanel;
@@ -117,6 +118,7 @@ public:
 
     // Panel accessors for signal wiring
     CpuPanel* cpu_panel() { return cpu_panel_; }
+    SymbolsPanel* symbols_panel() { return symbols_panel_; }   // GH #366
     DisasmPanel* disasm_panel() { return disasm_panel_; }
     WatchPanel* watch_panel() { return watch_panel_; }
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
@@ -244,6 +246,7 @@ private:
 
     // Panels
     CpuPanel* cpu_panel_ = nullptr;
+    SymbolsPanel* symbols_panel_ = nullptr;
     DisasmPanel* disasm_panel_ = nullptr;
     MemoryPanel* memory_panel_ = nullptr;
     VideoPanel* video_panel_ = nullptr;
@@ -336,6 +339,18 @@ private:
     /// change the menu shape that debugger_accel_test pins. Unbound by
     /// default, so it does nothing until the user binds it.
     QAction* run_to_cursor_action_ = nullptr;
+    /// GH #366 - Follow, Back and Forward, window commands like Run to Cursor, listed in the Go menu;
+    /// the keys come from apply_keymap(). They act on the
+    /// Source tab when its text has the focus, else on the Disassembly.
+    QAction* follow_action_ = nullptr;
+    QAction* back_action_ = nullptr;
+    QAction* forward_action_ = nullptr;
+    /// Back and Forward are enabled per the focused view's history.
+    void update_nav_actions();
+    /// Show `addr` in the Memory panel and raise its tab.
+    void show_in_memory(uint16_t addr);
+    bool source_has_focus() const;
+    QTabWidget* memory_tab_widget_ = nullptr;
     QAction* rewind_enable_action_ = nullptr;
 
     // GH #1 — toolbar buttons whose captions or tooltips quote a key. They are

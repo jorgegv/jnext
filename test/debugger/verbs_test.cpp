@@ -49,6 +49,7 @@
 #include "debugger/breakpoint_panel.h"
 #include "debugger/callstack_panel.h"
 #include "debugger/cpu_panel.h"
+#include "debugger/reg_edit.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
@@ -56,6 +57,7 @@
 #include "debugger/mmu_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/stack_panel.h"
+#include "debugger/symbols_panel.h"
 #include "debugger/video_panel.h"
 #include "debugger/watch_panel.h"
 #include "memory/mmu.h"
@@ -70,6 +72,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#include <QTabWidget>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -4430,6 +4433,282 @@ static void test_bp_script_more() {
     }
 }
 
+// ===========================================================================
+// QREGW -- GH #368: a register edit in the real debugger window.
+//
+// No VHDL oracle: host debugger UI. The oracles are the facade's documented
+// `set_register` (a write bumps state_revision(), so the next paused tick redraws
+// every panel; refused under RZX; it marks the rewind ring) and the existing
+// rewind refusal contract (QRF-07/08). The edit is made as a user makes it:
+// double-click the value in the window's CPU panel, type, Enter.
+// ===========================================================================
+
+/// The window's CPU-panel value label beside `name` ("PC: ").
+static QLabel* window_reg_label(Fixture& fx, const char* name) {
+    CpuPanel* cpu = fx.dbg() ? fx.dbg()->cpu_panel() : nullptr;
+    QLabel* anchor = label_with_text(cpu, QString::fromLatin1(name));
+    if (!anchor) return nullptr;
+    for (QGridLayout* g : cpu->findChildren<QGridLayout*>()) {
+        const int idx = g->indexOf(anchor);
+        if (idx < 0) continue;
+        int r = 0, c = 0, rs = 0, cs = 0;
+        g->getItemPosition(idx, &r, &c, &rs, &cs);
+        QLayoutItem* it = g->itemAtPosition(r, c + 1);
+        return it ? qobject_cast<QLabel*>(it->widget()) : nullptr;
+    }
+    return nullptr;
+}
+
+/// Double-click `name`'s value in the window's CPU panel, type `text`, press Enter.
+static bool window_edit_reg(Fixture& fx, const char* name, const char* text) {
+    QLabel* l = window_reg_label(fx, name);
+    CpuPanel* cpu = fx.dbg()->cpu_panel();
+    if (!l || !cpu) return false;
+    const QPoint pos(2, 2);
+    QMouseEvent dbl(QEvent::MouseButtonDblClick, QPointF(pos), QPointF(l->mapToGlobal(pos)),
+                    Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(l, &dbl);
+    QLineEdit* e = nullptr;
+    for (QLineEdit* c : cpu->findChildren<QLineEdit*>()) e = c;
+    if (!e || e->isHidden()) return false;
+    e->setText(QString::fromLatin1(text));
+    QKeyEvent key(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QApplication::sendEvent(e, &key);
+    return true;
+}
+
+static void test_cpu_edit_window() {
+    set_group("QREGW");
+
+    {
+        Fixture fx;
+        const char* desc = "an edit of PC through the window's CPU panel moves the Disassembly's PC "
+                           "line at the next paused tick: the only hint in the view is that of the new PC line "
+                           "(LD A,(HL) -> [($9005)=$3C]), and there was none before";
+        if (!fx.ok) { check("QREGW-01", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x00, 0x7E, 0x00, 0x18, 0xFD});   // NOP / LD A,(HL) / NOP / JR $8000
+            fx.load(0x9005, {0x3C});
+            fx.regs(PROG, [](Z80Registers& r) { r.HL = 0x9005; });
+            fx.enable();
+            if (auto* sb = fx.dbg()->disasm_panel()->findChild<QScrollBar*>()) sb->setValue(PROG);
+            fx.tick();
+            // The scroll bar clamps below $8000, so the PC line is further down: scan the view.
+            auto hints = [&]() {
+                QStringList h;
+                for (int i = 0; i < 80; ++i) {
+                    const QString t = fx.dbg()->disasm_panel()->line_hint(i);
+                    if (!t.isEmpty()) h << t;
+                }
+                return h;
+            };
+            const QStringList before = hints();
+            const bool done = window_edit_reg(fx, "PC: ", "8001");
+            fx.tick();
+            const QStringList after = hints();
+            check("QREGW-01", desc,
+                  done && fx.pc() == 0x8001 && before.isEmpty() &&
+                      after == QStringList{QStringLiteral("[($9005)=$3C]")},
+                  fmt("done=%d PC=%04X hints before '%s', after '%s'", done, fx.pc(),
+                      s(before.join('|')).c_str(), s(after.join('|')).c_str()));
+        }
+    }
+
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "a refused edit (RZX playing) puts its text in the window's status bar, "
+                           "and it is still there after more paused ticks with a non-empty rewind ring";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QREGW-02", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            fx.emu.rzx_player().start(RzxRecording{});
+            const bool done = window_edit_reg(fx, "BC: ", "1234");
+            const QString want = QString::fromStdString(
+                jnext::regedit::refusal_text("BC", jnext::dbg::Result::RefusedRzx));
+            const QString at_once = status_of(fx.dbg());
+            fx.tick();
+            fx.dbg()->refresh_panels();
+            const QString later = status_of(fx.dbg());
+            fx.emu.rzx_player().stop();
+            check("QREGW-02", desc,
+                  done && at_once == want && later == want && fx.backend->rewind_range().depth > 0,
+                  fmt("done=%d status now '%s', later '%s'", done, s(at_once).c_str(), s(later).c_str()));
+        }
+    }
+
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "with rewind on: after a register edit Step Back is refused (\"would undo a "
+                           "change you made from the debugger\") with BC still edited; Frame Back to "
+                           "that frame succeeds and BC is back to its pre-edit value";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QREGW-03", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.regs(PROG, [](Z80Registers& r) { r.HL = 0; r.BC = 0x0102; });
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            fx.mgr->on_step_into();
+            fx.mgr->on_step_into();
+            const uint32_t frame = fx.backend->time().frame;
+            const bool done = window_edit_reg(fx, "BC: ", "1234");
+            fx.mgr->on_step_into();
+            fx.mgr->on_step_into();
+            const uint16_t pc0 = fx.pc();
+            fx.mgr->on_step_back();
+            const QString st = status_of(fx.dbg());
+            const bool refused = st.startsWith(QStringLiteral(
+                "Step Back refused: it would undo a change you made from the debugger")) &&
+                fx.pc() == pc0 && fx.backend->registers().BC == 0x1234;
+            fx.mgr->on_rewind_to_frame(frame);
+            fx.tick();
+            check("QREGW-03", desc,
+                  done && refused && fx.backend->registers().BC == 0x0102,
+                  fmt("done=%d refused=%d status '%s' BC after Frame Back %04X", done, refused,
+                      s(st).c_str(), fx.backend->registers().BC));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "the MUTATE line of a window CPU-panel edit names the window's client "
+                           "(set_panels_client reaches the panel)";
+        if (!fx.ok) { check("QREGW-04", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            RefusalProbe p(fx);
+            fx.mgr->on_pause();
+            const jnext::dbg::ClientId win = fx.backend->state().pause_reason.by;
+            const uint16_t de0 = fx.backend->registers().DE;
+            const bool done = window_edit_reg(fx, "DE: ", "4321");
+            const std::string want = fmt("MUTATE reg DE 0x%X -> 0x4321 by %u", de0, static_cast<unsigned>(win));
+            check("QREGW-04", desc,
+                  done && win != jnext::dbg::CLIENT_NONE && win != p.cid && p.log.has(want),
+                  fmt("win=%u probe=%u lines=%d want '%s'", static_cast<unsigned>(win),
+                      static_cast<unsigned>(p.cid), (int)p.log.lines.size(), want.c_str()));
+        }
+    }
+}
+
+// ===========================================================================
+// QNAVW -- GH #366: navigation through the real window.
+// Oracle: the issue's contract (Follow a memory operand shows it in the Memory panel; clicking a
+// register opens its value in the Disassembly; Back returns).
+// ===========================================================================
+static void test_nav_window() {
+    set_group("QNAVW");
+
+    {
+        Fixture fx;
+        const char* desc = "Follow on a memory operand raises the Memory tab and selects the operand address in the "
+                           "Memory panel's CPU View, also when the panel was in a Slot view before";
+        if (!fx.ok) { check("QNAVW-04", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x3A, 0x40, 0x5C, 0x18, 0xFB});   // LD A,($5C40) / JR $8000
+            fx.regs(PROG);
+            fx.enable();
+            MemoryPanel* mem = fx.dbg()->memory_panel();
+            auto* combo = mem->findChild<QComboBox*>();
+            if (combo) combo->setCurrentIndex(1);   // Slot 0
+            auto* tabs = qobject_cast<QTabWidget*>(mem->parentWidget()->parentWidget());
+            if (tabs) tabs->setCurrentIndex(0);     // Stack
+            DisasmPanel* dis = fx.dbg()->disasm_panel();
+            dis->show_address(PROG);                // the caret on the LD
+            dis->follow();
+            check("QNAVW-04", desc,
+                  combo && tabs && combo->currentIndex() == 0 && mem->selected_address() == 0x5C40 &&
+                      tabs->currentWidget() == mem,
+                  fmt("view %d selected %04X tab is memory %d", combo ? combo->currentIndex() : -1,
+                      mem->selected_address(), tabs ? tabs->currentWidget() == mem : 0));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "a click on PC in the window's CPU panel moves the Disassembly to PC and records it; Back "
+                           "returns the view to where it was";
+        if (!fx.ok) { check("QNAVW-05", desc, false, "fixture"); }
+        else {
+            fx.load(0x6000, {0x00, 0x00, 0x18, 0xFE});
+            fx.regs(0x6000);
+            fx.enable();
+            fx.dbg()->show();
+            QApplication::processEvents();
+            DisasmPanel* dis = fx.dbg()->disasm_panel();
+            dis->show_address(0x2000);   // somewhere else (a recorded jump of its own)
+            const uint16_t before = dis->view_address();
+            QLabel* pc = window_reg_label(fx, "PC: ");
+            if (pc) {
+                const QPoint pos(2, 2);
+                QMouseEvent press(QEvent::MouseButtonPress, QPointF(pos), QPointF(pc->mapToGlobal(pos)),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(pc, &press);
+            }
+            const uint16_t at_pc = dis->view_address();
+            const bool recorded = dis->can_go_back();
+            const bool caret_at_pc = dis->selected_address() == 0x6000;
+            const bool back = dis->go_back() && dis->view_address() == before;
+            check("QNAVW-05", desc, pc && at_pc != before && caret_at_pc && recorded && back,
+                  fmt("before %04X after click %04X recorded=%d back=%d", before, at_pc, recorded, back));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "the window's Back and Forward are enabled per the history: both off at the start, Back "
+                           "after a Follow, Forward after a Back";
+        if (!fx.ok) { check("QNAVW-06", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0xCD, 0x00, 0x90, 0x18, 0xFB});
+            fx.regs(PROG);
+            fx.enable();
+            QAction* back = nullptr;
+            QAction* fwd = nullptr;
+            for (QAction* a : fx.dbg()->findChildren<QAction*>()) {
+                if (a->text() == QLatin1String("Back")) back = a;
+                if (a->text() == QLatin1String("Forward")) fwd = a;
+            }
+            DisasmPanel* dis = fx.dbg()->disasm_panel();
+            const bool start = back && fwd && !back->isEnabled() && !fwd->isEnabled();
+            dis->show_address(PROG);
+            dis->follow();
+            const bool after_follow = back && fwd && back->isEnabled() && !fwd->isEnabled();
+            dis->go_back();
+            dis->go_back();   // the show_address() above recorded the view it left, too
+            const bool after_back = back && fwd && !back->isEnabled() && fwd->isEnabled();
+            check("QNAVW-06", desc, start && after_follow && after_back,
+                  fmt("start=%d follow=%d back=%d", start, after_follow, after_back));
+        }
+    }
+
+    {
+        Fixture fx;
+        const char* desc = "Go > Symbols raises the Symbols tab and puts the keyboard in its filter box";
+        if (!fx.ok) { check("QNAVW-07", desc, false, "fixture"); }
+        else {
+            fx.enable();
+            fx.dbg()->show();
+            QApplication::processEvents();
+            QAction* sym = nullptr;
+            for (QAction* top : fx.dbg()->menuBar()->actions())
+                if (top->menu() && top->text().remove(QLatin1Char('&')) == QLatin1String("Go"))
+                    for (QAction* a : top->menu()->actions())
+                        if (a->text().remove(QLatin1Char('&')) == QLatin1String("Symbols")) sym = a;
+            SymbolsPanel* sp = fx.dbg()->symbols_panel();
+            auto* tabs = sp ? qobject_cast<QTabWidget*>(sp->parentWidget()->parentWidget()) : nullptr;
+            if (tabs) tabs->setCurrentIndex(0);
+            if (sym) sym->trigger();
+            QLineEdit* filter = sp ? sp->findChild<QLineEdit*>() : nullptr;
+            check("QNAVW-07", desc,
+                  sym && tabs && filter && tabs->currentWidget() == sp && fx.dbg()->focusWidget() == filter,
+                  fmt("action=%d tab raised=%d filter focused=%d", sym != nullptr,
+                      tabs && tabs->currentWidget() == sp, filter && fx.dbg()->focusWidget() == filter));
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -4464,6 +4743,8 @@ int main(int argc, char** argv) {
     test_annotations_ui();
     test_reexport_ui();
     test_tstates();
+    test_cpu_edit_window();
+    test_nav_window();
     test_bp_script();
     test_bp_script_more();
     test_memory_tools_window();

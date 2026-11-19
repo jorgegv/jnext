@@ -1710,6 +1710,8 @@
       
         
       
+        
+      
     
     
     
@@ -1897,6 +1899,17 @@
     <span class="md-ellipsis">
       
         What the line at PC is about to do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navigating-follow-back-and-forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navigating: Follow, Back and Forward
       
     </span>
   </a>
@@ -2274,6 +2287,34 @@
     
   
     Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="17-symbols.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symbols
   
 
     
@@ -4490,6 +4531,29 @@ point, where the instruction itself switches that memory in or out, the value is
 from the memory the instruction will see. A pending interrupt can run before the instruction does,
 and then the hint does not apply. The hint is not copied with the listing, and
 it is not shown while the machine is running.</p>
+<h2 id="navigating-follow-back-and-forward">Navigating: Follow, Back and Forward<a class="headerlink" href="#navigating-follow-back-and-forward" title="Permanent link">&para;</a></h2>
+<p><strong>Follow</strong> (<strong>F12</strong>, the <strong>Go</strong> menu, or the right-click menu) takes the line with the caret (the <code>PC</code> line when there is none) to
+where it goes:</p>
+<ul>
+<li>a jump, call or relative jump (<code>JP</code>, <code>CALL</code>, <code>JR</code>, <code>DJNZ</code>, <code>RST</code>) goes to its target. A
+  conditional one is followed whether or not its condition holds: Follow is about the
+  operand, and the hint on the <code>PC</code> line already says taken or not;</li>
+<li><code>JP (HL)</code>, <code>JP (IX)</code> and <code>JP (IY)</code> go to the register as it is now, and <code>RET</code>, <code>RETI</code>
+  and <code>RETN</code> (conditional or not) to the return address at <code>SP</code> as it is now;</li>
+<li>an instruction with a memory operand (<code>(HL)</code>, <code>(BC)</code>, <code>(DE)</code>, <code>(IX+d)</code>, <code>(IY+d)</code>,
+  <code>(nn)</code>, <code>(SP)</code>) shows that address in the <a href="04-memory.html">Memory</a> panel, in its CPU
+  view, and raises its tab. The Disassembly does not move;</li>
+<li>anything else does nothing. <code>JP (C)</code> has no target: it needs a port read, which the
+  debugger never does.</li>
+</ul>
+<p><strong>Back</strong> (<strong>Alt+Left</strong>) and <strong>Forward</strong> (<strong>Alt+Right</strong>) return through the places the view left
+by a jump: the last 100 are kept, and Back puts the view and the caret exactly where they were.
+A jump is a Follow, the Address box, <strong>Go to PC</strong>, and a request from another panel: <strong>Show in
+Disassembly</strong> from the Source tab, a click on a register or a row of the
+<a href="17-symbols.html">Symbols</a> tab. The automatic re-centre on every stop, scrolling and the keys
+do not record. Jumping somewhere new discards what Forward could have gone back to. When the
+keyboard focus is in the Source tab's text, the three keys act on the Source tab instead.</p>
+<p>The three keys are rebindable: <a href="../functions/09-changing-the-keys.html">Changing the keys</a>.</p>
 <h2 id="the-right-click-menu">The right-click menu<a class="headerlink" href="#the-right-click-menu" title="Permanent link">&para;</a></h2>
 <p>The right-click menu is where most of the day-to-day work happens:</p>
 <table>

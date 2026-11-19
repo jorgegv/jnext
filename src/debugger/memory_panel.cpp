@@ -240,6 +240,11 @@ int MemoryPanel::total_rows() const {
 // Navigation
 // ---------------------------------------------------------------------------
 
+void MemoryPanel::show_address(uint16_t addr) {
+    if (page_selector_ && page_selector_->currentIndex() != 0) page_selector_->setCurrentIndex(0);
+    navigate_to_address(addr);
+}
+
 void MemoryPanel::navigate_to_address(uint16_t addr) {
     int row = addr / BYTES_PER_ROW;
     int vis = visible_rows();

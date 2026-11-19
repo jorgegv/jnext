@@ -43,6 +43,10 @@ public:
     /// Update display with current memory and MMU state.
     void refresh();
 
+    /// GH #366 - show CPU address `addr`: switches the view to CPU View when it is in a slot or
+    /// page view (a CPU address means nothing there), then centres and selects the byte.
+    void show_address(uint16_t addr);
+
     QSize sizeHint() const override;
 
     // ---- GH #370: find, and save / load / fill a block -------------------------------------
