@@ -8,7 +8,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 |-----------------------|---------:|---------:|-------:|--------:|--------:|--------------------------------------------------------|
 | FUSE Z80              |     1356 |     1356 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Disassembly PC-line hint (GH #367) |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Disassembly PC-line hint (GH #367) |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger memory find/block helper (GH #370) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -227,10 +227,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |      196 |      196 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Panels (GH #278) |      205 |      205 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16956**| **16956**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16977**| **16977**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
