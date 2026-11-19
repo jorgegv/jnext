@@ -301,6 +301,7 @@ void AppConfig::load() {
     settings_.beginGroup(S(KeyId::PathsLastLoadDir));
     data_.last_load_dir  = ini_text(settings_.value(N(KeyId::PathsLastLoadDir), data_.last_load_dir));
     data_.sd_card_path   = ini_text(settings_.value(N(KeyId::PathsSdCardPath), data_.sd_card_path));
+    data_.sd_card2_path  = ini_text(settings_.value(N(KeyId::PathsSdCard2Path), data_.sd_card2_path));
     data_.screenshot_dir = ini_text(settings_.value(N(KeyId::PathsScreenshotDir), data_.screenshot_dir));
     data_.source_dirs    = source_dirs_from_text(ini_text(settings_.value(N(KeyId::PathsSourceDirs))));
     settings_.endGroup();
@@ -474,6 +475,7 @@ void AppConfig::save() const {
     settings_.beginGroup(S(KeyId::PathsLastLoadDir));
     settings_.setValue(N(KeyId::PathsLastLoadDir), data_.last_load_dir);
     settings_.setValue(N(KeyId::PathsSdCardPath), data_.sd_card_path);
+    settings_.setValue(N(KeyId::PathsSdCard2Path), data_.sd_card2_path);
     settings_.setValue(N(KeyId::PathsScreenshotDir), data_.screenshot_dir);
     // One string, not a QStringList: a path may hold a comma, and QSettings would
     // split the unquoted form of a list at it. An empty list is an empty value.

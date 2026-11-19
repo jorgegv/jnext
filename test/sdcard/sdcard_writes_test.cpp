@@ -883,6 +883,38 @@ int main() {
         swj::forget_all_for_test();
     }
 
+    {   // SDSLOT-55 (GH #505): the registry is keyed by image path, so two cards each have
+        // a journal of their own and a commit to one is invisible in the other.
+        const std::string d = scratch();
+        const std::string img_a = make_image("c" + std::to_string(n_dir) + "a.img");
+        const std::string img_b = make_image("c" + std::to_string(n_dir) + "b.img");
+        std::string why_a, why_b;
+        const bool bound_a = swj::bind(img_a, d + "/a.jsdw", digest_binding(0xA1), false, why_a);
+        const bool bound_b = swj::bind(img_b, d + "/b.jsdw", digest_binding(0xB2), false, why_b);
+        const Bytes wa = payload(3), wb = payload(9);
+        bool read_a = false, read_b = false, a_in_b = true, b_in_a = true;
+        {
+            Card ca(img_a), cb(img_b);
+            const uint8_t ta = write_block(ca.sd, 7, wa);
+            const uint8_t tb = write_block(cb.sd, 7, wb);
+            read_a = ta == 0x05 && reads(ca.sd, 7, wa);
+            read_b = tb == 0x05 && reads(cb.sd, 7, wb);
+            a_in_b = reads(cb.sd, 7, wa);
+            b_in_a = reads(ca.sd, 7, wb);
+            (void)write_block(cb.sd, 20, wb);
+        }
+        uint8_t scratch_sector[512];
+        const bool a_has_20 = swj::for_image(img_a)->lookup(20, scratch_sector);
+        const bool b_has_20 = swj::for_image(img_b)->lookup(20, scratch_sector);
+        check("SDSLOT-55",
+              "two journals bound to two different images at once are independent: each card "
+              "reads back its own write at the same sector, and a write to one is not in the "
+              "other's journal",
+              bound_a && bound_b && read_a && read_b && !a_in_b && !b_in_a && !a_has_20 && b_has_20,
+              why_a + " / " + why_b);
+        swj::forget_all_for_test();
+    }
+
     fs::remove_all(g_dir);
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

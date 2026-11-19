@@ -563,6 +563,30 @@ int main()
               !r.ok && r.why == "option 'card' must be an object {source, dirs}", r.why);
     }
 
+    // --- WAPI-CARD-07: card:{source:'none'} runs the NEX with no card (--no-sdcard) --------------
+    {
+        const Result r = run("{\"card\":{\"source\":\"none\"},\"file\":\"/media/0-g.nex\"}");
+        const Result with_card = run("{" + IMG + ",\"card\":{\"source\":\"none\"},\"file\":\"/media/0-g.nex\"}");
+        const Result no_file = run("{\"card\":{\"source\":\"none\"}}");
+        const Result keep = run("{\"card\":{\"source\":\"none\"},\"file\":\"/media/0-g.nex\","
+                                "\"keepWrites\":\"/jnext/card-writes/k.jsdw\"}");
+        const Result no_card_auto = run("{\"card\":{\"source\":\"auto\"},\"file\":\"/media/0-g.nex\"}");
+        check("WAPI-CARD-07", "card:{source:'none'} with a file and no $card gives --no-sdcard --load <file>; "
+                              "with a $card, without a file, or with keepWrites it is refused; any other source still needs $card",
+              r.ok && r.argv == Argv{"--no-sdcard", "--load", "/media/0-g.nex"} &&
+              !with_card.ok && !no_file.ok && no_file.why.find("file") != std::string::npos &&
+              !keep.ok && keep.why.find("keepWrites") != std::string::npos &&
+              !no_card_auto.ok && no_card_auto.why == "the SD card is missing (an internal error of the page layer)",
+              r.ok ? join(r.argv) : r.why);
+    }
+
+    // --- WAPI-CARD-08: card source 'none' with card.dirs is refused, naming both -------------------
+    {
+        const Result r = run("{\"card\":{\"source\":\"none\",\"dirs\":[\"/GAMES\"]},\"file\":\"/media/0-g.nex\"}");
+        check("WAPI-CARD-08", "card:{source:'none', dirs:['/GAMES']} is refused as \"card.dirs needs an SD card: not with card source 'none'\"",
+              !r.ok && r.argv.empty() && r.why == "card.dirs needs an SD card: not with card source 'none'", r.why);
+    }
+
     // --- WAPI-CARD-02: the old `image` option is gone --------------------------------------------
     {
         const Result r = run("{" + IMG + ",\"image\":{\"url\":\"u\",\"sha256\":\"" + HEX + "\"}}");

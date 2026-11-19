@@ -109,6 +109,14 @@ public:
     /// (`[taken]`, `[not taken]`, `[taken -> addr]` for RET cc) or the value at the memory operand
     /// (`[(addr)=$vv]`). "" unless the panel is paused and `line` is the PC line.
     QString line_hint(int line) const;
+    /// GH #542 - where a taken jump, call or return on the PC line goes: `[-> addr] ` for the targets
+    /// the line does not write (RET, RETI, RETN, JP (HL)/(IX)/(IY)) then an arrow: up (U+2191), down
+    /// (U+2193) or itself (U+21BA). "" unless the panel is paused, `line` is the PC line and the
+    /// instruction transfers control.
+    QString line_transfer(int line) const;
+    /// GH #542 - "[<- PC]" on the line that starts at the address the PC line goes to (also when the
+    /// PC line is scrolled out of view), "" on every other line and unless the panel is paused.
+    QString line_destination(int line) const;
     /// GH #367 - the hint's ink before the palette tints it; distinct from the comment's.
     static QColor hint_color() { return QColor(0x00, 0x60, 0xB0); }
     /// GH #387 - whether the Label column is shown: while the symbol table holds any label.
@@ -277,6 +285,10 @@ private:
         /// GH #367 - the PC line's hint (`[taken]`, `[($9005)=$3C]`), computed when the lines are
         /// built; "" on every other line and when the instruction has nothing to report.
         std::string hint;
+        /// GH #542 - the PC line's transfer (PC entry only), and whether this line starts at the
+        /// address the PC line goes to (any entry, the PC line in view or not).
+        disasm_hint::Transfer xfer;
+        bool is_destination = false;
     };
     std::vector<DisasmEntry> entries_;
     jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;

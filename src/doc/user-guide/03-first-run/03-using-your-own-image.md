@@ -59,3 +59,37 @@ A few things to know:
   recording (the next NEX load records again from the new card).
 - A `.jns` snapshot saved with one card refuses to load once a *different* card
   is in (chapter 5, Snapshots). A copy of the same card is the same card to it.
+
+## A second SD card (D:)
+
+The Next has two SD card sockets, and JNEXT can have a card in each. NextZXOS gives
+every FAT partition of every card a drive letter, the first card first: a first card
+with one partition is **C:**, and the first partition of the second card is **D:**.
+It is a handy place for your own programs or for a disk you want to keep apart from
+NextZXOS. The slot is optional: with nothing in it JNEXT behaves exactly as if the
+slot did not exist.
+
+The second card is an image of its own: a partition table with one FAT partition, for
+example a copy of a real card made with `dd`. It must not be the file you boot from;
+JNEXT refuses to put the same image in both slots.
+
+Put it in with `--sdcard2 FILE` (with `--sdcard2-readonly` to write-protect it, or
+`--sdcard2-writes FILE` to keep what NextZXOS writes in a side file and leave the image
+alone), or save the path in **Preferences > Paths > Second SD card image**. A saved path
+that no longer exists is logged and ignored; a path you give on the command line that
+cannot be used stops JNEXT with a message.
+
+NextZXOS finds its drives when it starts, so the card has to be in the slot before the
+machine boots or is hard-reset. In the running machine use **File > Insert Second SD
+Card Image** and **File > Eject Second SD Card**, then **REMOUNT** as for the first card,
+or reset. After an **eject** of the second card a hard reset keeps the slot empty, and
+after an **insert** it keeps the new card. (The first card is different: it stays, because
+JNEXT reads its ROMs from it.)
+
+To see what is on it, type `CD "d:"` and then `.ls`. Do not type `.nexload d:/game.nex`:
+the colon separates BASIC statements, so NextZXOS sees only `d`. Change into the drive
+first, or quote the path.
+
+ROMs and the firmware always come from the first card. `--sdcard-file-add` works on any
+FAT32 image, so `jnext --sdcard card2.img --sdcard-file-add game.nex` puts a file on
+a second-card image.

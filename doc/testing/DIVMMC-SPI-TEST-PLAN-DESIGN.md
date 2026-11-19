@@ -440,6 +440,28 @@ active-low):
 > titles) and were corrected at the same time. The row *titles* were right
 > throughout, and the tests agree with them.
 
+### 12a. The second SD card (GH #505)
+
+The board's second SD socket, `spi_ss_sd1_n = port_e7_reg(1)`, holds a device of its own on SPI
+index 1: a distinct `SdCardDevice`, never the first card on both selects (the phantom-card bug). One
+shared MISO (`zxnext.vhd:3278-3280`); the decode `"10"` -> SD0, `"01"` -> SD1, swapped by NR 0x0A
+bit 5 (`:3311-3314`, written in config mode only, `:5191-5194`, read back `:5912`).
+
+| ID | Suite | Row |
+|----|-------|-----|
+| SDSLOT-01 | divmmc_test | Two distinct devices on the two sockets: 0x01 reaches SD1 only, 0x02 SD0 only; swapped with bit 5 |
+| SDSLOT-10 | divmmc_integration_test | Two cards mounted: select 0x01 reads the second, 0x02 the first, through ports 0xE7/0xEB |
+| SDSLOT-11 | divmmc_integration_test | No second card: the select answers 0xFF only (empty socket); card 0 unaffected |
+| SDSLOT-12 | divmmc_integration_test | Config mode, NR 0x0A <- 0x20: the sockets swap; bit 5 reads back |
+| SDSLOT-13 | divmmc_integration_test | Outside config mode the same write is ignored |
+| SDSLOT-14 | divmmc_integration_test | Read-only second card: CMD24 answers 0x0D, image unchanged; card 0 writable |
+| SDSLOT-15 | divmmc_integration_test | `--sdcard2-writes` journal bound to the second image; card 0 has none |
+| SDSLOT-16 | divmmc_integration_test | Soft reset keeps the card initialised; a hard reset power-cycles it |
+| SDSLOT-17 | divmmc_integration_test | Rewind (`save_state`/`load_state`) carries the second card's FSM mid-CMD17 |
+| SDSLOT-18 | divmmc_integration_test | Back compatibility: a rewind stream without the second card's block loads; card 0 resumes mid-CMD17 and the second socket stays empty |
+
+Further rows of the issue (live change, `.jns`, Preferences) are added with their stages.
+
 ### 13. Port 0xEB -- SPI Data Exchange
 
 Port 0xEB triggers SPI byte exchange. VHDL reference: `spi_master.vhd`.

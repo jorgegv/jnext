@@ -17,6 +17,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Remembered controller identity per connector, so identical pads are told apart (`--joy1-device`/`--joy2-device`)
 - DivMMC with 8KB SRAM, automap, and SD card image mounting
 - Live SD-card change without a reset: File > Insert SD Card Image / Eject SD Card, or `--delayed-sdcard-insert-frames N FILE` headless
+- Second SD card slot (D: in NextZXOS): `--sdcard2 FILE`, with `--sdcard2-readonly` and `--sdcard2-writes`
 - Floating bus emulation (48K/128K modes)
 - Pentagon-512 / Pentagon-1024 paging modes via NextREG NR 0x8F
 
@@ -80,6 +81,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--esxdos-stub` gives the same esxDOS answers to programs loaded any other way
 - Host directory for a directly loaded program: `--esxdos-stub-root DIR`, or with `--esxdos-stub` the NEX's own directory by default, serves real host files through the esxDOS file and directory calls
 - `--esxdos-stub-writable` allows guest writes to that host directory (read-only by default): create, write, truncate, delete (wildcards), rename, make and remove directories, set the read-only bit, answered as NextZXOS 2.10 does (a kept probe NEX and its recording are the oracle)
+- `--no-sdcard` runs a directly loaded NEX with no SD card at all (no NextZXOS, no ROMs, nothing downloaded): its files come from the esxDOS stand-in, and the first ROM code it runs is reported with the address and the likely cause (IM 1, `RST $10`)
 - `M_GETERR` gives the text of an esxDOS error code to a directly loaded NEX
 - The host directory is for NEX programs and dot commands only, not for a booted NextZXOS (user guide: Host files for a directly loaded program)
 - Warm start (Next only, the default for `--load` of a `.nex`): the program runs on a cached recording of a real firmware boot
@@ -164,9 +166,11 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Source breakpoints by `file:line` or symbol, with gutter click, right-click menu and syntax colouring in selectable schemes
 - Source tab and Disassembly stay in sync, and the Call Stack shows each call's source line
 - **C variables**: Variables tab shows parameters, locals, globals and statics with C types, structs, arrays, pointers and z88dk floats
+- Watch expressions: any debugger-script expression as a watch (registers, `mem16[@ptr]`, `phys[]`), errors shown in its row
 - C watches, value editing, `cvar()` in scripts and ZRCP, GDB `monitor locals`/`globals`/`print`/`set var`
 - Disassembly select & copy as assembly that pastes into a source file, or "Copy with Addresses" for bug reports
 - Disassembly PC line shows whether a conditional branch is taken and the value at the instruction's memory operand
+- Disassembly PC line shows where a taken jump, call or return goes: an up/down arrow, the destination line marked when in view, the target of RET and JP (HL)
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
 - Debugger window: File > Reload Last File (Alt+L) reloads the rebuilt program with its maps, breakpoints kept
@@ -198,6 +202,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 
 - Embed JNEXT in a web page or an itch.io game with `jnext.mount()`; pause, reset, load and volume from JavaScript; several players per page; every option is a command-line flag or `--set` key, documented in the man page and diffed against the code; published with every public release as `jnext-<version>-web.zip`, ready to host; a copy-and-paste widget (one `div`, one script tag) with light and dark themes, title bar, progress bar and pause/reset/mute/fullscreen toolbar; the desktop's CRT effect (scanlines, soft scanlines, TV, PC monitor) on WebGL, off by default, through `--crt` in `args` or the `startup.crt_*` settings in `set`.
 - The browser makes its NextZXOS SD card from the official specnext.com distribution (fetched by the page, or downloaded and chosen by the visitor) and keeps it for the site; nothing of NextZXOS is shipped or hosted by JNEXT. A page can ask for more of the distribution on the card (`card.dirs`, `data-card-dirs`, such as `/GAMES` and `/APPS`). An optional `poster` picture (`data-poster`) shows in the player before the click, which is what starts the download.
+- `card: { source: 'none' }` (`data-card-source="none"`) runs a NEX that needs no NextZXOS with no SD card: the visitor downloads nothing but the page and the game, and a ROM fetch is reported through `onError`.
 - `keepWrites` (or `data-keep-writes` on the widget) keeps what a program writes to the SD card, and the esxDOS save of a directly loaded NEX, across page reloads, in the visitor's own browser, one record per card and page; `player.resetCard()` clears it.
 - An on-screen Spectrum Next keyboard for phones and tablets (`touchKeyboard`, `--touch-keyboard`, `data-touch-keyboard`, `player.showKeyboard()`): the 40 keys of a 48K or the Next's 58, latching Caps and Symbol Shift, several fingers at once, typed through the same path as a PC keyboard.
 - `.wav` tapes load in a page (in real time, as from a cassette).

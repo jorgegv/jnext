@@ -269,16 +269,32 @@ public:
     // config().sd_card_image, which an insert updates and an eject does not.
 
     /// The change to make. `image` empty means eject.
+    /// `slot` 0 is the first card (spi_ss_sd0_n), 1 the second (GH #505).
     struct SdCardChange {
         std::string image;
         bool        read_only = false;
+        int         slot = 0;
     };
 
     /// Why a card change would be refused right now, or empty when it would
     /// not: an RZX recording or playback (it replays one continuous run on one
-    /// card), and a directly loaded NEX holding its own file open (unmounting
-    /// drops the read overlay that serves that file).
-    std::string sd_card_change_refusal() const;
+    /// card), a directly loaded NEX holding its own file open (unmounting
+    /// drops the read overlay that serves that file), and a --no-sdcard
+    /// session (GH #540), which has no card to change (either slot).
+    /// The read-overlay rule is card 0's: card 2 has no overlay.
+    std::string sd_card_change_refusal(int slot = 0) const;
+
+    /// Why `change` would put one image in both slots ("" = it would not): an
+    /// insert of the file the OTHER slot has mounted. Two devices writing one
+    /// FAT is the phantom-card hazard again, whichever route (File > Insert,
+    /// --delayed-sdcard*-insert-frames, a Preferences path) asks for it.
+    std::string sd_card_cross_slot_refusal(const SdCardChange& change) const;
+
+    /// GH #540 - --no-sdcard: the error logged the first time the program
+    /// executed ROM code ("executed ROM code at $0038 (IM 1); --no-sdcard has
+    /// no ROM"), handed over once so a frontend can show it too. Empty when
+    /// there is none, or it was already taken.
+    std::string take_rom_fetch_report();
 
     /// Record a change for the frontend to perform at the end of its tick (after
     /// its frames, or at the paused instruction boundary when the debugger
@@ -292,6 +308,11 @@ public:
     /// (emulator_cold_boot()), saying so: it is made after the reset instead
     /// of being destroyed with the old machine.
     void carry_sd_card_change(SdCardChange change);
+
+    /// Why `image` cannot be mounted as an SD card ("" = it can): not a regular
+    /// file, unreadable, or a ZIP archive. The one check a live change and the
+    /// startup `--sdcard2` share.
+    static std::string sd_image_refusal(const std::string& image);
 
     /// Perform a change now. Re-checks the refusals; an image that is not a
     /// readable regular file is refused before the current card is touched. On success the config
@@ -970,6 +991,7 @@ public:
     Dma&          dma()       { return dma_; }
     SpiMaster&    spi()       { return spi_; }
     SdCardDevice& sd_card()   { return sd_card_; }
+    SdCardDevice& sd_card2()  { return sd_card2_; }   // second socket (GH #505)
     I2cController& i2c()     { return i2c_; }
     Uart&         uart()      { return uart_; }
 
@@ -1732,6 +1754,15 @@ private:
     static constexpr int FRAMEBUFFER_PIXELS = FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT;
 
     EmulatorConfig config_;
+    // GH #540 - --no-sdcard's ROM watch: armed by init() in that mode, cleared
+    // by the first fetch from a ROM (rom_fetch_watch_step_(), from the one
+    // execute() site). The previous slot's kind tells IM 1 and NMI apart from
+    // a jump to the same address.
+    bool             rom_fetch_watch_ = false;
+    Z80Cpu::SlotKind rom_watch_previous_slot_ = Z80Cpu::SlotKind::Other;
+    std::string      rom_fetch_report_;
+    void rom_fetch_watch_step_(uint16_t pc, bool fetched);
+    bool refuse_nmi_without_card_(const char* button) const;
     // Host-side state used by --esxdos-stub and direct extended-NEX loading.
     std::string nex_load_request_;
     std::optional<SdCardChange> sd_card_change_request_;   // GH #93
@@ -1936,6 +1967,7 @@ private:
     // the last firmware write, not a hard-coded zero.
     bool    nr_02_bus_reset_ = false;
     SdCardDevice    sd_card_;
+    SdCardDevice    sd_card2_;   // the second socket, SPI index 1 (GH #505)
     Renderer        renderer_;
     Keyboard        keyboard_;
     // Task 19 (instant TAP load) — FUSE-style phantom typist. Idle by

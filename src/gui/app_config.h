@@ -114,6 +114,7 @@ struct AppConfigData {
     // --- Paths (remembered across sessions) ---
     QString last_load_dir;    // seeds "Load Program..." / "Open Tape File..."
     QString sd_card_path;     // default --sdcard when the CLI gives none
+    QString sd_card2_path;    // image in the second SD card slot ("" = empty slot; GH #505)
     QString screenshot_dir;   // seeds "Save Screenshot..."
     // GH #420 - the debugger's Source tab also looks for source files in these
     // directories. Saved as ONE string joined with source_search::kListSeparator
