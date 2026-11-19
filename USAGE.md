@@ -280,6 +280,29 @@ card is mounted, the stand-in’s file included, so the run starts on the
 image as it is. Requires **--sdcard-writes**. A file that is not a
 **jnext** SD-writes file is refused, never removed.
 
+**--no-sdcard**  
+Run a directly loaded NEX with no SD card at all: no NextZXOS, no ROMs
+and no warm start. An emulator convenience, like the esxDOS stand-in: a
+real Next always has its ROMs. The NEX starts on the synthetic machine
+**--load** has always assembled when there is no firmware, and every
+esxDOS call it makes is answered by the stand-in: it implies
+**--esxdos-stub**, so the NEX’s own directory is served, unless
+**--esxdos-stub-root** names another. For a program that uses no ROM
+routine and no NextZXOS service beyond the esxDOS file calls. **The ROM
+area is empty**: the first time the program executes code from a ROM (an
+IM 1 interrupt at \$0038, **RST \$10**, a call into the ROM) **jnext**
+logs an error naming the address and the likely cause,
+e.g. `executed ROM code at $0038 (IM 1); --no-sdcard has no ROM`, and
+the program will hang or show garbage. DivMMC and the Multiface are held
+off, the NMI buttons are refused, File \> Insert SD Card Image… and
+Eject SD Card are disabled and the status bar shows **SD: none**. A hard
+reset runs the boot ROM, which stops at its no-card screen as on
+hardware; the program is not loaded again. Requires **--load** of a
+**.nex** (directly or in a **.zip**) on the Next, and excludes every
+**--sdcard** option, **--warm-start-regenerate**,
+**--delayed-sdcard-insert-frames** and **--delayed-nmi**. In a browser
+page it is `card: { source: 'none' }`.
+
 **--sdcard-file-add** *FILE*  
 Copy host *FILE* — a file, or a directory with everything in it — into
 the SD-card image and **exit without starting emulation**. Without
@@ -3245,14 +3268,17 @@ when `scanlines` was also asked), with the plain picture otherwise.
 Not a jnext setting: how the page gets NextZXOS’s SD card. `source` is
 `'auto'` (the default: fetch the official file from specnext.com when it
 allows the page to read it, otherwise ask the visitor to download it and
-choose it), `'fetch'` (only fetch; a failure is an error) or `'pick'`
-(always ask the visitor). The SD card reaches the emulator as
-**--sdcard** and **--sdcard-sha256**, set by the page layer; the page
-never names the card. `dirs` is an array of absolute paths in the
-distribution (`['/GAMES', '/APPS']`): the card then also holds each path
-with everything below it and the directories above it, case does not
-matter, and a malformed path, a path of the boot set, a duplicate or a
-nested one is refused. The default is none: the boot card only.
+choose it), `'fetch'` (only fetch; a failure is an error), `'pick'`
+(always ask the visitor) or `'none'` (no SD card at all: the `file` NEX
+runs as with **--no-sdcard**, nothing is fetched or asked, and a ROM
+fetch is also reported through `onError`; needs `file`, excludes
+`keepWrites`). The SD card reaches the emulator as **--sdcard** and
+**--sdcard-sha256**, set by the page layer; the page never names the
+card. `dirs` is an array of absolute paths in the distribution
+(`['/GAMES', '/APPS']`): the card then also holds each path with
+everything below it and the directories above it, case does not matter,
+and a malformed path, a path of the boot set, a duplicate or a nested
+one is refused. The default is none: the boot card only.
 
 `poster` *URL*  
 Not a jnext setting: a picture, a screenshot of the program, shown in
