@@ -793,10 +793,11 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         const fast_boot::Shown shown = fast_boot::shown_frame(
             emulator_.fast_boot_hides_screen(), fb, fb_w, fb_h, emulator_.framebuffer_generation());
         if (render_policy::upload_needed(shown.generation, last_uploaded_gen_, redraw)) {
-            display_.upload_frame(shown.pixels, fb_w, fb_h);
+            const uint32_t* const up = shown.pixels;
+            display_.upload_frame(up, fb_w, fb_h);
             display_.present();
             last_uploaded_gen_ = shown.generation;
-            last_uploaded_pixels_ = shown.pixels;
+            last_uploaded_pixels_ = up;
             ++present_uploads_;
             ++uploads_total_;
         }
