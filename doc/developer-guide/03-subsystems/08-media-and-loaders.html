@@ -4527,9 +4527,11 @@ everything before it writes anything: <code>unsafe_name()</code> over EVERY memb
 archive (one hostile name anywhere refuses it), each component sanitised as
 <code>extraction_name()</code> sanitises a basename, a component ending in a dot or space,
 a relative path over <code>EsxdosHostFs::kMaxPath</code>, two paths equal ignoring ASCII
-case, a file that is another's directory (the same result on every host, case
-sensitive or not), and the declared sizes summing over <code>kMaxDirectoryBytes</code>
-(checked against the central directory, before a member is read). A member that
+case, a file that is another's directory, and the declared sizes summing over <code>kMaxDirectoryBytes</code>
+(checked against the central directory, before a member is read). A directory
+spelled in two cases is one directory: every file is written under the first-seen
+spelling of each directory prefix (<code>canon_dir()</code>), so the tree, and so the
+result, is the same on a case-sensitive host and a case-insensitive one. A member that
 then fails to read (CRC, encryption) removes the whole slot. A success registers the
 slot, which <code>in_archive_directory()</code> matches component-wise (a sibling
 <code>&lt;slot&gt;X</code> is not inside); <code>Emulator::load_nex()</code> asks it, and nothing else knows

@@ -825,9 +825,9 @@ unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given, and in place
 of the in\-memory file.
 To keep the in\-memory file, load the NEX without
 \f[B]\-\-esxdos\-stub\f[R].
-A NEX loaded from a \f[CR].zip\f[R] is served its directory in the
-archive with no flag at all (see the \f[CR].zip\f[R] entry of
-\f[B]LOADING PROGRAMS\f[R]).
+A NEX loaded from a \f[CR].zip\f[R] that holds its data files is served
+its directory in the archive with no flag at all (see the
+\f[CR].zip\f[R] entry of \f[B]LOADING PROGRAMS\f[R]).
 .RE
 .TP
 \f[B]\-\-esxdos\-stub\-root\f[R] \f[I]DIR\f[R]
@@ -837,7 +837,7 @@ Implies \f[B]\-\-esxdos\-stub\f[R].
 Read\-only unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given.
 \f[I]DIR\f[R] replaces the default of \f[B]\-\-esxdos\-stub\f[R], the
 directory of the loaded NEX, and the directory of a NEX loaded from a
-\f[CR].zip\f[R].
+\f[CR].zip\f[R] that holds its data files.
 .RS
 .PP
 \f[B]Which programs see \f[BI]DIR\f[B], and which do not.\f[R] A NEX
@@ -2318,6 +2318,9 @@ differ only in case, a file that is also a directory, a name ending in a
 dot or a space, a path over 255 bytes, or files adding up to over 256
 MiB refuse the load with the reason, and a member that cannot be read
 (bad CRC, encrypted) refuses it too, leaving nothing behind.
+A folder spelled in two cases in the archive (\f[CR]data/\f[R] and
+\f[CR]DATA/\f[R]) is one folder, written under the spelling that comes
+first, so the result is the same on every host.
 An archive whose NEX has nothing beside it extracts the NEX alone, as
 before, and gets no directory.
 .RE

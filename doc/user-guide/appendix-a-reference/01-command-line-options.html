@@ -5119,8 +5119,9 @@ for those calls, and NextZXOS’s file commands stop working.</p>
 as if it had been given as <em>DIR</em> (below): read-only unless
 <strong>--esxdos-stub-writable</strong> is also given, and in place of the
 in-memory file. To keep the in-memory file, load the NEX without
-<strong>--esxdos-stub</strong>. A NEX loaded from a <code>.zip</code> is served its
-directory in the archive with no flag at all (see the <a href="../05-running-programs/index.html#programs-in-zip-archives"><code>.zip</code>
+<strong>--esxdos-stub</strong>. A NEX loaded from a <code>.zip</code> that holds its data
+files is served its directory in the archive with no flag at all
+(see the <a href="../05-running-programs/index.html#programs-in-zip-archives"><code>.zip</code>
 entry</a>).</p>
 </dd>
 <dt><strong>--esxdos-stub-root</strong> <em>DIR</em></dt>
@@ -5130,7 +5131,7 @@ and directory calls, instead of the single in-memory file. Implies
 <strong>--esxdos-stub</strong>. Read-only unless <strong>--esxdos-stub-writable</strong> is
 also given. <em>DIR</em> replaces the default of <strong>--esxdos-stub</strong>, the
 directory of the loaded NEX, and the directory of a NEX loaded from
-a <code>.zip</code>.</p>
+a <code>.zip</code> that holds its data files.</p>
 <p><strong>Which programs see <em>DIR</em>, and which do not.</strong> A NEX loaded with
 <strong>--load</strong> sees it, and so do dot commands: those reach the
 filesystem through <code>RST $08</code>, which is what jnext intercepts.

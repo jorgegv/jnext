@@ -700,8 +700,9 @@ with status 1.
     as if it had been given as *DIR* (below): read-only unless
     **--esxdos-stub-writable** is also given, and in place of the
     in-memory file. To keep the in-memory file, load the NEX without
-    **--esxdos-stub**. A NEX loaded from a `.zip` is served its
-    directory in the archive with no flag at all (see the [`.zip`
+    **--esxdos-stub**. A NEX loaded from a `.zip` that holds its data
+    files is served its directory in the archive with no flag at all
+    (see the [`.zip`
     entry](../05-running-programs/index.md#programs-in-zip-archives)).
 
 **--esxdos-stub-root** *DIR*
@@ -711,7 +712,7 @@ with status 1.
     **--esxdos-stub**. Read-only unless **--esxdos-stub-writable** is
     also given. *DIR* replaces the default of **--esxdos-stub**, the
     directory of the loaded NEX, and the directory of a NEX loaded from
-    a `.zip`.
+    a `.zip` that holds its data files.
 
     **Which programs see *DIR*, and which do not.** A NEX loaded with
     **--load** sees it, and so do dot commands: those reach the

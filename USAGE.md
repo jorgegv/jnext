@@ -753,16 +753,17 @@ With a NEX to load (**--load**, or a bare file name) and no
 if it had been given as *DIR* (below): read-only unless
 **--esxdos-stub-writable** is also given, and in place of the in-memory
 file. To keep the in-memory file, load the NEX without
-**--esxdos-stub**. A NEX loaded from a `.zip` is served its directory in
-the archive with no flag at all (see the `.zip` entry of **LOADING
-PROGRAMS**).
+**--esxdos-stub**. A NEX loaded from a `.zip` that holds its data files
+is served its directory in the archive with no flag at all (see the
+`.zip` entry of **LOADING PROGRAMS**).
 
 **--esxdos-stub-root** *DIR*  
 Serve the host directory *DIR* to the guest through the esxDOS file and
 directory calls, instead of the single in-memory file. Implies
 **--esxdos-stub**. Read-only unless **--esxdos-stub-writable** is also
 given. *DIR* replaces the default of **--esxdos-stub**, the directory of
-the loaded NEX, and the directory of a NEX loaded from a `.zip`.
+the loaded NEX, and the directory of a NEX loaded from a `.zip` that
+holds its data files.
 
 **Which programs see *DIR*, and which do not.** A NEX loaded with
 **--load** sees it, and so do dot commands: those reach the filesystem
@@ -1982,9 +1983,11 @@ an absolute path or `..` anywhere, two members whose paths differ only
 in case, a file that is also a directory, a name ending in a dot or a
 space, a path over 255 bytes, or files adding up to over 256 MiB refuse
 the load with the reason, and a member that cannot be read (bad CRC,
-encrypted) refuses it too, leaving nothing behind. An archive whose NEX
-has nothing beside it extracts the NEX alone, as before, and gets no
-directory.
+encrypted) refuses it too, leaving nothing behind. A folder spelled in
+two cases in the archive (`data/` and `DATA/`) is one folder, written
+under the spelling that comes first, so the result is the same on every
+host. An archive whose NEX has nothing beside it extracts the NEX alone,
+as before, and gets no directory.
 
 `.tap` and `.tzx` load in real time instead with **--tape-realtime** (or
 by unchecking **Tape \> Fast Load** in the GUI).
