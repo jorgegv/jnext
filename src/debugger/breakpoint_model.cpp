@@ -395,10 +395,13 @@ bool BreakpointModel::build_(const BpSpec& spec, Subscription& out, std::shared_
         opts.symbols = jnext::script::symbols_of(dbg_);
         const std::shared_ptr<std::string> sink = error;
         opts.on_runtime_error = [this, sink](const jnext::script::Diagnostic& d) {
+            // Logged when this breakpoint's error text CHANGES, not on every evaluation: a failing condition on
+            // a hot breakpoint would otherwise write thousands of lines a frame (the script engine logs once too).
+            const bool fresh = *sink != d.message;
             *sink = d.message;
             hits_dirty_ = true;   // tells the panel (hits_changed) to refresh the tooltip
             // The backend's message sink (SES-06): src/debugger holds no core-layer header (debug_qt_free_test QTF-09).
-            dbg_.log(client_, jnext::dbg::LogLevel::Warn, "breakpoint condition: " + d.to_string());
+            if (fresh) dbg_.log(client_, jnext::dbg::LogLevel::Warn, "breakpoint condition: " + d.to_string());
         };
         auto c = jnext::script::compile_expr(spec.condition, jnext::script::bp_scope(spec.kind), opts);
         if (!c) {

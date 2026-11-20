@@ -60,7 +60,8 @@ symbol's own memory (`$C000 P14`) is dropped when *To* is given. A source line c
 **Mask** (the two IO types only, in hex) replaces the address rule above with your own port decode: the breakpoint
 fires when the port number, ANDed with the mask, equals the address. `FE` with mask `FFFF` fires only on the exact
 port `00FE` and not on `7FFE`, where the plain `FE` would; mask `0000` with port `0000` fires on every port. The row
-reads `$00FE/FFFF`. A port with bits outside the mask could never match and is refused, and so is mask `FFFF` with
+reads `$00FE/FFFF`. The ULA answers *every even port*, so the plain `FE` (low byte FE) misses an `OUT (0xFC),A`;
+port `0000` with mask `0001` fires on every ULA access. A port with bits outside the mask could never match and is refused, and so is mask `FFFF` with
 port `0000`.
 
 **Condition** is a [debugger-script expression](../scripting/04-reading-the-machine.md) such as `B == 2` or

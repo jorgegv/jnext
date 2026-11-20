@@ -626,6 +626,8 @@ static void save_s3_rows(Fix& f) {
             {"on read 0x90FF..0x9000 do stop end\n", "range ends below its start"},
             {"on io_read mask 0x00FF value 0x01FE do stop end\n", "value outside the mask"},
             {"on io_read mask 0xFFFF value 0x0000 do stop end\n", "FFFF with 0"},
+            {"on io_read mask 0x10000 value 0x0000 do stop end\n", "mask past 0xFFFF"},
+            {"on io_read mask 0xFFFF value 0x10000 do stop end\n", "value past 0xFFFF"},
         };
         std::string miss;
         for (const Bad& b : bad) {
@@ -656,6 +658,46 @@ static void save_s3_rows(Fix& f) {
         }
         check("BPJ-37", "bp_scope(kind) describes the same payload scope as the checker's scope_of for the same event, for all eight kinds",
               bad.empty(), bad);
+    }
+}
+
+// BPJ-38 / BPJ-39: a non-ASCII file name, and the refusals the GUI cannot reach but the public codec promises.
+static void save_s3_more_rows() {
+    {
+        Fix g;
+        // main.bas replaced by a map whose file name is not ASCII (the lexer counts code points, the parser slices bytes)
+        const std::string sld2 = tmp_path("nonascii.sld");
+        std::ofstream(sld2, std::ios::binary)
+            << "|SLD.data.version|1\n"
+               "caf\xC3\xB1.bas|1||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+               "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+               "caf\xC3\xB1.bas|10||0|20|49152|T|\n"
+               "caf\xC3\xB1.bas|11||0|20|49154|T|\n";
+        g.dbg->load_source_map(sld2, false);
+        const auto starts = g.dbg->source_map().resolve("caf\xC3\xB1.bas:10").starts;
+        const std::vector<BpSpec> in = {when(source_line("caf\xC3\xB1.bas:10", starts), "A == 1")};
+        const BpScript o = bp_script_text(in, *g.dbg);
+        const BpRead rt = bp_specs_from_script(o.text, *g.dbg);
+        check("BPJ-38", "a source line whose file name is not ASCII, with a condition, is written and reads back equal",
+              !starts.empty() && o.refused.empty() && rt.ok() && rt.specs == in, o.text + specs_str(rt.specs) + dstr(rt.errors));
+    }
+    {
+        Fix g;
+        const BpSpec mask_on_read = masked(BpSpec::Read, 0x9000, 0xFFFF);
+        const BpSpec io_range     = ranged(BpSpec::IoRead, 0x00FE, 0x00FF);
+        BpSpec qualified_range    = qualified(MemSpace::page(20), 0xC000);
+        qualified_range.hi        = 0xC0FF;
+        BpSpec line_range         = source_line("main.bas:10", g.line10());
+        line_range.hi             = 0x80FF;
+        const BpScript o = bp_script_text({mask_on_read, io_range, qualified_range, line_range}, *g.dbg);
+        int notes = 0, rules = 0;
+        for (const std::string& l : lines_of(o.text)) {
+            notes += l.rfind("; not saved:", 0) == 0;
+            rules += l.rfind("bp", 0) == 0;
+        }
+        check("BPJ-39", "the saver refuses, each with a `; not saved:` line and a refused entry: a port mask on a non-IO kind, an IO range, "
+                        "a range tied to a memory, a range on a source line; no rule is written",
+              notes == 4 && rules == 0 && o.refused.size() == 4, o.text);
     }
 }
 
@@ -788,6 +830,7 @@ int main() {
         save_interrupt_rows(f);
         save_count_rows(f);
         save_s3_rows(f);
+        save_s3_more_rows();
     }
     engine_rows();
     engine_interrupt_rows();

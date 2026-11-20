@@ -110,7 +110,7 @@ public:
     const std::vector<Row>& rows() const { return rows_; }
 
     /// Create a PLAIN breakpoint (it stops), ENABLED. Idempotent: one that already
-    /// exists keeps its own enabled flag (GH #225 — a second gutter click must not
+    /// exists keeps its own enabled flag (GH #225: a second gutter click must not
     /// re-arm a breakpoint the user disabled).
     ///
     /// `space` qualifies an Execute breakpoint with the memory that must

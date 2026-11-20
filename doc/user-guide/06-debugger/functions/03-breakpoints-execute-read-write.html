@@ -4531,7 +4531,8 @@ symbol's own memory (<code>$C000 P14</code>) is dropped when <em>To</em> is give
 <p><strong>Mask</strong> (the two IO types only, in hex) replaces the address rule above with your own port decode: the breakpoint
 fires when the port number, ANDed with the mask, equals the address. <code>FE</code> with mask <code>FFFF</code> fires only on the exact
 port <code>00FE</code> and not on <code>7FFE</code>, where the plain <code>FE</code> would; mask <code>0000</code> with port <code>0000</code> fires on every port. The row
-reads <code>$00FE/FFFF</code>. A port with bits outside the mask could never match and is refused, and so is mask <code>FFFF</code> with
+reads <code>$00FE/FFFF</code>. The ULA answers <em>every even port</em>, so the plain <code>FE</code> (low byte FE) misses an <code>OUT (0xFC),A</code>;
+port <code>0000</code> with mask <code>0001</code> fires on every ULA access. A port with bits outside the mask could never match and is refused, and so is mask <code>FFFF</code> with
 port <code>0000</code>.</p>
 <p><strong>Condition</strong> is a <a href="../scripting/04-reading-the-machine.html">debugger-script expression</a> such as <code>B == 2</code> or
 <code>A != 0 and mem[0x9000] == 1</code>, written in the names of the breakpoint's own kind (a Read or Write can use <code>ADDR</code>,

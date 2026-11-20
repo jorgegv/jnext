@@ -755,6 +755,13 @@ static void event_rows() {
               a.ok() ? "[" + a.script.rules[0].when_text + "]" : dstr(a.error));
     }
     {
+        // Non-ASCII text before `when` on the same line: the lexer's columns count code points, the text is sliced by byte.
+        const ParseResult r = P("on execute \"caf\xC3\xB1.bas:10\" when A == 1 do stop end");
+        check("PARSE-WHEN-TEXT-03", "`Rule::when_text` is exact when the line holds non-ASCII text (a source-line file name) before `when`",
+              r.ok() && r.script.rules.size() == 1 && r.script.rules[0].when_text == "A == 1",
+              r.ok() ? "[" + r.script.rules[0].when_text + "]" : dstr(r.error));
+    }
+    {
         // A `when` over two lines, a comment ending the first: the text keeps both lines and the comment.
         const ParseResult r = P("on execute 0x8000 when A == 1 ; first\n   and B == 2 do stop end\n");
         const std::string want = "A == 1 ; first\n   and B == 2";
