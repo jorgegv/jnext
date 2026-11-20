@@ -1927,10 +1927,10 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
             refuse_jns(path, QString::fromStdString(archive.no_program_why()));
             return;
         }
-        size_t chosen = 0;
-        if (archive.programs().size() > 1) {
+        std::string member;
+        if (!archive.choose(member, why)) {   // several programs, none of them game data (GH #541)
             if (unattended_) {   // no dialog, as every other dialog here
-                refuse_jns(path, QString::fromStdString(archive.several_why()));
+                refuse_jns(path, QString::fromStdString(why));
                 return;
             }
             // Shown names are display_name()s (escaped, so valid UTF-8 and distinct);
@@ -1946,15 +1946,14 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
                 items, 0, false, &ok);
             const int idx = items.indexOf(pick);
             if (!ok || idx < 0) return;   // Cancel: nothing loaded, nothing reset
-            chosen = static_cast<size_t>(idx);
+            member = archive.programs()[static_cast<size_t>(idx)];
         }
-        const std::string member = archive.programs()[chosen];
         const QString shown = path + QStringLiteral(" (") +
                               QString::fromStdString(program_archive::display_name(member)) +
                               QStringLiteral(")");
         std::string extracted;
-        if (!archive.extract(member, extracted, why)) {
-            // extract() prefixes the member; the archive is named by `shown` here.
+        if (!archive.extract_program(member, extracted, why)) {
+            // extract_program() prefixes the member; the archive is named by `shown` here.
             const std::string shown_member = program_archive::display_name(member);
             const std::string tail = why.rfind(shown_member + " ", 0) == 0 ? why.substr(shown_member.size() + 1) : why;
             refuse_jns(shown, QString::fromStdString(tail));

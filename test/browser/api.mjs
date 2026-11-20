@@ -1,4 +1,4 @@
-// Browser rows WEBAPI-01..31: the JavaScript API (jnext.mount) in headless Chromium
+// Browser rows WEBAPI-01..34: the JavaScript API (jnext.mount) in headless Chromium
 // (make wasm-browser-test, spec api.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Pages: test/browser/page/api.html (the fixture, mounts one or two players with the options
@@ -661,6 +661,64 @@ row('WEBAPI-31', 'player.load({data, name: Beeper.WAV}) at run time: resolves, o
     }
   }
   must(bad === 0, `${bad} canvas pixels violate the linear rule, first ${first}`);
+  must(pageErrors(page).length === 0, 'page errors ' + JSON.stringify(pageErrors(page)));
+  await page.ctx.close();
+});
+
+// ---- a zipped NEX with its data files (GH #541) -----------------------------------------------
+// hostfs-data.zip (browser-smoke.sh, CPython zipfile) holds game/hostfs.nex, our probe program
+// (esxdos-hostfs-probe.py), and game/data.txt = 0123456789ABCDEF: the program opens c:/data.txt, seeks 6,
+// reads 6 bytes and prints them on the magic port, so "6789AB" proves the archive's file reached it.
+const MAGIC = ['--magic-port', '0xCAFE', '--magic-port-mode', 'line'];
+async function waitLine(page, text, ms = 400000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (page.msgs.some((m) => m.trim() === text)) return;
+    const errs = await page.evaluate(() => window.apiTest.players.flatMap((p) => p.errors));
+    if (errs.length) throw new Error('onError before ' + text + ': ' + errs.join(' | ').slice(0, 300));
+    await sleep(50);
+  }
+  throw new Error('no "' + text + '" within ' + ms + ' ms; saw ' + JSON.stringify(page.msgs.slice(-10)));
+}
+
+row('WEBAPI-32', 'file: a .zip holding a NEX and its data: the program reads the archive\'s data.txt (6789AB, SANDBOX-OK) with no --esxdos-stub and no args; --load is the MEMFS copy of the zip', async () => {
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: 'next', muted: true, file: '/scratch/hostfs-data.zip', args: MAGIC }]);
+  await click(page); await waitReady(page, 0, 1);
+  const r = await rec(page);
+  const i = r.argv.indexOf('--load');
+  must(i >= 0 && r.argv[i + 1] === '/media/0-hostfs-data.zip' && !r.argv.includes('--esxdos-stub') &&
+       !r.argv.some((a) => a.startsWith('--esxdos-stub-root')), 'argv ' + JSON.stringify(r.argv));
+  await waitLine(page, '6789AB');
+  await waitLine(page, 'SANDBOX-OK');
+  must(!page.msgs.some((m) => m.trim() === 'ERR'), 'the program reported ERR');
+  must(pageErrors(page).length === 0, 'page errors ' + JSON.stringify(pageErrors(page)));
+  await page.ctx.close();
+});
+
+row('WEBAPI-33', 'file: a .zip whose program is not a NEX is refused with today\'s text: ready rejects naming --load /media/ and "a browser page loads only .nex, .tap, .tzx, "; no frames run', async () => {
+  fs.copyFileSync(path.join(ROOT, 'test/fixtures/zip/beeper.tap.zip'), path.join(SCRATCH, 'beeper.tap.zip'));
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: '48k', muted: true, file: '/scratch/beeper.tap.zip' }]);
+  await click(page);
+  const out = await page.evaluate(() => window.player0.ready.then(() => 'resolved', (e) => e.message));
+  must(out !== 'resolved' && out.includes('--load /media/') && out.includes('a browser page loads only .nex, .tap, .tzx, '), 'ready: ' + out);
+  must((await rec(page)).state === 'exited', 'state ' + (await rec(page)).state);
+  await page.ctx.close();
+});
+
+row('WEBAPI-34', 'player.load({data, name: g.zip}) of the NEX archive at run time: resolves, onReady +1, and the program reads the archive\'s data.txt (6789AB)', async () => {
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: 'next', muted: true, args: MAGIC }]);
+  await click(page); await waitReady(page, 0, 1);
+  const r0 = await rec(page);
+  const out = await page.evaluate(async (u) => {
+    const buf = new Uint8Array(await (await fetch(u)).arrayBuffer());
+    return window.player0.load({ data: buf, name: 'g.zip' }).then(() => 'resolved', (e) => e.message);
+  }, AURL + '/scratch/hostfs-data.zip');
+  const r1 = await rec(page);
+  must(out === 'resolved' && r1.ready === r0.ready + 1 && r1.errors.length === 0, `${out} ready ${r0.ready} -> ${r1.ready} errors ${JSON.stringify(r1.errors)}`);
+  await waitLine(page, '6789AB');
   must(pageErrors(page).length === 0, 'page errors ' + JSON.stringify(pageErrors(page)));
   await page.ctx.close();
 });

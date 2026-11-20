@@ -17,6 +17,11 @@
 Program formats `file` accepts:
 
 - `.nex`, `.tap`, `.tzx`, `.wav`;
+- a `.zip` whose program is a `.nex`: the NEX also gets the files beside it in the
+  archive, which the game opens by name. They are read-only unless the page passes
+  `args: ['--esxdos-stub-writable']`; what the game writes there lives in the page's memory
+  and is not kept by `keepWrites`. `load()` takes the same. A `.zip` with any other program
+  is refused;
 - an `.rzx` recording;
 - a `.jns`, `.sna`, `.szx` or `.z80` snapshot, which runs on the machine it was saved on
   (see "Saving the game" below).

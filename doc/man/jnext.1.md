@@ -60,7 +60,8 @@ naming the option and the value, and exits with status 1.
 :   Load a program. The format is detected from the extension: `.nex`, `.jns`,
     `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx` is accepted
     here and plays back, as **\--rzx-play**.) A `.zip` archive holding one of
-    them loads that program (see the `.zip` entry of **LOADING PROGRAMS**).
+    them loads that program, and a NEX in one also gets its directory in the
+    archive (see the `.zip` entry of **LOADING PROGRAMS**).
 
     `.jns` is jnext's own whole-machine snapshot (see **JNEXT SNAPSHOTS**
     below). Loading one restores the machine it was taken on, including the
@@ -654,13 +655,17 @@ naming the option and the value, and exits with status 1.
     it had been given as *DIR* (below): read-only unless
     **\--esxdos-stub-writable** is also given, and in place of the in-memory
     file. To keep the in-memory file, load the NEX without **\--esxdos-stub**.
+    A NEX loaded from a `.zip` that holds its data files is served its
+    directory in the archive with no flag at all (see the `.zip` entry of
+    **LOADING PROGRAMS**).
 
 **\--esxdos-stub-root** *DIR*
 :   Serve the host directory *DIR* to the guest through the esxDOS file and
     directory calls, instead of the single in-memory file. Implies
     **\--esxdos-stub**. Read-only unless **\--esxdos-stub-writable** is also
     given. *DIR* replaces the default of **\--esxdos-stub**, the directory of
-    the loaded NEX.
+    the loaded NEX, and the directory of a NEX loaded from a `.zip` that holds
+    its data files.
 
     **Which programs see *DIR*, and which do not.** A NEX loaded with
     **\--load** sees it, and so do dot commands: those reach the filesystem
@@ -696,7 +701,8 @@ naming the option and the value, and exits with status 1.
 :   Allow the guest to create, truncate, write, delete and rename files, make
     and remove directories, and set or clear the read-only bit of files under
     **\--esxdos-stub-root**, or in the directory of the loaded NEX when no
-    root is given: the program can delete any file there. Off by default, and
+    root is given (for a NEX from a `.zip`, in the extracted copy, never in the
+    archive): the program can delete any file there. Off by default, and
     deliberately a separate flag: a guest write changes a real file on the host
     immediately, and rewinding the emulator cannot undo it. Reads are fully
     rewindable; writes, deletions and renames are not.
@@ -1811,6 +1817,31 @@ format is detected from the extension:
     the window, a `.pok` file in the archive (the one named like the program,
     else the only one) is offered under **Machine > POK Trainers...**.
 
+    **A NEX with its data files.** When the program is a `.nex` and the
+    directory it is in inside the archive (the archive's top level, or a folder
+    such as `game/`) holds other files, that directory is extracted whole, with
+    its subdirectories, and served to the NEX through the esxDOS stand-in, with
+    no **\--esxdos-stub**: the program opens its files by name, as it would
+    from a directory on disk (`game/G.NEX` with `game/data/L1.BIN` opens
+    `data/L1.BIN`; case does not matter). The NEX is the program the archive
+    loads when it is the only NEX and every other program in it lies in a
+    subdirectory below its own, such as `data/sfx.wav`; a NEX and a `.tap` side
+    by side, or two NEX in one directory, are several programs, refused on the
+    command line and asked in the window. It is read-only unless
+    **\--esxdos-stub-writable** is given, which lets the guest change the
+    extracted copy, never the archive, and the changes are gone when **jnext**
+    exits. An explicit **\--esxdos-stub-root** wins: the archive is still
+    extracted, its files are not served. Files above the NEX's directory are
+    not extracted. Before anything is written, the whole archive is checked: a
+    member with an absolute path or `..` anywhere, two members whose paths
+    differ only in case, a file that is also a directory, a name ending in a dot
+    or a space, a path over 255 bytes, or files adding up to over 256 MiB refuse
+    the load with the reason, and a member that cannot be read (bad CRC,
+    encrypted) refuses it too, leaving nothing behind. A folder spelled in two
+    cases in the archive (`data/` and `DATA/`) is one folder, written under the
+    spelling that comes first, so the result is the same on every host. An archive whose NEX has
+    nothing beside it extracts the NEX alone, as before, and gets no directory.
+
 `.tap` and `.tzx` load in real time instead with **\--tape-realtime** (or by
 unchecking **Tape > Fast Load** in the GUI).
 
@@ -1975,7 +2006,8 @@ precedence. The directory is the one the path names (for a symbolic link, the
 link's own directory). It lasts from the NEX load until the next reset, soft
 reset or load: a NEX loaded later, through **File > Load NEX File...**, a recent
 file, `run NAME.nex` or the debugger, gets its own directory. A NEX taken out
-of a `.zip` has no directory on disk and gets none, and neither do a snapshot,
+of a `.zip` that holds nothing beside it has no directory on disk and gets none
+(one that holds its data files gets them, see the `.zip` entry above), and neither do a snapshot,
 a tape or a program injected with **\--inject**. A `.jns` does not record it.
 
 And it is not for use alongside a booted NextZXOS. Implying
@@ -3144,7 +3176,11 @@ asked), with the plain picture otherwise.
 
 `file` *URL | {url} | {data, name} | {card}*
 :   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, a `.rzx` recording, or a `.jns`, `.sna`,
-    `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu. `{card: '/PATH/x.nex'}`
+    `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu. A `.zip` is
+    accepted when the program in it is a `.nex`: the NEX gets its directory in the archive (see
+    the `.zip` entry of **LOADING PROGRAMS**), read-only unless `args: ['--esxdos-stub-writable']`
+    is given, and what it writes is not kept by `keepWrites`. `player.load()` accepts the same.
+    Any other `.zip` is refused. `{card: '/PATH/x.nex'}`
     runs a NEX that is on the SD card: its path lies inside one entry of `card.dirs`, the directory that holds
     it is copied out of the card with everything below it, and that directory is served to the program with
     **\--esxdos-stub** (read-only unless `args` has **\--esxdos-stub-writable**). It cannot be used with

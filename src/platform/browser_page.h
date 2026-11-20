@@ -39,4 +39,17 @@ inline const char* program_refusal(const std::string& path)
     return "a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80, .wav, .rzx programs";
 }
 
+/// True when the member a `.zip` page file would load is a `.nex` (any case): the one archive
+/// a browser page accepts, because a NEX also gets its directory in the archive (GH #541).
+inline bool archive_program_allowed(const std::string& member)
+{
+    const auto slash = member.find_last_of("/\\");
+    const std::string base = slash == std::string::npos ? member : member.substr(slash + 1);
+    const auto dot = base.rfind('.');
+    if (dot == std::string::npos) return false;
+    std::string ext = base.substr(dot);
+    for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return ext == ".nex";
+}
+
 }  // namespace browser_page

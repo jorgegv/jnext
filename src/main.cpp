@@ -1625,7 +1625,8 @@ int main(int argc, char* argv[]) {
         load_file = positional_file;
     }
 #ifdef JNEXT_BROWSER
-    if (!load_file.empty()) {
+    // GH #541: a .zip is checked after its extraction, below (a NEX archive is accepted).
+    if (!load_file.empty() && !program_archive::is_archive_path(load_file)) {
         if (const char* why = browser_page::program_refusal(load_file)) {
             fprintf(stderr, "--load %s: %s\n", load_file.c_str(), why);
             return 1;
@@ -1642,6 +1643,20 @@ int main(int argc, char* argv[]) {
 #endif
     if (!load_file.empty() && program_archive::is_archive_path(load_file)) {
         std::string extracted, member, why;
+#ifdef JNEXT_BROWSER
+        // A browser page accepts only an archive whose program is a NEX; any other
+        // (none, several, a TAP, unreadable) is refused with the usual page text.
+        {
+            program_archive::ProgramArchive archive;
+            std::string chosen, ignored;
+            if (!archive.open(load_file, ignored) || !archive.choose(chosen, ignored) ||
+                !browser_page::archive_program_allowed(chosen)) {
+                fprintf(stderr, "--load %s: %s\n", load_file.c_str(),
+                        browser_page::program_refusal(load_file));
+                return 1;
+            }
+        }
+#endif
         if (!program_archive::extract_single_program(load_file, extracted, why, &member)) {
             fprintf(stderr, "--load %s: %s.\n", load_file.c_str(), why.c_str());
             return 1;
