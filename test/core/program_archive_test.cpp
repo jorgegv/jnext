@@ -457,6 +457,21 @@ size_t count_named(const fs::path& root, const std::string& name) {
             check("ZDIR-24", "a NEX with a second NEX in a subdirectory below it is refused by choose() with the several-programs text",
                   ok && !ch && mem_.empty() && why == a.several_why() && has(why, "G.NEX") && has(why, "sub/X.NEX"), why);
         }
+        {
+            // The NEX's own folder spelled in another case is the same folder: its data is served,
+            // and a game-data program below it does not make the archive ambiguous.
+            pa::ProgramArchive a, b; std::string w1, w2, o1, m2;
+            pa::ScratchDir sc(dd + "/scr25");
+            const bool p1 = open_zip(a, {mem("Game/G.NEX", nexb), mem("GAME/data.txt", l1)}, w1);
+            const bool p2 = open_zip(b, {mem("Game/G.NEX", nexb), mem("GAME/data/x.tap", sfx)}, w2);
+            const bool h1 = p1 && a.has_data_files("Game/G.NEX");
+            const bool e1 = h1 && a.extract_program("Game/G.NEX", sc, o1, w1);
+            const fs::path s1 = e1 ? fs::path(o1).parent_path() : fs::path();
+            const bool c2 = p2 && b.choose(m2, w2);
+            check("ZDIR-25", "a data file in GAME/ beside Game/G.NEX is extracted into the slot, and choose() takes Game/G.NEX over GAME/data/x.tap",
+                  p1 && p2 && h1 && e1 && slurp((s1 / "data.txt").string()) == l1 && c2 && m2 == "Game/G.NEX",
+                  w1 + " | " + w2);
+        }
     }
 }
 

@@ -82,11 +82,13 @@ bool is_junk(const std::string& name) {
     return name.rfind("__MACOSX/", 0) == 0 || base_of(name).rfind("._", 0) == 0;
 }
 
-/// True when `c` begins with every component of `dir` (case-sensitive) and has
-/// more (`strict`: at least one more directory level too).
+/// True when `c` begins with every component of `dir` and has more (`strict`: at
+/// least one more directory level too). Components compare ignoring ASCII case:
+/// a folder spelled in two cases in an archive is one folder (see extract_program()).
 bool below(const std::vector<std::string>& c, const std::vector<std::string>& dir, bool strict) {
     if (c.size() <= dir.size() + (strict ? 1 : 0)) return false;
-    return std::equal(dir.begin(), dir.end(), c.begin());
+    return std::equal(dir.begin(), dir.end(), c.begin(),
+                      [](const std::string& a, const std::string& b) { return lower(a) == lower(b); });
 }
 
 }  // namespace
