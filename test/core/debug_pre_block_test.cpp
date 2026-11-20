@@ -233,8 +233,16 @@ int main() {
             replay_live = r.ds().armed() && !r.live();       // armed, nothing live
             replay_eq = r.eq();
         }
-        check("PRB-09", "SuspendScope disarms (idle inside, live again after with its breakpoint); ReplayArmScope arms without making the block live; the cache is exact throughout",
-              inside_idle && inside_eq && after && replay_live && replay_eq && r.eq());
+        // A pending step-off (a pause and its resume) is restored by the scope AFTER its gate refresh.
+        Rig s;
+        s.ds().pause();
+        s.ds().resume();
+        const bool pending = s.live() && s.eq();
+        { DebugState::SuspendScope scope(s.ds()); }
+        const bool pending_after = s.live() && s.eq();
+        check("PRB-09", "SuspendScope disarms (idle inside, live again after with its breakpoint or its pending step-off); ReplayArmScope arms without making the block live; the cache is exact throughout",
+              inside_idle && inside_eq && after && replay_live && replay_eq && pending && pending_after && r.eq(),
+              "pending=" + b2s(pending) + " after=" + b2s(pending_after));
     }
 
     // PRB-10 - the cache was held to the recomputation at every step above.
