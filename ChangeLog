@@ -21,6 +21,7 @@
 - Debugger Watches: a watch can be a .jds expression (registers, mem16[@ptr], phys[], symbols), updated live
 - Disassembly: a taken jump, call or return shows its direction and marks its destination line; RET and JP (HL) name their target
 - Debugger Graphics tab: sprite patterns, tile definitions and all eight palettes with RGB333 values and priority
+- Debugger breakpoints gain ranges, conditions, IO masks, Interrupt/NMI types, hit counts and count-only; Run to Next Interrupt
 
 ### Bug Fixes
 - Web example pages fit a phone screen instead of being laid out at desktop width and shrunk
