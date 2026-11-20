@@ -401,10 +401,16 @@ int main(int argc, char** argv)
             const QPoint psr = src->mapTo(host, QPoint(0, 0));
             if (!(pst.x() < pwa.x() && pwa.x() < psr.x())) why += "bottom-order ";
             QDockWidget* vid = fx.dock("Video");
+            // a panel closed in the file reopens at its default place: Symbols, in the left group
+            sym->toggleViewAction()->trigger();
+            settle(150);
+            if (sym->isHidden() || sym->isFloating() || host->dockWidgetArea(sym) != Qt::LeftDockWidgetArea ||
+                !host->tabifiedDockWidgets(vid).contains(sym))
+                why += "symbols-not-back-left ";
             if (host->dockWidgetArea(vid) != Qt::LeftDockWidgetArea || vid->width() != 780)
                 why += fmt("left width %d (min hints %d %d) ", vid->width(), vid->widget()->minimumSizeHint().width(), vid->minimumSizeHint().width());
         }
-        check("QDOCK-04", "a literal layout in the file (left 780 wide, Memory floating at 100,120 300x200, MMU tabbed behind CPU, Symbols closed, Source a third bottom group) opens as written, read through Qt",
+        check("QDOCK-04", "a literal layout in the file (left 780 wide, Memory floating at 100,120 300x340, MMU tabbed behind CPU, Symbols closed and reopened into the left group, Source a third bottom group) opens as written, read through Qt",
               why.empty(), why);
     }
 
@@ -604,6 +610,12 @@ int main(int argc, char** argv)
                 if (mem->isVisible()) why += "still-visible ";
                 const QString v = saved_layout(dir);
                 if (!v.contains("float memory") || v.contains("closed memory")) why += "saved=" + v.toStdString() + " ";
+                // closing the window saves AFTER the hide: the panel parked with it must still say float
+                fx.dbg->close();
+                settle(100);
+                const QString after_close = saved_layout(dir);
+                if (!after_close.contains("float memory") || after_close.contains("closed memory"))
+                    why += "saved-after-close=" + after_close.toStdString() + " ";
                 fx.mgr->set_enabled(true);
                 settle(200);
                 if (!mem->isVisible() || !mem->isFloating() || !mem->toggleViewAction()->isChecked())

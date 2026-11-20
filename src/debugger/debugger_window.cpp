@@ -29,7 +29,6 @@
 #include "platform/config_keys.h"
 
 #include <algorithm>
-#include <functional>
 #include <cmath>
 #include <QCloseEvent>
 #include <QGuiApplication>
@@ -429,30 +428,6 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     // GH #1 — last, because it writes both the actions' shortcuts (created in
     // create_menus() above) and the toolbar captions (created just above).
     apply_keymap();
-    share_actions_with_docks();
-}
-
-// GH #377: a floating panel is a window of its own, and Qt's window-shortcut rule only looks one hop up
-// from it (to the dock host, not to this window), so the debugger's keys would die with the keyboard in a
-// floating panel (QDOCK-11). Every window command is therefore also an action of every dock: a window
-// shortcut then matches whichever of the two windows is active, and fires once.
-void DebuggerWindow::share_actions_with_docks() {
-    QList<QAction*> all;
-    auto add = [&all](QAction* a) {
-        if (a && !a->menu() && !a->isSeparator() && !qobject_cast<QDockWidget*>(a->parent()) && !all.contains(a))
-            all.push_back(a);
-    };
-    std::function<void(QMenu*)> walk = [&](QMenu* m) {
-        for (QAction* a : m->actions()) {
-            if (a->menu()) walk(a->menu()); else add(a);
-        }
-    };
-    for (QAction* top : menuBar()->actions())
-        if (top->menu()) walk(top->menu());
-    for (QAction* a : actions()) add(a);
-    for (QAction* a : script_key_actions_) add(a);
-    for (QDockWidget* d : docks_)
-        for (QAction* a : all) d->addAction(a);
 }
 
 void DebuggerWindow::set_reload_source(QAction* host) {
@@ -1946,7 +1921,20 @@ void DebuggerWindow::apply_layout(const jnext::dock::Layout& in) {
     for (const std::string& id : l.closed) {
         QDockWidget* d = find(id);
         if (!d) continue;
-        dock_host_->addDockWidget(qt_area(default_area_of(id)), d);
+        // Parked where it will come back to: tabbed with its first default group-mate that is docked, else
+        // in its default area (Window > Panels then reopens it there).
+        QDockWidget* mate_dock = nullptr;
+        const Layout def = default_layout();
+        for (const AreaLine& dl : def.lines)
+            for (const Group& dg : dl.groups) {
+                if (std::find(dg.tabs.begin(), dg.tabs.end(), id) == dg.tabs.end()) continue;
+                for (const std::string& mate : dg.tabs) {
+                    QDockWidget* m = mate == id ? nullptr : find(mate);
+                    if (m && !m->isHidden() && !m->isFloating() && !mate_dock) mate_dock = m;
+                }
+            }
+        if (mate_dock) dock_host_->tabifyDockWidget(mate_dock, d);
+        else dock_host_->addDockWidget(qt_area(default_area_of(id)), d);
         d->close();
     }
 

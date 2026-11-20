@@ -272,7 +272,6 @@ private:
     void apply_dock_sizes();
     void reset_layout();
     void place_floating(QDockWidget* d, const QRect& r);
-    void share_actions_with_docks();
     void tune_tab_bars();
     void size_hidden_tabs();
     bool tab_bars_tune_queued_ = false;

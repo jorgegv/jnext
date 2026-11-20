@@ -203,9 +203,8 @@ the tab bars are on top, both bottom corners belong to the bottom area. Anything
 memory operand, Show in Source, Go > Symbols, Debug > Source > Open Source File) goes through `raise_panel()`, which
 reopens a closed dock and makes it its group's shown tab. Two Qt facts shape the code that reads the window:
 a floating dock is a window of its own that Qt leaves on screen when its main window hides
-(`hideEvent()` parks it in `parked_floats_`, `showEvent()` brings it back through `place_floating()`), and Qt's
-window-shortcut rule looks only one hop up from a floating dock, which is the dock host and not this window, so every
-window command is also an action of every dock (`share_actions_with_docks()`). Three smaller facts: the tab bar of a
+(`hideEvent()` parks it in `parked_floats_`, `showEvent()` brings it back through `place_floating()`); the debugger's
+window shortcuts keep working with the keyboard in a floating panel without help (measured, `QDOCK-11`). Three smaller facts: the tab bar of a
 dock group does not scroll by default, so its minimum width is the sum of its tabs (`tune_tab_bars()` turns the scroll
 buttons on, whenever Qt creates a bar); a tabbed-away dock is not laid out until it is shown and keeps the size it was
 created with, so `size_hidden_tabs()` gives it its group's size (a panel that is read while it is not the shown tab,
