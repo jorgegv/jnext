@@ -3,7 +3,8 @@
 Status: **DRAFT for owner review** (2026-11-20, planner of the 2026-11-17 autonomous run;
 revision 1, 2026-11-20: the independent review's eight findings folded in; revision 2,
 2026-11-20: round 2's five findings; revision 3, 2026-11-20: round 3's three findings, with
-measurements of the real distribution; see the last section).
+measurements of the real distribution; revision 4, 2026-11-20: round 4's false-positive finding,
+measured, with the clean-corpus remedy; see the last section).
 Nothing in this plan is started and no sub-issue is filed. When the owner approves it, the
 sub-issues of the task list are opened under #492. The plan assumes #492 becomes an epic, on
 the branch `epic492-bug-report-bundle`: each sub-issue branches off it and merges back into it,
@@ -69,11 +70,12 @@ what can run at once.
 - [ ] **B1.6** UART RX tee: every byte the ESP-01, the NextPi UART and the joystick-port UART (fifo, pty) delivered into an RX FIFO, with its cycle; the TX side kept as a running digest only
 - [ ] **B1.7** Rewind fast-forward while recording is fed from the log (RX bytes, RTC values, host calls), so a rewind lands on the recorded timeline even in a network session
 
-#### Sub-issue 6: SD-card capture
+#### Sub-issue 6: SD-card capture and the clean corpus
 
 - [ ] **B1.8** First-access tracking per card: the input-sector set (sectors whose first access after the anchor is a read) with each sector's hash, and an in-memory undo log (the pre-write bytes of an input sector at its first write)
 - [ ] **B1.9** The distribution index: the pristine reference of the card's base (the fixed-image recipe, the minimal-card recipe with its `dirs`), its sector-hash set, a byte-granular window index of the contents of every distribution file with the padding exclusion E1 (windows of period 4 or less, and nothing else), distribution files in decodable formats indexed decoded as well, the file table and the system paths; one rolling hash shared by the index build and the member scan; cached locally, built from the distribution even when the session had no card
 - [ ] **B1.10** Card member: per-sector and per-file classification (section 5.3.3: pristine, system, distribution-derived, free space, non-filesystem, FSInfo, structure, user file); bytes only where the class allows, references for pristine sectors, hashes only for the rest; FAT path attribution for the privacy review; the second card the same way
+- [ ] **B1.11** The clean corpus (5.3.1, Q18): run-time probes and library sweeps for the pinned z88dk, built from jnext's own sources by `make bug-report-clean-corpus`, committed as binaries, shipped in the packages, intersected with the index when it is built; with the demo builds, its windows are dropped from the index
 
 ### Phase B2: the bundle file
 
@@ -147,7 +149,7 @@ means the branch cannot be finished before those are merged into the epic branch
 | 3 Warm-start read set | B0.6 | none | 1, 2, 4, 5 |
 | 4 Inputs and host actions | B1.1, B1.2, B1.3, B1.4 | 1 | 2, 3, 5, 6 |
 | 5 In-frame pulls and streams | B1.5, B1.6, B1.7 | 1 | 2, 3, 4, 6 |
-| 6 SD-card capture | B1.8, B1.9, B1.10 | 1, 3 (B1.9 needs neither) | 2, 4, 5 |
+| 6 SD-card capture and the clean corpus | B1.8, B1.9, B1.10, B1.11 | 1, 3 (B1.9 needs neither) | 2, 4, 5 |
 | 7 Container | B2.1, B2.2 | 2, 4, 5, 6 (the writer can start on 1's log) | none |
 | 8 Replay engine | B3.1, B3.2, B3.3, B3.4 | 7 | 10, 11 |
 | 9 Replay with debugger and rewind | B3.5, B3.6 | 8 | 10, 11, 12, 15 |
@@ -401,58 +403,153 @@ Built once per distribution (B1.9) and cached under `~/.jnext/bug-report/index/<
   (the distribution's top-level files and directories, read from the distribution itself:
   `/TBBLUE.FW`, `/MACHINES`, `/NEXTZXOS`, `/SYS`, `/DOT`, `/RPi` and the rest).
 
-**Padding exclusion (E1), and only padding.** Padding is not expression, and matching it would
-make every directory sector, FAT sector and zero-padded file look like a distribution copy (round
-2's finding). So exactly one criterion removes windows from the index, and it is chosen so that
-it provably removes nothing but padding:
+**Padding exclusion (E1), and only near-padding.** Padding is not expression, and matching it
+would make every directory sector, FAT sector and zero-padded file look like a distribution copy
+(round 2's finding). So exactly one criterion removes windows from the index, and it is chosen so
+that it provably removes nothing but fill:
 
-- **E1, short period:** a 64-byte window that is a repetition of a pattern of period 4 or less
-  (`w[i] == w[i mod p]` for some p in 1..4: 0x00, 0xFF and 0xE5 fills, `AA 55` and other short
-  fills). Such a window carries at most 4 bytes of information. A 512-byte sector is **trivial**
-  by the same criterion.
+- **E1, short period with at most one exception:** a 64-byte window that equals a repetition of a
+  pattern of period 4 or less (`w[i] == P[i mod p]` for some p in 1..4) in every position but at
+  most one: 0x00, 0xFF and 0xE5 fills, `AA 55` and other short fills, and such a fill with one
+  stray byte (a length byte in a zeroed TAP header, the last header byte before a NEX bank).
+  Such a window carries at most 4 pattern bytes and one more. A 512-byte sector is **trivial**
+  when every aligned window in it is excluded by E1.
 
-Excluded windows are not in the index; a trivial sector never counts as "a distribution sector"
-in the classification below (as a reference it is still fine: a reference ships nothing).
+Revision 3's E1 allowed no exception. Revision 4 allows one, because revision 4's measurement
+(below) found that every false positive in the TAP files of `demo/` was such a window: a fill
+with exactly one different byte, matched in `TBBLUE.TBU` and a few distribution BASIC files.
 Revision 2 had a second criterion, E2 (a window in more than 16 distribution files counted as
-"boilerplate"), and a looser E1 (fewer than 8 distinct values). Both are gone: round 3 measured
+"boilerplate"), and a looser E1 (fewer than 8 distinct values). Both stay gone: round 3 measured
 that the distribution repeats the 48K BASIC ROM inside some two dozen other ROM files, so E2
 dropped 413 of the 511 windows of `48.rom` and 177 of `enNextZX.rom` (firmware, not
 boilerplate), and "fewer than 8 distinct values" also matches 1-bit artwork, fonts and sparse
 tables, which are expression.
 
+Excluded windows are not in the index; a trivial sector never counts as "a distribution sector"
+in the classification below (as a reference it is still fine: a reference ships nothing).
+
 **The floor, restated.** The member side is scanned at every byte offset, so: *any run of 95 bytes
 or more that a checked byte sequence shares with a distribution file is found, unless every
-aligned 64-byte window inside that run has period 4 or less.* And a shared run that escapes
-carries little: its aligned windows overlap by 32 bytes, so by the periodicity lemma they share
-one pattern of period at most 4, and the run is that pattern plus fewer than 32 bytes before the
-first aligned window and fewer than 32 after the last. **An escaping run holds at most 66 bytes
-that are not one short repeating fill.** The floor bounds **verbatim** copies of the **indexed**
-distribution only; 5.3.5 says what that leaves.
+aligned 64-byte window inside that run is excluded by E1 or by the clean corpus (below).* For
+E1 alone, a shared run that escapes carries little:
 
-**Measured** (round 3 and this revision, 2026-11-20, on the local default card of
-`sn-emulator-26.11`: the 250 files under `/TBBLUE.FW`, `/TBBLUE.TBU`, `/machines`, `/nextzxos`,
-`/sys` and `/dot`, 9.2 MB, read through `mtype` into memory only; nothing extracted to disk, the
-scripts deleted afterwards):
+- two consecutive aligned windows overlap in 32 bytes; with at most one exception each, the
+  overlap has a stretch of at least 10 bytes with no exception, longer than p + q - gcd(p, q)
+  (at most 6), so by Fine and Wilf both windows follow the same pattern of period gcd(p, q);
+  by induction every aligned window of the run follows one pattern of period at most 4;
+- the run is therefore that pattern, plus fewer than 32 bytes before the first aligned window
+  and fewer than 32 after the last (round 4 checked this part: 62 bytes, not revision 3's loose
+  66), plus at most one exception byte per aligned window.
 
-| File | Windows (stride 32) | Indexed, revision 2 (E1 < 8 values, E2 > 16 files) | Indexed, revision 3 (E1 period <= 4) |
-|---|---|---|---|
-| all 250 files | 287 300 | 142 603 (49.6 %) | 182 331 (63.5 %) |
-| `machines/next/48.rom` | 511 | 62 (12.1 %) | 476 (93.2 %); the 35 excluded are the 0xFF fill at 0x3880-0x3CFF |
-| `machines/next/128.rom` | 1023 | 607 | 1021 (99.8 %) |
-| `machines/next/plus3.rom` | 2047 | 1359 | 1788 (87.3 %) |
-| `machines/next/enNextZX.rom` (NextZXOS) | 2047 | 1606 | 1799 (87.9 %) |
-| `machines/next/enNxtmmc.rom` (DivMMC) | 255 | 254 | 254 (99.6 %) |
-| `machines/next/enNextMf.rom` (Multiface) | 255 | 255 | 255 (100 %) |
-| `TBBLUE.FW` | 19 871 | 16 908 | 19 343 (97.3 %) |
-| The 48K character set (0x3D00-0x3FFF) | 23 | 3 | 23 (100 %) |
+**An escaping run of L bytes holds at most 62 + floor((L - 64) / 32) + 1 bytes that are not one
+short repeating fill, plus the fill's pattern of at most 4 bytes**: one stray byte in every 32
+of the run's interior, at most. No Z80 code or data table of any size is that sparse. The floor
+bounds **verbatim** copies of the **indexed** distribution only; 5.3.5 says what that leaves.
+
+**Coverage, measured** (rounds 3 and 4 and this revision, 2026-11-20, on the local default card
+of `sn-emulator-26.11`: the 250 files under `/TBBLUE.FW`, `/TBBLUE.TBU`, `/machines`,
+`/nextzxos`, `/sys` and `/dot`, 9.2 MB, read through `mtype` into memory only; nothing extracted
+to disk, the scripts deleted afterwards):
+
+| File | Windows (stride 32) | Indexed, revision 2 (E1 < 8 values, E2 > 16 files) | Indexed, revision 3 (E1 period <= 4) | Indexed, revision 4 (E1 with one exception) |
+|---|---|---|---|---|
+| all 250 files | 287 300 | 142 603 (49.6 %) | 182 331 (63.5 %) | 179 023 (62.3 %) |
+| `machines/next/48.rom` | 511 | 62 (12.1 %) | 476 (93.2 %); the 35 excluded are the 0xFF fill at 0x3880-0x3CFF | 476 (93.2 %) |
+| `machines/next/128.rom` | 1023 | 607 | 1021 (99.8 %) | 1021 (99.8 %) |
+| `machines/next/plus3.rom` | 2047 | 1359 | 1788 (87.3 %) | 1783 (87.1 %) |
+| `machines/next/enNextZX.rom` (NextZXOS) | 2047 | 1606 | 1799 (87.9 %) | 1799 (87.9 %) |
+| `machines/next/enNxtmmc.rom` (DivMMC) | 255 | 254 | 254 (99.6 %) | 254 (99.6 %) |
+| `machines/next/enNextMf.rom` (Multiface) | 255 | 255 | 255 (100 %) | 255 (100 %) |
+| `TBBLUE.FW` | 19 871 | 16 908 | 19 343 (97.3 %) | 19 329 (97.3 %) |
+| The 48K character set (0x3D00-0x3FFF) | 23 | 3 | 23 (100 %) | 23 (100 %) |
 
 The largest number of files sharing one window was 155 (E2 would have excluded it), which is the
-measured reason E2 cannot stay. Every one of the 250 files has at least one indexed window, so a
-verbatim copy of any of them is caught; five are smaller than 95 bytes and are covered by the
-classification instead (system path, size and name), not by the byte check. Low indexed
-fractions (`TBBLUE.TBU` 52.7 %, some dot commands near 30-40 %, the `/nextzxos/*.z80` files below
-4 % as stored) are the files' own fills and zero padding, which by E1 are period-4-or-less runs;
-the `.z80` files are also indexed decoded.
+measured reason E2 cannot stay. Under every criterion of revisions 3 and 4, every one of the 250
+files has at least one indexed window, so a verbatim copy of any of them is caught; five are
+smaller than 95 bytes and are covered by the classification instead (system path, size and
+name), not by the byte check. That cover holds under the system paths, and for a copy elsewhere
+only while the copy keeps its name and size: a distribution file under 95 bytes, renamed and
+copied outside the system paths, is a user file the byte check cannot see. It is at most 94
+bytes, and on every base it ships only when ticked (Q14). A system-path file of 95 bytes or more
+made entirely of E1-excluded windows would have no indexed window either; none exists in 26.11
+(measured), and BRB-FILE-40 names any that appears and leaves it to the classification, like the
+short files. Low indexed fractions (`TBBLUE.TBU` about 51 %, some dot commands near 30-40 %, the
+`/nextzxos/*.z80` files below 4 % as stored) are the files' own fills and zero padding; the `.z80`
+files are also indexed decoded.
+
+**False positives on real user programs, measured (round 4, then this revision).** The same check
+run the other way, against licence-clean programs, refused almost all of them. Index: every file
+of the local default card (1393 files, 121.3 MB, 2 498 493 indexed windows; it is the working card,
+so a few files may not be distribution files). Corpus, all built with z88dk: the 38 tracked
+programs under `demo/` as `.nex` (a 39th `.nex` there, `esxdos_probe`, is an untracked artefact
+of 2026-05-15 with no source in the repository; it is reported but not counted), their 15 `.tap`
+builds, and the 9 committed dapr-nexlib test programs (`test/00regression/nex/test01..10`).
+
+| Corpus | Refused, revision 3 index | + E1 with one exception | + clean corpus, leave-one-out | both |
+|---|---|---|---|---|
+| 38 `demo/` `.nex` | 38 | 38 | 0 | 0 |
+| 15 `demo/` `.tap` | 14 | 0 | 8 | 0 |
+| 9 dapr `.nex` | 9 | 9 | 0 | 0 |
+
+What the shared runs are, mapped through the NEX layout and the dapr programs' `.map` files
+(`test01l2empty`, `test05print`): a typical 16 KiB demo had 42 hit offsets in 4 runs, the longest
+126 bytes, 31-34 of them against system-path files, and they were
+
+- the **NEX header** z88dk's appmake writes (bytes 0-87 and 449-575, the last running into the
+  first bank), matched in `TBBLUE.TBU` and in distribution NEX files;
+- **z88dk's newlib run-time data**: `__thrd_id` (section `data_threads`) and `__stdio_block`
+  (section `bss_fcntl`) of `zxn_crt.asm.m4`, matched in `TBBLUE.TBU`, `/dot/NextPiUI`,
+  `/apps/audio/NextDAW-demo` and `/apps/audio/NXModPlayer`: distribution programs built with the
+  same z88dk run-time at the same default origin;
+- **coinciding user data**: a tileset palette matched in `TBBLUE.TBU` and a BASIC file;
+- in the TAPs, one 64-byte window each: a fill with exactly one different byte (E1 now covers it).
+
+The z88dk 2.4 library archives themselves (32 Spectrum-relevant `.lib` files, 31.6 MB, scanned at
+every offset) share only 568 windows with the index and explain none of the refusals: object
+files hold code with unresolved addresses and no run-time data, so a linked program's bytes differ
+from them. The clean corpus has to be **linked** builds.
+
+**The remedy: a clean corpus of linked z88dk builds (Q18).** An index window that also occurs, at
+any offset, in a file of the **clean corpus** is dropped from the index. The clean corpus is a set
+of binaries built by the pinned z88dk release (2.4 today; a release bump adds its builds, older
+ones stay) from **jnext's own licence-clean sources** only:
+
+- the tracked `demo/` programs, as `.nex`, `.tap` and `.bin`;
+- **run-time probes**: a minimal program for each target (`+zxn`, `+zx`), C library
+  (`sdcc_ix`, `sdcc_iy`, `sccz80` with newlib, and the classic library), startup and output
+  type (`nex`, `tap`, `dot`) z88dk offers, at the default origin;
+- **library sweeps**: generated programs that call every public function of each of those
+  libraries at least once, split over as many programs as needed to fit. They exist for library
+  code only one program uses, which the leave-one-out measurement above cannot show (each demo
+  was cleaned by the other demos, which share the run-time but not every library routine).
+
+They are built by a maintainer target (`make bug-report-clean-corpus`) and committed as binaries
+(z88dk output of our own sources, like the committed test NEX files), shipped in the packages, and
+intersected with the index on the reporter's machine when the index is built. No hash and no byte
+of the distribution is committed; Q18 has the alternatives.
+
+**Why it cannot readmit firmware.** A window is dropped only if those exact 64 bytes occur in a
+file of the clean corpus, that is, in output z88dk produced from jnext's own sources. Those bytes
+are z88dk's run-time and library code and data, or our own; shipping them ships nothing that
+exists only in NextZXOS. The set of dropped windows is a subset of the clean corpus's windows by
+construction, whatever the distribution holds. Measured cost on firmware coverage (clean corpus =
+the demo and dapr builds above): `48.rom` 0 windows dropped, `enNextZX.rom` 0, `TBBLUE.FW` 1 of
+19 871, `TBBLUE.TBU` 307 of 182 495, `/dot/NextPiUI` 12 of 6655.
+
+**Firmware that links the same run-time.** `TBBLUE.TBU`, the dot commands and several
+applications are z88dk programs, so their z88dk run-time and library portions lose their windows
+(the 307 and 12 above). A copy of exactly those portions passes, and ships z88dk's run-time, which
+the reporter's own program already contains; the firmware's own code keeps its windows (both files
+keep almost all of them). The bound changes accordingly: a shared run escapes the check only if
+every aligned window in it is E1-excluded or occurs in a clean build. Each such 64-byte piece
+exists in licence-clean code; it is not proved that the whole run occurs contiguously in one clean
+build, and the design does not claim it.
+
+**What the remedy does not cover.** A program built with a z88dk version or library the clean
+corpus lacks, or with another toolchain that shares run-time with distribution programs, can still
+be refused; the refusal names the member, and the program then travels as a SHA-256 reference
+(the developer asks for it). Extending the clean corpus is the remedy, and BRB-FILE-41 shows when
+it is needed.
 
 #### 5.3.2 The rule: the check sees content as the guest saw it
 
@@ -557,6 +654,11 @@ Stated as rules, not examples:
    **debugger memory-write payloads** (a DeZog or GDB upload), **the program** (Q4) and **shipped
    keyframes** (`--no-sdcard` only, Q3). Each passes the byte check, and each can carry an altered
    copy the check cannot see.
+5. **Pieces of the clean corpus.** A copy made only of 64-byte pieces that also occur in z88dk
+   builds of jnext's own sources (the run-time and library portions of z88dk-built distribution
+   programs such as `TBBLUE.TBU` and the dot commands) passes. Each piece is z88dk's code or data,
+   not NextZXOS's own expression; a long run of them is not proved to exist contiguously in one
+   clean build (5.3.1).
 
 The classification removes the common cases (system paths, archives, snapshots and
 distribution-derived files are hashes only on every base). Q14's recommended option puts every
@@ -962,9 +1064,11 @@ when pristine and hashes only when not; an FSInfo sector with its signatures and
 bytes ships, one with a non-zero reserved byte is hashes only); low-information exclusion
 (BRB-CARD-30..): a directory sector, a FAT sector of a card with free clusters, a user file
 zero-padded to its cluster, and a zeroed slack all pass the byte check; a 95-byte firmware run
-planted inside a zero-padded region is still found; E1's boundary (a window of period 4 is
-excluded, of period 5 is indexed; a two-value bitmap of period 8 is indexed); a window present in
-every synthetic distribution file is still indexed (there is no E2); a trivial sector equal to a pristine sector does not make its file
+planted inside a zero-padded region is still found; E1's boundaries (a window of period 4 is
+excluded, of period 5 is indexed; a period-4 fill with one stray byte is excluded, with two
+stray bytes is indexed; a two-value bitmap of period 8 is indexed); a window present in every
+synthetic distribution file is still indexed (there is no E2); a window present in a synthetic
+clean-corpus file is dropped, and the same window absent from it is not; a trivial sector equal to a pristine sector does not make its file
 distribution-derived; slack: a copied file's last sector with distribution bytes in its slack
 ships with the slack zeroed; no index: the writer writes exactly the content-free members of
 5.3.4 and nothing else; the second card; BRB-CARD-20: the pristine rebuild made twice is byte-identical
@@ -1001,12 +1105,27 @@ checked as one decompressed 48K block.
 master's card exists). It builds the distribution index **at run time** from the run's own card,
 copies every system-path file verbatim (a) into a user file on a scratch card, (b) into a host file
 served by the stand-in and read in 32-byte `F_READ`s, (c) into an ESP RX stream, and requires
-every copy of every file of 95 bytes or more to be found; it prints the indexed fraction of each
-system-path file and fails if a file of 95 bytes or more has no indexed window. Every byte it
+every copy of every file of 95 bytes or more to be found; it also plants a random 95-byte slice of
+each system-path file at a random offset of each of the three carriers (the seed printed, so a
+failure reproduces), which tests the floor theorem itself on real data; it prints the indexed
+fraction of each system-path file, names every system-path file of 95 bytes or more made only of
+E1-excluded windows (left to the classification, like the files under 95 bytes, not a failure),
+and fails if any other file of 95 bytes or more has no indexed window, or if the clean corpus
+drops any window of a `/machines/**/*.rom` file or of `/TBBLUE.FW` beyond the counts this design
+records (0 and 1). Every byte it
 handles stays in the run's scratch directory or under `~/.jnext/sdcard/`, and is deleted with the
 row's directories; it commits nothing and writes no ROM or firmware byte anywhere else. The
 synthetic BRB-CARD-30 rows cannot find what this row finds (round 3: E2's flaw only shows on the
 real distribution).
+
+**The false-positive row** (BRB-FILE-41, in the same functional row, against the same run-time
+index). It builds the tracked `demo/` programs from source with the pinned z88dk (`.nex` and
+`.tap`) and takes the committed dapr test programs, and checks each against the index with the
+clean corpus built **leave-one-out**: the committed probes plus every *other* demo, never the
+program itself, which is what a reporter's program meets. It pins the number of refused programs
+at **0** (revision 4's measurement: 0 of 38 demo `.nex`, 0 of 15 `.tap`, 0 of 9 dapr `.nex`), and
+prints each refusal's member, offsets and matched distribution files, so a z88dk bump or a new
+demo that needs more probes fails loudly instead of quietly shipping no program.
 
 ## 14. Phase B3: replay (sub-issues 8 and 9)
 
@@ -1102,7 +1221,8 @@ replay, the proof), FEATURES.md, and the ChangeLog line at landing.
 | Copyright leak through a member other than the card (a program from the distribution, a host file that is a NextZXOS file, a debugger load, a log line) | the byte check over every content member (B2.1), floor 95 bytes |
 | Firmware the index does not hold, or a copy altered at least once every 94 bytes (another NextZXOS version, relocated or patched code, re-encodings, compression) | system paths, archives, snapshots and distribution-derived files hashes only on every base; every user file and served host file only when ticked (Q14 default); the residuals stated as rules (5.3.5) |
 | The index matches padding and every card bundle becomes hashes only | the padding exclusion E1 (period 4 or less) and trivial sectors (5.3.1), with the BRB-CARD-30 rows |
-| An exclusion criterion drops firmware from the index | E1 is the only criterion and provably removes only short-period fills (an escaping run holds at most 66 non-fill bytes); measured on the real distribution (5.3.1); BRB-FILE-40 checks every system-path file against the real index at run time |
+| An exclusion criterion drops firmware from the index | E1 provably removes only short-period fills with at most one stray byte per window (5.3.1's bound); the clean corpus drops only windows that occur in z88dk builds of our own sources (measured: 0 of `48.rom`, 0 of `enNextZX.rom`, 1 of `TBBLUE.FW`); BRB-FILE-40 checks every system-path file against the real index at run time |
+| The check refuses licence-clean programs, so bundles lose the program | the clean corpus (Q18), measured to 0 refusals on 62 z88dk programs; BRB-FILE-41 pins it leave-one-out |
 | Content hidden by a member's storage layout (records, JSON, compression) | the check runs on content as the guest saw it (5.3.2), with rows planted into the payloads (BRB-FILE-20) |
 | The pristine rebuild is not byte-reproducible on some host | BRB-CARD-20 on every platform the unit suites run on; the save side records the digest, so a difference refuses instead of drifting |
 | The developer must hold the reporter's jnext version for firmware bundles | the refusal prints `git describe` and the build command; `--bug-report-cross-version` for the deliberate case |
@@ -1129,7 +1249,8 @@ revisions; Q6 is withdrawn.
   (B6.1) yes.*
 - **Q4. The program file.** *Default: included (unless it is a distribution file, then a
   reference) after the byte check, listed in the review, with an untick that keeps only its
-  SHA-256.*
+  SHA-256.* Without Q18's remedy the byte check refuses almost every z88dk program (revision 4's
+  measurement: 38 of 38 demos), so this default depends on Q18.
 - **Q5. File name.** *Default: `<name>.jnext-bug.zip`, recognised by content: GitHub accepts
   `.zip` attachments and refuses unknown extensions.*
 - **Q6. Withdrawn** (revision 1): the warm-start recorder's RTC is already pinned (b93c03f79).
@@ -1197,6 +1318,26 @@ revisions; Q6 is withdrawn.
   program from the reporter; excluding the character-set windows of the classic ROMs from the
   index is the alternative, at the owner's word only.*
 
+- **Q18. False positives on z88dk programs** (5.3.1). The index matches the NEX header z88dk
+  writes and z88dk's own run-time data, because distribution programs (`TBBLUE.TBU`, the dot
+  commands, several applications) are z88dk programs too: revision 3's index refused 38 of 38
+  tracked demo `.nex`, 14 of 15 `.tap` and 9 of 9 dapr programs. Options:
+  - (a) **E1 with one stray byte, and a clean corpus of linked z88dk builds of jnext's own sources
+    (demos, run-time probes, library sweeps), committed as binaries, shipped, intersected with the
+    index on the reporter's machine**: measured 0 refused in all three sets (leave-one-out); nothing
+    of the distribution is committed; costs the packages the probe binaries (an estimate of 1-3 MB,
+    to be measured by B1.11) and a maintainer target to rebuild them on a z88dk bump;
+  - (b) as (a), but the maintainer tool commits only the hashes of the index windows the clean
+    corpus contains: much smaller, but it commits hashes of 64-byte strings that also occur in the
+    distribution (strings of z88dk's code, yet derived from both);
+  - (c) as (a), with the clean corpus built on the reporter's machine by a z88dk the reporter has:
+    nothing shipped, but a reporter without z88dk (or with another version) gets the refusals back;
+  - (d) no remedy: z88dk programs travel as SHA-256 references; nearly every bundle then needs the
+    program from the reporter in a second exchange.
+  *Default: (a).* It keeps the rule (a dropped window is, by construction, 64 bytes of a clean
+  build) and makes Q4's default true for the reporters the project has. The z88dk licence terms for
+  shipping compiled probe binaries are checked in B1.11 before they are committed.
+
 ---
 
 ## 18. Decisions taken in this plan
@@ -1212,7 +1353,9 @@ revisions; Q6 is withdrawn.
 | System paths hashes only on every base | a user's replaced NextZXOS file is still NextZXOS | the rule for unknown bases only (revision 0) |
 | A byte-granular window index of distribution files, stride 32, window 64 | a fixed, provable floor (95 bytes) over every member at every offset, about 40 MiB of index | an aligned 512-byte check (revision 0: blind to every unaligned member); a full suffix index (far larger for a lower floor nobody needs) |
 | The check runs on content as the guest saw it, per source, decoded | the floor needs the shared run contiguous in the scanned bytes; records, per-read framing, JSON and inner compression break that | scanning members' storage bytes (revision 1: blind to RX records, small `F_READ`s, JSON payloads, `.szx`/`.z80`/zip compression) |
-| Padding exclusion E1 only: windows of period 4 or less | provably removes only fills (an escaping run holds at most 66 non-fill bytes); without it every directory, FAT and padded sector would hit | no exclusion (revision 1); E2, "in more than 16 files" (revision 2: measured to drop 413 of 511 `48.rom` windows, because the distribution repeats the 48K ROM); "fewer than 8 distinct values" (revision 2: matches fonts, 1-bit artwork and sparse tables) |
+| E1 allows one stray byte per window (revision 4) | every TAP false positive was a fill with exactly one different byte; the bound stays provable (one stray byte per 32 bytes at most) | no exception (revision 3: 14 of 15 TAPs refused) |
+| A clean corpus of linked z88dk builds of jnext's own sources, intersected on the reporter's machine | the shared runs are z88dk's NEX header and run-time data, present in z88dk-built distribution programs; a dropped window is by construction 64 bytes of a clean build | the z88dk library archives (measured: unlinked objects explain none of the refusals); E2-style frequency rules (round 3); refusing every z88dk program |
+| One padding criterion, E1 (no E2): short-period fills | provably removes only fills (an escaping run holds at most 62 non-fill bytes plus the fill's pattern); without it every directory, FAT and padded sector would hit | no exclusion (revision 1); E2, "in more than 16 files" (revision 2: measured to drop 413 of 511 `48.rom` windows, because the distribution repeats the 48K ROM); "fewer than 8 distinct values" (revision 2: matches fonts, 1-bit artwork and sparse tables) |
 | Distribution files in decodable formats indexed as stored and decoded | the check decodes members, so it must meet decoded originals | indexing stored bytes only |
 | `.z80` re-serialised with pages 3-10 only | the loader skips pages 0-2 and 11, which can hold the 48K, Interface 1 / +D, 128K and Multiface ROMs | shipping the file verbatim (revision 2) |
 | Every content channel under a tick by default (Q14 (a)) | the check cannot see altered copies in any channel, so shipping is the reporter's choice for each | ticks for files only (revision 2) |
@@ -1296,7 +1439,7 @@ the code first (`z80_loader.h`: pages 0-2 and 11 skipped, `decompress_v1` for v1
 re-measured:**
 
 1. R3-1: E2 is dropped and E1 tightened to windows of period 4 or less, which provably removes
-   only fills (an escaping shared run holds at most 66 non-fill bytes). Measured on the local
+   only fills (an escaping shared run holds at most 66 non-fill bytes; revision 4 tightens this to 62). Measured on the local
    `sn-emulator-26.11` card (250 system-path files, read into memory only, nothing kept): revision
    2's criteria left 62 of 511 `48.rom` windows and 49.6 % overall; revision 3's leave 476
    (93.2 %, the rest the 0xFF fill) and 63.5 % overall, every file with at least one indexed
@@ -1312,3 +1455,26 @@ re-measured:**
 
 Also: the backup FSInfo sector is named (Non-filesystem, beside the backup boot sector); the TZX
 block types with a decoder are named in the program row.
+
+**Revision 4 (2026-11-20), after review round 4 (REJECT, one finding), measured before
+writing:**
+
+1. R4-1: false positives measured in memory (card files through `mtype`, the corpus read from
+   the repository; no extraction, scratch deleted): revision 3's index refused 38 of 38 tracked
+   `demo/` `.nex`, 14 of 15 `.tap` and 9 of 9 dapr programs. The shared runs are the z88dk NEX
+   header, z88dk newlib run-time data (`__thrd_id`, `__stdio_block` of `zxn_crt.asm.m4`, shared
+   with `TBBLUE.TBU`, `/dot/NextPiUI` and z88dk-built applications), coinciding palette data, and,
+   in the TAPs, fills with one stray byte. The z88dk library archives explain none of them. Remedy
+   (Q18 (a)): E1 allows one stray byte, and windows that occur in a clean corpus of linked z88dk
+   builds of jnext's own sources are dropped; measured leave-one-out: 0 refused in all three sets,
+   at a firmware cost of 0 `48.rom` and `enNextZX.rom` windows, 1 `TBBLUE.FW` window, 307 of
+   `TBBLUE.TBU` and 12 of `/dot/NextPiUI`. Why it cannot readmit firmware, and what it means for
+   firmware that links the same run-time, are in 5.3.1; residual 5 added. New task B1.11, new row
+   BRB-FILE-41 (refusal count pinned at 0), new Q18; Q4 now says it depends on Q18.
+2. The bound is stated exactly: at most 62 non-fill bytes plus the fill's pattern (revision 3's 66
+   was loose), plus, with the one-stray-byte E1, one byte per aligned window.
+
+Also: BRB-FILE-40 plants random 95-byte slices with a printed seed, names all-fill system files
+instead of failing on them, and checks that the clean corpus drops no ROM or `TBBLUE.FW` windows
+beyond the recorded counts; 5.3.1 says what covers a distribution file under 95 bytes copied
+outside the system paths (only its name and size, so a renamed one is a ticked user file).
