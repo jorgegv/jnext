@@ -288,7 +288,7 @@ so the fit is bounded in time as well: a resize to a size the fit asked for or s
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
 at most `kMaxFitEchoes` = 6 times: the answer queues a pass, and the pass asks again and counts it, once
 (`resizeEvent()`, `debugger_window.cpp:590-600`); any other size is the user's and ends the fit
-(`end_fit_()`, `debugger_window.cpp:572`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
+(`end_fit_()`, `debugger_window.cpp:574`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
 pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:627-632`), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (`fit_passes_queued_`, `queue_fit_pass_()`), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's), `GR-08` (an earlier request landing while a pass is queued), `GR-09` (a user resize while the fit runs stands), `GR-10` (each late answer counts once: the 7th stands) and `GR-11` (a loop stalled past the grace window does not end the fit), `GR-12` (the bound holds on the pass's own path), `GR-13` and `GR-14` (the grace waits for the pass a re-ask, or a late answer, queued), in `debugger_window_grow_test`; `GR-09` to `GR-14` use a window no window manager sees.

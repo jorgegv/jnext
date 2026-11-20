@@ -193,7 +193,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
   (`connect`, `src/debugger/debugger_window.cpp:1066-1071`), connected to `DebuggerManager::on_open_annotations()`
-  (`debugger_manager.cpp:866`), `on_save_annotations()` (`:778`) and `on_save_annotations_as()` (`:768`); Save with no
+  (`debugger_manager.cpp:887`), `on_save_annotations()` (`:799`) and `on_save_annotations_as()` (`:789`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).
 - **Unsaved changes (D11).** `DebuggerManager` keeps `saved_revision_` (`debugger_manager.h`), the backend's
