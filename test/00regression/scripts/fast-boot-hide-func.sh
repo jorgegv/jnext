@@ -141,7 +141,7 @@ if want fast-boot-hide-func; then
     # fh_phase LABEL BINARY PREFIX HIDE(1|0) MODE(qt|sdl) jnext-args...: G, H, I, I2.
     fh_phase() {
         local label="$1" bin="$2" pre="$fh_dir/$3" hide="$4" mode="$5"; shift 5
-        local extra=() f m n=0 lit=0 post
+        local extra=() f m n=0 lit=0 seen=0 post
         [[ "$hide" == 1 ]] && extra=(--set startup.fast_boot_hide_screen=true)
         fh_run "$bin" "$pre" "$mode" \
             --machine next --sdcard-readonly ${SD_CARD_ARGS[@]+"${SD_CARD_ARGS[@]}"} --fast-boot 60 \
@@ -150,6 +150,7 @@ if want fast-boot-hide-func; then
             [[ -e "$f" ]] || continue
             n=$((n + 1)); m=$(fh_max "$f")
             if ! fh_is_black "$m"; then lit=$((lit + 1)); fi
+            if fh_not_black "$m"; then seen=$((seen + 1)); fi
         done
         post=$(fh_max "$pre-post.png")
         fh_has "$pre.log" "fast boot: ended (time up) after 3000 frames" || fh_faults+=("$label: fast boot did not end by time up")
@@ -160,7 +161,7 @@ if want fast-boot-hide-func; then
             fh_not_black "$post" || fh_faults+=("$label: the window stayed black after fast boot ended (max=${post:-unreadable})")
         else
             if fh_has "$pre.log" "$fh_black_line"; then fh_faults+=("$label: the black line without the setting"); fi
-            [[ $lit -gt 0 ]] || fh_faults+=("$label: the control never showed a real screen inside the window ($n captures): the capture sees nothing")
+            [[ $seen -gt 0 ]] || fh_faults+=("$label: the control never showed a real screen inside the window ($n captures): the capture sees nothing")
         fi
     }
 
