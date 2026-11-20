@@ -1495,33 +1495,45 @@ int main() {
             if (!r || w.find("over 48 MiB") == std::string::npos || std::filesystem::exists(dest)) bad += " size48:" + w + rb.err;
             std::remove(cb.c_str());
 
-            FNode fxm = fixture_games();
-            FNode& g1m = kid(kid(kid(fxm, "GAMES"), "NEXT"), "G1");
-            // 257 directories of 256 empty files: 66,049 entries, one directory per 256 so the Builder's FatFs writes
-            // stay quick (one directory of 65,537 entries is quadratic in FatFs).
-            FNode many = dirn("many", 0x00, 0x5A71, 0x9000);
-            for (int d = 0; d <= 256; ++d) {
-                char dn[16];
-                std::snprintf(dn, sizeof dn, "w%03d", d);
-                FNode wd = dirn(dn, 0x00, 0x5A72, 0x9000);
-                for (int i = 0; i < 256; ++i) {
-                    char n[16];
-                    std::snprintf(n, sizeof n, "f%03d.dat", i);
-                    wd.kids.push_back(file(n, {}, 0x20, 0x5A73, 0x9000));
+            // The cap (4096 entries, files and directories together) and its exact boundary. The program directory G1 is
+            // made of p.nex, 16 parent directories and, below them, 4079 empty files (4096 entries in all) or 4080 (4097),
+            // or 4096 empty directories (4113 entries, no file but p.nex). Spread over 16 parents so that the Builder's
+            // FatFs writes stay quick.
+            auto cap_case = [&](const char* tag, int leaves, bool dirs_only, bool want_copy) {
+                FNode fx = fixture_games();
+                FNode& g1 = kid(kid(kid(fx, "GAMES"), "NEXT"), "G1");
+                g1.kids.clear();
+                g1.kids.push_back(file("p.nex", pattern(40, 80), 0x20, 0x5A74, 0x9000));
+                int left = leaves;
+                for (int d = 0; d < 16; ++d) {
+                    char dn[16];
+                    std::snprintf(dn, sizeof dn, "w%02d", d);
+                    FNode wd = dirn(dn, 0x00, 0x5A75, 0x9000);
+                    for (int i = 0; i < 256 && left > 0; ++i, --left) {
+                        char n[16];
+                        std::snprintf(n, sizeof n, dirs_only ? "e%03d" : "f%03d.dat", i);
+                        wd.kids.push_back(dirs_only ? dirn(n, 0x00, 0x5A76, 0x9000) : file(n, {}, 0x20, 0x5A77, 0x9000));
+                    }
+                    g1.kids.push_back(std::move(wd));
                 }
-                many.kids.push_back(std::move(wd));
-            }
-            g1m.kids.push_back(std::move(many));
-            const std::string cm = tmp_path("card-cpmany.img");
-            std::remove(cm.c_str());
-            const Run rm = build(minimal_card::Input::Zip, make_zip(build_image(fxm).bytes), cm, with_dirs({"/GAMES"}));
-            std::filesystem::remove_all(dest);
-            const bool rr = rm.st == minimal_card::Status::Done && !card_extract::copy_program_dir(cm, "/GAMES/NEXT/G1/a.nex", dest, o, w);
-            if (!rr || w.find("more than 65536 entries") == std::string::npos || std::filesystem::exists(dest)) bad += " entries:" + w + rm.err;
-            std::remove(cm.c_str());
+                const std::string cn = tmp_path("card-cpcap.img");
+                std::remove(cn.c_str());
+                const Run rn = build(minimal_card::Input::Zip, make_zip(build_image(fx).bytes), cn, with_dirs({"/GAMES"}));
+                std::filesystem::remove_all(dest);
+                std::string w2, o2;
+                const bool copied = rn.st == minimal_card::Status::Done && card_extract::copy_program_dir(cn, "/GAMES/NEXT/G1/p.nex", dest, o2, w2);
+                const bool gone = !std::filesystem::exists(dest);
+                if (rn.st != minimal_card::Status::Done) bad += std::string(" ") + tag + ":card:" + rn.err;
+                else if (want_copy ? (!copied || gone) : (copied || w2.find("more than 4096 entries") == std::string::npos || !gone))
+                    bad += std::string(" ") + tag + ":" + w2;
+                std::remove(cn.c_str());
+            };
+            cap_case("boundary-ok", 4079, false, true);      // 1 + 16 + 4079 = 4096 entries: copied
+            cap_case("boundary-over", 4080, false, false);   // 4097: refused
+            cap_case("dirs-only", 4096, true, false);        // 1 + 16 + 4096 = 4113, directories only: refused
         }
         std::filesystem::remove_all(dest);
-        check("MCARD-CP-03", "copy_program_dir refuses a NEX that is not on the card, a directory named x.nex, a path not ending .nex, a relative path, a NEX that is in the card's root, a zero-filled image, a directory nested past the depth limit (a failure in the middle of the copy), a file declaring over 48 MiB, a program directory of 66,049 entries (over the 65,536 cap), and an existing dest (left untouched), each naming its path, with no dest left behind",
+        check("MCARD-CP-03", "copy_program_dir refuses a NEX that is not on the card, a directory named x.nex, a path not ending .nex, a relative path, a NEX that is in the card's root, a zero-filled image, a directory nested past the depth limit (a failure in the middle of the copy), a file declaring over 48 MiB, a program directory of exactly 4096 entries (copied) and of 4097 and of 4113 directories-only entries (refused, over the 4096 cap), and an existing dest (left untouched), each naming its path, with no dest left behind",
               built && bad.empty(), bad);
         std::remove(cc.c_str());
     }

@@ -20,7 +20,11 @@ namespace fs = std::filesystem;
 constexpr uint8_t  kDrive    = 0;
 constexpr uint64_t kMaxBytes = 48ull << 20;   // a program's directory: with kMaxEntries, bounds the page's memory and time
 constexpr int      kMaxDepth = 32;
-constexpr uint64_t kMaxEntries = 65536;   // files and directories together: a card can alias one directory under many names
+// Files and directories together. The cost is the reason, not the memory: FatFs opens a file by path, which
+// rescans its directory from the start, so copying n entries of one directory takes n^2/2 comparisons (65,000
+// files: 171 s, on the page's main thread; 4,096: about 1 s). The largest program directory of the distribution
+// has 43 entries and all of /GAMES 210. It also stops a card that aliases one directory under many names.
+constexpr uint64_t kMaxEntries = 4096;
 
 // The card, attached to FatFs drive 0 and mounted for as long as this object lives. Nothing
 // here modifies the volume, so nothing is flushed at unmount.
