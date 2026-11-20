@@ -1438,6 +1438,16 @@ A port that cannot be bound is a startup error.
 Works in every frontend, \f[B]\-\-headless\f[R] included, and alongside
 \f[B]\-\-dzrp\-port\f[R] and \f[B]\-\-gdb\-port\f[R].
 .TP
+\f[B]\-\-debug\-channel\f[R] \f[I]PROTOCOL\f[R]
+Browser page only: serve the debugger protocol \f[I]PROTOCOL\f[R]
+(\f[CR]dzrp\f[R], \f[CR]zrcp\f[R] or \f[CR]gdb\f[R]) to the page\(cqs
+debug channel, the \f[CR]debug\f[R] option of \f[CR]jnext.mount\f[R].
+May be given once for each protocol.
+Every other build refuses it with exit status 1, because a server that
+was asked for and cannot be reached is a startup error: use
+\f[B]\-\-dzrp\-port\f[R], \f[B]\-\-zrcp\-port\f[R] or
+\f[B]\-\-gdb\-port\f[R] there.
+.TP
 \f[B]\-\-debug\-listen\-address\f[R] \f[I]ADDR\f[R]
 Bind address for the debugger protocol servers
 (\f[B]\-\-dzrp\-port\f[R], \f[B]\-\-gdb\-port\f[R],

@@ -1262,6 +1262,14 @@ connection is told so and closed. A port that cannot be bound is a
 startup error. Works in every frontend, **--headless** included, and
 alongside **--dzrp-port** and **--gdb-port**.
 
+**--debug-channel** *PROTOCOL*  
+Browser page only: serve the debugger protocol *PROTOCOL* (`dzrp`,
+`zrcp` or `gdb`) to the page’s debug channel, the `debug` option of
+`jnext.mount`. May be given once for each protocol. Every other build
+refuses it with exit status 1, because a server that was asked for and
+cannot be reached is a startup error: use **--dzrp-port**,
+**--zrcp-port** or **--gdb-port** there.
+
 **--debug-listen-address** *ADDR*  
 Bind address for the debugger protocol servers (**--dzrp-port**,
 **--gdb-port**, **--zrcp-port**), default `127.0.0.1`. *ADDR* is a
