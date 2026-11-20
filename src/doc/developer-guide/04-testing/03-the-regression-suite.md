@@ -109,7 +109,7 @@ lookup instead, and the suite provisions that image for itself in the
 carry none of the card's firmware, so the row extracts every file under `/MACHINES/NEXT`,
 `/NEXTZXOS` and `/TBBLUE.FW` of the run's card clone with `mcopy`, adds `nextboot.rom`,
 and fails if any 32-byte window of them (taken every 32 bytes, windows with a period of 4
-or less left out) occurs at any offset of any decompressed member of the report. The
+or less left out) occurs at any offset of any decompressed member of the report except `program/`, the reporter's own file, which ships as it is. The
 extracted files live in the row's scratch directory and are removed with it: nothing is
 kept, and nothing of a distribution is ever committed. A scan with no files to scan is
 itself a failure, so it cannot pass by finding nothing to look for.

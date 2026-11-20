@@ -118,5 +118,5 @@ container's reader. The two regression rows `bug-report-nosd-func` and
 `bug-report-card-func` run the real binary. The second one is the end-to-end proof of the
 rule: it extracts every firmware file of the run's card clone and `nextboot.rom` into its
 scratch directory (removed with it, never kept) and fails if any 32-byte window of them
-occurs at any offset of any member of the report. `test/00regression/bug-report-check.py`
+occurs at any offset of any member of the report other than the program file, which is the reporter's own and ships as it is. `test/00regression/bug-report-check.py`
 does the scan with the standard library only.
