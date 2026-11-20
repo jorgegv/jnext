@@ -570,7 +570,7 @@ bool DebuggerWindow::fit_known_size_(const QSize& s) const {
 
 // The fit's explicit end: from now on every size is the user's.
 void DebuggerWindow::end_fit_() {
-    for (QWidget* page : fit_raised_) page->setMinimumWidth(kLeftColumnMinWidth);   // GH #377
+    for (const auto& r : fit_raised_) r.first->setMinimumWidth(r.second);   // GH #377
     fit_raised_.clear();
     fit_over_ = true;
     fit_sizes_.clear();
@@ -654,7 +654,7 @@ void DebuggerWindow::grow_default_size_to_natural() {
     // this converges on its own bound whatever the style, font or DPI.
     // GH #377: under docks a dock area keeps its width when the window widens (the central widget takes
     // the rest), so the share of a widening the left column gets is no longer a thing to measure. Instead the
-    // panels docked on the left are asked for the width their sizeHint wants, as a minimum for the length of
+    // panels docked left and right are asked for the width their sizeHint wants, as a minimum for the length of
     // the fit (end_fit_() gives the 380 back): the host's minimum then grows, the scroll range shows how much
     // wider the window must be, and a queued pass adds it. The result is a function of the layout, not of
     // the order of the passes, which is what keeps a window manager's late answers harmless.
@@ -662,13 +662,14 @@ void DebuggerWindow::grow_default_size_to_natural() {
     bool dock_pass = false;
     if (initial_fit_width_passes_ < kMaxWidthFitPasses) {
         for (QDockWidget* d : docks_) {
+            const Qt::DockWidgetArea area = dock_host_->dockWidgetArea(d);
             if (d->isFloating() || d->isHidden() ||
-                dock_host_->dockWidgetArea(d) != Qt::LeftDockWidgetArea) continue;
+                (area != Qt::LeftDockWidgetArea && area != Qt::RightDockWidgetArea)) continue;
             QWidget* page = d->widget();
             const int want = page->sizeHint().width();
             if (want > page->minimumWidth()) {
+                fit_raised_.push_back({page, page->minimumWidth()});
                 page->setMinimumWidth(want);
-                fit_raised_.push_back(page);
                 dock_pass = true;
             }
         }

@@ -235,7 +235,7 @@ QSettings hands a hand-edited value with a comma back as a list. Rows: `QDOCK-01
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
 queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left dock area
-is widened by what its panels' `sizeHint()` lack: the left panels' minimum width is raised to their `sizeHint()` for the
+is widened by what its panels' `sizeHint()` lack: the minimum width of the panels docked left and right is raised to their `sizeHint()` for the
 length of the fit (`fit_raised_`, given back by `end_fit_()`), the host's minimum then grows, and the scroll pass
 widens the window by the scroll range; a column found wider than its widest page afterwards is trimmed back with
 `resizeDocks()` (a dock area keeps its width when the window widens, so there is no share to measure and the result

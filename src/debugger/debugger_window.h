@@ -239,9 +239,9 @@ private:
     void end_fit_();
     bool   fit_known_size_(const QSize& s) const;
     int    initial_fit_width_passes_ = 0;
-    // GH #377: the left-column panels whose minimum width the fit raised to their sizeHint (end_fit_() restores it).
+    // GH #377: the panels whose minimum width the fit raised to their sizeHint (end_fit_() restores it).
     static constexpr int kLeftColumnMinWidth = 380;
-    std::vector<QWidget*> fit_raised_;
+    std::vector<std::pair<QWidget*, int>> fit_raised_;   // the panel, and the minimum width it had
     static constexpr int kMaxWidthFitPasses = 8;
     // GH #363 — one queued refresh_panels() per palette change (changeEvent).
     bool palette_refresh_queued_ = false;
