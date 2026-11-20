@@ -3601,7 +3601,9 @@ mtools copies and native runs) and <code>PAGES-03..05</code> (the demos of the s
 <p><code>make pages-site</code> (prerequisite <code>package-web</code>) runs <code>packaging/web/pages-site.sh</code>, which reads
 <code>jnext-&lt;ver&gt;-web.zip</code> with CPython's <code>zipfile</code> and writes <code>build/pages</code>: the zip's files minus the
 four example pages, plus <code>index.html</code>, made from <code>web/pages/index.html.in</code> with the version of
-<code>version.yaml</code>. The page holds one widget with <code>data-card-dirs="/APPS,/GAMES"</code> and <code>data-nmi</code>, and three demo links, <code>?demo=nextzxos</code>, <code>?demo=warhawk</code> and <code>?demo=tx-1696</code>: a small script sets the widget's title and, for a game, <code>data-card-file</code>, so every demo is a page load with one emulator, and all three share one cached card. The
+<code>version.yaml</code>. The page holds one widget with <code>data-card-dirs="/APPS,/GAMES"</code> and <code>data-nmi</code>, and three demo links, <code>?demo=nextzxos</code>, <code>?demo=warhawk</code> and <code>?demo=tx-1696</code>: a small script sets the widget's title and, for a game, <code>data-card-file</code>, so every demo is a page load with one emulator, and all three share one cached card. The page also
+loads the site's visitor-statistics script from <code>stats.jogv.es</code>; the browser rows answer it with an
+empty script, so no test run reaches the statistics server. The
 script refuses, and removes the output, when the site is not exactly that list, when any name has
 an image, ROM, disk-image, program, recording or archive extension as a dot-separated part (<code>.img .mmc
 .rom .bin .dsk .trd .scl .hdf .vhd .mdr .p .nex .tap .tzx .sna .szx .z80 .jns .rzx .wav .raw .zip .gz

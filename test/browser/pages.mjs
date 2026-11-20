@@ -65,6 +65,10 @@ const urls = [];   // every http(s) request of the context
 const ctx = await h.browser.newContext({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 1 });
 await ctx.addInitScript((d) => { window['jnextDev'] = d; }, { distribution: { url: BURL + '/real-distro.zip', ...REAL } });
 ctx.on('request', (r) => { if (/^https?:/.test(r.url())) urls.push(r.url()); });
+// The page's visitor statistics script: answered here with an empty script, so no test run reaches the real
+// statistics server; it is the one origin outside the site and the distribution the page may ask.
+const STATS = 'https://stats.jogv.es', STATS_ID = '403ba580-ee55-42b9-9709-dd5961bade47';
+await ctx.route(STATS + '/**', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
 async function open(query = '') {
   const page = await ctx.newPage();
   page.msgs = [];
@@ -98,7 +102,7 @@ const listTree = (dir) => {
   return out.sort();
 };
 
-row('PAGES-01', 'the served site is index.html plus the extracted package minus the four example pages; the page has a title, the issues link, the three demo links, the toolbar Pause, Reset, NMI (enabled), Mute, Fullscreen and no error', async () => {
+row('PAGES-01', 'the served site is index.html plus the extracted package minus the four example pages; the page has a title, the issues link, the three demo links, the toolbar Pause, Reset, NMI (enabled), Mute, Fullscreen, the statistics script tag and no error', async () => {
   const want = [...listTree(PKG).filter((n) => !EXAMPLES.includes(n)), 'index.html'].sort();
   const got = listTree(SITE);
   must(JSON.stringify(got) === JSON.stringify(want), `site ${JSON.stringify(got)} != package-derived ${JSON.stringify(want)}`);
@@ -113,7 +117,8 @@ row('PAGES-01', 'the served site is index.html plus the extracted package minus 
     nmiOn: !document.querySelector('.jnext-widget [data-jw=nmi]').disabled,
     links: [...document.querySelectorAll('nav a')].map((a) => a.getAttribute('href')),
     current: [...document.querySelectorAll('nav a[aria-current]')].map((a) => a.getAttribute('data-demo')),
-    wtitle: document.querySelector('.jw-title').textContent }));
+    wtitle: document.querySelector('.jw-title').textContent,
+    stats: [...document.querySelectorAll('script[src="https://stats.jogv.es/script.js"]')].map((e) => [e.defer, e.getAttribute('data-website-id')]) }));
   await page.close();
   must(info.title.includes('JNEXT') && info.h1.includes('JNEXT'), 'title ' + JSON.stringify(info));
   must(info.issues.includes('https://github.com/jorgegv/jnext/issues'), 'links ' + JSON.stringify(info.issues));
@@ -121,11 +126,12 @@ row('PAGES-01', 'the served site is index.html plus the extracted package minus 
   must(info.widgets === 1 && info.dirs === '/APPS,/GAMES', 'widget ' + JSON.stringify(info));
   must(JSON.stringify(info.buttons) === JSON.stringify(['Pause', 'Reset', 'NMI', 'Mute', 'Fullscreen']) && info.nmiOn, 'toolbar ' + JSON.stringify([info.buttons, info.nmiOn]));
   must(info.version.includes(`JNEXT ${VERSION},`), 'version text ' + info.version);
+  must(JSON.stringify(info.stats) === JSON.stringify([[true, STATS_ID]]), 'statistics script ' + JSON.stringify(info.stats));
   must(page.msgs.length === 0, page.msgs.join('; '));
   must(aLog.filter((r) => r.status === 404 && r.name !== 'favicon.ico').length === 0, '404s ' + JSON.stringify(aLog.filter((r) => r.status === 404)));
 });
 
-row('PAGES-02', 'no query string gives the NextZXOS demo: the click builds the /APPS,/GAMES card from the distribution; ready, no error, argv has --sdcard and no --load, the card is the native --dirs card; no request outside the site and the distribution, none for an image, program or archive name', async () => {
+row('PAGES-02', 'no query string gives the NextZXOS demo: the click builds the /APPS,/GAMES card from the distribution; ready, no error, argv has --sdcard and no --load, the card is the native --dirs card; no request outside the site, the distribution and the statistics script, none for an image, program or archive name', async () => {
   const n0 = urls.length, a0 = aLog.length;
   const page = await open();
   await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent === 'click the screen to start', null, 300000);
@@ -140,7 +146,7 @@ row('PAGES-02', 'no query string gives the NextZXOS demo: the click builds the /
   must(argv.includes('--sdcard') && !argv.includes('--load'), 'argv ' + JSON.stringify(argv));
   must(sha === REAL_DIRS, `card ${sha} != native --dirs card ${REAL_DIRS}`);
   const asked = urls.slice(n0).map((u) => new URL(u));
-  const stray = asked.filter((u) => u.origin !== AURL && u.origin !== BURL);
+  const stray = asked.filter((u) => u.origin !== AURL && u.origin !== BURL && u.origin !== STATS);
   must(stray.length === 0, 'requests elsewhere: ' + JSON.stringify(stray.map((u) => u.href)));
   must(bLog.some((r) => r.path === '/real-distro.zip' && r.method === 'GET'), 'the distribution was never fetched: ' + JSON.stringify(bLog));
   const banned = aLog.slice(a0).filter((r) => BANNED.test(r.name));

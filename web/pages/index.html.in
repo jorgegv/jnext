@@ -10,6 +10,7 @@
   .note { font-size: 14px; color: #4a5160; }
   @media (prefers-color-scheme: dark) { body { color: #e6e9f0; background: #14161c; } .note { color: #aab1c0; } a { color: #8fb4ff; } }
 </style>
+<script defer src="https://stats.jogv.es/script.js" data-website-id="403ba580-ee55-42b9-9709-dd5961bade47"></script>
 </head>
 <body>
 <h1>JNEXT in your browser</h1>

@@ -477,7 +477,9 @@ mtools copies and native runs) and `PAGES-03..05` (the demos of the site).
 `make pages-site` (prerequisite `package-web`) runs `packaging/web/pages-site.sh`, which reads
 `jnext-<ver>-web.zip` with CPython's `zipfile` and writes `build/pages`: the zip's files minus the
 four example pages, plus `index.html`, made from `web/pages/index.html.in` with the version of
-`version.yaml`. The page holds one widget with `data-card-dirs="/APPS,/GAMES"` and `data-nmi`, and three demo links, `?demo=nextzxos`, `?demo=warhawk` and `?demo=tx-1696`: a small script sets the widget's title and, for a game, `data-card-file`, so every demo is a page load with one emulator, and all three share one cached card. The
+`version.yaml`. The page holds one widget with `data-card-dirs="/APPS,/GAMES"` and `data-nmi`, and three demo links, `?demo=nextzxos`, `?demo=warhawk` and `?demo=tx-1696`: a small script sets the widget's title and, for a game, `data-card-file`, so every demo is a page load with one emulator, and all three share one cached card. The page also
+loads the site's visitor-statistics script from `stats.jogv.es`; the browser rows answer it with an
+empty script, so no test run reaches the statistics server. The
 script refuses, and removes the output, when the site is not exactly that list, when any name has
 an image, ROM, disk-image, program, recording or archive extension as a dot-separated part (`.img .mmc
 .rom .bin .dsk .trd .scl .hdf .vhd .mdr .p .nex .tap .tzx .sna .szx .z80 .jns .rzx .wav .raw .zip .gz
