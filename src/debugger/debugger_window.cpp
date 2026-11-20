@@ -53,6 +53,7 @@
 #include <QMessageBox>
 #include <QDialog>
 #include <QDockWidget>
+#include <QPointer>
 #include <QTabBar>
 #include <QFormLayout>
 #include <QLineEdit>
@@ -571,7 +572,8 @@ bool DebuggerWindow::fit_known_size_(const QSize& s) const {
 
 // The fit's explicit end: from now on every size is the user's.
 void DebuggerWindow::end_fit_() {
-    for (const auto& r : fit_raised_) r.first->setMinimumWidth(r.second);   // GH #377
+    for (auto it = fit_raised_.rbegin(); it != fit_raised_.rend(); ++it)   // GH #377: the first value saved wins
+        it->first->setMinimumWidth(it->second);
     fit_raised_.clear();
     fit_over_ = true;
     fit_sizes_.clear();
@@ -1796,11 +1798,22 @@ void DebuggerWindow::create_panels() {
         // The left column of tabs had setMinimumWidth(380), an explicit minimum that overrides a page's own
         // minimumSizeHint (Video's is 700 and its sizeHint 600): the opening fit then widens the column to
         // what the pages WANT. Kept per panel, so the same holds wherever the user docks them.
-        if (i < 9) table[i].panel->setMinimumWidth(kLeftColumnMinWidth);
+        if (default_area_of(table[i].id) == jnext::dock::Area::Left)
+            table[i].panel->setMinimumWidth(kLeftColumnMinWidth);
         auto* dock = new QDockWidget(table[i].title, dock_host_);
         dock->setObjectName(QString::fromLatin1(table[i].id));
         dock->setWidget(table[i].panel);
         docks_.push_back(dock);
+        // A tabbed-away dock is still visible to Qt, so its panel gets no showEvent when its tab is
+        // selected; the Graphics panel draws only while on show and no tick redraws a paused window that
+        // did not change, so it is told when its dock becomes the shown one (it re-checks on_show()).
+        if (std::string(table[i].id) == "graphics") {
+            QPointer<QWidget> gp = table[i].panel;
+            connect(dock, &QDockWidget::visibilityChanged, this, [this, gp](bool visible) {
+                if (!visible) return;
+                QTimer::singleShot(0, this, [gp]() { if (auto* g = qobject_cast<GraphicsPanel*>(gp.data())) g->refresh(); });
+            });
+        }
     }
 
     auto* scroll = new QScrollArea();
@@ -1849,6 +1862,14 @@ void DebuggerWindow::raise_panel(QWidget* panel) {
         if (d->isFloating()) d->activateWindow();
         return;
     }
+}
+
+int DebuggerWindow::tab_bar_height_of(QDockWidget* d) const {
+    if (dock_host_->tabifiedDockWidgets(d).isEmpty()) return 0;
+    for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
+        for (int i = 0; i < bar->count(); ++i)
+            if (bar->tabText(i) == d->windowTitle()) return bar->isVisible() ? bar->height() : 0;
+    return 0;
 }
 
 QDockWidget* DebuggerWindow::shown_dock_of(QDockWidget* d) const {
@@ -1980,15 +2001,27 @@ void DebuggerWindow::apply_dock_sizes() {
         const Qt::Orientation across = ln.horizontal ? Qt::Vertical : Qt::Horizontal;
         if (ln.thickness > 0)
             dock_host_->resizeDocks({shown.front()}, {ln.thickness}, across);
+        // The groups with an extent get it; the others share what is left of the line's length in
+        // proportion to what they have (sizes that add up to more than the line are scaled by Qt,
+        // which would put the asked extent off).
+        const std::size_t n = std::min(ln.groups.size(), shown.size());
+        std::vector<int> cur(n);
+        int total = 0, given = 0, free_cur = 0;
         bool any = false;
+        for (std::size_t i = 0; i < n; ++i) {
+            cur[i] = ln.horizontal ? shown[i]->width() : shown[i]->height() + tab_bar_height_of(shown[i]);
+            total += cur[i];
+            if (ln.groups[i].extent > 0) { any = true; given += ln.groups[i].extent; }
+            else free_cur += cur[i];
+        }
         QList<int> sizes;
-        for (std::size_t i = 0; i < ln.groups.size() && i < shown.size(); ++i) {
+        const int rest = std::max(total - given, 0);
+        for (std::size_t i = 0; i < n; ++i) {
             const int e = ln.groups[i].extent;
-            if (e > 0) any = true;
-            sizes.push_back(e > 0 ? e : (ln.horizontal ? shown[i]->width() : shown[i]->height()));
+            sizes.push_back(e > 0 ? e : (free_cur > 0 ? rest * cur[i] / free_cur : cur[i]));
         }
         if (any)
-            dock_host_->resizeDocks(QList<QDockWidget*>(firsts.begin(), firsts.end()), sizes, along);
+            dock_host_->resizeDocks(QList<QDockWidget*>(firsts.begin(), firsts.begin() + n), sizes, along);
     }
 }
 
@@ -2101,7 +2134,9 @@ jnext::dock::Layout DebuggerWindow::capture_layout() const {
         for (QDockWidget* m : ordered) g.idx.push_back(index_of(m));
         for (std::size_t k = 0; k < ordered.size(); ++k) if (ordered[k] == shown) g.shown = k;
         g.pos = shown->mapTo(dock_host_, QPoint(0, 0));
-        g.size = shown->size();
+        // The area's size counts the group's tab bar (resizeDocks() sets it), the dock's own does not: a
+        // size read back without it would shrink by the bar's height at every save.
+        g.size = shown->size() + QSize(0, tab_bar_height_of(shown));
         groups.push_back(g);
     }
 

@@ -21,6 +21,7 @@
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/dock_layout.h"
+#include "debugger/graphics_panel.h"
 #include "debugger/memory_panel.h"
 #include "debugger/watch_panel.h"
 #include "platform/config_keys.h"
@@ -46,6 +47,7 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <cstdlib>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -668,6 +670,184 @@ int main(int argc, char** argv)
               k && k->owner == config_keys::Owner::DebuggerWindow && k->not_setting != nullptr &&
                   k->type == config_keys::Type::Text && refused && why.find("debugger.layout") != std::string::npos,
               why);
+    }
+
+
+    // QDOCK-15: the Graphics panel draws when its tab becomes the shown one. A tabbed-away dock is still
+    // visible to Qt, so the panel gets no showEvent; nothing redraws a window whose state did not change.
+    {
+        wipe(dir);
+        Fixture fx;
+        std::string why;
+        if (!fx.ok) why = "fixture";
+        else {
+            auto* gp = fx.dbg->findChild<GraphicsPanel*>();
+            QDockWidget* gd = fx.dock("Graphics");
+            fx.dock("Video")->raise();
+            settle(200);
+            const int r0 = gp->render_count();
+            gd->raise();
+            settle(200);
+            const int r1 = gp->render_count();
+            if (!(r1 > r0)) why += fmt("raise: %d -> %d ", r0, r1);
+            fx.dock("Video")->raise();
+            settle(200);
+            const int r2 = gp->render_count();
+            int idx = -1;
+            QTabBar* bar = nullptr;
+            for (QTabBar* b : fx.host()->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
+                for (int i = 0; i < b->count(); ++i)
+                    if (b->tabText(i) == QLatin1String("Graphics")) { bar = b; idx = i; }
+            if (!bar) why += "no tab bar ";
+            else {
+                bar->setCurrentIndex(idx);
+                settle(200);
+                const int r3 = gp->render_count();
+                if (!(r3 > r2)) why += fmt("tab bar: %d -> %d ", r2, r3);
+            }
+        }
+        check("QDOCK-15", "raising the Graphics dock, and selecting its tab through the group's tab bar, each draw the Graphics panel with no refresh() and no change of state",
+              why.empty(), why);
+    }
+
+    // QDOCK-16: the sizes of the docks are remembered between sessions.
+    {
+        wipe(dir);
+        { QSettings s(conf_path(dir), QSettings::IniFormat); s.setValue("debugger/size", QStringList{"2400", "2000"}); s.sync(); }
+        struct Sizes { int stack_h, stack_w, watches_w, cpu_h, mmu_h, video_w; };
+        Sizes a{}, b{};
+        auto read = [](Fixture& fx) {
+            Sizes s{};
+            s.stack_h = fx.dock("Stack")->height();   s.stack_w = fx.dock("Stack")->width();
+            s.watches_w = fx.dock("Watches")->width();
+            s.cpu_h = fx.dock("CPU Registers")->height(); s.mmu_h = fx.dock("MMU")->height();
+            s.video_w = fx.dock("Video")->width();
+            return s;
+        };
+        bool ok = true;
+        {
+            Fixture fx;
+            ok = fx.ok;
+            if (ok) {
+                QMainWindow* host = fx.host();
+                host->resizeDocks({fx.dock("Stack")}, {520}, Qt::Vertical);
+                host->resizeDocks({fx.dock("Stack"), fx.dock("Watches")}, {1500, 600}, Qt::Horizontal);
+                host->resizeDocks({fx.dock("CPU Registers"), fx.dock("MMU")}, {700, 300}, Qt::Vertical);
+                host->resizeDocks({fx.dock("Video")}, {820}, Qt::Horizontal);
+                settle(300);
+                a = read(fx);
+                fx.mgr->set_enabled(false, false);
+            }
+        }
+        {
+            Fixture fx;
+            ok = ok && fx.ok;
+            if (fx.ok) { settle(300); b = read(fx); }
+        }
+        auto near = [](int x, int y) { return std::abs(x - y) <= 8; };
+        check("QDOCK-16", "docked sizes (the bottom row's height, the split of the two bottom groups, the CPU/MMU split, the left column's width) survive a hide and a new window, within 8 px",
+              ok && near(a.stack_h, b.stack_h) && near(a.stack_w, b.stack_w) && near(a.watches_w, b.watches_w) &&
+                  near(a.cpu_h, b.cpu_h) && near(a.mmu_h, b.mmu_h) && near(a.video_w, b.video_w),
+              fmt("before stack %dx%d watches_w %d cpu_h %d mmu_h %d video_w %d | after stack %dx%d watches_w %d cpu_h %d mmu_h %d video_w %d",
+                  a.stack_w, a.stack_h, a.watches_w, a.cpu_h, a.mmu_h, a.video_w,
+                  b.stack_w, b.stack_h, b.watches_w, b.cpu_h, b.mmu_h, b.video_w));
+    }
+
+    // QDOCK-17 / QDOCK-18: after the opening fit has ended, the minimum widths it raised are back, and the
+    // right column opened at least 250 wide.
+    {
+        wipe(dir);
+        std::vector<int> fitted, plain;
+        int cpu_w = 0, mmu_w = 0;
+        bool ok = true;
+        auto mins = [](Fixture& fx) {
+            std::vector<int> m;
+            for (const PanelInfo& p : kPanels) m.push_back(fx.dock(p.title)->widget()->minimumWidth());
+            return m;
+        };
+        {
+            Fixture fx;   // no saved size: the opening fit runs
+            ok = fx.ok;
+            if (ok) {
+                settle(1800);   // past the fit's 1 s grace
+                fitted = mins(fx);
+                cpu_w = fx.dock("CPU Registers")->widget()->width();
+                mmu_w = fx.dock("MMU")->widget()->width();
+            }
+        }
+        wipe(dir);
+        { QSettings s(conf_path(dir), QSettings::IniFormat); s.setValue("debugger/size", QStringList{"2400", "1200"}); s.sync(); }
+        {
+            Fixture fx;   // a saved size: the fit never runs, nothing is ever raised
+            ok = ok && fx.ok;
+            if (fx.ok) plain = mins(fx);
+        }
+        check("QDOCK-17", "once the opening fit has ended every panel's minimum width is what it was before the fit (380 on the left column, the panel's own elsewhere)",
+              ok && !fitted.empty() && fitted == plain, "fitted vs plain differ");
+        check("QDOCK-18", "after the opening fit the CPU Registers and MMU panels are at least 250 px wide",
+              ok && cpu_w >= 250 && mmu_w >= 250, fmt("cpu %d mmu %d", cpu_w, mmu_w));
+    }
+
+    // QDOCK-19: every dock group's tab bar has scroll buttons, including one Qt creates while running.
+    {
+        wipe(dir);
+        Fixture fx;
+        std::string why;
+        if (!fx.ok) why = "fixture";
+        else {
+            auto bars = [&]() { return fx.host()->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly); };
+            const int n0 = bars().size();
+            for (QTabBar* b : bars()) if (!b->usesScrollButtons()) why += "initial bar without scroll buttons ";
+            fx.host()->tabifyDockWidget(fx.dock("CPU Registers"), fx.dock("MMU"));   // a new group, a new bar
+            settle(150);
+            if (bars().size() <= n0) why += fmt("no new bar (%d -> %d) ", n0, int(bars().size()));
+            for (QTabBar* b : bars()) if (!b->usesScrollButtons()) why += "new bar without scroll buttons ";
+        }
+        check("QDOCK-19", "every group tab bar of the dock host uses scroll buttons, also the bar Qt creates when two docks are tabified at run time",
+              why.empty(), why);
+    }
+
+    // QDOCK-20: a hand-edited layout value with a comma (QSettings hands it back as a list) is joined, not dropped.
+    {
+        wipe(dir);
+        {
+            QFile f(conf_path(dir));
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                f.write("[debugger]\nlayout=v1 float memory 100 120 300 340 float symbols,x 1 2 3 4\n");
+        }
+        Fixture fx;
+        std::string why;
+        if (!fx.ok) why = "fixture";
+        else {
+            if (!fx.dock("Memory")->isFloating()) why += "memory-not-floating (the value was refused as a whole) ";
+            if (fx.dock("Symbols")->isHidden() || fx.dock("Symbols")->isFloating()) why += "symbols-not-docked ";
+        }
+        check("QDOCK-20", "a hand-edited value with a comma (QSettings hands it back as a list) is joined and read: `float memory ...` floats Memory and the unknown `symbols,x` float is dropped, instead of the whole value being refused",
+              why.empty(), why);
+    }
+
+    // QDOCK-21: Window > Reset Layout gives the left column the width its widest page wants, after the user narrowed it.
+    {
+        wipe(dir);
+        Fixture fx;
+        std::string why;
+        if (!fx.ok) why = "fixture";
+        else {
+            settle(1800);
+            QDockWidget* vid = fx.dock("Video");
+            fx.host()->resizeDocks({vid}, {460}, Qt::Horizontal);
+            settle(200);
+            const int narrow = vid->widget()->width();
+            QAction* reset = fx.menu_action("Window", "Reset Layout");
+            if (reset) reset->trigger();
+            settle(300);
+            const int after = vid->widget()->width();
+            if (!reset || !(narrow < 580)) why += fmt("could not narrow (%d) ", narrow);
+            if (after < vid->widget()->sizeHint().width())
+                why += fmt("after reset %d < sizeHint %d ", after, vid->widget()->sizeHint().width());
+        }
+        check("QDOCK-21", "after the user narrowed the left column, Window > Reset Layout makes it at least as wide as its widest page's sizeHint",
+              why.empty(), why);
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", g_pass + g_fail, g_pass, g_fail);

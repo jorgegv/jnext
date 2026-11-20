@@ -279,6 +279,8 @@ private:
     /// What the left dock area's panels still lack in width (GH #360); the group's shown dock in `shown`.
     int left_column_lacking(QDockWidget** shown) const;
     QDockWidget* shown_dock_of(QDockWidget* d) const;
+    /// Height of the tab bar of `d`'s group (0 when it is alone): the area's size counts it, the dock's does not.
+    int tab_bar_height_of(QDockWidget* d) const;
 
     // Panels
     CpuPanel* cpu_panel_ = nullptr;

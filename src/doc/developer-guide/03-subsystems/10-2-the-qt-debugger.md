@@ -254,7 +254,7 @@ as the screenshot tool and some rows do, is then drawn at a real width); and the
 explicit minimum width of 380, as the tab widget they replaced did, because a page's own `minimumSizeHint()` (Video's
 is 700) would otherwise make the column wider than the widest page wants. A tabbed-away dock is still
 `isVisible()` (Qt moves it off screen instead of hiding it); a consumer that needs to know whether a panel is on show
-must use `QDockWidget::visibilityChanged()` or `visibleRegion()`, never the panel's `isVisible()`.
+must use `QDockWidget::visibilityChanged()` or `visibleRegion()`, never the panel's `isVisible()`. The Graphics panel is the one consumer today: it draws only while on show (`on_show()` in `graphics_panel.cpp` asks the group's tab bar) and the window connects its dock's `visibilityChanged(true)` to a redraw, since selecting its tab sends the panel no `showEvent()` and a paused window that did not change is not redrawn.
 
 **The saved layout.** `[debugger] layout` in `jnext.conf` is one line of plain text in a grammar of our own, not
 `QMainWindow::saveState()` (a binary Qt blob that depends on the Qt version): `"v1" { area | float | closed }`, in
