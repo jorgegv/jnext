@@ -4209,12 +4209,20 @@ the player area before the click so the player is not black on load.
 The emulator replaces it when the visitor starts the player.
 Without it nothing is shown there.
 .TP
-\f[CR]file\f[R] \f[I]URL | {url} | {data, name}\f[R]
+\f[CR]file\f[R] \f[I]URL | {url} | {data, name} | {card}\f[R]
 \f[B]\-\-load\f[R].
 The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R],
 \f[CR].wav\f[R], a \f[CR].rzx\f[R] recording, or a \f[CR].jns\f[R],
 \f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] snapshot); without
 it the machine boots to the NextZXOS menu.
+\f[CR]{card: \(aq/PATH/x.nex\(aq}\f[R] runs a NEX that is on the SD
+card: its path lies inside one entry of \f[CR]card.dirs\f[R], the
+directory that holds it is copied out of the card with everything below
+it, and that directory is served to the program with
+\f[B]\-\-esxdos\-stub\f[R] (read\-only unless \f[CR]args\f[R] has
+\f[B]\-\-esxdos\-stub\-writable\f[R]).
+It cannot be used with card source \f[CR]\(aqnone\(aq\f[R], and
+\f[CR]load()\f[R] refuses it.
 .TP
 \f[CR]keepWrites\f[R] \f[I]boolean\f[R]
 \f[B]\-\-sdcard\-writes\f[R], with a file the page manages: what the
