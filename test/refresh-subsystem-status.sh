@@ -256,6 +256,7 @@ BEGIN {
     M["bp_enable_test"]                = "Debugger BP Enable/Disable"
     M["resume_step_off_test"]          = "Debugger resume step-off"
     M["remote_transport_test"]         = "Debugger socket transport (GH #287)"
+    M["remote_pipe_test"]              = "Browser page debug channel (GH #545)"
     M["dzrp_adapter_test"]             = "DZRP remote debugger adapter (GH #12)"
     M["gdb_rsp_test"]                  = "GDB RSP remote debugger adapter (GH #281)"
     M["script_parse_test"]             = "Debugger DSL front end (GH #26)"

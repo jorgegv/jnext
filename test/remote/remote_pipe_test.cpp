@@ -182,18 +182,26 @@ static void pipe_rows() {
               first == "re:x" && second.empty(), esc(first) + "/" + esc(second));
     }
     {
+        // More than one 16 KiB read chunk (Connection::pull), patterned: a premature end of
+        // stream at the first chunk would lose everything past it.
         PipeRig r;
+        r.probe.reply = false;
         r.channel.host_open();
         r.pump(1);
-        hsend(r.channel, "xyz");
+        std::string big(40000, '\0');
+        for (std::size_t i = 0; i < big.size(); ++i)
+            big[i] = static_cast<char>((i * 7u + (i >> 8)) & 0xFF);
+        hsend(r.channel, big);
         r.channel.host_close();
-        r.pump();
+        r.pump(400);   // the probe reads 256 bytes a pass
         const int after_first = r.probe.disconnects;
         r.pump();
-        check("XPT-PIPE-05", "host_close(): bytes sent before it are still offered to "
-                             "on_service, then on_disconnect exactly once",
-              r.probe.got == "xyz" && after_first == 1 && r.probe.disconnects == 1,
-              esc(r.probe.got) + " d=" + std::to_string(r.probe.disconnects));
+        check("XPT-PIPE-05", "host_close(): 40000 bytes sent before it (over one 16 KiB read "
+                             "chunk) are all offered to on_service byte-exact, then "
+                             "on_disconnect exactly once",
+              r.probe.got == big && after_first == 1 && r.probe.disconnects == 1,
+              "got " + std::to_string(r.probe.got.size()) + " bytes d=" +
+                  std::to_string(r.probe.disconnects));
     }
     {
         PipeRig r;
@@ -228,11 +236,14 @@ static void pipe_rows() {
               esc(out));
     }
     {
-        PipeRig r;
+        PipeRig r(16);
         r.channel.host_open();
         hsend(r.channel, "q");
         r.pump();   // jnext ended it; the host has not been told
-        const PipeResult late = hsend(r.channel, "late");
+        // Two 10-byte sends on a 16-byte channel: both accepted only if they are dropped, not
+        // queued on the dead session.
+        const PipeResult late  = hsend(r.channel, "0123456789");
+        const PipeResult late2 = hsend(r.channel, "0123456789");
         r.pump();
         r.channel.take_output();
         const bool ended = r.channel.take_ended();
@@ -241,8 +252,9 @@ static void pipe_rows() {
         hsend(r.channel, "new");
         r.pump();
         check("XPT-PIPE-08", "host_send() after jnext ended the session, before take_ended(): "
-                             "accepted, delivered nowhere, and not to the next session",
-              late == PipeResult::Ok && ended && o == PipeResult::Ok && r.probe.connects == 2 &&
+                             "accepted (two 10-byte sends on a 16-byte channel both Ok: dropped, not "
+                             "queued), delivered nowhere, and not to the next session",
+              late == PipeResult::Ok && late2 == PipeResult::Ok && ended && o == PipeResult::Ok && r.probe.connects == 2 &&
                   r.probe.got == "new",
               esc(r.probe.got));
     }
@@ -290,6 +302,17 @@ static void pipe_rows() {
         check("XPT-PIPE-12", "Server::stop() with a session: on_disconnect once, and the host "
                              "(the channel outlives the listener) sees take_ended()",
               r.probe.disconnects == 1 && ended);
+    }
+    {
+        PipeRig r;
+        r.srv.stop();
+        const PipeResult o = r.channel.host_open();
+        const PipeResult s = hsend(r.channel, "x");
+        const PipeResult c = r.channel.host_close();
+        check("XPT-PIPE-13", "after Server::stop() with no session, host_open(), host_send() and "
+                             "host_close() each return NoChannel and take_output() is empty",
+              o == PipeResult::NoChannel && s == PipeResult::NoChannel &&
+                  c == PipeResult::NoChannel && r.channel.take_output().empty());
     }
 }
 

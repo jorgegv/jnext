@@ -4099,6 +4099,23 @@ static void wp5_history_rows() {
                   neg == reply_of("8000 ERROR: index can't be negative ", true),
               esc(pcs) + " / " + esc(clamp) + " / " + esc(neg));
 
+        // 64-BIT ARITHMETIC. The arguments are unsigned 32-bit numbers read with a sign; in a
+        // 32-bit `long` (WebAssembly, Windows) 4294967295 became -1 and these answered differently.
+        const std::string huge_get = c.cmd("cpu-history get 4294967295");
+        const std::string huge_pc  = c.cmd("cpu-history get-pc 4294967295 2");
+        const std::string huge_n   = c.cmd("cpu-history get-pc 0 4294967295");
+        const std::string min_get  = c.cmd("cpu-history get -2147483648");
+        check("ZRCP-HIS-20", "cpu-history indexes are 64-bit: get 4294967295 is \"index out of "
+                             "range\", get-pc 4294967295 2 two \"can't be negative\" elements, "
+                             "get-pc 0 4294967295 the three PCs (n clamped to the size), and get "
+                             "-2147483648 is \"index beyond total elements (3)\"",
+              huge_get == reply_of("ERROR: index out of range", true) &&
+                  huge_pc == reply_of("ERROR: index can't be negative ERROR: index can't be "
+                                      "negative ", true) &&
+                  huge_n == reply_of("8004 8002 8000 ", true) &&
+                  min_get == reply_of("ERROR: index beyond total elements (3)", true),
+              esc(huge_get) + " / " + esc(huge_pc) + " / " + esc(huge_n) + " / " + esc(min_get));
+
         const std::string bad0 = c.cmd("cpu-history set-max-size 0");
         const std::string big  = c.cmd("cpu-history set-max-size 1000001");
         const std::string two  = c.cmd("cpu-history set-max-size 2");
