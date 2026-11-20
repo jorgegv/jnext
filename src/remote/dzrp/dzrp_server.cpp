@@ -634,7 +634,8 @@ void DzrpServer::cmd_read_mem_blocks(const Command& cmd) {
         reply(cmd.seq);
         return;
     }
-    std::size_t total = 0;
+    // 64-bit: 65538 blocks of 0xFFFF wrap a 32-bit size_t (WebAssembly) to 65534, under the cap.
+    std::uint64_t total = 0;
     for (std::size_t at = 4; at < p.size(); at += 4) total += le16(p, at + 2);
     if (total + 1 > MAX_PAYLOAD_BYTES) {
         // The command's own cap, applied to the reply: a 16 MiB command could
@@ -653,7 +654,7 @@ void DzrpServer::cmd_read_mem_blocks(const Command& cmd) {
                                "- the blocks are served",
                                resp_length, total + 1);
 
-    std::vector<std::uint8_t> out(total);
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(total));
     std::size_t               filled = 0;
     for (std::size_t at = 4; at < p.size(); at += 4) {
         const std::uint16_t size = le16(p, at + 2);
