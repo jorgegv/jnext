@@ -426,6 +426,7 @@ void DebuggerWindow::apply_keymap() {
     bind(run_to_cursor_action_, Action::RunToCursor);
     bind(run_to_eof_action_,    Action::RunToEof);
     bind(run_to_eosl_action_,   Action::RunToEosl);
+    bind(run_to_int_action_,    Action::RunToInterrupt);
     bind(trace_enable_action_,  Action::TraceToggle);
     bind(trace_export_action_,  Action::TraceExport);
     bind(source_into_action_,    Action::SourceStepInto);
@@ -716,6 +717,10 @@ void DebuggerWindow::create_menus() {
 
     run_to_eosl_action_ = debug_menu->addAction(tr("Run to End of Scan &Line"));
     connect(run_to_eosl_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eosl);
+
+    // GH #372 - stop at the next maskable interrupt's entry (a transient IntAck + run).
+    run_to_int_action_ = debug_menu->addAction(tr("Run to Next &Interrupt"));
+    connect(run_to_int_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_interrupt);
 
     // GH #1 — "Run to Cursor", bindable but unbound by default and NOT a menu
     // item (see the header). addAction() on the window is what gives it a

@@ -4,7 +4,7 @@
 
 | option | type | what it is |
 |---|---|---|
-| `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. Without it the machine boots to the NextZXOS menu. |
+| `file` | URL, `{url}`, `{data, name}` or `{card}` | The program to run, as `--load`. `{card: '/GAMES/Next/Game/game.nex'}` runs a NEX that is on the SD card, with its directory (see [8.4](04-the-image-and-what-the-browser-keeps.md#a-program-from-the-card)). Without it the machine boots to the NextZXOS menu. |
 | `width`, `height` | number (CSS pixels) or CSS length | The box the player fills; the picture is letterboxed inside it. Default `100%`. |
 | `poster` | URL | A picture, a screenshot of the game, shown in the player area before the click so the player is not black on load. The emulator replaces it when the visitor starts the player. Without it nothing is shown there. |
 | `machine` | string | `--machine`. |
@@ -40,7 +40,8 @@ Program formats `file` accepts:
 | `ready` | A promise for the first ready; it rejects if the machine does not start, or if the startup program does not load. |
 | `pause()`, `resume()` | Stop and restart the frame loop. |
 | `reset(kind)` | `'program'` (default): restart the program; with no program, the same as `'hard'`. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
-| `load(file)` | Load another program (same forms as `file`) while the machine runs. Resolves when it is in the machine. |
+| `load(file)` | Load another program (same forms as `file`, except `{card}`: a program on the card is given to `mount()` as `file`, and `load()` rejects it) while the machine runs. Resolves when it is in the machine. |
+| `nmi()` | Press the NMI button (the Multiface one, as F9): NextZXOS's NMI Menu opens. Returns a promise; it rejects when the machine is not running, and with card source `'none'` (no Multiface ROM), with the reason as the error message and nothing sent to `onError`. |
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `saveSnapshot()` | Resolves to a `Uint8Array` holding a `.jns` snapshot of the running machine. |
 | `startRzxRecording()`, `stopRzxRecording()` | Record the machine and collect the `.rzx` file. |
@@ -173,6 +174,8 @@ the visitor has clicked and the player has its SD card (until then it is undefin
   the visitor can choose again.
 
 ### Player members in detail
+
+- `load({card: ...})` rejects with `jnext: load(): a program on the card is given to mount() as file: {card}`: the program's directory is served from the start of the session, which a program loaded later cannot ask for.
 
 - `startRzxRecording()` rejects when:
     - the machine is not running;

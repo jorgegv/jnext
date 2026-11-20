@@ -614,6 +614,27 @@ void DebuggerManager::on_run_to_eof() {
     apply_pause_state(false);
 }
 
+void DebuggerManager::on_run_to_interrupt() {
+    if (!enabled_) return;
+    if (!dbg_.state().paused) return;
+    if (!confirm_resume_if_corrupt()) return;   // Task 60e
+
+    // The DeZog pattern (run_verb): arm the transients, then run. A transient is
+    // hidden from the panel, exempt from the master switch, and dropped by the
+    // backend at the next stop or an explicit Pause - nothing stays armed.
+    jnext::dbg::Subscription s;
+    s.kind      = jnext::dbg::EventKind::IntAck;
+    s.action    = jnext::dbg::Action::Stop;
+    s.transient = true;
+    const auto id = dbg_.subscribe(client_, s);
+    if (!id) return;
+    if (dbg_.run(client_) != jnext::dbg::Result::Ok) {
+        dbg_.unsubscribe(client_, id.value);
+        return;
+    }
+    apply_pause_state(false);
+}
+
 void DebuggerManager::on_run_to_eosl() {
     if (!enabled_) return;
     if (!dbg_.state().paused) return;

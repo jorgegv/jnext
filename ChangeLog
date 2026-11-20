@@ -9,6 +9,8 @@
 - Browser: a page can put more of the NextZXOS distribution on the SD card (`data-card-dirs`, e.g. /GAMES,/APPS)
 - Second SD card slot (D: in NextZXOS): `--sdcard2`, Preferences and File menu insert/eject; read-only and writes-file options
 - `--no-sdcard` and `card: {source: 'none'}`: run a NEX with no SD card and no card download, desktop and web pages
+- Live browser demo at jorgegv.github.io/jnext: NextZXOS, Warhawk and TX-1696 from the official distribution
+- Browser widget: NMI button; a page can run a NEX straight from the SD card with its data files
 
 ### Developer Features
 - Disassembly: the PC line shows whether a conditional jump, call or return is taken, and the value at its memory operand
@@ -22,6 +24,7 @@
 - Disassembly: a taken jump, call or return shows its direction and marks its destination line; RET and JP (HL) name their target
 - Debugger Graphics tab: sprite patterns, tile definitions and all eight palettes with RGB333 values and priority
 - Debugger window: call tracking only while the Call Stack or Variables tab shows, with the calls already on the stack rebuilt
+- Debugger breakpoints gain ranges, conditions, IO masks, Interrupt/NMI types, hit counts and count-only; Run to Next Interrupt
 
 ### Bug Fixes
 - Web example pages fit a phone screen instead of being laid out at desktop width and shrunk

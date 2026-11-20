@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.29</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.29</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3157,7 +3157,7 @@ code departs from it. This page describes the code.</p>
 </tr>
 <tr>
 <td><code>bp_script.{h,cpp}</code></td>
-<td>the Breakpoints panel's breakpoint file: <code>bp_script_text()</code> spells a list of <code>BpSpec</code> (the panel's six breakpoint types, a symbol-qualified Execute, a source line) as plain <code>LABEL: on EVENT FILTER do stop end</code> rules and refuses what has no faithful spelling (a <code>; not saved:</code> comment and a <code>refused</code> line, never <code>page N</code>); <code>bp_specs_from_script()</code> reads such a file back, all or nothing, refusing everything that is not one plain <code>stop</code> breakpoint. Qt-free: <code>BreakpointModel::script_specs()</code> / <code>add_specs()</code> are the Qt glue</td>
+<td>the Breakpoints panel's breakpoint file: <code>bp_script_text()</code> spells a list of <code>BpSpec</code> (the panel's breakpoint types, including the addressless <code>on interrupt</code> / <code>on nmi</code>, a symbol-qualified Execute, a source line) as plain <code>LABEL: on EVENT FILTER [when COND] do stop end</code> rules (<code>do end</code> for a count-only one; the filter a single address, a <code>lo..hi</code> range or an IO <code>mask M value V</code>) and refuses what has no faithful spelling (a <code>; not saved:</code> comment and a <code>refused</code> line, never <code>page N</code>); <code>bp_specs_from_script()</code> reads such a file back, all or nothing, refusing everything that is not one <code>stop</code> or empty-body (count-only) breakpoint (a <code>when</code> is read from <code>Rule::when_text</code>, the parser's record of the expression's source, and must pass <code>bp_condition_problem()</code>). Qt-free: <code>BreakpointModel::script_specs()</code> / <code>add_specs()</code> are the Qt glue</td>
 </tr>
 <tr>
 <td><code>script_host.{h,cpp}</code></td>
@@ -3584,7 +3584,7 @@ and <a href="10-7-extending-the-debug-subsystem.html">3.10.7</a>), and have its 
 </tr>
 <tr>
 <td><code>bp_script_test</code></td>
-<td>the breakpoint file codec (BPJ-*): the spelling of every breakpoint type, each refusal, the round trip, the decoder's refusals, and the engine as an independent reader of the saved text</td>
+<td>the breakpoint file codec (BPJ-*): the spelling of every breakpoint type (Interrupt, NMI and count-only included), each refusal, the round trip, the decoder's refusals, and the engine as an independent reader of the saved text</td>
 </tr>
 <tr>
 <td><code>script_record_test</code></td>

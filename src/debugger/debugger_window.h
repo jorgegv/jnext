@@ -343,6 +343,7 @@ private:
     QAction* source_open_action_ = nullptr;   // GH #480
     QAction* frame_back_action_ = nullptr;
     QAction* run_to_eof_action_ = nullptr;
+    QAction* run_to_int_action_ = nullptr;
     QAction* run_to_eosl_action_ = nullptr;
     QAction* trace_export_action_ = nullptr;
     /// GH #1 — "Run to Cursor" as a bindable window command. Deliberately NOT

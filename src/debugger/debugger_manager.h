@@ -175,6 +175,11 @@ public slots:
     void on_step_over();
     void on_step_out();
     void on_run_to_eof();
+    /// GH #372 - Debug > Run to Next Interrupt: run, and stop at the entry of the
+    /// next maskable interrupt (PC 0x0038 in IM 1). Not a backend verb: a
+    /// transient IntAck armed just before the run, which the backend drops at the
+    /// next stop or Pause.
+    void on_run_to_interrupt();
     void on_run_to_eosl();
     void on_step_back();
     void on_rewind_to_frame(uint32_t frame_num);

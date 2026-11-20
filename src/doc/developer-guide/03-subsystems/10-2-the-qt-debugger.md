@@ -34,13 +34,55 @@ the default (`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
 **The breakpoints' owner** is a non-arming observer client, attached by
 `BreakpointModel` (`src/debugger/breakpoint_model.*`) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
-`Execute`, `Mem` and `Port` subscriptions with no condition, `once = false` and
-action `Stop`. READ, WRITE and READ_WRITE are one `Mem` subscription with an
+`Execute`, `Mem` and `Port` subscriptions (a `lo..hi` range on the first two, a port `mask`/`value`), and the
+addressless `IntAck` and `Nmi` ones (the Interrupt and NMI types), with `once = false`, and a condition when
+the dialog gave one. A
+breakpoint stops: action `Stop` and no handler. A *count-only* one is action `Continue`
+plus a handler of the model that counts. READ, WRITE and READ_WRITE are one `Mem` subscription with an
 access mask. An I/O address `00`-`FF` is a low-byte match (`port_mask 0x00FF`);
 `0100` and up is exact. Because the observer never detaches and arms
 nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.
+
+`BreakpointModel::Type` and the codec's `BpSpec::Kind` are one numbering (a
+`static_assert` pins it), and the codec owns the type-name table (`bp_kind_name()`)
+and the port rule (`bp_port_mask_for()`): the model has no copy of either. Another
+client's `IntAck` or `Nmi` Stop subscription is a typed but read-only row, with an empty
+Address.
+
+**Hit counts need no backend counter** and follow the script engine's own split
+(`account_static_stops` / `run_rule`). A Stop breakpoint stays a static Stop with no
+handler (ZRCP's `other_breakpoint_at` and the step loops depend on that) and is counted
+in the model's `on_paused()` from `PausedInfo::matched`, for its own ids only. A count-only
+one counts in its handler, which captures the model (its destructor detaches the client,
+which removes the subscription: SES-01). `extras_` holds what the backend cannot report
+(which own ids are count-only), and `publish_()` prunes it and the counts with the listing.
+`sync()` emits `hits_changed()` once when a count moved and the panel rewrites only its
+Hits cells: never `changed()`, which would repaint the gutter every frame. A count dies
+with its subscription (Edit = a new id) and is not saved. The `(type, address, space)`
+API keeps meaning the plain breakpoint, and the gutters read plain members only, so a
+count-only breakpoint at an address is a separate row. `QBPX-15` pins the GUI's counts to
+the engine's `RuleView::hits` for the same rule.
+
+**A breakpoint's identity is its full spec** (`BpSpec`: kind, address, range end, space, port mask, condition,
+count-only). `add(const BpSpec&)` is idempotent on it, and a plain breakpoint and a conditional one at one address are
+two rows. The `(type, address, space)` API and the gutters mean the *plain* breakpoint (`plain_()`: one address, the
+address rule's mask, no condition). `extras_` (by id, own subscriptions only) holds what the backend cannot report:
+count-only, the condition text and the shared slot its predicate writes a run-time error to. `type_of()` types a
+subscription iff the dialog can make that exact one: another client's range or masked port is typed (so its Type and
+Address texts read as before) but stays read-only, and its condition or handler stays typeless. A condition is compiled in
+the kind's payload scope (`bp_scope()`, the checker's own `scope_of`) with `compile_expr`; the same
+`bp_condition_problem()` check the dialog and the codec use refuses a text that does not read back as itself. A
+run-time failure marks `hits_changed()` so the panel refreshes the Condition cell's tooltip.
+
+**Run to Next Interrupt** (Debug menu, the `run_to_interrupt` keymap action, unbound by
+default) is not a backend verb. `DebuggerManager::on_run_to_interrupt()` arms a
+*transient* `IntAck` Stop subscription and calls `run()`: the transient is hidden from the
+panel, exempt from the master switch, and dropped by the backend at the next stop or an
+explicit `pause()` (the DeZog "arm, then continue" contract in `Impl::run_verb`). A refused
+`run()` unsubscribes it. Rows: `QRTI-*` in `debugger_verbs_test`, `QKM-RTI-01` in
+`debugger_keymap_test`.
 
 The model also converts its own rows to and from the breakpoint file codec
 (`script/bp_script.h`, see [3.10.6](13-the-debugger-scripting-language.md)):
@@ -168,10 +210,10 @@ moved; the greying of a paged label whose page is not what `source_page()` repor
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: `QSYML-*`.
 
-**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1097`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:398`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1086`; `PausedStamp`,
-`debugger_manager.h:257`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1118`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:403`: ~4 Hz). Paused, it
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1107`; `PausedStamp`,
+`debugger_manager.h:262`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:
 
@@ -193,7 +235,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:575`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:1077`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:1098`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -202,7 +244,7 @@ is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
 
 **The window's opening size.** A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
-`debugger_window.cpp:538`, queued from the first `showEvent()`); a size restored from the config file is left
+`debugger_window.cpp:539`, queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
 it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
@@ -212,8 +254,8 @@ so the fit is bounded in time as well: a resize to a size the fit asked for or s
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
 at most `kMaxFitEchoes` = 6 times: the answer queues a pass, and the pass asks again and counts it, once
 (`resizeEvent()`, `debugger_window.cpp:520-531`); any other size is the user's and ends the fit
-(`end_fit_()`, `debugger_window.cpp:509`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
-pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:557-562`), after which every size is the user's and the remembered sizes are
+(`end_fit_()`, `debugger_window.cpp:510`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
+pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:558-563`), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (`fit_passes_queued_`, `queue_fit_pass_()`), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's), `GR-08` (an earlier request landing while a pass is queued), `GR-09` (a user resize while the fit runs stands), `GR-10` (each late answer counts once: the 7th stands) and `GR-11` (a loop stalled past the grace window does not end the fit), `GR-12` (the bound holds on the pass's own path), `GR-13` and `GR-14` (the grace waits for the pass a re-ask, or a late answer, queued), in `debugger_window_grow_test`; `GR-09` to `GR-14` use a window no window manager sees.
 

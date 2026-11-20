@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.29</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.29</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4549,7 +4549,7 @@ is yours to add: see <a href="02-options-and-the-player.html">8.2</a>.</p>
 <li>a rounded frame with a title bar;</li>
 <li>a progress bar while NextZXOS's card is made and the machine starts;</li>
 <li>the usual "click to start" overlay (over the <code>data-poster</code> picture when there is one);</li>
-<li>a toolbar: Pause or Resume, Reset, Mute or Unmute, Fullscreen;</li>
+<li>a toolbar: Pause or Resume, Reset, NMI (when the element has <code>data-nmi</code>), Mute or Unmute, Fullscreen;</li>
 <li>a status line.</li>
 </ul>
 <p>Every element with the class <code>jnext-widget</code> gets a player, so a page can hold several.</p>
@@ -4598,6 +4598,16 @@ is yours to add: see <a href="02-options-and-the-player.html">8.2</a>.</p>
 <td><code>data-touch-keyboard</code></td>
 <td>the on-screen keyboard (<code>touchKeyboard</code>): <code>auto</code>, <code>on</code> or <code>off</code></td>
 <td><code>auto</code>: shown on a phone or tablet</td>
+</tr>
+<tr>
+<td><code>data-card-file</code></td>
+<td>a NEX on the SD card to run with its directory (<code>file: {card: ...}</code>, <a href="04-the-image-and-what-the-browser-keeps.html#a-program-from-the-card">8.4</a>); <code>data-card-dirs</code> must cover its directory. Not together with <code>data-file</code>: that is an error in the status line</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>data-nmi</code></td>
+<td>add an NMI button after Reset (the Multiface NMI, F9: it opens NextZXOS's NMI Menu); it stays disabled with <code>data-card-source="none"</code>, which has no Multiface ROM. Any value</td>
+<td>off</td>
 </tr>
 <tr>
 <td><code>data-title</code></td>
