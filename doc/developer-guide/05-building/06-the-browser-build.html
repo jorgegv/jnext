@@ -3591,7 +3591,7 @@ case; a string prefix such as <code>/GAMES/Next/TX</code> does not cover <code>/
 (<code>jnext_api.js</code>, <code>copyProgram</code>) then calls <code>jnext_card_copy_program</code> (<code>card_builder_web.cpp</code>), which runs
 <code>card_extract::copy_program_dir</code> (<code>src/core/card_extract.cpp</code>): FatFs mounts the card read-only in effect (it
 never writes), finds the NEX case-insensitively and copies its directory, only that subtree, into
-<code>/media/&lt;k&gt;-card/</code>, up to 48 MiB of file bytes, 65,536 entries (files and directories together; a card can alias one directory under many names) and 32 levels of depth: past any of them the copy is refused. <code>substitute()</code> then sets <code>file</code> to the copy and adds the internal
+<code>/media/&lt;k&gt;-card/</code>, up to 48 MiB of file bytes, 4,096 entries (files and directories together: FatFs opens each file by path and rescans its directory, so a wide directory costs quadratic time, and a card can alias one directory under many names) and 32 levels of depth: past any of them the copy is refused. <code>substitute()</code> then sets <code>file</code> to the copy and adds the internal
 <code>$serveDir: true</code>, which <code>build_argv</code> turns into <code>--esxdos-stub</code>; the page layer refuses every option whose
 name starts with <code>$</code>, and <code>load({card})</code>. The copy is all or nothing: a failure removes it and the message names the path
 (<code>the card has no /GAMES/...</code>). Tests: <code>MCARD-CP-01..03</code> (the extractor, on the Builder's synthetic card),
