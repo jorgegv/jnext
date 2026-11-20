@@ -744,6 +744,33 @@ static void event_rows() {
               dstr(P("var read_write = 1").error) + dstr(P("read_write: on frame do end").error));
     }
     {
+        // GH #372: the source text of a `when`, for the Breakpoints panel's file codec (the AST has no printer).
+        const ParseResult a = P("on execute 0x8000 when A == 1 and mem[0x9000] != 0 do stop end");
+        const ParseResult b = P("on execute 0x8000 when A == 1 \t  do stop end");
+        const ParseResult c = P("on execute 0x8000 do stop end");
+        check("PARSE-WHEN-TEXT-01", "`Rule::when_text` is the `when` expression's source, from its first token to just before `do`, "
+                                    "right-trimmed (a tab and spaces before `do` are not in it); empty with no `when`",
+              a.ok() && b.ok() && c.ok() && a.script.rules[0].when_text == "A == 1 and mem[0x9000] != 0" &&
+                  b.script.rules[0].when_text == "A == 1" && c.script.rules[0].when_text.empty(),
+              a.ok() ? "[" + a.script.rules[0].when_text + "]" : dstr(a.error));
+    }
+    {
+        // Non-ASCII text before `when` on the same line: the lexer's columns count code points, the text is sliced by byte.
+        const ParseResult r = P("on execute \"caf\xC3\xB1.bas:10\" when A == 1 do stop end");
+        check("PARSE-WHEN-TEXT-03", "`Rule::when_text` is exact when the line holds non-ASCII text (a source-line file name) before `when`",
+              r.ok() && r.script.rules.size() == 1 && r.script.rules[0].when_text == "A == 1",
+              r.ok() ? "[" + r.script.rules[0].when_text + "]" : dstr(r.error));
+    }
+    {
+        // A `when` over two lines, a comment ending the first: the text keeps both lines and the comment.
+        const ParseResult r = P("on execute 0x8000 when A == 1 ; first\n   and B == 2 do stop end\n");
+        const std::string want = "A == 1 ; first\n   and B == 2";
+        check("PARSE-WHEN-TEXT-02", "a `when` over two lines gives text with the line break and the comment, and the rule parses as before",
+              r.ok() && r.script.rules.size() == 1 && r.script.rules[0].when && r.script.rules[0].body.size() == 1 &&
+                  r.script.rules[0].when_text == want,
+              r.ok() ? "[" + r.script.rules[0].when_text + "]" : dstr(r.error));
+    }
+    {
         const ParseResult r = P("on write 0xC000..0xFFFF page 0x22 do end");
         const EventSpec* e = ev0(r);
         check("PARSE-EV-PAGE-QUAL", "`on write LO..HI page P` — a range qualified by a physical page",

@@ -125,6 +125,8 @@ script      ::= { toplevel }
 toplevel    ::= var_decl | rule | NEWLINE
 var_decl    ::= "var" IDENT "=" expr
 rule        ::= [ [ "disabled" ] IDENT ":" ] "on" event [ "once" ] [ "when" expr ] "do" { action } "end"
+            # the parser also keeps the `when` expression's source text (Rule::when_text), which the Breakpoints
+            # panel's file codec (script/bp_script.h) reads: the AST has no expression printer
 
 event       ::= "execute"  addr_spec
               | "read"     addr_spec

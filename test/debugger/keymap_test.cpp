@@ -1352,6 +1352,31 @@ void test_script_keys() {
     }
 }
 
+// ── QKM-RTI: Debug > Run to Next Interrupt is a bindable window command (GH #372) ──
+//
+// Oracle: the GH #1 keymap contract (apply_keymap() installs every shortcut from the user's
+// keymap; an action bound to `none` carries no shortcut).
+
+void test_run_to_interrupt_key() {
+    DebuggerFixture fx;
+    const char* desc = "run_to_interrupt, bound to Ctrl+F9, is installed on the Debug > Run to Next Interrupt item "
+                       "(and `none` leaves it unbound)";
+    if (!fx.ok) { check("QKM-RTI-01", desc, false, "fixture failed"); return; }
+    QAction* a = action_named(fx.dbg, "Run to Next &Interrupt");
+    const bool unbound_default = a && a->shortcuts().isEmpty();
+    Keymap km;
+    km.set(Action::RunToInterrupt, parsed("Ctrl+F9"));
+    fx.dbg->set_keymap(km);
+    QApplication::processEvents();
+    const bool bound = a && a->shortcut() == to_key_sequence(parsed("Ctrl+F9"));
+    Keymap none;
+    none.set(Action::RunToInterrupt, parsed("none"));
+    fx.dbg->set_keymap(none);
+    QApplication::processEvents();
+    check("QKM-RTI-01", desc, a && unbound_default && bound && a->shortcuts().isEmpty(),
+          a ? a->shortcut().toString().toStdString() : std::string("no such action"));
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
@@ -1381,6 +1406,7 @@ int main(int argc, char** argv) {
     test_keymap_survives_a_late_window();
     test_source_keys();
     test_nav_keys();
+    test_run_to_interrupt_key();
     test_debugger_menu_focus();
     test_script_keys();
 

@@ -27,7 +27,7 @@ code departs from it. This page describes the code.
 | `evaluator.{h,cpp}` | evaluation over a checked tree; `make_condition()` (a rule's `when` as a backend predicate); `machine_code()` |
 | `expr_compiler.{h,cpp}` | the public library surface: `compile_expr()`, `eval_expr()` |
 | `script_engine.{h,cpp}` | `ScriptEngine`: loaded scripts as backend subscriptions; the actions; stop and exit |
-| `bp_script.{h,cpp}` | the Breakpoints panel's breakpoint file: `bp_script_text()` spells a list of `BpSpec` (the panel's six breakpoint types, a symbol-qualified Execute, a source line) as plain `LABEL: on EVENT FILTER do stop end` rules and refuses what has no faithful spelling (a `; not saved:` comment and a `refused` line, never `page N`); `bp_specs_from_script()` reads such a file back, all or nothing, refusing everything that is not one plain `stop` breakpoint. Qt-free: `BreakpointModel::script_specs()` / `add_specs()` are the Qt glue |
+| `bp_script.{h,cpp}` | the Breakpoints panel's breakpoint file: `bp_script_text()` spells a list of `BpSpec` (the panel's breakpoint types, including the addressless `on interrupt` / `on nmi`, a symbol-qualified Execute, a source line) as plain `LABEL: on EVENT FILTER [when COND] do stop end` rules (`do end` for a count-only one; the filter a single address, a `lo..hi` range or an IO `mask M value V`) and refuses what has no faithful spelling (a `; not saved:` comment and a `refused` line, never `page N`); `bp_specs_from_script()` reads such a file back, all or nothing, refusing everything that is not one `stop` or empty-body (count-only) breakpoint (a `when` is read from `Rule::when_text`, the parser's record of the expression's source, and must pass `bp_condition_problem()`). Qt-free: `BreakpointModel::script_specs()` / `add_specs()` are the Qt glue |
 | `script_host.{h,cpp}` | `ScriptHost`: what the three loop owners hold to run `--script`, `--script-key`, `--map` and `--record-script` |
 | `recorder.{h,cpp}`, `key_names.{h,cpp}` | the recorder, and the key names it writes |
 | `src/platform/recording_info.h` | `recording_info_of()`: the recorder's header facts, taken from the booted machine |
@@ -420,7 +420,7 @@ and [3.10.7](10-7-extending-the-debug-subsystem.md)), and have its own
 | `script_parse_test` | grammar, error positions, precedence, the payload table, every name against a real `Debugger`, every worked script of the design |
 | `script_eval_test` | the value model, the snapshot stacks, interpolation |
 | `script_events_test` | the engine on real 48K and Next machines, the `ScriptHost` (SCRIPT-HOST-*) and the stop/exit rules |
-| `bp_script_test` | the breakpoint file codec (BPJ-*): the spelling of every breakpoint type, each refusal, the round trip, the decoder's refusals, and the engine as an independent reader of the saved text |
+| `bp_script_test` | the breakpoint file codec (BPJ-*): the spelling of every breakpoint type (Interrupt, NMI and count-only included), each refusal, the round trip, the decoder's refusals, and the engine as an independent reader of the saved text |
 | `script_record_test` | the recorder, including a record → emit → replay round trip on a fresh machine (REC-RT-*) |
 | QBPJ-* (`debugger_verbs_test`) | Breakpoints > Save as Script / Load from Script through the real menu, dialogs and boxes, and a round trip into a fresh session |
 | QSCR-* (`debugger_panels_test`), DKSK-* (`debugger_keymap_test`), H-SCRIPT-* (`host_hotkey_test`), HKL-SK-* (`host_key_latch_test`) | the Qt Script tab and menu, the host keys in both windows |

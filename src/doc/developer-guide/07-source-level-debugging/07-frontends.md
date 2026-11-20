@@ -37,7 +37,7 @@ File list's cached items (`combo_files_`) and the reason `report_sidecars()` gav
 `SourcePanel::refresh_()` (`source_panel.cpp:616`) runs while the machine is paused,
 whenever the window's paused stamp changed ([3.10.2](../03-subsystems/10-2-the-qt-debugger.md):
 the stamp carries a flag for "the loaded file changed on disk",
-`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:1051`; the flag is
+`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:1072`; the flag is
 `SourcePanel::file_changed_on_disk()`, `source_panel.cpp:575`). In order:
 
 1. `update_buttons(paused)` (`source_panel.cpp:517`): the forward steps need a paused machine and a
@@ -79,7 +79,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`source_panel.cpp:581`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1742`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1747`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -108,12 +108,12 @@ and MainWindow logs `Source search path: ...`.
 ### Loading a map by hand
 
 The Source tab's **Load Source Map...** button and the Debug > Source > Load Source Map... item
-are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:945`). Its file dialog
+are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:966`). Its file dialog
 offers `*.sld`, `*.sld.txt` and `*.map`; the backend tells the format by content
 ([7.3](03-loaders.md)), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 `load_map()`; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:987`):
+rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:1008`):
 the log, and the main window's status bar for ten seconds.
 
 ### Colouring

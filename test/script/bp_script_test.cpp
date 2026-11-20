@@ -332,14 +332,11 @@ static void load_rows(Fix& f) {
         const char* const bad[] = {
             "var x = 1\non execute 0x8000 do stop end\n",
             "on execute 0x8000 once do stop end\n",
-            "on execute 0x8000 when A == 1 do stop end\n",
             "on execute 0x8000 do stop \"msg\" end\n",
             "on execute 0x8000 do stop stop end\n",
             "on execute 0x8000 do log \"x\" end\n",
-            "on read 0x9000..0x90FF do stop end\n",
             "on read 0x9000 page 1 do stop end\n",
             "on read page 1 do stop end\n",
-            "on io_read mask 0xFF value 0xFE do stop end\n",
             "on io_read 0xFE..0xFF do stop end\n",
             "on execute 0x8000+1 do stop end\n",
             "on execute 0x10000 do stop end\n",
@@ -353,8 +350,8 @@ static void load_rows(Fix& f) {
             const BpRead r = bp_specs_from_script(t, d);
             if (r.ok() || !r.specs.empty() || r.errors.size() != 1 || r.errors[0].pos.line != 1) miss += std::string("[") + t + "] ";
         }
-        check("BPJ-14", "each of var, once, when, a message, two actions, log, a range, page, page-only, mask/value, an "
-                        "io range, an expression address, an address past 0xFFFF (execute and read), on frame, on stop, on nextreg is refused with one positioned "
+        check("BPJ-14", "each of var, once, a message, two actions, log, page, page-only, "
+                        "an io range, an expression address, an address past 0xFFFF (execute and read), on frame, on stop, on nextreg is refused with one positioned "
                         "error and no specs",
               miss.empty(), miss);
     }
@@ -394,6 +391,7 @@ struct Expect {
     uint16_t  port_mask, port_value;
     Access    access;
     bool      enabled;
+    bool      conditional = false;   // GH #372: the rule has a `when`
 };
 
 static std::vector<Expect> expected_subs(const std::vector<BpSpec>& specs) {
@@ -403,22 +401,30 @@ static std::vector<Expect> expected_subs(const std::vector<BpSpec>& specs) {
             case BpSpec::Execute:
                 if (!s.file_line.empty()) {
                     for (const auto& l : s.locations)
-                        out.push_back({EventKind::Execute, l.address, l.address, l.space, 0, 0, Access::ReadWrite, s.enabled});
+                        out.push_back({EventKind::Execute, l.address, l.address, l.space, 0, 0, Access::ReadWrite, s.enabled,
+                                       !s.condition.empty()});
                 } else {
-                    out.push_back({EventKind::Execute, s.addr, s.addr, s.space, 0, 0, Access::ReadWrite, s.enabled});
+                    out.push_back({EventKind::Execute, s.addr, bp_effective_hi(s), s.space, 0, 0, Access::ReadWrite, s.enabled,
+                                   !s.condition.empty()});
                 }
                 break;
             case BpSpec::Read:
             case BpSpec::Write:
             case BpSpec::ReadWrite:
-                out.push_back({EventKind::Mem, s.addr, s.addr, MemSpace::cpu(), 0, 0,
+                out.push_back({EventKind::Mem, s.addr, bp_effective_hi(s), MemSpace::cpu(), 0, 0,
                                s.kind == BpSpec::Read ? Access::Read : s.kind == BpSpec::Write ? Access::Write : Access::ReadWrite,
-                               s.enabled});
+                               s.enabled, !s.condition.empty()});
                 break;
             case BpSpec::IoRead:
             case BpSpec::IoWrite:
-                out.push_back({EventKind::Port, 0, 0, MemSpace::cpu(), static_cast<uint16_t>(s.addr <= 0xFF ? 0x00FF : 0xFFFF),
-                               s.addr, s.kind == BpSpec::IoRead ? Access::Read : Access::Write, s.enabled});
+                out.push_back({EventKind::Port, 0, 0, MemSpace::cpu(), bp_effective_mask(s),
+                               s.addr, s.kind == BpSpec::IoRead ? Access::Read : Access::Write, s.enabled,
+                               !s.condition.empty()});
+                break;
+            case BpSpec::Interrupt:
+            case BpSpec::Nmi:
+                out.push_back({s.kind == BpSpec::Interrupt ? EventKind::IntAck : EventKind::Nmi, 0, 0, MemSpace::cpu(), 0, 0,
+                               Access::ReadWrite, s.enabled, !s.condition.empty()});
                 break;
         }
     }
@@ -430,6 +436,269 @@ static std::vector<jnext::dbg::SubscriptionInfo> engine_subs(const Debugger& d, 
     for (const auto& s : d.subscriptions(true))
         if (s.owner == e.client()) out.push_back(s);
     return out;
+}
+
+static BpSpec counted(BpSpec b) {
+    b.count_only = true;
+    return b;
+}
+
+// ---- GH #372: Interrupt / NMI -----------------------------------
+
+static void save_interrupt_rows(Fix& f) {
+    const Debugger& d = *f.dbg;
+    const std::vector<BpSpec> ints = {spec(BpSpec::Interrupt, 0), spec(BpSpec::Nmi, 0), spec(BpSpec::Interrupt, 0, false)};
+    {
+        const BpScript o = bp_script_text(ints, d);
+        const std::string want = kHeader +
+            "bp1: on interrupt do stop end\n"
+            "bp2: on nmi do stop end\n"
+            "disabled bp3: on interrupt do stop end\n";
+        check("BPJ-22", "Interrupt and NMI are `on interrupt` / `on nmi` rules (the DSL's own events), a disabled one is "
+                        "`disabled bp3: ...`; nothing refused",
+              o.text == want && o.refused.empty(), o.text);
+    }
+    {
+        const BpRead r = bp_specs_from_script("on interrupt do stop end\non nmi do stop end\n", *f.dbg);
+        const BpRead rt = bp_specs_from_script(bp_script_text(ints, d).text, d);
+        check("BPJ-23", "`on interrupt` / `on nmi` decode to kinds Interrupt / Nmi with no address, and the saved set reads back "
+                        "equal",
+              r.ok() && r.specs.size() == 2 && r.specs[0].kind == BpSpec::Interrupt && r.specs[1].kind == BpSpec::Nmi &&
+                  r.specs[0].addr == 0 && rt.ok() && rt.specs == ints,
+              specs_str(r.specs) + dstr(r.errors) + specs_str(rt.specs) + dstr(rt.errors));
+    }
+    {
+        const char* names[] = {"Execute", "Read", "Write", "Read/Write", "IO Read", "IO Write", "Interrupt", "NMI"};
+        std::string bad;
+        for (int k = 0; k < 8; ++k)
+            if (std::string(bp_kind_name(static_cast<BpSpec::Kind>(k))) != names[k]) bad += std::to_string(k) + " ";
+        check("BPJ-25", "bp_kind_name gives the Type column's eight names for kinds 0..7 and the port rule is 00FF below 0100, "
+                        "FFFF from it",
+              bad.empty() && bp_port_mask_for(0x00FF) == 0x00FF && bp_port_mask_for(0x0100) == 0xFFFF, bad);
+    }
+}
+
+static void save_count_rows(Fix& f) {
+    const Debugger& d = *f.dbg;
+    const std::vector<BpSpec> in = {counted(spec(BpSpec::Execute, 0x8000)), counted(spec(BpSpec::Read, 0x9000)),
+                                    counted(spec(BpSpec::IoRead, 0x00FE)), counted(spec(BpSpec::Interrupt, 0)),
+                                    counted(spec(BpSpec::Execute, 0x8001, false)), spec(BpSpec::Write, 0x9001)};
+    {
+        const BpScript o = bp_script_text(in, d);
+        const std::string want = kHeader +
+            "bp1: on execute 0x8000 do end\n"
+            "bp2: on read 0x9000 do end\n"
+            "bp3: on io_read 0xFE do end\n"
+            "bp4: on interrupt do end\n"
+            "disabled bp5: on execute 0x8001 do end\n"
+            "bp6: on write 0x9001 do stop end\n";
+        check("BPJ-26", "a count-only breakpoint is a rule with an EMPTY body (`do end`) for Execute, Read, IO Read, Interrupt "
+                        "and a disabled one; a plain one still ends in `do stop end`",
+              o.text == want && o.refused.empty(), o.text);
+    }
+    {
+        const BpRead a = bp_specs_from_script("on execute 0x8000 do end\non execute 0x8001 do stop end\n", d);
+        const BpRead rt = bp_specs_from_script(bp_script_text(in, d).text, d);
+        const BpRead log = bp_specs_from_script("on execute 0x8000 do log \"x\" end\n", d);
+        check("BPJ-27", "`do end` decodes to count_only and `do stop end` does not; the saved set reads back equal; a body of "
+                        "`log` is still refused with one positioned error",
+              a.ok() && a.specs.size() == 2 && a.specs[0].count_only && !a.specs[1].count_only && rt.ok() && rt.specs == in &&
+                  !log.ok() && log.specs.empty() && log.errors.size() == 1 && log.errors[0].pos.line == 1,
+              specs_str(a.specs) + dstr(a.errors) + specs_str(rt.specs) + dstr(rt.errors) + dstr(log.errors));
+    }
+    {
+        Fix g;
+        const auto starts = g.line10();
+        const std::vector<BpSpec> src = {counted(source_line("main.bas:10", starts))};
+        const BpScript o = bp_script_text(src, *g.dbg);
+        const BpRead rt = bp_specs_from_script(o.text, *g.dbg);
+        check("BPJ-29", "a count-only source line is `on execute \"FILE:LINE\" do end` and reads back with its places = "
+                        "resolve().starts and count_only set",
+              o.text == kHeader + "bp1: on execute \"main.bas:10\" do end\n" && rt.ok() && rt.specs == src &&
+                  rt.specs.size() == 1 && rt.specs[0].count_only && same_locations(rt.specs[0].locations, starts),
+              o.text + specs_str(rt.specs) + dstr(rt.errors));
+    }
+}
+
+
+// ---- GH #372 stage 3: ranges, IO masks, conditions ------------------------------
+
+static BpSpec ranged(BpSpec::Kind k, uint16_t lo, uint16_t hi) {
+    BpSpec s = spec(k, lo);
+    s.hi     = hi;
+    return s;
+}
+static BpSpec masked(BpSpec::Kind k, uint16_t value, uint16_t mask) {
+    BpSpec s = spec(k, value);
+    s.mask   = mask;
+    return s;
+}
+static BpSpec when(BpSpec s, const char* cond) {
+    s.condition = cond;
+    return s;
+}
+
+// Every new spelling in one set: the saver's input (BPJ-30..32), the decoder's expected output (BPJ-34) and
+// the engine's input (BPJ-36).
+static std::vector<BpSpec> s3_set(const std::vector<::SourceAddress>& line10) {
+    return {ranged(BpSpec::Execute, 0x8000, 0x80FF),
+            ranged(BpSpec::Read, 0x9000, 0x90FF),
+            ranged(BpSpec::Write, 0x9100, 0x91FF),
+            ranged(BpSpec::ReadWrite, 0x9200, 0x92FF),
+            masked(BpSpec::IoRead, 0x00FE, 0xFFFF),
+            masked(BpSpec::IoWrite, 0x0000, 0x0000),
+            when(spec(BpSpec::Execute, 0x8000), "B == 2"),
+            counted(when(spec(BpSpec::Read, 0x9000), "VALUE != 0")),
+            when(source_line("main.bas:10", line10), "A == 1"),
+            when(spec(BpSpec::Interrupt, 0), "FRAME > 3"),
+            when(ranged(BpSpec::Write, 0xA000, 0xA0FF), "mem[0x9000] == 1 and A != 0"),
+            spec(BpSpec::Execute, 0x8000, false)};
+}
+
+static void save_s3_rows(Fix& f) {
+    const Debugger& d = *f.dbg;
+    {
+        BpSpec same = spec(BpSpec::Execute, 0x8000);
+        same.hi     = 0x8000;
+        const BpScript o = bp_script_text({ranged(BpSpec::Execute, 0x8000, 0x80FF), ranged(BpSpec::Read, 0x9000, 0x90FF),
+                                           ranged(BpSpec::Write, 0x9100, 0x91FF), ranged(BpSpec::ReadWrite, 0x9200, 0x92FF), same}, d);
+        const std::string want = kHeader +
+            "bp1: on execute 0x8000..0x80FF do stop end\n"
+            "bp2: on read 0x9000..0x90FF do stop end\n"
+            "bp3: on write 0x9100..0x91FF do stop end\n"
+            "bp4: on read_write 0x9200..0x92FF do stop end\n"
+            "bp5: on execute 0x8000 do stop end\n";
+        check("BPJ-30", "a range is `lo..hi` (four digits each) on execute, read, write and read_write; an end equal to the start is one address",
+              o.text == want && o.refused.empty(), o.text);
+    }
+    {
+        const BpScript o = bp_script_text({masked(BpSpec::IoRead, 0x00FE, 0xFFFF), masked(BpSpec::IoRead, 0x00FE, 0x00FF),
+                                           masked(BpSpec::IoWrite, 0x243B, 0xFFFF), masked(BpSpec::IoWrite, 0x0000, 0x0000)}, d);
+        const std::string want = kHeader +
+            "bp1: on io_read mask 0xFFFF value 0x00FE do stop end\n"
+            "bp2: on io_read 0xFE do stop end\n"
+            "bp3: on io_write 0x243B do stop end\n"
+            "bp4: on io_write mask 0x0000 value 0x0000 do stop end\n";
+        check("BPJ-31", "a port mask is `mask M value V` only when it is not the address rule's own (FE with FFFF, 0 with 0); the rule's own mask keeps "
+                        "the plain spelling",
+              o.text == want && o.refused.empty(), o.text);
+    }
+    {
+        const auto starts = f.line10();
+        const BpScript o = bp_script_text({when(spec(BpSpec::Execute, 0x8000), "B == 2"),
+                                           counted(when(spec(BpSpec::Execute, 0x8000), "B == 2")),
+                                           when(source_line("main.bas:10", starts), "A == 1")}, d);
+        const std::string want = kHeader +
+            "bp1: on execute 0x8000 when B == 2 do stop end\n"
+            "bp2: on execute 0x8000 when B == 2 do end\n"
+            "bp3: on execute \"main.bas:10\" when A == 1 do stop end\n";
+        check("BPJ-32", "a condition is ` when TEXT` before `do`: with a stop, count-only and on a source line",
+              o.text == want && o.refused.empty(), o.text);
+    }
+    {
+        const char* const bad[] = {"A ==\n1", "A == 1 ; x", "A == 1 do", "@nosuch == 1", "changed(A)", "PREV == 1"};
+        std::vector<BpSpec> in;
+        for (int i = 0; i < 6; ++i) in.push_back(when(spec(i == 5 ? BpSpec::Read : BpSpec::Execute, 0x8000 + i), bad[i]));
+        const BpScript o = bp_script_text(in, d);
+        int notes = 0, rules = 0;
+        for (const std::string& l : lines_of(o.text)) {
+            notes += l.rfind("; not saved:", 0) == 0;
+            rules += l.rfind("bp", 0) == 0;
+        }
+        check("BPJ-33", "a condition that cannot be written back faithfully is refused, each with a `; not saved:` line and a refused entry, and "
+                        "no rule is written for it: a line break, a `;` comment, a stray `do`, an unknown @symbol, a script-only form, PREV on a read",
+              notes == 6 && rules == 0 && o.refused.size() == 6, o.text);
+    }
+    {
+        const auto starts = f.line10();
+        const std::vector<BpSpec> in = s3_set(starts);
+        const BpScript o = bp_script_text(in, d);
+        const BpRead rt = bp_specs_from_script(o.text, d);
+        check("BPJ-34", "the decoder gives the ranges, masks and conditions back: the whole set (with a range-and-condition, an Interrupt "
+                        "condition, a source line and plain rows) reads back equal",
+              o.refused.empty() && rt.ok() && rt.specs == in, specs_str(rt.specs) + dstr(rt.errors) + o.text);
+    }
+    {
+        struct Bad { const char* text; const char* why; };
+        const Bad bad[] = {
+            {"on execute 0x8000 when A == 1\n  and B == 2 do stop end\n", "multi-line when"},
+            {"on execute 0x8000 when changed(A) do stop end\n", "script-only form"},
+            {"on read 0x90FF..0x9000 do stop end\n", "range ends below its start"},
+            {"on io_read mask 0x00FF value 0x01FE do stop end\n", "value outside the mask"},
+            {"on io_read mask 0xFFFF value 0x0000 do stop end\n", "FFFF with 0"},
+            {"on io_read mask 0x10000 value 0x0000 do stop end\n", "mask past 0xFFFF"},
+            {"on io_read mask 0xFFFF value 0x10000 do stop end\n", "value past 0xFFFF"},
+        };
+        std::string miss;
+        for (const Bad& b : bad) {
+            const BpRead r = bp_specs_from_script(b.text, d);
+            if (r.ok() || !r.specs.empty() || r.errors.size() != 1 || r.errors[0].pos.line < 1) miss += std::string("[") + b.why + "] ";
+        }
+        const BpRead sym = bp_specs_from_script("on execute @gen..@banked do stop end\n", d);
+        const BpRead wrong = bp_specs_from_script("on read 0x90FF..0x9000 do stop end\n", d);
+        check("BPJ-35", "the decoder refuses, each with one positioned error and no specs: a multi-line `when`, `when changed(A)`, a range ending "
+                        "below its start (with the engine's text), a port value outside its mask, FFFF with 0; `@gen..@banked` decodes as an "
+                        "unqualified range",
+              miss.empty() && wrong.errors.size() == 1 &&
+                  wrong.errors[0].message.find("address range ends below its start") != std::string::npos && sym.ok() &&
+                  sym.specs.size() == 1 && sym.specs[0].space == MemSpace::cpu() && sym.specs[0].addr == 0x8002 &&
+                  sym.specs[0].hi && *sym.specs[0].hi == 0xC000,
+              miss + dstr(wrong.errors) + dstr(sym.errors));
+    }
+    {
+        // BPJ-37: the kind-to-scope table is the checker's, not a second one.
+        using jnext::script::EventType;
+        const EventType types[] = {EventType::Execute, EventType::Read, EventType::Write, EventType::ReadWrite,
+                                   EventType::IoRead, EventType::IoWrite, EventType::Interrupt, EventType::Nmi};
+        std::string bad;
+        for (int k = 0; k < 8; ++k) {
+            EventSpec ev;
+            ev.type = types[k];
+            if (bp_scope(static_cast<BpSpec::Kind>(k)).describe() != scope_of(ev).describe()) bad += std::to_string(k) + " ";
+        }
+        check("BPJ-37", "bp_scope(kind) describes the same payload scope as the checker's scope_of for the same event, for all eight kinds",
+              bad.empty(), bad);
+    }
+}
+
+// BPJ-38 / BPJ-39: a non-ASCII file name, and the refusals the GUI cannot reach but the public codec promises.
+static void save_s3_more_rows() {
+    {
+        Fix g;
+        // main.bas replaced by a map whose file name is not ASCII (the lexer counts code points, the parser slices bytes)
+        const std::string sld2 = tmp_path("nonascii.sld");
+        std::ofstream(sld2, std::ios::binary)
+            << "|SLD.data.version|1\n"
+               "caf\xC3\xB1.bas|1||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+               "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+               "caf\xC3\xB1.bas|10||0|20|49152|T|\n"
+               "caf\xC3\xB1.bas|11||0|20|49154|T|\n";
+        g.dbg->load_source_map(sld2, false);
+        const auto starts = g.dbg->source_map().resolve("caf\xC3\xB1.bas:10").starts;
+        const std::vector<BpSpec> in = {when(source_line("caf\xC3\xB1.bas:10", starts), "A == 1")};
+        const BpScript o = bp_script_text(in, *g.dbg);
+        const BpRead rt = bp_specs_from_script(o.text, *g.dbg);
+        check("BPJ-38", "a source line whose file name is not ASCII, with a condition, is written and reads back equal",
+              !starts.empty() && o.refused.empty() && rt.ok() && rt.specs == in, o.text + specs_str(rt.specs) + dstr(rt.errors));
+    }
+    {
+        Fix g;
+        const BpSpec mask_on_read = masked(BpSpec::Read, 0x9000, 0xFFFF);
+        const BpSpec io_range     = ranged(BpSpec::IoRead, 0x00FE, 0x00FF);
+        BpSpec qualified_range    = qualified(MemSpace::page(20), 0xC000);
+        qualified_range.hi        = 0xC0FF;
+        BpSpec line_range         = source_line("main.bas:10", g.line10());
+        line_range.hi             = 0x80FF;
+        const BpScript o = bp_script_text({mask_on_read, io_range, qualified_range, line_range}, *g.dbg);
+        int notes = 0, rules = 0;
+        for (const std::string& l : lines_of(o.text)) {
+            notes += l.rfind("; not saved:", 0) == 0;
+            rules += l.rfind("bp", 0) == 0;
+        }
+        check("BPJ-39", "the saver refuses, each with a `; not saved:` line and a refused entry: a port mask on a non-IO kind, an IO range, "
+                        "a range tied to a memory, a range on a source line; no rule is written",
+              notes == 4 && rules == 0 && o.refused.size() == 4, o.text);
+    }
 }
 
 static void engine_rows() {
@@ -483,6 +752,74 @@ static void engine_rows() {
     }
 }
 
+// BPJ-24: the ENGINE as the foreign reader of the Interrupt / NMI spellings.
+static void engine_interrupt_rows() {
+    {
+        Fix g;
+        const std::vector<BpSpec> in = {spec(BpSpec::Interrupt, 0), spec(BpSpec::Nmi, 0), spec(BpSpec::Interrupt, 0, false)};
+        const BpScript o = bp_script_text(in, *g.dbg);
+        ScriptEngine eng(*g.dbg);
+        const LoadResult lr = eng.load(o.text, "int.jds");
+        const auto subs = engine_subs(*g.dbg, eng);
+        bool same = subs.size() == 3;
+        if (same)
+            same = subs[0].kind == EventKind::IntAck && subs[0].enabled && subs[1].kind == EventKind::Nmi && subs[1].enabled &&
+                   subs[2].kind == EventKind::IntAck && !subs[2].enabled;
+        check("BPJ-24", "the Interrupt / NMI text loads in a ScriptEngine with no error or warning and registers an IntAck, an "
+                        "Nmi and a disabled IntAck subscription, in order",
+              lr.ok() && lr.warnings.empty() && same, dstr(lr.errors) + dstr(lr.warnings) + std::to_string(subs.size()));
+    }
+    {
+        Fix g;
+        const auto starts = g.line10();
+        const std::vector<BpSpec> in = {counted(spec(BpSpec::Execute, 0x8000)), counted(spec(BpSpec::Read, 0x9000)),
+                                        counted(spec(BpSpec::IoRead, 0x00FE, false)), counted(spec(BpSpec::Interrupt, 0)),
+                                        counted(source_line("main.bas:10", starts))};
+        const BpScript o = bp_script_text(in, *g.dbg);
+        ScriptEngine eng(*g.dbg);
+        const LoadResult lr = eng.load(o.text, "count.jds");
+        const auto subs = engine_subs(*g.dbg, eng);
+        const auto want = expected_subs(in);
+        std::string miss;
+        if (subs.size() != want.size()) miss = "count " + std::to_string(subs.size()) + " vs " + std::to_string(want.size());
+        for (size_t i = 0; i < subs.size() && i < want.size(); ++i) {
+            const auto& sb = subs[i];
+            const Expect& w = want[i];
+            bool same = sb.kind == w.kind && sb.enabled == w.enabled && sb.action == jnext::dbg::Action::Continue && sb.has_handler;
+            if (w.kind == EventKind::Execute || w.kind == EventKind::Mem) same = same && sb.filter.lo == w.lo && sb.filter.hi == w.hi;
+            if (w.kind == EventKind::Port) same = same && sb.filter.port_mask == w.port_mask && sb.filter.port_value == w.port_value;
+            if (!same) miss += " #" + std::to_string(i);
+        }
+        check("BPJ-28", "the count-only text loads in a ScriptEngine with no error or warning and registers every rule as "
+                        "action Continue with a handler, with the specs' kind, filter and On flag (one per source-line place)",
+              lr.ok() && lr.warnings.empty() && miss.empty(), dstr(lr.errors) + dstr(lr.warnings) + miss);
+    }
+}
+
+// BPJ-36: the ENGINE as the foreign reader of the ranges, masks and conditions.
+static void engine_s3_rows() {
+    Fix g;
+    const std::vector<BpSpec> in = s3_set(g.line10());
+    const BpScript o = bp_script_text(in, *g.dbg);
+    ScriptEngine eng(*g.dbg);
+    const LoadResult lr = eng.load(o.text, "s3.jds");
+    const auto subs = engine_subs(*g.dbg, eng);
+    const auto want = expected_subs(in);
+    std::string miss;
+    if (subs.size() != want.size()) miss = "count " + std::to_string(subs.size()) + " vs " + std::to_string(want.size());
+    for (size_t i = 0; i < subs.size() && i < want.size(); ++i) {
+        const auto& sb = subs[i];
+        const Expect& w = want[i];
+        bool same = sb.kind == w.kind && sb.enabled == w.enabled && sb.has_condition == w.conditional;
+        if (w.kind == EventKind::Execute || w.kind == EventKind::Mem) same = same && sb.filter.lo == w.lo && sb.filter.hi == w.hi;
+        if (w.kind == EventKind::Port) same = same && sb.filter.port_mask == w.port_mask && sb.filter.port_value == w.port_value;
+        if (!same) miss += " #" + std::to_string(i);
+    }
+    check("BPJ-36", "the text of every new spelling loads in a ScriptEngine with no error or warning, and its subscriptions carry the ranges, "
+                    "the mask/value pairs and a condition on exactly the `when` rules",
+          lr.ok() && lr.warnings.empty() && miss.empty(), dstr(lr.errors) + dstr(lr.warnings) + miss + o.text);
+}
+
 int main() {
     std::printf("bp_script_test (GH #376)\n");
     {
@@ -490,8 +827,14 @@ int main() {
         save_rows(f);
         save_rows2(f);
         load_rows(f);
+        save_interrupt_rows(f);
+        save_count_rows(f);
+        save_s3_rows(f);
+        save_s3_more_rows();
     }
     engine_rows();
+    engine_interrupt_rows();
+    engine_s3_rows();
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;

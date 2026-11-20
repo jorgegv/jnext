@@ -39,6 +39,7 @@
 #include "debug/breakpoints.h"
 #include "debug/call_stack.h"
 #include "debug/debug_state.h"
+#include "debug/debug_keymap.h"
 #include "debug/disasm_text.h"
 #include "debug/rewind_buffer.h"
 #include "debug/source_file.h"
@@ -46,6 +47,7 @@
 #include "debug/trace.h"
 #include "debugger/breakpoint_model.h"
 #include "script/bp_script.h"
+#include "script/script_engine.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/callstack_panel.h"
 #include "debugger/cpu_panel.h"
@@ -4373,16 +4375,21 @@ static void test_bp_script_more() {
     {   // QBPJ-11
         BpjFix g;
         g.model().add_source_line(QStringLiteral("main.bas:10"));
-        const auto places = g.model().script_specs()[0].locations;
+        // (indexed through a guard: with no own row a failure must read as a FAIL, not crash the suite)
+        auto first_places = [&g]() {
+            const auto specs = g.model().script_specs();
+            return specs.empty() ? std::vector<::SourceAddress>{} : specs[0].locations;
+        };
+        const auto places = first_places();
         write_file("bpj-off.jds", "disabled bp1: on execute \"main.bas:10\" do stop end\n");
         write_file("bpj-on.jds", "bp1: on execute \"main.bas:10\" do stop end\n");
         g.run("Load from Script...", g_tmp->filePath(QStringLiteral("bpj-off.jds")));
         const bool off = g.model().rows().size() == 1 && !g.model().rows()[0].enabled &&
                          g.model().rows()[0].group != jnext::dbg::GROUP_NONE &&
-                         jnext::script::same_locations(g.model().script_specs()[0].locations, places);
+                         jnext::script::same_locations(first_places(), places);
         g.run("Load from Script...", g_tmp->filePath(QStringLiteral("bpj-on.jds")));
         const bool on = g.model().rows().size() == 1 && g.model().rows()[0].enabled &&
-                        jnext::script::same_locations(g.model().script_specs()[0].locations, places);
+                        jnext::script::same_locations(first_places(), places);
         check("QBPJ-11", "loading a source line onto the group already armed there gives it the file's On state, both ways "
                          "(enabled group + `disabled` line: off; then an enabled line: on), one row, same places",
               places.size() == 2 && off && on);
@@ -4709,6 +4716,1251 @@ static void test_nav_window() {
     }
 }
 
+
+// ===========================================================================
+// QBPX / QRTI -- GH #372: the Breakpoints panel's Interrupt and NMI types, and
+// Debug > Run to Next Interrupt.
+//
+// Oracles: the backend's own rows WK-INT-01 / WK-NMI-01 (an IntAck stop lands on
+// PC 0x0038 in IM 1, an NMI on 0x0066: Zilog UM0080) and the machine itself:
+// each row is asserted by where a REAL 48K stops, never by reading a
+// subscription back. The panel's cells are read as the user sees them.
+// ===========================================================================
+namespace {
+
+struct BpoFix {
+    std::unique_ptr<Fixture> own;
+    Fixture& fx;
+    explicit BpoFix(bool paused = false, MachineType t = MachineType::ZX48K)
+        : own(std::make_unique<Fixture>(t, 0, paused)), fx(*own) {}
+    BreakpointModel& model() { return fx.mgr->breakpoints(); }
+    BreakpointPanel* panel() { return fx.dbg()->breakpoint_panel(); }
+    QTableWidget* table() { return panel()->findChild<QTableWidget*>(); }
+    QString cell(int row, int col) { return table_cell(panel(), row, col); }
+    /// The post-frames sequence of the real loop: the frame, THEN the backend's pump (which delivers
+    /// a stop to the listeners), then the manager's check and the panels.
+    bool primed = false;
+    void tick() {
+        // The backend's first pump only primes its push edge detector, so a stop reached before any pump
+        // would never be pushed. The real loop has pumped on every tick since start-up: prime first.
+        if (!primed) { fx.backend->pump(jnext::dbg::PumpBudget{}); primed = true; }
+        if (!fx.emu.debug_state().paused()) fx.emu.run_frame();
+        fx.backend->pump(jnext::dbg::PumpBudget{});
+        fx.mgr->check_breakpoint_hit();
+        fx.mgr->refresh_panels();
+    }
+    bool tick_until_paused(int max_ticks = 8) {
+        for (int i = 0; i < max_ticks && !fx.paused(); ++i) tick();
+        return fx.paused();
+    }
+    /// The first backend subscription (any owner, transients included) that `pred` accepts.
+    bool any_sub(const std::function<bool(const jnext::dbg::SubscriptionInfo&)>& pred) {
+        for (const auto& si : fx.backend->subscriptions(true))
+            if (pred(si)) return true;
+        return false;
+    }
+    bool any_intack() {
+        return any_sub([](const jnext::dbg::SubscriptionInfo& si) { return si.kind == jnext::dbg::EventKind::IntAck; });
+    }
+};
+
+// What the Add / Edit dialog showed and did while `drive_bp_dialog` drove it.
+struct BpoDlg {
+    bool        opened = false;
+    QStringList items;                    // the Type combo's texts, in order
+    int         seed_type = -1;           // the combo's index when it opened
+    QString     seed_addr;
+    bool        seed_count = false;
+    QString     seed_to, seed_mask, seed_cond;   // GH #372 stage 3: the optional fields as the dialog opened
+    bool        addr_enabled_after = true;   // the address field's state once `act` ran
+    QString     error;                    // the reason shown when OK was refused
+};
+
+BpoDlg drive_bp_dialog(const std::function<void(QDialog*)>& act, const std::function<void()>& open,
+                       bool accept = true) {
+    BpoDlg r;
+    int n = 0;
+    QTimer timer;
+    QElapsedTimer since;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* dlg = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dlg || !dlg->isVisible()) { since.invalidate(); return; }
+        if (!since.isValid()) since.start();
+        else if (since.elapsed() > 20000) { dlg->reject(); return; }
+        auto* combo = dlg->findChild<QComboBox*>();
+        auto* addr  = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_address"));
+        auto* cnt   = dlg->findChild<QCheckBox*>(QStringLiteral("bp_dialog_count_only"));
+        if (n++ == 0) {
+            r.opened = true;
+            if (combo) {
+                for (int i = 0; i < combo->count(); ++i) r.items << combo->itemText(i);
+                r.seed_type = combo->currentIndex();
+            }
+            if (addr) r.seed_addr = addr->text();
+            r.seed_count = cnt && cnt->isChecked();
+            if (auto* e = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_to"))) r.seed_to = e->text();
+            if (auto* e = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_mask"))) r.seed_mask = e->text();
+            if (auto* e = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_condition"))) r.seed_cond = e->text();
+            if (act) act(dlg);
+            r.addr_enabled_after = addr && addr->isEnabled();
+            if (accept) dlg->accept(); else dlg->reject();
+            return;
+        }
+        // The dialog is up again: OK was refused. Take the reason and give up.
+        auto* err = dlg->findChild<QLabel*>(QStringLiteral("bp_dialog_error"));
+        r.error = err ? err->text() : QString();
+        dlg->reject();
+    });
+    timer.start(1);
+    open();
+    timer.stop();
+    QApplication::processEvents();
+    return r;
+}
+
+/// Make the dialog say: type index `type` (-1 = keep), address text (null = keep), count-only (-1 = keep).
+std::function<void(QDialog*)> fill(int type, const QString& addr = QString(), int count = -1) {
+    return [=](QDialog* d) {
+        if (type >= 0)
+            if (auto* c = d->findChild<QComboBox*>()) c->setCurrentIndex(type);
+        if (!addr.isNull())
+            if (auto* a = d->findChild<QLineEdit*>(QStringLiteral("bp_dialog_address"))) a->setText(addr);
+        if (count >= 0)
+            if (auto* k = d->findChild<QCheckBox*>(QStringLiteral("bp_dialog_count_only"))) k->setChecked(count != 0);
+    };
+}
+
+/// `fill()` with the optional fields: To, Mask and Condition (null = leave as seeded).
+std::function<void(QDialog*)> fill3(int type, const QString& addr, const QString& to, const QString& mask,
+                                    const QString& cond, int count = -1) {
+    const auto base = fill(type, addr, count);
+    return [=](QDialog* d) {
+        base(d);
+        const std::pair<const char*, QString> f[] = {{"bp_dialog_to", to}, {"bp_dialog_mask", mask}, {"bp_dialog_condition", cond}};
+        for (const auto& p : f)
+            if (!p.second.isNull())
+                if (auto* e = d->findChild<QLineEdit*>(QString::fromLatin1(p.first))) e->setText(p.second);
+    };
+}
+
+/// Another client's subscription, made and pushed as a tick's pump would.
+jnext::dbg::ClientId other_client_sub(Fixture& fx, BreakpointModel& m, const jnext::dbg::Subscription& sub) {
+    jnext::dbg::ClientInfo oi;
+    oi.name = "other";
+    oi.kind = jnext::dbg::ClientKind::Test;
+    const jnext::dbg::ClientId other = fx.backend->attach(oi).value;
+    fx.backend->pump(jnext::dbg::PumpBudget{});   // settle the attach: the first pump only primes
+    fx.backend->subscribe(other, sub);
+    fx.backend->pump(jnext::dbg::PumpBudget{});
+    m.sync();
+    return other;
+}
+
+// 8000  FB        EI
+// 8001  76        HALT
+// 8002  18 FD     JR $8001
+const std::initializer_list<uint8_t> kEiHalt = {0xFB, 0x76, 0x18, 0xFD};
+
+void regs_im1(Fixture& fx, uint16_t pc) {
+    fx.regs(pc, [](Z80Registers& r) { r.IM = 1; });
+}
+
+}  // namespace
+
+static void test_bp_interrupt() {
+    set_group("QBPX");
+    using BM = BreakpointModel;
+    {   // QBPX-01
+        BpoFix g(/*paused=*/true);
+        const char* desc = "the Add dialog's Type combo holds the eight names in order (the first six unchanged); choosing "
+                           "Interrupt turns the address field off; OK adds one own row Interrupt with an empty Address: a "
+                           "static IntAck Stop with no handler or condition";
+        if (!g.fx.ok) { check("QBPX-01", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            const BpoDlg d = drive_bp_dialog(fill(BM::Interrupt), [&] { g.panel()->on_add(); });
+            const QStringList want = {"Execute", "Read", "Write", "Read/Write", "IO Read", "IO Write", "Interrupt", "NMI"};
+            bool sub_ok = false;
+            if (g.model().rows().size() == 1)
+                for (const auto& si : g.fx.backend->subscriptions(false))
+                    if (si.id == g.model().rows()[0].id)
+                        sub_ok = si.kind == jnext::dbg::EventKind::IntAck && si.action == jnext::dbg::Action::Stop &&
+                                 !si.has_handler && !si.has_condition && si.owner == g.model().client();
+            const bool row_ok = g.model().rows().size() == 1 && g.model().rows()[0].own &&
+                                g.model().rows()[0].type == BM::Interrupt &&
+                                g.model().rows()[0].type_text == QString::fromLatin1(jnext::script::bp_kind_name(jnext::script::BpSpec::Interrupt)) &&
+                                g.model().rows()[0].addr_text.isEmpty();
+            check("QBPX-01", desc,
+                  d.opened && d.items == want && !d.addr_enabled_after && row_ok && sub_ok &&
+                      g.cell(0, 1) == "Interrupt" && g.cell(0, 2).isEmpty(),
+                  fmt("opened=%d items=%s addr_enabled=%d row_ok=%d sub_ok=%d cells='%s'|'%s'", d.opened,
+                      s(d.items.join(",")).c_str(), d.addr_enabled_after, row_ok, sub_ok, s(g.cell(0, 1)).c_str(),
+                      s(g.cell(0, 2)).c_str()));
+        }
+    }
+    {   // QBPX-02
+        BpoFix g;
+        const char* desc = "on a real 48K (IM 1, EI, HALT loop) an Interrupt breakpoint pauses at PC 0x0038, and a Run pauses "
+                           "there again at the NEXT frame interrupt";
+        if (!g.fx.ok) { check("QBPX-02", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kEiHalt);
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            g.model().add(BM::Interrupt, 0);
+            const bool first = g.tick_until_paused();
+            const uint16_t pc1 = g.fx.pc();
+            const uint64_t c1 = g.fx.emu.clock().get();
+            // Back into the HALT loop with interrupts on: the handler at 0x0038 is the ROM's, which
+            // this fixture may not hold (0xFF fill = RST 38h forever), so the row does not rely on it.
+            g.fx.regs(PROG + 1, [](Z80Registers& r) { r.IM = 1; r.IFF1 = 1; r.IFF2 = 1; });
+            g.fx.mgr->on_run();
+            const bool second = g.tick_until_paused();
+            const uint64_t c2 = g.fx.emu.clock().get();
+            check("QBPX-02", desc,
+                  first && pc1 == 0x0038 && second && g.fx.pc() == 0x0038 &&
+                      c2 - c1 >= g.fx.emu.timing().master_cycles_per_frame / 2,
+                  fmt("first=%d pc=%04X second=%d pc=%04X cycles=%llu", first, pc1, second, g.fx.pc(),
+                      static_cast<unsigned long long>(c2 - c1)));
+        }
+    }
+    {   // QBPX-03
+        BpoFix g;
+        const char* desc = "an NMI breakpoint pauses at PC 0x0066 after the Multiface button is pressed";
+        if (!g.fx.ok) { check("QBPX-03", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, {0x00, 0x18, 0xFD});
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(BM::Nmi, 0);
+            g.fx.emu.nmi_source().set_mf_enable(true);
+            g.fx.backend->press_nmi(g.model().client(), jnext::dbg::NmiButton::Mf);
+            const bool hit = g.tick_until_paused();
+            check("QBPX-03", desc, hit && g.fx.pc() == 0x0066, fmt("paused=%d pc=%04X", hit, g.fx.pc()));
+        }
+    }
+    {   // QBPX-04
+        BpoFix g(/*paused=*/true);
+        const char* desc = "another client's IntAck Stop lists as `Interrupt (client N)` with an empty Address and a read-only "
+                           "On cell: the text is what it was before the type existed";
+        if (!g.fx.ok) { check("QBPX-04", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            jnext::dbg::Subscription sub;
+            sub.kind   = jnext::dbg::EventKind::IntAck;
+            sub.action = jnext::dbg::Action::Stop;
+            const jnext::dbg::ClientId other = other_client_sub(g.fx, g.model(), sub);
+            g.fx.mgr->refresh_panels();
+            const QString want = QStringLiteral("Interrupt (client %1)").arg(other);
+            const bool one = g.model().rows().size() == 1;
+            const bool row_ok = one && !g.model().rows()[0].own && g.model().rows()[0].type_text == want &&
+                                g.model().rows()[0].addr_text.isEmpty();
+            QTableWidgetItem* on = g.table() ? g.table()->item(0, 0) : nullptr;
+            check("QBPX-04", desc,
+                  row_ok && g.cell(0, 1) == want && g.cell(0, 2).isEmpty() && on &&
+                      !(on->flags() & Qt::ItemIsUserCheckable),
+                  fmt("rows=%d type='%s' addr='%s'", int(g.model().rows().size()),
+                      one ? s(g.model().rows()[0].type_text).c_str() : "", one ? s(g.model().rows()[0].addr_text).c_str() : ""));
+        }
+    }
+    {   // QBPX-05
+        BpoFix g(/*paused=*/true);
+        const char* desc = "Edit on an Interrupt row seeds the Type with Interrupt; changing it to NMI replaces the row and "
+                           "carries the disabled On state";
+        if (!g.fx.ok) { check("QBPX-05", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            g.model().add(BM::Interrupt, 0);
+            g.model().set_enabled(BM::Interrupt, 0, false);
+            g.table()->setCurrentCell(0, 1);
+            const BpoDlg d = drive_bp_dialog(fill(BM::Nmi), [&] { g.panel()->on_edit(); });
+            check("QBPX-05", desc,
+                  d.opened && d.seed_type == BM::Interrupt && g.model().rows().size() == 1 &&
+                      g.model().rows()[0].type == BM::Nmi && !g.model().rows()[0].enabled && g.model().rows()[0].own,
+                  fmt("seed=%d rows=%d type=%d enabled=%d", d.seed_type, int(g.model().rows().size()),
+                      g.model().rows().empty() ? -2 : g.model().rows()[0].type,
+                      g.model().rows().empty() ? -1 : g.model().rows()[0].enabled));
+        }
+    }
+}
+
+static void test_run_to_interrupt() {
+    set_group("QRTI");
+    using BM = BreakpointModel;
+    const char* kItem = "Run to Next Interrupt";
+    {   // QRTI-01
+        BpoFix g(/*paused=*/true);
+        const char* desc = "the Debug menu holds Run to Next Interrupt right after Run to End of Scan Line, with no shortcut "
+                           "by default, and its keymap id is run_to_interrupt";
+        if (!g.fx.ok) { check("QRTI-01", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            QMenu* debug = menu_named(g.fx.dbg()->menuBar(), "Debug");
+            int eosl = -1, rti = -1, i = 0;
+            QAction* a = nullptr;
+            if (debug)
+                for (QAction* act : debug->actions()) {
+                    if (visible(act->text()) == "Run to End of Scan Line") eosl = i;
+                    if (visible(act->text()) == kItem) { rti = i; a = act; }
+                    ++i;
+                }
+            check("QRTI-01", desc,
+                  eosl >= 0 && rti == eosl + 1 && a && a->shortcuts().isEmpty() &&
+                      std::string(jnext::dbgkeys::info(jnext::dbgkeys::Action::RunToInterrupt).id) == "run_to_interrupt",
+                  fmt("eosl=%d rti=%d", eosl, rti));
+        }
+    }
+    {   // QRTI-02
+        BpoFix g(/*paused=*/true);
+        const char* desc = "paused on a 48K with EI and a HALT loop, the action runs the machine and pauses at PC 0x0038; "
+                           "afterwards no IntAck subscription is left, and the panel never listed one";
+        if (!g.fx.ok) { check("QRTI-02", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kEiHalt);
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            QAction* a = debug_item(g.fx.dbg(), kItem);
+            if (a) a->trigger();
+            const bool ran = !g.fx.paused();
+            bool listed = false;
+            for (int i = 0; i < 8 && !g.fx.paused(); ++i) {
+                g.tick();
+                listed = listed || !g.model().rows().empty() || g.table()->rowCount() != 0;
+            }
+            check("QRTI-02", desc,
+                  a && ran && g.fx.paused() && g.fx.pc() == 0x0038 && !g.any_intack() && !listed,
+                  fmt("ran=%d paused=%d pc=%04X armed=%d listed=%d", ran, g.fx.paused(), g.fx.pc(), g.any_intack(), listed));
+        }
+    }
+    {   // QRTI-03
+        BpoFix g(/*paused=*/true);
+        const char* desc = "with the master switch off the action still pauses at 0x0038 (a transient is exempt from it)";
+        if (!g.fx.ok) { check("QRTI-03", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kEiHalt);
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            g.model().set_master_enabled(false);
+            QAction* a = debug_item(g.fx.dbg(), kItem);
+            if (a) a->trigger();
+            g.tick_until_paused();
+            check("QRTI-03", desc, a && g.fx.paused() && g.fx.pc() == 0x0038 && !g.model().master_enabled(),
+                  fmt("paused=%d pc=%04X", g.fx.paused(), g.fx.pc()));
+        }
+    }
+    {   // QRTI-04
+        BpoFix g(/*paused=*/true);
+        const char* desc = "an own Execute breakpoint reached before the interrupt stops there first; nothing IntAck stays "
+                           "armed, and a following Run does not stop at 0x0038";
+        if (!g.fx.ok) { check("QRTI-04", desc, false, "fixture"); }
+        else {
+            // 8000 EI; 8001 NOP; 8002 NOP (breakpoint); 8003 HALT; 8004 JR 8003
+            g.fx.load(PROG, {0xFB, 0x00, 0x00, 0x76, 0x18, 0xFD});
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            g.model().add(BM::Execute, 0x8002);
+            QAction* a = debug_item(g.fx.dbg(), kItem);
+            if (a) a->trigger();
+            g.tick_until_paused();
+            const bool at_bp = g.fx.paused() && g.fx.pc() == 0x8002;
+            const bool clean = !g.any_intack();
+            g.fx.mgr->on_run();
+            for (int i = 0; i < 4; ++i) g.tick();
+            check("QRTI-04", desc, a && at_bp && clean && !g.fx.paused(),
+                  fmt("at_bp=%d pc=%04X clean=%d paused-after-run=%d", at_bp, g.fx.pc(), clean, g.fx.paused()));
+        }
+    }
+    {   // QRTI-05
+        BpoFix g(/*paused=*/false);
+        const char* desc = "on a running machine the action is a no-op (nothing armed, still running); an explicit Pause right "
+                           "after arming leaves no transient IntAck behind";
+        if (!g.fx.ok) { check("QRTI-05", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kEiHalt);
+            regs_im1(g.fx, PROG);
+            g.fx.enable();
+            QAction* a = debug_item(g.fx.dbg(), kItem);
+            if (a) a->trigger();
+            const bool noop = !g.any_intack() && !g.fx.paused();
+            g.fx.mgr->on_pause();
+            // Arm from the paused machine, then pause before any interrupt has come.
+            if (a) a->trigger();
+            g.fx.mgr->on_pause();
+            const bool dropped = !g.any_intack() && g.fx.paused();
+            check("QRTI-05", desc, a && noop && dropped, fmt("noop=%d dropped=%d armed=%d", noop, dropped, g.any_intack()));
+        }
+    }
+}
+
+
+// ===========================================================================
+// QBPX (stage 2) -- GH #372: hit counts, Reset Hits and count-only breakpoints.
+//
+// Oracles: the engine's own `RuleView::hits` for the same rule on the same
+// Debugger (QBPX-15), and loop counts fixed by the test program: the loop
+//     8000  06 05     LD B,5
+//     8002  00        NOP            <- the breakpoint
+//     8003  10 FD     DJNZ $8002
+//     8005  18 FE     JR $           <- the end-of-program sentinel
+// runs the NOP exactly five times (B = 5 down to 0).
+// ===========================================================================
+namespace {
+
+const std::initializer_list<uint8_t> kLoop = {0x06, 0x05, 0x00, 0x10, 0xFD, 0x18, 0xFE};
+
+jnext::script::BpSpec spec_of(BreakpointModel::Type k, uint16_t addr, bool count_only = false) {
+    jnext::script::BpSpec s;
+    s.kind       = static_cast<jnext::script::BpSpec::Kind>(k);
+    s.addr       = addr;
+    s.count_only = count_only;
+    return s;
+}
+
+/// The table row whose Type cell starts with `prefix` and whose Address cell is `addr` (null = any).
+int row_of(BpoFix& g, const QString& prefix, const QString& addr = QString()) {
+    for (int i = 0; i < g.table()->rowCount(); ++i)
+        if (g.cell(i, 1).startsWith(prefix) && (addr.isNull() || g.cell(i, 2) == addr)) return i;
+    return -1;
+}
+
+/// The model's own row of the given type and address (by value, for `hits()`).
+const BreakpointModel::Row* own_row(BpoFix& g, int type, uint16_t addr, bool count_only = false) {
+    for (const auto& r : g.model().rows())
+        if (r.own && r.type == type && r.addr == addr && r.count_only == count_only) return &r;
+    return nullptr;
+}
+
+/// Rewind the program to its start (PC 8000, B reloaded by the first instruction) and Run.
+bool rerun(BpoFix& g) {
+    g.fx.regs(PROG);
+    g.fx.mgr->on_run();
+    return g.tick_until_paused();
+}
+
+}  // namespace
+
+static void test_bp_hits() {
+    set_group("QBPX");
+    using BM = BreakpointModel;
+    {   // QBPX-06
+        BpoFix g(/*paused=*/true);
+        const char* desc = "the Breakpoints table's headers are On, Type, Address, Symbol / Source, Hits, Condition; columns 0-3 keep "
+                           "their meaning";
+        if (!g.fx.ok) { check("QBPX-06", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            g.model().add(BM::Execute, 0x8000);
+            QStringList heads;
+            for (int c = 0; c < g.table()->columnCount(); ++c)
+                heads << (g.table()->horizontalHeaderItem(c) ? g.table()->horizontalHeaderItem(c)->text() : QString());
+            QTableWidgetItem* on = g.table()->item(0, 0);
+            check("QBPX-06", desc,
+                  heads == QStringList({"On", "Type", "Address", "Symbol / Source", "Hits", "Condition"}) && on &&
+                      on->checkState() == Qt::Checked && g.cell(0, 1) == "Execute" && g.cell(0, 2) == "$8000" &&
+                      g.cell(0, 4) == "0",
+                  s(heads.join("|")) + " " + s(g.cell(0, 1)) + " " + s(g.cell(0, 2)));
+        }
+    }
+    {   // QBPX-07
+        BpoFix g;
+        const char* desc = "a Stop Execute breakpoint inside a DJNZ loop of B = 5: five Runs give five stops, and the Hits "
+                           "cell reads 1..5 after each";
+        if (!g.fx.ok) { check("QBPX-07", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(BM::Execute, 0x8002);
+            std::string seen;
+            bool ok = true;
+            for (int n = 1; n <= 5; ++n) {
+                const bool hit = g.tick_until_paused();
+                ok = ok && hit && g.fx.pc() == 0x8002 && g.cell(0, 4) == QString::number(n);
+                seen += s(g.cell(0, 4)) + " ";
+                g.fx.mgr->on_run();
+            }
+            for (int i = 0; i < 3; ++i) g.tick();
+            check("QBPX-07", desc, ok && !g.fx.paused(), "hits seen: " + seen + (g.fx.paused() ? " (stopped a sixth time)" : ""));
+        }
+    }
+    {   // QBPX-08
+        BpoFix g;
+        const char* desc = "the same loop with the breakpoint count-only: the run never stops at it; at the end-of-program "
+                           "stop Hits is 5; the row is action Continue with a handler and its Type reads `Execute (count only)`";
+        if (!g.fx.ok) { check("QBPX-08", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(spec_of(BM::Execute, 0x8002, true));
+            g.model().add(BM::Execute, 0x8005);
+            const bool hit = g.tick_until_paused();
+            const auto* r = own_row(g, BM::Execute, 0x8002, true);
+            bool sub_ok = false;
+            if (r)
+                for (const auto& si : g.fx.backend->subscriptions(false))
+                    if (si.id == r->id) sub_ok = si.action == jnext::dbg::Action::Continue && si.has_handler;
+            check("QBPX-08", desc,
+                  hit && g.fx.pc() == 0x8005 && r && g.model().hits(*r) == 5 && g.cell(0, 4) == "5" &&
+                      g.cell(0, 1) == "Execute (count only)" && sub_ok,
+                  fmt("paused=%d pc=%04X hits=%llu type='%s' sub_ok=%d", hit, g.fx.pc(),
+                      r ? static_cast<unsigned long long>(g.model().hits(*r)) : 0ull, s(g.cell(0, 1)).c_str(), sub_ok));
+        }
+    }
+    {   // QBPX-09
+        BpoFix g;
+        BpoFix h;
+        const char* desc = "a count-only Read on an address the program reads 3 times gives 3; a count-only IO Write on 0xFE "
+                           "with 4 `OUT (0xFE),A` gives 4";
+        if (!g.fx.ok || !h.fx.ok) { check("QBPX-09", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, {0x3A, 0x00, 0x90, 0x3A, 0x00, 0x90, 0x3A, 0x00, 0x90, 0x18, 0xFE});
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(spec_of(BM::Read, 0x9000, true));
+            g.model().add(BM::Execute, 0x8009);
+            g.tick_until_paused();
+            const auto* rr = own_row(g, BM::Read, 0x9000, true);
+            const uint64_t reads = rr ? g.model().hits(*rr) : 99;
+            h.fx.load(PROG, {0xD3, 0xFE, 0xD3, 0xFE, 0xD3, 0xFE, 0xD3, 0xFE, 0x18, 0xFE});
+            h.fx.regs(PROG);
+            h.fx.enable();
+            h.model().add(spec_of(BM::IoWrite, 0x00FE, true));
+            h.model().add(BM::Execute, 0x8008);
+            h.tick_until_paused();
+            const auto* ro = own_row(h, BM::IoWrite, 0x00FE, true);
+            const uint64_t outs = ro ? h.model().hits(*ro) : 99;
+            check("QBPX-09", desc,
+                  g.fx.pc() == 0x8009 && reads == 3 && h.fx.pc() == 0x8008 && outs == 4,
+                  fmt("read: pc=%04X hits=%llu; io: pc=%04X hits=%llu", g.fx.pc(), static_cast<unsigned long long>(reads),
+                      h.fx.pc(), static_cast<unsigned long long>(outs)));
+        }
+    }
+    {   // QBPX-10
+        BpoFix g;
+        const char* desc = "Reset Hits zeroes every own row and counting restarts from 0; another client's row has an empty "
+                           "Hits cell";
+        if (!g.fx.ok) { check("QBPX-10", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(BM::Execute, 0x8002);
+            g.model().add(BM::Execute, 0x8003);
+            jnext::dbg::Subscription sub;
+            sub.kind = jnext::dbg::EventKind::Execute;
+            sub.filter.lo = sub.filter.hi = 0x8002;   // the same address: the other client's stops too, and its row must show no count
+            sub.action = jnext::dbg::Action::Stop;
+            other_client_sub(g.fx, g.model(), sub);
+            // Four stops: 8002, 8003, 8002, 8003.
+            for (int n = 0; n < 4; ++n) {
+                g.tick_until_paused();
+                if (n < 3) g.fx.mgr->on_run();
+            }
+            const int ra = row_of(g, "Execute", "$8002"), rb = row_of(g, "Execute", "$8003");
+            int ro = -1;
+            for (int i = 0; i < g.table()->rowCount(); ++i)
+                if (g.cell(i, 1).contains("(client")) ro = i;
+            const QString before_a = ra >= 0 ? g.cell(ra, 4) : "?", before_b = rb >= 0 ? g.cell(rb, 4) : "?";
+            const QString other = ro >= 0 ? g.cell(ro, 4) : "?";
+            bool other_zero = false;
+            for (const auto& r : g.model().rows())
+                if (!r.own && r.type_text.contains("(client")) other_zero = g.model().hits(r) == 0;
+            QPushButton* reset = button_ending(g.panel(), "Reset Hits");
+            if (reset) reset->click();
+            const QString after_a = g.cell(ra, 4), after_b = g.cell(rb, 4);
+            const auto* rzero = own_row(g, BM::Execute, 0x8002);
+            const bool model_zero = rzero && g.model().hits(*rzero) == 0;
+            g.fx.mgr->on_run();
+            g.tick_until_paused();   // 8002 again
+            const QString again = g.cell(ra, 4);
+            check("QBPX-10", desc,
+                  reset && before_a == "2" && before_b == "2" && other.isEmpty() && other_zero && after_a == "0" && after_b == "0" &&
+                      model_zero && again == "1",
+                  s(before_a) + "," + s(before_b) + " other='" + s(other) + "' after " + s(after_a) + "," + s(after_b) +
+                      " again " + s(again));
+        }
+    }
+}
+
+static void test_bp_hits_more() {
+    set_group("QBPX");
+    using BM = BreakpointModel;
+    {   // QBPX-11
+        BpoFix g;
+        const char* desc = "a count survives an On toggle; a disabled breakpoint does not count; with the master switch off "
+                           "nothing counts; Edit starts again from 0";
+        if (!g.fx.ok) { check("QBPX-11", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(spec_of(BM::Execute, 0x8002, true));
+            g.model().add(BM::Execute, 0x8005);   // the end-of-program sentinel
+            auto hits = [&]() -> uint64_t {
+                const auto* r = own_row(g, BM::Execute, 0x8002, true);
+                return r ? g.model().hits(*r) : 9999;
+            };
+            const jnext::dbg::MemSpace cpu = jnext::dbg::MemSpace::cpu();
+            g.tick_until_paused();
+            const uint64_t first = hits();
+            g.model().set_enabled(BM::Execute, 0x8002, false, cpu, true);
+            g.model().set_enabled(BM::Execute, 0x8002, true, cpu, true);
+            const uint64_t kept = hits();
+            g.model().set_enabled(BM::Execute, 0x8002, false, cpu, true);
+            const bool off_stop = rerun(g) && g.fx.pc() == 0x8005;
+            const uint64_t while_off = hits();
+            g.model().set_enabled(BM::Execute, 0x8002, true, cpu, true);
+            const bool on_stop = rerun(g) && g.fx.pc() == 0x8005;
+            const uint64_t on_again = hits();
+            g.model().set_master_enabled(false);
+            g.fx.regs(PROG);
+            g.fx.mgr->on_run();
+            for (int i = 0; i < 3; ++i) g.tick();
+            const bool ran_free = !g.fx.paused();
+            const uint64_t master_off = hits();
+            g.fx.mgr->on_pause();
+            g.model().set_master_enabled(true);
+            g.table()->setCurrentCell(row_of(g, "Execute (count only)"), 1);
+            const BpoDlg d = drive_bp_dialog(nullptr, [&] { g.panel()->on_edit(); });
+            const uint64_t edited = hits();
+            check("QBPX-11", desc,
+                  first == 5 && kept == 5 && off_stop && while_off == 5 && on_stop && on_again == 10 && ran_free &&
+                      master_off == 10 && d.opened && d.seed_count && edited == 0,
+                  fmt("first=%llu kept=%llu off_stop=%d while_off=%llu on_stop=%d on_again=%llu ran_free=%d master_off=%llu "
+                      "edit: opened=%d seed=%d hits=%llu",
+                      static_cast<unsigned long long>(first), static_cast<unsigned long long>(kept), off_stop,
+                      static_cast<unsigned long long>(while_off), on_stop, static_cast<unsigned long long>(on_again), ran_free,
+                      static_cast<unsigned long long>(master_off), d.opened, d.seed_count,
+                      static_cast<unsigned long long>(edited)));
+        }
+    }
+    {   // QBPX-12
+        BpoFix g(/*paused=*/false, MachineType::ZXN_ISSUE2);
+        const char* desc = "a source-line group compiled at two places, each executed once, reads Hits 2 (one row)";
+        if (!g.fx.ok) { check("QBPX-12", desc, false, "fixture"); }
+        else {
+            // main.bas:10 sits at $8000 and $8004 of page 4 (the Next's default $8000 page), line 11 between them so the two
+            // places are two starts. The program starts one byte before so the
+            // first place is not the instruction the Run steps off.
+            g.fx.backend->load_source_map(write_file("bpo-group.sld",
+                "|SLD.data.version|1\n"
+                "main.bas|1||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+                "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+                "main.bas|10||0|4|32768|T|\n"
+                "main.bas|11||0|4|32770|T|\n"
+                "main.bas|10||0|4|32772|T|\n").c_str(), false);
+            g.fx.load(PROG - 1, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+            g.fx.regs(PROG - 1);
+            g.fx.enable();
+            const jnext::dbg::GroupId grp = g.model().add_source_line(QStringLiteral("main.bas:10"), true);
+            g.model().add(BM::Execute, 0x8005);
+            g.tick_until_paused();
+            const auto* gr = g.model().rows().empty() ? nullptr : &g.model().rows()[0];
+            check("QBPX-12", desc,
+                  grp != jnext::dbg::GROUP_NONE && gr && gr->group == grp && gr->locations == 2 && g.fx.pc() == 0x8005 &&
+                      g.model().hits(*gr) == 2 && g.cell(0, 4) == "2" && g.model().rows().size() == 2,
+                  fmt("group=%d locations=%d pc=%04X hits=%llu rows=%d", int(grp), gr ? gr->locations : -1, g.fx.pc(),
+                      gr ? static_cast<unsigned long long>(g.model().hits(*gr)) : 0ull, int(g.model().rows().size())));
+        }
+    }
+    {   // QBPX-13
+        BpoFix g;
+        const char* desc = "a burst of hits in one frame emits hits_changed() once per sync() and no changed(): no gutter "
+                           "repaint per frame";
+        if (!g.fx.ok) { check("QBPX-13", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(spec_of(BM::Execute, 0x8002, true));
+            g.model().add(BM::Execute, 0x8005);
+            int hits_signals = 0, changed_signals = 0;
+            QObject::connect(&g.model(), &BreakpointModel::hits_changed, [&] { ++hits_signals; });
+            QObject::connect(&g.model(), &BreakpointModel::changed, [&](uint32_t) { ++changed_signals; });
+            g.fx.emu.run_frame();   // five hits and the sentinel stop
+            g.fx.backend->pump(jnext::dbg::PumpBudget{});
+            const int before = hits_signals;
+            g.model().sync();
+            const int one = hits_signals;
+            g.model().sync();   // nothing new: no second emission
+            const int idle = hits_signals;
+            check("QBPX-13", desc, before == 0 && one == 1 && idle == 1 && changed_signals == 0,
+                  fmt("before=%d after_sync=%d idle_sync=%d changed=%d", before, one, idle, changed_signals));
+        }
+    }
+    {   // QBPX-14
+        std::vector<jnext::script::BpSpec> saved;
+        {
+            BpjFix a;
+            BreakpointModel& m = a.model();
+            m.add(spec_of(BreakpointModel::Execute, 0x8000, true));
+            m.add(BreakpointModel::Read, 0x9000);
+            m.add(spec_of(BreakpointModel::Interrupt, 0, true));
+            m.add(spec_of(BreakpointModel::IoRead, 0x00FE, true));
+            m.add_source_line(QStringLiteral("main.bas:10"), true);
+            saved = m.script_specs();
+            a.run("Save as Script...", g_tmp->filePath(QStringLiteral("bpx-count.jds")));
+        }
+        BpjFix b;
+        const auto seen = b.run("Load from Script...", g_tmp->filePath(QStringLiteral("bpx-count.jds")));
+        bool zero = true, all_own = true;
+        for (const auto& r : b.model().rows()) {
+            zero = zero && b.model().hits(r) == 0;
+            all_own = all_own && r.own;
+        }
+        int counted = 0;
+        for (const auto& sp : saved) counted += sp.count_only;
+        check("QBPX-14", "Save then Load in a fresh session keeps count_only on every row (an address, an IO port, "
+                         "Interrupt, a source line); the loaded rows read Hits 0",
+              saved.size() == 5 && counted == 4 && b.model().script_specs() == saved && b.model().rows().size() == 5 &&
+                  zero && all_own && count_kind(seen, "box") == 0,
+              fmt("saved=%d counted=%d got=%d rows=%d", int(saved.size()), counted, int(b.model().script_specs().size()),
+                  int(b.model().rows().size())));
+    }
+    {   // QBPX-15
+        const char* desc = "oracle cross-check: a GUI count-only Execute and a ScriptEngine `on execute X do end` on the same "
+                           "Debugger count alike after a free Run and after Single Step x3 across X; a GUI Stop breakpoint "
+                           "and `on execute X do stop end` count alike over three stops";
+        BpoFix g;
+        BpoFix h;
+        if (!g.fx.ok || !h.fx.ok) { check("QBPX-15", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            jnext::script::ScriptEngine eng(*g.fx.backend);
+            const auto lr = eng.load("on execute 0x8002 do end\n", "x.jds");
+            g.model().add(spec_of(BM::Execute, 0x8002, true));
+            g.model().add(BM::Execute, 0x8005);
+            g.fx.mgr->on_run();
+            g.tick_until_paused();
+            const auto* r = own_row(g, BM::Execute, 0x8002, true);
+            const uint64_t gui_run = r ? g.model().hits(*r) : 9999;
+            const uint64_t eng_run = eng.rules().empty() ? 8888 : eng.rules()[0].hits;
+            g.fx.regs(PROG);
+            for (int i = 0; i < 3; ++i) g.fx.mgr->on_step_into();
+            g.tick();
+            const auto* rstep = own_row(g, BM::Execute, 0x8002, true);
+            const uint64_t gui_step = rstep ? g.model().hits(*rstep) : 9999;
+            const uint64_t eng_step = eng.rules().empty() ? 8888 : eng.rules()[0].hits;
+
+            h.fx.load(PROG, kLoop);
+            h.fx.regs(PROG);
+            h.fx.enable();
+            jnext::script::ScriptEngine eng2(*h.fx.backend);
+            const auto lr2 = eng2.load("on execute 0x8002 do stop end\n", "y.jds");
+            h.model().add(BM::Execute, 0x8002);
+            for (int n = 0; n < 3; ++n) {
+                h.tick_until_paused();
+                if (n < 2) h.fx.mgr->on_run();
+            }
+            const auto* rs = own_row(h, BM::Execute, 0x8002);
+            const uint64_t gui_stop = rs ? h.model().hits(*rs) : 9999;
+            const uint64_t eng_stop = eng2.rules().empty() ? 8888 : eng2.rules()[0].hits;
+            check("QBPX-15", desc,
+                  lr.ok() && lr2.ok() && gui_run == eng_run && gui_run == 5 && gui_step == eng_step && gui_stop == eng_stop &&
+                      gui_stop == 3,
+                  fmt("run gui=%llu eng=%llu; step gui=%llu eng=%llu; stop gui=%llu eng=%llu",
+                      static_cast<unsigned long long>(gui_run), static_cast<unsigned long long>(eng_run),
+                      static_cast<unsigned long long>(gui_step), static_cast<unsigned long long>(eng_step),
+                      static_cast<unsigned long long>(gui_stop), static_cast<unsigned long long>(eng_stop)));
+        }
+    }
+    {   // QBPX-16
+        BpoFix g(/*paused=*/true);
+        const char* desc = "the count-only checkbox in the dialog creates a count-only row, and Edit seeds the checkbox";
+        if (!g.fx.ok) { check("QBPX-16", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            const BpoDlg a = drive_bp_dialog(fill(BM::Execute, "8000", 1), [&] { g.panel()->on_add(); });
+            const bool made = g.model().rows().size() == 1 && g.model().rows()[0].count_only && g.model().rows()[0].own &&
+                              g.model().rows()[0].type_text == "Execute (count only)";
+            g.table()->setCurrentCell(0, 1);
+            const BpoDlg e = drive_bp_dialog(nullptr, [&] { g.panel()->on_edit(); }, /*accept=*/false);
+            check("QBPX-16", desc, a.opened && !a.seed_count && made && e.opened && e.seed_count && g.model().rows().size() == 1,
+                  fmt("opened=%d seed_before=%d made=%d edit: opened=%d seed=%d", a.opened, a.seed_count, made, e.opened,
+                      e.seed_count));
+        }
+    }
+    {   // QBPX-17
+        BpoFix g(/*paused=*/true);
+        const char* desc = "fast path: a plain Execute, Read, Read/Write, IO Read and Interrupt row is exactly the subscription "
+                           "it was before count-only existed: no condition, no handler, action Stop, a single address (or the "
+                           "port rule's mask)";
+        if (!g.fx.ok) { check("QBPX-17", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            g.model().add(BM::Execute, 0x8000);
+            g.model().add(BM::Read, 0x9000);
+            g.model().add(BM::ReadWrite, 0x9001);
+            g.model().add(BM::IoRead, 0x00FE);
+            g.model().add(BM::Interrupt, 0);
+            int seen = 0;
+            std::string bad;
+            for (const auto& si : g.fx.backend->subscriptions(false)) {
+                if (si.owner != g.model().client()) continue;
+                ++seen;
+                bool ok = !si.has_condition && !si.has_handler && !si.once && si.action == jnext::dbg::Action::Stop;
+                if (si.kind == jnext::dbg::EventKind::Execute || si.kind == jnext::dbg::EventKind::Mem)
+                    ok = ok && si.filter.lo == si.filter.hi;
+                if (si.kind == jnext::dbg::EventKind::Port)
+                    ok = ok && si.filter.port_mask == jnext::script::bp_port_mask_for(si.filter.port_value);
+                if (!ok) bad += fmt("[id %u kind %d] ", unsigned(si.id), int(si.kind));
+            }
+            check("QBPX-17", desc, seen == 5 && bad.empty(), fmt("seen=%d %s", seen, bad.c_str()));
+        }
+    }
+}
+
+
+// ===========================================================================
+// QBPX (stage 3) -- GH #372: ranges, IO masks and conditions in the dialog.
+//
+// Oracles: the machine itself (where a REAL 48K stops), the backend's
+// `EventFilter` for what a range and a port mask match, and the script
+// engine's own text for a condition's run-time error.
+// ===========================================================================
+namespace {
+
+jnext::script::BpSpec ranged_spec(BreakpointModel::Type k, uint16_t lo, uint16_t hi) {
+    jnext::script::BpSpec s = spec_of(k, lo);
+    s.hi = hi;
+    return s;
+}
+
+jnext::script::BpSpec cond_spec(BreakpointModel::Type k, uint16_t a, const char* cond, bool count_only = false) {
+    jnext::script::BpSpec s = spec_of(k, a, count_only);
+    s.condition = cond;
+    return s;
+}
+
+}  // namespace
+
+static void test_bp_ranges() {
+    set_group("QBPX");
+    using BM = BreakpointModel;
+    {   // QBPX-18
+        BpoFix g(/*paused=*/true);
+        const char* desc = "the dialog holds To, Mask and Condition, and their enabled state follows the type: To for Execute, Read, Write "
+                           "and Read/Write; Mask for the IO types; Address off for Interrupt and NMI";
+        if (!g.fx.ok) { check("QBPX-18", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            std::string seen;
+            bool widgets = true;
+            drive_bp_dialog([&](QDialog* d) {
+                auto* a = d->findChild<QLineEdit*>("bp_dialog_address");
+                auto* to = d->findChild<QLineEdit*>("bp_dialog_to");
+                auto* mk = d->findChild<QLineEdit*>("bp_dialog_mask");
+                auto* cd = d->findChild<QLineEdit*>("bp_dialog_condition");
+                auto* cb = d->findChild<QComboBox*>();
+                widgets = a && to && mk && cd && cb;
+                if (!widgets) return;
+                for (int t = 0; t < 8; ++t) {
+                    cb->setCurrentIndex(t);
+                    seen += fmt("%d%d%d ", a->isEnabled(), to->isEnabled(), mk->isEnabled());
+                    widgets = widgets && cd->isEnabled();
+                }
+            }, [&] { g.panel()->on_add(); }, /*accept=*/false);
+            // address / to / mask per type 0..7
+            check("QBPX-18", desc, widgets && seen == "110 110 110 110 101 101 000 000 ", seen);
+        }
+    }
+    {   // QBPX-19
+        BpoFix g;
+        BpoFix h(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "Execute 8000 To 80FF is one row `$8000-$80FF` with a lo/hi subscription and no space, even when the address is a "
+                           "symbol with a memory; on a real 48K it stops at the first instruction fetched inside the range";
+        if (!g.fx.ok || !h.fx.ok) { check("QBPX-19", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            drive_bp_dialog(fill3(BM::Execute, "8002", "8003", QString(), QString()), [&] { g.panel()->on_add(); });
+            g.tick_until_paused();
+            bool sub_ok = false;
+            if (g.model().rows().size() == 1)
+                for (const auto& si : g.fx.backend->subscriptions(false))
+                    if (si.id == g.model().rows()[0].id)
+                        sub_ok = si.filter.lo == 0x8002 && si.filter.hi == 0x8003 &&
+                                 si.filter.space == jnext::dbg::MemSpace::cpu() && si.action == jnext::dbg::Action::Stop;
+            // A symbol with a memory ($C000 in page 20), with a To: the range is unqualified.
+            h.fx.backend->load_source_map(write_file("bpo-range.sld", kBpjSld).c_str(), false);
+            h.fx.enable();
+            drive_bp_dialog(fill3(BM::Execute, "banked", "C0FF", QString(), QString()), [&] { h.panel()->on_add(); });
+            const bool sym_ok = h.model().rows().size() == 1 && h.model().rows()[0].space == jnext::dbg::MemSpace::cpu() &&
+                                h.model().rows()[0].addr_text == "$C000-$C0FF";
+            check("QBPX-19", desc,
+                  g.model().rows().size() == 1 && g.model().rows()[0].addr_text == "$8002-$8003" && sub_ok && g.fx.paused() &&
+                      g.fx.pc() == 0x8002 && sym_ok,
+                  fmt("row_text='%s' sub_ok=%d paused=%d pc=%04X sym_ok=%d rows=%d",
+                      g.model().rows().empty() ? "" : s(g.model().rows()[0].addr_text).c_str(), sub_ok, g.fx.paused(),
+                      g.fx.pc(), sym_ok, int(h.model().rows().size())));
+        }
+    }
+    {   // QBPX-20
+        BpoFix g;
+        BpoFix h(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "a Read range stops on a read inside it and not on one outside; a source line with a To, and a To below the address, "
+                           "keep the dialog open with the reason and add nothing";
+        if (!g.fx.ok || !h.fx.ok) { check("QBPX-20", desc, false, "fixture"); }
+        else {
+            // 8000 LD A,(9100)  8003 LD A,(9005)  8006 NOP  8007 JR $
+            g.fx.load(PROG, {0x3A, 0x00, 0x91, 0x3A, 0x05, 0x90, 0x00, 0x18, 0xFE});
+            g.fx.regs(PROG);
+            g.fx.enable();
+            drive_bp_dialog(fill3(BM::Read, "9000", "90FF", QString(), QString()), [&] { g.panel()->on_add(); });
+            g.tick_until_paused();
+            h.fx.backend->load_source_map(write_file("bpo-range2.sld", kBpjSld).c_str(), false);
+            h.fx.enable();
+            const BpoDlg line = drive_bp_dialog(fill3(BM::Execute, "main.bas:10", "C0FF", QString(), QString()),
+                                                [&] { h.panel()->on_add(); });
+            const BpoDlg below = drive_bp_dialog(fill3(BM::Execute, "8000", "7FFF", QString(), QString()),
+                                                 [&] { h.panel()->on_add(); });
+            check("QBPX-20", desc,
+                  g.fx.paused() && g.fx.pc() == 0x8006 && !line.error.isEmpty() && !below.error.isEmpty() && h.model().rows().empty(),
+                  fmt("paused=%d pc=%04X line_err='%s' below_err='%s' rows=%d", g.fx.paused(), g.fx.pc(), s(line.error).c_str(),
+                      s(below.error).c_str(), int(h.model().rows().size())));
+        }
+    }
+    {   // QBPX-21
+        BpoFix g;
+        BpoFix h;
+        const char* desc = "IO Read FE with Mask FFFF is the row `$00FE/FFFF`; a real IN with BC = 00FE stops and with BC = 7FFE does not; "
+                           "with an empty Mask both stop (the address rule)";
+        if (!g.fx.ok || !h.fx.ok) { check("QBPX-21", desc, false, "fixture"); }
+        else {
+            // 8000 LD BC,7FFE  8003 IN A,(C)  8005 LD BC,00FE  8008 IN A,(C)  800A NOP  800B JR $
+            const std::initializer_list<uint8_t> prog = {0x01, 0xFE, 0x7F, 0xED, 0x78, 0x01, 0xFE, 0x00, 0xED, 0x78, 0x00, 0x18, 0xFE};
+            g.fx.load(PROG, prog);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            drive_bp_dialog(fill3(BM::IoRead, "FE", QString(), "FFFF", QString()), [&] { g.panel()->on_add(); });
+            const bool row = g.model().rows().size() == 1 && g.model().rows()[0].addr_text == "$00FE/FFFF" &&
+                             g.model().rows()[0].type_text == "IO Read";
+            g.tick_until_paused();
+            h.fx.load(PROG, prog);
+            h.fx.regs(PROG);
+            h.fx.enable();
+            drive_bp_dialog(fill3(BM::IoRead, "FE", QString(), QString(), QString()), [&] { h.panel()->on_add(); });
+            h.tick_until_paused();
+            check("QBPX-21", desc, row && g.fx.paused() && g.fx.pc() == 0x800A && h.fx.paused() && h.fx.pc() == 0x8005,
+                  fmt("row=%d masked: pc=%04X, rule: pc=%04X", row, g.fx.pc(), h.fx.pc()));
+        }
+    }
+    {   // QBPX-22
+        BpoFix g(/*paused=*/true);
+        const char* desc = "a port value with bits outside the mask is refused (it can never match), and so is FFFF with port 0000; neither adds anything";
+        if (!g.fx.ok) { check("QBPX-22", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            const BpoDlg a = drive_bp_dialog(fill3(BM::IoRead, "01FE", QString(), "00FF", QString()), [&] { g.panel()->on_add(); });
+            const BpoDlg b = drive_bp_dialog(fill3(BM::IoWrite, "0000", QString(), "FFFF", QString()), [&] { g.panel()->on_add(); });
+            check("QBPX-22", desc,
+                  a.error.contains("never match") && !b.error.isEmpty() && g.model().rows().empty(),
+                  fmt("a='%s' b='%s' rows=%d", s(a.error).c_str(), s(b.error).c_str(), int(g.model().rows().size())));
+        }
+    }
+    {   // QBPX-23
+        BpoFix g;
+        const char* desc = "Execute inside the B = 5 loop with the condition `B == 2` stops exactly once, with B == 2, and Hits is 1; the "
+                           "Condition cell reads `B == 2`";
+        if (!g.fx.ok) { check("QBPX-23", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            drive_bp_dialog(fill3(BM::Execute, "8002", QString(), QString(), "B == 2"), [&] { g.panel()->on_add(); });
+            const bool hit = g.tick_until_paused();
+            const unsigned b = g.fx.emu.cpu().get_registers().BC >> 8;
+            const QString hits = g.cell(0, 4), cond = g.cell(0, 5);
+            g.fx.mgr->on_run();
+            for (int i = 0; i < 3; ++i) g.tick();
+            check("QBPX-23", desc, hit && g.fx.pc() != 0 && b == 2 && hits == "1" && cond == "B == 2" && !g.fx.paused(),
+                  fmt("hit=%d B=%u hits='%s' cond='%s' stopped-again=%d", hit, b, s(hits).c_str(), s(cond).c_str(), g.fx.paused()));
+        }
+    }
+    {   // QBPX-24
+        BpoFix g(/*paused=*/true);
+        const char* desc = "the dialog shows the reason and adds nothing for each condition the codec cannot write back: PREV on a Read, an unknown "
+                           "@symbol, a syntax error, a `;` comment, a script-only form";
+        if (!g.fx.ok) { check("QBPX-24", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            struct C { int type; const char* text; };
+            const C cases[] = {{BM::Read, "PREV == 1"}, {BM::Execute, "@nosuch == 1"}, {BM::Execute, "A =="},
+                               {BM::Execute, "A == 1 ; c"}, {BM::Execute, "changed(A)"}};
+            std::string miss;
+            for (const C& c : cases) {
+                const BpoDlg d = drive_bp_dialog(fill3(c.type, "8000", QString(), QString(), c.text), [&] { g.panel()->on_add(); });
+                if (!d.opened || d.error.isEmpty()) miss += std::string("[") + c.text + "] ";
+            }
+            check("QBPX-24", desc, miss.empty() && g.model().rows().empty(), miss);
+        }
+    }
+    {   // QBPX-25
+        BpoFix g(/*paused=*/true);
+        const char* desc = "another client's conditional Execute stays typeless and read-only with its Type text as before, and its Condition cell "
+                           "reads `(condition)`";
+        if (!g.fx.ok) { check("QBPX-25", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            jnext::dbg::Subscription sub;
+            sub.kind = jnext::dbg::EventKind::Execute;
+            sub.filter.lo = sub.filter.hi = 0x8000;
+            sub.action = jnext::dbg::Action::Stop;
+            sub.condition = [](const jnext::dbg::Event&, const jnext::dbg::Debugger&) { return true; };
+            const jnext::dbg::ClientId other = other_client_sub(g.fx, g.model(), sub);
+            g.fx.mgr->refresh_panels();
+            const bool one = g.model().rows().size() == 1;
+            check("QBPX-25", desc,
+                  one && g.model().rows()[0].type == -1 && !g.model().rows()[0].own &&
+                      g.model().rows()[0].type_text == QStringLiteral("Execute (client %1)").arg(other) &&
+                      g.cell(0, 5) == "(condition)",
+                  fmt("rows=%d type=%d text='%s' cond='%s'", int(g.model().rows().size()), one ? g.model().rows()[0].type : -9,
+                      one ? s(g.model().rows()[0].type_text).c_str() : "", s(g.cell(0, 5)).c_str()));
+        }
+    }
+    {   // QBPX-26
+        BpoFix g;
+        const char* desc = "a condition that fails at run time (`1 / (B - B) == 0`) never stops, and its row's Condition tooltip holds the error text";
+        if (!g.fx.ok) { check("QBPX-26", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(cond_spec(BM::Execute, 0x8002, "1 / (B - B) == 0"));
+            g.model().add(BM::Execute, 0x8005);
+            g.tick_until_paused();
+            g.tick();
+            QTableWidgetItem* c = g.table()->item(row_of(g, "Execute", "$8002"), 5);
+            const QString tip = c ? c->toolTip() : QString("<no cell>");
+            check("QBPX-26", desc, g.fx.paused() && g.fx.pc() == 0x8005 && tip.contains("division by zero"), s(tip));
+        }
+    }
+    {   // QBPX-27
+        BpoFix g(/*paused=*/true);
+        const char* desc = "a range, a conditional or a count-only Execute at $8000 draws no gutter breakpoint; a gutter click there adds a plain one "
+                           "(a second row), and pc_breakpoints() lists only the plain one";
+        if (!g.fx.ok) { check("QBPX-27", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            g.model().add(ranged_spec(BM::Execute, 0x8000, 0x8010));
+            g.model().add(cond_spec(BM::Execute, 0x8000, "A == 1"));
+            g.model().add(spec_of(BM::Execute, 0x8000, true));
+            const bool none = !g.model().pc_exists(0x8000) && !g.model().pc_marked(0x8000, jnext::dbg::MemSpace::cpu()) &&
+                              g.model().pc_breakpoints().empty() && g.model().rows().size() == 3;
+            // The gutter's toggle: exists() says no, so it adds.
+            if (!g.model().exists(BM::Execute, 0x8000)) g.model().add(BM::Execute, 0x8000);
+            check("QBPX-27", desc,
+                  none && g.model().rows().size() == 4 && g.model().pc_exists(0x8000) && g.model().pc_breakpoints().size() == 1,
+                  fmt("none=%d rows=%d plain=%zu", none, int(g.model().rows().size()), g.model().pc_breakpoints().size()));
+        }
+    }
+    {   // QBPX-28
+        BpoFix g(/*paused=*/true);
+        const char* desc = "a plain and a conditional Execute at $8000 are two rows; add() of an existing full spec keeps its disabled On state; "
+                           "add(Execute, 0x8000) and remove(Execute, 0x8000) touch only the plain one";
+        if (!g.fx.ok) { check("QBPX-28", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            const auto cs = cond_spec(BM::Execute, 0x8000, "A == 1");
+            g.model().add(BM::Execute, 0x8000);
+            g.model().add(cs);
+            const bool two = g.model().rows().size() == 2;
+            g.model().set_enabled(cs, false);
+            g.model().add(cs);   // idempotent: no second row, and still disabled
+            bool cond_off = false;
+            for (const auto& r : g.model().rows()) if (!r.condition.isEmpty()) cond_off = !r.enabled;
+            const bool still_two = g.model().rows().size() == 2 && cond_off;
+            g.model().add(BM::Execute, 0x8000);     // the plain one exists: nothing new
+            const bool add_plain = g.model().rows().size() == 2;
+            g.model().remove(BM::Execute, 0x8000);  // only the plain one
+            const bool left = g.model().rows().size() == 1 && g.model().rows()[0].condition == "A == 1";
+            check("QBPX-28", desc, two && still_two && add_plain && left,
+                  fmt("two=%d still_two=%d add_plain=%d left=%d", two, still_two, add_plain, left));
+        }
+    }
+    {   // QBPX-29
+        std::vector<jnext::script::BpSpec> saved;
+        {
+            BpjFix a;
+            BreakpointModel& m = a.model();
+            m.add(ranged_spec(BM::Read, 0x9000, 0x90FF));
+            jnext::script::BpSpec io = spec_of(BM::IoRead, 0x00FE);
+            io.mask = 0xFFFF;
+            m.add(io);
+            m.add(cond_spec(BM::Execute, 0x8000, "B == 2"));
+            m.add(spec_of(BM::Execute, 0x8100, true));
+            m.add(spec_of(BM::Interrupt, 0));
+            m.add(spec_of(BM::Nmi, 0));
+            m.add_source_line(QStringLiteral("main.bas:10"), false, "A == 1");
+            saved = m.script_specs();
+            a.run("Save as Script...", g_tmp->filePath(QStringLiteral("bpx-s3.jds")));
+        }
+        BpjFix b;
+        // B already holds a PLAIN group on the same line: the file's conditional group is another breakpoint on the
+        // same places, so it must be added, not merged into the plain one.
+        b.model().add_source_line(QStringLiteral("main.bas:10"));
+        const auto seen = b.run("Load from Script...", g_tmp->filePath(QStringLiteral("bpx-s3.jds")));
+        const auto got = b.model().script_specs();
+        bool all_own = true;
+        for (const auto& r : b.model().rows()) all_own = all_own && r.own;
+        int present = 0;
+        for (const auto& sv : saved)
+            for (const auto& g2 : got)
+                if (g2 == sv) { ++present; break; }
+        check("QBPX-29", "Save then Load in a fresh session keeps a range, a port mask, a condition, count-only, Interrupt, NMI and a source "
+                         "line with a condition: every saved spec comes back equal on every BpSpec field, beside B's own plain group on that "
+                         "same line",
+              saved.size() == 7 && present == 7 && got.size() == 8 && all_own && b.model().rows().size() == 8 &&
+                  count_kind(seen, "box") == 0,
+              fmt("saved=%d present=%d got=%d rows=%d", int(saved.size()), present, int(got.size()), int(b.model().rows().size())));
+    }
+    {   // QBPX-30
+        BpoFix g(/*paused=*/true);
+        const char* desc = "another client's Execute range and Port with a non-rule mask read `Execute (client N)` `$8000-$80FF` and `IO Read "
+                           "(client N)` `$00FE/FFFF`, as before the dialog could make them, and are read-only";
+        if (!g.fx.ok) { check("QBPX-30", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            jnext::dbg::Subscription a;
+            a.kind = jnext::dbg::EventKind::Execute;
+            a.filter.lo = 0x8000;
+            a.filter.hi = 0x80FF;
+            a.action = jnext::dbg::Action::Stop;
+            const jnext::dbg::ClientId other = other_client_sub(g.fx, g.model(), a);
+            jnext::dbg::Subscription b;
+            b.kind = jnext::dbg::EventKind::Port;
+            b.access = jnext::dbg::Access::Read;
+            b.filter.port_mask = 0xFFFF;
+            b.filter.port_value = 0x00FE;
+            b.action = jnext::dbg::Action::Stop;
+            other_client_sub(g.fx, g.model(), b);
+            QString exec_t, exec_a, io_t, io_a;
+            bool all_ro = true;
+            for (const auto& r : g.model().rows()) {
+                all_ro = all_ro && !r.own;
+                if (r.type_text.startsWith("Execute")) { exec_t = r.type_text; exec_a = r.addr_text; }
+                if (r.type_text.startsWith("IO Read")) { io_t = r.type_text; io_a = r.addr_text; }
+            }
+            check("QBPX-30", desc,
+                  all_ro && g.model().rows().size() == 2 && exec_a == "$8000-$80FF" && io_a == "$00FE/FFFF" &&
+                      exec_t == QStringLiteral("Execute (client %1)").arg(other) && io_t.startsWith("IO Read (client"),
+                  fmt("%s %s | %s %s", s(exec_t).c_str(), s(exec_a).c_str(), s(io_t).c_str(), s(io_a).c_str()));
+        }
+    }
+    {   // QBPX-31
+        BpoFix g(/*paused=*/true);
+        const char* desc = "Edit seeds To, Mask, Condition and Count only from the row, and an unchanged OK carries the On state";
+        if (!g.fx.ok) { check("QBPX-31", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            auto sp = ranged_spec(BM::Execute, 0x8000, 0x80FF);
+            sp.condition = "B == 2";
+            sp.count_only = true;
+            g.model().add(sp);
+            g.model().set_enabled(sp, false);
+            auto io = spec_of(BM::IoRead, 0x00FE);
+            io.mask = 0xFFFF;
+            g.model().add(io);
+            g.table()->setCurrentCell(row_of(g, "Execute"), 1);
+            const BpoDlg a = drive_bp_dialog(nullptr, [&] { g.panel()->on_edit(); });
+            // (the rows are sorted by address: the IO row at $00FE comes first)
+            auto want = sp;
+            want.enabled = false;
+            bool kept = g.model().rows().size() == 2;
+            int execs = 0;
+            for (const auto& got : g.model().script_specs())
+                if (got.kind == jnext::script::BpSpec::Execute) { ++execs; kept = kept && got == want; }
+            kept = kept && execs == 1;
+            g.table()->setCurrentCell(row_of(g, "IO Read"), 1);
+            const BpoDlg b = drive_bp_dialog(nullptr, [&] { g.panel()->on_edit(); }, /*accept=*/false);
+            check("QBPX-31", desc,
+                  a.opened && a.seed_to == "80FF" && a.seed_cond == "B == 2" && a.seed_count && kept && b.opened && b.seed_mask == "FFFF",
+                  fmt("to='%s' cond='%s' count=%d kept=%d mask='%s'", s(a.seed_to).c_str(), s(a.seed_cond).c_str(), a.seed_count, kept,
+                      s(b.seed_mask).c_str()));
+        }
+    }
+    {   // QBPX-32
+        BpoFix g(/*paused=*/true);
+        const char* desc = "To and Mask typed for one type and left behind by switching to another are not read: IO Read after a To, and Execute "
+                           "after a Mask, each give a PLAIN row (no range, no mask) that saves";
+        if (!g.fx.ok) { check("QBPX-32", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            auto stale = [&](int first_type, const QString& addr1, const QString& to, const QString& mask, int then_type, const QString& addr2) {
+                return [=](QDialog* d) {
+                    auto* cb = d->findChild<QComboBox*>();
+                    auto* a  = d->findChild<QLineEdit*>("bp_dialog_address");
+                    auto* t  = d->findChild<QLineEdit*>("bp_dialog_to");
+                    auto* m  = d->findChild<QLineEdit*>("bp_dialog_mask");
+                    cb->setCurrentIndex(first_type);
+                    a->setText(addr1);
+                    t->setText(to);       // typed while enabled for the first type ...
+                    m->setText(mask);
+                    cb->setCurrentIndex(then_type);   // ... then the type changes and the field greys out, keeping its text
+                    a->setText(addr2);
+                };
+            };
+            drive_bp_dialog(stale(BM::Execute, "8000", "80FF", QString(), BM::IoRead, "FE"), [&] { g.panel()->on_add(); });
+            // (address 0010: the address rule's mask for it is 00FF, so a stale FFFF would NOT normalise away)
+            drive_bp_dialog(stale(BM::IoRead, "0100", QString(), "FFFF", BM::Execute, "0010"), [&] { g.panel()->on_add(); });
+            const auto specs = g.model().script_specs();
+            bool plain = specs.size() == 2;
+            for (const auto& sp : specs) plain = plain && !sp.hi && !sp.mask && sp.condition.empty();
+            const auto saved = jnext::script::bp_script_text(specs, *g.fx.backend);
+            // a second OK of each dialog must not duplicate either row (a stale field makes the spec miss its own row)
+            drive_bp_dialog(stale(BM::Execute, "8000", "80FF", QString(), BM::IoRead, "FE"), [&] { g.panel()->on_add(); });
+            drive_bp_dialog(stale(BM::IoRead, "0100", QString(), "FFFF", BM::Execute, "0010"), [&] { g.panel()->on_add(); });
+            check("QBPX-32", desc, plain && saved.refused.empty() && g.model().rows().size() == 2,
+                  fmt("specs=%zu plain=%d refused=%zu rows=%d", specs.size(), plain, saved.refused.size(), int(g.model().rows().size())));
+        }
+    }
+    {   // QBPX-33
+        BpoFix g;
+        const char* desc = "a condition that fails at run time is the ONLY activity (no stop, no count moving): the Condition cell's tooltip still "
+                           "shows the error after a few ticks";
+        if (!g.fx.ok) { check("QBPX-33", desc, false, "fixture"); }
+        else {
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(cond_spec(BM::Execute, 0x8002, "1 / (B - B) == 0"));
+            for (int i = 0; i < 3; ++i) g.tick();
+            QTableWidgetItem* c = g.table()->rowCount() ? g.table()->item(0, 5) : nullptr;
+            const QString tip = c ? c->toolTip() : QString("<no cell>");
+            check("QBPX-33", desc, !g.fx.paused() && tip.contains("division by zero"), s(tip));
+        }
+    }
+    {   // QBPX-34
+        BpoFix g;
+        const char* desc = "a failing condition evaluated many times (twice per loop run here) logs exactly one line through the backend's sink";
+        if (!g.fx.ok) { check("QBPX-34", desc, false, "fixture"); }
+        else {
+            LogCatcher log;
+            jnext::dbg::ClientInfo ci;
+            ci.name     = "qbpx34";
+            ci.observer = true;
+            const jnext::dbg::ClientId cid = g.fx.backend->attach(ci).value;
+            g.fx.backend->set_listener(cid, &log);
+            g.fx.load(PROG, kLoop);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            g.model().add(cond_spec(BM::Execute, 0x8002, "1 / (B - B) == 0"));
+            g.tick();
+            g.fx.regs(PROG);   // the loop again: five more failing evaluations of the same error
+            g.tick();
+            int lines = 0;
+            for (const auto& l : log.lines) lines += l.find("breakpoint condition") != std::string::npos;
+            g.fx.backend->set_listener(cid, nullptr);
+            g.fx.backend->detach(cid);
+            check("QBPX-34", desc, lines == 1, fmt("log lines=%d (of %zu)", lines, log.lines.size()));
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -4747,6 +5999,11 @@ int main(int argc, char** argv) {
     test_nav_window();
     test_bp_script();
     test_bp_script_more();
+    test_bp_interrupt();
+    test_run_to_interrupt();
+    test_bp_hits();
+    test_bp_hits_more();
+    test_bp_ranges();
     test_memory_tools_window();
 
     std::printf("\n=====================================\n");
