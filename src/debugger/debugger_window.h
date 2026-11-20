@@ -153,6 +153,7 @@ protected:
     void changeEvent(QEvent* event) override;   // GH #363
     void resizeEvent(QResizeEvent* event) override;   // GH #360: resumes the opening fit
     void hideEvent(QHideEvent* event) override;       // GH #377: floating panels follow the window
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void create_panels();
@@ -238,6 +239,9 @@ private:
     void end_fit_();
     bool   fit_known_size_(const QSize& s) const;
     int    initial_fit_width_passes_ = 0;
+    // GH #377: the left-column panels whose minimum width the fit raised to their sizeHint (end_fit_() restores it).
+    static constexpr int kLeftColumnMinWidth = 380;
+    std::vector<QWidget*> fit_raised_;
     static constexpr int kMaxWidthFitPasses = 8;
     // GH #363 — one queued refresh_panels() per palette change (changeEvent).
     bool palette_refresh_queued_ = false;
@@ -269,6 +273,9 @@ private:
     void reset_layout();
     void place_floating(QDockWidget* d, const QRect& r);
     void share_actions_with_docks();
+    void tune_tab_bars();
+    void size_hidden_tabs();
+    bool tab_bars_tune_queued_ = false;
     /// What the left dock area's panels still lack in width (GH #360); the group's shown dock in `shown`.
     int left_column_lacking(QDockWidget** shown) const;
     QDockWidget* shown_dock_of(QDockWidget* d) const;

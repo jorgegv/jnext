@@ -555,8 +555,7 @@ void DebuggerWindow::showEvent(QShowEvent* event) {
     initial_fit_done_ = true;
     // The sizes a saved layout carries only apply to a laid-out host; queued before the fit pass so the
     // fit measures them.
-    if (sizes_pending_)
-        QTimer::singleShot(0, this, [this]() { apply_dock_sizes(); });
+    QTimer::singleShot(0, this, [this]() { if (sizes_pending_) apply_dock_sizes(); size_hidden_tabs(); });
     // Queued, not immediate: the scroll range this reads is only correct once
     // the shown window has been laid out.
     queue_fit_pass_();
@@ -596,6 +595,8 @@ bool DebuggerWindow::fit_known_size_(const QSize& s) const {
 
 // The fit's explicit end: from now on every size is the user's.
 void DebuggerWindow::end_fit_() {
+    for (QWidget* page : fit_raised_) page->setMinimumWidth(kLeftColumnMinWidth);   // GH #377
+    fit_raised_.clear();
     fit_over_ = true;
     fit_sizes_.clear();
     fit_prev_size_ = QSize();
@@ -677,17 +678,44 @@ void DebuggerWindow::grow_default_size_to_natural() {
     // width pass gained (the stretch factors, set in create_panels(), are only the first guess), so
     // this converges on its own bound whatever the style, font or DPI.
     // GH #377: under docks a dock area keeps its width when the window widens (the central widget takes
-    // the rest), so the left column is given the width it lacks directly; the host's minimum then grows
-    // and the scroll pass below widens the window by it. A queued pass measures the result.
+    // the rest), so the share of a widening the left column gets is no longer a thing to measure. Instead the
+    // panels docked on the left are asked for the width their sizeHint wants, as a minimum for the length of
+    // the fit (end_fit_() gives the 380 back): the host's minimum then grows, the scroll range shows how much
+    // wider the window must be, and a queued pass adds it. The result is a function of the layout, not of
+    // the order of the passes, which is what keeps a window manager's late answers harmless.
     int add_w = scroll_w;
     bool dock_pass = false;
     if (initial_fit_width_passes_ < kMaxWidthFitPasses) {
-        QDockWidget* shown = nullptr;
-        const int lacking = left_column_lacking(&shown);
-        if (lacking > 0 && shown) {
-            dock_host_->resizeDocks({shown}, {shown->width() + lacking}, Qt::Horizontal);
-            ++initial_fit_width_passes_;
-            dock_pass = true;
+        for (QDockWidget* d : docks_) {
+            if (d->isFloating() || d->isHidden() ||
+                dock_host_->dockWidgetArea(d) != Qt::LeftDockWidgetArea) continue;
+            QWidget* page = d->widget();
+            const int want = page->sizeHint().width();
+            if (want > page->minimumWidth()) {
+                page->setMinimumWidth(want);
+                fit_raised_.push_back(page);
+                dock_pass = true;
+            }
+        }
+        if (dock_pass) ++initial_fit_width_passes_;
+        // The window grew by the scroll range, which is exact only up to the layout's rounding: a left
+        // column found wider than its widest page wants is given the excess back (the central widget
+        // takes it), so the column ends at its sizeHint, as the share-measuring fit it replaces did.
+        if (!dock_pass) {
+            QDockWidget* worst = nullptr;
+            int want = 0, have = 0;
+            for (QDockWidget* d : docks_) {
+                if (d->isFloating() || d->isHidden() ||
+                    dock_host_->dockWidgetArea(d) != Qt::LeftDockWidgetArea) continue;
+                want = std::max(want, d->widget()->sizeHint().width());
+                QDockWidget* s = shown_dock_of(d);
+                if (!worst) { worst = s; have = s->widget()->width(); }
+            }
+            if (worst && want > 0 && have > want + 2) {
+                dock_host_->resizeDocks({worst}, {worst->width() - (have - want)}, Qt::Horizontal);
+                ++initial_fit_width_passes_;
+                dock_pass = true;
+            }
         }
     }
 
@@ -1778,11 +1806,12 @@ void DebuggerWindow::create_panels() {
     // Both bottom corners to the bottom area: the bottom row spans the width, as it always did.
     dock_host_->setCorner(Qt::BottomLeftCorner, Qt::BottomDockWidgetArea);
     dock_host_->setCorner(Qt::BottomRightCorner, Qt::BottomDockWidgetArea);
+    dock_host_->installEventFilter(this);   // eventFilter(): tune the tab bars Qt creates
     for (std::size_t i = 0; i < jnext::dock::kPanelCount; ++i) {
         // The left column of tabs had setMinimumWidth(380), an explicit minimum that overrides a page's own
         // minimumSizeHint (Video's is 700 and its sizeHint 600): the opening fit then widens the column to
         // what the pages WANT. Kept per panel, so the same holds wherever the user docks them.
-        if (i < 9) table[i].panel->setMinimumWidth(380);
+        if (i < 9) table[i].panel->setMinimumWidth(kLeftColumnMinWidth);
         auto* dock = new QDockWidget(table[i].title, dock_host_);
         dock->setObjectName(QString::fromLatin1(table[i].id));
         dock->setWidget(table[i].panel);
@@ -1794,6 +1823,37 @@ void DebuggerWindow::create_panels() {
     scroll->setWidgetResizable(true);   // the host still fills a roomy window
     scroll->setFrameShape(QFrame::NoFrame);
     setCentralWidget(scroll);
+}
+
+// A QTabWidget's tab bar scrolls when its tabs do not fit, so its minimum width is small; the tab bar of a
+// dock group does not, and nine tabs then make the left column at least ~14 px wider than its widest panel.
+// Every group's tab bar gets scroll buttons, whenever Qt makes one (a drag creates them on the fly).
+void DebuggerWindow::tune_tab_bars() {
+    for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly)) {
+        bar->setUsesScrollButtons(true);
+        bar->setExpanding(false);
+    }
+}
+
+// A tabbed-away dock is not laid out by Qt until it is shown (it keeps whatever size it was created with:
+// 187 px wide for the Memory panel), so a panel read while it is not the shown tab would be drawn at that.
+// Give each one the size of its group's shown dock.
+void DebuggerWindow::size_hidden_tabs() {
+    for (QDockWidget* d : docks_) {
+        if (d->isFloating() || d->isHidden()) continue;
+        QDockWidget* s = shown_dock_of(d);
+        if (s == d) continue;
+        const QSize want = s->size().expandedTo(d->sizeHint());
+        if (d->size() != want) d->resize(want);
+    }
+}
+
+bool DebuggerWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == dock_host_ && event->type() == QEvent::ChildAdded && !tab_bars_tune_queued_) {
+        tab_bars_tune_queued_ = true;
+        QTimer::singleShot(0, this, [this]() { tab_bars_tune_queued_ = false; tune_tab_bars(); });
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void DebuggerWindow::raise_panel(QWidget* panel) {
@@ -1808,7 +1868,17 @@ void DebuggerWindow::raise_panel(QWidget* panel) {
 
 QDockWidget* DebuggerWindow::shown_dock_of(QDockWidget* d) const {
     const QList<QDockWidget*> group = dock_host_->tabifiedDockWidgets(d);
-    if (group.isEmpty() || !d->visibleRegion().isEmpty()) return d;
+    if (group.isEmpty()) return d;
+    // The group's tab bar says which tab is shown, also before the window has been mapped.
+    for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly)) {
+        bool mine = false;
+        for (int i = 0; i < bar->count(); ++i) mine = mine || bar->tabText(i) == d->windowTitle();
+        if (!mine || bar->currentIndex() < 0) continue;
+        const QString shown = bar->tabText(bar->currentIndex());
+        if (d->windowTitle() == shown) return d;
+        for (QDockWidget* t : group) if (t->windowTitle() == shown) return t;
+    }
+    if (!d->visibleRegion().isEmpty()) return d;
     for (QDockWidget* t : group)
         if (!t->isHidden() && !t->visibleRegion().isEmpty()) return t;
     return d;
@@ -1880,6 +1950,7 @@ void DebuggerWindow::apply_layout(const jnext::dock::Layout& in) {
         d->close();
     }
 
+    tune_tab_bars();
     layout_text_ = format(l);
     pending_sizes_ = l;
     sizes_pending_ = true;
