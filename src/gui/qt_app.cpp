@@ -822,7 +822,9 @@ void QtApp::TickEffects::present(bool carries_new_content) {
     const fast_boot::Shown s = fast_boot::shown_frame(
         app.emulator_.fast_boot_hides_screen(), app.emulator_.get_framebuffer(), w, h,
         app.emulator_.framebuffer_generation());
-    app.main_window_->emulator_widget()->update_frame(s.pixels, w, h, carries_new_content, s.generation);
+    // A held black frame is not new content: the widget skips it, so counting it would book a "lost" frame every tick.
+    app.main_window_->emulator_widget()->update_frame(
+        s.pixels, w, h, carries_new_content && s.generation != fast_boot::HIDDEN_GENERATION, s.generation);
 }
 
 void QtApp::TickEffects::post_frames(int frames_rendered) {
