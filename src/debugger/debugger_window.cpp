@@ -666,7 +666,11 @@ void DebuggerWindow::grow_default_size_to_natural() {
             if (d->isFloating() || d->isHidden() ||
                 (area != Qt::LeftDockWidgetArea && area != Qt::RightDockWidgetArea)) continue;
             QWidget* page = d->widget();
-            const int want = page->sizeHint().width();
+            // The right column opened ~250 px wide as a splitter child; its panels' sizeHint alone is a
+            // little short for their longest lines (the CPU panel's State / Screen row clips).
+            const int want = area == Qt::RightDockWidgetArea
+                                 ? std::max(page->sizeHint().width(), kRightColumnWidth)
+                                 : page->sizeHint().width();
             if (want > page->minimumWidth()) {
                 fit_raised_.push_back({page, page->minimumWidth()});
                 page->setMinimumWidth(want);

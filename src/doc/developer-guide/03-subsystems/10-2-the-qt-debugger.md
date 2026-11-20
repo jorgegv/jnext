@@ -240,7 +240,7 @@ length of the fit (`fit_raised_`, given back by `end_fit_()`), the host's minimu
 widens the window by the scroll range; a column found wider than its widest page afterwards is trimmed back with
 `resizeDocks()` (a dock area keeps its width when the window widens, so there is no share to measure and the result
 does not depend on the order of the passes; bounded by `kMaxInitialFitPasses` = 4
-(`kMaxInitialFitPasses`, `debugger_window.h:217`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:245`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:217`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:246`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
