@@ -1,15 +1,19 @@
 # Bug-report bundle: one file to replay a failing session locally (GH #492)
 
-Status: **DRAFT for owner review** (2026-11-20, planner of the 2026-11-17 autonomous run;
+**PARKED by the owner on 2026-11-20: no sub-issues filed; the design and decisions are kept for a
+later restart.**
+
+Status: **APPROVED; owner decisions recorded (2026-11-20, section 17)** (planner of the 2026-11-17
+autonomous run;
 revision 1, 2026-11-20: the independent review's eight findings folded in; revision 2,
 2026-11-20: round 2's five findings; revision 3, 2026-11-20: round 3's three findings, with
 measurements of the real distribution; revision 4, 2026-11-20: round 4's false-positive finding,
 measured, with the clean-corpus remedy; revision 5, 2026-11-20: round 5's two findings, the clean
-corpus made code-only and the false-positive count re-measured per source; see the last section).
-Nothing in this plan is started and no sub-issue is filed. When the owner approves it, the
-sub-issues of the task list are opened under #492. The plan assumes #492 becomes an epic, on
-the branch `epic492-bug-report-bundle`: each sub-issue branches off it and merges back into it,
-and the epic reaches `main` in one merge (CLAUDE.md, merge protocol step 1; see Q1).
+corpus made code-only and the false-positive count re-measured per source; review round 6
+approved; the owner answered every question on 2026-11-20; see the last section). Nothing in this
+plan is started. When the work resumes, #492 is an epic (Q1), on the branch `epic492-bug-report-bundle`: the sub-issues
+of the task list (titled `epic-492: ...`) branch off it and merge back into it, and the epic
+reaches `main` in one merge (CLAUDE.md, merge protocol step 1).
 
 The goal, from the issue: a bug reporter makes **one file** that lets a developer replay the
 failing session locally, with the full debugger, rewind and every panel, with no network
@@ -46,7 +50,7 @@ what can run at once.
 
 - [ ] **B0.1** Seam inventory: every place host state enters the emulated machine (inputs, host actions, debugger mutations, runtime writes of machine state from frontend menus and Preferences, in-frame pulls, UART byte streams, card sectors, configuration), one recorder-observable seam per class; the table goes into the developer guide
 - [ ] **B0.2** Session log core (`src/bundle/session_log.*`): anchor-relative cycle stamps, the event list, the value queues, the byte streams, seekable cursors, the memory cap
-- [ ] **B0.3** Checkpoint digests: observable digest (CPU registers and all of RAM), framebuffer digest, full state-stream digest, every N frames
+- [ ] **B0.3** Checkpoint digests: observable digest (CPU registers and all of RAM), framebuffer digest, full state-stream digest, every N frames; the recorder's cost measured with `make bench` (the rolling recording is on by default only if it is at most 1 %, Q2)
 
 #### Sub-issue 2: the machine configuration a replay needs
 
@@ -103,13 +107,13 @@ what can run at once.
 
 #### Sub-issue 10: GUI menu and dialogs
 
-- [ ] **B4.1** File > Bug Report menu: Start Recording, Save Bug Report..., Stop Recording, Open Bug Report...; status-bar indicator
+- [ ] **B4.1** File > Bug Report menu (menu only, no hotkey: Q12): Start Recording, Save Bug Report... (proposing `<name>.YYYYMMDDhhmm.jnext-bug.zip`, Q5), Stop Recording, Open Bug Report...; status-bar indicator
 - [ ] **B4.2** Save dialog with the privacy review (what goes in, sizes, the card files, the network hosts, notes, the card and host files waiting for the reporter's tick (Q14)); open dialog with the summary and the mismatch warnings; replay progress
 
 #### Sub-issue 11: Preferences panel, configuration keys and CLI
 
 - [ ] **B4.3** Preferences > Bug Reports panel (rolling recording, memory cap, checkpoint interval, include the program, include the log) and, in the same change, its `bug_report.*` rows in `config_keys.cpp` with their dedicated flags (project rule)
-- [ ] **B4.4** `--bug-report-record`, `--bug-report-play`, `--bug-report-info` and the rest of the option set of section 7; man page; `make cli-check`
+- [ ] **B4.4** `--bug-report-record FILE|DIR` (the pattern `<name>.YYYYMMDDhhmm.jnext-bug.zip` is Q5's; the directory form, which then uses that default name, is the planner's interpretation, for the owner to confirm), `--bug-report-play`, `--bug-report-info` and the rest of the option set of section 7; man page; `make cli-check`
 - [ ] **B4.5** SDL-only frontend and `--headless` parity: record, save at exit, replay, the same exit statuses
 
 ### Phase B5: end-to-end proof and documentation
@@ -125,14 +129,14 @@ what can run at once.
 
 - [ ] **B5.5** User guide page "Reporting a bug with a bundle", man page sections, developer guide chapter (the seams, the log, the card capture, the replay), FEATURES.md
 
-### Phase B6: optional, owner-gated
+### Phase B6: later (B6.3 by Q10; B6.1 and B6.2 by the planner's scheduling, for the owner to confirm; not filed: #492 is parked)
 
-#### Sub-issue 14: keyframes (only if Q3 says yes)
+#### Sub-issue 14: keyframes (later: the planner's scheduling, for the owner to confirm; Q3 decided: local cache, and shipped keyframes for `--no-sdcard` only)
 
 - [ ] **B6.1** Local keyframe cache on the replay side (never shipped): a second open of the same bundle jumps to the nearest keyframe
-- [ ] **B6.2** Shipped keyframes for sessions with no firmware in memory (`--no-sdcard`), under the same content check as every member (RAM can hold files the stand-in served); firmware-excised keyframes only on the owner's say-so (Q3)
+- [ ] **B6.2** Shipped keyframes for sessions with no firmware in memory (`--no-sdcard`), under the same content check as every member (RAM can hold files the stand-in served) and the keyframes tick (Q14); no firmware-excised keyframes (Q3)
 
-#### Sub-issue 15: the browser build (only if Q10 says yes)
+#### Sub-issue 15: the browser build (later; Q10 decided: not in v1)
 
 - [ ] **B6.3** Record and replay in a web page: the minimal card by `cardSha256`, `dirs` and recipe; JavaScript save and open
 
@@ -158,8 +162,8 @@ means the branch cannot be finished before those are merged into the epic branch
 | 11 Preferences, keys and CLI | B4.3, B4.4, B4.5 | 7 (the replay options need 8) | 8, 9, 10, 14 |
 | 12 Proof rows | B5.1, B5.2, B5.3, B5.4 | 8, 11 (B5.1, the probe program, needs nothing) | 9, 10, 14, 15 |
 | 13 Documentation | B5.5 | 9, 10, 11, 12 | 14, 15 |
-| 14 Keyframes (Q3) | B6.1, B6.2 | 9 | 10, 11, 12, 13, 15 |
-| 15 Browser (Q10) | B6.3 | 8, 11 | 9, 10, 12, 13, 14 |
+| 14 Keyframes (later) | B6.1, B6.2 | 9 | 10, 11, 12, 13, 15 |
+| 15 Browser (later) | B6.3 | 8, 11 | 9, 10, 12, 13, 14 |
 
 The parallel column lists no sub-issue that is a direct or indirect dependency or dependant of
 the row. Work that can start early: B1.9 (the pristine sector-hash set) needs neither 1 nor 3;
@@ -317,8 +321,15 @@ shipped).
 ## 4. Contents
 
 The file is a ZIP (the `.jns` container's writer and reader, `src/save/zip_archive.*`), named
-`<name>.jnext-bug.zip` (Q5: GitHub accepts `.zip` attachments and refuses unknown extensions)
-and recognised by its `manifest.json`, not by the extension. `--load` of a `.zip` today means a
+**`<name>.YYYYMMDDhhmm.jnext-bug.zip`**. The owner decided the pattern and that `YYYYMMDDhhmm` is
+the current date and time at save (Q5). The details that follow are **the planner's
+interpretation, for the owner to confirm** when the work resumes, not owner decisions: `<name>` is
+the loaded program's base name without its extension (`jnext` when no program is loaded), reduced
+to `A-Z a-z 0-9 . _ -` (anything else becomes `_`); the time is **local** time (the manifest's
+`created` stays UTC); and a second save in the same minute adds `-2`, `-3`, ... after the time
+(`game.202611200551-2.jnext-bug.zip`) instead of overwriting. The `.zip` ending is kept because
+GitHub accepts `.zip` attachments and refuses unknown extensions. A bundle is recognised by its
+`manifest.json`, not by the name or the extension. `--load` of a `.zip` today means a
 program archive (`program_archive.cpp`), so the bundle check runs first.
 
 | Member | Format | What |
@@ -596,8 +607,8 @@ the same bytes also occur on the distribution card, inside a distribution progra
 same z88dk run-time (`TBBLUE.TBU`, the dot commands, applications). So the remedy does ship byte
 strings that also occur on the card. Each is z88dk's own code or run-time data, of z88dk's
 authorship and licence, which the reporter's own program contains because the reporter linked it;
-none is NextZXOS's or another vendor's. That is the line the remedy draws, and Q18 puts it to the
-owner: option (d) is the only one that ships nothing that also occurs on the card.
+none is NextZXOS's or another vendor's. That is the line the remedy draws, and the owner accepted it
+(Q18, option (a)); option (d) was the one that ships nothing that also occurs on the card.
 
 **Drop counts, measured** (E1 with two exceptions; clean corpus = today's demo and dapr builds,
 **before the probes and sweeps exist**: these counts are re-measured when B1.11 builds them, and the
@@ -685,8 +696,8 @@ RAM. Under E1 all 23 of its aligned windows are indexed (measured above), so any
 or more of it is found, whole or partial: such a program, a classic snapshot of it and its
 keyframes are refused, the program becomes a SHA-256 reference and the developer needs it from the
 reporter. That is the correct outcome under the rule, by the criterion and not by accident, and it
-has a real cost on classic-machine bundles; Q17 asks whether the character-set windows of the
-classic ROMs may be excluded.
+has a real cost on classic-machine bundles; the owner decided to keep the character set indexed
+(Q17).
 
 #### 5.3.4 Members that are re-derived instead of shipped, and the no-index case
 
@@ -740,7 +751,7 @@ Stated as rules, not examples:
    programs such as `TBBLUE.TBU` and the dot commands) passes. Each piece is z88dk's own code or
    run-time data (the clean corpus links no third-party data: no ROM font, no vendor table), not
    NextZXOS's or another vendor's; it is still a byte string that also occurs on the card, which is
-   the line Q18 asks the owner to accept; a long run of them is not proved to exist contiguously in
+   the line the owner accepted (Q18); a long run of them is not proved to exist contiguously in
    one clean build (5.3.1).
 
 The classification removes the common cases (system paths, archives, snapshots and
@@ -771,8 +782,8 @@ instead.
 - **System and distribution-derived files that differ from pristine** (the user replaced a file
   under `/NEXTZXOS`, or NextZXOS rewrote a settings file there) are hashes only, so the developer
   cannot replay past their first read without the reporter's copy; the review says so before
-  the bundle is written, and names them. Q15 asks whether small settings files may be
-  allowlisted.
+  the bundle is written, and names them. The one exception is `/MACHINES/NEXT/config.ini`, which
+  the owner allowlisted alone (Q15) under its testable criterion.
 - **Unticked user files and an unknown base**: the developer needs the reporter's copy of every
   hashes-only file the session read (an unticked user file, or anything on an unknown card that
   is not pristine); the bundle lists them by path.
@@ -861,14 +872,16 @@ column names the capture row's condition.
 - **File > Bug Report** (Qt; the SDL frontend gets the same actions on its host keys):
   **Start Recording** (from now: a new segment from the current state is impossible without a
   memory snapshot, so it performs a hard reset or reloads the current program, and says so
-  before doing it), **Save Bug Report...** (the rolling segment, at any time), **Stop
-  Recording**, **Open Bug Report...**.
+  before doing it), **Save Bug Report...** (the rolling segment, at any time; the file dialog
+  proposes `<name>.YYYYMMDDhhmm.jnext-bug.zip`, section 4; "in the last directory used" is the
+  planner's interpretation, for the owner to confirm), **Stop
+  Recording**, **Open Bug Report...**. Menu only: there is no hotkey (owner decision Q12).
 - **Rolling recording** (Preferences, Q2): the recorder runs from every anchor, in memory, and
   nothing is written until the reporter saves. `--fast-boot` is off today "when a recording
   runs" (man page); the rolling recorder is exempt, because fast boot is deterministic (frames
   and the first key) and recorded as configuration, so a default-on recorder does not silently
   turn fast boot off for everyone. "Save Bug Report..." is then available at any
-  time, which is the issue's "from a rolling buffer, like rewind". A hotkey for it is Q12.
+  time, which is the issue's "from a rolling buffer, like rewind".
 - **The save dialog** shows the privacy review before writing (section 9): duration, program
   (included / reference / excluded), card files whose sectors are included (paths, sizes),
   network hosts with byte counts, host files the stand-in served, the warnings, a notes field,
@@ -885,7 +898,7 @@ Every GUI setting has a CLI way to set it (project rule): the `bug_report.*` row
 
 | Option | Effect | Key |
 |---|---|---|
-| `--bug-report-record FILE` | record from the start of the run (or from the `--load`), write FILE at exit | none (per run) |
+| `--bug-report-record FILE\|DIR` | record from the start of the run (or from the `--load`), write the bundle at exit: to FILE as given, or, when the argument is an existing directory or ends in `/`, to `DIR/<name>.YYYYMMDDhhmm.jnext-bug.zip` (section 4; the directory form is the planner's interpretation, for the owner to confirm) | none (per run) |
 | `--bug-report-rolling` / `--no-bug-report-rolling` | the rolling recording, this run | `bug_report.rolling` |
 | `--bug-report-memory-mb N` | memory cap; at the cap the recording stops with a warning | `bug_report.memory_mb` |
 | `--bug-report-checkpoint-frames N` | checkpoint interval | `bug_report.checkpoint_frames` |
@@ -1169,7 +1182,12 @@ Writer and reader as section 4, through `zip_archive`. The reader validates the 
 the members, applies the version rules of section 8 and builds the privacy summary that the save
 dialog, the open dialog and `--bug-report-info` share.
 
-Tests: `bundle_file_test`, BRB-FILE-01.. : a written bundle is read back member for member; a
+Tests: `bundle_file_test`, BRB-FILE-01.. : the default name (the section 4 interpretation, for the
+owner to confirm), through a test clock seam (a fixed local time): `game.nex` saved at 2026-11-20 05:51 is `game.202611200551.jnext-bug.zip`, no program
+gives `jnext.202611200551.jnext-bug.zip`, a name with spaces and non-ASCII characters is reduced
+to the allowed set, a second save in the same minute gets `-2`, an existing file is never
+overwritten, and a bundle renamed to anything is still recognised by its manifest while a plain
+`.zip` named `*.jnext-bug.zip` without one is not; a written bundle is read back member for member; a
 missing, an extra or a corrupt member refuses; `--bug-report-info` prints the review (a golden
 text for a synthetic bundle); the manifest holds no absolute path (scanned); a foreign reader
 (`unzip -t` and `jq` in a functional row) opens it, as the `.jns` rows do.
@@ -1325,129 +1343,35 @@ replay, the proof), FEATURES.md, and the ChangeLog line at landing.
 
 ---
 
-## 17. Open questions for the owner
+## 17. Owner decisions (2026-11-20)
 
-Each with the default this plan assumes if the owner says nothing. Numbers are stable across
-revisions; Q6 is withdrawn.
+The owner answered every question on 2026-11-20 (about 05:50). Numbers are kept from the drafts
+(Q6 was withdrawn in revision 1, Q8 replaced by Q14). Q14 to Q18 were read together, since they
+jointly decide how often a bundle carries the reporter's program and files.
 
-**Read Q14 to Q18 together.** They jointly decide how often a bundle carries the reporter's program
-and files: Q14 (which content channels need a tick), Q15 (the `config.ini` allowlist), Q16 (the
-replay base on disk), Q17 (the 48K character set) and Q18 (the false-positive remedy, and with it
-whether z88dk programs ship at all). A strict answer to one can make another's default moot.
+| # | Question | Decision |
+|---|---|---|
+| Q1 | Epic shape | **Yes**: #492 is an epic, branch `epic492-bug-report-bundle`, with its sub-issues (13, plus the two B6 ones). Scheduling sub-issue 14 (keyframes) after the v1 sub-issues is the planner's interpretation, for the owner to confirm; sub-issue 15 is later by Q10. |
+| Q2 | Rolling recording on by default | **On, if the measured cost is at most 1 %** (`make bench`, B0.3), off otherwise; exempt from the fast-boot "off when recording" rule. |
+| Q3 | Machine memory in bundles | **As proposed**: no machine memory for any firmware session and no `.jns` anchor; the local replay-side keyframe cache (B6.1); shipped keyframes only for `--no-sdcard` sessions, under the byte check and the keyframes tick (B6.2). (Q3 did not say when; marking B6.1 and B6.2 "later" is the planner's interpretation, for the owner to confirm.) |
+| Q4 | The program file | **Included by default** (a distribution file is a reference), after the byte check, listed in the review, with an untick that keeps only its SHA-256. |
+| Q5 | File name | **Changed**: `<name>.YYYYMMDDhhmm.jnext-bug.zip`, the current date and time at save; still recognised by content. The `<name>` rule, the allowed character set, local time, the `-2` suffix, `--bug-report-record` taking a directory and the save dialog's "last directory used" are the planner's interpretation, for the owner to confirm (section 4). |
+| Q6 | (withdrawn in revision 1) | The warm-start recorder's RTC was already pinned (b93c03f79). |
+| Q7 | Default card mode | **Keep the in-place default**; capture through the in-memory undo log. |
+| Q8 | (replaced by Q14) | |
+| Q9 | Version policy on replay | **As proposed**: firmware bundles refuse under another version, printing the reporter's `git describe` and the build command; `--bug-report-cross-version` forces; bundles with no firmware in the anchor warn and replay, `--bug-report-strict` refuses. |
+| Q10 | The browser build | **Not in v1** (B6.3 later). |
+| Q11 | NextPi I2S routed to EAR | **Not replayable; warn** from the first sample. |
+| Q12 | A hotkey for Save Bug Report | **Menu only.** |
+| Q13 | Memory cap and segments | **64 MiB** (the undo log counts toward it), **latest segment only**; at the cap the recording stops with a warning. |
+| Q14 | The copyright residuals | **Option (a)**: every content channel ships only when the reporter ticks it (one tick per user file on every base and per served host file, one "network data", one "debugger uploads", one "keyframes"); nothing ticked by default except the program (Q4). |
+| Q15 | Settings files under system paths | **Allowlist `/MACHINES/NEXT/config.ini` only**, under the testable criterion (under 4 KiB, printable ASCII with TAB, CR and LF, `key=value` or comment lines, passes the byte check); every other system-path file hashes only. |
+| Q16 | Disk for the replay base | **Cache it** at `~/.jnext/sdcard/bug-report-bases/<sha256>.img`, **with the forget option** (`--bug-report-forget-bases` and a Preferences button). |
+| Q17 | The classic ROMs' character set | **Keep it indexed (strict)**; the clean corpus may never drop its windows (BRB-FILE-42). |
+| Q18 | False positives on z88dk programs | **Option (a)**: E1 with up to two stray bytes, the NEX header checked by layout, and a code-only clean corpus of linked z88dk builds of jnext's own sources (third-party data excluded by name, licence check per file before commit), committed, shipped and intersected on the reporter's machine. The owner accepts the line it draws: it ships byte strings of z88dk's own code that also occur in z88dk-built distribution programs. The package cost is measured by B1.11 and recorded here. |
 
-- **Q1. Epic shape.** #492 becomes the epic, branch `epic492-bug-report-bundle`, with the 13
-  sub-issues (15 with B6). *Default: yes.*
-- **Q2. Rolling recording on by default?** Without it, "save a bug report now" only works if the
-  reporter started recording before the bug, which is rarely the case. It must not turn
-  `--fast-boot` off (today fast boot is off "when a recording runs"): the rolling recorder is
-  exempt, fast boot being deterministic and recorded as configuration. *Default: on, exempt from
-  the fast-boot rule, if `make bench` shows at most 1% cost on the Next workloads; off
-  otherwise.*
-- **Q3. Memory in bundles.** v1 ships no machine memory for any firmware session, and no `.jns`
-  anchor at all, so long sessions replay from their anchor. A firmware-excised keyframe can still
-  carry modified NextZXOS code, so it is not offered. *Default: no shipped keyframes except for
-  `--no-sdcard` sessions, under the byte check (B6.2); the local replay-side keyframe cache
-  (B6.1) yes.*
-- **Q4. The program file.** *Default: included (unless it is a distribution file, then a
-  reference) after the byte check, listed in the review, with an untick that keeps only its
-  SHA-256.* Without Q18's remedy the byte check refuses almost every z88dk program (revision 4's
-  measurement: 38 of 38 demos), so this default depends on Q18.
-- **Q5. File name.** *Default: `<name>.jnext-bug.zip`, recognised by content: GitHub accepts
-  `.zip` attachments and refuses unknown extensions.*
-- **Q6. Withdrawn** (revision 1): the warm-start recorder's RTC is already pinned (b93c03f79).
-- **Q7. The default card mode.** Captured through the undo log, so the in-place default stays.
-  *Default: keep the in-place default; do not make `--sdcard-writes` the default.*
-- **Q8. Replaced by Q14** (revision 1): the system-path rule now applies to every base.
-- **Q9. Version policy on replay.** Firmware bundles (every `.nex` bundle on the Next, and any
-  power-on on the Next) replay faithfully only under the reporter's exact version. *Default:
-  refuse with the reporter's `git describe` and the build command; `--bug-report-cross-version`
-  replays anyway on observable and picture digests; bundles with no firmware in the anchor warn
-  and replay, `--bug-report-strict` refuses.*
-- **Q10. The browser build.** *Default: not in v1; the format is platform-neutral, and B6.3 adds
-  it later.*
-- **Q11. NextPi I2S routed to EAR.** *Default: not replayable in v1, flagged with a warning; the
-  Pi's UART is covered.*
-- **Q12. A hotkey for "Save Bug Report...".** Almost every Alt letter is taken. *Default: menu
-  only in v1; a key only if the owner names one.*
-- **Q13. Memory cap and segments.** *Default: 64 MiB (the undo log counts toward it); the
-  recorder keeps only the latest segment (since the last hard reset, program load or machine
-  change); at the cap it stops with a warning.*
-- **Q14. The copyright residuals** (5.3.5). The check bounds only verbatim copies (95 bytes or
-  more, not a period-4 fill) of the distribution jnext indexes. Copies altered at least once
-  every 94 bytes pass: another NextZXOS version (relocation changes absolute addresses every few
-  bytes, so most of it escapes), systematic patches, hex, base64 or Intel HEX re-encodings,
-  compression. Any content channel that ships can carry such a copy: card user files and served
-  host files on every base, the RX streams, debugger memory-write payloads, the program and
-  shipped keyframes. Options, strictest first:
-  - (z) no content at all: no card user-file or host-file bytes, no RX streams, no debugger
-    payloads, no program, no keyframes (references and hashes only): residuals 1, 2, 4 and 5
-    closed (Q18 (d) is the program-only equivalent); almost no real bug replays without a second exchange;
-  - (a) **every content channel ships only when the reporter ticks it** in the review, after the
-    byte check: one tick per user file on every base and per served host file, one "network data"
-    tick (all RX streams), one "debugger uploads" tick, one "keyframes" tick; nothing ticked by
-    default; the program ticked by default because the reporter chose it (Q4);
-  - (b) as (a), but only user and host files in a format that can hold code (`.nex`, `.bin`,
-    `.tap`, `.tzx`, `.rom`, `.sys`, `.drv`, `.dot`, `.bas`, no extension) need a tick, and RX
-    streams and debugger uploads ship after the check;
-  - (c) revision 1's: user files on a distribution base ship after the check, an unknown base
-    needs ticks, every other channel ships after the check.
-  *Default: (a), the strict workable one.* Cost: the reporter ticks what the session read, the
-  network data and the uploads (the review lists exactly those, with sizes); an unticked file
-  stops the replay at its first read with its path named, and unticked network data or uploads
-  stop it at their first byte, naming the channel. No option but (z) closes residual 1 for what
-  the reporter ticks.
-- **Q15. Settings files under system paths.** NextZXOS and the firmware menu rewrite small
-  settings files under the system paths; `/MACHINES/NEXT/config.ini` is key=value text that
-  jnext itself writes on the default card (the recipe injects it). **Cost of the strict rule:**
-  every power-on Next bundle from a user who ever changed a firmware boot setting stops at the
-  first read of `config.ini`, which is nearly every power-on bundle. *Default: allowlist
-  `/MACHINES/NEXT/config.ini` alone, shipped as bytes only if it is under 4 KiB, only printable
-  ASCII, TAB, CR and LF, every non-empty line a `key=value` or a comment, and it passes the byte
-  check (all testable); every other system-path file stays hashes only.*
-- **Q16. Disk for the replay base.** The pristine rebuild of the default card is 1 GiB, cached at
-  `~/.jnext/sdcard/bug-report-bases/<sha256>.img` (the image rule: images live only in
-  `~/.jnext/sdcard/` and per-run scratch copies; owner decision 2026-11-20), beside the 40 MiB
-  index under `~/.jnext/bug-report/index/` (hashes, not an image). *Default: cache it, with a
-  `--bug-report-forget-bases` (and a Preferences button) that deletes the cache.*
-- **Q17. The classic ROMs' character set.** Classic programs often copy the 768-byte character
-  set of `48.rom` (0x3D00-0x3FFF) into their code or RAM. Under revision 3's E1 all 23 of its
-  aligned windows are indexed (measured, 5.3.1), so any copy of 95 bytes or more of it, whole or
-  partial, makes the program, a classic snapshot of it and its keyframes a SHA-256 reference only
-  (5.3.3). Revision 2's premise ("most of its windows have 8 or more distinct values") described
-  neither criterion correctly: under revision 2's E2, 20 of the 23 were excluded and the outcome
-  held only by accident. Revision 5 keeps the decision with the owner: the clean corpus may never
-  drop these windows (it links no font, and BRB-FILE-42 proves it shares no window with the ROMs or
-  the character set), so z88dk's identical `font_8x8_zx_system` cannot decide Q17 by the back door.
-  *Default: keep it indexed (strict), so such a classic bundle needs the program from the reporter;
-  excluding the character-set windows of the classic ROMs from the index is the alternative, at the
-  owner's word only.*
-
-- **Q18. False positives on z88dk programs** (5.3.1). The index matches the NEX header z88dk
-  writes and z88dk's own run-time data, because distribution programs (`TBBLUE.TBU`, the dot
-  commands, several applications) are z88dk programs too: revision 3's index refused 38 of 38
-  tracked demo `.nex`, 14 of 15 `.tap` and 9 of 9 dapr programs. Options:
-  - (a) **E1 with up to two stray bytes, the NEX header checked by layout, and a clean corpus of
-    linked z88dk builds of jnext's own sources (demos, run-time probes, library sweeps; code and
-    z88dk's own run-time data only, no third-party data), committed as binaries, shipped,
-    intersected with the index on the reporter's machine**: measured 0 of 27 sources refused
-    (leave-one-source-out, 43 distinct contents); nothing of the distribution is committed; it ships
-    byte strings of z88dk's own code that also occur in z88dk-built distribution programs (5.3.1,
-    "the line it draws"); cost: the probe and sweep binaries in every package, **not yet measured**
-    (an estimate of 1-3 MB; B1.11 measures it and this question then states the number), and a
-    maintainer target to rebuild them on a z88dk bump;
-  - (b) as (a), but the maintainer tool commits only the hashes of the index windows the clean
-    corpus contains: much smaller, but it commits hashes of 64-byte strings that also occur in the
-    distribution (strings of z88dk's code, yet derived from both);
-  - (c) as (a), with the clean corpus built on the reporter's machine by a z88dk the reporter has:
-    nothing shipped, but every reporter without z88dk, which is most non-developer users, gets the
-    refusals back, and so does one with another z88dk version;
-  - (d) no remedy: z88dk programs travel as SHA-256 references; nearly every bundle then needs the
-    program from the reporter in a second exchange. It is the program-only equivalent of Q14's
-    (z), and closes residual 5 for the program.
-  *Default: (a).* It keeps the rule (a dropped window is, by construction, 64 bytes of a clean
-  build) and makes Q4's default true for the reporters the project has. B1.11's per-file licence
-  check, recorded in this design, comes before any binary is committed; proprietary data is never
-  committed or packaged (PULL-REQUEST-PROTOCOL rule 3, the owner's rule).
+The option texts the owner chose from are in the revision history of this file (revision 5 and
+the round-6 notes, commits 5f1de86ff and 360798539).
 
 ---
 
@@ -1625,3 +1549,20 @@ back for every reporter without z88dk, most non-developer users; the coverage ta
 is scanned, and the header's free fields are a residual of a few tens of bytes; the bound reads
 "at most two arbitrary bytes per 32"; option (z) also closes residual 5, and Q18 (d) is its
 program-only equivalent; a reading note asks for Q14 to Q18 to be read together.
+
+**Owner decisions (2026-11-20).** Every question answered; section 17 now records them. Q5
+changed the file name to `<name>.YYYYMMDDhhmm.jnext-bug.zip` with the current date and time at
+save, applied to section 4, the save dialog, the CLI and the tests (BRB-FILE-01's name rows).
+Q12's "menu only" removes the hotkey mention from section 7.1. Every other answer took the
+recommended default.
+
+The following were filled in by the planner, not decided by the owner, and are flagged in the
+text as **the planner's interpretation, for the owner to confirm** (review round 7, R7-1): the
+`<name>` rule (program base name, `jnext` with no program), the allowed character set, local time,
+the `-2` suffix for a second save in the same minute, `--bug-report-record` accepting a directory,
+the save dialog proposing the last directory used, and scheduling sub-issue 14 (keyframes) after
+the v1 sub-issues.
+
+**Parked (2026-11-20).** The owner parked #492 ("too much work for the little reward"): no
+sub-issues are filed, the issue leaves v1.4, and this design and its decisions are kept for a
+later restart.
