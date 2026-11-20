@@ -1480,7 +1480,7 @@ int main() {
         }
         // The two bounds on the amount copied, each found before the copy is done and so with no destination left:
         // a file whose directory entry declares more than 48 MiB (a short chain behind it: the entry is patched on a copy
-        // of the card, no 48 MiB fixture), and a directory of 65,537 entries, one past the cap.
+        // of the card, no 48 MiB fixture), and a tree of 66,049 entries, past the 65,536 cap.
         {
             FNode fxb = fixture_games();
             FNode& g1b = kid(kid(kid(fxb, "GAMES"), "NEXT"), "G1");
@@ -1497,11 +1497,19 @@ int main() {
 
             FNode fxm = fixture_games();
             FNode& g1m = kid(kid(kid(fxm, "GAMES"), "NEXT"), "G1");
+            // 257 directories of 256 empty files: 66,049 entries, one directory per 256 so the Builder's FatFs writes
+            // stay quick (one directory of 65,537 entries is quadratic in FatFs).
             FNode many = dirn("many", 0x00, 0x5A71, 0x9000);
-            for (int i = 0; i <= 65536; ++i) {
-                char n[16];
-                std::snprintf(n, sizeof n, "f%05d.dat", i);
-                many.kids.push_back(file(n, {}, 0x20, 0x5A72, 0x9000));
+            for (int d = 0; d <= 256; ++d) {
+                char dn[16];
+                std::snprintf(dn, sizeof dn, "w%03d", d);
+                FNode wd = dirn(dn, 0x00, 0x5A72, 0x9000);
+                for (int i = 0; i < 256; ++i) {
+                    char n[16];
+                    std::snprintf(n, sizeof n, "f%03d.dat", i);
+                    wd.kids.push_back(file(n, {}, 0x20, 0x5A73, 0x9000));
+                }
+                many.kids.push_back(std::move(wd));
             }
             g1m.kids.push_back(std::move(many));
             const std::string cm = tmp_path("card-cpmany.img");
@@ -1513,7 +1521,7 @@ int main() {
             std::remove(cm.c_str());
         }
         std::filesystem::remove_all(dest);
-        check("MCARD-CP-03", "copy_program_dir refuses a NEX that is not on the card, a directory named x.nex, a path not ending .nex, a relative path, a NEX that is in the card's root, a zero-filled image, a directory nested past the depth limit (a failure in the middle of the copy), a file declaring over 48 MiB, a directory of 65,537 entries, and an existing dest (left untouched), each naming its path, with no dest left behind",
+        check("MCARD-CP-03", "copy_program_dir refuses a NEX that is not on the card, a directory named x.nex, a path not ending .nex, a relative path, a NEX that is in the card's root, a zero-filled image, a directory nested past the depth limit (a failure in the middle of the copy), a file declaring over 48 MiB, a program directory of 66,049 entries (over the 65,536 cap), and an existing dest (left untouched), each naming its path, with no dest left behind",
               built && bad.empty(), bad);
         std::remove(cc.c_str());
     }
