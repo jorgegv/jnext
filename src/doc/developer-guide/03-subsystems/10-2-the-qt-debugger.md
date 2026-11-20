@@ -205,7 +205,13 @@ reopens a closed dock and makes it its group's shown tab. Two Qt facts shape the
 a floating dock is a window of its own that Qt leaves on screen when its main window hides
 (`hideEvent()` parks it in `parked_floats_`, `showEvent()` brings it back through `place_floating()`), and Qt's
 window-shortcut rule looks only one hop up from a floating dock, which is the dock host and not this window, so every
-window command is also an action of every dock (`share_actions_with_docks()`). A tabbed-away dock is still
+window command is also an action of every dock (`share_actions_with_docks()`). Three smaller facts: the tab bar of a
+dock group does not scroll by default, so its minimum width is the sum of its tabs (`tune_tab_bars()` turns the scroll
+buttons on, whenever Qt creates a bar); a tabbed-away dock is not laid out until it is shown and keeps the size it was
+created with, so `size_hidden_tabs()` gives it its group's size (a panel that is read while it is not the shown tab,
+as the screenshot tool and some rows do, is then drawn at a real width); and the left column's panels carry an
+explicit minimum width of 380, as the tab widget they replaced did, because a page's own `minimumSizeHint()` (Video's
+is 700) would otherwise make the column wider than the widest page wants. A tabbed-away dock is still
 `isVisible()` (Qt moves it off screen instead of hiding it); a consumer that needs to know whether a panel is on show
 must use `QDockWidget::visibilityChanged()` or `visibleRegion()`, never the panel's `isVisible()`.
 
@@ -230,8 +236,11 @@ QSettings hands a hand-edited value with a comma back as a list. Rows: `QDOCK-01
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
 queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left dock area
-is widened by what its panels' `sizeHint()` lack (`left_column_lacking()`, `resizeDocks()`; a dock area keeps its
-width when the window widens, so the scroll pass that follows widens the window by it; bounded by `kMaxInitialFitPasses` = 4
+is widened by what its panels' `sizeHint()` lack: the left panels' minimum width is raised to their `sizeHint()` for the
+length of the fit (`fit_raised_`, given back by `end_fit_()`), the host's minimum then grows, and the scroll pass
+widens the window by the scroll range; a column found wider than its widest page afterwards is trimmed back with
+`resizeDocks()` (a dock area keeps its width when the window widens, so there is no share to measure and the result
+does not depend on the order of the passes; bounded by `kMaxInitialFitPasses` = 4
 (`kMaxInitialFitPasses`, `debugger_window.h:217`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:245`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
