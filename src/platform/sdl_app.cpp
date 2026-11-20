@@ -8,6 +8,7 @@
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
 #include "platform/coverage_startup.h"   // GH #388
+#include "platform/bug_report_at_exit.h"
 #include "platform/re_export_at_exit.h"   // GH #389
 #ifndef __EMSCRIPTEN__
 #include "platform/recording_info.h"   // GH #26 WP6
@@ -905,6 +906,8 @@ void SdlApp::shutdown() {
     if (debugger_) log_coverage_summary(*debugger_);   // GH #388
     // GH #389: --export-skoolkit / --export-ghidra, after the coverage they map is final.
     if (debugger_ && !write_re_exports_at_exit(*debugger_, config_) && exit_code_ == 0) exit_code_ = 1;
+    // GH #492: --bug-report, after the exports, so its log tail ends at the exit.
+    if (debugger_ && !write_bug_report_at_exit(emulator_, *debugger_, config_, "sdl", sdl_toolkit_version()) && exit_code_ == 0) exit_code_ = 1;
     // A requested screenshot that was never written is a failure, not a
     // footnote — same contract as QtApp::shutdown(). Reachable here if the
     // capture was still deferred (no frame rendered on its tick) when

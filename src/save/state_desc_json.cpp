@@ -159,6 +159,7 @@ void JsonWriteDesc::do_enum8(const char* n, uint8_t& v, const EnumNames& e,
 void JsonWriteDesc::bytes(const char* n, uint8_t* data, std::size_t len)
 {
     if (!data && len) { fail(n); return; }
+    content_keys_.push_back(n);
     p_->obj[n] = to_hex(data, len);
 }
 
@@ -193,6 +194,7 @@ void JsonWriteDesc::log(const char* n, LogAccess& entries, std::size_t& count,
     // text carrying 1 024 entries to express three is the thing this primitive
     // exists to avoid; the padding belongs to the binary encoding alone.
     const std::size_t live = (count <= capacity) ? count : capacity;
+    content_keys_.push_back(n);
     json arr = json::array();
     for (std::size_t i = 0; i < live; ++i) {
         json e    = json::object();
@@ -208,6 +210,7 @@ void JsonWriteDesc::fifo(const char* n, FifoAccess& ring, FifoElem)
     const std::size_t cap  = ring.capacity();
     const std::size_t sz   = ring.size();
     const std::size_t live = (sz <= cap) ? sz : cap;
+    content_keys_.push_back(n);
     json arr = json::array();
     for (std::size_t i = 0; i < live; ++i) arr.push_back(ring.oldest(i));
     p_->obj[n] = arr;
