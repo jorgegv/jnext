@@ -84,7 +84,7 @@ restart of the CPU panel's T-state count and draws that one label.
 
 ## Panels
 
-`DebuggerWindow::create_panels()` creates sixteen:
+`DebuggerWindow::create_panels()` creates eighteen:
 
 | Panel | Reads | Writes |
 |---|---|---|
@@ -98,6 +98,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Breakpoints | every client's subscriptions, through `BreakpointModel` | the GUI's own |
 | Video | `raster()` in all four counter domains plus the ULA fetch phase, and `render_layer()` for each of the eight views | — |
 | Sprites | `sprites()` | — |
+| Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `palette_priority()` (the Palettes `Pri` column), `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
 | Copper | `copper()` | — |
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
@@ -192,18 +193,18 @@ is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
 
 **The window's opening size.** A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
-`debugger_window.cpp:528`, queued from the first `showEvent()`); a size restored from the config file is left
+`debugger_window.cpp:529`, queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
 it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
-(`kMaxInitialFitPasses`, `debugger_window.h:211`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:238`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:212`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:239`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
 at most `kMaxFitEchoes` = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-(`resizeEvent()`, `debugger_window.cpp:510-521`); any other size is the user's and ends the fit
-(`end_fit_()`, `debugger_window.cpp:499`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
-pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:547-552`), after which every size is the user's and the remembered sizes are
+(`resizeEvent()`, `debugger_window.cpp:511-522`); any other size is the user's and ends the fit
+(`end_fit_()`, `debugger_window.cpp:500`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
+pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:548-553`), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (`fit_passes_queued_`, `queue_fit_pass_()`), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's), `GR-08` (an earlier request landing while a pass is queued), `GR-09` (a user resize while the fit runs stands), `GR-10` (each late answer counts once: the 7th stands) and `GR-11` (a loop stalled past the grace window does not end the fit), `GR-12` (the bound holds on the pass's own path), `GR-13` and `GR-14` (the grace waits for the pass a re-ask, or a late answer, queued), in `debugger_window_grow_test`; `GR-09` to `GR-14` use a window no window manager sees.
 
@@ -430,6 +431,25 @@ the PC line is in view. The arrow and the `[<- PC]` marker are positioned in
 `line_transfer()` and `line_destination()` are the accessors, and `line_hint()` is
 unchanged.
 
+## The Graphics tab
+
+The Graphics tab (`GraphicsPanel`, `src/debugger/graphics_panel.*`) has three sub-tabs: **Patterns** (the
+64 8-bit or 128 4-bit sprite patterns of pattern RAM), **Tiles** (the tilemap's tile definitions) and
+**Palettes** (all eight banks, with `(active)` on the one each layer reads). It reads through the facade only
+and draws only while its tab is the current one (`render_count()` is the test seam). Format and source follow the
+live registers: the tile format, count and base come from NR 0x6B and NR 0x6F, and the transparency from NR 0x4B,
+NR 0x4C and NR 0x14; only the palette bank and offset are the user's. A pattern or tile is drawn untransformed. The
+tile bytes are read from the BRAM the tilemap fetches (pages 0A/0B for bank 5, 0E for bank 7), never from the
+CPU map.
+
+The Qt-free half is `src/debug/gfx_decode.*` (`jnext::dbg::gfx`, a sibling of `mem_tools.h`, not one of the frozen
+facade headers): `decode_pattern()` and `decode_tile()` return, per pixel, the palette index the layer looks up and
+whether the layer draws it, following `sprites.vhd` and `tilemap.vhd`, and `tile_byte_addr()` gives the tile's
+byte address (the 6-bit base add that wraps inside the bank, and the 8 KB wrap of bank 7). The panel applies the
+colour (`palette()` through `rgb333_to_argb()`) itself. `GfxAtlas` is the one widget both atlases use: its
+`image()` is the unscaled picture, with alpha 0 where a pixel is transparent, painted over the Video panel's
+checkerboard.
+
 ## The Memory panel's tools
 
 Find, Save Block, Load Block and Fill Block live in the Memory panel's context menu
@@ -462,4 +482,4 @@ controls), `debugger_panels_test` (each panel's displayed text), `debugger_video
 `debugger_inspect_watchpoint_test`, `debugger_persistent_bp_test`,
 `debugger_keymap_test`, `debugger_menu_test`, `debugger_disasm_copy_test`,
 `debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`, editing `QVARW-*`), and the window-geometry suites. The regression rows
-`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`. The Memory panel tools' helper suite, `mem_tools_test` (`MEMT-*`), is not Qt-gated either; the panel's rows are `QMPT-*` in `debugger_panels_test` and the window's `QMPW-*` in `debugger_verbs_test`.
+`qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`. The Memory panel tools' helper suite, `mem_tools_test` (`MEMT-*`), is not Qt-gated either; the panel's rows are `QMPT-*` in `debugger_panels_test` and the window's `QMPW-*` in `debugger_verbs_test`. The Graphics decoders' suite, `gfx_decode_test` (`GFXD-*`, VHDL as oracle), is not Qt-gated; the tab's rows are `QGFX-*` in `debugger_panels_test`.
