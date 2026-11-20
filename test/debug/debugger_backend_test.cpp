@@ -9284,6 +9284,75 @@ static void gh428_rev_rows() {
                            "palette draws that entry in (a whole bank)",
               bank.size() == 256 && bad_entry < 0,
               "first mismatch at entry " + std::to_string(bad_entry));
+
+        // GH #371 - palette_priority(): the stored bits 15:14 of the palette RAM word. Written through
+        // the guest's own NR 0x43 / 0x40 / 0x44 stream; NR 0x44's second write carries it in bits 7:6.
+        auto nr = [&](uint8_t reg, uint8_t v) { emu.nextreg().write(reg, v); };
+        auto write_pri = [&](uint8_t sel, uint8_t idx, uint8_t second) {
+            nr(0x43, sel); nr(0x40, idx); nr(0x44, 0x00); nr(0x44, second);
+        };
+        {
+            std::string got;
+            const uint8_t seconds[3] = {0x81, 0xC1, 0x41};
+            const uint8_t want[3] = {2, 3, 1};
+            bool ok = true;
+            for (int i = 0; i < 3; ++i) {
+                write_pri(0x10, 5, seconds[i]);
+                const auto pri = dbg.palette_priority(PaletteId::Layer2First);
+                const uint8_t g = pri.size() == 256 ? pri[5] : 0xFF;
+                ok = ok && g == want[i];
+                got += std::to_string(g) + ",";
+            }
+            check("INS-15-22", "palette_priority(Layer2First)[5] after NR 0x44 second writes 81 / C1 / 41 is 2 / 3 / 1 "
+                               "- VHDL zxnext.vhd:4920, :7025", ok, got);
+        }
+        {
+            write_pri(0x60, 9, 0x81);     // Sprites second
+            write_pri(0x00, 9, 0x81);     // ULA first
+            write_pri(0x70, 9, 0x81);     // Tilemap second
+            check("INS-15-23", "the priority is stored in every bank, not only Layer 2: SpriteSecond, UlaFirst and "
+                               "TilemapSecond each read 2 after a 0x81 write - VHDL zxnext.vhd:6972, :7025",
+                  dbg.palette_priority(PaletteId::SpriteSecond)[9] == 2 &&
+                  dbg.palette_priority(PaletteId::UlaFirst)[9] == 2 &&
+                  dbg.palette_priority(PaletteId::TilemapSecond)[9] == 2 &&
+                  dbg.palette_priority(PaletteId::SpriteFirst)[9] == 0);
+        }
+        {
+            write_pri(0x10, 5, 0xC1);
+            const bool set = dbg.palette_priority(PaletteId::Layer2First)[5] == 3;
+            nr(0x43, 0x10); nr(0x40, 5); nr(0x41, 0xE0);
+            check("INS-15-24", "an NR 0x41 write to the same entry returns its priority to 0 - VHDL zxnext.vhd:4920 "
+                               "(\"00\" unless nr_44_we)",
+                  set && dbg.palette_priority(PaletteId::Layer2First)[5] == 0);
+        }
+        {
+            const PaletteId banks[8] = {PaletteId::UlaFirst, PaletteId::Layer2First, PaletteId::SpriteFirst,
+                                        PaletteId::TilemapFirst, PaletteId::UlaSecond, PaletteId::Layer2Second,
+                                        PaletteId::SpriteSecond, PaletteId::TilemapSecond};
+            const uint8_t seconds[3] = {0x41, 0x81, 0xC1};
+            std::string bad;
+            for (int b = 0; b < 8; ++b) {
+                const uint8_t sec = seconds[b % 3];
+                write_pri(static_cast<uint8_t>(b << 4), 0x33, sec);
+                nr(0x43, static_cast<uint8_t>(b << 4)); nr(0x40, 0x33);
+                const uint8_t rb = static_cast<uint8_t>(dbg.nextreg_peek(0x44) >> 6);
+                const auto pri = dbg.palette_priority(banks[b]);
+                if (pri.size() != 256 || pri[0x33] != rb || rb != (sec >> 6)) bad += " bank" + std::to_string(b);
+            }
+            check("INS-15-25", "palette_priority() agrees with the NR 0x44 readback (bits 7:6) in each of the 8 banks "
+                               "- VHDL zxnext.vhd:6047-6048", bad.empty(), bad);
+        }
+        {
+            write_pri(0x00, 11, 0x41);    // ULA first -> 1
+            write_pri(0x40, 11, 0xC1);    // ULA second -> 3
+            nr(0x43, 0x00);
+            const uint8_t a = dbg.palette_priority(PaletteId::UlaActive)[11];
+            nr(0x43, 0x02);
+            const uint8_t b = dbg.palette_priority(PaletteId::UlaActive)[11];
+            check("INS-15-26", "UlaActive resolves by NR 0x43 bit 1 (first 1, second 3); an id that does not resolve "
+                               "returns empty - VHDL zxnext.vhd:6825",
+                  a == 1 && b == 3 && dbg.palette_priority(static_cast<PaletteId>(9)).empty());
+        }
     }
 
     // =======================================================================

@@ -418,6 +418,35 @@ void apply_sprite_fixture(Emulator& emu) {
     emu.nextreg().write(0x15, static_cast<uint8_t>(emu.nextreg().peek(0x15) | 0x01));
 }
 
+/// Upload 24 simple 8-bit sprite patterns (0..23) through the port-0x303B/0x5B path, so the
+/// Graphics tab's Patterns view has pictures to show. Six shapes (outline, disc, diagonal stripes,
+/// checker, cross, diamond) in four colour groups, drawn from the integer geometry below; every
+/// other pixel is the transparent index (NR 0x4B default 0xE3). Deterministic.
+void apply_pattern_fixture(Emulator& emu) {
+    SpriteEngine& spr = emu.sprites();
+    for (int p = 0; p < 24; ++p) {
+        spr.write_slot_select(static_cast<uint8_t>(p));
+        const int shape = p % 6;
+        const uint8_t colour = static_cast<uint8_t>(0x20 + (p / 6) * 0x40 + shape * 5);
+        for (int y = 0; y < 16; ++y) {
+            for (int x = 0; x < 16; ++x) {
+                const int dx = 2 * x - 15, dy = 2 * y - 15;   // -15..15, centre between the middle pixels
+                bool on = false;
+                switch (shape) {
+                    case 0: on = x == 0 || y == 0 || x == 15 || y == 15; break;
+                    case 1: on = dx * dx + dy * dy <= 15 * 15; break;
+                    case 2: on = ((x + y) / 2) % 2 == 0; break;
+                    case 3: on = ((x / 4) + (y / 4)) % 2 == 0; break;
+                    case 4: on = (x >= 6 && x <= 9) || (y >= 6 && y <= 9); break;
+                    default: on = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy) <= 15; break;
+                }
+                // Vary the colour a little across the shape so the cell is not a flat fill.
+                spr.write_pattern(on ? static_cast<uint8_t>(colour + ((x + y) % 4)) : 0xE3);
+            }
+        }
+    }
+}
+
 /// Upload and start a Copper program, through NR 0x61/0x62/0x60 — the register
 /// sequence a program uses.
 ///
@@ -754,7 +783,7 @@ void usage() {
         "Images: debugger-window debugger-cpu-mmu debugger-disassembly\n"
         "        debugger-video debugger-nextreg debugger-memory debugger-stack\n"
         "        debugger-watches debugger-breakpoints\n"
-        "        debugger-sprites debugger-copper debugger-audio debugger-script\n"
+        "        debugger-sprites debugger-graphics debugger-copper debugger-audio debugger-script\n"
         "        gui-main-window preferences-startup\n"
         "        debugger-source debugger-source-breakpoints debugger-source-coverage\n"
         "        debugger-source-borland debugger-source-banked\n");
@@ -1013,9 +1042,10 @@ int main(int argc, char** argv)
     //
     // Strictly after every shot above: this changes what the machine is doing.
     if (wanted(opt, "debugger-sprites") || wanted(opt, "debugger-copper") ||
-        wanted(opt, "debugger-audio")) {
+        wanted(opt, "debugger-audio") || wanted(opt, "debugger-graphics")) {
         note("capturing (with the sprite / Copper / AY fixture):\n");
         apply_sprite_fixture(emu);
+        apply_pattern_fixture(emu);
         apply_copper_fixture(emu);
         apply_audio_fixture(emu);
         // One more full frame, so the Copper is genuinely EXECUTING — its PC
@@ -1041,6 +1071,7 @@ int main(int argc, char** argv)
         settle();
 
         shoot_tab(left_tabs, "Sprites", "debugger-sprites");
+        shoot_tab(left_tabs, "Graphics", "debugger-graphics");
         shoot_tab(left_tabs, "Copper",  "debugger-copper");
         shoot_tab(left_tabs, "Audio",   "debugger-audio");
     }

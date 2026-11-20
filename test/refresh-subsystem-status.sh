@@ -247,6 +247,7 @@ BEGIN {
     M["source_debug_test"]             = "Source debugging (backend)"
     M["disasm_hint_test"]              = "Disassembly PC-line hint (GH #367)"
     M["mem_tools_test"]                = "Debugger memory find/block helper (GH #370)"
+    M["gfx_decode_test"]               = "Debugger sprite-pattern and tile decoders (GH #371)"
     M["reexport_test"]                 = "Source debugging (skoolkit/Ghidra export)"
     M["source_debug_posix_test"]       = "Source debugging (POSIX file types)"
     M["debugger_backend_test"]         = "Debugger Backend (GH #276)"

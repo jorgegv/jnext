@@ -21,6 +21,7 @@ class DisasmPanel;
 class MemoryPanel;
 class VideoPanel;
 class SpritePanel;
+class GraphicsPanel;
 class CopperPanel;
 class ScriptPanel;
 class NextRegPanel;
@@ -251,6 +252,7 @@ private:
     MemoryPanel* memory_panel_ = nullptr;
     VideoPanel* video_panel_ = nullptr;
     SpritePanel* sprite_panel_ = nullptr;
+    GraphicsPanel* graphics_panel_ = nullptr;
     CopperPanel* copper_panel_ = nullptr;
     NextRegPanel* nextreg_panel_ = nullptr;
     AudioPanel* audio_panel_ = nullptr;
