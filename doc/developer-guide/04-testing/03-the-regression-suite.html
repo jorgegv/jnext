@@ -3254,7 +3254,7 @@ lookup instead, and the suite provisions that image for itself in the
 carry none of the card's firmware, so the row extracts every file under <code>/MACHINES/NEXT</code>,
 <code>/NEXTZXOS</code> and <code>/TBBLUE.FW</code> of the run's card clone with <code>mcopy</code>, adds <code>nextboot.rom</code>,
 and fails if any 32-byte window of them (taken every 32 bytes, windows with a period of 4
-or less, or fewer than 8 distinct byte values, left out: register files equal such tables) occurs at any offset of any decompressed member of the report, as raw bytes and as what the member decodes to (JSON hex strings and integer arrays, nested zips). The only member left out is the program, proved byte-equal to the row's own file, and only when it is the one program. The
+or less, fewer than 8 distinct byte values, or a counting sequence left out: register files and register numbers equal such tables) occurs at any offset of any decompressed member of the report, as raw bytes and as what the member decodes to (JSON hex strings and integer arrays, nested zips). The only member left out is the program, proved byte-equal to the row's own file, and only when it is the one program. The
 extracted files live in the row's scratch directory and are removed with it: nothing is
 kept, and nothing of a distribution is ever committed. A scan with no files to scan is
 itself a failure, so it cannot pass by finding nothing to look for.</p>
