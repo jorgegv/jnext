@@ -17,6 +17,7 @@ CONF=${REMOTE_RUN_CONF:-$HERE/project.conf}
 usage() {
     cat <<'USAGE'
 usage: remote-run.sh [options] <branch> <sha> <target>...
+       remote-run.sh [options] --gate <branch> <sha>
        remote-run.sh [options] --warm
 
   <branch>   a branch already pushed to the project's repository
@@ -28,6 +29,8 @@ options:
   --warm                 build the image, provision the tool caches and the SD image, and
                          build once to fill ccache (the project's WARM_TARGETS, on its default
                          branch); a normal run refuses until this has run for the current deps
+  --gate                 run the batch gate (the project's GATE_STEPS, in order, failing fast) on
+                         <branch> <sha>; the summary shows each step's own totals and the verdict
   --timeout SECS         bound for the whole run (default from project.conf)
   --keep-going           run the remaining targets after a failure
   --stream               also print the log live (default: only the summary)
@@ -56,7 +59,7 @@ load_conf() {
     for k in PROJECT HOST_ENV_VAR DIR_ENV_VAR DIR_DEFAULT REPO_URL DEFAULT_BRANCH BASE_IMAGE DEPS_SCRIPT \
              DEPS_ARGS BOOTSTRAP_CMD CACHE_MOUNTS CONTAINER_ENV JOBS_DEFAULT JOBS_HEAVY HEAVY_TARGET_RE \
              TEST_JOBS CONTAINER_MEMORY CONTAINER_SHM TIMEOUT_DEFAULT LANE_WAIT MIN_MEM_MB MIN_DISK_GB \
-             HEAVY_TARGETS WARM_TARGETS STAMP_ENV STAMP_LOCAL_DIR; do
+             HEAVY_TARGETS WARM_TARGETS GATE_STEPS TIMEOUT_GATE STAMP_ENV STAMP_LOCAL_DIR; do
         v="REMOTE_RUN_$k"
         if [[ -n "${!v:-}" ]]; then printf -v "$k" '%s' "${!v}"; fi
         [[ -n "${!k:-}" || "$k" == BOOTSTRAP_CMD || "$k" == STAMP_ENV || "$k" == CONTAINER_ENV ]] \
@@ -78,9 +81,22 @@ summarize_log() {
     echo "--- FAIL / SKIP lines: $nbad"
     [[ -z "$bad" ]] || head -n 30 <<<"$bad"
     [[ "$nbad" -le 30 ]] || echo "... $((nbad - 30)) more in the log"
-    echo "--- totals"
-    grep -E '(^|[[:space:]])Total:[[:space:]]+[0-9]+' <<<"$clean" | tail -n 3 || echo "(no Total: line)"
-    grep -E '(^|[[:space:]])pass=[0-9]+' <<<"$clean" | tail -n 2 || true
+    echo "--- totals per step"
+    grep -E '^=== remote-run totals:' <<<"$clean" || echo "(no step printed a totals line)"
+    echo "--- verdict: $(verdict_of_log "$log")"
+}
+
+# verdict_of_log <log>: CLEAN, or why not. Every step needs rc=0 and no totals line with a
+# non-zero Failed/Fail or Skipped/Skip count; a step that ran green with failures reported
+# in its totals is not clean.
+verdict_of_log() {
+    local log=$1 bad=""
+    if grep -qE '^=== remote-run result: .* rc=[1-9]' "$log"; then bad+=" a step exited non-zero;"; fi
+    if grep -E '^=== remote-run totals:' "$log" | grep -qE '(Failed|Fail):[[:space:]]*[1-9]|(Skipped|Skip):[[:space:]]*[1-9]'; then
+        bad+=" a totals line shows failures or skips;"
+    fi
+    grep -qE '^=== remote-run result:' "$log" || bad+=" no step finished;"
+    if [[ -z "$bad" ]]; then echo CLEAN; else echo "NOT CLEAN:${bad%;}"; fi
 }
 
 # ---- transport --------------------------------------------------------------
@@ -166,13 +182,14 @@ remote_cleanup() {
 
 # ---- main -------------------------------------------------------------------
 main() {
-    local warm=0 stream=0 fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
+    local warm=0 gate=0 stream=0 fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
     TIMEOUT="" KEEP_GOING=0 LOCAL_SHELL=0 ID="" BRANCH="" SHA=""
     local -a pos=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help) usage; exit 0 ;;
             --warm) warm=1 ;;
+            --gate) gate=1 ;;
             --keep-going) KEEP_GOING=1 ;;
             --stream) stream=1 ;;
             --local-shell) LOCAL_SHELL=1 ;;
@@ -188,16 +205,23 @@ main() {
         shift
     done
     load_conf
+    [[ $warm -eq 0 || $gate -eq 0 ]] || die "--warm and --gate exclude each other"
 
     if [[ $warm -eq 1 ]]; then
         [[ ${#pos[@]} -eq 0 ]] || die "--warm takes no branch, sha or target"
         BRANCH=$DEFAULT_BRANCH
         targets=$(tr ' ' '\n' <<<"$WARM_TARGETS")
     else
-        [[ ${#pos[@]} -ge 3 ]] || { usage >&2; exit 2; }
+        if [[ $gate -eq 1 ]]; then
+            [[ ${#pos[@]} -eq 2 ]] || { usage >&2; exit 2; }
+            targets=$(tr '|' '\n' <<<"$GATE_STEPS")
+            TIMEOUT=${TIMEOUT:-$TIMEOUT_GATE}
+        else
+            [[ ${#pos[@]} -ge 3 ]] || { usage >&2; exit 2; }
+            targets=$(printf '%s\n' "${pos[@]:2}")
+        fi
         BRANCH=${pos[0]}; SHA=${pos[1]}
         [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || die "the sha must be 40 lowercase hex digits (git rev-parse <branch>): '$SHA'"
-        targets=$(printf '%s\n' "${pos[@]:2}")
     fi
     [[ "$BRANCH" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] || die "bad branch name '$BRANCH'"
     TIMEOUT=${TIMEOUT:-$TIMEOUT_DEFAULT}
@@ -215,7 +239,7 @@ main() {
     : > "$LOG"
     log_info "run $ID: $BRANCH ${SHA:+@ ${SHA:0:12}}; log $LOG"
 
-    if [[ $warm -eq 0 ]]; then
+    if [[ $warm -eq 0 && $gate -eq 0 ]]; then
         local t
         while IFS= read -r t; do
             [[ "$t" == sh:* ]] || [[ " $HEAVY_TARGETS " == *" ${t%% *} "* ]] \
@@ -288,6 +312,10 @@ main() {
     fi
     if [[ $state == remote || $state == refused ]]; then remote_cleanup; fi
 
+    if [[ $rc -eq 0 && $state == remote && "$(verdict_of_log "$LOG")" != CLEAN ]]; then
+        echo "remote-run: exit 0 but the log is not clean: failing the run" >&2
+        rc=1
+    fi
     echo "remote-run summary: id=$ID branch=$BRANCH sha=${SHA:-tip} exit=$rc log=$LOG"
     summarize_log "$LOG"
     exit "$rc"

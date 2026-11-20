@@ -9,13 +9,13 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-12. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-13. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=12
+EXPECTED_ROWS=13
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -78,6 +78,7 @@ case "${1:-}" in
         for a in "$@"; do
             [[ "$a" == *:/rr-stamps ]] && [[ "${FAKE_STAMP:-0}" == 1 ]] && echo stamp > "${a%%:*}/fakekey"
             [[ "$a" == *:/src ]] && echo "${a%%:*}" > "$FAKE_STATE/srcdir"
+            [[ "$a" == *:/rr:ro ]] && cp "${a%%:*}/env.sh" "$FAKE_STATE/env.sh"
         done
         echo "=== remote-run target: fake"
         echo "=== remote-run result: fake rc=${FAKE_RC:-0} time=1s peak=1MiB"
@@ -121,6 +122,9 @@ unset JNEXT_REMOTE_RUN_HOST
 drive() {
     OUT=$(timeout --kill-after=5s 120s bash "$DRIVER" --local-shell --log-dir "$TMP/logs" "$@" 2>&1); RC=$?
 }
+# drv_fn <function> <args>: call a function of the driver (sourced in a subshell).
+# shellcheck disable=SC1090
+drv_fn() { ( source "$DRIVER"; "$@" ); }
 calls() { cat "$FAKE_STATE/calls" 2>/dev/null; }
 reset_state() { rm -f "$FAKE_STATE"/calls "$FAKE_STATE"/killed "$FAKE_STATE"/roots "$FAKE_STATE"/running; }
 
@@ -166,14 +170,28 @@ noise line
   FAIL B-02 broke
   SKIP C-03 not run
 Total:  10  Passed:  8  Failed:  1  Skipped:  1
+=== remote-run result: unit-test rc=1 time=12s peak=900MiB
+=== remote-run totals: unit-test :: Total: 10 Passed: 8 Failed: 1 Skipped: 1
 === remote-run result: unit-test-sdl rc=0 time=3s peak=800MiB
+=== remote-run totals: unit-test-sdl :: Total: 4 Passed: 4 Failed: 0 Skipped: 0
 EOF
-# shellcheck source=/dev/null
-sm=$(source "$DRIVER"; summarize_log "$TMP/sample.log")
+cat > "$TMP/clean.log" <<'EOF'
+=== remote-run result: regression rc=0 time=9s peak=1MiB
+=== remote-run totals: regression :: Pass: 300 Fail: 0 Skip: 0
+EOF
+cat > "$TMP/dirty.log" <<'EOF'
+=== remote-run result: regression rc=0 time=9s peak=1MiB
+=== remote-run totals: regression :: Pass: 299 Fail: 0 Skip: 1
+EOF
+sm=$(drv_fn summarize_log "$TMP/sample.log")
 row RRUN-04 "$([[ "$sm" == *"unit-test rc=1"* && "$sm" == *"unit-test-sdl rc=0"* && "$sm" == *"FAIL B-02"* \
-    && "$sm" == *"SKIP C-03"* && "$sm" == *"FAIL / SKIP lines: 2"* && "$sm" == *"Total:  10  Passed:  8"* \
-    && "$sm" != *"noise line"* && "$sm" != *"PASS A-01"* ]] && echo 1 || echo 0)" \
-    "the summary extracts results, FAIL/SKIP names and totals, nothing else"
+    && "$sm" == *"SKIP C-03"* && "$sm" == *"FAIL / SKIP lines: 2"* \
+    && "$sm" == *"totals: unit-test :: Total: 10 Passed: 8 Failed: 1 Skipped: 1"* \
+    && "$sm" == *"totals: unit-test-sdl :: Total: 4 Passed: 4"* && "$sm" == *"verdict: NOT CLEAN"* \
+    && "$sm" != *"noise line"* && "$sm" != *"PASS A-01"* \
+    && "$(drv_fn verdict_of_log "$TMP/clean.log")" == CLEAN \
+    && "$(drv_fn verdict_of_log "$TMP/dirty.log")" == "NOT CLEAN"* ]] && echo 1 || echo 0)" \
+    "the summary extracts results, FAIL/SKIP names, each step's totals and the verdict; a green step with a skip is not clean"
 
 # RRUN-05: a sha that is not the branch tip is refused (exit 3) before anything is built or run
 reset_state
@@ -206,7 +224,7 @@ runline=$(calls | grep -E '(^| )run ' | head -n 1)
 roots_ok=1
 while read -r s r; do [[ "$s" == "$WORK/"* && "$r" == "$WORK/"* ]] || roots_ok=0; done < "$FAKE_STATE/roots"
 vols_ok=1
-for v in $(grep -oE -- '-v [^ ]+' <<<"$runline" | cut -d' ' -f2); do [[ "$v" == "$WORK/"* ]] || vols_ok=0; done
+while read -r v; do [[ "$v" == "$WORK/"* ]] || vols_ok=0; done < <(grep -oE -- '-v [^ ]+' <<<"$runline" | cut -d' ' -f2)
 [[ "$runline" == *"/root/.cache/ccache"* && "$runline" == *"/root/.jnext/sdcard"* ]] || vols_ok=0
 row RRUN-08 "$([[ $warm_rc -eq 0 && $built -eq 1 && $run_rc -eq 0 && $roots_ok -eq 1 && $vols_ok -eq 1 \
     && -f "$TMP/stamps/fakekey" && -z "$(find "$WORK/runs" "$WORK/ctl" "$WORK/stamps" -mindepth 1)" ]] && echo 1 || echo 0)" \
@@ -248,5 +266,17 @@ grep -nE 'dnf install -y +[a-z0-9]' "$ROOT/.github/workflows/ci.yml" | grep -qvE
 grep -q 'bash test/ci-deps.sh test$' "$ROOT/.github/workflows/ci.yml" || ci_ok=0
 shellcheck -x "$DRIVER" "$SKILL/remote-side.sh" "$SKILL/container-side.sh" "$ROOT/test/ci-deps.sh" >/dev/null 2>&1 || ci_ok=0
 row RRUN-12 "$ci_ok" "ci-deps.sh sets/refusals, ci.yml calls it with no inline package list, the scripts are shellcheck-clean"
+
+# RRUN-13: --gate runs the batch gate's steps in CLAUDE.md's order with the gate timeout, and
+# takes exactly a branch and a sha
+reset_state
+FAKE_RC=0 drive --gate --id g1 feature "$SHA"
+gate_rc=$RC
+steps=$(sed -n "s/^export RR_TARGETS=//p" "$FAKE_STATE/env.sh" | head -n 1)
+expect='$'"'"'clean\ngui-release\nunit-test\nunit-test-sdl\nunit-test-win\nsh:./build/test/fuse_z80_test build/test/fuse\nregression\nregression-win\nwasm-core\nwasm-browser-test\nunit-test-wasm\nregression-wasm'"'"
+bash "$DRIVER" --gate feature >/dev/null 2>&1; usage_rc=$?
+bash "$DRIVER" --gate --warm >/dev/null 2>&1; excl_rc=$?
+row RRUN-13 "$([[ $gate_rc -eq 0 && "$steps" == "$expect" && $usage_rc -eq 2 && $excl_rc -eq 2 ]] && echo 1 || echo 0)" \
+    "--gate sends the twelve gate steps in order and refuses missing arguments and --warm (rc=$gate_rc usage=$usage_rc excl=$excl_rc)"
 
 finish
