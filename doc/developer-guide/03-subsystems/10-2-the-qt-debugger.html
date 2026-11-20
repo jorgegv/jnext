@@ -3123,9 +3123,11 @@ the default (<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite
 <p><strong>The breakpoints' owner</strong> is a non-arming observer client, attached by
 <code>BreakpointModel</code> (<code>src/debugger/breakpoint_model.*</code>) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
-<code>Execute</code>, <code>Mem</code> and <code>Port</code> subscriptions, and the addressless <code>IntAck</code> and <code>Nmi</code>
-ones (the Interrupt and NMI types), with no condition, <code>once = false</code> and
-action <code>Stop</code>. READ, WRITE and READ_WRITE are one <code>Mem</code> subscription with an
+<code>Execute</code>, <code>Mem</code> and <code>Port</code> subscriptions (a <code>lo..hi</code> range on the first two, a port <code>mask</code>/<code>value</code>), and the
+addressless <code>IntAck</code> and <code>Nmi</code> ones (the Interrupt and NMI types), with <code>once = false</code>, and a condition when
+the dialog gave one. A
+breakpoint stops: action <code>Stop</code> and no handler. A <em>count-only</em> one is action <code>Continue</code>
+plus a handler of the model that counts. READ, WRITE and READ_WRITE are one <code>Mem</code> subscription with an
 access mask. An I/O address <code>00</code>-<code>FF</code> is a low-byte match (<code>port_mask 0x00FF</code>);
 <code>0100</code> and up is exact. Because the observer never detaches and arms
 nothing, a breakpoint survives closing the window, fires with the window shut
@@ -3136,6 +3138,29 @@ nothing.</p>
 and the port rule (<code>bp_port_mask_for()</code>): the model has no copy of either. Another
 client's <code>IntAck</code> or <code>Nmi</code> Stop subscription is a typed but read-only row, with an empty
 Address.</p>
+<p><strong>Hit counts need no backend counter</strong> and follow the script engine's own split
+(<code>account_static_stops</code> / <code>run_rule</code>). A Stop breakpoint stays a static Stop with no
+handler (ZRCP's <code>other_breakpoint_at</code> and the step loops depend on that) and is counted
+in the model's <code>on_paused()</code> from <code>PausedInfo::matched</code>, for its own ids only. A count-only
+one counts in its handler, which captures the model (its destructor detaches the client,
+which removes the subscription: SES-01). <code>extras_</code> holds what the backend cannot report
+(which own ids are count-only), and <code>publish_()</code> prunes it and the counts with the listing.
+<code>sync()</code> emits <code>hits_changed()</code> once when a count moved and the panel rewrites only its
+Hits cells: never <code>changed()</code>, which would repaint the gutter every frame. A count dies
+with its subscription (Edit = a new id) and is not saved. The <code>(type, address, space)</code>
+API keeps meaning the plain breakpoint, and the gutters read plain members only, so a
+count-only breakpoint at an address is a separate row. <code>QBPX-15</code> pins the GUI's counts to
+the engine's <code>RuleView::hits</code> for the same rule.</p>
+<p><strong>A breakpoint's identity is its full spec</strong> (<code>BpSpec</code>: kind, address, range end, space, port mask, condition,
+count-only). <code>add(const BpSpec&amp;)</code> is idempotent on it, and a plain breakpoint and a conditional one at one address are
+two rows. The <code>(type, address, space)</code> API and the gutters mean the <em>plain</em> breakpoint (<code>plain_()</code>: one address, the
+address rule's mask, no condition). <code>extras_</code> (by id, own subscriptions only) holds what the backend cannot report:
+count-only, the condition text and the shared slot its predicate writes a run-time error to. <code>type_of()</code> types a
+subscription iff the dialog can make that exact one: another client's range or masked port is typed (so its Type and
+Address texts read as before) but stays read-only, and its condition or handler stays typeless. A condition is compiled in
+the kind's payload scope (<code>bp_scope()</code>, the checker's own <code>scope_of</code>) with <code>compile_expr</code>; the same
+<code>bp_condition_problem()</code> check the dialog and the codec use refuses a text that does not read back as itself. A
+run-time failure marks <code>hits_changed()</code> so the panel refreshes the Condition cell's tooltip.</p>
 <p><strong>Run to Next Interrupt</strong> (Debug menu, the <code>run_to_interrupt</code> keymap action, unbound by
 default) is not a backend verb. <code>DebuggerManager::on_run_to_interrupt()</code> arms a
 <em>transient</em> <code>IntAck</code> Stop subscription and calls <code>run()</code>: the transient is hidden from the
