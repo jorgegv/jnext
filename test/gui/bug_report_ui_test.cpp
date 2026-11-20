@@ -132,7 +132,7 @@ int main(int argc, char** argv)
     qputenv("JNEXT_CONFIG_DIR", dir.path().toUtf8());
     {
         QFile conf(dir.path() + QStringLiteral("/jnext.conf"));
-        conf.open(QIODevice::WriteOnly);
+        if (!conf.open(QIODevice::WriteOnly)) return 1;
         conf.write("[startup]\nmachine_type=next\n[paths]\nsd_card_path=/mnt/secret/card.img\n");
     }
     QApplication app(argc, argv);
@@ -140,7 +140,7 @@ int main(int argc, char** argv)
     const std::string prog = (dir.path() + QStringLiteral("/gamefile.bin")).toStdString();
     {
         QFile p(QString::fromStdString(prog));
-        p.open(QIODevice::WriteOnly);
+        if (!p.open(QIODevice::WriteOnly)) return 1;
         p.write(QByteArray(64, '\x42'));
     }
 
