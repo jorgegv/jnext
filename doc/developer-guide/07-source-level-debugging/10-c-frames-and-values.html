@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3162,7 +3162,8 @@ writer, from two things:</p>
 <li><strong>A client's own request.</strong> <code>Debugger::set_call_stack_enabled(by, on)</code> (<code>debugger_inspect.cpp:913</code>) sets
    the request on that client's row. The tracker is on while any live client asked. One client switching off
    no longer takes another's tracking away (the Qt debugger window closing used to empty a ZRCP session's
-   extended stack), and a detach drops the request with the client.</li>
+   extended stack), and a detach drops the request with the client. The Qt window's request is made
+   while its Call Stack or Variables tab is showing, or a source Over or Out runs.</li>
 <li><strong>The source map.</strong> With no request, tracking is on while the live source map has C variable records and a
    live non-observer client is attached (the Qt emulator window's permanent observer does not count).</li>
 </ol>
@@ -3170,6 +3171,21 @@ writer, from two things:</p>
 replay-guarded <code>clients_attached()</code>), so it cannot recurse, and it runs wherever an input changes: a request,
 an attach or detach, <code>recheck()</code>, a source map loaded or cleared, the program sidecars, a reconstruct.
 <code>CallStack::set_enabled()</code> empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a write made outside the backend, directly on the <code>Emulator</code> (CTL-12-55, QEN-01), is not undone by an attach or an in-place landing that changes nothing derived. <code>call_stack_enabled()</code> returns the effective state.</p>
+<p><strong>Starting mid-run.</strong> On the edge where a client's request turns tracking on (not an edge that only the source
+map causes, and not the re-application after a machine rebuild, a cold boot or a program load, where the tracker
+restarts empty), <code>sync_call_stack()</code> calls <code>CallStack::reconstruct()</code> with the live SP. It scans up to 128 words
+from SP for return addresses: a word is one when the three bytes before it are a <code>CALL</code> (tested first) or the
+byte before it is an <code>RST</code>. The frames are stored oldest first with <code>CallFrame::reconstructed</code> set, <code>sp_at_call</code>
+the word's address and <code>caller_space</code> the backend's prediction at the caller; <code>target_space</code> stays unrecorded.
+Every client gets the rebuild, so a script that switches tracking on in a routine reads the calls already
+open. Not rebuilt: interrupt frames (an interrupt pushes the interrupted PC with no call before it) and a
+return address a routine has moved (a <code>__z88dk_callee</code> prologue); a data word that follows <code>CALL</code>-shaped bytes
+gives a false frame. Once rebuilt the frames are ordinary for the tracker: a <code>RET</code> to a rebuilt frame's return point, or a rise
+of SP past its slot, ends it. The Call Stack panel marks them <code>CALL*</code> / <code>RST*</code>. The C frames do NOT read them
+(<code>c_frames()</code> skips <code>reconstructed</code> frames): a frame base must be exact, and on a z88dk C program the scan finds many
+words that look like calls (a request that comes before the map leaves them in the tracker, since the map's own
+tracking then keeps it on), so the bases come from the frame-0 entry bytes and the saved frame pointers, as for a
+debugger attached mid-run.</p>
 <h2 id="formatting-a-value-the-pure-layer">Formatting a value (the pure layer)<a class="headerlink" href="#formatting-a-value-the-pure-layer" title="Permanent link">&para;</a></h2>
 <p><code>src/debug/c_value.{h,cpp}</code> turns a type chain and bytes into text and knows no machine: a <code>CReader</code> callback
 supplies bytes (the CPU view for the stack and for pointer targets; the caller picks), so every rule is pinned with

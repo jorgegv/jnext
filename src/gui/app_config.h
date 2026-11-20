@@ -46,6 +46,8 @@ struct AppConfigData {
 
     // GH #499 - seconds of a plain Next start run at maximum speed (0 = off). A launch setting.
     int         fast_boot_seconds      = fast_boot::DEFAULT_SECONDS;
+    // GH #544 - keep the window black while fast boot runs. A launch setting.
+    bool        fast_boot_hide_screen  = false;
 
     // Host-side gain applied after the emulated hardware mix. Unlike
     // `silent`, this can be changed live from Preferences. The CLI option

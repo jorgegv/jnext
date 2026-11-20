@@ -13,6 +13,7 @@
 | Emulator speed | 10%–1000% | How fast the emulator runs against real time |
 | When the host is too slow | Smooth sound / Smooth picture | Which of the two to sacrifice when one emulated frame costs more than its real-time budget; inert on a host with headroom |
 | Fast boot | Off, 1–60 s (default 15 s) | Run the first seconds of a plain Next start at full speed with the sound off; any key returns to normal speed. Not used when a program is loaded at start. Takes effect on next launch only; see [3.4](../03-first-run/04-the-first-boot.md) |
+| Hide the screen during fast boot | on / off (default off) | The window stays black until fast boot ends, so the first picture is the screen it ends on; any key shows it at once. Takes effect on next launch only |
 | Window scale | 1x, 2x, 3x | |
 | CRT effect | Off / Scanlines / Soft scanlines / TV / PC monitor | A pop-up; one choice, see [5.3](../05-running-programs/03-display.md). Soft scanlines, TV and PC monitor are drawn by the GPU and are absent from builds without GPU support |
 | Start muted | on / off | Takes effect on next launch only |

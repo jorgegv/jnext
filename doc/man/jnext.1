@@ -463,6 +463,9 @@ It applies to the launch only: a later hard reset boots at normal speed.
 It never changes the emulated machine.
 To reach the firmware menu, press SPACE while the splash shows, or set
 it to 0.
+\f[CR]\-\-set startup.fast_boot_hide_screen=true\f[R] keeps the window
+black until fast boot ends, so the first picture is the screen it ends
+on; screenshots, recordings and the debugger still see the real screen.
 \f[B]\-\-headless\f[R] runs uncapped already, so there it has no effect,
 and \f[B]jnext\f[R] warns.
 The same as \f[CR]\-\-set startup.fast_boot_seconds\f[R].
@@ -1758,6 +1761,12 @@ All frontends.
 \f[CR]startup.fast_boot_seconds\f[R] \f[I]0..60\f[R]
 Seconds of a plain Next start run at maximum speed, 0 = off;
 \f[B]\-\-fast\-boot\f[R].
+The Qt window and the SDL\-only build.
+.TP
+\f[CR]startup.fast_boot_hide_screen\f[R] \f[I]true|false\f[R]
+Keep the window black while fast boot runs; any key, a pause or a
+debugger stop shows the screen at once.
+Default false.
 The Qt window and the SDL\-only build.
 .TP
 \f[CR]startup.when_slow_prefer\f[R] \f[I]audio|video\f[R]

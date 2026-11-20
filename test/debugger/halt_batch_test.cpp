@@ -20,6 +20,7 @@
 #include "debugger/breakpoint_model.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "put_on_show.h"
 #include "../core/batch_ab.h"
 
 #include <QApplication>
@@ -153,6 +154,8 @@ int main(int argc, char** argv) {
             Out o;
             Fixture fx(batch);
             fx.mgr->set_enabled(true);
+            // GH #498: the open window tracks calls while the Call Stack is on show.
+            put_on_show(fx.mgr->debugger_window_ptr(), fx.mgr->debugger_window_ptr()->callstack_panel());
             for (int f = 0; f < 50; ++f) {
                 fx.emu.run_frame();
                 o.h.push_back(batch_ab::capture(fx.emu, scratch, true));

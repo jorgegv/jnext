@@ -30,3 +30,9 @@ key you press still reaches the program. To reach the firmware's own menu, press
 **Space** while the splash shows, or set **Fast boot** to Off in
 **Settings > Preferences** (`--fast-boot 0` for one run, `--fast-boot SECONDS`
 for another length).
+
+To see nothing of the start-up and have the first picture be the screen fast boot
+ends on (normally the NextZXOS menu), tick **Hide the screen during fast boot**
+in Preferences (`--set startup.fast_boot_hide_screen=true` for one run). The
+window stays black until fast boot ends; any key shows the screen at once. If
+the first picture is still the start-up, raise **Fast boot**.

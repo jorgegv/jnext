@@ -12,15 +12,37 @@
 // is unit-testable. No hardware counterpart: it is host pacing.
 // ---------------------------------------------------------------------------
 
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "memory/contention.h"   // MachineType
+#include "platform/render_policy.h"
 
 namespace fast_boot {
 
 inline constexpr int DEFAULT_SECONDS = 15;    // the welcome screen completes at frame 577 (11.7 s)
 inline constexpr int MAX_SECONDS = 60;
 inline constexpr int FRAMES_PER_SECOND = 50;  // seconds are counted as 50 frames each
+
+/// GH #544 - the generation a hidden (black) frame is uploaded under: distinct from
+/// render_policy::NOTHING_UPLOADED / EmulatorWidget::NO_GENERATION (~0) and from any
+/// real framebuffer generation (a counter from 0), so the black frame is uploaded once and held.
+inline constexpr uint64_t HIDDEN_GENERATION = ~uint64_t{0} - 1;
+static_assert(HIDDEN_GENERATION != render_policy::NOTHING_UPLOADED);
+
+/// What the window is handed.
+struct Shown { const uint32_t* pixels; uint64_t generation; };
+
+/// The emulator's frame, or (hidden) a black one of the same size.
+inline Shown shown_frame(bool hidden, const uint32_t* fb, int w, int h, uint64_t generation)
+{
+    if (!hidden) return { fb, generation };
+    static std::vector<uint32_t> black;
+    const size_t n = static_cast<size_t>(w) * static_cast<size_t>(h);
+    if (black.size() < n) black.assign(n, 0xFF000000u);
+    return { black.data(), HIDDEN_GENERATION };
+}
 
 /// What the launch looks like, resolved by main.cpp.
 struct Launch {

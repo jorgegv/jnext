@@ -280,8 +280,40 @@ int main() {
         emu.run_frame();                                 // slot taken while off
         emu.call_stack().set_enabled(true);
         const bool ok = emu.rewind_to_frame(1);
-        check("RWCS-19", "a slot taken while the tracker was off restores no frames",
-              ok && emu.call_stack().frames().empty(), depth_text(emu));
+        // GH #498 (owner-authorized baseline change): with the tracker on now, a slot taken while it
+        // was off restores a REBUILT frame (the CALL still open at that frame), not an empty list.
+        const auto& f19 = emu.call_stack().frames();
+        check("RWCS-19", "a slot taken while the tracker was off restores a rebuilt frame",
+              ok && f19.size() == 1 && f19[0].reconstructed, depth_text(emu));
+    }
+    {
+        // GH #498 RWCS-21: the rebuilt frame is the CALL from $8000 to SUB, slot at SP ($FF00 - 2).
+        // Oracle: Z80 CALL nn pushes the address after its 3 bytes at SP - 2.
+        Emulator emu;
+        build(emu);
+        emu.call_stack().set_enabled(false);
+        emu.run_frame();
+        emu.run_frame();                                 // slot 1 taken inside SUB, tracker off
+        emu.call_stack().set_enabled(true);
+        const bool ok = emu.rewind_to_frame(1);
+        const auto& f = emu.call_stack().frames();
+        check("RWCS-21", "a snapshot taken inside the CALL with tracking off, tracking turned on, rewound to: the frame is the rebuilt CALL $8000 -> SUB at slot $FEFE, its caller_space the prediction at $8000 (not unrecorded)",
+              ok && f.size() == 1 && f[0].type == CallType::CALL && f[0].caller_pc == PROG &&
+                  f[0].target_pc == SUB && f[0].sp_at_call == 0xFEFE && f[0].reconstructed &&
+                  f[0].caller_space == emu.predict_fetch(PROG) &&
+                  !(f[0].caller_space == jnext::dbg::MemSpace::cpu()),
+              depth_text(emu));
+    }
+    {
+        // GH #498 RWCS-22: a snapshot taken with the tracker on restores exactly its tracked frames.
+        Emulator emu;
+        build(emu);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const bool ok = emu.rewind_to_frame(1);
+        const auto& f = emu.call_stack().frames();
+        check("RWCS-22", "a snapshot taken with the tracker on restores its tracked frame, not marked rebuilt",
+              ok && f.size() == 1 && f[0].caller_pc == PROG && f[0].target_pc == SUB && !f[0].reconstructed,
+              depth_text(emu));
     }
 
     {

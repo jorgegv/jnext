@@ -9194,6 +9194,83 @@ static void gh428_rev_rows() {
               "frames=" + std::to_string(dbg.call_stack().size()));
     }
 
+    {
+        // GH #498 - tracking starts mid-run: the calls already on the stack are rebuilt from it.
+        // Oracle: Z80 CALL nn (CD lo hi) pushes the address after its 3 bytes and jumps; the
+        // expected frames are written from the program, not read from the tracker.
+        Emulator emu; build(emu);
+        const uint8_t p0[] = { 0xCD, 0x00, 0x90 };   // PROG: CALL $9000
+        const uint8_t p1[] = { 0xCD, 0x00, 0x91 };   // $9000: CALL $9100
+        const uint8_t p2[] = { 0xCD, 0x00, 0x92 };   // $9100: CALL $9200
+        const uint8_t p3[] = { 0x18, 0xFE };         // $9200: JR $
+        for (size_t i = 0; i < 3; ++i) {
+            emu.mmu().write(static_cast<uint16_t>(PROG + i), p0[i]);
+            emu.mmu().write(static_cast<uint16_t>(SUB + i), p1[i]);
+            emu.mmu().write(static_cast<uint16_t>(0x9100 + i), p2[i]);
+        }
+        for (size_t i = 0; i < 2; ++i) emu.mmu().write(static_cast<uint16_t>(0x9200 + i), p3[i]);
+        Debugger dbg(emu);
+        emu.execute_single_instruction();            // CALL $9000, tracking off
+        emu.execute_single_instruction();            // CALL $9100
+        const uint16_t sp = emu.cpu().get_registers().SP;
+        const ClientId a = dbg.attach(client("A")).value;
+        const bool off_before = dbg.call_stack().empty();
+        dbg.set_call_stack_enabled(a, true);
+        const auto& f = dbg.call_stack();
+        check("INS-12-05", "tracking started after two CALLs: the two frames are rebuilt from the stack, oldest first, marked rebuilt, slots SP+2 and SP",
+              off_before && f.size() == 2 &&
+                  f[0].type == CallType::CALL && f[0].caller_pc == PROG && f[0].target_pc == SUB &&
+                  f[0].sp_at_call == static_cast<uint16_t>(sp + 2) && f[0].reconstructed &&
+                  f[1].type == CallType::CALL && f[1].caller_pc == SUB && f[1].target_pc == 0x9100 &&
+                  f[1].sp_at_call == sp && f[1].reconstructed,
+              "frames=" + std::to_string(f.size()));
+        check("INS-12-08", "a rebuilt frame's caller_space is source_page(caller_pc) and its target_space is cpu() (unrecorded)",
+              f.size() == 2 && f[0].caller_space == dbg.source_page(PROG) &&
+                  f[1].caller_space == dbg.source_page(SUB) &&
+                  f[0].target_space == jnext::dbg::MemSpace::cpu() &&
+                  f[1].target_space == jnext::dbg::MemSpace::cpu());
+        emu.execute_single_instruction();            // CALL $9200, tracked
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.set_call_stack_enabled(b, true);         // already on: not an edge
+        const auto& g = dbg.call_stack();
+        check("INS-12-06", "a second client's request while tracking is on rebuilds nothing: the frame tracked in between keeps reconstructed == false",
+              g.size() == 3 && g[0].reconstructed && g[1].reconstructed && !g[2].reconstructed &&
+                  g[2].caller_pc == 0x9100 && g[2].target_pc == 0x9200,
+              "frames=" + std::to_string(g.size()));
+        dbg.set_call_stack_enabled(b, false);
+        dbg.set_call_stack_enabled(a, false);
+        const bool dropped = dbg.call_stack().empty() && !dbg.call_stack_enabled();
+        dbg.set_call_stack_enabled(a, true);
+        const auto& h = dbg.call_stack();
+        check("INS-12-07", "both requests withdrawn then one renewed: the three frames are rebuilt again from the live stack",
+              dropped && h.size() == 3 && h[0].reconstructed && h[1].reconstructed && h[2].reconstructed &&
+                  h[2].caller_pc == 0x9100 && h[2].target_pc == 0x9200,
+              "frames=" + std::to_string(h.size()));
+    }
+    {
+        // GH #498 - the re-application after a machine rebuild is not a request's edge: a client asks for
+        // tracking, then Debugger::load() lands a program inside a CALL (CD 00 90 at 8000, return word 8003
+        // at SP = FE00). The tracker restarts empty and nothing is rebuilt (the program has only just started).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_call_stack_enabled(a, true);
+        jnext::dbg::LoopDriver d;
+        d.load = [&](const std::string&) {
+            emu.mmu().write(0x8000, 0xCD); emu.mmu().write(0x8001, 0x00); emu.mmu().write(0x8002, 0x90);
+            emu.mmu().write(0xFE00, 0x03); emu.mmu().write(0xFE01, 0x80);
+            Z80Registers r = emu.cpu().get_registers(); r.SP = 0xFE00; r.PC = 0x9000;
+            emu.cpu().set_registers(r);
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        dbg.pause(a);
+        const Result lr = dbg.load(a, "x.sna");
+        check("INS-12-09", "a program load with tracking requested re-applies it on an empty tracker: no frame is rebuilt from the loaded program's stack",
+              lr == Result::Ok && dbg.call_stack_enabled() && dbg.call_stack().empty(),
+              "frames=" + std::to_string(dbg.call_stack().size()));
+    }
+
     // =======================================================================
     // INS-14 / INS-15 — framebuffer, palettes, ULA state, clip windows
     // =======================================================================

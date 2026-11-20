@@ -6,6 +6,7 @@
 #include "debug/long_address.h"
 
 class SymbolTable;
+class QLabel;
 namespace jnext { namespace dbg { class Debugger; } }
 
 /// Debugger panel showing the call stack (CALL/RST/INT tracking).
@@ -42,4 +43,5 @@ private:
     bool programmatic_ = false;   ///< a refresh or select_row() is changing the selection: not the user's choice
     jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QTableWidget* table_ = nullptr;
+    QLabel* note_ = nullptr;   ///< GH #498: shown while a listed frame was rebuilt from the stack
 };
