@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4507,7 +4507,7 @@ exits with status 1.</p>
 <h2 id="what-is-in-it">What is in it<a class="headerlink" href="#what-is-in-it" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The JNEXT version, your operating system and the settings in use (the command line,
-  and the settings file in the windowed version), with the folders of your computer
+  settings file is not included yet), with the folders of your computer
   left out.</li>
 <li>The machine, decoded: CPU registers, every NextREG with its name, the memory paging,
   the ULA, Layer 2, sprites, tilemap and Copper, the palettes, the interrupt, DivMMC
@@ -4526,15 +4526,17 @@ its memory was cleared. All the memory is then your program's, and the report ho
 stack pointer).</p>
 <p>In every other session (anything with an SD card, which means NextZXOS, ROMs and
 DivMMC firmware sit in the memory) the report holds the machine's state and
-pictures but <strong>none of its memory</strong>, and says why. A report never contains NextZXOS,
-ROM or any other part of the distribution, in any form.</p>
+pictures but <strong>none of its memory</strong>, and says why. JNEXT never puts NextZXOS, ROM or any
+other part of the distribution in a report; the program file you loaded is yours (see
+below).</p>
 <h2 id="privacy-and-your-responsibility">Privacy, and your responsibility<a class="headerlink" href="#privacy-and-your-responsibility" title="Permanent link">&para;</a></h2>
 <p>Your user name and every absolute path on your computer are replaced in the file
 (<code>&lt;user&gt;</code>, <code>&lt;path&gt;/name</code>); the serial-port buffers are left out. Look at what you
 attach anyway. The program file is yours and goes in as it is: JNEXT does not
 check it against anything, and you are responsible for what you attach.
 A file that you edited after loading the program is not included; the report records
-its SHA-256 instead.</p>
+its SHA-256 instead. A <code>.jns</code> snapshot holds the machine's whole memory, so it is never
+included either: only its SHA-256 and size.</p>
 
 
 

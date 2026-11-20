@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3102,7 +3102,7 @@ member not listed there is never written. Member names follow the container's gr
 </tr>
 <tr>
 <td><code>settings.json</code></td>
-<td>the command line (paths reduced to <code>&lt;path&gt;/name</code>), the settings file as <code>section.key</code> to value (Qt frontend only, otherwise "not read by this frontend"), and the session switches</td>
+<td>the command line (paths reduced to <code>&lt;path&gt;/name</code>), the settings file as <code>section.key</code> to value (no frontend reads it yet, so it reads "not read by this frontend"; the writer takes the map from its caller and blanks it), and the session switches</td>
 <td>always</td>
 </tr>
 <tr>
@@ -3133,7 +3133,7 @@ member not listed there is never written. Member names follow the container's gr
 <tr>
 <td><code>program/&lt;name&gt;</code></td>
 <td>a program file loaded since memory was last cleared, as it is now on disk</td>
-<td>unless changed on disk since it was loaded, unreadable, or larger than 32 MiB (then its SHA-256 only)</td>
+<td>unless it is a jnext snapshot (a <code>.jns</code>, or an <code>.rzx</code> whose embedded snapshot is not a classic one: code <code>snapshot</code>), changed on disk since it was loaded, unreadable, or larger than 32 MiB (then its SHA-256 and size only)</td>
 </tr>
 <tr>
 <td><code>memory/ram.bin</code>, <code>cpu.bin</code>, <code>patterns.bin</code>, <code>cpu-disasm.txt</code></td>
@@ -3187,6 +3187,7 @@ the code (<code>card-session</code>, <code>boot-rom-ran</code>, <code>state-rest
 <p>The program file is the reporter's own and always ships, whatever any card holds: jnext
 does not police it. A file edited on disk after it was loaded is not shipped as the one
 that ran: its SHA-256 and current size are in the manifest, its bytes are not.</p>
+<p>One kind of program file is never shipped: a jnext snapshot (<code>bug_report::holds_machine_snapshot()</code>). A <code>.jns</code> holds the whole memory, which after a NextZXOS boot is NextZXOS and DivMMC firmware, and an <code>.rzx</code> can carry one as its embedded snapshot. Its manifest entry is <code>included: false</code>, code <code>snapshot</code>, with SHA-256 and size. Classic <code>.sna</code>, <code>.szx</code> and <code>.z80</code> files are the reporter's own files like any other and ship.</p>
 <h2 id="the-state-key-classes">The state key classes<a class="headerlink" href="#the-state-key-classes" title="Permanent link">&para;</a></h2>
 <p><code>JsonWriteDesc::content_keys()</code> lists the keys a declaration wrote through <code>bytes()</code>,
 <code>fifo()</code> and <code>log()</code>, the arrays that can hold more than a register's value. The writer
@@ -3247,13 +3248,13 @@ time when the name is taken. <code>resolve_path()</code> is the <code>--bug-repo
 directory or a path ending in a separator names a directory (created when needed), anything
 else is the file. A failed write logs an error and the loop owner exits 1.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
-<p><code>bug_report_test</code> (rows BR-01 to BR-28) builds reports in memory from a no-card session
+<p><code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows <code>bug-report-nosd-func</code> and
-<code>bug-report-card-func</code> run the real binary. The second one is the end-to-end proof of the
-rule: it extracts every firmware file of the run's card clone and <code>nextboot.rom</code> into its
+<code>bug-report-card-func</code> run the real binary. The second one is the end-to-end check of the
+rule, as far as a scan can see: it extracts every firmware file of the run's card clone and <code>nextboot.rom</code> into its
 scratch directory (removed with it, never kept) and fails if any 32-byte window of them
-occurs at any offset of any member of the report other than the program file, which is the reporter's own and ships as it is. <code>test/00regression/bug-report-check.py</code>
+occurs at any offset of any member, as raw bytes and as what the member decodes to (JSON hex strings, integer arrays and the integers of a <code>log()</code> array, and nested zips). The only member left out is the program, proved byte-equal to the NEX the row made, and only when it is the one program. The row first checks that NextZXOS really booted, then loads a <code>.jns</code> it saved after the boot and scans that report too. <code>test/00regression/bug-report-check.py</code>
 does the scan with the standard library only.</p>
 
 
