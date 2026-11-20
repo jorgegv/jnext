@@ -331,8 +331,8 @@ int main(int argc, char** argv) {
         Fixture fx;
         fx.enable();
         DebuggerWindow* w = fx.dbg();
-        int signals = 0;
-        QObject::connect(w, &DebuggerWindow::panels_on_show_changed, [&signals]() { ++signals; });
+        int changes = 0;
+        QObject::connect(w, &DebuggerWindow::panels_on_show_changed, [&changes]() { ++changes; });
         const bool shown = w->panel_on_show(w->video_panel()) && w->panel_on_show(w->stack_panel()) &&
                            w->panel_on_show(w->watch_panel()) && w->panel_on_show(w->cpu_panel()) &&
                            w->panel_on_show(w->disasm_panel());
@@ -342,15 +342,15 @@ int main(int argc, char** argv) {
                             !w->panel_on_show(w->script_panel()) && !w->panel_on_show(w->source_panel()) &&
                             !w->panel_on_show(w->symbols_panel());
         fx.show(w->nextreg_panel());
-        const int after_switch = signals;
+        const int after_switch = changes;
         fx.show(w->nextreg_panel());   // re-selecting the current tab
-        const int after_reselect = signals;
+        const int after_reselect = changes;
         fx.show(w->video_panel());
         check("QLAZY-10",
               "panel_on_show() is true exactly for Video, Stack, Watches and the untabbed panels; one change signal per tab switch, none for re-selecting the current tab",
-              shown && hidden && after_switch == 1 && after_reselect == 1 && signals == 2,
-              "shown=" + b2s(shown) + " hidden=" + b2s(hidden) + " signals=" + std::to_string(after_switch) + "," +
-                  std::to_string(after_reselect) + "," + std::to_string(signals));
+              shown && hidden && after_switch == 1 && after_reselect == 1 && changes == 2,
+              "shown=" + b2s(shown) + " hidden=" + b2s(hidden) + " changes=" + std::to_string(after_switch) + "," +
+                  std::to_string(after_reselect) + "," + std::to_string(changes));
     }
 
     // QLAZY-11 - the A/B: the window open (default layout) changes nothing the machine does.

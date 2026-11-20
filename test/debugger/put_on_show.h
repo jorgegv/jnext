@@ -5,6 +5,7 @@
 #include <QTabWidget>
 #include <QWidget>
 
+#include "debugger/callstack_panel.h"
 #include "debugger/debugger_window.h"
 
 inline void put_on_show(DebuggerWindow* w, QWidget* panel) {
