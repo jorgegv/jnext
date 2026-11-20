@@ -19,22 +19,25 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # frame is non-black (uniform grey 0.71, then the welcome screen).
 #
 #   G  Qt, --fast-boot 60 --set startup.fast_boot_hide_screen=true: the window grabbed frozen at
-#      the soft reset, inside the window, is black; the extra log line is there; and the window
-#      grabbed 0.7 s after "fast boot: ended" is not black.
-#   H  Qt control, the same without the hide: the frozen grab is NOT black, and no extra log line. It proves the capture can see a real screen,
-#      so G's black is not vacuous.
-#   I  the SDL-only build, log only (the grabs of its window are unreliable, see the call below): the
-#      extra log line and the end by time up; the black frame is pinned by sdl_app_tick_test.
-#   I2 the SDL-only build, as H but log only like I: no extra log line.
+#      the soft reset, inside the window, is black; the extra log line is there; fast boot ends by
+#      time up; and the window grabbed 0.7 s after "fast boot: ended" is not black.
+#   H  Qt control, the same without the hide: the frozen grab is NOT black, and no extra log line.
+#      It proves the capture can see a real screen, so G's black is not vacuous.
+#   I  the SDL-only build, as G, but grabbed without any request against the SDL window (see the
+#      modes of fh_run): every grab taken while the window is open is black, there is at least one,
+#      and the grab after the end is not black.
+#   I2 the SDL-only build, as H: at least one grab inside the window is not black.
 #   J  Qt, the SAVED preference (jnext.conf [startup] fast_boot_seconds=2 and
 #      fast_boot_hide_screen=true, no command-line setting): the extra log line, the window
 #      ends by time up, and half a second after the soft reset (at normal speed) it is not black.
 #
 # Fast boot runs the 3000 frames of --fast-boot 60 in a few seconds on a quiet host, faster than
-# a host key can be sent and a screen read. So G, H, I and I2 SIGSTOP the emulator at the firmware's
-# soft reset (a frame the real screen is not black on), grab the frozen window, and let it go on; a
-# grab only counts if the log still lacks "fast boot: ended" after the stop. The host key that ends
-# the window is covered by fast-boot-func and the unit rows (FBT-32), not here.
+# a host key can be sent and a screen read, so the grabs are taken inside the window by freezing
+# the Qt emulator (SIGSTOP) or by looping on the SDL one. The host key that ends the window is
+# covered by fast-boot-func and the unit rows (FBT-32), not here. Measured on this host: an
+# `import -window` of the SDL window stalls until the row's bound, and SIGSTOP of the SDL process
+# now and then ends in "XIO: fatal IO error"; a root-window grab cropped to the window does neither
+# (GH #544 review 1). Every `import` is bounded on its own.
 #
 # No `trap`, every timeout escalates to SIGKILL, xvfb-run -d with -noreset, and
 # no pipeline ends in a quiet grep: grep is asked alone, on the log file.
@@ -49,8 +52,15 @@ if want fast-boot-hide-func; then
     fh_black_line="fast boot: the screen stays black until it ends"
 
     # One windowed run: $1 binary, $2 prefix of the files it writes (<prefix>.log, -mid-N.png,
-    # -post.png), $3 mode (window: grab the window in a loop while fast boot is open, then once
-    # 0.7 s after it ended; timeup: one grab, 0.5 s after the soft reset), then jnext's arguments.
+    # -post.png), $3 mode, then jnext's arguments. Every `import` is bounded on its own
+    # (timeout, SIGKILL after 2 s): a stalled grab must never hold the row for the run's bound.
+    #   qt      Qt: SIGSTOP the emulator 0.3 s after the firmware soft reset (still inside the
+    #           window), grab the frozen window, SIGCONT; one more grab 0.7 s after "ended".
+    #   sdl     SDL: no signal and NO request against the SDL window (an `import -window` of it
+    #           stalls): grab the ROOT window cropped to the SDL window's geometry in a loop while
+    #           the log lacks "fast boot: ended", dropping any grab after which the line is there;
+    #           one more such grab 0.7 s after "ended".
+    #   timeup  Qt: one grab 0.5 s after the soft reset (the saved-preference run).
     # shellcheck disable=SC2016
     fh_run() {
         local bin="$1" pre="$2" mode="$3"; shift 3
@@ -61,45 +71,57 @@ if want fast-boot-hide-func; then
             set -uo pipefail
             bin="$1"; pre="$2"; mode="$3"; shift 3
             log="$pre.log"
+            ended() { grep -qF "fast boot: ended" "$log" 2>/dev/null; }
+            grab_win()  { timeout --foreground --kill-after=2s 10s import -window "$wid" "png:$1" 2>/dev/null || rm -f "$1"; }
+            grab_root() { timeout --foreground --kill-after=2s 10s import -window root -crop "${WIDTH}x${HEIGHT}+${X}+${Y}" "png:$1" 2>/dev/null || rm -f "$1"; }
             "$bin" "$@" >"$log" 2>&1 &
             pid=$!
             wid=""
             for _ in $(seq 1 300); do
                 wid=$(xdotool search --onlyvisible --name "ZX Spectrum Next Emulator" 2>/dev/null | head -1) || true
                 [ -n "$wid" ] && break
-                [ "$mode" = window ] && grep -qF "fast boot: ended" "$log" 2>/dev/null && break
+                [ "$mode" != timeup ] && ended && break
                 sleep 0.05
             done
-            if [ "$mode" = window ] || [ "$mode" = nomid ]; then
-                if [ "$mode" = window ]; then
-                    # Freeze the emulator at the firmware soft reset, still inside the window, and grab
-                    # the frozen window: a stopped process cannot finish fast boot under the grab.
-                    for _ in $(seq 1 6000); do
-                        grep -qF "soft-reset" "$log" 2>/dev/null && break
-                        sleep 0.02
-                    done
-                    # 0.3 s on: the frame the widget holds is then a real one (the screen is cleared at the
-                    # reset itself), and the window is still open (about 2500 frames to go).
-                    sleep 0.3
-                    kill -STOP "$pid" 2>/dev/null
-                    if [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null; then
-                        import -window "$wid" "png:$pre-mid-1.png" 2>/dev/null || true
-                    fi
-                    kill -CONT "$pid" 2>/dev/null
-                fi
-                for _ in $(seq 1 600); do
-                    grep -qF "fast boot: ended" "$log" 2>/dev/null && break
-                    sleep 0.2
+            X=0; Y=0; WIDTH=0; HEIGHT=0
+            [ -n "$wid" ] && eval "$(xdotool getwindowgeometry --shell "$wid" 2>/dev/null)"
+            case "$mode" in
+            qt)
+                for _ in $(seq 1 6000); do
+                    grep -qF "soft-reset" "$log" 2>/dev/null && break
+                    sleep 0.02
                 done
-                sleep 0.7
-            else
+                # 0.3 s on: the frame the widget holds is then a real one (the screen is cleared at the
+                # reset itself), and the window is still open (about 2500 frames to go).
+                sleep 0.3
+                kill -STOP "$pid" 2>/dev/null
+                if [ -n "$wid" ] && ! ended; then grab_win "$pre-mid-1.png"; fi
+                kill -CONT "$pid" 2>/dev/null
+                ;;
+            sdl)
+                n=0
+                while [ -n "$wid" ] && ! ended && [ $n -lt 80 ]; do
+                    n=$((n + 1))
+                    grab_root "$pre-mid-$n.png"
+                    if ended; then rm -f "$pre-mid-$n.png"; fi
+                    sleep 0.1
+                done
+                ;;
+            timeup)
                 for _ in $(seq 1 600); do
                     grep -qF "soft-reset" "$log" 2>/dev/null && break
                     sleep 0.2
                 done
                 sleep 0.5
+                ;;
+            esac
+            if [ "$mode" != timeup ]; then
+                for _ in $(seq 1 600); do ended && break; sleep 0.2; done
+                sleep 0.7
             fi
-            [ -n "$wid" ] && import -window "$wid" "png:$pre-post.png" 2>/dev/null
+            if [ -n "$wid" ]; then
+                if [ "$mode" = sdl ]; then grab_root "$pre-post.png"; else grab_win "$pre-post.png"; fi
+            fi
             kill -TERM "$pid" 2>/dev/null
             wait "$pid" 2>/dev/null
             exit 0
@@ -116,40 +138,29 @@ if want fast-boot-hide-func; then
     fh_is_black() { [[ -n "$1" ]] && awk -v m="$1" 'BEGIN { exit !(m + 0 == 0) }'; }
     fh_not_black() { [[ -n "$1" ]] && awk -v m="$1" 'BEGIN { exit !(m + 0 > 0) }'; }
 
-    # fh_phase LABEL BINARY PREFIX HIDE(1|0) GRAB(1|0) jnext-args...: G, H, I, I2. GRAB=0 skips the
-    # frozen grab (see I below) and so the black check; the rest of the phase still runs.
+    # fh_phase LABEL BINARY PREFIX HIDE(1|0) MODE(qt|sdl) jnext-args...: G, H, I, I2.
     fh_phase() {
-        local label="$1" bin="$2" pre="$fh_dir/$3" hide="$4" grab="$5"; shift 5
-        local extra=() f m n=0 black=0 lit=0 post
+        local label="$1" bin="$2" pre="$fh_dir/$3" hide="$4" mode="$5"; shift 5
+        local extra=() f m n=0 lit=0 post
         [[ "$hide" == 1 ]] && extra=(--set startup.fast_boot_hide_screen=true)
-        local fmode=window; [[ "$grab" == 1 ]] || fmode=nomid
-        fh_run "$bin" "$pre" "$fmode" \
+        fh_run "$bin" "$pre" "$mode" \
             --machine next --sdcard-readonly ${SD_CARD_ARGS[@]+"${SD_CARD_ARGS[@]}"} --fast-boot 60 \
             ${extra[@]+"${extra[@]}"} "$@"
         for f in "$pre"-mid-*.png; do
             [[ -e "$f" ]] || continue
             n=$((n + 1)); m=$(fh_max "$f")
-            if fh_is_black "$m"; then black=$((black + 1)); elif fh_not_black "$m"; then lit=$((lit + 1)); fi
+            if ! fh_is_black "$m"; then lit=$((lit + 1)); fi
         done
         post=$(fh_max "$pre-post.png")
+        fh_has "$pre.log" "fast boot: ended (time up) after 3000 frames" || fh_faults+=("$label: fast boot did not end by time up")
         if [[ "$hide" == 1 ]]; then
             fh_has "$pre.log" "$fh_black_line" || fh_faults+=("$label: no '$fh_black_line' line")
-            if [[ "$grab" == 1 ]]; then
-                [[ $n -gt 0 ]] || fh_faults+=("$label: no capture inside the fast-boot window (harness fault)")
-                [[ $lit -eq 0 ]] || fh_faults+=("$label: $lit of $n captures inside the window were not black")
-            fi
-            if [[ "$grab" == 1 ]]; then
-                fh_not_black "$post" || fh_faults+=("$label: the window stayed black after fast boot ended (max=${post:-unreadable})")
-            else
-                fh_has "$pre.log" "fast boot: ended (time up) after 3000 frames" || fh_faults+=("$label: fast boot did not end by time up")
-            fi
+            [[ $n -gt 0 ]] || fh_faults+=("$label: no capture inside the fast-boot window (harness fault)")
+            [[ $lit -eq 0 ]] || fh_faults+=("$label: $lit of $n captures inside the window were not black")
+            fh_not_black "$post" || fh_faults+=("$label: the window stayed black after fast boot ended (max=${post:-unreadable})")
         else
             if fh_has "$pre.log" "$fh_black_line"; then fh_faults+=("$label: the black line without the setting"); fi
-            if [[ "$grab" == 1 ]]; then
-                [[ $lit -gt 0 ]] || fh_faults+=("$label: the control never showed a real screen inside the window ($n captures): the capture sees nothing")
-            else
-                fh_has "$pre.log" "fast boot: ended (time up) after 3000 frames" || fh_faults+=("$label: fast boot did not end by time up")
-            fi
+            [[ $lit -gt 0 ]] || fh_faults+=("$label: the control never showed a real screen inside the window ($n captures): the capture sees nothing")
         fi
     }
 
@@ -163,17 +174,10 @@ if want fast-boot-hide-func; then
         fail_row " (SDL-only binary not built: $fh_sdl; run 'make sdl-release')"
     else
         rm -f "$fh_conf"
-        fh_phase G  "$JNEXT"   g  1 1
-        fh_phase H  "$JNEXT"   h  0 1
-        # I, I2: log only, no grab and no SIGSTOP. Measured on this host: an `import` of the SDL window
-        # while its only presented frame is the held black one stalled the app and the X server until
-        # the row's timeout; a SIGSTOP/SIGCONT of the SDL process ended in "XIO: fatal IO error 4/11"
-        # now and then; and a grab after fast boot ended returned no image in 3 of 3 runs, which the
-        # same grab of the Qt window never did. The SDL black frame is pinned by sdl_app_tick_test
-        # SDLT-15..17; here I checks the wiring (--set reaches the arming in the SDL-only binary: the
-        # log line, and the window ends by time up), I2 the same without the setting (no log line).
-        fh_phase I  "$fh_sdl"  i  1 0
-        fh_phase I2 "$fh_sdl"  i2 0 0
+        fh_phase G  "$JNEXT"   g  1 qt
+        fh_phase H  "$JNEXT"   h  0 qt
+        fh_phase I  "$fh_sdl"  i  1 sdl
+        fh_phase I2 "$fh_sdl"  i2 0 sdl
 
         # --- J: Qt, the saved preference, ended by time up ---
         printf '[startup]\nfast_boot_seconds=2\nfast_boot_hide_screen=true\n' > "$fh_conf"
@@ -187,7 +191,7 @@ if want fast-boot-hide-func; then
         fh_not_black "$fh_j" || fh_faults+=("J: the window was black after the time-up (max=${fh_j:-unreadable})")
 
         if [[ ${#fh_faults[@]} -eq 0 ]]; then
-            pass_row " (Qt window black while fast boot hides the screen and real after it ends, the Qt control real inside it, the saved preference real after time up; SDL --set wired, by log)"
+            pass_row " (Qt and SDL windows black while fast boot hides the screen and real after it ends, both controls real inside it, the saved preference real after time up)"
         else
             fail_row " ($(IFS='|'; echo "${fh_faults[*]}"))"
         fi
