@@ -3,7 +3,6 @@
 // the Disassembly, the central widget, is always on show.
 #pragma once
 
-#include <QApplication>
 #include <QDockWidget>
 #include <QWidget>
 
@@ -15,10 +14,6 @@ inline void put_on_show(DebuggerWindow* w, QWidget* panel) {
         if (d->widget() == panel) {
             if (d->isHidden()) d->show();
             d->raise();
-            // DebuggerWindow::panels_on_show_changed is queued (and coalesced) after a dock's visibility
-            // change, where the tab widgets it replaced emitted at once: let it run, so the caller finds
-            // the manager's data needs applied, as it did when a tab switch was synchronous.
-            QApplication::processEvents();
             return;
         }
 }

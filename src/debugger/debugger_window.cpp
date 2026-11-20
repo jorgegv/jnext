@@ -1825,15 +1825,14 @@ void DebuggerWindow::create_panels() {
         dock->setObjectName(QString::fromLatin1(table[i].id));
         dock->setWidget(table[i].panel);
         docks_.push_back(dock);
-        // GH #498: the panel_on_show() answers change with a dock's visibility (closed, reopened, the
-        // shown tab of a group changed) and with floating; once per change, after Qt has updated the tab bar.
-        auto announce = [this]() {
-            if (on_show_changed_queued_) return;
-            on_show_changed_queued_ = true;
-            QTimer::singleShot(0, this, [this]() { on_show_changed_queued_ = false; emit panels_on_show_changed(); });
-        };
-        connect(dock, &QDockWidget::visibilityChanged, this, announce);
-        connect(dock, &QDockWidget::topLevelChanged, this, announce);
+        // GH #498: the panel_on_show() answers change with a dock's visibility (the shown tab of its group
+        // changed, closed, reopened) and with floating. A tab switch makes one dock visible and another
+        // not-visible-but-not-hidden: it is announced once, by the dock that became visible; a close is
+        // announced by the dock that is now hidden (an implicit hide with the window is not a change).
+        connect(dock, &QDockWidget::visibilityChanged, this, [this, dock](bool visible) {
+            if (visible || dock->isHidden()) emit panels_on_show_changed();
+        });
+        connect(dock, &QDockWidget::topLevelChanged, this, [this](bool) { emit panels_on_show_changed(); });
         // A tabbed-away dock is still visible to Qt, so its panel gets no showEvent when its tab is
         // selected; the Graphics panel draws only while on show and no tick redraws a paused window that
         // did not change, so it is told when its dock becomes the shown one (it re-checks on_show()).

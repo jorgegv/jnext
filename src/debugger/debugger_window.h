@@ -153,8 +153,8 @@ public:
 
 signals:
     void window_closed();
-    /// GH #498 - some panel_on_show() answer may have changed. Emitted (queued, coalesced) when a
-    /// dock's visibility or floating state changes, which covers a tab switch of a group.
+    /// GH #498 - some panel_on_show() answer may have changed. Emitted once per tab switch of a group
+    /// (by the dock that became visible), per close and reopen, and per change of floating.
     void panels_on_show_changed();
 
 protected:
@@ -286,7 +286,6 @@ private:
     void tune_tab_bars();
     void size_hidden_tabs();
     bool tab_bars_tune_queued_ = false;
-    bool on_show_changed_queued_ = false;
     /// What the left dock area's panels still lack in width (GH #360); the group's shown dock in `shown`.
     int left_column_lacking(QDockWidget** shown) const;
     QDockWidget* shown_dock_of(QDockWidget* d) const;

@@ -19,8 +19,8 @@ Opening the window attaches it. What it then asks of the backend follows what is
 on show (`DebuggerManager::apply_data_needs()`): call tracking while the Call Stack or
 Variables panel is on show or a source Step Over or Step Out runs, and the live raster
 while the Video panel is. Each request is sent only when it changes, from
-`DebuggerWindow::panels_on_show_changed`, which fires (queued, coalesced) when a
-dock's visibility or floating state changes, which covers the switch of a group's tab.
+`DebuggerWindow::panels_on_show_changed`, which fires once per switch of a group's tab (the dock that became visible announces it),
+per close and reopen of a dock, and per change of floating.
 `DebuggerWindow::panel_on_show()` is the one answer: a panel is
 on show when the window is open and its dock is open and either floating or the shown tab of
 its group (read from the group's tab bar). It is never `isVisible()`, which
