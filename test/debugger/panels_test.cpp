@@ -7146,6 +7146,7 @@ static void test_graphics_panel_review() {
                 return v;
             };
             const std::vector<uint32_t> before = snapshot();
+            const auto ss0 = f.dbg->save_state_bytes(jnext::dbg::CLIENT_NONE, jnext::dbg::SaveStateMode::RefuseMidFrame);
             f.sub(0);
             f.panel->findChild<QRadioButton*>("gfxPatFmt4")->setChecked(true);
             f.panel->refresh();
@@ -7154,6 +7155,8 @@ static void test_graphics_panel_review() {
             f.sub(2);
             f.combo("gfxPalBank")->setCurrentIndex(5);
             f.combo("gfxPalBank")->setCurrentIndex(0);
+            const auto ss1 = f.dbg->save_state_bytes(jnext::dbg::CLIENT_NONE, jnext::dbg::SaveStateMode::RefuseMidFrame);
+            const bool whole = ss0 && ss1 && !ss0.value.empty() && ss0.value == ss1.value;
             const bool same = snapshot() == before;
             // the guest's next writes land where they would have
             f.emu.sprites().write_pattern(0x77);
@@ -7163,10 +7166,11 @@ static void test_graphics_panel_review() {
             const bool pal = f.dbg->palette(PaletteId::SpriteFirst)[0x30] == 0x1C1 &&
                              f.dbg->palette_priority(PaletteId::SpriteFirst)[0x30] == 2;
             check("QGFX-20", "refreshing all three sub-tabs (patterns 8- and 4-bit, tiles, palettes) mid pattern upload and mid NR 0x44 "
-                             "pair leaves the pattern RAM, all 8 palettes and priorities, the pattern offset, the palette cursor and "
-                             "its half-written state and the read-back registers unchanged; the next write_pattern lands at 0305 and "
-                             "the next NR 0x44 completes sprite entry 30 as 1C1 with priority 2",
-                  same && pat && pal, fmt("same=%d pat=%d pal=%d", same, pat, pal));
+                             "pair leaves the whole machine unchanged (save_state_bytes identical before and after) and the pattern RAM, "
+                             "all 8 palettes and priorities, the pattern offset, the palette cursor and its half-written state and "
+                             "the read-back registers; the next write_pattern lands at 0305 and the next NR 0x44 completes sprite "
+                             "entry 30 as 1C1 with priority 2",
+                  whole && same && pat && pal, fmt("whole=%d same=%d pat=%d pal=%d", whole, same, pat, pal));
         }
     }
 }
