@@ -15,6 +15,8 @@
 
 #include <ctime>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace bug_report {
 
@@ -41,10 +43,12 @@ inline std::string sdl_toolkit_version() {
 
 /// Write the report `config.bug_report_path` asks for, if any. False when it failed; the
 /// loop owner then exits non-zero. `frontend` is "qt", "sdl" or "headless"; `toolkit` is
-/// the Qt or SDL version string.
+/// the Qt or SDL version string. `config_file`: the settings file as the frontend read it (the Qt
+/// frontend), or null for a frontend that reads none.
 inline bool write_bug_report_at_exit(Emulator& emu, const jnext::dbg::Debugger& debugger,
                                      const EmulatorConfig& config, const char* frontend,
-                                     const std::string& toolkit) {
+                                     const std::string& toolkit,
+                                     const std::vector<std::pair<std::string, std::string>>* config_file = nullptr) {
     if (config.bug_report_path.empty()) return true;
     std::string path, why;
     if (!bug_report::resolve_path(config.bug_report_path, bug_report::program_name(emu),
@@ -56,6 +60,7 @@ inline bool write_bug_report_at_exit(Emulator& emu, const jnext::dbg::Debugger& 
     in.argv = config.command_line;
     in.frontend = frontend;
     in.toolkit = toolkit;
+    if (config_file) { in.config_file = *config_file; in.config_file_read = true; }
     const bug_report::Outcome o = bug_report::write(emu, debugger, in, path);
     if (!o.ok) {
         Log::platform()->error("--bug-report {}: {}", config.bug_report_path, o.why);

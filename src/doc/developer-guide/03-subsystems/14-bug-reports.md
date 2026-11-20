@@ -17,7 +17,7 @@ member not listed there is never written. Member names follow the container's gr
 | Member | Content | Shipped |
 |---|---|---|
 | `manifest.json` | `format_version` (1), `created_utc`, `producer` (version, platform, OS, architecture, frontend, toolkit), `machine`, `memory` (`included`, or `withheld` with a code and a reason), `cards`, `programs`, `members`, `warnings` | always |
-| `settings.json` | the command line (paths reduced to `<path>/name`), the settings file as `section.key` to value (no frontend reads it yet, so it reads "not read by this frontend"; the writer takes the map from its caller and blanks it), and the session switches | always |
+| `settings.json` | the command line (paths reduced to `<path>/name`), the settings file as `section.key` to value (the Qt frontend reads it through `AppConfig::file_for_report()` and the writer blanks what could name the host; the SDL and headless frontends read none and it says "not read by this frontend"), and the session switches | always |
 | `machine.json` | registers, the 256 NextREGs with names, the paging map, video (raster, ULA, clip windows, 128 sprites, Copper state, eight palettes), interrupts, DivMMC, Multiface, audio | always; the Copper program only with memory |
 | `state/<subsystem>.json` | the `.jns` per-subsystem state, filtered by key class (below) | always, filtered |
 | `screen/composite.png`, `screen/<view>.png` | the picture, and each of the seven layer views | always |
@@ -114,9 +114,21 @@ time when the name is taken. `resolve_path()` is the `--bug-report PATH` rule: a
 directory or a path ending in a separator names a directory (created when needed), anything
 else is the file. A failed write logs an error and the loop owner exits 1.
 
+## The Qt window
+
+**File > Save Bug Report...** (`MainWindow::on_save_bug_report()`, after Quick Load Snapshot, no
+shortcut) opens a save dialog in the home directory (nothing is remembered: that would be a new
+persisted setting) proposing `bug_report::file_name()` for the loaded program, filtered to
+`*.jnext-bug.zip`. `MainWindow::save_bug_report_to()` then calls `bug_report::write()` with the
+command line, `frontend` `qt`, and the settings file from `AppConfig::file_for_report()` (every row of
+`config_keys::KEYS` the file holds, plus whatever keys `[debugger_keys]` has). The status bar names the
+file and whether memory is included; a failure shows a dialog (not when unattended). `QtApp::shutdown()`
+passes the same map to `--bug-report`. There is no Preferences field, so no `config_keys` row: `--bug-report`
+is a per-run action like `--delayed-screenshot`.
+
 ## Tests
 
-`bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
+`bug_report_ui_test` (BRUI-01 to 05) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows `bug-report-nosd-func` and
 `bug-report-card-func` run the real binary. The second one is the end-to-end check of the

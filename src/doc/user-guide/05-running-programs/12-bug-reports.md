@@ -7,7 +7,12 @@ Attach it to the issue you open at <https://github.com/jorgegv/jnext/issues>.
 
 ## Saving one
 
-Start JNEXT with **`--bug-report PATH`** and quit when the problem has appeared. The
+In the window, choose **File ▸ Save Bug Report…**. A save dialog opens in your home
+folder with the file name already filled in (`game.202611201530.jnext-bug.zip`: the
+program you loaded, the date and the time); press Save. The status bar says where it went
+and whether the memory is included. It has no keyboard shortcut.
+
+From the command line, start JNEXT with **`--bug-report PATH`** and quit when the problem has appeared. The
 report is written as JNEXT exits (also when the run ends by itself, for example with
 `--delayed-automatic-exit`):
 
@@ -23,8 +28,8 @@ exits with status 1.
 
 ## What is in it
 
-- The JNEXT version, your operating system and the settings in use (the command line; the
-  settings file is not included yet), with the folders of your computer
+- The JNEXT version, your operating system and the settings in use (the command line and, in
+  the window, the settings file with every folder, device and recent-files entry blanked), with the folders of your computer
   left out.
 - The machine, decoded: CPU registers, every NextREG with its name, the memory paging,
   the ULA, Layer 2, sprites, tilemap and Copper, the palettes, the interrupt, DivMMC

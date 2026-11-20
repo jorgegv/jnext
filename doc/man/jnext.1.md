@@ -2107,10 +2107,12 @@ rather than posting them, and hand somebody a `.nex` instead.
 
 **\--bug-report** *PATH* saves, when jnext exits, one zip file that holds what a
 developer needs to understand a failure: the state of the machine and of jnext at
-that moment. It is a snapshot for reading, not a session to replay. It holds:
+that moment. In the Qt window **File > Save Bug Report...** saves one at once: it opens a
+save dialog in your home folder that proposes the name below. It is a snapshot for
+reading, not a session to replay. It holds:
 
 - the jnext version, the host operating system and architecture, the frontend and
-  the settings in use (the command line; the settings file is not included yet),
+  the settings in use (the command line and, in the Qt frontend, the settings file),
   with host paths blanked;
 - the machine, decoded: the CPU registers, every NextREG with its name, the paging
   map, the ULA, Layer 2, sprite, tilemap and Copper state, the palettes, the
@@ -2504,7 +2506,7 @@ Control+Command+F (full screen) (see **KEYBOARD MAPPING** below).
     Image / Eject SD Card and the same for the second SD card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
     RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
     (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9)
-    (see **JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
+    (see **JNEXT SNAPSHOTS** above), Save Bug Report... (see **BUG REPORTS**), Quit (Alt+Q or Alt+F4).
 
     **Save Screenshot...** asks for a name; the extension chooses the format
     (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
@@ -3439,6 +3441,11 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     reads (the newest `.jns` in it). Created on the first save. Quick Save keeps
     the newest 20 files it made (see **\--quick-snapshot-keep**).
 
+`*.jnext-bug.zip`
+:   A bug report (see **BUG REPORTS**), named `PROGRAM.YYYYMMDDhhmm.jnext-bug.zip`
+    by **\--bug-report** *DIR*`/` and proposed under that name by **File > Save Bug
+    Report...**. Where it goes is your choice; jnext keeps no folder of them.
+
 `~/.jnext/warm-start/`
 :   The recorded NextZXOS-resident machine a **\--load** of a `.nex` starts
     from, one file per machine type, around 100 KB each. Written on the first
@@ -3549,7 +3556,8 @@ Project home page: <https://github.com/jorgegv/jnext>
 
 # BUGS
 
-Report bugs at <https://github.com/jorgegv/jnext/issues>.
+Report bugs at <https://github.com/jorgegv/jnext/issues>. Attach a bug report (**File > Save Bug
+Report...**, or **\--bug-report** *DIR*`/`): see **BUG REPORTS**.
 
 # AUTHORS
 

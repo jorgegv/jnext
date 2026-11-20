@@ -534,7 +534,12 @@ void QtApp::shutdown() {
     // GH #389: --export-skoolkit / --export-ghidra, after the coverage they map is final.
     if (debugger_ && !write_re_exports_at_exit(*debugger_, config_) && exit_code_ == 0) exit_code_ = 1;
     // GH #492: --bug-report, after the exports, so its log tail ends at the exit.
-    if (debugger_ && !write_bug_report_at_exit(emulator_, *debugger_, config_, "qt", std::string("Qt ") + qVersion()) && exit_code_ == 0) exit_code_ = 1;
+    if (debugger_ && !config_.bug_report_path.empty()) {
+        const AppConfig settings;   // the same jnext.conf the window read (JNEXT_CONFIG_DIR honoured)
+        const auto file = settings.file_for_report();
+        if (!write_bug_report_at_exit(emulator_, *debugger_, config_, "qt", std::string("Qt ") + qVersion(), &file) && exit_code_ == 0)
+            exit_code_ = 1;
+    }
     // A screenshot that was asked for and never taken is a FAILURE, not a
     // footnote. The capture is deferred while no frame is rendering (debugger
     // paused), but --delayed-automatic-exit is a hard bound and must stay one,

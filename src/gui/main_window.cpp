@@ -20,6 +20,8 @@
 #include "core/program_archive.h"
 #include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
 #include "platform/pok_trainers.h"    // GH #381
+#include "platform/bug_report.h"        // GH #492
+#include "platform/bug_report_at_exit.h"   // GH #492: local_now()
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
 #include "debug/source_search.h"
@@ -52,6 +54,7 @@
 #include <QStatusBar>
 #include <QToolBar>
 #include <QFile>
+#include <QDir>
 #include <QFileDialog>
 #include <QIODevice>
 #include <QMessageBox>
@@ -1070,6 +1073,11 @@ void MainWindow::create_menus() {
     // keyPressEvent, and Alt+Shift+F9 would fire the Multiface NMI.
     addAction(quick_save_action_);
     addAction(quick_load_action_);
+
+    // GH #492 - File > Save Bug Report...: one zip with the machine's and jnext's state, for a
+    // developer to read. Menu only, no hotkey: a deliberate act, not one a held chord should repeat.
+    save_bug_report_action_ = file_menu->addAction(tr("Save Bug Report..."));
+    connect(save_bug_report_action_, &QAction::triggered, this, &MainWindow::on_save_bug_report);
 
     file_menu->addSeparator();
 
@@ -2850,6 +2858,48 @@ void MainWindow::quick_save_now() {
                                        ? ec.quick_snapshot_keep
                                        : app_config_.data().quick_snapshot_keep);
     }
+}
+
+// GH #492 - File > Save Bug Report...
+QString MainWindow::proposed_bug_report_name() const {
+    if (!emulator_) return QString();
+    return QString::fromStdString(bug_report::file_name(bug_report::program_name(*emulator_),
+                                                        bug_report::local_now()));
+}
+
+void MainWindow::on_save_bug_report() {
+    if (!emulator_) return;
+    // Home directory, not a remembered one: remembering would be a new persisted setting.
+    const QString start = QDir::home().filePath(proposed_bug_report_name());
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Save Bug Report"), start, tr("jnext bug reports (*.jnext-bug.zip)"));
+    if (path.isEmpty()) return;
+    save_bug_report_to(path);
+}
+
+bool MainWindow::save_bug_report_to(const QString& path) {
+    if (!emulator_ || !debugger_) return false;
+    bug_report::Inputs in;
+    in.argv = emulator_->config().command_line;
+    in.config_file = app_config_.file_for_report();
+    in.config_file_read = true;
+    in.frontend = "qt";
+    in.toolkit = std::string("Qt ") + qVersion();
+    const bug_report::Outcome o = bug_report::write(*emulator_, *debugger_, in, path.toStdString());
+    if (!o.ok) {
+        const QString why = QString::fromStdString(o.why);
+        Log::platform()->error("Save Bug Report: {}", o.why);
+        statusBar()->showMessage(tr("Bug report failed: %1").arg(why), 5000);
+        if (!unattended_) QMessageBox::warning(this, tr("Save Bug Report"), why);
+        return false;
+    }
+    const QString mem = o.memory_included ? tr("included")
+                                          : tr("not included: %1").arg(QString::fromStdString(o.memory_reason));
+    const QString msg = tr("Bug report saved: %1 (memory: %2)").arg(QFileInfo(path).fileName(), mem);
+    statusBar()->showMessage(msg, 8000);
+    Log::platform()->info("status bar: {}", msg.toStdString());
+    for (const std::string& w : o.warnings) Log::platform()->warn("bug report: {}", w);
+    return true;
 }
 
 // GH #321 — File > Quick Load Snapshot (Alt+Shift+F9): the newest .jns in the quick
