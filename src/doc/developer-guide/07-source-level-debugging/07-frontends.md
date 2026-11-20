@@ -79,7 +79,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`source_panel.cpp:581`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1744`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1742`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -231,7 +231,7 @@ shows the labels and comments; the Source tab does not. How they are stored, sav
 ### Selection sync with the Disassembly
 
 `DebuggerWindow::create_panels()` wires the two panels with four `connect()` calls
-(`connect()`, `debugger_window.cpp:1576-1613`), and nothing else couples them. Each carries only what the *user*
+(`connect()`, `debugger_window.cpp:1579-1616`), and nothing else couples them. Each carries only what the *user*
 did in its sender, so no move echoes.
 
 - **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is

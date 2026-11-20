@@ -274,6 +274,10 @@ public:
     /// One entry's stored 9-bit RRRGGGBBB value, for any of the eight banks.
     uint16_t entry_rgb333(PaletteId target, uint8_t index) const;
 
+    /// One entry's stored 2-bit priority field (bits 15:14 of the palette RAM word, what NR 0x44
+    /// reads back in bits 7:6), for any of the eight banks. Pure read: moves no cursor.
+    uint8_t entry_priority(PaletteId target, uint8_t index) const;
+
     /// Write one entry's 9-bit RRRGGGBBB value in any of the eight banks.
     ///
     /// Goes through the same apply + per-scanline log the NR 0x41/0x44 stream

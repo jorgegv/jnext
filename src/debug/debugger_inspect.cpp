@@ -1091,6 +1091,16 @@ std::vector<uint16_t> Debugger::palette(PaletteId id) const {
     return out;
 }
 
+std::vector<uint8_t> Debugger::palette_priority(PaletteId id) const {
+    ::PaletteId hw;
+    if (!resolve_palette(impl_->emu, id, hw)) return {};
+    std::vector<uint8_t> out;
+    out.reserve(PaletteManager::FULL_SIZE);
+    for (int i = 0; i < PaletteManager::FULL_SIZE; ++i)
+        out.push_back(impl_->emu.palette().entry_priority(hw, static_cast<uint8_t>(i)));
+    return out;
+}
+
 Result Debugger::set_palette(ClientId by, PaletteId id, uint8_t index,
                              uint16_t rgb333) {
     ::PaletteId hw;
