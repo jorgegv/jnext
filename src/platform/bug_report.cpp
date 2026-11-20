@@ -289,7 +289,7 @@ const KeyRow kKeyTable[] = {
     { "dac.channels",                  KeyClass::State },
     { "keyboard.matrix",               KeyClass::State },
     { "keyboard.shift_hist",           KeyClass::State },
-    { "i2c.regs",                      KeyClass::State },
+    { "rtc.regs",                      KeyClass::State },
     { "renderer.fallback_per_line",    KeyClass::State },
     { "renderer.border_per_line",      KeyClass::State },
     { "renderer.port_ff_log",          KeyClass::State },
@@ -431,11 +431,11 @@ json machine_json(Emulator& emu, const dbg::Debugger& d, bool ram_ships)
     };
 
     json video = json::object();
-    const dbg::RasterState rs = d.raster();
+    const RasterState rs = d.raster();
     video["raster"] = json{
         {"raw_hc", rs.raw_hc}, {"raw_vc", rs.raw_vc}, {"hc_ula", rs.hc_ula}, {"vc_ula", rs.vc_ula},
         {"cvc", rs.cvc}, {"phc", rs.phc},
-        {"region", dbg::raster_region_name(rs.region)}, {"fetch", dbg::ula_fetch_name(rs.fetch)},
+        {"region", raster_region_name(rs.region)}, {"fetch", ula_fetch_name(rs.fetch)},
     };
     const dbg::Time t = d.time();
     video["time"] = json{
@@ -552,7 +552,7 @@ json debugger_json(const dbg::Debugger& d, bool ram_ships, const Redactor& R)
         {"cycle", rs.cycle}, {"frame", rs.frame}, {"pc", rs.pc},
     };
     if (auto sym = d.lookup(rs.pc)) j["pc_symbol"] = R(*sym);
-    if (const dbg::SourceLocation* sl = d.source_location()) {
+    if (const SourceLocation* sl = d.source_location()) {
         j["pc_source"] = json{{"file", R(base_name(sl->file))}, {"line", sl->line}, {"column", sl->column}};
     }
     j["pc_space"] = space_json(d.source_page(rs.pc));
@@ -625,13 +625,18 @@ json debugger_json(const dbg::Debugger& d, bool ram_ships, const Redactor& R)
         if (lines.size() > 32) lines.resize(32);
         j["disasm_at_pc"] = disasm_text::format_lines(lines, disasm_text::CopyFormat::WithAddresses);
 
-        // 32 bytes at SP.
+        // 32 bytes at SP, wrapping at the top of the address space as the Z80's stack does.
         const uint16_t sp = d.registers().SP;
-        const size_t   n  = std::min<size_t>(32, 0x10000u - sp);
         std::array<uint8_t, 32> stack{};
-        const auto pr = d.peek(dbg::MemSpace::cpu(), sp, n, stack.data());
+        const size_t first = std::min<size_t>(32, 0x10000u - sp);
+        const auto p1 = d.peek(dbg::MemSpace::cpu(), sp, first, stack.data());
+        bool ok = p1 && p1.value == first;
+        if (ok && first < 32) {
+            const auto p2 = d.peek(dbg::MemSpace::cpu(), 0, 32 - first, stack.data() + first);
+            ok = p2 && p2.value == 32 - first;
+        }
         json sj = json::array();
-        if (pr) for (size_t i = 0; i < pr.value && i < n; ++i) sj.push_back(stack[i]);
+        if (ok) for (uint8_t b : stack) sj.push_back(b);
         j["stack"] = json{{"sp", sp}, {"bytes", sj}};
     }
     return j;

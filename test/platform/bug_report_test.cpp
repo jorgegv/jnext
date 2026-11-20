@@ -24,6 +24,7 @@
 #include "core/embedded_nextboot_rom.h"
 #include "core/fat32_image.h"
 #include "core/log.h"
+#include "core/saveable.h"
 #include "core/screenshot.h"
 #include "core/sha256.h"
 #include "debug/debugger.h"
@@ -61,7 +62,7 @@ namespace {
 
 int g_total = 0, g_pass = 0, g_fail = 0;
 
-std::string fmt(const char* f, ...) {
+std::string fmtf(const char* f, ...) {
     char buf[1024];
     va_list ap;
     va_start(ap, f);
@@ -349,7 +350,7 @@ int main() {
         }
         check("BR-01", "manifest: kind and version, and its member list equals the zip's entries, with sizes",
               names_ok && declared == actual && sizes_ok && !actual.empty() && r.names().front() == "manifest.json",
-              fmt("ok=%d declared=%zu actual=%zu sizes=%d", names_ok, declared.size(), actual.size(), sizes_ok));
+              fmtf("ok=%d declared=%zu actual=%zu sizes=%d", names_ok, declared.size(), actual.size(), sizes_ok));
     }
 
     // ---- BR-02 file name rule --------------------------------------------------
@@ -398,7 +399,7 @@ int main() {
               d == std::string(64, 'x') + ".202611201530.jnext-bug.zip" &&
               e == "_hidden.202611201530.jnext-bug.zip" && f == "game.202611201530-2.jnext-bug.zip" &&
               fs::path(p2).filename().string() == "game.202611201530-2.jnext-bug.zip" && local_not_utc,
-              fmt("a=%s b=%s c=%s e=%s f=%s p2=%s local_not_utc=%d", a.c_str(), b.c_str(), c.c_str(),
+              fmtf("a=%s b=%s c=%s e=%s f=%s p2=%s local_not_utc=%d", a.c_str(), b.c_str(), c.c_str(),
                   e.c_str(), f.c_str(), p2.c_str(), local_not_utc));
     }
 
@@ -424,7 +425,7 @@ int main() {
               fs::path(p_dir).filename().string() == leaf && fs::path(p_dir).parent_path() == fs::path(existing) &&
               fs::path(p_slash).filename().string() == leaf && fs::is_directory(tmp_path("newdir")) &&
               p_file == tmp_path("plain.zip"),
-              fmt("dir=%s slash=%s file=%s bs=%s", p_dir.c_str(), p_slash.c_str(), p_file.c_str(), p_bs.c_str()));
+              fmtf("dir=%s slash=%s file=%s bs=%s", p_dir.c_str(), p_slash.c_str(), p_file.c_str(), p_bs.c_str()));
     }
 
     // ---- BR-04 no-card session ships RAM --------------------------------------
@@ -447,7 +448,7 @@ int main() {
               r.ok && m["memory"]["included"].get<bool>() && ram.size() == pages * 0x2000 &&
               bank5 && bank7 && prog_in_ram && prog_in_cpu && r.has("memory/patterns.bin") &&
               r.has("memory/cpu-disasm.txt"),
-              fmt("ok=%d size=%zu pages=%zu b5=%d b7=%d pr=%d pc=%d", r.ok, ram.size(), pages, bank5, bank7,
+              fmtf("ok=%d size=%zu pages=%zu b5=%d b7=%d pr=%d pc=%d", r.ok, ram.size(), pages, bank5, bank7,
                   prog_in_ram, prog_in_cpu));
     }
 
@@ -470,7 +471,7 @@ int main() {
         check("BR-05", "card session: RAM withheld (card-session), no memory member, no window of the card's ROM files anywhere",
               card_ok && in_sram > 0 && r.ok && !m["memory"]["included"].get<bool>() &&
               m["memory"]["withheld"]["code"] == "card-session" && no_mem_member && hits == 0,
-              fmt("card=%d precondition_windows=%zu included=%d hits=%zu", card_ok, in_sram,
+              fmtf("card=%d precondition_windows=%zu included=%d hits=%zu", card_ok, in_sram,
                   r.ok ? int(m["memory"]["included"].get<bool>()) : -1, hits));
     }
 
@@ -492,7 +493,7 @@ int main() {
         check("BR-06", "boot ROM ran: RAM withheld (boot-rom-ran), no window of nextboot.rom in any member",
               visible && r.ok && !m["memory"]["included"].get<bool>() &&
               m["memory"]["withheld"]["code"] == "boot-rom-ran" && hits == 0 && !boot_windows.empty(),
-              fmt("visible=%d hits=%zu windows=%zu", visible, hits, boot_windows.size()));
+              fmtf("visible=%d hits=%zu windows=%zu", visible, hits, boot_windows.size()));
     }
 
     // ---- BR-07 a ring restore keeps RAM ---------------------------------------
@@ -505,7 +506,7 @@ int main() {
         check("BR-07", "a rewind restores the session's own history: RAM still ships",
               rewound && s.emu->frame_num() < before && r.ok && r.out.memory_included &&
               s.emu->ram_withheld() == Emulator::RamWithheld::None,
-              fmt("rewound=%d frame %u -> %u withheld=%d", rewound, before, s.emu->frame_num(),
+              fmtf("rewound=%d frame %u -> %u withheld=%d", rewound, before, s.emu->frame_num(),
                   static_cast<int>(s.emu->ram_withheld())));
     }
 
@@ -527,7 +528,7 @@ int main() {
         check("BR-08", "a state loaded from outside the ring withholds RAM (state-restored)",
               loaded && r.ok && !r.out.memory_included && m["memory"]["withheld"]["code"] == "state-restored" &&
               no_mem_member,
-              fmt("loaded=%d included=%d", loaded, r.out.memory_included));
+              fmtf("loaded=%d included=%d", loaded, r.out.memory_included));
     }
 
     // ---- BR-09 a soft reset keeps the verdict ---------------------------------
@@ -547,7 +548,7 @@ int main() {
         b.emu->soft_reset();
         check("BR-09", "a soft reset keeps the verdict: clean stays clean, a foreign restore stays withheld",
               clean_after && b.emu->ram_withheld() == Emulator::RamWithheld::StateRestored,
-              fmt("a=%d b=%d", static_cast<int>(a.emu->ram_withheld()), static_cast<int>(b.emu->ram_withheld())));
+              fmtf("a=%d b=%d", static_cast<int>(a.emu->ram_withheld()), static_cast<int>(b.emu->ram_withheld())));
     }
 
     // ---- BR-10 program included -----------------------------------------------
@@ -560,7 +561,7 @@ int main() {
         check("BR-10", "program: its bytes ship, and the manifest's SHA-256 is the file's",
               r.ok && prog == g_pat_prog && p["included"].get<bool>() && p["member"] == "program/prog.bin" &&
               p["sha256"] == sdcard::sha256_file(g_prog_path) && p["bytes"].get<uint64_t>() == g_pat_prog.size(),
-              fmt("ok=%d same=%d", r.ok, prog == g_pat_prog));
+              fmtf("ok=%d same=%d", r.ok, prog == g_pat_prog));
     }
 
     // ---- BR-11 program changed on disk ----------------------------------------
@@ -578,7 +579,7 @@ int main() {
         check("BR-11", "program rewritten after load: withheld (changed-since-load), SHA-256 only, RAM still ships",
               r.ok && !p["included"].get<bool>() && p["withheld"]["code"] == "changed-since-load" &&
               !r.has("program/changing.bin") && p["sha256"] == sdcard::sha256_file(path) && r.out.memory_included,
-              fmt("ok=%d code=%s mem=%d", r.ok, r.ok ? p["withheld"]["code"].dump().c_str() : "-", r.out.memory_included));
+              fmtf("ok=%d code=%s mem=%d", r.ok, r.ok ? p["withheld"]["code"].dump().c_str() : "-", r.out.memory_included));
     }
 
     // ---- BR-12 program no longer readable -------------------------------------
@@ -594,7 +595,7 @@ int main() {
         check("BR-12", "program deleted after load: withheld (unreadable), no program member",
               r.ok && !p["included"].get<bool>() && p["withheld"]["code"] == "unreadable" &&
               !r.has("program/vanishing.bin"),
-              fmt("ok=%d", r.ok));
+              fmtf("ok=%d", r.ok));
     }
 
     // ---- BR-13 redaction ------------------------------------------------------
@@ -633,8 +634,8 @@ int main() {
         check("BR-13", "redaction: POSIX, Windows and UNC paths and the user name, in text and in a whole report",
               a == "loading <path>/game.nex now" && b == "<path>/game.nex" && c == "<path>/a.img" &&
               d == "hello <user>" && e == "--sdcard=<path>/big.img (ok)" &&
-              f == "<path>/y.tap and 1/2 and <path>/x" && !leaked && argv_ok,
-              fmt("a=%s b=%s c=%s d=%s e=%s f=%s leaked=%d argv=%d", a.c_str(), b.c_str(), c.c_str(), d.c_str(),
+              f == "<path>/y.tap and 1/2 and http://host/x" && !leaked && argv_ok,
+              fmtf("a=%s b=%s c=%s d=%s e=%s f=%s leaked=%d argv=%d", a.c_str(), b.c_str(), c.c_str(), d.c_str(),
                   e.c_str(), f.c_str(), leaked, argv_ok));
     }
 
@@ -661,10 +662,20 @@ int main() {
         }
         bool no_debug = true;
         for (const std::string& l : lines) if (l.find("bugreport-debug-line") != std::string::npos) no_debug = false;
+        const std::vector<std::string> after = Log::tail();
+        const std::string last_expected =
+            after.empty() ? std::string() : bug_report::redact(after.back(), bug_report::redact_context_from_environment());
+        bool newest_in = false, oldest_out = true;
+        for (const std::string& l : lines) {
+            if (l.find("bugreport-line-599") != std::string::npos) newest_in = true;
+            const std::string old_line = "bugreport-line-50";   // 550 lines before the newest: outside a 500-line window
+            if (l.size() >= old_line.size() && l.compare(l.size() - old_line.size(), old_line.size(), old_line) == 0)
+                oldest_out = false;
+        }
         check("BR-14", "log tail: the last 500 info-and-above lines, newest last, no debug line",
-              tail.size() == 500 && r.ok && lines.size() == 500 &&
-              lines.back().find("bugreport-line-599") != std::string::npos && no_debug,
-              fmt("tail=%zu lines=%zu last=%s", tail.size(), lines.size(), lines.empty() ? "" : lines.back().c_str()));
+              tail.size() == 500 && r.ok && lines.size() == 500 && lines.back() == last_expected && newest_in &&
+              oldest_out && no_debug,
+              fmtf("tail=%zu lines=%zu last=%s", tail.size(), lines.size(), lines.empty() ? "" : lines.back().c_str()));
     }
 
     // ---- BR-15 the key table equals the walk ----------------------------------
@@ -684,8 +695,11 @@ int main() {
         std::string missing_in_table, missing_in_walk;
         for (const auto& k : walked) if (!table.count(k)) missing_in_table += k + " ";
         for (const auto& k : table) if (!walked.count(k)) missing_in_walk += k + " ";
-        check("BR-15", "the key class table lists exactly the arrays the state walk emits",
-              !walked.empty() && missing_in_table.empty() && missing_in_walk.empty(),
+        // A key the table does not list is Memory: a new declaration cannot leak by default.
+        const bool unknown_is_memory =
+            bug_report::key_class("nosuch", "key") == bug_report::KeyClass::Memory;
+        check("BR-15", "the key class table lists exactly the arrays the state walk emits; an unlisted key is Memory",
+              !walked.empty() && missing_in_table.empty() && missing_in_walk.empty() && unknown_is_memory,
               "walk-not-in-table: " + missing_in_table + " | table-not-in-walk: " + missing_in_walk);
     }
 
@@ -745,8 +759,8 @@ int main() {
                 slots_ok = false;
         }
         check("BR-17", "machine.json: registers, 256 NextREGs by name and value, and the 8 paging slots equal the facade's",
-              regs_ok && nr_ok && slots_ok && mj["nextregs"][0x15]["value"] == 0x2A,
-              fmt("regs=%d nr=%d slots=%d", regs_ok, nr_ok, slots_ok));
+              regs_ok && nr_ok && slots_ok && mj["nextregs"][0x15]["value"] == s.d->nextreg_peek(0x15),
+              fmtf("regs=%d nr=%d slots=%d", regs_ok, nr_ok, slots_ok));
     }
 
     // ---- BR-18 pictures -------------------------------------------------------
@@ -770,7 +784,7 @@ int main() {
         const bool enc_same = encode_png(fb.data, 640, rows, enc) && enc == r.member("screen/composite.png");
         check("BR-18", "pictures: composite.png is what save_screenshot_png writes; seven layer views, each a 640x(2*rows) PNG",
               r.ok && rows > 0 && same && layers && enc_same,
-              fmt("rows=%d same=%d layers=%d enc=%d", rows, same, layers, enc_same));
+              fmtf("rows=%d same=%d layers=%d enc=%d", rows, same, layers, enc_same));
     }
 
     // ---- BR-19 the report does not move the machine ---------------------------
@@ -788,7 +802,7 @@ int main() {
               t0.cycle_in_frame == t1.cycle_in_frame && t0.frame == t1.frame && t0.cycle_in_frame != 0 &&
               r0.PC == r1.PC && r0.SP == r1.SP && r0.AF == r1.AF && r0.BC == r1.BC && r0.DE == r1.DE &&
               r0.HL == r1.HL && r0.IX == r1.IX && r0.R == r1.R,
-              fmt("cycle %llu -> %llu pc %04X -> %04X", (unsigned long long)t0.master_cycle,
+              fmtf("cycle %llu -> %llu pc %04X -> %04X", (unsigned long long)t0.master_cycle,
                   (unsigned long long)t1.master_cycle, r0.PC, r1.PC));
     }
 
@@ -846,7 +860,7 @@ int main() {
         check("BR-20", "debugger.json: breakpoints and trace always; opcode bytes, disassembly and stack only with RAM",
               rn.ok && rc.ok && bps && trace_n && trace_c && dn.contains("disasm_at_pc") && dn.contains("stack") &&
               !dc.contains("disasm_at_pc") && !dc.contains("stack") && dn["stack"]["bytes"].size() == 32,
-              fmt("bps=%d tn=%d tc=%d", bps, trace_n, trace_c));
+              fmtf("bps=%d tn=%d tc=%d", bps, trace_n, trace_c));
     }
 
     // ---- BR-21 disassembly at PC ----------------------------------------------
@@ -862,7 +876,7 @@ int main() {
         const std::string want = disasm_text::format_lines(lines, disasm_text::CopyFormat::WithAddresses);
         check("BR-21", "disassembly at PC: the first 32 lines equal the panel's copy of the range",
               r.ok && d["disasm_at_pc"] == want && lines.size() == 32 && pc == 0x8000,
-              fmt("lines=%zu pc=%04X", lines.size(), pc));
+              fmtf("lines=%zu pc=%04X", lines.size(), pc));
     }
 
     // ---- BR-22 card identity --------------------------------------------------
@@ -876,7 +890,7 @@ int main() {
               c["sha256"] == sdcard::sha256_file(g_card) &&
               c["bytes"].get<uint64_t>() == fs::file_size(g_card) && c.contains("identity") &&
               !report_contains(r, g_tmp) && c["readonly"] == true,
-              fmt("ok=%d", r.ok));
+              fmtf("ok=%d", r.ok));
     }
 
     // ---- BR-23 settings blanking ----------------------------------------------
@@ -898,7 +912,7 @@ int main() {
               st["config_file"]["startup.machine_type"] == "next" && st["config_file"]["recent.files"] == "<blanked>" &&
               st["config_file"]["invented.key"] == "<blanked>" && st["config_file_read"] == true &&
               !report_contains(r, "/mnt/secret"),
-              fmt("ok=%d", r.ok));
+              fmtf("ok=%d", r.ok));
     }
 
     // ---- BR-24 a hard init clears the program list ----------------------------
@@ -910,7 +924,7 @@ int main() {
         check("BR-24", "a hard init forgets the program: the file name falls back to jnext",
               before == "prog.bin" && after.empty() && s.emu->program_files().empty() &&
               bug_report::file_name(after, fixed_tm()) == "jnext.202611201530.jnext-bug.zip",
-              fmt("before=%s after=%s", before.c_str(), after.c_str()));
+              fmtf("before=%s after=%s", before.c_str(), after.c_str()));
     }
 
     // ---- BR-25 NextREG names unchanged by the move ----------------------------
@@ -949,7 +963,7 @@ int main() {
         check("BR-26", "a program larger than a report member may be is withheld (too-large), with its SHA-256",
               loaded && r.ok && !p["included"].get<bool>() && p["withheld"]["code"] == "too-large" &&
               p["sha256"] == sdcard::sha256_file(path) && !r.has("program/huge.wav"),
-              fmt("loaded=%d ok=%d", loaded, r.ok));
+              fmtf("loaded=%d ok=%d", loaded, r.ok));
         fs::remove(path);
     }
 
@@ -967,7 +981,7 @@ int main() {
         check("BR-27", "two program files of one name: both ship, the second as program/same.bin-2; the last names the report",
               r.ok && r.member("program/same.bin") == noise(64, 5) && r.member("program/same.bin-2") == noise(64, 6) &&
               bug_report::program_name(*s.emu) == "same.bin",
-              fmt("ok=%d", r.ok));
+              fmtf("ok=%d", r.ok));
     }
 
     // ---- BR-28 --bug-report at exit -------------------------------------------
@@ -989,7 +1003,7 @@ int main() {
         check("BR-28", "at exit: a directory gets <program>.<time>.jnext-bug.zip; an unwritable path fails; no option is a no-op",
               ok1 && found.rfind("prog.", 0) == 0 && found.size() > 15 &&
               found.compare(found.size() - 14, 14, ".jnext-bug.zip") == 0 && !ok2 && ok3,
-              fmt("ok1=%d found=%s ok2=%d ok3=%d", ok1, found.c_str(), ok2, ok3));
+              fmtf("ok1=%d found=%s ok2=%d ok3=%d", ok1, found.c_str(), ok2, ok3));
     }
 
     std::error_code ec;
