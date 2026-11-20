@@ -61,6 +61,8 @@
 #include <QScrollBar>
 #include <QThread>
 #include <QSettings>
+#include <QDockWidget>
+#include <QMainWindow>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -346,22 +348,27 @@ int main(int argc, char** argv)
         std::string bad;
         int pages = 0;
         if (fx.ok) {
-            for (QTabWidget* tw : fx.dbg->findChildren<QTabWidget*>()) {
-                bool left = false;
-                for (int i = 0; i < tw->count(); ++i)
-                    if (tw->tabText(i) == QLatin1String("Video")) left = true;
-                if (!left) continue;
-                for (int i = 0; i < tw->count(); ++i) {
-                    QWidget* page = tw->widget(i);
+            // GH #377: the left column is the tab group of the "Video" dock; non-current tabbed docks keep a
+            // stale width (measured), so the shown tab's width stands for the group's.
+            QDockWidget* video = nullptr;
+            for (QDockWidget* d : fx.dbg->findChildren<QDockWidget*>())
+                if (d->windowTitle() == QLatin1String("Video")) video = d;
+            if (video) {
+                auto* host = qobject_cast<QMainWindow*>(video->parentWidget());
+                QList<QDockWidget*> group{video};
+                if (host) group += host->tabifiedDockWidgets(video);
+                const int shown_w = video->widget()->width();   // Video is the default layout's shown tab
+                for (QDockWidget* d : group) {
+                    QWidget* page = d->widget();
                     ++pages;
-                    if (page->width() < page->sizeHint().width())
-                        bad += fmt("%s %d<%d ", tw->tabText(i).toStdString().c_str(), page->width(),
+                    if (shown_w < page->sizeHint().width())
+                        bad += fmt("%s %d<%d ", d->windowTitle().toStdString().c_str(), shown_w,
                                    page->sizeHint().width());
-                    // ... and not wider by more than a few px: the widest page that lacked ends at its
-                    // sizeHint, so a window that overshoots (33 px with the stretch factors swapped) fails.
-                    if (tw->tabText(i) == QLatin1String("Video") && page->width() > page->sizeHint().width() + 4)
-                        bad += fmt("Video overshoots %d>%d+4 ", page->width(), page->sizeHint().width());
                 }
+                // ... and not wider by more than a few px: the widest page that lacked ends at its
+                // sizeHint, so a window that overshoots (33 px with the stretch factors swapped) fails.
+                if (shown_w > video->widget()->sizeHint().width() + 4)
+                    bad += fmt("Video overshoots %d>%d+4 ", shown_w, video->widget()->sizeHint().width());
             }
         }
         check("GR-05",

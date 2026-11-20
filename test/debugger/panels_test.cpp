@@ -78,6 +78,7 @@
 #include <QApplication>
 #include <QMenuBar>
 #include <QTabWidget>
+#include "dock_lookup.h"
 #include <QBoxLayout>
 #include <QCheckBox>
 #include <QComboBox>
@@ -3842,12 +3843,9 @@ static void test_script_panel() {
         const bool started = fx.ok && host.start(*fx.backend, o);
         if (fx.ok) fx.mgr->set_script_host(&host);
         DebuggerWindow* w = fx.ok ? fx.dbg() : nullptr;
-        QTabWidget* tabs = nullptr;
-        int script_tab = -1;
-        if (w)
-            for (QTabWidget* t : w->findChildren<QTabWidget*>())
-                for (int i = 0; i < t->count(); ++i)
-                    if (t->tabText(i) == QStringLiteral("Script")) { tabs = t; script_tab = i; }
+        // GH #377: the Script panel is the widget of a dock titled "Script" (it was a QTabWidget page).
+        QDockWidget* script_dock = w ? dock_of_panel(w, w->script_panel()) : nullptr;
+        const bool script_tab = script_dock && script_dock->windowTitle() == QStringLiteral("Script");
         QStringList items;
         if (w)
             for (QAction* m : w->menuBar()->actions())
@@ -3875,11 +3873,11 @@ static void test_script_panel() {
                          "menu with Load Script…, Reload Scripts and Unload Scripts (the last two act) and, "
                          "after a separator, the recorder's three (WP6); "
                          "the panel drives the manager's script host",
-              started && tabs && tabs->widget(script_tab) == w->script_panel() &&
+              started && script_tab &&
                   items == QStringList({"&Load Script...", "&Reload Scripts", "&Unload Scripts", "",
                                         "Re&cord Script...", "Capture &Screen", "S&top Recording"}) && loads &&
                   after_reload == 1 && after_unload == 0,
-              fmt("tab=%d items=%s reload=%zu unload=%zu", script_tab, s(items.join('|')).c_str(),
+              fmt("tab=%d items=%s reload=%zu unload=%zu", int(script_tab), s(items.join('|')).c_str(),
                   after_reload, after_unload));
         if (fx.ok) fx.mgr->set_script_host(nullptr);
         host.unload_all();

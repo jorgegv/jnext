@@ -2413,6 +2413,20 @@ if(ENABLE_DEBUGGER)
         ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
     add_test(NAME debugger_accel_tests COMMAND debugger_accel_test)
 
+    # Debugger dockable panels (GH #377 stage 2): the real DebuggerWindow on QDockWidgets, its saved layout,
+    # Window > Panels and Reset Layout. Qt offscreen, Qt::Test for the key press (the shortcut path).
+    add_executable(debugger_dock_test debugger/dock_test.cpp)
+    set_target_properties(debugger_dock_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_dock_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_platform jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+        Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(debugger_dock_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_dock_tests COMMAND debugger_dock_test)
+
+
     # Disassembly copy test (GH #21 — the disassembly panel is custom-painted,
     # so nothing in it could be selected or copied). Drives the REAL
     # DisasmPanel with real mouse, key and context-menu events and asserts the

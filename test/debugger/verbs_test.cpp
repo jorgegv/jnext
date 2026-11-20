@@ -73,6 +73,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QTabWidget>
+#include "dock_lookup.h"
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -4612,16 +4613,18 @@ static void test_nav_window() {
             MemoryPanel* mem = fx.dbg()->memory_panel();
             auto* combo = mem->findChild<QComboBox*>();
             if (combo) combo->setCurrentIndex(1);   // Slot 0
-            auto* tabs = qobject_cast<QTabWidget*>(mem->parentWidget()->parentWidget());
-            if (tabs) tabs->setCurrentIndex(0);     // Stack
+            // GH #377: Memory is a dock now; "its tab is shown" reads the group's tab bar.
+            QDockWidget* mem_dock = dock_of_panel(fx.dbg(), mem);
+            QDockWidget* stack_dock = dock_of_panel(fx.dbg(), fx.dbg()->stack_panel());
+            if (stack_dock) stack_dock->raise();    // Stack
             DisasmPanel* dis = fx.dbg()->disasm_panel();
             dis->show_address(PROG);                // the caret on the LD
             dis->follow();
             check("QNAVW-04", desc,
-                  combo && tabs && combo->currentIndex() == 0 && mem->selected_address() == 0x5C40 &&
-                      tabs->currentWidget() == mem,
+                  combo && mem_dock && combo->currentIndex() == 0 && mem->selected_address() == 0x5C40 &&
+                      dock_group_shown_title(mem_dock) == QStringLiteral("Memory"),
                   fmt("view %d selected %04X tab is memory %d", combo ? combo->currentIndex() : -1,
-                      mem->selected_address(), tabs ? tabs->currentWidget() == mem : 0));
+                      mem->selected_address(), mem_dock ? dock_group_shown_title(mem_dock) == QStringLiteral("Memory") : 0));
         }
     }
 
@@ -4697,14 +4700,17 @@ static void test_nav_window() {
                     for (QAction* a : top->menu()->actions())
                         if (a->text().remove(QLatin1Char('&')) == QLatin1String("Symbols")) sym = a;
             SymbolsPanel* sp = fx.dbg()->symbols_panel();
-            auto* tabs = sp ? qobject_cast<QTabWidget*>(sp->parentWidget()->parentWidget()) : nullptr;
-            if (tabs) tabs->setCurrentIndex(0);
+            QDockWidget* sym_dock = dock_of_panel(fx.dbg(), sp);   // GH #377: a dock, not a tab page
+            QDockWidget* video_dock = dock_of_panel(fx.dbg(), fx.dbg()->findChild<VideoPanel*>());
+            if (video_dock) video_dock->raise();                   // Video, the first tab
             if (sym) sym->trigger();
             QLineEdit* filter = sp ? sp->findChild<QLineEdit*>() : nullptr;
             check("QNAVW-07", desc,
-                  sym && tabs && filter && tabs->currentWidget() == sp && fx.dbg()->focusWidget() == filter,
+                  sym && sym_dock && filter && dock_group_shown_title(sym_dock) == QStringLiteral("Symbols") &&
+                      fx.dbg()->focusWidget() == filter,
                   fmt("action=%d tab raised=%d filter focused=%d", sym != nullptr,
-                      tabs && tabs->currentWidget() == sp, filter && fx.dbg()->focusWidget() == filter));
+                      sym_dock && dock_group_shown_title(sym_dock) == QStringLiteral("Symbols"),
+                      filter && fx.dbg()->focusWidget() == filter));
         }
     }
 }

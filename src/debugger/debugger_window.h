@@ -8,7 +8,11 @@
 #include <optional>
 #include "debug/debug_keymap.h"
 #include "debug/mem_space.h"
+#include "debugger/dock_layout.h"   // GH #377
 #include "debugger/window_attach.h"
+#include <QHash>
+#include <QRect>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -32,9 +36,8 @@ class StackPanel;
 class CallStackPanel;
 class VariablesPanel;
 class SourcePanel;
+class QDockWidget;
 class QPushButton;
-class QSplitter;
-class QTabWidget;
 class QSlider;
 class QLabel;
 class QToolBar;
@@ -148,6 +151,7 @@ protected:
     void showEvent(QShowEvent* event) override;
     void changeEvent(QEvent* event) override;   // GH #363
     void resizeEvent(QResizeEvent* event) override;   // GH #360: resumes the opening fit
+    void hideEvent(QHideEvent* event) override;       // GH #377: floating panels follow the window
 
 private:
     void create_panels();
@@ -233,16 +237,38 @@ private:
     void end_fit_();
     bool   fit_known_size_(const QSize& s) const;
     int    initial_fit_width_passes_ = 0;
-    int    fit_last_add_ = 0;       // window width added by the previous width pass
-    int    fit_last_lacking_ = 0;   // what the left column still lacked before it
     static constexpr int kMaxWidthFitPasses = 8;
     // GH #363 — one queued refresh_panels() per palette change (changeEvent).
     bool palette_refresh_queued_ = false;
 
-    // Layout
-    QSplitter* main_splitter_ = nullptr;
-    QSplitter* top_splitter_ = nullptr;
-    QTabWidget* tab_widget_ = nullptr;
+    // GH #377 - dockable panels. The panels live in `dock_host_`, an inner QMainWindow (Qt::Widget)
+    // that is the widget of the central QScrollArea (GH #114: docks cannot sit inside a scroll area of
+    // the window that owns them, and docks on THIS window would make its minimum the sum of theirs).
+    // Its central widget is the Disassembly box; every other panel is the widget of a QDockWidget,
+    // `docks_`, in src/debugger/dock_layout.h's kPanelIds order.
+    QMainWindow* dock_host_ = nullptr;
+    std::vector<QDockWidget*> docks_;
+    // Floating panels hidden because this window was (a floating dock is a window of its own and
+    // Qt leaves it on screen): shown again with it, and saved as floating rather than closed.
+    QHash<QDockWidget*, QRect> parked_floats_;
+    // The layout text applied last, written back until the window has been shown once (before that
+    // the docks hold no real geometry to capture).
+    std::string layout_text_;
+    bool shown_once_ = false;
+    jnext::dock::Layout pending_sizes_;
+    bool sizes_pending_ = false;
+    /// Raise a panel: reopen it when closed, make it its group's shown tab, and bring a floating one up.
+    void raise_panel(QWidget* panel);
+    jnext::dock::Layout capture_layout() const;
+    /// Arrange the docks as `layout` says (complete()d first), docking every floating panel and
+    /// reopening every closed one that it does not name as such.
+    void apply_layout(const jnext::dock::Layout& layout);
+    /// The sizes a layout carries; only meaningful once the host has been laid out.
+    void apply_dock_sizes();
+    void reset_layout();
+    /// What the left dock area's panels still lack in width (GH #360); the group's shown dock in `shown`.
+    int left_column_lacking(QDockWidget** shown) const;
+    QDockWidget* shown_dock_of(QDockWidget* d) const;
 
     // Panels
     CpuPanel* cpu_panel_ = nullptr;
@@ -350,7 +376,6 @@ private:
     /// Show `addr` in the Memory panel and raise its tab.
     void show_in_memory(uint16_t addr);
     bool source_has_focus() const;
-    QTabWidget* memory_tab_widget_ = nullptr;
     QAction* rewind_enable_action_ = nullptr;
 
     // GH #1 — toolbar buttons whose captions or tooltips quote a key. They are

@@ -100,6 +100,7 @@ enum class KeyId : uint8_t {
     DebuggerPhysicalAddresses,
     DebuggerSize,
     DebuggerPosition,
+    DebuggerLayout,
     Count
 };
 
@@ -273,6 +274,9 @@ inline constexpr Key KEYS[] = {
     { KeyId::DebuggerPosition, "debugger", "position", Type::Text, 0, 0,
       "", nullptr, QT, true, Owner::DebuggerWindow,
       "it is the remembered window geometry; no control sets it", "Debugger window position" },
+    { KeyId::DebuggerLayout, "debugger", "layout", Type::Text, 0, 0,
+      "", nullptr, QT, true, Owner::DebuggerWindow,
+      "it is the remembered panel layout; Window > Reset Layout restores the default", "Debugger panel layout" },
 };
 
 inline constexpr size_t KEY_COUNT = sizeof(KEYS) / sizeof(KEYS[0]);
