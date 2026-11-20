@@ -669,22 +669,26 @@ ProgramResult programs_json(const Emulator& emu, const Redactor& R)
         ec.clear();
         const auto mtime = fs::last_write_time(pf.path, ec);
         const bool time_ok = !ec;
+        // Hashed by streaming, so a file too large for a member is never held in memory.
+        const std::string sha = (size_ok && time_ok) ? sdcard::sha256_file(pf.path) : std::string();
         std::vector<uint8_t> bytes;
-        const bool readable = size_ok && time_ok && read_file(pf.path, bytes);
         std::string code, reason;
-        if (!readable) {
+        if (sha.empty()) {
             code = "unreadable";
             reason = "the file cannot be read now";
         } else {
-            e["sha256"] = sdcard::sha256_hex(bytes);
+            e["sha256"] = sha;
             if (static_cast<uint64_t>(size) != pf.size ||
                 static_cast<int64_t>(mtime.time_since_epoch().count()) != pf.mtime) {
                 code = "changed-since-load";
                 reason = "the file on disk is not the one that was loaded (its size or time changed)";
                 e["bytes_now"] = static_cast<uint64_t>(size);
-            } else if (bytes.size() > kMaxProgramBytes) {
+            } else if (static_cast<uint64_t>(size) > kMaxProgramBytes) {
                 code = "too-large";
                 reason = "the file is larger than a report member may be";
+            } else if (!read_file(pf.path, bytes)) {
+                code = "unreadable";
+                reason = "the file cannot be read now";
             }
         }
         if (code.empty()) {
