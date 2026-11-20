@@ -448,7 +448,8 @@ E1 alone, a shared run that escapes carries little:
 
 **An escaping run of L bytes holds at most 62 + 2 x (floor((L - 64) / 32) + 1) bytes that are
 not one short repeating fill, plus the fill's pattern of at most 4 bytes**: two stray bytes in
-every 32 of the run's interior, at most. No Z80 code or data table of any size is that sparse.
+every 32 of the run's interior, at most: at most two arbitrary bytes per 32. Sparse tables of
+that density exist (`test07joystick`'s `_row0`, below), and beyond those bytes they are fill.
 The floor bounds **verbatim** copies of the **indexed** distribution only; 5.3.5 says what that
 leaves.
 
@@ -492,8 +493,11 @@ addresses, the loading-screen and copper flags, and reserved bytes. The writer c
 field against the format (`nex_loader.cpp` reads the same fields; the format page is in
 `doc/REFERENCES.md`): every field within the values the format defines, every reserved byte zero.
 A header that passes holds nothing but those fields, so no window lying wholly inside it is
-scanned (windows that cross into the first bank are); a header that fails is scanned like any
-other bytes. This replaces matching the header against distribution NEX headers, which revisions
+scanned; **every byte after the 512-byte header is scanned**: the palette, the loading screens,
+the copper block, any gap before `banks_offset` (V1.3), the banks and the extended payload after
+them. A header that fails is scanned like any other bytes. Residual: the header's free-valued
+fields (addresses, counts, flags, the border colour, the bank bitmap's 0/1 bytes) carry a few tens
+of bytes the check does not read; they cannot hold a 95-byte run. This replaces matching the header against distribution NEX headers, which revisions
 3 and 4 did, and which two licence-clean programs failed (below).
 
 **False positives on real user programs, measured (rounds 4 and 5, then these revisions).** The
@@ -641,7 +645,7 @@ scanned bytes. Per source:
 | UART RX | the RX byte sequence of each UART, payload only, in delivery order | `streams/<uart>.bin`, (cycle, byte) records |
 | Stand-in host files | each served host file rebuilt from all its reads, by file and offset, merged (a NextZXOS file read in 32-byte `F_READ`s is checked as the whole file) | `queues/hostfs-data.bin`, one record per read |
 | Debugger memory writes | each write's payload as one contiguous block (every memory verb, a DZRP `CMD_WRITE_MEM` upload included, not only "loads"); `events.jsonl` keeps only the verb, the address, the length and the offset into the payload member | `debugger/writes.bin` |
-| The program | decoded by its loader's format: a `.zip` program archive inflated member by member; a `.z80` run-length expanded (a v1 file as one block for the whole 48K, `decompress_v1`; v2 and v3 page by page); a `.szx` re-serialised with its `RAMP` pages uncompressed (flag bit 0 clear) and checked as pages; TAP blocks and TZX standard, turbo and pure-data blocks as their payload bytes (the blocks with no decoder are the next row); NEX: the 512-byte header checked by layout and not scanned (5.3.1), banks as stored; `.sna` as stored | the file, re-serialised for `.szx` and `.z80` (5.3.4) |
+| The program | decoded by its loader's format: a `.zip` program archive inflated member by member; a `.z80` run-length expanded (a v1 file as one block for the whole 48K, `decompress_v1`; v2 and v3 page by page); a `.szx` re-serialised with its `RAMP` pages uncompressed (flag bit 0 clear) and checked as pages; TAP blocks and TZX standard, turbo and pure-data blocks as their payload bytes (the blocks with no decoder are the next row); NEX: the 512-byte header checked by layout and not scanned (5.3.1), every byte after it (palette, loading screens, copper, any gap before `banks_offset`, banks, extended payload) as stored; `.sna` as stored | the file, re-serialised for `.szx` and `.z80` (5.3.4) |
 | Programs in formats with no decoder | WAV, CSW, TZX direct-recording and generalised-data blocks encode bytes as pulses, which the check cannot see | never shipped: a SHA-256 reference only |
 | Keyframes (B6.2) | every RAM page | the keyframe member |
 | `log.txt`, `notes.txt`, `config.json` | their text | as is |
@@ -744,7 +748,9 @@ distribution-derived files are hashes only on every base). Q14's recommended opt
 content channel under the reporter's explicit choice: one tick per user file and per served host
 file, one "network data" tick for the RX streams, one "debugger uploads" tick, the program's own
 tick (Q4), and one "keyframes" tick; nothing is ticked by default except the program. Only
-shipping no content at all (Q14's option (z)) closes residuals 1, 2 and 4 completely.
+shipping no content at all (Q14's option (z)) closes residuals 1, 2, 4 and 5 completely (with no
+program shipped, no clean-corpus piece ships either); Q18's option (d) is the program-only
+equivalent.
 
 The review lists every file whose bytes are included ("these 14 files of yours are in the
 bundle"), every file waiting for a tick, and every file the developer will need from the reporter
@@ -1324,6 +1330,11 @@ replay, the proof), FEATURES.md, and the ChangeLog line at landing.
 Each with the default this plan assumes if the owner says nothing. Numbers are stable across
 revisions; Q6 is withdrawn.
 
+**Read Q14 to Q18 together.** They jointly decide how often a bundle carries the reporter's program
+and files: Q14 (which content channels need a tick), Q15 (the `config.ini` allowlist), Q16 (the
+replay base on disk), Q17 (the 48K character set) and Q18 (the false-positive remedy, and with it
+whether z88dk programs ship at all). A strict answer to one can make another's default moot.
+
 - **Q1. Epic shape.** #492 becomes the epic, branch `epic492-bug-report-bundle`, with the 13
   sub-issues (15 with B6). *Default: yes.*
 - **Q2. Rolling recording on by default?** Without it, "save a bug report now" only works if the
@@ -1369,8 +1380,8 @@ revisions; Q6 is withdrawn.
   host files on every base, the RX streams, debugger memory-write payloads, the program and
   shipped keyframes. Options, strictest first:
   - (z) no content at all: no card user-file or host-file bytes, no RX streams, no debugger
-    payloads, no program, no keyframes (references and hashes only): residuals 1, 2 and 4
-    closed; almost no real bug replays without a second exchange;
+    payloads, no program, no keyframes (references and hashes only): residuals 1, 2, 4 and 5
+    closed (Q18 (d) is the program-only equivalent); almost no real bug replays without a second exchange;
   - (a) **every content channel ships only when the reporter ticks it** in the review, after the
     byte check: one tick per user file on every base and per served host file, one "network data"
     tick (all RX streams), one "debugger uploads" tick, one "keyframes" tick; nothing ticked by
@@ -1431,7 +1442,8 @@ revisions; Q6 is withdrawn.
     nothing shipped, but every reporter without z88dk, which is most non-developer users, gets the
     refusals back, and so does one with another z88dk version;
   - (d) no remedy: z88dk programs travel as SHA-256 references; nearly every bundle then needs the
-    program from the reporter in a second exchange.
+    program from the reporter in a second exchange. It is the program-only equivalent of Q14's
+    (z), and closes residual 5 for the program.
   *Default: (a).* It keeps the rule (a dropped window is, by construction, 64 bytes of a clean
   build) and makes Q4's default true for the reporters the project has. B1.11's per-file licence
   check, recorded in this design, comes before any binary is committed; proprietary data is never
@@ -1608,3 +1620,8 @@ extracted, scratch deleted):**
 Also: Q18 names the package cost as not yet measured, and says that option (c) brings the refusals
 back for every reporter without z88dk, most non-developer users; the coverage table gains revision
 5's column (60.8 % overall, every ROM count unchanged or within 7 windows).
+
+**Round 6 (2026-11-20): APPROVED.** Its wording notes folded in: every byte after the NEX header
+is scanned, and the header's free fields are a residual of a few tens of bytes; the bound reads
+"at most two arbitrary bytes per 32"; option (z) also closes residual 5, and Q18 (d) is its
+program-only equivalent; a reading note asks for Q14 to Q18 to be read together.
