@@ -9,13 +9,13 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-26. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-27. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=26
+EXPECTED_ROWS=27
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -117,7 +117,7 @@ case "${1:-}" in
             trap 'exit 143' TERM
             : > "$FAKE_STATE/running"; sleep 60 >/dev/null 2>&1 & wait
         fi
-        exit "${FAKE_RC:-0}" ;;
+        exit "${FAKE_EXIT:-${FAKE_RC:-0}}" ;;
     *) exit 0 ;;
 esac
 EOF
@@ -487,10 +487,13 @@ row RRUN-24 "$([[ $c8 -eq 1 && "$(cat "$TMP/logs/c8.log")" == *"connection lost"
 reset_state
 mkdir -p "$WORK/stamps/recent" "$WORK/stamps/ancient"
 touch -d '2 hours ago' "$WORK/stamps/recent"; touch -d '3 days ago' "$WORK/stamps/ancient"
+mkdir -p "$WORK/cache/jnext-home/runs/recent" "$WORK/cache/jnext-home/runs/ancient"
+touch -d '2 hours ago' "$WORK/cache/jnext-home/runs/recent"; touch -d '3 days ago' "$WORK/cache/jnext-home/runs/ancient"
 drive --id c9 feature "$SHA" unit-test
 c9=$RC
-row RRUN-25 "$([[ $c9 -eq 0 && -d "$WORK/stamps/recent" && ! -e "$WORK/stamps/ancient" ]] && echo 1 || echo 0)" \
-    "the stamp sweep keeps a 2-hour-old stamp dir and removes a 3-day-old one (rc=$c9)"
+row RRUN-25 "$([[ $c9 -eq 0 && -d "$WORK/stamps/recent" && ! -e "$WORK/stamps/ancient" \
+    && -d "$WORK/cache/jnext-home/runs/recent" && ! -e "$WORK/cache/jnext-home/runs/ancient" ]] && echo 1 || echo 0)" \
+    "the sweeps keep a 2-hour-old stamp dir / run scratch and remove a 3-day-old one (rc=$c9)"
 
 # RRUN-26: the SD master and every run's clone/scratch share ONE bind mount (a clone across mounts
 # cannot be a reflink: sdcard-isolation-func D/E), and an old sdcard cache dir is migrated into it
@@ -503,10 +506,10 @@ runline=$(calls | grep -E '(^| )run ' | head -n 1)
 # the mount covering a container path: the longest mount point that is a prefix of it
 covering() {
     local want=$1 best="" bestlen=0 v mp host
-    for v in $(grep -oE -- '-v [^ ]+' <<<"$runline" | cut -d' ' -f2); do
+    while read -r v; do
         host=${v%%:*}; mp=${v#*:}; mp=${mp%%:*}
         if [[ "$want" == "$mp" || "$want" == "$mp"/* ]] && [[ ${#mp} -gt $bestlen ]]; then best=$host; bestlen=${#mp}; fi
-    done
+    done < <(grep -oE -- '-v [^ ]+' <<<"$runline" | cut -d' ' -f2)
     echo "$best"
 }
 cov_master=$(covering /root/.jnext/sdcard/cspect-next-1gb-fixed.img)
@@ -514,5 +517,14 @@ cov_runs=$(covering /root/.jnext/runs/1-2-3/sdcard/cspect-next-1gb-fixed.img)
 row RRUN-26 "$([[ $m1 -eq 0 && -n "$cov_master" && "$cov_master" == "$cov_runs" && "$cov_master" == "$WORK/cache/jnext-home" \
     && "$(cat "$WORK/cache/jnext-home/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" == master && ! -e "$WORK/cache/sdcard" ]] && echo 1 || echo 0)" \
     "the SD master and a run's clone path are under one mount ($cov_master), the old cache dir was migrated (rc=$m1)"
+
+# RRUN-27: the container exiting non-zero while every step printed rc=0 (a podman 125 at teardown, an
+# OOM kill after the last result line) is not green: driver exit 1, no stamp
+reset_state; rm -rf "$TMP/stamps"
+FAKE_STAMP=1 FAKE_EXIT=3 drive --id x1 feature "$SHA" unit-test
+x1=$RC
+row RRUN-27 "$([[ $x1 -eq 1 && "$(grep -a 'remote-run exit:' "$TMP/logs/x1.log")" == "=== remote-run exit: 3" \
+    && "$(grep -a 'result:' "$TMP/logs/x1.log")" == *"rc=0"* && ! -e "$TMP/stamps" ]] && echo 1 || echo 0)" \
+    "a container that exits 3 after clean result lines is exit 1 with no stamp (rc=$x1)"
 
 finish

@@ -137,6 +137,10 @@ for m in ${RR_CACHE_MIGRATE:-}; do
     fi
 done
 
+for m in ${RR_CACHE_SWEEP:-}; do
+    find "$CACHE/$m" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null
+done
+
 cname="rr-$RR_PROJECT-$RR_ID"
 run="$RUNS/$RR_ID"
 ctl="$CTL/$RR_ID"
