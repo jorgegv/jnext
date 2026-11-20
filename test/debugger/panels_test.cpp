@@ -1082,6 +1082,35 @@ static void test_callstack_panel() {
                   built && row_count(&panel) == 1 && cell(&panel, 0, 1) == "CALL" && note && note->isHidden(),
                   fmt("rows=%d type=%s note=%d", row_count(&panel), s(cell(&panel, 0, 1)).c_str(), note != nullptr));
         }
+        {
+            // QCSN-03 / QCSN-04: the tooltip of a rebuilt frame's Type cell, and its removal when the same row is
+            // reused by a tracked frame.
+            Emulator emu;
+            const bool built = build(emu, MachineType::ZX48K);
+            run_call(false, emu);
+            jnext::dbg::Debugger dbg(emu);
+            CallStackPanel panel(&dbg);
+            panel.set_paused(true);
+            panel.refresh();
+            auto tip = [&]() {
+                auto* t = panel.findChild<QTableWidget*>();
+                QTableWidgetItem* it = t ? t->item(0, 1) : nullptr;
+                return it ? it->toolTip() : QStringLiteral("<no cell>");
+            };
+            const QString rebuilt_tip = tip();
+            check("QCSN-03", "a rebuilt frame's Type cell carries the tooltip 'rebuilt from the stack'",
+                  built && cell(&panel, 0, 1) == "CALL*" && rebuilt_tip == "rebuilt from the stack", s(rebuilt_tip));
+            // The tracker restarts (off, on), the same CALL runs again tracked: row 0 is reused.
+            emu.call_stack().set_enabled(false);
+            emu.call_stack().set_enabled(true);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0xFF00;
+            emu.cpu().set_registers(r);
+            emu.execute_single_instruction();
+            panel.refresh();
+            check("QCSN-04", "the same row reused by a tracked frame loses the tooltip and the mark",
+                  row_count(&panel) == 1 && cell(&panel, 0, 1) == "CALL" && tip().isEmpty(), s(tip()));
+        }
     }
 }
 

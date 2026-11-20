@@ -9247,6 +9247,29 @@ static void gh428_rev_rows() {
                   h[2].caller_pc == 0x9100 && h[2].target_pc == 0x9200,
               "frames=" + std::to_string(h.size()));
     }
+    {
+        // GH #498 - the re-application after a machine rebuild is not a request's edge: a client asks for
+        // tracking, then Debugger::load() lands a program inside a CALL (CD 00 90 at 8000, return word 8003
+        // at SP = FE00). The tracker restarts empty and nothing is rebuilt (the program has only just started).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_call_stack_enabled(a, true);
+        jnext::dbg::LoopDriver d;
+        d.load = [&](const std::string&) {
+            emu.mmu().write(0x8000, 0xCD); emu.mmu().write(0x8001, 0x00); emu.mmu().write(0x8002, 0x90);
+            emu.mmu().write(0xFE00, 0x03); emu.mmu().write(0xFE01, 0x80);
+            Z80Registers r = emu.cpu().get_registers(); r.SP = 0xFE00; r.PC = 0x9000;
+            emu.cpu().set_registers(r);
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        dbg.pause(a);
+        const Result lr = dbg.load(a, "x.sna");
+        check("INS-12-09", "a program load with tracking requested re-applies it on an empty tracker: no frame is rebuilt from the loaded program's stack",
+              lr == Result::Ok && dbg.call_stack_enabled() && dbg.call_stack().empty(),
+              "frames=" + std::to_string(dbg.call_stack().size()));
+    }
 
     // =======================================================================
     // INS-14 / INS-15 — framebuffer, palettes, ULA state, clip windows

@@ -148,6 +148,31 @@ const QString kNote =
 
 std::string b2s(bool b) { return b ? "1" : "0"; }
 
+// The SLD map and the two source files of the source-step rows: main.bas lines 10..13 at 8000, 8002, 8005, 8006 and
+// sub.bas line 1 at 9000. Returns the SLD path.
+std::string write_source_files(Fixture& fx, const std::string& dir) {
+    const std::string sld = dir + "/lazy.sld";
+    const unsigned p80 = fx.backend->effective_page(0x8000), p90 = fx.backend->effective_page(0x9000);
+    const std::string a = std::to_string(p80), b = std::to_string(p90);
+    {
+        std::ofstream out(sld, std::ios::binary);
+        out << "|SLD.data.version|1\n"
+            << "main.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+               "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+            << "main.bas|10||0|" << a << "|32768|T|\n"
+            << "main.bas|11||0|" << a << "|32770|T|\n"
+            << "main.bas|12||0|" << a << "|32773|T|\n"
+            << "main.bas|13||0|" << a << "|32774|T|\n"
+            << "sub.bas|1||0|" << b << "|36864|T|\n";
+    }
+    {
+        std::ofstream m(dir + "/main.bas"), s(dir + "/sub.bas");
+        for (int i = 1; i <= 13; ++i) m << "REM line " << i << "\n";
+        s << "REM sub 1\n";
+    }
+    return sld;
+}
+
 // The machine for the A/B row: LD HL,$9000 / loop: INC (HL) / JR loop. State moves every frame.
 std::vector<batch_ab::FrameHash> busy_run(bool window_open) {
     std::vector<batch_ab::FrameHash> out;
@@ -287,26 +312,7 @@ int main(int argc, char** argv) {
     // only, so it lands on the next line of the caller, and tracking is off again afterwards.
     {
         Fixture fx;
-        const std::string dir = cfg.path().toStdString();
-        const std::string sld = dir + "/lazy.sld";
-        const unsigned p80 = fx.backend->effective_page(0x8000), p90 = fx.backend->effective_page(0x9000);
-        const std::string a = std::to_string(p80), b = std::to_string(p90);
-        {
-            std::ofstream out(sld, std::ios::binary);
-            out << "|SLD.data.version|1\n"
-                << "main.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
-                   "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
-                << "main.bas|10||0|" << a << "|32768|T|\n"
-                << "main.bas|11||0|" << a << "|32770|T|\n"
-                << "main.bas|12||0|" << a << "|32773|T|\n"
-                << "main.bas|13||0|" << a << "|32774|T|\n"
-                << "sub.bas|1||0|" << b << "|36864|T|\n";
-        }
-        {
-            std::ofstream m(dir + "/main.bas"), s(dir + "/sub.bas");
-            for (int i = 1; i <= 13; ++i) m << "REM line " << i << "\n";
-            s << "REM sub 1\n";
-        }
+        const std::string sld = write_source_files(fx, cfg.path().toStdString());
         fx.emu.debug_state().pause();
         fx.enable();
         fx.backend->load_source_map(sld, false);
@@ -322,6 +328,33 @@ int main(int argc, char** argv) {
         const bool landed = fx.pc() == 0x8005;
         check("QLAZY-09",
               "a source Step Over over a CALL with the Call Stack hidden lands on the next line of the caller, and tracking is off again after it",
+              off_before && landed && !fx.tracking(),
+              "off_before=" + b2s(off_before) + " pc=" + std::to_string(fx.pc()) + " tracking=" + b2s(fx.tracking()));
+    }
+
+    // QLAZY-12 - a source Step Out with the Call Stack hidden, stopped inside the routine: the tracker is on for the
+    // step only (rebuilt from the stack at its start), so it lands on the caller's next line (main.bas:12 at $8005),
+    // and tracking is off again after. Without the request the depth is 0 and Out would run one instruction.
+    {
+        Fixture fx;
+        const std::string sld = write_source_files(fx, cfg.path().toStdString());
+        fx.emu.debug_state().pause();
+        fx.enable();
+        fx.backend->load_source_map(sld, false);
+        // Inside the routine: PC at its first instruction, the return address 8005 (CALL at 8002) on the stack.
+        fx.emu.mmu().write(0xFEFE, 0x05);
+        fx.emu.mmu().write(0xFEFF, 0x80);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = kSub;
+        r.SP = 0xFEFE;
+        fx.emu.cpu().set_registers(r);
+        fx.show(fx.dbg()->stack_panel());
+        const bool off_before = !fx.tracking();
+        fx.mgr->on_source_step_out();
+        QApplication::processEvents();
+        const bool landed = fx.pc() == 0x8005;
+        check("QLAZY-12",
+              "a source Step Out inside a routine with the Call Stack hidden lands on the caller's next line, and tracking is off again after it",
               off_before && landed && !fx.tracking(),
               "off_before=" + b2s(off_before) + " pc=" + std::to_string(fx.pc()) + " tracking=" + b2s(fx.tracking()));
     }

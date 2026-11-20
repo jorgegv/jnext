@@ -35,7 +35,12 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
     const auto store = map ? map->variables() : nullptr;
     if (!store) return out;
 
-    const auto& tracked = impl_->emu.call_stack().frames();   // oldest first
+    // GH #498: only frames the tracker SAW. A frame rebuilt from the stack when tracking started is a heuristic (a z88dk C
+    // program's stack holds words that look like calls), and these frames' bases must be exact: without them the entry
+    // bytes of frame 0 and the saved frame pointers supply the bases, as for a debugger attached mid-run.
+    std::vector<CallFrame> tracked;                            // oldest first
+    for (const CallFrame& cf : impl_->emu.call_stack().frames())
+        if (!cf.reconstructed) tracked.push_back(cf);
     const size_t n = tracked.size();
     const Z80Registers regs = registers();
     const CFrameHelpers& helpers = store->helpers();

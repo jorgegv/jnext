@@ -20,9 +20,10 @@ discards its return address and leaves by a jump keeps its frame until a later
 `RET` ends it.
 
 Call tracking runs while this tab or the [Variables](16-variables.md) tab is showing, during a source Step Over
-or Step Out, while a remote client or a script asks for it, and while a source map with C variable records is
-loaded. When it starts, the calls already on the stack are rebuilt from it and marked `CALL*` or `RST*`: the
-rebuild misses interrupts, and stale stack data can look like a call. Frames tracked from then on carry no mark.
+or Step Out, and while a remote client or a script asks for it; it also stays on while a source map with C
+variable records is loaded. When a tab, a step or a client starts it, the calls already on the stack are rebuilt
+from it and marked `CALL*` or `RST*`: the rebuild misses interrupts, and stale stack data can look like a call.
+(Loading such a map starts tracking without a rebuild.) Frames tracked from then on carry no mark.
 
 Clicking a row chooses the C frame the [Variables](16-variables.md) tab shows: row N is frame N + 1 (the frame the
 CPU is in has no row here), and the row follows the frame chosen in the Variables tab.

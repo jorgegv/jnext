@@ -8228,6 +8228,42 @@ static void interrupt_machine(Machine& m) {
         }
         ctx.cv36_ok = ctx.cv36_ok && good;
     }
+    {   // SRCDBG-CVAL-60 (GH #498): a request for call tracking BEFORE the map loads. The request's edge rebuilds the
+        // frames already on the stack; the C frame derivation must not read them (rebuilt frames are a heuristic, a
+        // z88dk C program's stack holds words that look like calls), so main's locals read as in CVAL-36.
+        bool rebuilt_some = true, good = true;
+        std::string seen;
+        for (const char* fx : {"master/sccz80-cvars", "master/sdcc-cvars"}) {
+            Bare m(MachineType::ZXN_ISSUE2);
+            const bool sc = fx[7] == 's' && fx[8] == 'c';
+            const fs::path d = var_dir(sc ? "c60a" : "c60b", fx);
+            emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
+            m.frames(3);                                   // mid-run in main's while (1); no client, nothing tracked
+            jnext::dbg::ClientInfo ci;
+            ci.name = "late";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            const ClientId c = m.dbg->attach(ci).value;
+            m.dbg->set_call_stack_enabled(c, true);        // the request's edge: frames rebuilt from the stack
+            rebuilt_some = rebuilt_some && !m.dbg->call_stack().empty();
+            m.dbg->load_program_sidecars((d / "prog.nex").string());   // then the map arrives (OD-2 keeps tracking on)
+            m.dbg->pause(c);
+            const auto str = [&](const char* path) {
+                const Dbg::CValueResult r = m.dbg->read_c_value(0, path);
+                return r.ok ? r.value : "!" + r.why;
+            };
+            const Dbg::CValueResult lp = m.dbg->read_c_value(0, "lp");
+            bool ok = str("lp") == "{x = 3, y = 4, tag = 5}" && str("i") == "4" && str("arr") == "{467, 471, 475, 479}";
+            if (sc) {
+                const Dbg::CValueResult pp = m.dbg->read_c_value(0, "pp");
+                ok = ok && str("c") == "120 'x'" && str("big") == "100000" && lp.ok && pp.ok && pp.integer && *pp.integer == lp.where.cpu;
+            }
+            good = good && ok;
+            seen += std::string(sc ? " sccz80[" : " zsdcc[") + str("lp") + "|" + str("i") + "|" + str("arr") + "]";
+        }
+        check("SRCDBG-CVAL-60",
+              "a call-tracking request before the map loads leaves rebuilt frames on the stack, and main's locals still read as in CVAL-36 on sccz80 and zsdcc (the C frames ignore rebuilt frames)",
+              rebuilt_some && good, "rebuilt=" + std::to_string(rebuilt_some) + seen);
+    }
     // the banked programs: bk_sum (bk.c, in Page{20}) called from bkmain.c's main
     const auto bk_entry = [](const Machine& m, const char* fn) -> std::optional<SourceAddress> {
         const auto vs = m.dbg->variables();

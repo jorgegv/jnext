@@ -298,7 +298,7 @@ int main() {
         for (size_t f = 0; same && f < 40; ++f)
             same = skipped.first[f].state == forced.first[f].state && skipped.first[f].video == forced.first[f].video &&
                    skipped.first[f].audio == forced.first[f].audio;
-        check("PRB-12", "a busy program, 40 frames with the block skipped and with it forced live: identical state, video and audio hashes every frame (the skipped run really skipped, the forced one really ran)",
+        check("PRB-12", "a busy program, 40 frames with the gate idle (block skipped) and with it forced live by an unreachable breakpoint: identical state, video and audio hashes every frame (the gate was idle in one run and live in the other; no per-instruction counter, which would cost what the gate saves)",
               same && !skipped.second && forced.second,
               "skipped_live=" + b2s(skipped.second) + " forced_live=" + b2s(forced.second));
     }
