@@ -857,10 +857,13 @@ int main() {
         const bool trace_c = dc["trace"]["enabled"] == true && dc["trace"]["entries"].size() > 0 &&
                              !dc["trace"]["entries"][0].contains("opcode_bytes") &&
                              !dc["trace"]["entries"][0].contains("disasm");
-        check("BR-20", "debugger.json: breakpoints and trace always; opcode bytes, disassembly and stack only with RAM",
+        const json mn = rn.js("machine.json");
+        const json mc = rc.js("machine.json");
+        const bool copper = mn["video"]["copper"].contains("program") && !mc["video"]["copper"].contains("program");
+        check("BR-20", "debugger.json: breakpoints and trace always; opcode bytes, disassembly, stack and the Copper program only with RAM",
               rn.ok && rc.ok && bps && trace_n && trace_c && dn.contains("disasm_at_pc") && dn.contains("stack") &&
-              !dc.contains("disasm_at_pc") && !dc.contains("stack") && dn["stack"]["bytes"].size() == 32,
-              fmtf("bps=%d tn=%d tc=%d", bps, trace_n, trace_c));
+              !dc.contains("disasm_at_pc") && !dc.contains("stack") && dn["stack"]["bytes"].size() == 32 && copper,
+              fmtf("bps=%d tn=%d tc=%d copper=%d", bps, trace_n, trace_c, copper));
     }
 
     // ---- BR-21 disassembly at PC ----------------------------------------------

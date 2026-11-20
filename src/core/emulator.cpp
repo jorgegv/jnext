@@ -7724,9 +7724,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
 Emulator::RamWithheld Emulator::ram_withheld() const
 {
-    // The latch is set at init(); a machine that is not --no-sdcard is a card
-    // session whatever the latch says (belt to its braces).
-    return config_.no_sdcard ? ram_withheld_ : RamWithheld::CardSession;
+    return ram_withheld_;
 }
 
 void Emulator::note_program_file_(const std::string& path)

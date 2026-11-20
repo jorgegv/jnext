@@ -35,6 +35,7 @@ the two can never disagree. For building jnext from source, see
     programs](#a-host-directory-for-directly-loaded-programs)
   - [POK trainers](#pok-trainers)
 - [JNEXT SNAPSHOTS](#jnext-snapshots)
+- [BUG REPORTS](#bug-reports)
 - [HEADLESS MODE, SCREENSHOTS AND
   RECORDING](#headless-mode-screenshots-and-recording)
   - [SCREENSHOT FORMATS](#screenshot-formats)
@@ -1433,6 +1434,16 @@ are replaced or removed; any other file there, any other `*.ghidra.txt`
 included, is never touched. A failed export is logged and jnext exits
 with status 1.
 
+**--bug-report** *PATH*  
+When jnext exits, write a bug report to *PATH*: one zip file with the
+state of the machine and of jnext, for reading, not for replaying. If
+*PATH* is an existing directory, or ends in a slash (a backslash on
+Windows), the report is written inside it, named
+*PROGRAM*`.YYYYMMDDhhmm.jnext-bug.zip` (local time; *PROGRAM* is the
+last program loaded, `jnext` if none, and `-2`, `-3`… is added when the
+name is taken). Otherwise *PATH* is the file. A failed write is logged
+and jnext exits with status 1. See **BUG REPORTS**.
+
 **--magic-port** *PORT*  
 Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for
 example `0x00FF`).
@@ -2260,6 +2271,49 @@ rather than deflated, so the file can be read with `unzip -p`.
 It does contain **all of RAM**, which on a Next includes NextZXOS and
 DivMMC ROM code paged into it. Those are not redistributable: keep your
 snapshots rather than posting them, and hand somebody a `.nex` instead.
+
+## BUG REPORTS
+
+**--bug-report** *PATH* saves, when jnext exits, one zip file that holds
+what a developer needs to understand a failure: the state of the machine
+and of jnext at that moment. It is a snapshot for reading, not a session
+to replay. It holds:
+
+- the jnext version, the host operating system and architecture, the
+  frontend and the settings in use (the command line, and in the Qt
+  frontend the settings file), with host paths blanked;
+- the machine, decoded: the CPU registers, every NextREG with its name,
+  the paging map, the ULA, Layer 2, sprite, tilemap and Copper state,
+  the palettes, the interrupt, DivMMC and Multiface flags, the audio
+  chips;
+- the screenshot, and each of the seven video layers on its own;
+- the last 500 lines of the log at info level and above;
+- the debugger’s state: the run state, breakpoints, the call stack and
+  the recent instruction trace;
+- the SD card’s name, size and SHA-256, never its bytes;
+- the program file you loaded, byte for byte. It is your file, and you
+  are responsible for what you attach: jnext does not check it against
+  anything;
+- **memory, only when no firmware has run**: RAM, the CPU’s 64 KB view,
+  the sprite patterns, a disassembly, the bytes at the stack pointer and
+  the opcode bytes of the trace. That is a `--no-sdcard` session whose
+  memory has not seen the boot ROM run or a saved state loaded since it
+  was cleared. In every other session, memory holds NextZXOS, ROM or
+  DivMMC firmware from the card, so the report carries the machine state
+  but none of its memory, and the manifest says why.
+
+A report never contains NextZXOS, ROM or any other distribution content,
+and no byte of the SD card. The card is named and identified by its
+SHA-256 only. The serial (UART) FIFOs and the SD buffers of the machine
+state are left out, because they can carry what the program or NextZXOS
+exchanged with the card or the network.
+
+Your user name and every absolute path on your computer are blanked in
+the file (`<user>` and `<path>/name`). Look through a report before you
+attach it anyway.
+
+`manifest.json` lists every member of the file and what was left out and
+why. A file is a report when it has that manifest, whatever its name.
 
 ## HEADLESS MODE, SCREENSHOTS AND RECORDING
 
@@ -3699,6 +3753,9 @@ recording given to **--load** or **--rzx-play**. This holds in the GUI,
 the SDL-only build and under **--headless** alike. The error is logged,
 the machine keeps running without the program, and the non-zero status
 is reported when **jnext** exits.
+
+It exits 1 when a **--bug-report** file cannot be written, the way it
+does for a failed **--export-skoolkit**.
 
 SIGTERM, or SIGINT (Ctrl-C in the terminal), ends **jnext** the way
 closing the window does: recordings and captures are finished and no
