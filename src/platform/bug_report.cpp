@@ -217,6 +217,7 @@ std::string arch_name()
 
 void host_os(std::string& os, std::string& release)
 {
+    (void)release;   // not every platform below fills it
 #if defined(__EMSCRIPTEN__)
     os = "emscripten";
 #elif defined(__unix__) || defined(__APPLE__)
