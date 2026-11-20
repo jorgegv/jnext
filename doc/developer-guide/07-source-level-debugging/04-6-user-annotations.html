@@ -3098,13 +3098,8 @@ fills a third store, <code>UserAnnotations</code>, which sits beside the toolcha
 <code>SymbolTable</code> and wins over it when the two disagree.</p>
 <h2 id="1-the-producer">1. The producer<a class="headerlink" href="#1-the-producer" title="Permanent link">&para;</a></h2>
 <p>JNEXT. The Qt Map menu opens and saves it (section 10); <code>--annotations FILE</code>
-<<<<<<< HEAD
-loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:1012</code> and copies
-it to the configuration at <code>src/main.cpp:2607</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
-=======
-loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:1016</code> and copies
-it to the configuration at <code>src/main.cpp:2626</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
->>>>>>> main
+loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:1017</code> and copies
+it to the configuration at <code>src/main.cpp:2627</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
 <code>src/script/script_host.cpp:201-215</code>), after <code>--map</code> and before the scripts, so a
 script's <code>@name</code> of the file resolves). <code>replace_annotations()</code> is the
 primitive an import builds on.</p>
@@ -3260,13 +3255,8 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   formats do not include them (<code>QANN-04</code>). The Source tab does not draw comments (it shows the user's own
   file).</li>
 <li><strong>The Map menu.</strong> <code>DebuggerWindow</code> adds <strong>Open Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Annotations As…</strong>
-<<<<<<< HEAD
-  (<code>connect</code>, <code>src/debugger/debugger_window.cpp:1066-1071</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
-  (<code>debugger_manager.cpp:887</code>), <code>on_save_annotations()</code> (<code>:799</code>) and <code>on_save_annotations_as()</code> (<code>:789</code>); Save with no
-=======
-  (<code>connect</code>, <code>src/debugger/debugger_window.cpp:922-926</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
+  (<code>connect</code>, <code>src/debugger/debugger_window.cpp:1099-1104</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
   (<code>debugger_manager.cpp:916</code>), <code>on_save_annotations()</code> (<code>:828</code>) and <code>on_save_annotations_as()</code> (<code>:818</code>); Save with no
->>>>>>> main
   current file is Save As, which appends <code>.jdp</code> to a name without a suffix. Failures are warnings with the
   backend's <code>why</code> (an Open names the line).</li>
 <li><strong>Unsaved changes (D11).</strong> <code>DebuggerManager</code> keeps <code>saved_revision_</code> (<code>debugger_manager.h</code>), the backend's

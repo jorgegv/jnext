@@ -3129,11 +3129,12 @@ Opening the window attaches it. What it then asks of the backend follows what is
 on show (<code>DebuggerManager::apply_data_needs()</code>): call tracking while the Call Stack or
 Variables panel is on show or a source Step Over or Step Out runs, and the live raster
 while the Video panel is. Each request is sent only when it changes, from
-<code>DebuggerWindow::panels_on_show_changed</code>, which fires once per change of a tab
-widget's current page. <code>DebuggerWindow::panel_on_show()</code> is the one answer: a panel is
-on show when the window is open and its tab is current. It is never <code>isVisible()</code>, which
-stays true for a page or dock hidden behind another; a window that holds its panels as
-docks answers from each dock's visibility change instead. A source-map load that
+<code>DebuggerWindow::panels_on_show_changed</code>, which fires once per switch of a group's tab (the dock that became visible announces it),
+per close and reopen of a dock, and per change of floating.
+<code>DebuggerWindow::panel_on_show()</code> is the one answer: a panel is
+on show when the window is open and its dock is open and either floating or the shown tab of
+its group (read from the group's tab bar). It is never <code>isVisible()</code>, which
+stays true for a dock tabbed away behind another. A source-map load that
 carries C variable records keeps tracking on whatever the window asks.
 Closing it resumes a paused machine — whoever paused it — and
 detaches. Every verb the window issues is attributed to this client. It is not
@@ -3453,7 +3454,6 @@ place in a new session. The value is read through the same comma-joining rule as
 QSettings hands a hand-edited value with a comma back as a list. Rows: <code>QDOCK-01</code>..<code>14</code> in <code>debugger_dock_test</code>.</p>
 <p><strong>The window's opening size.</strong> A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (<code>DebuggerWindow::grow_default_size_to_natural()</code>,
-<<<<<<< HEAD
 queued from the first <code>showEvent()</code>); a size restored from the config file is left
 alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left dock area
 is widened by what its panels' <code>sizeHint()</code> lack: the minimum width of the panels docked left and right is raised to their <code>sizeHint()</code> for the
@@ -3461,27 +3461,14 @@ length of the fit (<code>fit_raised_</code>, given back by <code>end_fit_()</cod
 widens the window by the scroll range; a column found wider than its widest page afterwards is trimmed back with
 <code>resizeDocks()</code> (a dock area keeps its width when the window widens, so there is no share to measure and the result
 does not depend on the order of the passes; bounded by <code>kMaxInitialFitPasses</code> = 4
-(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:217</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:246</code>)). The frame, not the client area, must fit the screen
-=======
-<code>debugger_window.cpp:539</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
-alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left column
-of tabs is widened by what its pages' <code>sizeHint()</code> lack, using the share of a widening the splitter really gave
-it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</code>; bounded by <code>kMaxInitialFitPasses</code> = 4
-(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:222</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:249</code>)). The frame, not the client area, must fit the screen
->>>>>>> main
+(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:227</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:256</code>)). The frame, not the client area, must fit the screen
 (<code>jnext::clamp_window_size_to_screen</code>). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
 at most <code>kMaxFitEchoes</code> = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-<<<<<<< HEAD
-(<code>resizeEvent()</code>, <code>debugger_window.cpp:590-600</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:574</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:627-632</code>), after which every size is the user's and the remembered sizes are
-=======
-(<code>resizeEvent()</code>, <code>debugger_window.cpp:520-531</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:510</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:558-563</code>), after which every size is the user's and the remembered sizes are
->>>>>>> main
+(<code>resizeEvent()</code>, <code>debugger_window.cpp:614-624</code>); any other size is the user's and ends the fit
+(<code>end_fit_()</code>, <code>debugger_window.cpp:595</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
+pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:651-656</code>), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (<code>fit_passes_queued_</code>, <code>queue_fit_pass_()</code>), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's), <code>GR-08</code> (an earlier request landing while a pass is queued), <code>GR-09</code> (a user resize while the fit runs stands), <code>GR-10</code> (each late answer counts once: the 7th stands) and <code>GR-11</code> (a loop stalled past the grace window does not end the fit), <code>GR-12</code> (the bound holds on the pass's own path), <code>GR-13</code> and <code>GR-14</code> (the grace waits for the pass a re-ask, or a late answer, queued), in <code>debugger_window_grow_test</code>; <code>GR-09</code> to <code>GR-14</code> use a window no window manager sees.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the
