@@ -61,6 +61,7 @@
 #include "debugger/stack_panel.h"
 #include "debugger/symbols_panel.h"
 #include "debugger/video_panel.h"
+#include "put_on_show.h"
 #include "debugger/watch_panel.h"
 #include "memory/mmu.h"
 #include "platform/emulator_boot.h"
@@ -205,6 +206,9 @@ struct Fixture {
     }
 
     DebuggerWindow* dbg() const { return mgr->debugger_window_ptr(); }
+
+    /// GH #498: the open window tracks calls only while the Call Stack (or Variables) is on show.
+    void callstack_on_show() { put_on_show(dbg(), dbg()->callstack_panel()); }
 
     void load(uint16_t addr, std::initializer_list<uint8_t> bytes) {
         for (uint8_t b : bytes) emu.mmu().write(addr++, b);
@@ -908,6 +912,7 @@ static void test_pause_edge() {
     } else {
         load_pause_edge_program(fx);
         fx.enable();
+        fx.callstack_on_show();   // GH #498
         DebuggerWindow* dbg = fx.dbg();
 
         // Park the disassembly far from the program while paused, on a page
@@ -1697,6 +1702,7 @@ static void test_enable_seeds() {
             fx.load(PROG, {0x18, 0xFE});
             fx.regs(PROG);
             fx.enable();
+            fx.callstack_on_show();   // GH #498
             fx.tick();
             // GH #278 WP4c — the GUI's breakpoint, carried by the BACKEND across
             // the boot (CTL-12 rule 2): the platform restore that used to carry
@@ -2655,6 +2661,7 @@ static void test_map_load() {
     fx.load(0x9000, {0x21, 0x00, 0x91, 0x18, 0xFE});      // LD HL,$9100 / JR $
     fx.regs(PROG);
     fx.enable();
+    fx.callstack_on_show();   // GH #498
     DebuggerWindow* dbg = fx.dbg();
     QMenu* load_menu = submenu_named(menu_named(dbg->menuBar(), "Map"), "Load MAP File");
 
@@ -3359,6 +3366,7 @@ static void test_annotations_ui() {
         fx.regs(0x8000);
         fx.backend->set_user_label(P10, 0xC000, "banked");
         fx.enable();
+        fx.callstack_on_show();   // GH #498
         fx.mgr->breakpoints().add(BreakpointModel::Execute, 0xC000);
         fx.mgr->on_step_into();
         DebuggerWindow* dbg = fx.dbg();

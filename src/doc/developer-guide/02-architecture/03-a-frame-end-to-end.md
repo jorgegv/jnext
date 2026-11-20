@@ -60,7 +60,13 @@ edge of real time:
   the firmware's own soft reset, and closes on time up, the first guest key, a
   debugger stop (any pause that is then resumed, between frames or inside one), `init()` without `preserve_memory`
   and `load_state()`. It is host pacing only: not serialised, and it changes
-  no emulated state (`fast_boot_test`).
+  no emulated state (`fast_boot_test`). Armed with `hide_screen`,
+  `fast_boot_hides_screen()` (window open, not paused) makes the two present
+  sites (`QtApp::TickEffects::present`, the `SdlApp::tick` present block) hand
+  the window `fast_boot::shown_frame()`: a black frame under
+  `fast_boot::HIDDEN_GENERATION`, uploaded once and held like a paused frame.
+  Compositing is unchanged, so screenshots, recordings and the debugger panels
+  still read the real framebuffer.
 - **The audio band's estimate stays within one device chunk of the reading**
   (`BandState::envelope_ms` in `src/platform/audio_pacing.h`, set from the
   opened device's buffer; see [Audio](../03-subsystems/04-audio.md)).
@@ -168,7 +174,7 @@ A `.tzx` or `.wav` save also samples the tape-out level
 end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
-**Then `step_one_instruction()`** (`src/core/emulator.cpp:11363`), the one shared per-instruction
+**Then `step_one_instruction()`** (`src/core/emulator.cpp:11365`), the one shared per-instruction
 body. It picks exactly one of four things to do:
 
 - If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -253,7 +259,7 @@ stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:12067`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:12069`), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -298,7 +304,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:14372`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:14374`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

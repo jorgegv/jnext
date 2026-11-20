@@ -1026,6 +1026,24 @@ target_link_libraries(call_stack_fetch_test PRIVATE
 target_include_directories(call_stack_fetch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME call_stack_fetch_tests COMMAND call_stack_fetch_test)
 
+# GH #498 - CallStack::reconstruct(): the frames already on the stack when tracking starts mid-run.
+add_executable(call_stack_reconstruct_test core/call_stack_reconstruct_test.cpp)
+target_link_libraries(call_stack_reconstruct_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(call_stack_reconstruct_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME call_stack_reconstruct_tests COMMAND call_stack_reconstruct_test)
+
+# GH #498 - DebugState::pre_block_live(): the per-instruction armed() block skipped while idle.
+add_executable(debug_pre_block_test core/debug_pre_block_test.cpp)
+target_link_libraries(debug_pre_block_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(debug_pre_block_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME debug_pre_block_tests COMMAND debug_pre_block_test)
+
 add_executable(halt_batch_boot_test core/halt_batch_boot_test.cpp)
 target_link_libraries(halt_batch_boot_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
@@ -2348,6 +2366,18 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_halt_batch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_halt_batch_tests COMMAND debugger_halt_batch_test)
+
+    # GH #498 - the open window collects call frames and the raster walk only while a panel that
+    # needs them is on show: the real DebuggerManager and DebuggerWindow against a real Emulator.
+    add_executable(debugger_panel_data_test debugger/panel_data_test.cpp)
+    set_target_properties(debugger_panel_data_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_panel_data_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_panel_data_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_panel_data_tests COMMAND debugger_panel_data_test)
 
     # A debugger INSPECTION read is not a guest access. Drives the
     # real DebuggerWindow panels (Watches / Stack / Disassembly / Memory, the

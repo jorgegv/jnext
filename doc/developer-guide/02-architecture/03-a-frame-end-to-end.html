@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -888,8 +888,6 @@
       
         
           
-        
-      
         
       
         
@@ -1684,34 +1682,6 @@
           </ul>
         </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../03-subsystems/14-bug-reports.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    3.11 Bug reports
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -3124,7 +3094,13 @@ edge of real time:</p>
   the firmware's own soft reset, and closes on time up, the first guest key, a
   debugger stop (any pause that is then resumed, between frames or inside one), <code>init()</code> without <code>preserve_memory</code>
   and <code>load_state()</code>. It is host pacing only: not serialised, and it changes
-  no emulated state (<code>fast_boot_test</code>).</li>
+  no emulated state (<code>fast_boot_test</code>). Armed with <code>hide_screen</code>,
+  <code>fast_boot_hides_screen()</code> (window open, not paused) makes the two present
+  sites (<code>QtApp::TickEffects::present</code>, the <code>SdlApp::tick</code> present block) hand
+  the window <code>fast_boot::shown_frame()</code>: a black frame under
+  <code>fast_boot::HIDDEN_GENERATION</code>, uploaded once and held like a paused frame.
+  Compositing is unchanged, so screenshots, recordings and the debugger panels
+  still read the real framebuffer.</li>
 <li><strong>The audio band's estimate stays within one device chunk of the reading</strong>
   (<code>BandState::envelope_ms</code> in <code>src/platform/audio_pacing.h</code>, set from the
   opened device's buffer; see <a href="../03-subsystems/04-audio.html">Audio</a>).</li>
@@ -3156,7 +3132,7 @@ frame costs 15.6 ms and 23 ms — the two figures from a real Windows report —
 and pin real-time pacing at the first and back-to-back emulation with no skips
 and no waits at the second.</p>
 <h2 id="frame-start">Frame start<a class="headerlink" href="#frame-start" title="Permanent link">&para;</a></h2>
-<p><code>run_frame()</code> (<code>src/core/emulator.cpp:10747</code>) opens with two steps that have to
+<p><code>run_frame()</code> (<code>src/core/emulator.cpp:10696</code>) opens with two steps that have to
 come before anything else. <code>service_esp_frame()</code> applies the replay gate and
 mirrors the ESP worker thread's state into the flag the hot path reads, and the
 rewind step modes get their chance to return early — if the debugger has asked
@@ -3171,7 +3147,7 @@ frame; the next call to <code>run_frame()</code> must therefore <strong>resume</
 rather than start a fresh one. Calling <code>begin_new_frame()</code> in the middle of a
 frame would re-baseline the per-scanline change logs the compositor replays.
 The visible symptom is a frame that renders flat.</p>
-<p><code>begin_new_frame()</code> (<code>src/core/emulator.cpp:9811</code>) does the following, in order:</p>
+<p><code>begin_new_frame()</code> (<code>src/core/emulator.cpp:9760</code>) does the following, in order:</p>
 <ol>
 <li>Take a rewind snapshot, if rewind is enabled. Frame boundaries are chosen
    for this precisely because the scheduler queue is empty at that instant, so
@@ -3218,7 +3194,7 @@ A <code>.tzx</code> or <code>.wav</code> save also samples the tape-out level
 (<code>Emulator::tape_out_level()</code>) at port 0xFE writes, while a tape plays, and at the
 end of the frame; see
 <a href="../03-subsystems/08-media-and-loaders.html">3.8</a>.</p>
-<p><strong>Then <code>step_one_instruction()</code></strong> (<code>src/core/emulator.cpp:11363</code>), the one shared per-instruction
+<p><strong>Then <code>step_one_instruction()</code></strong> (<code>src/core/emulator.cpp:11314</code>), the one shared per-instruction
 body. It picks exactly one of four things to do:</p>
 <ul>
 <li>If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -3299,7 +3275,7 @@ single-step once kept its own copy of this cluster, silently lost the IM2 tick
 and both /INT polls, and so delivered no interrupts at all while you were
 stepping.</p>
 <p><strong>Then a data-breakpoint check</strong>, which returns early if one fired.</p>
-<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:12067</code>), the
+<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:12018</code>), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -3340,7 +3316,7 @@ the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
 edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:14372</code>) renders nothing at all. What it does is
+<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:14323</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

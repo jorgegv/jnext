@@ -218,6 +218,15 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
     }
 }
 
+// GH #498 - see the declaration. The panels outside the three tab widgets (CPU, Disassembly,
+// MMU) are on show with the window.
+bool DebuggerWindow::panel_on_show(const QWidget* panel) const {
+    if (!panel || !isVisible()) return false;
+    for (const QTabWidget* tw : {tab_widget_, memory_tab_widget_, bottom_tab_widget_})
+        if (tw && tw->indexOf(const_cast<QWidget*>(panel)) >= 0) return tw->currentWidget() == panel;
+    return true;
+}
+
 void DebuggerWindow::closeEvent(QCloseEvent* event) {
     // Task 60e: window_closed() runs DebuggerManager::set_enabled(false)
     // synchronously (direct connection), which auto-resumes the machine. That
@@ -1685,10 +1694,16 @@ void DebuggerWindow::create_panels() {
     memory_tab_widget->addTab(memory_panel_, tr("Memory"));
 
     auto* bottom_tab_widget = new QTabWidget();
+    bottom_tab_widget_ = bottom_tab_widget;
     bottom_tab_widget->setTabPosition(QTabWidget::North);
     bottom_tab_widget->addTab(watch_panel_, tr("Watches"));
     bottom_tab_widget->addTab(variables_panel_, tr("Variables"));
     bottom_tab_widget->addTab(breakpoint_panel_, tr("Breakpoints"));
+
+    // GH #498 - the panel_on_show() answers change with the current tab of each of the three
+    // tab widgets; one emission per change (currentChanged does not fire for a re-selection).
+    for (QTabWidget* tw : {tab_widget_, memory_tab_widget, bottom_tab_widget})
+        connect(tw, &QTabWidget::currentChanged, this, [this](int) { emit panels_on_show_changed(); });
 
     auto* bottom_splitter = new QSplitter(Qt::Horizontal);
     bottom_splitter->addWidget(memory_tab_widget);

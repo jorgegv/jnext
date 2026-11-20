@@ -184,16 +184,16 @@ in the writers' files:
 ### Qt: Map ▸ Import and Export
 
 The Qt debugger offers the four verbs in its Map menu, after the annotation entries of 7.4.6:
-`import_menu` (`debugger_window.cpp:989`) and
-`export_menu` (`debugger_window.cpp:994`), each with
+`import_menu` (`debugger_window.cpp:998`) and
+`export_menu` (`debugger_window.cpp:1003`), each with
 `&skoolkit Control Files...` and `&Ghidra Symbols...` (`I` and `E` are free in the Map popup, `S` and `G`
 are unique in each submenu; `DACC-05` pins the new popups and mnemonics). The slots are
-`on_import_skoolkit` (`debugger_manager.cpp:961`),
-`on_import_ghidra` (`debugger_manager.cpp:962`),
-`on_export_skoolkit` (`debugger_manager.cpp:963`) and
-`on_export_ghidra` (`debugger_manager.cpp:964`), which share
-`import_re_files` (`debugger_manager.cpp:921`) and
-`export_re_files` (`debugger_manager.cpp:944`):
+`on_import_skoolkit` (`debugger_manager.cpp:990`),
+`on_import_ghidra` (`debugger_manager.cpp:991`),
+`on_export_skoolkit` (`debugger_manager.cpp:992`) and
+`on_export_ghidra` (`debugger_manager.cpp:993`), which share
+`import_re_files` (`debugger_manager.cpp:950`) and
+`export_re_files` (`debugger_manager.cpp:973`):
 
 - **Import** asks for one or more files with `QFileDialog::getOpenFileNames` (`*.ctl` or `*.txt`), calls
   the backend verb once with all of them, and shows the report (counts, then each note) in an
@@ -212,8 +212,8 @@ are unique in each submenu; `DACC-05` pins the new popups and mnemonics). The sl
 `write_re_exports_at_exit()` (`re_export_at_exit.h:39`)
 is called from the three loop owners' `shutdown()`:
 `write_re_exports_at_exit()` (`headless_app.cpp:1092`),
-`write_re_exports_at_exit()` (`src/platform/sdl_app.cpp:908`) and
-`write_re_exports_at_exit()` (`qt_app.cpp:534`).
+`write_re_exports_at_exit()` (`src/platform/sdl_app.cpp:913`) and
+`write_re_exports_at_exit()` (`qt_app.cpp:535`).
 A failure logs and sets the exit code to 1. `--export-skoolkit`, `--export-ghidra`, `--import-skoolkit`
 and `--import-ghidra` are in `src/core/cli_options.h`.
 

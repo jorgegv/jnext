@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3225,7 +3225,10 @@ was terminated BY the signal, plus headless held paused by a DZRP client) and
   <code>QtApp</code> does, done inline because this loop does not use the sequencer. The
   same present throttle applies while <code>Emulator::fastload_active()</code> holds (a
   tape load, the fast boot): the renderer is vsynced, so presenting every
-  frame of a sprint would cap it near the display's refresh rate.</li>
+  frame of a sprint would cap it near the display's refresh rate. While the
+  fast boot hides the screen (<code>Emulator::fast_boot_hides_screen()</code>), the
+  present block uploads a black frame under <code>fast_boot::HIDDEN_GENERATION</code>
+  once and holds it.</li>
 <li><strong><code>HeadlessApp</code></strong> (<code>src/platform/headless_app.h</code>) owns nothing but the
   <code>Emulator</code>. Its <code>run()</code> is a bare <code>run_frame()</code> loop with no sleep in it.</li>
 </ul>

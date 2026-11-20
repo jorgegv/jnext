@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -767,8 +767,6 @@
       
         
           
-        
-      
         
       
         
@@ -1563,34 +1561,6 @@
           </ul>
         </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../03-subsystems/14-bug-reports.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    3.11 Bug reports
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -3162,8 +3132,8 @@ page <code>predict_fetch</code> says is mapped (<code>SymbolTable::bind()</code>
 on failure (<code>-1</code>) the table and its owner are as they were.</p>
 <h3 id="-source-map"><code>--source-map</code><a class="headerlink" href="#-source-map" title="Permanent link">&para;</a></h3>
 <p><code>EmulatorConfig::source_map_file</code> is set from <code>--source-map FILE</code>
-(<code>EmulatorConfig::source_map_file</code>, <code>src/main.cpp:1009</code>, <code>:2609</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:322</code>),
-set at <code>src/main.cpp:2623</code>, says which of three cases it is: <code>0</code> a program loads and the map
+(<code>EmulatorConfig::source_map_file</code>, <code>src/main.cpp:1013</code>, <code>:2610</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:316</code>),
+set at <code>src/main.cpp:2624</code>, says which of three cases it is: <code>0</code> a program loads and the map
 follows it; <code>1</code> there is no <code>--load</code>; <code>2</code> an RZX replay is the program (<code>--rzx-play</code>, or
 <code>--load R.rzx</code>, told by the extension).</p>
 <p><strong>With a program</strong> (<code>0</code>). Each loop owner (<code>headless_app.cpp</code>, <code>sdl_app.cpp</code>,

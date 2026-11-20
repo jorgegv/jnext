@@ -16,6 +16,7 @@
 #include "platform/rzx_startup.h"
 #include "platform/quit_signal.h"   // GH #364
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
+#include "platform/fast_boot.h"
 #include "platform/render_policy.h"
 #include "platform/quick_snapshot_chord.h"   // GH #321
 #include "core/quick_snapshot.h"
@@ -789,11 +790,15 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         // take_redraw_request() is read unconditionally so it is consumed.
         const bool redraw = display_.take_redraw_request();
         ++present_ticks_;
-        if (render_policy::upload_needed(emulator_.framebuffer_generation(),
-                                         last_uploaded_gen_, redraw)) {
-            display_.upload_frame(fb, fb_w, fb_h);
+        // GH #544: while the screen is hidden (fast boot), one held black frame.
+        const fast_boot::Shown shown = fast_boot::shown_frame(
+            emulator_.fast_boot_hides_screen(), fb, fb_w, fb_h, emulator_.framebuffer_generation());
+        if (render_policy::upload_needed(shown.generation, last_uploaded_gen_, redraw)) {
+            const uint32_t* const up = shown.pixels;
+            display_.upload_frame(up, fb_w, fb_h);
             display_.present();
-            last_uploaded_gen_ = emulator_.framebuffer_generation();
+            last_uploaded_gen_ = shown.generation;
+            last_uploaded_pixels_ = up;
             ++present_uploads_;
             ++uploads_total_;
         }

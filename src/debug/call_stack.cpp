@@ -215,3 +215,40 @@ void CallStack::on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t ne
     have_pre_ = false;   // the captured opcode did not run in this slot
     push_frame(caller_pc, target_pc, new_sp, type, caller_space);
 }
+
+// GH #498: see the declaration. CALL is tested before RST, so a CALL whose high operand byte
+// looks like an RST opcode (CD 00 FF) is still a CALL frame.
+void CallStack::reconstruct(uint16_t sp,
+                            const std::function<jnext::dbg::MemSpace(uint16_t)>& caller_space) {
+    frames_.clear();
+    have_pre_ = false;
+    if (!peek_) return;
+    const auto is_call = [](uint8_t op) {
+        return op == 0xCD || op == 0xC4 || op == 0xCC || op == 0xD4 || op == 0xDC ||
+               op == 0xE4 || op == 0xEC || op == 0xF4 || op == 0xFC;
+    };
+    const auto is_rst = [](uint8_t op) { return (op & 0xC7) == 0xC7; };
+    std::vector<CallFrame> found;   // newest (lowest slot) first
+    uint32_t addr = sp;
+    for (size_t i = 0; i < RECONSTRUCT_SCAN_WORDS && addr <= 0xFFFE; ++i, addr += 2) {
+        const uint16_t w = peek16_(static_cast<uint16_t>(addr));
+        CallFrame f{};
+        f.sp_at_call = static_cast<uint16_t>(addr);
+        f.reconstructed = true;
+        if (is_call(peek_(static_cast<uint16_t>(w - 3)))) {
+            f.type = CallType::CALL;
+            f.caller_pc = static_cast<uint16_t>(w - 3);
+            f.target_pc = peek16_(static_cast<uint16_t>(w - 2));
+        } else if (is_rst(peek_(static_cast<uint16_t>(w - 1)))) {
+            f.type = CallType::RST;
+            f.caller_pc = static_cast<uint16_t>(w - 1);
+            f.target_pc = peek_(static_cast<uint16_t>(w - 1)) & 0x38;
+        } else {
+            continue;
+        }
+        if (caller_space) f.caller_space = caller_space(f.caller_pc);
+        found.push_back(f);
+    }
+    if (found.size() > MAX_DEPTH) found.resize(MAX_DEPTH);   // the newest ones
+    frames_.assign(found.rbegin(), found.rend());
+}
