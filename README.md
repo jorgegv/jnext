@@ -79,7 +79,8 @@ find at [GitHub issues](https://github.com/jorgegv/jnext/issues):
 
 Linux, Windows (x64 and 32-bit x86), and macOS (Apple Silicon and Intel) are supported, and the emulator also
 runs in a web browser.
-Try it in your browser: <https://jorgegv.github.io/jnext/>.
+
+You can try it right now in your browser! Go here: <https://jorgegv.github.io/jnext/>
 
 ## Install
 
