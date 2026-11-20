@@ -1011,6 +1011,6 @@ int main() {
 
     std::error_code ec;
     fs::remove_all(g_tmp, ec);
-    std::printf("\nTotal: %d, Passed: %d, Failed: %d\n", g_total, g_pass, g_fail);
+    std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }
