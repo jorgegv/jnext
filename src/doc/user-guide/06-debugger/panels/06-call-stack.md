@@ -21,7 +21,7 @@ discards its return address and leaves by a jump keeps its frame until a later
 
 Call tracking runs while this tab or the [Variables](16-variables.md) tab is showing, during a source Step Over
 or Step Out, and while a remote client or a script asks for it; it also stays on while a source map with C
-variable records is loaded. When a tab, a step or a client starts it, the calls already on the stack are rebuilt
+variable records is loaded. When a tab, a step or a client starts it (or a Step Back lands in a period it was off), the calls already on the stack are rebuilt
 from it and marked `CALL*` or `RST*`: the rebuild misses interrupts, and stale stack data can look like a call.
 (Loading such a map starts tracking without a rebuild.) Frames tracked from then on carry no mark.
 

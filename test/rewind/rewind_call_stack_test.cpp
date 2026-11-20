@@ -297,9 +297,11 @@ int main() {
         emu.call_stack().set_enabled(true);
         const bool ok = emu.rewind_to_frame(1);
         const auto& f = emu.call_stack().frames();
-        check("RWCS-21", "a snapshot taken inside the CALL with tracking off, tracking turned on, rewound to: the frame is the rebuilt CALL $8000 -> SUB at slot $FEFE",
+        check("RWCS-21", "a snapshot taken inside the CALL with tracking off, tracking turned on, rewound to: the frame is the rebuilt CALL $8000 -> SUB at slot $FEFE, its caller_space the prediction at $8000 (not unrecorded)",
               ok && f.size() == 1 && f[0].type == CallType::CALL && f[0].caller_pc == PROG &&
-                  f[0].target_pc == SUB && f[0].sp_at_call == 0xFEFE && f[0].reconstructed,
+                  f[0].target_pc == SUB && f[0].sp_at_call == 0xFEFE && f[0].reconstructed &&
+                  f[0].caller_space == emu.predict_fetch(PROG) &&
+                  !(f[0].caller_space == jnext::dbg::MemSpace::cpu()),
               depth_text(emu));
     }
     {
