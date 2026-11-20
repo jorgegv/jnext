@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.35</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.35</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3170,7 +3170,10 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
 </table>
 <p><code>Over</code> and <code>Out</code> measure depth with the call-stack tracker, so they need it on
 (<code>set_call_stack_enabled</code>, a per-client request; with a C variable store and a non-observer client
-attached it is on by itself, <a href="10-c-frames-and-values.html">7.10</a>).</p>
+attached it is on by itself, <a href="10-c-frames-and-values.html">7.10</a>). The Qt window requests it for
+exactly a source <code>Over</code> or <code>Out</code> (<code>run_source_step()</code>, synchronous inside the verb), whatever tab is
+showing; the frames that were already on the stack when it starts come from the rebuild
+(<a href="10-c-frames-and-values.html">7.10</a>).</p>
 </li>
 <li>
 <p><strong>The loop</strong>, per iteration: <code>debugger_step()</code>, then <code>pause()</code>; stop if an event

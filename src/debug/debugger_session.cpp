@@ -141,7 +141,18 @@ void Debugger::Impl::sync_call_stack(bool force) {
         const auto vs = m ? m->variables() : nullptr;
         on = vs && (!vs->functions().empty() || !vs->variables().empty());
     }
+    // Only a REQUEST's edge rebuilds, not OD-2's: a program with C variable records has tracking on
+    // from the map (no edge when a panel then asks), and its C frames derive from the tracker as it
+    // always did.
+    const bool edge_on = asked && !call_stack_derived && !force;
     if ((force && on) || on != call_stack_derived) emu.call_stack().set_enabled(on);
+    // GH #498: tracking starts mid-run (a panel came on show, a client asked): rebuild the calls
+    // already on the stack. Not on `force`, the re-application after a machine rebuild (a cold boot,
+    // a program load): the tracker restarts empty there, and a rebuild would put heuristic frames
+    // under a program that has only just started. Every client gets the rebuild.
+    if (edge_on)
+        emu.call_stack().reconstruct(emu.cpu().get_registers().SP,
+                                     [this](uint16_t pc) { return emu.predict_fetch(pc); });
     call_stack_derived = on;
 }
 

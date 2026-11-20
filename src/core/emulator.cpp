@@ -10795,7 +10795,9 @@ void Emulator::run_frame()
         // the render hint, the per-instruction VideoTiming walk and the rewind
         // step modes read raster_live() / attached() instead, so nothing but
         // the check itself is switched on by the flag.
-        if (debug_state_.armed()) {
+        // GH #498: pre_block_live() is armed() && (something in this block can answer "yes"): an
+        // attached client with no breakpoint, step, subscription, verify window or pause skips it.
+        if (debug_state_.pre_block_live()) {
             // Check if an external trigger (e.g. magic breakpoint) already
             // paused the emulator during the previous instruction's execute().
             if (debug_state_.paused())

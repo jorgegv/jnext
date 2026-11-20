@@ -25,7 +25,7 @@ Open the debugger with **Alt+D**, with **Debug ▸ Debugger** or **View ▸
 Debugger** (the same entry, in both menus), or with the Debug button (a magnifier over a chip) on the
 emulator toolbar. The same actions close it. While it is closed
 the debugger costs nothing — no breakpoint checking, no call-stack tracking, no
-panel refreshes. Closing it also resumes the machine if it was paused.
+panel refreshes. Open, it tracks calls only while a panel that needs them is showing (a program with C variable records loaded keeps tracking on). Closing it also resumes the machine if it was paused.
 
 The debugger opens in its own window, positioned to the right of the emulator
 window. It has its own menu bar — **File**, **Debug**, **Go**, **Script**, **Map**, **Breakpoints**,

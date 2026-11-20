@@ -81,6 +81,7 @@ void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint
     s.clock       = emu.clock().get();
     s.mutated_at  = UINT64_MAX;   // a fresh snapshot carries every change made so far
     s.call_frames = emu.call_stack().frames();
+    s.call_stack_tracked = emu.call_stack().enabled();
     s.generation  = emu.debug_state().load_generation();
     if (full) {
         head_ = (head_ + 1) % slots_.size();
@@ -173,7 +174,14 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
     // Side state, restored with the snapshot it was taken with. The replay
     // that follows a restore re-runs the tracker's hooks, so the frames end
     // exactly where the target instruction left them.
-    emu.call_stack().restore_frames(s.call_frames);
+    // GH #498: a snapshot taken while the tracker was off holds no frames for a machine that may be
+    // inside calls: with the tracker on now, rebuild them from the restored stack.
+    if (emu.call_stack().enabled() && !s.call_stack_tracked) {
+        emu.call_stack().reconstruct(emu.cpu().get_registers().SP,
+                                     [&emu](uint16_t pc) { return emu.predict_fetch(pc); });
+    } else {
+        emu.call_stack().restore_frames(s.call_frames);
+    }
     return s.frame_cycle;
 }
 
