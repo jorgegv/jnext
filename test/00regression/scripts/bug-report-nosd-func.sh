@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      home directory or the user name
 #   C  --bug-report FILE (not a directory) writes exactly that file
 #   D  the Qt window (offscreen) and the SDL-only build (dummy drivers) call the same writer at
-#      exit: each writes a report whose producer.frontend is qt / sdl
+#      exit: each writes a report whose producer.frontend is qt / sdl, and only the Qt one carries the settings file (config_file_read)
 if want bug-report-nosd-func; then
     begin_func bug-report-nosd-func
 
@@ -78,8 +78,11 @@ if want bug-report-nosd-func; then
         if [[ "$fe_rc" -ne 0 || "${#fe_files[@]}" -ne 1 ]]; then
             br_faults+=("D: $fe exit $fe_rc, ${#fe_files[@]} report files, want 0 and 1")
         else
+            # The Qt window reads jnext.conf and says so; the SDL-only build reads none.
+            want_read=false; [[ "$fe" == qt ]] && want_read=true
             chk=$(python3 -I "$check_py" "${fe_files[0]}" --manifest producer.frontend "$fe" \
-                --manifest memory.included true --has memory/ram.bin 2>&1) || br_faults+=("D: $fe: $chk")
+                --manifest memory.included true --has memory/ram.bin \
+                --json settings.json config_file_read "$want_read" 2>&1) || br_faults+=("D: $fe: $chk")
         fi
     done
 
