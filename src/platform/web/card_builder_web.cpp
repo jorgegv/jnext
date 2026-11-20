@@ -4,6 +4,7 @@
 // the make-minimal-card tool runs, so the card is byte for byte the one the tests boot.
 // The page never holds the zip: JS copies one chunk at a time into a staging buffer and
 // calls jnext_card_feed(). Linked into the jnext_web target only.
+#include "core/card_extract.h"
 #include "core/minimal_card.h"
 #include "third_party/nlohmann-json/nlohmann/json.hpp"
 
@@ -130,4 +131,16 @@ extern "C" EMSCRIPTEN_KEEPALIVE double jnext_card_inflated()
 extern "C" EMSCRIPTEN_KEEPALIVE char* jnext_card_sha256()
 {
     return dup(g_builder ? g_builder->card_sha256() : std::string());
+}
+
+// A program on the finished card (GH #510): copy the directory holding the NEX `nex` (an absolute
+// path on the card) with everything below it into the new directory `dest` of the in-memory file
+// system, to be served to the esxDOS stand-in. The card is only read. Malloc'd JSON (JS frees it):
+// {"path": "<the copied NEX>"} or {"error": "..."}.
+extern "C" EMSCRIPTEN_KEEPALIVE char* jnext_card_copy_program(const char* card, const char* nex, const char* dest)
+{
+    std::string out, why;
+    if (!card_extract::copy_program_dir(card ? card : "", nex ? nex : "", dest ? dest : "", out, why))
+        return dup(nlohmann::json{{"error", why}}.dump());
+    return dup(nlohmann::json{{"path", out}}.dump());
 }
