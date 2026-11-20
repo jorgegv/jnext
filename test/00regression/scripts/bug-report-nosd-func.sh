@@ -15,6 +15,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      to the NEX, the pictures, machine.json and debugger.json, and no member contains the
 #      home directory or the user name
 #   C  --bug-report FILE (not a directory) writes exactly that file
+#   D  the Qt window (offscreen) and the SDL-only build (dummy drivers) call the same writer at
+#      exit: each writes a report whose producer.frontend is qt / sdl
 if want bug-report-nosd-func; then
     begin_func bug-report-nosd-func
 
@@ -54,8 +56,35 @@ if want bug-report-nosd-func; then
         >/dev/null 2>&1 || c_rc=$?
     [[ "$c_rc" -eq 0 && -s "$TMP_DIR/exact.zip" ]] || br_faults+=("C: --bug-report FILE exit $c_rc, file missing or empty")
 
+    # D: the other two loop owners.
+    for fe in qt sdl; do
+        fe_dir="$TMP_DIR/fe-$fe"
+        mkdir -p "$fe_dir"
+        fe_rc=0
+        if [[ "$fe" == qt ]]; then
+            env QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 60s "$JNEXT" --silent --no-sdcard \
+                --load "$TMP_DIR/im1.nex" --bug-report "$fe_dir/" --delayed-automatic-exit-frames 60 \
+                >/dev/null 2>&1 || fe_rc=$?
+        elif [[ -x "$JNEXT_SDL" ]]; then
+            env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+                timeout --foreground --kill-after=5s 60s "$JNEXT_SDL" --silent --no-sdcard \
+                --load "$TMP_DIR/im1.nex" --bug-report "$fe_dir/" --delayed-automatic-exit-frames 60 \
+                >/dev/null 2>&1 || fe_rc=$?
+        else
+            br_faults+=("D: SDL-only binary not built: $JNEXT_SDL; run 'make sdl-release'")
+            continue
+        fi
+        mapfile -t fe_files < <(find "$fe_dir" -maxdepth 1 -type f -name '*.jnext-bug.zip')
+        if [[ "$fe_rc" -ne 0 || "${#fe_files[@]}" -ne 1 ]]; then
+            br_faults+=("D: $fe exit $fe_rc, ${#fe_files[@]} report files, want 0 and 1")
+        else
+            chk=$(python3 -I "$check_py" "${fe_files[0]}" --manifest producer.frontend "$fe" \
+                --manifest memory.included true --has memory/ram.bin 2>&1) || br_faults+=("D: $fe: $chk")
+        fi
+    done
+
     if [[ "${#br_faults[@]}" -eq 0 ]]; then
-        pass_row " (named PROGRAM.time.jnext-bug.zip in the directory, RAM and the program shipped, nothing of the host in it, an exact file name honoured)"
+        pass_row " (named PROGRAM.time.jnext-bug.zip in the directory, RAM and the program shipped, nothing of the host in it, an exact file name honoured, the Qt and SDL owners write one too)"
     else
         fail_row " (${br_faults[*]})"
         show_output "jnext" "$a_out"

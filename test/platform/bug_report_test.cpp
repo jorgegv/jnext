@@ -24,7 +24,9 @@
 #include "core/embedded_nextboot_rom.h"
 #include "core/fat32_image.h"
 #include "core/log.h"
+#include "core/rzx.h"
 #include "core/saveable.h"
+#include "core/snapshot_file.h"
 #include "core/screenshot.h"
 #include "core/sha256.h"
 #include "debug/debugger.h"
@@ -36,15 +38,18 @@
 #include "save/zip_archive.h"
 #include "third_party/nlohmann-json/nlohmann/json.hpp"
 
+#include <chrono>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -280,9 +285,76 @@ size_t count_windows_in(const std::unordered_set<std::string>& set, const std::v
     return hits;
 }
 
+// What a member holds besides its raw bytes: a JSON string of hex digits is bytes, a JSON array of
+// integers 0..255 is bytes, an array of objects is the concatenation of their small integers (the
+// state log() entries), and a member that is itself a zip is read member by member. A leak through
+// the report's own encodings is a leak, so every one of them is scanned.
+bool is_hex_text(const std::string& t) {
+    if (t.size() < 2 || t.size() % 2) return false;
+    for (char c : t) if (!std::isxdigit(static_cast<unsigned char>(c))) return false;
+    return true;
+}
+
+bool small_int(const json& v, uint8_t& out) {
+    if (!v.is_number_integer()) return false;
+    const long long n = v.get<long long>();
+    if (n < 0 || n > 255) return false;
+    out = static_cast<uint8_t>(n);
+    return true;
+}
+
+void collect_json_bytes(const json& j, std::vector<std::vector<uint8_t>>& out) {
+    if (j.is_string()) {
+        const std::string t = j.get<std::string>();
+        if (!is_hex_text(t)) return;
+        std::vector<uint8_t> b;
+        for (size_t i = 0; i < t.size(); i += 2) b.push_back(static_cast<uint8_t>(std::stoi(t.substr(i, 2), nullptr, 16)));
+        out.push_back(b);
+    } else if (j.is_array()) {
+        std::vector<uint8_t> ints;
+        std::map<std::string, std::vector<uint8_t>> per_key;   // the values of one key across an array of objects
+        bool all_ints = !j.empty(), all_objs = !j.empty();
+        for (const json& e : j) {
+            uint8_t v;
+            if (small_int(e, v)) ints.push_back(v); else all_ints = false;
+            if (e.is_object()) {
+                for (auto it = e.begin(); it != e.end(); ++it)
+                    if (small_int(it.value(), v)) per_key[it.key()].push_back(v);
+            } else all_objs = false;
+        }
+        if (all_ints) out.push_back(ints);
+        if (all_objs) for (auto& kv : per_key) out.push_back(kv.second);
+        for (const json& e : j) collect_json_bytes(e, out);
+    } else if (j.is_object()) {
+        for (auto it = j.begin(); it != j.end(); ++it) collect_json_bytes(it.value(), out);
+    }
+}
+
+size_t count_windows_in_member(const std::unordered_set<std::string>& set, const std::string& name,
+                               const std::vector<uint8_t>& data) {
+    size_t hits = count_windows_in(set, data);
+    if (name.size() > 5 && name.compare(name.size() - 5, 5, ".json") == 0) {
+        const json j = json::parse(std::string(data.begin(), data.end()), nullptr, false);
+        std::vector<std::vector<uint8_t>> views;
+        if (!j.is_discarded()) collect_json_bytes(j, views);
+        for (const auto& v : views) hits += count_windows_in(set, v);
+    }
+    if (data.size() >= 4 && data[0] == 'P' && data[1] == 'K' && data[2] == 3 && data[3] == 4) {
+        jnext::zip::Reader inner;
+        std::string why;
+        if (inner.open(data.data(), data.size(), why)) {
+            for (const auto& e : inner.entries()) {
+                std::vector<uint8_t> b;
+                if (inner.read(e.name, b, why)) hits += count_windows_in_member(set, e.name, b);
+            }
+        }
+    }
+    return hits;
+}
+
 size_t count_windows_in_report(const std::unordered_set<std::string>& set, const Report& r) {
     size_t hits = 0;
-    for (const std::string& n : r.names()) hits += count_windows_in(set, r.member(n));
+    for (const std::string& n : r.names()) hits += count_windows_in_member(set, n, r.member(n));
     return hits;
 }
 
@@ -1019,6 +1091,167 @@ int main() {
               ok1 && found.rfind("prog.", 0) == 0 && found.size() > 15 &&
               found.compare(found.size() - 14, 14, ".jnext-bug.zip") == 0 && !ok2 && ok3,
               fmtf("ok1=%d found=%s ok2=%d ok3=%d", ok1, found.c_str(), ok2, ok3));
+    }
+
+    // ---- BR-29 a loaded .jns is withheld ------------------------------------------
+    {
+        Session s = nocard_session(0, false);
+        const std::string jp = tmp_path("saved.jns");
+        std::string err;
+        size_t nb = 0;
+        const bool saved = save_snapshot_file(*s.emu, jp, err, nb);
+        const bool loaded = saved && s.emu->load_jns_file(jp);
+        Report r = make_report(s);
+        json m = r.js("manifest.json");
+        bool shape = r.ok && m["programs"].size() == 1;
+        json p = shape ? m["programs"][0] : json::object();
+        bool no_member = true;
+        for (const std::string& n : r.names()) if (n.rfind("program/", 0) == 0) no_member = false;
+        check("BR-29", "a loaded .jns is withheld (snapshot), SHA-256 only: its memory is never in a report",
+              saved && loaded && shape && p.value("included", true) == false && p["withheld"]["code"] == "snapshot" &&
+              p["sha256"] == sdcard::sha256_file(jp) && no_member && !r.out.memory_included,
+              fmtf("saved=%d(%s) loaded=%d shape=%d", saved, err.c_str(), loaded, shape));
+    }
+
+    // ---- BR-30 which program files hold a jnext snapshot -------------------------------
+    {
+        auto rzx_file = [&](const char* name, const std::string& ext, std::vector<uint8_t> data) {
+            RzxRecording rec;
+            rec.creator = "test";
+            rec.snapshot_ext = ext;
+            rec.snapshot_data = std::move(data);
+            const std::string path = tmp_path(name);
+            rzx::write(path, rec);
+            return path;
+        };
+        const std::vector<uint8_t> zipish = { 'P', 'K', 3, 4, 0, 0, 0, 0 };
+        const std::string garbage = tmp_path("garbage.rzx");
+        write_bytes(garbage, noise(64, 9));
+        const bool classic  = !bug_report::holds_machine_snapshot(rzx_file("classic.rzx", "sna", noise(2000, 1)));
+        const bool jns_ext  =  bug_report::holds_machine_snapshot(rzx_file("jnsext.rzx", "jns", zipish));
+        const bool zip_data =  bug_report::holds_machine_snapshot(rzx_file("zipdata.rzx", "sna", zipish));
+        const bool no_snap  = !bug_report::holds_machine_snapshot(rzx_file("input.rzx", "", {}));
+        const bool unparsable = bug_report::holds_machine_snapshot(garbage);
+        const bool jns_path = bug_report::holds_machine_snapshot(tmp_path("anything.JNS"));
+        const bool others   = !bug_report::holds_machine_snapshot("x.nex") && !bug_report::holds_machine_snapshot("x.sna") &&
+                              !bug_report::holds_machine_snapshot("x.szx") && !bug_report::holds_machine_snapshot("x.z80") &&
+                              !bug_report::holds_machine_snapshot("x.tap");
+        check("BR-30", "snapshot holders: a .jns, and an .rzx with a non-classic, zip or unreadable snapshot; classic files ship",
+              classic && jns_ext && zip_data && no_snap && unparsable && jns_path && others,
+              fmtf("classic=%d jns_ext=%d zip=%d nosnap=%d garbage=%d jns=%d others=%d", classic, jns_ext, zip_data,
+                   no_snap, unparsable, jns_path, others));
+    }
+
+    // ---- BR-31 every loader notes its file; a classic snapshot ships --------------------
+    {
+        EmulatorConfig c48;
+        c48.type = MachineType::ZX48K;
+        Emulator seed;
+        seed.init(c48);
+        const std::string sna = tmp_path("classic.sna"), szx = tmp_path("classic.szx");
+        std::string err;
+        size_t nb = 0;
+        const bool made = save_snapshot_file(seed, sna, err, nb) && save_snapshot_file(seed, szx, err, nb);
+        // A version 1 .z80: 30-byte header (PC non-zero, uncompressed) and 48 KB.
+        std::vector<uint8_t> z80(30 + 49152, 0);
+        z80[6] = 0x00; z80[7] = 0x80;   // PC = $8000
+        z80[8] = 0xFF; z80[9] = 0xFF;   // SP = $FFFF
+        const std::string z80p = tmp_path("classic.z80");
+        write_bytes(z80p, z80);
+        // A TAP of one header-less data block, and a TZX with one standard-speed block.
+        const std::string tap = tmp_path("tape.tap"), tzx = tmp_path("tape.tzx");
+        write_bytes(tap, { 0x03, 0x00, 0xFF, 0x01, 0xFE });
+        write_bytes(tzx, { 'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 1, 20, 0x10, 0xE8, 0x03, 0x03, 0x00, 0xFF, 0x01, 0xFE });
+        // An RZX around the classic .sna.
+        RzxRecording rec;
+        rec.creator = "test";
+        rec.snapshot_ext = "sna";
+        rec.snapshot_data = read_bytes(sna);
+        RzxFrame fr;
+        fr.instruction_count = 10;
+        rec.frames.push_back(fr);
+        const std::string rzxp = tmp_path("rec.rzx");
+        rzx::write(rzxp, rec);
+        // A WAV is covered by BR-26; the .jns by BR-29; the NEX by the no-card rows; inject by BR-10.
+        std::string noted_bad;
+        auto noted = [&](const char* what, const std::string& path, auto load) {
+            Emulator e;
+            e.init(c48);
+            const bool ok = load(e, path);
+            const auto& v = e.program_files();
+            if (!ok || v.empty() || v.back().name != fs::path(path).filename().string()) noted_bad += std::string(what) + " ";
+        };
+        noted("sna", sna, [](Emulator& e, const std::string& p) { return e.load_sna(p); });
+        noted("szx", szx, [](Emulator& e, const std::string& p) { return e.load_szx(p); });
+        noted("z80", z80p, [](Emulator& e, const std::string& p) { return e.load_z80(p); });
+        noted("tap", tap, [](Emulator& e, const std::string& p) { return e.load_tap(p); });
+        noted("tzx", tzx, [](Emulator& e, const std::string& p) { return e.load_tzx(p); });
+        noted("rzx", rzxp, [](Emulator& e, const std::string& p) { return e.load_rzx(p); });
+        // A classic snapshot is the reporter's own file: it ships.
+        Emulator e;
+        e.init(c48);
+        e.load_sna(sna);
+        dbg::Debugger d(e);
+        Report r;
+        r.bytes = bug_report::build(e, d, inputs(), r.out);
+        std::string why;
+        r.ok = r.out.ok && r.zip.open(r.bytes.data(), r.bytes.size(), why);
+        check("BR-31", "every loader notes its file (.sna .szx .z80 .tap .tzx .rzx); a classic .sna ships as the reporter's own",
+              made && noted_bad.empty() && r.ok && r.member("program/classic.sna") == read_bytes(sna),
+              fmtf("made=%d (%s) not noted: %s ok=%d", made, err.c_str(), noted_bad.c_str(), r.ok));
+    }
+
+    // ---- BR-32 a same-size rewrite with a new time is a change ---------------------------
+    {
+        const std::string path = tmp_path("retimed.bin");
+        write_bytes(path, g_pat_prog);
+        Session s = nocard_session(0, false);
+        s.emu->inject_binary(path, 0x8000, 0x8000);
+        std::vector<uint8_t> other = g_pat_prog;
+        other[0] ^= 0xFF;   // same size, other bytes
+        write_bytes(path, other);
+        std::error_code tec;
+        fs::last_write_time(path, fs::last_write_time(path, tec) + std::chrono::hours(1), tec);
+        Report r = make_report(s);
+        json m = r.js("manifest.json");
+        check("BR-32", "program rewritten with the same size and a new time: withheld (changed-since-load)",
+              r.ok && !tec && !m["programs"][0]["included"].get<bool>() &&
+              m["programs"][0]["withheld"]["code"] == "changed-since-load" && !r.has("program/retimed.bin"),
+              fmtf("ok=%d tec=%d", r.ok, tec ? 1 : 0));
+    }
+
+    // ---- BR-33 the stack bytes wrap at the top of the address space ----------------------
+    {
+        Session s = nocard_session();
+        for (int i = 0; i < 16; ++i) s.emu->mmu().write(static_cast<uint16_t>(0xFFF0 + i), static_cast<uint8_t>(0xA0 + i));
+        auto regs = s.emu->cpu().get_registers();
+        regs.SP = 0xFFF8;   // 8 bytes below the top: 8 bytes, then the wrap to $0000
+        s.emu->cpu().set_registers(regs);
+        Report r = make_report(s);
+        const json st = r.js("debugger.json")["stack"];
+        bool ok = r.ok && st["bytes"].size() == 32;
+        for (int i = 0; ok && i < 32; ++i) {
+            uint8_t b = 0;   // the oracle: one byte at a time, the address wrapping as the Z80's does
+            s.d->peek(dbg::MemSpace::cpu(), static_cast<uint32_t>((0xFFF8 + i) & 0xFFFF), 1, &b);
+            if (st["bytes"][i] != b) ok = false;
+        }
+        check("BR-33", "stack bytes: SP near $FFFF gives 32 bytes, wrapping to $0000 like the Z80's stack",
+              ok && st["bytes"][0] == 0xA8 && st["bytes"][7] == 0xAF, fmtf("ok=%d", ok));
+    }
+
+    // ---- BR-34 a second card is in the manifest -------------------------------------------
+    {
+        const std::string card2 = tmp_path("second-card.img");
+        fs::copy_file(g_card, card2, fs::copy_options::overwrite_existing);
+        Session s = card_session();
+        const bool mounted = s.emu->sd_card2().mount(card2, true);
+        Report r = make_report(s);
+        json m = r.js("manifest.json");
+        check("BR-34", "two cards: both in the manifest, slot 1 with its own name and SHA-256",
+              card_ok && mounted && r.ok && m["cards"].size() == 2 && m["cards"][1]["slot"] == 1 &&
+              m["cards"][1]["name"] == "second-card.img" && m["cards"][1]["sha256"] == sdcard::sha256_file(card2) &&
+              m["cards"][0]["slot"] == 0,
+              fmtf("mounted=%d ok=%d", mounted, r.ok));
     }
 
     std::error_code ec;

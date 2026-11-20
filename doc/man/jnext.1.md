@@ -2102,7 +2102,7 @@ developer needs to understand a failure: the state of the machine and of jnext a
 that moment. It is a snapshot for reading, not a session to replay. It holds:
 
 - the jnext version, the host operating system and architecture, the frontend and
-  the settings in use (the command line, and in the Qt frontend the settings file),
+  the settings in use (the command line; the settings file is not included yet),
   with host paths blanked;
 - the machine, decoded: the CPU registers, every NextREG with its name, the paging
   map, the ULA, Layer 2, sprite, tilemap and Copper state, the palettes, the
@@ -2112,8 +2112,10 @@ that moment. It is a snapshot for reading, not a session to replay. It holds:
 - the debugger's state: the run state, breakpoints, the call stack and the recent
   instruction trace;
 - the SD card's name, size and SHA-256, never its bytes;
-- the program file you loaded, byte for byte. It is your file, and you are
-  responsible for what you attach: jnext does not check it against anything;
+- the program file you loaded, byte for byte (a `.jns` snapshot, which holds the
+  machine's whole memory, is the exception: only its SHA-256 and size are recorded). It
+  is your file, and you are responsible for what you attach: jnext does not check it
+  against anything;
 - **memory, only when no firmware has run**: RAM, the CPU's 64 KB view, the sprite
   patterns, a disassembly, the bytes at the stack pointer and the opcode bytes of the
   trace. That is a `--no-sdcard` session whose memory has not seen the boot ROM run
@@ -2121,8 +2123,9 @@ that moment. It is a snapshot for reading, not a session to replay. It holds:
   holds NextZXOS, ROM or DivMMC firmware from the card, so the report carries the
   machine state but none of its memory, and the manifest says why.
 
-A report never contains NextZXOS, ROM or any other distribution content, and no
-byte of the SD card. The card is named and identified by its SHA-256 only. The
+jnext never puts NextZXOS, ROM or any other distribution content in a report, and no
+byte of the SD card. The program file you loaded is yours, goes in as it is and is your
+responsibility. The card is named and identified by its SHA-256 only. The
 serial (UART) FIFOs and the SD buffers of the machine state are left out, because
 they can carry what the program or NextZXOS exchanged with the card or the
 network.

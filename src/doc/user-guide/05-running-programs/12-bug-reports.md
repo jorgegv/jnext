@@ -24,7 +24,7 @@ exits with status 1.
 ## What is in it
 
 - The JNEXT version, your operating system and the settings in use (the command line,
-  and the settings file in the windowed version), with the folders of your computer
+  settings file is not included yet), with the folders of your computer
   left out.
 - The machine, decoded: CPU registers, every NextREG with its name, the memory paging,
   the ULA, Layer 2, sprites, tilemap and Copper, the palettes, the interrupt, DivMMC
@@ -45,8 +45,9 @@ stack pointer).
 
 In every other session (anything with an SD card, which means NextZXOS, ROMs and
 DivMMC firmware sit in the memory) the report holds the machine's state and
-pictures but **none of its memory**, and says why. A report never contains NextZXOS,
-ROM or any other part of the distribution, in any form.
+pictures but **none of its memory**, and says why. JNEXT never puts NextZXOS, ROM or any
+other part of the distribution in a report; the program file you loaded is yours (see
+below).
 
 ## Privacy, and your responsibility
 
@@ -55,4 +56,5 @@ Your user name and every absolute path on your computer are replaced in the file
 attach anyway. The program file is yours and goes in as it is: JNEXT does not
 check it against anything, and you are responsible for what you attach.
 A file that you edited after loading the program is not included; the report records
-its SHA-256 instead.
+its SHA-256 instead. A `.jns` snapshot holds the machine's whole memory, so it is never
+included either: only its SHA-256 and size.

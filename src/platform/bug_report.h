@@ -85,6 +85,13 @@ std::string file_name(const std::string& program, const std::tm& local, int n = 
 bool resolve_path(const std::string& arg, const std::string& program, const std::tm& now,
                   std::string& out_path, std::string& why);
 
+/// True when the program file at `path` holds a jnext machine snapshot, which a report never
+/// carries: a `.jns` (jnext's own whole-machine snapshot, memory included), and a `.rzx`
+/// recording whose embedded snapshot is anything but a classic `.sna`/`.szx`/`.z80` (a jnext
+/// snapshot, or one that cannot be inspected). Classic snapshots, tapes and NEX files are the
+/// reporter's own program files and ship.
+bool holds_machine_snapshot(const std::string& path);
+
 /// `file_name()`'s program: the last program file loaded since RAM was last cleared.
 std::string program_name(const Emulator& emu);
 

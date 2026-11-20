@@ -17,13 +17,13 @@ member not listed there is never written. Member names follow the container's gr
 | Member | Content | Shipped |
 |---|---|---|
 | `manifest.json` | `format_version` (1), `created_utc`, `producer` (version, platform, OS, architecture, frontend, toolkit), `machine`, `memory` (`included`, or `withheld` with a code and a reason), `cards`, `programs`, `members`, `warnings` | always |
-| `settings.json` | the command line (paths reduced to `<path>/name`), the settings file as `section.key` to value (Qt frontend only, otherwise "not read by this frontend"), and the session switches | always |
+| `settings.json` | the command line (paths reduced to `<path>/name`), the settings file as `section.key` to value (no frontend reads it yet, so it reads "not read by this frontend"; the writer takes the map from its caller and blanks it), and the session switches | always |
 | `machine.json` | registers, the 256 NextREGs with names, the paging map, video (raster, ULA, clip windows, 128 sprites, Copper state, eight palettes), interrupts, DivMMC, Multiface, audio | always; the Copper program only with memory |
 | `state/<subsystem>.json` | the `.jns` per-subsystem state, filtered by key class (below) | always, filtered |
 | `screen/composite.png`, `screen/<view>.png` | the picture, and each of the seven layer views | always |
 | `log.txt` | the last 500 info-and-above log lines, redacted | always |
 | `debugger.json` | run state, PC symbol and source, breakpoints, call stack, the last 256 trace entries | always; opcode bytes, disassembly and stack bytes only with memory |
-| `program/<name>` | a program file loaded since memory was last cleared, as it is now on disk | unless changed on disk since it was loaded, unreadable, or larger than 32 MiB (then its SHA-256 only) |
+| `program/<name>` | a program file loaded since memory was last cleared, as it is now on disk | unless it is a jnext snapshot (a `.jns`, or an `.rzx` whose embedded snapshot is not a classic one: code `snapshot`), changed on disk since it was loaded, unreadable, or larger than 32 MiB (then its SHA-256 and size only) |
 | `memory/ram.bin`, `cpu.bin`, `patterns.bin`, `cpu-disasm.txt` | every logical RAM page, the CPU's 64 KB view, sprite pattern RAM, a linear disassembly | only with memory |
 
 The writer describes the machine where it stands. It never advances to a frame
@@ -60,6 +60,8 @@ the code (`card-session`, `boot-rom-ran`, `state-restored`) and a reason.
 The program file is the reporter's own and always ships, whatever any card holds: jnext
 does not police it. A file edited on disk after it was loaded is not shipped as the one
 that ran: its SHA-256 and current size are in the manifest, its bytes are not.
+
+One kind of program file is never shipped: a jnext snapshot (`bug_report::holds_machine_snapshot()`). A `.jns` holds the whole memory, which after a NextZXOS boot is NextZXOS and DivMMC firmware, and an `.rzx` can carry one as its embedded snapshot. Its manifest entry is `included: false`, code `snapshot`, with SHA-256 and size. Classic `.sna`, `.szx` and `.z80` files are the reporter's own files like any other and ship.
 
 ## The state key classes
 
@@ -112,11 +114,11 @@ else is the file. A failed write logs an error and the loop owner exits 1.
 
 ## Tests
 
-`bug_report_test` (rows BR-01 to BR-28) builds reports in memory from a no-card session
+`bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows `bug-report-nosd-func` and
-`bug-report-card-func` run the real binary. The second one is the end-to-end proof of the
-rule: it extracts every firmware file of the run's card clone and `nextboot.rom` into its
+`bug-report-card-func` run the real binary. The second one is the end-to-end check of the
+rule, as far as a scan can see: it extracts every firmware file of the run's card clone and `nextboot.rom` into its
 scratch directory (removed with it, never kept) and fails if any 32-byte window of them
-occurs at any offset of any member of the report other than the program file, which is the reporter's own and ships as it is. `test/00regression/bug-report-check.py`
+occurs at any offset of any member, as raw bytes and as what the member decodes to (JSON hex strings, integer arrays and the integers of a `log()` array, and nested zips). The only member left out is the program, proved byte-equal to the NEX the row made, and only when it is the one program. The row first checks that NextZXOS really booted, then loads a `.jns` it saved after the boot and scans that report too. `test/00regression/bug-report-check.py`
 does the scan with the standard library only.

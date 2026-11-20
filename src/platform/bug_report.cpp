@@ -5,6 +5,7 @@
 #include "core/emulator.h"
 #include "core/host_platform.h"
 #include "core/log.h"
+#include "core/rzx.h"
 #include "core/screenshot.h"
 #include "core/sd_snapshot_identity.h"
 #include "core/sha256.h"
@@ -679,7 +680,12 @@ ProgramResult programs_json(const Emulator& emu, const Redactor& R)
             reason = "the file cannot be read now";
         } else {
             e["sha256"] = sha;
-            if (static_cast<uint64_t>(size) != pf.size ||
+            if (holds_machine_snapshot(pf.path)) {
+                // A jnext snapshot holds the machine's whole memory, which after a NextZXOS boot
+                // is NextZXOS and DivMMC firmware: jnext never packs that into a report.
+                code = "snapshot";
+                reason = "a jnext snapshot holds the machine's whole memory, which a report does not carry";
+            } else if (static_cast<uint64_t>(size) != pf.size ||
                 static_cast<int64_t>(mtime.time_since_epoch().count()) != pf.mtime) {
                 code = "changed-since-load";
                 reason = "the file on disk is not the one that was loaded (its size or time changed)";
@@ -1065,6 +1071,19 @@ bool resolve_path(const std::string& arg, const std::string& program, const std:
     }
     why = "no free file name in '" + arg + "'";
     return false;
+}
+
+bool holds_machine_snapshot(const std::string& path)
+{
+    const std::string ext = to_lower(fs::path(path).extension().string());
+    if (ext == ".jns") return true;
+    if (ext != ".rzx") return false;
+    RzxRecording rec;
+    if (!rzx::parse(path, rec)) return true;          // cannot be inspected: fail safe
+    if (rec.snapshot_data.empty()) return false;       // input only
+    if (rec.snapshot_ext != "sna" && rec.snapshot_ext != "szx" && rec.snapshot_ext != "z80") return true;
+    const auto& d = rec.snapshot_data;                 // a zip is a jnext snapshot whatever it is called
+    return d.size() >= 4 && d[0] == 'P' && d[1] == 'K' && d[2] == 3 && d[3] == 4;
 }
 
 std::string program_name(const Emulator& emu)

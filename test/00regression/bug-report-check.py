@@ -12,11 +12,14 @@
     --absent-key MEMBER PATH   the JSON member has no key at PATH (dots)
     --scan DIR             no 32-byte window of any file under DIR (windows taken every 32
                            bytes, periods of 4 or less excluded) occurs at any offset of any
-                           member except program/ (the reporter's own file): the hard rule,
-                           that a report carries no firmware
+                           member, as raw bytes and as what it decodes to (JSON hex strings and integer arrays, nested
+                           zips); the only member skipped is a program proved byte-equal to the row's
+                           own file with --equals, and only when it is the one program: the hard
+                           rule, that jnext puts no firmware in a report
 
 Prints one line per failed check and exits 1; exits 0 when every check passed.
 """
+import io
 import json
 import os
 import sys
@@ -63,9 +66,60 @@ def windows_of(directory):
     return wins, nfiles
 
 
+def small_ints(vals):
+    return [v for v in vals if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255]
+
+
+def json_views(obj, out):
+    """The bytes a JSON value stands for: hex strings, integer arrays, the integers of an array of objects."""
+    if isinstance(obj, str):
+        if len(obj) >= 2 and len(obj) % 2 == 0:
+            try:
+                out.append(bytes.fromhex(obj))
+            except ValueError:
+                pass
+    elif isinstance(obj, list):
+        if obj and len(small_ints(obj)) == len(obj) and all(isinstance(v, int) for v in obj):
+            out.append(bytes(obj))
+        if obj and all(isinstance(e, dict) for e in obj):
+            keys = []
+            for e in obj:
+                keys += [k for k in e if k not in keys]
+            for k in keys:   # one view per key: the values of a log() entry, in order
+                seq = small_ints([e[k] for e in obj if k in e])
+                if seq:
+                    out.append(bytes(seq))
+        for e in obj:
+            json_views(e, out)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            json_views(v, out)
+
+
+def views(name, data):
+    """Every byte string a member is: its raw bytes, its decoded JSON arrays, the members of a nested zip."""
+    yield name, data
+    if name.endswith(".json"):
+        try:
+            found = []
+            json_views(json.loads(data), found)
+        except ValueError:
+            found = []
+        for v in found:
+            yield name + " (decoded)", v
+    if data[:4] == b"PK\x03\x04":
+        try:
+            inner = zipfile.ZipFile(io.BytesIO(data))
+            for n in inner.namelist():
+                yield from views(name + "!" + n, inner.read(n))
+        except zipfile.BadZipFile:
+            pass
+
+
 def main():
     report, args = load(sys.argv)
     bad = []
+    proved = set()   # program members the row has proved equal to a file it made itself
     z = zipfile.ZipFile(report)
     names = z.namelist()
     members = {}
@@ -94,6 +148,8 @@ def main():
                 with open(args[i + 2], "rb") as f:
                     if member(args[i + 1]) != f.read():
                         bad.append("%s differs from %s" % (args[i + 1], args[i + 2]))
+                    else:
+                        proved.add(args[i + 1])
             i += 3
         elif a == "--forbid":
             text = args[i + 1].encode()
@@ -130,15 +186,19 @@ def main():
             if nfiles == 0 or not wins:
                 bad.append("--scan %s: no files to scan (the check would prove nothing)" % args[i + 1])
             hits = 0
+            try:
+                nprog = len(json.loads(member("manifest.json")).get("programs", []))
+            except ValueError:
+                nprog = -1
             for n in names:
-                if n.startswith("program/"):
-                    continue   # the reporter's own file, shipped as it is: not jnext's output
-                data = member(n)
-                for off in range(len(data) - WINDOW + 1):
-                    if data[off:off + WINDOW] in wins:
-                        hits += 1
-                        if hits <= 3:
-                            bad.append("%s offset %d holds 32 bytes of a file under %s" % (n, off, args[i + 1]))
+                if n in proved and nprog == 1:
+                    continue   # the one program, proved byte-equal to the row's own file: not jnext's output
+                for vn, data in views(n, member(n)):
+                    for off in range(len(data) - WINDOW + 1):
+                        if data[off:off + WINDOW] in wins:
+                            hits += 1
+                            if hits <= 3:
+                                bad.append("%s offset %d holds 32 bytes of a file under %s" % (vn, off, args[i + 1]))
             if hits:
                 bad.append("--scan %s: %d windows found" % (args[i + 1], hits))
             else:
