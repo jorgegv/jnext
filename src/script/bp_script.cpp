@@ -74,7 +74,39 @@ std::string one_line(const std::string& s) {
 
 // The rule body of a breakpoint spec ("on EVENT FILTER"), or "" with `why` set
 // when it has no faithful spelling.
-std::string rule_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& why) {
+std::string event_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& why) {
+    const bool io = s.kind == BpSpec::IoRead || s.kind == BpSpec::IoWrite;
+    const bool addressless = s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi;
+    if (s.mask && !io) {
+        why = "only an IO breakpoint has a port mask";
+        return "";
+    }
+    if (io) {
+        if (s.hi && *s.hi != s.addr) {
+            why = "an IO breakpoint has no address range";
+            return "";
+        }
+        // A mask that is not the address rule: the explicit `mask M value V` form.
+        if (s.mask && *s.mask != bp_port_mask_for(s.addr)) {
+            char b[48];
+            std::snprintf(b, sizeof b, " mask 0x%04X value 0x%04X", *s.mask, s.addr);
+            return std::string(s.kind == BpSpec::IoRead ? "on io_read" : "on io_write") + b;
+        }
+    } else if (s.hi && *s.hi != s.addr) {
+        if (addressless) {
+            why = "an Interrupt or NMI breakpoint has no address";
+            return "";
+        }
+        if (!s.file_line.empty() || s.space != dbg::MemSpace::cpu()) {
+            why = "a range cannot be tied to a memory or a source line";
+            return "";
+        }
+        char b[48];
+        std::snprintf(b, sizeof b, "0x%04X..0x%04X", s.addr, *s.hi);
+        const char* w = s.kind == BpSpec::Read ? "on read " : s.kind == BpSpec::Write ? "on write "
+                      : s.kind == BpSpec::ReadWrite ? "on read_write " : "on execute ";
+        return std::string(w) + b;
+    }
     switch (s.kind) {
         case BpSpec::Read:      return "on read " + hex_for(s);
         case BpSpec::Write:     return "on write " + hex_for(s);
@@ -123,6 +155,19 @@ std::string rule_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& why
     return "on execute @" + *name;
 }
 
+// The whole rule head: the event, then ` when TEXT` when the breakpoint has a condition, or "" with `why`.
+std::string rule_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& why) {
+    const std::string ev = event_for(s, dbg, why);
+    if (ev.empty()) return "";
+    if (s.condition.empty()) return ev;
+    const std::string problem = bp_condition_problem(s.kind, s.condition, dbg);
+    if (!problem.empty()) {
+        why = "its condition cannot be written faithfully: " + problem;
+        return "";
+    }
+    return ev + " when " + s.condition;
+}
+
 std::string where_of(const BpSpec& s) {
     if (!s.file_line.empty()) return one_line(s.file_line);
     return dbg::long_address(s.addr, s.space, dbg::AddressStyle::Friendly, false);
@@ -130,8 +175,53 @@ std::string where_of(const BpSpec& s) {
 
 }  // namespace
 
+uint16_t bp_effective_hi(const BpSpec& s) { return s.hi.value_or(s.addr); }
+uint16_t bp_effective_mask(const BpSpec& s) { return s.mask.value_or(bp_port_mask_for(s.addr)); }
+
+PayloadScope bp_scope(BpSpec::Kind k) {
+    EventSpec ev;
+    switch (k) {
+        case BpSpec::Execute:   ev.type = EventType::Execute; break;
+        case BpSpec::Read:      ev.type = EventType::Read; break;
+        case BpSpec::Write:     ev.type = EventType::Write; break;
+        case BpSpec::ReadWrite: ev.type = EventType::ReadWrite; break;
+        case BpSpec::IoRead:    ev.type = EventType::IoRead; break;
+        case BpSpec::IoWrite:   ev.type = EventType::IoWrite; break;
+        case BpSpec::Interrupt: ev.type = EventType::Interrupt; break;
+        case BpSpec::Nmi:       ev.type = EventType::Nmi; break;
+    }
+    return scope_of(ev);
+}
+
+std::string bp_condition_problem(BpSpec::Kind kind, const std::string& text, const dbg::Debugger& dbg) {
+    auto trim = [](const std::string& t) {
+        size_t b = 0, e = t.size();
+        while (b < e && static_cast<unsigned char>(t[b]) <= ' ') ++b;
+        while (e > b && static_cast<unsigned char>(t[e - 1]) <= ' ') --e;
+        return t.substr(b, e - b);
+    };
+    const std::string body = trim(text);
+    if (body.empty()) return "the condition is empty";
+    if (text.find('\n') != std::string::npos || text.find('\r') != std::string::npos)
+        return "write a breakpoint's condition on one line";
+    CompileOptions opts;
+    opts.symbols = symbols_of(dbg);
+    const CompiledPredicate c = compile_expr(body, bp_scope(kind), opts);
+    if (!c) return c.errors.empty() ? std::string("the condition is refused") : c.errors[0].message;
+    // The text must come back from the parser as itself: a `;`, `#` or `//` comment would swallow the
+    // ` do stop end` that follows it in the file, and a stray `do` / `end` would end the rule early.
+    static const char* const events[] = {"execute 0", "read 0", "write 0", "read_write 0", "io_read 0",
+                                         "io_write 0", "interrupt", "nmi"};
+    const ParseResult pr = parse_script(std::string("on ") + events[kind] + " when " + body + " do stop end\n");
+    if (!pr.ok() || pr.script.rules.size() != 1 || pr.script.rules[0].when_text != body ||
+        pr.script.rules[0].body.size() != 1)
+        return "the text does not read back as the same condition (a comment or a stray `do` / `end`)";
+    return "";
+}
+
 bool operator==(const BpSpec& a, const BpSpec& b) {
-    return a.kind == b.kind && a.addr == b.addr && a.space == b.space && a.file_line == b.file_line &&
+    return a.kind == b.kind && a.addr == b.addr && bp_effective_hi(a) == bp_effective_hi(b) &&
+           bp_effective_mask(a) == bp_effective_mask(b) && a.condition == b.condition && a.space == b.space && a.file_line == b.file_line &&
            a.enabled == b.enabled && a.count_only == b.count_only && same_locations(a.locations, b.locations);
 }
 
@@ -202,7 +292,6 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
             default: fail(out, ev.pos, not_a_bp("another kind of event")); return out;
         }
         if (r.once)  { fail(out, r.pos, not_a_bp("`once`")); return out; }
-        if (r.when)  { fail(out, r.when->pos, not_a_bp("`when`")); return out; }
         // An empty body counts the breakpoint's hits and never stops (GH #372).
         if (r.body.size() > 1 || (r.body.size() == 1 && r.body[0].kind != ActionKind::Stop)) {
             fail(out, r.body[0].pos, not_a_bp("the body is not empty or a lone `stop`"));
@@ -211,6 +300,12 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
         if (!r.body.empty() && r.body[0].s1) { fail(out, r.body[0].pos, not_a_bp("`stop` with a message")); return out; }
         s.count_only = r.body.empty();
         s.enabled = !r.disabled;
+        // A condition is the rule's own `when` text, one line, that the codec writes and reads back unchanged.
+        if (r.when) {
+            const std::string problem = bp_condition_problem(s.kind, r.when_text, dbg);
+            if (!problem.empty()) { fail(out, r.when->pos, problem); return out; }
+            s.condition = r.when_text;
+        }
         if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi) {
             out.specs.push_back(std::move(s));
             continue;
@@ -234,8 +329,39 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
             out.specs.push_back(std::move(s));
             continue;
         }
-        // `page`-only and `mask`/`value` filters have no `lo`, so `!ev.lo` refuses them too.
-        if (!ev.lo || ev.hi || ev.page_lo) {
+        const bool io = s.kind == BpSpec::IoRead || s.kind == BpSpec::IoWrite;
+        auto literal = [&](const ExprPtr& e, const char* what) {
+            if (e->kind != ExprKind::Int && e->kind != ExprKind::Symbol) {
+                fail(out, e->pos, not_a_bp(what));
+                return false;
+            }
+            if (e->value < 0 || e->value > 0xFFFF) {
+                fail(out, e->pos, "the port mask and value must be in 0..0xFFFF");
+                return false;
+            }
+            return true;
+        };
+        // `io_read mask M value V`: the explicit decode. The address rule's own mask is the plain form.
+        if (io && ev.mask) {
+            if (!literal(ev.mask, "the port mask is not a number or an @symbol") ||
+                !literal(ev.value, "the port value is not a number or an @symbol"))
+                return out;
+            const uint16_t m = static_cast<uint16_t>(ev.mask->value), v = static_cast<uint16_t>(ev.value->value);
+            if (v & ~m) {
+                fail(out, ev.value->pos, "the port value has bits outside the mask: it can never match");
+                return out;
+            }
+            if (m == 0xFFFF && v == 0) {
+                fail(out, ev.mask->pos, "a mask of 0xFFFF with value 0 is refused by the debugger");
+                return out;
+            }
+            s.addr = v;
+            if (m != bp_port_mask_for(v)) s.mask = m;
+            out.specs.push_back(std::move(s));
+            continue;
+        }
+        // `page`-only filters have no `lo`, so `!ev.lo` refuses them too.
+        if (!ev.lo || (io && ev.hi) || ev.page_lo) {
             fail(out, ev.pos, not_a_bp("the filter is not one address"));
             return out;
         }
@@ -248,6 +374,24 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
             return out;
         }
         s.addr = static_cast<uint16_t>(ev.lo->value);
+        // A range is always unqualified (cpu()), even `@a..@b`, as the engine registers it.
+        if (ev.hi) {
+            if (ev.hi->kind != ExprKind::Int && ev.hi->kind != ExprKind::Symbol) {
+                fail(out, ev.hi->pos, not_a_bp("the range end is not a number or an @symbol"));
+                return out;
+            }
+            if (ev.hi->value < 0 || ev.hi->value > 0xFFFF) {
+                fail(out, ev.hi->pos, "the address must be in 0..0xFFFF");
+                return out;
+            }
+            if (ev.hi->value < ev.lo->value) {
+                fail(out, ev.hi->pos, "address range ends below its start");
+                return out;
+            }
+            if (ev.hi->value != ev.lo->value) s.hi = static_cast<uint16_t>(ev.hi->value);
+            out.specs.push_back(std::move(s));
+            continue;
+        }
         // Only a lone `@name` on `execute` carries the symbol's own memory (as the engine does).
         if (s.kind == BpSpec::Execute && ev.lo->kind == ExprKind::Symbol) {
             const auto key = dbg.symbols().find_name(ev.lo->text);

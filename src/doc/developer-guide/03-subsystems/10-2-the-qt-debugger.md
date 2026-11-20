@@ -25,8 +25,9 @@ the default (`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
 **The breakpoints' owner** is a non-arming observer client, attached by
 `BreakpointModel` (`src/debugger/breakpoint_model.*`) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
-`Execute`, `Mem` and `Port` subscriptions, and the addressless `IntAck` and `Nmi`
-ones (the Interrupt and NMI types), with no condition and `once = false`. A
+`Execute`, `Mem` and `Port` subscriptions (a `lo..hi` range on the first two, a port `mask`/`value`), and the
+addressless `IntAck` and `Nmi` ones (the Interrupt and NMI types), with `once = false`, and a condition when
+the dialog gave one. A
 breakpoint stops: action `Stop` and no handler. A *count-only* one is action `Continue`
 plus a handler of the model that counts. READ, WRITE and READ_WRITE are one `Mem` subscription with an
 access mask. An I/O address `00`-`FF` is a low-byte match (`port_mask 0x00FF`);
@@ -54,6 +55,17 @@ with its subscription (Edit = a new id) and is not saved. The `(type, address, s
 API keeps meaning the plain breakpoint, and the gutters read plain members only, so a
 count-only breakpoint at an address is a separate row. `QBPX-15` pins the GUI's counts to
 the engine's `RuleView::hits` for the same rule.
+
+**A breakpoint's identity is its full spec** (`BpSpec`: kind, address, range end, space, port mask, condition,
+count-only). `add(const BpSpec&)` is idempotent on it, and a plain breakpoint and a conditional one at one address are
+two rows. The `(type, address, space)` API and the gutters mean the *plain* breakpoint (`plain_()`: one address, the
+address rule's mask, no condition). `extras_` (by id, own subscriptions only) holds what the backend cannot report:
+count-only, the condition text and the shared slot its predicate writes a run-time error to. `type_of()` types a
+subscription iff the dialog can make that exact one: another client's range or masked port is typed (so its Type and
+Address texts read as before) but stays read-only, and its condition or handler stays typeless. A condition is compiled in
+the kind's payload scope (`bp_scope()`, the checker's own `scope_of`) with `compile_expr`; the same
+`bp_condition_problem()` check the dialog and the codec use refuses a text that does not read back as itself. A
+run-time failure marks `hits_changed()` so the panel refreshes the Condition cell's tooltip.
 
 **Run to Next Interrupt** (Debug menu, the `run_to_interrupt` keymap action, unbound by
 default) is not a backend verb. `DebuggerManager::on_run_to_interrupt()` arms a

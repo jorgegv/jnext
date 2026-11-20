@@ -21,6 +21,7 @@ static constexpr int COL_TYPE    = 1;
 static constexpr int COL_ADDR    = 2;
 static constexpr int COL_SYMBOL  = 3;
 static constexpr int COL_HITS    = 4;   // GH #372: appended, columns 0-3 do not move
+static constexpr int COL_COND    = 5;
 
 BreakpointPanel::BreakpointPanel(QWidget* parent)
     : QWidget(parent)
@@ -77,19 +78,19 @@ BreakpointPanel::BreakpointPanel(QWidget* parent)
 
     // Table. Enabled first: it is a control, not data, and every debugger that
     // has one puts it in the leading column.
-    table_ = new QTableWidget(0, 5, this);
+    table_ = new QTableWidget(0, 6, this);
     table_->setHorizontalHeaderLabels(
-        {tr("On"), tr("Type"), tr("Address"), tr("Symbol / Source"), tr("Hits")});
+        {tr("On"), tr("Type"), tr("Address"), tr("Symbol / Source"), tr("Hits"), tr("Condition")});
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setAlternatingRowColors(true);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->horizontalHeader()->setStretchLastSection(false);
-    table_->horizontalHeader()->setSectionResizeMode(COL_SYMBOL, QHeaderView::Stretch);
+    table_->horizontalHeader()->setStretchLastSection(true);   // the Condition column
     table_->verticalHeader()->setVisible(false);
     table_->setColumnWidth(0, 32);
     table_->setColumnWidth(1, 90);
     table_->setColumnWidth(2, 95);   // room for a page qualifier: "$8000 @12"
+    table_->setColumnWidth(COL_SYMBOL, 140);
     table_->setColumnWidth(COL_HITS, 64);
 
     QFont mono("Monospace", 10);
@@ -209,6 +210,11 @@ void BreakpointPanel::refresh()
         table_->setItem(i, COL_SYMBOL, sym_item);
 
         table_->setItem(i, COL_HITS, new QTableWidgetItem());
+
+        // GH #372 - this GUI's condition, with the last run-time error as its tooltip; another client's
+        // conditional breakpoint is only marked (its text is not ours to show).
+        auto* cond_item = new QTableWidgetItem(e.own ? e.condition : e.conditional ? tr("(condition)") : QString());
+        table_->setItem(i, COL_COND, cond_item);
     }
 
     updating_ = false;
@@ -225,6 +231,11 @@ void BreakpointPanel::refresh_hits()
         if (!it) continue;
         it->setText(entries_[i].own ? QString::number(model_->hits(entries_[i])) : QString());
         it->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        // The condition's last run-time error rides on the same signal.
+        if (QTableWidgetItem* c = table_->item(i, COL_COND)) {
+            const QString err = model_->condition_error(entries_[i]);
+            c->setToolTip(err.isEmpty() ? QString() : tr("Last run-time error: %1").arg(err));
+        }
     }
     updating_ = was;
 }
@@ -285,6 +296,19 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
     addr_edit->setText(initial);
     form->addRow(tr("Address, symbol or file:line:"), addr_edit);
 
+    // GH #372 - a range end, an IO port mask and a condition, each optional.
+    auto* to_edit = new QLineEdit(&dlg);
+    to_edit->setObjectName(QStringLiteral("bp_dialog_to"));
+    to_edit->setPlaceholderText(tr("optional: end of the range"));
+    if (target.hi) to_edit->setText(QString::asprintf("%04X", *target.hi));
+    form->addRow(tr("To (optional):"), to_edit);
+
+    auto* mask_edit = new QLineEdit(&dlg);
+    mask_edit->setObjectName(QStringLiteral("bp_dialog_mask"));
+    mask_edit->setPlaceholderText(tr("optional, hex: empty = the address rule"));
+    if (target.mask) mask_edit->setText(QString::asprintf("%04X", *target.mask));
+    form->addRow(tr("Mask (optional):"), mask_edit);
+
     // The one thing a user cannot guess about the two IO types: what the
     // address means. Ports are decoded by address-line masking, so 00-FF is a
     // low-byte match and anything above is an exact 16-bit port (GH #222).
@@ -292,13 +316,22 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
         tr("IO Read/Write: 00-FF matches any port with that low byte\n"
            "(FE = the ULA); 0100 and up matches that exact port (243B)."), &dlg));
 
-    // Interrupt and NMI have no address: the field is off for them.
-    const auto sync_fields = [type_combo, addr_edit] {
+    // Interrupt and NMI have no address: the field is off for them. A range is for memory types, a mask
+    // for the two IO types.
+    const auto sync_fields = [type_combo, addr_edit, to_edit, mask_edit] {
         const int t = type_combo->currentIndex();
         addr_edit->setEnabled(t != BreakpointModel::Interrupt && t != BreakpointModel::Nmi);
+        to_edit->setEnabled(t <= BreakpointModel::ReadWrite);
+        mask_edit->setEnabled(t == BreakpointModel::IoRead || t == BreakpointModel::IoWrite);
     };
     connect(type_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg, sync_fields);
     sync_fields();
+
+    auto* cond_edit = new QLineEdit(&dlg);
+    cond_edit->setObjectName(QStringLiteral("bp_dialog_condition"));
+    cond_edit->setPlaceholderText(tr("optional, e.g. A == 5 and mem[0x9000] != 0"));
+    cond_edit->setText(target.condition);
+    form->addRow(tr("Condition (optional):"), cond_edit);
 
     // GH #372 - count the hits, never stop.
     auto* count_only = new QCheckBox(tr("Count hits only (don't stop)"), &dlg);
@@ -326,47 +359,110 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
     while (dlg.exec() == QDialog::Accepted) {
         const std::string text = addr_edit->text().trimmed().toStdString();
         const int type = type_combo->currentIndex();
+        // The optional fields, once the address is known. Returns why not ("" = fine) and fills `t`.
+        const auto finish = [&](BpTarget& t) -> QString {
+            t.count_only = count_only->isChecked();
+            t.condition  = cond_edit->text().trimmed();
+            const QString to_text   = to_edit->text().trimmed();
+            const QString mask_text = mask_edit->text().trimmed();
+            if (to_edit->isEnabled() && !to_text.isEmpty()) {
+                if (!t.source_line.isEmpty())
+                    return tr("A source line cannot have a range end: clear To.");
+                const auto hi = symbol_table_ ? symbol_table_->resolve_key(to_text.toStdString())
+                                              : SymbolTable().resolve_key(to_text.toStdString());
+                if (!hi) return tr("To is not an address or a symbol: %1").arg(to_text);
+                if (hi->addr < t.addr) return tr("To is below the address.");
+                if (hi->addr != t.addr) {
+                    t.hi    = hi->addr;
+                    t.space = jnext::dbg::MemSpace::cpu();   // a range is never qualified with a memory
+                }
+            }
+            if (mask_edit->isEnabled() && !mask_text.isEmpty()) {
+                QString digits = mask_text;
+                if (digits.startsWith(QLatin1Char('$'))) digits.remove(0, 1);
+                else if (digits.startsWith(QLatin1String("0x"), Qt::CaseInsensitive)) digits.remove(0, 2);
+                bool ok = false;
+                const uint mask = digits.toUInt(&ok, 16);
+                if (!ok || mask > 0xFFFF) return tr("The mask is not a hex number from 0000 to FFFF: %1").arg(mask_text);
+                if (t.addr & ~mask)
+                    return tr("The port value has bits outside the mask: it can never match.");
+                if (mask == 0xFFFF && t.addr == 0)
+                    return tr("A mask of FFFF with port 0000 is refused by the debugger.");
+                t.mask = static_cast<uint16_t>(mask);
+            }
+            if (!t.condition.isEmpty() && dbg_) {
+                const std::string why = jnext::script::bp_condition_problem(
+                    static_cast<jnext::script::BpSpec::Kind>(type), t.condition.toStdString(), *dbg_);
+                if (!why.empty()) return QString::fromStdString(why);
+            }
+            return QString();
+        };
+        BpTarget t;
         if (type == BreakpointModel::Interrupt || type == BreakpointModel::Nmi) {
-            target = BpTarget{0, jnext::dbg::MemSpace::cpu(), QString(), count_only->isChecked()};
-            type_index = type;
-            return true;
+            const QString why = finish(t);
+            if (why.isEmpty()) {
+                target = t;
+                type_index = type;
+                return true;
+            }
+            error->setText(why);
+            error->show();
+            continue;
         }
         // A number or a symbol first; then, for an Execute breakpoint, a source
         // line, which arms every place it compiled to, each tied to the memory
         // that supplies it.
+        SourceResolution src;
+        QString why;
         if (const auto resolved = symbol_table_ ? symbol_table_->resolve_key(text)
                                                 : SymbolTable().resolve_key(text)) {
             // A name keeps the memory it was assembled for on an Execute
             // breakpoint (as a source line does): it breaks only while that
             // memory supplies the code.
-            target = BpTarget{resolved->addr,
-                              resolved->space && type == BreakpointModel::Execute
-                                  ? *resolved->space
-                                  : jnext::dbg::MemSpace::cpu(),
-                              QString(), count_only->isChecked()};
+            t.addr  = resolved->addr;
+            t.space = resolved->space && type == BreakpointModel::Execute ? *resolved->space
+                                                                          : jnext::dbg::MemSpace::cpu();
+            why = finish(t);
+        } else {
+            if (dbg_) src = dbg_->source_map().resolve(text);
+            if (!src.starts.empty() && type == BreakpointModel::Execute) {
+                t.source_line = QString::fromStdString(text);
+                why = finish(t);
+            } else {
+                // A source line names an instruction, so only an Execute breakpoint
+                // can be set on one.
+                why = !src.starts.empty()
+                          ? tr("A source line can only be an Execute breakpoint. "
+                               "Use an address or a symbol for this type.")
+                          : !src.error.empty()
+                                ? QString::fromStdString(src.error)
+                                : tr("Not an address, symbol or source line: %1")
+                                      .arg(addr_edit->text().trimmed());
+            }
+        }
+        if (why.isEmpty()) {
+            target = t;
             type_index = type;
             return true;
         }
-        SourceResolution src;
-        if (dbg_) src = dbg_->source_map().resolve(text);
-        if (!src.starts.empty() && type == BreakpointModel::Execute) {
-            target = BpTarget{0, jnext::dbg::MemSpace::cpu(), QString::fromStdString(text),
-                              count_only->isChecked()};
-            type_index = type;
-            return true;
-        }
-        // A source line names an instruction, so only an Execute breakpoint
-        // can be set on one.
-        error->setText(!src.starts.empty()
-                           ? tr("A source line can only be an Execute breakpoint. "
-                                "Use an address or a symbol for this type.")
-                           : !src.error.empty()
-                                 ? QString::fromStdString(src.error)
-                                 : tr("Not an address, symbol or source line: %1")
-                                       .arg(addr_edit->text().trimmed()));
+        error->setText(why);
         error->show();
     }
     return false;
+}
+
+// The breakpoint a dialog result stands for (a source line goes through add_source_line instead).
+jnext::script::BpSpec BreakpointPanel::spec_of(int type_index, const BpTarget& t)
+{
+    jnext::script::BpSpec s;
+    s.kind       = static_cast<jnext::script::BpSpec::Kind>(type_index);
+    s.addr       = t.addr;
+    s.space      = t.space;
+    s.hi         = t.hi;
+    s.mask       = t.mask;
+    s.condition  = t.condition.toStdString();
+    s.count_only = t.count_only;
+    return s;
 }
 
 void BreakpointPanel::on_add()
@@ -381,14 +477,9 @@ void BreakpointPanel::on_add()
     // views — the gutter only for an Execute breakpoint, because a data
     // breakpoint changes nothing the gutter draws.
     if (!target.source_line.isEmpty()) {
-        model_->add_source_line(target.source_line, target.count_only);
+        model_->add_source_line(target.source_line, target.count_only, target.condition.toStdString());
     } else {
-        jnext::script::BpSpec s;
-        s.kind       = static_cast<jnext::script::BpSpec::Kind>(type_index);
-        s.addr       = target.addr;
-        s.space      = target.space;
-        s.count_only = target.count_only;
-        model_->add(s);
+        model_->add(spec_of(type_index, target));
     }
 }
 
@@ -402,6 +493,9 @@ void BreakpointPanel::on_edit()
     int type_index = old.type;
     BpTarget target;
     target.count_only = old.count_only;
+    if (old.hi != old.addr) target.hi = old.hi;
+    if (old.mask != jnext::script::bp_port_mask_for(old.addr)) target.mask = old.mask;
+    target.condition = old.condition;
 
     if (!show_bp_dialog(tr("Edit Breakpoint"), old.addr, old.space, type_index, target))
         return;
@@ -413,20 +507,16 @@ void BreakpointPanel::on_edit()
     // whose address the user corrects must come back still disabled. add()
     // always creates enabled, hence the explicit re-apply.
     if (!target.source_line.isEmpty()) {
-        const jnext::dbg::GroupId g = model_->add_source_line(target.source_line, target.count_only);
+        const jnext::dbg::GroupId g = model_->add_source_line(target.source_line, target.count_only,
+                                                              target.condition.toStdString());
         if (g == jnext::dbg::GROUP_NONE) return;
         if (!old.enabled)
             for (const auto& r : model_->rows())
                 if (r.group == g) { model_->set_enabled(r, false); break; }
     } else {
-        jnext::script::BpSpec s;
-        s.kind       = static_cast<jnext::script::BpSpec::Kind>(type_index);
-        s.addr       = target.addr;
-        s.space      = target.space;
-        s.count_only = target.count_only;
+        const jnext::script::BpSpec s = spec_of(type_index, target);
         model_->add(s);
-        const auto sp = s.kind == jnext::script::BpSpec::Execute ? s.space : jnext::dbg::MemSpace::cpu();
-        model_->set_enabled(type_index, target.addr, old.enabled, sp, target.count_only);
+        model_->set_enabled(s, old.enabled);
     }
     // Each of the mutations above notified; the last one left the table
     // showing the edited breakpoint. Nothing to repaint by hand.

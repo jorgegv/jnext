@@ -2,7 +2,11 @@
 #include "debugger/memory_text.h"
 
 #include <algorithm>
+#include <memory>
 #include <set>
+
+#include "core/log.h"
+#include "script/expr_compiler.h"
 
 using jnext::dbg::Access;
 using jnext::dbg::EventKind;
@@ -73,9 +77,11 @@ Subscription sub_for(int type, uint16_t addr, jnext::dbg::MemSpace space) {
 // something the Add dialog cannot express. Only such a subscription can be this
 // GUI's own editable row. `counted`: it is one of this GUI's count-only ones
 // (Continue plus a handler); any other handler is not the dialog's.
-int type_of(const SubscriptionInfo& si, bool counted) {
+int type_of(const SubscriptionInfo& si, bool counted, bool conditional) {
     const auto& f = si.filter;
-    if (si.has_condition || si.once ||
+    // A condition or a handler is the dialog's only when this GUI put it there (`conditional`, `counted`:
+    // its own extras); another client's is something the dialog cannot express.
+    if (si.has_condition != conditional || si.once ||
         si.has_handler != counted ||
         si.action != (counted ? jnext::dbg::Action::Continue : jnext::dbg::Action::Stop) ||
         !f.pages.empty() || f.source != jnext::dbg::EventSource::Any)
@@ -86,15 +92,16 @@ int type_of(const SubscriptionInfo& si, bool counted) {
     if (f.space != jnext::dbg::MemSpace::cpu() && si.kind != EventKind::Execute) return -1;
     switch (si.kind) {
         case EventKind::Execute:
-            return f.lo == f.hi ? BreakpointModel::Execute : -1;
+            // A range is always unqualified: a space-qualified one is not the dialog's.
+            return f.lo == f.hi || f.space == jnext::dbg::MemSpace::cpu() ? BreakpointModel::Execute : -1;
         case EventKind::Mem:
-            if (f.lo != f.hi) return -1;
             if (si.access == Access::Read)      return BreakpointModel::Read;
             if (si.access == Access::Write)     return BreakpointModel::Write;
             if (si.access == Access::ReadWrite) return BreakpointModel::ReadWrite;
             return -1;
         case EventKind::Port:
-            if (f.port_mask != bp_port_mask_for(f.port_value)) return -1;
+            // Any mask the value fits under (and the backend accepts): the dialog's Mask field.
+            if (f.port_value & ~f.port_mask) return -1;
             if (si.access == Access::Read)  return BreakpointModel::IoRead;
             if (si.access == Access::Write) return BreakpointModel::IoWrite;
             return -1;
@@ -168,7 +175,8 @@ void BreakpointModel::publish_() {
         r.id      = si.id;
         const auto ex = extras_.find(si.id);
         const bool counted = si.owner == client_ && ex != extras_.end() && ex->second.count_only;
-        r.type    = type_of(si, counted);
+        const bool conditional = si.owner == client_ && ex != extras_.end() && !ex->second.condition.empty();
+        r.type    = type_of(si, counted, conditional);
         r.enabled = si.enabled;
         r.live    = si.live;
         r.own     = si.owner == client_ && r.type >= 0;
@@ -176,8 +184,16 @@ void BreakpointModel::publish_() {
         const bool port = si.kind == EventKind::Port;
         const bool addressless = r.type == Interrupt || r.type == Nmi;
         r.addr = addressless ? 0 : port ? si.filter.port_value : si.filter.lo;
+        r.hi   = port || addressless ? r.addr : si.filter.hi;
+        r.mask = port ? si.filter.port_mask : bp_port_mask_for(r.addr);
+        r.conditional = si.has_condition;
+        if (r.own && conditional) {
+            r.condition = QString::fromStdString(ex->second.condition);
+        }
         if (si.kind == EventKind::Execute) r.space = si.filter.space;
-        if (r.own) members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live, si.group, r.count_only});
+        if (r.own)
+            members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live, si.group, r.count_only,
+                                     r.hi, r.mask, r.own && conditional ? ex->second.condition : std::string()});
         // E23-09 -- the members of one source breakpoint are ONE row: the
         // lowest address's, enabled only while every location is, live while
         // any is.
@@ -202,7 +218,14 @@ void BreakpointModel::publish_() {
         if (r.type >= 0) {
             r.type_text = QString::fromLatin1(bp_kind_name(static_cast<BpSpec::Kind>(r.type)));
             if (r.count_only) r.type_text += QStringLiteral(" (count only)");
-            if (!addressless)
+            // The same texts another client's range or masked port had before the dialog could make
+            // one: `$8000-$80FF`, `$00FE/FFFF`.
+            if (addressless) {}
+            else if (port && r.mask != bp_port_mask_for(r.addr))
+                r.addr_text = QString::asprintf("$%04X/%04X", r.addr, r.mask);
+            else if (r.hi != r.addr)
+                r.addr_text = QString::asprintf("$%04X-$%04X", r.addr, r.hi);
+            else
                 r.addr_text = address_text(r.addr, r.space, style_, memtext::next_layout(&dbg_));
         } else {
             r.type_text = kind_text(si);
@@ -304,17 +327,43 @@ uint64_t BreakpointModel::hits(const Row& row) const {
     return n;
 }
 
+QString BreakpointModel::condition_error(const Row& row) const {
+    if (!row.own || row.condition.isEmpty()) return QString();
+    for (const Member& m : members_) {
+        if (row.group != jnext::dbg::GROUP_NONE ? m.group != row.group : m.id != row.id) continue;
+        const auto x = extras_.find(m.id);
+        if (x != extras_.end() && x->second.error && !x->second.error->empty())
+            return QString::fromStdString(*x->second.error);
+    }
+    return QString();
+}
+
 void BreakpointModel::reset_hits() {
     hits_.clear();
     hits_dirty_ = false;
     emit hits_changed();
 }
 
+// The (type, address, space) API means the PLAIN breakpoint: one address, the address rule's port mask, no
+// condition. A range, a masked port or a conditional one at the same address is another breakpoint.
+bool BreakpointModel::plain_(const Member& m) {
+    return m.hi == m.addr && m.mask == bp_port_mask_for(m.addr) && m.condition.empty();
+}
+
 const BreakpointModel::Member* BreakpointModel::find_own_(int type, uint16_t addr,
                                                           jnext::dbg::MemSpace space,
                                                           bool count_only) const {
     for (const Member& m : members_)
-        if (m.type == type && m.addr == addr && m.space == space && m.count_only == count_only) return &m;
+        if (m.type == type && m.addr == addr && m.space == space && m.count_only == count_only && plain_(m)) return &m;
+    return nullptr;
+}
+
+// The full-spec identity: kind, address, range end, space, mask, condition and count-only.
+const BreakpointModel::Member* BreakpointModel::find_spec_(const BpSpec& s) const {
+    for (const Member& m : members_)
+        if (m.type == s.kind && m.addr == s.addr && m.hi == jnext::script::bp_effective_hi(s) && m.space == s.space &&
+            m.mask == jnext::script::bp_effective_mask(s) && m.condition == s.condition && m.count_only == s.count_only)
+            return &m;
     return nullptr;
 }
 
@@ -329,8 +378,35 @@ std::vector<jnext::dbg::EventId> BreakpointModel::group_ids_(jnext::dbg::GroupId
 // `Continue` plus this model's counting handler, exactly what the script engine
 // registers for `do end`; the handler cannot outlive the model, because the
 // destructor detaches the client, which removes its subscriptions (SES-01).
-jnext::dbg::Subscription BreakpointModel::sub_for_(const BpSpec& spec) {
+bool BreakpointModel::build_(const BpSpec& spec, Subscription& out, std::shared_ptr<std::string>& error,
+                             std::string* why) {
     Subscription s = sub_for(spec.kind, spec.addr, spec.space);
+    const bool io = spec.kind == BpSpec::IoRead || spec.kind == BpSpec::IoWrite;
+    // A range (never qualified with a memory) and a port mask that is not the address rule.
+    if (!io && spec.kind != BpSpec::Interrupt && spec.kind != BpSpec::Nmi && jnext::script::bp_effective_hi(spec) != spec.addr) {
+        s.filter.lo    = spec.addr;
+        s.filter.hi    = jnext::script::bp_effective_hi(spec);
+        s.filter.space = jnext::dbg::MemSpace::cpu();
+    }
+    if (io) s.filter.port_mask = jnext::script::bp_effective_mask(spec);
+    // A condition: compiled in the kind's payload scope, with the run-time failure kept for the panel.
+    if (!spec.condition.empty()) {
+        error = std::make_shared<std::string>();
+        jnext::script::CompileOptions opts;
+        opts.symbols = jnext::script::symbols_of(dbg_);
+        const std::shared_ptr<std::string> sink = error;
+        opts.on_runtime_error = [this, sink](const jnext::script::Diagnostic& d) {
+            *sink = d.message;
+            hits_dirty_ = true;   // tells the panel (hits_changed) to refresh the tooltip
+            Log::debugger()->warn("breakpoint condition: {}", d.to_string());
+        };
+        auto c = jnext::script::compile_expr(spec.condition, jnext::script::bp_scope(spec.kind), opts);
+        if (!c) {
+            if (why) *why = c.errors.empty() ? std::string("the condition is refused") : c.errors[0].to_string();
+            return false;
+        }
+        s.condition = c.predicate;
+    }
     if (spec.count_only) {
         s.action  = jnext::dbg::Action::Continue;
         s.handler = [this](const jnext::dbg::Event& e, jnext::dbg::Debugger&) {
@@ -339,7 +415,8 @@ jnext::dbg::Subscription BreakpointModel::sub_for_(const BpSpec& spec) {
             return jnext::dbg::Action::Continue;
         };
     }
-    return s;
+    out = std::move(s);
+    return true;
 }
 
 void BreakpointModel::add(int type, uint16_t addr, jnext::dbg::MemSpace space) {
@@ -351,25 +428,57 @@ void BreakpointModel::add(int type, uint16_t addr, jnext::dbg::MemSpace space) {
     add(s);
 }
 
-void BreakpointModel::add(const BpSpec& in) {
+void BreakpointModel::add(const BpSpec& in, std::string* error) {
     if (in.kind > BpSpec::Nmi) return;
-    BpSpec s = in;
-    if (s.kind != BpSpec::Execute) s.space = jnext::dbg::MemSpace::cpu();
-    if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi) s.addr = 0;
-    if (find_own_(s.kind, s.addr, s.space, s.count_only)) return;
-    const auto id = dbg_.subscribe(client_, sub_for_(s));
-    if (id && s.count_only) extras_[id.value].count_only = true;
+    BpSpec s = normalised_(in);
+    if (find_spec_(s)) return;
+    Subscription sub;
+    std::shared_ptr<std::string> err;
+    if (!build_(s, sub, err, error)) return;
+    const auto id = dbg_.subscribe(client_, sub);
+    if (id && (s.count_only || !s.condition.empty())) {
+        Extra& x    = extras_[id.value];
+        x.count_only = s.count_only;
+        x.condition  = s.condition;
+        x.error      = err;
+    }
     publish_();
 }
 
-jnext::dbg::GroupId BreakpointModel::add_source_line(const QString& file_line, bool count_only) {
+// What add() stores: the space is an Execute's alone, Interrupt / NMI have no address, a range or mask that
+// is the default is the default, and a condition is its trimmed text.
+BpSpec BreakpointModel::normalised_(BpSpec s) {
+    if (s.kind != BpSpec::Execute) s.space = jnext::dbg::MemSpace::cpu();
+    if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi) { s.addr = 0; s.hi.reset(); s.mask.reset(); }
+    if (s.hi && *s.hi == s.addr) s.hi.reset();
+    if (s.hi) s.space = jnext::dbg::MemSpace::cpu();
+    if (s.mask && *s.mask == bp_port_mask_for(s.addr)) s.mask.reset();
+    size_t b = 0, e = s.condition.size();
+    while (b < e && static_cast<unsigned char>(s.condition[b]) <= ' ') ++b;
+    while (e > b && static_cast<unsigned char>(s.condition[e - 1]) <= ' ') --e;
+    s.condition = s.condition.substr(b, e - b);
+    return s;
+}
+
+jnext::dbg::GroupId BreakpointModel::add_source_line(const QString& file_line, bool count_only,
+                                                      const std::string& condition, std::string* error) {
     BpSpec like;
     like.count_only = count_only;
-    const auto g = dbg_.subscribe_source_line(client_, file_line.toStdString(), sub_for_(like));
+    like.condition  = condition;
+    like = normalised_(like);
+    Subscription sub;
+    std::shared_ptr<std::string> err;
+    if (!build_(like, sub, err, error)) return jnext::dbg::GROUP_NONE;
+    const auto g = dbg_.subscribe_source_line(client_, file_line.toStdString(), sub);
     if (!g) return jnext::dbg::GROUP_NONE;
     group_lines_[g.value] = file_line.toStdString();
-    if (count_only)
-        for (jnext::dbg::EventId id : group_ids_(g.value)) extras_[id].count_only = true;
+    if (count_only || !like.condition.empty())
+        for (jnext::dbg::EventId id : group_ids_(g.value)) {
+            Extra& x     = extras_[id];
+            x.count_only = count_only;
+            x.condition  = like.condition;
+            x.error      = err;
+        }
     publish_();
     return g.value;
 }
@@ -390,6 +499,13 @@ void BreakpointModel::remove(const Row& row) {
 void BreakpointModel::set_enabled(int type, uint16_t addr, bool enabled,
                                   jnext::dbg::MemSpace space, bool count_only) {
     const Member* m = find_own_(type, addr, space, count_only);
+    if (!m || m->enabled == enabled) return;
+    dbg_.set_enabled(client_, m->id, enabled);
+    publish_();
+}
+
+void BreakpointModel::set_enabled(const BpSpec& spec, bool enabled) {
+    const Member* m = find_spec_(normalised_(spec));
     if (!m || m->enabled == enabled) return;
     dbg_.set_enabled(client_, m->id, enabled);
     publish_();
@@ -419,6 +535,9 @@ std::vector<jnext::script::BpSpec> BreakpointModel::script_specs() const {
         s.space   = r.space;
         s.enabled = r.enabled;
         s.count_only = r.count_only;
+        if (r.hi != r.addr) s.hi = r.hi;
+        if (r.mask != bp_port_mask_for(r.addr)) s.mask = r.mask;
+        s.condition = r.condition.toStdString();
         if (r.group != jnext::dbg::GROUP_NONE) {
             const auto line = group_lines_.find(r.group);
             if (line != group_lines_.end()) s.file_line = line->second;
@@ -434,16 +553,16 @@ void BreakpointModel::add_specs(const std::vector<jnext::script::BpSpec>& specs)
     for (const jnext::script::BpSpec& s : specs) {
         if (s.file_line.empty()) {
             add(s);
-            // add() normalises the same way: the space is an Execute's alone, and
-            // Interrupt / NMI have no address.
-            set_enabled(s.kind, s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi ? 0 : s.addr, s.enabled,
-                        s.kind == BpSpec::Execute ? s.space : jnext::dbg::MemSpace::cpu(), s.count_only);
+            // The same normalisation add() applied finds the breakpoint again, by its full spec.
+            set_enabled(s, s.enabled);
             continue;
         }
         // add_source_line() is not idempotent: look for the same places first.
         const Row* same = nullptr;
         for (const Row& r : rows_) {
-            if (!r.own || r.group == jnext::dbg::GROUP_NONE || r.count_only != s.count_only) continue;
+            if (!r.own || r.group == jnext::dbg::GROUP_NONE || r.count_only != s.count_only ||
+                r.condition.toStdString() != normalised_(s).condition)
+                continue;
             std::vector<::SourceAddress> places;
             for (const Member& m : members_)
                 if (m.group == r.group) places.push_back({m.space, m.addr});
@@ -456,7 +575,7 @@ void BreakpointModel::add_specs(const std::vector<jnext::script::BpSpec>& specs)
             set_enabled(*same, s.enabled);
             continue;
         }
-        const jnext::dbg::GroupId g = add_source_line(QString::fromStdString(s.file_line), s.count_only);
+        const jnext::dbg::GroupId g = add_source_line(QString::fromStdString(s.file_line), s.count_only, s.condition);
         if (g == jnext::dbg::GROUP_NONE || s.enabled) continue;
         for (const Row& r : rows_)
             if (r.group == g) { set_enabled(r, false); break; }
@@ -489,7 +608,7 @@ bool BreakpointModel::pc_marked_live(uint16_t addr, jnext::dbg::MemSpace space) 
 std::vector<BreakpointModel::PcBreakpoint> BreakpointModel::pc_breakpoints() const {
     std::vector<PcBreakpoint> out;
     for (const Member& m : members_)
-        if (m.type == Execute && !m.count_only) out.push_back(PcBreakpoint{m.addr, m.space, m.live});
+        if (m.type == Execute && !m.count_only && plain_(m)) out.push_back(PcBreakpoint{m.addr, m.space, m.live});
     return out;
 }
 

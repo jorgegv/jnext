@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QTableWidget>
 
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -65,7 +66,13 @@ private:
         jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
         QString source_line;
         bool count_only = false;   ///< in: the row being edited; out: the dialog's choice
+        /// GH #372 - in: the row being edited; out: the dialog's choice. A range end (a range is never
+        /// qualified with a memory), an IO port mask, and a condition text ("" = none).
+        std::optional<uint16_t> hi;
+        std::optional<uint16_t> mask;
+        QString condition;
     };
+    static jnext::script::BpSpec spec_of(int type_index, const BpTarget& t);
     /// `addr` / `space` seed the text; `target.count_only` seeds the checkbox.
     bool show_bp_dialog(const QString& title, uint16_t addr, jnext::dbg::MemSpace space,
                         int& type_index, BpTarget& target);
