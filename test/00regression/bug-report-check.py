@@ -76,6 +76,23 @@ def small_ints(vals):
     return [v for v in vals if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255]
 
 
+def flat_ints(obj):
+    """The integers 0..255 of a nested array of integer arrays in order, or None if it is anything else."""
+    if isinstance(obj, bool):
+        return None
+    if isinstance(obj, int):
+        return [obj] if 0 <= obj <= 255 else None
+    if isinstance(obj, list) and obj:
+        out = []
+        for e in obj:
+            f = flat_ints(e)
+            if f is None:
+                return None
+            out += f
+        return out
+    return None
+
+
 def json_views(obj, out):
     """The bytes a JSON value stands for: hex strings, integer arrays, the integers of an array of objects."""
     if isinstance(obj, str):
@@ -87,6 +104,9 @@ def json_views(obj, out):
     elif isinstance(obj, list):
         if obj and len(small_ints(obj)) == len(obj) and all(isinstance(v, int) for v in obj):
             out.append(bytes(obj))
+        flat = flat_ints(obj)
+        if flat is not None and any(isinstance(e, list) for e in obj):
+            out.append(bytes(flat))   # arrays of integer arrays, concatenated: pieces under a window add up
         if obj and all(isinstance(e, dict) for e in obj):
             keys = []
             for e in obj:

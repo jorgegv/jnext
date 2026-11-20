@@ -23,7 +23,7 @@ exits with status 1.
 
 ## What is in it
 
-- The JNEXT version, your operating system and the settings in use (the command line,
+- The JNEXT version, your operating system and the settings in use (the command line; the
   settings file is not included yet), with the folders of your computer
   left out.
 - The machine, decoded: CPU registers, every NextREG with its name, the memory paging,

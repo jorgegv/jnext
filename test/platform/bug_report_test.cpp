@@ -40,6 +40,7 @@
 
 #include <chrono>
 #include <cstdarg>
+#include <exception>
 #include <cstdint>
 #include <cstdio>
 #include <algorithm>
@@ -310,6 +311,15 @@ bool small_int(const json& v, uint8_t& out) {
     return true;
 }
 
+// The integers 0..255 of a nested array of integer arrays, in order; false if it holds anything else.
+bool flat_ints(const json& j, std::vector<uint8_t>& out) {
+    uint8_t v;
+    if (j.is_number_integer()) { if (!small_int(j, v)) return false; out.push_back(v); return true; }
+    if (!j.is_array() || j.empty()) return false;
+    for (const json& e : j) if (!flat_ints(e, out)) return false;
+    return true;
+}
+
 void collect_json_bytes(const json& j, std::vector<std::vector<uint8_t>>& out) {
     if (j.is_string()) {
         const std::string t = j.get<std::string>();
@@ -330,6 +340,12 @@ void collect_json_bytes(const json& j, std::vector<std::vector<uint8_t>>& out) {
             } else all_objs = false;
         }
         if (all_ints) out.push_back(ints);
+        {   // arrays of integer arrays, concatenated: pieces under a window add up to a leak
+            std::vector<uint8_t> flat;
+            bool nested = false;
+            for (const json& e : j) if (e.is_array()) nested = true;
+            if (nested && flat_ints(j, flat)) out.push_back(flat);
+        }
         if (all_objs) for (auto& kv : per_key) out.push_back(kv.second);
         for (const json& e : j) collect_json_bytes(e, out);
     } else if (j.is_object()) {
@@ -399,6 +415,13 @@ int main() {
     Log::init();
     Log::parse_levels("info");
     g_tmp = jtp::make_temp_dir("jnext-bugreport-test-");
+    // A row that aborts (an uncaught exception) must not leave the scratch directory, which holds a
+    // 36 MB fake card: terminate removes it first.
+    std::set_terminate([] {
+        std::error_code e;
+        fs::remove_all(g_tmp, e);
+        std::abort();
+    });
     if (g_tmp.empty()) { std::printf("FATAL: no scratch directory\n"); return 1; }
 
     g_pat_bank5 = noise(0x400, 101);
@@ -547,8 +570,34 @@ int main() {
         bool no_mem_member = true;
         for (const std::string& n : r.names()) if (n.rfind("memory/", 0) == 0) no_mem_member = false;
         const size_t hits = r.ok ? count_windows_in_report(rom_windows, r) : 1;
-        check("BR-05", "card session: RAM withheld (card-session), no memory member, no window of the card's ROM files anywhere",
-              card_ok && in_sram > 0 && r.ok && !m["memory"]["included"].get<bool>() &&
+        // The scan must see a leak in every encoding the report uses, or its zero proves nothing: plant one
+        // ROM window as an integer list, as a list of 16-integer arrays, as hex text and inside a nested zip.
+        bool decoder_sees = true;
+        {
+            const auto rom = noise(0x4000, 11);   // 48.rom's bytes
+            std::vector<uint8_t> w(rom.begin() + 64, rom.begin() + 64 + 64);
+            json ints = json::array(), rows = json::array();
+            for (uint8_t b : w) ints.push_back(b);
+            for (size_t i = 0; i < w.size(); i += 16) { json r = json::array(); for (size_t k = 0; k < 16; ++k) r.push_back(w[i + k]); rows.push_back(r); }
+            std::string hex;
+            for (uint8_t b : w) hex += fmtf("%02x", b);
+            const std::unordered_set<std::string>& set = rom_windows;
+            auto seen = [&](const json& doc) {
+                const std::string t = doc.dump();
+                return count_windows_in_member(set, "x.json", std::vector<uint8_t>(t.begin(), t.end())) > 0;
+            };
+            decoder_sees = seen(json{{"a", ints}}) && seen(json{{"a", rows}}) && seen(json{{"a", hex}}) &&
+                           seen(json{{"a", json::array({json{{"line", 0}, {"value", ints[0]}}})}}) == false;   // one object: too short, must NOT match
+            jnext::zip::Writer zw;
+            std::string why;
+            const std::string t = json{{"a", rows}}.dump();
+            zw.add("inner.json", t, jnext::zip::Method::Deflate, why);
+            std::vector<uint8_t> zbytes;
+            zw.finish(zbytes, why);
+            decoder_sees = decoder_sees && count_windows_in_member(set, "nested.zip", zbytes) > 0;
+        }
+        check("BR-05", "card session: RAM withheld (card-session), no memory member, no window of the card's ROM files anywhere (and the scan sees each encoding)",
+              card_ok && in_sram > 0 && decoder_sees && r.ok && !m["memory"]["included"].get<bool>() &&
               m["memory"]["withheld"]["code"] == "card-session" && no_mem_member && hits == 0,
               fmtf("card=%d precondition_windows=%zu included=%d hits=%zu", card_ok, in_sram,
                   r.ok ? int(m["memory"]["included"].get<bool>()) : -1, hits));
@@ -1137,6 +1186,7 @@ int main() {
         const bool classic  = !bug_report::holds_machine_snapshot(rzx_file("classic.rzx", "sna", noise(2000, 1)));
         const bool jns_ext  =  bug_report::holds_machine_snapshot(rzx_file("jnsext.rzx", "jns", zipish));
         const bool zip_data =  bug_report::holds_machine_snapshot(rzx_file("zipdata.rzx", "sna", zipish));
+        const bool unknown_ext = bug_report::holds_machine_snapshot(rzx_file("slt.rzx", "slt", noise(2000, 3)));
         const bool no_snap  = !bug_report::holds_machine_snapshot(rzx_file("input.rzx", "", {}));
         const bool unparsable = bug_report::holds_machine_snapshot(garbage);
         const bool jns_path = bug_report::holds_machine_snapshot(tmp_path("anything.JNS"));
@@ -1144,9 +1194,9 @@ int main() {
                               !bug_report::holds_machine_snapshot("x.szx") && !bug_report::holds_machine_snapshot("x.z80") &&
                               !bug_report::holds_machine_snapshot("x.tap");
         check("BR-30", "snapshot holders: a .jns, and an .rzx with a non-classic, zip or unreadable snapshot; classic files ship",
-              classic && jns_ext && zip_data && no_snap && unparsable && jns_path && others,
-              fmtf("classic=%d jns_ext=%d zip=%d nosnap=%d garbage=%d jns=%d others=%d", classic, jns_ext, zip_data,
-                   no_snap, unparsable, jns_path, others));
+              classic && jns_ext && zip_data && unknown_ext && no_snap && unparsable && jns_path && others,
+              fmtf("classic=%d jns_ext=%d zip=%d unknown=%d nosnap=%d garbage=%d jns=%d others=%d", classic, jns_ext, zip_data,
+                   unknown_ext, no_snap, unparsable, jns_path, others));
     }
 
     // ---- BR-31 every loader notes its file; a classic snapshot ships --------------------

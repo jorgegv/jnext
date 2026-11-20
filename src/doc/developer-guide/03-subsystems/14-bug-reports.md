@@ -57,9 +57,11 @@ Every other session (a card, the classic machines) ships the machine state, the 
 the log and the debugger's state, but no memory. The manifest's `memory.withheld` has
 the code (`card-session`, `boot-rom-ran`, `state-restored`) and a reason.
 
-The program file is the reporter's own and always ships, whatever any card holds: jnext
-does not police it. A file edited on disk after it was loaded is not shipped as the one
-that ran: its SHA-256 and current size are in the manifest, its bytes are not.
+The program file is the reporter's own and ships whatever any card holds: jnext does not
+police it. Four things keep its bytes out, each recorded with the SHA-256 (and size) in
+the manifest and a code: it is a jnext snapshot (`snapshot`, below), it was edited on
+disk after it was loaded and is not the one that ran (`changed-since-load`), it cannot be
+read now (`unreadable`), or it is larger than a report member may be (`too-large`).
 
 One kind of program file is never shipped: a jnext snapshot (`bug_report::holds_machine_snapshot()`). A `.jns` holds the whole memory, which after a NextZXOS boot is NextZXOS and DivMMC firmware, and an `.rzx` can carry one as its embedded snapshot. Its manifest entry is `included: false`, code `snapshot`, with SHA-256 and size. Classic `.sna`, `.szx` and `.z80` files are the reporter's own files like any other and ship.
 
