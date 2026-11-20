@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3262,7 +3262,7 @@ update rather than on a stale image.
 covers, what it does not, and why the gate was declined.</p>
 <h2 id="packaging-and-version">Packaging and version<a class="headerlink" href="#packaging-and-version" title="Permanent link">&para;</a></h2>
 <p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>, <code>package-macos</code>,
-<code>package-web</code> and the five <code>package-win*</code> variants each build one distributable.
+<code>package-web</code> (and <code>pages-site</code>, the GitHub Pages demo site built from the web zip) and the five <code>package-win*</code> variants each build one distributable.
 <code>package-test</code> builds them all except macOS, Flatpak (the <code>flatpak</code> CI job builds
 that) and the browser zip (the <code>browser</code> leg builds and boots it) and then asserts their contents,
 while <code>package-contract-test</code> runs only the hermetic script contract suites.

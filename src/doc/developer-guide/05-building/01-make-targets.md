@@ -238,7 +238,7 @@ covers, what it does not, and why the gate was declined.
 ## Packaging and version
 
 `package-src`, `package-rpm`, `package-deb`, `package-flatpak`, `package-macos`,
-`package-web` and the five `package-win*` variants each build one distributable.
+`package-web` (and `pages-site`, the GitHub Pages demo site built from the web zip) and the five `package-win*` variants each build one distributable.
 `package-test` builds them all except macOS, Flatpak (the `flatpak` CI job builds
 that) and the browser zip (the `browser` leg builds and boots it) and then asserts their contents,
 while `package-contract-test` runs only the hermetic script contract suites.

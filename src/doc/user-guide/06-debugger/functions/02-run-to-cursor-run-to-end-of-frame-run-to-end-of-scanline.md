@@ -17,6 +17,14 @@ point, it targets the same position in the next frame.
 Both are on the toolbar and in the **Debug** menu, and both require the machine
 to be paused already.
 
-None of these three has a key out of the box, but all three can be given one —
+**Run to Next Interrupt** (in the **Debug** menu only, no toolbar button) resumes and stops at
+the entry of the next maskable interrupt: the first instruction of the interrupt routine, so
+`PC` is `$0038` in interrupt mode 1 (the 48K ROM's). It is the way to land in a game's frame handler. It needs the machine to be paused
+already and the interrupts enabled (`EI`), and it works with the **Breakpoints enabled** master
+switch off. It leaves nothing behind: any breakpoint you set stops it first, and the next
+**Run** does not stop at an interrupt. To stop at every interrupt, add an
+[Interrupt breakpoint](03-breakpoints-execute-read-write.md#interrupt-and-nmi-breakpoints).
+
+None of these four has a key out of the box, but all four can be given one —
 Run to Cursor then acts on the disassembly's current line from anywhere in the
 debugger window, or on the Source tab's cursor line while that tab has the keyboard focus. See [Changing the keys](09-changing-the-keys.md).

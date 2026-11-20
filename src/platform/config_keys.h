@@ -233,7 +233,7 @@ inline constexpr Key KEYS[] = {
       "Key combination of a debugger action (run, pause, step_into, step_over, step_out, "
       "step_back, frame_back, run_to_cursor, run_to_eof, run_to_eosl, trace_toggle, "
       "trace_export, source_step_into, source_step_over, source_step_out, source_step_back, "
-      "source_reverse_continue, follow, go_back, go_forward); none = unbound" },
+      "source_reverse_continue, follow, go_back, go_forward, run_to_interrupt); none = unbound" },
     { KeyId::SourceColourScheme, "source", "colour_scheme", Type::Word, 0, 0,
       "auto|light|dark|borland", nullptr, QT, true, Owner::AppConfig, nullptr,
       "Colour scheme of the debugger's Source tab: auto (light or dark, after the application), "

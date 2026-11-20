@@ -1841,8 +1841,8 @@ Debugger Keys tab: \f[I]ACTION\f[R] is \f[CR]run\f[R], \f[CR]pause\f[R],
 \f[CR]trace_export\f[R], \f[CR]source_step_into\f[R],
 \f[CR]source_step_over\f[R], \f[CR]source_step_out\f[R],
 \f[CR]source_step_back\f[R], \f[CR]source_reverse_continue\f[R],
-\f[CR]follow\f[R], \f[CR]go_back\f[R] or \f[CR]go_forward\f[R], and
-\f[CR]none\f[R] unbinds it.
+\f[CR]follow\f[R], \f[CR]go_back\f[R], \f[CR]go_forward\f[R] or
+\f[CR]run_to_interrupt\f[R], and \f[CR]none\f[R] unbinds it.
 A combination that is not legal there, or that another action already
 holds (unless the same command line frees it), is refused with exit
 status 1 before the window opens.
@@ -4218,12 +4218,20 @@ the player area before the click so the player is not black on load.
 The emulator replaces it when the visitor starts the player.
 Without it nothing is shown there.
 .TP
-\f[CR]file\f[R] \f[I]URL | {url} | {data, name}\f[R]
+\f[CR]file\f[R] \f[I]URL | {url} | {data, name} | {card}\f[R]
 \f[B]\-\-load\f[R].
 The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R],
 \f[CR].wav\f[R], a \f[CR].rzx\f[R] recording, or a \f[CR].jns\f[R],
 \f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] snapshot); without
 it the machine boots to the NextZXOS menu.
+\f[CR]{card: \(aq/PATH/x.nex\(aq}\f[R] runs a NEX that is on the SD
+card: its path lies inside one entry of \f[CR]card.dirs\f[R], the
+directory that holds it is copied out of the card with everything below
+it, and that directory is served to the program with
+\f[B]\-\-esxdos\-stub\f[R] (read\-only unless \f[CR]args\f[R] has
+\f[B]\-\-esxdos\-stub\-writable\f[R]).
+It cannot be used with card source \f[CR]\(aqnone\(aq\f[R], and
+\f[CR]load()\f[R] refuses it.
 .TP
 \f[CR]keepWrites\f[R] \f[I]boolean\f[R]
 \f[B]\-\-sdcard\-writes\f[R], with a file the page manages: what the
@@ -4288,6 +4296,11 @@ loop.
 \f[CR]reset(kind)\f[R] restarts the program (\f[CR]\(aqprogram\(aq\f[R],
 the default; with no program it powers on again), powers the machine on
 again (\f[CR]\(aqhard\(aq\f[R]) or resets it (\f[CR]\(aqsoft\(aq\f[R]).
+\f[CR]nmi()\f[R] presses the NMI button (the Multiface one, as F9 and
+the case button \(lqNMI\(rq), which opens NextZXOS\(cqs NMI Menu; it
+rejects, with the reason as the error message, when the machine is not
+running or the card source is \f[CR]\(aqnone\(aq\f[R] (no Multiface
+ROM).
 \f[CR]load(file)\f[R] loads another program while the machine runs.
 \f[CR]saveSnapshot()\f[R] resolves to the bytes of a \f[CR].jns\f[R]
 snapshot of the running machine (\f[B]\-\-snapshot\-compression\f[R]

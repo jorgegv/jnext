@@ -2,11 +2,20 @@
 
 ![Breakpoints panel](../../img/debugger-breakpoints.png)
 
-Every breakpoint in one list, sorted by address: an **On** checkbox, the type,
-the address and — with a MAP file loaded — the symbol at that address, or with
-a source map the source line. The Add dialog takes a symbol or, for an Execute
+Every breakpoint in one list, sorted by address: an **On** checkbox, the type
+(Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt or NMI), the address
+(empty for Interrupt and NMI, which have none) and — with a MAP file loaded — the symbol at
+that address, or with a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (`main.bas:120`); see
 [Breakpoints on a source line](../source-debugger/06-breakpoints-and-steps.md).
+The **Hits** column counts how many times each of your own breakpoints fired (another client's row
+shows none), and **Reset Hits** zeroes them all; a breakpoint made with *Count hits only* shows
+`(count only)` after its type and never stops the machine
+([counting hits](../functions/03-breakpoints-execute-read-write.md#counting-hits-instead-of-stopping)).
+The **Condition** column shows the condition of your own breakpoints (a tooltip carries the last run-time error
+of one that failed; another client's conditional breakpoint reads `(condition)`). An address range reads
+`$8000-$80FF` and a port with its own mask `$00FE/FFFF`
+([ranges, masks and conditions](../functions/03-breakpoints-execute-read-write.md#ranges-port-masks-and-conditions)).
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.
 **Breakpoints ▸ Save as Script…** keeps your own breakpoints in a file and
 **Load from Script…** brings them back
@@ -41,6 +50,8 @@ and edits only the debugger window's own breakpoints:
   script). The **Breakpoints enabled** master switch below is shared: unticking it suspends every
   owner's breakpoints.
 - **Data breakpoints** (Read, Write, ports) are not drawn in the gutters at all, whoever owns them.
+- **Count-only breakpoints, ranges and conditional breakpoints** are not drawn in the gutters either; the gutters
+  show and toggle plain breakpoints only, so a click beside one of them adds a plain one.
 
 ## Turning breakpoints off without losing them
 
