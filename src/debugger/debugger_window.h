@@ -267,6 +267,8 @@ private:
     /// The sizes a layout carries; only meaningful once the host has been laid out.
     void apply_dock_sizes();
     void reset_layout();
+    void place_floating(QDockWidget* d, const QRect& r);
+    void share_actions_with_docks();
     /// What the left dock area's panels still lack in width (GH #360); the group's shown dock in `shown`.
     int left_column_lacking(QDockWidget** shown) const;
     QDockWidget* shown_dock_of(QDockWidget* d) const;

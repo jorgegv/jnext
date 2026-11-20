@@ -175,7 +175,7 @@ void write_conf(const QString& dir, const char* layout, bool with_size = false)
     QDir().mkpath(dir);
     QSettings s(conf_path(dir), QSettings::IniFormat);
     s.setValue("debugger/layout", QString::fromLatin1(layout));
-    if (with_size) s.setValue("debugger/size", QStringList{"1100", "700"});
+    if (with_size) s.setValue("debugger/size", QStringList{"2400", "1200"});
     s.sync();
 }
 
@@ -258,13 +258,28 @@ std::string default_snap(const QString& dir)
 
 int main(int argc, char** argv)
 {
-    qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
     if (!cfg.isValid()) {
         std::printf("  FAIL: could not create a temporary config directory\n");
         std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
         return 1;
     }
+    // A screen with room (the debugger asks for more than the default 800x800 offscreen one gives),
+    // described through the offscreen plugin's configfile, as window_grow_test does. A saved panel size
+    // can then be read back exactly, and QDOCK-10's x=5000 is still off every screen.
+    const QString qpa_config = cfg.path() + QStringLiteral("/offscreen-screen.json");
+    {
+        QFile f(qpa_config);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            std::printf("  FAIL: could not write the QPA screen config\n");
+            std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+            return 1;
+        }
+        f.write("{\n  \"screens\": [\n    { \"name\": \"roomy\", \"x\": 0, \"y\": 0,\n"
+                "      \"width\": 3000, \"height\": 2200,\n"
+                "      \"logicalDpi\": 96, \"logicalBaseDpi\": 96, \"dpr\": 1 }\n  ]\n}\n");
+    }
+    qputenv("QT_QPA_PLATFORM", QStringLiteral("offscreen:configfile=%1").arg(qpa_config).toUtf8());
     qputenv("JNEXT_CONFIG_DIR", cfg.path().toUtf8());
     QApplication app(argc, argv);
     const QString dir = cfg.path();
@@ -358,10 +373,10 @@ int main(int argc, char** argv)
     // QDOCK-04
     {
         const char* text =
-            "v1 left v 420 tabs 0 *video sprites graphics copper nextreg audio script "
+            "v1 left v 780 tabs 0 *video sprites graphics copper nextreg audio script "
             "right v 0 tabs 0 *cpu mmu "
             "bottom h 0 tabs 0 *stack callstack tabs 0 *watches variables breakpoints tabs 0 *source "
-            "float memory 100 120 300 200 closed symbols";
+            "float memory 100 120 300 340 closed symbols";
         wipe(dir);
         write_conf(dir, text, /*with_size=*/true);
         Fixture fx;
@@ -370,7 +385,7 @@ int main(int argc, char** argv)
         if (!fx.ok || !host) why = "fixture";
         else {
             QDockWidget* mem = fx.dock("Memory");
-            if (!mem->isFloating() || mem->width() != 300 || mem->height() != 200 || mem->geometry().topLeft() != QPoint(100, 120))
+            if (!mem->isFloating() || mem->width() != 300 || mem->height() != 340 || mem->geometry().topLeft() != QPoint(100, 120))
                 why += fmt("memory float=%d geom %d,%d %dx%d ", mem->isFloating(), mem->geometry().x(), mem->geometry().y(),
                            mem->width(), mem->height());
             QDockWidget* cpu = fx.dock("CPU Registers");
@@ -386,10 +401,10 @@ int main(int argc, char** argv)
             const QPoint psr = src->mapTo(host, QPoint(0, 0));
             if (!(pst.x() < pwa.x() && pwa.x() < psr.x())) why += "bottom-order ";
             QDockWidget* vid = fx.dock("Video");
-            if (host->dockWidgetArea(vid) != Qt::LeftDockWidgetArea || vid->width() != 420)
-                why += fmt("left width %d ", vid->width());
+            if (host->dockWidgetArea(vid) != Qt::LeftDockWidgetArea || vid->width() != 780)
+                why += fmt("left width %d (min hints %d %d) ", vid->width(), vid->widget()->minimumSizeHint().width(), vid->minimumSizeHint().width());
         }
-        check("QDOCK-04", "a literal layout in the file (left 420 wide, Memory floating at 100,120 300x200, MMU tabbed behind CPU, Symbols closed, Source a third bottom group) opens as written, read through Qt",
+        check("QDOCK-04", "a literal layout in the file (left 780 wide, Memory floating at 100,120 300x200, MMU tabbed behind CPU, Symbols closed, Source a third bottom group) opens as written, read through Qt",
               why.empty(), why);
     }
 
@@ -557,13 +572,17 @@ int main(int argc, char** argv)
             auto* edit = mem ? mem->widget()->findChild<QLineEdit*>() : nullptr;
             if (!over || !edit) why = "no action or edit";
             else {
+                fx.dbg->update_actions(true);   // the step commands are enabled while the machine is stopped
                 QObject::connect(over, &QAction::triggered, [&count]() { ++count; });
                 mem->activateWindow();
                 settle(100);
                 edit->setFocus();
-                QTest::keyClick(edit, Qt::Key_F7);
+                QTest::keyClick(mem->windowHandle(), Qt::Key_F7);
                 settle(100);
-                if (count != 1) why = fmt("step over triggered %d times", count);
+                if (count != 1) why = fmt("step over triggered %d times; active window %s, focus %s, mem window %p, dbg %p",
+                                          count, QApplication::activeWindow() ? QApplication::activeWindow()->metaObject()->className() : "none",
+                                          QApplication::focusWidget() ? QApplication::focusWidget()->metaObject()->className() : "none",
+                                          (void*)mem->windowHandle(), (void*)fx.dbg->windowHandle());
             }
         }
         check("QDOCK-11", "with Memory floating and the keyboard in its address box, F7 (default Step Over) triggers the Step Over action once", why.empty(), why);

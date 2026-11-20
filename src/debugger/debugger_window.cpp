@@ -29,6 +29,7 @@
 #include "platform/config_keys.h"
 
 #include <algorithm>
+#include <functional>
 #include <cmath>
 #include <QCloseEvent>
 #include <QGuiApplication>
@@ -428,6 +429,30 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     // GH #1 — last, because it writes both the actions' shortcuts (created in
     // create_menus() above) and the toolbar captions (created just above).
     apply_keymap();
+    share_actions_with_docks();
+}
+
+// GH #377: a floating panel is a window of its own, and Qt's window-shortcut rule only looks one hop up
+// from it (to the dock host, not to this window), so the debugger's keys would die with the keyboard in a
+// floating panel (QDOCK-11). Every window command is therefore also an action of every dock: a window
+// shortcut then matches whichever of the two windows is active, and fires once.
+void DebuggerWindow::share_actions_with_docks() {
+    QList<QAction*> all;
+    auto add = [&all](QAction* a) {
+        if (a && !a->menu() && !a->isSeparator() && !qobject_cast<QDockWidget*>(a->parent()) && !all.contains(a))
+            all.push_back(a);
+    };
+    std::function<void(QMenu*)> walk = [&](QMenu* m) {
+        for (QAction* a : m->actions()) {
+            if (a->menu()) walk(a->menu()); else add(a);
+        }
+    };
+    for (QAction* top : menuBar()->actions())
+        if (top->menu()) walk(top->menu());
+    for (QAction* a : actions()) add(a);
+    for (QAction* a : script_key_actions_) add(a);
+    for (QDockWidget* d : docks_)
+        for (QAction* a : all) d->addAction(a);
 }
 
 void DebuggerWindow::set_reload_source(QAction* host) {
@@ -521,9 +546,10 @@ void DebuggerWindow::showEvent(QShowEvent* event) {
     QMainWindow::showEvent(event);
     shown_once_ = true;
     // GH #377: the floating panels that went away with the window come back with it.
-    for (auto it = parked_floats_.begin(); it != parked_floats_.end(); ++it)
-        it.key()->show();
+    const QHash<QDockWidget*, QRect> parked = parked_floats_;
     parked_floats_.clear();
+    for (auto it = parked.begin(); it != parked.end(); ++it)
+        place_floating(it.key(), it.value());
     if (initial_fit_done_)
         return;
     initial_fit_done_ = true;
@@ -1834,21 +1860,14 @@ void DebuggerWindow::apply_layout(const jnext::dock::Layout& in) {
     }
     for (QDockWidget* s : shown) s->raise();
 
-    const jnext::AttachRect work = work_area_of(this);
-    const int deco_h = title_bar_height(this);
     for (const Floating& f : l.floats) {
         QDockWidget* d = find(f.id);
         if (!d) continue;
         dock_host_->addDockWidget(qt_area(default_area_of(f.id)), d);
         d->setFloating(true);
-        // GH #114's contract: a panel saved on a monitor that is gone comes back reachable.
-        jnext::AttachRect screen = work;
-        for (const QScreen* sc : QGuiApplication::screens())
-            if (sc->availableGeometry().contains(QPoint(f.x, f.y))) screen = to_attach_rect(sc->availableGeometry());
-        const jnext::WindowSize sz = jnext::clamp_window_size_to_screen(f.w, f.h, screen, deco_h);
-        const jnext::AttachPlacement p = jnext::clamp_window_to_work_area(f.x, f.y, sz.w, sz.h, screen, deco_h);
-        d->setGeometry(p.reposition ? p.x : f.x, p.reposition ? p.y : f.y, sz.w, sz.h);
-        d->show();
+        d->setGeometry(f.x, f.y, f.w, f.h);
+        if (isVisible()) place_floating(d, QRect(f.x, f.y, f.w, f.h));
+        else parked_floats_.insert(d, QRect(f.x, f.y, f.w, f.h));   // a window of its own: shown with this one
     }
     for (const std::string& id : l.closed) {
         QDockWidget* d = find(id);
@@ -1898,6 +1917,25 @@ void DebuggerWindow::apply_dock_sizes() {
         if (any)
             dock_host_->resizeDocks(QList<QDockWidget*>(firsts.begin(), firsts.end()), sizes, along);
     }
+}
+
+// Show a floating panel with its client area at `r`, pulled fully inside the work area of the screen `r`
+// lands on (GH #114's contract: a panel saved on a monitor that is gone comes back reachable). The FRAME
+// is what has to fit, so the margins Qt measures around the client area once it is shown are counted.
+void DebuggerWindow::place_floating(QDockWidget* d, const QRect& r) {
+    jnext::AttachRect screen = work_area_of(this);
+    for (const QScreen* sc : QGuiApplication::screens())
+        if (sc->availableGeometry().contains(r.topLeft())) screen = to_attach_rect(sc->availableGeometry());
+    d->setGeometry(r);
+    d->show();
+    const QRect g = d->geometry();
+    const QRect fg = d->frameGeometry();
+    const int ml = g.x() - fg.x(), mt = g.y() - fg.y();
+    const int mw = fg.width() - g.width(), mh = fg.height() - g.height();
+    const jnext::WindowSize sz = jnext::clamp_window_size_to_screen(r.width() + mw, r.height() + mh, screen);
+    const jnext::AttachPlacement p = jnext::clamp_window_to_work_area(r.x() - ml, r.y() - mt, sz.w, sz.h, screen);
+    d->setGeometry((p.reposition ? p.x : r.x() - ml) + ml, (p.reposition ? p.y : r.y() - mt) + mt,
+                   sz.w - mw, sz.h - mh);
 }
 
 void DebuggerWindow::reset_layout() {
