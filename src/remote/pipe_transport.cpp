@@ -153,8 +153,8 @@ PipeResult PipeChannel::host_send(const std::uint8_t* data, std::size_t len) {
 PipeResult PipeChannel::host_close() {
     if (!st_->listening) return PipeResult::NoChannel;
     if (!st_->cur) return PipeResult::WrongState;
+    // The old session's unread output is unreachable from here on: take_output() reads `cur`.
     st_->cur->host_closed = true;
-    st_->cur->out.clear();
     st_->cur.reset();
     return PipeResult::Ok;
 }
