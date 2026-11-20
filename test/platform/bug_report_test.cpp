@@ -706,10 +706,15 @@ int main() {
 
     // ---- BR-16 the filter, by session -----------------------------------------
     {
-        auto keys_of = [&](const Report& r, bug_report::KeyClass c, bool want_present) {
+        // The oracle is the issue's rule, spelled out here and NOT read from the writer's table: card
+        // sectors and serial traffic never ship; guest-memory arrays ship only with RAM.
+        const std::vector<std::string> kNever = { "sdcard.cmd_buf", "sdcard.resp_buf", "sdcard.data_block",
+                                                  "uart.ch0_tx_fifo", "uart.ch0_rx_fifo", "uart.ch1_tx_fifo",
+                                                  "uart.ch1_rx_fifo" };
+        const std::vector<std::string> kMemory = { "copper.instructions", "membrane_stick.keymap" };
+        auto keys_of = [&](const Report& r, const std::vector<std::string>& keys, bool want_present) {
             std::string bad;
-            for (const std::string& k : bug_report::classified_keys()) {
-                if (bug_report::key_class(k.substr(0, k.find('.')), k.substr(k.find('.') + 1)) != c) continue;
+            for (const std::string& k : keys) {
                 const std::string sub = k.substr(0, k.find('.')), key = k.substr(k.find('.') + 1);
                 const json doc = r.js("state/" + sub + ".json");
                 const bool present = doc.is_object() && doc.contains(key);
@@ -717,15 +722,21 @@ int main() {
             }
             return bad;
         };
+        std::vector<std::string> state_keys;   // the register files: from the table, all must ship
+        for (const std::string& k : bug_report::classified_keys()) {
+            if (std::find(kNever.begin(), kNever.end(), k) == kNever.end() &&
+                std::find(kMemory.begin(), kMemory.end(), k) == kMemory.end())
+                state_keys.push_back(k);
+        }
         Session sc = card_session();
         Report rc = make_report(sc);
         Session sn = nocard_session();
         Report rn = make_report(sn);
-        const std::string card_mem = keys_of(rc, bug_report::KeyClass::Memory, false);
-        const std::string card_never = keys_of(rc, bug_report::KeyClass::Never, false);
-        const std::string card_state = keys_of(rc, bug_report::KeyClass::State, true);
-        const std::string nc_mem = keys_of(rn, bug_report::KeyClass::Memory, true);
-        const std::string nc_never = keys_of(rn, bug_report::KeyClass::Never, false);
+        const std::string card_mem = keys_of(rc, kMemory, false);
+        const std::string card_never = keys_of(rc, kNever, false);
+        const std::string card_state = keys_of(rc, state_keys, true);
+        const std::string nc_mem = keys_of(rn, kMemory, true);
+        const std::string nc_never = keys_of(rn, kNever, false);
         check("BR-16", "state documents: a card session drops Memory and Never keys, a no-card one keeps Memory, never Never",
               rc.ok && rn.ok && card_mem.empty() && card_never.empty() && card_state.empty() && nc_mem.empty() &&
               nc_never.empty(),
