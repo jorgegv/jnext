@@ -1571,6 +1571,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-graphics-tab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Graphics tab
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-memory-panels-tools" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3174,7 +3185,7 @@ work. A breakpoint change another client made arrives as
 <code>SubscriptionsChanged</code>; the model records it and the tick publishes it. <code>Reset</code> records a
 restart of the CPU panel's T-state count and draws that one label.</p>
 <h2 id="panels">Panels<a class="headerlink" href="#panels" title="Permanent link">&para;</a></h2>
-<p><code>DebuggerWindow::create_panels()</code> creates sixteen:</p>
+<p><code>DebuggerWindow::create_panels()</code> creates eighteen:</p>
 <table>
 <thead>
 <tr>
@@ -3232,6 +3243,11 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 <tr>
 <td>Sprites</td>
 <td><code>sprites()</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Graphics</td>
+<td><code>pattern_ram()</code>, <code>palette()</code>, <code>nextreg_peek()</code> (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), <code>peek(MemSpace::page())</code> of pages 0A/0B/0E, <code>active_ula_palette_bank()</code>, <code>palette_priority()</code> (the Palettes <code>Pri</code> column), <code>rgb333_to_argb()</code>; the decoders in <code>src/debug/gfx_decode.*</code></td>
 <td>—</td>
 </tr>
 <tr>
@@ -3351,18 +3367,18 @@ the framebuffer generation and the upload gate that stops a paused machine re-pr
 is in <a href="../02-architecture/03-a-frame-end-to-end.html">2.3</a>.</p>
 <p><strong>The window's opening size.</strong> A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (<code>DebuggerWindow::grow_default_size_to_natural()</code>,
-<code>debugger_window.cpp:528</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
+<code>debugger_window.cpp:529</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
 alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' <code>sizeHint()</code> lack, using the share of a widening the splitter really gave
 it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</code>; bounded by <code>kMaxInitialFitPasses</code> = 4
-(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:211</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:238</code>)). The frame, not the client area, must fit the screen
+(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:212</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:239</code>)). The frame, not the client area, must fit the screen
 (<code>jnext::clamp_window_size_to_screen</code>). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
 at most <code>kMaxFitEchoes</code> = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-(<code>resizeEvent()</code>, <code>debugger_window.cpp:510-521</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:499</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:547-552</code>), after which every size is the user's and the remembered sizes are
+(<code>resizeEvent()</code>, <code>debugger_window.cpp:511-522</code>); any other size is the user's and ends the fit
+(<code>end_fit_()</code>, <code>debugger_window.cpp:500</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
+pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:548-553</code>), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (<code>fit_passes_queued_</code>, <code>queue_fit_pass_()</code>), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's), <code>GR-08</code> (an earlier request landing while a pass is queued), <code>GR-09</code> (a user resize while the fit runs stands), <code>GR-10</code> (each late answer counts once: the 7th stands) and <code>GR-11</code> (a loop stalled past the grace window does not end the fit), <code>GR-12</code> (the bound holds on the pass's own path), <code>GR-13</code> and <code>GR-14</code> (the grace waits for the pass a re-ask, or a late answer, queued), in <code>debugger_window_grow_test</code>; <code>GR-09</code> to <code>GR-14</code> use a window no window manager sees.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the
@@ -3561,6 +3577,22 @@ the PC line is in view. The arrow and the <code>[&lt;- PC]</code> marker are pos
 <code>paintEvent()</code> but drawn after the comment, so the items before them keep their order;
 <code>line_transfer()</code> and <code>line_destination()</code> are the accessors, and <code>line_hint()</code> is
 unchanged.</p>
+<h2 id="the-graphics-tab">The Graphics tab<a class="headerlink" href="#the-graphics-tab" title="Permanent link">&para;</a></h2>
+<p>The Graphics tab (<code>GraphicsPanel</code>, <code>src/debugger/graphics_panel.*</code>) has three sub-tabs: <strong>Patterns</strong> (the
+64 8-bit or 128 4-bit sprite patterns of pattern RAM), <strong>Tiles</strong> (the tilemap's tile definitions) and
+<strong>Palettes</strong> (all eight banks, with <code>(active)</code> on the one each layer reads). It reads through the facade only
+and draws only while its tab is the current one (<code>render_count()</code> is the test seam). Format and source follow the
+live registers: the tile format, count and base come from NR 0x6B and NR 0x6F, and the transparency from NR 0x4B,
+NR 0x4C and NR 0x14; only the palette bank and offset are the user's. A pattern or tile is drawn untransformed. The
+tile bytes are read from the BRAM the tilemap fetches (pages 0A/0B for bank 5, 0E for bank 7), never from the
+CPU map.</p>
+<p>The Qt-free half is <code>src/debug/gfx_decode.*</code> (<code>jnext::dbg::gfx</code>, a sibling of <code>mem_tools.h</code>, not one of the frozen
+facade headers): <code>decode_pattern()</code> and <code>decode_tile()</code> return, per pixel, the palette index the layer looks up and
+whether the layer draws it, following <code>sprites.vhd</code> and <code>tilemap.vhd</code>, and <code>tile_byte_addr()</code> gives the tile's
+byte address (the 6-bit base add that wraps inside the bank, and the 8 KB wrap of bank 7). The panel applies the
+colour (<code>palette()</code> through <code>rgb333_to_argb()</code>) itself. <code>GfxAtlas</code> is the one widget both atlases use: its
+<code>image()</code> is the unscaled picture, with alpha 0 where a pixel is transparent, painted over the Video panel's
+checkerboard.</p>
 <h2 id="the-memory-panels-tools">The Memory panel's tools<a class="headerlink" href="#the-memory-panels-tools" title="Permanent link">&para;</a></h2>
 <p>Find, Save Block, Load Block and Fill Block live in the Memory panel's context menu
 (<code>MemoryPanel::fill_context_menu()</code>, reached by <code>contextMenuEvent()</code>: right-click, the Menu key,
@@ -3588,7 +3620,7 @@ controls), <code>debugger_panels_test</code> (each panel's displayed text), <cod
 <code>debugger_inspect_watchpoint_test</code>, <code>debugger_persistent_bp_test</code>,
 <code>debugger_keymap_test</code>, <code>debugger_menu_test</code>, <code>debugger_disasm_copy_test</code>,
 <code>debugger_quit_gate_test</code>, <code>debugger_variables_panel_test</code> (the Variables tab, <code>QVAR-*</code>, editing <code>QVARW-*</code>), and the window-geometry suites. The regression rows
-<code>qt-host-probe-func</code> and <code>qt-host-order-func</code> exercise <code>QtApp</code>'s hosting. The hint's decoder suite, <code>disasm_hint_test</code> (<code>DHINT-*</code>), is not Qt-gated; the panel's rows are <code>QDHINT-*</code> in <code>debugger_panels_test</code>, and <code>operand_reader()</code>'s are <code>OPRD-*</code> in <code>source_debug_test</code>. The Memory panel tools' helper suite, <code>mem_tools_test</code> (<code>MEMT-*</code>), is not Qt-gated either; the panel's rows are <code>QMPT-*</code> in <code>debugger_panels_test</code> and the window's <code>QMPW-*</code> in <code>debugger_verbs_test</code>.</p>
+<code>qt-host-probe-func</code> and <code>qt-host-order-func</code> exercise <code>QtApp</code>'s hosting. The hint's decoder suite, <code>disasm_hint_test</code> (<code>DHINT-*</code>), is not Qt-gated; the panel's rows are <code>QDHINT-*</code> in <code>debugger_panels_test</code>, and <code>operand_reader()</code>'s are <code>OPRD-*</code> in <code>source_debug_test</code>. The Memory panel tools' helper suite, <code>mem_tools_test</code> (<code>MEMT-*</code>), is not Qt-gated either; the panel's rows are <code>QMPT-*</code> in <code>debugger_panels_test</code> and the window's <code>QMPW-*</code> in <code>debugger_verbs_test</code>. The Graphics decoders' suite, <code>gfx_decode_test</code> (<code>GFXD-*</code>, VHDL as oracle), is not Qt-gated; the tab's rows are <code>QGFX-*</code> in <code>debugger_panels_test</code>.</p>
 
 
 
