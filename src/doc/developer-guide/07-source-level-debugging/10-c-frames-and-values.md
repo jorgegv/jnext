@@ -45,7 +45,7 @@ function that crosses a slot (`cross.c`, in the `*-cross` fixtures).
 ## The frames
 
 `Debugger::c_frames()` (`debugger_cframes.cpp:30`) returns the frames newest first. Frame 0 is where
-the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1249`) has its function (an index into
+the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1257`) has its function (an index into
 `variables()->functions()`, -1 for assembly), the `pc`, the source line and the base, with how it was found:
 
 - **Tracked.** With the tracker's frames (oldest first, `n` of them), frame `k` was entered by

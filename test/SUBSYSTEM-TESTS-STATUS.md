@@ -10,6 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Disassembly PC-line hint (GH #367) |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger memory find/block helper (GH #370) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger sprite-pattern and tile decoders (GH #371) |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |      370 |      370 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -98,12 +99,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Navigation History (GH #366) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Frame-deadline scheduler |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Fast Boot (GH #499, #544) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
+| fast_boot_test        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "fast_boot_test" to the label map in refresh-subsystem-status.sh. |
 | Frame-tick sequencer (wiring) |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host key minimum-hold latch |      182 |      182 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SdlApp tick (frame loop) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SdlApp tick (frame loop) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Browser frame gate and refusals |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Browser JavaScript API |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL Pointer Release (GH #365) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -170,7 +171,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | C value formatting (frames and values) |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (backend) |      536 |      536 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1592 |     1592 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1597 |     1597 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -186,7 +187,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Breakpoint file codec (GH #376) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZRCP remote debugger adapter (GH #280) |      231 |      231 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect rules (pure) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |      179 |      179 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |      177 |      177 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Mouse Release Gesture (GH #365) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -216,7 +217,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD-card/NextPi download dialog (GH #358) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (Apply) |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (Apply) |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -229,10 +230,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |      205 |      205 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Panels (GH #278) |      225 |      225 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17009**| **17009**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17040**| **17040**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
