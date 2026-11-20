@@ -265,6 +265,9 @@ releases. Then `src`,
 `flatpak-build.yml`), `web` (`make package-web` in a Fedora container: the browser
 zip, with the Emscripten SDK cache of the `test` job and no SD image, since the
 zip never holds one) `macos` and `macos-intel`.
+A public release also deploys the live demo: the `pages` job (after `publish`, same gate) calls the reusable
+`pages.yml`, which builds `make pages-site` and deploys it with `actions/deploy-pages` under the `github-pages`
+environment. `pages.yml` can also be dispatched by hand from `main` or a `v*` tag.
 Finally **`publish`** attaches everything to a GitHub Release, gated on
 `if: success() && needs.gate.outputs.publish == 'true'`.
 

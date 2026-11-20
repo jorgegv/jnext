@@ -4262,6 +4262,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#a-program-from-the-card" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A program from the card
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#the-stored-saves-in-detail" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4823,6 +4834,25 @@ what the distribution holds, its games or its programs, can ask for those direct
 <li>While it builds the card for <code>/GAMES</code> and <code>/APPS</code> the page's memory grows by about 21 MB.</li>
 <li>A page that changes its list leaves the card of the old list in the visitor's browser
   until the next JNEXT release.</li>
+</ul>
+<h3 id="a-program-from-the-card">A program from the card<a class="headerlink" href="#a-program-from-the-card" title="Permanent link">&para;</a></h3>
+<p>A page can run a NEX that the card holds, with the files next to it. Ask for its directory
+in <code>card.dirs</code> and name the NEX in <code>file</code>:</p>
+<pre><code class="language-js">jnext.mount(el, { card: { dirs: ['/GAMES'] }, file: { card: '/GAMES/Next/Game/game.nex' } });
+</code></pre>
+<ul>
+<li>The path is absolute, ends <code>.nex</code>, and lies inside one entry of <code>card.dirs</code>; capital letters
+  do not matter. Anything else is refused when the page starts, before any download.</li>
+<li>The directory that holds the NEX is copied, with everything below it, into the page's memory,
+  and the NEX is loaded from the copy. The program is served that directory, as a program on
+  a real Next reads its data files from its own folder. The directory is limited to 48 MiB.</li>
+<li>The files are read-only: a game that saves a score is told the write failed and carries on.
+  A page that wants the writes (kept in memory only) adds <code>args: ['--esxdos-stub-writable']</code>.</li>
+<li>NextZXOS is started first and the program loaded over it, so the program finds its ROMs.
+  <code>card.source</code> <code>'none'</code> cannot do this: it has no card.</li>
+<li>One card serves every page of a site that uses the same <code>card.dirs</code>, so a site with several
+  such programs downloads the distribution once.</li>
+<li>A NEX that is not on the card stops the player with <code>the card has no &lt;path&gt;</code>.</li>
 </ul>
 <h3 id="the-stored-saves-in-detail">The stored saves in detail<a class="headerlink" href="#the-stored-saves-in-detail" title="Permanent link">&para;</a></h3>
 <ul>

@@ -3,6 +3,8 @@
 JNEXT also runs in a browser tab: the same emulator, built for WebAssembly, loaded
 by a page you write (or by an itch.io upload).
 
+A live demo runs at <https://jorgegv.github.io/jnext/>.
+
 ## What you need
 
 - One script file, `jnext-VERSION.js`, with `jnext-VERSION.wasm` beside it.

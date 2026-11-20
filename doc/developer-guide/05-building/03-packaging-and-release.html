@@ -3141,6 +3141,14 @@ you read it; it is not a replacement for it.</p>
 <td>the packaging-script contract suites only — hermetic, about 4 s, no toolchain; it also runs <code>make web-package-test</code></td>
 </tr>
 <tr>
+<td><code>make pages-site</code></td>
+<td>the Pages demo site in <code>build/pages</code> from the web zip, guarded: no image, program or archive (<a href="06-the-browser-build.html">5.6</a>)</td>
+</tr>
+<tr>
+<td><code>make pages-site-test</code></td>
+<td>the contract suite of <code>pages-site.sh</code> and the Pages workflows (PSITE-01 to PSITE-07), hermetic; part of <code>package-contract-test</code></td>
+</tr>
+<tr>
 <td><code>make web-package-test</code></td>
 <td>the contract suite of <code>packaging/web/package-web.sh</code> (WEBPKG-01 to WEBPKG-50), on fake trees, hermetic</td>
 </tr>

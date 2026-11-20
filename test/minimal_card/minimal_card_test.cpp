@@ -11,6 +11,7 @@
 // The expected values come from the fixture's declared contents.
 // The row MCARD-17 (recipe 3 unchanged) lives in test/fat32_image/fat32_image_test.cpp.
 
+#include "core/card_extract.h"
 #include "core/fat32_image.h"
 #include "core/fatfs_diskio.h"
 #include "core/minimal_card.h"
@@ -30,6 +31,7 @@ extern "C" {
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -1363,6 +1365,177 @@ int main() {
                   r.err.find("at least") == std::string::npos && !exists(c2),
               r.err + " expect " + std::to_string(total));
         std::remove(c2.c_str());
+    }
+
+    // ---- GH #510: a program's directory copied out of the card (card_extract) -------------------------------------
+    // The card is the Builder's from the synthetic distribution, with /GAMES on it. G1 gets, besides a.nex (9000 bytes,
+    // over two 4 KiB clusters) and sub/b.bin, a long mixed-case name, an empty file and an empty directory named x.nex;
+    // g2 and CLASSIC are the siblings that must not be copied. The oracle is the fixture's declared contents.
+    {
+        FNode fxc = fixture_games();
+        auto kid = [](FNode& n, const char* name) -> FNode& {
+            for (FNode& k : n.kids) if (k.name == name) return k;
+            std::abort();
+        };
+        FNode& g1c = kid(kid(kid(fxc, "GAMES"), "NEXT"), "G1");
+        const std::vector<uint8_t> longdata = pattern(70, 77);
+        g1c.kids.push_back(file("Long Name Data File.txt", longdata, 0x20, 0x5A50, 0x9000));
+        g1c.kids.push_back(file("empty.dat", {}, 0x20, 0x5A51, 0x9000));
+        g1c.kids.push_back(dirn("dir.nex", 0x00, 0x5A52, 0x9000));
+        const std::vector<uint8_t> zip_c = make_zip(build_image(fxc).bytes);
+        const std::string cc = tmp_path("card-cp.img"), dest = tmp_path("cp-dest");
+        std::remove(cc.c_str());
+        const Run rc = build(minimal_card::Input::Zip, zip_c, cc, with_dirs({"/GAMES"}));
+        const bool built = rc.st == minimal_card::Status::Done;
+        auto slurp = [](const std::string& p) {
+            std::ifstream f(p, std::ios::binary);
+            return std::vector<uint8_t>(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        };
+        const std::string before = built ? sha_of(slurp(cc)) : "";
+        std::filesystem::remove_all(dest);
+        std::string out_nex, why;
+        const bool ok = built && card_extract::copy_program_dir(cc, "/games/next/g1/A.NEX", dest, out_nex, why);
+        std::string diff;
+        if (ok) {
+            std::map<std::string, std::vector<uint8_t>> want = {
+                {"a.nex", pattern(9000, 40)}, {"Long Name Data File.txt", longdata}, {"empty.dat", {}},
+                {"sub/b.bin", pattern(5000, 41)}, {"dir.nex/", {}}, {"sub/", {}}};
+            std::map<std::string, std::vector<uint8_t>> got;
+            for (const auto& e : std::filesystem::recursive_directory_iterator(dest)) {
+                std::string rel = std::filesystem::relative(e.path(), dest).generic_string();
+                if (e.is_directory()) got[rel + "/"] = {}; else got[rel] = slurp(e.path().string());
+            }
+            for (const auto& kv : want) { auto it = got.find(kv.first); if (it == got.end() || it->second != kv.second) diff += " bad:" + kv.first; }
+            for (const auto& kv : got) if (!want.count(kv.first)) diff += " extra:" + kv.first;
+        }
+        check("MCARD-CP-01", "copy_program_dir for /games/next/g1/A.NEX (another case than stored): dest holds exactly G1's subtree byte for byte (a.nex, the long mixed-case name, the empty file, the empty directory, sub/b.bin), out_nex is dest/a.nex; g2 and CLASSIC are not copied",
+              ok && out_nex == dest + "/a.nex" && diff.empty(), why + diff + (built ? "" : " card: " + rc.err));
+        const std::string after = built ? sha_of(slurp(cc)) : "x";
+        check("MCARD-CP-02", "the card's SHA-256 is the same after the copy: the card is only read",
+              built && !before.empty() && before == after, before + " / " + after);
+        std::filesystem::remove_all(dest);
+
+        // CP-03: refusals, each naming its path, and no dest left behind (an existing one untouched).
+        std::string bad;
+        auto refused = [&](const char* tag, const std::string& card_path, const std::string& nex, const std::string& token) {
+            std::filesystem::remove_all(dest);
+            std::string o, w;
+            const bool r = card_extract::copy_program_dir(card_path, nex, dest, o, w);
+            if (r || w.find(token) == std::string::npos || std::filesystem::exists(dest)) bad += std::string(" ") + tag + ":" + w;
+        };
+        refused("absent", cc, "/GAMES/NEXT/G1/NOPE.nex", "/GAMES/NEXT/G1/NOPE.nex");
+        refused("dir", cc, "/GAMES/NEXT/G1/dir.nex", "dir.nex");
+        refused("ext", cc, "/GAMES/NEXT/G1/sub/b.bin", "b.bin");
+        refused("rel", cc, "GAMES/NEXT/G1/a.nex", "GAMES/NEXT/G1/a.nex");
+        // A NEX that really is in the card's root (the boot file TBBLUE.FW renamed in place, on a copy of the card):
+        // without the refusal the whole root would be copied.
+        auto patch = [&](const std::string& path, const char* pat11, size_t off, const std::vector<uint8_t>& repl) {
+            std::vector<uint8_t> b = slurp(path);
+            const std::string needle(pat11, 11);
+            const auto it = std::search(b.begin(), b.end(), needle.begin(), needle.end());
+            if (it == b.end()) return false;
+            std::copy(repl.begin(), repl.end(), it + off);
+            std::ofstream o(path, std::ios::binary | std::ios::trunc);
+            o.write(reinterpret_cast<const char*>(b.data()), static_cast<std::streamsize>(b.size()));
+            return static_cast<bool>(o);
+        };
+        const std::string croot = tmp_path("card-cproot.img");
+        std::filesystem::copy_file(cc, croot, std::filesystem::copy_options::overwrite_existing);
+        if (!patch(croot, "TBBLUE  FW ", 8, {'N', 'E', 'X'})) bad += " root: TBBLUE.FW entry not found";
+        refused("root", croot, "/TBBLUE.NEX", "is in the card's root");
+        std::remove(croot.c_str());
+        const std::string zeros = tmp_path("zeros.img");
+        { std::ofstream z(zeros, std::ios::binary); std::vector<char> blk(1 << 20, 0); z.write(blk.data(), blk.size()); }
+        refused("notfat", zeros, "/GAMES/NEXT/G1/a.nex", zeros);
+        std::remove(zeros.c_str());
+        std::filesystem::create_directories(dest);
+        { std::ofstream m(dest + "/marker"); m << "x"; }
+        {
+            std::string o, w;
+            const bool r = card_extract::copy_program_dir(cc, "/GAMES/NEXT/G1/a.nex", dest, o, w);
+            if (r || w.find(dest) == std::string::npos || !exists(dest + "/marker")) bad += " exists:" + w;
+        }
+        // A failure in the middle of the copy: a chain of 34 nested directories, past the depth limit, found after
+        // a.nex and the other files of G1 were already written. Nothing is left behind.
+        {
+            FNode fxd = fixture_games();
+            FNode& g1d = kid(kid(kid(fxd, "GAMES"), "NEXT"), "G1");
+            FNode chain = dirn("d34", 0x00, 0x5A60, 0x9000);
+            chain.kids.push_back(file("z.txt", pattern(10, 78), 0x20, 0x5A61, 0x9000));
+            for (int i = 33; i >= 1; --i) {
+                FNode d = dirn("d" + std::to_string(i), 0x00, 0x5A60, 0x9000);
+                d.kids.push_back(std::move(chain));
+                chain = std::move(d);
+            }
+            g1d.kids.push_back(std::move(chain));
+            const std::string cd = tmp_path("card-cpdeep.img");
+            std::remove(cd.c_str());
+            const Run rd = build(minimal_card::Input::Zip, make_zip(build_image(fxd).bytes), cd, with_dirs({"/GAMES"}));
+            std::filesystem::remove_all(dest);
+            std::string o, w;
+            const bool r = rd.st == minimal_card::Status::Done && card_extract::copy_program_dir(cd, "/GAMES/NEXT/G1/a.nex", dest, o, w);
+            if (rd.st != minimal_card::Status::Done || r || w.find("nested more than") == std::string::npos || std::filesystem::exists(dest))
+                bad += " deep:" + w + rd.err;
+            std::remove(cd.c_str());
+        }
+        // The two bounds on the amount copied, each found before the copy is done and so with no destination left:
+        // a file whose directory entry declares more than 48 MiB (a short chain behind it: the entry is patched on a copy
+        // of the card, no 48 MiB fixture), and a tree of 66,049 entries, past the 65,536 cap.
+        {
+            FNode fxb = fixture_games();
+            FNode& g1b = kid(kid(kid(fxb, "GAMES"), "NEXT"), "G1");
+            g1b.kids.push_back(file("big.bin", pattern(100, 79), 0x20, 0x5A70, 0x9000));
+            const std::string cb = tmp_path("card-cpbig.img");
+            std::remove(cb.c_str());
+            const Run rb = build(minimal_card::Input::Zip, make_zip(build_image(fxb).bytes), cb, with_dirs({"/GAMES"}));
+            std::filesystem::remove_all(dest);
+            std::string o, w;
+            bool r = rb.st == minimal_card::Status::Done && patch(cb, "BIG     BIN", 28, {0x00, 0x00, 0x10, 0x03});   // 49 MiB
+            r = r && !card_extract::copy_program_dir(cb, "/GAMES/NEXT/G1/a.nex", dest, o, w);
+            if (!r || w.find("over 48 MiB") == std::string::npos || std::filesystem::exists(dest)) bad += " size48:" + w + rb.err;
+            std::remove(cb.c_str());
+
+            // The cap (4096 entries, files and directories together) and its exact boundary. The program directory G1 is
+            // made of p.nex, 16 parent directories and, below them, 4079 empty files (4096 entries in all) or 4080 (4097),
+            // or 4096 empty directories (4113 entries, no file but p.nex). Spread over 16 parents so that the Builder's
+            // FatFs writes stay quick.
+            auto cap_case = [&](const char* tag, int leaves, bool dirs_only, bool want_copy) {
+                FNode fx = fixture_games();
+                FNode& g1 = kid(kid(kid(fx, "GAMES"), "NEXT"), "G1");
+                g1.kids.clear();
+                g1.kids.push_back(file("p.nex", pattern(40, 80), 0x20, 0x5A74, 0x9000));
+                int left = leaves;
+                for (int d = 0; d < 16; ++d) {
+                    char dn[16];
+                    std::snprintf(dn, sizeof dn, "w%02d", d);
+                    FNode wd = dirn(dn, 0x00, 0x5A75, 0x9000);
+                    for (int i = 0; i < 256 && left > 0; ++i, --left) {
+                        char n[16];
+                        std::snprintf(n, sizeof n, dirs_only ? "e%03d" : "f%03d.dat", i);
+                        wd.kids.push_back(dirs_only ? dirn(n, 0x00, 0x5A76, 0x9000) : file(n, {}, 0x20, 0x5A77, 0x9000));
+                    }
+                    g1.kids.push_back(std::move(wd));
+                }
+                const std::string cn = tmp_path("card-cpcap.img");
+                std::remove(cn.c_str());
+                const Run rn = build(minimal_card::Input::Zip, make_zip(build_image(fx).bytes), cn, with_dirs({"/GAMES"}));
+                std::filesystem::remove_all(dest);
+                std::string w2, o2;
+                const bool copied = rn.st == minimal_card::Status::Done && card_extract::copy_program_dir(cn, "/GAMES/NEXT/G1/p.nex", dest, o2, w2);
+                const bool gone = !std::filesystem::exists(dest);
+                if (rn.st != minimal_card::Status::Done) bad += std::string(" ") + tag + ":card:" + rn.err;
+                else if (want_copy ? (!copied || gone) : (copied || w2.find("more than 4096 entries") == std::string::npos || !gone))
+                    bad += std::string(" ") + tag + ":" + w2;
+                std::remove(cn.c_str());
+            };
+            cap_case("boundary-ok", 4079, false, true);      // 1 + 16 + 4079 = 4096 entries: copied
+            cap_case("boundary-over", 4080, false, false);   // 4097: refused
+            cap_case("dirs-only", 4096, true, false);        // 1 + 16 + 4096 = 4113, directories only: refused
+        }
+        std::filesystem::remove_all(dest);
+        check("MCARD-CP-03", "copy_program_dir refuses a NEX that is not on the card, a directory named x.nex, a path not ending .nex, a relative path, a NEX that is in the card's root, a zero-filled image, a directory nested past the depth limit (a failure in the middle of the copy), a file declaring over 48 MiB, a program directory of exactly 4096 entries (copied) and of 4097 and of 4113 directories-only entries (refused, over the 4096 cap), and an existing dest (left untouched), each naming its path, with no dest left behind",
+              built && bad.empty(), bad);
+        std::remove(cc.c_str());
     }
 
     std::remove(card.c_str());
