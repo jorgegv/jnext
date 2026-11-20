@@ -232,6 +232,10 @@ struct Rule {
     EventSpec   event;
     bool        once = false;
     ExprPtr     when;         ///< null = no `when`
+    /// The source text of the `when` expression: from its first token to just before `do`, right-trimmed,
+    /// possibly over several lines (comments included). Only the Breakpoints panel's file codec reads it
+    /// (script/bp_script.h): the AST has no expression printer. Empty when there is no `when`.
+    std::string when_text;
     std::vector<Action> body;
 };
 
