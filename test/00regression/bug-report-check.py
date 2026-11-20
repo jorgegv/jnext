@@ -11,7 +11,7 @@
     --json MEMBER PATH VALUE   the same for any JSON member
     --absent-key MEMBER PATH   the JSON member has no key at PATH (dots)
     --scan DIR             no 32-byte window of any file under DIR (windows taken every 32
-                           bytes; periods of 4 or less and windows of fewer than 8 distinct values excluded) occurs at any offset of any
+                           bytes; periods of 4 or less, windows of fewer than 8 distinct values and counting sequences excluded) occurs at any offset of any
                            member, as raw bytes and as what it decodes to (JSON hex strings and integer arrays, nested
                            zips); the only member skipped is a program proved byte-equal to the row's
                            own file with --equals, and only when it is the one program: the hard
@@ -49,6 +49,8 @@ def is_fill(w):
     # padding, and register files legitimately equal one: NextZXOS writes registers from tables.
     if len(set(w)) < 8:
         return True
+    if len({(w[i + 1] - w[i]) % 256 for i in range(len(w) - 1)}) == 1:
+        return True   # a counting sequence: the register numbers of machine.json are one
     for period in range(1, 5):
         if all(w[i] == w[i + period] for i in range(len(w) - period)):
             return True

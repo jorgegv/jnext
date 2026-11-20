@@ -265,6 +265,11 @@ constexpr size_t kWindow = 32;
 bool is_fill_window(const uint8_t* p) {
     std::set<uint8_t> distinct(p, p + kWindow);
     if (distinct.size() < 8) return true;   // tables and padding: a register file can equal one
+    {   // a counting sequence: the register numbers of machine.json are one
+        std::set<uint8_t> steps;
+        for (size_t i = 0; i + 1 < kWindow; ++i) steps.insert(static_cast<uint8_t>(p[i + 1] - p[i]));
+        if (steps.size() == 1) return true;
+    }
     for (size_t period = 1; period <= 4; ++period) {
         bool same = true;
         for (size_t i = 0; i + period < kWindow; ++i)
