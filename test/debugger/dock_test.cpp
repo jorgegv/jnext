@@ -23,6 +23,7 @@
 #include "debugger/dock_layout.h"
 #include "debugger/graphics_panel.h"
 #include "debugger/memory_panel.h"
+#include "debugger/stack_panel.h"
 #include "debugger/watch_panel.h"
 #include "platform/config_keys.h"
 
