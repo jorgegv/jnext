@@ -1439,8 +1439,31 @@ int main() {
             const bool r = card_extract::copy_program_dir(cc, "/GAMES/NEXT/G1/a.nex", dest, o, w);
             if (r || w.find(dest) == std::string::npos || !exists(dest + "/marker")) bad += " exists:" + w;
         }
+        // A failure in the middle of the copy: a chain of 34 nested directories, past the depth limit, found after
+        // a.nex and the other files of G1 were already written. Nothing is left behind.
+        {
+            FNode fxd = fixture_games();
+            FNode& g1d = kid(kid(kid(fxd, "GAMES"), "NEXT"), "G1");
+            FNode chain = dirn("d34", 0x00, 0x5A60, 0x9000);
+            chain.kids.push_back(file("z.txt", pattern(10, 78), 0x20, 0x5A61, 0x9000));
+            for (int i = 33; i >= 1; --i) {
+                FNode d = dirn("d" + std::to_string(i), 0x00, 0x5A60, 0x9000);
+                d.kids.push_back(std::move(chain));
+                chain = std::move(d);
+            }
+            g1d.kids.push_back(std::move(chain));
+            const std::string cd = tmp_path("card-cpdeep.img");
+            std::remove(cd.c_str());
+            const Run rd = build(minimal_card::Input::Zip, make_zip(build_image(fxd).bytes), cd, with_dirs({"/GAMES"}));
+            std::filesystem::remove_all(dest);
+            std::string o, w;
+            const bool r = rd.st == minimal_card::Status::Done && card_extract::copy_program_dir(cd, "/GAMES/NEXT/G1/a.nex", dest, o, w);
+            if (rd.st != minimal_card::Status::Done || r || w.find("nested more than") == std::string::npos || std::filesystem::exists(dest))
+                bad += " deep:" + w + rd.err;
+            std::remove(cd.c_str());
+        }
         std::filesystem::remove_all(dest);
-        check("MCARD-CP-03", "copy_program_dir refuses a NEX that is not on the card, a directory named x.nex, a path not ending .nex, a relative path, a NEX in the card's root, a zero-filled image, and an existing dest (left untouched), each naming its path, with no dest left behind",
+        check("MCARD-CP-03", "copy_program_dir refuses a NEX that is not on the card, a directory named x.nex, a path not ending .nex, a relative path, a NEX in the card's root, a zero-filled image, a directory nested past the depth limit (a failure in the middle of the copy), and an existing dest (left untouched), each naming its path, with no dest left behind",
               built && bad.empty(), bad);
         std::remove(cc.c_str());
     }
