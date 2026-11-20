@@ -9,10 +9,15 @@
 //
 // data-file                           the mount() option file: the program to run
 // data-poster                         the mount() option poster: a picture shown before the click
+// data-card-file                      the mount() option file: {card: PATH}: a NEX on the SD card (it needs
+//                                     data-card-dirs covering its directory); its directory is served to it
+//                                     (not together with data-file)
 // data-card-source                    the mount() option card.source: auto (default), fetch, pick or none:
 //                                     how the player gets NextZXOS's SD card (user guide 8.4)
 // data-card-dirs                      the mount() option card.dirs: more of the distribution on the card,
 //                                     comma-separated absolute paths, e.g. /GAMES,/APPS (user guide 8.4)
+// data-nmi                           add the NMI button (Multiface: opens NextZXOS's NMI Menu); disabled
+//                                     with data-card-source="none", which has no Multiface ROM
 // data-width, data-height             the screen size in CSS pixels (640 x 512)
 // data-keep-writes                    the mount() option keepWrites: keep the program's saves across
 //                                     reloads (any value but "false"); el.jnextPlayer.resetCard() clears them
@@ -142,6 +147,10 @@
       else if (pl.state === 'running') pl.pause();
     });
     button('Reset', 'reset', function () { ui.player.reset().catch(function () {}); });
+    if (el.hasAttribute('data-nmi')) {
+      ui.nmiBtn = button('NMI', 'nmi', function () { ui.player.nmi().catch(function () {}); });
+      ui.nmiBtn.title = 'NMI button (F9)';
+    }
     ui.muteBtn = button('Mute', 'mute', function () { ui.player.setVolume(ui.volume === 0 ? 1 : 0); });
     ui.muteBtn.setAttribute('aria-pressed', 'false');
     if (frame.requestFullscreen) {
@@ -186,6 +195,11 @@
   // Mounts the player of one built widget.
   function run(ui) {
     var el = ui.el;
+    if (el.getAttribute('data-file') && el.getAttribute('data-card-file')) {
+      ui.say('error: give data-file or data-card-file, not both', true);
+      ui.disable();
+      return;
+    }
     var options = {
       width: ui.width,
       height: ui.height,
@@ -206,6 +220,7 @@
     if (cardDirs.length) options.card = Object.assign(options.card || {}, { dirs: cardDirs });
     if (el.getAttribute('data-poster')) options.poster = el.getAttribute('data-poster');
     if (el.getAttribute('data-file')) options.file = el.getAttribute('data-file');
+    if (el.getAttribute('data-card-file')) options.file = { card: el.getAttribute('data-card-file') };
     if (el.getAttribute('data-touch-keyboard')) options.touchKeyboard = el.getAttribute('data-touch-keyboard');
     if (el.hasAttribute('data-keep-writes') && el.getAttribute('data-keep-writes') !== 'false') options.keepWrites = true;
 
@@ -232,6 +247,8 @@
       el.jnextPlayer = pl;
       ui.bar.style.width = '0';
       for (var i = 0; i < ui.tools.children.length; i++) ui.tools.children[i].disabled = false;
+      // Card source none has no Multiface ROM: the NMI button stays off.
+      if (ui.nmiBtn && el.getAttribute('data-card-source') === 'none') ui.nmiBtn.disabled = true;
       ui.say('click the screen to start');
     }, function () { /* onError has shown it */ });
   }

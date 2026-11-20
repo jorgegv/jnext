@@ -214,7 +214,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test flatpak-prefetch packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web package-web web-package-test wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build wasm-function-size-check wasm-function-size-selftest regression-wasm
+       package-contract-test minimal-image-test flatpak-prefetch packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web package-web pages-site web-package-test pages-site-test wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build wasm-function-size-check wasm-function-size-selftest regression-wasm
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -720,9 +720,19 @@ package-web: wasm-web
 web-package-test:
 	@bash test/packaging/web-package-test.sh
 
+# Build the GitHub Pages demo site into build/pages from the web zip (guarded: no image, no program, no archive)
+pages-site: package-web
+	@# The site is the zip's files minus the example pages plus index.html. NEVER a NextZXOS image
+	@# or a game (copyrighted): packaging/web/pages-site.sh refuses both and verifies its own tree.
+	bash packaging/web/pages-site.sh build/wasm-core
+
+# Contract-test packaging/web/pages-site.sh and the Pages workflows (7 rows) on fake trees - hermetic, no emsdk
+pages-site-test:
+	@bash test/packaging/pages-site-test.sh
+
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
-wasm-browser-test: wasm-web package-web playwright sdl-release sdcard-image
-	@# BRW-01..34, WBI-PW-01..09, WEBAPI-01..31, WEBPKG-BR-01..07, WIDGET-01..17, BCARD-01..47 (the card flow, the poster, the stored form of the card, card.dirs, the wording of the pick path's refusals and card source none), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
+wasm-browser-test: wasm-web package-web pages-site playwright sdl-release sdcard-image
+	@# BRW-01..34, WBI-PW-01..09, WEBAPI-01..31, WEBPKG-BR-01..07, WIDGET-01..17, WEBNMI-01..04 (the NMI button), PAGES-01..02 (the Pages demo site served alone), BCARD-01..47 (the card flow, the poster, the stored form of the card, card.dirs, the wording of the pick path's refusals and card source none), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -2231,5 +2241,5 @@ minimal-image-test: unit-test-build
 	@bash test/minimal-card-test.sh
 
 # Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s
-package-contract-test: web-package-test
+package-contract-test: web-package-test pages-site-test
 	@bash test/packaging/packaging-test.sh --contracts-only

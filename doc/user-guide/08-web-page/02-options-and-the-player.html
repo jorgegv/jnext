@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.33</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.33</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4632,8 +4632,8 @@
 <tbody>
 <tr>
 <td><code>file</code></td>
-<td>URL, <code>{url}</code> or <code>{data, name}</code></td>
-<td>The program to run, as <code>--load</code>. Without it the machine boots to the NextZXOS menu.</td>
+<td>URL, <code>{url}</code>, <code>{data, name}</code> or <code>{card}</code></td>
+<td>The program to run, as <code>--load</code>. <code>{card: '/GAMES/Next/Game/game.nex'}</code> runs a NEX that is on the SD card, with its directory (see <a href="04-the-image-and-what-the-browser-keeps.html#a-program-from-the-card">8.4</a>). Without it the machine boots to the NextZXOS menu.</td>
 </tr>
 <tr>
 <td><code>width</code>, <code>height</code></td>
@@ -4721,7 +4721,11 @@
 </tr>
 <tr>
 <td><code>load(file)</code></td>
-<td>Load another program (same forms as <code>file</code>) while the machine runs. Resolves when it is in the machine.</td>
+<td>Load another program (same forms as <code>file</code>, except <code>{card}</code>: a program on the card is given to <code>mount()</code> as <code>file</code>, and <code>load()</code> rejects it) while the machine runs. Resolves when it is in the machine.</td>
+</tr>
+<tr>
+<td><code>nmi()</code></td>
+<td>Press the NMI button (the Multiface one, as F9): NextZXOS's NMI Menu opens. Returns a promise; it rejects when the machine is not running, and with card source <code>'none'</code> (no Multiface ROM), with the reason as the error message and nothing sent to <code>onError</code>.</td>
 </tr>
 <tr>
 <td><code>setVolume(v)</code></td>
@@ -4868,7 +4872,12 @@ the visitor has clicked and the player has its SD card (until then it is undefin
 </ul>
 <h3 id="player-members-in-detail">Player members in detail<a class="headerlink" href="#player-members-in-detail" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>startRzxRecording()</code> rejects when:<ul>
+<li>
+<p><code>load({card: ...})</code> rejects with <code>jnext: load(): a program on the card is given to mount() as file: {card}</code>: the program's directory is served from the start of the session, which a program loaded later cannot ask for.</p>
+</li>
+<li>
+<p><code>startRzxRecording()</code> rejects when:</p>
+<ul>
 <li>the machine is not running;</li>
 <li>the last recording has not been collected with <code>stopRzxRecording()</code> (one running,
   or ended by a <code>reset()</code> or a <code>load()</code>);</li>

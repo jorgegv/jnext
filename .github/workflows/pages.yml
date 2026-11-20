@@ -1,0 +1,69 @@
+name: Pages
+
+# The live demo site (https://jorgegv.github.io/jnext/): the browser build, the widget and one
+# index.html, made by `make pages-site` and deployed with actions/deploy-pages.
+#
+# Two entry points, one body:
+#   * workflow_call     - release.yml's `pages` job, after a PUBLIC release is published, so the
+#                         site always runs the code of the newest release, built from its tag.
+#   * workflow_dispatch - Actions -> "Pages" -> Run workflow, from main or a v* tag: the owner's
+#                         first deploy, and a redeploy without a release.
+#
+# NEVER a NextZXOS image, the distribution zip or a game (copyrighted; owner rule, CLAUDE.md):
+# packaging/web/pages-site.sh refuses them, and the artifact is build/pages only. The visitor's
+# browser downloads the distribution from specnext.com.
+#
+# The repository's Pages source must be "GitHub Actions" (Settings -> Pages) and the
+# `github-pages` environment limited to main and v* by the owner; the `if:` below is the early,
+# readable half of that rule.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: fedora:45
+    steps:
+      # The same list, checkout, safe.directory and emsdk cache as release.yml's `web` job; bump together.
+      - name: Install build dependencies
+        run: |
+          dnf install -y make cmake git python3 zip unzip findutils coreutils diffutils \
+            tar xz curl util-linux gawk grep sed
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Cache the Emscripten SDK   # same path + key as ci.yml; bump together
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/jnext/tools/emsdk-6.0.13
+          key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora45
+      - name: make pages-site
+        run: LANG=C make pages-site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/pages
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
