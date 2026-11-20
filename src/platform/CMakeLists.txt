@@ -26,11 +26,12 @@ find_package(SDL3 REQUIRED)
 # (libpng went with the screenshot writers to jnext_core — GH #276 B4.)
 target_link_libraries(jnext_platform PUBLIC ${JNEXT_SDL3_TARGET} spdlog::spdlog jnext_input jnext_core jnext_debug)
 # GH #12 — the debugger protocol servers the loop owners host (debug_servers.h).
-if(NOT EMSCRIPTEN)
+# GH #545: the browser build links it too (the page channel serves the protocols); only the
+# socket listener stays out of it, by __EMSCRIPTEN__ in debug_servers.cpp.
 target_link_libraries(jnext_platform PUBLIC jnext_remote)
-# GH #26 WP4 — the script host the loop owners run `--script` through.
+# GH #26 WP4 — the script library: the host the loop owners run `--script` through, and ZRCP's
+# expression compiler (the browser build uses only the latter).
 target_link_libraries(jnext_platform PUBLIC jnext_script)
-endif()
 target_include_directories(jnext_platform PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # web_api.cpp: the vendored nlohmann-json (third_party/nlohmann-json/nlohmann/json.hpp).
 target_include_directories(jnext_platform PRIVATE ${CMAKE_SOURCE_DIR})

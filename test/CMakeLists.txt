@@ -1763,16 +1763,28 @@ endif()
 # T's in-memory fake transport, on a real 48K / +3 / Next machine driven by
 # Debugger::pump(). Qt-free, so it is declared `gate: none` and runs in both
 # configurations. Links the emulator like remote_transport_test.
-if(NOT EMSCRIPTEN)
-    add_executable(dzrp_adapter_test remote/dzrp_adapter_test.cpp)
-    target_link_libraries(dzrp_adapter_test PRIVATE
-        jnext_remote
-        jnext_core jnext_cpu jnext_memory jnext_video
-        jnext_audio jnext_port jnext_peripheral jnext_input
-        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-    target_include_directories(dzrp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    add_test(NAME dzrp_adapter_tests COMMAND dzrp_adapter_test)
-endif()
+add_executable(dzrp_adapter_test remote/dzrp_adapter_test.cpp)
+target_link_libraries(dzrp_adapter_test PRIVATE
+    jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(dzrp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME dzrp_adapter_tests COMMAND dzrp_adapter_test)
+# GH #545 - the browser page's debug channel: remote::PipeChannel (the second esp::EspListener,
+# fed by the host) through the real Server, and DebugServers serving DZRP / ZRCP / GDB over it.
+# Plain C++ with no socket, so it runs in every configuration, WebAssembly under node included.
+add_executable(remote_pipe_test remote/remote_pipe_test.cpp)
+target_link_libraries(remote_pipe_test PRIVATE
+    jnext_platform jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(remote_pipe_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# DBGS-CH-02 reads ZEsarUX 12.0's welcome from the committed ZRCP fixture.
+target_compile_definitions(remote_pipe_test PRIVATE
+    JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt")
+add_test(NAME remote_pipe_tests COMMAND remote_pipe_test)
 # GH #26 WP1 (epic #276 package S) — the debugger DSL's lexer, parser, load-time
 # checks and the compile_expr / eval_expr library. Qt-free, so `gate: none`: it
 # runs in both configurations. The evaluation rows need a real Debugger over a
@@ -1858,42 +1870,38 @@ endif()
 # machine driven by Debugger::pump(). Qt-free, so it is declared `gate: none`
 # and runs in both configurations. Links the emulator like dzrp_adapter_test
 # (its GDB-SES rows run the DZRP server beside it on one backend).
-if(NOT EMSCRIPTEN)
-    add_executable(gdb_rsp_test remote/gdb_rsp_test.cpp)
-    target_link_libraries(gdb_rsp_test PRIVATE
-        jnext_remote
-        jnext_core jnext_cpu jnext_memory jnext_video
-        jnext_audio jnext_port jnext_peripheral jnext_input
-        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-    target_include_directories(gdb_rsp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    # GDB-MON-13 (GH #375) loads the committed sjasmplus SLD fixture; GDB-MON-14 (GH #424)
-    # a committed z88dk map.
-    target_compile_definitions(gdb_rsp_test PRIVATE
-        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
-        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
-    add_test(NAME gdb_rsp_tests COMMAND gdb_rsp_test)
-endif()
+add_executable(gdb_rsp_test remote/gdb_rsp_test.cpp)
+target_link_libraries(gdb_rsp_test PRIVATE
+    jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(gdb_rsp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# GDB-MON-13 (GH #375) loads the committed sjasmplus SLD fixture; GDB-MON-14 (GH #424)
+# a committed z88dk map.
+target_compile_definitions(gdb_rsp_test PRIVATE
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+add_test(NAME gdb_rsp_tests COMMAND gdb_rsp_test)
 
 # GH #280 (epic #276, package Z) — the ZRCP adapter (the ZEsarUX remote command
 # protocol) over T's in-memory fake transport, on a real 48K / Next machine
 # driven by Debugger::pump(). Qt-free, so it is declared `gate: none` and runs
 # in both configurations. Links the emulator like dzrp_adapter_test.
-if(NOT EMSCRIPTEN)
-    add_executable(zrcp_adapter_test remote/zrcp_adapter_test.cpp)
-    target_link_libraries(zrcp_adapter_test PRIVATE
-        jnext_remote
-        jnext_core jnext_cpu jnext_memory jnext_video
-        jnext_audio jnext_port jnext_peripheral jnext_input
-        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-    target_include_directories(zrcp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_include_directories(zrcp_adapter_test PRIVATE "${CMAKE_BINARY_DIR}/generated")
-    # ZRCP-FIX-* replay the committed fixture of ZEsarUX 12.0's recorded bytes (WP-6).
-    # ZRCP-CVAR-* (GH #436) read C variables of the committed z88dk fixtures.
-    target_compile_definitions(zrcp_adapter_test PRIVATE
-        JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt"
-        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
-    add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
-endif()
+add_executable(zrcp_adapter_test remote/zrcp_adapter_test.cpp)
+target_link_libraries(zrcp_adapter_test PRIVATE
+    jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(zrcp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(zrcp_adapter_test PRIVATE "${CMAKE_BINARY_DIR}/generated")
+# ZRCP-FIX-* replay the committed fixture of ZEsarUX 12.0's recorded bytes (WP-6).
+# ZRCP-CVAR-* (GH #436) read C variables of the committed z88dk fixtures.
+target_compile_definitions(zrcp_adapter_test PRIVATE
+    JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt"
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
 
 # OpenGL CRT display filter (doc/design/CRT-GL-FILTER.md) — the pure decision rules:
 # style numbers, the fullscreen placement rule, the ARGB->GL byte order. No Qt, no GL,

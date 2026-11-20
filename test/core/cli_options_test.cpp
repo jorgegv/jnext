@@ -159,6 +159,7 @@
 // exists BECAUSE of that exercise (it hung rather than failed).
 
 #include "core/cli_options.h"
+#include "platform/browser_page.h"
 #include "debug/debug_keymap.h"
 #include "peripheral/esp_host_policy.h"
 #include "platform/cli_delay.h"
@@ -1091,6 +1092,43 @@ int main() {
         check("CLI-TKB-01", "parse_touch_keyboard: auto/on/off give Auto/On/Off = 0/1/2; '', On, ON, AUTO, Auto, Off, OFF, yes, true, 1, 'auto ' "
                             "are refused and leave the output unchanged",
               good && nums && bad.empty(), bad);
+    }
+
+    // --- CLI-DCH-01..03: --debug-channel (GH #545), the browser page's debugger channel -----------
+    {
+        const cli::Option* o = cli::find("--debug-channel");
+        check("CLI-DCH-01", "--debug-channel is Documented with one value, and neither cli::browser_refusal nor "
+                            "browser_page::option_refusal refuses it (the page is where it works)",
+              o && o->doc == cli::Doc::Documented && o->arity == 1 &&
+                  !cli::browser_refusal(o->id) && !browser_page::option_refusal(o->id));
+    }
+    {
+        using cli::DebugProtocol;
+        DebugProtocol a = DebugProtocol::Gdb, b = DebugProtocol::Gdb, c = DebugProtocol::Dzrp;
+        const bool good = cli::parse_debug_protocol("dzrp", a) && cli::parse_debug_protocol("zrcp", b) &&
+                          cli::parse_debug_protocol("gdb", c);
+        const bool nums = static_cast<int>(a) == 0 && static_cast<int>(b) == 1 && static_cast<int>(c) == 2;
+        std::string bad;
+        for (const char* v : { "", "DZRP", "Dzrp", "dezog", "gdb ", "zrcp\n", "1" }) {
+            DebugProtocol keep = DebugProtocol::Zrcp;
+            if (cli::parse_debug_protocol(v, keep) || keep != DebugProtocol::Zrcp) bad += std::string(" [") + v + "]";
+        }
+        DebugProtocol keep = DebugProtocol::Zrcp;
+        if (cli::parse_debug_protocol(nullptr, keep) || keep != DebugProtocol::Zrcp) bad += " [nullptr]";
+        check("CLI-DCH-02", "parse_debug_protocol: dzrp/zrcp/gdb give 0/1/2; DZRP, Dzrp, '', dezog, 'gdb ', 'zrcp\\n', 1 "
+                            "and nullptr are refused and leave the output unchanged",
+              good && nums && bad.empty(), bad);
+    }
+    {
+        const char* why = cli::page_only_refusal(cli::OptId::DebugChannel);
+        const std::string w = why ? why : "";
+        bool ascii = true;
+        for (unsigned char ch : w) if (ch < 0x20 || ch > 0x7E) ascii = false;
+        std::vector<std::string> other;
+        for (const cli::Option& o : cli::OPTIONS)
+            if (o.id != cli::OptId::DebugChannel && cli::page_only_refusal(o.id)) other.push_back(o.name);
+        check("CLI-DCH-03", "page_only_refusal(DebugChannel) is non-empty ASCII naming --dzrp-port; every other option gives nullptr",
+              why && !w.empty() && ascii && w.find("--dzrp-port") != std::string::npos && other.empty(), join(other));
     }
 
     std::printf("\n====================================\n");
