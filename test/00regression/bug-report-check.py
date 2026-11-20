@@ -12,7 +12,8 @@
     --absent-key MEMBER PATH   the JSON member has no key at PATH (dots)
     --scan DIR             no 32-byte window of any file under DIR (windows taken every 32
                            bytes, periods of 4 or less excluded) occurs at any offset of any
-                           member: the hard rule, that a report carries no firmware
+                           member except program/ (the reporter's own file): the hard rule,
+                           that a report carries no firmware
 
 Prints one line per failed check and exits 1; exits 0 when every check passed.
 """
@@ -130,6 +131,8 @@ def main():
                 bad.append("--scan %s: no files to scan (the check would prove nothing)" % args[i + 1])
             hits = 0
             for n in names:
+                if n.startswith("program/"):
+                    continue   # the reporter's own file, shipped as it is: not jnext's output
                 data = member(n)
                 for off in range(len(data) - WINDOW + 1):
                     if data[off:off + WINDOW] in wins:

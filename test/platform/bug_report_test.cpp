@@ -601,9 +601,9 @@ int main() {
     // ---- BR-13 redaction ------------------------------------------------------
     {
         bug_report::RedactContext ctx;
-        ctx.home = "/home/zq7user";
+        ctx.home = "/export/zq7user";
         ctx.users = { "zq7user" };
-        const std::string a = bug_report::redact("loading /home/zq7user/x/game.nex now", ctx);
+        const std::string a = bug_report::redact("loading /export/zq7user/x/game.nex now", ctx);
         const std::string b = bug_report::redact("C:\\Users\\zq7user\\game.nex", ctx);
         const std::string c = bug_report::redact("\\\\srv\\share\\a.img", ctx);
         const std::string d = bug_report::redact("hello zq7user", ctx);
@@ -614,17 +614,17 @@ int main() {
         const char* old_user = std::getenv("USER");
         const char* old_logname = std::getenv("LOGNAME");
         const std::string sh = old_home ? old_home : "", su = old_user ? old_user : "", sl = old_logname ? old_logname : "";
-        jtp::set_env("HOME", "/home/zq7user");
+        jtp::set_env("HOME", "/export/zq7user");
         jtp::set_env("USER", "zq7user");
         jtp::set_env("LOGNAME", "zq7user");
-        Log::platform()->info("bugreport loading /home/zq7user/x/game.nex for zq7user");
+        Log::platform()->info("bugreport loading /export/zq7user/x/game.nex for zq7user");
         bug_report::Inputs in = inputs();
-        in.argv = { "/home/zq7user/bin/jnext", "--load=/home/zq7user/x/game.nex", "--headless" };
-        in.config_file = { { "paths.sd_card_path", "/home/zq7user/cards/c.img" }, { "startup.machine_type", "next" } };
+        in.argv = { "/export/zq7user/bin/jnext", "--load=/export/zq7user/x/game.nex", "--headless" };
+        in.config_file = { { "paths.sd_card_path", "/export/zq7user/cards/c.img" }, { "startup.machine_type", "next" } };
         in.config_file_read = true;
         Session s = nocard_session();
         Report r = make_report(s, in);
-        const bool leaked = r.ok && (report_contains(r, "zq7user") || report_contains(r, "/home/") ||
+        const bool leaked = r.ok && (report_contains(r, "zq7user") || report_contains(r, "/export/") ||
                                     report_contains(r, g_tmp));   // the scratch directory is a host path too
         const json st = r.ok ? r.js("settings.json") : json();
         const bool argv_ok = r.ok && st["command_line"][0] == "<path>/jnext" &&
