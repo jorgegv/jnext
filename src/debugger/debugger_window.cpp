@@ -1823,14 +1823,13 @@ void DebuggerWindow::create_panels() {
     setCentralWidget(scroll);
 }
 
-// A QTabWidget's tab bar scrolls when its tabs do not fit, so its minimum width is small; the tab bar of a
-// dock group does not, and nine tabs then make the left column at least ~14 px wider than its widest panel.
-// Every group's tab bar gets scroll buttons, whenever Qt makes one (a drag creates them on the fly).
+// Whether a new tab bar has scroll buttons comes from the style (SH_TabBar_PreferNoArrows, which the macOS
+// style sets): without them a bar's minimum width is the sum of its tabs, and nine tabs make the left column
+// wider than its widest panel. Every group's tab bar gets scroll buttons, whenever Qt makes one (a drag
+// creates them on the fly), as the QTabWidget this window used to have scrolled.
 void DebuggerWindow::tune_tab_bars() {
-    for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly)) {
+    for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
         bar->setUsesScrollButtons(true);
-        bar->setExpanding(false);
-    }
 }
 
 // A tabbed-away dock is not laid out by Qt until it is shown (it keeps whatever size it was created with:
@@ -1868,7 +1867,7 @@ int DebuggerWindow::tab_bar_height_of(QDockWidget* d) const {
     if (dock_host_->tabifiedDockWidgets(d).isEmpty()) return 0;
     for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
         for (int i = 0; i < bar->count(); ++i)
-            if (bar->tabText(i) == d->windowTitle()) return bar->isVisible() ? bar->height() : 0;
+            if (bar->tabText(i) == d->windowTitle()) return bar->isHidden() ? 0 : bar->height();   // not isVisible(): the window closes (hides) before its last save
     return 0;
 }
 

@@ -40,6 +40,8 @@
 #include <QScreen>
 #include <QScrollArea>
 #include <QSettings>
+#include <QProxyStyle>
+#include <QStyleFactory>
 #include <QTabBar>
 #include <QTemporaryDir>
 #include <QTest>
@@ -55,6 +57,15 @@
 #include "dock_lookup.h"
 
 namespace {
+
+// A style that answers "no scroll arrows on tab bars", as the macOS style does (QDOCK-19).
+struct NoArrowsStyle : QProxyStyle {
+    int styleHint(StyleHint hint, const QStyleOption* option = nullptr, const QWidget* widget = nullptr,
+                  QStyleHintReturn* ret = nullptr) const override {
+        if (hint == SH_TabBar_PreferNoArrows) return 1;
+        return QProxyStyle::styleHint(hint, option, widget, ret);
+    }
+};
 
 int g_pass = 0, g_fail = 0;
 
@@ -788,25 +799,6 @@ int main(int argc, char** argv)
               ok && cpu_w >= 250 && mmu_w >= 250, fmt("cpu %d mmu %d", cpu_w, mmu_w));
     }
 
-    // QDOCK-19: every dock group's tab bar has scroll buttons, including one Qt creates while running.
-    {
-        wipe(dir);
-        Fixture fx;
-        std::string why;
-        if (!fx.ok) why = "fixture";
-        else {
-            auto bars = [&]() { return fx.host()->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly); };
-            const int n0 = bars().size();
-            for (QTabBar* b : bars()) if (!b->usesScrollButtons()) why += "initial bar without scroll buttons ";
-            fx.host()->tabifyDockWidget(fx.dock("CPU Registers"), fx.dock("MMU"));   // a new group, a new bar
-            settle(150);
-            if (bars().size() <= n0) why += fmt("no new bar (%d -> %d) ", n0, int(bars().size()));
-            for (QTabBar* b : bars()) if (!b->usesScrollButtons()) why += "new bar without scroll buttons ";
-        }
-        check("QDOCK-19", "every group tab bar of the dock host uses scroll buttons, also the bar Qt creates when two docks are tabified at run time",
-              why.empty(), why);
-    }
-
     // QDOCK-20: a hand-edited layout value with a comma (QSettings hands it back as a list) is joined, not dropped.
     {
         wipe(dir);
@@ -849,6 +841,89 @@ int main(int argc, char** argv)
         check("QDOCK-21", "after the user narrowed the left column, Window > Reset Layout makes it at least as wide as its widest page's sizeHint",
               why.empty(), why);
     }
+
+    // QDOCK-22: closing with the window's own close button (closeEvent() saves again AFTER the hide) loses
+    // no height per session: a tabbed group's height is stable over three sessions.
+    {
+        wipe(dir);
+        { QSettings s(conf_path(dir), QSettings::IniFormat); s.setValue("debugger/size", QStringList{"2400", "2000"}); s.sync(); }
+        int h[3] = {0, 0, 0}, cpu[3] = {0, 0, 0};
+        bool ok = true;
+        for (int session = 0; session < 3; ++session) {
+            Fixture fx;
+            ok = ok && fx.ok;
+            if (!fx.ok) break;
+            if (session == 0) {
+                fx.host()->resizeDocks({fx.dock("Stack")}, {520}, Qt::Vertical);
+                settle(300);
+            }
+            settle(300);
+            h[session] = fx.dock("Stack")->height();
+            cpu[session] = fx.dock("CPU Registers")->height();
+            fx.dbg->close();   // the X button's path: set_enabled(false), then closeEvent() saves after the hide
+        }
+        auto near = [](int x, int y) { return std::abs(x - y) <= 8; };
+        check("QDOCK-22", "closing the debugger with its own close button keeps a tabbed group's height over three sessions (no loss of the tab bar's height at each close)",
+              ok && near(h[0], h[1]) && near(h[0], h[2]) && near(cpu[0], cpu[1]) && near(cpu[0], cpu[2]),
+              fmt("stack %d %d %d, cpu %d %d %d", h[0], h[1], h[2], cpu[0], cpu[1], cpu[2]));
+    }
+
+    // QDOCK-23: a literal value where one group of a vertical line has an extent and the other 0: the extent
+    // is honoured (the group without one takes what is left, counted with the first group's tab bar).
+    {
+        wipe(dir);
+        {
+            QSettings s(conf_path(dir), QSettings::IniFormat);
+            s.setValue("debugger/size", QStringList{"2400", "2000"});
+            s.setValue("debugger/layout", QString("v1 right v 0 tabs 700 *cpu mmu tabs 0 *stack"));
+            s.sync();
+        }
+        Fixture fx;
+        std::string why;
+        if (!fx.ok) why = "fixture";
+        else {
+            settle(300);
+            QDockWidget* cpu = fx.dock("CPU Registers");
+            QDockWidget* stack = fx.dock("Stack");
+            int bar_h = 0;
+            for (QTabBar* b : fx.host()->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
+                for (int i = 0; i < b->count(); ++i)
+                    if (b->tabText(i) == QLatin1String("CPU Registers")) bar_h = b->height();
+            const int first = cpu->height() + bar_h;   // the area's size of the first group
+            if (fx.host()->dockWidgetArea(stack) != Qt::RightDockWidgetArea || fx.host()->dockWidgetArea(cpu) != Qt::RightDockWidgetArea)
+                why += "not both on the right ";
+            if (std::abs(first - 700) > 8) why += fmt("first group %d (dock %d + bar %d), asked 700 ", first, cpu->height(), bar_h);
+        }
+        check("QDOCK-23", "in a vertical line with a tabbed group of extent 700 and a group of extent 0, the tabbed group's area is 700 high, within 8 px",
+              why.empty(), why);
+    }
+
+    // QDOCK-19: every dock group's tab bar has scroll buttons, including one Qt creates while running.
+    {
+        wipe(dir);
+        // Under a style that prefers no scroll arrows (the macOS style does), so a fresh QTabBar has none:
+        // only tune_tab_bars() and its ChildAdded filter put them on. On Fusion every bar has them anyway.
+        const QString old_style = QApplication::style()->objectName();
+        QApplication::setStyle(new NoArrowsStyle);
+        std::string why;
+        {
+        Fixture fx;
+        if (!fx.ok) why = "fixture";
+        else {
+            auto bars = [&]() { return fx.host()->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly); };
+            const int n0 = bars().size();
+            for (QTabBar* b : bars()) if (!b->usesScrollButtons()) why += "initial bar without scroll buttons ";
+            fx.host()->tabifyDockWidget(fx.dock("CPU Registers"), fx.dock("MMU"));   // a new group, a new bar
+            settle(150);
+            if (bars().size() <= n0) why += fmt("no new bar (%d -> %d) ", n0, int(bars().size()));
+            for (QTabBar* b : bars()) if (!b->usesScrollButtons()) why += "new bar without scroll buttons ";
+        }
+        }
+        QApplication::setStyle(QStyleFactory::create(old_style));
+        check("QDOCK-19", "under a style that prefers no scroll arrows, every group tab bar of the dock host uses scroll buttons, also the bar Qt creates when two docks are tabified at run time",
+              why.empty(), why);
+    }
+
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", g_pass + g_fail, g_pass, g_fail);
     return g_fail ? 1 : 0;
