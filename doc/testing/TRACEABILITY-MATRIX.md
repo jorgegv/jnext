@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6301 | 6301 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6301**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5777**. Rows the 228 suites declared in `test/unit-tests.conf` run live: **17035**.
+Rows the sections above carry: **6301**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5777**. Rows the 228 suites declared in `test/unit-tests.conf` run live: **17040**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 176 suites (11342 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 176 suites (11347 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -261,7 +261,7 @@ These 176 suites (11342 live rows) have no VHDL-derived plan row to map, so they
 | `debugger_keymap_test` | 47 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
 | `debugger_menu_test` | 75 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 44 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
-| `debugger_panels_test` | 220 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
+| `debugger_panels_test` | 225 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
 | `debugger_verbs_test` | 147 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
 | `debugger_source_panel_test` | 299 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 | `debugger_variables_panel_test` | 55 | debugger Variables tab: C locals per frame, globals, lazy expansion, Call Stack selection (GH #435, host GUI, jnext-internal); the T80N core has no debugger |
@@ -4906,15 +4906,15 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | GFXD-08 | pattern refusals: 8-bit 64, 4-bit 128, RAM of 16383 bytes, no RAM -> false and the output untouched - VHDL sprites.vhd:93 (6-bit pattern names) | sprites.vhd:93 | pass | test/debug/gfx_decode_test.cpp:148 |
 | GFXD-09 | whole 8-bit pattern 0x10 in row-major order: pixel i has index i, only E3 transparent - VHDL sprites.vhd:816, :962, :971 | sprites.vhd:816,962,971 | pass | test/debug/gfx_decode_test.cpp:160 |
 | GFXD-10 | 4-bit tile address: tile*32 + y*4 + x/2, base added to the 256-byte block with a 6-bit wrap; 0C: t0=0C00 t1=0C20 t8=0D00 t7(7,7)=0CFF; 3F t8=0000; t511=3FFF - VHDL tilemap.vhd:394, :403 | tilemap.vhd:394,403 | pass | test/debug/gfx_decode_test.cpp:176 |
-| GFXD-11 | 4-bit tile pixels: bytes 12 34 56 78, off 4, NR 0x4C F -> indices 41..48, none transparent - VHDL tilemap.vhd:382-383 | tilemap.vhd:382-383 | pass | test/debug/gfx_decode_test.cpp:188 |
-| GFXD-12 | 4-bit tile transparency compares the nibble with NR 0x4C, not the index: off 3 nibble F with 4C=F -> transparent (index 3F); with 4C=0 visible; nibble 0 with 4C=0 transparent - VHDL tilemap.vhd:427 | tilemap.vhd:427 | pass | test/debug/gfx_decode_test.cpp:198 |
-| GFXD-13 | text-mode tile address: tile*8 + y, same base and wrap; 0C: t0=0C00 t1=0C08 t32=0D00; t511 row 7=0FFF; 3F t32=0000 - VHDL tilemap.vhd:394, :403 | tilemap.vhd:394,403 | pass | test/debug/gfx_decode_test.cpp:216 |
-| GFXD-14 | text-mode bit order and index: byte 81, off7 55 -> pixel 0 = AB, pixels 1..6 = AA, pixel 7 = AB; byte 80 -> pixel 0 = AB, pixel 7 = AA - VHDL tilemap.vhd:385-386 | tilemap.vhd:385-386 | pass | test/debug/gfx_decode_test.cpp:231 |
-| GFXD-15 | text-mode transparency is by colour against NR 0x14, never by NR 0x4C: palette[AA]=1C6 (>>1 = E3) with NR 0x14 E3 -> pixels 1..6 transparent, palette[AB]=1C4 visible; NR 0x4C = A with palette[AA]=000 visible - VHDL zxnext.vhd:7109, :6822; tilemap.vhd:429 | zxnext.vhd:7109,6822, tilemap.vhd:429 | pass | test/debug/gfx_decode_test.cpp:242 |
-| GFXD-16 | bank 7 wraps at 8 KB: (20,t0)=0000 (3F,t0)=1F00 (1F,t8)=0000; an 8 KB buffer decodes those bytes - VHDL zxnext.vhd:6670-6684 | zxnext.vhd:6670-6684 | pass | test/debug/gfx_decode_test.cpp:259 |
-| GFXD-17 | tile_count: NR 0x6B 00 -> 256, 02 -> 512, 0A -> 512, 08 -> 256, FD -> 256, 82 -> 512 - VHDL tilemap.vhd:194, :393 | tilemap.vhd:194,393 | pass | test/debug/gfx_decode_test.cpp:265 |
-| GFXD-18 | whole 4-bit tile, base 0C tile 3: row 0 (at 0C60) indices 0..7 with pixel 0 transparent; row 7 (at 0C7C) F..8 - VHDL tilemap.vhd:382-383, :394, :403, :427 | tilemap.vhd:382-383,394,403,427 | pass | test/debug/gfx_decode_test.cpp:283 |
-| GFXD-19 | tile refusals: tile 512, a 16383-byte bank-5 buffer, an 8191-byte bank-7 buffer, text mode without a palette -> false and the output untouched - API contract (tile names are 9 bits, tilemap.vhd:393) | tilemap.vhd:393 | pass | test/debug/gfx_decode_test.cpp:298 |
+| GFXD-11 | 4-bit tile pixels: bytes 12 34 56 78, off 4, NR 0x4C F -> indices 41..48, none transparent; off B -> B1..B8 (all four attribute bits 7:4) - VHDL tilemap.vhd:382-383 | tilemap.vhd:382-383 | pass | test/debug/gfx_decode_test.cpp:192 |
+| GFXD-12 | 4-bit tile transparency compares the nibble with NR 0x4C, not the index: off 3 nibble F with 4C=F -> transparent (index 3F); with 4C=0 visible; nibble 0 with 4C=0 transparent - VHDL tilemap.vhd:427 | tilemap.vhd:427 | pass | test/debug/gfx_decode_test.cpp:202 |
+| GFXD-13 | text-mode tile address: tile*8 + y, same base and wrap; 0C: t0=0C00 t1=0C08 t32=0D00; t511 row 7=0FFF; 3F t32=0000 - VHDL tilemap.vhd:394, :403 | tilemap.vhd:394,403 | pass | test/debug/gfx_decode_test.cpp:220 |
+| GFXD-14 | text-mode bit order and index: byte 81, off7 55 -> pixel 0 = AB, pixels 1..6 = AA, pixel 7 = AB; byte 80 -> pixel 0 = AB, pixel 7 = AA - VHDL tilemap.vhd:385-386 | tilemap.vhd:385-386 | pass | test/debug/gfx_decode_test.cpp:235 |
+| GFXD-15 | text-mode transparency is by colour against NR 0x14, never by NR 0x4C: palette[AA]=1C6 (>>1 = E3) with NR 0x14 E3 -> pixels 1..6 transparent, palette[AB]=1C4 visible; NR 0x4C = A with palette[AA]=000 visible - VHDL zxnext.vhd:7109, :6822; tilemap.vhd:429 | zxnext.vhd:7109,6822, tilemap.vhd:429 | pass | test/debug/gfx_decode_test.cpp:246 |
+| GFXD-16 | bank 7 wraps at 8 KB: (20,t0)=0000 (3F,t0)=1F00 (1F,t8)=0000; an 8 KB buffer decodes those bytes - VHDL zxnext.vhd:6670-6684 | zxnext.vhd:6670-6684 | pass | test/debug/gfx_decode_test.cpp:263 |
+| GFXD-17 | tile_count: NR 0x6B 00 -> 256, 02 -> 512, 0A -> 512, 08 -> 256, FD -> 256, 82 -> 512 - VHDL tilemap.vhd:194, :393 | tilemap.vhd:194,393 | pass | test/debug/gfx_decode_test.cpp:269 |
+| GFXD-18 | whole 4-bit tile, base 0C tile 3: row 0 (at 0C60) indices 0..7 with pixel 0 transparent; row 7 (at 0C7C) F..8 - VHDL tilemap.vhd:382-383, :394, :403, :427 | tilemap.vhd:382-383,394,403,427 | pass | test/debug/gfx_decode_test.cpp:287 |
+| GFXD-19 | tile refusals: tile 512, a 16383-byte bank-5 buffer, an 8191-byte bank-7 buffer, text mode without a palette -> false and the output untouched - API contract (tile names are 9 bits, tilemap.vhd:393) | tilemap.vhd:393 | pass | test/debug/gfx_decode_test.cpp:302 |
 
 ## CPU interrupt pulse — `test/cpu/int_pulse_test.cpp`
 

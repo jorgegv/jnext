@@ -230,10 +230,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |      220 |      220 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Panels (GH #278) |      225 |      225 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17035**| **17035**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17040**| **17040**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
