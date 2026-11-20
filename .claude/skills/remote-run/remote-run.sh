@@ -88,6 +88,7 @@ summarize_log() {
     echo "--- FAIL / SKIP lines: $nbad"
     [[ -z "$bad" ]] || head -n 30 <<<"$bad"
     [[ "$nbad" -le 30 ]] || echo "... $((nbad - 30)) more in the log"
+    grep -E '^=== remote-run oom: ' <<<"$clean" || true
     echo "--- totals per step"
     grep -E '^=== remote-run totals:' <<<"$clean" || echo "(no step printed a totals line)"
     echo "--- verdict: $(verdict_of_log "$log" "${NSTEPS:-}")"
@@ -107,6 +108,7 @@ verdict_of_log() {
     if grep -qE '(Failed|Fail):[[:space:]]*[1-9]|(Skipped|Skip):[[:space:]]*[1-9]' <<<"$tot"; then
         bad+=" a totals line shows failures or skips;"
     fi
+    if grep -qE '^=== remote-run oom: ' <<<"$text"; then bad+=" the memory limit killed a process;"; fi
     [[ $n -gt 0 ]] || bad+=" no step finished;"
     if [[ -n "$want" && $n -gt 0 && $n -ne $want ]]; then bad+=" $want steps requested, $n reported;"; fi
     if [[ -z "$bad" ]]; then echo CLEAN; else echo "NOT CLEAN:${bad%;}"; fi

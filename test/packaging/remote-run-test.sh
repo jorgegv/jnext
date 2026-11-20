@@ -9,13 +9,13 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-27. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-28. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=27
+EXPECTED_ROWS=28
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -129,10 +129,18 @@ echo "make $*" >> "$FAKE_STATE/make-calls"
 [[ " $* " != *" readstdin "* ]] || cat > /dev/null
 [[ " $* " != *" tot1 "* ]] || echo "Total:    4  Passed:    4  Failed:    0  Skipped:    0"
 [[ " $* " != *" tot2 "* ]] || echo "  Pass: 7  Fail: 0  Skip: 0"
+if [[ " $* " == *" oomy "* ]]; then
+    echo "anon 3221225472" > "$RR_CGROUP/memory.stat"; sleep 0.6
+    echo "anon 104857600" > "$RR_CGROUP/memory.stat"; echo "oom_kill 1" > "$RR_CGROUP/memory.events"
+fi
 [[ " $* " != *" bad "* ]]
 EOF
 chmod +x "$TMP/bin/podman" "$TMP/bin/make"
 export FAKE_STATE=$TMP/state
+# a fake cgroup for container-side.sh: memory.peak 2 GiB, anon 100 MiB, no oom kill yet
+export RR_CGROUP=$TMP/cg RR_SAMPLE_INTERVAL=0.1
+mkdir -p "$RR_CGROUP"
+echo 2147483648 > "$RR_CGROUP/memory.peak"; echo "anon 104857600" > "$RR_CGROUP/memory.stat"; echo "oom_kill 0" > "$RR_CGROUP/memory.events"
 export PATH=$TMP/bin:$PATH
 
 # ---- a throwaway origin -----------------------------------------------------
@@ -526,5 +534,17 @@ x1=$RC
 row RRUN-27 "$([[ $x1 -eq 1 && "$(grep -a 'remote-run exit:' "$TMP/logs/x1.log")" == "=== remote-run exit: 3" \
     && "$(grep -a 'result:' "$TMP/logs/x1.log")" == *"rc=0"* && ! -e "$TMP/stamps" ]] && echo 1 || echo 0)" \
     "a container that exits 3 after clean result lines is exit 1 with no stamp (rc=$x1)"
+
+# RRUN-28: each step's own anonymous-memory peak is logged next to the cgroup's cumulative peak (a step
+# that spikes to 3 GiB reads 3072, the next one 100 again), and an oom_kill during a step is logged
+# and makes the run NOT CLEAN even when every step and the container exit 0
+reset_state
+runin --id o1 feature "$SHA" oomy tot1
+o1=$RC
+row RRUN-28 "$([[ $o1 -eq 1 && "$(grep -a 'result: oomy' "$TMP/logs/o1.log")" == *"peak=2048MiB anon=3072MiB"* \
+    && "$(grep -a 'result: tot1' "$TMP/logs/o1.log")" == *"anon=100MiB"* \
+    && "$(grep -a 'remote-run oom:' "$TMP/logs/o1.log")" == *"oomy killed 1 process"* \
+    && "$OUT" == *"memory limit killed a process"* ]] && echo 1 || echo 0)" \
+    "per-step anon peak logged; an oom kill is logged and the run is NOT CLEAN (rc=$o1)"
 
 finish
