@@ -624,7 +624,8 @@ int main() {
         in.config_file_read = true;
         Session s = nocard_session();
         Report r = make_report(s, in);
-        const bool leaked = r.ok && (report_contains(r, "zq7user") || report_contains(r, "/home/"));
+        const bool leaked = r.ok && (report_contains(r, "zq7user") || report_contains(r, "/home/") ||
+                                    report_contains(r, g_tmp));   // the scratch directory is a host path too
         const json st = r.ok ? r.js("settings.json") : json();
         const bool argv_ok = r.ok && st["command_line"][0] == "<path>/jnext" &&
                              st["command_line"][1] == "--load=<path>/game.nex" && st["command_line"][2] == "--headless";
