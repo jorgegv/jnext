@@ -79,7 +79,8 @@ writer, from two things:
 1. **A client's own request.** `Debugger::set_call_stack_enabled(by, on)` (`debugger_inspect.cpp:913`) sets
    the request on that client's row. The tracker is on while any live client asked. One client switching off
    no longer takes another's tracking away (the Qt debugger window closing used to empty a ZRCP session's
-   extended stack), and a detach drops the request with the client.
+   extended stack), and a detach drops the request with the client. The Qt window's request is made
+   while its Call Stack or Variables tab is showing, or a source Over or Out runs.
 2. **The source map.** With no request, tracking is on while the live source map has C variable records and a
    live non-observer client is attached (the Qt emulator window's permanent observer does not count).
 
@@ -87,6 +88,22 @@ writer, from two things:
 replay-guarded `clients_attached()`), so it cannot recurse, and it runs wherever an input changes: a request,
 an attach or detach, `recheck()`, a source map loaded or cleared, the program sidecars, a reconstruct.
 `CallStack::set_enabled()` empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a write made outside the backend, directly on the `Emulator` (CTL-12-55, QEN-01), is not undone by an attach or an in-place landing that changes nothing derived. `call_stack_enabled()` returns the effective state.
+
+**Starting mid-run.** On the edge where a client's request turns tracking on (not an edge that only the source
+map causes, and not the re-application after a machine rebuild, a cold boot or a program load, where the tracker
+restarts empty), `sync_call_stack()` calls `CallStack::reconstruct()` with the live SP. It scans up to 128 words
+from SP for return addresses: a word is one when the three bytes before it are a `CALL` (tested first) or the
+byte before it is an `RST`. The frames are stored oldest first with `CallFrame::reconstructed` set, `sp_at_call`
+the word's address and `caller_space` the backend's prediction at the caller; `target_space` stays unrecorded.
+Every client gets the rebuild, so a script that switches tracking on in a routine reads the calls already
+open. Not rebuilt: interrupt frames (an interrupt pushes the interrupted PC with no call before it) and a
+return address a routine has moved (a `__z88dk_callee` prologue); a data word that follows `CALL`-shaped bytes
+gives a false frame. Once rebuilt the frames are ordinary for the tracker: a `RET` to a rebuilt frame's return point, or a rise
+of SP past its slot, ends it. The Call Stack panel marks them `CALL*` / `RST*`. The C frames do NOT read them
+(`c_frames()` skips `reconstructed` frames): a frame base must be exact, and on a z88dk C program the scan finds many
+words that look like calls (a request that comes before the map leaves them in the tracker, since the map's own
+tracking then keeps it on), so the bases come from the frame-0 entry bytes and the saved frame pointers, as for a
+debugger attached mid-run.
 
 ## Formatting a value (the pure layer)
 

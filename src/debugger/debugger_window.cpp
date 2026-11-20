@@ -270,6 +270,21 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
     }
 }
 
+// GH #498 - see the declaration. GH #377: the panels are docks. A closed dock is not on show, a floating
+// one is, a docked one is when it is the shown tab of its group (a tabbed-away dock is still isVisible()
+// to Qt, so its tab bar is asked, through shown_dock_of()). The Disassembly, the central widget, is on
+// show with the window.
+bool DebuggerWindow::panel_on_show(const QWidget* panel) const {
+    if (!panel || !isVisible()) return false;
+    for (QDockWidget* d : docks_) {
+        if (d->widget() != panel) continue;
+        if (d->isHidden()) return false;
+        if (d->isFloating()) return true;
+        return shown_dock_of(d) == d;
+    }
+    return true;
+}
+
 void DebuggerWindow::closeEvent(QCloseEvent* event) {
     // Task 60e: window_closed() runs DebuggerManager::set_enabled(false)
     // synchronously (direct connection), which auto-resumes the machine. That
@@ -1804,6 +1819,15 @@ void DebuggerWindow::create_panels() {
         dock->setObjectName(QString::fromLatin1(table[i].id));
         dock->setWidget(table[i].panel);
         docks_.push_back(dock);
+        // GH #498: the panel_on_show() answers change with a dock's visibility (closed, reopened, the
+        // shown tab of a group changed) and with floating; once per change, after Qt has updated the tab bar.
+        auto announce = [this]() {
+            if (on_show_changed_queued_) return;
+            on_show_changed_queued_ = true;
+            QTimer::singleShot(0, this, [this]() { on_show_changed_queued_ = false; emit panels_on_show_changed(); });
+        };
+        connect(dock, &QDockWidget::visibilityChanged, this, announce);
+        connect(dock, &QDockWidget::topLevelChanged, this, announce);
         // A tabbed-away dock is still visible to Qt, so its panel gets no showEvent when its tab is
         // selected; the Graphics panel draws only while on show and no tick redraws a paused window that
         // did not change, so it is told when its dock becomes the shown one (it re-checks on_show()).

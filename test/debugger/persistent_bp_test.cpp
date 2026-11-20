@@ -27,6 +27,7 @@
 #include "debugger/breakpoint_model.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "put_on_show.h"
 
 #include <QApplication>
 #include <QMainWindow>
@@ -337,6 +338,8 @@ int main(int argc, char** argv) {
                                 !fx.backend->call_stack_enabled() &&
                                 !fx.emu.call_stack().enabled();
         fx.mgr->set_enabled(true);                 // and once more, to be sure it
+        // GH #498: the open window tracks calls while the Call Stack is on show.
+        put_on_show(fx.mgr->debugger_window_ptr(), fx.mgr->debugger_window_ptr()->callstack_panel());
         const bool open_on = fx.backend->attached() && fx.backend->armed() &&
                              fx.backend->live_raster() &&
                              fx.backend->call_stack_enabled();
@@ -366,6 +369,8 @@ int main(int argc, char** argv) {
             auto* host = new QMainWindow;
             auto* mgr  = new DebuggerManager(host, backend, host);
             mgr->set_enabled(true);
+            // GH #498: the open window tracks calls while the Call Stack is on show.
+            put_on_show(mgr->debugger_window_ptr(), mgr->debugger_window_ptr()->callstack_panel());
             open_on = backend.attached() && backend.armed() && backend.live_raster() &&
                       backend.call_stack_enabled();
             DebuggerWindow* w = mgr->debugger_window_ptr();

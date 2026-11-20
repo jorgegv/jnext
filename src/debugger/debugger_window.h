@@ -128,6 +128,7 @@ public:
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
     StackPanel* stack_panel() { return stack_panel_; }
     CallStackPanel* callstack_panel() { return callstack_panel_; }
+    VideoPanel* video_panel() { return video_panel_; }   // GH #498
     /// GH #435 - the Variables tab.
     VariablesPanel* variables_panel() { return variables_panel_; }
     NextRegPanel* nextreg_panel() { return nextreg_panel_; }
@@ -144,8 +145,15 @@ public:
         return index >= 0 && index < 8 ? script_key_actions_[index] : nullptr;
     }
 
+    /// GH #498 - is `panel` on show (its dock open and the shown tab of its group, or floating; the
+    /// window open)? NOT QWidget::isVisible(): a tabbed-away dock is still isVisible() (GH #377).
+    bool panel_on_show(const QWidget* panel) const;
+
 signals:
     void window_closed();
+    /// GH #498 - some panel_on_show() answer may have changed. Emitted (queued, coalesced) when a
+    /// dock's visibility or floating state changes, which covers a tab switch of a group.
+    void panels_on_show_changed();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -276,6 +284,7 @@ private:
     void tune_tab_bars();
     void size_hidden_tabs();
     bool tab_bars_tune_queued_ = false;
+    bool on_show_changed_queued_ = false;
     /// What the left dock area's panels still lack in width (GH #360); the group's shown dock in `shown`.
     int left_column_lacking(QDockWidget** shown) const;
     QDockWidget* shown_dock_of(QDockWidget* d) const;

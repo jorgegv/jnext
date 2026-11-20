@@ -842,6 +842,44 @@ int main(int argc, char** argv)
               why.empty(), why);
     }
 
+    // QDOCK-24: GH #498's seam on docks: panel_on_show() is false for a tabbed-away or closed dock (though
+    // a tabbed-away one is still isVisible()), true for the shown tab and for a floating one; one
+    // panels_on_show_changed per change.
+    {
+        wipe(dir);
+        Fixture fx;
+        std::string why;
+        if (!fx.ok) why = "fixture";
+        else {
+            DebuggerWindow* w = fx.dbg;
+            int changes = 0;
+            QObject::connect(w, &DebuggerWindow::panels_on_show_changed, [&changes]() { ++changes; });
+            QDockWidget* mem = fx.dock("Memory");
+            QDockWidget* wat = fx.dock("Watches");
+            if (w->panel_on_show(w->memory_panel())) why += "tabbed-away Memory on show ";
+            if (!mem->isVisible()) why += "(Memory not isVisible: the premise is gone) ";
+            if (!w->panel_on_show(w->stack_panel()) || !w->panel_on_show(w->disasm_panel())) why += "shown tab or Disassembly off ";
+            const int c0 = changes;
+            mem->raise();
+            settle(100);
+            if (!w->panel_on_show(w->memory_panel()) || w->panel_on_show(w->stack_panel())) why += "after raise ";
+            if (changes <= c0) why += "no signal on raise ";
+            const int c1 = changes;
+            mem->close();
+            settle(100);
+            if (w->panel_on_show(w->memory_panel())) why += "closed Memory on show ";
+            if (changes <= c1) why += "no signal on close ";
+            wat->setFloating(true);
+            settle(100);
+            if (!w->panel_on_show(w->watch_panel())) why += "floating Watches off ";
+            mem->show();
+            settle(100);
+            if (!w->panel_on_show(w->memory_panel())) why += "reopened Memory off ";
+        }
+        check("QDOCK-24", "panel_on_show() answers from the docks: off for a tabbed-away or closed one, on for the shown tab, a floating one and the Disassembly; panels_on_show_changed fires on a tab switch and on a close",
+              why.empty(), why);
+    }
+
     // QDOCK-22: closing with the window's own close button (closeEvent() saves again AFTER the hide) loses
     // no height per session: a tabbed group's height is stable over three sessions.
     {
