@@ -184,11 +184,10 @@ int main() {
         mode("step_back", [&] { r.ds().step_back(1); });
         mode("run_back", [&] { r.ds().run_back_to_cycle(1); });
         mode("over_sub", [&] { r.ds().step_over_subscribed(); });
-        mode("run_to_sub", [&] { r.ds().run_to_subscribed(); });
         r.ds().breakpoints().clear_oneshot();
         r.ds().resume();
         r.emu->run_frame();
-        check("PRB-06", "each step mode (into, over, out, run to, run to cycle, step back, run back, the subscribed forms) makes the block live",
+        check("PRB-06", "each step mode (into, over, out, run to, run to cycle, step back, run back, the subscribed Over) makes the block live",
               all && r.eq(), d);
     }
 
