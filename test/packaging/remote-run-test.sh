@@ -9,13 +9,13 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-15. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-17. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=15
+EXPECTED_ROWS=17
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -145,6 +145,12 @@ drive() {
 # drv_fn <function> <args>: call a function of the driver (sourced in a subshell).
 # shellcheck disable=SC1090
 drv_fn() { ( source "$DRIVER"; "$@" ); }
+# hold_lane <seconds>: a separate process takes the remote lane lock for that long (waits until it has it).
+hold_lane() {
+    mkdir -p "$WORK"
+    flock "$WORK/lane.lock" sleep "$1" &
+    until ! flock -n "$WORK/lane.lock" true; do sleep 0.1; done
+}
 calls() { cat "$FAKE_STATE/calls" 2>/dev/null; }
 reset_state() { rm -f "$FAKE_STATE"/calls "$FAKE_STATE"/killed "$FAKE_STATE"/roots "$FAKE_STATE"/running; }
 
@@ -335,5 +341,27 @@ row RRUN-15 "$([[ $e1 -eq 0 && $e2 -eq 0 && $e3 -eq 75 \
     && "$(grep -a 'extra repository:' "$TMP/logs/e2.log")" == *"reusing"* \
     && "$(grep -a 'fallback:' "$TMP/logs/e3.log")" == *"cannot fetch"* ]] && echo 1 || echo 0)" \
     "the pinned second repository: read from ci.yml, sparse clone under the work dir, ro mount + env, reused, unfetchable pin refuses (e1=$e1 e2=$e2 e3=$e3)"
+
+# RRUN-16: a busy lane costs a plain run no time: it waits LANE_WAIT, exits 75 and --fallback-local
+# runs the targets here at once; the remote work is not touched
+reset_state; rm -f "$FAKE_STATE/make-calls"; mkdir -p "$WORK"
+hold_lane 20; holder=$!
+start=$SECONDS
+REMOTE_RUN_LANE_WAIT=2 drive --id l1 --fallback-local "$TMP/local" feature "$SHA" unit-test
+l1=$RC; took=$((SECONDS - start))
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+row RRUN-16 "$([[ $l1 -eq 0 && $took -lt 60 && "$OUT" == *"RAN LOCALLY"* && "$(cat "$FAKE_STATE/make-calls")" == *"make -C $TMP/local unit-test"* \
+    && "$(grep -a 'fallback:' "$TMP/logs/l1.log")" == *"lane stayed busy for 2s"* ]] && echo 1 || echo 0)" \
+    "a busy lane: the plain run gives up after LANE_WAIT and runs locally at once (rc=$l1, ${took}s)"
+
+# RRUN-17: --gate waits for a busy lane (GATE_LANE_WAIT) and then runs on the remote
+reset_state
+hold_lane 6; holder=$!
+REMOTE_RUN_LANE_WAIT=1 REMOTE_RUN_GATE_LANE_WAIT=120 drive --gate --id l2 feature "$SHA"
+l2=$RC
+wait "$holder" 2>/dev/null
+row RRUN-17 "$([[ $l2 -eq 0 && "$(grep -a 'queued' "$TMP/logs/l2.log")" == *"waiting up to 120s"* \
+    && "$(grep -ac 'remote-run exit: 0' "$TMP/logs/l2.log")" -eq 1 ]] && echo 1 || echo 0)" \
+    "--gate queues behind a busy lane with its own long wait, then runs on the remote (rc=$l2)"
 
 finish

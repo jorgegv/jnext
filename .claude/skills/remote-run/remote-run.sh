@@ -62,7 +62,7 @@ load_conf() {
     local k v
     for k in PROJECT HOST_ENV_VAR DIR_ENV_VAR DIR_DEFAULT REPO_URL DEFAULT_BRANCH BASE_IMAGE DEPS_SCRIPT \
              DEPS_ARGS BOOTSTRAP_CMD CACHE_MOUNTS CONTAINER_ENV JOBS_DEFAULT JOBS_HEAVY HEAVY_TARGET_RE \
-             TEST_JOBS CONTAINER_MEMORY CONTAINER_SHM TIMEOUT_DEFAULT LANE_WAIT MIN_MEM_MB MIN_DISK_GB \
+             TEST_JOBS CONTAINER_MEMORY CONTAINER_SHM TIMEOUT_DEFAULT LANE_WAIT GATE_LANE_WAIT MIN_MEM_MB MIN_DISK_GB \
              HEAVY_TARGETS WARM_TARGETS GATE_STEPS TIMEOUT_GATE STAMP_ENV STAMP_LOCAL_DIR \
              EXTRA_REPO_URL EXTRA_REF_FILE EXTRA_REF_SED EXTRA_SPARSE EXTRA_MOUNT EXTRA_ENV; do
         v="REMOTE_RUN_$k"
@@ -229,6 +229,7 @@ main() {
             [[ ${#pos[@]} -eq 2 ]] || { usage >&2; exit 2; }
             targets=$(tr '|' '\n' <<<"$GATE_STEPS")
             TIMEOUT=${TIMEOUT:-$TIMEOUT_GATE}
+            LANE_WAIT=$GATE_LANE_WAIT
         else
             [[ ${#pos[@]} -ge 3 ]] || { usage >&2; exit 2; }
             targets=$(printf '%s\n' "${pos[@]:2}")

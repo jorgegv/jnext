@@ -34,11 +34,19 @@ Only the orchestrator pushes (D9): the agent commits, the orchestrator runs
 `git push origin <branch>` (never force) and then the driver. The remote clones from GitHub, so the
 branch must be on `origin`; the batch gate pushes a temporary `gate-v<version>` branch (D8).
 
+The remote is ADDITIONAL capacity, never a queue and never a bottleneck: a heavy run goes to whichever
+is free. The normal call therefore always carries `--fallback-local <worktree>` with
+`REMOTE_RUN_LOCAL_WRAP` set to the local slot wrapper (`slot.sh`): lane free, the run goes to the remote;
+lane busy past `LANE_WAIT` (30 s), alias unset, unreachable or preflight failing, it runs locally at
+once through the slot wrapper and the log says `RAN LOCALLY`. Only `--gate` waits long for the lane
+(`GATE_LANE_WAIT`, 3 h), because its steps must run in one place.
+
 ```bash
+export REMOTE_RUN_LOCAL_WRAP=<run dir>/slot.sh
 S=.claude/skills/remote-run
 $S/remote-run.sh --warm                              # once, and after test/ci-deps.sh changes
 $S/remote-run.sh <branch> $(git rev-parse <branch>) unit-test unit-test-sdl
-$S/remote-run.sh --fallback-local <worktree> <branch> <sha> unit-test    # run here if the remote is unusable
+$S/remote-run.sh --fallback-local <worktree> <branch> <sha> unit-test    # THE NORMAL CALL: remote if free, else here
 $S/remote-run.sh <branch> <sha> 'sh:make regression-rows ROWS="a b"'     # words with spaces: sh:
 ```
 
@@ -57,7 +65,7 @@ directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`)
   (the push did not land, or the branch moved); `75` the remote cannot be used: alias unset,
   unreachable, preflight failed (podman missing or not rootless, not enough memory or disk, memory
   cgroup controller not delegated), no image for the current deps (run `--warm`), lane busy past
-  `LANE_WAIT`. On `75` run locally; with `--fallback-local` the driver does it and the log says
+  `LANE_WAIT` (a plain run) or `GATE_LANE_WAIT` (`--gate`). On `75` run locally; with `--fallback-local` the driver does it and the log says
   `RAN LOCALLY`. A non-green run is never retried silently.
 - **The caller gets a summary, the full log stays in a file** (`~/tmp/remote-run/<id>.log`, kept 7
   days): per-target result lines (rc, seconds, peak container memory), the FAIL / SKIP lines (first 30),
@@ -69,7 +77,7 @@ directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`)
   driver copies it to `~/.cache/jnext/regression-stamps`, so `make regression-stamp-check` here sees
   it for that content key. A loaded-host timing FAIL is re-run solo on the remote
   (`make regression-confirm`), the same rule as locally; that is a separate target in a second call.
-- **One lane**: runs on the remote queue behind an `flock`. Caps: `JOBS` 8 (4 for LTO/PGO link targets),
+- **One lane**: an `flock`; a plain run waits for it only `LANE_WAIT` (30 s) and then falls back, `--gate` waits `GATE_LANE_WAIT`. Caps: `JOBS` 8 (4 for LTO/PGO link targets),
   `JNEXT_TEST_JOBS` 8, a hard container memory limit (the configured 10g, or 80% of the host's memory
   when smaller; swap off) and 1 GB `/dev/shm`. The preflight reports MemAvailable and the ZFS ARC size
   and counts reclaimable ARC as available. Raise the caps from the logged peak memory.
