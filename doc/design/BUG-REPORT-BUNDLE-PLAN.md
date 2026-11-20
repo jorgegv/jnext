@@ -1,5 +1,8 @@
 # Bug-report bundle: one file to replay a failing session locally (GH #492)
 
+**PARKED by the owner on 2026-11-20: no sub-issues filed; the design and decisions are kept for a
+later restart.**
+
 Status: **APPROVED; owner decisions recorded (2026-11-20, section 17)** (planner of the 2026-11-17
 autonomous run;
 revision 1, 2026-11-20: the independent review's eight findings folded in; revision 2,
@@ -128,7 +131,7 @@ what can run at once.
 
 ### Phase B6: later (filed, after the v1 sub-issues)
 
-#### Sub-issue 14: keyframes (later; Q3 decided: local cache, and shipped keyframes for `--no-sdcard` only)
+#### Sub-issue 14: keyframes (later: the planner's scheduling, for the owner to confirm; Q3 decided: local cache, and shipped keyframes for `--no-sdcard` only)
 
 - [ ] **B6.1** Local keyframe cache on the replay side (never shipped): a second open of the same bundle jumps to the nearest keyframe
 - [ ] **B6.2** Shipped keyframes for sessions with no firmware in memory (`--no-sdcard`), under the same content check as every member (RAM can hold files the stand-in served) and the keyframes tick (Q14); no firmware-excised keyframes (Q3)
@@ -318,10 +321,12 @@ shipped).
 ## 4. Contents
 
 The file is a ZIP (the `.jns` container's writer and reader, `src/save/zip_archive.*`), named
-**`<name>.YYYYMMDDhhmm.jnext-bug.zip`** (owner decision Q5): `<name>` is the loaded program's base
-name without its extension (`jnext` when no program is loaded), reduced to `A-Z a-z 0-9 . _ -`
-(anything else becomes `_`); `YYYYMMDDhhmm` is the local date and time when the bundle is saved,
-to the minute; a second save in the same minute adds `-2`, `-3`, ... after the time
+**`<name>.YYYYMMDDhhmm.jnext-bug.zip`**. The owner decided the pattern and that `YYYYMMDDhhmm` is
+the current date and time at save (Q5). The details that follow are **the planner's
+interpretation, for the owner to confirm** when the work resumes, not owner decisions: `<name>` is
+the loaded program's base name without its extension (`jnext` when no program is loaded), reduced
+to `A-Z a-z 0-9 . _ -` (anything else becomes `_`); the time is **local** time (the manifest's
+`created` stays UTC); and a second save in the same minute adds `-2`, `-3`, ... after the time
 (`game.202611200551-2.jnext-bug.zip`) instead of overwriting. The `.zip` ending is kept because
 GitHub accepts `.zip` attachments and refuses unknown extensions. A bundle is recognised by its
 `manifest.json`, not by the name or the extension. `--load` of a `.zip` today means a
@@ -868,7 +873,8 @@ column names the capture row's condition.
   **Start Recording** (from now: a new segment from the current state is impossible without a
   memory snapshot, so it performs a hard reset or reloads the current program, and says so
   before doing it), **Save Bug Report...** (the rolling segment, at any time; the file dialog
-  proposes `<name>.YYYYMMDDhhmm.jnext-bug.zip` in the last directory used, section 4), **Stop
+  proposes `<name>.YYYYMMDDhhmm.jnext-bug.zip`, section 4; "in the last directory used" is the
+  planner's interpretation, for the owner to confirm), **Stop
   Recording**, **Open Bug Report...**. Menu only: there is no hotkey (owner decision Q12).
 - **Rolling recording** (Preferences, Q2): the recorder runs from every anchor, in memory, and
   nothing is written until the reporter saves. `--fast-boot` is off today "when a recording
@@ -892,7 +898,7 @@ Every GUI setting has a CLI way to set it (project rule): the `bug_report.*` row
 
 | Option | Effect | Key |
 |---|---|---|
-| `--bug-report-record FILE\|DIR` | record from the start of the run (or from the `--load`), write the bundle at exit: to FILE as given, or, when the argument is an existing directory or ends in `/`, to `DIR/<name>.YYYYMMDDhhmm.jnext-bug.zip` (section 4) | none (per run) |
+| `--bug-report-record FILE\|DIR` | record from the start of the run (or from the `--load`), write the bundle at exit: to FILE as given, or, when the argument is an existing directory or ends in `/`, to `DIR/<name>.YYYYMMDDhhmm.jnext-bug.zip` (section 4; the directory form is the planner's interpretation, for the owner to confirm) | none (per run) |
 | `--bug-report-rolling` / `--no-bug-report-rolling` | the rolling recording, this run | `bug_report.rolling` |
 | `--bug-report-memory-mb N` | memory cap; at the cap the recording stops with a warning | `bug_report.memory_mb` |
 | `--bug-report-checkpoint-frames N` | checkpoint interval | `bug_report.checkpoint_frames` |
@@ -1345,11 +1351,11 @@ jointly decide how often a bundle carries the reporter's program and files.
 
 | # | Question | Decision |
 |---|---|---|
-| Q1 | Epic shape | **Yes**: #492 is an epic, branch `epic492-bug-report-bundle`, with its sub-issues (13, plus the two later B6 ones). |
+| Q1 | Epic shape | **Yes**: #492 is an epic, branch `epic492-bug-report-bundle`, with its sub-issues (13, plus the two B6 ones). Scheduling sub-issue 14 (keyframes) after the v1 sub-issues is the planner's interpretation, for the owner to confirm; sub-issue 15 is later by Q10. |
 | Q2 | Rolling recording on by default | **On, if the measured cost is at most 1 %** (`make bench`, B0.3), off otherwise; exempt from the fast-boot "off when recording" rule. |
-| Q3 | Machine memory in bundles | **As proposed**: no machine memory for any firmware session and no `.jns` anchor; the local replay-side keyframe cache (B6.1); shipped keyframes only for `--no-sdcard` sessions, under the byte check and the keyframes tick (B6.2). |
+| Q3 | Machine memory in bundles | **As proposed**: no machine memory for any firmware session and no `.jns` anchor; the local replay-side keyframe cache (B6.1); shipped keyframes only for `--no-sdcard` sessions, under the byte check and the keyframes tick (B6.2). (Q3 did not say when; marking B6.1 and B6.2 "later" is the planner's interpretation, for the owner to confirm.) |
 | Q4 | The program file | **Included by default** (a distribution file is a reference), after the byte check, listed in the review, with an untick that keeps only its SHA-256. |
-| Q5 | File name | **Changed**: `<name>.YYYYMMDDhhmm.jnext-bug.zip`, the current local date and time at save; still recognised by content (section 4). |
+| Q5 | File name | **Changed**: `<name>.YYYYMMDDhhmm.jnext-bug.zip`, the current date and time at save; still recognised by content. The `<name>` rule, the allowed character set, local time, the `-2` suffix, `--bug-report-record` taking a directory and the save dialog's "last directory used" are the planner's interpretation, for the owner to confirm (section 4). |
 | Q6 | (withdrawn in revision 1) | The warm-start recorder's RTC was already pinned (b93c03f79). |
 | Q7 | Default card mode | **Keep the in-place default**; capture through the in-memory undo log. |
 | Q8 | (replaced by Q14) | |
@@ -1545,8 +1551,18 @@ is scanned, and the header's free fields are a residual of a few tens of bytes; 
 program-only equivalent; a reading note asks for Q14 to Q18 to be read together.
 
 **Owner decisions (2026-11-20).** Every question answered; section 17 now records them. Q5
-changed the file name to `<name>.YYYYMMDDhhmm.jnext-bug.zip` (local date and time at save, `-2`
-and so on for a second save in the same minute), applied to section 4, the save dialog, the CLI
-(`--bug-report-record` accepts a directory and then uses the default name) and the tests
-(BRB-FILE-01's name rows). Q12's "menu only" removes the hotkey mention from section 7.1. Every
-other answer took the recommended default.
+changed the file name to `<name>.YYYYMMDDhhmm.jnext-bug.zip` with the current date and time at
+save, applied to section 4, the save dialog, the CLI and the tests (BRB-FILE-01's name rows).
+Q12's "menu only" removes the hotkey mention from section 7.1. Every other answer took the
+recommended default.
+
+The following were filled in by the planner, not decided by the owner, and are flagged in the
+text as **the planner's interpretation, for the owner to confirm** (review round 7, R7-1): the
+`<name>` rule (program base name, `jnext` with no program), the allowed character set, local time,
+the `-2` suffix for a second save in the same minute, `--bug-report-record` accepting a directory,
+the save dialog proposing the last directory used, and scheduling sub-issue 14 (keyframes) after
+the v1 sub-issues.
+
+**Parked (2026-11-20).** The owner parked #492 ("too much work for the little reward"): no
+sub-issues are filed, the issue leaves v1.4, and this design and its decisions are kept for a
+later restart.
