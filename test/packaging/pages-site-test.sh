@@ -73,7 +73,7 @@ ents = {
 }
 MAGICS = {"gz": b"\x1f\x8b\x08\x00" + bytes(60), "zip": b"PK\x03\x04" + bytes(60),
           "xz": b"\xfd7zXZ\x00" + bytes(60), "boot": bytes(510) + b"\x55\xaa",
-          "wasm55": b"\0asm\x01\0\0\0" + bytes(502) + b"\x55\xaa"}
+          "wasm55": b"\0asm\x01\0\0\0" + bytes(502) + b"\x55\xaa", "mark": bytes(510) + b"\x55\xaa"}
 # Arguments: name:size adds (zeros) or replaces; -name drops; name#magic adds content (gz zip xz boot);
 # !name:size adds an entry with a RAW name (no top folder); @name adds a symlink; +name:size adds a
 # second entry of an existing name.
@@ -209,7 +209,10 @@ if [[ $RC -ne 0 || ! -f "$D/root/build/pages/jnext-$VER.wasm" ]]; then ok=0; ech
 scen mark-txt "pre.txt#wasm55"
 run_site "$D"
 if [[ $RC -ne 0 ]] && grep -qF "pre.txt" "$D/stderr" && nosite "$D"; then :; else ok=0; echo "    pre.txt with preamble and mark accepted: rc=$RC"; cat "$D/stderr"; fi
-row PSITE-07 "$ok" "jnext-<ver>.wasm with 55 AA at byte 510 is accepted; a .txt with the WebAssembly preamble and the mark is refused"
+scen mark-nopre "jnext-$VER.wasm#mark"
+run_site "$D"
+if [[ $RC -ne 0 ]] && grep -qF "jnext-$VER.wasm" "$D/stderr" && nosite "$D"; then :; else ok=0; echo "    jnext wasm with the mark and no preamble accepted: rc=$RC"; cat "$D/stderr"; fi
+row PSITE-07 "$ok" "jnext-<ver>.wasm with 55 AA at byte 510 and its preamble is accepted; the same mark without the preamble, and a .txt with the preamble and the mark, are refused"
 
 # ---- PSITE-05: the wiring (Makefile prerequisites, pages.yml, release.yml) ----
 ok=1

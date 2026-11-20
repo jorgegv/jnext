@@ -18,8 +18,9 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr uint8_t  kDrive    = 0;
-constexpr uint64_t kMaxBytes = 48ull << 20;   // a program's directory: bounds the page's memory
+constexpr uint64_t kMaxBytes = 48ull << 20;   // a program's directory: with kMaxEntries, bounds the page's memory and time
 constexpr int      kMaxDepth = 32;
+constexpr uint64_t kMaxEntries = 65536;   // files and directories together: a card can alias one directory under many names
 
 // The card, attached to FatFs drive 0 and mounted for as long as this object lives. Nothing
 // here modifies the volume, so nothing is flushed at unmount.
@@ -65,7 +66,7 @@ bool ends_with_nex(const std::string& s) {
 }
 
 // Copy the FatFs directory `src` (e.g. "0:/GAMES/Next/TX") into the new host directory `dst`.
-bool copy_dir(const std::string& src, const fs::path& dst, int depth, uint64_t& bytes, std::string& why) {
+bool copy_dir(const std::string& src, const fs::path& dst, int depth, uint64_t& bytes, uint64_t& entries, std::string& why) {
     if (depth > kMaxDepth) { why = "'" + src + "' is nested more than " + std::to_string(kMaxDepth) + " directories deep"; return false; }
     std::error_code ec;
     if (depth == 0) fs::create_directories(dst, ec); else fs::create_directory(dst, ec);
@@ -82,9 +83,10 @@ bool copy_dir(const std::string& src, const fs::path& dst, int depth, uint64_t& 
         if (name.find('/') != std::string::npos || name.find('\\') != std::string::npos) {
             why = "'" + src + "/" + name + "' has a name that cannot be copied"; ok = false; break;
         }
+        if (++entries > kMaxEntries) { why = "the directory holding the program has more than " + std::to_string(kMaxEntries) + " entries, at '" + src + "'"; ok = false; break; }
         const std::string from = src + "/" + name;
         if (fi.fattrib & AM_DIR) {
-            if (!copy_dir(from, dst / name, depth + 1, bytes, why)) { ok = false; break; }
+            if (!copy_dir(from, dst / name, depth + 1, bytes, entries, why)) { ok = false; break; }
             continue;
         }
         bytes += fi.fsize;
@@ -138,8 +140,8 @@ bool copy_program_dir(const std::string& card, const std::string& nex, const std
             why = "'" + nex + "' is a directory on the card, not a program";
         } else {
             const std::string fat_dir = "0:" + nex.substr(0, slash);
-            uint64_t bytes = 0;
-            ok = copy_dir(fat_dir, fs::path(dest), 0, bytes, why);
+            uint64_t bytes = 0, entries = 0;
+            ok = copy_dir(fat_dir, fs::path(dest), 0, bytes, entries, why);
             if (ok) out_nex = dest + "/" + fi.fname;
         }
     }

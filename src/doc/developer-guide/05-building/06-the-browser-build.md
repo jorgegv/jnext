@@ -465,7 +465,7 @@ case; a string prefix such as `/GAMES/Next/TX` does not cover `/GAMES/Next/TX-16
 (`jnext_api.js`, `copyProgram`) then calls `jnext_card_copy_program` (`card_builder_web.cpp`), which runs
 `card_extract::copy_program_dir` (`src/core/card_extract.cpp`): FatFs mounts the card read-only in effect (it
 never writes), finds the NEX case-insensitively and copies its directory, only that subtree, into
-`/media/<k>-card/`, up to 48 MiB. `substitute()` then sets `file` to the copy and adds the internal
+`/media/<k>-card/`, up to 48 MiB of file bytes, 65,536 entries (files and directories together; a card can alias one directory under many names) and 32 levels of depth: past any of them the copy is refused. `substitute()` then sets `file` to the copy and adds the internal
 `$serveDir: true`, which `build_argv` turns into `--esxdos-stub`; the page layer refuses every option whose
 name starts with `$`, and `load({card})`. The copy is all or nothing: a failure removes it and the message names the path
 (`the card has no /GAMES/...`). Tests: `MCARD-CP-01..03` (the extractor, on the Builder's synthetic card),

@@ -21,7 +21,8 @@ Problems and ideas go to <a href="https://github.com/jorgegv/jnext/issues">the i
   <a href="?demo=tx-1696" data-demo="tx-1696">TX-1696</a>
 </nav>
 <div class="jnext-widget" data-title="NextZXOS" data-card-dirs="/APPS,/GAMES" data-nmi></div>
-<p class="note" data-credit="tx-1696" hidden>TX-1696 (demo): Lucky Red Fish; graphics and code by Patricia Curtis; music by Richard Faulkner.</p>
+<p class="note" data-credit="tx-1696" hidden>TX-1696 (demo) by the TX-1696 Team: graphics and code by Patricia Curtis; music by Richard Faulkner.
+  See <a href="https://luckyredfish.com/priority-order-list-for-tx-1696/">luckyredfish.com</a>.</p>
 <p class="note">NextZXOS and the two games come from SpecNext's official distribution, which your browser downloads from
 specnext.com (or asks you to) the first time you click. This site hosts none of it, and your browser keeps the SD card
 it builds, so the three demos use one download.</p>
