@@ -134,6 +134,7 @@ run_pid=""
 cleanup() {
     local rc=$?
     trap - EXIT
+    trap '' TERM HUP INT   # a second signal (a process-group kill) must not cut the cleanup short
     [[ -z "$run_pid" ]] || kill -TERM "$run_pid" 2>/dev/null
     [[ -z "$watchdog" ]] || kill "$watchdog" 2>/dev/null
     pm kill "$cname" >/dev/null 2>&1
