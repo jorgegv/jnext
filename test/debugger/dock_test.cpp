@@ -873,9 +873,10 @@ int main(int argc, char** argv)
             wat->setFloating(true);
             settle(100);
             if (!w->panel_on_show(w->watch_panel())) why += "floating Watches off ";
-            mem->show();
+            mem->show();   // reopened in its group, not necessarily as the shown tab
+            mem->raise();
             settle(100);
-            if (!w->panel_on_show(w->memory_panel())) why += "reopened Memory off ";
+            if (!w->panel_on_show(w->memory_panel())) why += "reopened and raised Memory off ";
         }
         check("QDOCK-24", "panel_on_show() answers from the docks: off for a tabbed-away or closed one, on for the shown tab, a floating one and the Disassembly; panels_on_show_changed fires on a tab switch and on a close",
               why.empty(), why);
