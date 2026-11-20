@@ -90,9 +90,6 @@ public:
     /// has returned the bytes written before the close.
     bool take_ended();
 
-    /// A session is open (opened by the host, not ended by either side).
-    bool session_open() const;
-
     struct State;
 
 private:

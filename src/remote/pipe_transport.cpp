@@ -171,7 +171,5 @@ bool PipeChannel::take_ended() {
     return true;
 }
 
-bool PipeChannel::session_open() const { return st_->cur && !st_->cur->jnext_closed; }
-
 }  // namespace remote
 }  // namespace jnext

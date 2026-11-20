@@ -4319,6 +4319,31 @@ page\(cqs memory only.
 on\-screen keyboard is shown on a phone or tablet),
 \f[CR]\(aqon\(aq\f[R] or \f[CR]\(aqoff\(aq\f[R].
 .TP
+\f[CR]debug\f[R] \f[I]{protocol, transport, url} | array\f[R]
+\f[B]\-\-debug\-channel\f[R], once for each entry: serve a debugger
+protocol to a client of the page.
+\f[CR]protocol\f[R] is \f[CR]\(aqdzrp\(aq\f[R] (DeZog\(cqs DZRP),
+\f[CR]\(aqzrcp\(aq\f[R] (the ZEsarUX remote command protocol, also
+DeZog\(cqs) or \f[CR]\(aqgdb\(aq\f[R] (the GDB remote protocol of
+\f[CR]z88dk\-gdb\f[R]); an array holds one entry for each protocol at
+most, up to three.
+\f[CR]transport\f[R] is \f[CR]\(aqchannel\(aq\f[R] (the default: the
+page\(cqs own code is the client, through
+\f[CR]player.debugChannel(protocol)\f[R], see The player) or
+\f[CR]\(aqws\(aq\f[R]: the player dials the WebSocket \f[CR]url\f[R]
+(\f[CR]ws://\f[R] or \f[CR]wss://\f[R], required with
+\f[CR]\(aqws\(aq\f[R], refused with \f[CR]\(aqchannel\(aq\f[R]) and
+carries the bytes of one client at a time over it, in the format of The
+debug link.
+A page cannot listen on TCP, so a client that is a program on the same
+computer (DeZog, \f[CR]z88dk\-gdb\f[R]) reaches the page through a
+bridge such as
+\f[CR]tools/web\-debug\-bridge/jnext\-debug\-bridge.mjs\f[R], which the
+web package ships.
+The machine is served on the frame loop: while the player is paused or
+the tab is hidden, a client waits.
+There is no authentication.
+.TP
 \f[CR]muted\f[R] \f[I]boolean\f[R]
 \f[CR]startup.silent\f[R]: no audio device for the session.
 .TP
@@ -4388,6 +4413,36 @@ option, and resolves when the program is running again.
 \f[B]\-\-touch\-keyboard\f[R] says; the page\(cqs call wins, before or
 after the start, and anything but a boolean throws.
 \f[CR]keyboardVisible\f[R] tells whether it is shown.
+.PP
+\f[CR]debugChannel(protocol)\f[R] returns the channel of the
+\f[CR]debug\f[R] entry for \f[CR]\(aqdzrp\(aq\f[R],
+\f[CR]\(aqzrcp\(aq\f[R] or \f[CR]\(aqgdb\(aq\f[R] whose
+\f[CR]transport\f[R] is \f[CR]\(aqchannel\(aq\f[R]; it throws for a
+protocol the page did not ask for and for one served over WebSocket.
+It can be fetched as soon as \f[CR]mount()\f[R] resolves, but
+\f[CR]open()\f[R] and \f[CR]send()\f[R] throw until the machine runs.
+\f[CR]open()\f[R] says a client arrived (it throws when one is open);
+\f[CR]send(bytes)\f[R] gives the channel what the client said (a
+\f[CR]Uint8Array\f[R] or an \f[CR]ArrayBuffer\f[R]; it throws when no
+client is open, and with a \f[CR]RangeError\f[R] when the input is
+full); \f[CR]close()\f[R] says the client left (no \f[CR]onClose\f[R]
+follows).
+\f[CR]onData\f[R] is called with a \f[CR]Uint8Array\f[R] of what the
+machine answered, and \f[CR]onClose\f[R] when the machine ended the
+session (ZRCP \f[CR]quit\f[R], \f[CR]destroy()\f[R], the machine
+exiting); both are called from a task of their own, never from inside a
+call into the player.
+\f[CR]isOpen\f[R] tells whether a client is open.
+.SS The debug link
+A \f[CR]debug\f[R] entry with \f[CR]transport: \(aqws\(aq\f[R] keeps one
+WebSocket open to its \f[CR]url\f[R] for as long as the player runs, and
+redials once a second when it is lost.
+The link carries one client at a time: the text message \f[CR]open\f[R]
+says a client arrived, the text message \f[CR]close\f[R] says either
+side ended it, and binary messages carry the bytes in both directions,
+in order; any other text message is ignored.
+The player tells the console once for each time the link goes down, and
+never through \f[CR]onError\f[R].
 .SS The touch keyboard
 The on\-screen Spectrum Next keyboard is for devices with no keyboard.
 It sits at the bottom of the player\(cqs box, which keeps the size the
@@ -4437,6 +4492,8 @@ a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],
 \f[B]\-\-sdcard2\-writes\-reset\f[R], \f[B]\-\-headless\f[R] (it would
 block the tab for ever) and \f[B]\-\-rzx\-record\f[R] (a page records
 from JavaScript, see The player).
+The debugger protocols are served to the page instead: see the
+\f[CR]debug\f[R] option.
 The settings of the refused flags are refused when given as set entries
 too: \f[CR]esp.enabled\f[R], \f[CR]esp.allowed_hosts\f[R],
 \f[CR]nextpi.enabled\f[R], \f[CR]nextpi.dir\f[R],

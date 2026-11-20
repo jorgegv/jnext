@@ -65,6 +65,7 @@ the two can never disagree. For building jnext from source, see
 - [THE BROWSER BUILD](#the-browser-build)
   - [JavaScript options](#javascript-options)
   - [The player](#the-player)
+  - [The debug link](#the-debug-link)
   - [The touch keyboard](#the-touch-keyboard)
   - [Not available in the browser](#not-available-in-the-browser)
 - [EXAMPLES](#examples)
@@ -3471,6 +3472,23 @@ with `args: ['--esxdos-stub-root', ...]` live in the page’s memory only.
 **--touch-keyboard**: `'auto'` (default; the on-screen keyboard is shown
 on a phone or tablet), `'on'` or `'off'`.
 
+`debug` *{protocol, transport, url} \| array*  
+**--debug-channel**, once for each entry: serve a debugger protocol to a
+client of the page. `protocol` is `'dzrp'` (DeZog’s DZRP), `'zrcp'` (the
+ZEsarUX remote command protocol, also DeZog’s) or `'gdb'` (the GDB
+remote protocol of `z88dk-gdb`); an array holds one entry for each
+protocol at most, up to three. `transport` is `'channel'` (the default:
+the page’s own code is the client, through
+`player.debugChannel(protocol)`, see The player) or `'ws'`: the player
+dials the WebSocket `url` (`ws://` or `wss://`, required with `'ws'`,
+refused with `'channel'`) and carries the bytes of one client at a time
+over it, in the format of The debug link. A page cannot listen on TCP,
+so a client that is a program on the same computer (DeZog, `z88dk-gdb`)
+reaches the page through a bridge such as
+`tools/web-debug-bridge/jnext-debug-bridge.mjs`, which the web package
+ships. The machine is served on the frame loop: while the player is
+paused or the tab is hidden, a client waits. There is no authentication.
+
 `muted` *boolean*  
 `startup.silent`: no audio device for the session.
 
@@ -3527,6 +3545,30 @@ on-screen keyboard, whatever **--touch-keyboard** says; the page’s call
 wins, before or after the start, and anything but a boolean throws.
 `keyboardVisible` tells whether it is shown.
 
+`debugChannel(protocol)` returns the channel of the `debug` entry for
+`'dzrp'`, `'zrcp'` or `'gdb'` whose `transport` is `'channel'`; it
+throws for a protocol the page did not ask for and for one served over
+WebSocket. It can be fetched as soon as `mount()` resolves, but `open()`
+and `send()` throw until the machine runs. `open()` says a client
+arrived (it throws when one is open); `send(bytes)` gives the channel
+what the client said (a `Uint8Array` or an `ArrayBuffer`; it throws when
+no client is open, and with a `RangeError` when the input is full);
+`close()` says the client left (no `onClose` follows). `onData` is
+called with a `Uint8Array` of what the machine answered, and `onClose`
+when the machine ended the session (ZRCP `quit`, `destroy()`, the
+machine exiting); both are called from a task of their own, never from
+inside a call into the player. `isOpen` tells whether a client is open.
+
+### The debug link
+
+A `debug` entry with `transport: 'ws'` keeps one WebSocket open to its
+`url` for as long as the player runs, and redials once a second when it
+is lost. The link carries one client at a time: the text message `open`
+says a client arrived, the text message `close` says either side ended
+it, and binary messages carry the bytes in both directions, in order;
+any other text message is ignored. The player tells the console once for
+each time the link goes down, and never through `onError`.
+
 ### The touch keyboard
 
 The on-screen Spectrum Next keyboard is for devices with no keyboard. It
@@ -3571,10 +3613,11 @@ a message that says so: **--nextpi**, **--nextpi-dir**,
 **--sdcard2**, **--sdcard2-readonly**, **--sdcard2-writes**,
 **--sdcard2-writes-reset**, **--headless** (it would block the tab for
 ever) and **--rzx-record** (a page records from JavaScript, see The
-player). The settings of the refused flags are refused when given as set
-entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`,
-`nextpi.dir`, `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`,
-`nextpi.qemu_args`, `paths.sd_card2_path`.
+player). The debugger protocols are served to the page instead: see the
+`debug` option. The settings of the refused flags are refused when given
+as set entries too: `esp.enabled`, `esp.allowed_hosts`,
+`nextpi.enabled`, `nextpi.dir`, `nextpi.release`, `nextpi.qemu_binary`,
+`nextpi.audio`, `nextpi.qemu_args`, `paths.sd_card2_path`.
 
 ## EXAMPLES
 

@@ -102,6 +102,7 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
     std::vector<std::string> out;
     std::vector<std::string> sets;
     std::vector<std::string> extra;
+    std::vector<std::string> debug;
     std::string load;
 
     for (const Option& t : WEB_OPTIONS) {
@@ -232,6 +233,52 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
                 return bad(t.name, is_size ? "a number or a string" : "a string");
             break;
         }
+        case Kind::Debug: {
+            // GH #545: one entry, or 1..3. Each becomes `--debug-channel PROTOCOL`; `transport` and `url`
+            // are the page layer's (like card.source) and never reach the core.
+            const std::string D = "option 'debug': ";
+            if (!v.is_object() && !(v.is_array() && !v.empty()))
+                return refuse(why, "option 'debug' must be an object {protocol, transport, url} or an array of 1 to 3 of them");
+            if (v.is_array() && v.size() > 3) return refuse(why, D + "at most 3 entries (one for each of dzrp, zrcp, gdb)");
+            std::vector<std::string> seen;
+            const json list = v.is_array() ? v : json::array({v});
+            for (size_t i = 0; i < list.size(); ++i) {
+                const json& e = list[i];
+                const std::string E = D + "entry " + std::to_string(i + 1) + ": ";
+                if (!e.is_object()) return refuse(why, E + "must be an object {protocol, transport, url}");
+                for (auto it = e.begin(); it != e.end(); ++it)
+                    if (it.key() != "protocol" && it.key() != "transport" && it.key() != "url")
+                        return refuse(why, E + "unknown key '" + it.key() + "'");
+                if (!e.contains("protocol") || !e["protocol"].is_string())
+                    return refuse(why, E + "protocol is required: 'dzrp', 'zrcp' or 'gdb'");
+                const std::string proto = e["protocol"].get<std::string>();
+                cli::DebugProtocol dp;
+                if (!cli::parse_debug_protocol(proto.c_str(), dp))
+                    return refuse(why, E + "protocol must be 'dzrp', 'zrcp' or 'gdb'");
+                if (std::find(seen.begin(), seen.end(), proto) != seen.end())
+                    return refuse(why, E + "protocol '" + proto + "' is given twice");
+                seen.push_back(proto);
+                std::string transport = "channel";
+                if (e.contains("transport")) {
+                    if (!e["transport"].is_string() ||
+                        (e["transport"].get<std::string>() != "channel" && e["transport"].get<std::string>() != "ws"))
+                        return refuse(why, E + "transport must be 'channel' or 'ws'");
+                    transport = e["transport"].get<std::string>();
+                }
+                if (transport == "ws") {
+                    if (!e.contains("url") || !e["url"].is_string())
+                        return refuse(why, E + "transport 'ws' needs a url: a string starting ws:// or wss://");
+                    const std::string u = e["url"].get<std::string>();
+                    if (u.rfind("ws://", 0) != 0 && u.rfind("wss://", 0) != 0)
+                        return refuse(why, E + "url must start with ws:// or wss://");
+                } else if (e.contains("url")) {
+                    return refuse(why, E + "url is only for transport 'ws'");
+                }
+                debug.push_back(flag_spelling(cli::OptId::DebugChannel));
+                debug.push_back(proto);
+            }
+            break;
+        }
         case Kind::Callback: {
             if (!v.is_boolean()) return bad(t.name, "a function");
             break;
@@ -239,8 +286,9 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
         }
     }
 
-    // Order: image, the named flags, --load, the muted --set, then set entries, then args.
+    // Order: image, the named flags, --debug-channel, --load, the muted --set, then set entries, then args.
     // The command line's rule is that the later one wins.
+    out.insert(out.end(), debug.begin(), debug.end());
     if (!load.empty()) { out.push_back(flag_spelling(cli::OptId::Load)); out.push_back(load); }
     out.insert(out.end(), sets.begin(), sets.end());
     out.insert(out.end(), extra.begin(), extra.end());

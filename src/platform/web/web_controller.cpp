@@ -8,6 +8,7 @@
 #include "platform/sdl_app.h"
 #include "core/emulator.h"
 #include "core/program_archive.h"
+#include "remote/pipe_transport.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten.h>
@@ -33,6 +34,13 @@ double      g_gain_db = 0.0;
 
 EM_JS(void, jnext_web_event, (const char* type, const char* text), {
     if (Module.jnextEvent) Module.jnextEvent(UTF8ToString(type), UTF8ToString(text));
+});
+
+// GH #545: bytes (kind 0) or the end of a session (kind 1) for the page's debug channel `proto`.
+// The page copies the bytes before it returns and delivers them from a microtask, so no page code
+// runs inside this call.
+EM_JS(void, jnext_web_debug_out, (int proto, int kind, const unsigned char* data, int len), {
+    if (Module.jnextDebug) Module.jnextDebug(proto, kind, len ? HEAPU8.slice(data, data + len) : new Uint8Array(0));
 });
 
 void event(const char* type, const std::string& text = std::string())
@@ -99,6 +107,16 @@ void after_tick(SdlApp& app, bool /*more*/)
     if (g_want_frame && app.emulator().framebuffer_generation() != g_gen_mark) {
         g_want_frame = false;
         event("ready");
+    }
+    // GH #545: after this tick's pump, hand each debug channel's output to the page (pull model: the
+    // transport never calls JS from inside Server::push()). Data goes before the end, so a ZRCP
+    // `Sayonara baby` arrives before the close.
+    for (int p = 0; p < 3; ++p) {
+        jnext::remote::PipeChannel* ch = app.debug_servers().channel(static_cast<cli::DebugProtocol>(p));
+        if (!ch) continue;
+        const std::vector<std::uint8_t> out = ch->take_output();
+        if (!out.empty()) jnext_web_debug_out(p, 0, out.data(), static_cast<int>(out.size()));
+        if (ch->take_ended()) jnext_web_debug_out(p, 1, nullptr, 0);
     }
 }
 
@@ -274,4 +292,34 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_load_applied() { return g_load_app
 extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_gain_db()
 {
     return g_app ? static_cast<double>(g_app->emulator().mixer().output_gain_db()) : g_gain_db;
+}
+
+// GH #545: the page's debug channels (--debug-channel). `proto` is cli::DebugProtocol's number: 0 dzrp,
+// 1 zrcp, 2 gdb. Results: 0 ok, 1 no such channel or the machine is not running, 2 wrong session state,
+// 3 input full (jnext::remote::PipeResult). Called between two ticks, so never inside Server::pass().
+namespace {
+jnext::remote::PipeChannel* debug_channel(int proto)
+{
+    if (!g_app || proto < 0 || proto > 2) return nullptr;
+    return g_app->debug_servers().channel(static_cast<cli::DebugProtocol>(proto));
+}
+}  // namespace
+
+extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_debug_open(int proto)
+{
+    jnext::remote::PipeChannel* ch = debug_channel(proto);
+    return ch ? static_cast<int>(ch->host_open()) : 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_debug_send(int proto, const unsigned char* data, int len)
+{
+    jnext::remote::PipeChannel* ch = debug_channel(proto);
+    if (!ch || len < 0) return 1;
+    return static_cast<int>(ch->host_send(data, static_cast<std::size_t>(len)));
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_debug_close(int proto)
+{
+    jnext::remote::PipeChannel* ch = debug_channel(proto);
+    return ch ? static_cast<int>(ch->host_close()) : 1;
 }
