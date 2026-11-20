@@ -4,6 +4,7 @@
 #include "debugger/memory_text.h"
 #include "debug/symbol_table.h"
 
+#include <QLabel>
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
@@ -42,6 +43,13 @@ void CallStackPanel::create_ui() {
     table_->setColumnWidth(5, 120);  // caller memory (GH #360)
     table_->horizontalHeader()->setStretchLastSection(true);
 
+    // GH #498 - what a rebuilt frame ("CALL*") means; hidden while every frame was tracked.
+    note_ = new QLabel(tr("Frames marked * were rebuilt from the stack when call tracking started: "
+                          "interrupts are missing, and stale stack data can look like a call."), this);
+    note_->setObjectName("callStackNote");
+    note_->setWordWrap(true);
+    note_->setVisible(false);
+    layout->addWidget(note_);
     layout->addWidget(table_);
 
     // GH #435 - the user's choice of a row picks the C frame the Variables tab shows
@@ -76,6 +84,7 @@ void CallStackPanel::refresh() {
     struct Guard { bool& f; ~Guard() { f = false; } } guard{programmatic_};
     programmatic_ = true;
     table_->setRowCount(count);
+    bool any_rebuilt = false;
 
     // Display most recent first (top of table = most recent call)
     for (int i = 0; i < count; ++i) {
@@ -101,7 +110,13 @@ void CallStackPanel::refresh() {
             case CallType::INT:  type_str = "INT";  break;
             case CallType::NMI:  type_str = "NMI";  break;
         }
-        set_cell(1, type_str);
+        set_cell(1, f.reconstructed ? QString(type_str) + "*" : QString(type_str));
+        if (f.reconstructed) {
+            any_rebuilt = true;
+            table_->item(i, 1)->setToolTip(tr("rebuilt from the stack"));
+        } else if (table_->item(i, 1)->toolTip().size()) {
+            table_->item(i, 1)->setToolTip(QString());
+        }
         set_cell(2, QString::asprintf("%04X", f.caller_pc));
 
         // Show symbol name for target if available
@@ -137,4 +152,5 @@ void CallStackPanel::refresh() {
 
         table_->setRowHeight(i, 20);
     }
+    note_->setVisible(any_rebuilt);
 }

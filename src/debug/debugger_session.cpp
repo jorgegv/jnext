@@ -141,7 +141,14 @@ void Debugger::Impl::sync_call_stack(bool force) {
         const auto vs = m ? m->variables() : nullptr;
         on = vs && (!vs->functions().empty() || !vs->variables().empty());
     }
+    const bool edge_on = on && !call_stack_derived && !force;
     if ((force && on) || on != call_stack_derived) emu.call_stack().set_enabled(on);
+    // GH #498: tracking starts mid-run (a panel came on show, a client asked, a C map loaded):
+    // rebuild the calls already on the stack. Not on `force`, the cold-boot re-application of a
+    // request on a machine that is new, with nothing on its stack. Every client gets the rebuild.
+    if (edge_on)
+        emu.call_stack().reconstruct(emu.cpu().get_registers().SP,
+                                     [this](uint16_t pc) { return emu.predict_fetch(pc); });
     call_stack_derived = on;
 }
 

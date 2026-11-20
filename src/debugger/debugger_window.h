@@ -125,6 +125,7 @@ public:
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
     StackPanel* stack_panel() { return stack_panel_; }
     CallStackPanel* callstack_panel() { return callstack_panel_; }
+    VideoPanel* video_panel() { return video_panel_; }   // GH #498
     /// GH #435 - the Variables tab.
     VariablesPanel* variables_panel() { return variables_panel_; }
     NextRegPanel* nextreg_panel() { return nextreg_panel_; }
@@ -141,8 +142,17 @@ public:
         return index >= 0 && index < 8 ? script_key_actions_[index] : nullptr;
     }
 
+    /// GH #498 - is `panel` on show (its tab current, the window open)? NOT QWidget::isVisible():
+    /// after GH #377 a tabbed-away dock is still isVisible(). The body names the three tab
+    /// widgets on purpose: when #377 removes them it cannot compile, so the re-implementation
+    /// (from QDockWidget::visibilityChanged) cannot be forgotten.
+    bool panel_on_show(const QWidget* panel) const;
+
 signals:
     void window_closed();
+    /// GH #498 - some panel_on_show() answer may have changed. Emitted once per change of a tab
+    /// widget's current page.
+    void panels_on_show_changed();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -353,6 +363,7 @@ private:
     void show_in_memory(uint16_t addr);
     bool source_has_focus() const;
     QTabWidget* memory_tab_widget_ = nullptr;
+    QTabWidget* bottom_tab_widget_ = nullptr;   // GH #498: Watches, Variables, Breakpoints
     QAction* rewind_enable_action_ = nullptr;
 
     // GH #1 — toolbar buttons whose captions or tooltips quote a key. They are
