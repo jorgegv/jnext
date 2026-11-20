@@ -262,6 +262,7 @@ main() {
     fi
 
     local rc=0 state=remote
+    INTERRUPTED=0
     transport_cmd
     if [[ $LOCAL_SHELL -eq 0 && -z "$HOST" ]]; then
         echo "=== remote-run fallback: $HOST_ENV_VAR is not set, remote runs are off" | tee -a "$LOG" >&2
@@ -282,7 +283,7 @@ main() {
         pidf=$tmp/pid; rcf=$tmp/rc
         # The wrapper subshell carries the transport; a TERM/INT to this script reaches it, then
         # the remote side's own traps kill the container and remove the checkout.
-        trap 'kill -TERM "$(cat "$pidf" 2>/dev/null)" 2>/dev/null || true' TERM INT
+        trap 'INTERRUPTED=1; kill -TERM "$(cat "$pidf" 2>/dev/null)" 2>/dev/null || true' TERM INT
         set +e
         (
             echo "$BASHPID" > "$pidf"
@@ -300,6 +301,7 @@ main() {
         trap - TERM INT
         local tr_rc
         tr_rc=$(cat "$rcf" 2>/dev/null || echo 255)
+        [[ $INTERRUPTED -eq 0 ]] || echo "=== remote-run interrupted by a signal: the remote side was told to stop" >> "$LOG"
 
         # fallback / refused count only from the remote side's own lines BEFORE the run started:
         # a step that prints such a line must not turn a red run into a fallback.

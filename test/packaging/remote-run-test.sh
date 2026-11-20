@@ -314,7 +314,7 @@ done
 dead=1; kill -0 "$dpid" 2>/dev/null && { dead=0; kill -KILL "$dpid" 2>/dev/null; }
 for _ in $(seq 1 450); do [[ -e "$FAKE_STATE/killed" && -z "$(find "$WORK/runs" -mindepth 1)" ]] && break; sleep 0.2; done
 wait "$dpid" 2>/dev/null
-row RRUN-10 "$([[ -e "$FAKE_STATE/running" && $dead -eq 1 ]] && grep -q '^rr-jnext-k1$' "$FAKE_STATE/killed" 2>/dev/null \
+row RRUN-10 "$([[ -e "$FAKE_STATE/running" && $dead -eq 1 && "$(cat "$TMP/logs/k1.log")" == *"remote-run interrupted by a signal"* ]] && grep -q '^rr-jnext-k1$' "$FAKE_STATE/killed" 2>/dev/null \
     && [[ -z "$(find "$WORK/runs" -mindepth 1)" ]] && echo 1 || echo 0)" \
     "TERM to the driver alone kills the named container and removes the run checkout, the driver exits"
 
@@ -419,8 +419,9 @@ rlines() { grep -ac '^=== remote-run result: ' "$TMP/logs/$1.log"; }
 reset_state; rm -f "$FAKE_STATE/make-calls"
 runin --id c1 feature "$SHA" bad
 c1=$RC
-row RRUN-18 "$([[ $c1 -eq 1 && "$(grep -a 'result: bad' "$TMP/logs/c1.log")" == *"rc=1"* && "$OUT" == *"verdict: NOT CLEAN"* ]] && echo 1 || echo 0)" \
-    "a failing make step: rc=1 in its result line, driver exit 1, verdict NOT CLEAN (rc=$c1)"
+row RRUN-18 "$([[ $c1 -eq 1 && "$(grep -a 'result: bad' "$TMP/logs/c1.log")" == *"rc=1"* && "$OUT" == *"verdict: NOT CLEAN"* \
+    && "$(grep -a 'remote-run exit:' "$TMP/logs/c1.log")" == "=== remote-run exit: 1" ]] && echo 1 || echo 0)" \
+    "a failing make step: rc=1 in its result line, the container itself exits 1, driver exit 1, verdict NOT CLEAN (rc=$c1)"
 
 # RRUN-19: both harness totals formats are extracted per step, and the run is CLEAN
 reset_state
