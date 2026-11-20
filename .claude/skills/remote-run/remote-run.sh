@@ -97,13 +97,14 @@ summarize_log() {
 # non-zero Failed/Fail or Skipped/Skip count; with <steps> (the number requested) exactly that many
 # result lines must exist, so a step that never ran cannot pass unseen.
 verdict_of_log() {
-    local log=$1 want=${2:-} bad="" text results n
+    local log=$1 want=${2:-} bad="" text results n tot
     text=$(cat "$log")
     results=$(grep -E '^=== remote-run result: ' <<<"$text" | grep -vE '^=== remote-run result: bootstrap ' || true)
     n=0
     [[ -z "$results" ]] || n=$(wc -l <<<"$results")
     if grep -qE '^=== remote-run result: .* rc=[1-9]' <<<"$text"; then bad+=" a step exited non-zero;"; fi
-    if grep -E '^=== remote-run totals:' <<<"$text" | grep -qE '(Failed|Fail):[[:space:]]*[1-9]|(Skipped|Skip):[[:space:]]*[1-9]'; then
+    tot=$(grep -E '^=== remote-run totals:' <<<"$text" || true)
+    if grep -qE '(Failed|Fail):[[:space:]]*[1-9]|(Skipped|Skip):[[:space:]]*[1-9]' <<<"$tot"; then
         bad+=" a totals line shows failures or skips;"
     fi
     [[ $n -gt 0 ]] || bad+=" no step finished;"

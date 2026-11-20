@@ -257,7 +257,7 @@ row RRUN-04 "$([[ "$sm" == *"unit-test rc=1"* && "$sm" == *"unit-test-sdl rc=0"*
 # RRUN-05: a sha that is not the branch tip is refused (exit 3) before anything is built or run
 reset_state
 drive --id s1 feature "$OTHER" unit-test
-row RRUN-05 "$([[ $RC -eq 3 && "$OUT" == *"not at the expected $OTHER"* ]] && ! calls | grep -qE '^(run|build)|(^| )(run|build) ' && echo 1 || echo 0)" \
+row RRUN-05 "$([[ $RC -eq 3 && "$OUT" == *"not at the expected $OTHER"* ]] && ! grep -qE '^(run|build)|(^| )(run|build) ' <<<"$(calls)" && echo 1 || echo 0)" \
     "a sha other than the pushed tip is refused with exit 3, no build, no run (rc=$RC)"
 
 # RRUN-06: a branch that is not on the repository is refused (exit 3)
@@ -269,7 +269,7 @@ row RRUN-06 "$([[ $RC -eq 3 && "$OUT" == *"is not on the remote repository"* ]] 
 # RRUN-07: no image for the current deps: exit 75 telling to run --warm, nothing built
 reset_state
 drive --id i1 feature "$SHA" unit-test
-row RRUN-07 "$([[ $RC -eq 75 && "$OUT" == *"remote-run --warm"* ]] && ! calls | grep -qE '(^| )build ' && echo 1 || echo 0)" \
+row RRUN-07 "$([[ $RC -eq 75 && "$OUT" == *"remote-run --warm"* ]] && ! grep -qE '(^| )build ' <<<"$(calls)" && echo 1 || echo 0)" \
     "a normal run without the image exits 75 naming --warm, builds nothing (rc=$RC)"
 
 # RRUN-08: --warm builds the image under the work dir; the next run reaches the container with
@@ -331,7 +331,8 @@ l2=$(bash "$ROOT/test/ci-deps.sh" --list test mingw)
 grep -qx 'qt6-qtbase-devel' <<<"$l1" || ci_ok=0
 bash "$ROOT/test/ci-deps.sh" --list nonesuch >/dev/null 2>&1; [[ $? -eq 2 ]] || ci_ok=0
 bash "$ROOT/test/ci-deps.sh" >/dev/null 2>&1; [[ $? -eq 2 ]] || ci_ok=0
-grep -nE 'dnf install -y +[a-z0-9]' "$ROOT/.github/workflows/ci.yml" | grep -qvE 'dnf install -y git$' && ci_ok=0
+inline=$(grep -nE 'dnf install -y +[a-z0-9]' "$ROOT/.github/workflows/ci.yml" || true)
+grep -qvE 'dnf install -y git$' <<<"$inline" && ci_ok=0
 grep -q 'bash test/ci-deps.sh test$' "$ROOT/.github/workflows/ci.yml" || ci_ok=0
 for f in "$DRIVER" "$SKILL/remote-side.sh" "$SKILL/container-side.sh" "$ROOT/test/ci-deps.sh"; do bash -n "$f" 2>/dev/null || ci_ok=0; done
 row RRUN-12 "$ci_ok" "ci-deps.sh sets/refusals, ci.yml calls it with no inline package list, the scripts parse"
