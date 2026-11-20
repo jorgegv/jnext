@@ -1,5 +1,5 @@
-// Browser rows PAGES-01..02: the GitHub Pages demo site (`make pages-site`, build/pages) served ALONE
-// (make wasm-browser-test, spec pages.mjs). Run by browser-smoke.sh on the SDK's node.
+// Browser rows PAGES-01..05: the GitHub Pages demo site (`make pages-site`, build/pages) served ALONE
+// (make wasm-browser-test, spec pages.mjs). PAGES-03..05 are the two game demos and the fallback. Run by browser-smoke.sh on the SDK's node.
 //
 // Server A serves ONLY build/pages (404 for anything else, every request logged), as package.mjs
 // serves the extracted web zip. Server B stands in for the distribution host: a zip of the cached
@@ -21,6 +21,7 @@ const ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, VERSION = E.SMOKE_BUILD_VE
 const PKG = path.join(E.SMOKE_PKG, `jnext-${VERSION}-web`);
 const SITE = path.join(ROOT, 'build/pages');
 const REAL_DIRS = E.SMOKE_REAL_DIRS_CARD_SHA256;
+const MTX = E.SMOKE_MTX;   // mtools copies of the game directories (a foreign FAT reader), made by browser-smoke.sh
 const REAL = { size: Number(E.SMOKE_REAL_ZIP_SIZE), sha256: E.SMOKE_REAL_ZIP_SHA256 };
 // The same list as packaging/web/pages-site.sh: a name with one of these as a dot-separated part, or ending in a dot or whitespace.
 const BANNED_PARTS = new Set(['img', 'mmc', 'rom', 'bin', 'dsk', 'trd', 'scl', 'hdf', 'vhd', 'mdr', 'p', 'nex', 'tap', 'tzx', 'sna', 'szx', 'z80',
@@ -78,6 +79,15 @@ const memCardSha = (page) => page.evaluate(async () => {
   const x = new Uint8Array(await crypto.subtle.digest('SHA-256', d));
   return [...x].map((b) => b.toString(16).padStart(2, '0')).join('');
 });
+const listTreeFlat = (dir) => {
+  const out = {};
+  (function walk(d, rel) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(path.join(d, e.name), rel + e.name + '/'); else out[rel + e.name] = 1;
+    }
+  })(dir, '');
+  return out;
+};
 const listTree = (dir) => {
   const out = [];
   (function walk(d, rel) {
@@ -88,7 +98,7 @@ const listTree = (dir) => {
   return out.sort();
 };
 
-row('PAGES-01', 'the served site is index.html plus the extracted package minus the four example pages; the page has a title, the issues link, the toolbar Pause, Reset, NMI (enabled), Mute, Fullscreen and no error', async () => {
+row('PAGES-01', 'the served site is index.html plus the extracted package minus the four example pages; the page has a title, the issues link, the three demo links, the toolbar Pause, Reset, NMI (enabled), Mute, Fullscreen and no error', async () => {
   const want = [...listTree(PKG).filter((n) => !EXAMPLES.includes(n)), 'index.html'].sort();
   const got = listTree(SITE);
   must(JSON.stringify(got) === JSON.stringify(want), `site ${JSON.stringify(got)} != package-derived ${JSON.stringify(want)}`);
@@ -100,10 +110,14 @@ row('PAGES-01', 'the served site is index.html plus the extracted package minus 
     widgets: document.querySelectorAll('.jnext-widget').length, dirs: document.querySelector('.jnext-widget').getAttribute('data-card-dirs'),
     version: document.querySelector('p').textContent,
     buttons: [...document.querySelectorAll('.jnext-widget .jw-btn')].map((b) => b.textContent),
-    nmiOn: !document.querySelector('.jnext-widget [data-jw=nmi]').disabled }));
+    nmiOn: !document.querySelector('.jnext-widget [data-jw=nmi]').disabled,
+    links: [...document.querySelectorAll('nav a')].map((a) => a.getAttribute('href')),
+    current: [...document.querySelectorAll('nav a[aria-current]')].map((a) => a.getAttribute('data-demo')),
+    wtitle: document.querySelector('.jw-title').textContent }));
   await page.close();
   must(info.title.includes('JNEXT') && info.h1.includes('JNEXT'), 'title ' + JSON.stringify(info));
   must(info.issues.includes('https://github.com/jorgegv/jnext/issues'), 'links ' + JSON.stringify(info.issues));
+  must(JSON.stringify(info.links) === JSON.stringify(['?demo=nextzxos', '?demo=warhawk', '?demo=tx-1696']) && JSON.stringify(info.current) === '["nextzxos"]' && info.wtitle === 'NextZXOS', 'demo links ' + JSON.stringify([info.links, info.current, info.wtitle]));
   must(info.widgets === 1 && info.dirs === '/APPS,/GAMES', 'widget ' + JSON.stringify(info));
   must(JSON.stringify(info.buttons) === JSON.stringify(['Pause', 'Reset', 'NMI', 'Mute', 'Fullscreen']) && info.nmiOn, 'toolbar ' + JSON.stringify([info.buttons, info.nmiOn]));
   must(info.version.includes(`JNEXT ${VERSION},`), 'version text ' + info.version);
@@ -131,6 +145,57 @@ row('PAGES-02', 'no query string gives the NextZXOS demo: the click builds the /
   must(bLog.some((r) => r.path === '/real-distro.zip' && r.method === 'GET'), 'the distribution was never fetched: ' + JSON.stringify(bLog));
   const banned = aLog.slice(a0).filter((r) => BANNED.test(r.name));
   must(banned.length === 0, 'the site was asked for ' + JSON.stringify(banned));
+});
+
+// A game demo: the cached card (no request to the distribution), the game's directory copied out of it and
+// served to it, the NMI button on, the demo's link current.
+async function gameDemo(demo, file, nfilesDir) {
+  const n0 = urls.length, b0 = bLog.length;
+  const page = await open('?demo=' + demo);
+  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent === 'click the screen to start', null, 300000);
+  await page.locator('.jnext-widget .jnext-overlay').click({ timeout: 600000, noWaitAfter: true });
+  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent === 'running', null, 900000);
+  const info = await page.evaluate(() => {
+    const p = document.querySelector('.jnext-widget').jnextPlayer, FS = p._module.FS;
+    const argv = p.argv, load = argv[argv.indexOf('--load') + 1], dir = load.replace(/\/[^/]+$/, '');
+    let files = 0;
+    (function w(d) { for (const n of FS.readdir(d)) { if (n === '.' || n === '..') continue; const q = d + '/' + n; if (FS.isDir(FS.stat(q).mode)) w(q); else files++; } })(dir);
+    return { argv, load, files, nmiOn: !document.querySelector('[data-jw=nmi]').disabled,
+             current: [...document.querySelectorAll('nav a[aria-current]')].map((a) => a.getAttribute('data-demo')),
+             attr: document.querySelector('.jnext-widget').getAttribute('data-card-file'), title: document.querySelector('.jw-title').textContent };
+  });
+  await page.close();
+  must(page.msgs.length === 0, page.msgs.join('; '));
+  must(bLog.length === b0 && !urls.slice(n0).some((u) => u.startsWith(BURL)), 'the distribution was asked for: ' + JSON.stringify(bLog.slice(b0)));
+  must(info.argv.includes('--esxdos-stub') && info.argv.includes('--sdcard') && info.load.endsWith('/' + file) && /^\/media\/\d+-card\//.test(info.load), 'argv ' + JSON.stringify(info.argv));
+  must(info.nmiOn && JSON.stringify(info.current) === JSON.stringify([demo]), `nmi ${info.nmiOn} current ${JSON.stringify(info.current)}`);
+  return info;
+}
+
+row('PAGES-03', '?demo=warhawk (the card is cached): no request to the distribution, ready, no error, argv has --esxdos-stub and --load .../Warhawk.nex, the NMI button is enabled, the warhawk link is the current page', async () => {
+  const info = await gameDemo('warhawk', 'Warhawk.nex');
+  must(info.attr === '/GAMES/Next/Warhawk/Warhawk.nex' && info.title === 'Warhawk', 'widget ' + JSON.stringify([info.attr, info.title]));
+  must(info.files === Object.keys(listTreeFlat(path.join(MTX, 'Warhawk'))).length, 'copied files ' + info.files);
+});
+
+row('PAGES-04', '?demo=tx-1696 (the card is cached): same assertions, and the copied directory holds as many files as the mtools copy, with main.nex as the load target', async () => {
+  const info = await gameDemo('tx-1696', 'main.nex');
+  const want = Object.keys(listTreeFlat(path.join(MTX, 'TX-1696'))).length;
+  must(info.attr === '/GAMES/Next/TX-1696/main.nex' && info.title === 'TX-1696', 'widget ' + JSON.stringify([info.attr, info.title]));
+  must(want > 10 && info.files === want, `copied ${info.files} files, mtools copy has ${want}`);
+});
+
+row('PAGES-05', '?demo=nope gives the NextZXOS demo: no data-card-file, argv without --load and --esxdos-stub, the nextzxos link is the current page', async () => {
+  const page = await open('?demo=nope');
+  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent === 'click the screen to start', null, 300000);
+  await page.locator('.jnext-widget .jnext-overlay').click({ timeout: 600000, noWaitAfter: true });
+  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent === 'running', null, 900000);
+  const info = await page.evaluate(() => ({ argv: document.querySelector('.jnext-widget').jnextPlayer.argv,
+    attr: document.querySelector('.jnext-widget').getAttribute('data-card-file'), title: document.querySelector('.jw-title').textContent,
+    current: [...document.querySelectorAll('nav a[aria-current]')].map((a) => a.getAttribute('data-demo')) }));
+  await page.close();
+  must(info.attr === null && info.title === 'NextZXOS' && JSON.stringify(info.current) === '["nextzxos"]', JSON.stringify([info.attr, info.title, info.current]));
+  must(!info.argv.includes('--load') && !info.argv.includes('--esxdos-stub'), 'argv ' + JSON.stringify(info.argv));
 });
 
 let pass = 0, fail = 0;

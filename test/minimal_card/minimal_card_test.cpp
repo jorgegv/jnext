@@ -11,6 +11,7 @@
 // The expected values come from the fixture's declared contents.
 // The row MCARD-17 (recipe 3 unchanged) lives in test/fat32_image/fat32_image_test.cpp.
 
+#include "core/card_extract.h"
 #include "core/fat32_image.h"
 #include "core/fatfs_diskio.h"
 #include "core/minimal_card.h"
@@ -30,6 +31,7 @@ extern "C" {
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -1363,6 +1365,84 @@ int main() {
                   r.err.find("at least") == std::string::npos && !exists(c2),
               r.err + " expect " + std::to_string(total));
         std::remove(c2.c_str());
+    }
+
+    // ---- GH #510: a program's directory copied out of the card (card_extract) -------------------------------------
+    // The card is the Builder's from the synthetic distribution, with /GAMES on it. G1 gets, besides a.nex (9000 bytes,
+    // over two 4 KiB clusters) and sub/b.bin, a long mixed-case name, an empty file and an empty directory named x.nex;
+    // g2 and CLASSIC are the siblings that must not be copied. The oracle is the fixture's declared contents.
+    {
+        FNode fxc = fixture_games();
+        auto kid = [](FNode& n, const char* name) -> FNode& {
+            for (FNode& k : n.kids) if (k.name == name) return k;
+            std::abort();
+        };
+        FNode& g1c = kid(kid(kid(fxc, "GAMES"), "NEXT"), "G1");
+        const std::vector<uint8_t> longdata = pattern(70, 77);
+        g1c.kids.push_back(file("Long Name Data File.txt", longdata, 0x20, 0x5A50, 0x9000));
+        g1c.kids.push_back(file("empty.dat", {}, 0x20, 0x5A51, 0x9000));
+        g1c.kids.push_back(dirn("dir.nex", 0x00, 0x5A52, 0x9000));
+        const std::vector<uint8_t> zip_c = make_zip(build_image(fxc).bytes);
+        const std::string cc = tmp_path("card-cp.img"), dest = tmp_path("cp-dest");
+        std::remove(cc.c_str());
+        const Run rc = build(minimal_card::Input::Zip, zip_c, cc, with_dirs({"/GAMES"}));
+        const bool built = rc.st == minimal_card::Status::Done;
+        auto slurp = [](const std::string& p) {
+            std::ifstream f(p, std::ios::binary);
+            return std::vector<uint8_t>(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        };
+        const std::string before = built ? sha_of(slurp(cc)) : "";
+        std::filesystem::remove_all(dest);
+        std::string out_nex, why;
+        const bool ok = built && card_extract::copy_program_dir(cc, "/games/next/g1/A.NEX", dest, out_nex, why);
+        std::string diff;
+        if (ok) {
+            std::map<std::string, std::vector<uint8_t>> want = {
+                {"a.nex", pattern(9000, 40)}, {"Long Name Data File.txt", longdata}, {"empty.dat", {}},
+                {"sub/b.bin", pattern(5000, 41)}, {"dir.nex/", {}}, {"sub/", {}}};
+            std::map<std::string, std::vector<uint8_t>> got;
+            for (const auto& e : std::filesystem::recursive_directory_iterator(dest)) {
+                std::string rel = std::filesystem::relative(e.path(), dest).generic_string();
+                if (e.is_directory()) got[rel + "/"] = {}; else got[rel] = slurp(e.path().string());
+            }
+            for (const auto& kv : want) { auto it = got.find(kv.first); if (it == got.end() || it->second != kv.second) diff += " bad:" + kv.first; }
+            for (const auto& kv : got) if (!want.count(kv.first)) diff += " extra:" + kv.first;
+        }
+        check("MCARD-CP-01", "copy_program_dir for /games/next/g1/A.NEX (another case than stored): dest holds exactly G1's subtree byte for byte (a.nex, the long mixed-case name, the empty file, the empty directory, sub/b.bin), out_nex is dest/a.nex; g2 and CLASSIC are not copied",
+              ok && out_nex == dest + "/a.nex" && diff.empty(), why + diff + (built ? "" : " card: " + rc.err));
+        const std::string after = built ? sha_of(slurp(cc)) : "x";
+        check("MCARD-CP-02", "the card's SHA-256 is the same after the copy: the card is only read",
+              built && !before.empty() && before == after, before + " / " + after);
+        std::filesystem::remove_all(dest);
+
+        // CP-03: refusals, each naming its path, and no dest left behind (an existing one untouched).
+        std::string bad;
+        auto refused = [&](const char* tag, const std::string& card_path, const std::string& nex, const std::string& token) {
+            std::filesystem::remove_all(dest);
+            std::string o, w;
+            const bool r = card_extract::copy_program_dir(card_path, nex, dest, o, w);
+            if (r || w.find(token) == std::string::npos || std::filesystem::exists(dest)) bad += std::string(" ") + tag + ":" + w;
+        };
+        refused("absent", cc, "/GAMES/NEXT/G1/NOPE.nex", "/GAMES/NEXT/G1/NOPE.nex");
+        refused("dir", cc, "/GAMES/NEXT/G1/dir.nex", "dir.nex");
+        refused("ext", cc, "/GAMES/NEXT/G1/sub/b.bin", "b.bin");
+        refused("rel", cc, "GAMES/NEXT/G1/a.nex", "GAMES/NEXT/G1/a.nex");
+        refused("root", cc, "/a.nex", "/a.nex");
+        const std::string zeros = tmp_path("zeros.img");
+        { std::ofstream z(zeros, std::ios::binary); std::vector<char> blk(1 << 20, 0); z.write(blk.data(), blk.size()); }
+        refused("notfat", zeros, "/GAMES/NEXT/G1/a.nex", zeros);
+        std::remove(zeros.c_str());
+        std::filesystem::create_directories(dest);
+        { std::ofstream m(dest + "/marker"); m << "x"; }
+        {
+            std::string o, w;
+            const bool r = card_extract::copy_program_dir(cc, "/GAMES/NEXT/G1/a.nex", dest, o, w);
+            if (r || w.find(dest) == std::string::npos || !exists(dest + "/marker")) bad += " exists:" + w;
+        }
+        std::filesystem::remove_all(dest);
+        check("MCARD-CP-03", "copy_program_dir refuses a NEX that is not on the card, a directory named x.nex, a path not ending .nex, a relative path, a NEX in the card's root, a zero-filled image, and an existing dest (left untouched), each naming its path, with no dest left behind",
+              built && bad.empty(), bad);
+        std::remove(cc.c_str());
     }
 
     std::remove(card.c_str());

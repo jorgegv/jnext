@@ -621,6 +621,73 @@ int main()
               r.ok ? join(r.argv) : r.why);
     }
 
+    // --- WAPI-CFILE-01: the start form of a program on the card (GH #510) --------------------------
+    {
+        const Result r = run("{" + IMG + ",\"$serveDir\":true,\"file\":\"/media/0-card/main.nex\"}");
+        const Result without = run("{" + IMG + ",\"file\":\"/media/0-card/main.nex\"}");
+        size_t stubs = 0;
+        for (const auto& a : r.argv) if (a == "--esxdos-stub") ++stubs;
+        check("WAPI-CFILE-01", "$serveDir:true with a string file and a $card gives --esxdos-stub exactly once and --load <path>; the same options without $serveDir give no --esxdos-stub",
+              r.ok && stubs == 1 && r.argv == Argv{"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX, "--esxdos-stub",
+                                                    "--load", "/media/0-card/main.nex"} &&
+              without.ok && without.argv == Argv{"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX, "--load", "/media/0-card/main.nex"},
+              r.ok ? join(r.argv) : r.why);
+    }
+
+    // --- WAPI-CFILE-02: the validation form {card: PATH} is accepted ---------------------------------
+    {
+        const char* good[] = {
+            "\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":\"/GAMES/Next/TX-1696/main.nex\"}",
+            "\"card\":{\"dirs\":[\"/games/next/tx-1696\"]},\"file\":{\"card\":\"/GAMES/Next/TX-1696/main.nex\"}",
+            "\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":\"/games/NEXT/tx-1696/MAIN.NEX\"}"};
+        std::string bad;
+        for (const char* g : good) {
+            const Result r = run("{" + IMG + "," + g + "}");
+            if (!r.ok || r.argv != Argv{"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX}) bad += std::string(" ") + g + " -> " + (r.ok ? join(r.argv) : r.why);
+        }
+        check("WAPI-CFILE-02", "file {card:'/GAMES/Next/TX-1696/main.nex'} is accepted (and adds nothing to argv yet) with dirs ['/GAMES'], with ['/games/next/tx-1696'], and with the path in another case",
+              bad.empty(), bad);
+    }
+
+    // --- WAPI-CFILE-03: each refusal gives its exact text ------------------------------------------
+    {
+        struct C { const char* opts; const char* want; };
+        const C cases[] = {
+            {"\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":\"/APPS/x.nex\"}", "option 'file': /APPS/x.nex is not on the card: add its directory to card.dirs"},
+            {"\"file\":{\"card\":\"/GAMES/x.nex\"}", "option 'file': /GAMES/x.nex is not on the card: add its directory to card.dirs"},
+            {"\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":\"/GAMES/x.tap\"}", "option 'file': {card} takes a .nex"},
+            {"\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":\"GAMES/x.nex\"}", "option 'file': {card} must be an absolute path"},
+            {"\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":\"/GAMES/../x.nex\"}", "option 'file': {card} has an empty, '.' or '..' component: /GAMES/../x.nex"},
+            {"\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":\"/GAMES/x.nex\",\"url\":\"u\"}", "option 'file': unknown key 'url'"},
+            {"\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":5}", "option 'file': {card} must be a string"},
+            {"\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{}", "option 'file': {card} must be a string"},
+            // the prefix trap: containment is by path component, not by string prefix
+            {"\"card\":{\"dirs\":[\"/GAMES/Next/TX\"]},\"file\":{\"card\":\"/GAMES/Next/TX-1696/main.nex\"}", "option 'file': /GAMES/Next/TX-1696/main.nex is not on the card: add its directory to card.dirs"}};
+        std::string bad;
+        for (const C& c : cases) {
+            const Result r = run("{" + IMG + "," + c.opts + "}");
+            if (r.ok || !r.argv.empty() || r.why != c.want) bad += std::string(" ") + c.opts + " -> " + r.why;
+        }
+        const Result none = run("{\"card\":{\"source\":\"none\"},\"file\":{\"card\":\"/GAMES/x.nex\"}}");
+        if (none.ok || none.why != "option 'file': {card} needs an SD card: not with card source 'none'") bad += " none -> " + none.why;
+        check("WAPI-CFILE-03", "file {card}: outside every dir, no dirs, .tap, a relative path, a '..' component, an extra key, a non-string, an empty object, the prefix trap (dirs ['/GAMES/Next/TX'] vs /GAMES/Next/TX-1696/main.nex) and card source 'none' are refused with their exact texts",
+              bad.empty(), bad);
+    }
+
+    // --- WAPI-CFILE-04: $serveDir needs a program copied from the card -----------------------------
+    {
+        const std::string want = "$serveDir needs a program copied from the SD card (an internal error of the page layer)";
+        const Result no_file = run("{" + IMG + ",\"$serveDir\":true}");
+        const Result obj_file = run("{" + IMG + ",\"$serveDir\":true,\"card\":{\"dirs\":[\"/GAMES\"]},\"file\":{\"card\":\"/GAMES/x.nex\"}}");
+        const Result num_file = run("{" + IMG + ",\"$serveDir\":true,\"file\":5}");
+        const Result no_card = run("{\"$serveDir\":true,\"card\":{\"source\":\"none\"},\"file\":\"/media/0-g.nex\"}");
+        const Result is_false = run("{" + IMG + ",\"$serveDir\":false,\"file\":\"/media/0-g.nex\"}");
+        check("WAPI-CFILE-04", "$serveDir without a file, with a non-string file, with card source 'none' (no $card) or with false is refused as an internal error of the page layer",
+              !no_file.ok && no_file.why == want && !obj_file.ok && obj_file.why == want &&
+              !num_file.ok && num_file.why == want && !no_card.ok && no_card.why == want && !is_false.ok && is_false.why == want,
+              no_file.why + " | " + obj_file.why + " | " + num_file.why + " | " + no_card.why + " | " + is_false.why);
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %d  Passed: %d  Failed: %d  Skipped: 0\n", g_pass + g_fail, g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -20,7 +20,7 @@ you read it; it is not a replacement for it.
 | `make package-test` | builds every package except macOS, Flatpak and the browser zip and **asserts its contents** (a missing tool fails) |
 | `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain; it also runs `make web-package-test` |
 | `make pages-site` | the Pages demo site in `build/pages` from the web zip, guarded: no image, program or archive ([5.6](06-the-browser-build.md)) |
-| `make pages-site-test` | the contract suite of `pages-site.sh` and the Pages workflows (PSITE-01 to PSITE-06), hermetic; part of `package-contract-test` |
+| `make pages-site-test` | the contract suite of `pages-site.sh` and the Pages workflows (PSITE-01 to PSITE-07), hermetic; part of `package-contract-test` |
 | `make web-package-test` | the contract suite of `packaging/web/package-web.sh` (WEBPKG-01 to WEBPKG-50), on fake trees, hermetic |
 
 The rpm, deb, Flatpak and macOS packaging builds (including the rpm spec and the

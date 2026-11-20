@@ -456,20 +456,36 @@ Rows: BCARD (`test/browser/card.mjs`: the probe, fetch, pick, cache and seam pat
 build of the real distribution when cached) and LUDC (`test/lint-user-docs-card-selftest.sh`:
 the user-facing-docs lint and its scope).
 
+## A program on the card
+
+`file: {card: PATH}` runs a NEX that the in-memory card holds, with its data files. `web_api::build_argv`
+validates the object (`WAPI-CFILE-*`): no key but `card`, a string, absolute, no empty, `.` or `..` part, ending
+`.nex`, not with card source `none`, and inside one canonical `card.dirs` entry by path component (lower
+case; a string prefix such as `/GAMES/Next/TX` does not cover `/GAMES/Next/TX-1696`). The page layer
+(`jnext_api.js`, `copyProgram`) then calls `jnext_card_copy_program` (`card_builder_web.cpp`), which runs
+`card_extract::copy_program_dir` (`src/core/card_extract.cpp`): FatFs mounts the card read-only in effect (it
+never writes), finds the NEX case-insensitively and copies its directory, only that subtree, into
+`/media/<k>-card/`, up to 48 MiB. `substitute()` then sets `file` to the copy and adds the internal
+`$serveDir: true`, which `build_argv` turns into `--esxdos-stub`; the page layer refuses every option whose
+name starts with `$`, and `load({card})`. The copy is all or nothing: a failure removes it and the message names the path
+(`the card has no /GAMES/...`). Tests: `MCARD-CP-01..03` (the extractor, on the Builder's synthetic card),
+`WAPI-CFILE-01..04`, `BCFILE-01..06` (`test/browser/cardfile.mjs`, real data for the two games against
+mtools copies and native runs) and `PAGES-03..05` (the demos of the site).
+
 ## The Pages demo site
 
 `make pages-site` (prerequisite `package-web`) runs `packaging/web/pages-site.sh`, which reads
 `jnext-<ver>-web.zip` with CPython's `zipfile` and writes `build/pages`: the zip's files minus the
 four example pages, plus `index.html`, made from `web/pages/index.html.in` with the version of
-`version.yaml`. The page holds one widget with `data-card-dirs="/APPS,/GAMES"` and `data-nmi`. The
+`version.yaml`. The page holds one widget with `data-card-dirs="/APPS,/GAMES"` and `data-nmi`, and three demo links, `?demo=nextzxos`, `?demo=warhawk` and `?demo=tx-1696`: a small script sets the widget's title and, for a game, `data-card-file`, so every demo is a page load with one emulator, and all three share one cached card. The
 script refuses, and removes the output, when the site is not exactly that list, when any name has
 an image, ROM, disk-image, program, recording or archive extension as a dot-separated part (`.img .mmc
 .rom .bin .dsk .trd .scl .hdf .vhd .mdr .p .nex .tap .tzx .sna .szx .z80 .jns .rzx .wav .raw .zip .gz
 .tgz .bz2 .xz .7z .rar .tar`, any case, any depth, so `x.img.gz` too) or ends in a dot or whitespace,
-when a file starts with an archive signature or holds a boot-sector mark at byte 510 (a WebAssembly
-module is exempt), when a zip entry is a symlink, has a `..` or absolute path, lies outside the top folder
+when a file starts with an archive signature or holds a boot-sector mark at byte 510 (only `jnext-<ver>.wasm`,
+with its preamble, is exempt), when a zip entry is a symlink, has a `..` or absolute path, lies outside the top folder
 or repeats a name, when a required file is missing, or when the wasm exceeds 16 MiB or the site 24 MiB. The
 site never holds NextZXOS, the distribution or a program: the visitor's browser downloads the
-distribution from specnext.com. `test/packaging/pages-site-test.sh` (PSITE-01 to 06, hermetic) pins
+distribution from specnext.com. `test/packaging/pages-site-test.sh` (PSITE-01 to 07, hermetic) pins
 the script and the workflow wiring; `test/browser/pages.mjs` (PAGES-01 and 02) serves `build/pages`
 alone, and `wasm-browser-test` has `pages-site` as a prerequisite.

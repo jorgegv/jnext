@@ -726,7 +726,7 @@ pages-site: package-web
 	@# or a game (copyrighted): packaging/web/pages-site.sh refuses both and verifies its own tree.
 	bash packaging/web/pages-site.sh build/wasm-core
 
-# Contract-test packaging/web/pages-site.sh and the Pages workflows (6 rows) on fake trees - hermetic, no emsdk
+# Contract-test packaging/web/pages-site.sh and the Pages workflows (7 rows) on fake trees - hermetic, no emsdk
 pages-site-test:
 	@bash test/packaging/pages-site-test.sh
 

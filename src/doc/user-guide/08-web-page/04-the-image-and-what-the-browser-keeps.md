@@ -179,6 +179,28 @@ jnext.mount(el, { card: { dirs: ['/GAMES', '/APPS'] } });
 - A page that changes its list leaves the card of the old list in the visitor's browser
   until the next JNEXT release.
 
+### A program from the card
+
+A page can run a NEX that the card holds, with the files next to it. Ask for its directory
+in `card.dirs` and name the NEX in `file`:
+
+```js
+jnext.mount(el, { card: { dirs: ['/GAMES'] }, file: { card: '/GAMES/Next/Game/game.nex' } });
+```
+
+- The path is absolute, ends `.nex`, and lies inside one entry of `card.dirs`; capital letters
+  do not matter. Anything else is refused when the page starts, before any download.
+- The directory that holds the NEX is copied, with everything below it, into the page's memory,
+  and the NEX is loaded from the copy. The program is served that directory, as a program on
+  a real Next reads its data files from its own folder. The directory is limited to 48 MiB.
+- The files are read-only: a game that saves a score is told the write failed and carries on.
+  A page that wants the writes (kept in memory only) adds `args: ['--esxdos-stub-writable']`.
+- NextZXOS is started first and the program loaded over it, so the program finds its ROMs.
+  `card.source` `'none'` cannot do this: it has no card.
+- One card serves every page of a site that uses the same `card.dirs`, so a site with several
+  such programs downloads the distribution once.
+- A NEX that is not on the card stops the player with `the card has no <path>`.
+
 ### The stored saves in detail
 
 - With `keepWrites`, the sectors the program writes to the card are kept in IndexedDB, in

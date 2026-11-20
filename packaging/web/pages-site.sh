@@ -19,7 +19,7 @@
 #     and snapshots (nex tap tzx sna szx z80 jns rzx wav raw) and archives or compressed files (zip
 #     gz tgz bz2 xz 7z rar tar); so is a name ending in a dot or whitespace;
 #   - a file whose content starts with a zip, gzip, bzip2, xz, 7z or rar signature, or whose bytes
-#     510 and 511 are 55 AA (a boot sector; a WebAssembly module is exempt), is refused whatever its
+#     510 and 511 are 55 AA (a boot sector; only jnext-<ver>.wasm, with its preamble, is exempt), is refused whatever its
 #     name;
 #   - the wasm at most 16 MiB (an image embedded raw into the module is 40 MiB), the whole
 #     site at most 24 MiB;
@@ -74,10 +74,12 @@ def banned_name(r):
     base = r.rsplit("/", 1)[-1]
     if base != base.rstrip(". \t\r\n") or not base: return True
     return any(part.lower() in BANNED for part in base.split(".")[1:])
-def banned_content(d):
+def banned_content(r, d):
     if d.startswith(MAGIC): return True
-    # a module with the WebAssembly preamble is not a boot sector, whatever bytes 510 and 511 are
-    return len(d) >= 512 and d[510:512] == b"\x55\xaa" and not d.startswith(b"\0asm\x01\0\0\0")
+    # the one module, jnext-<ver>.wasm with the WebAssembly preamble, is not a boot sector, whatever bytes
+    # 510 and 511 are; under any other name the preamble does not excuse them
+    if r == "jnext-%s.wasm" % ver and d.startswith(b"\0asm\x01\0\0\0"): return False
+    return len(d) >= 512 and d[510:512] == b"\x55\xaa"
 errs = []
 def bad(m): errs.append(m)
 try:
@@ -114,7 +116,7 @@ if not errs:
         d = os.path.join(stage, r)
         os.makedirs(os.path.dirname(d), exist_ok=True)
         data = z.read(files[r])
-        if banned_content(data): bad("%s holds an archive, image or boot sector, whatever its name" % r); continue
+        if banned_content(r, data): bad("%s holds an archive, image or boot sector, whatever its name" % r); continue
         with open(d, "wb") as f: f.write(data)
         os.chmod(d, 0o644)
     with open(os.path.join(stage, "index.html"), "w", encoding="utf-8", newline="") as f: f.write(page)

@@ -3134,9 +3134,13 @@ asked), with the plain picture otherwise.
     area before the click so the player is not black on load. The emulator replaces it
     when the visitor starts the player. Without it nothing is shown there.
 
-`file` *URL | {url} | {data, name}*
+`file` *URL | {url} | {data, name} | {card}*
 :   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, a `.rzx` recording, or a `.jns`, `.sna`,
-    `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu.
+    `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu. `{card: '/PATH/x.nex'}`
+    runs a NEX that is on the SD card: its path lies inside one entry of `card.dirs`, the directory that holds
+    it is copied out of the card with everything below it, and that directory is served to the program with
+    **\--esxdos-stub** (read-only unless `args` has **\--esxdos-stub-writable**). It cannot be used with
+    card source `'none'`, and `load()` refuses it.
 
 `keepWrites` *boolean*
 :   **\--sdcard-writes**, with a file the page manages: what the program writes
