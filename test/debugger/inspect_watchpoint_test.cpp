@@ -51,6 +51,7 @@
 #include "debug/debug_state.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "put_on_show.h"
 #include "debugger/callstack_panel.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
@@ -218,9 +219,10 @@ bool stopped_at(Emulator& emu, uint16_t want) {
 }
 
 // A 48K machine with the REAL debugger window open on it — the state the bug
-// needs, since the panels only read when they exist. set_enabled(true) also
-// turns the call-stack tracker on, exactly as it does for a user, which is why
-// no inspection row watches an address in $8000-$8013.
+// needs, since the panels only read when they exist. Opening it with the Call Stack
+// on show also turns the call-stack tracker on (GH #498: the open window tracks only
+// while that panel or Variables is on show), exactly as it does for a user, which is
+// why no inspection row watches an address in $8000-$8013.
 struct Fixture {
     Emulator         emu;
     // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
@@ -234,6 +236,7 @@ struct Fixture {
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented -> auto-freed
         mgr->set_enabled(true);                        // creates + shows window
+        put_on_show(mgr->debugger_window_ptr(), mgr->debugger_window_ptr()->callstack_panel());   // GH #498
     }
 
     DebuggerWindow* dbg() const { return mgr->debugger_window_ptr(); }
@@ -595,8 +598,8 @@ int main(int argc, char** argv) {
 
     // INSPW-16 — THE CALL-STACK TRACKER, the same shape with THREE bytes, so
     // at the park it reads $8011-$8013 and $8013 is its own. It is switched on
-    // by DebuggerManager::set_enabled(), independently of the trace, which is
-    // left off here.
+    // by the open window while the Call Stack is on show (the fixture's), independently
+    // of the trace, which is left off here.
     {
         Fixture f;
         f.emu.debug_state().breakpoints().add_watchpoint(CALLSTK_ONLY, WatchType::READ);

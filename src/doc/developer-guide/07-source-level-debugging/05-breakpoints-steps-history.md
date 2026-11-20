@@ -89,7 +89,10 @@ the pause ownership and stop evidence exactly as `step_into()` sets them.
 
     `Over` and `Out` measure depth with the call-stack tracker, so they need it on
     (`set_call_stack_enabled`, a per-client request; with a C variable store and a non-observer client
-    attached it is on by itself, [7.10](10-c-frames-and-values.md)).
+    attached it is on by itself, [7.10](10-c-frames-and-values.md)). The Qt window requests it for
+    exactly a source `Over` or `Out` (`run_source_step()`, synchronous inside the verb), whatever tab is
+    showing; the frames that were already on the stack when it starts come from the rebuild
+    ([7.10](10-c-frames-and-values.md)).
 
 - **The loop**, per iteration: `debugger_step()`, then `pause()`; stop if an event
   stop is latched, or the magic or watch stop fired; stop if `reached()`; stop at a

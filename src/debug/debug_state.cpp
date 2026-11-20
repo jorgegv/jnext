@@ -5,6 +5,7 @@
 void DebugState::pause() {
     paused_ = true;
     step_mode_ = StepMode::NONE;
+    recompute_pre_extra_();
 }
 
 void DebugState::resume() {
@@ -12,35 +13,41 @@ void DebugState::resume() {
     step_mode_ = StepMode::NONE;
     data_bp_hit_ = false;
     breakpoints_.clear_oneshot();
+    recompute_pre_extra_();
 }
 
 void DebugState::step_into() {
     unpause_();
     step_mode_ = StepMode::INTO;
+    recompute_pre_extra_();
 }
 
 void DebugState::step_over(uint16_t next_pc) {
     breakpoints_.set_oneshot(next_pc);
     unpause_();
     step_mode_ = StepMode::OVER;
+    recompute_pre_extra_();
 }
 
 void DebugState::step_out(uint16_t current_sp) {
     step_out_sp_ = current_sp;
     unpause_();
     step_mode_ = StepMode::OUT;
+    recompute_pre_extra_();
 }
 
 void DebugState::run_to(uint16_t addr) {
     breakpoints_.set_oneshot(addr);
     unpause_();
     step_mode_ = StepMode::NONE;
+    recompute_pre_extra_();
 }
 
 void DebugState::run_to_cycle(uint64_t target_cycle) {
     target_cycle_ = target_cycle;
     unpause_();
     step_mode_ = StepMode::RUN_TO_CYCLE;
+    recompute_pre_extra_();
 }
 
 bool DebugState::should_break(uint16_t pc) const {
@@ -58,6 +65,7 @@ bool DebugState::consume_step_off() {
     // instruction, on the hot path. See the header for the semantics.
     if (!step_off_pending_) return false;
     step_off_pending_ = false;
+    recompute_pre_extra_();
     return true;
 }
 
@@ -65,12 +73,14 @@ void DebugState::step_back(int n) {
     step_back_count_ = (n > 0) ? n : 1;
     unpause_();
     step_mode_ = StepMode::STEP_BACK;
+    recompute_pre_extra_();
 }
 
 void DebugState::run_back_to_cycle(uint64_t target_cycle) {
     target_cycle_ = target_cycle;
     unpause_();
     step_mode_ = StepMode::RUN_BACK_TO_CYCLE;
+    recompute_pre_extra_();
 }
 
 bool DebugState::step_out_sp_qualifies(uint16_t sp_before, uint16_t sp_after) const {
@@ -194,6 +204,7 @@ void DebugState::refresh_event_gates() {
         nextreg_armed_ = false;
         events_live_   = false;
         recompute_boundary_work_();
+        recompute_pre_extra_();
         return;
     }
     breakpoints_.set_event_slot_masks(events_->rd_slot_mask(),
@@ -208,6 +219,7 @@ void DebugState::refresh_event_gates() {
     nextreg_armed_ = events_->has_kind(jnext::dbg::EventKind::NextRegWrite);
     events_live_   = events_->live_kinds() != 0;
     recompute_boundary_work_();
+    recompute_pre_extra_();
 }
 
 // GH #276 B2 — the transient-subscription forms. Identical to step_over() /
@@ -215,9 +227,11 @@ void DebugState::refresh_event_gates() {
 void DebugState::step_over_subscribed() {
     unpause_();
     step_mode_ = StepMode::OVER;
+    recompute_pre_extra_();
 }
 
 void DebugState::run_to_subscribed() {
     unpause_();
     step_mode_ = StepMode::NONE;
+    recompute_pre_extra_();
 }

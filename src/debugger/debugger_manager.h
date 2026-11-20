@@ -303,6 +303,16 @@ private:
     void attach_backend();
     void detach_backend();
 
+    /// GH #498 - what the window asks of the backend depends on what is on show: call
+    /// tracking while the Call Stack or Variables panel is on show or a source Step Over / Out
+    /// runs, the live raster while the Video panel is. Each request is sent only when it changes.
+    /// Called after the window opens, on DebuggerWindow::panels_on_show_changed and around a
+    /// source step.
+    void apply_data_needs();
+    bool call_stack_requested_ = false;
+    bool raster_requested_ = false;
+    bool source_step_in_flight_ = false;
+
     /// The four paused-only panels (CPU, Disassembly, Stack, Call Stack).
     void set_panels_paused(bool paused);
 

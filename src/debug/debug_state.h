@@ -120,6 +120,22 @@ public:
     /// per-instruction breakpoint check is the price of it.
     bool armed() const { return armed_; }
 
+    /// GH #498 - does run_frame()'s per-instruction armed() block have ANYTHING to do? An attached
+    /// client with nothing live (the debugger window open on a running program, no breakpoint, no
+    /// step, no `Execute` subscription, no verify window, no pause) makes that block a no-op: its
+    /// pause test, verify test, step-off test, PC breakpoint lookup, `Execute` gate and step-mode
+    /// tests all answer "no". Equal to armed() && (a pause, a verify window, a pending step-off, a
+    /// step mode, an `Execute` subscription or a live PC / one-shot breakpoint). `pre_extra_` is the
+    /// first five, recomputed by every writer of them (recompute_pre_extra_()); the sixth is the
+    /// BreakpointSet's own cached flag. Two bool loads past armed(); never a function call.
+    bool pre_block_live() const { return armed_ && (pre_extra_ || breakpoints_.exec_live()); }
+
+    /// The same predicate recomputed from its raw inputs, for the row that holds the cache to it.
+    bool pre_block_live_recomputed_for_test() const {
+        return armed_ && (paused_ || verify_hold_ || step_off_pending_ || step_mode_ != StepMode::NONE ||
+                          execute_armed_ || breakpoints_.exec_live_recomputed_for_test());
+    }
+
     /// Are WATCHPOINTS live — i.e. would a memory or port access made RIGHT
     /// NOW be allowed to raise the data-breakpoint latch? The hot-path gate
     /// for the eight Mmu sites and PortDispatch::check_io_watchpoint_.
@@ -266,6 +282,7 @@ public:
             ds_.step_mode_  = step_;
             ds_.refresh_gates_();
             ds_.step_off_pending_ = step_off_;   // after refresh_gates_
+            ds_.recompute_pre_extra_();          // GH #498: after the step-off
         }
         SuspendScope(const SuspendScope&) = delete;
         SuspendScope& operator=(const SuspendScope&) = delete;
@@ -727,7 +744,16 @@ private:
         // and a surviving arm would suppress an unrelated test the moment
         // breakpoints came back (GH #221).
         if (!armed_) step_off_pending_ = false;
+        recompute_pre_extra_();   // GH #498
     }
+
+    /// GH #498 - the non-breakpoint terms of pre_block_live(): a pause, the verify window, a pending
+    /// step-off, a step mode, an `Execute` subscription. EVERY writer of those five calls this.
+    void recompute_pre_extra_() {
+        pre_extra_ = paused_ || verify_hold_ || step_off_pending_ || step_mode_ != StepMode::NONE ||
+                     execute_armed_;
+    }
+    bool pre_extra_ = false;
 
     /// The ONE way out of paused. Every resume-family transition goes through
     /// it so the GH #221 step-off arm cannot be forgotten by a path added
@@ -763,6 +789,7 @@ private:
             magic_hold_ = false;
             refresh_gates_();
         }
+        recompute_pre_extra_();   // GH #498
     }
 
     // GH #278 WP4c — the magic stop's hold (hold_for_magic_stop()), in the slot
