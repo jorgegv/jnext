@@ -950,7 +950,9 @@ int main(int argc, char** argv)
     // every crop below, because mapTo() reports a position the render does not
     // show. So: pin the width, let the window find its own height, then grow
     // it until nothing scrolls, and refuse to capture if anything still does.
-    settle();                       // let the opening fit run first
+    // Let the opening fit run to its END (its grace window is 1 s): a resize while it still runs ends it at
+    // whatever pass it has reached, and the widths of the left and right columns then depend on the host's load.
+    settle(1500);
     dbg->resize(kWindowW, dbg->height());
     settle();
 
