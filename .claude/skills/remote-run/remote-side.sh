@@ -57,8 +57,6 @@ mkdir -p "$RR_DIR" "$TMPDIR" "$RUNS" "$STAMPS" "$CTL" "$RR_DIR/containers/storag
 for c in git podman flock timeout tar sha256sum; do
     command -v "$c" >/dev/null 2>&1 || fallback "required command not found on the remote: $c"
 done
-rootless=$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null) || fallback "podman info failed"
-[[ "$rootless" == true ]] || fallback "podman is not rootless (got '$rootless')"
 
 # Memory: MemAvailable leaves out the ZFS ARC, which the kernel gives back under pressure, so
 # the gate counts the ARC above its minimum as available; both are reported.
@@ -92,8 +90,18 @@ if [[ -z "${RR_SKIP_CGROUP_CHECK:-}" ]]; then
 fi
 say "container memory limit: $mem_limit (swap off)"
 
+
+# ---- lane: one run at a time ------------------------------------------------
+exec 9>"$RR_DIR/lane.lock"
+if ! flock -n 9; then
+    say "the lane is busy: queued (waiting up to ${RR_LANE_WAIT}s)"
+    flock -w "$RR_LANE_WAIT" 9 || fallback "the lane stayed busy for ${RR_LANE_WAIT}s"
+fi
+
 # Storage driver: try the default (overlay) in the work directory, then fuse-overlayfs, then vfs;
-# the first that can start is kept.
+# the first that can start is recorded in containers/driver (the default too, by the name podman
+# reports) and used by every later call. Runs only while holding the lane: a failed probe wipes
+# the store, which must never be one a live run is using.
 pick_driver() {
     local d out
     [[ ! -s "$DRV_FILE" ]] || return 0
@@ -107,6 +115,7 @@ pick_driver() {
         set_pm
         if out=$(pm info --format '{{.Store.GraphDriverName}}' 2>&1 </dev/null); then
             say "podman storage driver: ${out} (selected: ${d:-default})"
+            [[ -n "$d" ]] || { echo "$out" > "$DRV_FILE"; set_pm; }
             return 0
         fi
         say "storage driver '${d:-default}' failed: $(head -n 1 <<<"$out")"
@@ -117,13 +126,16 @@ pick_driver() {
     fallback "no podman storage driver works under $RR_DIR"
 }
 pick_driver
+rootless=$(pm info --format '{{.Host.Security.Rootless}}' 2>/dev/null) || fallback "podman info failed"
+[[ "$rootless" == true ]] || fallback "podman is not rootless (got '$rootless')"
 
-# ---- lane: one run at a time ------------------------------------------------
-exec 9>"$RR_DIR/lane.lock"
-if ! flock -n 9; then
-    say "the lane is busy: queued (waiting up to ${RR_LANE_WAIT}s)"
-    flock -w "$RR_LANE_WAIT" 9 || fallback "the lane stayed busy for ${RR_LANE_WAIT}s"
-fi
+# Cache directories that moved: renamed once, while holding the lane (same filesystem: instant).
+for m in ${RR_CACHE_MIGRATE:-}; do
+    if [[ -d "$CACHE/${m%%:*}" && ! -e "$CACHE/${m#*:}" ]]; then
+        mkdir -p "$(dirname "$CACHE/${m#*:}")" && mv "$CACHE/${m%%:*}" "$CACHE/${m#*:}" \
+            && say "cache migrated: ${m%%:*} -> ${m#*:}"
+    fi
+done
 
 cname="rr-$RR_PROJECT-$RR_ID"
 run="$RUNS/$RR_ID"
@@ -146,7 +158,9 @@ trap 'exit 143' TERM HUP INT
 
 # The lane is ours, so anything left under RUNS/CTL/STAMPS or still running is an orphan.
 for c in $(pm ps -q --filter "name=^rr-$RR_PROJECT-" 2>/dev/null); do pm kill "$c" >/dev/null 2>&1; done
-find "$RUNS" "$CTL" "$STAMPS" -mindepth 1 -maxdepth 1 -mmin +60 -exec rm -rf {} + 2>/dev/null
+find "$RUNS" "$CTL" -mindepth 1 -maxdepth 1 -mmin +60 -exec rm -rf {} + 2>/dev/null
+# stamps wait for the driver to fetch them in a later session: only a day-old one is an orphan
+find "$STAMPS" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null
 
 # ---- mirror -----------------------------------------------------------------
 [[ -d "$MIRROR/objects" ]] || git init -q --bare "$MIRROR" || fallback "cannot create the mirror"

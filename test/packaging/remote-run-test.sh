@@ -3,19 +3,19 @@
 # Contract test for .claude/skills/remote-run (the remote-run driver) and test/ci-deps.sh.
 # Hermetic: the remote side runs as a local shell (--local-shell) against a throwaway git
 # repository, with a fake `podman` and a fake `make` on PATH; no ssh, no container, no network,
-# no SD-card image. HOME and every work directory are under one scratch directory, removed on exit.
+# no SD-card image, no shellcheck (a lint the CI containers do not carry). HOME and every work directory are under one scratch directory, removed on exit.
 #
 # Oracles: the driver's documented exit codes (0 green, 1 failed, 2 usage, 3 refused, 75 run
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-17. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-26. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=17
+EXPECTED_ROWS=26
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -42,11 +42,11 @@ finish() {
 }
 
 missing=()
-for t in git flock timeout tar sha256sum shellcheck; do
+for t in git flock timeout tar sha256sum; do
     command -v "$t" >/dev/null 2>&1 || missing+=("$t")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
-    echo "  missing tools: ${missing[*]} (dnf install git util-linux coreutils tar ShellCheck)"
+    echo "  missing tools: ${missing[*]} (dnf install git util-linux coreutils tar)"
     for i in $(seq 1 $EXPECTED_ROWS); do row "RRUN-$(printf '%02d' "$i")" 0 "not run: missing tools"; done
     total=$EXPECTED_ROWS; failed=$EXPECTED_ROWS; passed=0
     ids_seen=" "; finish
@@ -58,15 +58,25 @@ export HOME=$TMP/home
 mkdir -p "$HOME" "$TMP/bin" "$TMP/state"
 
 # ---- fakes ------------------------------------------------------------------
-# Fake podman: records every call; `image exists` is true after a `build`; `run` writes a stamp
-# file when FAKE_STAMP=1, sleeps when FAKE_SLEEP=1 (until killed), else exits with FAKE_RC.
+# Fake podman: records every call; any call without --root/--runroot other than --version FAILS (and
+# leaves $FAKE_STATE/noroot), because a bare podman would write the default store outside the work dir.
+# `image exists` is true after a `build`. `run` executes the real container-side script when
+# FAKE_INNER=1 (the -v mounts mapped to RR_CTL / RR_SRC), else prints a canned result, writes a stamp
+# when FAKE_STAMP=1, sleeps when FAKE_SLEEP=1 (until killed), kills its remote shell when
+# FAKE_KILL_PARENT=1, and exits with FAKE_RC.
 cat > "$TMP/bin/podman" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_STATE/calls"
-if [[ "${1:-}" == --root ]]; then echo "$2 $4" >> "$FAKE_STATE/roots"; shift 4; fi
+if [[ "${1:-}" == --version ]]; then echo "podman version 0.0-fake"; exit 0; fi
+if [[ "${1:-}" != --root ]]; then : > "$FAKE_STATE/noroot"; exit 99; fi
+echo "$2 $4" >> "$FAKE_STATE/roots"; shift 4
+if [[ "${1:-}" == --storage-driver ]]; then echo "$2" >> "$FAKE_STATE/drivers"; shift 2; fi
 case "${1:-}" in
-    --version) echo "podman version 0.0-fake" ;;
-    info) echo true ;;
+    info)
+        case "$*" in
+            *GraphDriverName*) [[ "${FAKE_INFO_FAIL:-0}" != 1 ]] || { echo "boom: store broken" >&2; exit 1; }; echo overlay ;;
+            *) echo true ;;
+        esac ;;
     image)
         case "${2:-}" in
             exists) [[ -e "$FAKE_STATE/image-${3//\//_}" ]] ;;
@@ -75,13 +85,34 @@ case "${1:-}" in
     build) while [[ $# -gt 0 ]]; do [[ "$1" == -t ]] && : > "$FAKE_STATE/image-${2//\//_}"; shift; done ;;
     kill) echo "$2" >> "$FAKE_STATE/killed" ;;
     run)
+        ctl=""; src=""
         for a in "$@"; do
             [[ "$a" == *:/rr-stamps ]] && [[ "${FAKE_STAMP:-0}" == 1 ]] && echo stamp > "${a%%:*}/fakekey"
-            [[ "$a" == *:/src ]] && echo "${a%%:*}" > "$FAKE_STATE/srcdir"
-            [[ "$a" == *:/rr:ro ]] && cp "${a%%:*}/env.sh" "$FAKE_STATE/env.sh"
+            [[ "$a" == *:/src ]] && { echo "${a%%:*}" > "$FAKE_STATE/srcdir"; src=${a%%:*}; }
+            [[ "$a" == *:/rr:ro ]] && { cp "${a%%:*}/env.sh" "$FAKE_STATE/env.sh"; ctl=${a%%:*}; }
         done
-        echo "=== remote-run target: fake"
-        echo "=== remote-run result: fake rc=${FAKE_RC:-0} time=1s peak=1MiB"
+        if [[ "${FAKE_INNER:-0}" == 1 ]]; then
+            RR_CTL=$ctl RR_SRC=$src bash "$ctl/inner.sh"
+            exit $?
+        fi
+        # canned: one result line per requested step, the first one with rc=FAKE_RC (stop there when not 0)
+        # shellcheck source=/dev/null
+        . "$ctl/env.sh"
+        first=1
+        while IFS= read -r t <&3; do
+            [[ -n "$t" ]] || continue
+            rc=0
+            [[ $first -eq 1 ]] && rc=${FAKE_RC:-0}
+            echo "=== remote-run target: $t"
+            echo "=== remote-run result: $t rc=$rc time=1s peak=1MiB"
+            [[ -z "${FAKE_TOTALS:-}" || $first -eq 0 ]] || echo "=== remote-run totals: $t :: $FAKE_TOTALS"
+            first=0
+            [[ $rc -eq 0 ]] || break
+        done 3<<<"$RR_TARGETS"
+        if [[ "${FAKE_KILL_PARENT:-0}" == 1 ]]; then
+            kill -KILL "$(ps -o ppid= -p "$PPID" | tr -d ' ')"
+            sleep 1; exit 137
+        fi
         if [[ "${FAKE_SLEEP:-0}" == 1 ]]; then
             trap 'exit 143' TERM
             : > "$FAKE_STATE/running"; sleep 60 >/dev/null 2>&1 & wait
@@ -90,10 +121,14 @@ case "${1:-}" in
     *) exit 0 ;;
 esac
 EOF
-# Fake make: logs its arguments; fails for the target `bad`.
+# Fake make: logs its arguments; `bad` fails, `readstdin` reads stdin, `tot1` / `tot2` print a totals
+# line in each harness format.
 cat > "$TMP/bin/make" <<'EOF'
 #!/usr/bin/env bash
 echo "make $*" >> "$FAKE_STATE/make-calls"
+[[ " $* " != *" readstdin "* ]] || cat > /dev/null
+[[ " $* " != *" tot1 "* ]] || echo "Total:    4  Passed:    4  Failed:    0  Skipped:    0"
+[[ " $* " != *" tot2 "* ]] || echo "  Pass: 7  Fail: 0  Skip: 0"
 [[ " $* " != *" bad "* ]]
 EOF
 chmod +x "$TMP/bin/podman" "$TMP/bin/make"
@@ -251,33 +286,41 @@ roots_ok=1
 while read -r s r; do [[ "$s" == "$WORK/"* && "$r" == "$WORK/"* ]] || roots_ok=0; done < "$FAKE_STATE/roots"
 vols_ok=1
 while read -r v; do [[ "$v" == "$WORK/"* ]] || vols_ok=0; done < <(grep -oE -- '-v [^ ]+' <<<"$runline" | cut -d' ' -f2)
-[[ "$runline" == *"/root/.cache/ccache"* && "$runline" == *"/root/.jnext/sdcard"* ]] || vols_ok=0
-row RRUN-08 "$([[ $warm_rc -eq 0 && $built -eq 1 && $run_rc -eq 0 && $roots_ok -eq 1 && $vols_ok -eq 1 \
+[[ "$runline" == *"/root/.cache/ccache"* && "$runline" == *":/root/.jnext "* ]] || vols_ok=0
+mem_ok=0; [[ "$runline" == *"--memory "*"--memory-swap "* ]] && mem_ok=1
+drv_ok=0; [[ "$(cat "$WORK/containers/driver" 2>/dev/null)" == overlay ]] && drv_ok=1
+row RRUN-08 "$([[ $warm_rc -eq 0 && $built -eq 1 && $run_rc -eq 0 && $roots_ok -eq 1 && $vols_ok -eq 1 && $mem_ok -eq 1 && $drv_ok -eq 1 \
     && -f "$TMP/stamps/fakekey" && -z "$(find "$WORK/runs" "$WORK/ctl" "$WORK/stamps" -mindepth 1)" ]] && echo 1 || echo 0)" \
-    "warm builds once; a run mounts only dirs under the work dir, stores podman there, returns the stamp, leaves no checkout (warm=$warm_rc run=$run_rc roots=$roots_ok vols=$vols_ok)"
+    "warm builds once; a run mounts only dirs under the work dir, stores podman there, records the driver, caps memory, returns the stamp, leaves no checkout (warm=$warm_rc run=$run_rc roots=$roots_ok vols=$vols_ok mem=$mem_ok drv=$drv_ok)"
 
 # RRUN-09: a failing container exits the driver with 1, copies no stamp, and the log keeps the result
 reset_state; rm -rf "$TMP/stamps"
 FAKE_STAMP=1 FAKE_RC=1 drive --id f1 feature "$SHA" unit-test
-row RRUN-09 "$([[ $RC -eq 1 && ! -e "$TMP/stamps" && "$OUT" == *"=== remote-run result: fake rc=1"* ]] && echo 1 || echo 0)" \
+row RRUN-09 "$([[ $RC -eq 1 && ! -e "$TMP/stamps" && "$OUT" == *"=== remote-run result: unit-test rc=1"* ]] && echo 1 || echo 0)" \
     "a failing run exits 1, writes no stamp, and the summary shows the result line (rc=$RC)"
 
-# RRUN-10: TERM to the driver stops the container and removes the checkout (the orphan guard)
+# RRUN-10: TERM to the driver's own pid (its own session, so no process-group kill helps) stops the
+# container and removes the checkout (the orphan guard); bounds are generous for a loaded host
 reset_state
-FAKE_SLEEP=1 timeout --kill-after=5s 300s bash "$DRIVER" --local-shell --log-dir "$TMP/logs" --id k1 \
+FAKE_SLEEP=1 setsid bash "$DRIVER" --local-shell --log-dir "$TMP/logs" --id k1 \
     feature "$SHA" unit-test >/dev/null 2>&1 &
 dpid=$!
-for _ in $(seq 1 600); do [[ -e "$FAKE_STATE/running" ]] && break; sleep 0.2; done
+for _ in $(seq 1 900); do [[ -e "$FAKE_STATE/running" ]] && break; sleep 0.2; done
 kill -TERM "$dpid" 2>/dev/null
+for _ in $(seq 1 450); do
+    kill -0 "$dpid" 2>/dev/null || break
+    sleep 0.2
+done
+dead=1; kill -0 "$dpid" 2>/dev/null && { dead=0; kill -KILL "$dpid" 2>/dev/null; }
+for _ in $(seq 1 450); do [[ -e "$FAKE_STATE/killed" && -z "$(find "$WORK/runs" -mindepth 1)" ]] && break; sleep 0.2; done
 wait "$dpid" 2>/dev/null
-for _ in $(seq 1 150); do [[ -e "$FAKE_STATE/killed" && -z "$(find "$WORK/runs" -mindepth 1)" ]] && break; sleep 0.2; done
-row RRUN-10 "$([[ -e "$FAKE_STATE/running" ]] && grep -q '^rr-jnext-k1$' "$FAKE_STATE/killed" 2>/dev/null \
-    && [[ -z "$(ls -A "$WORK/runs")" ]] && echo 1 || echo 0)" \
-    "TERM to the driver kills the named container and removes the run checkout"
+row RRUN-10 "$([[ -e "$FAKE_STATE/running" && $dead -eq 1 ]] && grep -q '^rr-jnext-k1$' "$FAKE_STATE/killed" 2>/dev/null \
+    && [[ -z "$(find "$WORK/runs" -mindepth 1)" ]] && echo 1 || echo 0)" \
+    "TERM to the driver alone kills the named container and removes the run checkout, the driver exits"
 
 # RRUN-11: nothing was written outside the scratch tree's work/log/stamp dirs: HOME is empty
-row RRUN-11 "$([[ -z "$(find "$HOME" -mindepth 1 2>/dev/null)" ]] && echo 1 || echo 0)" \
-    "no work data outside the work directory: the scratch HOME stays empty"
+row RRUN-11 "$([[ -z "$(find "$HOME" -mindepth 1 2>/dev/null)" && ! -e "$FAKE_STATE/noroot" ]] && echo 1 || echo 0)" \
+    "no work data outside the work directory: the scratch HOME stays empty and podman is never called without --root"
 
 # RRUN-12: ci-deps.sh: sets are unions, unknown set refused, ci.yml holds no package list, all
 # scripts of the skill are shellcheck-clean
@@ -290,8 +333,8 @@ bash "$ROOT/test/ci-deps.sh" --list nonesuch >/dev/null 2>&1; [[ $? -eq 2 ]] || 
 bash "$ROOT/test/ci-deps.sh" >/dev/null 2>&1; [[ $? -eq 2 ]] || ci_ok=0
 grep -nE 'dnf install -y +[a-z0-9]' "$ROOT/.github/workflows/ci.yml" | grep -qvE 'dnf install -y git$' && ci_ok=0
 grep -q 'bash test/ci-deps.sh test$' "$ROOT/.github/workflows/ci.yml" || ci_ok=0
-shellcheck -x "$DRIVER" "$SKILL/remote-side.sh" "$SKILL/container-side.sh" "$ROOT/test/ci-deps.sh" >/dev/null 2>&1 || ci_ok=0
-row RRUN-12 "$ci_ok" "ci-deps.sh sets/refusals, ci.yml calls it with no inline package list, the scripts are shellcheck-clean"
+for f in "$DRIVER" "$SKILL/remote-side.sh" "$SKILL/container-side.sh" "$ROOT/test/ci-deps.sh"; do bash -n "$f" 2>/dev/null || ci_ok=0; done
+row RRUN-12 "$ci_ok" "ci-deps.sh sets/refusals, ci.yml calls it with no inline package list, the scripts parse"
 
 # RRUN-13: --gate runs the batch gate's steps in CLAUDE.md's order with the gate timeout, and
 # takes exactly a branch and a sha
@@ -346,13 +389,16 @@ row RRUN-15 "$([[ $e1 -eq 0 && $e2 -eq 0 && $e3 -eq 75 \
 # runs the targets here at once; the remote work is not touched
 reset_state; rm -f "$FAKE_STATE/make-calls"; mkdir -p "$WORK"
 hold_lane 20; holder=$!
+# a live run's store must survive a probe that fails while the lane is busy
+rm -f "$WORK/containers/driver"; mkdir -p "$WORK/containers/storage"; : > "$WORK/containers/storage/live"
 start=$SECONDS
-REMOTE_RUN_LANE_WAIT=2 drive --id l1 --fallback-local "$TMP/local" feature "$SHA" unit-test
+FAKE_INFO_FAIL=1 REMOTE_RUN_LANE_WAIT=2 drive --id l1 --fallback-local "$TMP/local" feature "$SHA" unit-test
 l1=$RC; took=$((SECONDS - start))
+live_ok=0; [[ -e "$WORK/containers/storage/live" ]] && live_ok=1; rm -f "$WORK/containers/storage/live"
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
-row RRUN-16 "$([[ $l1 -eq 0 && $took -lt 60 && "$OUT" == *"RAN LOCALLY"* && "$(cat "$FAKE_STATE/make-calls")" == *"make -C $TMP/local unit-test"* \
+row RRUN-16 "$([[ $l1 -eq 0 && $took -lt 60 && "$OUT" == *"RAN LOCALLY"* && $live_ok -eq 1 && "$(cat "$FAKE_STATE/make-calls")" == *"make -C $TMP/local unit-test"* \
     && "$(grep -a 'fallback:' "$TMP/logs/l1.log")" == *"lane stayed busy for 2s"* ]] && echo 1 || echo 0)" \
-    "a busy lane: the plain run gives up after LANE_WAIT and runs locally at once (rc=$l1, ${took}s)"
+    "a busy lane: the plain run gives up after LANE_WAIT and runs locally at once, the store is untouched (rc=$l1, ${took}s, live=$live_ok)"
 
 # RRUN-17: --gate waits for a busy lane (GATE_LANE_WAIT) and then runs on the remote
 reset_state
@@ -363,5 +409,108 @@ wait "$holder" 2>/dev/null
 row RRUN-17 "$([[ $l2 -eq 0 && "$(grep -a 'queued' "$TMP/logs/l2.log")" == *"waiting up to 120s"* \
     && "$(grep -ac 'remote-run exit: 0' "$TMP/logs/l2.log")" -eq 1 ]] && echo 1 || echo 0)" \
     "--gate queues behind a busy lane with its own long wait, then runs on the remote (rc=$l2)"
+
+# The next rows run the REAL container-side.sh (FAKE_INNER=1: the fake podman executes it, with a fake
+# make) so the verdict path of every step is covered, not just the driver's.
+runin() { FAKE_INNER=1 drive "$@"; }
+rlines() { grep -ac '^=== remote-run result: ' "$TMP/logs/$1.log"; }
+
+# RRUN-18: a failing make step: the container exits 1, the result line carries rc=1, the verdict is NOT CLEAN
+reset_state; rm -f "$FAKE_STATE/make-calls"
+runin --id c1 feature "$SHA" bad
+c1=$RC
+row RRUN-18 "$([[ $c1 -eq 1 && "$(grep -a 'result: bad' "$TMP/logs/c1.log")" == *"rc=1"* && "$OUT" == *"verdict: NOT CLEAN"* ]] && echo 1 || echo 0)" \
+    "a failing make step: rc=1 in its result line, driver exit 1, verdict NOT CLEAN (rc=$c1)"
+
+# RRUN-19: both harness totals formats are extracted per step, and the run is CLEAN
+reset_state
+runin --id c2 feature "$SHA" tot1 tot2
+c2=$RC
+row RRUN-19 "$([[ $c2 -eq 0 && "$OUT" == *"totals: tot1 :: Total: 4 Passed: 4 Failed: 0 Skipped: 0"* \
+    && "$OUT" == *"totals: tot2 :: Pass: 7 Fail: 0 Skip: 0"* && "$OUT" == *"verdict: CLEAN"* ]] && echo 1 || echo 0)" \
+    "each step's own totals line is extracted in both formats; the run is CLEAN (rc=$c2)"
+
+# RRUN-20: fail-fast stops after the first failing step; --keep-going runs the rest and still exits 1
+reset_state; rm -f "$FAKE_STATE/make-calls"
+runin --id c3 feature "$SHA" bad ok1
+c3=$RC; n3=$(rlines c3); ran3=$(grep -c 'ok1' "$FAKE_STATE/make-calls" || true)
+rm -f "$FAKE_STATE/make-calls"
+runin --keep-going --id c4 feature "$SHA" bad ok2
+c4=$RC; n4=$(rlines c4); ran4=$(grep -c 'ok2' "$FAKE_STATE/make-calls" || true)
+row RRUN-20 "$([[ $c3 -eq 1 && $n3 -eq 1 && $ran3 -eq 0 && $c4 -eq 1 && $n4 -eq 2 && $ran4 -eq 1 ]] && echo 1 || echo 0)" \
+    "fail-fast stops at the first failure; --keep-going runs the rest and exits 1 (ff: rc=$c3 results=$n3 ran=$ran3; kg: rc=$c4 results=$n4 ran=$ran4)"
+
+# RRUN-21: a step that reads stdin cannot swallow the steps after it, in the container or in the local fallback
+reset_state
+runin --id c5 feature "$SHA" 'sh:cat >/dev/null' 'sh:echo after-step' readstdin ok3
+c5=$RC; n5=$(rlines c5)
+mkdir -p "$TMP/local"
+OUT=$(timeout --kill-after=5s 60s bash "$DRIVER" --log-dir "$TMP/logs" --id c6 --fallback-local "$TMP/local" \
+    feature "$SHA" 'sh:cat >/dev/null' 'sh:echo after-local' </dev/null 2>&1); c6=$?
+n6=$(rlines c6)
+row RRUN-21 "$([[ $c5 -eq 0 && $n5 -eq 4 && $c6 -eq 0 && $n6 -eq 2 && "$(cat "$TMP/logs/c6.log")" == *"after-local"* \
+    && "$(cat "$TMP/logs/c5.log")" == *"after-step"* ]] && echo 1 || echo 0)" \
+    "a stdin-reading step does not swallow the later steps (container: rc=$c5 results=$n5; local: rc=$c6 results=$n6)"
+
+# RRUN-22: the verdict of a log: rc=1 only, no result line, a missing step, a clean match, bootstrap ignored
+cat > "$TMP/v1.log" <<'EOF'
+=== remote-run result: a rc=1 time=1s peak=1MiB
+EOF
+: > "$TMP/v2.log"
+cat > "$TMP/v3.log" <<'EOF'
+=== remote-run result: bootstrap rc=0 time=0s peak=1MiB
+=== remote-run result: a rc=0 time=1s peak=1MiB
+EOF
+v1=$(drv_fn verdict_of_log "$TMP/v1.log" 1); v2=$(drv_fn verdict_of_log "$TMP/v2.log" 1)
+v3=$(drv_fn verdict_of_log "$TMP/v3.log" 2); v4=$(drv_fn verdict_of_log "$TMP/v3.log" 1)
+row RRUN-22 "$([[ "$v1" == "NOT CLEAN"*"non-zero"* && "$v2" == "NOT CLEAN"*"no step finished"* \
+    && "$v3" == "NOT CLEAN"*"2 steps requested, 1 reported"* && "$v4" == CLEAN ]] && echo 1 || echo 0)" \
+    "the verdict needs rc=0 everywhere and exactly one result line per requested step (v1='$v1' v2='$v2' v3='$v3' v4='$v4')"
+
+# RRUN-23: a container that exits 0 with a Failed:1 totals line is not green: the driver exits 1, no stamp
+reset_state; rm -rf "$TMP/stamps"
+FAKE_STAMP=1 FAKE_TOTALS='Total: 4 Passed: 3 Failed: 1 Skipped: 0' drive --id c7 feature "$SHA" unit-test
+c7=$RC
+row RRUN-23 "$([[ $c7 -eq 1 && "$OUT" == *"not clean"* && ! -e "$TMP/stamps" ]] && echo 1 || echo 0)" \
+    "exit 0 with failures in the totals: the driver exits 1 and copies no stamp (rc=$c7)"
+
+# RRUN-24: the transport dying after the run started is exit 1 "connection lost", never 0, no stamp
+reset_state; rm -rf "$TMP/stamps"
+FAKE_STAMP=1 FAKE_KILL_PARENT=1 drive --id c8 feature "$SHA" unit-test
+c8=$RC
+row RRUN-24 "$([[ $c8 -eq 1 && "$(cat "$TMP/logs/c8.log")" == *"connection lost"* && ! -e "$TMP/stamps" ]] && echo 1 || echo 0)" \
+    "a session lost after the start exits 1 with 'connection lost' and no stamp (rc=$c8)"
+
+# RRUN-25: a stamp waiting to be fetched survives a later run's sweep; only a day-old one goes
+reset_state
+mkdir -p "$WORK/stamps/recent" "$WORK/stamps/ancient"
+touch -d '2 hours ago' "$WORK/stamps/recent"; touch -d '3 days ago' "$WORK/stamps/ancient"
+drive --id c9 feature "$SHA" unit-test
+c9=$RC
+row RRUN-25 "$([[ $c9 -eq 0 && -d "$WORK/stamps/recent" && ! -e "$WORK/stamps/ancient" ]] && echo 1 || echo 0)" \
+    "the stamp sweep keeps a 2-hour-old stamp dir and removes a 3-day-old one (rc=$c9)"
+
+# RRUN-26: the SD master and every run's clone/scratch share ONE bind mount (a clone across mounts
+# cannot be a reflink: sdcard-isolation-func D/E), and an old sdcard cache dir is migrated into it
+reset_state
+mkdir -p "$WORK/cache/sdcard"; echo master > "$WORK/cache/sdcard/cspect-next-1gb-fixed.img"
+rm -rf "$WORK/cache/jnext-home"
+drive --id m1 feature "$SHA" unit-test
+m1=$RC
+runline=$(calls | grep -E '(^| )run ' | head -n 1)
+# the mount covering a container path: the longest mount point that is a prefix of it
+covering() {
+    local want=$1 best="" bestlen=0 v mp host
+    for v in $(grep -oE -- '-v [^ ]+' <<<"$runline" | cut -d' ' -f2); do
+        host=${v%%:*}; mp=${v#*:}; mp=${mp%%:*}
+        if [[ "$want" == "$mp" || "$want" == "$mp"/* ]] && [[ ${#mp} -gt $bestlen ]]; then best=$host; bestlen=${#mp}; fi
+    done
+    echo "$best"
+}
+cov_master=$(covering /root/.jnext/sdcard/cspect-next-1gb-fixed.img)
+cov_runs=$(covering /root/.jnext/runs/1-2-3/sdcard/cspect-next-1gb-fixed.img)
+row RRUN-26 "$([[ $m1 -eq 0 && -n "$cov_master" && "$cov_master" == "$cov_runs" && "$cov_master" == "$WORK/cache/jnext-home" \
+    && "$(cat "$WORK/cache/jnext-home/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" == master && ! -e "$WORK/cache/sdcard" ]] && echo 1 || echo 0)" \
+    "the SD master and a run's clone path are under one mount ($cov_master), the old cache dir was migrated (rc=$m1)"
 
 finish

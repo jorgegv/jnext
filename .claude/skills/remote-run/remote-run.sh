@@ -4,7 +4,8 @@
 # Generic driver: it names no project; everything specific is in project.conf.
 # See SKILL.md for when to use it and what it guarantees.
 #
-# Exit status: 0 green; 1 the run ran and failed, timed out (124) or its connection was lost;
+# Exit status: 0 green (only with "--- verdict: CLEAN" in the summary); 1 the run ran and failed, was not
+# clean, or its connection was lost; 124 it timed out;
 # 2 usage; 3 refused (the branch is not pushed, or is not at the expected sha);
 # 75 the remote could not be used (alias unset, unreachable, preflight, no image): run locally.
 # shellcheck disable=SC2016
@@ -62,12 +63,12 @@ load_conf() {
     local k v
     for k in PROJECT HOST_ENV_VAR DIR_ENV_VAR DIR_DEFAULT REPO_URL DEFAULT_BRANCH BASE_IMAGE DEPS_SCRIPT \
              DEPS_ARGS BOOTSTRAP_CMD CACHE_MOUNTS CONTAINER_ENV JOBS_DEFAULT JOBS_HEAVY HEAVY_TARGET_RE \
-             TEST_JOBS CONTAINER_MEMORY CONTAINER_SHM TIMEOUT_DEFAULT LANE_WAIT GATE_LANE_WAIT MIN_MEM_MB MIN_DISK_GB \
+             TEST_JOBS CACHE_MIGRATE CONTAINER_MEMORY CONTAINER_SHM TIMEOUT_DEFAULT LANE_WAIT GATE_LANE_WAIT MIN_MEM_MB MIN_DISK_GB \
              HEAVY_TARGETS WARM_TARGETS GATE_STEPS TIMEOUT_GATE STAMP_ENV STAMP_LOCAL_DIR \
              EXTRA_REPO_URL EXTRA_REF_FILE EXTRA_REF_SED EXTRA_SPARSE EXTRA_MOUNT EXTRA_ENV; do
         v="REMOTE_RUN_$k"
         if [[ -n "${!v:-}" ]]; then printf -v "$k" '%s' "${!v}"; fi
-        [[ -n "${!k:-}" || "$k" == BOOTSTRAP_CMD || "$k" == STAMP_ENV || "$k" == CONTAINER_ENV || "$k" == EXTRA_* ]] \
+        [[ -n "${!k:-}" || "$k" == CACHE_MIGRATE || "$k" == BOOTSTRAP_CMD || "$k" == STAMP_ENV || "$k" == CONTAINER_ENV || "$k" == EXTRA_* ]] \
             || die "project.conf does not set $k"
     done
 }
@@ -89,19 +90,24 @@ summarize_log() {
     [[ "$nbad" -le 30 ]] || echo "... $((nbad - 30)) more in the log"
     echo "--- totals per step"
     grep -E '^=== remote-run totals:' <<<"$clean" || echo "(no step printed a totals line)"
-    echo "--- verdict: $(verdict_of_log "$log")"
+    echo "--- verdict: $(verdict_of_log "$log" "${NSTEPS:-}")"
 }
 
-# verdict_of_log <log>: CLEAN, or why not. Every step needs rc=0 and no totals line with a
-# non-zero Failed/Fail or Skipped/Skip count; a step that ran green with failures reported
-# in its totals is not clean.
+# verdict_of_log <log> [steps]: CLEAN, or why not. Every step needs rc=0 and no totals line with a
+# non-zero Failed/Fail or Skipped/Skip count; with <steps> (the number requested) exactly that many
+# result lines must exist, so a step that never ran cannot pass unseen.
 verdict_of_log() {
-    local log=$1 bad=""
-    if grep -qE '^=== remote-run result: .* rc=[1-9]' "$log"; then bad+=" a step exited non-zero;"; fi
-    if grep -E '^=== remote-run totals:' "$log" | grep -qE '(Failed|Fail):[[:space:]]*[1-9]|(Skipped|Skip):[[:space:]]*[1-9]'; then
+    local log=$1 want=${2:-} bad="" text results n
+    text=$(cat "$log")
+    results=$(grep -E '^=== remote-run result: ' <<<"$text" | grep -vE '^=== remote-run result: bootstrap ' || true)
+    n=0
+    [[ -z "$results" ]] || n=$(wc -l <<<"$results")
+    if grep -qE '^=== remote-run result: .* rc=[1-9]' <<<"$text"; then bad+=" a step exited non-zero;"; fi
+    if grep -E '^=== remote-run totals:' <<<"$text" | grep -qE '(Failed|Fail):[[:space:]]*[1-9]|(Skipped|Skip):[[:space:]]*[1-9]'; then
         bad+=" a totals line shows failures or skips;"
     fi
-    grep -qE '^=== remote-run result:' "$log" || bad+=" no step finished;"
+    [[ $n -gt 0 ]] || bad+=" no step finished;"
+    if [[ -n "$want" && $n -gt 0 && $n -ne $want ]]; then bad+=" $want steps requested, $n reported;"; fi
     if [[ -z "$bad" ]]; then echo CLEAN; else echo "NOT CLEAN:${bad%;}"; fi
 }
 
@@ -117,8 +123,8 @@ build_payload() {
             "$BOOTSTRAP_CMD" "$targets" "$KEEP_GOING" "$TIMEOUT" "$LANE_WAIT"
         printf 'RR_MIN_MEM_MB=%q\nRR_MIN_DISK_GB=%q\nRR_MEMORY=%q\nRR_SHM=%q\nRR_TEST_JOBS=%q\n' \
             "$MIN_MEM_MB" "$MIN_DISK_GB" "$CONTAINER_MEMORY" "$CONTAINER_SHM" "$TEST_JOBS"
-        printf 'RR_JOBS_DEFAULT=%q\nRR_JOBS_HEAVY=%q\nRR_HEAVY_RE=%q\nRR_CACHE_MOUNTS=%q\nRR_CONTAINER_ENV=%q\nRR_STAMP_ENV=%q\n' \
-            "$JOBS_DEFAULT" "$JOBS_HEAVY" "$HEAVY_TARGET_RE" "$CACHE_MOUNTS" "$CONTAINER_ENV" "$STAMP_ENV"
+        printf 'RR_JOBS_DEFAULT=%q\nRR_JOBS_HEAVY=%q\nRR_HEAVY_RE=%q\nRR_CACHE_MOUNTS=%q\nRR_CACHE_MIGRATE=%q\nRR_CONTAINER_ENV=%q\nRR_STAMP_ENV=%q\n' \
+            "$JOBS_DEFAULT" "$JOBS_HEAVY" "$HEAVY_TARGET_RE" "$CACHE_MOUNTS" "${CACHE_MIGRATE:-}" "$CONTAINER_ENV" "$STAMP_ENV"
         printf 'RR_DEPS_REF=%q\n' "$DEPS_REF"
         printf 'RR_EXTRA_URL=%q\nRR_EXTRA_REF_FILE=%q\nRR_EXTRA_REF_SED=%q\nRR_EXTRA_SPARSE=%q\nRR_EXTRA_MOUNT=%q\nRR_EXTRA_ENV=%q\n' \
             "${EXTRA_REPO_URL:-}" "${EXTRA_REF_FILE:-}" "${EXTRA_REF_SED:-}" "${EXTRA_SPARSE:-}" "${EXTRA_MOUNT:-}" "${EXTRA_ENV:-}"
@@ -143,22 +149,22 @@ run_local() {
     local dir=$1 targets=$2 t rc overall=0 wrap=() words
     [[ -z "${REMOTE_RUN_LOCAL_WRAP:-}" ]] || IFS=' ' read -ra wrap <<<"$REMOTE_RUN_LOCAL_WRAP"
     echo "=== remote-run RAN LOCALLY in $dir (the remote could not be used)" | tee -a "$LOG" >&2
-    while IFS= read -r t; do
+    while IFS= read -r t <&3; do
         [[ -n "$t" ]] || continue
         echo "=== remote-run target: $t" >> "$LOG"
         rc=0
         if [[ "$t" == sh:* ]]; then
-            "${wrap[@]}" env LANG=C bash -c "cd '$dir' && ${t#sh:}" >> "$LOG" 2>&1 || rc=$?
+            "${wrap[@]}" env LANG=C bash -c "cd '$dir' && ${t#sh:}" </dev/null >> "$LOG" 2>&1 || rc=$?
         else
             IFS=' ' read -ra words <<<"$t"
-            "${wrap[@]}" env LANG=C make -C "$dir" "${words[@]}" >> "$LOG" 2>&1 || rc=$?
+            "${wrap[@]}" env LANG=C make -C "$dir" "${words[@]}" </dev/null >> "$LOG" 2>&1 || rc=$?
         fi
         echo "=== remote-run result: $t rc=$rc time=?s peak=?MiB" >> "$LOG"
         if [[ $rc -ne 0 ]]; then
             overall=1
             [[ $KEEP_GOING -eq 1 ]] || break
         fi
-    done <<<"$targets"
+    done 3<<<"$targets"
     return "$overall"
 }
 
@@ -167,9 +173,7 @@ fetch_stamps() {
     local dest tmp n
     dest=$(eval "echo \"$STAMP_LOCAL_DIR\"")
     tmp=$(mktemp -d)
-    build_payload stamps "" "$tmp/payload"
-    if "${TCMD[@]}" < "$tmp/payload" 2>/dev/null | tar -x -C "$tmp" 2>/dev/null; then
-        rm -f "$tmp/payload"
+    if "${TCMD[@]}" < "$PAYDIR/stamps" 2>/dev/null | tar -x -C "$tmp" 2>/dev/null; then
         n=$(find "$tmp" -maxdepth 1 -type f | wc -l)
         if [[ $n -gt 0 ]]; then
             mkdir -p "$dest"
@@ -182,11 +186,7 @@ fetch_stamps() {
 }
 
 remote_cleanup() {
-    local tmp
-    tmp=$(mktemp)
-    build_payload cleanup "" "$tmp"
-    "${TCMD[@]}" < "$tmp" >/dev/null 2>&1 || true
-    rm -f "$tmp"
+    "${TCMD[@]}" < "$PAYDIR/cleanup" >/dev/null 2>&1 || true
 }
 
 # ---- main -------------------------------------------------------------------
@@ -268,11 +268,18 @@ main() {
         state=fallback
     fi
 
+    NSTEPS=$(grep -c . <<<"$targets" || true)
+    # All three payloads are built now, from one snapshot of the skill's files: editing them
+    # while a run is live changes nothing for it.
+    PAYDIR=$(mktemp -d)
+    build_payload "$([[ $warm -eq 1 ]] && echo warm || echo run)" "$targets" "$PAYDIR/payload"
+    build_payload stamps "" "$PAYDIR/stamps"
+    build_payload cleanup "" "$PAYDIR/cleanup"
+
     if [[ $state == remote ]]; then
         local tmp pidf rcf
-        tmp=$(mktemp -d)
+        tmp=$PAYDIR
         pidf=$tmp/pid; rcf=$tmp/rc
-        build_payload "$([[ $warm -eq 1 ]] && echo warm || echo run)" "$targets" "$tmp/payload"
         # The wrapper subshell carries the transport; a TERM/INT to this script reaches it, then
         # the remote side's own traps kill the container and remove the checkout.
         trap 'kill -TERM "$(cat "$pidf" 2>/dev/null)" 2>/dev/null || true' TERM INT
@@ -293,11 +300,14 @@ main() {
         trap - TERM INT
         local tr_rc
         tr_rc=$(cat "$rcf" 2>/dev/null || echo 255)
-        rm -rf "$tmp"
 
-        if grep -q '^=== remote-run fallback:' "$LOG"; then
+        # fallback / refused count only from the remote side's own lines BEFORE the run started:
+        # a step that prints such a line must not turn a red run into a fallback.
+        local pre
+        pre=$(sed '/^=== remote-run started$/q' "$LOG")
+        if grep -q '^=== remote-run fallback:' <<<"$pre"; then
             state=fallback
-        elif grep -q '^=== remote-run refused:' "$LOG"; then
+        elif grep -q '^=== remote-run refused:' <<<"$pre"; then
             state=refused
         elif grep -q '^=== remote-run exit: ' "$LOG"; then
             rc=$(sed -n 's/^=== remote-run exit: \([0-9]*\)$/\1/p' "$LOG" | tail -n 1)
@@ -321,15 +331,13 @@ main() {
     elif [[ $state == refused ]]; then
         log_info "$(grep -h '^=== remote-run refused:' "$LOG" | tail -n 1)"
         rc=3
-    elif [[ $warm -eq 0 && $rc -eq 0 ]]; then
-        fetch_stamps
-    fi
-    if [[ $state == remote || $state == refused ]]; then remote_cleanup; fi
-
-    if [[ $rc -eq 0 && $state == remote && "$(verdict_of_log "$LOG")" != CLEAN ]]; then
+    elif [[ $rc -eq 0 && "$(verdict_of_log "$LOG" "$NSTEPS")" != CLEAN ]]; then
         echo "remote-run: exit 0 but the log is not clean: failing the run" >&2
         rc=1
     fi
+    if [[ $state == remote && $warm -eq 0 && $rc -eq 0 ]]; then fetch_stamps; fi
+    if [[ $state == remote || $state == refused ]]; then remote_cleanup; fi
+    rm -rf "$PAYDIR"
     echo "remote-run summary: id=$ID branch=$BRANCH sha=${SHA:-tip} exit=$rc log=$LOG"
     summarize_log "$LOG"
     exit "$rc"

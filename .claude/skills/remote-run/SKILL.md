@@ -50,6 +50,36 @@ $S/remote-run.sh --fallback-local <worktree> <branch> <sha> unit-test    # THE N
 $S/remote-run.sh <branch> <sha> 'sh:make regression-rows ROWS="a b"'     # words with spaces: sh:
 ```
 
+### The batch gate
+
+Push main's tip to origin as the temporary branch `gate-v<version>` (D8, never force), then:
+
+```bash
+$S/remote-run.sh --gate gate-v<version> <sha> [--deps-ref <branch>]
+```
+
+and delete `gate-v<version>` on origin right after, green or red. `--gate` runs the project's
+`GATE_STEPS` (CLAUDE.md's merge protocol step 2 list, in order, fail-fast) and waits for the lane up to
+`GATE_LANE_WAIT`. **Green means the exit status is 0 AND the summary ends with `--- verdict: CLEAN`**:
+each step's own `totals` line (`Total: ... Failed: 0 Skipped: 0`, or regression's `Pass: .. Fail: 0
+Skip: 0`) is shown, and exactly one result line per step must exist. A step that exits 0 but reports a
+failure or a skip, or a step that never ran, is NOT CLEAN and the driver exits 1. A green `make regression`
+stamp is copied back only when the whole run is green (exit 0 and CLEAN), then `make regression-stamp-check`
+here sees it; a gate that fails after the regression step returns no stamp.
+
+`--deps-ref <branch>` takes the dependency script (the image's package set) from that branch instead of the
+commit under test, for a commit that has no `test/ci-deps.sh` yet; `--warm --ref <branch>` warms that
+branch. The log and the summary name the ref that supplied the script.
+
+The container also gets the ZX Next FPGA core (the VHDL oracle of the traceability check): a partial, sparse
+clone under `<dir>/cache/extra-repo` at the commit pinned in `ci.yml` (read from the commit under test, never
+copied), mounted read-only with `JNEXT_FPGA_SRC` set. A run is refused (75) if it cannot be fetched.
+
+**Do not edit the skill's files while a run is live; commit them instead.** The driver snapshots them at
+start, but an edit half-written before the run's remote side starts still breaks that run.
+
+### Steps
+
 Targets run one after another, in order, each as its own `make JOBS=<n> <target>` (`sh:<cmd>` runs a
 shell command as written), and the run stops at the first failure unless `--keep-going`. Options:
 `--timeout SECS`, `--stream` (also print the log live), `--id`, `--log-dir`, `--conf`.
@@ -59,8 +89,8 @@ directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`)
 
 ## What it guarantees
 
-- **The verdict is the exit status plus the log.** `0` green; `1` the run ran and failed, was cut off
-  (the log says "connection lost") or hit the timeout (`124` when the container timed out); `2` usage;
+- **The verdict is the exit status plus the log.** `0` green; `1` the run ran and failed, was not CLEAN, or was cut off
+  (the log says "connection lost"); `124` it hit the timeout; `2` usage;
   `3` refused: the branch is not on `origin`, or `origin` has another commit than the `<sha>` given
   (the push did not land, or the branch moved); `75` the remote cannot be used: alias unset,
   unreachable, preflight failed (podman missing or not rootless, not enough memory or disk, memory
@@ -69,7 +99,7 @@ directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`)
   `RAN LOCALLY`. A non-green run is never retried silently.
 - **The caller gets a summary, the full log stays in a file** (`~/tmp/remote-run/<id>.log`, kept 7
   days): per-target result lines (rc, seconds, peak container memory), the FAIL / SKIP lines (first 30),
-  the last `Total:` lines. Grep the file for detail. A SKIP is a failure, as everywhere.
+  each step's own `totals` line and the verdict (`CLEAN`, or why not). Grep the file for detail. A SKIP is a failure, as everywhere.
 - **Same targets, same container as CI.** The image is `docker.io/library/fedora:45` plus
   `test/ci-deps.sh test mingw mingw-qt`, tagged by a hash of base, set names and the script at the run's
   commit; it is rebuilt only by `--warm`. `LANG=C LC_ALL=C` in the container.
@@ -87,12 +117,15 @@ directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`)
 - **ssh never opens forwards**: the driver passes `-o BatchMode=yes -o ClearAllForwardings=yes`, so an
   alias that carries `LocalForward` lines neither binds ports nor prints their errors into the log.
 - **Podman storage is under the work directory** (`--root`, `--runroot`). The driver tries the default
-  (overlay), then fuse-overlayfs, then vfs, and keeps the first that starts (`containers/driver`).
+  (overlay), then fuse-overlayfs, then vfs, and records the first that starts, the default too, in
+  `containers/driver`. It probes only while holding the lane, because a failed probe wipes the store.
+  Every podman call carries `--root`/`--runroot`: a bare call would create a default store in the
+  remote HOME.
 
 ## The SD-image rule
 
 The NextZXOS image is copyrighted: it NEVER leaves the remote work directory and is never committed,
-posted or copied anywhere else. It lives in `<dir>/cache/sdcard`, provisioned there by jnext's own
+posted or copied anywhere else. It lives in `<dir>/cache/jnext-home/sdcard` (the container's `~/.jnext` is that one mount, so the master and every run's clone and scratch share a filesystem and the clone can be a reflink), provisioned there by jnext's own
 download (`make sdcard-image`, part of `--warm`). Logs may name it, never contain it. The driver copies
 back only logs and stamp files.
 
