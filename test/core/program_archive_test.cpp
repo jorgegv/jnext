@@ -16,6 +16,7 @@
 //
 // Run: ./build/test/program_archive_test
 
+#include "core/host_path.h"
 #include "core/program_archive.h"
 #include "save/zip_archive.h"
 #include "save/zip_interchange.h"
@@ -24,6 +25,7 @@
 #include "../test_portable.h"
 #include "../zip_fixture.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -126,6 +128,352 @@ size_t count_named(const fs::path& root, const std::string& name) {
 }
 
 }  // namespace
+
+// GH #541 data-archive rows, apart from main() so that function stays inside the WebAssembly
+// function-size bound (developer guide, section 4.7).
+[[gnu::noinline]] static void run_data_archive_rows(const std::string& root, const Bytes& lores) {
+    namespace pa = program_archive;
+    std::error_code ec;
+    // --------------------------------------------- data archives (GH #541)
+    // Oracle: the issue's rules (a NEX archive serves its directory) and APPNOTE 4.4.17
+    // for names; bytes are the fixtures' own. Every refusal happens before a write.
+    {
+        const std::string dd = root + "/zdir";
+        fs::create_directories(dd);
+        int zn = 0;
+        // Write a zip of `ms` and open it as a ProgramArchive; `why` empty on success.
+        auto open_zip = [&](pa::ProgramArchive& a, const std::vector<Member>& ms, std::string& why) {
+            const std::string f = dd + "/z" + std::to_string(++zn) + ".zip";
+            spit(f, zipfx::build(ms));
+            return a.open(f, why);
+        };
+        auto tree_files = [](const fs::path& r) {
+            size_t n = 0;
+            std::error_code e;
+            for (fs::recursive_directory_iterator it(r, e), end; !e && it != end; it.increment(e)) ++n;
+            return n;
+        };
+        const Bytes nexb = pattern(40), l1 = pattern(33), sfx = pattern(21);
+        auto clean = [](const std::string& m) {
+            for (unsigned char c : m) if (c < 0x20 || c >= 0x7F) return false;
+            return true;
+        };
+
+        {
+            pa::ProgramArchive a; std::string why, mem_;
+            const bool ok = open_zip(a, {mem("game/G.NEX", nexb), mem("game/data/L1.BIN", l1)}, why);
+            const bool ch = ok && a.choose(mem_, why);
+            check("ZDIR-01", "game/G.NEX with game/data/L1.BIN: choose() is the NEX and it has data files",
+                  ch && mem_ == "game/G.NEX" && a.has_data_files("game/G.NEX"), why);
+        }
+        {
+            pa::ProgramArchive a; std::string why, mem_;
+            const bool ok = open_zip(a, {mem("G.NEX", nexb), mem("data/SFX.WAV", sfx), mem("lv/X.TAP", sfx)}, why);
+            check("ZDIR-02", "a NEX with other programs only in subdirectories below it: choose() is the NEX",
+                  ok && a.choose(mem_, why) && mem_ == "G.NEX", why);
+        }
+        {
+            pa::ProgramArchive a; std::string why, mem_;
+            const bool ok = open_zip(a, {mem("G.NEX", nexb), mem("G.TAP", sfx)}, why);
+            const bool ch = ok && a.choose(mem_, why);
+            check("ZDIR-03", "a NEX and a TAP in the same directory are refused with the several-programs text",
+                  ok && !ch && mem_.empty() && why == a.several_why() && has(why, "G.NEX") && has(why, "G.TAP"), why);
+        }
+        {
+            pa::ProgramArchive a, b; std::string w1, w2, m1, m2;
+            const bool o1 = open_zip(a, {mem("A.NEX", nexb), mem("B.NEX", nexb)}, w1);
+            const bool o2 = open_zip(b, {mem("game/A.NEX", nexb), mem("B.TAP", sfx)}, w2);
+            check("ZDIR-04", "two NEX in one directory, and a TAP outside the NEX's directory, are refused",
+                  o1 && o2 && !a.choose(m1, w1) && !b.choose(m2, w2) && has(w1, "holds 2 programs") &&
+                      has(w2, "holds 2 programs"),
+                  w1 + " | " + w2);
+        }
+        {
+            pa::ProgramArchive a1, a2, a3, a4; std::string w;
+            const bool o1 = open_zip(a1, {mem("G.NEX", nexb)}, w);
+            const bool o2 = open_zip(a2, {mem("game/G.NEX", nexb), mem("README.TXT", sfx)}, w);
+            const bool o3 = open_zip(a3, {mem("G.NEX", nexb), mem("__MACOSX/x", sfx), mem("._G.NEX", sfx)}, w);
+            const bool o4 = open_zip(a4, {mem("G.TAP", nexb), mem("data.bin", sfx)}, w);
+            check("ZDIR-05", "has_data_files() is false for a NEX alone, a NEX with a file above it, a NEX with only junk beside it, and a TAP",
+                  o1 && o2 && o3 && o4 && !a1.has_data_files("G.NEX") && !a2.has_data_files("game/G.NEX") &&
+                      !a3.has_data_files("G.NEX") && !a4.has_data_files("G.TAP"));
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            pa::ScratchDir sc(dd + "/scr6");
+            const bool ok = open_zip(a, {mem("game/G.NEX", nexb), mem("game/data/L1.BIN", l1), mem("README.TXT", sfx)}, why);
+            const bool ex = ok && a.extract_program("game/G.NEX", sc, out, why);
+            const fs::path slot = ex ? fs::path(out).parent_path() : fs::path();
+            check("ZDIR-06", "extract_program() writes the NEX's directory as a tree in one slot, the NEX directly in it, and nothing from above",
+                  ex && fs::path(out).filename() == "G.NEX" && slurp(out) == nexb &&
+                      slurp((slot / "data" / "L1.BIN").string()) == l1 &&
+                      !fs::exists(slot / "README.TXT") && !fs::exists(slot / "game") && tree_files(slot) == 3,
+                  why);
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            pa::ScratchDir sc(dd + "/scr7");
+            Member d; d.name = "game/saves/"; d.method = 0;
+            const bool ok = open_zip(a, {mem("game/G.NEX", nexb), mem("game/data/L1.BIN", l1), d}, why);
+            const bool ex = ok && a.extract_program("game/G.NEX", sc, out, why);
+            const fs::path sv = ex ? fs::path(out).parent_path() / "saves" : fs::path();
+            check("ZDIR-07", "a directory member becomes an empty directory in the slot",
+                  ex && fs::is_directory(sv) && fs::is_empty(sv), why);
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            const std::string sdir = dd + "/scr8";
+            pa::ScratchDir sc(sdir);
+            const bool ok = open_zip(a, {mem("game/G.NEX", nexb), mem("game/data/L1.BIN", l1), mem("../evil.bin", sfx)}, why);
+            const bool ex = ok && a.extract_program("game/G.NEX", sc, out, why);
+            check("ZDIR-08", "an unsafe member OUTSIDE the NEX's directory refuses the load, naming it; nothing is written anywhere",
+                  ok && !ex && has(why, "../evil.bin") && has(why, "unsafe") && out.empty() &&
+                      !fs::exists(root + "/evil.bin") && !fs::exists(dd + "/evil.bin") &&
+                      count_named(root, "evil.bin") == 0 && !fs::exists(sdir),
+                  why);
+        }
+        {
+            const char* bad[] = {"/abs.bin", "C:x.bin", "game\\..\\..\\x.bin"};
+            bool all = true;
+            std::string seen;
+            for (const char* b : bad) {
+                pa::ProgramArchive a; std::string why, out;
+                pa::ScratchDir sc(dd + "/scr9");
+                const bool ok = open_zip(a, {mem("game/G.NEX", nexb), mem("game/data/L1.BIN", l1), mem(b, sfx)}, why);
+                const bool ex = ok && a.extract_program("game/G.NEX", sc, out, why);
+                all = all && ok && !ex && has(why, "unsafe") && has(why, b == bad[2] ? "game" : b);
+                seen += why + " | ";
+            }
+            check("ZDIR-09", "an absolute path, a drive-letter path and a backslash ..-path anywhere in the archive are each refused as unsafe",
+                  all, seen);
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            pa::ScratchDir sc(dd + "/scr10");
+            const bool ok = open_zip(a, {mem("G.NEX", nexb), mem("data/Level1.bin", l1), mem("DATA/LEVEL1.BIN", sfx)}, why);
+            const bool ex = ok && a.extract_program("G.NEX", sc, out, why);
+            check("ZDIR-10", "two members whose paths differ only in case are refused naming both, before anything is written",
+                  ok && !ex && has(why, "data/Level1.bin") && has(why, "DATA/LEVEL1.BIN") && sc.process_dir().empty(), why);
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            pa::ScratchDir sc(dd + "/scr11");
+            const bool ok = open_zip(a, {mem("G.NEX", nexb), mem("data", l1), mem("data/x", sfx)}, why);
+            const bool ex = ok && a.extract_program("G.NEX", sc, out, why);
+            check("ZDIR-11", "a file whose path is a directory of another member is refused naming both",
+                  ok && !ex && has(why, "data") && has(why, "data/x") && sc.process_dir().empty(), why);
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            pa::ScratchDir sc(dd + "/scr12");
+            Member big1 = mem("G.NEX", nexb, 0), big2 = mem("data/big.bin", l1, 0);
+            big1.usize_override = big2.usize_override = 128ll * 1024 * 1024 + 1;
+            const bool ok = open_zip(a, {big1, big2}, why);
+            const bool ex = ok && a.extract_program("G.NEX", sc, out, why);
+            check("ZDIR-12", "declared sizes summing over 256 MiB are refused by the size check before any member is read or any slot made",
+                  ok && !ex && has(why, "268435458") && has(why, "268435456") && !has(why, "CRC") &&
+                      sc.process_dir().empty(),
+                  why);
+        }
+        {
+            std::string w_ok, w_bad, out1, out2;
+            pa::ProgramArchive a, b;
+            pa::ScratchDir sc(dd + "/scr13");
+            const bool o1 = open_zip(a, {mem("G.NEX", Bytes(4, 1), 0), mem("d/x", Bytes(6, 2), 0)}, w_ok);
+            const bool o2 = open_zip(b, {mem("G.NEX", Bytes(4, 1), 0), mem("d/x", Bytes(7, 2), 0)}, w_bad);
+            const bool e1 = o1 && a.extract_program("G.NEX", sc, out1, w_ok, 10);
+            const bool e2 = o2 && b.extract_program("G.NEX", sc, out2, w_bad, 10);
+            check("ZDIR-13", "a declared total of exactly the limit extracts and one byte over is refused",
+                  e1 && !e2 && has(w_bad, "11 bytes") && has(w_bad, "10-byte limit"), w_ok + " | " + w_bad);
+        }
+        {
+            const std::string c100(100, 'a'), c100b(100, 'b');
+            const std::string ok255 = c100 + "/" + c100b + "/" + std::string(53, 'c');
+            const std::string bad256 = c100 + "/" + c100b + "/" + std::string(54, 'c');
+            pa::ProgramArchive a, b;
+            std::string w1, w2, o1, o2;
+            pa::ScratchDir sc(dd + "/scr14");
+            const bool p1 = open_zip(a, {mem("G.NEX", nexb), mem(ok255, l1)}, w1);
+            const bool p2 = open_zip(b, {mem("G.NEX", nexb), mem(bad256, l1)}, w2);
+            const bool e1 = p1 && a.extract_program("G.NEX", sc, o1, w1);
+            const bool e2 = p2 && b.extract_program("G.NEX", sc, o2, w2);
+            check("ZDIR-14", "a relative path of exactly 255 bytes extracts; 256 is refused naming the member",
+                  e1 && !e2 && slurp((fs::path(o1).parent_path() / ok255).string()) == l1 && has(w2, "256 bytes") &&
+                      has(w2, std::string(54, 'c').c_str()),
+                  w1 + " | " + w2);
+        }
+        {
+            std::string w1, w2, out;
+            pa::ProgramArchive a, b;
+            pa::ScratchDir sc(dd + "/scr15");
+            const bool o1 = open_zip(a, {mem("G.NEX", nexb), mem("save.", l1)}, w1);
+            const bool o2 = open_zip(b, {mem("G.NEX", nexb), mem("dir /x", l1)}, w2);
+            const bool e1 = o1 && a.extract_program("G.NEX", sc, out, w1);
+            const bool e2 = o2 && b.extract_program("G.NEX", sc, out, w2);
+            check("ZDIR-15", "a file or directory name ending in a dot or a space is refused naming the member",
+                  !e1 && !e2 && has(w1, "save.") && has(w2, "dir /x") && sc.process_dir().empty(), w1 + " | " + w2);
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            pa::ScratchDir sc(dd + "/scr16");
+            const bool ok = open_zip(a, {mem("G.NEX", nexb), mem("data/a<b>c?.bin", l1), mem("data/CON.BIN", sfx),
+                                          mem(std::string("data/e\x1b" "x.bin"), nexb)}, why);
+            const bool ex = ok && a.extract_program("G.NEX", sc, out, why);
+            const fs::path d = ex ? fs::path(out).parent_path() / "data" : fs::path();
+            check("ZDIR-16", "path components are sanitised as file names are: <>?: and control bytes to _, a device name prefixed _",
+                  ex && slurp((d / "a_b_c_.bin").string()) == l1 && slurp((d / "_CON.BIN").string()) == sfx &&
+                      slurp((d / "e_x.bin").string()) == nexb,
+                  why);
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            const std::string sdir = dd + "/scr17";
+            pa::ScratchDir sc(sdir);
+            Member bad = mem("data/L1.BIN", l1);
+            bad.crc_override = static_cast<int64_t>(crc32(0, l1.data(), static_cast<uInt>(l1.size()))) + 1;
+            const bool ok = open_zip(a, {mem("G.NEX", nexb), bad}, why);
+            const bool ex = ok && a.extract_program("G.NEX", sc, out, why);
+            check("ZDIR-17", "a data member with a bad CRC refuses the whole load naming it, and its slot is removed",
+                  ok && !ex && has(why, "data/L1.BIN") && has(why, "CRC") && out.empty() &&
+                      !sc.process_dir().empty() && tree_files(sc.process_dir()) == 0,
+                  why);
+        }
+        {
+            pa::ProgramArchive a, b; std::string why, out, arch, arch2;
+            pa::ScratchDir sc(dd + "/scr18");
+            const bool o1 = open_zip(a, {mem("G.NEX", nexb), mem("sub/X.NEX", nexb), mem("data/L1.BIN", l1)}, why);
+            const bool e1 = o1 && a.extract_program("G.NEX", sc, out, why);
+            const std::string slot = e1 ? fs::path(out).parent_path().string() : std::string();
+            const bool in_a = e1 && pa::in_archive_directory(out, arch);
+            const bool in_sub = e1 && pa::in_archive_directory(slot + "/sub/X.NEX", arch2);
+            std::string flat, w2;
+            const bool o2 = open_zip(b, {mem("F.NEX", nexb)}, w2);
+            const bool e2 = o2 && b.extract_program("F.NEX", sc, flat, w2);
+            std::string unused;
+            check("ZDIR-18", "in_archive_directory() is true inside a data slot (component-wise), false for a flat extraction, an unrelated path and a sibling-named directory",
+                  e1 && e2 && in_a && in_sub && arch == jnext::absolute_host_path(dd + "/z" + std::to_string(zn - 1) + ".zip") &&
+                      arch2 == arch && !pa::in_archive_directory(flat, unused) &&
+                      !pa::in_archive_directory(root + "/elsewhere/G.NEX", unused) &&
+                      !pa::in_archive_directory(slot + "X/G.NEX", unused),
+                  why + " " + w2);
+        }
+        {
+            // The whole-archive route: a data zip gives the tree, the NEX-only fixture a flat file.
+            std::string out, why, member, unused;
+            const std::string dz = dd + "/data.zip";
+            spit(dz, zipfx::build({mem("game/G.NEX", nexb), mem("game/data/L1.BIN", l1)}));
+            const bool ok = pa::extract_single_program(dz, out, why, &member);
+            std::string flat, w2;
+            const bool ok2 = pa::extract_single_program(kFix + "/lores.nex.zip", flat, w2);
+            check("ZDIR-19", "extract_single_program() extracts a data zip as a tree and a NEX-only zip as one flat file served no directory",
+                  ok && ok2 && member == "game/G.NEX" && pa::in_archive_directory(out, unused) &&
+                      slurp((fs::path(out).parent_path() / "data" / "L1.BIN").string()) == l1 &&
+                      slurp(flat) == lores && !pa::in_archive_directory(flat, unused),
+                  why + " " + w2);
+        }
+        {
+            const std::string e = "\x1b[2J";
+            std::vector<std::string> msgs;
+            auto refused = [&](const std::vector<Member>& ms, uint64_t cap = pa::kMaxDirectoryBytes) {
+                pa::ProgramArchive a; std::string why, out;
+                pa::ScratchDir sc(dd + "/scr20");
+                if (!open_zip(a, ms, why)) return std::string("OPEN-FAILED " + why);
+                if (a.extract_program(ms[0].name, sc, out, why, cap)) return std::string();
+                return why;
+            };
+            msgs.push_back(refused({mem("G" + e + ".NEX", nexb), mem("../" + e, l1)}));
+            msgs.push_back(refused({mem("G.NEX", nexb), mem("a" + e + "/x", l1), mem("A" + e + "/X", l1)}));
+            msgs.push_back(refused({mem("G.NEX", nexb), mem("a" + e, l1), mem("a" + e + "/x", l1)}));
+            msgs.push_back(refused({mem(e + "/G.NEX", nexb), mem(e + "/x", Bytes(8, 1), 0)}, 5));
+            msgs.push_back(refused({mem("G.NEX", nexb), mem(std::string(130, 'a') + "/" + e + std::string(130, 'b'), l1)}));
+            msgs.push_back(refused({mem("G.NEX", nexb), mem("t" + e + ".", l1)}));
+            bool all = true;
+            std::string joined;
+            for (const auto& m : msgs) { all = all && !m.empty() && clean(m); joined += m + " | "; }
+            check("ZDIR-20", "no control byte survives into the unsafe, case-collision, file/directory, size, length and trailing-dot messages",
+                  all && has(msgs[0], "\\x1B") && has(msgs[3], "\\x1B"), joined);
+        }
+        {
+            std::string sdir = dd + "/scr21";
+            std::string slot;
+            {
+                pa::ProgramArchive a; std::string why, out;
+                pa::ScratchDir sc(sdir);
+                if (open_zip(a, {mem("G.NEX", nexb), mem("data/deep/L1.BIN", l1)}, why) &&
+                    a.extract_program("G.NEX", sc, out, why))
+                    slot = fs::path(out).parent_path().string();
+                const bool there = !slot.empty() && fs::exists(slot + "/data/deep/L1.BIN");
+                if (!there) slot.clear();
+            }
+            check("ZDIR-21", "destroying the ScratchDir removes the nested tree",
+                  !slot.empty() && !fs::exists(slot + "/data") && !fs::exists(slot) && !fs::exists(fs::path(slot).parent_path()));
+        }
+        {
+            pa::ProgramArchive a; std::string why, out;
+            pa::ScratchDir sc(dd + "/scr22");
+            const bool ok = open_zip(a, {mem("game/G.NEX", nexb), mem("game/data/L1.BIN", l1),
+                                          mem("__MACOSX/game/x", sfx), mem("game/._L1.BIN", sfx)}, why);
+            const bool ex = ok && a.extract_program("game/G.NEX", sc, out, why);
+            const fs::path slot = ex ? fs::path(out).parent_path() : fs::path();
+            check("ZDIR-22", "the junk members __MACOSX/game/x and game/._L1.BIN are not written",
+                  ex && tree_files(slot) == 3 && !fs::exists(slot / "._L1.BIN") && !fs::exists(slot / "__MACOSX"),
+                  why);
+        }
+        {
+            // A directory spelled in two cases is one directory, under the spelling seen first: the tree
+            // is the same on a case-sensitive host (Linux, MEMFS) and a case-insensitive one.
+            pa::ProgramArchive a, b, c; std::string w1, w2, w3, o1, o2, o3;
+            pa::ScratchDir sc(dd + "/scr23");
+            const bool p1 = open_zip(a, {mem("game/G.NEX", nexb), mem("game/data/a.bin", l1), mem("game/DATA/b.bin", sfx)}, w1);
+            Member d; d.name = "game/Data/"; d.method = 0;
+            const bool p2 = open_zip(b, {mem("game/G.NEX", nexb), d, mem("game/data/b.bin", sfx), mem("game/DATA/sub/c.bin", l1)}, w2);
+            const bool p3 = open_zip(c, {mem("game/G.NEX", nexb), mem("game/data/a.bin", l1), mem("game/Data/a2.bin", sfx)}, w3);
+            const bool e1 = p1 && a.extract_program("game/G.NEX", sc, o1, w1);
+            const bool e2 = p2 && b.extract_program("game/G.NEX", sc, o2, w2);
+            const bool e3 = p3 && c.extract_program("game/G.NEX", sc, o3, w3);
+            const fs::path s1 = e1 ? fs::path(o1).parent_path() : fs::path();
+            const fs::path s2 = e2 ? fs::path(o2).parent_path() : fs::path();
+            const fs::path s3 = e3 ? fs::path(o3).parent_path() : fs::path();
+            auto names = [](const fs::path& r) {
+                std::vector<std::string> v; std::error_code e;
+                for (fs::recursive_directory_iterator it(r, e), end; !e && it != end; it.increment(e))
+                    v.push_back(fs::relative(it->path(), r).generic_string());
+                std::sort(v.begin(), v.end());
+                return v;
+            };
+            const std::vector<std::string> want1 = {"G.NEX", "data", "data/a.bin", "data/b.bin"};
+            const std::vector<std::string> want2 = {"Data", "Data/b.bin", "Data/sub", "Data/sub/c.bin", "G.NEX"};
+            const std::vector<std::string> want3 = {"G.NEX", "data", "data/a.bin", "data/a2.bin"};
+            check("ZDIR-23", "a directory spelled in two cases (implicit, explicit entry first, nested) extracts under its first-seen spelling, every file in it",
+                  e1 && e2 && e3 && names(s1) == want1 && names(s2) == want2 && names(s3) == want3 &&
+                      slurp((s1 / "data" / "b.bin").string()) == sfx && slurp((s2 / "Data" / "sub" / "c.bin").string()) == l1,
+                  w1 + " | " + w2 + " | " + w3);
+        }
+        {
+            // choose(): a second NEX anywhere (here below the first) makes the archive ambiguous.
+            pa::ProgramArchive a; std::string why, mem_;
+            const bool ok = open_zip(a, {mem("G.NEX", nexb), mem("sub/X.NEX", nexb), mem("data/a.bin", l1)}, why);
+            const bool ch = ok && a.choose(mem_, why);
+            check("ZDIR-24", "a NEX with a second NEX in a subdirectory below it is refused by choose() with the several-programs text",
+                  ok && !ch && mem_.empty() && why == a.several_why() && has(why, "G.NEX") && has(why, "sub/X.NEX"), why);
+        }
+        {
+            // The NEX's own folder spelled in another case is the same folder: its data is served,
+            // and a game-data program below it does not make the archive ambiguous.
+            pa::ProgramArchive a, b; std::string w1, w2, o1, m2;
+            pa::ScratchDir sc(dd + "/scr25");
+            const bool p1 = open_zip(a, {mem("Game/G.NEX", nexb), mem("GAME/data.txt", l1)}, w1);
+            const bool p2 = open_zip(b, {mem("Game/G.NEX", nexb), mem("GAME/data/x.tap", sfx)}, w2);
+            const bool h1 = p1 && a.has_data_files("Game/G.NEX");
+            const bool e1 = h1 && a.extract_program("Game/G.NEX", sc, o1, w1);
+            const fs::path s1 = e1 ? fs::path(o1).parent_path() : fs::path();
+            const bool c2 = p2 && b.choose(m2, w2);
+            check("ZDIR-25", "a data file in GAME/ beside Game/G.NEX is extracted into the slot, and choose() takes Game/G.NEX over GAME/data/x.tap",
+                  p1 && p2 && h1 && e1 && slurp((s1 / "data.txt").string()) == l1 && c2 && m2 == "Game/G.NEX",
+                  w1 + " | " + w2);
+        }
+    }
+}
 
 int main() {
     std::error_code ec;
@@ -888,6 +1236,8 @@ int main() {
         check("ZIPL-39", "a member with a corrupt CRC is refused and no output file is left in the scratch directory",
               !ok && has(why, "CRC") && path.empty() && count_files() == before, why);
     }
+
+    run_data_archive_rows(root, lores);
 
     fs::remove_all(root, ec);
     std::printf("\n===============================================\n");

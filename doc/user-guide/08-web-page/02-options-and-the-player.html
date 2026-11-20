@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.37</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.37</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4680,6 +4680,11 @@
 <p>Program formats <code>file</code> accepts:</p>
 <ul>
 <li><code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>;</li>
+<li>a <code>.zip</code> whose program is a <code>.nex</code>: the NEX also gets the files beside it in the
+  archive, which the game opens by name. They are read-only unless the page passes
+  <code>args: ['--esxdos-stub-writable']</code>; what the game writes there lives in the page's memory
+  and is not kept by <code>keepWrites</code>. <code>load()</code> takes the same. A <code>.zip</code> with any other program
+  is refused;</li>
 <li>an <code>.rzx</code> recording;</li>
 <li>a <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> snapshot, which runs on the machine it was saved on
   (see "Saving the game" below).</li>

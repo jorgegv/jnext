@@ -38,10 +38,11 @@ void BreakpointSet::rebuild_live_() {
     // OFF must ZERO the legacy half, and an early return that skipped it would
     // leave the hot path calling the out-of-line scan for a suspended
     // watchpoint forever.
-    if (!master_enabled_) { recompute_watch_masks_(); return; }
+    if (!master_enabled_) { pc_any_live_ = false; recompute_watch_masks_(); return; }
 
     for (const auto& entry : pc_all_)
         if (entry.second) pc_live_.insert(entry.first);
+    pc_any_live_ = !pc_live_.empty();   // GH #498
 
     for (const auto& wp : wp_all_)
         if (wp.enabled) wp_live_.push_back(wp);

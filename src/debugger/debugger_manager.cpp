@@ -14,6 +14,7 @@
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
 #include "debugger/memory_panel.h"
+#include "debugger/video_panel.h"
 #include "toolbar_icons/toolbar_icons.h"
 
 #include <QMainWindow>
@@ -96,12 +97,29 @@ void DebuggerManager::attach_backend() {
     const auto r = dbg_.attach(jnext::dbg::ClientInfo{"Qt GUI", jnext::dbg::ClientKind::Gui});
     client_ = r.value;
     dbg_.set_listener(client_, this);
-    dbg_.set_live_raster(client_, true);
-    // INS-12 — call-stack tracking while the window is open, as before; through
-    // the backend it is also re-applied across a cold boot (CTL-12 rule 2), where
-    // the direct `call_stack().set_enabled()` it replaces was silently lost.
-    dbg_.set_call_stack_enabled(client_, true);
+    // GH #498 - the live raster and call tracking are asked for by apply_data_needs(), once
+    // the window exists, and only while a panel on show needs them. INS-12: through the
+    // backend a request is also re-applied across a cold boot (CTL-12 rule 2).
+    call_stack_requested_ = false;
+    raster_requested_ = false;
     set_panels_client();
+}
+
+void DebuggerManager::apply_data_needs() {
+    if (client_ == jnext::dbg::CLIENT_NONE) return;
+    DebuggerWindow* w = debugger_window_;
+    const bool open = enabled_ && w;
+    const bool want_cs = open && (w->panel_on_show(w->callstack_panel()) ||
+                                  w->panel_on_show(w->variables_panel()) || source_step_in_flight_);
+    const bool want_raster = open && w->panel_on_show(w->video_panel());
+    if (want_cs != call_stack_requested_) {
+        call_stack_requested_ = want_cs;
+        dbg_.set_call_stack_enabled(client_, want_cs);
+    }
+    if (want_raster != raster_requested_) {
+        raster_requested_ = want_raster;
+        dbg_.set_live_raster(client_, want_raster);
+    }
 }
 
 void DebuggerManager::detach_backend() {
@@ -211,6 +229,7 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
         debugger_window_->show();
         debugger_window_->raise();
         debugger_window_->activateWindow();
+        apply_data_needs();   // GH #498: the window is on show now
 
         // Position after show — some window managers ignore move() before show().
         // Use a short timer to let the WM finish placing the window first.
@@ -361,6 +380,16 @@ void DebuggerManager::ensure_window() {
     push_source_dirs(false);
     // GH #422 stage 2 - and its colour scheme.
     if (auto* sp = debugger_window_->source_panel()) sp->set_colour_scheme(source_scheme_);
+
+    // GH #498 - what is on show decides what the backend collects.
+    connect(debugger_window_, &DebuggerWindow::panels_on_show_changed, this,
+            [this]() {
+                apply_data_needs();
+                // A paused machine's panels are redrawn only on a change of the paused stamp: a tab
+                // that just came on show is brought up to date at once (the Call Stack with the
+                // frames the switch just rebuilt).
+                if (enabled_ && dbg_.state().paused) refresh_window();
+            });
 
     // Closing the debugger window disables the debugger.
     connect(debugger_window_, &DebuggerWindow::window_closed, this, [this]() {
@@ -1023,7 +1052,13 @@ void DebuggerManager::run_source_step(jnext::dbg::Debugger::SourceStep kind,
 
     rewind_refusal_.clear();
     if (debugger_window_) debugger_window_->clear_rewind_refusal();
+    // GH #498 - Over and Out measure call depth with the tracker: on for exactly the step
+    // (the step is synchronous inside the verb).
+    source_step_in_flight_ = kind == SourceStep::Over || kind == SourceStep::Out;
+    apply_data_needs();
     const jnext::dbg::Result r = dbg_.source_step(client_, kind);
+    source_step_in_flight_ = false;
+    apply_data_needs();
     if (r == jnext::dbg::Result::RefusedCorrupt) {
         warn_state_corrupt(name);
         return;

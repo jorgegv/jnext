@@ -36,6 +36,9 @@ struct CallFrame {
     // prologue (POP r; POP args; PUSH r) moves the return address up this way.
     bool ret_stored = false;
     uint16_t ret_stored_at = 0;
+    // GH #498: the frame was rebuilt from the stack by CallStack::reconstruct() when tracking
+    // started mid-run, not tracked as the CALL / RST ran.
+    bool reconstructed = false;
 };
 
 /// Tracks CALL/RST/INT/RET to maintain a virtual call stack.
@@ -92,6 +95,19 @@ public:
         have_pre_ = false;
     }
 
+    /// GH #498: tracking started mid-run, so the frames already on the stack are rebuilt from it.
+    /// Scans at most RECONSTRUCT_SCAN_WORDS words from `sp` (a word never wraps past 0xFFFE); a
+    /// word is a return address when the 3 bytes before it are a CALL (CD C4 CC D4 DC E4 EC F4 FC:
+    /// tested first) or the byte before it is an RST (C7 CF D7 DF E7 EF F7 FF). Frames are stored
+    /// oldest first, `reconstructed`, `sp_at_call` = the word's address. Replaces the frames.
+    /// Not rebuilt: INT / NMI frames, and a return address a routine has moved (__z88dk_callee).
+    /// A data word that follows CALL-shaped bytes gives a false frame. Needs the stack reader:
+    /// without one there are no frames.
+    /// `caller_space`, when given, supplies each frame's caller_space (the backend's prediction at
+    /// the caller's address); left out it stays cpu() = unrecorded.
+    void reconstruct(uint16_t sp,
+                     const std::function<jnext::dbg::MemSpace(uint16_t)>& caller_space = {});
+
     /// The stack bytes the callee-prologue test reads (`Mmu::peek()` in the emulator).
     /// Unset, a JP (r) with SP above the slot always ends the frame (GH #349 R1'').
     void set_stack_reader(std::function<uint8_t(uint16_t)> peek) { peek_ = std::move(peek); }
@@ -105,6 +121,7 @@ public:
     }
 
     static constexpr size_t MAX_DEPTH = 256;
+    static constexpr size_t RECONSTRUCT_SCAN_WORDS = 128;   // GH #498
 
 private:
     void push_frame(uint16_t caller, uint16_t target, uint16_t sp, CallType type,

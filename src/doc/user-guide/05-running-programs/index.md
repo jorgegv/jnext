@@ -93,11 +93,24 @@ extension, or none, is taken as one when it starts like a ZIP file.
 - **Several programs** (side A and side B of a tape, say): the command line
   refuses and lists them, so you can unzip it and name the one you want; the
   window asks which one to load, and Cancel leaves the running game alone.
+- **A NEX with its data files** (a game that reads files while it runs): when
+  the archive's program is a `.nex` and the folder it is in inside the archive
+  holds other files, JNEXT unpacks that folder with its subfolders and lets the
+  game open them by name, as it would from a folder on disk, with no option to
+  give. The game is the archive's program when it is the only `.nex` and any
+  other program in the archive is in a subfolder below it (`data/sfx.wav`); a
+  `.nex` and a `.tap` side by side, or two `.nex` in one folder, count as
+  several programs. The files are read-only unless you start JNEXT with
+  `--esxdos-stub-writable`, which lets the game change the unpacked copy (never
+  the archive; the changes go when JNEXT exits). The details are in
+  [5.8](08-host-files-for-a-loaded-program.md).
 - **Refused, with the reason:** an archive with no program in it, one that is
   not a ZIP file, a password-protected one, one compressed with a method other
   than the usual deflate (bzip2, LZMA and the like), a ZIP64 or multi-disk one,
   an archive file or a member over 256 MiB, and a member whose name is an absolute path or climbs
-  out with `..`.
+  out with `..`. A NEX with its data files is refused as a whole, before anything is unpacked, when any
+  member of the archive has such a name, two files differ only in case, a name ends in a dot or a space, a
+  path is over 255 characters, or the files add up to over 256 MiB.
 - **A bundled `.pok`** (a cheat list for the game; see
   [5.11 POK trainers](11-pok-trainers.md)): when the archive holds one named
   like the program, or the only one, File > Load NEX File… makes it the open trainer list

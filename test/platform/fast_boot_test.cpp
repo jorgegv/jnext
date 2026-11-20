@@ -16,6 +16,7 @@
 #include "core/saveable.h"
 #include "input/keyboard.h"
 #include "platform/fast_boot.h"
+#include "platform/render_policy.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -336,6 +337,181 @@ int main()
         }
         check("FBT-17", "host pacing only: an armed (window open) and an unarmed emulator have identical save_state streams after 100 frames",
               built && open && !armed_state.empty() && armed_state == plain_state);
+    }
+
+    // ---- GH #544: hiding the screen while the window is open ----------------
+    // No VHDL counterpart (host presentation). Oracle: the plan's behaviour table.
+    {
+        auto emu = make48k();
+        bool before = false, after = false;
+        if (emu) {
+            emu->arm_fast_boot(100, true);
+            before = emu->fast_boot_hides_screen();
+            emu->run_frame();
+            after = emu->fast_boot_hides_screen();
+        }
+        check("FBT-30", "arm_fast_boot(100) with hide_screen set: fast_boot_hides_screen() holds before any frame and after 1 frame",
+              emu && before && after);
+    }
+    {
+        auto a = make48k();
+        bool def_off = false, false_off = false;
+        if (a) { a->arm_fast_boot(100); def_off = a->fastload_active() && !a->fast_boot_hides_screen(); }
+        auto b = make48k();
+        if (b) { b->arm_fast_boot(100, false); false_off = b->fastload_active() && !b->fast_boot_hides_screen(); }
+        check("FBT-31", "arm_fast_boot(100) and arm_fast_boot(100, false) leave the screen shown while the window is open",
+              a && b && def_off && false_off);
+    }
+    {
+        // The hide ends with the window, by every route, each on a fresh emulator armed with hide.
+        std::string detail;
+        bool all = true;
+        auto note = [&](const char* name, bool ok) { detail += std::string(name) + (ok ? "=ok " : "=BAD "); all = all && ok; };
+        {
+            auto emu = make48k();
+            bool ok = false;
+            if (emu) {
+                emu->arm_fast_boot(3, true);
+                const bool open2 = (emu->run_frame(), emu->run_frame(), emu->fast_boot_hides_screen());
+                emu->run_frame();
+                ok = open2 && !emu->fast_boot_hides_screen();
+            }
+            note("time-up", ok);
+        }
+        {
+            auto emu = make48k();
+            bool ok = false;
+            if (emu) {
+                emu->arm_fast_boot(500, true);
+                emu->run_frame();
+                emu->keyboard().set_matrix_bit(0, 0, true);
+                emu->run_frame();
+                ok = !emu->fast_boot_hides_screen();
+            }
+            note("matrix-key", ok);
+        }
+        {
+            auto emu = make48k();
+            bool ok = false;
+            if (emu) {
+                emu->arm_fast_boot(500, true);
+                emu->run_frame();
+                emu->keyboard().set_extended_key(0, true);
+                emu->run_frame();
+                ok = !emu->fast_boot_hides_screen();
+            }
+            note("extended-key", ok);
+        }
+        {
+            auto emu = make48k();
+            bool ok = false;
+            if (emu) {
+                emu->arm_fast_boot(500, true);
+                emu->run_frame();
+                EmulatorConfig cfg = emu->config();
+                ok = emu->init(cfg) && !emu->fast_boot_hides_screen();
+            }
+            note("init", ok);
+        }
+        {
+            auto emu = make48k();
+            bool ok = false;
+            if (emu) {
+                emu->run_frame();
+                const std::vector<uint8_t> saved = state_of(*emu);
+                emu->arm_fast_boot(500, true);
+                StateReader r(saved.data(), saved.size());
+                ok = emu->load_state(r) && !emu->fast_boot_hides_screen();
+            }
+            note("load_state", ok);
+        }
+        check("FBT-32", "the hide ends with the window: time up, a matrix key, an extended key, init(), load_state()", all, detail);
+    }
+    {
+        auto emu = make48k();
+        bool kept = false;
+        if (emu) {
+            emu->arm_fast_boot(500, true);
+            for (int i = 0; i < 3; ++i) emu->run_frame();
+            emu->soft_reset();
+            kept = emu->fast_boot_hides_screen();
+        }
+        check("FBT-33", "soft_reset() (the firmware's own hand-over) keeps the screen hidden", emu && kept);
+    }
+    {
+        // A pause between frames: real screen while stopped (window still open), still real after the resume.
+        auto emu = make48k();
+        bool paused_real = false, resumed_real = false, bp_real = false;
+        if (emu) {
+            emu->arm_fast_boot(500, true);
+            emu->run_frame();
+            emu->debug_state().pause();
+            paused_real = emu->fast_boot_frames_left() > 0 && !emu->fast_boot_hides_screen();
+            emu->debug_state().resume();
+            emu->run_frame();
+            resumed_real = !emu->fast_boot_hides_screen();
+        }
+        // A breakpoint inside a frame (the FBT-13b set-up).
+        auto emu2 = make48k();
+        if (emu2) {
+            emu2->debug_state().set_persistent_breakpoints(true);
+            emu2->arm_fast_boot(500, true);
+            emu2->run_frame();
+            emu2->debug_state().pause();
+            emu2->run_frame();
+            bp_real = !emu2->fast_boot_hides_screen();   // run_frame() while stopped also closes the window (GH #499)
+        }
+        check("FBT-34", "a pause or a stop inside a frame shows the real screen while stopped, and after the resume",
+              emu && emu2 && paused_real && resumed_real && bp_real,
+              "paused=" + std::to_string(paused_real) + " resumed=" + std::to_string(resumed_real) +
+              " bp=" + std::to_string(bp_real));
+    }
+    {
+        constexpr int W = 640, H = 256;
+        std::vector<uint32_t> fb(static_cast<size_t>(W) * H, 0x12345678u);
+        const fast_boot::Shown hid = fast_boot::shown_frame(true, fb.data(), W, H, 7);
+        bool black = hid.pixels != fb.data() && hid.generation == fast_boot::HIDDEN_GENERATION;
+        size_t nonblack = 0;
+        for (size_t i = 0; i < static_cast<size_t>(W) * H; ++i) if (hid.pixels[i] != 0xFF000000u) ++nonblack;
+        const fast_boot::Shown real = fast_boot::shown_frame(false, fb.data(), W, H, 7);
+        const bool passthrough = real.pixels == fb.data() && real.generation == 7;
+        const bool distinct = fast_boot::HIDDEN_GENERATION != render_policy::NOTHING_UPLOADED;
+        const bool held = !render_policy::upload_needed(fast_boot::HIDDEN_GENERATION, fast_boot::HIDDEN_GENERATION, false);
+        const bool first_real = render_policy::upload_needed(0, fast_boot::HIDDEN_GENERATION, false)
+                             && render_policy::upload_needed(12345, fast_boot::HIDDEN_GENERATION, false);
+        check("FBT-35", "shown_frame: hidden = 163840 black pixels under HIDDEN_GENERATION (held, never NOTHING_UPLOADED); shown = the same pointer and generation; the next real frame uploads",
+              black && nonblack == 0 && passthrough && distinct && held && first_real,
+              "nonblack=" + std::to_string(nonblack));
+    }
+    {
+        // Presentation only: the hide changes neither emulation nor compositing.
+        bool built = false;
+        std::vector<uint8_t> hid_state, plain_state;
+        uint64_t hid_gen = 0, plain_gen = 1, hid_rf = 0, plain_rf = 1;
+        {
+            auto a = make48k();
+            built = a != nullptr;
+            if (a) {
+                a->arm_fast_boot(200, true);
+                for (int i = 0; i < 100; ++i) a->run_frame();
+                hid_state = state_of(*a);
+                hid_gen = a->framebuffer_generation();
+                hid_rf = a->rendered_frames();
+            }
+        }
+        {
+            auto b = make48k();
+            built = built && b != nullptr;
+            if (b) {
+                b->arm_fast_boot(200, false);
+                for (int i = 0; i < 100; ++i) b->run_frame();
+                plain_state = state_of(*b);
+                plain_gen = b->framebuffer_generation();
+                plain_rf = b->rendered_frames();
+            }
+        }
+        check("FBT-36", "the hide is presentation only: identical save_state stream, framebuffer generation and rendered frames after 100 frames",
+              built && !hid_state.empty() && hid_state == plain_state && hid_gen == plain_gen && hid_rf == plain_rf);
     }
 
     // ---- a real NextZXOS boot ---------------------------------------------

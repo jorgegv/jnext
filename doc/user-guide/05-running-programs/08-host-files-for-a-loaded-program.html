@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.37</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.37</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4515,8 +4515,12 @@ answers them.</p>
 <li>It lasts until the next reset, soft reset or load. A NEX loaded afterwards
   (from <strong>File &gt; Load NEX File…</strong>, a recent file, a <code>run NAME.nex</code> call or the
   debugger) is served its own directory.</li>
-<li>A NEX taken out of a <code>.zip</code> has no directory on disk and gets none; neither
-  do snapshots and tapes.</li>
+<li>A NEX taken out of a <code>.zip</code> that holds nothing beside it has no directory on
+  disk and gets none; neither do snapshots and tapes. A <code>.zip</code> that holds the
+  NEX's data files (see <a href="index.html#programs-in-zip-archives">Programs in ZIP archives</a>) is served
+  its folder from the archive with no option at all: JNEXT unpacks it and
+  gives the game that copy, read-only unless <code>--esxdos-stub-writable</code> is
+  given. <code>--esxdos-stub-root</code> still wins over it.</li>
 <li>For a NEX reached through a symbolic link, the directory is the link's own.</li>
 <li>A saved <code>.jns</code> snapshot does not remember it.</li>
 </ul>

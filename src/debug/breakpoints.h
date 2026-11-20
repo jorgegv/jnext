@@ -242,6 +242,12 @@ public:
     void set_oneshot(uint16_t addr);
     void clear_oneshot();
     bool has_oneshot() const { return oneshot_active_; }
+
+    /// GH #498 - is a PC breakpoint live or a one-shot set: would DebugState::should_break() have
+    /// anything to look up? Two plain bools, no hash lookup. `pc_any_live_` is written only by
+    /// rebuild_live_(), the one place the model becomes the live set.
+    bool exec_live() const { return pc_any_live_ || oneshot_active_; }
+    bool exec_live_recomputed_for_test() const { return !pc_live_.empty() || oneshot_active_; }
     uint16_t oneshot_addr() const { return oneshot_addr_; }
 
     /// Returns true if no breakpoints or watchpoints are set.
@@ -275,6 +281,7 @@ private:
     // observation or enabling existed, so the hot path's reads keep the
     // offsets they had. They are a strict subset of the model below.
     std::unordered_set<uint16_t> pc_live_;
+    bool pc_any_live_ = false;   // GH #498: !pc_live_.empty(), kept by rebuild_live_()
     std::vector<Watchpoint>      wp_live_;
     bool oneshot_active_ = false;
     uint16_t oneshot_addr_ = 0;

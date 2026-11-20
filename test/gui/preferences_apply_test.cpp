@@ -1872,6 +1872,39 @@ void test_cpu_speed_saved_non_default()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+// PA-40: GH #544 - the Startup tab's "Hide the screen during fast boot" check box is filled from the
+// saved value, an untouched OK keeps it (a persisted field with no control would be wiped), and unchecking it collects false.
+// Oracle: the plan's PA-40; the dialog's own collect().
+void test_fast_boot_hide_control()
+{
+    AppConfigData initial;
+    initial.fast_boot_hide_screen = true;
+    PreferencesDialog dlg(initial);
+    auto* box = dlg.findChild<QCheckBox*>(QStringLiteral("fastBootHideCheck"));
+    bool filled = box && box->isChecked();
+    bool kept = false, cleared = false;
+    if (box) {
+        AppConfigData got;
+        bool emitted = false;
+        QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                         [&](const AppConfigData& cfg) { emitted = true; got = cfg; });
+        auto* buttons = dlg.findChild<QDialogButtonBox*>();
+        auto* apply = buttons ? buttons->button(QDialogButtonBox::Apply) : nullptr;
+        if (apply) {
+            apply->click();
+            kept = emitted && got.fast_boot_hide_screen;
+            emitted = false;
+            box->setChecked(false);
+            apply->click();
+            cleared = emitted && !got.fast_boot_hide_screen;
+        }
+    }
+    check("PA-40", "the fast-boot hide check box starts from the saved value, an untouched Apply keeps it, and unchecking it collects false",
+          filled && kept && cleared,
+          std::string("box=") + (box ? "yes" : "no") + " filled=" + std::to_string(filled) +
+          " kept=" + std::to_string(kept) + " cleared=" + std::to_string(cleared));
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1910,6 +1943,7 @@ int main(int argc, char** argv)
     test_preferences_saves_saved_values();
     test_cpu_speed_only_when_changed();
     test_cpu_speed_saved_non_default();
+    test_fast_boot_hide_control();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

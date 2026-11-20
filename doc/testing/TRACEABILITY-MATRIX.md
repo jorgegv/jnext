@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6301 | 6301 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6301**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5777**. Rows the 229 suites declared in `test/unit-tests.conf` run live: **17128**.
+Rows the sections above carry: **6301**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5777**. Rows the 231 suites declared in `test/unit-tests.conf` run live: **17206**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 179 suites (11513 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -93,8 +93,8 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `disasm_hint_test` | 51 | debugger PC-line hint decoder (Z80 semantics, FUSE oracle; no VHDL oracle) |
 | `mem_tools_test` | 15 | debugger Memory panel find/fill/block-split helper (host UI policy; no VHDL oracle) |
-| `rewind_call_stack_test` | 20 | debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger |
-| `esxdos_stub_test` | 342 | esxDOS API surface + jnext trap policy, not core logic |
+| `rewind_call_stack_test` | 22 | debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger |
+| `esxdos_stub_test` | 351 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 13 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
 | `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
 | `video_recorder_posix_test` | 7 | GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle |
@@ -138,13 +138,13 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `nav_history_test` | 8 | debugger Disassembly/Source back/forward history (host UI policy; no VHDL oracle) |
 | `pointer_capture_test` | 94 | host mouse-capture policy (window-manager behaviour) |
 | `frame_deadline_test` | 47 | host frame-deadline scheduling (wall-clock) |
-| `fast_boot_test` | 26 | fast boot (GH #499): host pacing of the first seconds of a Next start; no hardware counterpart |
+| `fast_boot_test` | 33 | fast boot (GH #499): host pacing of the first seconds of a Next start; no hardware counterpart |
 | `frame_sequencer_test` | 118 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 182 | host key latch/debounce compensation; guest matrix is `## Input` |
-| `sdl_app_tick_test` | 14 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
-| `browser_policy_test` | 29 | browser page rAF callback gate and refusals (host UI, GH #463) |
+| `sdl_app_tick_test` | 17 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
+| `browser_policy_test` | 30 | browser page rAF callback gate and refusals (host UI, GH #463) |
 | `web_api_test` | 35 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
 | `sdcard_upgrade_box_test` | 3 | SDL message box offering a newer NextZXOS image (host UI, GH #476) |
@@ -152,7 +152,7 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 45 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_test` | 42 | CLI flag table vs the man page (see `make cli-check`) |
 | `cli_options_native_test` | 28 | CLI rows that run the built jnext binary (split out of cli_options_test, GH #460; see `make cli-check`) |
 | `config_keys_test` | 31 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
 | `video_recorder_cmd_test` | 46 | FFmpeg command-line construction (host encoder) |
@@ -161,7 +161,7 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `nex_v13_test` | 117 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
 | `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
 | `tap_loader_test` | 80 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
-| `program_archive_test` | 76 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
+| `program_archive_test` | 101 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
 | `halt_batch_equiv_test` | 23 | cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal) |
 | `halt_batch_periph_test` | 38 | cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `raster_poll_batch_test` | 13 | raster-poll batch equivalence (GH #496): the batch off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal); each row cites the hardware behaviour a batched window must not move in its own source |
@@ -174,6 +174,8 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `halt_batch_observer_test` | 13 | cycle-batching equivalence with an ESP-01 or a debugger client attached (GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_observer_native_test` | 3 | cycle-batching equivalence with an ESP-01 attached (GH #489): the rows that need a live ESP worker thread; batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `call_stack_fetch_test` | 14 | debugger call-stack tracker fed from the CPU's M1 fetch buffer (GH #489): frames through the emulator path; the oracle is Z80/Z80N instruction semantics and the interrupt response, the tracker itself being jnext-internal |
+| `call_stack_reconstruct_test` | 11 | debugger call-stack tracker rebuild from the stack (GH #498): the oracle is the Z80 CALL / RST encodings (UM0080), the tracker itself being jnext-internal |
+| `debug_pre_block_test` | 12 | debugger per-instruction armed block skipped while idle (GH #498): the cached gate against its recomputation, and the block run vs skipped on the same program; jnext-internal |
 | `halt_batch_boot_test` | 2 | cycle-batching equivalence on the NextZXOS cold boot (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_1_test` | 6 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_2_test` | 6 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
@@ -201,15 +203,14 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `z88dk_lis_test` | 47 | z88dk --list listing source adapter (relocation by labels, every occurrence of a C line, the start-up code, cross-check; jnext-internal); the T80N core has no debugger |
 | `cdb_record_test` | 55 | z88dk CDB C-variable record decoder (un-escaping, scope split, type chain, storage, T: members, hidden classes, refusals; jnext-internal); the T80N core has no debugger |
 | `c_value_test` | 125 | C value formatting, type lookup, paths, visible locals (pure; jnext-internal); the T80N core has no debugger |
-| `source_debug_test` | 536 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
+| `source_debug_test` | 537 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
 | `source_debug_posix_test` | 11 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1597 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1602 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
 | `resume_step_off_test` | 19 | debugger resume/step-off execution control (GH #221, jnext-internal); the T80N core has no debugger |
 | `remote_transport_test` | 69 | debugger socket transport (GH #287, jnext-internal host sockets); the T80N core has no debugger |
-| `remote_pipe_test` | 16 | browser page debug channel (GH #545, jnext-internal host byte channel); the T80N core has no debugger |
 | `dzrp_adapter_test` | 164 | DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger |
 | `gdb_rsp_test` | 126 | GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger |
 | `script_parse_test` | 271 | debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger |
@@ -217,9 +218,9 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `script_events_test` | 155 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
 | `bp_script_test` | 39 | Breakpoints panel breakpoint file, .jds codec (GH #376, jnext-internal); the T80N core has no debugger |
-| `zrcp_adapter_test` | 232 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
+| `zrcp_adapter_test` | 231 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
 | `crt_shader_policy_test` | 18 | OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI) |
-| `app_config_test` | 177 | jnext.conf schema/precedence (host settings file) |
+| `app_config_test` | 179 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
 | `mouse_release_test` | 17 | captured-mouse release gesture in the Qt window (host UI, GH #365) |
@@ -231,7 +232,7 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `desktop_open_test` | 14 | files the desktop (macOS Finder) opens with JNext (host GUI), no core counterpart |
 | `pok_dialog_test` | 17 | POK trainers dialog (GUI), no core counterpart |
 | `rzx_menu_test` | 16 | RZX File-menu error dialogs (GUI), no core counterpart |
-| `load_error_test` | 47 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
+| `load_error_test` | 50 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
 | `recent_files_menu_test` | 38 | File > Recent Files menu wiring (GH #406, host GUI, no VHDL oracle) |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
 | `host_hotkey_test` | 73 | host hotkey bindings (Alt vs the guest Symbol Shift) |
@@ -249,12 +250,13 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_dialog_test` | 17 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 12 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
-| `preferences_apply_test` | 100 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 101 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 122 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 11 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 14 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
 | `debugger_halt_batch_test` | 4 | debugger window open vs the HALT batch (host GUI lifecycle, GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
+| `debugger_panel_data_test` | 12 | debugger window collects call frames and the raster walk per panel on show (host GUI policy, GH #498): the issue's switching rule; the A/B oracle is the same machine with the window closed (jnext-internal) |
 | `debugger_inspect_watchpoint_test` | 18 | debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus |
 | `debugger_window_size_test` | 42 | debugger window geometry (host GUI) |
 | `debugger_window_grow_test` | 14 | debugger window geometry (host GUI) |
@@ -262,7 +264,7 @@ These 177 suites (11435 live rows) have no VHDL-derived plan row to map, so they
 | `debugger_keymap_test` | 48 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
 | `debugger_menu_test` | 75 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 44 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
-| `debugger_panels_test` | 225 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
+| `debugger_panels_test` | 229 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
 | `debugger_verbs_test` | 186 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
 | `debugger_source_panel_test` | 299 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 | `debugger_variables_panel_test` | 55 | debugger Variables tab: C locals per frame, globals, lazy expansion, Call Stack selection (GH #435, host GUI, jnext-internal); the T80N core has no debugger |
