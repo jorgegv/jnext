@@ -9,13 +9,13 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-13. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-14. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=13
+EXPECTED_ROWS=14
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -108,6 +108,8 @@ cp "$ROOT/test/ci-deps.sh" "$REPO/test/ci-deps.sh"
 git -C "$REPO" add -A
 git -C "$REPO" -c user.name=t -c user.email=t@t commit -qm one
 git -C "$REPO" branch feature
+LEGACY=$(git -C "$REPO" -c user.name=t -c user.email=t@t commit-tree -m legacy "$(git -C "$REPO" hash-object -t tree /dev/null -w)")
+git -C "$REPO" branch legacy "$LEGACY"
 SHA=$(git -C "$REPO" rev-parse HEAD)
 OTHER=$(printf '%040d' 1)
 
@@ -278,5 +280,21 @@ bash "$DRIVER" --gate feature >/dev/null 2>&1; usage_rc=$?
 bash "$DRIVER" --gate --warm >/dev/null 2>&1; excl_rc=$?
 row RRUN-13 "$([[ $gate_rc -eq 0 && "$steps" == "$expect" && $usage_rc -eq 2 && $excl_rc -eq 2 ]] && echo 1 || echo 0)" \
     "--gate sends the twelve gate steps in order and refuses missing arguments and --warm (rc=$gate_rc usage=$usage_rc excl=$excl_rc)"
+
+# RRUN-14: --deps-ref / --ref: a commit without the dependency script is refused (75) unless the
+# script comes from another branch; --warm --ref warms that branch; the log names the supplier
+reset_state
+drive --id d1 legacy "$LEGACY" unit-test
+d1=$RC; grep -q 'ci-deps.sh is not in' "$TMP/logs/d1.log" || d1=99
+drive --id d2 --warm --ref legacy --deps-ref feature
+d2=$RC
+drive --id d3 legacy "$LEGACY" unit-test --deps-ref feature
+d3=$RC
+bash "$DRIVER" --ref feature feature "$SHA" unit-test >/dev/null 2>&1; d4=$?
+bash "$DRIVER" --deps-ref 'bad branch' feature "$SHA" unit-test >/dev/null 2>&1; d5=$?
+row RRUN-14 "$([[ $d1 -eq 75 && $d2 -eq 0 && $d3 -eq 0 && $d4 -eq 2 && $d5 -eq 2 \
+    && "$OUT" == *"deps: dependency script test/ci-deps.sh taken from --deps-ref feature @ $SHA"* \
+    && "$(grep -a 'source:' "$TMP/logs/d2.log")" == *"legacy @ $LEGACY"* ]] && echo 1 || echo 0)" \
+    "--deps-ref supplies the dependency script, --warm --ref warms that branch, the log names the supplier (d1=$d1 d2=$d2 d3=$d3 d4=$d4 d5=$d5)"
 
 finish

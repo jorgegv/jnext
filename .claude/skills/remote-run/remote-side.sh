@@ -169,7 +169,19 @@ fi
 say "source: $RR_BRANCH @ $RR_SHA"
 
 # ---- image ------------------------------------------------------------------
-deps_src=$(git -C "$MIRROR" show "$RR_SHA:$RR_DEPS_SCRIPT" 2>/dev/null) || fallback "$RR_DEPS_SCRIPT is not in $RR_SHA"
+# The dependency script comes from the commit under test, or from RR_DEPS_REF when one is given.
+deps_from="$RR_SHA"
+if [[ -n "${RR_DEPS_REF:-}" ]]; then
+    if ! fetch_out=$(git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_DEPS_REF:refs/rr/$RR_DEPS_REF" 2>&1 </dev/null); then
+        echo "$fetch_out"
+        fallback "cannot fetch --deps-ref $RR_DEPS_REF"
+    fi
+    deps_from=$(git -C "$MIRROR" rev-parse "refs/rr/$RR_DEPS_REF") || fallback "no tip for --deps-ref $RR_DEPS_REF"
+    say "dependency script $RR_DEPS_SCRIPT taken from --deps-ref $RR_DEPS_REF @ $deps_from"
+else
+    say "dependency script $RR_DEPS_SCRIPT taken from the commit under test @ $RR_SHA"
+fi
+deps_src=$(git -C "$MIRROR" show "$deps_from:$RR_DEPS_SCRIPT" 2>/dev/null) || fallback "$RR_DEPS_SCRIPT is not in $deps_from"
 hash=$(printf '%s\0%s\0%s' "$RR_BASE_IMAGE" "$RR_DEPS_ARGS" "$deps_src" | sha256sum | cut -c1-12)
 image="rr-$RR_PROJECT:$hash"
 if ! pm image exists "$image"; then

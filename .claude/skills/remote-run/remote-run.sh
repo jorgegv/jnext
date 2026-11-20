@@ -31,6 +31,10 @@ options:
                          branch); a normal run refuses until this has run for the current deps
   --gate                 run the batch gate (the project's GATE_STEPS, in order, failing fast) on
                          <branch> <sha>; the summary shows each step's own totals and the verdict
+  --ref BRANCH           with --warm: the branch to warm (default: the project's default branch)
+  --deps-ref BRANCH      take the dependency script (the image's package set) from BRANCH instead
+                         of the commit under test; for --warm, --gate and plain runs. The log
+                         names the ref that supplied it
   --timeout SECS         bound for the whole run (default from project.conf)
   --keep-going           run the remaining targets after a failure
   --stream               also print the log live (default: only the summary)
@@ -72,6 +76,7 @@ load_conf() {
 summarize_log() {
     local log=$1 clean
     clean=$(sed -e 's/\x1b\[[0-9;]*m//g' "$log")
+    grep -aE 'dependency script' <<<"$clean" | sed -e 's/^\[remote-run [0-9:]*\] /deps: /' || true
     echo "--- targets"
     grep -E '^=== remote-run result:' <<<"$clean" || echo "(no target finished)"
     local bad nbad
@@ -113,6 +118,7 @@ build_payload() {
             "$MIN_MEM_MB" "$MIN_DISK_GB" "$CONTAINER_MEMORY" "$CONTAINER_SHM" "$TEST_JOBS"
         printf 'RR_JOBS_DEFAULT=%q\nRR_JOBS_HEAVY=%q\nRR_HEAVY_RE=%q\nRR_CACHE_MOUNTS=%q\nRR_CONTAINER_ENV=%q\nRR_STAMP_ENV=%q\n' \
             "$JOBS_DEFAULT" "$JOBS_HEAVY" "$HEAVY_TARGET_RE" "$CACHE_MOUNTS" "$CONTAINER_ENV" "$STAMP_ENV"
+        printf 'RR_DEPS_REF=%q\n' "$DEPS_REF"
         printf 'RR_INNER=%q\n' "$(cat "$HERE/container-side.sh")"
         cat "$HERE/remote-side.sh"
     } > "$f"
@@ -182,8 +188,8 @@ remote_cleanup() {
 
 # ---- main -------------------------------------------------------------------
 main() {
-    local warm=0 gate=0 stream=0 fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
-    TIMEOUT="" KEEP_GOING=0 LOCAL_SHELL=0 ID="" BRANCH="" SHA=""
+    local warm=0 gate=0 stream=0 warm_ref="" fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
+    TIMEOUT="" DEPS_REF="" KEEP_GOING=0 LOCAL_SHELL=0 ID="" BRANCH="" SHA=""
     local -a pos=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -193,6 +199,8 @@ main() {
             --keep-going) KEEP_GOING=1 ;;
             --stream) stream=1 ;;
             --local-shell) LOCAL_SHELL=1 ;;
+            --ref)      [[ $# -ge 2 ]] || { usage >&2; exit 2; }; warm_ref=$2; shift ;;
+            --deps-ref) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; DEPS_REF=$2; shift ;;
             --timeout)  [[ $# -ge 2 ]] || { usage >&2; exit 2; }; TIMEOUT=$2; shift ;;
             --id)       [[ $# -ge 2 ]] || { usage >&2; exit 2; }; ID=$2; shift ;;
             --log-dir)  [[ $# -ge 2 ]] || { usage >&2; exit 2; }; logdir=$2; shift ;;
@@ -206,10 +214,12 @@ main() {
     done
     load_conf
     [[ $warm -eq 0 || $gate -eq 0 ]] || die "--warm and --gate exclude each other"
+    [[ -z "$warm_ref" || $warm -eq 1 ]] || die "--ref is for --warm only"
+    [[ -z "$DEPS_REF" || "$DEPS_REF" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] || die "bad --deps-ref '$DEPS_REF'"
 
     if [[ $warm -eq 1 ]]; then
         [[ ${#pos[@]} -eq 0 ]] || die "--warm takes no branch, sha or target"
-        BRANCH=$DEFAULT_BRANCH
+        BRANCH=${warm_ref:-$DEFAULT_BRANCH}
         targets=$(tr ' ' '\n' <<<"$WARM_TARGETS")
     else
         if [[ $gate -eq 1 ]]; then
