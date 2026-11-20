@@ -3166,13 +3166,17 @@ asked), with the plain picture otherwise.
     area before the click so the player is not black on load. The emulator replaces it
     when the visitor starts the player. Without it nothing is shown there.
 
-`file` *URL | {url} | {data, name}*
+`file` *URL | {url} | {data, name} | {card}*
 :   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, a `.rzx` recording, or a `.jns`, `.sna`,
     `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu. A `.zip` is
     accepted when the program in it is a `.nex`: the NEX gets its directory in the archive (see
     the `.zip` entry of **LOADING PROGRAMS**), read-only unless `args: ['--esxdos-stub-writable']`
     is given, and what it writes is not kept by `keepWrites`. `player.load()` accepts the same.
-    Any other `.zip` is refused.
+    Any other `.zip` is refused. `{card: '/PATH/x.nex'}`
+    runs a NEX that is on the SD card: its path lies inside one entry of `card.dirs`, the directory that holds
+    it is copied out of the card with everything below it, and that directory is served to the program with
+    **\--esxdos-stub** (read-only unless `args` has **\--esxdos-stub-writable**). It cannot be used with
+    card source `'none'`, and `load()` refuses it.
 
 `keepWrites` *boolean*
 :   **\--sdcard-writes**, with a file the page manages: what the program writes
@@ -3224,7 +3228,7 @@ asked), with the plain picture otherwise.
 `state` is `waiting`, `starting`, `running`, `paused`, `exited` or `destroyed`;
 `ready` is a promise for the first ready. `pause()` and `resume()` stop and restart
 the frame loop. `reset(kind)` restarts the program (`'program'`, the default; with no program it powers on again),
-powers the machine on again (`'hard'`) or resets it (`'soft'`). `load(file)` loads
+powers the machine on again (`'hard'`) or resets it (`'soft'`). `nmi()` presses the NMI button (the Multiface one, as F9 and the case button "NMI"), which opens NextZXOS's NMI Menu; it rejects, with the reason as the error message, when the machine is not running or the card source is `'none'` (no Multiface ROM). `load(file)` loads
 another program while the machine runs. `saveSnapshot()` resolves to the bytes of a
 `.jns` snapshot of the running machine (**\--snapshot-compression** applies), for the page
 to offer as a download or give back to `load()` as `{data, name}`. `startRzxRecording()` starts
