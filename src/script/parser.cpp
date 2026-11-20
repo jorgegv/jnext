@@ -28,7 +28,7 @@ std::string too_deep() {
 
 class Parser {
 public:
-    explicit Parser(std::vector<Token> toks) : t_(std::move(toks)) {}
+    explicit Parser(std::vector<Token> toks, const std::string* src = nullptr) : t_(std::move(toks)), src_(src) {}
 
     Script parse_script() {
         Script s;
@@ -54,6 +54,7 @@ public:
 
 private:
     std::vector<Token> t_;
+    const std::string* src_ = nullptr;   ///< the text the tokens came from (`Rule::when_text`), when known
     size_t             i_ = 0;
     int                depth_ = 0;     ///< parser recursion (bound 1 of parser.h)
     int                if_depth_ = 0;  ///< `if` nesting (bound 3 of parser.h)
@@ -190,7 +191,9 @@ private:
         }
         if (is_kw("when")) {
             take();
+            const size_t text_from = offset_of(cur().pos);
             r.when = parse_expr();
+            r.when_text = text_between(text_from, offset_of(cur().pos));
             if (is_kw("once"))
                 fail(cur().pos, "`once` must come before `when`: `on ... once when ... do`");
         }
@@ -198,6 +201,30 @@ private:
         r.body = parse_actions({"end"}, r.pos);
         take();  // `end`
         return r;
+    }
+
+    // ── source text of a span (Rule::when_text) ────────────────────────────
+
+    /// The byte offset of a token position: the lexer's column counts code points, a UTF-8
+    /// continuation byte does not move it. npos when the parser has no source text.
+    size_t offset_of(SourcePos p) const {
+        if (!src_) return std::string::npos;
+        size_t i = 0;
+        for (int line = 1; line < p.line && i < src_->size(); ++i)
+            if ((*src_)[i] == '\n') ++line;
+        for (int col = 1; col < p.column && i < src_->size(); ++col) {
+            ++i;   // one code point: its lead byte, then its continuation bytes
+            while (i < src_->size() && (static_cast<unsigned char>((*src_)[i]) & 0xC0) == 0x80) ++i;
+        }
+        return i;
+    }
+
+    /// `src[from, to)` right-trimmed of whitespace; empty when either end is unknown.
+    std::string text_between(size_t from, size_t to) const {
+        if (!src_ || from == std::string::npos || to == std::string::npos || to < from || to > src_->size()) return {};
+        size_t e = to;
+        while (e > from && (*src_)[e - 1] <= ' ') --e;
+        return src_->substr(from, e - from);
     }
 
     // ── events ─────────────────────────────────────────────────────────────
@@ -856,7 +883,7 @@ ParseResult parse_script(const std::string& text) {
         return out;
     }
     try {
-        Parser p(std::move(lr.tokens));
+        Parser p(std::move(lr.tokens), &text);
         out.script = p.parse_script();
     } catch (const ParseError& e) {
         out.script = Script{};

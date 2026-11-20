@@ -7,7 +7,7 @@ the combination you want. Click **Reset** on a row to put that one back, or
 Apply, and Apply takes effect immediately in both windows — you do not have to
 restart JNEXT.
 
-The twenty commands, and what they are bound to out of the box:
+The twenty-one commands, and what they are bound to out of the box:
 
 | Command | Default | Also reachable from |
 |---|---|---|
@@ -31,9 +31,10 @@ The twenty commands, and what they are bound to out of the box:
 | Follow | **F12** | the Disassembly or Source tab ([navigating](../panels/03-disassembly.md#navigating-follow-back-and-forward)) |
 | Back | **Alt+Left** | the same |
 | Forward | **Alt+Right** | the same |
+| Run to Next Interrupt | *unbound* | **Debug** menu |
 
-Five ship with no key at all (Run to Cursor, Run to End of Frame, Run to End of
-Scan Line, Source Step Back and Source Reverse Continue). They are not
+Six ship with no key at all (Run to Cursor, Run to End of Frame, Run to End of
+Scan Line, Run to Next Interrupt, Source Step Back and Source Reverse Continue). They are not
 second-class — they are reachable from the toolbar or the Source tab, the menus and (for
 Run to Cursor) the Enter key — but giving
 them a default would have meant taking a key away from something else, so the
@@ -94,7 +95,7 @@ Two things that are *not* refused, and are worth knowing:
 
 Run, Pause, Single Step, Step Over and Step Out also work while the *emulator*
 window has focus, whenever the debugger is enabled, and they follow your
-bindings there as well. The other twelve do not: they work in the debugger
+bindings there as well. The other sixteen do not: they work in the debugger
 window only. Trace in particular stays out of it because its default, **F2**,
 is the emulator window's window-scale cycler.
 
@@ -130,7 +131,8 @@ run_to_cursor=Ctrl+F10
 The action names are `run`, `pause`, `step_into`, `step_over`, `step_out`,
 `step_back`, `frame_back`, `run_to_cursor`, `run_to_eof`, `run_to_eosl`,
 `trace_toggle`, `trace_export`, `source_step_into`, `source_step_over`,
-`source_step_out`, `source_step_back` and `source_reverse_continue`. Case does not matter in a combination, and
+`source_step_out`, `source_step_back`, `source_reverse_continue`, `follow`, `go_back`,
+`go_forward` and `run_to_interrupt`. Case does not matter in a combination, and
 `none` means "no key". Only redefinitions are written, so the section holds
 just the lines you changed — and is absent entirely if you changed nothing.
 

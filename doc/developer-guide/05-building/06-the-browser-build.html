@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2200,6 +2200,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#a-program-on-the-card" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A program on the card
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pages-demo-site" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Pages demo site
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3202,7 +3224,7 @@ the man page's browser section is diffed against the table and the refusal
 functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The controller
 (<code>web_controller.cpp</code>, a source of <code>jnext_web</code> only) holds the exported calls
 (<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_save_snapshot</code>,
-<code>jnext_web_rzx_record</code>, <code>jnext_web_rzx_stop</code>, <code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
+<code>jnext_web_nmi</code> (the Multiface NMI, <code>player.nmi()</code>; refused under <code>--no-sdcard</code>, which has no ROM to service it), <code>jnext_web_rzx_record</code>, <code>jnext_web_rzx_stop</code>, <code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
 the page when the program is in the machine and a frame has followed (the <code>ready</code>
 event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code>, <code>jnext_web_gain_db</code>,
 <code>jnext_web_frame_period_ms</code> and <code>jnext_web_cpu_mhz</code> (the frame period and the
@@ -3561,6 +3583,38 @@ name, so the seam is honoured there too.</p>
 <p>Rows: BCARD (<code>test/browser/card.mjs</code>: the probe, fetch, pick, cache and seam paths, and the
 build of the real distribution when cached) and LUDC (<code>test/lint-user-docs-card-selftest.sh</code>:
 the user-facing-docs lint and its scope).</p>
+<h2 id="a-program-on-the-card">A program on the card<a class="headerlink" href="#a-program-on-the-card" title="Permanent link">&para;</a></h2>
+<p><code>file: {card: PATH}</code> runs a NEX that the in-memory card holds, with its data files. <code>web_api::build_argv</code>
+validates the object (<code>WAPI-CFILE-*</code>): no key but <code>card</code>, a string, absolute, no empty, <code>.</code> or <code>..</code> part, ending
+<code>.nex</code>, not with card source <code>none</code>, and inside one canonical <code>card.dirs</code> entry by path component (lower
+case; a string prefix such as <code>/GAMES/Next/TX</code> does not cover <code>/GAMES/Next/TX-1696</code>). The page layer
+(<code>jnext_api.js</code>, <code>copyProgram</code>) then calls <code>jnext_card_copy_program</code> (<code>card_builder_web.cpp</code>), which runs
+<code>card_extract::copy_program_dir</code> (<code>src/core/card_extract.cpp</code>): FatFs mounts the card read-only in effect (it
+never writes), finds the NEX case-insensitively and copies its directory, only that subtree, into
+<code>/media/&lt;k&gt;-card/</code>, up to 48 MiB of file bytes, 4,096 entries (files and directories together: FatFs opens each file by path and rescans its directory, so a wide directory costs quadratic time, and a card can alias one directory under many names) and 32 levels of depth: past any of them the copy is refused. <code>substitute()</code> then sets <code>file</code> to the copy and adds the internal
+<code>$serveDir: true</code>, which <code>build_argv</code> turns into <code>--esxdos-stub</code>; the page layer refuses every option whose
+name starts with <code>$</code>, and <code>load({card})</code>. The copy is all or nothing: a failure removes it and the message names the path
+(<code>the card has no /GAMES/...</code>). Tests: <code>MCARD-CP-01..03</code> (the extractor, on the Builder's synthetic card),
+<code>WAPI-CFILE-01..04</code>, <code>BCFILE-01..06</code> (<code>test/browser/cardfile.mjs</code>, real data for the two games against
+mtools copies and native runs) and <code>PAGES-03..05</code> (the demos of the site).</p>
+<h2 id="the-pages-demo-site">The Pages demo site<a class="headerlink" href="#the-pages-demo-site" title="Permanent link">&para;</a></h2>
+<p><code>make pages-site</code> (prerequisite <code>package-web</code>) runs <code>packaging/web/pages-site.sh</code>, which reads
+<code>jnext-&lt;ver&gt;-web.zip</code> with CPython's <code>zipfile</code> and writes <code>build/pages</code>: the zip's files minus the
+four example pages, plus <code>index.html</code>, made from <code>web/pages/index.html.in</code> with the version of
+<code>version.yaml</code>. The page holds one widget with <code>data-card-dirs="/APPS,/GAMES"</code> and <code>data-nmi</code>, and three demo links, <code>?demo=nextzxos</code>, <code>?demo=warhawk</code> and <code>?demo=tx-1696</code>: a small script sets the widget's title and, for a game, <code>data-card-file</code>, so every demo is a page load with one emulator, and all three share one cached card. The page also
+loads the site's visitor-statistics script from <code>stats.jogv.es</code>; the browser rows answer it with an
+empty script, so no test run reaches the statistics server. The
+script refuses, and removes the output, when the site is not exactly that list, when any name has
+an image, ROM, disk-image, program, recording or archive extension as a dot-separated part (<code>.img .mmc
+.rom .bin .dsk .trd .scl .hdf .vhd .mdr .p .nex .tap .tzx .sna .szx .z80 .jns .rzx .wav .raw .zip .gz
+.tgz .bz2 .xz .7z .rar .tar</code>, any case, any depth, so <code>x.img.gz</code> too) or ends in a dot or whitespace,
+when a file starts with an archive signature or holds a boot-sector mark at byte 510 (only <code>jnext-&lt;ver&gt;.wasm</code>,
+with its preamble, is exempt), when a zip entry is a symlink, has a <code>..</code> or absolute path, lies outside the top folder
+or repeats a name, when a required file is missing, or when the wasm exceeds 16 MiB or the site 24 MiB. The
+site never holds NextZXOS, the distribution or a program: the visitor's browser downloads the
+distribution from specnext.com. <code>test/packaging/pages-site-test.sh</code> (PSITE-01 to 07, hermetic) pins
+the script and the workflow wiring; <code>test/browser/pages.mjs</code> (PAGES-01 and 02) serves <code>build/pages</code>
+alone, and <code>wasm-browser-test</code> has <code>pages-site</code> as a prerequisite.</p>
 
 
 

@@ -31,6 +31,12 @@ bool all_zero(const std::string& s)
     return std::all_of(s.begin(), s.end(), [](char c) { return c == '0'; });
 }
 
+std::string lower(std::string s)
+{
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
 bool refuse(std::string& why, const std::string& msg)
 {
     why = msg;
@@ -116,6 +122,42 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
             break;
         }
         case Kind::Flag: {
+            if (*t.opt == cli::OptId::Load && v.is_object()) {
+                // {card: PATH}: a NEX on the SD card (GH #510). Validated here, not turned into a flag:
+                // the page layer replaces it with the copy's path and $serveDir once the card exists.
+                const std::string F = "option 'file': ";
+                for (auto it = v.begin(); it != v.end(); ++it)
+                    if (it.key() != "card") return refuse(why, F + "unknown key '" + it.key() + "'");
+                if (no_card) return refuse(why, F + "{card} needs an SD card: not with card source 'none'");
+                if (!v.contains("card") || !v["card"].is_string()) return refuse(why, F + "{card} must be a string");
+                const std::string p = v["card"].get<std::string>();
+                if (p.empty() || p[0] != '/') return refuse(why, F + "{card} must be an absolute path");
+                std::vector<std::string> parts;
+                for (size_t i = 1; i <= p.size();) {
+                    const size_t e = p.find('/', i);
+                    const std::string c = p.substr(i, (e == std::string::npos ? p.size() : e) - i);
+                    if (c.empty() || c == "." || c == "..")
+                        return refuse(why, F + "{card} has an empty, '.' or '..' component: " + p);
+                    parts.push_back(c);
+                    if (e == std::string::npos) break;
+                    i = e + 1;
+                }
+                if (p.size() < 4 || lower(p.substr(p.size() - 4)) != ".nex") return refuse(why, F + "{card} takes a .nex");
+                // Component-wise inside one canonical card.dirs entry (lower case, so case does not matter).
+                const std::string lp = lower(p);
+                std::vector<std::string> canon;
+                if (o.contains("card") && o["card"].is_object() && o["card"].contains("dirs") && o["card"]["dirs"].is_array()) {
+                    std::vector<std::string> in;
+                    for (const json& d : o["card"]["dirs"]) if (d.is_string()) in.push_back(d.get<std::string>());
+                    std::string dwhy;
+                    if (!minimal_card::canonical_dirs(in, canon, dwhy)) canon.clear();
+                }
+                bool inside = false;
+                for (const std::string& d : canon)
+                    if (lp.size() > d.size() && lp.compare(0, d.size(), d) == 0 && lp[d.size()] == '/') inside = true;
+                if (!inside) return refuse(why, F + p + " is not on the card: add its directory to card.dirs");
+                break;
+            }
             if (!v.is_string()) return bad(t.name, "a string");
             if (*t.opt == cli::OptId::Load) {
                 load = v.get<std::string>();
@@ -151,6 +193,13 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
             break;
         }
         case Kind::Host: {
+            if (std::string(t.name) == "$serveDir") {
+                // Internal (GH #510): the program was copied out of the card with its directory.
+                if (!v.is_boolean() || !v.get<bool>() || !o.contains("$card") || !o.contains("file") || !o["file"].is_string())
+                    return refuse(why, "$serveDir needs a program copied from the SD card (an internal error of the page layer)");
+                out.push_back(flag_spelling(cli::OptId::EsxdosStub));
+                break;
+            }
             if (std::string(t.name) == "card") {
                 if (!v.is_object()) return bad(t.name, "an object {source, dirs}");
                 for (auto it = v.begin(); it != v.end(); ++it) {

@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QTableWidget>
 
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -64,10 +65,20 @@ private:
         uint16_t addr = 0;
         jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
         QString source_line;
+        bool count_only = false;   ///< in: the row being edited; out: the dialog's choice
+        /// GH #372 - in: the row being edited; out: the dialog's choice. A range end (a range is never
+        /// qualified with a memory), an IO port mask, and a condition text ("" = none).
+        std::optional<uint16_t> hi;
+        std::optional<uint16_t> mask;
+        QString condition;
     };
-    /// `addr` / `space` seed the text.
+    static jnext::script::BpSpec spec_of(int type_index, const BpTarget& t);
+    /// `addr` / `space` seed the text; `target.count_only` seeds the checkbox.
     bool show_bp_dialog(const QString& title, uint16_t addr, jnext::dbg::MemSpace space,
                         int& type_index, BpTarget& target);
+
+    /// GH #372 - rewrite only the Hits cells from the model's counts.
+    void refresh_hits();
 
     /// GH #225 — apply the check state of the Enabled cell `row` to the model.
     void apply_enabled_cell(int row, bool enabled);
@@ -84,7 +95,7 @@ private:
     bool updating_ = false;
 
     // The rows as last listed (BreakpointModel::Row: type is the Add dialog's
-    // index 0..5 — Execute, Read, Write, Read/Write, IO Read, IO Write — or -1
+    // index 0..7: Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt, NMI or -1
     // for a subscription it cannot express; `enabled` is the row's own flag,
     // not the master; `own` marks this GUI's editable rows).
     std::vector<BreakpointModel::Row> entries_;

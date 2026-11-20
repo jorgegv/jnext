@@ -15,7 +15,8 @@
 # .szx and .jns loaded in the page and compared with native runs, and player.saveSnapshot()) and `../bench/web/bench-stats-test.mjs:12` (rows
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser) and `crt.mjs:13` (rows
 # BCRT-01..13: the CRT effect, crtemu on SDL's WebGL context, and its fallbacks) and `rzx.mjs:12` (rows BRZ-01..12:
-# .rzx recordings played and recorded in the page). Further specs
+# .rzx recordings played and recorded in the page), `nmi.mjs:4` (rows WEBNMI-01..04: the NMI button, player.nmi() and the
+# widget's button) and `cardfile.mjs:6` (rows BCFILE-01..06: a program on the SD card, file {card}) and `pages.mjs:5` (rows PAGES-01..05: the Pages demo site of `make pages-site`, served alone, and its three demos). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -42,7 +43,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:31" "package.mjs:7" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:42" "card-errors.mjs:5" "$@")
+SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:31" "package.mjs:7" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:42" "card-errors.mjs:5" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -92,7 +93,7 @@ python3 -I "$HERE/tap2wav.py" "$ROOT/test/00regression/tap/beeper_demo.tap" "$SC
 oracle() {
     local name=$1 mode=$2; shift 2
     local clone="$SCRATCH/oracle/$name.card" cfg="$SCRATCH/oracle/$name.cfg" rc=0 front=()
-    cp --reflink=auto "$SCRATCH/card.img" "$clone"
+    cp --reflink=auto "${ORACLE_CARD:-$SCRATCH/card.img}" "$clone"
     [[ "$mode" == headless ]] && front=(--headless)
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$cfg" \
         timeout --foreground --kill-after=5s 300s "$NATIVE" "${front[@]}" --sdcard "$clone" --silent "$@" \
@@ -224,6 +225,16 @@ oracle rzxplay128 sdl     --load "$SCRATCH/s128.rzx" --delayed-screenshot "$O/rz
 oracle keys352   headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
                           --delayed-keypress-frames 245 enter --delayed-screenshot "$O/keys352.png" --delayed-screenshot-frames 352 --delayed-automatic-exit-frames 500
 
+# The NMI button (nmi.mjs WEBNMI-01): NextZXOS booted, the Multiface NMI pressed natively at frame NMI_PRESS
+# (the page presses at its first frame at or after it), picture at NMI_SHOT. A second native run 100 frames
+# later must give the same picture, or the page's press frame (not exact) could not be compared.
+NMI_PRESS=1300; NMI_SHOT=1800
+oracle nmi      headless --machine next --rtc 2026-07-10T08:55:00 --delayed-nmi-frames $NMI_PRESS nmi \
+                         --delayed-screenshot "$O/nmi.png" --delayed-screenshot-frames $NMI_SHOT --delayed-automatic-exit-frames $((NMI_SHOT + 20))
+oracle nmilater headless --machine next --rtc 2026-07-10T08:55:00 --delayed-nmi-frames $NMI_PRESS nmi \
+                         --delayed-screenshot "$O/nmilater.png" --delayed-screenshot-frames $((NMI_SHOT + 100)) --delayed-automatic-exit-frames $((NMI_SHOT + 120))
+cmp -s "$O/nmi.png" "$O/nmilater.png" || die "the native NMI Menu picture changes between frame $NMI_SHOT and $((NMI_SHOT + 100)): pick a stable frame"
+
 # The card flow (card.mjs, BCARD-01..): a SYNTHETIC distribution zip (invented files, mtools + python,
 # licence-clean) and the card the native tool makes from it (the byte oracle), and, for BCARD-13 only,
 # a zip of the cached real image made by python (deflate), so the page builds the real card in wasm
@@ -244,7 +255,7 @@ PINNED_CARD_SHA256=$(sed -n '/^const Pins kDistribution/,/^};/p' "$ROOT/src/core
 PINNED_URL=$(sed -n 's/^ *"\(https:[^"]*\)";$/\1/p' "$ROOT/src/core/sdcard_provisioner.cpp" | head -n1)
 
 # card.dirs (GH #509): the native tool's cards with --dirs, the byte oracles of BCARD-36 (synthetic) and
-# BCARD-41 (real). Only the digests are kept: the cards are deleted at once.
+# BCARD-41 (real). The synthetic card is deleted at once; the real one stays in the scratch directory for the program-on-the-card oracles below.
 "$CARD_TOOL" --unpinned --dirs /APPS,/GAMES "$SCRATCH/syn/synthetic-distro.zip" "$SCRATCH/syn/dirs-card.img" >"$SCRATCH/out/syn-dirs-card.log" 2>&1 \
     || { cat "$SCRATCH/out/syn-dirs-card.log" >&2; die "cannot build the --dirs card of the synthetic distribution"; }
 SYN_DIRS_CARD_SHA256=$(sha256sum "$SCRATCH/syn/dirs-card.img" | cut -d' ' -f1)
@@ -252,12 +263,27 @@ rm -f "$SCRATCH/syn/dirs-card.img"
 "$CARD_TOOL" --dirs /GAMES,/APPS "$DIST" "$SCRATCH/real-dirs-card.img" >"$SCRATCH/out/real-dirs-card.log" 2>&1 \
     || { cat "$SCRATCH/out/real-dirs-card.log" >&2; die "cannot build the --dirs card of the real image"; }
 REAL_DIRS_CARD_SHA256=$(sha256sum "$SCRATCH/real-dirs-card.img" | cut -d' ' -f1)
-rm -f "$SCRATCH/real-dirs-card.img"
+
+# A program on the card (cardfile.mjs BCFILE-01..03, pages.mjs PAGES-03..04): the two game directories copied
+# out of the native --dirs card by a FOREIGN FAT reader (mtools), and the native runs that load them with the
+# esxDOS stand-in, the oracle pictures. The card, the copies and the pictures are copyrighted content: they
+# stay in this scratch directory, which is deleted at exit, and are never committed, uploaded or traced.
+MTX="$SCRATCH/mtx"; mkdir "$MTX"
+RD_OFF=$(( $(sfdisk -d "$SCRATCH/real-dirs-card.img" | sed -n 's/.*start= *\([0-9]*\),.*/\1/p' | head -n1) * 512 ))
+MTOOLS_SKIP_CHECK=1 mcopy -s -n -i "$SCRATCH/real-dirs-card.img@@$RD_OFF" ::/GAMES/Next/Warhawk ::/GAMES/Next/TX-1696 "$MTX/" \
+    >"$SCRATCH/out/mtx.log" 2>&1 || { cat "$SCRATCH/out/mtx.log" >&2; die "cannot copy the game directories out of the --dirs card"; }
+[[ -f "$MTX/Warhawk/Warhawk.nex" && -f "$MTX/TX-1696/main.nex" ]] || die "the mtools copies lack Warhawk.nex or main.nex"
+WH_SHOT=600; TX_SHOT=1000
+ORACLE_CARD="$SCRATCH/real-dirs-card.img" oracle warhawk sdl --machine next --rtc 2026-07-10T08:55:00 --esxdos-stub --load "$MTX/Warhawk/Warhawk.nex" \
+    --delayed-screenshot "$O/warhawk.png" --delayed-screenshot-frames $WH_SHOT --delayed-automatic-exit-frames $((WH_SHOT + 20))
+ORACLE_CARD="$SCRATCH/real-dirs-card.img" oracle tx1696 sdl --machine next --rtc 2026-07-10T08:55:00 --esxdos-stub --load "$MTX/TX-1696/main.nex" \
+    --delayed-screenshot "$O/tx1696.png" --delayed-screenshot-frames $TX_SHOT --delayed-automatic-exit-frames $((TX_SHOT + 20))
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg" \
        SMOKE_SYN_DIR="$SCRATCH/syn" SMOKE_SYN_CARD_SHA256="$SYN_CARD_SHA256" SMOKE_SYN_ZIP_SHA256="$SYN_ZIP_SHA256" SMOKE_SYN_ZIP_SIZE="$SYN_ZIP_SIZE" \
        SMOKE_SYN_DIRS_CARD_SHA256="$SYN_DIRS_CARD_SHA256" SMOKE_REAL_DIRS_CARD_SHA256="$REAL_DIRS_CARD_SHA256" \
+       SMOKE_NMI_PRESS="$NMI_PRESS" SMOKE_NMI_SHOT="$NMI_SHOT" SMOKE_MTX="$MTX" SMOKE_WH_SHOT="$WH_SHOT" SMOKE_TX_SHOT="$TX_SHOT" \
        SMOKE_REAL_ZIP_SHA256="$REAL_ZIP_SHA256" SMOKE_REAL_ZIP_SIZE="$REAL_ZIP_SIZE" SMOKE_PINNED_CARD_SHA256="$PINNED_CARD_SHA256" SMOKE_DISTRO_URL="$PINNED_URL"
 
 TOTAL=0; PASS=0; FAIL=0; SKIP=0; FAULT=0

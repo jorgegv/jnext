@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3139,6 +3139,14 @@ you read it; it is not a replacement for it.</p>
 <tr>
 <td><code>make package-contract-test</code></td>
 <td>the packaging-script contract suites only — hermetic, about 4 s, no toolchain; it also runs <code>make web-package-test</code></td>
+</tr>
+<tr>
+<td><code>make pages-site</code></td>
+<td>the Pages demo site in <code>build/pages</code> from the web zip, guarded: no image, program or archive (<a href="06-the-browser-build.html">5.6</a>)</td>
+</tr>
+<tr>
+<td><code>make pages-site-test</code></td>
+<td>the contract suite of <code>pages-site.sh</code> and the Pages workflows (PSITE-01 to PSITE-07), hermetic; part of <code>package-contract-test</code></td>
 </tr>
 <tr>
 <td><code>make web-package-test</code></td>

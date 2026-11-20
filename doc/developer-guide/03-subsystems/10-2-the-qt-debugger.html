@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3134,13 +3134,51 @@ the default (<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite
 <p><strong>The breakpoints' owner</strong> is a non-arming observer client, attached by
 <code>BreakpointModel</code> (<code>src/debugger/breakpoint_model.*</code>) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
-<code>Execute</code>, <code>Mem</code> and <code>Port</code> subscriptions with no condition, <code>once = false</code> and
-action <code>Stop</code>. READ, WRITE and READ_WRITE are one <code>Mem</code> subscription with an
+<code>Execute</code>, <code>Mem</code> and <code>Port</code> subscriptions (a <code>lo..hi</code> range on the first two, a port <code>mask</code>/<code>value</code>), and the
+addressless <code>IntAck</code> and <code>Nmi</code> ones (the Interrupt and NMI types), with <code>once = false</code>, and a condition when
+the dialog gave one. A
+breakpoint stops: action <code>Stop</code> and no handler. A <em>count-only</em> one is action <code>Continue</code>
+plus a handler of the model that counts. READ, WRITE and READ_WRITE are one <code>Mem</code> subscription with an
 access mask. An I/O address <code>00</code>-<code>FF</code> is a low-byte match (<code>port_mask 0x00FF</code>);
 <code>0100</code> and up is exact. Because the observer never detaches and arms
 nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.</p>
+<p><code>BreakpointModel::Type</code> and the codec's <code>BpSpec::Kind</code> are one numbering (a
+<code>static_assert</code> pins it), and the codec owns the type-name table (<code>bp_kind_name()</code>)
+and the port rule (<code>bp_port_mask_for()</code>): the model has no copy of either. Another
+client's <code>IntAck</code> or <code>Nmi</code> Stop subscription is a typed but read-only row, with an empty
+Address.</p>
+<p><strong>Hit counts need no backend counter</strong> and follow the script engine's own split
+(<code>account_static_stops</code> / <code>run_rule</code>). A Stop breakpoint stays a static Stop with no
+handler (ZRCP's <code>other_breakpoint_at</code> and the step loops depend on that) and is counted
+in the model's <code>on_paused()</code> from <code>PausedInfo::matched</code>, for its own ids only. A count-only
+one counts in its handler, which captures the model (its destructor detaches the client,
+which removes the subscription: SES-01). <code>extras_</code> holds what the backend cannot report
+(which own ids are count-only), and <code>publish_()</code> prunes it and the counts with the listing.
+<code>sync()</code> emits <code>hits_changed()</code> once when a count moved and the panel rewrites only its
+Hits cells: never <code>changed()</code>, which would repaint the gutter every frame. A count dies
+with its subscription (Edit = a new id) and is not saved. The <code>(type, address, space)</code>
+API keeps meaning the plain breakpoint, and the gutters read plain members only, so a
+count-only breakpoint at an address is a separate row. <code>QBPX-15</code> pins the GUI's counts to
+the engine's <code>RuleView::hits</code> for the same rule.</p>
+<p><strong>A breakpoint's identity is its full spec</strong> (<code>BpSpec</code>: kind, address, range end, space, port mask, condition,
+count-only). <code>add(const BpSpec&amp;)</code> is idempotent on it, and a plain breakpoint and a conditional one at one address are
+two rows. The <code>(type, address, space)</code> API and the gutters mean the <em>plain</em> breakpoint (<code>plain_()</code>: one address, the
+address rule's mask, no condition). <code>extras_</code> (by id, own subscriptions only) holds what the backend cannot report:
+count-only, the condition text and the shared slot its predicate writes a run-time error to. <code>type_of()</code> types a
+subscription iff the dialog can make that exact one: another client's range or masked port is typed (so its Type and
+Address texts read as before) but stays read-only, and its condition or handler stays typeless. A condition is compiled in
+the kind's payload scope (<code>bp_scope()</code>, the checker's own <code>scope_of</code>) with <code>compile_expr</code>; the same
+<code>bp_condition_problem()</code> check the dialog and the codec use refuses a text that does not read back as itself. A
+run-time failure marks <code>hits_changed()</code> so the panel refreshes the Condition cell's tooltip.</p>
+<p><strong>Run to Next Interrupt</strong> (Debug menu, the <code>run_to_interrupt</code> keymap action, unbound by
+default) is not a backend verb. <code>DebuggerManager::on_run_to_interrupt()</code> arms a
+<em>transient</em> <code>IntAck</code> Stop subscription and calls <code>run()</code>: the transient is hidden from the
+panel, exempt from the master switch, and dropped by the backend at the next stop or an
+explicit <code>pause()</code> (the DeZog "arm, then continue" contract in <code>Impl::run_verb</code>). A refused
+<code>run()</code> unsubscribes it. Rows: <code>QRTI-*</code> in <code>debugger_verbs_test</code>, <code>QKM-RTI-01</code> in
+<code>debugger_keymap_test</code>.</p>
 <p>The model also converts its own rows to and from the breakpoint file codec
 (<code>script/bp_script.h</code>, see <a href="13-the-debugger-scripting-language.html">3.10.6</a>):
 <code>script_specs()</code> returns them as <code>BpSpec</code> in list order, and <code>add_specs()</code> adds a
@@ -3334,10 +3372,10 @@ bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</c
 moved; the greying of a paged label whose page is not what <code>source_page()</code> reports at its address is redone on every
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: <code>QSYML-*</code>.</p>
-<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1062</code>)
-redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:388</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1051</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:257</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1083</code>)
+redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:393</code>: ~4 Hz). Paused, it
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1072</code>; <code>PausedStamp</code>,
+<code>debugger_manager.h:262</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:</p>
 <ul>
@@ -3359,67 +3397,26 @@ everything, the Video tab's composited frame included, fifty times a second. The
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
   loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:575</code>), so an edit on disk still shows.</li>
 </ul>
-<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1042</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
+<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1063</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <code>take_panel_refresh_count()</code> counts the
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,
 the framebuffer generation and the upload gate that stops a paused machine re-presenting an unchanged frame,
 is in <a href="../02-architecture/03-a-frame-end-to-end.html">2.3</a>.</p>
-<p><strong>The window's structure: docks.</strong> <code>DebuggerWindow</code> keeps the menu bar, the bottom button bar and the rewind toolbar.
-Its central widget is a <code>QScrollArea</code> whose widget is <code>dock_host_</code>, an inner <code>QMainWindow</code> with <code>Qt::Widget</code> flags:
-docks cannot sit in a scroll area of the window that owns them, and docks on the outer window would make its minimum
-the sum of theirs, the unshrinkable window again. The host's central widget is the Disassembly box (Qt does not
-support a main window without a central widget, and every stop lands in the Disassembly); every other panel is the
-widget of a <code>QDockWidget</code> in <code>docks_</code>, built in <code>create_panels()</code> from one table whose order is
-<code>jnext::dock::kPanelIds</code>. Adding a panel is one row in that table plus its token in <code>kDefaultLayoutText</code>
-(<code>src/debugger/dock_layout.h</code>); the Window &gt; Panels menu lists each dock's own <code>toggleViewAction()</code>. Nesting is off (Qt's default),
-the tab bars are on top, both bottom corners belong to the bottom area. Anything that raises a panel (Follow on a
-memory operand, Show in Source, Go &gt; Symbols, Debug &gt; Source &gt; Open Source File) goes through <code>raise_panel()</code>, which
-reopens a closed dock and makes it its group's shown tab. Two Qt facts shape the code that reads the window:
-a floating dock is a window of its own that Qt leaves on screen when its main window hides
-(<code>hideEvent()</code> parks it in <code>parked_floats_</code>, <code>showEvent()</code> brings it back through <code>place_floating()</code>); the debugger's
-window shortcuts keep working with the keyboard in a floating panel without help (measured, <code>QDOCK-11</code>). Three smaller facts: the tab bar of a
-dock group does not scroll by default, so its minimum width is the sum of its tabs (<code>tune_tab_bars()</code> turns the scroll
-buttons on, whenever Qt creates a bar); a tabbed-away dock is not laid out until it is shown and keeps the size it was
-created with, so <code>size_hidden_tabs()</code> gives it its group's size (a panel that is read while it is not the shown tab,
-as the screenshot tool and some rows do, is then drawn at a real width); and the left column's panels carry an
-explicit minimum width of 380, as the tab widget they replaced did, because a page's own <code>minimumSizeHint()</code> (Video's
-is 700) would otherwise make the column wider than the widest page wants. A tabbed-away dock is still
-<code>isVisible()</code> (Qt moves it off screen instead of hiding it); a consumer that needs to know whether a panel is on show
-must use <code>QDockWidget::visibilityChanged()</code> or <code>visibleRegion()</code>, never the panel's <code>isVisible()</code>.</p>
-<p><strong>The saved layout.</strong> <code>[debugger] layout</code> in <code>jnext.conf</code> is one line of plain text in a grammar of our own, not
-<code>QMainWindow::saveState()</code> (a binary Qt blob that depends on the Qt version): <code>"v1" { area | float | closed }</code>, in
-any order on input and canonical on output (areas, then floats, then closed). An area is <code>left|right|top|bottom
-v|h THICKNESS</code> followed by groups, each <code>tabs EXTENT</code> and its tab IDs, the shown one marked <code>*</code>; a float is
-<code>float ID X Y W H</code>; <code>closed ID</code> is a closed panel; the numbers are 0 to 32767 (X and Y down to -32768). The grammar,
-<code>parse()</code>, <code>format()</code>, <code>complete()</code> and <code>default_layout()</code> are in <code>src/debugger/dock_layout.h</code>, Qt-free and tested by
-<code>dock_layout_test</code> (<code>DLAY-01</code>..<code>12</code>). A value that is not <code>v1</code> or does not parse is refused whole and the default is
-used; an unknown ID is dropped; a panel the value does not name (a layout saved before the panel existed) is added by
-<code>complete()</code> to the group of its first default group-mate that is docked, else as a new group of its default area;
-the first place of an ID named twice wins. <code>capture_layout()</code> reads Qt's own state (<code>dockWidgetArea()</code>,
-<code>tabifiedDockWidgets()</code>, the group's <code>QTabBar</code>, <code>isFloating()</code>, <code>geometry()</code>) and clamps the numbers into the
-grammar's ranges, since <code>format()</code> does not validate; <code>apply_layout()</code> docks every panel afresh and applies the sizes
-once the host has been laid out (<code>apply_dock_sizes()</code>, queued from the first show: <code>resizeDocks()</code> before that is not
-applied). A floating panel is clamped so its whole frame is inside a screen. A closed panel reopens at its default
-place in a new session. The value is read through the same comma-joining rule as the other free-text keys, because
-QSettings hands a hand-edited value with a comma back as a list. Rows: <code>QDOCK-01</code>..<code>14</code> in <code>debugger_dock_test</code>.</p>
 <p><strong>The window's opening size.</strong> A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (<code>DebuggerWindow::grow_default_size_to_natural()</code>,
-queued from the first <code>showEvent()</code>); a size restored from the config file is left
-alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left dock area
-is widened by what its panels' <code>sizeHint()</code> lack: the minimum width of the panels docked left and right is raised to their <code>sizeHint()</code> for the
-length of the fit (<code>fit_raised_</code>, given back by <code>end_fit_()</code>), the host's minimum then grows, and the scroll pass
-widens the window by the scroll range; a column found wider than its widest page afterwards is trimmed back with
-<code>resizeDocks()</code> (a dock area keeps its width when the window widens, so there is no share to measure and the result
-does not depend on the order of the passes; bounded by <code>kMaxInitialFitPasses</code> = 4
-(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:217</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:246</code>)). The frame, not the client area, must fit the screen
+<code>debugger_window.cpp:530</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
+alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left column
+of tabs is widened by what its pages' <code>sizeHint()</code> lack, using the share of a widening the splitter really gave
+it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</code>; bounded by <code>kMaxInitialFitPasses</code> = 4
+(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:212</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:239</code>)). The frame, not the client area, must fit the screen
 (<code>jnext::clamp_window_size_to_screen</code>). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
 at most <code>kMaxFitEchoes</code> = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-(<code>resizeEvent()</code>, <code>debugger_window.cpp:590-600</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:572</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:627-632</code>), after which every size is the user's and the remembered sizes are
+(<code>resizeEvent()</code>, <code>debugger_window.cpp:511-522</code>); any other size is the user's and ends the fit
+(<code>end_fit_()</code>, <code>debugger_window.cpp:501</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
+pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:549-554</code>), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (<code>fit_passes_queued_</code>, <code>queue_fit_pass_()</code>), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's), <code>GR-08</code> (an earlier request landing while a pass is queued), <code>GR-09</code> (a user resize while the fit runs stands), <code>GR-10</code> (each late answer counts once: the 7th stands) and <code>GR-11</code> (a loop stalled past the grace window does not end the fit), <code>GR-12</code> (the bound holds on the pass's own path), <code>GR-13</code> and <code>GR-14</code> (the grace waits for the pass a re-ask, or a late answer, queued), in <code>debugger_window_grow_test</code>; <code>GR-09</code> to <code>GR-14</code> use a window no window manager sees.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the

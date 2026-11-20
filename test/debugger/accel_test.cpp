@@ -349,11 +349,13 @@ static void test_accelerators(Fixture& fx)
         // GH #366: + the &Go menu (one menu, one popup; its own mnemonic and &Symbols) and the F12 / Alt+Left /
         // Alt+Right shortcuts of Follow, Back and Forward: 7 -> 8 menus, 14 -> 15 popups, 64 -> 66 mnemonics,
         // 25 -> 28 shortcuts (recounted from the harvest; an authorized tally pin).
+        // GH #372: + Debug > Run to Next &Interrupt (I, free in the Debug popup): one more mnemonic,
+        // no new popup, no shortcut (unbound by default): 66 -> 67 (an authorized tally pin).
         // GH #377: + Window > &Panels (one popup, its mnemonic; its items are the docks' view actions, titled
-        // without one) and &Reset Layout: 15 -> 16 popups, 66 -> 68 mnemonics (recounted from the harvest).
+        // without one) and &Reset Layout: 15 -> 16 popups, 67 -> 69 mnemonics (recounted from the harvest).
         const bool as_expected = top == 8
                               && popup_scopes.size() == 16
-                              && menu_accels.size() == 68
+                              && menu_accels.size() == 69
                               && shortcuts == 28;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
@@ -361,7 +363,7 @@ static void test_accelerators(Fixture& fx)
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 8), popups=%zu (want 16), mnemonics=%zu (want 68), "
+              fmt("menus=%zu (want 8), popups=%zu (want 16), mnemonics=%zu (want 69), "
                   "shortcuts=%zu (want 28)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }
