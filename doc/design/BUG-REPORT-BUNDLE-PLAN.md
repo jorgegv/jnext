@@ -1,8 +1,8 @@
 # Bug-report bundle: one file to replay a failing session locally (GH #492)
 
 Status: **DRAFT for owner review** (2026-11-20, planner of the 2026-11-17 autonomous run;
-revision 1, 2026-11-20: the independent review's eight findings folded in, see the last
-section).
+revision 1, 2026-11-20: the independent review's eight findings folded in; revision 2,
+2026-11-20: round 2's five findings; see the last section).
 Nothing in this plan is started and no sub-issue is filed. When the owner approves it, the
 sub-issues of the task list are opened under #492. The plan assumes #492 becomes an epic, on
 the branch `epic492-bug-report-bundle`: each sub-issue branches off it and merges back into it,
@@ -22,8 +22,8 @@ connection to the reporter and no live session.
    carries **no machine memory at all**: it starts from a state the developer's own jnext can
    rebuild from the developer's own card, and replays everything after it (section 3). Every
    content member is checked byte by byte against the distribution before it is written
-   (section 5.3), and the one residual that no check can close is stated there and put to the
-   owner (Q14).
+   (section 5.3), and the residuals that no check can close are stated there as rules and put to
+   the owner (Q14).
 2. **The replay must be proved, not hoped for.** Every bundle carries state digests at regular
    checkpoints, and the replay compares them as it goes. A replay that drifts says so, at the
    first checkpoint that differs; it never shows a plausible session that is not the one
@@ -59,7 +59,7 @@ what can run at once.
 
 - [ ] **B1.1** Inputs at their seams: keyboard matrix and extended keys, both joystick connectors, the Kempston mouse (deltas, buttons, wheel), each with the cycle it was applied at
 - [ ] **B1.2** Host actions and runtime machine writes: soft reset, NMI buttons (Multiface, DivMMC), drive button, tape deck (insert, play, stop, rewind), SD insert and eject, POK trainers, the `--delayed-*` actions, ESP associate and disassociate; the CPU speed menu and the Preferences apply (both write NR 0x07), the tape fast-load and auto-play toggles
-- [ ] **B1.3** Debugger mutations: every verb behind `Debugger::Impl::note_mutation()` logged with its arguments (memory, registers, NextREGs, port writes); a load into memory carries the bytes it wrote in a `debugger/` member, under the content check
+- [ ] **B1.3** Debugger mutations: every verb behind `Debugger::Impl::note_mutation()` logged with its arguments (memory, registers, NextREGs, port writes); every memory write's payload (loads and uploads such as a DZRP `CMD_WRITE_MEM` alike) goes into `debugger/writes.bin`, out of `events.jsonl`, under the content check
 - [ ] **B1.4** Timeline rules: anchors (power-on, hard reset, program load, machine change) start a new segment; a rewind truncates the log at the landing cycle; a quick snapshot taken in the segment and loaded back is a jump to that cycle; any other snapshot load is a new anchor or ends the segment
 
 #### Sub-issue 5: in-frame pulls and byte streams
@@ -71,14 +71,14 @@ what can run at once.
 #### Sub-issue 6: SD-card capture
 
 - [ ] **B1.8** First-access tracking per card: the input-sector set (sectors whose first access after the anchor is a read) with each sector's hash, and an in-memory undo log (the pre-write bytes of an input sector at its first write)
-- [ ] **B1.9** The distribution index: the pristine reference of the card's base (the fixed-image recipe, the minimal-card recipe with its `dirs`), its sector-hash set, a byte-granular window index of every distribution file, and the distribution's system paths; cached locally, built from the distribution even when the session had no card
-- [ ] **B1.10** Card member: per-file classification (section 5.3); bytes only for files that pass every rule, references for pristine sectors, hashes only for the rest; FAT path attribution for the privacy review; the second card the same way
+- [ ] **B1.9** The distribution index: the pristine reference of the card's base (the fixed-image recipe, the minimal-card recipe with its `dirs`), its sector-hash set, a byte-granular window index of the contents of every distribution file with the low-information exclusion (E1, E2), the file table and the system paths; one rolling hash shared by the index build and the member scan; cached locally, built from the distribution even when the session had no card
+- [ ] **B1.10** Card member: per-sector and per-file classification (section 5.3.3: pristine, system, distribution-derived, free space, non-filesystem, FSInfo, structure, user file); bytes only where the class allows, references for pristine sectors, hashes only for the rest; FAT path attribution for the privacy review; the second card the same way
 
 ### Phase B2: the bundle file
 
 #### Sub-issue 7: container writer and reader
 
-- [ ] **B2.1** Container: a ZIP through `src/save/zip_archive.*`, `manifest.json` plus members (section 4), deflate, bounded sizes; the writer's content check: every uncompressed content member (card sectors, queues, streams, the program, debugger loads, the log) scanned at every byte offset against the distribution index, refusing any shared run of 95 bytes or more; a classic `.szx` re-serialised to the chunks jnext reads
+- [ ] **B2.1** Container: a ZIP through `src/save/zip_archive.*`, `manifest.json` plus members (section 4), deflate, bounded sizes; the writer's content check over content **as the guest saw it** (section 5.3.2: RX sequences per UART, host files rebuilt per file, debugger payloads, the program decoded, inflated and run-length expanded), scanned at every byte offset against the distribution index; a classic `.szx` re-serialised to the chunks the loader parses, `RAMP` pages uncompressed; programs in formats with no decoder shipped as references only
 - [ ] **B2.2** Reader: validation, version rules (section 8), the privacy summary, `--bug-report-info FILE`
 
 ### Phase B3: replay
@@ -100,7 +100,7 @@ what can run at once.
 #### Sub-issue 10: GUI menu and dialogs
 
 - [ ] **B4.1** File > Bug Report menu: Start Recording, Save Bug Report..., Stop Recording, Open Bug Report...; status-bar indicator
-- [ ] **B4.2** Save dialog with the privacy review (what goes in, sizes, the card files, the network hosts, notes, the files the reporter must tick on an unknown card); open dialog with the summary and the mismatch warnings; replay progress
+- [ ] **B4.2** Save dialog with the privacy review (what goes in, sizes, the card files, the network hosts, notes, the card and host files waiting for the reporter's tick (Q14)); open dialog with the summary and the mismatch warnings; replay progress
 
 #### Sub-issue 11: Preferences panel, configuration keys and CLI
 
@@ -227,7 +227,7 @@ until the replay-speed row re-measures them.
 | ESP-01 | AT engine; the threaded wrapper releases bytes to the guest at the wire's cadence | Which bytes exist at a given cycle depends on the network and on the worker thread (`esp_threaded.h`). SNTP and ping use host time. Not serialised (simplification 5 of the ESP design). |
 | Mouse, joysticks | Host deltas and buttons into `KempstonMouse`; host pads into the connectors | Arrive between frames from host events: non-deterministic in time, deterministic once applied. |
 | GUI menus and Preferences | `MainWindow::on_cpu_speed` writes NR 0x07 directly; `apply_startup_config(..., program_cpu_speed)` does too; the tape fast-load and auto-play toggles call `set_fast_load` / `set_tape_auto_play` | Guest-visible machine writes made by the host at a moment the host chooses, outside `note_mutation()` and outside any CLI option. |
-| `.szx` loader | the chunks `ZXST`, `Z80R`, `SPCR`, `RAMP`, `SCLD`, `AY` | Skips every other chunk silently (`szx_loader.cpp`, "skipping unknown chunk"), so a file can carry a custom-ROM or interface-EEPROM chunk jnext never reads. |
+| `.szx` loader | after the `ZXST` file header, it parses `Z80R`, `SPCR`, `RAMP` (zlib-compressed when flag bit 0 is set) and `AY`, and ignores `SCLD` on purpose (GH #323) | Skips every other chunk silently (`szx_loader.cpp`, "skipping unknown chunk"), so a file can carry a custom-ROM or interface-EEPROM chunk jnext never reads. |
 
 Two facts make the rest possible:
 
@@ -322,10 +322,10 @@ program archive (`program_archive.cpp`), so the bundle check runs first.
 | `manifest.json` | JSON | `kind: "jnext-bug-report"`, `format_version`; producer (jnext version, `git describe`, platform, build type, PGO or not); `created` (UTC); machine; the state-format versions (warm-start `kFormatVersion` and `kRecordingVersion`, the `.jns` `state_model_revision`, the state-stream length); `nextboot.rom` SHA-256; ROM digests (`jns::` ROM identity); anchor; segment length in frames and cycles; checkpoint interval; card identities (section 5); the warnings the recorder raised; the privacy summary (section 9) |
 | `config.json` | JSON | The machine class of `EmulatorConfig`, field by name (B0.4); paths reduced to bundle members |
 | `program/<name>` | bytes | The program as the loader read it, unless excluded (Q4) or found in the distribution (then a reference: distribution, path, SHA-256); under the content check. The extended-NEX read overlay is re-derived from it on replay, never shipped separately |
-| `events.jsonl` | JSON lines | One event per line: `{"c": cycle, "f": frame, "k": kind, ...}` |
+| `events.jsonl` | JSON lines | One event per line: `{"c": cycle, "f": frame, "k": kind, ...}`; no content payloads (a memory write names its offset and length in `debugger/writes.bin`) |
 | `queues/<source>.jsonl` | JSON lines | `rtc`, `hostfs` (call, arguments, result; file bytes in `queues/hostfs-data.bin`, one record per read, under the content check) |
-| `debugger/loads.jsonl`, `debugger/load-<n>.bin` | JSON lines, bytes | the bytes a debugger load wrote into memory, under the content check |
-| `streams/<uart>.bin` | binary | RX records: cycle (u64 LE), byte; a header naming the UART and the device |
+| `debugger/writes.bin` | bytes | the payload of every debugger memory write (loads, DZRP and GDB uploads, pokes), back to back; each checked as one contiguous block |
+| `streams/<uart>.bin` | binary | RX records: cycle (u64 LE), byte; a header naming the UART and the device (the content check runs on the payload sequence, not on these records) |
 | `checkpoints.bin` | binary | frame (u32), cycle (u64), observable, framebuffer and full CRC-32s, TX digests |
 | `card0/sectors.bin`, `card1/...` | binary | The input sectors shipped as bytes, as raw 512-byte blocks back to back (no per-record header, so a sector sits at a multiple of 512); `card0/index.json`: the base identity, the input-sector set with hashes, which are bytes (by position in `sectors.bin`), references (pristine sector number) or hashes only, and the FAT path of each |
 | `screen.png` | PNG | The picture at the save point, for triage |
@@ -376,70 +376,148 @@ own sessions' writes, so its FAT, directories and settings differ from the repor
 pristine image only proves that no *identical* distribution sector is shipped. It does not see
 a distribution file edited by one byte, the last sector of a copied file whose slack past EOF
 holds other bytes, content shifted by an insertion, or a copy at an unaligned offset in another
-member. Revision 0 of this plan claimed more than that; the mechanism below replaces it.
+member. Revision 0 of this plan claimed more than that; the mechanism below replaces it, and
+the end of this section states what it still cannot see.
 
-**The distribution index** (B1.9), built once per distribution and cached under
-`~/.jnext/bug-report/index/<image sha256>/` (never shipped, never committed):
+#### 5.3.1 The distribution index
 
-- the pristine sector-hash set (for references);
-- a **window index**: a 64-bit hash of every 64-byte window starting at a multiple of 32 bytes in
-  every file of the distribution (the files, not the image: about 160 MB of content gives about
-  5 million entries, some 40 MiB);
-- the distribution's **system paths**: its top-level files and directories (`/TBBLUE.FW`,
-  `/MACHINES`, `/NEXTZXOS`, `/SYS`, `/DOT`, `/RPi` and the rest of what the pinned distribution
-  holds at its root, read from the distribution itself, not typed in), and the size and SHA-256
-  of every file in it.
+Built once per distribution (B1.9) and cached under `~/.jnext/bug-report/index/<image sha256>/`
+(hashes only, not invertible, so not an image; never shipped, never committed):
 
-The index is built from the raw image the provisioner keeps, or from the zip. When neither is on
-the reporter's machine (a `--no-sdcard` user who never provisioned a card, a deleted raw image),
-the writer offers the provisioner's download; without the index **it writes no content member
-at all** (no card bytes, no program, no queue data, no streams, no debugger loads, no log), only
-identities and hashes, and says the bundle is unlikely to replay. It never writes unchecked
-content.
+- the **pristine sector-hash set**, every sector of the pristine image, used for references
+  only. On the save side it is hashed from a rebuild of the pristine image made from the raw
+  image the provisioner keeps in `~/.jnext/sdcard/`: the cached replay base when there is one,
+  otherwise a per-run scratch copy deleted as soon as it is hashed (the image rule allows per-run
+  scratch copies);
+- the **window index**: a 64-bit hash of every 64-byte window starting at a multiple of 32 bytes
+  in the *contents* of every distribution file (the files' bytes, not the image's FAT or
+  directory sectors: about 160 MB of content, some 5 million entries, about 40 MiB). One rolling
+  hash function, defined once in `src/bundle/`, builds the index and scans the members, so the
+  two sides cannot disagree;
+- the **file table**: path, size and SHA-256 of every distribution file, and the system paths
+  (the distribution's top-level files and directories, read from the distribution itself:
+  `/TBBLUE.FW`, `/MACHINES`, `/NEXTZXOS`, `/SYS`, `/DOT`, `/RPi` and the rest).
 
-**Per-file classification of the card.** Every input sector is attributed through the FAT
-(`fat32_parse_dir` gives the clusters) to a file, a directory, the FAT or free space, and each
-file gets one class, applied to all its sectors:
+**Low-information exclusion.** Padding is not expression, and matching it would make every
+directory sector, FAT sector and zero-padded file look like a distribution copy (round 2's
+finding: as specified in revision 1, almost every card bundle would have become hashes only). A
+window is **excluded** from the index, and a sector is **trivial**, by two testable criteria:
+
+- **E1, few distinct bytes:** a 64-byte window with fewer than 8 distinct byte values (all
+  0x00, all 0xFF, 0xE5 fill, two-value bitmaps, short repeating fills); a 512-byte sector with
+  fewer than 8 distinct byte values;
+- **E2, common boilerplate:** a window whose hash occurs in more than 16 distinct distribution
+  files (shared headers and stub code: they identify no file).
+
+Excluded windows are not in the index; a trivial sector never counts as "a distribution sector"
+in the classification below (as a reference it is still fine: a reference ships nothing).
+
+**The floor, restated.** The member side is scanned at every byte offset, so: *any run of 95 bytes
+or more that a checked byte sequence shares with a distribution file is found, unless every
+aligned 64-byte window inside that run is excluded by E1 or E2.* A run made only of excluded
+windows is padding or boilerplate. The floor bounds **verbatim** copies of the **indexed**
+distribution only; 5.3.5 says what that leaves.
+
+#### 5.3.2 The rule: the check sees content as the guest saw it
+
+**Every byte of content reaches the check in the order its source produced it, uncompressed and
+unframed.** The check never runs on a member's storage layout (records, framing, JSON, a
+compressed inner format), because the floor's proof needs the shared run to be contiguous in the
+scanned bytes. Per source:
+
+| Content | Reconstructed for the check as | Stored in the bundle as |
+|---|---|---|
+| Card sectors | each shipped sector's 512 bytes, slack included; and each user file's shipped sectors concatenated in file order | `card0/sectors.bin`, raw 512-byte blocks |
+| UART RX | the RX byte sequence of each UART, payload only, in delivery order | `streams/<uart>.bin`, (cycle, byte) records |
+| Stand-in host files | each served host file rebuilt from all its reads, by file and offset, merged (a NextZXOS file read in 32-byte `F_READ`s is checked as the whole file) | `queues/hostfs-data.bin`, one record per read |
+| Debugger memory writes | each write's payload as one contiguous block (every memory verb, a DZRP `CMD_WRITE_MEM` upload included, not only "loads"); `events.jsonl` keeps only the verb, the address, the length and the offset into the payload member | `debugger/writes.bin` |
+| The program | decoded by its loader's format: a `.zip` program archive inflated member by member; a `.z80` run-length expanded page by page; a `.szx` re-serialised with its `RAMP` pages uncompressed (flag bit 0 clear) and checked as pages; TAP and TZX data blocks as their payload bytes; NEX banks as stored; `.sna` as stored | the file (the `.szx` re-serialised) |
+| Programs in formats with no decoder | WAV, CSW, TZX direct-recording and generalised-data blocks encode bytes as pulses, which the check cannot see | never shipped: a SHA-256 reference only |
+| Keyframes (B6.2) | every RAM page | the keyframe member |
+| `log.txt`, `notes.txt`, `config.json` | their text | as is |
+
+An archive in the program is shipped only if every member passes; a member in a format with no
+decoder makes the whole archive a reference. `screen.png` is exempt (a rendering of the screen,
+not content bytes). RTC values, checkpoints and the card index carry no content.
+
+#### 5.3.3 Classification of card sectors
+
+Every input sector is attributed through the partition table and the FAT (`fat32_parse_dir` gives
+the clusters). One class per sector, applied file by file where a file is involved:
 
 | Class | Rule | Shipped as |
 |---|---|---|
-| Pristine | the sector's bytes appear in the pristine sector-hash set (any sector number) | a reference |
-| System | the file is under a system path, **on every base**, default or not | hashes only, never bytes |
-| Distribution-derived | any of its sectors is a pristine sector, or its size and name match a distribution file, or it is an archive or image format (`.zip`, `.gz`, `.tar`, `.img`, `.dsk`, `.rom`), or a guest-saved snapshot (`.snx`, `.sna`, `.szx`, `.z80`, made by the NMI menu or a program: they hold firmware-era RAM) | hashes only |
+| Pristine | the sector's bytes are in the pristine sector-hash set (any sector number) | a reference |
+| System | the file is under a system path, on **every** base | hashes only, never bytes (Q15 for settings files) |
+| Distribution-derived | a non-trivial sector of the file equals a sector of a distribution file's contents, or its size and name match a distribution file, or it is an archive or image format (`.zip`, `.gz`, `.tar`, `.img`, `.dsk`, `.rom`), or a guest-saved snapshot (`.snx`, `.sna`, `.szx`, `.z80`: made by the NMI menu or a program, they hold firmware-era RAM) | hashes only |
+| Free space | a sector in no cluster chain (free clusters can hold a deleted older NextZXOS) | a reference when pristine, otherwise hashes only, on every base |
+| Non-filesystem | the MBR, the partition's reserved area (boot sector and backup, the rest of the reserved sectors), the gap before the partition, anything outside it | a reference when pristine, otherwise hashes only, on every base; one exception below |
+| FSInfo | the partition's FSInfo sector, which changes with every write (free count, next free) | bytes, only if its layout checks: the three signatures in place and every reserved byte zero, so it can hold nothing but two counts; otherwise hashes only |
 | Structure | FAT sectors, directory sectors | bytes, after the byte check |
-| User file | none of the above | bytes, after the byte check; on an **unknown base** only if the reporter ticks it in the review (Q14) |
+| User file | none of the above | bytes, after the byte check, and only as Q14 allows (by default: only files the reporter ticks) |
 
-**The byte check** (B2.1) runs over the uncompressed bytes of **every** content member: the card
-sectors (slack included), `queues/hostfs-data.bin`, the streams, the program, the debugger loads,
-the log, `config.json` and `notes.txt`. A rolling hash at every byte offset is looked up in the
-window index; any run of **95 bytes or more** shared with a distribution file is found (a
-64-byte window at a stride of 32 always lies inside such a run). A hit refuses that content: a
-card sector whose hit lies entirely in the slack past EOF is shipped with the slack zeroed and
-its read check masked to the bytes before EOF (the replay may then diverge if the guest copies
-the slack, and the digests say so); any other card hit makes the file hashes only; a hit in
-another member refuses the member and the review names it (a host file served by the stand-in
-that is a NextZXOS file, a program that embeds a ROM). `screen.png` is exempt: a compressed
-rendering of the screen, not content bytes.
+**Slack.** A user file's last sector is checked whole. When a hit lies entirely in the slack past
+EOF, the slack is shipped zeroed (a zeroed slack is trivial, so it cannot itself hit) and the
+sector's read check is masked to the bytes before EOF; the replay may then diverge if the guest
+copies the slack, and the digests say so. Any other hit makes the file hashes only.
 
-**Members that are re-derived instead of shipped.** The extended-NEX read overlay serves the
-program file's own bytes to the guest through the SD device (`SdCardDevice::set_read_overlay`,
-set in `load_nex()`); it is rebuilt on replay from the program member or reference, so a NEX from
-the distribution's `/GAMES` stays a reference everywhere. A classic `.szx` anchor is
-re-serialised with only the chunks the loader reads (`ZXST`, `Z80R`, `SPCR`, `RAMP`, `SCLD`,
-`AY`); a custom-ROM or interface chunk is dropped and the drop recorded, since jnext never read
-it.
+**A hit in a non-card member** refuses that member, and the review names it (a host file served
+by the stand-in that is a NextZXOS file, a program that embeds a ROM, an RX stream that downloaded
+a distribution file, a debugger upload).
 
-**What no check can close (the residual, Q14).** Firmware that shares no 95-byte run with the
-distribution jnext knows: a NextZXOS of another version on a real-Next user's card, patched or
-relocated code, an encrypted or unusual-compression copy under an innocent name. The rules
-above make it unlikely to ship (system paths, archives and snapshots are hashes only on every
-card, and an unknown card ships no user file unless ticked), but they cannot make it impossible:
-a renamed file of another NextZXOS version outside the system paths, ticked by the reporter, would
-pass. The strictest workable default is the one Q14 recommends; the alternative that closes it
-completely is to ship no card bytes at all from an unknown base.
+**The ROM character set.** The distribution's `/MACHINES/NEXT/48.rom` and `128.rom` are indexed,
+and classic programs often copy the ROM character set (768 bytes at 0x3D00) into their own code or
+RAM. Most of its 64-byte windows have 8 or more distinct values, so such a program, a classic
+snapshot of it and its keyframes are refused: the program becomes a SHA-256 reference and the
+developer needs it from the reporter. That is the correct outcome under the rule, and it has a
+real cost on classic-machine bundles; Q17 asks whether the character-set windows of the classic
+ROMs may be excluded.
+
+#### 5.3.4 Members that are re-derived instead of shipped, and the no-index case
+
+The extended-NEX read overlay serves the program file's own bytes to the guest through the SD
+device (`SdCardDevice::set_read_overlay`, set in `load_nex()`); it is rebuilt on replay from the
+program member or reference. A classic `.szx` anchor is re-serialised with only the chunks the
+loader parses (`Z80R`, `SPCR`, `RAMP`, `AY`, after the `ZXST` file header); `SCLD` is dropped too,
+because the loader deliberately ignores it (Timex and SE snapshots are refused, GH #323), as is
+any custom-ROM or interface chunk, and each drop is recorded.
+
+**With no index** (a `--no-sdcard` user who never provisioned a card, a deleted raw image), the
+writer offers the provisioner's download. Without the index it writes only what carries no
+content: `manifest.json`, `config.json`, `notes.txt`, `events.jsonl` (no payloads, now that they
+live in `debugger/writes.bin`), `queues/rtc.jsonl`, the stand-in's call log without file data,
+`checkpoints.bin`, the card index (hashes only) and `screen.png`; and it says the bundle is
+unlikely to replay. It never writes unchecked content.
+
+#### 5.3.5 What no check can close (the residuals, Q14)
+
+Stated as rules, not examples:
+
+1. **The floor bounds only verbatim copies of the indexed distribution.** A copy altered at
+   least once every 94 bytes shares no 95-byte run with the original and passes. That covers:
+   - **another NextZXOS version**: after any insertion every absolute `JP`, `CALL` and `LD nn`
+     target moves, so relocated Z80 code shares mostly short runs: most of another version
+     escapes, not a little of it;
+   - a systematic patch, an interleaving, a byte-wise transform;
+   - a text re-encoding (hex, base64, Intel HEX);
+   - any compression or encryption the check does not decode.
+2. **Ticked or default-shipped user files.** A firmware copy outside the system paths, in a
+   format the classification does not flag, is a user file. On a known (distribution) base,
+   revision 1 shipped user files **by default without a tick**, so a NextZXOS of another version
+   copied onto the default card to try it out would have passed silently; on an unknown base, a
+   ticked one passes the same way.
+3. **Content outside the index.** Anything copyrighted that is not in the distribution jnext
+   indexes (a commercial game, an older distribution) is invisible to the check. Rule 1 is about
+   NextZXOS; the program question is Q4.
+
+The classification removes the common cases (system paths, archives, snapshots and
+distribution-derived files are hashes only on every base), and Q14's recommended option makes
+every user file an explicit choice of the reporter. Only shipping no card or user content at all
+closes residuals 1 and 2 completely.
 
 The review lists every file whose bytes are included ("these 14 files of yours are in the
-bundle") and every file the developer will need from the reporter instead.
+bundle"), every file waiting for a tick, and every file the developer will need from the reporter
+instead.
 
 ### 5.4 Replaying without the image
 
@@ -458,14 +536,17 @@ bundle") and every file the developer will need from the reporter instead.
   cannot replay past their first read without the reporter's copy; the review says so before
   the bundle is written, and names them. Q15 asks whether small settings files may be
   allowlisted.
-- **An unknown base**: the developer needs that card, or the reporter's ticked files, for every
-  hashes-only sector the session read; the bundle lists them.
+- **Unticked user files and an unknown base**: the developer needs the reporter's copy of every
+  hashes-only file the session read (an unticked user file, or anything on an unknown card that
+  is not pristine); the bundle lists them by path.
 
 ### 5.5 Assembling the card for a replay
 
 1. **The base.** For a distribution card, the pristine rebuild is made once and cached at
-   `~/.jnext/bug-report/bases/<pristine sha256>.img` (1 GiB for the default card, 40 MiB for the
-   minimal one), verified against the SHA-256 the bundle records, and opened read-only. Its path
+   `~/.jnext/sdcard/bug-report-bases/<pristine sha256>.img` (1 GiB for the default card, 40 MiB
+   for the minimal one), under `~/.jnext/sdcard/` as the project's image rule requires (owner
+   decision, 2026-11-20: comply, no exception), verified against the SHA-256 the bundle records,
+   and opened read-only. Its path
    is never the developer's working card. The rebuild must be byte-reproducible: FatFs is built
    with `FF_FS_NORTC 1` (no timestamps from the host) and recipe 3 sets the volume serial from
    the raw image's hash, so it should be; BRB-CARD-20 rebuilds it twice and compares, and
@@ -528,7 +609,7 @@ column names the capture row's condition.
 | SD card sectors | SPI reads | input-sector set + undo log | scratch journal, per-read hash check | a base that differs in sectors the session did not read |
 | Tape | the file (digest of the bytes read) and deck actions | member + events | honoured | the host tape file deleted |
 | Host actions (reset, NMI, drive button, SD insert, POK, ESP associate) | GUI, CLI `--delayed-*` | event | applied; their CLI options off | headless replay with none of the CLI options |
-| Debugger edits (memory, registers, NextREGs, ports, loads) | `note_mutation()` call sites | event with the verb's arguments; load bytes in `debugger/` | re-issued | no debugger client attached |
+| Debugger edits (memory, registers, NextREGs, ports, loads) | `note_mutation()` call sites | event with the verb's arguments; every memory payload in `debugger/writes.bin` | re-issued | no debugger client attached |
 | Remote debug clients (DZRP, GDB, ZRCP) | through the `Debugger` facade | as debugger edits (B0.1 verifies every server path reaches the facade) | re-issued | no client connected |
 | Rewind while recording | restore + fast-forward within one frame (the ring holds a slot per frame) | the log is truncated at the landing; the fast-forward is fed from the log (B1.7) | n/a | BRB-TL rows |
 | Quick snapshot taken and loaded in the segment | restore | a jump to the recorded cycle | replays to it | BRB-TL row |
@@ -654,7 +735,7 @@ dropping the head of a log that cannot be replayed without it.
 |---|---|---|
 | Host paths and the user name | program path, card path, `--esxdos-stub-root`, source directories, the log | never written: members by base name, the manifest holds no host path; the log, when included, is info level only and has `$HOME` and absolute paths replaced |
 | File names on the card | directory sectors among the input sectors | listed in the review by path; the reporter sees them |
-| The user's files on the card | input sectors not in the distribution | listed with sizes; included only because the session read them |
+| The user's files on the card | input sectors not in the distribution | listed with sizes; included only because the session read them and the reporter ticked them (Q14) |
 | Keystrokes | the input log | inherent; the review says how many key events and over how long |
 | Passwords typed into the guest | e.g. a WiFi password typed into a NextZXOS dialog, sent to the emulated ESP | the TX side is never stored (digest only), but the keystrokes are, and with `ATE1` the AT engine echoes TX bytes into RX (`esp_at.cpp`, the command-mode echo), so the password can sit in the RX stream too. The echo comes from the threaded worker, so it cannot be regenerated on replay and must stay in the stream; the review flags an `AT+CWJAP` (or any AT command) seen while echo was on, and says the keystrokes and the stream both hold what was typed |
 | Network content | ESP RX streams | review lists hosts and byte counts |
@@ -824,10 +905,19 @@ another number too) becomes a reference, and the replay resolves it into the jou
 number; each class of 5.3 on a synthetic card (a modified system file on a distribution base is
 hashes only; a copy of a distribution file under another directory with one byte changed is
 hashes only by the distribution-derived rule; the same copy renamed and shifted by 7 bytes is
-caught by the byte check; a `.zip` and a `.snx` are hashes only; a user file is bytes; on an
-unknown base a user file is bytes only when ticked); slack: a copied file's last sector with
-distribution bytes in its slack ships with the slack zeroed; no index: the writer writes no
-content member; the second card; BRB-CARD-20: the pristine rebuild made twice is byte-identical
+caught by the byte check; a `.zip` and a `.snx` are hashes only; a user file is bytes when
+ticked, hashes only when not, on a distribution base and on an unknown base alike (Q14's
+default); a free-space sector and an MBR, reserved or outside-partition sector are references
+when pristine and hashes only when not; an FSInfo sector with its signatures and zero reserved
+bytes ships, one with a non-zero reserved byte is hashes only); low-information exclusion
+(BRB-CARD-30..): a directory sector, a FAT sector of a card with free clusters, a user file
+zero-padded to its cluster, and a zeroed slack all pass the byte check; a 95-byte firmware run
+planted inside a zero-padded region is still found; E1's boundary (a window of 7 distinct values
+is excluded, of 8 is indexed) and E2's (a window in 16 distribution files is indexed, in 17 is
+excluded); a trivial sector equal to a pristine sector does not make its file
+distribution-derived; slack: a copied file's last sector with distribution bytes in its slack
+ships with the slack zeroed; no index: the writer writes exactly the content-free members of
+5.3.4 and nothing else; the second card; BRB-CARD-20: the pristine rebuild made twice is byte-identical
 and equals the digest the save side recorded; BRB-CARD-21: a replay base path never equals a
 working card path, and a second replay of the same base replaces the first registration. The
 index for the default card is built and cached by the regression master's provisioning at run
@@ -842,11 +932,19 @@ dialog, the open dialog and `--bug-report-info` share.
 
 Tests: `bundle_file_test`, BRB-FILE-01.. : a written bundle is read back member for member; a
 missing, an extra or a corrupt member refuses; `--bug-report-info` prints the review (a golden
-text for a synthetic bundle); the manifest holds no absolute path (scanned); the byte check finds
-a 95-byte distribution run planted at every offset 0..511 of a sector, of a hostfs record, of a
-stream, of the program and of the log, and misses none (a 94-byte run is allowed to pass: the
-documented floor); a `.szx` with a custom-ROM chunk is written without it; a foreign reader
+text for a synthetic bundle); the manifest holds no absolute path (scanned); a foreign reader
 (`unzip -t` and `jq` in a functional row) opens it, as the `.jns` rows do.
+
+The content-check rows (BRB-FILE-20..) plant a 95-byte run of a synthetic distribution file into
+the **payload the guest saw**, never into a member's raw storage, at every offset 0..511 of the
+payload, and require that each is found: in the RX bytes of an ESP stream (so the run is spread
+over 95 nine-byte records); in a host file served by the stand-in in 32-byte `F_READ`s; in a
+debugger `CMD_WRITE_MEM` payload; in a `.szx` `RAMP` page stored zlib-compressed; in a `.z80`
+page stored run-length encoded; in a member of a `.zip` program archive; in a TAP data block; in
+the log. A 94-byte run may pass (the documented floor), and a run made only of excluded windows
+passes. A WAV program and a TZX with a direct-recording block are shipped as references only. A
+`.szx` with a custom-ROM chunk and an `SCLD` chunk is written without either, its `RAMP` pages
+uncompressed.
 
 ## 14. Phase B3: replay (sub-issues 8 and 9)
 
@@ -940,7 +1038,9 @@ replay, the proof), FEATURES.md, and the ChangeLog line at landing.
 | Recording overhead on slow hosts | Q2's measured condition; the rolling recording can be turned off |
 | A new guest-visible effect of `audio_off_` | BRB-CFG-05 decides; until then it is a machine field |
 | Copyright leak through a member other than the card (a program from the distribution, a host file that is a NextZXOS file, a debugger load, a log line) | the byte check over every content member (B2.1), floor 95 bytes |
-| Firmware the index does not know (another NextZXOS version, patched or encrypted copies) | system paths, archives and snapshots hashes only on every card; unknown-card files only when ticked; the residual is stated and put to the owner (Q14) |
+| Firmware the index does not hold, or a copy altered at least once every 94 bytes (another NextZXOS version, relocated or patched code, re-encodings, compression) | system paths, archives, snapshots and distribution-derived files hashes only on every base; every user file and served host file only when ticked (Q14 default); the residuals stated as rules (5.3.5) |
+| The index matches padding and every card bundle becomes hashes only | the low-information exclusion E1/E2 and trivial sectors (5.3.1), with the BRB-CARD-30 rows |
+| Content hidden by a member's storage layout (records, JSON, compression) | the check runs on content as the guest saw it (5.3.2), with rows planted into the payloads (BRB-FILE-20) |
 | The pristine rebuild is not byte-reproducible on some host | BRB-CARD-20 on every platform the unit suites run on; the save side records the digest, so a difference refuses instead of drifting |
 | The developer must hold the reporter's jnext version for firmware bundles | the refusal prints `git describe` and the build command; `--bug-report-cross-version` for the deliberate case |
 
@@ -987,24 +1087,46 @@ revisions; Q6 is withdrawn.
 - **Q13. Memory cap and segments.** *Default: 64 MiB (the undo log counts toward it); the
   recorder keeps only the latest segment (since the last hard reset, program load or machine
   change); at the cap it stops with a warning.*
-- **Q14. The copyright residual.** The byte check finds any run of 95 bytes or more shared with
-  the distribution jnext indexes. It cannot find firmware the index does not hold (another
-  NextZXOS version, patched or relocated code, an unusual-compression copy under an innocent
-  name). Options, strictest first: (a) no card bytes at all from an unknown base, and on a
-  distribution base only files outside the system paths that pass every rule; (b) as (a), but an
-  unknown base may ship a user file the reporter ticks in the review, after the byte check;
-  (c) as (b) with files shipped by default. *Default: (b). (a) makes most real-Next users' bugs
-  unreplayable without a second exchange; (c) relies on a check that cannot see everything. The
-  owner may prefer (a), which closes the residual completely.*
+- **Q14. The copyright residuals** (5.3.5). The check bounds only verbatim copies (95 bytes or
+  more, with a non-excluded window) of the distribution jnext indexes. Copies altered at least
+  once every 94 bytes pass: another NextZXOS version (relocation changes absolute addresses
+  every few bytes, so most of it escapes), systematic patches, hex, base64 or Intel HEX
+  re-encodings, compression. And any user file the bundle ships can be such a copy, on a
+  distribution base as much as on an unknown one. Options, strictest first:
+  - (z) no card user-file bytes, no stand-in host-file bytes, at all: residual 2 closed, most
+    real bugs that touch user data not replayable without a second exchange;
+  - (a) **every user file on every base, and every host file the stand-in served, ships only
+    when the reporter ticks it** in the review, after the byte check; nothing is ticked by
+    default;
+  - (b) a tick only for user files in a format that can hold code (`.nex`, `.bin`, `.tap`, `.tzx`,
+    `.rom`, `.sys`, `.drv`, `.dot`, `.bas`, files without an extension); data files ship after the
+    check;
+  - (c) revision 1's: user files on a distribution base ship after the check, an unknown base
+    needs ticks.
+  *Default: (a).* Cost: the reporter must tick the files the session read (the review lists
+  exactly those, with sizes), and an unticked file stops the replay at its first read with its
+  path named. The program the reporter loaded keeps Q4's rule (included, untick to exclude),
+  because the reporter chose it. Only (z) with no program closes residual 2 completely; no option
+  closes residual 1 for content the reporter ticks.
 - **Q15. Settings files under system paths.** NextZXOS and the firmware menu rewrite small
-  settings files under the system paths (e.g. `/MACHINES/NEXT/config.ini`, which jnext itself
-  writes on the default card). Under the system-path rule they are hashes only, so a session
-  that read a changed one cannot be replayed without the reporter's copy. *Default: hashes only,
-  as the rule says; an allowlist of named settings files (text, under 4 KiB, passing the byte
-  check) only if the owner wants it, with the list in the design.*
-- **Q16. Disk for the replay base.** The pristine rebuild of the default card is 1 GiB, cached
-  under `~/.jnext/bug-report/bases/`, beside the 40 MiB index. *Default: cache it, with a
+  settings files under the system paths; `/MACHINES/NEXT/config.ini` is key=value text that
+  jnext itself writes on the default card (the recipe injects it). **Cost of the strict rule:**
+  every power-on Next bundle from a user who ever changed a firmware boot setting stops at the
+  first read of `config.ini`, which is nearly every power-on bundle. *Default: allowlist
+  `/MACHINES/NEXT/config.ini` alone, shipped as bytes only if it is under 4 KiB, only printable
+  ASCII, TAB, CR and LF, every non-empty line a `key=value` or a comment, and it passes the byte
+  check (all testable); every other system-path file stays hashes only.*
+- **Q16. Disk for the replay base.** The pristine rebuild of the default card is 1 GiB, cached at
+  `~/.jnext/sdcard/bug-report-bases/<sha256>.img` (the image rule: images live only in
+  `~/.jnext/sdcard/` and per-run scratch copies; owner decision 2026-11-20), beside the 40 MiB
+  index under `~/.jnext/bug-report/index/` (hashes, not an image). *Default: cache it, with a
   `--bug-report-forget-bases` (and a Preferences button) that deletes the cache.*
+- **Q17. The classic ROMs' character set.** Classic programs often copy the 768-byte character
+  set of `48.rom` (0x3D00) into their code or RAM, and the indexed `48.rom` and `128.rom` then
+  make the program, a classic snapshot of it and its keyframes a SHA-256 reference only (5.3.3).
+  *Default: keep it indexed (strict), so such a classic bundle needs the program from the
+  reporter; excluding the character-set windows of the classic ROMs from the index is the
+  alternative, at the owner's word only.*
 
 ---
 
@@ -1020,7 +1142,13 @@ revisions; Q6 is withdrawn.
 | The card as input sectors with per-read hashes; bytes only for files that pass the per-file classification and the byte check | exact for the guest, minimal in size; the check sees modified, shifted and unaligned copies down to 95 bytes | exact whole-sector deduplication alone (revision 0: misses modified files, slack and shifted content); a whole-image digest only; shipping the #507 journal; a file-level diff (not sector-exact) |
 | System paths hashes only on every base | a user's replaced NextZXOS file is still NextZXOS | the rule for unknown bases only (revision 0) |
 | A byte-granular window index of distribution files, stride 32, window 64 | a fixed, provable floor (95 bytes) over every member at every offset, about 40 MiB of index | an aligned 512-byte check (revision 0: blind to every unaligned member); a full suffix index (far larger for a lower floor nobody needs) |
-| The replay base is the pristine rebuild at its own cached path | the developer's working card differs in FAT, directories and settings; references need pristine sectors; a separate path cannot collide in the journal registry | the developer's working card (revision 0); a fresh 1 GiB copy per replay |
+| The check runs on content as the guest saw it, per source, decoded | the floor needs the shared run contiguous in the scanned bytes; records, per-read framing, JSON and inner compression break that | scanning members' storage bytes (revision 1: blind to RX records, small `F_READ`s, JSON payloads, `.szx`/`.z80`/zip compression) |
+| Low-information exclusion (E1: under 8 distinct values; E2: in more than 16 distribution files) | padding and boilerplate identify nothing; without it every directory, FAT and padded sector would hit | no exclusion (revision 1); a fixed list of fill bytes only (misses two-value bitmaps and repeating fills) |
+| Free space and non-filesystem sectors: reference or hashes only | free clusters and the pre-partition gap can hold old firmware on a real Next card | no class (revision 1) |
+| FSInfo shipped only when its layout checks | it changes with every write, so hashes only would stop most replays at mount; a layout check proves it holds only two counts | hashes only for the whole reserved area |
+| Every user and served host file only when ticked, on every base (Q14 default) | the check cannot see altered copies, so shipping is the reporter's explicit choice | user files by default on a known base (revision 1) |
+| Programs in formats with no decoder are references only | the check cannot see bytes encoded as pulses | shipping them unchecked |
+| The replay base is the pristine rebuild at its own cached path under `~/.jnext/sdcard/bug-report-bases/` | the developer's working card differs in FAT, directories and settings; references need pristine sectors; a separate path cannot collide in the journal registry; images live only under `~/.jnext/sdcard/` | the developer's working card (revision 0); a fresh 1 GiB copy per replay; a cache outside `~/.jnext/sdcard/` (revision 1, against the image rule) |
 | The extended-NEX overlay re-derived from the program | it serves the program's own bytes, so shipping them in a queue would bypass the program's reference | logging overlay reads as a value queue (revision 0) |
 | `.szx` re-serialised to the chunks jnext reads | the loader skips unknown chunks silently, which can carry a ROM or interface EEPROM | shipping the file verbatim |
 | The warm start's existing RTC pin (b93c03f79) is relied on, not re-done | rows E and G already prove it | a `kRecordingVersion` bump (revision 0: would re-record every user's cache for nothing) |
@@ -1064,3 +1192,29 @@ commands in the RX stream (§9); the log is info level only and under the check;
 machine-class options with `--bug-report-play` (§7.2); the stand-in never writes the host on
 replay; the speed figures are historical; the rewind rule's per-frame-slot assumption is asserted
 (BRB-TL-06); the warm-start replay order (§5.6).
+
+**Revision 2 (2026-11-20), after review round 2 (REJECT, five findings), each checked against
+the code first (`szx_loader.cpp`: `RAMP` flag bit 0 means zlib, `SCLD` deliberately ignored):**
+
+1. R2-1: the byte check runs on content as the guest saw it, reconstructed per source and
+   decoded (5.3.2): RX sequences per UART, host files rebuilt from all their reads, debugger
+   memory payloads moved out of `events.jsonl` into `debugger/writes.bin`, `.szx` `RAMP` pages
+   uncompressed, `.z80` expanded, zip program archives inflated, formats with no decoder
+   references only. BRB-FILE-20 plants the runs into the payloads.
+2. R2-2: low-information exclusion E1 (under 8 distinct values) and E2 (in more than 16
+   distribution files), trivial sectors, the floor restated to match, the BRB-CARD-30 rows
+   (directory, FAT, zero-padded file and zeroed slack pass; a planted run in padding is found;
+   both boundaries), and the classic ROM character set false positive stated, with Q17.
+3. R2-3: free-space and non-filesystem classes (reference when pristine, otherwise hashes only,
+   on every base), and FSInfo shipped only when its layout checks.
+4. R2-4: the residuals stated as rules (5.3.5): the floor bounds only verbatim copies, a copy
+   altered once every 94 bytes passes (relocation, patches, re-encodings, compression), and
+   default-shipped user files on a known base were a hole. Q14 now covers every base and
+   recommends the strict option (a).
+5. R2-5: the pristine rebuild is cached under `~/.jnext/sdcard/bug-report-bases/` (owner
+   decision: comply with the image rule); the save side uses that cache or a per-run scratch
+   copy; Q16 updated.
+
+Also folded in: the chunk list (`Z80R`, `SPCR`, `RAMP`, `AY` after the `ZXST` header; `SCLD`
+dropped with its reason); exactly what a bundle holds with no index (5.3.4); Q15's cost, with a
+testable `config.ini`-only allowlist as the default; the shared rolling hash pinned in B1.9.
