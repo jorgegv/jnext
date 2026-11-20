@@ -110,7 +110,7 @@ case "${1:-}" in
             [[ $rc -eq 0 ]] || break
         done 3<<<"$RR_TARGETS"
         if [[ "${FAKE_KILL_PARENT:-0}" == 1 ]]; then
-            kill -KILL "$(ps -o ppid= -p "$PPID" | tr -d ' ')"
+            kill -KILL "$(awk '$1 == "PPid:" {print $2}' "/proc/$PPID/status")"
             sleep 1; exit 137
         fi
         if [[ "${FAKE_SLEEP:-0}" == 1 ]]; then
