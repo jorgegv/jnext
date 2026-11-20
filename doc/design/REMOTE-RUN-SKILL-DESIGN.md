@@ -8,8 +8,8 @@ Run CPU-heavy work (builds, test suites, the batch gate) on a remote host instea
 development host, with no software installed on the remote beyond what it already has (SSH,
 rootless podman, git access to GitHub).
 
-The only parameter is an **SSH alias**, given per session in `JNEXT_REMOTE_RUN_HOST`
-(`~/.ssh/config` holds host, port, user). Unset means remote-run is off and everything runs
+The parameters are an **SSH alias**, given per session in `JNEXT_REMOTE_RUN_HOST`
+(`~/.ssh/config` holds host, port, user), and the remote **work directory**, `JNEXT_REMOTE_RUN_DIR` (D21). Unset means remote-run is off and everything runs
 locally as today.
 
 ## Decisions
@@ -36,6 +36,7 @@ locally as today.
 | D18 | **Explicit warm-up:** `remote-run --warm` builds the image, provisions every tool cache and the SD image, and builds main once to fill ccache. Run once, and after a deps change; a normal run refuses with "run --warm" when the image for the current deps hash is missing |
 | D19 | **Logs:** the full log stays in `~/tmp/remote-run/<id>.log`, kept 7 days then deleted; the caller gets a summary (per-target result lines, FAIL/SKIP names, totals) and greps the file for detail |
 | D20 | **Orphans:** the ssh session carries the run; if it drops, the remote side kills the container, frees the lane and removes the run's worktree |
+| D21 | **One remote work directory**, set per session in `JNEXT_REMOTE_RUN_DIR`: the mirror, per-run worktrees, temp files, logs, caches (bind-mounted directories, not named volumes), the SD-image cache, and podman's image storage if rootless podman allows it. `--warm` and cleanup touch nothing outside it |
 
 ## Architecture
 
