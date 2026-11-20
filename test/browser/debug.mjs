@@ -497,12 +497,12 @@ row('BDBG-17', 'bridge framing against FOREIGN clients: node\'s WebSocket sends 
   raw.write(Buffer.concat([maskedFrame(false, 2, parts[0]), maskedFrame(false, 0, parts[1]), maskedFrame(true, 0, parts[2])]));
   raw.write(maskedFrame(true, 9, Buffer.from('ping!')));
   const t3 = Date.now();
-  while ((Buffer.concat(rx2).toString() !== 'fragmented' || !Buffer.concat(rawRx).includes(Buffer.from([0x8a, 5, 0x70, 0x69, 0x6e, 0x67, 0x21]))) && Date.now() - t3 < 5000) await sleep(20);
+  while ((Buffer.concat(rx2).toString() !== 'frag-mented' || !Buffer.concat(rawRx).includes(Buffer.from([0x8a, 5, 0x70, 0x69, 0x6e, 0x67, 0x21]))) && Date.now() - t3 < 5000) await sleep(20);
   const frag = Buffer.concat(rx2).toString();
   const pong = Buffer.concat(rawRx).includes(Buffer.from([0x8a, 5, 0x70, 0x69, 0x6e, 0x67, 0x21]));
   raw.destroy();
   c2.destroy();
-  must(frag === 'fragmented', 'the fragmented message reached the client as ' + JSON.stringify(frag));
+  must(frag === 'frag-mented', 'the fragmented message reached the client as ' + JSON.stringify(frag));
   must(pong, 'no pong for the ping');
 });
 

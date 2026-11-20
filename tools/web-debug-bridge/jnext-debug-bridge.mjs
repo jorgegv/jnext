@@ -88,11 +88,17 @@ export class TcpRelay extends EventEmitter {
     this.client = sock;
     sock.on('data', (d) => { if (this.client === sock) this.emit('data', new Uint8Array(d.buffer, d.byteOffset, d.length)); });
     sock.on('error', () => {});
-    sock.on('close', () => {
-      if (this.client !== sock) return;   // ended by end()
+    // The client's FIN is the end of its session: a client that hangs up and dials again at once has
+    // its new connection judged after this one is retired, not refused as a second client (the socket's
+    // own 'close' event can come after the next connection).
+    const gone = () => {
+      if (this.client !== sock) return;   // ended by end(), or already seen
       this.client = null;
       this.emit('close');
-    });
+      sock.destroy();
+    };
+    sock.on('end', gone);
+    sock.on('close', gone);
     this.emit('open');
   }
 }
