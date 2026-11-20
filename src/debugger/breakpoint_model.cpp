@@ -5,7 +5,6 @@
 #include <memory>
 #include <set>
 
-#include "core/log.h"
 #include "script/expr_compiler.h"
 
 using jnext::dbg::Access;
@@ -398,7 +397,8 @@ bool BreakpointModel::build_(const BpSpec& spec, Subscription& out, std::shared_
         opts.on_runtime_error = [this, sink](const jnext::script::Diagnostic& d) {
             *sink = d.message;
             hits_dirty_ = true;   // tells the panel (hits_changed) to refresh the tooltip
-            Log::debugger()->warn("breakpoint condition: {}", d.to_string());
+            // The backend's message sink (SES-06): src/debugger holds no core-layer header (debug_qt_free_test QTF-09).
+            dbg_.log(client_, jnext::dbg::LogLevel::Warn, "breakpoint condition: " + d.to_string());
         };
         auto c = jnext::script::compile_expr(spec.condition, jnext::script::bp_scope(spec.kind), opts);
         if (!c) {
