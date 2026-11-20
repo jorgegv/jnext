@@ -177,7 +177,10 @@ was terminated BY the signal, plus headless held paused by a DZRP client) and
   `QtApp` does, done inline because this loop does not use the sequencer. The
   same present throttle applies while `Emulator::fastload_active()` holds (a
   tape load, the fast boot): the renderer is vsynced, so presenting every
-  frame of a sprint would cap it near the display's refresh rate.
+  frame of a sprint would cap it near the display's refresh rate. While the
+  fast boot hides the screen (`Emulator::fast_boot_hides_screen()`), the
+  present block uploads a black frame under `fast_boot::HIDDEN_GENERATION`
+  once and holds it.
 - **`HeadlessApp`** (`src/platform/headless_app.h`) owns nothing but the
   `Emulator`. Its `run()` is a bare `run_frame()` loop with no sleep in it.
 

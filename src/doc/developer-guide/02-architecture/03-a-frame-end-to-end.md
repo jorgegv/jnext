@@ -60,7 +60,13 @@ edge of real time:
   the firmware's own soft reset, and closes on time up, the first guest key, a
   debugger stop (any pause that is then resumed, between frames or inside one), `init()` without `preserve_memory`
   and `load_state()`. It is host pacing only: not serialised, and it changes
-  no emulated state (`fast_boot_test`).
+  no emulated state (`fast_boot_test`). Armed with `hide_screen`,
+  `fast_boot_hides_screen()` (window open, not paused) makes the two present
+  sites (`QtApp::TickEffects::present`, the `SdlApp::tick` present block) hand
+  the window `fast_boot::shown_frame()`: a black frame under
+  `fast_boot::HIDDEN_GENERATION`, uploaded once and held like a paused frame.
+  Compositing is unchanged, so screenshots, recordings and the debugger panels
+  still read the real framebuffer.
 - **The audio band's estimate stays within one device chunk of the reading**
   (`BandState::envelope_ms` in `src/platform/audio_pacing.h`, set from the
   opened device's buffer; see [Audio](../03-subsystems/04-audio.md)).

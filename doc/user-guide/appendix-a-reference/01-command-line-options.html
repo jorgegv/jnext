@@ -4840,9 +4840,12 @@ schedules work on the emulated timeline (<strong>--delayed-screenshot</strong>,
 <strong>--script</strong>) or when a recording runs. It applies to the launch
 only: a later hard reset boots at normal speed. It never changes the
 emulated machine. To reach the firmware menu, press SPACE while the
-splash shows, or set it to 0. <strong>--headless</strong> runs uncapped already,
-so there it has no effect, and <strong>jnext</strong> warns. The same as
-<code>--set startup.fast_boot_seconds</code>.</dd>
+splash shows, or set it to 0.
+<code>--set startup.fast_boot_hide_screen=true</code> keeps the window black
+until fast boot ends, so the first picture is the screen it ends on;
+screenshots, recordings and the debugger still see the real screen.
+<strong>--headless</strong> runs uncapped already, so there it has no effect, and
+<strong>jnext</strong> warns. The same as <code>--set startup.fast_boot_seconds</code>.</dd>
 <dt><strong>--when-slow-prefer</strong> <em>WHAT</em></dt>
 <dd>
 <p>What to sacrifice on a host that cannot emulate in real time:
@@ -5832,6 +5835,10 @@ All frontends.</dd>
 <dt><code>startup.fast_boot_seconds</code> <em>0..60</em></dt>
 <dd>Seconds of a plain Next start run at maximum speed, 0 = off;
 <strong>--fast-boot</strong>. The Qt window and the SDL-only build.</dd>
+<dt><code>startup.fast_boot_hide_screen</code> <em>true|false</em></dt>
+<dd>Keep the window black while fast boot runs; any key, a pause or a
+debugger stop shows the screen at once. Default false. The Qt window
+and the SDL-only build.</dd>
 <dt><code>startup.when_slow_prefer</code> <em>audio|video</em></dt>
 <dd>What a host too slow for real time sacrifices;
 <strong>--when-slow-prefer</strong>. The Qt window and the SDL-only build.</dd>
