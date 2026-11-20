@@ -102,12 +102,29 @@ for your system from the
 | **macOS (Intel)**        | Download `jnext-*-macos-x64.dmg` (macOS 15 or later), open it, drag **jnext** to Applications |
 | **Web page**             | Download `jnext-*-web.zip`, host its files: [user guide chapter 8](doc/user-guide/08-web-page/index.html) |
 
-The Linux packages put a `jnext` command on your `PATH`.
+Prefer to build it yourself? See **[BUILD.md](BUILD.md)** — it also covers
+building the packages above (`make package-rpm` / `package-deb` /
+`package-flatpak` / `package-win` / `package-macos`).
+
+### Which Linux package?
+
+Pick the native package for your distribution; use the Flatpak on any other.
+All of them put a `jnext` command on your `PATH`.
+
+| Package                         | Runs on                 |
+|---------------------------------|-------------------------|
+| `jnext-*.fc44.x86_64.rpm`       | Fedora 44               |
+| `jnext-*.fc45.x86_64.rpm`       | Fedora 45               |
+| `jnext_*_ubuntu24.04_amd64.deb` | Ubuntu 24.04            |
+| `jnext_*_ubuntu26.04_amd64.deb` | Ubuntu 26.04            |
+| `jnext-*-x86_64.flatpak`        | any x86-64 distribution |
 
 > **Note (Flatpak only):** the Flatpak build ships without LTO — its runtime's
 > compiler miscompiles the GUI startup under LTO. This only reduces top turbo-speed
 > throughput; normal (100 %) speed is unaffected. For maximum turbo performance use
 > the native RPM/DEB packages, which keep LTO.
+
+### Which Windows package?
 
 The **Windows** builds are self-contained, portable zips — no installer, with
 all the Qt and SDL runtime DLLs bundled. Unzip one anywhere and run `jnext.exe`;
@@ -118,8 +135,6 @@ first launch Windows SmartScreen warns about an unrecognized publisher. Click
 right-clicking the downloaded zip and ticking **Properties → Unblock**. Details,
 and what a signature would and would not prove:
 **[user guide § Windows](doc/user-guide/02-installing/02-windows.html)**.
-
-### Which Windows package?
 
 All Windows packages are self-contained portable zips — no installer, no
 redistributables, every runtime DLL bundled, and the SD-card image
@@ -135,6 +150,15 @@ Details and the audited compatibility floors:
 [packaging/README.md](packaging/README.md) and
 [doc/design/WINDOWS-COMPAT-PLAN.md](doc/design/WINDOWS-COMPAT-PLAN.md).
 
+### Which macOS package?
+
+Pick by your Mac's processor; both need macOS 15 or later.
+
+| Package                   | Runs on                     |
+|---------------------------|-----------------------------|
+| `jnext-*-macos-arm64.dmg` | Apple Silicon (M1 or later) |
+| `jnext-*-macos-x64.dmg`   | Intel Macs                  |
+
 The **macOS** builds (Apple Silicon and Intel) are `.dmg` files; open one and drag **jnext** to Applications. The
 app is ad-hoc signed but **deliberately not notarised** — notarisation requires
 a paid Apple Developer Program membership — so Gatekeeper blocks the first
@@ -144,10 +168,6 @@ com.apple.quarantine /Applications/jnext.app`. The old Control-click → **Open*
 bypass no longer covers this case on macOS 15 and later. Details, and how to
 check the bundle is intact:
 **[user guide § macOS](doc/user-guide/02-installing/03-macos.html)**.
-
-Prefer to build it yourself? See **[BUILD.md](BUILD.md)** — it also covers
-building the packages above (`make package-rpm` / `package-deb` /
-`package-flatpak` / `package-win` / `package-macos`).
 
 ## Run
 
