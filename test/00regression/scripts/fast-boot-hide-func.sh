@@ -23,9 +23,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      grabbed 0.7 s after "fast boot: ended" is not black.
 #   H  Qt control, the same without the hide: the frozen grab is NOT black, and no extra log line. It proves the capture can see a real screen,
 #      so G's black is not vacuous.
-#   I  the SDL-only build, as G but with no grab inside the window (an `import` of that window hangs
-#      the X server, see the call below); the black frame is pinned by sdl_app_tick_test.
-#   I2 the SDL-only build, as H but, like I, with no grab inside the window.
+#   I  the SDL-only build, log only (the grabs of its window are unreliable, see the call below): the
+#      extra log line and the end by time up; the black frame is pinned by sdl_app_tick_test.
+#   I2 the SDL-only build, as H but log only like I: no extra log line.
 #   J  Qt, the SAVED preference (jnext.conf [startup] fast_boot_seconds=2 and
 #      fast_boot_hide_screen=true, no command-line setting): the extra log line, the window
 #      ends by time up, and half a second after the soft reset (at normal speed) it is not black.
@@ -135,13 +135,17 @@ if want fast-boot-hide-func; then
                 [[ $n -gt 0 ]] || fh_faults+=("$label: no capture inside the fast-boot window (harness fault)")
                 [[ $lit -eq 0 ]] || fh_faults+=("$label: $lit of $n captures inside the window were not black")
             fi
-            fh_not_black "$post" || fh_faults+=("$label: the window stayed black after fast boot ended (max=${post:-unreadable})")
+            if [[ "$grab" == 1 ]]; then
+                fh_not_black "$post" || fh_faults+=("$label: the window stayed black after fast boot ended (max=${post:-unreadable})")
+            else
+                fh_has "$pre.log" "fast boot: ended (time up) after 3000 frames" || fh_faults+=("$label: fast boot did not end by time up")
+            fi
         else
             if fh_has "$pre.log" "$fh_black_line"; then fh_faults+=("$label: the black line without the setting"); fi
             if [[ "$grab" == 1 ]]; then
                 [[ $lit -gt 0 ]] || fh_faults+=("$label: the control never showed a real screen inside the window ($n captures): the capture sees nothing")
             else
-                fh_not_black "$post" || fh_faults+=("$label: the control window is black after fast boot ended (max=${post:-unreadable})")
+                fh_has "$pre.log" "fast boot: ended (time up) after 3000 frames" || fh_faults+=("$label: fast boot did not end by time up")
             fi
         fi
     }
@@ -158,13 +162,13 @@ if want fast-boot-hide-func; then
         rm -f "$fh_conf"
         fh_phase G  "$JNEXT"   g  1 1
         fh_phase H  "$JNEXT"   h  0 1
-        # I, I2: no grab and no SIGSTOP inside the window. An `import` of the SDL window while its only
-        # presented frame is the held black one stalled the app and the X server until the row's
-        # timeout, and a SIGSTOP/SIGCONT of the SDL process ends in "XIO: fatal IO error 4/11" now and
-        # then (both measured; Qt is fine with both). The SDL black frame is pinned by
-        # sdl_app_tick_test SDLT-15..17; here I checks the wiring (--set reaches the arming in the
-        # SDL-only binary: the log line) and the real screen after the window ends, I2 the same
-        # without the setting.
+        # I, I2: log only, no grab and no SIGSTOP. Measured on this host: an `import` of the SDL window
+        # while its only presented frame is the held black one stalled the app and the X server until
+        # the row's timeout; a SIGSTOP/SIGCONT of the SDL process ended in "XIO: fatal IO error 4/11"
+        # now and then; and a grab after fast boot ended returned no image in 3 of 3 runs, which the
+        # same grab of the Qt window never did. The SDL black frame is pinned by sdl_app_tick_test
+        # SDLT-15..17; here I checks the wiring (--set reaches the arming in the SDL-only binary: the
+        # log line, and the window ends by time up), I2 the same without the setting (no log line).
         fh_phase I  "$fh_sdl"  i  1 0
         fh_phase I2 "$fh_sdl"  i2 0 0
 
@@ -180,7 +184,7 @@ if want fast-boot-hide-func; then
         fh_not_black "$fh_j" || fh_faults+=("J: the window was black after the time-up (max=${fh_j:-unreadable})")
 
         if [[ ${#fh_faults[@]} -eq 0 ]]; then
-            pass_row " (Qt window black while fast boot hides the screen, SDL --set wired, both real after it ends; the control windows real inside it; the saved preference real after time up)"
+            pass_row " (Qt window black while fast boot hides the screen and real after it ends, the Qt control real inside it, the saved preference real after time up; SDL --set wired, by log)"
         else
             fail_row " ($(IFS='|'; echo "${fh_faults[*]}"))"
         fi
