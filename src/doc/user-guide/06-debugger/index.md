@@ -37,6 +37,8 @@ Files** again, with the program's symbols and source map. A map you loaded by ha
 loaded. Breakpoints and watches are kept, and a paused machine stays paused at the new
 program counter. The entry is greyed out while the list is empty.
 
+The **Window** menu also holds **Panels** and **Reset Layout**, described below with the window layout.
+
 **Window ▸ Attach to emulator window** keeps it pinned to the emulator's
 right-hand edge as you drag or resize that window; the setting is remembered
 between sessions. This needs a window system that lets an application position
@@ -82,10 +84,26 @@ sessions; `--set debugger.physical_addresses=true` applies it to one run.
 
 ![The debugger window](../img/debugger-window.png)
 
-The layout is fixed: video-related tabs on the top left, disassembly in the
-centre, CPU registers and MMU down the right, and memory/stack tabs and
-watch, variables and breakpoint tabs along the bottom. The splitters between the areas can be
-dragged.
+Every panel except the Disassembly is a **dock** you can rearrange. The window
+opens with the video-related tabs on the left, the Disassembly in the centre, CPU
+Registers over MMU down the right, and the Stack, Call Stack and Memory tabs and
+the Watches, Variables and Breakpoints tabs along the bottom. Drag a panel by its
+title bar to another edge of the window, onto another panel to make a tab, or out
+of the window to float it as a window of its own; drag the border between two
+docks to resize them; close a panel with the button on its title bar. A floating
+panel is a separate window: on Wayland the compositor, not JNEXT, decides where it
+appears. The debugger keys work from a floating panel as they do from the window,
+and floating panels disappear and reappear with the debugger window.
+
+**Window ▸ Panels** lists every panel with a tick: untick one to close it, tick it
+to bring it back where it was. **Window ▸ Reset Layout** puts every panel back in
+the arrangement above, docks the floating ones and reopens the closed ones; the
+window's own size and position are not touched. The Disassembly stays in the
+centre and cannot be moved or closed. The arrangement, the sizes of the docks and
+the tab each group shows are remembered between sessions, in the `[debugger]
+layout` entry of the [configuration file](../04-configuration/02-the-configuration-file.md);
+deleting that line has the same effect as Reset Layout. A floating panel saved
+where no screen is any more comes back inside the screen.
 
 The window itself can be made smaller than the panels need. When it is, the
 panel area gains scrollbars and pans instead of cutting anything off, and the

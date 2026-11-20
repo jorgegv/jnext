@@ -1779,6 +1779,10 @@ void DebuggerWindow::create_panels() {
     dock_host_->setCorner(Qt::BottomLeftCorner, Qt::BottomDockWidgetArea);
     dock_host_->setCorner(Qt::BottomRightCorner, Qt::BottomDockWidgetArea);
     for (std::size_t i = 0; i < jnext::dock::kPanelCount; ++i) {
+        // The left column of tabs had setMinimumWidth(380), an explicit minimum that overrides a page's own
+        // minimumSizeHint (Video's is 700 and its sizeHint 600): the opening fit then widens the column to
+        // what the pages WANT. Kept per panel, so the same holds wherever the user docks them.
+        if (i < 9) table[i].panel->setMinimumWidth(380);
         auto* dock = new QDockWidget(table[i].title, dock_host_);
         dock->setObjectName(QString::fromLatin1(table[i].id));
         dock->setWidget(table[i].panel);

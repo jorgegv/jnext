@@ -191,12 +191,47 @@ redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window
 the framebuffer generation and the upload gate that stops a paused machine re-presenting an unchanged frame,
 is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
 
+**The window's structure: docks.** `DebuggerWindow` keeps the menu bar, the bottom button bar and the rewind toolbar.
+Its central widget is a `QScrollArea` whose widget is `dock_host_`, an inner `QMainWindow` with `Qt::Widget` flags:
+docks cannot sit in a scroll area of the window that owns them, and docks on the outer window would make its minimum
+the sum of theirs, the unshrinkable window again. The host's central widget is the Disassembly box (Qt does not
+support a main window without a central widget, and every stop lands in the Disassembly); every other panel is the
+widget of a `QDockWidget` in `docks_`, built in `create_panels()` from one table whose order is
+`jnext::dock::kPanelIds`. Adding a panel is one row in that table plus its token in `kDefaultLayoutText`
+(`src/debugger/dock_layout.h`); the Window > Panels menu lists each dock's own `toggleViewAction()`. Nesting is off (Qt's default),
+the tab bars are on top, both bottom corners belong to the bottom area. Anything that raises a panel (Follow on a
+memory operand, Show in Source, Go > Symbols, Debug > Source > Open Source File) goes through `raise_panel()`, which
+reopens a closed dock and makes it its group's shown tab. Two Qt facts shape the code that reads the window:
+a floating dock is a window of its own that Qt leaves on screen when its main window hides
+(`hideEvent()` parks it in `parked_floats_`, `showEvent()` brings it back through `place_floating()`), and Qt's
+window-shortcut rule looks only one hop up from a floating dock, which is the dock host and not this window, so every
+window command is also an action of every dock (`share_actions_with_docks()`). A tabbed-away dock is still
+`isVisible()` (Qt moves it off screen instead of hiding it); a consumer that needs to know whether a panel is on show
+must use `QDockWidget::visibilityChanged()` or `visibleRegion()`, never the panel's `isVisible()`.
+
+**The saved layout.** `[debugger] layout` in `jnext.conf` is one line of plain text in a grammar of our own, not
+`QMainWindow::saveState()` (a binary Qt blob that depends on the Qt version): `"v1" { area | float | closed }`, in
+any order on input and canonical on output (areas, then floats, then closed). An area is `left|right|top|bottom
+v|h THICKNESS` followed by groups, each `tabs EXTENT` and its tab IDs, the shown one marked `*`; a float is
+`float ID X Y W H`; `closed ID` is a closed panel; the numbers are 0 to 32767 (X and Y down to -32768). The grammar,
+`parse()`, `format()`, `complete()` and `default_layout()` are in `src/debugger/dock_layout.h`, Qt-free and tested by
+`dock_layout_test` (`DLAY-01`..`12`). A value that is not `v1` or does not parse is refused whole and the default is
+used; an unknown ID is dropped; a panel the value does not name (a layout saved before the panel existed) is added by
+`complete()` to the group of its first default group-mate that is docked, else as a new group of its default area;
+the first place of an ID named twice wins. `capture_layout()` reads Qt's own state (`dockWidgetArea()`,
+`tabifiedDockWidgets()`, the group's `QTabBar`, `isFloating()`, `geometry()`) and clamps the numbers into the
+grammar's ranges, since `format()` does not validate; `apply_layout()` docks every panel afresh and applies the sizes
+once the host has been laid out (`apply_dock_sizes()`, queued from the first show: `resizeDocks()` before that is not
+applied). A floating panel is clamped so its whole frame is inside a screen. A closed panel reopens at its default
+place in a new session. The value is read through the same comma-joining rule as the other free-text keys, because
+QSettings hands a hand-edited value with a comma back as a list. Rows: `QDOCK-01`..`14` in `debugger_dock_test`.
+
 **The window's opening size.** A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
-`debugger_window.cpp:529`, queued from the first `showEvent()`); a size restored from the config file is left
-alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
-of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
-it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
+queued from the first `showEvent()`); a size restored from the config file is left
+alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left dock area
+is widened by what its panels' `sizeHint()` lack (`left_column_lacking()`, `resizeDocks()`; a dock area keeps its
+width when the window widens, so the scroll pass that follows widens the window by it; bounded by `kMaxInitialFitPasses` = 4
 (`kMaxInitialFitPasses`, `debugger_window.h:212`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:239`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from

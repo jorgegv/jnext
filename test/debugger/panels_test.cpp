@@ -6676,16 +6676,14 @@ static void test_graphics_panel() {
         std::string got = "no window";
         bool ok = false;
         if (fx.ok) {
-            for (QTabWidget* tw : fx.dbg()->findChildren<QTabWidget*>()) {
-                int g = -1, sp = -1;
-                for (int i = 0; i < tw->count(); ++i) {
-                    if (tw->tabText(i) == "Graphics") g = i;
-                    if (tw->tabText(i) == "Sprites") sp = i;
-                }
-                if (g < 0) continue;
+            // GH #377: the panels are tabbed docks; the group's tab bar gives the order.
+            GraphicsPanel* gp = fx.dbg()->findChild<GraphicsPanel*>();
+            QDockWidget* gd = dock_of_panel(fx.dbg(), gp);
+            if (gd) {
+                const QStringList titles = dock_group_titles(gd);
+                const int g = int(titles.indexOf("Graphics")), sp = int(titles.indexOf("Sprites"));
                 got = "Graphics at " + std::to_string(g) + ", Sprites at " + std::to_string(sp);
-                GraphicsPanel* gp = qobject_cast<GraphicsPanel*>(tw->widget(g));
-                QTabWidget* st = gp ? gp->findChild<QTabWidget*>("gfxSubTabs") : nullptr;
+                QTabWidget* st = gp->findChild<QTabWidget*>("gfxSubTabs");
                 ok = sp >= 0 && g == sp + 1 && st && st->count() == 3 && st->tabText(0) == "Patterns" &&
                      st->tabText(1) == "Tiles" && st->tabText(2) == "Palettes";
             }
@@ -6934,18 +6932,19 @@ static void test_graphics_panel() {
     {
         WindowFixture fx(MachineType::ZXN_ISSUE2);
         GraphicsPanel* gp = fx.ok ? fx.dbg()->findChild<GraphicsPanel*>() : nullptr;
-        QTabWidget* host = nullptr;
-        if (gp) for (QTabWidget* tw : fx.dbg()->findChildren<QTabWidget*>())
-            if (tw->indexOf(gp) >= 0) host = tw;
+        // GH #377: the Graphics panel is a dock tabbed with the others: "not current" is another dock of the
+        // group raised, "current" is its own dock raised.
+        QDockWidget* host = gp ? dock_of_panel(fx.dbg(), gp) : nullptr;
+        QDockWidget* video = fx.ok ? dock_of_panel(fx.dbg(), fx.dbg()->findChild<VideoPanel*>()) : nullptr;
         bool ok = false;
         std::string got = "no panel";
-        if (gp && host) {
-            host->setCurrentIndex(0);   // Video
+        if (gp && host && video) {
+            video->raise();   // Video
             QApplication::processEvents();
             const int before = gp->render_count();
             gp->refresh();
             const int hidden = gp->render_count();
-            host->setCurrentWidget(gp);
+            host->raise();
             QApplication::processEvents();
             const int mid = gp->render_count();
             gp->refresh();
