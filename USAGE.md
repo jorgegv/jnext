@@ -1588,11 +1588,11 @@ Debugger Keys tab: *ACTION* is `run`, `pause`, `step_into`, `step_over`,
 `step_out`, `step_back`, `frame_back`, `run_to_cursor`, `run_to_eof`,
 `run_to_eosl`, `trace_toggle`, `trace_export`, `source_step_into`,
 `source_step_over`, `source_step_out`, `source_step_back`,
-`source_reverse_continue`, `follow`, `go_back` or `go_forward`, and
-`none` unbinds it. A combination that is not legal there, or that
-another action already holds (unless the same command line frees it), is
-refused with exit status 1 before the window opens. The Qt window with
-the debugger.
+`source_reverse_continue`, `follow`, `go_back`, `go_forward` or
+`run_to_interrupt`, and `none` unbinds it. A combination that is not
+legal there, or that another action already holds (unless the same
+command line frees it), is refused with exit status 1 before the window
+opens. The Qt window with the debugger.
 
 `source.colour_scheme` *auto\|light\|dark\|borland*  
 The colour scheme of the debugger’s Source tab, like the **Preferences**
@@ -3440,10 +3440,16 @@ the player area before the click so the player is not black on load. The
 emulator replaces it when the visitor starts the player. Without it
 nothing is shown there.
 
-`file` *URL \| {url} \| {data, name}*  
+`file` *URL \| {url} \| {data, name} \| {card}*  
 **--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, a `.rzx`
 recording, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot); without it
-the machine boots to the NextZXOS menu.
+the machine boots to the NextZXOS menu. `{card: '/PATH/x.nex'}` runs a
+NEX that is on the SD card: its path lies inside one entry of
+`card.dirs`, the directory that holds it is copied out of the card with
+everything below it, and that directory is served to the program with
+**--esxdos-stub** (read-only unless `args` has
+**--esxdos-stub-writable**). It cannot be used with card source
+`'none'`, and `load()` refuses it.
 
 `keepWrites` *boolean*  
 **--sdcard-writes**, with a file the page manages: what the program
@@ -3497,27 +3503,30 @@ been shown, and with a message on every failure.
 `destroyed`; `ready` is a promise for the first ready. `pause()` and
 `resume()` stop and restart the frame loop. `reset(kind)` restarts the
 program (`'program'`, the default; with no program it powers on again),
-powers the machine on again (`'hard'`) or resets it (`'soft'`).
-`load(file)` loads another program while the machine runs.
-`saveSnapshot()` resolves to the bytes of a `.jns` snapshot of the
-running machine (**--snapshot-compression** applies), for the page to
-offer as a download or give back to `load()` as `{data, name}`.
-`startRzxRecording()` starts an RZX recording of the machine as it is
-now (not on a ZX Spectrum Next: give the player another `machine`);
-`stopRzxRecording()` ends it and resolves to the file’s bytes, for the
-page to offer as a download or give back to `load()` as `{data, name}`.
-A reset or a `load()` ends the recording early, and `stopRzxRecording()`
-still returns it, and until it is called no new recording can start;
-`destroy()` drops one that was not stopped. While a recording plays,
-every port read comes from the file: the keys do nothing until it ends.
-`setVolume(v)` sets the master output level, `0` to `1`. `destroy()`
-stops the machine and removes the player (it waits until the saves of
-**keepWrites** are stored). `resetCard()` discards the saves kept by
-`keepWrites` (the saved file included) and restarts the program; it
-needs that option, and resolves when the program is running again.
-`showKeyboard(on)` shows (`true`) or hides (`false`) the on-screen
-keyboard, whatever **--touch-keyboard** says; the page’s call wins,
-before or after the start, and anything but a boolean throws.
+powers the machine on again (`'hard'`) or resets it (`'soft'`). `nmi()`
+presses the NMI button (the Multiface one, as F9 and the case button
+“NMI”), which opens NextZXOS’s NMI Menu; it rejects, with the reason as
+the error message, when the machine is not running or the card source is
+`'none'` (no Multiface ROM). `load(file)` loads another program while
+the machine runs. `saveSnapshot()` resolves to the bytes of a `.jns`
+snapshot of the running machine (**--snapshot-compression** applies),
+for the page to offer as a download or give back to `load()` as
+`{data, name}`. `startRzxRecording()` starts an RZX recording of the
+machine as it is now (not on a ZX Spectrum Next: give the player another
+`machine`); `stopRzxRecording()` ends it and resolves to the file’s
+bytes, for the page to offer as a download or give back to `load()` as
+`{data, name}`. A reset or a `load()` ends the recording early, and
+`stopRzxRecording()` still returns it, and until it is called no new
+recording can start; `destroy()` drops one that was not stopped. While a
+recording plays, every port read comes from the file: the keys do
+nothing until it ends. `setVolume(v)` sets the master output level, `0`
+to `1`. `destroy()` stops the machine and removes the player (it waits
+until the saves of **keepWrites** are stored). `resetCard()` discards
+the saves kept by `keepWrites` (the saved file included) and restarts
+the program; it needs that option, and resolves when the program is
+running again. `showKeyboard(on)` shows (`true`) or hides (`false`) the
+on-screen keyboard, whatever **--touch-keyboard** says; the page’s call
+wins, before or after the start, and anything but a boolean throws.
 `keyboardVisible` tells whether it is shown.
 
 ### The touch keyboard

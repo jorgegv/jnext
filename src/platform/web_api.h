@@ -11,7 +11,10 @@
 // in-memory path, `keepWrites` (a boolean to the page) becomes the in-memory
 // path of the writes file (or is dropped when false), and the internal `$card`
 // row, {path, sha256} of the SD card the page layer made, is ADDED. A page never
-// supplies `$card`: the layer refuses that name before it gets here.
+// supplies `$card` (nor `$serveDir`): the layer refuses every `$` name before it gets here.
+// A program on the card, `file: {card: '/GAMES/x/y.nex'}` (GH #510), is validated here and
+// replaced by the page layer, after it copied the program's directory out of the card, by the
+// copy's path and the internal `$serveDir: true`, which becomes --esxdos-stub.
 #include "core/cli_options.h"
 #include "platform/config_keys.h"
 
@@ -48,6 +51,9 @@ struct Option {
 inline constexpr Option WEB_OPTIONS[] = {
     { "$card", Kind::Image, cli::OptId::Sdcard, cli::OptId::SdcardSha256, std::nullopt, true, nullptr,
       "Internal: the SD card the page layer made ({path, sha256}); never given by a page", true },
+    { "$serveDir", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
+      "serve the program's directory to it (--esxdos-stub)",
+      "Internal: the program was copied out of the SD card with its directory; never given by a page", true },
     { "card", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
       "how the page obtains the SD card",
       "How the page gets NextZXOS's SD card: {source: 'auto' | 'fetch' | 'pick' | 'none', dirs: ['/PATH', ...]}; 'none' runs a NEX with no card (--no-sdcard)" },
@@ -57,7 +63,7 @@ inline constexpr Option WEB_OPTIONS[] = {
     { "keepWrites", Kind::Flag, cli::OptId::SdcardWrites, std::nullopt, std::nullopt, false, nullptr,
       "Keep the guest's writes to the card (saves, high scores) in this browser across reloads" },
     { "file", Kind::Flag, cli::OptId::Load, std::nullopt, std::nullopt, false, nullptr,
-      "The program to run: a URL, {url}, or {data, name}; absent boots to the NextZXOS menu" },
+      "The program to run: a URL, {url}, {data, name}, or {card: '/PATH/x.nex'} (a NEX on the SD card, with its directory); absent boots to the NextZXOS menu" },
     { "machine", Kind::Flag, cli::OptId::Machine, std::nullopt, std::nullopt, false, nullptr,
       "The machine to start" },
     { "touchKeyboard", Kind::Flag, cli::OptId::TouchKeyboard, std::nullopt, std::nullopt, false, nullptr,

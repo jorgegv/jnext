@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JNEXT in your browser</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 700px; margin: 0 auto; padding: 1em; color: #1d2330; background: #fff; }
+  h1 { margin: .4em 0 .2em; }
+  .note { font-size: 14px; color: #4a5160; }
+  @media (prefers-color-scheme: dark) { body { color: #e6e9f0; background: #14161c; } .note { color: #aab1c0; } a { color: #8fb4ff; } }
+</style>
+<script defer src="https://stats.jogv.es/script.js" data-website-id="403ba580-ee55-42b9-9709-dd5961bade47"></script>
+</head>
+<body>
+<h1>JNEXT in your browser</h1>
+<p>JNEXT @PROJECT_VERSION@, a ZX Spectrum Next emulator, running as WebAssembly. Click the screen to start.
+Problems and ideas go to <a href="https://github.com/jorgegv/jnext/issues">the issue tracker</a>.</p>
+<nav>
+  <a href="?demo=nextzxos" data-demo="nextzxos">NextZXOS</a> |
+  <a href="?demo=warhawk" data-demo="warhawk">Warhawk</a> |
+  <a href="?demo=tx-1696" data-demo="tx-1696">TX-1696</a>
+</nav>
+<div class="jnext-widget" data-title="NextZXOS" data-card-dirs="/APPS,/GAMES" data-nmi></div>
+<p class="note" data-credit="tx-1696" hidden>TX-1696 (demo) by the TX-1696 Team: graphics and code by Patricia Curtis; music by Richard Faulkner.
+  See <a href="https://luckyredfish.com/priority-order-list-for-tx-1696/">luckyredfish.com</a>.</p>
+<p class="note">NextZXOS and the two games come from SpecNext's official distribution, which your browser downloads from
+specnext.com (or asks you to) the first time you click. This site hosts none of it, and your browser keeps the SD card
+it builds, so the three demos use one download.</p>
+<script>
+  // The demo is chosen by ?demo=: a switch is a page load, so only one emulator ever exists.
+  (function () {
+    var DEMOS = { nextzxos: ['NextZXOS', ''], warhawk: ['Warhawk', '/GAMES/Next/Warhawk/Warhawk.nex'],
+                  'tx-1696': ['TX-1696', '/GAMES/Next/TX-1696/main.nex'] };
+    var d = new URLSearchParams(location.search).get('demo');
+    if (!Object.prototype.hasOwnProperty.call(DEMOS, d)) d = 'nextzxos';
+    var el = document.querySelector('.jnext-widget');
+    el.setAttribute('data-title', DEMOS[d][0]);
+    if (DEMOS[d][1]) el.setAttribute('data-card-file', DEMOS[d][1]);
+    Array.prototype.forEach.call(document.querySelectorAll('nav a'), function (a) {
+      if (a.getAttribute('data-demo') === d) a.setAttribute('aria-current', 'page');
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-credit]'), function (p) {
+      p.hidden = p.getAttribute('data-credit') !== d;
+    });
+  })();
+</script>
+<script src="jnext-widget.js"></script>
+</body>
+</html>

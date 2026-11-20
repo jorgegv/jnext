@@ -200,6 +200,7 @@ metainfo excepted). **Do not add a hard-coded copy of the version; read
 | `make package-win-qt5` / `package-win32-qt5` | Windows 7/8 `-legacy` `.zip`s, x64 and 32-bit — the Qt5 full-GUI builds (GH #108) |
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.10`); ends by running `make verify-flatpak-permissions` on it |
 | `make package-macos` | macOS `.dmg` (Darwin only): `jnext-<v>-macos-arm64.dmg` or `-macos-x64.dmg` by the building machine's architecture |
+| `make pages-site` | the GitHub Pages demo site, `build/pages`, from the web zip (a public release also deploys it: the `pages` job of `release.yml`); never an image or a game |
 | `make package-web` | the browser build, `jnext-<ver>-web.zip` (js + wasm, example pages, licence texts), in `build/wasm-core/`; needs the Emscripten SDK; verifies its own zip and never holds a NextZXOS image |
 | `make package-test` | build every package (except macOS, Flatpak and the browser zip) and assert each artifact |
 | `make package-contract-test` | the packaging-**script** contract suites only — hermetic, ~4 s, no toolchain |

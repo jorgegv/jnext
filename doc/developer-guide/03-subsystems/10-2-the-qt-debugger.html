@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3164,13 +3164,51 @@ the default (<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite
 <p><strong>The breakpoints' owner</strong> is a non-arming observer client, attached by
 <code>BreakpointModel</code> (<code>src/debugger/breakpoint_model.*</code>) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
-<code>Execute</code>, <code>Mem</code> and <code>Port</code> subscriptions with no condition, <code>once = false</code> and
-action <code>Stop</code>. READ, WRITE and READ_WRITE are one <code>Mem</code> subscription with an
+<code>Execute</code>, <code>Mem</code> and <code>Port</code> subscriptions (a <code>lo..hi</code> range on the first two, a port <code>mask</code>/<code>value</code>), and the
+addressless <code>IntAck</code> and <code>Nmi</code> ones (the Interrupt and NMI types), with <code>once = false</code>, and a condition when
+the dialog gave one. A
+breakpoint stops: action <code>Stop</code> and no handler. A <em>count-only</em> one is action <code>Continue</code>
+plus a handler of the model that counts. READ, WRITE and READ_WRITE are one <code>Mem</code> subscription with an
 access mask. An I/O address <code>00</code>-<code>FF</code> is a low-byte match (<code>port_mask 0x00FF</code>);
 <code>0100</code> and up is exact. Because the observer never detaches and arms
 nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.</p>
+<p><code>BreakpointModel::Type</code> and the codec's <code>BpSpec::Kind</code> are one numbering (a
+<code>static_assert</code> pins it), and the codec owns the type-name table (<code>bp_kind_name()</code>)
+and the port rule (<code>bp_port_mask_for()</code>): the model has no copy of either. Another
+client's <code>IntAck</code> or <code>Nmi</code> Stop subscription is a typed but read-only row, with an empty
+Address.</p>
+<p><strong>Hit counts need no backend counter</strong> and follow the script engine's own split
+(<code>account_static_stops</code> / <code>run_rule</code>). A Stop breakpoint stays a static Stop with no
+handler (ZRCP's <code>other_breakpoint_at</code> and the step loops depend on that) and is counted
+in the model's <code>on_paused()</code> from <code>PausedInfo::matched</code>, for its own ids only. A count-only
+one counts in its handler, which captures the model (its destructor detaches the client,
+which removes the subscription: SES-01). <code>extras_</code> holds what the backend cannot report
+(which own ids are count-only), and <code>publish_()</code> prunes it and the counts with the listing.
+<code>sync()</code> emits <code>hits_changed()</code> once when a count moved and the panel rewrites only its
+Hits cells: never <code>changed()</code>, which would repaint the gutter every frame. A count dies
+with its subscription (Edit = a new id) and is not saved. The <code>(type, address, space)</code>
+API keeps meaning the plain breakpoint, and the gutters read plain members only, so a
+count-only breakpoint at an address is a separate row. <code>QBPX-15</code> pins the GUI's counts to
+the engine's <code>RuleView::hits</code> for the same rule.</p>
+<p><strong>A breakpoint's identity is its full spec</strong> (<code>BpSpec</code>: kind, address, range end, space, port mask, condition,
+count-only). <code>add(const BpSpec&amp;)</code> is idempotent on it, and a plain breakpoint and a conditional one at one address are
+two rows. The <code>(type, address, space)</code> API and the gutters mean the <em>plain</em> breakpoint (<code>plain_()</code>: one address, the
+address rule's mask, no condition). <code>extras_</code> (by id, own subscriptions only) holds what the backend cannot report:
+count-only, the condition text and the shared slot its predicate writes a run-time error to. <code>type_of()</code> types a
+subscription iff the dialog can make that exact one: another client's range or masked port is typed (so its Type and
+Address texts read as before) but stays read-only, and its condition or handler stays typeless. A condition is compiled in
+the kind's payload scope (<code>bp_scope()</code>, the checker's own <code>scope_of</code>) with <code>compile_expr</code>; the same
+<code>bp_condition_problem()</code> check the dialog and the codec use refuses a text that does not read back as itself. A
+run-time failure marks <code>hits_changed()</code> so the panel refreshes the Condition cell's tooltip.</p>
+<p><strong>Run to Next Interrupt</strong> (Debug menu, the <code>run_to_interrupt</code> keymap action, unbound by
+default) is not a backend verb. <code>DebuggerManager::on_run_to_interrupt()</code> arms a
+<em>transient</em> <code>IntAck</code> Stop subscription and calls <code>run()</code>: the transient is hidden from the
+panel, exempt from the master switch, and dropped by the backend at the next stop or an
+explicit <code>pause()</code> (the DeZog "arm, then continue" contract in <code>Impl::run_verb</code>). A refused
+<code>run()</code> unsubscribes it. Rows: <code>QRTI-*</code> in <code>debugger_verbs_test</code>, <code>QKM-RTI-01</code> in
+<code>debugger_keymap_test</code>.</p>
 <p>The model also converts its own rows to and from the breakpoint file codec
 (<code>script/bp_script.h</code>, see <a href="13-the-debugger-scripting-language.html">3.10.6</a>):
 <code>script_specs()</code> returns them as <code>BpSpec</code> in list order, and <code>add_specs()</code> adds a
@@ -3364,10 +3402,10 @@ bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</c
 moved; the greying of a paged label whose page is not what <code>source_page()</code> reports at its address is redone on every
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: <code>QSYML-*</code>.</p>
-<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1062</code>)
-redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:388</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1051</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:257</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1083</code>)
+redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:393</code>: ~4 Hz). Paused, it
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1072</code>; <code>PausedStamp</code>,
+<code>debugger_manager.h:262</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:</p>
 <ul>
@@ -3389,7 +3427,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
   loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:575</code>), so an edit on disk still shows.</li>
 </ul>
-<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1042</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
+<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1063</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <code>take_panel_refresh_count()</code> counts the
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,
@@ -3397,7 +3435,7 @@ the framebuffer generation and the upload gate that stops a paused machine re-pr
 is in <a href="../02-architecture/03-a-frame-end-to-end.html">2.3</a>.</p>
 <p><strong>The window's opening size.</strong> A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (<code>DebuggerWindow::grow_default_size_to_natural()</code>,
-<code>debugger_window.cpp:529</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
+<code>debugger_window.cpp:530</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
 alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' <code>sizeHint()</code> lack, using the share of a widening the splitter really gave
 it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</code>; bounded by <code>kMaxInitialFitPasses</code> = 4
@@ -3407,8 +3445,8 @@ so the fit is bounded in time as well: a resize to a size the fit asked for or s
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
 at most <code>kMaxFitEchoes</code> = 6 times: the answer queues a pass, and the pass asks again and counts it, once
 (<code>resizeEvent()</code>, <code>debugger_window.cpp:511-522</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:500</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:548-553</code>), after which every size is the user's and the remembered sizes are
+(<code>end_fit_()</code>, <code>debugger_window.cpp:501</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
+pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:549-554</code>), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (<code>fit_passes_queued_</code>, <code>queue_fit_pass_()</code>), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's), <code>GR-08</code> (an earlier request landing while a pass is queued), <code>GR-09</code> (a user resize while the fit runs stands), <code>GR-10</code> (each late answer counts once: the 7th stands) and <code>GR-11</code> (a loop stalled past the grace window does not end the fit), <code>GR-12</code> (the bound holds on the pass's own path), <code>GR-13</code> and <code>GR-14</code> (the grace waits for the pass a re-ask, or a late answer, queued), in <code>debugger_window_grow_test</code>; <code>GR-09</code> to <code>GR-14</code> use a window no window manager sees.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the

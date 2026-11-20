@@ -33,8 +33,14 @@
     return p.substring(p.lastIndexOf('/') + 1) || 'program';
   }
 
-  // file / load() argument -> { url } | { bytes, name } | null (not a form we know).
+  // {card: PATH}: a NEX on the SD card. Only mount() takes it (load() refuses it).
+  function isCardFile(f) {
+    return !!f && typeof f === 'object' && Object.prototype.hasOwnProperty.call(f, 'card');
+  }
+
+  // file / load() argument -> { url } | { bytes, name } | { card } | null (not a form we know).
   function fileSpec(f) {
+    if (isCardFile(f)) return { card: f.card };
     if (typeof f === 'string') return { url: f };
     if (f && typeof f === 'object' && typeof f.url === 'string') return { url: f.url };
     if (f && typeof f === 'object' && f.data !== undefined && typeof f.name === 'string') {
@@ -86,13 +92,16 @@
   // what was installed (or a placeholder for the early validation), keepWrites becomes the
   // path of the writes file (false: dropped), and the internal SD-card entry is added: the
   // page never supplies it.
-  function substitute(options, file, card, writes) {
+  function substitute(options, file, card, writes, serve) {
     var o = {};
     Object.keys(options).forEach(function (k) {
       var v = options[k];
       o[k] = typeof v === 'function' ? true : v;
     });
-    if (o.file !== undefined && fileSpec(o.file)) o.file = file;
+    // A program on the card stays {card} for the early validation (serve false); at the start it
+    // becomes the path of its copy, and its directory is served to it.
+    if (o.file !== undefined && fileSpec(o.file) && (!isCardFile(o.file) || serve)) o.file = file;
+    if (serve) o['$serveDir'] = true;
     if (card) o['$card'] = card;   // card.source 'none': no card, the core runs --no-sdcard
     if (o.keepWrites === true) o.keepWrites = writes;
     else if (o.keepWrites === false) delete o.keepWrites;
@@ -123,9 +132,11 @@
       if (!cb[name]) return;
       try { cb[name](a, b); } catch (e) { console.error('jnext: ' + name + ' threw', e); }
     }
-    // The SD card is the page layer's own business: a page cannot hand one in.
-    if (Object.prototype.hasOwnProperty.call(options, '$card')) {
-      var ce = new Error("unknown option '$card'");
+    // The SD card (and what is derived from it) is the page layer's own business: a page cannot
+    // hand in any option whose name starts with '$'.
+    var dollar = Object.keys(options).filter(function (k) { return k.charAt(0) === '$'; })[0];
+    if (dollar !== undefined) {
+      var ce = new Error("unknown option '" + dollar + "'");
       call('onError', ce.message);
       return Promise.reject(ce);
     }
@@ -320,6 +331,15 @@
       mod._jnext_web_reset(k);
       return afterFrames();
     };
+    // The NMI button (Multiface): opens NextZXOS's NMI Menu. Refused, with the reason, when the
+    // card source is 'none' (no Multiface ROM). A refusal is the call's own error, not onError.
+    player.nmi = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      var why = mod._jnext_web_nmi();
+      if (why) return Promise.reject(new Error(mod.UTF8ToString(why)));
+      return afterFrames();
+    };
     // Forget what the guest wrote to the card (keepWrites) and restart the program.
     player.resetCard = function () {
       live();
@@ -333,6 +353,9 @@
     };
     player.load = function (file) {
       live();
+      if (isCardFile(file)) {
+        return Promise.reject(new TypeError("jnext: load(): a program on the card is given to mount() as file: {card}"));
+      }
       var spec = fileSpec(file);
       if (!spec) return Promise.reject(new TypeError('jnext: load() takes a URL, {url} or {data, name}'));
       if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
@@ -564,6 +587,22 @@
       });
     }
 
+    // A program on the card (file: {card}): its directory, with everything below it, is copied out
+    // of the card now in memory into a directory of its own, and the copy is what is loaded and
+    // served to the esxDOS stand-in. Resolves to the copied NEX's path.
+    var serve = false;
+    function copyProgram(nex) {
+      var dest = '/media/' + (loadSeq++) + '-card';
+      mod.FS.mkdirTree('/media');
+      var a = mod.stringToNewUTF8('/sdcard/image.img'), b = mod.stringToNewUTF8(nex), c = mod.stringToNewUTF8(dest);
+      var r = mod._jnext_card_copy_program(a, b, c);
+      mod._free(a); mod._free(b); mod._free(c);
+      var s = mod.UTF8ToString(r);
+      mod._free(r);
+      var o = JSON.parse(s);
+      return o.error ? Promise.reject(new Error(o.error)) : Promise.resolve(o.path);
+    }
+
     var noCard = !!(options.card && options.card.source === 'none');
     var wasmUrl = typeof options.wasmUrl === 'string' ? options.wasmUrl : DEFAULT_WASM;
     var seam = JnextImage.devSeam();
@@ -608,7 +647,8 @@
         canvas.focus();
         obtainCard(seam, pins).then(function (card) {
           var fs = options.file !== undefined ? fileSpec(options.file) : null;
-          var fp = fs ? installFile(mod, fs) : Promise.resolve('');
+          serve = !!(fs && fs.card !== undefined);
+          var fp = !fs ? Promise.resolve('') : serve ? copyProgram(fs.card) : installFile(mod, fs);
           // keepWrites: this card on this page has one record; its file goes back into the
           // in-memory filesystem before the machine starts.
           var wp = options.keepWrites === true
@@ -617,7 +657,7 @@
               })
             : Promise.resolve('');
           return Promise.all([fp, wp]).then(function (paths) {
-            return argvOf(mod, substitute(options, paths[0], card, paths[1]));
+            return argvOf(mod, substitute(options, paths[0], card, paths[1], serve));
           });
         }).then(function (argv) {
           Object.defineProperty(player, 'argv', { value: Object.freeze(argv), enumerable: true });

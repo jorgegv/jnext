@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4481,11 +4481,20 @@
 
 <h1 id="breakpoints">Breakpoints<a class="headerlink" href="#breakpoints" title="Permanent link">&para;</a></h1>
 <p><img alt="Breakpoints panel" src="../../img/debugger-breakpoints.png" /></p>
-<p>Every breakpoint in one list, sorted by address: an <strong>On</strong> checkbox, the type,
-the address and — with a MAP file loaded — the symbol at that address, or with
-a source map the source line. The Add dialog takes a symbol or, for an Execute
+<p>Every breakpoint in one list, sorted by address: an <strong>On</strong> checkbox, the type
+(Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt or NMI), the address
+(empty for Interrupt and NMI, which have none) and — with a MAP file loaded — the symbol at
+that address, or with a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (<code>main.bas:120</code>); see
 <a href="../source-debugger/06-breakpoints-and-steps.html">Breakpoints on a source line</a>.
+The <strong>Hits</strong> column counts how many times each of your own breakpoints fired (another client's row
+shows none), and <strong>Reset Hits</strong> zeroes them all; a breakpoint made with <em>Count hits only</em> shows
+<code>(count only)</code> after its type and never stops the machine
+(<a href="../functions/03-breakpoints-execute-read-write.html#counting-hits-instead-of-stopping">counting hits</a>).
+The <strong>Condition</strong> column shows the condition of your own breakpoints (a tooltip carries the last run-time error
+of one that failed; another client's conditional breakpoint reads <code>(condition)</code>). An address range reads
+<code>$8000-$80FF</code> and a port with its own mask <code>$00FE/FFFF</code>
+(<a href="../functions/03-breakpoints-execute-read-write.html#ranges-port-masks-and-conditions">ranges, masks and conditions</a>).
 <strong>Add</strong>, <strong>Edit</strong> and <strong>Remove</strong> manage them; double-clicking a row edits it.
 <strong>Breakpoints ▸ Save as Script…</strong> keeps your own breakpoints in a file and
 <strong>Load from Script…</strong> brings them back
@@ -4518,6 +4527,8 @@ and edits only the debugger window's own breakpoints:</p>
   script). The <strong>Breakpoints enabled</strong> master switch below is shared: unticking it suspends every
   owner's breakpoints.</li>
 <li><strong>Data breakpoints</strong> (Read, Write, ports) are not drawn in the gutters at all, whoever owns them.</li>
+<li><strong>Count-only breakpoints, ranges and conditional breakpoints</strong> are not drawn in the gutters either; the gutters
+  show and toggle plain breakpoints only, so a click beside one of them adds a plain one.</li>
 </ul>
 <h2 id="turning-breakpoints-off-without-losing-them">Turning breakpoints off without losing them<a class="headerlink" href="#turning-breakpoints-off-without-losing-them" title="Permanent link">&para;</a></h2>
 <p>Deleting a breakpoint to get past it, and typing the address back in

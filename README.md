@@ -80,72 +80,83 @@ find at [GitHub issues](https://github.com/jorgegv/jnext/issues):
 Linux, Windows (x64 and 32-bit x86), and macOS (Apple Silicon and Intel) are supported, and the emulator also
 runs in a web browser.
 
+You can try it right now in your browser! Go here: <https://jorgegv.github.io/jnext/>
+
 ## Install
 
 **Installing a package is the recommended way to get JNEXT.** Download the one
 for your system from the
-[latest release](https://github.com/jorgegv/jnext/releases/latest):
+[latest release](https://github.com/jorgegv/jnext/releases/latest).
 
-| System                   | Install                                                                |
-|--------------------------|------------------------------------------------------------------------|
-| **Fedora 44**            | `sudo dnf install ./jnext-*.fc44.x86_64.rpm`                           |
-| **Fedora 45**            | `sudo dnf install ./jnext-*.fc45.x86_64.rpm`                           |
-| **Ubuntu 24.04**         | `sudo apt install ./jnext_*_ubuntu24.04_amd64.deb`                     |
-| **Ubuntu 26.04**         | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb`                     |
-| **Flatpak (any distro)** | `flatpak install ./jnext-*-x86_64.flatpak`                             |
-| **Windows 10/11 (x64)**  | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe`             |
-| **Windows 7/8 (x64)**    | Download `jnext-*-windows-x64-legacy.zip`, unzip, run `jnext.exe`     |
-| **Windows 32-bit (x86)** | Download `jnext-*-windows-x86-legacy.zip`, unzip, run `jnext.exe`     |
-| **macOS (Apple Silicon)** | Download `jnext-*-macos-arm64.dmg` (macOS 15 or later), open it, drag **jnext** to Applications |
-| **macOS (Intel)**        | Download `jnext-*-macos-x64.dmg` (macOS 15 or later), open it, drag **jnext** to Applications |
-| **Web page**             | Download `jnext-*-web.zip`, host its files: [user guide chapter 8](doc/user-guide/08-web-page/index.html) |
+To put JNEXT on your own web page instead, download `jnext-*-web.zip` and host
+its files: [user guide chapter 8](doc/user-guide/08-web-page/index.html).
 
-The Linux packages put a `jnext` command on your `PATH`.
+Prefer to build it yourself? See **[BUILD.md](BUILD.md)** — it also covers
+building the packages below (`make package-rpm` / `package-deb` /
+`package-flatpak` / `package-win` / `package-macos`).
+
+### Which Linux package?
+
+Pick the native package for your distribution; use the Flatpak on any other.
+All of them put a `jnext` command on your `PATH`.
+
+| Package                         | Runs on                 | Installation                                       |
+|---------------------------------|-------------------------|----------------------------------------------------|
+| `jnext-*.fc44.x86_64.rpm`       | Fedora 44               | `sudo dnf install ./jnext-*.fc44.x86_64.rpm`       |
+| `jnext-*.fc45.x86_64.rpm`       | Fedora 45               | `sudo dnf install ./jnext-*.fc45.x86_64.rpm`       |
+| `jnext_*_ubuntu24.04_amd64.deb` | Ubuntu 24.04            | `sudo apt install ./jnext_*_ubuntu24.04_amd64.deb` |
+| `jnext_*_ubuntu26.04_amd64.deb` | Ubuntu 26.04            | `sudo apt install ./jnext_*_ubuntu26.04_amd64.deb` |
+| `jnext-*-x86_64.flatpak`        | any x86-64 distribution | `flatpak install ./jnext-*-x86_64.flatpak`         |
 
 > **Note (Flatpak only):** the Flatpak build ships without LTO — its runtime's
 > compiler miscompiles the GUI startup under LTO. This only reduces top turbo-speed
 > throughput; normal (100 %) speed is unaffected. For maximum turbo performance use
 > the native RPM/DEB packages, which keep LTO.
 
-The **Windows** builds are self-contained, portable zips — no installer, with
-all the Qt and SDL runtime DLLs bundled. Unzip one anywhere and run `jnext.exe`;
-delete the folder to uninstall. The executable is **deliberately not
-code-signed** — an Authenticode certificate is a recurring annual cost — so on
-first launch Windows SmartScreen warns about an unrecognized publisher. Click
-**More info → Run anyway**; or clear the download's Mark of the Web first, by
-right-clicking the downloaded zip and ticking **Properties → Unblock**. Details,
-and what a signature would and would not prove:
-**[user guide § Windows](doc/user-guide/02-installing/02-windows.html)**.
-
 ### Which Windows package?
 
-All Windows packages are self-contained portable zips — no installer, no
-redistributables, every runtime DLL bundled, and the SD-card image
-self-provisioning built in. Pick by your Windows version:
+Every Windows package is a self-contained portable zip with the full GUI and
+debugger: no installer, no redistributables, every Qt and SDL runtime DLL
+bundled, and the SD-card image self-provisioning built in. The x64 zip uses Qt6;
+the two legacy zips use Qt5. Pick by your Windows version:
 
-| Package                          | What you get              | Runs on                        |
-|----------------------------------|---------------------------|--------------------------------|
-| `jnext-*-windows-x64.zip`        | full GUI + debugger (Qt6) | Windows 10 1703 or later       |
-| `jnext-*-windows-x64-legacy.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later         |
-| `jnext-*-windows-x86-legacy.zip` | full GUI + debugger (Qt5) | Windows 7 SP1 or later, 32-bit |
+| Package                          | Runs on                        | Installation               |
+|----------------------------------|--------------------------------|----------------------------|
+| `jnext-*-windows-x64.zip`        | Windows 10 1703 or later       | unzip, run `jnext.exe`     |
+| `jnext-*-windows-x64-legacy.zip` | Windows 7 SP1 or later         | unzip, run `jnext.exe`     |
+| `jnext-*-windows-x86-legacy.zip` | Windows 7 SP1 or later, 32-bit | unzip, run `jnext.exe`     |
 
-Details and the audited compatibility floors:
-[packaging/README.md](packaging/README.md) and
-[doc/design/WINDOWS-COMPAT-PLAN.md](doc/design/WINDOWS-COMPAT-PLAN.md).
+- **Uninstall:** delete the folder.
+- **First launch:** the executable is **deliberately not code-signed** (an
+  Authenticode certificate is a recurring annual cost), so Windows SmartScreen
+  warns about an unrecognized publisher. Either:
+  - click **More info → Run anyway**, or
+  - before unzipping, right-click the downloaded zip and tick
+    **Properties → Unblock**.
+- **Details**, and what a signature would and would not prove:
+  **[user guide § Windows](doc/user-guide/02-installing/02-windows.html)**.
+  The audited compatibility floors: [packaging/README.md](packaging/README.md)
+  and [doc/design/WINDOWS-COMPAT-PLAN.md](doc/design/WINDOWS-COMPAT-PLAN.md).
 
-The **macOS** builds (Apple Silicon and Intel) are `.dmg` files; open one and drag **jnext** to Applications. The
-app is ad-hoc signed but **deliberately not notarised** — notarisation requires
-a paid Apple Developer Program membership — so Gatekeeper blocks the first
-launch. Try to open it once, then allow it under **System Settings → Privacy &
-Security → Open Anyway**; or clear the download flag with `xattr -dr
-com.apple.quarantine /Applications/jnext.app`. The old Control-click → **Open**
-bypass no longer covers this case on macOS 15 and later. Details, and how to
-check the bundle is intact:
-**[user guide § macOS](doc/user-guide/02-installing/03-macos.html)**.
+### Which macOS package?
 
-Prefer to build it yourself? See **[BUILD.md](BUILD.md)** — it also covers
-building the packages above (`make package-rpm` / `package-deb` /
-`package-flatpak` / `package-win` / `package-macos`).
+Pick by your Mac's processor; both need macOS 15 or later.
+
+| Package                   | Runs on                     | Installation                          |
+|---------------------------|-----------------------------|---------------------------------------|
+| `jnext-*-macos-arm64.dmg` | Apple Silicon (M1 or later) | open it, drag **jnext** to Applications |
+| `jnext-*-macos-x64.dmg`   | Intel Macs                  | open it, drag **jnext** to Applications |
+
+- **First launch:** the app is ad-hoc signed but **deliberately not notarised**
+  (notarisation requires a paid Apple Developer Program membership), so
+  Gatekeeper blocks it. Either:
+  - try to open it once, then allow it under **System Settings → Privacy &
+    Security → Open Anyway**, or
+  - clear the download flag: `xattr -dr com.apple.quarantine /Applications/jnext.app`.
+- The old Control-click → **Open** bypass no longer works for this on macOS 15
+  and later.
+- **Details**, and how to check the bundle is intact:
+  **[user guide § macOS](doc/user-guide/02-installing/03-macos.html)**.
 
 ## Run
 

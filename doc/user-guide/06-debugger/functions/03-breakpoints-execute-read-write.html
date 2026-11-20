@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2524,6 +2524,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#interrupt-and-nmi-breakpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interrupt and NMI breakpoints
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ranges-port-masks-and-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ranges, port masks and conditions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#counting-hits-instead-of-stopping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Counting hits instead of stopping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#saving-and-loading-breakpoints" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4480,7 +4513,7 @@
 
 
 <h1 id="breakpoints-execute-read-write-io">Breakpoints: execute, read, write, I/O<a class="headerlink" href="#breakpoints-execute-read-write-io" title="Permanent link">&para;</a></h1>
-<p>JNEXT has three kinds of breakpoint.</p>
+<p>JNEXT has four kinds of breakpoint.</p>
 <p><strong>Execute</strong> breakpoints fire before the instruction at that address is
 executed. Set one by clicking the disassembly gutter, from the right-click
 menu, from the Breakpoints panel, or from <strong>Breakpoints ▸ Add Execute
@@ -4495,7 +4528,7 @@ address from an immediate or from a register's current contents.</p>
 <p><strong>I/O</strong> breakpoints fire on a port access: <strong>IO Read</strong> on an <code>IN</code>, <strong>IO Write</strong>
 on an <code>OUT</code>. They stop the machine the same way data breakpoints do — after
 the instruction that made the access — and they are set from the Breakpoints
-panel's <strong>Add</strong> dialog, where they are the last two entries in the type list.</p>
+panel's <strong>Add</strong> dialog, as the two entries after Read/Write.</p>
 <p>The address you type is a <em>port</em>, and ZX ports are not addressed like memory:
 an address of <strong>00</strong>–<strong>FF</strong> matches any port with that low byte, and an address
 of <strong>0100</strong> or above matches that exact 16-bit port.</p>
@@ -4510,7 +4543,55 @@ lost.</p>
 <p>Read and write are separate breakpoints; if you want both on a port, add both.
 An I/O breakpoint never fires on a <em>memory</em> access at the same number, and a
 memory breakpoint never fires on a port access.</p>
-<p><strong>Breakpoints ▸ Clear All Breakpoints</strong> removes all three kinds at once.</p>
+<h2 id="interrupt-and-nmi-breakpoints">Interrupt and NMI breakpoints<a class="headerlink" href="#interrupt-and-nmi-breakpoints" title="Permanent link">&para;</a></h2>
+<p><strong>Interrupt</strong> and <strong>NMI</strong> breakpoints fire when the CPU takes a maskable interrupt or a
+non-maskable one. They have no address (the field is greyed out in the dialog) and stop the
+machine at the first instruction of the handler: <code>PC</code> is <code>$0038</code> for an interrupt in
+interrupt mode 1 (the 48K ROM's) and <code>$0066</code> for an NMI. They are the last two entries in the
+Add dialog's type list. A maskable interrupt only happens with interrupts enabled, so on a
+program that never executes <code>EI</code> an Interrupt breakpoint never fires. The Multiface's button is
+one way to raise an NMI. For a single stop at the next interrupt, without leaving a breakpoint
+behind, use <strong>Debug ▸ Run to Next Interrupt</strong>.</p>
+<h2 id="ranges-port-masks-and-conditions">Ranges, port masks and conditions<a class="headerlink" href="#ranges-port-masks-and-conditions" title="Permanent link">&para;</a></h2>
+<p>The Add dialog has three optional fields that narrow a breakpoint.</p>
+<p><strong>To</strong> turns an Execute, Read, Write or Read/Write breakpoint into a <strong>range</strong>: it fires on any address from the
+<em>Address</em> up to <em>To</em>, inclusive. Both can be numbers or symbols, and <em>To</em> may not be below the address. The row's
+Address column reads <code>$8000-$80FF</code>. A range always covers the CPU's address space, never one particular memory: a
+symbol's own memory (<code>$C000 P14</code>) is dropped when <em>To</em> is given. A source line cannot have a <em>To</em>.</p>
+<p><strong>Mask</strong> (the two IO types only, in hex) replaces the address rule above with your own port decode: the breakpoint
+fires when the port number, ANDed with the mask, equals the address. <code>FE</code> with mask <code>FFFF</code> fires only on the exact
+port <code>00FE</code> and not on <code>7FFE</code>, where the plain <code>FE</code> would; mask <code>0000</code> with port <code>0000</code> fires on every port. The row
+reads <code>$00FE/FFFF</code>. The ULA answers <em>every even port</em>, so the plain <code>FE</code> (low byte FE) misses an <code>OUT (0xFC),A</code>;
+port <code>0000</code> with mask <code>0001</code> fires on every ULA access. A port with bits outside the mask could never match and is refused, and so is mask <code>FFFF</code> with
+port <code>0000</code>.</p>
+<p><strong>Condition</strong> is a <a href="../scripting/04-reading-the-machine.html">debugger-script expression</a> such as <code>B == 2</code> or
+<code>A != 0 and mem[0x9000] == 1</code>, written in the names of the breakpoint's own kind (a Read or Write can use <code>ADDR</code>,
+<code>VALUE</code>; a Write also <code>PREV</code>; an IO breakpoint <code>PORT</code>). The breakpoint fires only when the expression is true: the
+machine does not even stop otherwise, and a conditional breakpoint's <strong>Hits</strong> counts only the true hits. The text is
+checked when you press OK: one that does not compile, names something the kind does not carry, or could not be saved
+and read back as the same text (for example one with a <code>;</code> comment or a line break) is refused with the reason, and the
+dialog stays open. If the expression fails while the program runs (a division by zero, a memory read outside the 64 KB),
+the breakpoint simply does not fire, and the row's <strong>Condition</strong> cell shows the error as a tooltip.</p>
+<p>Interrupt and NMI breakpoints take a condition too; count-only works with all of these.</p>
+<p>A range, a port mask or a condition makes a breakpoint of its own, apart from the plain breakpoint at the same address:
+both can exist, as two rows. The disassembly gutter and the Source tab's BP column draw and toggle <strong>plain</strong> breakpoints
+only.</p>
+<h2 id="counting-hits-instead-of-stopping">Counting hits instead of stopping<a class="headerlink" href="#counting-hits-instead-of-stopping" title="Permanent link">&para;</a></h2>
+<p>Every breakpoint has a <strong>Hits</strong> count in the <a href="../panels/08-breakpoints.html">Breakpoints panel</a>: how
+many times it fired since you made it, or since you pressed <strong>Reset Hits</strong>. A stop breakpoint
+counts each time it stops the machine. Tick <strong>Count hits only (don't stop)</strong> in the Add dialog
+and the breakpoint counts and lets the machine run on: the list shows it as <code>Execute (count
+only)</code>. It is the way to ask "how often is this routine called?" or "how many times does the
+frame handler read this variable?" without stepping through every hit. Any type can be
+count-only, Interrupt and NMI included.</p>
+<p>The count is runtime state: Save as Script does not keep it, and a breakpoint you <strong>Edit</strong>
+starts again from 0 (an edit makes a new breakpoint). Disabling a breakpoint stops its counting
+and turning it back on keeps the count; with the <strong>Breakpoints enabled</strong> master switch off
+nothing counts.</p>
+<p>The disassembly gutter and the Source tab's BP column draw only plain (stopping) breakpoints,
+so a count-only breakpoint is never drawn there. Clicking the gutter on its line adds a plain
+breakpoint beside it, and the two are separate rows.</p>
+<p><strong>Breakpoints ▸ Clear All Breakpoints</strong> removes all four kinds at once.</p>
 <h2 id="saving-and-loading-breakpoints">Saving and loading breakpoints<a class="headerlink" href="#saving-and-loading-breakpoints" title="Permanent link">&para;</a></h2>
 <p><strong>Breakpoints ▸ Save as Script…</strong> writes the debugger window's own breakpoints to a
 <code>.jds</code> file (the <a href="../scripting/index.html">debugger scripting language</a>), and
@@ -4522,13 +4603,21 @@ disabled bp2: on read_write 0x9000 do stop end
 bp3: on io_read 0xFE do stop end
 bp4: on execute &quot;main.bas:10&quot; do stop end
 bp5: on execute @banked do stop end
+bp6: on interrupt do stop end
+bp7: on nmi do stop end
+bp8: on execute 0x8100 do end
+bp9: on write 0x9000..0x90FF do stop end
+bp10: on io_read mask 0xFFFF value 0x00FE do stop end
+bp11: on execute 0x8002 when B == 2 do stop end
 </code></pre>
-<p>The file keeps each breakpoint's type, address and <strong>On</strong> state. A source-line breakpoint is
+<p>The file keeps each breakpoint's type, address (or range, port mask and condition: <code>on read 0x9000..0x90FF</code>,
+<code>on io_read mask 0xFFFF value 0x00FE</code>, <code>... when B == 2 do stop end</code>), <strong>On</strong> state and whether it is count-only (a rule with an empty body,
+<code>do end</code>: the engine counts its hits and does not stop; <code>jnext --script FILE</code> runs it the same way). A source-line breakpoint is
 written as its line, so it arms every place the line compiled to when you load it. An Execute
 breakpoint tied to the memory its code lives in (<code>$C000 P14</code> in the list) is written as the
 symbol that names that address in that memory, so loading it needs the same symbols
 loaded first.</p>
-<p>A breakpoint that has no faithful spelling is <strong>left out, never written approximately</strong>:
+<p>A condition is written exactly as typed, on one line. A breakpoint that has no faithful spelling is <strong>left out, never written approximately</strong>:
 the file gets a <code>; not saved:</code> comment where it would have been, and one warning box lists
 what was left out. That happens to a qualified Execute breakpoint no symbol names, to a source
 line that was partly removed in the Disassembly or that the loaded source map no longer
@@ -4537,8 +4626,8 @@ another client (GDB, ZRCP, DZRP, a script) set, and the master switch.</p>
 <p><strong>Load adds to the breakpoints you have</strong>; it does not replace them (use <strong>Clear All
 Breakpoints</strong> first for that). A breakpoint that already exists takes the <strong>On</strong> state
 the file gives it, and a source line that is already armed on the same places is not added
-twice. A file is loaded whole or not at all: anything that is not a plain breakpoint (a
-condition, a range, <code>once</code>, a message, other events) is refused with the line and column,
+twice. A file is loaded whole or not at all: anything that is not one of these breakpoints (<code>once</code>, a message, <code>log</code> or other actions, a <code>page</code> qualifier,
+an IO range, a condition over several lines or one that does not check for its kind, other events than the ones the panel has) is refused with the line and column,
 and nothing is added. The same file runs from the command line with <code>jnext --script FILE</code>.</p>
 <h2 id="turning-them-off-instead-of-deleting-them">Turning them off instead of deleting them<a class="headerlink" href="#turning-them-off-instead-of-deleting-them" title="Permanent link">&para;</a></h2>
 <p>Each row of the <a href="../panels/08-breakpoints.html">Breakpoints panel</a> carries an
@@ -4552,7 +4641,7 @@ whichever route you create them from.</p>
 red ring rather than a filled dot, so it is still visible and still obviously
 not armed. Stepping and <strong>Run to Here</strong> are unaffected by the master switch.</p>
 <h2 id="closing-the-debugger-window-disarms-them">Closing the debugger window disarms them<a class="headerlink" href="#closing-the-debugger-window-disarms-them" title="Permanent link">&para;</a></h2>
-<p>All three kinds are checked only while the debugger window is <strong>open</strong>. Close it
+<p>All four kinds are checked only while the debugger window is <strong>open</strong>. Close it
 and your breakpoints stay in the list but nothing stops at them — the
 emulator skips the check entirely so that a machine nobody is watching runs
 at full speed.</p>
