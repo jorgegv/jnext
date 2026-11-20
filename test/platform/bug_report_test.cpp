@@ -263,6 +263,8 @@ Report make_report(Session& s, const bug_report::Inputs& in = inputs()) {
 constexpr size_t kWindow = 32;
 
 bool is_fill_window(const uint8_t* p) {
+    std::set<uint8_t> distinct(p, p + kWindow);
+    if (distinct.size() < 8) return true;   // tables and padding: a register file can equal one
     for (size_t period = 1; period <= 4; ++period) {
         bool same = true;
         for (size_t i = 0; i + period < kWindow; ++i)
