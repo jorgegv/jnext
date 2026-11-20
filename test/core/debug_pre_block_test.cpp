@@ -159,9 +159,15 @@ int main() {
         r.ds().resume();
         const bool step_off = r.live() && r.eq();           // the GH #221 step-off is pending
         r.emu->run_frame();                                   // the block consumes it
-        check("PRB-05", "a pause makes the block live; after the resume the pending step-off keeps it live until the first instruction consumes it, then idle",
-              paused && step_off && !r.live() && r.eq() && !r.ds().paused(),
-              b2s(paused) + b2s(step_off) + " live=" + b2s(r.live()));
+        // The consume itself (what the block's first instruction does) ends the liveness at once,
+        // not at the next frame boundary's gate refresh.
+        Rig c;
+        c.ds().pause();
+        c.ds().resume();
+        const bool consumed = c.ds().consume_step_off() && !c.live() && c.eq();
+        check("PRB-05", "a pause makes the block live; after the resume the pending step-off keeps it live until the first instruction consumes it, then idle (at once, and after a frame)",
+              paused && step_off && !r.live() && r.eq() && !r.ds().paused() && consumed,
+              b2s(paused) + b2s(step_off) + " live=" + b2s(r.live()) + " consumed=" + b2s(consumed));
     }
 
     // PRB-06 - every step mode.
