@@ -15,8 +15,17 @@ window looks like and how to drive it, see chapter 6 of the user guide,
 `MainWindow::set_debugger()`. It is two clients of it.
 
 **The window's client** is attached exactly while the debugger window is open.
-Opening the window attaches it, requests the live raster and turns call-stack
-tracking on. Closing it resumes a paused machine — whoever paused it — and
+Opening the window attaches it. What it then asks of the backend follows what is
+on show (`DebuggerManager::apply_data_needs()`): call tracking while the Call Stack or
+Variables panel is on show or a source Step Over or Step Out runs, and the live raster
+while the Video panel is. Each request is sent only when it changes, from
+`DebuggerWindow::panels_on_show_changed`, which fires once per change of a tab
+widget's current page. `DebuggerWindow::panel_on_show()` is the one answer: a panel is
+on show when the window is open and its tab is current. It is never `isVisible()`, which
+stays true for a page or dock hidden behind another; a window that holds its panels as
+docks answers from each dock's visibility change instead. A source-map load that
+carries C variable records keeps tracking on whatever the window asks.
+Closing it resumes a paused machine — whoever paused it — and
 detaches. Every verb the window issues is attributed to this client. It is not
 attached for the life of the process, because an attach arms the machine, and a
 window that armed breakpoints while closed would make `--persistent-breakpoints`

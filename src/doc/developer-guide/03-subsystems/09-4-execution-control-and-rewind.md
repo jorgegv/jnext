@@ -16,6 +16,7 @@ breakpoint and the magic port.
 | Bit | Is | Gates |
 |---|---|---|
 | `armed()` | `clients_attached_ \|\| persistent_ \|\| replay_armed_ \|\| magic_hold_ \|\| verify_hold_` | the per-instruction breakpoint and event tests, the boundary drain |
+| `pre_block_live()` | `armed()` and (a pause, a verify window, a pending step-off, a step mode, an `Execute` subscription, or a live PC or one-shot breakpoint) | the per-instruction armed block of `run_frame()` itself: an attached client with nothing live skips it |
 | `attached()` | an arming client is attached | the step machinery: `OUT`, `STEP_BACK`, `RUN_BACK_TO_CYCLE` |
 | `raster_live()` | some client asked for the live raster | the render-every-frame hint and `video_timing_.advance()` |
 | `watchpoints_live()` | `armed()` and `guest_access_` | every memory and port watch site |
@@ -25,6 +26,15 @@ program (`set_verify_window()`, [3.9.1](09-1-the-backend-api.md)): it arms the m
 only for that, so a headless run with a tape map pays the armed block's tests until the
 program first runs its code, then nothing. `SuspendScope` saves and clears it like
 `magic_hold_`.
+
+`pre_block_live()` is the one gate that is not a pure function of `refresh_gates_()`: it is
+`armed()` and (`pre_extra_` or `BreakpointSet::exec_live()`). `pre_extra_` is recomputed by
+`recompute_pre_extra_()` at every writer of its five inputs (the pause, the resume, each step mode,
+`consume_step_off()`, the event gates, `refresh_gates_()` and `SuspendScope`); `exec_live()` is two plain bools kept by
+`rebuild_live_()` and the one-shot setters, so the PC breakpoint's hash lookup is not paid per instruction. A
+writer added tomorrow must call `recompute_pre_extra_()`; `debug_pre_block_test` holds the cached bit to a
+recomputation from the raw inputs after each mutator, and the machine hashes the same with the block skipped
+and run.
 
 [3.9.3](09-3-sessions-the-pump-and-reconstruct.md) describes where the arm bits
 come from. Unarmed, the default configuration executes one load and one branch

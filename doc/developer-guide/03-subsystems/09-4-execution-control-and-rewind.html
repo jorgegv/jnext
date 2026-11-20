@@ -3078,6 +3078,11 @@ breakpoint and the magic port.</p>
 <td>the per-instruction breakpoint and event tests, the boundary drain</td>
 </tr>
 <tr>
+<td><code>pre_block_live()</code></td>
+<td><code>armed()</code> and (a pause, a verify window, a pending step-off, a step mode, an <code>Execute</code> subscription, or a live PC or one-shot breakpoint)</td>
+<td>the per-instruction armed block of <code>run_frame()</code> itself: an attached client with nothing live skips it</td>
+</tr>
+<tr>
 <td><code>attached()</code></td>
 <td>an arming client is attached</td>
 <td>the step machinery: <code>OUT</code>, <code>STEP_BACK</code>, <code>RUN_BACK_TO_CYCLE</code></td>
@@ -3099,6 +3104,14 @@ program (<code>set_verify_window()</code>, <a href="09-1-the-backend-api.html">3
 only for that, so a headless run with a tape map pays the armed block's tests until the
 program first runs its code, then nothing. <code>SuspendScope</code> saves and clears it like
 <code>magic_hold_</code>.</p>
+<p><code>pre_block_live()</code> is the one gate that is not a pure function of <code>refresh_gates_()</code>: it is
+<code>armed()</code> and (<code>pre_extra_</code> or <code>BreakpointSet::exec_live()</code>). <code>pre_extra_</code> is recomputed by
+<code>recompute_pre_extra_()</code> at every writer of its five inputs (the pause, the resume, each step mode,
+<code>consume_step_off()</code>, the event gates, <code>refresh_gates_()</code> and <code>SuspendScope</code>); <code>exec_live()</code> is two plain bools kept by
+<code>rebuild_live_()</code> and the one-shot setters, so the PC breakpoint's hash lookup is not paid per instruction. A
+writer added tomorrow must call <code>recompute_pre_extra_()</code>; <code>debug_pre_block_test</code> holds the cached bit to a
+recomputation from the raw inputs after each mutator, and the machine hashes the same with the block skipped
+and run.</p>
 <p><a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a> describes where the arm bits
 come from. Unarmed, the default configuration executes one load and one branch
 per instruction, so "the debugger costs nothing when closed" is a claim about a
