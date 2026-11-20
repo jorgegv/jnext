@@ -11,7 +11,7 @@ measurements of the real distribution; revision 4, 2026-11-20: round 4's false-p
 measured, with the clean-corpus remedy; revision 5, 2026-11-20: round 5's two findings, the clean
 corpus made code-only and the false-positive count re-measured per source; review round 6
 approved; the owner answered every question on 2026-11-20; see the last section). Nothing in this
-plan is started. #492 is an epic (Q1), on the branch `epic492-bug-report-bundle`: the sub-issues
+plan is started. When the work resumes, #492 is an epic (Q1), on the branch `epic492-bug-report-bundle`: the sub-issues
 of the task list (titled `epic-492: ...`) branch off it and merge back into it, and the epic
 reaches `main` in one merge (CLAUDE.md, merge protocol step 1).
 
@@ -113,7 +113,7 @@ what can run at once.
 #### Sub-issue 11: Preferences panel, configuration keys and CLI
 
 - [ ] **B4.3** Preferences > Bug Reports panel (rolling recording, memory cap, checkpoint interval, include the program, include the log) and, in the same change, its `bug_report.*` rows in `config_keys.cpp` with their dedicated flags (project rule)
-- [ ] **B4.4** `--bug-report-record FILE|DIR` (a directory gets the default name `<name>.YYYYMMDDhhmm.jnext-bug.zip`, Q5), `--bug-report-play`, `--bug-report-info` and the rest of the option set of section 7; man page; `make cli-check`
+- [ ] **B4.4** `--bug-report-record FILE|DIR` (the pattern `<name>.YYYYMMDDhhmm.jnext-bug.zip` is Q5's; the directory form, which then uses that default name, is the planner's interpretation, for the owner to confirm), `--bug-report-play`, `--bug-report-info` and the rest of the option set of section 7; man page; `make cli-check`
 - [ ] **B4.5** SDL-only frontend and `--headless` parity: record, save at exit, replay, the same exit statuses
 
 ### Phase B5: end-to-end proof and documentation
@@ -129,7 +129,7 @@ what can run at once.
 
 - [ ] **B5.5** User guide page "Reporting a bug with a bundle", man page sections, developer guide chapter (the seams, the log, the card capture, the replay), FEATURES.md
 
-### Phase B6: later (filed, after the v1 sub-issues)
+### Phase B6: later (B6.3 by Q10; B6.1 and B6.2 by the planner's scheduling, for the owner to confirm; not filed: #492 is parked)
 
 #### Sub-issue 14: keyframes (later: the planner's scheduling, for the owner to confirm; Q3 decided: local cache, and shipped keyframes for `--no-sdcard` only)
 
@@ -1182,8 +1182,8 @@ Writer and reader as section 4, through `zip_archive`. The reader validates the 
 the members, applies the version rules of section 8 and builds the privacy summary that the save
 dialog, the open dialog and `--bug-report-info` share.
 
-Tests: `bundle_file_test`, BRB-FILE-01.. : the default name, through a test clock seam (a fixed
-local time): `game.nex` saved at 2026-11-20 05:51 is `game.202611200551.jnext-bug.zip`, no program
+Tests: `bundle_file_test`, BRB-FILE-01.. : the default name (the section 4 interpretation, for the
+owner to confirm), through a test clock seam (a fixed local time): `game.nex` saved at 2026-11-20 05:51 is `game.202611200551.jnext-bug.zip`, no program
 gives `jnext.202611200551.jnext-bug.zip`, a name with spaces and non-ASCII characters is reduced
 to the allowed set, a second save in the same minute gets `-2`, an existing file is never
 overwritten, and a bundle renamed to anything is still recognised by its manifest while a plain
