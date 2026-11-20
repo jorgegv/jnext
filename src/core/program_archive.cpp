@@ -414,8 +414,30 @@ bool ProgramArchive::extract_program(const std::string& member, ScratchDir& scra
     std::map<std::string, std::string> file_by_lower, dir_origin_by_lower;
     uint64_t total = 0;
     auto lower_rel = [](const std::string& r) { return lower(r); };
-    auto add_dir = [&](const std::string& rel, const std::string& origin) {
-        if (dir_origin_by_lower.emplace(lower_rel(rel), origin).second) dirs.push_back(rel);
+    // A directory spelled in two cases is ONE directory, written under the spelling seen first, so the
+    // same archive extracts alike on a case-sensitive and a case-insensitive host. Registers every
+    // prefix of `dpath` and returns it with each component in its first-seen spelling.
+    std::map<std::string, std::string> canon_of;                // lower path -> first-seen path
+    auto canon_dir = [&](const std::string& dpath, const std::string& origin) {
+        std::string cur, curl;
+        size_t i = 0;
+        while (!dpath.empty() && i <= dpath.size()) {
+            size_t j = dpath.find('/', i);
+            if (j == std::string::npos) j = dpath.size();
+            const std::string c = dpath.substr(i, j - i);
+            curl += "/" + lower(c);
+            const auto it = canon_of.find(curl);
+            if (it != canon_of.end()) {
+                cur = it->second;
+            } else {
+                cur += (cur.empty() ? "" : "/") + c;
+                canon_of[curl] = cur;
+                dir_origin_by_lower.emplace(lower(cur), origin);
+                dirs.push_back(cur);
+            }
+            i = j + 1;
+        }
+        return cur;
     };
     for (const auto& e : reader_.entries()) {
         if (is_junk(e.name)) continue;
@@ -435,17 +457,11 @@ bool ProgramArchive::extract_program(const std::string& member, ScratchDir& scra
                   " bytes, over the " + std::to_string(EsxdosHostFs::kMaxPath) + "-byte limit";
             return false;
         }
-        // Parent directories of this member, then the member itself.
-        std::string parent;
+        // Parent directories of this member (first-seen spelling), then the member itself.
         const size_t last = e.is_directory() ? std::string::npos : rel.rfind('/');
         const std::string dpath = e.is_directory() ? rel : (last == std::string::npos ? "" : rel.substr(0, last));
-        for (size_t i = 0; i <= dpath.size() && !dpath.empty();) {
-            size_t j = dpath.find('/', i);
-            if (j == std::string::npos) j = dpath.size();
-            parent = dpath.substr(0, j);
-            add_dir(parent, e.name);
-            i = j + 1;
-        }
+        const std::string cdir = canon_dir(dpath, e.name);
+        if (!e.is_directory()) rel = (cdir.empty() ? "" : cdir + "/") + rel.substr(last == std::string::npos ? 0 : last + 1);
         if (e.is_directory()) continue;
         const auto ins = file_by_lower.emplace(lower_rel(rel), e.name);
         if (!ins.second) {

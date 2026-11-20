@@ -25,6 +25,7 @@
 #include "../test_portable.h"
 #include "../zip_fixture.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -417,6 +418,44 @@ size_t count_named(const fs::path& root, const std::string& name) {
             check("ZDIR-22", "the junk members __MACOSX/game/x and game/._L1.BIN are not written",
                   ex && tree_files(slot) == 3 && !fs::exists(slot / "._L1.BIN") && !fs::exists(slot / "__MACOSX"),
                   why);
+        }
+        {
+            // A directory spelled in two cases is one directory, under the spelling seen first: the tree
+            // is the same on a case-sensitive host (Linux, MEMFS) and a case-insensitive one.
+            pa::ProgramArchive a, b, c; std::string w1, w2, w3, o1, o2, o3;
+            pa::ScratchDir sc(dd + "/scr23");
+            const bool p1 = open_zip(a, {mem("game/G.NEX", nexb), mem("game/data/a.bin", l1), mem("game/DATA/b.bin", sfx)}, w1);
+            Member d; d.name = "game/Data/"; d.method = 0;
+            const bool p2 = open_zip(b, {mem("game/G.NEX", nexb), d, mem("game/data/b.bin", sfx), mem("game/DATA/sub/c.bin", l1)}, w2);
+            const bool p3 = open_zip(c, {mem("game/G.NEX", nexb), mem("game/data/a.bin", l1), mem("game/Data/a2.bin", sfx)}, w3);
+            const bool e1 = p1 && a.extract_program("game/G.NEX", sc, o1, w1);
+            const bool e2 = p2 && b.extract_program("game/G.NEX", sc, o2, w2);
+            const bool e3 = p3 && c.extract_program("game/G.NEX", sc, o3, w3);
+            const fs::path s1 = e1 ? fs::path(o1).parent_path() : fs::path();
+            const fs::path s2 = e2 ? fs::path(o2).parent_path() : fs::path();
+            const fs::path s3 = e3 ? fs::path(o3).parent_path() : fs::path();
+            auto names = [](const fs::path& r) {
+                std::vector<std::string> v; std::error_code e;
+                for (fs::recursive_directory_iterator it(r, e), end; !e && it != end; it.increment(e))
+                    v.push_back(fs::relative(it->path(), r).generic_string());
+                std::sort(v.begin(), v.end());
+                return v;
+            };
+            const std::vector<std::string> want1 = {"G.NEX", "data", "data/a.bin", "data/b.bin"};
+            const std::vector<std::string> want2 = {"Data", "Data/b.bin", "Data/sub", "Data/sub/c.bin", "G.NEX"};
+            const std::vector<std::string> want3 = {"G.NEX", "data", "data/a.bin", "data/a2.bin"};
+            check("ZDIR-23", "a directory spelled in two cases (implicit, explicit entry first, nested) extracts under its first-seen spelling, every file in it",
+                  e1 && e2 && e3 && names(s1) == want1 && names(s2) == want2 && names(s3) == want3 &&
+                      slurp((s1 / "data" / "b.bin").string()) == sfx && slurp((s2 / "Data" / "sub" / "c.bin").string()) == l1,
+                  w1 + " | " + w2 + " | " + w3);
+        }
+        {
+            // choose(): a second NEX anywhere (here below the first) makes the archive ambiguous.
+            pa::ProgramArchive a; std::string why, mem_;
+            const bool ok = open_zip(a, {mem("G.NEX", nexb), mem("sub/X.NEX", nexb), mem("data/a.bin", l1)}, why);
+            const bool ch = ok && a.choose(mem_, why);
+            check("ZDIR-24", "a NEX with a second NEX in a subdirectory below it is refused by choose() with the several-programs text",
+                  ok && !ch && mem_.empty() && why == a.several_why() && has(why, "G.NEX") && has(why, "sub/X.NEX"), why);
         }
     }
 }

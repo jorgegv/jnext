@@ -1083,6 +1083,21 @@ int main(int argc, char** argv) {
                   fmt("seen=%d items=%s n=%d path=%s", in.seen, q(in.items.join(",")).c_str(), h.n,
                       h.path.c_str()));
         }
+        // ZIPG-20
+        {
+            Fixture f; Handed h; hook(f, h);
+            InputWatcher in; in.pick = "G.NEX";
+            const std::string zp = write_zip("nexsfx.zip", {zmem("G.NEX", nex), zmem("data/SFX.TAP", Bytes(8, 3))});
+            f.win.handle_load_path(QString::fromStdString(zp));
+            in.stop();
+            const std::filesystem::path dir = std::filesystem::path(h.path).parent_path();
+            check("ZIPG-20",
+                  "a NEX whose only other program is game data below it (data/SFX.TAP) loads without a question: "
+                  "the NEX is handed over with data/SFX.TAP beside it",
+                  f.ok && in.seen == 0 && h.n == 1 && std::filesystem::path(h.path).filename() == "G.NEX" &&
+                      slurp((dir / "data" / "SFX.TAP").string()) == Bytes(8, 3),
+                  fmt("seen=%d n=%d path=%s", in.seen, h.n, h.path.c_str()));
+        }
     }
 
     // GH #408 - Tape > Eject, the menu action: MainWindow::on_tape_eject() must

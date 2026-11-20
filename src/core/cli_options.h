@@ -556,15 +556,16 @@ inline constexpr Option OPTIONS[] = {
       "Answer a few RST $08 esxDOS calls (version, one in-memory\n"
       "file, .RUN sibling NEX) for any program; a directly loaded\n"
       "NEX gets more automatically, and with no --esxdos-stub-root\n"
-      "its own directory is served read-only (a NEX from a .zip\n"
-      "gets its directory in the archive with no flag at all). Not for use with\n"
-      "NextZXOS" },
+      "its own directory is served read-only. A NEX from a .zip\n"
+      "that holds its data files gets its directory in the\n"
+      "archive with no flag at all. Not for use with NextZXOS" },
     { "--esxdos-stub-root", 1, Doc::Documented, OptId::EsxdosStubRoot,
       "DIR",
       "Serve host directory DIR to the guest through the esxDOS\n"
       "file and directory calls, instead of the single in-memory\n"
       "file. Overrides the default root, the directory of the\n"
-      "loaded NEX. Implies --esxdos-stub. Read-only unless\n"
+      "loaded NEX, and the directory of a NEX from a .zip that\n"
+      "holds its data files. Implies --esxdos-stub. Read-only unless\n"
       "--esxdos-stub-writable is also given.\n"
       "SEEN BY: a NEX loaded with --load, and dot commands.\n"
       "NOT SEEN BY: NextZXOS - its Browser, file selector, BASIC\n"
