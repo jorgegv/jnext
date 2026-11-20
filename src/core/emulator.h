@@ -2045,7 +2045,7 @@ private:
     /// state_documents() both call it.
     void stage_jns_exceptions_();
 
-    // GH #492 — see ram_withheld() and program_files().
+    // GH #492: see ram_withheld() and program_files().
     RamWithheld              ram_withheld_ = RamWithheld::CardSession;
     std::vector<ProgramFile> program_files_;
     /// Record `path` as a program file loaded now (replacing the same path).
