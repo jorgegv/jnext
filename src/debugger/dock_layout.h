@@ -7,7 +7,8 @@
 // removed from jnext.conf): it is this grammar, tokens separated by single
 // spaces, with no character a QSettings INI file would quote (, ; = " \ #).
 //
-//   layout = "v1" { area } { float } { closed }
+//   layout = "v1" { area | float | closed }      input order is free; format() is canonical:
+//                                              areas, then floats, then closed
 //   area   = AREA ORIENT INT group { group }   AREA = left | right | top | bottom
 //                                              ORIENT = v | h
 //                                              INT = the area's thickness (width of a
@@ -35,7 +36,6 @@
 // configuration (the window_attach.h precedent).
 
 #include <cstddef>
-#include <cstdlib>
 #include <optional>
 #include <string>
 #include <vector>
@@ -322,12 +322,12 @@ inline Layout complete(Layout l)
         bool added = false;
         for (const auto& mate : dgroup->tabs) {
             if (mate == id || !detail::docked(l, mate)) continue;
-            for (auto& ln : l.lines) {
+            Group* holder = nullptr;
+            for (auto& ln : l.lines)
                 for (auto& g : ln.groups)
                     for (const auto& t : g.tabs)
-                        if (t == mate) { g.tabs.push_back(id); added = true; break; }
-                if (added) break;
-            }
+                        if (t == mate) holder = &g;
+            if (holder) { holder->tabs.push_back(id); added = true; }
             break;
         }
         if (added) continue;

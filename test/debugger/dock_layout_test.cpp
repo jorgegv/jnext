@@ -98,8 +98,11 @@ int main()
             "top v 60 tabs 12 audio *script "
             "float memory -20 30 300 200 float cpu 5 6 7 8 closed nextreg closed symbols";
         const auto l = parse(t);
-        check("DLAY-03", "a text using every production formats back byte-identical",
-              l.has_value() && format(*l) == t, l ? format(*l) : "refused");
+        const std::string tb = "v1 float memory -32768 32767 32767 32767 float cpu 32767 -32768 1 1";
+        const auto lb = parse(tb);
+        check("DLAY-03", "a text using every production formats back byte-identical; X/Y/W/H bounds accepted",
+              l.has_value() && format(*l) == t && lb.has_value() && format(*lb) == tb,
+              l ? format(*l) : "refused");
     }
 
     // DLAY-04
@@ -132,6 +135,16 @@ int main()
             "v1 closed",                                       // closed without an ID
             "v1 closed left",                                  // a keyword as an ID
             "v1 float memory 99999999 2 3 4",                  // number too long
+            "v1 left v 000001 tabs 0 *video",                  // in range but 6 digits
+            "v1 left v - tabs 0 *video",                       // a lone minus
+            "v1 left v +1 tabs 0 *video",                      // a plus sign
+            "v1 float memory -32769 0 1 1",                    // X below range
+            "v1 float memory 0 32768 1 1",                     // Y above range
+            "v1 float memory 0 -32769 1 1",                    // Y below range
+            "v1 float memory 32768 0 1 1",                     // X above range
+            "v1 float memory 1 2 3 0",                         // H = 0
+            "v1 float tabs 1 2 3 4",                           // a keyword as the float ID
+            "v1 float left 1 2 3 4",
         };
         std::string which;
         for (const char* b : bad) if (parse(b).has_value()) which += std::string("[") + b + "]";
@@ -159,7 +172,12 @@ int main()
         const bool ok_b = b && b->floats.size() == 1 && b->floats[0].id == "sprites" &&
                           b->closed.empty() && b->lines.size() == 1 &&
                           b->lines[0].groups[0].tabs == std::vector<std::string>{"video"};
-        check("DLAY-07", "an ID named twice keeps its first place in the text", ok_a && ok_b);
+        const auto c = parse("v1 left v 0 tabs 0 *video closed sprites");
+        const bool ok_c = c && c->closed == std::vector<std::string>{"sprites"} &&
+                          c->lines.size() == 1 &&
+                          c->lines[0].groups[0].tabs == std::vector<std::string>{"video"};
+        check("DLAY-07", "an ID named twice keeps its first place in the text; closed ends a group",
+              ok_a && ok_b && ok_c);
     }
 
     // DLAY-08
@@ -184,9 +202,13 @@ int main()
         // mmu missing while cpu is docked: still its own new group, not a tab of cpu's.
         const std::string cd = join({kLeft, "right v 0 tabs 0 *cpu", kBottom});
         const std::string r4 = format(complete(*parse(cd)));
+        // a missing bottom line is created horizontal.
+        // the whole bottom area absent: its line is created horizontal, and the panels regroup as the default.
+        const std::string nb2 = join({kLeft, kRight});
+        const std::string r6 = format(complete(*parse(nb2)));
         check("DLAY-08", "complete() adds a missing panel at its default place",
-              r1 == kLiteralDefault && r2 == e2 && r3 == e3 && r4 == kLiteralDefault,
-              r1 + " | " + r2 + " | " + r3 + " | " + r4);
+              r1 == kLiteralDefault && r2 == e2 && r3 == e3 && r4 == kLiteralDefault && r6 == kLiteralDefault,
+              r1 + " | " + r2 + " | " + r3 + " | " + r4 + " | " + r6);
     }
 
     // DLAY-09
@@ -213,9 +235,20 @@ int main()
     // DLAY-11
     {
         const std::string t3 = "v1 left h 420 tabs 300 *video sprites float memory -20 30 300 200 closed nextreg";
-        check("DLAY-11", "default and formatted texts hold none of , ; = \" \\ # and no stray blank",
+        // hand-edited whitespace (TAB, runs of blanks, CR LF) formats back canonically
+        const auto ws = parse(" v1\tleft  v 0\ttabs 0 *video\r\n sprites ");
+        const bool ws_ok = ws && format(*ws) == "v1 left v 0 tabs 0 *video sprites";
+        // format() never writes an out-of-range shown index: it marks the first tab
+        Layout cl;
+        AreaLine al; al.area = Area::Left;
+        Group cg; cg.tabs = {"video", "sprites"}; cg.shown = 99;
+        al.groups.push_back(cg);
+        cl.lines.push_back(al);
+        const bool clamp_ok = format(cl) == "v1 left v 0 tabs 0 *video sprites";
+        check("DLAY-11", "default and formatted texts hold none of , ; = \" \\ # and no stray blank; whitespace and shown-index clamp canonical",
               no_forbidden(kLiteralDefault) && no_forbidden(kDefaultLayoutText) &&
-              no_forbidden(format(default_layout())) && no_forbidden(format(*parse(t3))),
+              no_forbidden(format(default_layout())) && no_forbidden(format(*parse(t3))) &&
+              ws_ok && clamp_ok,
               format(*parse(t3)));
     }
 
