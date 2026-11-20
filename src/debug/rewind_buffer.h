@@ -175,6 +175,10 @@ private:
         /// depth and every reader of `call_stack()` see calls that, after the
         /// rewind, have not happened yet.
         std::vector<CallFrame> call_frames;
+        /// GH #498: the tracker was on at the snapshot. With the debugger window open it is on
+        /// only while a panel needs it, so a snapshot can hold an EMPTY list for a machine that
+        /// is inside calls; a restore into a tracked present rebuilds from the stack instead.
+        bool call_stack_tracked = false;
         /// The debugger's load generation at the snapshot (GH #342): which
         /// program load the history behind this slot belongs to. Host-side,
         /// not in the serialised stream; set back before `load_state()`.

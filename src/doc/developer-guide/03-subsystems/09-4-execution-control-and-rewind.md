@@ -209,7 +209,11 @@ Each slot also keeps the call-stack tracker's frames and the debugger's load
 generation (`DebugState::load_generation()`), which are debugger side state and
 not in the serialised stream; a restore puts them back (the generation before
 `load_state()`, so the machine-replaced hook sees it), and the replay re-runs the
-tracker's hooks up to the target. Any other replacement of the
+tracker's hooks up to the target. A slot also records whether the tracker was on when it
+was taken: with the debugger window open it is on only while a panel needs it, so a slot
+taken with it off holds no frames for a machine that may be inside calls. A restore with
+the tracker on now and the slot untracked rebuilds the frames from the restored stack
+(`CallStack::reconstruct()`, marked rebuilt) instead of restoring the empty list. Any other replacement of the
 machine — a state loaded from outside the ring (a bookmark, a DZRP or ZRCP
 restore, a snapshot) or a reset — empties the tracker
 (`Emulator::debug_after_machine_transition_()`): that state carries no call
