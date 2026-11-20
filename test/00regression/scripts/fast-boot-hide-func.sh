@@ -25,7 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      so G's black is not vacuous.
 #   I  the SDL-only build, as G but with no grab inside the window (an `import` of that window hangs
 #      the X server, see the call below); the black frame is pinned by sdl_app_tick_test.
-#   I2 the SDL-only build, as H.
+#   I2 the SDL-only build, as H but, like I, with no grab inside the window.
 #   J  Qt, the SAVED preference (jnext.conf [startup] fast_boot_seconds=2 and
 #      fast_boot_hide_screen=true, no command-line setting): the extra log line, the window
 #      ends by time up, and half a second after the soft reset (at normal speed) it is not black.
@@ -71,17 +71,19 @@ if want fast-boot-hide-func; then
                 sleep 0.05
             done
             if [ "$mode" = window ] || [ "$mode" = nomid ]; then
-                # Freeze the emulator at the firmware soft reset, still inside the window, and grab
-                # the frozen window: a stopped process cannot finish fast boot under the grab.
-                for _ in $(seq 1 6000); do
-                    grep -qF "soft-reset" "$log" 2>/dev/null && break
-                    sleep 0.02
-                done
-                kill -STOP "$pid" 2>/dev/null
-                if [ "$mode" = window ] && [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null; then
-                    import -window "$wid" "png:$pre-mid-1.png" 2>/dev/null || true
+                if [ "$mode" = window ]; then
+                    # Freeze the emulator at the firmware soft reset, still inside the window, and grab
+                    # the frozen window: a stopped process cannot finish fast boot under the grab.
+                    for _ in $(seq 1 6000); do
+                        grep -qF "soft-reset" "$log" 2>/dev/null && break
+                        sleep 0.02
+                    done
+                    kill -STOP "$pid" 2>/dev/null
+                    if [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null; then
+                        import -window "$wid" "png:$pre-mid-1.png" 2>/dev/null || true
+                    fi
+                    kill -CONT "$pid" 2>/dev/null
                 fi
-                kill -CONT "$pid" 2>/dev/null
                 for _ in $(seq 1 600); do
                     grep -qF "fast boot: ended" "$log" 2>/dev/null && break
                     sleep 0.2
@@ -136,7 +138,11 @@ if want fast-boot-hide-func; then
             fh_not_black "$post" || fh_faults+=("$label: the window stayed black after fast boot ended (max=${post:-unreadable})")
         else
             if fh_has "$pre.log" "$fh_black_line"; then fh_faults+=("$label: the black line without the setting"); fi
-            [[ $lit -gt 0 ]] || fh_faults+=("$label: the control never showed a real screen inside the window ($n captures): the capture sees nothing")
+            if [[ "$grab" == 1 ]]; then
+                [[ $lit -gt 0 ]] || fh_faults+=("$label: the control never showed a real screen inside the window ($n captures): the capture sees nothing")
+            else
+                fh_not_black "$post" || fh_faults+=("$label: the control window is black after fast boot ended (max=${post:-unreadable})")
+            fi
         fi
     }
 
@@ -152,14 +158,15 @@ if want fast-boot-hide-func; then
         rm -f "$fh_conf"
         fh_phase G  "$JNEXT"   g  1 1
         fh_phase H  "$JNEXT"   h  0 1
-        # I: no grab inside the window. An `import` of the SDL window while its only presented frame
-        # is the held black one hangs the X server (measured: the app and `import` both stall until
-        # the row's timeout; the same grab of the control window, which presents on every tick, is
-        # fine). The SDL black frame is pinned by sdl_app_tick_test SDLT-15..17; here I checks the
-        # wiring (--set reaches the arming in the SDL-only binary: the log line) and the real
-        # screen after the window ends.
+        # I, I2: no grab and no SIGSTOP inside the window. An `import` of the SDL window while its only
+        # presented frame is the held black one stalled the app and the X server until the row's
+        # timeout, and a SIGSTOP/SIGCONT of the SDL process ends in "XIO: fatal IO error 4/11" now and
+        # then (both measured; Qt is fine with both). The SDL black frame is pinned by
+        # sdl_app_tick_test SDLT-15..17; here I checks the wiring (--set reaches the arming in the
+        # SDL-only binary: the log line) and the real screen after the window ends, I2 the same
+        # without the setting.
         fh_phase I  "$fh_sdl"  i  1 0
-        fh_phase I2 "$fh_sdl"  i2 0 1
+        fh_phase I2 "$fh_sdl"  i2 0 0
 
         # --- J: Qt, the saved preference, ended by time up ---
         printf '[startup]\nfast_boot_seconds=2\nfast_boot_hide_screen=true\n' > "$fh_conf"
