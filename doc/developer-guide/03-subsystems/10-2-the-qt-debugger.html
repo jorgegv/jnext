@@ -3377,9 +3377,8 @@ the tab bars are on top, both bottom corners belong to the bottom area. Anything
 memory operand, Show in Source, Go &gt; Symbols, Debug &gt; Source &gt; Open Source File) goes through <code>raise_panel()</code>, which
 reopens a closed dock and makes it its group's shown tab. Two Qt facts shape the code that reads the window:
 a floating dock is a window of its own that Qt leaves on screen when its main window hides
-(<code>hideEvent()</code> parks it in <code>parked_floats_</code>, <code>showEvent()</code> brings it back through <code>place_floating()</code>), and Qt's
-window-shortcut rule looks only one hop up from a floating dock, which is the dock host and not this window, so every
-window command is also an action of every dock (<code>share_actions_with_docks()</code>). Three smaller facts: the tab bar of a
+(<code>hideEvent()</code> parks it in <code>parked_floats_</code>, <code>showEvent()</code> brings it back through <code>place_floating()</code>); the debugger's
+window shortcuts keep working with the keyboard in a floating panel without help (measured, <code>QDOCK-11</code>). Three smaller facts: the tab bar of a
 dock group does not scroll by default, so its minimum width is the sum of its tabs (<code>tune_tab_bars()</code> turns the scroll
 buttons on, whenever Qt creates a bar); a tabbed-away dock is not laid out until it is shown and keeps the size it was
 created with, so <code>size_hidden_tabs()</code> gives it its group's size (a panel that is read while it is not the shown tab,
@@ -3418,9 +3417,9 @@ does not depend on the order of the passes; bounded by <code>kMaxInitialFitPasse
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
 at most <code>kMaxFitEchoes</code> = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-(<code>resizeEvent()</code>, <code>debugger_window.cpp:615-625</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:597</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:652-657</code>), after which every size is the user's and the remembered sizes are
+(<code>resizeEvent()</code>, <code>debugger_window.cpp:590-600</code>); any other size is the user's and ends the fit
+(<code>end_fit_()</code>, <code>debugger_window.cpp:572</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
+pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:627-632</code>), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (<code>fit_passes_queued_</code>, <code>queue_fit_pass_()</code>), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's), <code>GR-08</code> (an earlier request landing while a pass is queued), <code>GR-09</code> (a user resize while the fit runs stands), <code>GR-10</code> (each late answer counts once: the 7th stands) and <code>GR-11</code> (a loop stalled past the grace window does not end the fit), <code>GR-12</code> (the bound holds on the pass's own path), <code>GR-13</code> and <code>GR-14</code> (the grace waits for the pass a re-ask, or a late answer, queued), in <code>debugger_window_grow_test</code>; <code>GR-09</code> to <code>GR-14</code> use a window no window manager sees.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the
