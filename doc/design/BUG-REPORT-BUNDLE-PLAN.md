@@ -2,7 +2,8 @@
 
 Status: **DRAFT for owner review** (2026-11-20, planner of the 2026-11-17 autonomous run;
 revision 1, 2026-11-20: the independent review's eight findings folded in; revision 2,
-2026-11-20: round 2's five findings; see the last section).
+2026-11-20: round 2's five findings; revision 3, 2026-11-20: round 3's three findings, with
+measurements of the real distribution; see the last section).
 Nothing in this plan is started and no sub-issue is filed. When the owner approves it, the
 sub-issues of the task list are opened under #492. The plan assumes #492 becomes an epic, on
 the branch `epic492-bug-report-bundle`: each sub-issue branches off it and merges back into it,
@@ -71,7 +72,7 @@ what can run at once.
 #### Sub-issue 6: SD-card capture
 
 - [ ] **B1.8** First-access tracking per card: the input-sector set (sectors whose first access after the anchor is a read) with each sector's hash, and an in-memory undo log (the pre-write bytes of an input sector at its first write)
-- [ ] **B1.9** The distribution index: the pristine reference of the card's base (the fixed-image recipe, the minimal-card recipe with its `dirs`), its sector-hash set, a byte-granular window index of the contents of every distribution file with the low-information exclusion (E1, E2), the file table and the system paths; one rolling hash shared by the index build and the member scan; cached locally, built from the distribution even when the session had no card
+- [ ] **B1.9** The distribution index: the pristine reference of the card's base (the fixed-image recipe, the minimal-card recipe with its `dirs`), its sector-hash set, a byte-granular window index of the contents of every distribution file with the padding exclusion E1 (windows of period 4 or less, and nothing else), distribution files in decodable formats indexed decoded as well, the file table and the system paths; one rolling hash shared by the index build and the member scan; cached locally, built from the distribution even when the session had no card
 - [ ] **B1.10** Card member: per-sector and per-file classification (section 5.3.3: pristine, system, distribution-derived, free space, non-filesystem, FSInfo, structure, user file); bytes only where the class allows, references for pristine sectors, hashes only for the rest; FAT path attribution for the privacy review; the second card the same way
 
 ### Phase B2: the bundle file
@@ -391,32 +392,67 @@ Built once per distribution (B1.9) and cached under `~/.jnext/bug-report/index/<
   scratch copies);
 - the **window index**: a 64-bit hash of every 64-byte window starting at a multiple of 32 bytes
   in the *contents* of every distribution file (the files' bytes, not the image's FAT or
-  directory sectors: about 160 MB of content, some 5 million entries, about 40 MiB). One rolling
-  hash function, defined once in `src/bundle/`, builds the index and scans the members, so the
-  two sides cannot disagree;
+  directory sectors: about 160 MB of content, some 5 million entries, about 40 MiB). A
+  distribution file in a format the check decodes (`.z80`, `.szx`, `.zip`, TAP and TZX data
+  blocks) is indexed twice, as stored and as decoded, so a decoded member meets a decoded
+  original. One rolling hash function, defined once in `src/bundle/`, builds the index and scans
+  the members, so the two sides cannot disagree;
 - the **file table**: path, size and SHA-256 of every distribution file, and the system paths
   (the distribution's top-level files and directories, read from the distribution itself:
   `/TBBLUE.FW`, `/MACHINES`, `/NEXTZXOS`, `/SYS`, `/DOT`, `/RPi` and the rest).
 
-**Low-information exclusion.** Padding is not expression, and matching it would make every
-directory sector, FAT sector and zero-padded file look like a distribution copy (round 2's
-finding: as specified in revision 1, almost every card bundle would have become hashes only). A
-window is **excluded** from the index, and a sector is **trivial**, by two testable criteria:
+**Padding exclusion (E1), and only padding.** Padding is not expression, and matching it would
+make every directory sector, FAT sector and zero-padded file look like a distribution copy (round
+2's finding). So exactly one criterion removes windows from the index, and it is chosen so that
+it provably removes nothing but padding:
 
-- **E1, few distinct bytes:** a 64-byte window with fewer than 8 distinct byte values (all
-  0x00, all 0xFF, 0xE5 fill, two-value bitmaps, short repeating fills); a 512-byte sector with
-  fewer than 8 distinct byte values;
-- **E2, common boilerplate:** a window whose hash occurs in more than 16 distinct distribution
-  files (shared headers and stub code: they identify no file).
+- **E1, short period:** a 64-byte window that is a repetition of a pattern of period 4 or less
+  (`w[i] == w[i mod p]` for some p in 1..4: 0x00, 0xFF and 0xE5 fills, `AA 55` and other short
+  fills). Such a window carries at most 4 bytes of information. A 512-byte sector is **trivial**
+  by the same criterion.
 
 Excluded windows are not in the index; a trivial sector never counts as "a distribution sector"
 in the classification below (as a reference it is still fine: a reference ships nothing).
+Revision 2 had a second criterion, E2 (a window in more than 16 distribution files counted as
+"boilerplate"), and a looser E1 (fewer than 8 distinct values). Both are gone: round 3 measured
+that the distribution repeats the 48K BASIC ROM inside some two dozen other ROM files, so E2
+dropped 413 of the 511 windows of `48.rom` and 177 of `enNextZX.rom` (firmware, not
+boilerplate), and "fewer than 8 distinct values" also matches 1-bit artwork, fonts and sparse
+tables, which are expression.
 
 **The floor, restated.** The member side is scanned at every byte offset, so: *any run of 95 bytes
 or more that a checked byte sequence shares with a distribution file is found, unless every
-aligned 64-byte window inside that run is excluded by E1 or E2.* A run made only of excluded
-windows is padding or boilerplate. The floor bounds **verbatim** copies of the **indexed**
+aligned 64-byte window inside that run has period 4 or less.* And a shared run that escapes
+carries little: its aligned windows overlap by 32 bytes, so by the periodicity lemma they share
+one pattern of period at most 4, and the run is that pattern plus fewer than 32 bytes before the
+first aligned window and fewer than 32 after the last. **An escaping run holds at most 66 bytes
+that are not one short repeating fill.** The floor bounds **verbatim** copies of the **indexed**
 distribution only; 5.3.5 says what that leaves.
+
+**Measured** (round 3 and this revision, 2026-11-20, on the local default card of
+`sn-emulator-26.11`: the 250 files under `/TBBLUE.FW`, `/TBBLUE.TBU`, `/machines`, `/nextzxos`,
+`/sys` and `/dot`, 9.2 MB, read through `mtype` into memory only; nothing extracted to disk, the
+scripts deleted afterwards):
+
+| File | Windows (stride 32) | Indexed, revision 2 (E1 < 8 values, E2 > 16 files) | Indexed, revision 3 (E1 period <= 4) |
+|---|---|---|---|
+| all 250 files | 287 300 | 142 603 (49.6 %) | 182 331 (63.5 %) |
+| `machines/next/48.rom` | 511 | 62 (12.1 %) | 476 (93.2 %); the 35 excluded are the 0xFF fill at 0x3880-0x3CFF |
+| `machines/next/128.rom` | 1023 | 607 | 1021 (99.8 %) |
+| `machines/next/plus3.rom` | 2047 | 1359 | 1788 (87.3 %) |
+| `machines/next/enNextZX.rom` (NextZXOS) | 2047 | 1606 | 1799 (87.9 %) |
+| `machines/next/enNxtmmc.rom` (DivMMC) | 255 | 254 | 254 (99.6 %) |
+| `machines/next/enNextMf.rom` (Multiface) | 255 | 255 | 255 (100 %) |
+| `TBBLUE.FW` | 19 871 | 16 908 | 19 343 (97.3 %) |
+| The 48K character set (0x3D00-0x3FFF) | 23 | 3 | 23 (100 %) |
+
+The largest number of files sharing one window was 155 (E2 would have excluded it), which is the
+measured reason E2 cannot stay. Every one of the 250 files has at least one indexed window, so a
+verbatim copy of any of them is caught; five are smaller than 95 bytes and are covered by the
+classification instead (system path, size and name), not by the byte check. Low indexed
+fractions (`TBBLUE.TBU` 52.7 %, some dot commands near 30-40 %, the `/nextzxos/*.z80` files below
+4 % as stored) are the files' own fills and zero padding, which by E1 are period-4-or-less runs;
+the `.z80` files are also indexed decoded.
 
 #### 5.3.2 The rule: the check sees content as the guest saw it
 
@@ -431,7 +467,7 @@ scanned bytes. Per source:
 | UART RX | the RX byte sequence of each UART, payload only, in delivery order | `streams/<uart>.bin`, (cycle, byte) records |
 | Stand-in host files | each served host file rebuilt from all its reads, by file and offset, merged (a NextZXOS file read in 32-byte `F_READ`s is checked as the whole file) | `queues/hostfs-data.bin`, one record per read |
 | Debugger memory writes | each write's payload as one contiguous block (every memory verb, a DZRP `CMD_WRITE_MEM` upload included, not only "loads"); `events.jsonl` keeps only the verb, the address, the length and the offset into the payload member | `debugger/writes.bin` |
-| The program | decoded by its loader's format: a `.zip` program archive inflated member by member; a `.z80` run-length expanded page by page; a `.szx` re-serialised with its `RAMP` pages uncompressed (flag bit 0 clear) and checked as pages; TAP and TZX data blocks as their payload bytes; NEX banks as stored; `.sna` as stored | the file (the `.szx` re-serialised) |
+| The program | decoded by its loader's format: a `.zip` program archive inflated member by member; a `.z80` run-length expanded (a v1 file as one block for the whole 48K, `decompress_v1`; v2 and v3 page by page); a `.szx` re-serialised with its `RAMP` pages uncompressed (flag bit 0 clear) and checked as pages; TAP blocks and TZX standard, turbo and pure-data blocks as their payload bytes (the blocks with no decoder are the next row); NEX banks as stored; `.sna` as stored | the file, re-serialised for `.szx` and `.z80` (5.3.4) |
 | Programs in formats with no decoder | WAV, CSW, TZX direct-recording and generalised-data blocks encode bytes as pulses, which the check cannot see | never shipped: a SHA-256 reference only |
 | Keyframes (B6.2) | every RAM page | the keyframe member |
 | `log.txt`, `notes.txt`, `config.json` | their text | as is |
@@ -451,8 +487,8 @@ the clusters). One class per sector, applied file by file where a file is involv
 | System | the file is under a system path, on **every** base | hashes only, never bytes (Q15 for settings files) |
 | Distribution-derived | a non-trivial sector of the file equals a sector of a distribution file's contents, or its size and name match a distribution file, or it is an archive or image format (`.zip`, `.gz`, `.tar`, `.img`, `.dsk`, `.rom`), or a guest-saved snapshot (`.snx`, `.sna`, `.szx`, `.z80`: made by the NMI menu or a program, they hold firmware-era RAM) | hashes only |
 | Free space | a sector in no cluster chain (free clusters can hold a deleted older NextZXOS) | a reference when pristine, otherwise hashes only, on every base |
-| Non-filesystem | the MBR, the partition's reserved area (boot sector and backup, the rest of the reserved sectors), the gap before the partition, anything outside it | a reference when pristine, otherwise hashes only, on every base; one exception below |
-| FSInfo | the partition's FSInfo sector, which changes with every write (free count, next free) | bytes, only if its layout checks: the three signatures in place and every reserved byte zero, so it can hold nothing but two counts; otherwise hashes only |
+| Non-filesystem | the MBR, the partition's reserved area (boot sector, the backup boot sector, the **backup FSInfo** beside it in the backup boot area, typically partition sector 7, and the rest of the reserved sectors), the gap before the partition, anything outside it | a reference when pristine, otherwise hashes only, on every base; one exception below |
+| FSInfo | the partition's primary FSInfo sector (the one the boot sector's `BPB_FSInfo` names), which changes with every write (free count, next free) | bytes, only if its layout checks: the three signatures in place and every reserved byte zero, so it can hold nothing but two counts; otherwise hashes only. The backup FSInfo stays Non-filesystem |
 | Structure | FAT sectors, directory sectors | bytes, after the byte check |
 | User file | none of the above | bytes, after the byte check, and only as Q14 allows (by default: only files the reporter ticks) |
 
@@ -467,11 +503,12 @@ a distribution file, a debugger upload).
 
 **The ROM character set.** The distribution's `/MACHINES/NEXT/48.rom` and `128.rom` are indexed,
 and classic programs often copy the ROM character set (768 bytes at 0x3D00) into their own code or
-RAM. Most of its 64-byte windows have 8 or more distinct values, so such a program, a classic
-snapshot of it and its keyframes are refused: the program becomes a SHA-256 reference and the
-developer needs it from the reporter. That is the correct outcome under the rule, and it has a
-real cost on classic-machine bundles; Q17 asks whether the character-set windows of the classic
-ROMs may be excluded.
+RAM. Under E1 all 23 of its aligned windows are indexed (measured above), so any copy of 95 bytes
+or more of it is found, whole or partial: such a program, a classic snapshot of it and its
+keyframes are refused, the program becomes a SHA-256 reference and the developer needs it from the
+reporter. That is the correct outcome under the rule, by the criterion and not by accident, and it
+has a real cost on classic-machine bundles; Q17 asks whether the character-set windows of the
+classic ROMs may be excluded.
 
 #### 5.3.4 Members that are re-derived instead of shipped, and the no-index case
 
@@ -480,7 +517,12 @@ device (`SdCardDevice::set_read_overlay`, set in `load_nex()`); it is rebuilt on
 program member or reference. A classic `.szx` anchor is re-serialised with only the chunks the
 loader parses (`Z80R`, `SPCR`, `RAMP`, `AY`, after the `ZXST` file header); `SCLD` is dropped too,
 because the loader deliberately ignores it (Timex and SE snapshots are refused, GH #323), as is
-any custom-ROM or interface chunk, and each drop is recorded.
+any custom-ROM or interface chunk, and each drop is recorded. A `.z80` anchor is re-serialised
+the same way: a v2 or v3 file keeps only pages 3-10, the RAM banks the loader applies
+(`z80_loader.h`: "Pages 0-2 (ROM) and 11 (Multiface ROM) are skipped", `if (page_num < 3 ||
+page_num > 10) continue;`), so the 48K ROM, the Interface 1 / DISCiPLE / +D ROM, the 128K ROM and
+a Multiface ROM another emulator stored never ship; a v1 file has no ROM pages. Each drop is
+recorded.
 
 **With no index** (a `--no-sdcard` user who never provisioned a card, a deleted raw image), the
 writer offers the provisioner's download. Without the index it writes only what carries no
@@ -507,13 +549,21 @@ Stated as rules, not examples:
    copied onto the default card to try it out would have passed silently; on an unknown base, a
    ticked one passes the same way.
 3. **Content outside the index.** Anything copyrighted that is not in the distribution jnext
-   indexes (a commercial game, an older distribution) is invisible to the check. Rule 1 is about
-   NextZXOS; the program question is Q4.
+   indexes (a commercial game, an older distribution, a Multiface 128 or +D ROM) is invisible to
+   the check. Rule 1 is about NextZXOS; the program question is Q4.
+4. **Channels that are not files.** Residual 1 applies to every content channel that ships, not
+   only to card files. Besides card user files and stand-in host files, four channels carry
+   content: **the RX streams** (a NextZXOS update, or another version, downloaded over the ESP),
+   **debugger memory-write payloads** (a DeZog or GDB upload), **the program** (Q4) and **shipped
+   keyframes** (`--no-sdcard` only, Q3). Each passes the byte check, and each can carry an altered
+   copy the check cannot see.
 
 The classification removes the common cases (system paths, archives, snapshots and
-distribution-derived files are hashes only on every base), and Q14's recommended option makes
-every user file an explicit choice of the reporter. Only shipping no card or user content at all
-closes residuals 1 and 2 completely.
+distribution-derived files are hashes only on every base). Q14's recommended option puts every
+content channel under the reporter's explicit choice: one tick per user file and per served host
+file, one "network data" tick for the RX streams, one "debugger uploads" tick, the program's own
+tick (Q4), and one "keyframes" tick; nothing is ticked by default except the program. Only
+shipping no content at all (Q14's option (z)) closes residuals 1, 2 and 4 completely.
 
 The review lists every file whose bytes are included ("these 14 files of yours are in the
 bundle"), every file waiting for a tick, and every file the developer will need from the reporter
@@ -912,9 +962,9 @@ when pristine and hashes only when not; an FSInfo sector with its signatures and
 bytes ships, one with a non-zero reserved byte is hashes only); low-information exclusion
 (BRB-CARD-30..): a directory sector, a FAT sector of a card with free clusters, a user file
 zero-padded to its cluster, and a zeroed slack all pass the byte check; a 95-byte firmware run
-planted inside a zero-padded region is still found; E1's boundary (a window of 7 distinct values
-is excluded, of 8 is indexed) and E2's (a window in 16 distribution files is indexed, in 17 is
-excluded); a trivial sector equal to a pristine sector does not make its file
+planted inside a zero-padded region is still found; E1's boundary (a window of period 4 is
+excluded, of period 5 is indexed; a two-value bitmap of period 8 is indexed); a window present in
+every synthetic distribution file is still indexed (there is no E2); a trivial sector equal to a pristine sector does not make its file
 distribution-derived; slack: a copied file's last sector with distribution bytes in its slack
 ships with the slack zeroed; no index: the writer writes exactly the content-free members of
 5.3.4 and nothing else; the second card; BRB-CARD-20: the pristine rebuild made twice is byte-identical
@@ -944,7 +994,19 @@ page stored run-length encoded; in a member of a `.zip` program archive; in a TA
 the log. A 94-byte run may pass (the documented floor), and a run made only of excluded windows
 passes. A WAV program and a TZX with a direct-recording block are shipped as references only. A
 `.szx` with a custom-ROM chunk and an `SCLD` chunk is written without either, its `RAMP` pages
-uncompressed.
+uncompressed. A v3 `.z80` with pages 0 and 11 is written with pages 3-10 only, and a v1 `.z80` is
+checked as one decompressed 48K block.
+
+**The real-index row** (BRB-FILE-40, in `bug-report-privacy-func`, so it runs where the regression
+master's card exists). It builds the distribution index **at run time** from the run's own card,
+copies every system-path file verbatim (a) into a user file on a scratch card, (b) into a host file
+served by the stand-in and read in 32-byte `F_READ`s, (c) into an ESP RX stream, and requires
+every copy of every file of 95 bytes or more to be found; it prints the indexed fraction of each
+system-path file and fails if a file of 95 bytes or more has no indexed window. Every byte it
+handles stays in the run's scratch directory or under `~/.jnext/sdcard/`, and is deleted with the
+row's directories; it commits nothing and writes no ROM or firmware byte anywhere else. The
+synthetic BRB-CARD-30 rows cannot find what this row finds (round 3: E2's flaw only shows on the
+real distribution).
 
 ## 14. Phase B3: replay (sub-issues 8 and 9)
 
@@ -1039,7 +1101,8 @@ replay, the proof), FEATURES.md, and the ChangeLog line at landing.
 | A new guest-visible effect of `audio_off_` | BRB-CFG-05 decides; until then it is a machine field |
 | Copyright leak through a member other than the card (a program from the distribution, a host file that is a NextZXOS file, a debugger load, a log line) | the byte check over every content member (B2.1), floor 95 bytes |
 | Firmware the index does not hold, or a copy altered at least once every 94 bytes (another NextZXOS version, relocated or patched code, re-encodings, compression) | system paths, archives, snapshots and distribution-derived files hashes only on every base; every user file and served host file only when ticked (Q14 default); the residuals stated as rules (5.3.5) |
-| The index matches padding and every card bundle becomes hashes only | the low-information exclusion E1/E2 and trivial sectors (5.3.1), with the BRB-CARD-30 rows |
+| The index matches padding and every card bundle becomes hashes only | the padding exclusion E1 (period 4 or less) and trivial sectors (5.3.1), with the BRB-CARD-30 rows |
+| An exclusion criterion drops firmware from the index | E1 is the only criterion and provably removes only short-period fills (an escaping run holds at most 66 non-fill bytes); measured on the real distribution (5.3.1); BRB-FILE-40 checks every system-path file against the real index at run time |
 | Content hidden by a member's storage layout (records, JSON, compression) | the check runs on content as the guest saw it (5.3.2), with rows planted into the payloads (BRB-FILE-20) |
 | The pristine rebuild is not byte-reproducible on some host | BRB-CARD-20 on every platform the unit suites run on; the save side records the digest, so a difference refuses instead of drifting |
 | The developer must hold the reporter's jnext version for firmware bundles | the refusal prints `git describe` and the build command; `--bug-report-cross-version` for the deliberate case |
@@ -1088,26 +1151,29 @@ revisions; Q6 is withdrawn.
   recorder keeps only the latest segment (since the last hard reset, program load or machine
   change); at the cap it stops with a warning.*
 - **Q14. The copyright residuals** (5.3.5). The check bounds only verbatim copies (95 bytes or
-  more, with a non-excluded window) of the distribution jnext indexes. Copies altered at least
-  once every 94 bytes pass: another NextZXOS version (relocation changes absolute addresses
-  every few bytes, so most of it escapes), systematic patches, hex, base64 or Intel HEX
-  re-encodings, compression. And any user file the bundle ships can be such a copy, on a
-  distribution base as much as on an unknown one. Options, strictest first:
-  - (z) no card user-file bytes, no stand-in host-file bytes, at all: residual 2 closed, most
-    real bugs that touch user data not replayable without a second exchange;
-  - (a) **every user file on every base, and every host file the stand-in served, ships only
-    when the reporter ticks it** in the review, after the byte check; nothing is ticked by
-    default;
-  - (b) a tick only for user files in a format that can hold code (`.nex`, `.bin`, `.tap`, `.tzx`,
-    `.rom`, `.sys`, `.drv`, `.dot`, `.bas`, files without an extension); data files ship after the
-    check;
+  more, not a period-4 fill) of the distribution jnext indexes. Copies altered at least once
+  every 94 bytes pass: another NextZXOS version (relocation changes absolute addresses every few
+  bytes, so most of it escapes), systematic patches, hex, base64 or Intel HEX re-encodings,
+  compression. Any content channel that ships can carry such a copy: card user files and served
+  host files on every base, the RX streams, debugger memory-write payloads, the program and
+  shipped keyframes. Options, strictest first:
+  - (z) no content at all: no card user-file or host-file bytes, no RX streams, no debugger
+    payloads, no program, no keyframes (references and hashes only): residuals 1, 2 and 4
+    closed; almost no real bug replays without a second exchange;
+  - (a) **every content channel ships only when the reporter ticks it** in the review, after the
+    byte check: one tick per user file on every base and per served host file, one "network data"
+    tick (all RX streams), one "debugger uploads" tick, one "keyframes" tick; nothing ticked by
+    default; the program ticked by default because the reporter chose it (Q4);
+  - (b) as (a), but only user and host files in a format that can hold code (`.nex`, `.bin`,
+    `.tap`, `.tzx`, `.rom`, `.sys`, `.drv`, `.dot`, `.bas`, no extension) need a tick, and RX
+    streams and debugger uploads ship after the check;
   - (c) revision 1's: user files on a distribution base ship after the check, an unknown base
-    needs ticks.
-  *Default: (a).* Cost: the reporter must tick the files the session read (the review lists
-  exactly those, with sizes), and an unticked file stops the replay at its first read with its
-  path named. The program the reporter loaded keeps Q4's rule (included, untick to exclude),
-  because the reporter chose it. Only (z) with no program closes residual 2 completely; no option
-  closes residual 1 for content the reporter ticks.
+    needs ticks, every other channel ships after the check.
+  *Default: (a), the strict workable one.* Cost: the reporter ticks what the session read, the
+  network data and the uploads (the review lists exactly those, with sizes); an unticked file
+  stops the replay at its first read with its path named, and unticked network data or uploads
+  stop it at their first byte, naming the channel. No option but (z) closes residual 1 for what
+  the reporter ticks.
 - **Q15. Settings files under system paths.** NextZXOS and the firmware menu rewrite small
   settings files under the system paths; `/MACHINES/NEXT/config.ini` is key=value text that
   jnext itself writes on the default card (the recipe injects it). **Cost of the strict rule:**
@@ -1122,11 +1188,14 @@ revisions; Q6 is withdrawn.
   index under `~/.jnext/bug-report/index/` (hashes, not an image). *Default: cache it, with a
   `--bug-report-forget-bases` (and a Preferences button) that deletes the cache.*
 - **Q17. The classic ROMs' character set.** Classic programs often copy the 768-byte character
-  set of `48.rom` (0x3D00) into their code or RAM, and the indexed `48.rom` and `128.rom` then
-  make the program, a classic snapshot of it and its keyframes a SHA-256 reference only (5.3.3).
-  *Default: keep it indexed (strict), so such a classic bundle needs the program from the
-  reporter; excluding the character-set windows of the classic ROMs from the index is the
-  alternative, at the owner's word only.*
+  set of `48.rom` (0x3D00-0x3FFF) into their code or RAM. Under revision 3's E1 all 23 of its
+  aligned windows are indexed (measured, 5.3.1), so any copy of 95 bytes or more of it, whole or
+  partial, makes the program, a classic snapshot of it and its keyframes a SHA-256 reference only
+  (5.3.3). Revision 2's premise ("most of its windows have 8 or more distinct values") described
+  neither criterion correctly: under revision 2's E2, 20 of the 23 were excluded and the outcome
+  held only by accident. *Default: keep it indexed (strict), so such a classic bundle needs the
+  program from the reporter; excluding the character-set windows of the classic ROMs from the
+  index is the alternative, at the owner's word only.*
 
 ---
 
@@ -1143,7 +1212,10 @@ revisions; Q6 is withdrawn.
 | System paths hashes only on every base | a user's replaced NextZXOS file is still NextZXOS | the rule for unknown bases only (revision 0) |
 | A byte-granular window index of distribution files, stride 32, window 64 | a fixed, provable floor (95 bytes) over every member at every offset, about 40 MiB of index | an aligned 512-byte check (revision 0: blind to every unaligned member); a full suffix index (far larger for a lower floor nobody needs) |
 | The check runs on content as the guest saw it, per source, decoded | the floor needs the shared run contiguous in the scanned bytes; records, per-read framing, JSON and inner compression break that | scanning members' storage bytes (revision 1: blind to RX records, small `F_READ`s, JSON payloads, `.szx`/`.z80`/zip compression) |
-| Low-information exclusion (E1: under 8 distinct values; E2: in more than 16 distribution files) | padding and boilerplate identify nothing; without it every directory, FAT and padded sector would hit | no exclusion (revision 1); a fixed list of fill bytes only (misses two-value bitmaps and repeating fills) |
+| Padding exclusion E1 only: windows of period 4 or less | provably removes only fills (an escaping run holds at most 66 non-fill bytes); without it every directory, FAT and padded sector would hit | no exclusion (revision 1); E2, "in more than 16 files" (revision 2: measured to drop 413 of 511 `48.rom` windows, because the distribution repeats the 48K ROM); "fewer than 8 distinct values" (revision 2: matches fonts, 1-bit artwork and sparse tables) |
+| Distribution files in decodable formats indexed as stored and decoded | the check decodes members, so it must meet decoded originals | indexing stored bytes only |
+| `.z80` re-serialised with pages 3-10 only | the loader skips pages 0-2 and 11, which can hold the 48K, Interface 1 / +D, 128K and Multiface ROMs | shipping the file verbatim (revision 2) |
+| Every content channel under a tick by default (Q14 (a)) | the check cannot see altered copies in any channel, so shipping is the reporter's choice for each | ticks for files only (revision 2) |
 | Free space and non-filesystem sectors: reference or hashes only | free clusters and the pre-partition gap can hold old firmware on a real Next card | no class (revision 1) |
 | FSInfo shipped only when its layout checks | it changes with every write, so hashes only would stop most replays at mount; a layout check proves it holds only two counts | hashes only for the whole reserved area |
 | Every user and served host file only when ticked, on every base (Q14 default) | the check cannot see altered copies, so shipping is the reporter's explicit choice | user files by default on a known base (revision 1) |
@@ -1218,3 +1290,25 @@ the code first (`szx_loader.cpp`: `RAMP` flag bit 0 means zlib, `SCLD` deliberat
 Also folded in: the chunk list (`Z80R`, `SPCR`, `RAMP`, `AY` after the `ZXST` header; `SCLD`
 dropped with its reason); exactly what a bundle holds with no index (5.3.4); Q15's cost, with a
 testable `config.ini`-only allowlist as the default; the shared rolling hash pinned in B1.9.
+
+**Revision 3 (2026-11-20), after review round 3 (REJECT, three findings), each checked against
+the code first (`z80_loader.h`: pages 0-2 and 11 skipped, `decompress_v1` for v1) and the first
+re-measured:**
+
+1. R3-1: E2 is dropped and E1 tightened to windows of period 4 or less, which provably removes
+   only fills (an escaping shared run holds at most 66 non-fill bytes). Measured on the local
+   `sn-emulator-26.11` card (250 system-path files, read into memory only, nothing kept): revision
+   2's criteria left 62 of 511 `48.rom` windows and 49.6 % overall; revision 3's leave 476
+   (93.2 %, the rest the 0xFF fill) and 63.5 % overall, every file with at least one indexed
+   window, all 23 character-set windows indexed. Distribution files in decodable formats are
+   indexed decoded too. New row BRB-FILE-40 checks every system-path file against the real index
+   built at run time, copied into a user file, a served host file and an RX stream. Q17's premise
+   restated.
+2. R3-2: a `.z80` anchor is re-serialised with pages 3-10 only; the v1 wording corrected (one
+   block for the whole 48K); a BRB-FILE case added.
+3. R3-3: 5.3.5 gains residual 4 (the RX streams, debugger uploads, the program and shipped
+   keyframes); Q14 (a) puts each under a tick ("network data", "debugger uploads", "keyframes";
+   the program keeps Q4's default tick), and (z) drops them all.
+
+Also: the backup FSInfo sector is named (Non-filesystem, beside the backup boot sector); the TZX
+block types with a decoder are named in the program row.
