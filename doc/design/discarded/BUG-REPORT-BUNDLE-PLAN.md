@@ -1,7 +1,9 @@
 # Bug-report bundle: one file to replay a failing session locally (GH #492)
 
-**PARKED by the owner on 2026-11-20: no sub-issues filed; the design and decisions are kept for a
-later restart.**
+**DISCARDED by the owner on 2026-11-20.** The replayable bundle is too much work for its benefit:
+most of it exists only to keep NextZXOS content out of a replayable file. GH #492 was reformulated
+as a non-replayable diagnostic report. This plan is kept for reference only; nothing in it is
+scheduled.
 
 Status: **APPROVED; owner decisions recorded (2026-11-20, section 17)** (planner of the 2026-11-17
 autonomous run;
