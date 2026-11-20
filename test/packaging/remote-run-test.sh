@@ -9,13 +9,13 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-14. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-15. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=14
+EXPECTED_ROWS=15
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -105,16 +105,34 @@ REPO=$TMP/origin
 git init -q -b main "$REPO"
 mkdir -p "$REPO/test"
 cp "$ROOT/test/ci-deps.sh" "$REPO/test/ci-deps.sh"
+# the second repository (the FPGA core stand-in) and the ci.yml that pins it
+FPGA=$TMP/fpga
+git init -q -b master "$FPGA"
+mkdir -p "$FPGA/cores/zxnext/src" "$FPGA/other"
+echo "-- core" > "$FPGA/cores/zxnext/src/a.vhd"; echo x > "$FPGA/other/skipped.txt"
+git -C "$FPGA" add -A
+git -C "$FPGA" -c user.name=t -c user.email=t@t commit -qm core
+FPGA_SHA=$(git -C "$FPGA" rev-parse HEAD)
+mkdir -p "$REPO/.github/workflows"
+printf 'env:\n      FPGA_CORE_REF: %s   # CORE VERSION x\n' "$FPGA_SHA" > "$REPO/.github/workflows/ci.yml"
 git -C "$REPO" add -A
 git -C "$REPO" -c user.name=t -c user.email=t@t commit -qm one
 git -C "$REPO" branch feature
-LEGACY=$(git -C "$REPO" -c user.name=t -c user.email=t@t commit-tree -m legacy "$(git -C "$REPO" hash-object -t tree /dev/null -w)")
+# a commit like main before the dependency script existed: ci.yml only
+LTREE=$(GIT_INDEX_FILE="$TMP/legacy-index" git -C "$REPO" update-index --add --cacheinfo "100644,$(git -C "$REPO" rev-parse HEAD:.github/workflows/ci.yml),.github/workflows/ci.yml" \
+    && GIT_INDEX_FILE="$TMP/legacy-index" git -C "$REPO" write-tree)
+LEGACY=$(git -C "$REPO" -c user.name=t -c user.email=t@t commit-tree -m legacy "$LTREE")
 git -C "$REPO" branch legacy "$LEGACY"
+printf 'env:\n      FPGA_CORE_REF: %040d   # not in the core repo\n' 7 > "$REPO/.github/workflows/ci.yml"
+git -C "$REPO" -c user.name=t -c user.email=t@t commit -qam badcore
+git -C "$REPO" branch badcore
+git -C "$REPO" reset -q --hard HEAD~1
 SHA=$(git -C "$REPO" rev-parse HEAD)
 OTHER=$(printf '%040d' 1)
 
 WORK=$TMP/work
 export REMOTE_RUN_REPO_URL="file://$REPO"
+export REMOTE_RUN_EXTRA_REPO_URL="file://$FPGA"
 export JNEXT_REMOTE_RUN_DIR=$WORK
 export REMOTE_RUN_STAMP_LOCAL_DIR=$TMP/stamps
 export REMOTE_RUN_MIN_MEM_MB=1 REMOTE_RUN_MIN_DISK_GB=1 RR_SKIP_CGROUP_CHECK=1
@@ -296,5 +314,26 @@ row RRUN-14 "$([[ $d1 -eq 75 && $d2 -eq 0 && $d3 -eq 0 && $d4 -eq 2 && $d5 -eq 2
     && "$OUT" == *"deps: dependency script test/ci-deps.sh taken from --deps-ref feature @ $SHA"* \
     && "$(grep -a 'source:' "$TMP/logs/d2.log")" == *"legacy @ $LEGACY"* ]] && echo 1 || echo 0)" \
     "--deps-ref supplies the dependency script, --warm --ref warms that branch, the log names the supplier (d1=$d1 d2=$d2 d3=$d3 d4=$d4 d5=$d5)"
+
+# RRUN-15: the pinned second repository (read from ci.yml at the commit under test) is cloned
+# sparse into the work dir, mounted read-only with its env var, reused on the next run, and a
+# pin that cannot be fetched refuses the run (75)
+reset_state; rm -rf "$WORK/cache/extra-repo"
+drive --id e1 feature "$SHA" unit-test --deps-ref feature
+e1=$RC
+runline=$(calls | grep -E '(^| )run ' | head -n 1)
+drive --id e2 feature "$SHA" unit-test --deps-ref feature
+e2=$RC
+files_ok=0
+[[ -f "$WORK/cache/extra-repo/cores/zxnext/src/a.vhd" && ! -e "$WORK/cache/extra-repo/other/skipped.txt" ]] && files_ok=1
+drive --id e3 badcore "$(git -C "$REPO" rev-parse badcore)" unit-test --deps-ref feature
+e3=$RC
+row RRUN-15 "$([[ $e1 -eq 0 && $e2 -eq 0 && $e3 -eq 75 \
+    && "$runline" == *"-v $WORK/cache/extra-repo:/fpga-core:ro"* && "$runline" == *"-e JNEXT_FPGA_SRC=/fpga-core/cores/zxnext/src"* \
+    && $files_ok -eq 1 \
+    && "$(grep -a 'extra repository:' "$TMP/logs/e1.log")" == *"cloning"*"@ $FPGA_SHA"* \
+    && "$(grep -a 'extra repository:' "$TMP/logs/e2.log")" == *"reusing"* \
+    && "$(grep -a 'fallback:' "$TMP/logs/e3.log")" == *"cannot fetch"* ]] && echo 1 || echo 0)" \
+    "the pinned second repository: read from ci.yml, sparse clone under the work dir, ro mount + env, reused, unfetchable pin refuses (e1=$e1 e2=$e2 e3=$e3)"
 
 finish

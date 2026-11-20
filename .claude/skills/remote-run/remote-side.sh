@@ -203,6 +203,29 @@ if ! pm image exists "$image"; then
 fi
 say "image: $image"
 
+# ---- second repository (read-only input of the container) ---------------------
+extra_dir=""
+if [[ -n "${RR_EXTRA_URL:-}" ]]; then
+    extra_ref=$(git -C "$MIRROR" show "$RR_SHA:$RR_EXTRA_REF_FILE" 2>/dev/null | sed -nE "$RR_EXTRA_REF_SED" | head -n 1)
+    [[ "$extra_ref" =~ ^[0-9a-f]{40}$ ]] || fallback "no pinned commit for $RR_EXTRA_URL found in $RR_EXTRA_REF_FILE at $RR_SHA"
+    extra_dir="$CACHE/extra-repo"
+    mkdir -p "$CACHE"
+    if [[ "$(git -C "$extra_dir" rev-parse HEAD 2>/dev/null)" == "$extra_ref" ]]; then
+        say "extra repository: reusing $extra_dir @ $extra_ref (pin read from $RR_EXTRA_REF_FILE)"
+    else
+        say "extra repository: cloning $RR_EXTRA_URL @ $extra_ref (pin read from $RR_EXTRA_REF_FILE)"
+        rm -rf "$extra_dir"
+        {
+            git clone -q --filter=blob:none --no-checkout "$RR_EXTRA_URL" "$extra_dir" \
+                && git -C "$extra_dir" sparse-checkout init --cone \
+                && git -C "$extra_dir" sparse-checkout set "$RR_EXTRA_SPARSE" \
+                && git -C "$extra_dir" checkout -q "$extra_ref"
+        } </dev/null 2>&1 || { rm -rf "$extra_dir"; fallback "cannot fetch $RR_EXTRA_URL @ $extra_ref"; }
+    fi
+    [[ -d "$extra_dir/$RR_EXTRA_SPARSE" ]] || { rm -rf "$extra_dir"; fallback "$RR_EXTRA_SPARSE is missing from $RR_EXTRA_URL @ $extra_ref"; }
+    say "extra repository ready: $(find "$extra_dir/$RR_EXTRA_SPARSE" -name '*.vhd' | wc -l) .vhd files under $RR_EXTRA_SPARSE"
+fi
+
 # ---- per-run checkout -------------------------------------------------------
 rm -rf "$run"; mkdir -p "$run" "$ctl" "$stamps"
 git clone -q --local --no-checkout "$MIRROR" "$run/src" 2>&1 </dev/null | grep -v "remote HEAD refers" || true
@@ -228,6 +251,10 @@ for m in $RR_CACHE_MOUNTS; do
     args+=(-v "$CACHE/${m%%:*}:${m#*:}")
 done
 for e in $RR_CONTAINER_ENV; do args+=(-e "$e"); done
+if [[ -n "$extra_dir" ]]; then
+    args+=(-v "$extra_dir:$RR_EXTRA_MOUNT:ro")
+    [[ -z "$RR_EXTRA_ENV" ]] || args+=(-e "$RR_EXTRA_ENV")
+fi
 args+=("$image" bash /rr/inner.sh)
 
 # Watchdog: a heartbeat line every 20 s; when the ssh session is gone the write fails and the

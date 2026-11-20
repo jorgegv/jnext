@@ -63,10 +63,11 @@ load_conf() {
     for k in PROJECT HOST_ENV_VAR DIR_ENV_VAR DIR_DEFAULT REPO_URL DEFAULT_BRANCH BASE_IMAGE DEPS_SCRIPT \
              DEPS_ARGS BOOTSTRAP_CMD CACHE_MOUNTS CONTAINER_ENV JOBS_DEFAULT JOBS_HEAVY HEAVY_TARGET_RE \
              TEST_JOBS CONTAINER_MEMORY CONTAINER_SHM TIMEOUT_DEFAULT LANE_WAIT MIN_MEM_MB MIN_DISK_GB \
-             HEAVY_TARGETS WARM_TARGETS GATE_STEPS TIMEOUT_GATE STAMP_ENV STAMP_LOCAL_DIR; do
+             HEAVY_TARGETS WARM_TARGETS GATE_STEPS TIMEOUT_GATE STAMP_ENV STAMP_LOCAL_DIR \
+             EXTRA_REPO_URL EXTRA_REF_FILE EXTRA_REF_SED EXTRA_SPARSE EXTRA_MOUNT EXTRA_ENV; do
         v="REMOTE_RUN_$k"
         if [[ -n "${!v:-}" ]]; then printf -v "$k" '%s' "${!v}"; fi
-        [[ -n "${!k:-}" || "$k" == BOOTSTRAP_CMD || "$k" == STAMP_ENV || "$k" == CONTAINER_ENV ]] \
+        [[ -n "${!k:-}" || "$k" == BOOTSTRAP_CMD || "$k" == STAMP_ENV || "$k" == CONTAINER_ENV || "$k" == EXTRA_* ]] \
             || die "project.conf does not set $k"
     done
 }
@@ -119,6 +120,8 @@ build_payload() {
         printf 'RR_JOBS_DEFAULT=%q\nRR_JOBS_HEAVY=%q\nRR_HEAVY_RE=%q\nRR_CACHE_MOUNTS=%q\nRR_CONTAINER_ENV=%q\nRR_STAMP_ENV=%q\n' \
             "$JOBS_DEFAULT" "$JOBS_HEAVY" "$HEAVY_TARGET_RE" "$CACHE_MOUNTS" "$CONTAINER_ENV" "$STAMP_ENV"
         printf 'RR_DEPS_REF=%q\n' "$DEPS_REF"
+        printf 'RR_EXTRA_URL=%q\nRR_EXTRA_REF_FILE=%q\nRR_EXTRA_REF_SED=%q\nRR_EXTRA_SPARSE=%q\nRR_EXTRA_MOUNT=%q\nRR_EXTRA_ENV=%q\n' \
+            "${EXTRA_REPO_URL:-}" "${EXTRA_REF_FILE:-}" "${EXTRA_REF_SED:-}" "${EXTRA_SPARSE:-}" "${EXTRA_MOUNT:-}" "${EXTRA_ENV:-}"
         printf 'RR_INNER=%q\n' "$(cat "$HERE/container-side.sh")"
         cat "$HERE/remote-side.sh"
     } > "$f"
