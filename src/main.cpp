@@ -480,6 +480,7 @@ int main(int argc, char* argv[]) {
     bool        when_slow_prefer_set = false;  // was --when-slow-prefer given?
     // GH #499 - the fast boot's length, in seconds (0 = off); `_set` lets the command line win over the saved one.
     int         fast_boot_seconds = fast_boot::DEFAULT_SECONDS;
+    bool        fast_boot_hide = false, fast_boot_hide_set = false;   // GH #544 --set startup.fast_boot_hide_screen
     bool        fast_boot_set = false;         // was --fast-boot (or --set startup.fast_boot_seconds) given?
     // GH #365 — how a captured mouse is released.
     pointer_capture::ReleaseMethod mouse_release = pointer_capture::kDefaultReleaseMethod;
@@ -603,6 +604,10 @@ int main(int argc, char* argv[]) {
         case KeyId::StartupFastBootSeconds:
             fast_boot_seconds = static_cast<int>(num);
             fast_boot_set = true;
+            break;
+        case KeyId::StartupFastBootHideScreen:
+            fast_boot_hide = on;
+            fast_boot_hide_set = true;
             break;
         case KeyId::StartupWhenSlowPrefer:
             when_slow_prefer = (t == "video") ? audio_pacing::WhenSlowPrefer::Video
@@ -1621,7 +1626,8 @@ int main(int argc, char* argv[]) {
         load_file = positional_file;
     }
 #ifdef JNEXT_BROWSER
-    if (!load_file.empty()) {
+    // GH #541: a .zip is checked after its extraction, below (a NEX archive is accepted).
+    if (!load_file.empty() && !program_archive::is_archive_path(load_file)) {
         if (const char* why = browser_page::program_refusal(load_file)) {
             fprintf(stderr, "--load %s: %s\n", load_file.c_str(), why);
             return 1;
@@ -1638,6 +1644,20 @@ int main(int argc, char* argv[]) {
 #endif
     if (!load_file.empty() && program_archive::is_archive_path(load_file)) {
         std::string extracted, member, why;
+#ifdef JNEXT_BROWSER
+        // A browser page accepts only an archive whose program is a NEX; any other
+        // (none, several, a TAP, unreadable) is refused with the usual page text.
+        {
+            program_archive::ProgramArchive archive;
+            std::string chosen, ignored;
+            if (!archive.open(load_file, ignored) || !archive.choose(chosen, ignored) ||
+                !browser_page::archive_program_allowed(chosen)) {
+                fprintf(stderr, "--load %s: %s\n", load_file.c_str(),
+                        browser_page::program_refusal(load_file));
+                return 1;
+            }
+        }
+#endif
         if (!program_archive::extract_single_program(load_file, extracted, why, &member)) {
             fprintf(stderr, "--load %s: %s.\n", load_file.c_str(), why.c_str());
             return 1;
@@ -3211,10 +3231,14 @@ int main(int argc, char* argv[]) {
         // --when-slow-prefer: the command line over the saved Preference (Qt), else the default.
         {
             int seconds = fast_boot_seconds;
+            bool hide = fast_boot_hide;
 #ifdef ENABLE_QT_UI
             if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>)
                 seconds = merge_cli_precedence(fast_boot_set, fast_boot_seconds,
                                                gui_app_config.data().fast_boot_seconds);
+            if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>)
+                hide = merge_cli_precedence(fast_boot_hide_set, fast_boot_hide,
+                                            gui_app_config.data().fast_boot_hide_screen);
 #endif
             fast_boot::Launch fl;
             fl.seconds      = seconds;
@@ -3233,9 +3257,11 @@ int main(int argc, char* argv[]) {
                               !dac_trace_file.empty() || !record_script_file.empty();
             const fast_boot::Decision fd = fast_boot::decide(fl);
             if (fd.why == fast_boot::Why::Armed) {
-                app.emulator().arm_fast_boot(fd.frames);
+                app.emulator().arm_fast_boot(fd.frames, hide);
                 Log::emulator()->info("fast boot: the first {} s ({} frames) run at maximum speed; press any key to stop",
                                       seconds, fd.frames);
+                if (hide)
+                    Log::emulator()->info("fast boot: the screen stays black until it ends");
             } else if (fast_boot_set && fd.why != fast_boot::Why::Off && fd.why != fast_boot::Why::Headless) {
                 // Asked for, and not given: say so (a setting of 0 and --headless have their own wording).
                 Log::emulator()->warn("fast boot: off ({})", fast_boot::why_text(fd.why));

@@ -27,7 +27,7 @@ the guest's own driver talks to. Both are called out below.
 | `.tzx` | yes | yes | `tzx_loader.*`, `tape_recorder.*` | Read: wraps ZOT (`third_party/zot`). Write: tape-out capture decoded into 0x10/0x11/0x13/0x20 |
 | `.wav` | yes | yes | `wav_loader.*`, `tape_recorder.*` | Read: real-time only, no fast path. Write: the tape-out signal, 8-bit mono 44100 Hz |
 | `.rzx` | yes | yes | `rzx_player.*`, `rzx_recorder.*` | Input recording, not state |
-| `.zip` | yes | — | `core/program_archive.*`, `save/zip_interchange.*` | Not a format: a container resolved to one program file at the two entry points (see ZIP archives) |
+| `.zip` | yes | — | `core/program_archive.*`, `save/zip_interchange.*` | Not a format: a container resolved to one program file (a NEX with data files: its directory) at the two entry points (see ZIP archives) |
 | raw binary | yes | — | `Emulator::inject_binary` | `--inject` + `--inject-org`/`--inject-pc` |
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
@@ -822,7 +822,12 @@ directory the path names, as `run NAME.nex` and the kept-open sibling lookup
 use; a symbolic link's own directory) when `esxdos_stub` is set, no explicit
 root exists and the NEX was not extracted from an archive
 (`program_archive::extracted_from()`: the scratch copy has no directory of its
-own). It is therefore set again by every NEX load, in place or through a cold
+own). The exception is a NEX inside the slot of a data archive
+(`program_archive::in_archive_directory()`, see ZIP archives): it gets its own
+directory (the parent of `active_nex_path_`, so a NEX in a subfolder of the slot
+is served that subfolder) without `esxdos_stub`, read-only unless
+`esxdos_stub_writable`, and an explicit root still wins, with an info line
+saying the archive's files are not served. It is therefore set again by every NEX load, in place or through a cold
 boot, whichever frontend asked, and `init()` ends it with
 `EsxdosHostFs::clear()` (a soft reset, or any re-initialising load), as it ends
 `direct_nex_esxdos_`. It is not written to the config, which would pin the
@@ -1359,6 +1364,32 @@ every message that carries one goes through `display_name()`, which escapes C0, 
 C1 and anything outside well-formed UTF-8 as `\xNN`, so no consumer can print an
 escape sequence. An archive file over 256 MiB is refused too, before it is read. `extraction_name()` also prefixes `_` to a Windows device name (`CON.TAP`, `NUL.Z80`, `COM1.NEX`), on every OS, because Windows 10 refuses to create those files.
 
+**A NEX with its data files.** `ProgramArchive::choose()` is the one rule for
+which program an archive loads (the command line, the browser and, before its
+picker, the window): exactly one program; or exactly one `.nex` whose every
+other program lies in a subdirectory strictly below the NEX's own directory in
+the archive; else `several_why()`. `has_data_files()` is true for a `.nex` whose
+directory (its level and below, junk ignored) holds another file, and
+`extract_program()` then extracts that directory, tree preserved, into one slot
+with the NEX directly in it, instead of the one file `extract()` writes (a
+NEX alone gets `extract()`, so it is served no directory, as before). It checks
+everything before it writes anything: `unsafe_name()` over EVERY member of the
+archive (one hostile name anywhere refuses it), each component sanitised as
+`extraction_name()` sanitises a basename, a component ending in a dot or space,
+a relative path over `EsxdosHostFs::kMaxPath`, two paths equal ignoring ASCII
+case, a file that is another's directory, and the declared sizes summing over `kMaxDirectoryBytes`
+(checked against the central directory, before a member is read). A directory
+spelled in two cases is one directory: every file is written under the first-seen
+spelling of each directory prefix (`canon_dir()`), so the tree, and so the
+result, is the same on a case-sensitive host and a case-insensitive one. A member that
+then fails to read (CRC, encryption) removes the whole slot. A success registers the
+slot, which `in_archive_directory()` matches component-wise (a sibling
+`<slot>X` is not inside); `Emulator::load_nex()` asks it, and nothing else knows
+the registry. The browser takes the same route: `main.cpp` and `jnext_web_load()`
+accept a `.zip` only when `choose()` gives a `.nex`
+(`browser_page::archive_program_allowed()`) and otherwise refuse it with the
+unchanged program-format text; the slot is in MEMFS.
+
 **Lifetime.** One `ScratchDir` per process (`process_scratch()`, a function-local
 static, so it is destroyed on any return from `main()`, after the app objects and
 their open NEX handle, which matters on Windows): a random directory per process,
@@ -1369,10 +1400,11 @@ of a crash, never another instance's live session. In the window, a bundled
 `.pok` (`matching_pok()`: same stem, else the only one) becomes the POK session
 without showing the dialog (`start_pok_session(.., show=false)`).
 
-The suites: `program_archive_test` (ZIPI-01..25 the reader, ZIPL-01..22 the layer;
+The suites: `program_archive_test` (ZIPI-01..25 the reader, ZIPL-01..22 the layer, ZDIR-01..22 data archives;
 fixtures from foreign writers in `test/fixtures/zip` plus archives built in code
-with `test/zip_fixture.h`), `load_error_test` ZIPG-01..09 (the window) and the
-`zip-load-func` regression row.
+with `test/zip_fixture.h`), `load_error_test` ZIPG-01..09 and ZIPG-18..19 (the window),
+`esxdos_stub_test` NXZIP-01..09 (the served directory) and the
+`zip-load-func` and `zip-data-func` regression rows.
 
 ## Media out
 

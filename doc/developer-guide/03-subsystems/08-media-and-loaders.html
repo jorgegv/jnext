@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.37</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.37</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3203,7 +3203,7 @@ the guest's own driver talks to. Both are called out below.</p>
 <td>yes</td>
 <td>—</td>
 <td><code>core/program_archive.*</code>, <code>save/zip_interchange.*</code></td>
-<td>Not a format: a container resolved to one program file at the two entry points (see ZIP archives)</td>
+<td>Not a format: a container resolved to one program file (a NEX with data files: its directory) at the two entry points (see ZIP archives)</td>
 </tr>
 <tr>
 <td>raw binary</td>
@@ -3998,7 +3998,12 @@ directory the path names, as <code>run NAME.nex</code> and the kept-open sibling
 use; a symbolic link's own directory) when <code>esxdos_stub</code> is set, no explicit
 root exists and the NEX was not extracted from an archive
 (<code>program_archive::extracted_from()</code>: the scratch copy has no directory of its
-own). It is therefore set again by every NEX load, in place or through a cold
+own). The exception is a NEX inside the slot of a data archive
+(<code>program_archive::in_archive_directory()</code>, see ZIP archives): it gets its own
+directory (the parent of <code>active_nex_path_</code>, so a NEX in a subfolder of the slot
+is served that subfolder) without <code>esxdos_stub</code>, read-only unless
+<code>esxdos_stub_writable</code>, and an explicit root still wins, with an info line
+saying the archive's files are not served. It is therefore set again by every NEX load, in place or through a cold
 boot, whichever frontend asked, and <code>init()</code> ends it with
 <code>EsxdosHostFs::clear()</code> (a soft reset, or any re-initialising load), as it ends
 <code>direct_nex_esxdos_</code>. It is not written to the config, which would pin the
@@ -4509,6 +4514,31 @@ member was quadratic: 12 s for 65534 entries). A member name is untrusted bytes:
 every message that carries one goes through <code>display_name()</code>, which escapes C0, DEL,
 C1 and anything outside well-formed UTF-8 as <code>\xNN</code>, so no consumer can print an
 escape sequence. An archive file over 256 MiB is refused too, before it is read. <code>extraction_name()</code> also prefixes <code>_</code> to a Windows device name (<code>CON.TAP</code>, <code>NUL.Z80</code>, <code>COM1.NEX</code>), on every OS, because Windows 10 refuses to create those files.</p>
+<p><strong>A NEX with its data files.</strong> <code>ProgramArchive::choose()</code> is the one rule for
+which program an archive loads (the command line, the browser and, before its
+picker, the window): exactly one program; or exactly one <code>.nex</code> whose every
+other program lies in a subdirectory strictly below the NEX's own directory in
+the archive; else <code>several_why()</code>. <code>has_data_files()</code> is true for a <code>.nex</code> whose
+directory (its level and below, junk ignored) holds another file, and
+<code>extract_program()</code> then extracts that directory, tree preserved, into one slot
+with the NEX directly in it, instead of the one file <code>extract()</code> writes (a
+NEX alone gets <code>extract()</code>, so it is served no directory, as before). It checks
+everything before it writes anything: <code>unsafe_name()</code> over EVERY member of the
+archive (one hostile name anywhere refuses it), each component sanitised as
+<code>extraction_name()</code> sanitises a basename, a component ending in a dot or space,
+a relative path over <code>EsxdosHostFs::kMaxPath</code>, two paths equal ignoring ASCII
+case, a file that is another's directory, and the declared sizes summing over <code>kMaxDirectoryBytes</code>
+(checked against the central directory, before a member is read). A directory
+spelled in two cases is one directory: every file is written under the first-seen
+spelling of each directory prefix (<code>canon_dir()</code>), so the tree, and so the
+result, is the same on a case-sensitive host and a case-insensitive one. A member that
+then fails to read (CRC, encryption) removes the whole slot. A success registers the
+slot, which <code>in_archive_directory()</code> matches component-wise (a sibling
+<code>&lt;slot&gt;X</code> is not inside); <code>Emulator::load_nex()</code> asks it, and nothing else knows
+the registry. The browser takes the same route: <code>main.cpp</code> and <code>jnext_web_load()</code>
+accept a <code>.zip</code> only when <code>choose()</code> gives a <code>.nex</code>
+(<code>browser_page::archive_program_allowed()</code>) and otherwise refuse it with the
+unchanged program-format text; the slot is in MEMFS.</p>
 <p><strong>Lifetime.</strong> One <code>ScratchDir</code> per process (<code>process_scratch()</code>, a function-local
 static, so it is destroyed on any return from <code>main()</code>, after the app objects and
 their open NEX handle, which matters on Windows): a random directory per process,
@@ -4518,10 +4548,11 @@ open). Process directories older than 7 days are swept on first use: leftovers
 of a crash, never another instance's live session. In the window, a bundled
 <code>.pok</code> (<code>matching_pok()</code>: same stem, else the only one) becomes the POK session
 without showing the dialog (<code>start_pok_session(.., show=false)</code>).</p>
-<p>The suites: <code>program_archive_test</code> (ZIPI-01..25 the reader, ZIPL-01..22 the layer;
+<p>The suites: <code>program_archive_test</code> (ZIPI-01..25 the reader, ZIPL-01..22 the layer, ZDIR-01..22 data archives;
 fixtures from foreign writers in <code>test/fixtures/zip</code> plus archives built in code
-with <code>test/zip_fixture.h</code>), <code>load_error_test</code> ZIPG-01..09 (the window) and the
-<code>zip-load-func</code> regression row.</p>
+with <code>test/zip_fixture.h</code>), <code>load_error_test</code> ZIPG-01..09 and ZIPG-18..19 (the window),
+<code>esxdos_stub_test</code> NXZIP-01..09 (the served directory) and the
+<code>zip-load-func</code> and <code>zip-data-func</code> regression rows.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

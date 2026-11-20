@@ -285,6 +285,12 @@ bool DebuggerWindow::panel_on_show(const QWidget* panel) const {
     return true;
 }
 
+// GH #377/#498: the docks hide (and say so) while this window's children are deleted, after its own members
+// are gone; their visibility signals must not reach a half-destroyed window.
+DebuggerWindow::~DebuggerWindow() {
+    for (QDockWidget* d : docks_) d->disconnect(this);
+}
+
 void DebuggerWindow::closeEvent(QCloseEvent* event) {
     // Task 60e: window_closed() runs DebuggerManager::set_enabled(false)
     // synchronously (direct connection), which auto-resumes the machine. That

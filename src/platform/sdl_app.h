@@ -140,6 +140,10 @@ public:
     /// suite that drives both sees the pacing grid without depending on how fast the host runs a tick.
     /// GH #499: frames uploaded and presented to the display since start (a throttled tick presents none).
     uint64_t uploads_for_test() const { return uploads_total_; }
+    /// GH #544: the generation of the last uploaded frame (fast_boot::HIDDEN_GENERATION while the screen is hidden).
+    uint64_t last_upload_generation_for_test() const { return last_uploaded_gen_; }
+    /// GH #544: the pixels of the last uploaded frame (a black frame while the screen is hidden).
+    const uint32_t* last_upload_pixels_for_test() const { return last_uploaded_pixels_; }
     void set_pacing_time_for_test(std::function<int64_t()> now_us, std::function<void(uint32_t)> sleep_ms) {
         pacing_now_us_ = std::move(now_us);
         pacing_sleep_ms_ = std::move(sleep_ms);
@@ -294,6 +298,7 @@ private:
     /// (render_policy::NOTHING_UPLOADED until the first present), and the
     /// once-per-second present instrument ("sdl present: ticks=N uploads=K").
     uint64_t    last_uploaded_gen_ = ~uint64_t{0};
+    const uint32_t* last_uploaded_pixels_ = nullptr;   // GH #544: test seam only
     uint64_t    present_ticks_ = 0, present_uploads_ = 0, present_window_start_ms_ = 0;
     uint64_t    uploads_total_ = 0;   // GH #499: present_uploads_ never reset, for the throttle's rows
 

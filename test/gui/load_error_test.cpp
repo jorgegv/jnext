@@ -1046,6 +1046,60 @@ int main(int argc, char** argv) {
               s ? s->path() : std::string("no session"));
     }
 
+    // GH #541 - a NEX archive with data files: File > Load extracts the NEX's directory as a tree.
+    // Oracle: the issue's rules; bytes are the fixtures' own (lores_demo.nex, invented data).
+    {
+        const Bytes nex = slurp(zfix + "/../../00regression/nex/lores_demo.nex");
+        const Bytes l1(33, 0x5A);
+        // ZIPG-18
+        {
+            Fixture f; Handed h; hook(f, h);
+            DialogWatcher w;
+            const std::string zp = write_zip("nexdata.zip", {zmem("G.NEX", nex), zmem("data/L1.BIN", l1)});
+            f.win.handle_load_path(QString::fromStdString(zp));
+            w.stop();
+            const std::filesystem::path dir = std::filesystem::path(h.path).parent_path();
+            check("ZIPG-18",
+                  "File > Load of a data zip hands the load callback the extracted NEX with data/L1.BIN "
+                  "beside it, bytes intact, and asks nothing",
+                  f.ok && h.n == 1 && std::filesystem::path(h.path).filename() == "G.NEX" && h.bytes == nex &&
+                      slurp((dir / "data" / "L1.BIN").string()) == l1 && w.seen == 0,
+                  fmt("n=%d path=%s seen=%d", h.n, h.path.c_str(), w.seen));
+        }
+        // ZIPG-19
+        {
+            Fixture f; Handed h; hook(f, h);
+            InputWatcher in; in.pick = "B.NEX";
+            const std::string zp = write_zip("twonex.zip", {zmem("A.NEX", nex), zmem("B.NEX", nex), zmem("data/L1.BIN", l1)});
+            f.win.handle_load_path(QString::fromStdString(zp));
+            in.stop();
+            const std::filesystem::path dir = std::filesystem::path(h.path).parent_path();
+            check("ZIPG-19",
+                  "two NEX in one directory still ask which (A.NEX, B.NEX in archive order); the one "
+                  "picked is extracted with data/L1.BIN beside it",
+                  f.ok && in.seen == 1 && in.items == QStringList({"A.NEX", "B.NEX"}) && h.n == 1 &&
+                      std::filesystem::path(h.path).filename() == "B.NEX" &&
+                      slurp((dir / "data" / "L1.BIN").string()) == l1,
+                  fmt("seen=%d items=%s n=%d path=%s", in.seen, q(in.items.join(",")).c_str(), h.n,
+                      h.path.c_str()));
+        }
+        // ZIPG-20
+        {
+            Fixture f; Handed h; hook(f, h);
+            InputWatcher in; in.pick = "G.NEX";
+            const std::string zp = write_zip("nexsfx.zip", {zmem("G.NEX", nex), zmem("data/SFX.TAP", Bytes(8, 3))});
+            f.win.handle_load_path(QString::fromStdString(zp));
+            in.stop();
+            const std::filesystem::path dir = std::filesystem::path(h.path).parent_path();
+            check("ZIPG-20",
+                  "a NEX whose only other program is game data below it (data/SFX.TAP) loads without a question: "
+                  "the NEX is handed over with data/SFX.TAP beside it",
+                  f.ok && in.seen == 0 && h.n == 1 && std::filesystem::path(h.path).filename() == "G.NEX" &&
+                      slurp((dir / "data" / "SFX.TAP").string()) == Bytes(8, 3),
+                  fmt("seen=%d n=%d path=%s", in.seen, h.n, h.path.c_str()));
+        }
+    }
+
     // GH #408 - Tape > Eject, the menu action: MainWindow::on_tape_eject() must
     // go through Emulator::eject_tape(), which empties every deck AND closes
     // the fast-load window of the tape that was in.

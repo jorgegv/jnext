@@ -6,7 +6,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - ZX Spectrum 48K, 128K, +2A/+3, Pentagon 128 and ZX Spectrum Next machine types
 - Pentagon personality on the Next (`--machine pentagon`): 128K ROM and paging, uncontended 50 Hz timing, Covox on 0xFB
 - **Native NextZXOS cold boot** through the authentic FPGA chain (bootrom → TBBLUE.FW → NextZXOS) from an SD card image
-- Fast boot: a plain Next start runs its first 15 seconds at full speed with the sound off, until any key (`--fast-boot SECONDS`, Preferences > Startup)
+- Fast boot: a plain Next start runs its first 15 seconds at full speed with the sound off, until any key, optionally with the screen hidden until it ends (`--fast-boot SECONDS`, Preferences > Startup)
 - FUSE-based Z80 core with all standard opcodes (100% pass rate on FUSE test suite)
 - All 26 Z80N extended opcodes (NEXTREG, MUL, LDIRX, barrel shifts, etc.)
 - Accurate memory contention for 48K, 128K, and +3 timing models
@@ -105,7 +105,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - WAV: RIFF/PCM EAR bit playback (8/16-bit, mono/stereo) with sub-sample edge interpolation
 - RZX playback in every frontend, on the machine the recording was made on
 - RZX recording on 48K, 128K or +3 (refused on a Next)
-- Programs inside `.zip` archives (`game.tap.zip`, `game.nex.zip`) load directly via `--load`, a bare filename or File > Load
+- Programs inside `.zip` archives (`game.tap.zip`, `game.nex.zip`) load directly via `--load`, a bare filename or File > Load; a zipped NEX game also gets the data files beside it, served through the esxDOS stand-in (command line, File > Load, web page `file`)
 - POK trainer files (WoS `.pok`): Machine > POK Trainers... applies and removes trainers on the running machine
 - POK trainers from the command line: `--delayed-pok-frames N FILE` with `--pok-trainers`
 

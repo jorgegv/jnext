@@ -61,6 +61,8 @@ public:
                             std::optional<bool> attach_override = std::nullopt,
                             std::optional<bool> physical_override = std::nullopt);
 
+    ~DebuggerWindow() override;
+
     /// GH #360 - the style every panel prints "which memory" in. Physical differs
     /// from Friendly only on a Next (plan D3). Applies to every panel and refreshes.
     jnext::dbg::AddressStyle address_style() const { return address_style_; }

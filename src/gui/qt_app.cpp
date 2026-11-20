@@ -15,6 +15,7 @@
 #include "platform/re_export_at_exit.h"   // GH #389
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
+#include "platform/fast_boot.h"
 #include "platform/render_policy.h"
 #include "platform/speed_report.h"
 #include "platform/sdl_audio.h"
@@ -816,10 +817,12 @@ void QtApp::TickEffects::push_audio(bool hold_on_underrun) {
 void QtApp::TickEffects::present(bool carries_new_content) {
     // Update the display widget with the in-memory framebuffer (640×256).
     // The widget vertically doubles to 640×512 internally during prescale.
-    app.main_window_->emulator_widget()->update_frame(
-        app.emulator_.get_framebuffer(),
-        app.emulator_.get_framebuffer_width(), app.emulator_.get_framebuffer_height(),
-        carries_new_content, app.emulator_.framebuffer_generation());
+    // GH #544: while the screen is hidden (fast boot), the widget gets one held black frame.
+    const int w = app.emulator_.get_framebuffer_width(), h = app.emulator_.get_framebuffer_height();
+    const fast_boot::Shown s = fast_boot::shown_frame(
+        app.emulator_.fast_boot_hides_screen(), app.emulator_.get_framebuffer(), w, h,
+        app.emulator_.framebuffer_generation());
+    app.main_window_->emulator_widget()->update_frame(s.pixels, w, h, carries_new_content, s.generation);
 }
 
 void QtApp::TickEffects::post_frames(int frames_rendered) {

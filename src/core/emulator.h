@@ -886,12 +886,21 @@ public:
     /// preserve_memory (every load and machine change) and load_state(). A
     /// soft reset keeps it: the Next firmware performs one itself to start
     /// NextZXOS. Host pacing only: not serialised, changes no emulated state.
-    void arm_fast_boot(uint32_t frames) {
+    /// GH #544: `hide_screen` also asks the frontends to show a black frame
+    /// while the window is open (see fast_boot_hides_screen()).
+    void arm_fast_boot(uint32_t frames, bool hide_screen = false) {
         fast_boot_frames_left_ = frames; fast_boot_run_ = 0;
+        fast_boot_hide_ = hide_screen;
         fast_boot_stops_ = debug_state_.stops_resumed();
     }
     /// GH #499 - frames left of that window (0: none).
     uint32_t fast_boot_frames_left() const { return fast_boot_frames_left_; }
+    /// GH #544 - the window shows a black frame instead of the framebuffer: the
+    /// fast-boot window is open, it was armed with hide_screen, and the machine
+    /// is not stopped (a pause or a breakpoint shows the real screen at once).
+    bool fast_boot_hides_screen() const {
+        return fast_boot_hide_ && fast_boot_frames_left_ > 0 && !debug_state_.paused();
+    }
     /// GH #408 - frames a fast tape keeps the emulator uncapped after a
     /// ROM-trap load (one emulated second at 50 Hz). Measured on a synthetic
     /// `10 LOAD ""CODE : PAUSE n : LOAD ""CODE` loader (tap_loader_test
@@ -2786,6 +2795,7 @@ private:
     // run since it was armed (for the log line). Host pacing only, not serialised.
     uint32_t         fast_boot_frames_left_ = 0;
     uint32_t         fast_boot_run_ = 0;
+    bool             fast_boot_hide_ = false;   // GH #544: armed with hide_screen; host presentation, not serialised
     uint64_t         fast_boot_stops_ = 0;   // DebugState::stops_resumed() when armed: a stop and resume closes the window
     /// Close the window, logging why (only when it was open).
     void close_fast_boot_(const char* reason);

@@ -281,6 +281,7 @@ BEGIN {
     M["tstate_counter_test"]          = "Debugger T-State Counter"
     M["reg_edit_test"]                = "Debugger CPU Register Edit (GH #368)"
     M["nav_history_test"]             = "Debugger Navigation History (GH #366)"
+    M["fast_boot_test"]               = "Fast Boot (GH #499, #544)"
     M["debugger_window_size_test"]     = "Debugger Window Sizing"
     M["debugger_window_grow_test"]     = "Debugger Window Growing"
     M["debugger_accel_test"]           = "Debugger Accelerators"
