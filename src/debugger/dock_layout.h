@@ -45,7 +45,7 @@ namespace jnext::dock {
 /// Every panel's ID, in the user-guide panel order (also the Window > Panels
 /// order). A new panel is one row here plus its token in kDefaultLayoutText.
 inline constexpr const char* kPanelIds[] = {
-    "video", "sprites", "copper", "nextreg", "audio", "script", "source", "symbols",
+    "video", "sprites", "graphics", "copper", "nextreg", "audio", "script", "source", "symbols",
     "cpu", "mmu",
     "stack", "callstack", "memory",
     "watches", "variables", "breakpoints",
@@ -54,7 +54,7 @@ inline constexpr std::size_t kPanelCount = sizeof(kPanelIds) / sizeof(kPanelIds[
 
 /// The layout of a fresh install: the arrangement of the fixed window it replaces.
 inline constexpr const char* kDefaultLayoutText =
-    "v1 left v 0 tabs 0 *video sprites copper nextreg audio script source symbols "
+    "v1 left v 0 tabs 0 *video sprites graphics copper nextreg audio script source symbols "
     "right v 0 tabs 0 *cpu tabs 0 *mmu "
     "bottom h 0 tabs 0 *stack callstack memory tabs 0 *watches variables breakpoints";
 

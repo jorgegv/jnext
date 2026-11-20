@@ -9,6 +9,7 @@
 #include "debugger/memory_panel.h"
 #include "debugger/video_panel.h"
 #include "debugger/sprite_panel.h"
+#include "debugger/graphics_panel.h"
 #include "debugger/copper_panel.h"
 #include "debugger/script_panel.h"
 #include "debugger/nextreg_panel.h"
@@ -1604,6 +1605,7 @@ void DebuggerWindow::create_panels() {
             &DisasmPanel::show_address);
     video_panel_ = new VideoPanel(&dbg_);
     sprite_panel_ = new SpritePanel(&dbg_);
+    graphics_panel_ = new GraphicsPanel(&dbg_);   // GH #371
     copper_panel_ = new CopperPanel(&dbg_);
     nextreg_panel_ = new NextRegPanel(&dbg_);
     audio_panel_ = new AudioPanel(&dbg_);
@@ -1710,6 +1712,7 @@ void DebuggerWindow::create_panels() {
     const Row table[] = {
         {"video",      tr("Video"),         video_panel_},
         {"sprites",    tr("Sprites"),       sprite_panel_},
+        {"graphics",   tr("Graphics"),      graphics_panel_},
         {"copper",     tr("Copper"),        copper_panel_},
         {"nextreg",    tr("NextREG"),       nextreg_panel_},
         {"audio",      tr("Audio"),         audio_panel_},
@@ -2183,6 +2186,7 @@ void DebuggerWindow::refresh_panels() {
     if (memory_panel_) memory_panel_->refresh();
     if (video_panel_) video_panel_->refresh();
     if (sprite_panel_) sprite_panel_->refresh();
+    if (graphics_panel_) graphics_panel_->refresh();   // GH #371
     if (copper_panel_) copper_panel_->refresh();
     if (nextreg_panel_) nextreg_panel_->refresh();
     if (audio_panel_) audio_panel_->refresh();

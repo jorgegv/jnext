@@ -38,12 +38,12 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 
 // The pre-docking arrangement, spelled out independently of kDefaultLayoutText.
 const char* const kLiteralDefault =
-    "v1 left v 0 tabs 0 *video sprites copper nextreg audio script source symbols "
+    "v1 left v 0 tabs 0 *video sprites graphics copper nextreg audio script source symbols "
     "right v 0 tabs 0 *cpu tabs 0 *mmu "
     "bottom h 0 tabs 0 *stack callstack memory tabs 0 *watches variables breakpoints";
 
 // Pieces of the default, to build "everything but X" layouts.
-const char* const kLeft  = "left v 0 tabs 0 *video sprites copper nextreg audio script source symbols";
+const char* const kLeft  = "left v 0 tabs 0 *video sprites graphics copper nextreg audio script source symbols";
 const char* const kRight = "right v 0 tabs 0 *cpu tabs 0 *mmu";
 const char* const kBottom = "bottom h 0 tabs 0 *stack callstack memory tabs 0 *watches variables breakpoints";
 
@@ -76,7 +76,7 @@ int main()
         if (ok) {
             const auto& L = l->lines[0]; const auto& R = l->lines[1]; const auto& B = l->lines[2];
             ok = L.area == Area::Left && !L.horizontal && L.thickness == 0 &&
-                 L.groups.size() == 1 && L.groups[0].tabs.size() == 8 &&
+                 L.groups.size() == 1 && L.groups[0].tabs.size() == 9 &&
                  L.groups[0].tabs.front() == "video" && L.groups[0].tabs.back() == "symbols" &&
                  L.groups[0].shown == 0 &&
                  R.area == Area::Right && !R.horizontal && R.groups.size() == 2 &&
@@ -88,7 +88,7 @@ int main()
                  B.groups[1].tabs == std::vector<std::string>{"watches", "variables", "breakpoints"} &&
                  B.groups[1].shown == 0;
         }
-        check("DLAY-02", "the default text parses to 3 lines: left v [8 tabs], right v [cpu][mmu], bottom h [3][3]", ok);
+        check("DLAY-02", "the default text parses to 3 lines: left v [9 tabs], right v [cpu][mmu], bottom h [3][3]", ok);
     }
 
     // DLAY-03
@@ -184,16 +184,16 @@ int main()
     {
         // symbols missing: appended to the group holding video.
         const std::string no_sym = join({
-            "left v 0 tabs 0 *video sprites copper nextreg audio script source",
+            "left v 0 tabs 0 *video sprites graphics copper nextreg audio script source",
             kRight, kBottom});
         const std::string r1 = format(complete(*parse(no_sym)));
         // video floating, symbols missing: joins the group of the next docked mate, sprites.
         const std::string vf = join({
-            "left v 0 tabs 0 *sprites copper nextreg audio script source", kRight, kBottom,
+            "left v 0 tabs 0 *sprites graphics copper nextreg audio script source", kRight, kBottom,
             "float video 1 2 3 4"});
         const std::string r2 = format(complete(*parse(vf)));
         const std::string e2 = join({
-            "left v 0 tabs 0 *sprites copper nextreg audio script source symbols", kRight, kBottom,
+            "left v 0 tabs 0 *sprites graphics copper nextreg audio script source symbols", kRight, kBottom,
             "float video 1 2 3 4"});
         // mmu missing while cpu floats: a new group at the end of the right area.
         const std::string cf = join({kLeft, kBottom, "float cpu 10 20 300 200"});
@@ -267,7 +267,7 @@ int main()
         }
         for (const auto& ln : d.lines) for (const auto& g : ln.groups) tabs += g.tabs.size();
         check("DLAY-12", "every kPanelIds ID is in the default layout exactly once, and nothing else is",
-              kPanelCount == 16 && each_once && tabs == kPanelCount && hits == tabs &&
+              kPanelCount == 17 && each_once && tabs == kPanelCount && hits == tabs &&
               d.floats.empty() && d.closed.empty());
     }
 

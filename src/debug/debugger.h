@@ -309,7 +309,7 @@ struct LoopDriver {
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
 // ---------------------------------------------------------------------------
 // DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
-// `Result`" (`result.h`'s banner). These 53 read live machine state that always
+// `Result`" (`result.h`'s banner). These 55 read live machine state that always
 // exists, so they have no refusal case by construction and return their value
 // directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
 // `Expected<T>`, and moving one onto it is a claim that it cannot fail. The
@@ -323,11 +323,11 @@ struct LoopDriver {
 //                     at_frame_boundary, rewind_enabled, rewind_range
 //   registers/memory (6): registers, mmu_slots, paging_ports, rom_select,
 //                     nextreg_peek, nextreg_selected
-//   video/audio (16): raster, machine, time, sprites, pattern_ram,
+//   video/audio (18): raster, machine, time, time_epoch, sprites, pattern_ram,
 //                     sprite_clip, copper, framebuffer, palette,
-//                     active_ula_palette_bank, ula_screen_regs, clip_window,
-//                     turbosound_enabled, ay_mode, stereo_mode,
-//                     audio_mute_mask
+//                     palette_priority, active_ula_palette_bank,
+//                     ula_screen_regs, clip_window, turbosound_enabled,
+//                     ay_mode, stereo_mode, audio_mute_mask
 //   disasm/trace (10): disassemble, instruction_length, is_call_like,
 //                     memory_reader, operand_reader, call_stack, call_stack_enabled,
 //                     trace_enabled, coverage_enabled, coverage
@@ -730,6 +730,14 @@ public:
     /// INS-15 — one palette bank's entries, RGB333. `PaletteId::UlaActive`
     /// resolves to whichever ULA bank NR 0x43 has selected.
     std::vector<uint16_t> palette(PaletteId id) const;
+
+    /// INS-15 (GH #371, frozen-interface addition approved by the owner, 2026-11-19) - one palette bank's
+    /// stored priority field, 256 entries: bits 1:0 = bits 15:14 of the palette RAM word, i.e. NR 0x44
+    /// second-write bits 7:6 (zxnext.vhd:4920, 6972, 7025; read back as NR 0x44 bits 7:6, :6047-6048).
+    /// Bit 1 is the Layer 2 priority bit (layer2_prgb_1 <= l2s_prgb_1(15) ..., :7039, :7050); the other
+    /// banks store it and nothing reads it. `UlaActive` resolves as `palette()` does; empty for an id that
+    /// does not resolve.
+    std::vector<uint8_t> palette_priority(PaletteId id) const;
 
     /// INS-15 / §4.2a — write one palette entry.
     Result set_palette(ClientId by, PaletteId id, uint8_t index, uint16_t rgb333);

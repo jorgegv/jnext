@@ -90,17 +90,17 @@ void settle(int ms = 80)
 // from the window.
 struct PanelInfo { const char* id; const char* title; };
 const PanelInfo kPanels[] = {
-    {"video", "Video"}, {"sprites", "Sprites"}, {"copper", "Copper"}, {"nextreg", "NextREG"},
+    {"video", "Video"}, {"sprites", "Sprites"}, {"graphics", "Graphics"}, {"copper", "Copper"}, {"nextreg", "NextREG"},
     {"audio", "Audio"}, {"script", "Script"}, {"source", "Source"}, {"symbols", "Symbols"},
     {"cpu", "CPU Registers"}, {"mmu", "MMU"},
     {"stack", "Stack"}, {"callstack", "Call Stack"}, {"memory", "Memory"},
     {"watches", "Watches"}, {"variables", "Variables"}, {"breakpoints", "Breakpoints"},
 };
-constexpr int kPanelCount = 16;
+constexpr int kPanelCount = 17;
 
 // The pre-docking arrangement as literal layout text (independent of kDefaultLayoutText).
 const char* const kDefaultText =
-    "v1 left v 0 tabs 0 *video sprites copper nextreg audio script source symbols "
+    "v1 left v 0 tabs 0 *video sprites graphics copper nextreg audio script source symbols "
     "right v 0 tabs 0 *cpu tabs 0 *mmu "
     "bottom h 0 tabs 0 *stack callstack memory tabs 0 *watches variables breakpoints";
 
@@ -298,7 +298,7 @@ int main(int argc, char** argv)
             if (fx.dock("Watches") && fx.dock("Watches")->widget() != fx.dbg->watch_panel()) why += "watch-widget ";
             ok = ok && why.empty();
         }
-        check("QDOCK-01", "the dock host is the scroll area's widget, its central widget the Disassembly box, and each of the 16 panels the widget of its own movable, floatable, closable dock named by its ID",
+        check("QDOCK-01", "the dock host is the scroll area's widget, its central widget the Disassembly box, and each of the 17 panels the widget of its own movable, floatable, closable dock named by its ID",
               ok && why.empty(), why);
     }
 
@@ -311,7 +311,7 @@ int main(int argc, char** argv)
         if (!fx.ok || !host) why = "fixture";
         else {
             const QStringList left = dock_group_titles(fx.dock("Video"));
-            if (left != QStringList({"Video", "Sprites", "Copper", "NextREG", "Audio", "Script", "Source", "Symbols"}))
+            if (left != QStringList({"Video", "Sprites", "Graphics", "Copper", "NextREG", "Audio", "Script", "Source", "Symbols"}))
                 why += "left=" + left.join('|').toStdString() + " ";
             if (dock_group_shown_title(fx.dock("Video")) != "Video") why += "left-shown ";
             for (const char* t : {"Video", "Symbols"})
@@ -358,7 +358,7 @@ int main(int argc, char** argv)
     // QDOCK-04
     {
         const char* text =
-            "v1 left v 420 tabs 0 *video sprites copper nextreg audio script "
+            "v1 left v 420 tabs 0 *video sprites graphics copper nextreg audio script "
             "right v 0 tabs 0 *cpu mmu "
             "bottom h 0 tabs 0 *stack callstack tabs 0 *watches variables breakpoints tabs 0 *source "
             "float memory 100 120 300 200 closed symbols";
@@ -498,7 +498,7 @@ int main(int argc, char** argv)
     {
         std::string why;
         const char* bad[] = {"v1 left v 0 tabs",
-                             "v2 left v 0 tabs 0 *video sprites copper nextreg audio script source symbols right v 0 tabs 0 *cpu tabs 0 *mmu bottom h 0 tabs 0 *stack callstack memory tabs 0 *watches variables breakpoints",
+                             "v2 left v 0 tabs 0 *video sprites graphics copper nextreg audio script source symbols right v 0 tabs 0 *cpu tabs 0 *mmu bottom h 0 tabs 0 *stack callstack memory tabs 0 *watches variables breakpoints",
                              ""};
         for (const char* b : bad) {
             wipe(dir);
@@ -514,13 +514,13 @@ int main(int argc, char** argv)
     {
         wipe(dir);
         write_conf(dir,
-                   "v1 left v 0 tabs 0 *video sprites copper nextreg audio script source "
+                   "v1 left v 0 tabs 0 *video sprites graphics copper nextreg audio script source "
                    "right v 0 tabs 0 *cpu tabs 0 *mmu "
                    "bottom h 0 tabs 0 *stack callstack memory tabs 0 *watches variables breakpoints");
         Fixture fx;
         const QStringList left = fx.ok ? dock_group_titles(fx.dock("Video")) : QStringList();
         check("QDOCK-09", "a layout saved before Symbols existed opens with Symbols as the last tab of Video's group",
-              left == QStringList({"Video", "Sprites", "Copper", "NextREG", "Audio", "Script", "Source", "Symbols"}),
+              left == QStringList({"Video", "Sprites", "Graphics", "Copper", "NextREG", "Audio", "Script", "Source", "Symbols"}),
               left.join('|').toStdString());
     }
 
