@@ -26,8 +26,9 @@ the default (`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
 `BreakpointModel` (`src/debugger/breakpoint_model.*`) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
 `Execute`, `Mem` and `Port` subscriptions, and the addressless `IntAck` and `Nmi`
-ones (the Interrupt and NMI types), with no condition, `once = false` and
-action `Stop`. READ, WRITE and READ_WRITE are one `Mem` subscription with an
+ones (the Interrupt and NMI types), with no condition and `once = false`. A
+breakpoint stops: action `Stop` and no handler. A *count-only* one is action `Continue`
+plus a handler of the model that counts. READ, WRITE and READ_WRITE are one `Mem` subscription with an
 access mask. An I/O address `00`-`FF` is a low-byte match (`port_mask 0x00FF`);
 `0100` and up is exact. Because the observer never detaches and arms
 nothing, a breakpoint survives closing the window, fires with the window shut
@@ -39,6 +40,20 @@ nothing.
 and the port rule (`bp_port_mask_for()`): the model has no copy of either. Another
 client's `IntAck` or `Nmi` Stop subscription is a typed but read-only row, with an empty
 Address.
+
+**Hit counts need no backend counter** and follow the script engine's own split
+(`account_static_stops` / `run_rule`). A Stop breakpoint stays a static Stop with no
+handler (ZRCP's `other_breakpoint_at` and the step loops depend on that) and is counted
+in the model's `on_paused()` from `PausedInfo::matched`, for its own ids only. A count-only
+one counts in its handler, which captures the model (its destructor detaches the client,
+which removes the subscription: SES-01). `extras_` holds what the backend cannot report
+(which own ids are count-only), and `publish_()` prunes it and the counts with the listing.
+`sync()` emits `hits_changed()` once when a count moved and the panel rewrites only its
+Hits cells: never `changed()`, which would repaint the gutter every frame. A count dies
+with its subscription (Edit = a new id) and is not saved. The `(type, address, space)`
+API keeps meaning the plain breakpoint, and the gutters read plain members only, so a
+count-only breakpoint at an address is a separate row. `QBPX-15` pins the GUI's counts to
+the engine's `RuleView::hits` for the same rule.
 
 **Run to Next Interrupt** (Debug menu, the `run_to_interrupt` keymap action, unbound by
 default) is not a backend verb. `DebuggerManager::on_run_to_interrupt()` arms a

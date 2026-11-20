@@ -48,6 +48,25 @@ program that never executes `EI` an Interrupt breakpoint never fires. The Multif
 one way to raise an NMI. For a single stop at the next interrupt, without leaving a breakpoint
 behind, use **Debug ▸ Run to Next Interrupt**.
 
+## Counting hits instead of stopping
+
+Every breakpoint has a **Hits** count in the [Breakpoints panel](../panels/08-breakpoints.md): how
+many times it fired since you made it, or since you pressed **Reset Hits**. A stop breakpoint
+counts each time it stops the machine. Tick **Count hits only (don't stop)** in the Add dialog
+and the breakpoint counts and lets the machine run on: the list shows it as `Execute (count
+only)`. It is the way to ask "how often is this routine called?" or "how many times does the
+frame handler read this variable?" without stepping through every hit. Any type can be
+count-only, Interrupt and NMI included.
+
+The count is runtime state: Save as Script does not keep it, and a breakpoint you **Edit**
+starts again from 0 (an edit makes a new breakpoint). Disabling a breakpoint stops its counting
+and turning it back on keeps the count; with the **Breakpoints enabled** master switch off
+nothing counts.
+
+The disassembly gutter and the Source tab's BP column draw only plain (stopping) breakpoints,
+so a count-only breakpoint is never drawn there. Clicking the gutter on its line adds a plain
+breakpoint beside it, and the two are separate rows.
+
 **Breakpoints ▸ Clear All Breakpoints** removes all four kinds at once.
 
 ## Saving and loading breakpoints
@@ -66,9 +85,11 @@ bp4: on execute "main.bas:10" do stop end
 bp5: on execute @banked do stop end
 bp6: on interrupt do stop end
 bp7: on nmi do stop end
+bp8: on execute 0x8100 do end
 ```
 
-The file keeps each breakpoint's type, address and **On** state. A source-line breakpoint is
+The file keeps each breakpoint's type, address, **On** state and whether it is count-only (a rule with an empty body,
+`do end`: the engine counts its hits and does not stop; `jnext --script FILE` runs it the same way). A source-line breakpoint is
 written as its line, so it arms every place the line compiled to when you load it. An Execute
 breakpoint tied to the memory its code lives in (`$C000 P14` in the list) is written as the
 symbol that names that address in that memory, so loading it needs the same symbols
@@ -84,7 +105,7 @@ another client (GDB, ZRCP, DZRP, a script) set, and the master switch.
 **Load adds to the breakpoints you have**; it does not replace them (use **Clear All
 Breakpoints** first for that). A breakpoint that already exists takes the **On** state
 the file gives it, and a source line that is already armed on the same places is not added
-twice. A file is loaded whole or not at all: anything that is not a plain breakpoint (a
+twice. A file is loaded whole or not at all: anything that is not a plain or count-only breakpoint (a
 condition, a range, `once`, a message, other events than the ones the panel has) is refused with the line and column,
 and nothing is added. The same file runs from the command line with `jnext --script FILE`.
 

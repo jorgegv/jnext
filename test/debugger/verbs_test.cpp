@@ -5241,6 +5241,9 @@ static void test_bp_hits() {
                 if (g.cell(i, 1).contains("(client")) ro = i;
             const QString before_a = ra >= 0 ? g.cell(ra, 4) : "?", before_b = rb >= 0 ? g.cell(rb, 4) : "?";
             const QString other = ro >= 0 ? g.cell(ro, 4) : "?";
+            bool other_zero = false;
+            for (const auto& r : g.model().rows())
+                if (!r.own && r.type_text.contains("(client")) other_zero = g.model().hits(r) == 0;
             QPushButton* reset = button_ending(g.panel(), "Reset Hits");
             if (reset) reset->click();
             const QString after_a = g.cell(ra, 4), after_b = g.cell(rb, 4);
@@ -5249,7 +5252,7 @@ static void test_bp_hits() {
             g.tick_until_paused();   // 8002 again
             const QString again = g.cell(ra, 4);
             check("QBPX-10", desc,
-                  reset && before_a == "2" && before_b == "2" && other.isEmpty() && after_a == "0" && after_b == "0" &&
+                  reset && before_a == "2" && before_b == "2" && other.isEmpty() && other_zero && after_a == "0" && after_b == "0" &&
                       model_zero && again == "1",
                   s(before_a) + "," + s(before_b) + " other='" + s(other) + "' after " + s(after_a) + "," + s(after_b) +
                       " again " + s(again));
