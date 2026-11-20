@@ -78,6 +78,9 @@ if want fast-boot-hide-func; then
                         grep -qF "soft-reset" "$log" 2>/dev/null && break
                         sleep 0.02
                     done
+                    # 0.3 s on: the frame the widget holds is then a real one (the screen is cleared at the
+                    # reset itself), and the window is still open (about 2500 frames to go).
+                    sleep 0.3
                     kill -STOP "$pid" 2>/dev/null
                     if [ -n "$wid" ] && ! grep -qF "fast boot: ended" "$log" 2>/dev/null; then
                         import -window "$wid" "png:$pre-mid-1.png" 2>/dev/null || true
