@@ -9,6 +9,7 @@
 #include "debugger/memory_panel.h"
 #include "debugger/video_panel.h"
 #include "debugger/sprite_panel.h"
+#include "debugger/graphics_panel.h"
 #include "debugger/copper_panel.h"
 #include "debugger/script_panel.h"
 #include "debugger/nextreg_panel.h"
@@ -1528,6 +1529,7 @@ void DebuggerWindow::create_panels() {
             &DisasmPanel::show_address);
     video_panel_ = new VideoPanel(&dbg_);
     sprite_panel_ = new SpritePanel(&dbg_);
+    graphics_panel_ = new GraphicsPanel(&dbg_);   // GH #371
     copper_panel_ = new CopperPanel(&dbg_);
     nextreg_panel_ = new NextRegPanel(&dbg_);
     audio_panel_ = new AudioPanel(&dbg_);
@@ -1555,6 +1557,7 @@ void DebuggerWindow::create_panels() {
     tab_widget_->setTabPosition(QTabWidget::North);
     tab_widget_->addTab(video_panel_, tr("Video"));
     tab_widget_->addTab(sprite_panel_, tr("Sprites"));
+    tab_widget_->addTab(graphics_panel_, tr("Graphics"));
     tab_widget_->addTab(copper_panel_, tr("Copper"));
     tab_widget_->addTab(nextreg_panel_, tr("NextREG"));
     tab_widget_->addTab(audio_panel_, tr("Audio"));
@@ -1877,6 +1880,7 @@ void DebuggerWindow::refresh_panels() {
     if (memory_panel_) memory_panel_->refresh();
     if (video_panel_) video_panel_->refresh();
     if (sprite_panel_) sprite_panel_->refresh();
+    if (graphics_panel_) graphics_panel_->refresh();   // GH #371
     if (copper_panel_) copper_panel_->refresh();
     if (nextreg_panel_) nextreg_panel_->refresh();
     if (audio_panel_) audio_panel_->refresh();

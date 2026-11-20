@@ -367,7 +367,7 @@ int main(int argc, char** argv)
         check("GR-05",
               "at the default window size, grown to natural on a 3000x2200 screen, every page of the left "
               "column of tabs is at least as wide as its sizeHint (no tolerance) and the Video page at most 4 px wider",
-              fx.ok && pages == 8 && bad.empty(),
+              fx.ok && pages == 9 && bad.empty(),
               fx.ok ? bad + fmt("pages=%d window %dx%d", pages, fx.dbg->width(), fx.dbg->height())
                     : std::string("fixture failed"));
     }

@@ -97,6 +97,7 @@ nav:
           - Source: 06-debugger/panels/15-source.md
           - Variables: 06-debugger/panels/16-variables.md
           - Symbols: 06-debugger/panels/17-symbols.md
+          - Graphics: 06-debugger/panels/18-graphics.md
       - Functions:
           - 06-debugger/functions/index.md
           - Run, pause, and the step family: 06-debugger/functions/01-run-pause-and-the-step-family.md
