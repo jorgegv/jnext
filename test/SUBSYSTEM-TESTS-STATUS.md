@@ -227,7 +227,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Sizing |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Dockable Panels (GH #377, GUI) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Dockable Panels (GH #377, GUI) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Key Bindings |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -236,6 +236,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17141**| **17141**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17143**| **17143**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
