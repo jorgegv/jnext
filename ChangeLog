@@ -4,6 +4,7 @@
 
 ### Internal JNEXT Development
 - Remote runs: two lanes on the remote host, so two heavy runs share it at once
+- Faster test cycle: unit-test prerequisites and browser specs run in parallel
 
 ## v1.3.47 (2026-11-21)
 
