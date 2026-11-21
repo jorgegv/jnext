@@ -30,7 +30,7 @@
 #   --smoke a,b,c    suites that always run (each must be declared in the manifest, else exit 2)
 #   --plan FILE      write the machine-readable plan here (key=value lines)
 #   --last FILE      write the record of this selection (base, head, files, suites)
-#   --check          list tracked files that are unmapped; exit 1 if any
+#   --check          list tracked files that are unmapped; exit 1 if any (--all: list every one)
 #   --tracked FILE   the tracked-file list for --check (default: git ls-files)
 # Exit: 0 ok, 1 --check found unmapped files, 2 refusal (bad input).
 use strict;
@@ -45,6 +45,7 @@ my @args = @ARGV;
 while (@args) {
     my $a = shift @args;
     if    ($a eq '--check') { $o{check} = 1 }
+    elsif ($a eq '--all')   { $o{all} = 1 }
     elsif ($a =~ /^--(root|build|manifest|conf|base|files|smoke|plan|last|tracked)$/) {
         defined(my $v = shift @args) or die "test-affected: $a needs a value\n";
         $o{$1} = $v;
@@ -218,8 +219,9 @@ if ($o{check}) {
     my @un = grep { !$any_mapped{$_} && !defined classify($_) } @tracked;
     if (@un) {
         print "test-affected-check: ", scalar(@un), " tracked file(s) are in no depfile of $build and match no glob of $confile:\n";
-        print "  $_\n" for @un[0 .. ($#un < 49 ? $#un : 49)];
-        print "  ... and ", scalar(@un) - 50, " more\n" if @un > 50;
+        my $cap = $o{all} ? $#un : ($#un < 49 ? $#un : 49);
+        print "  $_\n" for @un[0 .. $cap];
+        print "  ... and ", scalar(@un) - 50, " more (--all lists them)\n" if @un > 50 && !$o{all};
         print "Classify each in $confile in the change that adds it.\n";
         exit 1;
     }
