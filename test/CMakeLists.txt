@@ -2395,7 +2395,7 @@ if(ENABLE_DEBUGGER)
     add_executable(debugger_persistent_bp_test debugger/persistent_bp_test.cpp)
     set_target_properties(debugger_persistent_bp_test PROPERTIES AUTOMOC ON)
     target_link_libraries(debugger_persistent_bp_test PRIVATE
-        jnext_debugger
+        jnext_debugger jnext_platform
         jnext_core jnext_cpu jnext_memory jnext_video
         jnext_audio jnext_port jnext_peripheral jnext_input
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)

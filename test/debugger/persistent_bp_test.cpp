@@ -27,6 +27,7 @@
 #include "debugger/breakpoint_model.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "platform/startup_stop.h"
 #include "put_on_show.h"
 
 #include <QApplication>
@@ -35,6 +36,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <string>
 #include "../row_id.h"
 
 namespace {
@@ -460,6 +462,31 @@ int main(int argc, char** argv) {
         check("PBPUI-14", "a manager destroyed takes the GUI's breakpoint owner with "
               "it: no subscription is left in the surviving backend",
               owned && backend.subscriptions(true).empty() && !backend.armed());
+    }
+
+    // PBPUI-15 (GH #548) - the command line's startup stop (--debugger) is another client's
+    // pause as far as the window is concerned: with the window closed the next tick opens it
+    // (PBPUI-08's rule), the pause stays the command-line client's, and the window's Run
+    // resumes it and lets that client detach, its own detach resuming nothing.
+    {
+        Fixture fx(/*persistent=*/false);
+        EmulatorConfig cfg;
+        cfg.debugger_start = true;
+        StartupStop ss;                            // after the fixture: destroyed before the backend
+        std::string why;
+        const bool started = ss.start(*fx.backend, fx.emu, cfg, 0, /*has_window=*/true, why);
+        const bool shut_before = !fx.window_visible() && !fx.mgr->is_enabled();
+
+        fx.mgr->check_breakpoint_hit();
+
+        const jnext::dbg::RunState st = fx.backend->state();
+        const bool opened = fx.mgr->is_enabled() && fx.window_visible() && st.paused &&
+                            st.pause_reason.by == ss.client() && ss.active();
+        fx.mgr->on_run();
+        ss.poll();
+        check("PBPUI-15", "a startup stop (--debugger) with the window closed opens the debugger window, "
+              "paused by the command-line client; the window's Run resumes it and the client detaches",
+              started && shut_before && opened && !fx.backend->state().paused && !ss.active());
     }
 
     std::printf("\n=====================================\n");
