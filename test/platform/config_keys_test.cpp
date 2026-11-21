@@ -109,8 +109,9 @@ int main() {
         std::set<std::string> got;
         for (const Key& k : KEYS) if (k.not_setting) got.insert(full_name(k));
         const std::set<std::string> want = {"config.version", "recent.files", "input.joy1_device_name",
-                                            "input.joy2_device_name", "debugger.size", "debugger.position"};
-        check("SETK-03", "exactly six keys are not settings: config.version, recent.files, the two controller names, debugger.size and debugger.position",
+                                            "input.joy2_device_name", "debugger.size", "debugger.position",
+                                            "debugger.layout"};
+        check("SETK-03", "exactly seven keys are not settings: config.version, recent.files, the two controller names, debugger.size, debugger.position and debugger.layout",
               got == want);
     }
 

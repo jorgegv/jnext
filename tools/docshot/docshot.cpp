@@ -165,6 +165,9 @@
 #include <QScrollBar>
 #include <QStyleFactory>
 #include <QTableWidget>
+#include <QDockWidget>
+#include <QMainWindow>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -297,13 +300,48 @@ bool run_to_last_paper_line(Emulator& emu, const jnext::dbg::Debugger& backend, 
     return true;
 }
 
-/// Walk up from `w` to the QTabWidget that holds it. A QTabWidget's pages are
-/// parented to its internal QStackedWidget, so this is two hops, not one — and
-/// writing it as a walk means it keeps working if Qt adds a level.
-QTabWidget* owning_tab_widget(QWidget* w) {
-    for (QWidget* p = w ? w->parentWidget() : nullptr; p; p = p->parentWidget())
-        if (auto* tabs = qobject_cast<QTabWidget*>(p)) return tabs;
+/// GH #377: the debugger's panels are docks, not pages of tab widgets. The dock whose title is `title`.
+QDockWidget* dock_by_title(QWidget* root, const char* title) {
+    for (QDockWidget* d : root->findChildren<QDockWidget*>())
+        if (d->windowTitle() == QString::fromLatin1(title)) return d;
     return nullptr;
+}
+
+/// Save the part of `window` that holds `docks` and the tab bar of each one's group (so a picture of a tab
+/// group carries its tabs, which is how the guide's pages refer to them).
+bool save_docks_crop(QWidget* window, const QList<QDockWidget*>& docks, const QString& path) {
+    if (!window || docks.isEmpty() || docks.contains(nullptr)) {
+        note("  FAIL %s: dock not found\n", qPrintable(QFileInfo(path).fileName()));
+        ++g_failed;
+        return false;
+    }
+    QRect rect;
+    for (QDockWidget* d : docks) {
+        rect |= QRect(d->mapTo(window, QPoint(0, 0)), d->size());
+        if (auto* host = qobject_cast<QMainWindow*>(d->parentWidget()))
+            for (QTabBar* bar : host->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
+                for (int i = 0; i < bar->count(); ++i)
+                    if (bar->tabText(i) == d->windowTitle() && bar->isVisible())
+                        rect |= QRect(bar->mapTo(window, QPoint(0, 0)), bar->size());
+    }
+    QImage shot(window->size(), QImage::Format_RGB32);
+    shot.fill(Qt::white);
+    window->render(&shot);
+    rect &= QRect(QPoint(0, 0), window->size());
+    if (rect.isEmpty()) {
+        note("  FAIL %s: the docks are outside the rendered window\n", qPrintable(QFileInfo(path).fileName()));
+        ++g_failed;
+        return false;
+    }
+    const QImage out = shot.copy(rect);
+    if (!out.save(path, "PNG")) {
+        note("  FAIL %s: could not write the file\n", qPrintable(QFileInfo(path).fileName()));
+        ++g_failed;
+        return false;
+    }
+    note("  %-28s %4dx%-4d\n", qPrintable(QFileInfo(path).fileName()), out.width(), out.height());
+    ++g_saved;
+    return true;
 }
 
 /// Type `text` into a panel's address box and press Return, the way a user
@@ -912,7 +950,9 @@ int main(int argc, char** argv)
     // every crop below, because mapTo() reports a position the render does not
     // show. So: pin the width, let the window find its own height, then grow
     // it until nothing scrolls, and refuse to capture if anything still does.
-    settle();                       // let the opening fit run first
+    // Let the opening fit run to its END (its grace window is 1 s): a resize while it still runs ends it at
+    // whatever pass it has reached, and the widths of the left and right columns then depend on the host's load.
+    settle(1500);
     dbg->resize(kWindowW, dbg->height());
     settle();
 
@@ -968,45 +1008,29 @@ int main(int argc, char** argv)
     if (wanted(opt, "debugger-window"))
         save_crop(dbg, dbg, path("debugger-window"));
 
-    // CPU Registers + MMU: the vertical splitter holding both group boxes.
-    // cpu_panel -> its QGroupBox -> the splitter.
-    QWidget* cpu_col = nullptr;
-    if (auto* cp = dbg->cpu_panel())
-        if (QWidget* box = cp->parentWidget()) cpu_col = box->parentWidget();
+    // CPU Registers + MMU: the two docks of the right column (GH #377).
     if (wanted(opt, "debugger-cpu-mmu"))
-        save_crop(dbg, cpu_col, path("debugger-cpu-mmu"));
+        save_docks_crop(dbg, {dock_by_title(dbg, "CPU Registers"), dock_by_title(dbg, "MMU")},
+                        path("debugger-cpu-mmu"));
 
     // Disassembly: the panel's own QGroupBox, so the crop carries its title.
     QWidget* disasm_box = dbg->disasm_panel() ? dbg->disasm_panel()->parentWidget() : nullptr;
     if (wanted(opt, "debugger-disassembly"))
         save_crop(dbg, disasm_box, path("debugger-disassembly"));
 
-    // The top-left tab widget (Video / Sprites / Copper / NextREG / Audio) and
-    // the two bottom ones. Each image is that whole tab widget with a
-    // different page current, so the tab bar is part of the picture — which is
-    // how the guide's pages refer to them.
-    // The Video panel has no accessor on DebuggerWindow, so its tab widget is
-    // found from the panel itself — which also skips the Video panel's OWN
-    // sub-tabs (All layers / ULA / Layer2 / ...), a QTabWidget one level down.
-    QTabWidget* left_tabs   = owning_tab_widget(dbg->findChild<VideoPanel*>());
-    QTabWidget* mem_tabs    = owning_tab_widget(dbg->stack_panel());
-    QTabWidget* bottom_tabs = owning_tab_widget(dbg->watch_panel());
-
-    auto shoot_tab = [&](QTabWidget* tabs, const char* label, const char* name) {
+    // The left group of tabbed docks (Video / Sprites / Copper / NextREG / Audio ...) and the two bottom
+    // ones. Each image is that whole group with a different tab shown, so the tab bar is part of the
+    // picture, which is how the guide's pages refer to them (GH #377: the groups are tabbed docks).
+    // The Video dock is found by title, so the Video panel's OWN sub-tabs (All layers / ULA / Layer2 / ...)
+    // never come into it.
+    auto shoot_tab = [&](const char* label, const char* name) {
         if (!wanted(opt, name)) return;
-        if (!tabs) { note("  FAIL %s: tab widget not found\n", name); ++g_failed; return; }
-        int idx = -1;
-        for (int i = 0; i < tabs->count(); ++i)
-            if (tabs->tabText(i) == QString::fromLatin1(label)) { idx = i; break; }
-        if (idx < 0) {
-            note("  FAIL %s: no '%s' tab (the tab set changed)\n", name, label);
-            ++g_failed;
-            return;
-        }
-        tabs->setCurrentIndex(idx);
+        QDockWidget* d = dock_by_title(dbg, label);
+        if (!d) { note("  FAIL %s: no '%s' dock (the panel set changed)\n", name, label); ++g_failed; return; }
+        d->raise();
         mgr->refresh_panels();       // only the visible tab renders itself
         settle(40);
-        save_crop(dbg, tabs, path(name));
+        save_docks_crop(dbg, {d}, path(name));
     };
 
     // Point the Memory panel at $5800 — the boundary between pixel VRAM and
@@ -1015,28 +1039,25 @@ int main(int argc, char** argv)
     // yellow, so this is the one address at which the picture shows the
     // colour coding the page describes. Where it opens ($0000, the ROM) shows
     // none of it.
-    if (mem_tabs) {
-        for (int i = 0; i < mem_tabs->count(); ++i) {
-            if (mem_tabs->tabText(i) != QStringLiteral("Memory")) continue;
-            // Make the page current and let the layout settle FIRST. The panel
-            // centres the address over visible_rows(), which it measures from
-            // its own height — navigate while the page is still unlaid and the
-            // address lands at the bottom edge instead of the middle.
-            mem_tabs->setCurrentIndex(i);
-            settle(40);
-            if (!type_into_address_box(mem_tabs->widget(i), QStringLiteral("5800")))
-                note("  WARNING: the Memory panel has no address box any more;\n"
-                     "           its image will show wherever the panel opened.\n");
-            settle(20);
-        }
+    if (QDockWidget* mem_dock = dock_by_title(dbg, "Memory")) {
+        // Make the tab shown and let the layout settle FIRST. The panel
+        // centres the address over visible_rows(), which it measures from
+        // its own height — navigate while the page is still unlaid and the
+        // address lands at the bottom edge instead of the middle.
+        mem_dock->raise();
+        settle(40);
+        if (!type_into_address_box(mem_dock->widget(), QStringLiteral("5800")))
+            note("  WARNING: the Memory panel has no address box any more;\n"
+                 "           its image will show wherever the panel opened.\n");
+        settle(20);
     }
 
-    shoot_tab(left_tabs,   "Video",       "debugger-video");
-    shoot_tab(left_tabs,   "NextREG",     "debugger-nextreg");
-    shoot_tab(mem_tabs,    "Memory",      "debugger-memory");
-    shoot_tab(mem_tabs,    "Stack",       "debugger-stack");
-    shoot_tab(bottom_tabs, "Watches",     "debugger-watches");
-    shoot_tab(bottom_tabs, "Breakpoints", "debugger-breakpoints");
+    shoot_tab("Video",       "debugger-video");
+    shoot_tab("NextREG",     "debugger-nextreg");
+    shoot_tab("Memory",      "debugger-memory");
+    shoot_tab("Stack",       "debugger-stack");
+    shoot_tab("Watches",     "debugger-watches");
+    shoot_tab("Breakpoints", "debugger-breakpoints");
 
     // ── Group 2: with the sprite / Copper / AY fixture applied ────────
     //
@@ -1070,10 +1091,10 @@ int main(int argc, char** argv)
         if (!ok) return 1;
         settle();
 
-        shoot_tab(left_tabs, "Sprites", "debugger-sprites");
-        shoot_tab(left_tabs, "Graphics", "debugger-graphics");
-        shoot_tab(left_tabs, "Copper",  "debugger-copper");
-        shoot_tab(left_tabs, "Audio",   "debugger-audio");
+        shoot_tab("Sprites", "debugger-sprites");
+        shoot_tab("Graphics", "debugger-graphics");
+        shoot_tab("Copper",  "debugger-copper");
+        shoot_tab("Audio",   "debugger-audio");
     }
 
     // ── Group 3: the Script tab, with a script loaded (GH #26 WP9) ────
@@ -1146,7 +1167,7 @@ int main(int argc, char** argv)
         (void)backend.set_client_enabled(gui_bp, gui_bp_was);
         if (!ok) return 1;
         settle();
-        shoot_tab(left_tabs, "Script", "debugger-script");
+        shoot_tab("Script", "debugger-script");
         mgr->set_script_host(nullptr);
     }
 
@@ -1174,7 +1195,7 @@ int main(int argc, char** argv)
                                main_sources, QStringLiteral("main.c:19"),
                                QStringLiteral("main.c:19  $8CB5  P04"), false, dir))
                 return 1;
-            shoot_tab(left_tabs, "Source", "debugger-source");
+            shoot_tab("Source", "debugger-source");
             if (wanted(opt, "debugger-source-breakpoints")) {
                 // A Write watchpoint on `counter`, by its C name: the symbol is
                 // resolved the way the Add dialog resolves the text.
@@ -1186,7 +1207,7 @@ int main(int argc, char** argv)
                 bpm->add(BreakpointModel::Write, key->addr);
                 mgr->refresh_panels();
                 settle();
-                shoot_tab(bottom_tabs, "Breakpoints", "debugger-source-breakpoints");
+                shoot_tab("Breakpoints", "debugger-source-breakpoints");
             }
         }
 
@@ -1196,12 +1217,12 @@ int main(int argc, char** argv)
                                main_sources, QStringLiteral("main.c:26"),
                                QStringLiteral("main.c:26"), true, dir))
                 return 1;
-            shoot_tab(left_tabs, "Source", "debugger-source-coverage");
+            shoot_tab("Source", "debugger-source-coverage");
             if (wanted(opt, "debugger-source-borland")) {
                 mgr->set_source_scheme(SourceScheme::Borland);
                 mgr->refresh_panels();
                 settle();
-                shoot_tab(left_tabs, "Source", "debugger-source-borland");
+                shoot_tab("Source", "debugger-source-borland");
                 mgr->set_source_scheme(SourceScheme::Auto);
             }
             (void)backend.mem_coverage_enable(false);
@@ -1215,7 +1236,7 @@ int main(int argc, char** argv)
                                QStringLiteral("banked.c:9"),
                                QStringLiteral("banked.c:9  $C"), false, dir))
                 return 1;
-            shoot_tab(left_tabs, "Source", "debugger-source-banked");
+            shoot_tab("Source", "debugger-source-banked");
         }
         bpm->clear_all();
     }

@@ -9,8 +9,8 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 ## 1. The producer
 
 JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
-loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:1016` and copies
-it to the configuration at `src/main.cpp:2626`, and `ScriptHost::start()` loads it (`annotations_file`,
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:1017` and copies
+it to the configuration at `src/main.cpp:2627`, and `ScriptHost::start()` loads it (`annotations_file`,
 `src/script/script_host.cpp:201-215`), after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
@@ -192,7 +192,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
-  (`connect`, `src/debugger/debugger_window.cpp:922-926`), connected to `DebuggerManager::on_open_annotations()`
+  (`connect`, `src/debugger/debugger_window.cpp:1099-1104`), connected to `DebuggerManager::on_open_annotations()`
   (`debugger_manager.cpp:916`), `on_save_annotations()` (`:828`) and `on_save_annotations_as()` (`:818`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).

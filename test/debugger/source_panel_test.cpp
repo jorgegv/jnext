@@ -84,6 +84,7 @@
 #include <QScrollBar>
 #include <QStatusBar>
 #include <QTabWidget>
+#include "dock_lookup.h"
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTest>
@@ -373,11 +374,9 @@ void test_source_tab() {
     Fixture fx;
     fx.enable();
     SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
-    bool listed = false;
-    if (sp)
-        for (QTabWidget* t : fx.dbg()->findChildren<QTabWidget*>())
-            for (int i = 0; i < t->count(); ++i)
-                if (t->widget(i) == sp && t->tabText(i) == QStringLiteral("Source")) listed = true;
+    // GH #377: the panel is the widget of a dock titled "Source" (it was a QTabWidget page).
+    QDockWidget* sp_dock = dock_of_panel(fx.dbg(), sp);
+    const bool listed = sp_dock && sp_dock->windowTitle() == QStringLiteral("Source");
     check("QSRC-01", "the debugger window has a Source tab holding the Source panel", listed);
     if (!sp) return;
 
@@ -4287,8 +4286,7 @@ int col_in(const QString& text, const char* needle) { return text.indexOf(QLatin
 
 SourcePanel* window_source_panel(Fixture& fx) {
     SourcePanel* sp = fx.dbg()->source_panel();
-    for (auto* tw : fx.dbg()->findChildren<QTabWidget*>())
-        if (tw->indexOf(sp) >= 0) tw->setCurrentWidget(sp);
+    if (QDockWidget* d = dock_of_panel(fx.dbg(), sp)) d->raise();   // GH #377: the dock, not a tab page
     fx.dbg()->show();
     QApplication::processEvents();
     return sp;
@@ -7293,12 +7291,11 @@ void test_source_sync() {
         write_main({});
         w.tick();
         w.dp->show_address(0x9000);
-        QTabWidget* tabs = nullptr;
-        for (auto* tw : fx.dbg()->findChildren<QTabWidget*>())
-            if (tw->indexOf(w.sp) >= 0) tabs = tw;
-        if (tabs) tabs->setCurrentIndex(tabs->indexOf(w.sp) == 0 ? 1 : 0);
+        // GH #377: the Source dock's group; "away" raises another dock of it, "raised" reads its tab bar.
+        QDockWidget* src_dock = dock_of_panel(fx.dbg(), w.sp);
+        if (QDockWidget* other = dock_group_other(src_dock)) other->raise();
         const MenuProbe on = disasm_menu(w.dp, w.centre(), true);
-        const bool raised = tabs && tabs->currentWidget() == w.sp && w.sp->shown_file() == "sub.bas" &&
+        const bool raised = src_dock && dock_group_shown_title(src_dock) == QStringLiteral("Source") && w.sp->shown_file() == "sub.bas" &&
                             w.ed->textCursor().blockNumber() == 0 && w.sp->browsing();
         w.dp->show_address(0xA000);
         const MenuProbe off = disasm_menu(w.dp, w.centre(), false);
@@ -8011,14 +8008,13 @@ void test_source_any_file() {
         fx.emu.debug_state().pause();
         fx.dbg()->activate_follow_pc();
         w.tick();
-        QTabWidget* tabs = nullptr;
-        for (auto* tw : fx.dbg()->findChildren<QTabWidget*>())
-            if (tw->indexOf(w.sp) >= 0) tabs = tw;
-        if (tabs) tabs->setCurrentIndex(tabs->indexOf(w.sp) == 0 ? 1 : 0);
-        const bool away = tabs && tabs->currentWidget() != w.sp;
+        // GH #377: the Source dock's group; "away" raises another dock of it, "raised" reads its tab bar.
+        QDockWidget* src_dock = dock_of_panel(fx.dbg(), w.sp);
+        if (QDockWidget* other = dock_group_other(src_dock)) other->raise();
+        const bool away = src_dock && dock_group_shown_title(src_dock) != QStringLiteral("Source");
         if (open) open->trigger();
         QApplication::processEvents();
-        const bool raised = tabs && tabs->currentWidget() == w.sp && c->view()->isVisible();
+        const bool raised = src_dock && dock_group_shown_title(src_dock) == QStringLiteral("Source") && c->view()->isVisible();
         c->hidePopup();
         check("QSRC-218",
               "Debug > Source > Open Source &File... is disabled with no map and while running, enabled paused with a map; "

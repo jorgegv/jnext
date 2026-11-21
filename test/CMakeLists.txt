@@ -1310,6 +1310,13 @@ target_compile_definitions(window_attach_test PRIVATE
     JNEXT_DEBUGGER_WINDOW_SRC="${CMAKE_SOURCE_DIR}/src/debugger/debugger_window.cpp")
 add_test(NAME window_attach_tests COMMAND window_attach_test)
 
+# Debugger dockable-panel layout grammar (GH #377 stage 1). Pure model
+# (src/debugger/dock_layout.h), header-only, no Qt: registered unconditionally
+# like window_attach_test.
+add_executable(dock_layout_test debugger/dock_layout_test.cpp)
+target_include_directories(dock_layout_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME dock_layout_tests COMMAND dock_layout_test)
+
 # Debugger CPU panel T-state counter (GH #369). Pure start-point / accumulate
 # policy (src/debugger/tstate_counter.h), header-only, no Qt: registered
 # unconditionally like window_attach_test.
@@ -2441,6 +2448,20 @@ if(ENABLE_DEBUGGER)
     target_include_directories(debugger_accel_test PRIVATE
         ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
     add_test(NAME debugger_accel_tests COMMAND debugger_accel_test)
+
+    # Debugger dockable panels (GH #377 stage 2): the real DebuggerWindow on QDockWidgets, its saved layout,
+    # Window > Panels and Reset Layout. Qt offscreen, Qt::Test for the key press (the shortcut path).
+    add_executable(debugger_dock_test debugger/dock_test.cpp)
+    set_target_properties(debugger_dock_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_dock_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_platform jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+        Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(debugger_dock_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_dock_tests COMMAND debugger_dock_test)
+
 
     # Disassembly copy test (GH #21 — the disassembly panel is custom-painted,
     # so nothing in it could be selected or copied). Drives the REAL

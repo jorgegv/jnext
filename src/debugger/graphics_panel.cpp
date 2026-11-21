@@ -3,6 +3,9 @@
 #include "debug/gfx_decode.h"
 
 #include <QComboBox>
+#include <QDockWidget>
+#include <QMainWindow>
+#include <QTabBar>
 #include <QFont>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -21,6 +24,26 @@ namespace gfx = jnext::dbg::gfx;
 using jnext::dbg::PaletteId;
 
 namespace {
+
+// Is the panel on show? Not hidden (isVisibleTo), and, when it lives in a dock tabbed with others, the
+// SHOWN tab of its group: a tabbed-away dock is still visible to Qt (it is moved off screen, not hidden),
+// whereas a QTabWidget page that was not current used to be hidden, and this panel renders only when seen.
+bool on_show(const QWidget* panel) {
+    if (!panel->isVisibleTo(panel->window())) return false;
+    for (const QWidget* p = panel->parentWidget(); p; p = p->parentWidget()) {
+        const auto* dock = qobject_cast<const QDockWidget*>(p);
+        if (!dock) continue;
+        if (dock->isHidden()) return false;
+        const auto* host = qobject_cast<const QMainWindow*>(dock->parentWidget());
+        if (!host || host->tabifiedDockWidgets(const_cast<QDockWidget*>(dock)).isEmpty()) return true;
+        for (const QTabBar* bar : host->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
+            for (int i = 0; i < bar->count(); ++i)
+                if (bar->tabText(i) == dock->windowTitle())
+                    return bar->tabText(bar->currentIndex()) == dock->windowTitle();
+        return true;
+    }
+    return true;
+}
 
 // The Video panel's transparency checkerboard (8 px squares, same two greys).
 constexpr int CHECK_SZ = 8;
@@ -266,12 +289,12 @@ void GraphicsPanel::showEvent(QShowEvent* e) {
 
 void GraphicsPanel::refresh() {
     // Hidden (another tab of the window is current): nothing is drawn.
-    if (!dbg_ || !isVisibleTo(window())) return;
+    if (!dbg_ || !on_show(this)) return;
     render_current();
 }
 
 void GraphicsPanel::render_current() {
-    if (!dbg_ || !isVisibleTo(window())) return;
+    if (!dbg_ || !on_show(this)) return;
     switch (sub_tabs_->currentIndex()) {
         case 0: render_patterns(); break;
         case 1: render_tiles();    break;
@@ -285,7 +308,7 @@ void GraphicsPanel::render_current() {
 // ---------------------------------------------------------------------------
 
 void GraphicsPanel::render_patterns() {
-    if (!dbg_ || !isVisibleTo(window()) || sub_tabs_->currentIndex() != 0) return;
+    if (!dbg_ || !on_show(this) || sub_tabs_->currentIndex() != 0) return;
     ++render_count_;
     const bool four = fmt4_->isChecked();
     const int n = four ? gfx::PATTERNS_4BIT : gfx::PATTERNS_8BIT;
@@ -323,7 +346,7 @@ void GraphicsPanel::update_pattern_info() {
 // ---------------------------------------------------------------------------
 
 void GraphicsPanel::render_tiles() {
-    if (!dbg_ || !isVisibleTo(window()) || sub_tabs_->currentIndex() != 1) return;
+    if (!dbg_ || !on_show(this) || sub_tabs_->currentIndex() != 1) return;
     ++render_count_;
     // Format and source follow the live NR 0x6B / NR 0x6F.
     const uint8_t nr6b = dbg_->nextreg_peek(0x6B);
@@ -385,7 +408,7 @@ void GraphicsPanel::update_tile_info() {
 // ---------------------------------------------------------------------------
 
 void GraphicsPanel::render_palettes() {
-    if (!dbg_ || !isVisibleTo(window()) || sub_tabs_->currentIndex() != 2) return;
+    if (!dbg_ || !on_show(this) || sub_tabs_->currentIndex() != 2) return;
     ++render_count_;
 
     // "(active)" marks: the ULA bank from the backend, the others from the live select bits.

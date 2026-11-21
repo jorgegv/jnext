@@ -113,6 +113,16 @@ struct Fixture {
         mgr->set_enabled(false);                       // user closes it again
     }
 
+
+    ~Fixture() {
+        // The window is parentless and outlives the manager's teardown: delete it while the backend lives
+        // (as panel_data_test does), or a later event-loop run paints it over a destroyed machine.
+        if (!mgr) return;
+        DebuggerWindow* w = mgr->debugger_window_ptr();
+        mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        delete w;
+    }
+
     bool window_visible() const {
         DebuggerWindow* w = mgr->debugger_window_ptr();
         return w && w->isVisible();
