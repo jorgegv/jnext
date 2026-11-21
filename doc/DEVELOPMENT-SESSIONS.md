@@ -243,4 +243,12 @@
 | 16/11   |      | #501 user guide restructure, web chapter 8; wasm suite OOM fix; #503 faster provisioner test           |
 |         |      | v1.3.1->1.3.3                                                                                          |
 | 17/11   |      | Dev host on Fedora 45; #506 CI on fedora:45, rpms for Fedora 44 and 45. v1.3.4; v1.3.5 PUBLIC RELEASE  |
+| 18/11   |      | #499 fast boot (janko-jj); #507 --sdcard-file-add with --sdcard-writes (derekfountain); #500 #502 #508  |
+|         |      | debugger #367 #369. v1.3.6->1.3.17                                                                     |
+| 19/11   |      | #505 second SD card (janko-jj); #540 --no-sdcard (vmorilla); #542 jump hints (janko-jj); #509 card dirs |
+|         |      | debugger #366 #368 #370 #373 #374 #376. v1.3.18->1.3.27                                                |
+| 20/11   |      | #510 Pages demo; #541 zipped NEX; #544 fast boot hidden screen; #498 #371 #372; #546 remote-run        |
+|         |      | v1.3.28->1.3.37                                                                                        |
+| 21/11   |      | #377 dockable panels; #492 bug report; #545 browser remote debugging; #510 26.11a; CI fixes; release   |
+|         |      | docs review. v1.3.38->1.3.46; v1.3.47 PUBLIC RELEASE                                                   |
 | TOTAL:  | 666h |                                                                                                        |
