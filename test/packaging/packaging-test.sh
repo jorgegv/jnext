@@ -175,6 +175,9 @@ contract ci-cache-key test/packaging/ci-cache-key-test.sh cikey "every sdcard-im
 # --- remote-run driver + ci-deps.sh contract (GH #546) ------------------------
 contract remote-run test/packaging/remote-run-test.sh remoterun "driver exit codes, refusals, fallback, summary, work-dir confinement; ci.yml uses ci-deps.sh"
 
+# --- CI gate script contract (GH #547) ----------------------------------------
+contract ci-gate test/packaging/ci-gate-test.sh cigate "dispatch/wait/verdict: a skipped, failed, cancelled or missing job is never CLEAN; the right run on the right sha"
+
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
 # packages. `make package-contract-test` (a prerequisite of `make unit-test`)
