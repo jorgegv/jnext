@@ -36,7 +36,12 @@
 # against stub suites and asserts the refusal. Run it via `make harness-selftest`
 # (and the regression suite runs it as `harness-selftest-func`).
 #
-# Usage: bash test/run-unit-tests.sh [build_dir]      (default: build)
+# Usage: bash test/run-unit-tests.sh [--only s1,s2,...] [build_dir]      (default: build)
+#   --only  (GH #547, `make test-affected`) runs just the named suites. EVERY check above still
+#           runs on the WHOLE manifest (registry, gates, OS, duplicates, build, sources); a name
+#           the manifest does not declare is a refusal (exit 2); a declared suite this build's
+#           gate/OS excludes is a NOTICE, as in a full run. The summary says `subset run: K of
+#           N suites -- not a gate`, so it can never be mistaken for the full run.
 # Env:   JNEXT_UNIT_TEST_CONF   override the manifest path (the self-test uses this)
 #        JNEXT_TEST_RUNNER      a program prefixed to every suite (the Windows
 #                               suites run under wine: test/wine-run.sh; the
@@ -158,6 +163,11 @@ sd_clone_for_run() {
     return 0
 }
 
+ONLY=(); SUBSET=0
+if [[ "${1:-}" == --only ]]; then
+    [[ $# -ge 2 ]] || { printf 'run-unit-tests: --only needs a comma-separated suite list\n' >&2; exit 2; }
+    SUBSET=1; IFS=, read -r -a ONLY <<<"$2"; shift 2
+fi
 BUILD="${1:-build}"
 CONF="${JNEXT_UNIT_TEST_CONF:-test/unit-tests.conf}"
 CTEST_FILE="$BUILD/test/CTestTestfile.cmake"
@@ -537,6 +547,33 @@ if (( ${#EXEMPT_RUN[@]} )); then
 fi
 
 # --- Run every runnable suite in parallel ---
+SUBSET_SKIPPED=0
+if (( SUBSET )); then
+    (( ${#ONLY[@]} )) || die "--only names no suite."
+    declare -A WANT=()
+    for name in "${ONLY[@]}"; do
+        [[ -n "$name" && -n "${IS_DECLARED[$name]:-}" ]] \
+            || die "--only names a suite $CONF does not declare: '${BOLD}$name${RESET}'" \
+                   "A subset is chosen from the manifest; it never adds to it."
+        WANT["$name"]=1
+    done
+    SUBSET_ALL=${#RUNNABLE[@]}
+    kept=()
+    for name in "${RUNNABLE[@]}"; do
+        if [[ -n "${WANT[$name]:-}" ]]; then kept+=("$name"); fi
+    done
+    gated_asked=()
+    for name in "${ONLY[@]}"; do
+        [[ -n "${IS_REGISTERED[$name]:-}" ]] || gated_asked+=("$name")
+    done
+    SUBSET_SKIPPED=$(( SUBSET_ALL - ${#kept[@]} ))
+    RUNNABLE=(${kept[@]+"${kept[@]}"})
+    if (( ${#gated_asked[@]} )); then
+        printf "${BADGE_SKIP} NOTICE ${RESET} %b\n" "asked for, but gated out by this configuration, NOT RUN: ${gated_asked[*]}"
+    fi
+    printf "${BADGE_SKIP} SUBSET ${RESET} subset run: %d of %d suites -- not a gate\n" "${#RUNNABLE[@]}" "${#DECLARED[@]}"
+fi
+
 EXE_SUFFIX=""
 [[ "$TARGET_OS" != windows ]] || EXE_SUFFIX=".exe"
 [[ "$TARGET_OS" != emscripten ]] || EXE_SUFFIX=".js"
@@ -628,6 +665,7 @@ sum_total=0; sum_passed=0; sum_failed=0; sum_skipped=0
 
 # suite_secs <name> - the suite's wall time as " (N s)", appended to its result row so a
 # near miss of SUITE_TIMEOUT shows in a green log (it used to need the failing job's artefacts).
+FAILED_SUITES=()
 suite_secs() { printf ' (%s s)' "$(cat "$TMPDIR_RUN/$1.secs" 2>/dev/null || echo '?')"; }
 
 fail_row() {   # fail_row <name> <message>
@@ -649,6 +687,7 @@ fail_row() {   # fail_row <name> <message>
     fi
     printf "      full log: %s\n" "$LOG_DIR/$1.log"
     suites_fail=$((suites_fail + 1))
+    FAILED_SUITES+=("$1")
 }
 
 for name in "${RUNNABLE[@]}"; do
@@ -763,7 +802,10 @@ fi
 # The three counts in that footer are an invariant, not a decoration: every declared
 # suite either ran or was gated out by this configuration, and the manifest and the
 # build agree. If they ever disagree, the footer must not read like agreement.
-if (( ${#RUNNABLE[@]} + ${#GATED_OUT[@]} != ${#DECLARED[@]} )); then
+if (( SUBSET )); then
+    printf "${BOLD}subset run: %d of %d suites -- not a gate${RESET}\n" "${#RUNNABLE[@]}" "${#DECLARED[@]}"
+fi
+if (( ${#RUNNABLE[@]} + ${#GATED_OUT[@]} + SUBSET_SKIPPED != ${#DECLARED[@]} )); then
     die "Internal: ${#RUNNABLE[@]} run + ${#GATED_OUT[@]} gated out != ${#DECLARED[@]} declared."
 fi
 
@@ -771,6 +813,22 @@ fi
 # "Total: ... Failed: 0" is the exact line that gets copied into status reports.
 # A SKIP fails the run exactly as a FAIL does (owner, 2026-10-06): a row that was
 # not tested is not a pass, and nothing downstream distinguishes the two.
+# GH #547: a suite that FAILS in the full run but that the last `make test-affected` of THIS head
+# did not select is a missing edge in the map. Named, so the map or test/test-affected.conf is
+# fixed on the same branch (the record is $BUILD/test-affected.last, written by that run).
+LAST="$BUILD/test-affected.last"
+if (( ! SUBSET && ${#FAILED_SUITES[@]} )) && [[ -f "$LAST" ]]; then
+    last_head=$(sed -n 's/^head=//p' "$LAST"); last_mode=$(sed -n 's/^mode=//p' "$LAST")
+    last_suites=",$(sed -n 's/^suites=//p' "$LAST"),"; last_files=$(sed -n 's/^files=//p' "$LAST")
+    cur_head=$(git rev-parse HEAD 2>/dev/null || true)
+    if [[ "$last_mode" == subset && -n "$last_head" && "$last_head" == "$cur_head" ]]; then
+        for name in "${FAILED_SUITES[@]}"; do
+            [[ "$last_suites" == *",$name,"* ]] \
+                || printf "${BADGE_FAIL} TEST-AFFECTED MISS ${RESET} %s was not selected for %s\n" "$name" "$last_files"
+        done
+    fi
+fi
+
 if [[ "$suites_fail" -gt 0 || "$suites_skip" -gt 0 ]]; then
     printf "\n${BADGE_FAIL} UNIT TESTS FAILED ${RESET} ${BOLD}%d suite(s) failed, %d suite(s) SKIPPED rows — a SKIP is not a pass; the totals above are NOT a passing result.${RESET}\n\n" \
         "$suites_fail" "$suites_skip"
