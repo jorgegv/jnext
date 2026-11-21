@@ -1358,9 +1358,9 @@ int main() {
         Session s2 = nocard_session();
         Report r2 = make_report(s2, ok_in);
         std::set<std::string> kept;
-        if (r2.ok)
-            for (auto it = r2.js("settings.json")["config_file"].begin(); it != r2.js("settings.json")["config_file"].end(); ++it)
-                if (it.value() != "<blanked>") kept.insert(it.key());
+        const json cf2 = r2.ok ? r2.js("settings.json")["config_file"] : json::object();
+        for (auto it = cf2.begin(); it != cf2.end(); ++it)
+            if (it.value() != "<blanked>") kept.insert(it.key());
         const std::string first_action = std::string("debugger_keys.") + jnext::dbgkeys::action_table()[0].id;
         // THE LIST: a key added to config_keys::KEYS is blanked unless it is decided here and in
         // bug_report.cpp's config_value_rule().
