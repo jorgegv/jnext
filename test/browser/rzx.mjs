@@ -16,7 +16,7 @@ import http from 'http';
 import path from 'path';
 
 const E = process.env;
-const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE;
+const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE, WORK = E.SMOKE_WORK;
 const VERSION = E.SMOKE_BUILD_VERSION;
 const MODULE = `/build/jnext-${VERSION}.js`;
 const SHA = E.SMOKE_CARD_SHA256;
@@ -138,7 +138,7 @@ function paperDiff(a, b) {
 // Replay `bytes` natively (SDL dummy drivers, a card clone); returns the log and, when a screenshot
 // frame is given, the picture. The card is deleted with the directory.
 function nativeReplay(bytes, shotFrame) {
-  const dir = fs.mkdtempSync(path.join(SCRATCH, 'brz-'));
+  const dir = fs.mkdtempSync(path.join(WORK, 'brz-'));
   try {
     fs.writeFileSync(path.join(dir, 'page.rzx'), bytes);
     fs.copyFileSync(path.join(SCRATCH, 'card.img'), path.join(dir, 'card.img'));
@@ -275,7 +275,7 @@ row('BRZ-06', 'recording round trip: start, type p 1 2 Enter, stop returns an RZ
   const bytes = Buffer.from(await page.evaluate(() => window.player0.stopRzxRecording().then((b) => Array.from(b))));
   must(bytes.length > 4 && bytes.slice(0, 4).equals(MAGIC), 'not an RZX file: ' + bytes.slice(0, 4).toString('hex'));
   must((await leftover(page)).length === 0, 'scratch files left: ' + JSON.stringify(await leftover(page)));
-  fs.writeFileSync(path.join(E.SMOKE_OUT, 'page.rzx'), bytes);
+  fs.writeFileSync(path.join(WORK, 'page.rzx'), bytes);
   const saved = page.msgs.map((m) => /recording saved - (\d+) frames/.exec(m)).filter(Boolean).pop();
   must(saved, 'no "recording saved" line');
   const n = Number(saved[1]);

@@ -27,7 +27,7 @@ import zlib from 'zlib';
 import crypto from 'crypto';
 
 const E = process.env;
-const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE;
+const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE, WORK = E.SMOKE_WORK;
 const VERSION = E.SMOKE_BUILD_VERSION;
 const MODULE = `/build/jnext-${VERSION}.js`;
 const SYN_DIR = E.SMOKE_SYN_DIR;
@@ -250,7 +250,7 @@ row('BCARD-05', 'the pick panel refuses a wrong-size file and a same-size wrong 
   await open(p, [P48], SYNSEAM(N));
   await click(p);
   await waitPanel(p);
-  const wrongSize = path.join(SCRATCH, 'wrong-size.bin'), wrongBytes = path.join(SCRATCH, 'wrong-bytes.bin');
+  const wrongSize = path.join(WORK, 'wrong-size.bin'), wrongBytes = path.join(WORK, 'wrong-bytes.bin');
   fs.writeFileSync(wrongSize, Buffer.alloc(1234, 7));
   fs.writeFileSync(wrongBytes, Buffer.alloc(SYN.size, 7));
   const input = '#p0 .jnext-pick input[type=file]';
@@ -537,7 +537,7 @@ row('BCARD-20', 'the pick panel: a same-size valid zip with another digest is re
   await waitPanel(p);
   const z = Buffer.from(fs.readFileSync(SYN_ZIP));
   z[z.length - 1] ^= 1;   // the end-of-central-directory comment length: the builder never reads it
-  const other = path.join(SCRATCH, 'other-digest.zip');
+  const other = path.join(WORK, 'other-digest.zip');
   fs.writeFileSync(other, z);
   await p.setInputFiles('#p0 .jnext-pick input[type=file]', other);
   await waitFor(p, () => /this file is not/.test(document.querySelector('#p0 .jnext-pick-reason').textContent), null, 60000);

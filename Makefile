@@ -50,6 +50,21 @@ endif
 endif
 CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
+# What `make unit-test` runs before the suites, in three steps (GH #547): the LINTS one after another and first
+# (seconds, fail fast, no build needed); the CHECKS concurrently WITH the build (none reads or writes build/);
+# the POST checks concurrently after it (schema-check, snapshot-zip-check and minimal-image-test read the built tree;
+# package-contract-test reads none, and is here only because its RRUN-16/21 timing rows (60 s bounds) must not run
+# beside the full-CPU build: do not move it into UNIT_TEST_CHECKS). UNIT_TEST_CHECK_JOBS caps both groups.
+# docs-check and sdcard-image stay prerequisites of unit-test itself, sdcard-image last: sdcard-ensure-func greps for
+# that, and HS-102 needs the cite check in `make -n unit-test`, which a prerequisite that fails under the self-test's
+# scratch HOME (sdcard-image) would cut off before the recipe if docs-check were in it.
+UNIT_TEST_LINTS      := lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check wasm-function-size-selftest traceability-dup-check
+UNIT_TEST_CHECKS     := lint-user-docs-card-selftest docs-tree-same-selftest traceability-selftest cmake-guard-selftest
+UNIT_TEST_POST       := schema-check snapshot-zip-check minimal-image-test package-contract-test
+UNIT_TEST_CHECK_JOBS ?= 6
+# Empty in the sub-makes of the POST group and of traceability-check-run: the tree is already built there, and a
+# concurrent `cmake --build` of one tree from three sub-makes is exactly what the group must not start.
+UNIT_TEST_BUILD_DEP  ?= unit-test-build
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
 # The configure keys/args the three Release GUI trees share (gui-release,
@@ -209,7 +224,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
-       docs-schema schema-check snapshot-zip-check \
+       docs-schema schema-check snapshot-zip-check traceability-check-run \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
@@ -875,7 +890,7 @@ traceability-accounting-check:
 	@perl test/refresh-traceability-matrix.pl --check-accounting
 
 # Fail when the committed traceability matrix is stale vs a fresh generation
-traceability-check: unit-test-build
+traceability-check: $(UNIT_TEST_BUILD_DEP) sdcard-image
 	@# GH #196 phase 3.1 — the same shape as docs-check, and for the same
 	@# reason: doc/testing/TRACEABILITY-MATRIX.md is GENERATED and COMMITTED,
 	@# so a stale committed copy is a silent lie no other gate can see. The
@@ -886,7 +901,7 @@ traceability-check: unit-test-build
 	@tmp=$$(mktemp -d); \
 	 cp doc/testing/TRACEABILITY-MATRIX.md $$tmp/before; \
 	 rc=0; \
-	 perl test/refresh-traceability-matrix.pl >$$tmp/report 2>&1 \
+	 perl test/refresh-traceability-matrix.pl $(TRACE_GEN_ARGS) >$$tmp/report 2>&1 \
 	   || { printf "$(BADGE_FAIL) FAIL $(RESET) the traceability generator failed\n"; \
 	        cat $$tmp/report; rc=1; }; \
 	 if [ $$rc -eq 0 ] && ! cmp -s $$tmp/before doc/testing/TRACEABILITY-MATRIX.md; then \
@@ -898,8 +913,16 @@ traceability-check: unit-test-build
 	 [ $$rc -eq 0 ] && printf "$(BADGE_PASS) OK $(RESET) traceability matrix is up to date\n"; \
 	 rm -rf $$tmp; exit $$rc
 
+# Fail when the committed traceability matrix is stale vs one generated from the last unit run's own suite logs
+traceability-check-run:
+	@# GH #547. `make unit-test` calls this after run-unit-tests.sh: the suites ran once, in parallel, and
+	@# their logs (build/test-logs/<suite>.log) hold the FAIL sets the generator needs. A missing or
+	@# truncated log is a refusal (exit 3), never an empty FAIL set. Same check, same recipe, as
+	@# traceability-check, which still runs the suites itself (standalone use, no prior run needed).
+	@$(MAKE) --no-print-directory traceability-check UNIT_TEST_BUILD_DEP= TRACE_GEN_ARGS=--fails-from-logs=build/test-logs
+
 # Fail when an independent ZIP reader rejects a .jns the writer produced
-snapshot-zip-check: unit-test-build
+snapshot-zip-check: $(UNIT_TEST_BUILD_DEP)
 	@# The second half of the GH #27 stage-S1 exit gate. `snapshot_test` is our
 	@# writer checked by our reader, and that pairing cannot find a framing error
 	@# both sides agree on — which is exactly how the `.szx` defect survived a
@@ -928,7 +951,7 @@ docs-schema: unit-test-build
 	@printf "$(BADGE_PASS) OK $(RESET) regenerated $(SCHEMA_OUT)\n"
 
 # Fail when the committed .jns JSON Schema is stale vs a fresh generation
-schema-check: unit-test-build
+schema-check: $(UNIT_TEST_BUILD_DEP)
 	@# GH #27 S2 — the same shape as docs-check and traceability-check, and
 	@# for the same reason: doc/formats/jns-snapshot.schema.json is GENERATED
 	@# and COMMITTED, so a stale committed copy is a silent lie no other gate
@@ -974,7 +997,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card-selftest wasm-function-size-selftest docs-tree-same-selftest traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test sdcard-image
+unit-test: $(UNIT_TEST_LINTS) docs-check sdcard-image
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -1016,7 +1039,28 @@ unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text
 	@# minimal-image-test is a prerequisite for the same reason: no CMake suite behind it,
 	@# and hermetic apart from the cached distribution image. Linux-only (sfdisk), so it is
 	@# not a prerequisite of unit-test-sdl or unit-test-win.
+	@# GH #547: the order is LINTS (the prerequisites above: serial, seconds, before anything
+	@# expensive), then the CHECKS concurrently with the build, then the POST checks concurrently,
+	@# then the suites, then the matrix. They used to be ONE serial prerequisite list (~400 s on a
+	@# warm tree). The CHECKS read no built file and write nothing outside their own mktemp
+	@# directories (strace of every one, recorded in the GH #547 report); the POST checks
+	@# schema-check, snapshot-zip-check and minimal-image-test read the built tree and write none of it;
+	@# package-contract-test reads none and is POST only for its timing rows (RRUN-16/21, 60 s bounds),
+	@# which must not run beside the full-CPU build. The suites run alone: they already fill every CPU
+	@# and carry timing rows (XPT-NET-05), so nothing new runs beside them. The checks' output is
+	@# synced per target (each check's block stays whole, between the build's lines), and not
+	@# redirected, so the dry run `make -n unit-test` still shows their commands (HS-102);
+	@# a failure of either side fails the target.
+	@$(MAKE) --no-print-directory -j$(UNIT_TEST_CHECK_JOBS) --output-sync=target --keep-going $(UNIT_TEST_CHECKS) & cpid=$$!; \
+	 brc=0; $(MAKE) --no-print-directory unit-test-build || brc=1; \
+	 crc=0; wait $$cpid || crc=1; \
+	 if [ $$crc -ne 0 ]; then printf "$(BADGE_FAIL) FAIL $(RESET) a unit-test check failed (see above)\n"; fi; \
+	 [ $$brc -eq 0 ] && [ $$crc -eq 0 ]
+	@$(MAKE) --no-print-directory -j$(UNIT_TEST_CHECK_JOBS) --output-sync=target --keep-going UNIT_TEST_BUILD_DEP= $(UNIT_TEST_POST)
 	@bash test/run-unit-tests.sh build
+	@# The matrix is checked AFTER the suites, from their own logs (build/test-logs, written by the
+	@# run above): the generator used to run every traced suite a second time, one at a time.
+	@$(MAKE) --no-print-directory traceability-check-run
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
 	@# a stale doc must not break the parallel-worktree test flow) when regenerating
@@ -2237,7 +2281,7 @@ package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
 # Test tools/make-minimal-card (15 rows) against the cached distribution image and a synthetic zip - Linux only; needs mtools + sfdisk + python3
-minimal-image-test: unit-test-build sdcard-image
+minimal-image-test: $(UNIT_TEST_BUILD_DEP) sdcard-image
 	@bash test/minimal-card-test.sh
 
 # Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s

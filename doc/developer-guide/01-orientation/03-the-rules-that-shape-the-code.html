@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3145,7 +3145,7 @@ anyway, so that a fresh clone can read them with no toolchain installed at all:<
 <p>Committing a generated file has an obvious hazard: the copy in git can stop
 matching the source it came from, and a stale copy is a silent lie that no
 reviewer can see by reading the diff. So the project closes that hole
-mechanically — <strong><code>make docs-check</code> is a prerequisite of both <code>make unit-test</code>
+mechanically — <strong><code>make docs-check</code> runs in both <code>make unit-test</code>
 and <code>make regression</code></strong>, which means a stale generated document fails the test
 run itself rather than waiting to be noticed. What that asks of you is simple:
 edit the source, re-render, and commit both halves in the same change.</p>

@@ -10,12 +10,15 @@ the honest list of what nothing yet asserts.
 
 Crucially, it is **generated** rather than written — `test/refresh-traceability-matrix.pl`
 builds it out of the test sources themselves — and it is **gated** exactly the
-way the man page is. `make traceability-check`, a prerequisite of
-`make unit-test`, regenerates the matrix and fails when the committed copy
+way the man page is. `make unit-test` regenerates the matrix and fails when the committed copy
 differs. The generator is idempotent, so regenerate-and-diff is an exact
-staleness test. It needs a built test tree, because a row's `Status` comes from
-actually running its suite; that dependency is why it could not exist while
-refreshing the matrix was a manual step of the version bump.
+staleness test. A row's `Status` comes from actually running its suite, so the
+check needs a test run. Inside `make unit-test` it is `make traceability-check-run`,
+which runs after the suites and reads their own logs
+(`build/test-logs/<suite>.log`, `refresh-traceability-matrix.pl --fails-from-logs=DIR`)
+instead of running every traced suite a second time; a missing log, or one with
+no `Total:` line, is a refusal, never an empty FAIL set. The standalone
+`make traceability-check` still runs the suites itself.
 
 ## Where each column comes from
 
