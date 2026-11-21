@@ -238,7 +238,8 @@ def html_machine(rep):
                           ("video", "Video"), ("interrupts", "Interrupts")])
     parts = []
     regs = m.get("registers", {})
-    body = table([(k, hexn(v, 4 if isinstance(v, int) and v > 255 else 2), v) for k, v in regs.items()],
+    body = table([(k, hexn(int(v) if isinstance(v, bool) else v, 4 if isinstance(v, int) and v > 255 else 2),
+                   int(v) if isinstance(v, bool) else v) for k, v in regs.items()],
                  ["register", "hex", "decimal"]) if isinstance(regs, dict) else absent("registers")
     body += "<h3>Other</h3>"
     body += kv_table({k: m[k] for k in ("divmmc", "multiface", "audio") if k in m})
@@ -417,6 +418,7 @@ def render_text(rep, with_memory):
     out += ["", "== Registers =="]
     if isinstance(mj, dict) and isinstance(mj.get("registers"), dict):
         for k, v in mj["registers"].items():
+            v = int(v) if isinstance(v, bool) else v   # `halted` is a flag: 0 or 1
             out.append("%s = %s (%s)" % (k, hexn(v, 4 if isinstance(v, int) and v > 255 else 2), v))
     else:
         out.append("(machine.json not in this report)")
