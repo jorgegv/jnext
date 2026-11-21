@@ -3325,7 +3325,7 @@ that says so: **\--nextpi**, **\--nextpi-dir**, **\--nextpi-release**,
 **\--record-script**, **\--map**, **\--annotations**, **\--import-skoolkit**,
 **\--import-ghidra**, **\--sdcard2**, **\--sdcard2-readonly**, **\--sdcard2-writes**,
 **\--sdcard2-writes-reset**, **\--headless** (it would block the tab for ever)
-and **\--rzx-record** (a page records from JavaScript, see The player). The debugger protocols are served to the page instead: see the `debug` option. The settings of the refused flags are refused
+and **\--rzx-record** (a page records from JavaScript, see The player). The debugger protocols are served to the page instead: see the debug option under JavaScript options. The settings of the refused flags are refused
 when given as set entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
 `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`, `paths.sd_card2_path`.
 
