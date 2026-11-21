@@ -3243,12 +3243,13 @@ absolute path (POSIX, <code>X:\</code> or <code>X:/</code>, UNC) with <code>&lt;
 command line, the log tail, settings values and every name from outside. Whether a settings value is kept is decided per key, in <code>config_value_rule()</code> (<code>bug_report.cpp</code>): a
 <code>switch</code> over <code>config_keys::KeyId</code> with no <code>default</code>, so a key added to the table is a build error
 (<code>-Werror=switch</code>) until someone classifies it, and <code>bug_report_test</code> BR-35 keeps the list of kept keys
-explicit. Numbers, booleans and words are kept only when they are nothing but <code>[A-Za-z0-9._+-]</code>; a debugger
+explicit. Numbers, booleans and words are kept only as <code>config_keys</code>' own validator accepts them (the one <code>--set</code> and the settings file share), written in its canonical form, so a host or person name is refused by the key it sits in; <code>nextpi.release</code> only as empty, <code>latest</code> or a release tag; a debugger
 key combination only when it parses; the debugger window's size and position only as <code>W,H</code> or <code>X,Y</code>.
 Everything that can name the host is blanked whatever it holds: paths and path lists, host lists, device
 ids and names, the recent-files history, the NextPi folder, QEMU binary, QEMU arguments and audio mode
-(which can be <code>wav:FILE</code>), and any key the table does not know (its name is not echoed either). The same
-holds for the log line of a refused <code>[debugger_keys]</code> entry. <code>redact()</code> also starts a path after a colon
+(which can be <code>wav:FILE</code>), and any key the table does not know (its name is not echoed either). The log line of a refused <code>[debugger_keys]</code> entry (which quotes the hand-typed value in its reason) is
+blanked after <code>bug_report::kConfigIssueTag</code>, the constant the emitter and the scrub share; <code>bug_report_ui_test</code>
+BRUI-06 drives the real window with a bad <code>jnext.conf</code>. <code>redact()</code> also starts a path after a colon
 (<code>wav:/abs/path</code>), except in a <code>scheme://</code> URL. The three members that carry free text
 (<code>settings.json</code>, <code>log.txt</code>, <code>debugger.json</code>) are scrubbed a second time for the exact
 user names and the home directory.</p>
@@ -3277,7 +3278,7 @@ file and whether memory is included; a failure shows a dialog (not when unattend
 passes the same map to <code>--bug-report</code>. There is no Preferences field, so no <code>config_keys</code> row: <code>--bug-report</code>
 is a per-run action like <code>--delayed-screenshot</code>.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
-<p><code>bug_report_ui_test</code> (BRUI-01 to 05) drives the real menu action and file dialog of an offscreen window. <code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
+<p><code>bug_report_ui_test</code> (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. <code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows <code>bug-report-nosd-func</code> and
 <code>bug-report-card-func</code> run the real binary. The second one is the end-to-end check of the
