@@ -3,7 +3,7 @@
 ## Unreleased (2026-11-18)
 
 ### User Features
-- Fast boot: a plain Next start runs its first 15 seconds at full speed with the sound off, optionally with the screen hidden; any key ends it (`--fast-boot`, Preferences)
+- Fast boot: the Next starts at full speed, optionally with the screen hidden until it ends
 - Browser: the SD card is kept compressed, about 1.1 MB of the visitor's storage instead of 40 MiB
 - `--sdcard-file-add` works with `--sdcard-writes`: files go into the writes file and the card image stays untouched
 - Browser: a page can put more of the NextZXOS distribution on the SD card (`data-card-dirs`, e.g. /GAMES,/APPS)
@@ -27,7 +27,6 @@
 - Debugger Graphics tab: sprite patterns, tile definitions and all eight palettes with RGB333 values and priority
 - Debugger window: call tracking only while the Call Stack or Variables tab shows, with the calls already on the stack rebuilt
 - Debugger panels can be moved, tabbed, floated and closed; the layout is remembered, Window > Reset Layout restores it
-- `tools/jnext-bug-view.py` shows a bug report as a page or text, no build needed
 - Debugger breakpoints gain ranges, conditions, IO masks, Interrupt/NMI types, hit counts and count-only; Run to Next Interrupt
 
 ### Bug Fixes
