@@ -42,8 +42,12 @@ A few things about the short form, `--esxdos-stub` with no directory:
 - It lasts until the next reset, soft reset or load. A NEX loaded afterwards
   (from **File > Load NEX File…**, a recent file, a `run NAME.nex` call or the
   debugger) is served its own directory.
-- A NEX taken out of a `.zip` has no directory on disk and gets none; neither
-  do snapshots and tapes.
+- A NEX taken out of a `.zip` that holds nothing beside it has no directory on
+  disk and gets none; neither do snapshots and tapes. A `.zip` that holds the
+  NEX's data files (see [Programs in ZIP archives](index.md#programs-in-zip-archives)) is served
+  its folder from the archive with no option at all: JNEXT unpacks it and
+  gives the game that copy, read-only unless `--esxdos-stub-writable` is
+  given. `--esxdos-stub-root` still wins over it.
 - For a NEX reached through a symbolic link, the directory is the link's own.
 - A saved `.jns` snapshot does not remember it.
 

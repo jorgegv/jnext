@@ -12,6 +12,12 @@
 // files live under `<config-dir>/archive-load/<process>/<n>/<basename>` and are
 // removed when the process exits (ScratchDir); leftovers of a crash are swept
 // after 7 days.
+//
+// DATA ARCHIVES: when the chosen program is a `.nex` and its directory inside
+// the archive holds other files, that directory is extracted whole (tree
+// preserved) into one slot, with the NEX directly in the slot, and the core
+// serves the slot to the NEX through the esxDOS stand-in (in_archive_directory()
+// is how it knows). Any other archive extracts exactly one file, as before.
 
 #include "save/zip_interchange.h"
 
@@ -49,6 +55,9 @@ std::string extraction_name(const std::string& name);
 /// other or no extension, when the file starts with a ZIP local header
 /// (`PK\3\4`) or an empty archive's EOCD (`PK\5\6`).
 bool is_archive_path(const std::string& path);
+
+/// Limit on the declared sizes of the files of a data archive's directory.
+constexpr uint64_t kMaxDirectoryBytes = jnext::zip::kMaxInterchangeMemberBytes;
 
 /// Directory for extracted files. One random directory per object under `root`,
 /// one numbered slot per extraction; the object directory is removed on
@@ -93,6 +102,16 @@ public:
     /// Every non-directory member (for refusal texts).
     std::vector<std::string> member_names() const;
 
+    /// The program an archive loads, when it names one: exactly one program;
+    /// or exactly one `.nex` whose every other program lies in a subdirectory
+    /// strictly below the NEX's directory (game data). False with `why` set to
+    /// no_program_why() / several_why() otherwise.
+    bool choose(std::string& member, std::string& why) const;
+
+    /// True when `member` is a `.nex` and its directory in the archive (its
+    /// level and below, junk members ignored) holds another file.
+    bool has_data_files(const std::string& member) const;
+
     /// "holds no program JNEXT loads (...); it holds: ..." / "holds N programs: ...".
     std::string no_program_why() const;
     std::string several_why() const;
@@ -104,6 +123,20 @@ public:
     bool extract(const std::string& member, std::string& out_path,
                  std::string& why) const {
         return extract(member, process_scratch(), out_path, why);
+    }
+
+    /// choose()'s program, extracted: a data archive's NEX directory as a tree
+    /// in one fresh slot (`out_path` = the NEX in it), otherwise extract().
+    /// Directory extraction checks every name before writing anything (unsafe
+    /// path anywhere in the archive, case collisions, a file that is another's
+    /// directory, trailing dot or space, a path over 255 bytes, declared total
+    /// over `max_total`) and removes its slot on any failure.
+    bool extract_program(const std::string& member, ScratchDir& scratch,
+                         std::string& out_path, std::string& why,
+                         uint64_t max_total = kMaxDirectoryBytes) const;
+    bool extract_program(const std::string& member, std::string& out_path,
+                         std::string& why) const {
+        return extract_program(member, process_scratch(), out_path, why);
     }
 
     /// The `.pok` member for `program`: same stem (case-insensitive), else the
@@ -132,7 +165,12 @@ private:
 /// process, so a later session can only reopen the tape through the archive.
 bool extracted_from(const std::string& path, std::string& archive, std::string& member);
 
-/// The command-line rule: exactly one program in `archive`, extracted to the
+/// True when `path` lies inside the slot of a data archive extracted by
+/// extract_program() (component-wise: a sibling `<slot>X` is not inside);
+/// `archive` receives that archive's absolute path.
+bool in_archive_directory(const std::string& path, std::string& archive);
+
+/// The command-line rule: choose() in `archive`, extracted to the
 /// process scratch directory. `member` (optional) receives its name.
 bool extract_single_program(const std::string& archive, std::string& out_path,
                             std::string& why, std::string* member = nullptr);

@@ -50,8 +50,9 @@ The format is detected from the extension: \f[CR].nex\f[R],
 \f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R], \f[CR].rzx\f[R].
 (\f[CR].rzx\f[R] is accepted here and plays back, as
 \f[B]\-\-rzx\-play\f[R].)
-A \f[CR].zip\f[R] archive holding one of them loads that program (see
-the \f[CR].zip\f[R] entry of \f[B]LOADING PROGRAMS\f[R]).
+A \f[CR].zip\f[R] archive holding one of them loads that program, and a
+NEX in one also gets its directory in the archive (see the
+\f[CR].zip\f[R] entry of \f[B]LOADING PROGRAMS\f[R]).
 .RS
 .PP
 \f[CR].jns\f[R] is jnext\(cqs own whole\-machine snapshot (see
@@ -827,6 +828,9 @@ unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given, and in place
 of the in\-memory file.
 To keep the in\-memory file, load the NEX without
 \f[B]\-\-esxdos\-stub\f[R].
+A NEX loaded from a \f[CR].zip\f[R] that holds its data files is served
+its directory in the archive with no flag at all (see the
+\f[CR].zip\f[R] entry of \f[B]LOADING PROGRAMS\f[R]).
 .RE
 .TP
 \f[B]\-\-esxdos\-stub\-root\f[R] \f[I]DIR\f[R]
@@ -835,7 +839,8 @@ file and directory calls, instead of the single in\-memory file.
 Implies \f[B]\-\-esxdos\-stub\f[R].
 Read\-only unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given.
 \f[I]DIR\f[R] replaces the default of \f[B]\-\-esxdos\-stub\f[R], the
-directory of the loaded NEX.
+directory of the loaded NEX, and the directory of a NEX loaded from a
+\f[CR].zip\f[R] that holds its data files.
 .RS
 .PP
 \f[B]Which programs see \f[BI]DIR\f[B], and which do not.\f[R] A NEX
@@ -881,7 +886,9 @@ This option is for programs jnext loads itself.
 Allow the guest to create, truncate, write, delete and rename files,
 make and remove directories, and set or clear the read\-only bit of
 files under \f[B]\-\-esxdos\-stub\-root\f[R], or in the directory of the
-loaded NEX when no root is given: the program can delete any file there.
+loaded NEX when no root is given (for a NEX from a \f[CR].zip\f[R], in
+the extracted copy, never in the archive): the program can delete any
+file there.
 Off by default, and deliberately a separate flag: a guest write changes
 a real file on the host immediately, and rewinding the emulator cannot
 undo it.
@@ -2306,6 +2313,40 @@ directory) that is removed when \f[B]jnext\f[R] exits.
 In the window, a \f[CR].pok\f[R] file in the archive (the one named like
 the program, else the only one) is offered under \f[B]Machine > POK
 Trainers\&...\f[R].
+.RS
+.PP
+\f[B]A NEX with its data files.\f[R] When the program is a
+\f[CR].nex\f[R] and the directory it is in inside the archive (the
+archive\(cqs top level, or a folder such as \f[CR]game/\f[R]) holds
+other files, that directory is extracted whole, with its subdirectories,
+and served to the NEX through the esxDOS stand\-in, with no
+\f[B]\-\-esxdos\-stub\f[R]: the program opens its files by name, as it
+would from a directory on disk (\f[CR]game/G.NEX\f[R] with
+\f[CR]game/data/L1.BIN\f[R] opens \f[CR]data/L1.BIN\f[R]; case does not
+matter).
+The NEX is the program the archive loads when it is the only NEX and
+every other program in it lies in a subdirectory below its own, such as
+\f[CR]data/sfx.wav\f[R]; a NEX and a \f[CR].tap\f[R] side by side, or
+two NEX in one directory, are several programs, refused on the command
+line and asked in the window.
+It is read\-only unless \f[B]\-\-esxdos\-stub\-writable\f[R] is given,
+which lets the guest change the extracted copy, never the archive, and
+the changes are gone when \f[B]jnext\f[R] exits.
+An explicit \f[B]\-\-esxdos\-stub\-root\f[R] wins: the archive is still
+extracted, its files are not served.
+Files above the NEX\(cqs directory are not extracted.
+Before anything is written, the whole archive is checked: a member with
+an absolute path or \f[CR]..\f[R] anywhere, two members whose paths
+differ only in case, a file that is also a directory, a name ending in a
+dot or a space, a path over 255 bytes, or files adding up to over 256
+MiB refuse the load with the reason, and a member that cannot be read
+(bad CRC, encrypted) refuses it too, leaving nothing behind.
+A folder spelled in two cases in the archive (\f[CR]data/\f[R] and
+\f[CR]DATA/\f[R]) is one folder, written under the spelling that comes
+first, so the result is the same on every host.
+An archive whose NEX has nothing beside it extracts the NEX alone, as
+before, and gets no directory.
+.RE
 .PP
 \f[CR].tap\f[R] and \f[CR].tzx\f[R] load in real time instead with
 \f[B]\-\-tape\-realtime\f[R] (or by unchecking \f[B]Tape > Fast
@@ -2521,9 +2562,10 @@ link\(cqs own directory).
 It lasts from the NEX load until the next reset, soft reset or load: a
 NEX loaded later, through \f[B]File > Load NEX File\&...\f[R], a recent
 file, \f[CR]run NAME.nex\f[R] or the debugger, gets its own directory.
-A NEX taken out of a \f[CR].zip\f[R] has no directory on disk and gets
-none, and neither do a snapshot, a tape or a program injected with
-\f[B]\-\-inject\f[R].
+A NEX taken out of a \f[CR].zip\f[R] that holds nothing beside it has no
+directory on disk and gets none (one that holds its data files gets
+them, see the \f[CR].zip\f[R] entry above), and neither do a snapshot, a
+tape or a program injected with \f[B]\-\-inject\f[R].
 A \f[CR].jns\f[R] does not record it.
 .PP
 And it is not for use alongside a booted NextZXOS.
@@ -4297,6 +4339,13 @@ The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R],
 \f[CR].wav\f[R], a \f[CR].rzx\f[R] recording, or a \f[CR].jns\f[R],
 \f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] snapshot); without
 it the machine boots to the NextZXOS menu.
+A \f[CR].zip\f[R] is accepted when the program in it is a
+\f[CR].nex\f[R]: the NEX gets its directory in the archive (see the
+\f[CR].zip\f[R] entry of \f[B]LOADING PROGRAMS\f[R]), read\-only unless
+\f[CR]args: [\(aq\-\-esxdos\-stub\-writable\(aq]\f[R] is given, and what
+it writes is not kept by \f[CR]keepWrites\f[R].
+\f[CR]player.load()\f[R] accepts the same.
+Any other \f[CR].zip\f[R] is refused.
 \f[CR]{card: \(aq/PATH/x.nex\(aq}\f[R] runs a NEX that is on the SD
 card: its path lies inside one entry of \f[CR]card.dirs\f[R], the
 directory that holds it is copied out of the card with everything below

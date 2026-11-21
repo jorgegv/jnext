@@ -63,7 +63,7 @@ inline constexpr Option WEB_OPTIONS[] = {
     { "keepWrites", Kind::Flag, cli::OptId::SdcardWrites, std::nullopt, std::nullopt, false, nullptr,
       "Keep the guest's writes to the card (saves, high scores) in this browser across reloads" },
     { "file", Kind::Flag, cli::OptId::Load, std::nullopt, std::nullopt, false, nullptr,
-      "The program to run: a URL, {url}, {data, name}, or {card: '/PATH/x.nex'} (a NEX on the SD card, with its directory); absent boots to the NextZXOS menu" },
+      "The program to run: a URL, {url}, {data, name}, or {card: '/PATH/x.nex'} (a NEX on the SD card, with its directory); a .zip holding a NEX also serves the NEX's directory in it; absent boots to the NextZXOS menu" },
     { "machine", Kind::Flag, cli::OptId::Machine, std::nullopt, std::nullopt, false, nullptr,
       "The machine to start" },
     { "touchKeyboard", Kind::Flag, cli::OptId::TouchKeyboard, std::nullopt, std::nullopt, false, nullptr,

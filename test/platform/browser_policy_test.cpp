@@ -421,6 +421,16 @@ int main()
         check("BRR-08", "--rzx-play is accepted; the --rzx-record refusal names player.startRzxRecording() and player.stopRzxRecording()",
               ok);
     }
+    // BRR-09: a .zip page file is accepted only when the program in it is a NEX (GH #541).
+    {
+        const char* good[] = {"a.nex", "A.NEX", "game/x.Nex", "game\\sub\\G.NEX"};
+        const char* bad[] = {"x.tap", "x.zip", "noext", "x.nex.bak", "x.sna", "dir.nex/x.tap", ""};
+        bool ok = true;
+        for (const char* g : good) if (!browser_page::archive_program_allowed(g)) ok = false;
+        for (const char* b : bad) if (browser_page::archive_program_allowed(b)) ok = false;
+        check("BRR-09", "archive_program_allowed: true for a .nex member in any case, false for .tap .zip .sna, no extension and x.nex.bak",
+              ok);
+    }
     // BRR-04: the page-only table is disjoint from the build's own.
     {
         bool disjoint = true;

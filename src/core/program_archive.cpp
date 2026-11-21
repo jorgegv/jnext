@@ -1,5 +1,6 @@
 #include "core/program_archive.h"
 
+#include "core/esxdos_hostfs.h"
 #include "core/host_path.h"
 #include "core/sdcard_provisioner.h"
 
@@ -62,6 +63,34 @@ std::string join_names(const std::vector<std::string>& v) {
     return s;
 }
 
+/// Path components, splitting on both separators; empty and `.` dropped.
+std::vector<std::string> components_of(const std::string& name) {
+    std::vector<std::string> v;
+    size_t start = 0;
+    while (start <= name.size()) {
+        size_t end = name.find_first_of("/\\", start);
+        if (end == std::string::npos) end = name.size();
+        const std::string c = name.substr(start, end - start);
+        if (!c.empty() && c != ".") v.push_back(c);
+        start = end + 1;
+    }
+    return v;
+}
+
+/// Not loadable content: macOS resource forks.
+bool is_junk(const std::string& name) {
+    return name.rfind("__MACOSX/", 0) == 0 || base_of(name).rfind("._", 0) == 0;
+}
+
+/// True when `c` begins with every component of `dir` and has more (`strict`: at
+/// least one more directory level too). Components compare ignoring ASCII case:
+/// a folder spelled in two cases in an archive is one folder (see extract_program()).
+bool below(const std::vector<std::string>& c, const std::vector<std::string>& dir, bool strict) {
+    if (c.size() <= dir.size() + (strict ? 1 : 0)) return false;
+    return std::equal(dir.begin(), dir.end(), c.begin(),
+                      [](const std::string& a, const std::string& b) { return lower(a) == lower(b); });
+}
+
 }  // namespace
 
 bool is_windows_reserved_name(const std::string& base) {
@@ -75,8 +104,8 @@ bool is_windows_reserved_name(const std::string& base) {
            stem[3] >= '1' && stem[3] <= '9';
 }
 
-std::string extraction_name(const std::string& name) {
-    std::string b = base_of(name);
+/// One path component made a name this host can hold (see extraction_name()).
+static std::string sanitise_component(std::string b) {
     for (auto& c : b) {
         const unsigned char u = static_cast<unsigned char>(c);
         if (u < 0x20 || u > 0x7E || std::string("<>:\"|?*").find(c) != std::string::npos) c = '_';
@@ -85,6 +114,10 @@ std::string extraction_name(const std::string& name) {
     // ours, so it gets a name it can have, on every OS alike.
     if (is_windows_reserved_name(b)) b = "_" + b;
     return b;
+}
+
+std::string extraction_name(const std::string& name) {
+    return sanitise_component(base_of(name));
 }
 
 std::string display_name(const std::string& name) {
@@ -187,7 +220,25 @@ std::map<std::string, Provenance>& provenance() {
     return m;
 }
 
+struct DataSlot { std::string slot, archive; };
+std::vector<DataSlot>& data_slots() {
+    static std::vector<DataSlot> v;
+    return v;
+}
+
 }  // namespace
+
+bool in_archive_directory(const std::string& path, std::string& archive) {
+    const fs::path p = fs::u8path(jnext::absolute_host_path(path));
+    std::lock_guard<std::mutex> lock(g_prov_mutex);
+    for (const auto& d : data_slots()) {
+        const fs::path rel = p.lexically_relative(fs::u8path(d.slot));
+        if (rel.empty() || rel == "." || *rel.begin() == "..") continue;
+        archive = d.archive;
+        return true;
+    }
+    return false;
+}
 
 bool extracted_from(const std::string& path, std::string& archive, std::string& member) {
     const std::string key = jnext::absolute_host_path(path);
@@ -309,6 +360,171 @@ bool ProgramArchive::extract(const std::string& member, ScratchDir& scratch,
     return true;
 }
 
+bool ProgramArchive::choose(std::string& member, std::string& why) const {
+    member.clear();
+    if (programs_.empty()) { why = no_program_why(); return false; }
+    if (programs_.size() == 1) { member = programs_[0]; return true; }
+    const std::string* nex = nullptr;
+    for (const auto& p : programs_) {
+        if (ext_of(base_of(p)) != ".nex") continue;
+        if (nex) { nex = nullptr; break; }   // two NEX: ambiguous
+        nex = &p;
+    }
+    if (nex) {
+        auto dir = components_of(*nex);
+        dir.pop_back();
+        bool data_only = true;
+        for (const auto& p : programs_)
+            if (&p != nex && !below(components_of(p), dir, true)) data_only = false;
+        if (data_only) { member = *nex; return true; }
+    }
+    why = several_why();
+    return false;
+}
+
+bool ProgramArchive::has_data_files(const std::string& member) const {
+    if (ext_of(base_of(member)) != ".nex") return false;
+    auto dir = components_of(member);
+    if (dir.empty()) return false;
+    dir.pop_back();
+    for (const auto& e : reader_.entries()) {
+        if (e.is_directory() || is_junk(e.name) || e.name == member) continue;
+        if (below(components_of(e.name), dir, false)) return true;
+    }
+    return false;
+}
+
+bool ProgramArchive::extract_program(const std::string& member, ScratchDir& scratch,
+                                     std::string& out_path, std::string& why,
+                                     uint64_t max_total) const {
+    out_path.clear();
+    if (!has_data_files(member)) return extract(member, scratch, out_path, why);
+
+    // Every name of the whole archive: one unsafe member refuses the load
+    // before anything is written.
+    for (const auto& e : reader_.entries())
+        if (unsafe_name(e.name)) {
+            why = display_name(e.name) + " has an unsafe path (absolute or with ..)";
+            return false;
+        }
+
+    auto dir = components_of(member);
+    dir.pop_back();
+    struct Item { const jnext::zip::InterchangeEntry* e; std::string rel; };
+    std::vector<Item> files;
+    std::vector<std::string> dirs;                              // relative, '/'-joined
+    std::map<std::string, std::string> file_by_lower, dir_origin_by_lower;
+    uint64_t total = 0;
+    auto lower_rel = [](const std::string& r) { return lower(r); };
+    // A directory spelled in two cases is ONE directory, written under the spelling seen first, so the
+    // same archive extracts alike on a case-sensitive and a case-insensitive host. Registers every
+    // prefix of `dpath` and returns it with each component in its first-seen spelling.
+    std::map<std::string, std::string> canon_of;                // lower path -> first-seen path
+    auto canon_dir = [&](const std::string& dpath, const std::string& origin) {
+        std::string cur, curl;
+        size_t i = 0;
+        while (!dpath.empty() && i <= dpath.size()) {
+            size_t j = dpath.find('/', i);
+            if (j == std::string::npos) j = dpath.size();
+            const std::string c = dpath.substr(i, j - i);
+            curl += "/" + lower(c);
+            const auto it = canon_of.find(curl);
+            if (it != canon_of.end()) {
+                cur = it->second;
+            } else {
+                cur += (cur.empty() ? "" : "/") + c;
+                canon_of[curl] = cur;
+                dir_origin_by_lower.emplace(lower(cur), origin);
+                dirs.push_back(cur);
+            }
+            i = j + 1;
+        }
+        return cur;
+    };
+    for (const auto& e : reader_.entries()) {
+        if (is_junk(e.name)) continue;
+        const auto comps = components_of(e.name);
+        if (!below(comps, dir, false)) continue;                 // outside, or the directory itself
+        std::string rel;
+        for (size_t i = dir.size(); i < comps.size(); ++i) {
+            const std::string& c = comps[i];
+            if (c.back() == '.' || c.back() == ' ') {
+                why = display_name(e.name) + " has a name ending in a dot or a space";
+                return false;
+            }
+            rel += (rel.empty() ? "" : "/") + sanitise_component(c);
+        }
+        if (rel.size() > EsxdosHostFs::kMaxPath) {
+            why = display_name(e.name) + " has a path of " + std::to_string(rel.size()) +
+                  " bytes, over the " + std::to_string(EsxdosHostFs::kMaxPath) + "-byte limit";
+            return false;
+        }
+        // Parent directories of this member (first-seen spelling), then the member itself.
+        const size_t last = e.is_directory() ? std::string::npos : rel.rfind('/');
+        const std::string dpath = e.is_directory() ? rel : (last == std::string::npos ? "" : rel.substr(0, last));
+        const std::string cdir = canon_dir(dpath, e.name);
+        if (!e.is_directory()) rel = (cdir.empty() ? "" : cdir + "/") + rel.substr(last == std::string::npos ? 0 : last + 1);
+        if (e.is_directory()) continue;
+        const auto ins = file_by_lower.emplace(lower_rel(rel), e.name);
+        if (!ins.second) {
+            why = display_name(ins.first->second) + " and " + display_name(e.name) +
+                  " have the same path ignoring case";
+            return false;
+        }
+        total += e.uncomp_size;
+        files.push_back({&e, rel});
+    }
+    for (const auto& f : files) {
+        const auto it = dir_origin_by_lower.find(lower_rel(f.rel));
+        if (it != dir_origin_by_lower.end()) {
+            why = display_name(file_by_lower[lower_rel(f.rel)]) + " is a file and " +
+                  display_name(it->second) + " is inside a directory of that name";
+            return false;
+        }
+    }
+    if (total > max_total) {
+        std::string d;
+        for (const auto& c : dir) d += (d.empty() ? "" : "/") + c;
+        why = "the files of " + (d.empty() ? std::string("the archive's top level") : display_name(d)) +
+              " are " + std::to_string(total) + " bytes, over the " +
+              std::to_string(max_total) + "-byte limit";
+        return false;
+    }
+
+    const std::string slot = scratch.new_slot(why);
+    if (slot.empty()) return false;
+    auto fail = [&](std::string w) {
+        std::error_code ec;
+        fs::remove_all(fs::u8path(slot), ec);
+        why = std::move(w);
+        return false;
+    };
+    std::error_code ec;
+    for (const auto& d : dirs) {
+        fs::create_directories(fs::u8path(slot + "/" + d), ec);
+        if (ec) return fail(display_name(member) + " could not be extracted to " + slot + ": " + ec.message());
+    }
+    for (const auto& f : files) {
+        std::vector<uint8_t> bytes;
+        std::string r;
+        if (!reader_.read(*f.e, bytes, r)) return fail(display_name(f.e->name) + " " + r);
+        const std::string dest = slot + "/" + f.rel;
+        std::ofstream o(fs::u8path(dest), std::ios::binary | std::ios::trunc);
+        if (!o.write(reinterpret_cast<const char*>(bytes.data()),
+                     static_cast<std::streamsize>(bytes.size())) && !bytes.empty())
+            return fail(display_name(f.e->name) + " could not be written to " + slot);
+        o.close();
+        if (!o) return fail(display_name(f.e->name) + " could not be written to " + slot);
+    }
+    out_path = fs::absolute(fs::u8path(slot + "/" + extraction_name(member)), ec).string();
+    if (!path_.empty()) {
+        std::lock_guard<std::mutex> lock(g_prov_mutex);
+        provenance()[jnext::absolute_host_path(out_path)] = {path_, member};
+        data_slots().push_back({jnext::absolute_host_path(slot), path_});
+    }
+    return true;
+}
+
 std::string ProgramArchive::matching_pok(const std::string& program) const {
     std::vector<std::string> poks;
     for (const auto& n : member_names())
@@ -323,10 +539,10 @@ bool extract_single_program(const std::string& archive, std::string& out_path,
                             std::string& why, std::string* member) {
     ProgramArchive a;
     if (!a.open(archive, why)) return false;
-    if (a.programs().empty()) { why = a.no_program_why(); return false; }
-    if (a.programs().size() > 1) { why = a.several_why(); return false; }
-    if (member) *member = a.programs()[0];
-    return a.extract(a.programs()[0], out_path, why);
+    std::string chosen;
+    if (!a.choose(chosen, why)) return false;
+    if (member) *member = chosen;
+    return a.extract_program(chosen, out_path, why);
 }
 
 bool extract_single_sd_image(const std::string& archive, std::string& out_path,

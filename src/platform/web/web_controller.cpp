@@ -7,6 +7,7 @@
 #include "platform/web_api.h"
 #include "platform/sdl_app.h"
 #include "core/emulator.h"
+#include "core/program_archive.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten.h>
@@ -190,11 +191,28 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset_card()
 extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_load(const char* path)
 {
     if (!g_app) return "the machine is not running";
-    if (const char* why = browser_page::program_refusal(path ? path : "")) return why;
-    // g_program becomes `path` only when the load succeeds (the hook), so a refused or
+    static std::string reason, extracted;
+    const std::string given = path ? path : "";
+    std::string program = given;
+    if (program_archive::is_archive_path(given)) {
+        // A NEX archive (GH #541): the NEX and its directory are extracted, as at start-up.
+        program_archive::ProgramArchive archive;
+        std::string chosen;
+        if (!archive.open(given, reason) || !archive.choose(chosen, reason) ||
+            !browser_page::archive_program_allowed(chosen))
+            return browser_page::program_refusal(given);
+        if (!archive.extract_program(chosen, extracted, reason)) {
+            reason = given + ": " + reason;
+            return reason.c_str();
+        }
+        program = extracted;
+    } else if (const char* why = browser_page::program_refusal(given)) {
+        return why;
+    }
+    // g_program becomes the program only when the load succeeds (the hook), so a refused or
     // failed load never becomes the program a reset restarts.
     g_page_load = true;
-    g_app->cold_boot(path);
+    g_app->cold_boot(program);
     return nullptr;
 }
 

@@ -3,6 +3,7 @@
 #include "core/esxdos_trace.h"
 #include "core/extended_nex_host.h"
 #include "core/log.h"
+#include "core/program_archive.h"
 #include "peripheral/sd_write_journal.h"
 #include "platform/emulator_boot.h"
 
@@ -19,6 +20,7 @@
 
 #include <unistd.h>   // getpid() — per-process fixture paths
 #include "../row_id.h"
+#include "../zip_fixture.h"
 
 void run_esxdos_hostfs_rows(int& passed, int& failed);
 void run_esxdos_write_rows(int& passed, int& failed);
@@ -1540,6 +1542,179 @@ int main() {
                   "the NEX's directory does not silently replace it",
                   ok && !e.esxdos_hostfs().active() && got != "AAAA",
                   "active=" + std::to_string(e.esxdos_hostfs().active()) + " got='" + got + "'");
+        }
+        // GH #541 — a NEX from a data .zip is served the directory it was in, with no
+        // --esxdos-stub. Oracle: the issue (the archive's files are served) and the NXROOT
+        // rows above (esx_erdonly = 24, an explicit root wins, a soft reset ends an implicit
+        // root); host paths are as the HFS rows pin.
+        {
+            namespace pa = program_archive;
+            std::string nexbytes_s;
+            {
+                std::ifstream f(nex_a, std::ios::binary);
+                nexbytes_s.assign(std::istreambuf_iterator<char>(f), {});
+            }
+            const zipfx::Bytes nexbytes(nexbytes_s.begin(), nexbytes_s.end());
+            auto zm = [](const std::string& n, const std::string& body) {
+                zipfx::Member m; m.name = n; m.data = zipfx::Bytes(body.begin(), body.end()); return m;
+            };
+            auto zn = [&](const std::string& n) {
+                zipfx::Member m; m.name = n; m.data = nexbytes; return m;
+            };
+            const fs::path zdir = base / "zip";
+            fs::create_directories(zdir);
+            const std::string zipf = (zdir / "data.zip").string();
+            {
+                const auto z = zipfx::build({zn("game/G.NEX"), zm("game/data.txt", "ZIP1"),
+                                             zn("game/sub/S.NEX"), zm("game/sub/data.txt", "SUB1")});
+                std::ofstream o(zipf, std::ios::binary | std::ios::trunc);
+                o.write(reinterpret_cast<const char*>(z.data()), static_cast<std::streamsize>(z.size()));
+            }
+            auto read_zip = [&] {
+                std::ifstream f(zipf, std::ios::binary);
+                return std::string(std::istreambuf_iterator<char>(f), {});
+            };
+            const std::string zip_before = read_zip();
+            pa::ScratchDir sc((zdir / "scratch").string());
+            pa::ProgramArchive a;
+            std::string why, gnex;
+            const bool extracted = a.open(zipf, why) && a.extract_program("game/G.NEX", sc, gnex, why);
+            const fs::path slot = extracted ? fs::path(gnex).parent_path() : fs::path();
+            EmulatorConfig nostub = stub; nostub.esxdos_stub = false;
+
+            // NXZIP-01
+            {
+                auto ep = fresh(); Emulator& e = *ep;
+                const bool ok = extracted && built && e.init(nostub) && e.load_nex(gnex);
+                const Open o = f_open(e, "data.txt", EsxdosHostFs::kModeRead);
+                const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+                check("NXZIP-01",
+                      "a NEX from a data .zip, no --esxdos-stub: its archive directory is served "
+                      "(active, root = the slot, data.txt read by name)",
+                      ok && e.esxdos_hostfs().active() && e.esxdos_hostfs().root().string() == canon(slot) &&
+                      got == "ZIP1",
+                      why + " root=" + e.esxdos_hostfs().root().string() + " got='" + got + "'");
+            }
+            // NXZIP-02
+            {
+                auto ep = fresh(); Emulator& e = *ep;
+                const bool ok = extracted && built && e.init(nostub) && e.load_nex(gnex);
+                const Open cr = f_open(e, "new.bin",
+                    EsxdosHostFs::kModeWrite | EsxdosHostFs::kModeCreatTrunc);
+                const Open wr = f_open(e, "data.txt", EsxdosHostFs::kModeWrite);
+                check("NXZIP-02",
+                      "the archive's directory is read-only by default: create and write-open fail "
+                      "with esx_erdonly (A=24), the slot is unchanged",
+                      ok && cr.handled && cr.carry && cr.a == 24 && wr.handled && wr.carry && wr.a == 24 &&
+                      !fs::exists(slot / "new.bin") && read_file(slot / "data.txt") == "ZIP1",
+                      "create A=" + std::to_string(cr.a) + " write A=" + std::to_string(wr.a));
+            }
+            // NXZIP-03
+            {
+                auto ep = fresh(); Emulator& e = *ep;
+                EmulatorConfig c = nostub; c.esxdos_stub_writable = true;
+                const bool ok = extracted && built && e.init(c) && e.load_nex(gnex);
+                const Open cr = f_open(e, "new.bin",
+                    EsxdosHostFs::kModeWrite | EsxdosHostFs::kModeCreatTrunc);
+                bool wrote = false;
+                if (is_file_handle(cr)) {
+                    write_string(e, 0x9200, "W!");
+                    Z80Registers r{};
+                    r.AF = static_cast<uint16_t>(cr.a << 8);
+                    r.IX = 0x9200;
+                    r.BC = 2;
+                    wrote = call(e, 0x9E, r) && !carry(r);
+                    Z80Registers cl{};
+                    cl.AF = static_cast<uint16_t>(cr.a << 8);
+                    call(e, 0x9B, cl);
+                }
+                check("NXZIP-03",
+                      "with --esxdos-stub-writable a guest write lands in the extracted copy; the "
+                      ".zip file's bytes are unchanged",
+                      ok && wrote && read_file(slot / "new.bin") == "W!" && read_zip() == zip_before,
+                      "wrote=" + std::to_string(wrote));
+                fs::remove(slot / "new.bin", ec);
+            }
+            // NXZIP-04
+            {
+                auto ep = fresh(); Emulator& e = *ep;
+                EmulatorConfig c = nostub; c.esxdos_stub_root = dir_x.string();
+                const bool ok = extracted && built && e.init(c) && e.load_nex(gnex);
+                const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+                const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+                check("NXZIP-04",
+                      "an explicit --esxdos-stub-root wins over a data archive's directory",
+                      ok && e.esxdos_hostfs().root().string() == canon(dir_x) && got == "XXXX",
+                      "root=" + e.esxdos_hostfs().root().string() + " got='" + got + "'");
+            }
+            // NXZIP-05
+            {
+                auto ep = fresh(); Emulator& e = *ep;
+                const bool ok = extracted && built && e.init(nostub) && e.load_nex(gnex);
+                const bool was_active = e.esxdos_hostfs().active();
+                e.soft_reset();
+                check("NXZIP-05",
+                      "a soft reset ends the implicit archive root, as it ends a NEX's directory",
+                      ok && was_active && !e.esxdos_hostfs().active());
+            }
+            // NXZIP-06
+            {
+                auto ep = fresh(); Emulator& e = *ep;
+                const std::string snex = (slot / "sub" / "S.NEX").string();
+                const bool ok = extracted && built && e.init(nostub) && e.load_nex(snex);
+                const Open o = f_open(e, "data.txt", EsxdosHostFs::kModeRead);
+                const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+                check("NXZIP-06",
+                      "a NEX in a subdirectory of the slot is served its own directory, not the slot",
+                      ok && e.esxdos_hostfs().root().string() == canon(slot / "sub") && got == "SUB1",
+                      "root=" + e.esxdos_hostfs().root().string() + " got='" + got + "'");
+            }
+            // NXZIP-07
+            {
+                const std::string flatzip = (zdir / "flat.zip").string();
+                {
+                    const auto z = zipfx::build({zn("F.NEX")});
+                    std::ofstream o(flatzip, std::ios::binary | std::ios::trunc);
+                    o.write(reinterpret_cast<const char*>(z.data()), static_cast<std::streamsize>(z.size()));
+                }
+                pa::ProgramArchive fa;
+                std::string fwhy, flat;
+                const bool fx = fa.open(flatzip, fwhy) && fa.extract_program("F.NEX", sc, flat, fwhy);
+                auto e1p = fresh(); Emulator& e1 = *e1p;
+                auto e2p = fresh(); Emulator& e2 = *e2p;
+                const bool ok1 = fx && built && e1.init(stub) && e1.load_nex(flat);
+                const bool ok2 = fx && built && e2.init(nostub) && e2.load_nex(flat);
+                check("NXZIP-07",
+                      "control: a NEX-only archive gets no host directory, with or without --esxdos-stub",
+                      ok1 && ok2 && !e1.esxdos_hostfs().active() && !e2.esxdos_hostfs().active(), fwhy);
+            }
+            // NXZIP-08
+            {
+                auto ep = fresh(); Emulator& e = *ep;
+                const bool ok = extracted && built && e.init(nostub) && e.load_nex(gnex);
+                const Open o = f_open(e, "c:/DATA.TXT", EsxdosHostFs::kModeRead);
+                const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+                check("NXZIP-08",
+                      "the guest names data.txt as c:/DATA.TXT and reads it (case-insensitive lookup in the served root)",
+                      ok && got == "ZIP1", "got='" + got + "'");
+            }
+            // NXZIP-09
+            {
+                auto ep = fresh(); Emulator& e = *ep;
+                const fs::path proc = slot.parent_path();
+                // A sibling slot and the process directory, each holding a file the guest must not reach.
+                fs::create_directories(proc / "1");
+                put(proc / "1" / "leak.txt", "LEAK");
+                put(proc / "leak.txt", "LEAK");
+                const bool ok = extracted && built && e.init(nostub) && e.load_nex(gnex);
+                const Open sib = f_open(e, "../1/leak.txt", EsxdosHostFs::kModeRead);
+                const Open up = f_open(e, "/../leak.txt", EsxdosHostFs::kModeRead);
+                check("NXZIP-09",
+                      "the guest cannot leave the slot: a sibling slot's file and the scratch "
+                      "directory's file are not readable through .. paths",
+                      ok && sib.handled && sib.carry && up.handled && up.carry,
+                      "sib A=" + std::to_string(sib.a) + " up A=" + std::to_string(up.a));
+            }
         }
         fs::remove_all(base, ec);
     }

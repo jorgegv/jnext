@@ -260,7 +260,9 @@ inline constexpr Option OPTIONS[] = {
       "Load a program file (auto-detect format by extension)\n"
       "Supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx\n"
       "(.rzx is accepted here and plays back, as --rzx-play)\n"
-      "A .zip archive holding one such program loads that program" },
+      "A .zip archive holding one such program loads that program;\n"
+      "a NEX in it also gets its directory in the archive, through\n"
+      "the esxDOS stand-in" },
     { "--nex-args", 1, Doc::Documented, OptId::NexArgs,
       "LINE",
       "Argument line for a NEX V1.3 program: placed in the CLI\n"
@@ -555,14 +557,16 @@ inline constexpr Option OPTIONS[] = {
       "Answer a few RST $08 esxDOS calls (version, one in-memory\n"
       "file, .RUN sibling NEX) for any program; a directly loaded\n"
       "NEX gets more automatically, and with no --esxdos-stub-root\n"
-      "its own directory is served read-only. Not for use with\n"
-      "NextZXOS" },
+      "its own directory is served read-only. A NEX from a .zip\n"
+      "that holds its data files gets its directory in the\n"
+      "archive with no flag at all. Not for use with NextZXOS" },
     { "--esxdos-stub-root", 1, Doc::Documented, OptId::EsxdosStubRoot,
       "DIR",
       "Serve host directory DIR to the guest through the esxDOS\n"
       "file and directory calls, instead of the single in-memory\n"
       "file. Overrides the default root, the directory of the\n"
-      "loaded NEX. Implies --esxdos-stub. Read-only unless\n"
+      "loaded NEX, and the directory of a NEX from a .zip that\n"
+      "holds its data files. Implies --esxdos-stub. Read-only unless\n"
       "--esxdos-stub-writable is also given.\n"
       "SEEN BY: a NEX loaded with --load, and dot commands.\n"
       "NOT SEEN BY: NextZXOS - its Browser, file selector, BASIC\n"
@@ -575,7 +579,8 @@ inline constexpr Option OPTIONS[] = {
       "Allow the guest to create, truncate, write, delete and\n"
       "rename files, make and remove directories and set the\n"
       "read-only bit of files under --esxdos-stub-root (or the\n"
-      "NEX's directory). Off by default: a guest write is a real\n"
+      "NEX's directory, or the extracted copy of a NEX's directory\n"
+      "from a .zip). Off by default: a guest write is a real\n"
       "host side effect, and rewinding the emulator cannot undo it" },
     { "--rtc", 1, Doc::Documented, OptId::Rtc,
       "\"YYYY-MM-DD HH:MM:SS\"",

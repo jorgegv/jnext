@@ -5,8 +5,8 @@
 #   bash test/browser/browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]
 #
 # Specs default to `smoke.mjs:34` (rows BRW-01..34, this directory) and `image.mjs:9`
-# (rows WBI-PW-01..09, the SD-card image and the warm start in the browser) and `api.mjs:31`
-# (rows WEBAPI-01..31, the JavaScript API: jnext.mount and its controller) and `package.mjs:7`
+# (rows WBI-PW-01..09, the SD-card image and the warm start in the browser) and `api.mjs:34`
+# (rows WEBAPI-01..34, the JavaScript API: jnext.mount and its controller) and `package.mjs:7`
 # (rows WEBPKG-BR-01..07: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
 # boots the example page), `card.mjs:42` (rows BCARD-01..21, 26..43 and 45..47: the card flow of the page, the poster, card.dirs and card source none), `card-errors.mjs:5` (rows BCARD-22..25 and 44: how the pick path words a refusal, no browser), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
@@ -43,7 +43,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:31" "package.mjs:7" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:42" "card-errors.mjs:5" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "$@")
+SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:34" "package.mjs:7" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:42" "card-errors.mjs:5" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -278,6 +278,14 @@ ORACLE_CARD="$SCRATCH/real-dirs-card.img" oracle warhawk sdl --machine next --rt
     --delayed-screenshot "$O/warhawk.png" --delayed-screenshot-frames $WH_SHOT --delayed-automatic-exit-frames $((WH_SHOT + 20))
 ORACLE_CARD="$SCRATCH/real-dirs-card.img" oracle tx1696 sdl --machine next --rtc 2026-07-10T08:55:00 --esxdos-stub --load "$MTX/TX-1696/main.nex" \
     --delayed-screenshot "$O/tx1696.png" --delayed-screenshot-frames $TX_SHOT --delayed-automatic-exit-frames $((TX_SHOT + 20))
+
+# A zipped NEX with its data (api.mjs WEBAPI-32..34, GH #541): our own probe program and a data file, zipped by
+# CPython's zipfile (a foreign writer). Deleted with the scratch directory.
+python3 "$ROOT/test/00regression/esxdos-hostfs-probe.py" "$SCRATCH/hostfs.nex" || die "cannot build the esxdos probe NEX"
+python3 -I -c 'import sys, zipfile
+with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
+    z.write(sys.argv[1], "game/hostfs.nex")
+    z.writestr("game/data.txt", b"0123456789ABCDEF")' "$SCRATCH/hostfs.nex" "$SCRATCH/hostfs-data.zip" || die "cannot zip the esxdos probe"
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg" \
