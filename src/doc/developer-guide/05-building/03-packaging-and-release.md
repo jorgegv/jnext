@@ -335,17 +335,17 @@ is refused with its size.
 image is its first entry, the inflated image is read by offset, and a directory is parsed
 when its whole chain has gone by. A distribution whose layout would need a second pass (a
 directory's contents stored before the directory) is refused with a message naming the
-cluster; it is not worked around. Its memory is bounded: about 3 MB of heap for the 26.11
+cluster; it is not worked around. Its memory is bounded: about 3.7 MB of heap for the 26.11a
 distribution, with `/GAMES,/APPS` the wasm heap grew by 21 MB (BCARD-41), under 50 MiB before any refusal (the FAT copy
 is capped at 16 MiB and the kept data at 32 MiB), and the card itself is a file (MEMFS in the
 browser, not the wasm heap). The 32 MiB bound counts what the builder keeps: each file's SIZE
 and each directory's clusters, not the source's clusters (the distribution's are 32 KiB, which
-would count `/GAMES` and `/APPS` as 40.66 MiB when they are 30.26 MiB of files and
-directories). Past the bound it goes on counting but stops buffering, so the refusal gives the
+would count `/GAMES` and `/APPS` as 35.09 MiB when they are 27.77 MiB of files and
+directories; with the boot set the card counts 31.30 MiB of the 32). Past the bound it goes on counting but stops buffering, so the refusal gives the
 exact total and the limit, and a truncated image is reported as "at least N bytes".
 
-The boot set (`TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `LICENSE.md`, `README.md`)
-is copied with the source's own spelling and metadata, and JNEXT's two patches (the
+The boot set (`TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `DOT`, `LICENSE.md`, `README.md`)
+is copied with the source's own spelling and metadata (`DOT` is there because NextZXOS runs its dot commands from it, and its file browser opens text files, NEX programs and most other types through one; a distribution without it is refused, and `/DOT` in `card.dirs` is refused as part of the boot set), and JNEXT's two patches (the
 `config.ini` and the doubled `zx81.rom`) are the functions the SD provisioner uses, not
 copies. The output is reproducible and the same bytes on every platform: no clock, the source's directory order, spelling, write times and R/H/S/A attributes, volume serial `4A4E5854`, hidden sectors 63.
 
@@ -355,10 +355,10 @@ from your own download, the card digest from `make-minimal-card` on it, and the 
 number only if the builder changed what it writes. The tests (MINIMG-01 and the
 `minimal-sdcard-image-func` regression row) fail on a partial update.
 
-Tests: `minimal_card_test` (`MCARD-01..16` and `18..35`, on a synthetic distribution built in the test; `MCARD-17`, recipe 3 unchanged, is in `fat32_image_test`; every tree, the wasm one included), the
-`make minimal-image-test` shell suite (21 rows, `MINIMG-21..26` for `--dirs`: the tool on the cached image and on a synthetic zip, read back with mtools, sfdisk and python's zipfile) and the `minimal-sdcard-image-func` regression row,
+Tests: `minimal_card_test` (`MCARD-01..16` and `18..41`, on a synthetic distribution built in the test; `MCARD-17`, recipe 3 unchanged, is in `fat32_image_test`; every tree, the wasm one included), the
+`make minimal-image-test` shell suite (25 rows, `MINIMG-21..26` for `--dirs`, `MINIMG-28..30` for `/dot` and the Pages list: the tool on the cached image and on a synthetic zip, read back with mtools, sfdisk and python's zipfile) and the `minimal-sdcard-image-func` regression row,
 which boots the card to the NextZXOS menu and warm-starts a NEX, both compared with the
-full card's references.
+full card's references, and the `minimal-sdcard-dot-func` row, which runs `.more readme.md` on the card and compares it with the full card (and with the same card without `/dot`, which must differ).
 
 ## The browser package
 

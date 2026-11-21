@@ -262,7 +262,7 @@ flow, and the builder (`src/core/minimal_card.cpp`, the same code as the native
 `card_builder_web.cpp` (`begin`, `feed`, `finish`, `error`, `inflated`, `distribution`, and `dirs`, which returns the canonical form of a page's `card.dirs` or the reason it is refused: the rules live in `minimal_card::canonical_dirs` only):
 - *Cache.* The key is `https://card.jnext.invalid/<card sha256>` (the `.invalid` host is
   never fetched) in Cache API `jnext-sdcard-v2`. The entry is stored gzipped (`packed()`,
-  a `CompressionStream`: about 1.1 MB for the 40 MiB card, mostly zeros). A hit is read
+  a `CompressionStream`: about 1.5 MB for the 40 MiB card, mostly zeros; measured with gzip -6, the page's own level may differ slightly). A hit is read
   through a `DecompressionStream` (`unpacked()`), whose CRC-32 and length check (gzip's
   trailer) is the integrity check: nothing is hashed again, because the key's digest was
   proved when the entry was written (`minimal_card.cpp` refuses a card whose SHA-256 is
