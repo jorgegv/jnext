@@ -1056,7 +1056,8 @@ int main() {
         check("BR-23", "settings: a Path value is blanked, a machine type kept, the recent history and unknown keys blanked",
               r.ok && k && k->type == config_keys::Type::Path && st["config_file"]["paths.sd_card_path"] == "<blanked>" &&
               st["config_file"]["startup.machine_type"] == "next" && st["config_file"]["recent.files"] == "<blanked>" &&
-              st["config_file"]["invented.key"] == "<blanked>" && st["config_file_read"] == true &&
+              st["config_file"]["invented.<unknown-1>"] == "<blanked>" && !st["config_file"].contains("invented.key") &&
+              st["config_file_read"] == true &&
               !report_contains(r, "/mnt/secret"),
               fmtf("ok=%d", r.ok));
     }
