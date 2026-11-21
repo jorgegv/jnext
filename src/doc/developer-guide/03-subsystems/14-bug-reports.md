@@ -133,9 +133,33 @@ file and whether memory is included; a failure shows a dialog (not when unattend
 passes the same map to `--bug-report`. There is no Preferences field, so no `config_keys` row: `--bug-report`
 is a per-run action like `--delayed-screenshot`.
 
+## The viewer
+
+`tools/jnext-bug-view.py` shows a report: `jnext-bug-view.py REPORT [-o OUT.html] [--text [--memory]] [--no-open]`.
+It is Python 3, standard library only (`zipfile`, `json`, `html`, `base64`, `argparse`, `webbrowser`), runs from a
+clone as `python3 -I`, and needs no jnext build and no card. It is not packaged.
+
+- **Output.** By default one self-contained HTML page (no JavaScript, no external resource; the pictures are
+  embedded as `data:` PNGs) written to a temporary folder, or to `-o`, and opened with `webbrowser` unless
+  `--no-open`. `--text` prints the summary and the registers as text instead, and with `--memory` the hex dump of
+  the CPU view; the text is what a terminal and the regression rows read. Sections, as element ids: `summary`,
+  `settings`, `machine`, `nextregs`, `paging`, `video`, `interrupts`, `pictures`, `log`, `debugger`, `memory`,
+  `raw-state`. A section whose member is not in the report says so; without memory the `memory` section says "not
+  included" and why, from the manifest.
+- **It decodes nothing.** Register names, NextREG names, the paging map and the disassembly are what jnext wrote
+  into the report; the viewer has no register table and no Z80 disassembler to keep in step.
+- **Exit status.** 0 shown, 2 refused (with a message naming the file and the reason), 1 an I/O error.
+- **Hostile input.** A report is an issue attachment. The viewer refuses a file that is not a zip, a zip with no
+  `manifest.json`, a `kind` other than `jnext-bug-report`, a `format_version` above 1 ("newer"), a declared member
+  that is missing, more than 4096 members, any member that declares more than 64 MiB and a total above 256 MiB (all
+  checked from the central directory, before anything is inflated), and a member that cannot be read. A member is
+  read at most up to its declared size. Every text goes through `html.escape`; a picture is embedded only if it
+  starts with the PNG signature; JSON nested too deep or that is not JSON is shown as absent, never a crash;
+  nothing is extracted to disk.
+
 ## Tests
 
-`bug_report_ui_test` (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
+`bug_view_test` (BV-01 to 15) builds reports in memory and runs the viewer as `python3 -I` in a child with an explicit minimal environment (`LANG=C`, `PATH=/usr/bin:/bin`, no `HOME`): refusals, every section, names and values from the report, the pictures byte for byte, memory present and absent, escaping, text mode, and hostile structure. `bug_report_ui_test` (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows `bug-report-nosd-func` and
 `bug-report-card-func` run the real binary. The second one is the end-to-end check of the

@@ -1241,6 +1241,19 @@ target_link_libraries(bug_report_test PRIVATE
 target_include_directories(bug_report_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
 add_test(NAME bug_report_tests COMMAND bug_report_test)
 
+# GH #492 stage 3 - the viewer (tools/jnext-bug-view.py): reports built in memory, the viewer run as
+# `python3 -I` in a child with a minimal environment. Forks python3: POSIX only (os: posix in the manifest).
+if(NOT WIN32 AND NOT EMSCRIPTEN)
+    add_executable(bug_view_test platform/bug_view_test.cpp)
+    target_link_libraries(bug_view_test PRIVATE
+        jnext_platform jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(bug_view_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(bug_view_test PRIVATE JNEXT_TOOLS_DIR="${CMAKE_SOURCE_DIR}/tools")
+    add_test(NAME bug_view_tests COMMAND bug_view_test)
+endif()
+
 # Superseded-composite render-skip policy test (issue #9 / Task 63). Header-only
 # decision helper under test (src/platform/render_policy.h) — no Qt, no SDL,
 # no emulator core.

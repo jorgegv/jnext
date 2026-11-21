@@ -10,6 +10,9 @@
     --manifest PATH VALUE  manifest.json at PATH (dots) equals VALUE, compared as text
     --json MEMBER PATH VALUE   the same for any JSON member
     --absent-key MEMBER PATH   the JSON member has no key at PATH (dots)
+    --viewer SCRIPT        run SCRIPT (tools/jnext-bug-view.py) as `python3 -I SCRIPT --text REPORT` with a minimal
+                           environment: it must exit 0 and print machine.json's PC as the report has it, and
+                           say "memory: included" or "memory: not included" as the manifest does
     --scan DIR             no 32-byte window of any file under DIR (windows taken every 32
                            bytes; periods of 4 or less, windows of fewer than 8 distinct values and counting sequences excluded) occurs at any offset of any
                            member, as raw bytes and as what it decodes to (JSON hex strings and integer arrays, nested
@@ -207,6 +210,21 @@ def main():
             except (KeyError, IndexError):
                 pass
             i += 3
+        elif a == "--viewer":
+            import subprocess
+            env = {"LANG": "C", "PATH": "/usr/bin:/bin"}
+            r = subprocess.run([sys.executable, "-I", args[i + 1], "--text", report], capture_output=True, text=True, env=env)
+            if r.returncode != 0:
+                bad.append("viewer exit %d: %s" % (r.returncode, r.stderr.strip()))
+            else:
+                pc = json.loads(member("machine.json"))["registers"]["PC"]
+                want = "PC = 0x%04X (%d)" % (pc, pc)
+                if want not in r.stdout.splitlines():
+                    bad.append("viewer did not print %r" % want)
+                inc = json.loads(member("manifest.json"))["memory"]["included"]
+                if ("memory: included" if inc else "memory: not included") not in r.stdout:
+                    bad.append("viewer's memory line does not match the manifest")
+            i += 2
         elif a == "--scan":
             wins, nfiles = windows_of(args[i + 1])
             if nfiles == 0 or not wins:

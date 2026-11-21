@@ -15,6 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      to the NEX, the pictures, machine.json and debugger.json, and no member contains the
 #      home directory or the user name
 #   C  --bug-report FILE (not a directory) writes exactly that file
+#      and the viewer (tools/jnext-bug-view.py, python3 -I) shows that report: exit 0, the PC machine.json has
 #   D  the Qt window (offscreen) and the SDL-only build (dummy drivers) call the same writer at
 #      exit: each writes a report whose producer.frontend is qt / sdl, and only the Qt one carries the settings file (config_file_read)
 if want bug-report-nosd-func; then
@@ -45,6 +46,7 @@ if want bug-report-nosd-func; then
             --has memory/ram.bin --has memory/cpu.bin --has machine.json --has debugger.json \
             --has screen/composite.png --has screen/layer2-active.png --has log.txt \
             --equals program/im1.nex "$TMP_DIR/im1.nex" \
+            --viewer "$PROJECT_DIR/tools/jnext-bug-view.py" \
             --forbid "$HOME" --forbid "$(id -un)" 2>&1) || br_faults+=("B: $chk")
     else
         br_faults+=("B: no report file to check")

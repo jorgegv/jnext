@@ -40,6 +40,20 @@ exits with status 1.
 - The name, size and SHA-256 of your SD card. Never its contents.
 - The program you loaded, the file as it is on disk.
 
+## Reading a report
+
+A report is a zip file; you can open it with any zip tool. To read it as a page, run the viewer that comes with the
+JNEXT sources, from a clone (it needs only Python 3, not a JNEXT build):
+
+```
+python3 tools/jnext-bug-view.py game.202611201530.jnext-bug.zip
+```
+
+It opens a page in your browser with the machine's registers, every NextREG by name, the memory map, the pictures, the log and
+the debugger's state, and the memory when the report has it. `--text` prints a summary and the registers in the terminal
+instead (`--text --memory` adds the hex dump), and `-o FILE.html --no-open` writes the page without opening it. The viewer
+refuses a file that is not a JNEXT bug report.
+
 ## When the memory is included
 
 The machine's memory is in the report **only when no firmware has run**: a

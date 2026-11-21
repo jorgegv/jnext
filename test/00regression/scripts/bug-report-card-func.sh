@@ -14,6 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   B  the manifest says memory is withheld, code card-session; no memory/ member; the trace
 #      has no opcode bytes and debugger.json no disassembly or stack; the program ships
 #   C  cards[0].sha256 is the SHA-256 of the run's card clone (readonly: nothing wrote to it)
+#      and the viewer shows the report (exit 0, memory: not included)
 #   D  THE SCAN: every file under /MACHINES/NEXT, /NEXTZXOS and /TBBLUE.FW of the clone, and
 #      nextboot.rom, is extracted with mcopy into this row's scratch directory (deleted with
 #      it, never kept) and no 32-byte window of them occurs at any offset of any member, nor in
@@ -46,6 +47,7 @@ if want bug-report-card-func; then
         if [[ -s "$rep" ]]; then
             chk=$(python3 -I "$check_py" "$rep" \
                 --manifest memory.included false --manifest memory.withheld.code card-session \
+                --viewer "$PROJECT_DIR/tools/jnext-bug-view.py" \
                 --manifest programs.0.included true --lacks-prefix memory/ \
                 --has program/im1.nex --equals program/im1.nex "$TMP_DIR/im1.nex" --manifest programs.0.included true \
                 --absent-key debugger.json disasm_at_pc --absent-key debugger.json stack \

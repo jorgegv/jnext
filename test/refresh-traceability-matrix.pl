@@ -1150,6 +1150,7 @@ my %NO_MATRIX_SECTION = (
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
     'no_sdcard_test' => '--no-sdcard (GH #540): a NEX with no SD card and no ROMs, an emulator convenience like the esxDOS stand-in; a real Next always has its ROMs, so the core has nothing to cite',
     'bug_report_test' => 'bug report writer (GH #492): a host-side diagnostic file; its oracles are the debugger facade, files on disk and the issue rules, with no VHDL counterpart',
+    'bug_view_test' => 'bug report viewer tools/jnext-bug-view.py (host tool run as python3 in a child; GH #492): no VHDL counterpart',
     'bug_report_ui_test' => 'File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written',
     'no_sdcard_ui_test' => '--no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540)',
 
