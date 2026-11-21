@@ -3990,6 +3990,8 @@
       
         
       
+        
+      
     
     
     
@@ -4166,6 +4168,34 @@
     
   
     8.5 Two ways to embed JNEXT, your own page or the widget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../08-web-page/06-debugging-from-the-page.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8.6 Debugging from the page
   
 
     
@@ -5631,6 +5661,13 @@ binds a free port the system chooses, and the log says which
 second connection is told so and closed. A port that cannot be bound
 is a startup error. Works in every frontend, <strong>--headless</strong>
 included, and alongside <strong>--dzrp-port</strong> and <strong>--gdb-port</strong>.</dd>
+<dt><strong>--debug-channel</strong> <em>PROTOCOL</em></dt>
+<dd>Browser page only: serve the debugger protocol <em>PROTOCOL</em> (<code>dzrp</code>,
+<code>zrcp</code> or <code>gdb</code>) to the page’s debug channel, the <code>debug</code> option of
+<code>jnext.mount</code>. May be given once for each protocol. Every other
+build refuses it with exit status 1, because a server that was asked
+for and cannot be reached is a startup error: use <strong>--dzrp-port</strong>,
+<strong>--zrcp-port</strong> or <strong>--gdb-port</strong> there.</dd>
 <dt><strong>--debug-listen-address</strong> <em>ADDR</em></dt>
 <dd>Bind address for the debugger protocol servers (<strong>--dzrp-port</strong>,
 <strong>--gdb-port</strong>, <strong>--zrcp-port</strong>), default <code>127.0.0.1</code>. <em>ADDR</em> is a

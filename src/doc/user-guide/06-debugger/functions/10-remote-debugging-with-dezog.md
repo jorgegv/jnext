@@ -106,6 +106,8 @@ too. **DZRP has no authentication**: anyone who can reach the port controls the
 machine and can read and write all of its memory, so widen it only on a network
 you trust.
 
+A page can serve DZRP to DeZog too, through a bridge: see [8.6](../../08-web-page/06-debugging-from-the-page.md).
+
 ---
 
 For the full list of command-line options mentioned here, see **jnext**(1) or

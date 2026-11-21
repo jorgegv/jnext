@@ -171,6 +171,8 @@ for every debug server, and is refused unless a server port is given too.
 machine and can read and write files on your computer through `smartload`,
 `load-binary` and `save-binary`, so widen it only on a network you trust.
 
+A page can serve ZRCP too, through a bridge: see [8.6](../../08-web-page/06-debugging-from-the-page.md).
+
 ---
 
 For the full list of command-line options mentioned here, see **jnext**(1) or

@@ -22,6 +22,16 @@
 // `ServiceHint` — the only place `remote_attached` is reported — and the
 // machine's live pause state.
 //
+// ── THE PAGE CHANNEL (GH #545) ───────────────────────────────────────────────
+//
+// In EVERY build a protocol can also be served over a `remote::PipeChannel`
+// (`EmulatorConfig::{dzrp,zrcp,gdb}_channel`, set by `--debug-channel`): the
+// same adapters over the same `remote::Server`, whose listener is the host
+// feeding bytes in and taking bytes out instead of a socket. Only the browser
+// page uses it (main.cpp refuses the flag elsewhere); `channel()` is the
+// host's handle. In the browser the page cannot listen, so the socket servers
+// are not compiled there and the channel is the only way in.
+//
 // ── LIFETIME ─────────────────────────────────────────────────────────────────
 //
 // A server holds the `Debugger&` it was started on and unregisters from it in
@@ -31,11 +41,13 @@
 
 #include <memory>
 
+#include "core/cli_options.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 
 namespace jnext {
 namespace remote {
+class PipeChannel;
 namespace dzrp {
 class DzrpServer;
 }
@@ -73,10 +85,19 @@ public:
     /// Headless: the waiting budget.
     static jnext::dbg::PumpBudget headless_wait_budget();
 
-#ifndef __EMSCRIPTEN__
+    /// The host's end of `p`'s page channel; null when `cfg` did not ask for it.
+    jnext::remote::PipeChannel* channel(cli::DebugProtocol p);
+
 private:
+#ifndef __EMSCRIPTEN__
     std::unique_ptr<jnext::remote::dzrp::DzrpServer> dzrp_;
     std::unique_ptr<jnext::remote::gdb::GdbServer>   gdb_;
     std::unique_ptr<jnext::remote::zrcp::ZrcpServer> zrcp_;
 #endif
+    // The channel servers, in every build. The channel is declared before its
+    // server and so outlives it (the listener shares its state either way).
+    std::unique_ptr<jnext::remote::PipeChannel>      dzrp_ch_, gdb_ch_, zrcp_ch_;
+    std::unique_ptr<jnext::remote::dzrp::DzrpServer> dzrp_ch_server_;
+    std::unique_ptr<jnext::remote::gdb::GdbServer>   gdb_ch_server_;
+    std::unique_ptr<jnext::remote::zrcp::ZrcpServer> zrcp_ch_server_;
 };

@@ -5,7 +5,7 @@
 # trees under a scratch directory, no emcc, no browser, no SD-card image. The
 # scratch directory is removed on exit.
 #
-# Oracles: the package contract of this suite's own literal 24-name list (the
+# Oracles: the package contract of this suite's own literal 25-name list (the
 # issue's scope: js + wasm, example pages, README.txt with the source link,
 # LICENSE, CREDITS.md, licences of the linked libraries; and NEVER a NextZXOS
 # image, owner rule); version.yaml as the only source of the version; the
@@ -69,9 +69,10 @@ python3 -I -c 'import yaml' 2>/dev/null || missing+=("python3-pyyaml")
 mkbase() {
     local b=$T/base
     mkdir -p "$b/root/packaging/web" "$b/root/third_party/spdlog" "$b/root/third_party/nlohmann-json" \
-             "$b/root/third_party/zot" "$b/root/third_party/fatfs" "$b/root/third_party/crtemu"
+             "$b/root/third_party/zot" "$b/root/third_party/fatfs" "$b/root/third_party/crtemu" "$b/root/tools/web-debug-bridge"
     cp "$ROOT/packaging/web/package-web.sh" "$ROOT/packaging/web/README.txt.in" "$b/root/packaging/web/"
     cp "$ROOT/LICENSE" "$ROOT/CREDITS.md" "$b/root/"
+    cp "$ROOT/tools/web-debug-bridge/jnext-debug-bridge.mjs" "$b/root/tools/web-debug-bridge/"
     cp "$ROOT/third_party/spdlog/LICENSE" "$b/root/third_party/spdlog/"
     cp "$ROOT/third_party/nlohmann-json/LICENSE.MIT" "$b/root/third_party/nlohmann-json/"
     cp "$ROOT/third_party/zot/LICENSE" "$b/root/third_party/zot/"
@@ -205,7 +206,7 @@ row WEBPKG-01 "$ok" "tools present; build exits 0, one jnext-9.9.9-web.zip in th
 [[ -f "$ZIP1" ]] || not_run 2
 sha1=$(sha "$ZIP1")
 
-# ---- WEBPKG-02: exactly the 24 names ----
+# ---- WEBPKG-02: exactly the 25 names ----
 cat >"$T/want-names" <<'NAMES'
 jnext-9.9.9-web/CREDITS.md
 jnext-9.9.9-web/LICENSE
@@ -214,6 +215,7 @@ jnext-9.9.9-web/itch-game.html
 jnext-9.9.9-web/itch-host.html
 jnext-9.9.9-web/jnext-9.9.9.js
 jnext-9.9.9-web/jnext-9.9.9.wasm
+jnext-9.9.9-web/jnext-debug-bridge.mjs
 jnext-9.9.9-web/jnext-widget.js
 jnext-9.9.9-web/licenses/compiler-rt.txt
 jnext-9.9.9-web/licenses/crtemu.txt
@@ -235,8 +237,8 @@ NAMES
 python3 -I -c 'import sys, zipfile
 print("\n".join(sorted(zipfile.ZipFile(sys.argv[1]).namelist())))' "$ZIP1" >"$T/got-names"
 ok=0
-[[ $(wc -l <"$T/want-names") -eq 24 ]] && cmp -s "$T/want-names" "$T/got-names" && ok=1
-row WEBPKG-02 "$ok" "the zip holds exactly the literal 24 names, no directory entry, no stale jnext-9.9.8.*, no stray.html"
+[[ $(wc -l <"$T/want-names") -eq 25 ]] && cmp -s "$T/want-names" "$T/got-names" && ok=1
+row WEBPKG-02 "$ok" "the zip holds exactly the literal 25 names, no directory entry, no stale jnext-9.9.8.*, no stray.html"
 
 # ---- WEBPKG-03: every entry equals its fixture source ----
 mkdir "$T/x1"
@@ -248,6 +250,7 @@ ok=1
 chk() { cmp -s "$X/$1" "$2" || { echo "    differs: $1"; ok=0; }; }
 chk jnext-9.9.9.js "$B/jnext-9.9.9.js"; chk jnext-9.9.9.wasm "$B/jnext-9.9.9.wasm"
 chk widget.html "$B/widget.html"; chk jnext-widget.js "$B/jnext-widget.js"
+chk jnext-debug-bridge.mjs "$R/tools/web-debug-bridge/jnext-debug-bridge.mjs"
 chk plain.html "$B/plain.html"; chk itch-host.html "$B/itch-host.html"; chk itch-game.html "$B/itch-game.html"
 chk README.txt "$T/readme-want"; chk LICENSE "$R/LICENSE"; chk CREDITS.md "$R/CREDITS.md"
 chk licenses/emscripten.txt "$E/LICENSE"; chk licenses/musl.txt "$E/system/lib/libc/musl/COPYRIGHT"
@@ -269,7 +272,7 @@ ok=0
 if [[ $RC -eq 0 && -f "$D/build/jnext-9.9.10-web.zip" ]]; then
     n=$(python3 -I -c 'import sys, zipfile
 n = zipfile.ZipFile(sys.argv[1]).namelist()
-print(all(x.startswith("jnext-9.9.10-web/") for x in n) and "jnext-9.9.10-web/jnext-9.9.10.js" in n and "jnext-9.9.10-web/jnext-9.9.10.wasm" in n and len(n) == 24)' "$D/build/jnext-9.9.10-web.zip")
+print(all(x.startswith("jnext-9.9.10-web/") for x in n) and "jnext-9.9.10-web/jnext-9.9.10.js" in n and "jnext-9.9.10-web/jnext-9.9.10.wasm" in n and len(n) == 25)' "$D/build/jnext-9.9.10-web.zip")
     [[ "$n" == True ]] && ok=1
 fi
 row WEBPKG-04 "$ok" "version.yaml 9.9.10: output jnext-9.9.10-web.zip with 9.9.10 names"

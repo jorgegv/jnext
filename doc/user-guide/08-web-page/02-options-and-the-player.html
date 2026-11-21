@@ -3992,6 +3992,8 @@
       
         
       
+        
+      
     
     
     
@@ -4433,6 +4435,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-debugging-from-the-page.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8.6 Debugging from the page
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -4783,6 +4813,10 @@
 <td>Show or hide the on-screen keyboard, and ask whether it is shown.</td>
 </tr>
 <tr>
+<td><code>debugChannel(protocol)</code></td>
+<td>The channel of a <code>debug</code> entry whose transport is <code>'channel'</code>, with <code>open()</code>, <code>send()</code>, <code>close()</code>, <code>onData</code>, <code>onClose</code> and <code>isOpen</code> (<a href="06-debugging-from-the-page.html">8.6</a>).</td>
+</tr>
+<tr>
 <td><code>destroy()</code></td>
 <td>Stop the machine and remove the player. Afterwards every method throws.</td>
 </tr>
@@ -4889,6 +4923,11 @@ the page too, off by default, with the same five looks and the same parameters. 
 <td><code>wasmUrl</code></td>
 <td>string</td>
 <td>Where the <code>.wasm</code> is served from. Default: beside the script.</td>
+</tr>
+<tr>
+<td><code>debug</code></td>
+<td><code>{protocol, transport, url}</code> or an array</td>
+<td>Serve DZRP, ZRCP or GDB to a debugger: one <code>--debug-channel</code> for each entry. See <a href="06-debugging-from-the-page.html">8.6</a>.</td>
 </tr>
 </tbody>
 </table>

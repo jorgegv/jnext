@@ -76,6 +76,10 @@ public:
     /// per tick). Valid only after init() returned true.
     jnext::dbg::Debugger& debugger() { return *debugger_; }
 
+    /// GH #545: the protocol servers this loop owner hosts; the page reaches its debug
+    /// channels (`DebugServers::channel`) through it.
+    DebugServers& debug_servers() { return debug_servers_; }
+
     /// Schedule a binary injection after `delay_frames` frames.
     void set_pending_inject(const std::string& file, uint16_t org,
                             uint16_t pc, int delay_frames);

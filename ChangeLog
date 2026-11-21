@@ -13,6 +13,7 @@
 - Browser widget: NMI button; a page can run a NEX straight from the SD card with its data files
 - A zipped NEX loads with its data files, served through the esxDOS stand-in (command line, File > Load, web page)
 - Save Bug Report (File menu, `--bug-report`): machine and jnext state, screenshots, log and debugger state in one zip
+- Browser build: debug it from DeZog, z88dk-gdb or a ZRCP client, through a page channel or WebSocket bridge
 
 ### Developer Features
 - Disassembly: the PC line shows whether a conditional jump, call or return is taken, and the value at its memory operand

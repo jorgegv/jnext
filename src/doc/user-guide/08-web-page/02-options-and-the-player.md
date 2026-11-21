@@ -52,6 +52,7 @@ Program formats `file` accepts:
 | `startRzxRecording()`, `stopRzxRecording()` | Record the machine and collect the `.rzx` file. |
 | `resetCard()` | Forget the saves kept by `keepWrites` and restart the program. |
 | `showKeyboard(on)`, `keyboardVisible` | Show or hide the on-screen keyboard, and ask whether it is shown. |
+| `debugChannel(protocol)` | The channel of a `debug` entry whose transport is `'channel'`, with `open()`, `send()`, `close()`, `onData`, `onClose` and `isOpen` ([8.6](06-debugging-from-the-page.md)). |
 | `destroy()` | Stop the machine and remove the player. Afterwards every method throws. |
 
 ## Keyboard
@@ -163,6 +164,7 @@ jnext.mount(el, { args: ['--crt', 'tv'] });
 | `set` | `{"section.key": value}` | One `--set` each, sorted by key. |
 | `args` | array of strings | More command-line arguments, last, so they win. |
 | `wasmUrl` | string | Where the `.wasm` is served from. Default: beside the script. |
+| `debug` | `{protocol, transport, url}` or an array | Serve DZRP, ZRCP or GDB to a debugger: one `--debug-channel` for each entry. See [8.6](06-debugging-from-the-page.md). |
 
 `player.argv` is the equivalent command line, without the program name. It exists once
 the visitor has clicked and the player has its SD card (until then it is undefined).

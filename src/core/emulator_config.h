@@ -329,6 +329,13 @@ struct EmulatorConfig {
     // <addr>:<port>`, any other value is that port. CLI-only.
     int zrcp_port = -1;
 
+    // GH #545 (--debug-channel): serve DZRP / ZRCP / GDB RSP to the browser page's debug channel
+    // (remote::PipeChannel) instead of a socket. Off by default; main.cpp refuses the flag in
+    // every build but the browser page. CLI-only.
+    bool dzrp_channel = false;
+    bool zrcp_channel = false;
+    bool gdb_channel  = false;
+
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.
     bool esxdos_stub = false;

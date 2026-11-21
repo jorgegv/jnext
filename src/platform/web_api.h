@@ -34,6 +34,7 @@ enum class Kind : uint8_t {
     Argv,       // an array of arguments, appended verbatim
     Host,       // a property of the page, not a jnext setting (not_setting)
     Callback,   // a function the page supplies (not_setting)
+    Debug,      // {protocol, transport, url} or an array: each entry is --debug-channel PROTOCOL (no opt)
 };
 
 struct Option {
@@ -68,6 +69,8 @@ inline constexpr Option WEB_OPTIONS[] = {
       "The machine to start" },
     { "touchKeyboard", Kind::Flag, cli::OptId::TouchKeyboard, std::nullopt, std::nullopt, false, nullptr,
       "The on-screen keyboard: 'auto' (shown on a phone or tablet), 'on' or 'off'" },
+    { "debug", Kind::Debug, std::nullopt, std::nullopt, std::nullopt, false, nullptr,
+      "Serve a debugger protocol to a client of the page: {protocol: 'dzrp' | 'zrcp' | 'gdb', transport: 'channel' | 'ws', url}, or an array of them" },
     { "muted", Kind::SetKey, std::nullopt, std::nullopt, config_keys::KeyId::StartupSilent, false, nullptr,
       "Start with no audio device for the session" },
     { "set", Kind::SetMap, std::nullopt, std::nullopt, std::nullopt, false, nullptr,

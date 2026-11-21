@@ -326,6 +326,7 @@ int main()
             case web_api::Kind::SetKey: named = e->text.find("`" + web_api::key_spelling(*o.key) + "`") != std::string::npos; break;
             case web_api::Kind::SetMap: named = has_bold(e->text, "--set"); break;
             case web_api::Kind::Argv: break;
+            case web_api::Kind::Debug: named = has_bold(e->text, "--debug-channel"); break;
             case web_api::Kind::Host:
             case web_api::Kind::Callback: named = e->text.find("Not a jnext setting") != std::string::npos; break;
             }
@@ -686,6 +687,60 @@ int main()
               !no_file.ok && no_file.why == want && !obj_file.ok && obj_file.why == want &&
               !num_file.ok && num_file.why == want && !no_card.ok && no_card.why == want && !is_false.ok && is_false.why == want,
               no_file.why + " | " + obj_file.why + " | " + num_file.why + " | " + no_card.why + " | " + is_false.why);
+    }
+
+    // --- WAPI-DBG-01..05: the page option `debug` (GH #545) -----------------------------------------
+    {
+        const Result r = run("{" + IMG + ",\"machine\":\"48k\",\"file\":\"/media/0-game.nex\",\"debug\":{\"protocol\":\"dzrp\"}}");
+        const Argv want = {"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX, "--machine", "48k",
+                           "--debug-channel", "dzrp", "--load", "/media/0-game.nex"};
+        check("WAPI-DBG-01", "debug:{protocol:'dzrp'} gives exactly --sdcard P --sdcard-sha256 H --machine 48k --debug-channel dzrp --load F",
+              r.ok && r.argv == want, r.ok ? join(r.argv) : r.why);
+    }
+    {
+        const Result r = run("{" + IMG + ",\"debug\":[{\"protocol\":\"gdb\"},{\"protocol\":\"dzrp\",\"transport\":\"ws\",\"url\":\"ws://127.0.0.1:1\"},"
+                             "{\"protocol\":\"zrcp\",\"transport\":\"channel\"}]}");
+        const Argv want = {"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX,
+                           "--debug-channel", "gdb", "--debug-channel", "dzrp", "--debug-channel", "zrcp"};
+        check("WAPI-DBG-02", "an array [gdb, dzrp over ws, zrcp] gives three --debug-channel pairs in that order",
+              r.ok && r.argv == want, r.ok ? join(r.argv) : r.why);
+    }
+    {
+        const Argv want = {"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX, "--debug-channel", "zrcp"};
+        const Result a = run("{" + IMG + ",\"debug\":{\"protocol\":\"zrcp\",\"transport\":\"ws\",\"url\":\"ws://127.0.0.1:12000\"}}");
+        const Result b = run("{" + IMG + ",\"debug\":{\"protocol\":\"zrcp\",\"transport\":\"ws\",\"url\":\"wss://example.org/dbg\"}}");
+        check("WAPI-DBG-03", "a ws entry with a ws:// or wss:// url is accepted and adds only --debug-channel zrcp: the url never reaches argv",
+              a.ok && a.argv == want && b.ok && b.argv == want, join(a.argv) + " " + join(b.argv));
+    }
+    {
+        std::string bad;
+        for (const char* j : {"\"dzrp\"", "5", "[]", "[{\"protocol\":\"dzrp\"},{\"protocol\":\"zrcp\"},{\"protocol\":\"gdb\"},{\"protocol\":\"dzrp\"}]",
+                              "{\"protocol\":\"dzrp\",\"port\":1}", "{}", "{\"protocol\":5}", "{\"protocol\":\"x\"}",
+                              "{\"protocol\":\"DZRP\"}", "{\"protocol\":\"dzrp\",\"transport\":\"tcp\"}",
+                              "{\"protocol\":\"dzrp\",\"transport\":\"ws\"}",
+                              "{\"protocol\":\"dzrp\",\"transport\":\"ws\",\"url\":\"http://x\"}",
+                              "{\"protocol\":\"dzrp\",\"transport\":\"ws\",\"url\":5}",
+                              "{\"protocol\":\"dzrp\",\"url\":\"ws://x\"}",
+                              "{\"protocol\":\"dzrp\",\"transport\":\"channel\",\"url\":\"ws://x\"}",
+                              "[{\"protocol\":\"dzrp\"},{\"protocol\":\"dzrp\"}]", "[5]"}) {
+            const Result r = run("{" + IMG + ",\"debug\":" + j + "}");
+            if (r.ok || !r.argv.empty() || r.why.find("debug") == std::string::npos) bad += std::string(" ") + j + " -> " + r.why;
+        }
+        check("WAPI-DBG-04", "debug refused, every reason naming debug: a string, a number, [], 4 entries, an unknown key, {}, protocol 5 / 'x' / 'DZRP', transport 'tcp', ws without a url, "
+                             "url 'http://x' or 5, a url without ws, a url with channel, the same protocol twice, a non-object entry",
+              bad.empty(), bad);
+    }
+    {
+        int n = 0;
+        bool clean = true;
+        for (const web_api::Option& o : web_api::WEB_OPTIONS) {
+            if (o.kind != web_api::Kind::Debug) continue;
+            ++n;
+            if (o.opt || o.opt2 || o.key || o.internal || o.required) clean = false;
+        }
+        const char* spelling = web_api::flag_spelling(cli::OptId::DebugChannel);
+        check("WAPI-DBG-05", "exactly one Kind::Debug row, with no opt, opt2 or key (the flag is named by build_argv); flag_spelling(DebugChannel) is --debug-channel",
+              n == 1 && clean && spelling && std::string(spelling) == "--debug-channel");
     }
 
     std::printf("\n====================================================\n");

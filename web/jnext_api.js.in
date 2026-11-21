@@ -7,7 +7,8 @@
 // object goes to the emulator (jnext_web_argv, src/platform/web_api.cpp), which
 // owns the table that turns it into a command line. The only option names used
 // here are the ones this layer acts on itself: card ({source, dirs}), poster, file, keepWrites,
-// width, height, wasmUrl and the three callbacks.
+// debug (its `transport` and `url`; the core only sees --debug-channel), width, height, wasmUrl and
+// the three callbacks.
 //
 // Nothing is downloaded or built until the visitor clicks the player. The SD card of
 // NextZXOS (SpecNext's copyrighted software, which JNEXT does not ship, host or serve) is
@@ -23,6 +24,8 @@
   var loadSeq = 0;
   var LOG_LINES = 60;
   var CALLBACKS = ['onProgress', 'onReady', 'onError'];
+  // The numbers of cli::DebugProtocol (src/core/cli_options.h): the exports take them.
+  var DEBUG_PROTOCOLS = { dzrp: 0, zrcp: 1, gdb: 2 };
 
   function px(v) { return typeof v === 'number' ? v + 'px' : String(v); }
 
@@ -192,6 +195,22 @@
     var persistAgain = false;    // a write arrived while it ran
     var readyDone = false;
     var readyResolve, readyReject;
+    // The debug option (validated by the emulator's early argvOf below): one entry for each protocol.
+    var debugEntries = {};       // protocol -> { proto, transport, url, open, channel, ws, ... }
+    var debugByProto = {};
+    (function () {
+      var d = options.debug;
+      if (d === undefined) return;
+      (Array.isArray(d) ? d : [d]).forEach(function (e) {
+        if (!e || typeof e !== 'object' || typeof e.protocol !== 'string' ||
+            !Object.prototype.hasOwnProperty.call(DEBUG_PROTOCOLS, e.protocol)) return;
+        var entry = { name: e.protocol, proto: DEBUG_PROTOCOLS[e.protocol], transport: e.transport === 'ws' ? 'ws' : 'channel',
+                      url: e.url, open: false, channel: null, ws: null, timer: null, stopped: false,
+                      downLogged: false, warned: false };
+        debugEntries[e.protocol] = entry;
+        debugByProto[entry.proto] = entry;
+      });
+    })();
     var ready = new Promise(function (res, rej) { readyResolve = res; readyReject = rej; });
     ready.catch(function () {});   // reported through onError; never an unhandled rejection
 
@@ -219,6 +238,7 @@
         state = 'running';
         if (volume !== null) mod._jnext_web_set_volume(volume);
         kb.started(mod._jnext_web_touch_keyboard());
+        Object.keys(debugEntries).forEach(function (k) { if (debugEntries[k].transport === 'ws') dial(debugEntries[k]); });
       } else if (type === 'ready') {
         readyDone = true;
         readyResolve();
@@ -233,6 +253,7 @@
     }
 
     function onExit(code) {
+      debugShutdown();
       var wasDestroying = exitWaiters.length > 0;
       if (state !== 'destroyed') state = 'exited';
       var w = exitWaiters; exitWaiters = [];
@@ -442,10 +463,149 @@
       volume = v;
       if (startedSeen && state !== 'exited') mod._jnext_web_set_volume(v);
     };
+
+    // ---- the debug channels (the `debug` option) ----
+    // A session is opened by the client (open(), or a `open` message of the WebSocket link), carried
+    // by the emulator's PipeChannel (src/remote/pipe_transport.h) and ended by either side. Bytes
+    // from the machine arrive in onDebug(), after a tick, and reach the page from a microtask: a page
+    // handler never runs inside a call into the module, so it cannot re-enter it mid-tick.
+    function fireClose(entry) {
+      queueMicrotask(function () {
+        if (entry.transport === 'ws') {
+          if (entry.ws && entry.ws.readyState === 1) entry.ws.send('close');
+        } else if (entry.channel && typeof entry.channel.onClose === 'function') {
+          try { entry.channel.onClose(); } catch (e) { console.error('jnext: debug channel onClose threw', e); }
+        }
+      });
+    }
+    function onDebug(proto, kind, bytes) {
+      var entry = debugByProto[proto];
+      if (!entry || !entry.open) return;   // data for a channel that is not open is dropped
+      if (kind === 0) {
+        queueMicrotask(function () {
+          if (entry.transport === 'ws') {
+            if (entry.ws && entry.ws.readyState === 1) entry.ws.send(bytes);
+          } else if (entry.channel && typeof entry.channel.onData === 'function') {
+            try { entry.channel.onData(bytes); } catch (e) { console.error('jnext: debug channel onData threw', e); }
+          }
+        });
+      } else {
+        entry.open = false;   // the machine ended the session (data was queued before this)
+        fireClose(entry);
+      }
+    }
+    function debugOpen(entry) {
+      live();
+      if (!(startedSeen && machineUp())) throw new Error('jnext: the machine is not running');
+      if (entry.open) throw new Error('jnext: the debug channel is already open');
+      var rc = mod._jnext_web_debug_open(entry.proto);
+      if (rc !== 0) throw new Error(rc === 2 ? 'jnext: the debug channel is busy: the machine has not reported the last session ended'
+                                             : 'jnext: no debug channel for ' + entry.name);
+      entry.open = true;
+    }
+    function debugSend(entry, data) {
+      live();
+      if (!entry.open) throw new Error('jnext: the debug channel is not open');
+      var u8;
+      if (data instanceof Uint8Array) u8 = data;
+      else if (data instanceof ArrayBuffer) u8 = new Uint8Array(data);
+      else throw new TypeError('jnext: debug channel send() takes a Uint8Array or an ArrayBuffer');
+      var ptr = mod._malloc(u8.length || 1);
+      mod.HEAPU8.set(u8, ptr);
+      var rc = mod._jnext_web_debug_send(entry.proto, ptr, u8.length);
+      mod._free(ptr);
+      if (rc === 3) throw new RangeError('jnext: the debug channel input is full');
+      if (rc !== 0) throw new Error('jnext: the debug channel did not take the bytes (' + rc + ')');
+    }
+    function debugClose(entry) {
+      live();
+      if (!entry.open) throw new Error('jnext: the debug channel is not open');
+      entry.open = false;
+      mod._jnext_web_debug_close(entry.proto);
+    }
+    function makeChannel(entry) {
+      var ch = { onData: null, onClose: null };
+      Object.defineProperty(ch, 'isOpen', { get: function () { return entry.open; }, enumerable: true });
+      ch.open = function () { debugOpen(entry); };
+      ch.send = function (bytes) { debugSend(entry, bytes); };
+      ch.close = function () { debugClose(entry); };
+      return ch;
+    }
+    // The WebSocket link of a 'ws' entry: persistent, redialled every second while the player runs.
+    function linkDown(entry) {
+      entry.ws = null;
+      if (entry.open) {   // the client behind the link is gone
+        entry.open = false;
+        if (mod && !entry.stopped) { try { mod._jnext_web_debug_close(entry.proto); } catch (e) { /* module gone */ } }
+      }
+      if (!entry.downLogged) {
+        entry.downLogged = true;
+        console.warn('jnext: the debug link to ' + entry.url + ' is down; retrying every second');
+      }
+      if (!entry.stopped) entry.timer = setTimeout(function () { entry.timer = null; dial(entry); }, 1000);
+    }
+    function dial(entry) {
+      if (entry.stopped || state === 'destroyed' || state === 'exited') return;
+      var ws;
+      try { ws = new WebSocket(entry.url); } catch (e) { linkDown(entry); return; }
+      ws.binaryType = 'arraybuffer';
+      entry.ws = ws;
+      ws.onopen = function () { entry.downLogged = false; };
+      ws.onerror = function () { /* the close that follows is the news */ };
+      ws.onclose = function () { if (entry.ws === ws) linkDown(entry); };
+      ws.onmessage = function (ev) {
+        if (entry.ws !== ws) return;
+        if (typeof ev.data === 'string') {
+          if (ev.data === 'open') {
+            try { debugOpen(entry); } catch (e) { if (ws.readyState === 1) ws.send('close'); }
+          } else if (ev.data === 'close') {
+            if (entry.open) { try { debugClose(entry); } catch (e) { /* module gone */ } }
+            // The confirmation the bridge waits for before it admits the next client: everything this
+            // side sent for the old session (its last bytes, its own `close`) went before it.
+            if (ws.readyState === 1) ws.send('closed');
+          } else if (!entry.warned) {
+            entry.warned = true;
+            console.warn('jnext: an unknown message of the debug link was ignored');
+          }
+        } else if (entry.open) {
+          try { debugSend(entry, new Uint8Array(ev.data)); }
+          catch (e) {
+            if (entry.open) { try { debugClose(entry); } catch (x) { /* gone */ } }
+            if (ws.readyState === 1) ws.send('close');
+          }
+        }
+      };
+    }
+    // The player ends (destroy(), the machine exiting): every open session ends, once, and the links stop.
+    function debugShutdown() {
+      Object.keys(debugEntries).forEach(function (k) {
+        var entry = debugEntries[k];
+        var wasOpen = entry.open;
+        entry.open = false;
+        entry.stopped = true;
+        if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
+        if (wasOpen) fireClose(entry);
+        if (entry.ws) {
+          var ws = entry.ws;
+          // The close message is queued by fireClose before this: send order is microtask order.
+          queueMicrotask(function () { try { ws.close(); } catch (e) { /* already closed */ } });
+        }
+      });
+    }
+    player.debugChannel = function (protocol) {
+      live();
+      var entry = typeof protocol === 'string' && Object.prototype.hasOwnProperty.call(debugEntries, protocol)
+        ? debugEntries[protocol] : null;
+      if (!entry) throw new Error("jnext: the page has no debug entry for '" + protocol + "'");
+      if (entry.transport === 'ws') throw new Error("jnext: the debug channel '" + protocol + "' is served over WebSocket");
+      return entry.channel || (entry.channel = makeChannel(entry));
+    };
+
     player.destroy = function () {
       live();
       var wasUp = machineUp();
       var finish = function () {
+        debugShutdown();
         kb.destroy();
         // SDL closes its AudioContext only with the playback device, and the loop's exit leaves it
         // running: close it here, after the machine has exited, so a destroyed player holds no audio.
@@ -614,6 +774,7 @@
       onExit: onExit,
       locateFile: function (p) { return p.endsWith('.wasm') ? wasmUrl : p; },
       jnextEvent: onEvent,
+      jnextDebug: onDebug,
       jnextProgress: progress,
       jnextPersistCardWrites: persistCardWrites,
       preRun: [function (m) {
