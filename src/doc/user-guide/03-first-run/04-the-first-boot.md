@@ -23,8 +23,8 @@ If you reached this screen, everything works. The whole sequence takes a few
 seconds.
 
 **Fast boot.** A plain Next start (no program to load) runs its first 15
-seconds at full speed with the sound off, so the splash and the welcome pass
-quickly instead of taking about twelve seconds. Press any key to return to
+seconds at full speed with the sound off, so the firmware splash and the NextZXOS start-up
+pass quickly instead of taking about twelve seconds. Press any key to return to
 normal speed at once; **Shift** is a good choice, as it does nothing else. The
 key you press still reaches the program. To reach the firmware's own menu, press
 **Space** while the splash shows, or set **Fast boot** to Off in
@@ -32,7 +32,8 @@ key you press still reaches the program. To reach the firmware's own menu, press
 for another length).
 
 To see nothing of the start-up and have the first picture be the screen fast boot
-ends on (normally the NextZXOS menu), tick **Hide the screen during fast boot**
+ends on (the NextZXOS welcome, or the menu once you have turned the welcome off
+with **D**), tick **Hide the screen during fast boot**
 in Preferences (`--set startup.fast_boot_hide_screen=true` for one run). The
 window stays black until fast boot ends; any key shows the screen at once. If
 the first picture is still the start-up, raise **Fast boot**.

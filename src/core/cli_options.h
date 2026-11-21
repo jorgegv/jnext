@@ -368,7 +368,8 @@ inline constexpr Option OPTIONS[] = {
       "The first ROM code the program runs is logged as an error;\n"
       "DivMMC, Multiface and the NMI buttons are off. Needs --load\n"
       "of a .nex on the Next; excludes every --sdcard and --sdcard2\n"
-      "option, --delayed-sdcard-insert-frames,\n"
+      "option, --warm-start-regenerate,\n"
+      "--delayed-sdcard-insert-frames,\n"
       "--delayed-sdcard2-insert-frames and --delayed-nmi" },
     // GH #505 - the second SD card (the board's second socket; NextZXOS maps it
     // to the next drive letter, D: with a one-partition card 0).

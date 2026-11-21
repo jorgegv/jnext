@@ -9,6 +9,7 @@ every memory, or the page (`P20`) for one that belongs to a banked page.
 - The **filter** box keeps the rows whose name contains the text, in any case; the count beside it
   reads `N of M`.
 - **Double-click** a row, or press **Enter**, to show it in the Disassembly.
+- **Go > Symbols** in the debugger window brings this tab to the front.
 - A label of a banked page whose page is **not paged in** at that address now is greyed, and its
   tooltip says which page is missing (`not mapped at $C000 now: P20 is not paged in`). The
   Disassembly shows what the CPU sees, so jumping there would show other code under the label's
