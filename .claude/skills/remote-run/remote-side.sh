@@ -113,6 +113,19 @@ while :; do
 done
 SFX=""; [[ $lane -eq 1 ]] || SFX="-L$lane"
 say "lane $lane of $RR_LANES"
+# A lane that starts while another is busy runs at half the CPU caps (rounded up): measured no slower than
+# full caps for the pair (project.conf), and it keeps two compiling lanes from oversubscribing the host.
+for n in $(seq 1 "$RR_LANES"); do
+    [[ $n -ne $lane ]] || continue
+    exec {pfd}>"$(lane_lock "$n")"
+    if ! flock -n "$pfd"; then
+        RR_JOBS_DEFAULT=$(( (RR_JOBS_DEFAULT + 1) / 2 )); RR_JOBS_HEAVY=$(( (RR_JOBS_HEAVY + 1) / 2 )); RR_TEST_JOBS=$(( (RR_TEST_JOBS + 1) / 2 ))
+        say "another lane is busy: caps halved (JOBS $RR_JOBS_DEFAULT, heavy $RR_JOBS_HEAVY, test jobs $RR_TEST_JOBS)"
+        exec {pfd}>&-
+        break
+    fi
+    exec {pfd}>&-
+done
 RUNS="$RR_DIR/runs$SFX"
 CTL="$RR_DIR/ctl$SFX"
 mkdir -p "$RUNS" "$CTL" || fallback "cannot create the work directory $RR_DIR"

@@ -613,8 +613,9 @@ kill -TERM "$apid" 2>/dev/null
 for _ in $(seq 1 450); do kill -0 "$apid" 2>/dev/null || break; sleep 0.2; done
 kill -KILL "$apid" 2>/dev/null; wait "$apid" 2>/dev/null
 row RRUN-31 "$([[ $b_rc -eq 0 && $b_took -lt 15 && "$(ids_lane twoB)" == *"lane 2 of 2"* && "$(ids_lane twoA)" == *"lane 1 of 2"* \
-    && $a_alive -eq 1 && $a_dir -eq 1 && $a_killed -eq 0 && "$OUT" == *"verdict: CLEAN"* ]] && echo 1 || echo 0)" \
-    "run B takes lane 2 beside live run A, and neither kills A's container nor sweeps A's checkout (rc=$b_rc ${b_took}s alive=$a_alive dir=$a_dir killed=$a_killed)"
+    && $a_alive -eq 1 && $a_dir -eq 1 && $a_killed -eq 0 && "$OUT" == *"verdict: CLEAN"* \
+    && "$(grep -a 'RR_JOBS_DEFAULT' "$FAKE_STATE/env.sh")" == *"RR_JOBS_DEFAULT=6 RR_JOBS_HEAVY=3"* && "$(calls | grep -E '(^| )run ' | grep -c 'JNEXT_TEST_JOBS=6')" -eq 1 ]] && echo 1 || echo 0)" \
+    "run B takes lane 2 beside live run A at halved CPU caps, and neither kills A's container nor sweeps A's checkout (rc=$b_rc ${b_took}s alive=$a_alive dir=$a_dir killed=$a_killed)"
 
 # RRUN-32: a lane-2 run's names, mounts and label; the per-lane sweep; cleanup mode finds lane 2's dirs
 reset_state
@@ -686,7 +687,7 @@ for v in 0 x 10; do
     REMOTE_RUN_LANES=$v bash "$DRIVER" --local-shell --log-dir "$TMP/logs" --id mem3 feature "$SHA" unit-test >"$TMP/lanes-$v.out" 2>&1; r=$?
     grep -q 'LANES' "$TMP/lanes-$v.out" && [[ $r -eq 2 ]] || bad+=" $v=$r"
 done
-row RRUN-36 "$([[ $m_a -eq 0 && $m_b -eq 0 && "$line2" == *"--memory 6553m --memory-swap 6553m"* && "$line1" == *"--memory 13107m --memory-swap 13107m"* \
+row RRUN-36 "$([[ $m_a -eq 0 && $m_b -eq 0 && "$line2" == *"--memory 6553m --memory-swap 6553m"* && "$line2" == *"JNEXT_TEST_JOBS=12"* && "$line1" == *"--memory 13107m --memory-swap 13107m"* \
     && -z "$bad" ]] && echo 1 || echo 0)" \
     "per-lane memory: 16 GiB host gives 6553m for 2 lanes, 13107m for 1; LANES 0, x and 10 exit 2 naming LANES (a=$m_a b=$m_b bad:$bad)"
 
