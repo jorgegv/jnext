@@ -51,7 +51,7 @@ python3 tools/jnext-bug-view.py game.202611201530.jnext-bug.zip
 
 It opens a page in your browser with the machine's registers, every NextREG by name, the memory map, the pictures, the log and
 the debugger's state, and the memory when the report has it. `--text` prints a summary and the registers in the terminal
-instead (`--text --memory` adds the hex dump), and `-o FILE.html --no-open` writes the page without opening it. The viewer
+instead (`--text --memory` adds the hex dump; any control or escape character a report holds is shown as `\xNN`, never sent to the terminal), and `-o FILE.html --no-open` writes the page without opening it. The viewer
 refuses a file that is not a JNEXT bug report.
 
 ## When the memory is included

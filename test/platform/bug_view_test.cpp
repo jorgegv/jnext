@@ -80,7 +80,19 @@ std::vector<uint8_t> noise(size_t n, uint32_t seed) {
 
 struct Run { int rc = -1; std::string out, err; };
 
-Run run_viewer(const std::vector<std::string>& args) {
+Run run_viewer_raw(const std::vector<std::string>& args);
+
+// Every call that could write a page gets an -o inside the scratch directory, so even a viewer that
+// wrongly accepts a file leaves nothing in /tmp (a page written without -o lands in a folder of its own).
+Run run_viewer(std::vector<std::string> args) {
+    static int n = 0;
+    bool o = false, text = false;
+    for (const auto& a : args) { if (a == "-o") o = true; if (a == "--text") text = true; }
+    if (!o && !text) { args.push_back("-o"); args.push_back(tmp_path("auto-" + std::to_string(++n) + ".html")); }
+    return run_viewer_raw(args);
+}
+
+Run run_viewer_raw(const std::vector<std::string>& args) {
     int po[2], pe[2];
     if (pipe(po) != 0 || pipe(pe) != 0) return {};
     const pid_t pid = fork();
@@ -529,6 +541,146 @@ int main() {
         check("BV-15", "hostile structure: JSON nested 100000 deep and a machine.json of noise are shown as absent, never a crash; a missing file is exit 1",
               r.rc == 0 && j.rc == 0 && r.err.find("Traceback") == std::string::npos && j.err.find("Traceback") == std::string::npos &&
               missing_file.rc == 1, fmtf("deep=%d junk=%d nofile=%d %s", r.rc, j.rc, missing_file.rc, r.err.substr(0, 120).c_str()));
+    }
+
+    // A python helper (minimal env) that makes the hostile zips of BV-17..BV-19.
+    auto make_zips = [&](const std::string& script_text) {
+        const std::string sp = tmp_path("mkzips.py");
+        { std::ofstream f(sp); f << script_text; }
+        pid_t pid = fork();
+        if (pid == 0) {
+            char lang[] = "LANG=C", path[] = "PATH=/usr/bin:/bin";
+            char* envp[] = { lang, path, nullptr };
+            char* argv[] = { const_cast<char*>("python3"), const_cast<char*>("-I"), const_cast<char*>(sp.c_str()),
+                             const_cast<char*>(g_tmp.c_str()), nullptr };
+            execve("/usr/bin/python3", argv, envp);
+            execve("/bin/python3", argv, envp);
+            _exit(127);
+        }
+        int st = 0;
+        waitpid(pid, &st, 0);
+    };
+
+    // BV-16: terminal escape sequences in a report never reach the terminal through --text
+    {
+        Members esc = nocard;
+        const std::string osc = "\x1b]0;pwned\x07\x1b[31mred\x1b]52;c;QUJD\x07\x9b" "2J\x7f";
+        json m = member_json(esc, "manifest.json");
+        m["producer"]["jnext_version"] = osc;
+        m["machine"] = osc;
+        m["warnings"] = json::array({ osc });
+        m["programs"][0]["name"] = osc;
+        put_json(esc, "manifest.json", m);
+        json mj = member_json(esc, "machine.json");
+        mj["registers"][osc] = 7;
+        put_json(esc, "machine.json", mj);
+        write_bytes(tmp_path("esc.zip"), zip_of(esc));
+        Run r = run_viewer({tmp_path("esc.zip"), "--text", "--memory"});
+        Run bad = run_viewer({std::string("/nonexistent/") + osc + ".zip", "--text"});
+        auto clean = [](const std::string& t) {
+            for (unsigned char c : t) if ((c < 0x20 && c != '\n' && c != '\t') || c == 0x7F) return false;
+            return t.find("\xC2\x9B") == std::string::npos;   // U+009B (CSI) as UTF-8
+        };
+        check("BV-16", "--text writes no control byte (ESC, BEL, DEL, C1) of the report: they appear as \\xNN, on stdout and stderr",
+              r.rc == 0 && clean(r.out) && clean(r.err) && clean(bad.err) && has(r.out, "\\x1b]0;pwned\\x07") && bad.rc == 1,
+              fmtf("rc=%d clean_out=%d clean_err=%d", r.rc, clean(r.out), clean(bad.err)));
+    }
+
+    // BV-17: well-formed JSON of the wrong type
+    {
+        Members wt = nocard;
+        json m = member_json(wt, "manifest.json");
+        m["cards"] = 5; m["programs"] = 5; m["warnings"] = 5;
+        put_json(wt, "manifest.json", m);
+        json mj = member_json(wt, "machine.json");
+        mj["registers"] = 5; mj["nextregs"] = 5; mj["video"]["sprites"] = 5; mj["video"]["palettes"] = json{{"ula-first", json{{"rgb333", 5}}}};
+        mj["paging"]["slots"] = 5;
+        put_json(wt, "machine.json", mj);
+        json st = member_json(wt, "settings.json");
+        st["command_line"] = 5; st["config_file"] = 5; st["session"] = 5;
+        put_json(wt, "settings.json", st);
+        json dj = member_json(wt, "debugger.json");
+        dj["breakpoints"] = json{{"a", 1}}; dj["trace"] = 5; dj["call_stack"] = 5; dj["run_state"] = 5;
+        put_json(wt, "debugger.json", dj);
+        write_bytes(tmp_path("wrongtypes.zip"), zip_of(wt));
+        Members badmembers = nocard;
+        json m2 = member_json(badmembers, "manifest.json");
+        m2["members"] = 5;
+        put_json(badmembers, "manifest.json", m2);
+        write_bytes(tmp_path("badmembers.zip"), zip_of(badmembers));
+        Run h = run_viewer({tmp_path("wrongtypes.zip")});
+        Run t = run_viewer({tmp_path("wrongtypes.zip"), "--text", "--memory"});
+        Run bm = run_viewer({tmp_path("badmembers.zip")});
+        check("BV-17", "wrong-typed JSON (cards, registers, nextregs, sprites, palettes, command line, breakpoints...) is shown as absent, never a traceback; a non-list members is refused as malformed",
+              h.rc == 0 && t.rc == 0 && h.err.find("Traceback") == std::string::npos && t.err.find("Traceback") == std::string::npos &&
+              bm.rc == 2 && has(bm.err, "malformed"),
+              fmtf("html=%d text=%d members=%d %s", h.rc, t.rc, bm.rc, (h.err + t.err).substr(0, 160).c_str()));
+    }
+
+    // BV-18 and BV-19: the limits, and members that cannot be read (real zips made by python)
+    make_zips(R"PY(
+import zipfile, json, sys, struct
+d = sys.argv[1]
+MAN = lambda members: json.dumps({'kind': 'jnext-bug-report', 'format_version': 1, 'members': members})
+def zipwrite(path, entries, method=zipfile.ZIP_DEFLATED):
+    z = zipfile.ZipFile(path, 'w', method)
+    for n, b in entries: z.writestr(n, b)
+    z.close()
+# 5 members of 60 MiB each: every one under the 64 MiB cap, 300 MiB in all
+zipwrite(d + '/total.zip', [('manifest.json', MAN([]))] + [('memory/m%d.bin' % i, bytes(60 * 1024 * 1024)) for i in range(5)])
+# 4097 tiny members
+zipwrite(d + '/entries.zip', [('manifest.json', MAN([]))] + [('state/s%d.json' % i, b'{}') for i in range(4096)])
+# a minimal report whose log.txt is damaged three ways
+def minimal(path):
+    zipwrite(path, [('manifest.json', MAN([{'name': 'log.txt', 'bytes': 100}])), ('log.txt', b'hello log line ' * 40)])
+def patch(path, fn):
+    b = bytearray(open(path, 'rb').read()); fn(b); open(path, 'wb').write(bytes(b))
+def headers(b, sig):
+    i = 0
+    while True:
+        i = b.find(sig, i)
+        if i < 0: return
+        yield i
+        i += 4
+def name_at(b, i, local):
+    off = 30 if local else 46
+    n = struct.unpack_from('<H', b, i + (26 if local else 28))[0]
+    return bytes(b[i + off:i + off + n])
+def flag(b):
+    for i in headers(b, b'PK\x03\x04'):
+        if name_at(b, i, True) == b'log.txt': b[i + 6] |= 1
+    for i in headers(b, b'PK\x01\x02'):
+        if name_at(b, i, False) == b'log.txt': b[i + 8] |= 1
+def method(b):
+    for i in headers(b, b'PK\x03\x04'):
+        if name_at(b, i, True) == b'log.txt': struct.pack_into('<H', b, i + 8, 99)
+    for i in headers(b, b'PK\x01\x02'):
+        if name_at(b, i, False) == b'log.txt': struct.pack_into('<H', b, i + 10, 99)
+def corrupt(b):
+    for i in headers(b, b'PK\x03\x04'):
+        if name_at(b, i, True) == b'log.txt':
+            start = i + 30 + struct.unpack_from('<H', b, i + 26)[0] + struct.unpack_from('<H', b, i + 28)[0]
+            for k in range(start, start + 8): b[k] ^= 0xFF
+for name, fn in (('encrypted', flag), ('method', method), ('corrupt', corrupt)):
+    p = d + '/' + name + '.zip'
+    minimal(p); patch(p, fn)
+)PY");
+    {
+        Run t = run_viewer({tmp_path("total.zip")});
+        Run e = run_viewer({tmp_path("entries.zip")});
+        check("BV-18", "the limits: 300 MiB in all (each member under 64 MiB) and 4097 members are refused (exit 2)",
+              fs::exists(tmp_path("total.zip")) && fs::exists(tmp_path("entries.zip")) &&
+              t.rc == 2 && has(t.err, "in all") && e.rc == 2 && has(e.err, "members"),
+              fmtf("total=%d(%s) entries=%d(%s)", t.rc, t.err.c_str(), e.rc, e.err.c_str()));
+    }
+    {
+        Run enc = run_viewer({tmp_path("encrypted.zip")});
+        Run met = run_viewer({tmp_path("method.zip")});
+        Run cor = run_viewer({tmp_path("corrupt.zip")});
+        auto refused = [](const Run& r) { return r.rc == 2 && has(r.err, "cannot be read") && r.err.find("Traceback") == std::string::npos; };
+        check("BV-19", "an encrypted member, an unsupported compression method and a corrupt member are refused (exit 2), not a crash",
+              fs::exists(tmp_path("encrypted.zip")) && refused(enc) && refused(met) && refused(cor),
+              fmtf("enc=%d met=%d cor=%d %s", enc.rc, met.rc, cor.rc, (enc.err + met.err + cor.err).substr(0, 200).c_str()));
     }
 
     std::error_code ec;

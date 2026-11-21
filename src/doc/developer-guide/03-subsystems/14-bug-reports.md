@@ -154,12 +154,12 @@ clone as `python3 -I`, and needs no jnext build and no card. It is not packaged.
   that is missing, more than 4096 members, any member that declares more than 64 MiB and a total above 256 MiB (all
   checked from the central directory, before anything is inflated), and a member that cannot be read. A member is
   read at most up to its declared size. Every text goes through `html.escape`; a picture is embedded only if it
-  starts with the PNG signature; JSON nested too deep or that is not JSON is shown as absent, never a crash;
+  starts with the PNG signature; JSON nested too deep, that is not JSON, or that has the wrong shape (a list where an object belongs) is shown as absent (the section says so), never a crash; `--text` writes every control character of the report (escape sequences, DEL, C1) as `\xNN`;
   nothing is extracted to disk.
 
 ## Tests
 
-`bug_view_test` (BV-01 to 15) builds reports in memory and runs the viewer as `python3 -I` in a child with an explicit minimal environment (`LANG=C`, `PATH=/usr/bin:/bin`, no `HOME`): refusals, every section, names and values from the report, the pictures byte for byte, memory present and absent, escaping, text mode, and hostile structure. `bug_report_ui_test` (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
+`bug_view_test` (BV-01 to 19) builds reports in memory and runs the viewer as `python3 -I` in a child with an explicit minimal environment (`LANG=C`, `PATH=/usr/bin:/bin`, no `HOME`): refusals, every section, names and values from the report, the pictures byte for byte, memory present and absent, escaping, text mode, and hostile structure. `bug_report_ui_test` (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows `bug-report-nosd-func` and
 `bug-report-card-func` run the real binary. The second one is the end-to-end check of the

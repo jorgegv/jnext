@@ -16,7 +16,8 @@ nothing itself: register names, NextREG names, the paging map and the disassembl
 jnext wrote into the report. A report comes from an issue attachment, so it is UNTRUSTED:
 every text is escaped, a picture is embedded only if it is a PNG, nothing is extracted to
 disk, and a member that declares more than 64 MiB (or a total above 256 MiB) is refused
-before it is read.
+before it is read. Well-formed JSON of the wrong shape shows its section as absent, and --text
+writes every control character of the report (escape sequences included) as \\xNN.
 """
 import argparse
 import base64
@@ -36,6 +37,32 @@ MAX_TOTAL = 256 * 1024 * 1024
 MAX_ENTRIES = 4096
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 LAYER_VIEWS = ["ula-primary", "ula-shadow", "layer2-active", "layer2-shadow", "sprites", "tilemap", "background"]
+
+
+def sanitize(text):
+    """`text` with every character a terminal could act on written as \\xNN: C0 controls except newline
+    and tab, DEL and the C1 controls (an OSC or CSI sequence in a hostile report is only text)."""
+    out = []
+    for c in text:
+        o = ord(c)
+        if c in "\n\t" or (o >= 0x20 and not 0x7F <= o <= 0x9F):
+            out.append(c)
+        else:
+            out.append("\\x%02x" % o)
+    return "".join(out)
+
+
+# What a section shows when the report holds data of an unexpected shape (well-formed JSON of the wrong
+# type): the section is absent, never a crash.
+SHAPE_ERRORS = (TypeError, AttributeError, KeyError, ValueError, IndexError, OverflowError, RecursionError)
+
+
+def guarded(ids_titles, fn, rep):
+    try:
+        return fn(rep)
+    except SHAPE_ERRORS:
+        return "\n".join(section(i, t, "<p><em>%s: the report holds data of an unexpected shape, not shown.</em></p>" % E(t))
+                         for i, t in ids_titles)
 
 
 class Refused(Exception):
@@ -75,7 +102,10 @@ class Report:
             raise Refused("manifest.json has no usable format_version")
         if ver > SUPPORTED_FORMAT:
             raise Refused("format_version %d is newer than this viewer understands (%d): use a newer jnext-bug-view.py" % (ver, SUPPORTED_FORMAT))
-        for m in self.manifest.get("members", []):
+        members = self.manifest.get("members", [])
+        if not isinstance(members, list):
+            raise Refused("manifest.json is malformed: members is not a list")
+        for m in members:
             name = m.get("name") if isinstance(m, dict) else None
             if not isinstance(name, str):
                 raise Refused("manifest.json lists a member with no name")
@@ -389,8 +419,14 @@ def html_raw_state(rep):
 
 def render_html(rep):
     title = "jnext bug report"
-    body = "\n".join([html_summary(rep), html_settings(rep), html_machine(rep), html_pictures(rep), html_log(rep),
-                      html_debugger(rep), html_memory(rep), html_raw_state(rep)])
+    G = lambda ids, fn: guarded(ids, fn, rep)
+    body = "\n".join([
+        G([("summary", "Summary")], html_summary), G([("settings", "Settings")], html_settings),
+        G([("machine", "Machine"), ("nextregs", "NextREGs"), ("paging", "Paging"), ("video", "Video"),
+           ("interrupts", "Interrupts")], html_machine),
+        G([("pictures", "Pictures")], html_pictures), G([("log", "Log")], html_log),
+        G([("debugger", "Debugger")], html_debugger), G([("memory", "Memory")], html_memory),
+        G([("raw-state", "Raw state")], html_raw_state)])
     css = ("body{font-family:sans-serif;margin:1em 2em}table{border-collapse:collapse}td,th{border:1px solid #888;"
            "padding:2px 6px;text-align:left;font-family:monospace}pre{background:#f4f4f4;padding:6px;overflow:auto}"
            "img{image-rendering:pixelated;max-width:100%}figure{display:inline-block;margin:4px}")
@@ -403,6 +439,13 @@ def render_html(rep):
 # ---------------------------------------------------------------------------
 
 def render_text(rep, with_memory):
+    try:
+        return sanitize(render_text_unsafe(rep, with_memory))
+    except SHAPE_ERRORS:
+        return sanitize("== Summary ==\n(the report holds data of an unexpected shape, not shown)\n")
+
+
+def render_text_unsafe(rep, with_memory):
     m = rep.manifest
     p = m.get("producer", {}) if isinstance(m.get("producer"), dict) else {}
     out = ["== Summary ==",
@@ -461,19 +504,19 @@ def main(argv):
             path = os.path.join(tempfile.mkdtemp(prefix="jnext-bug-view-"), "report.html")
         with open(path, "w", encoding="utf-8") as f:
             f.write(page)
-        print(path)
+        print(sanitize(path))
         if not args.no_open:
             webbrowser.open("file://" + os.path.abspath(path))
         return 0
     except Refused as e:
-        sys.stderr.write("jnext-bug-view: %s: %s\n" % (args.report, e))
+        sys.stderr.write(sanitize("jnext-bug-view: %s: %s\n" % (args.report, e)))
         return 2
     except (zipfile.BadZipFile, NotImplementedError, RuntimeError, EOFError, zlib.error) as e:
         # an unsupported or encrypted or corrupt member: a file this viewer will not show
-        sys.stderr.write("jnext-bug-view: %s: a member cannot be read (%s)\n" % (args.report, e))
+        sys.stderr.write(sanitize("jnext-bug-view: %s: a member cannot be read (%s)\n" % (args.report, e)))
         return 2
     except OSError as e:
-        sys.stderr.write("jnext-bug-view: %s\n" % e)
+        sys.stderr.write(sanitize("jnext-bug-view: %s\n" % e))
         return 1
 
 
