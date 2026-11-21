@@ -9,7 +9,7 @@ browser the page needs that card too, and this is how it gets it.
   and neither does a page that embeds JNEXT: the only place that offers it is
   specnext.com.
 - The player makes its SD card in the visitor's browser, from the official NextZXOS
-  file from specnext.com (`sn-emulator-26.11.zip`, 67 MB, for this release), unchanged.
+  file from specnext.com (`sn-emulator-26.11a.zip`, 66 MB, for this release), unchanged.
   Another file, or a changed copy, is refused.
 - The card the browser makes stays in the visitor's browser (Cache Storage, for that
   site only). Nothing is sent anywhere, and the page's author never receives it.
@@ -108,7 +108,7 @@ it is refused on the player's panel only (no `onError`), because the visitor can
 | `option 'card': dirs must be an array of strings` or `option 'card': dirs: '<path>' ...` | `card.dirs` is not a list of absolute paths, or the named path is refused (no leading `/`, `/` alone, an empty, `.` or `..` part, a backslash, a part of the boot card, a path given twice, or one inside another). Nothing has been downloaded yet. |
 | `the requested path <path> is not in the distribution` | `card.dirs` names a path NextZXOS does not have (the message gives it in lower case). Correct the list: it is the page's, not the visitor's file. |
 | `the boot set and the requested paths are larger than the card: <N> bytes, the limit is 33554432 (32 MiB)` | `card.dirs` asks for more than the 40 MiB card takes. The message gives what was asked for and the limit. Ask for less. |
-| `this file is not sn-emulator-26.11.zip from specnext.com ...` | The visitor chose a different file: the message gives its size, or says its SHA-256 differs. The visitor has to download the official file from specnext.com (the link is on the panel) and choose that one. |
+| `this file is not sn-emulator-26.11a.zip from specnext.com ...` | The visitor chose a different file: the message gives its size, or says its SHA-256 differs. The visitor has to download the official file from specnext.com (the link is on the panel) and choose that one. |
 | `the chosen file could not be read: ...` or `the card could not be made in this browser: ...` | On the panel. The browser could not read the file the visitor chose (it changed or moved after it was chosen), or could not make or store the card (memory or storage). The file is not at fault: choose it again, or free some space. |
 | `cannot read the NextZXOS distribution from specnext.com: ...` | `card.source` is `'fetch'` and the file could not be read: specnext.com does not allow the page to read it, the visitor is offline, or the download failed. Use `'auto'` or `'pick'`. |
 | `the card built from the distribution is not the expected one ...` | The card the browser made does not have the SHA-256 this JNEXT release expects. The message gives both digests. It is a fault of the build or of the browser: report it. With `card.source: 'fetch'` it reaches `onError` after `cannot read the NextZXOS distribution from specnext.com: <address>: `; with `'auto'` the player falls back to the panel and shows it there; with `'pick'` it is shown on the panel. |
