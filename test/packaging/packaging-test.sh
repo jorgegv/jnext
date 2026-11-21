@@ -178,6 +178,9 @@ contract remote-run test/packaging/remote-run-test.sh remoterun "driver exit cod
 # --- CI gate script contract (GH #547) ----------------------------------------
 contract ci-gate test/packaging/ci-gate-test.sh cigate "dispatch/wait/verdict: a skipped, failed, cancelled or missing job is never CLEAN; the right run on the right sha"
 
+# --- CI cache save contract (GH #547) -----------------------------------------
+contract ci-cache-save test/packaging/ci-cache-save-test.sh cisave "ci.yml restores every cache and saves only from a push to main"
+
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
 # packages. `make package-contract-test` (a prerequisite of `make unit-test`)
