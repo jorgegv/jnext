@@ -105,7 +105,7 @@ The bridge's rules:
 
 - **One page and one client.** A second page that dials gets HTTP 409. A second TCP client is
   closed. A client that hangs up and dials again at once is not a second client: it waits
-  for the session before it to end (up to 300 ms, and up to 3 s for the page's `closed`). A client that connects while no page is
+  for the session before it to end: up to 300 ms for a client that has not left yet, and up to 3 s for the page's `closed` once it has. A client that connects while no page is
   linked is closed at once.
 - **Only a local page may link.** The bridge accepts a page whose `Origin` is `http://` or
   `https://` with the host `localhost` or `127.0.0.1` and any port, and answers HTTP 403 to every
@@ -146,7 +146,14 @@ Where the page runs in a webview of an editor, the editor's own code can be the 
 a WebSocket: use `transport: 'channel'` and carry the bytes with the editor's message passing.
 `jnext-debug-bridge.mjs` exports the TCP half as `TcpRelay`, an `EventEmitter` with
 `listen(port, host)` (resolves to the bound port), the events `open`, `data` and `close`, and
-the methods `send(bytes)` and `end()`:
+the methods `send(bytes)`, `end()` and `release()`.
+
+**Confirm the end of every session.** When the client leaves (`close`), the page may still have bytes
+for it in flight: its last answer. If the next client were admitted at once, that answer would reach it.
+So after a `close` the relay admits no new client until the host calls `release()`, which the host does
+when the page has confirmed that it closed its channel, on the same message path as the page's bytes, so
+that the confirmation comes behind them. A host that never calls `release()` is not stuck: the relay
+releases itself after 3 s.
 
 ```js
 // in the extension host (node)
@@ -157,7 +164,8 @@ relay.on('data',  (b) => panel.webview.postMessage({ t: 'data', b: Array.from(b)
 relay.on('close', () => panel.webview.postMessage({ t: 'close' }));
 panel.webview.onDidReceiveMessage((m) => {
   if (m.t === 'data') relay.send(new Uint8Array(m.b));
-  else if (m.t === 'close') relay.end();
+  else if (m.t === 'close') relay.end();          // the machine ended the session
+  else if (m.t === 'closed') relay.release();     // the page confirmed the end of the client's session
 });
 await relay.listen(11000);
 ```
@@ -171,7 +179,10 @@ window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.t === 'open') ch.open();
   else if (m.t === 'data') ch.send(new Uint8Array(m.b));
-  else if (m.t === 'close' && ch.isOpen) ch.close();
+  else if (m.t === 'close') {
+    if (ch.isOpen) ch.close();
+    vscode.postMessage({ t: 'closed' });          // behind every `data` posted before
+  }
 });
 ```
 

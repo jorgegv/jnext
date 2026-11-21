@@ -1,4 +1,4 @@
-// Browser rows BDBG-01..26: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
+// Browser rows BDBG-01..29: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
 // channel and over a WebSocket to the bridge (make wasm-browser-test, spec debug.mjs). Run by
 // browser-smoke.sh on the SDK's node.
 //
@@ -138,7 +138,9 @@ const MAGIC = ['--magic-breakpoint'];
 // The host (node) forwards: a TCP client arriving -> channel.open(), its bytes -> send(), its leaving ->
 // close(); the page forwards onData and onClose back through exposed functions. The calls into the page
 // go through one promise chain, so the order is the order of arrival.
-async function channelRelay(page, protocol) {
+// `delayMs` models a host that is far away (postMessage): every message of the page to the host (bytes, end,
+// confirmation) is delayed by it, in order.
+async function channelRelay(page, protocol, delayMs = 0) {
   const events = [];
   let chain = Promise.resolve();
   const q = (fn) => { chain = chain.then(fn).catch((e) => events.push({ kind: 'error', text: String(e.message || e) })); return chain; };
@@ -149,22 +151,30 @@ async function channelRelay(page, protocol) {
     relay.send(b);
   });
   await page.exposeFunction('__hostClose', () => { events.push({ kind: 'close' }); relay.end(); });
-  await page.evaluate((p) => {
+  // The page's confirmation that it has closed its channel for the client that left: it travels behind every
+  // byte the page posted before, so the host releases the relay (admits the next client) only after them.
+  await page.exposeFunction('__hostClosed', () => relay.release());
+  await page.evaluate(([p, delay]) => {
     const ch = window.player0.debugChannel(p);
+    window.__post = (fn) => setTimeout(fn, delay);
     ch.onData = (u8) => {
       let s = '';
       for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
-      window.__hostData(btoa(s));
+      const b64 = btoa(s);
+      window.__post(() => window.__hostData(b64));
     };
-    ch.onClose = () => window.__hostClose();
-  }, protocol);
+    ch.onClose = () => window.__post(() => window.__hostClose());
+  }, [protocol, delayMs]);
   relay.on('open', () => q(() => page.evaluate((p) => { window.player0.debugChannel(p).open(); }, protocol)));
   relay.on('data', (d) => q(() => page.evaluate(([p, b64]) => {
     const s = atob(b64), u8 = new Uint8Array(s.length);
     for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
     window.player0.debugChannel(p).send(u8);
   }, [protocol, Buffer.from(d).toString('base64')])));
-  relay.on('close', () => q(() => page.evaluate((p) => { try { window.player0.debugChannel(p).close(); } catch (e) { /* the machine ended it */ } }, protocol)));
+  relay.on('close', () => q(() => page.evaluate((p) => {
+    try { window.player0.debugChannel(p).close(); } catch (e) { /* the machine ended it */ }
+    window.__post(() => window.__hostClosed());
+  }, protocol)));
   const port = await relay.listen(0);
   cleanup.push(() => relay.close());
   return { relay, port, events };
@@ -733,8 +743,8 @@ row('BDBG-25', 'backpressure towards the page: a page link that stops reading ma
 });
 
 
-row('BDBG-26', 'bridge: a client that dials again after the old one left waits for the page\'s `closed`: the old session\'s late bytes and late `close` neither reach the new client nor end it', async () => {
-  const b = await startBridge();
+// A raw page link on the bridge `b`: what the bridge sent it, and a poll.
+async function rawPage(b) {
   const link = await upgradeOk(b.wsPort);
   must(/^HTTP\/1\.1 101/.test(link.status), 'link: ' + link.status);
   link.socket.on('error', () => {});
@@ -746,33 +756,118 @@ row('BDBG-26', 'bridge: a client that dials again after the old one left waits f
     for (let at = Buffer.concat(rx).indexOf(want); at >= 0; at = Buffer.concat(rx).indexOf(want, at + 1)) n++;
     return n;
   };
-  const until = async (fn, what) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > 5000) throw new Error('timeout: ' + what); await sleep(20); } };
-  const a = net.connect(b.tcpPort, '127.0.0.1');
-  a.on('error', () => {});
-  await new Promise((r) => a.on('connect', r));
-  await until(() => frames('open') === 1, 'the page told `open`');
-  a.destroy();   // the client leaves
-  const c = net.connect(b.tcpPort, '127.0.0.1');   // and a new one dials at once
-  const got = [];
-  let closed = false;
-  c.on('data', (d) => got.push(d));
-  c.on('close', () => { closed = true; });
+  const until = async (fn, what, ms = 8000) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await sleep(10); } };
+  const say = (opcode, text) => link.socket.write(maskedFrame(true, opcode, Buffer.from(text)));
+  return { link, frames, until, say };
+}
+const tcp = (b) => new Promise((resolve) => {
+  const c = net.connect(b.tcpPort, '127.0.0.1');
+  c.got = []; c.closed = false;
+  c.on('data', (d) => c.got.push(d));
+  c.on('close', () => { c.closed = true; });
   c.on('error', () => {});
-  await until(() => frames('close') === 1, 'the page told `close`');
+  c.on('connect', () => resolve(c));
+});
+
+row('BDBG-26', 'bridge: a client that dials again after the old one left waits for the page\'s `closed`: the old session\'s late bytes and late `close` neither reach the new client nor end it, and the new client is admitted promptly once `closed` comes', async () => {
+  const b = await startBridge();
+  const p = await rawPage(b);
+  const a = await tcp(b);
+  await p.until(() => p.frames('open') === 1, 'the page told `open`');
+  a.destroy();   // the client leaves
+  const c = await tcp(b);   // and a new one dials at once
+  await p.until(() => p.frames('close') === 1, 'the page told `close`');
   // The page now sends the late messages of the old session, before it confirms: bytes, and its own close.
-  link.socket.write(Buffer.concat([maskedFrame(true, 2, Buffer.from('STALE')), maskedFrame(true, 1, Buffer.from('close'))]));
+  p.link.socket.write(Buffer.concat([maskedFrame(true, 2, Buffer.from('STALE')), maskedFrame(true, 1, Buffer.from('close'))]));
   await sleep(400);
-  const early = Buffer.concat(got).toString();
-  const earlyClosed = closed;
-  const earlyOpens = frames('open');
-  link.socket.write(maskedFrame(true, 1, Buffer.from('closed')));
-  await until(() => frames('open') === 2, 'the page told `open` for the new client');
-  link.socket.write(maskedFrame(true, 2, Buffer.from('FRESH')));
-  await until(() => Buffer.concat(got).length >= 5, 'FRESH');
-  const late = Buffer.concat(got).toString();
-  link.socket.destroy(); c.destroy();
+  const early = Buffer.concat(c.got).toString();
+  const earlyClosed = c.closed;
+  const earlyOpens = p.frames('open');
+  const t0 = Date.now();
+  p.say(1, 'closed');
+  await p.until(() => p.frames('open') === 2, 'the page told `open` for the new client');
+  const admitted = Date.now() - t0;
+  p.say(2, 'FRESH');
+  await p.until(() => Buffer.concat(c.got).length >= 5, 'FRESH');
+  const late = Buffer.concat(c.got).toString();
+  p.link.socket.destroy(); c.destroy();
   must(early === '' && !earlyClosed && earlyOpens === 1, `before the confirmation: ${JSON.stringify(early)}, closed ${earlyClosed}, opens ${earlyOpens}`);
-  must(late === 'FRESH' && !closed, `after it: ${JSON.stringify(late)}, closed ${closed}`);
+  must(admitted < 1500, `admitted ${admitted} ms after \`closed\` (the 3 s timeout is not the way in)`);
+  must(late === 'FRESH' && !c.closed, `after it: ${JSON.stringify(late)}, closed ${c.closed}`);
+});
+
+row('BDBG-27', 'bridge: a page that never sends `closed` does not wedge a redial: it is admitted after about 3 s, whether it dialled after the old client left or 50 ms before', async () => {
+  for (const order of ['after', 'before']) {
+    const b = await startBridge();
+    const p = await rawPage(b);
+    const a = await tcp(b);
+    await p.until(() => p.frames('open') === 1, 'open');
+    let c, t0;
+    if (order === 'after') {
+      a.destroy();
+      t0 = Date.now();
+      await sleep(50);
+      c = await tcp(b);
+    } else {
+      c = await tcp(b);   // dials while the old client is still connected
+      await sleep(50);
+      a.destroy();
+      t0 = Date.now();
+    }
+    await p.until(() => p.frames('open') === 2, `the page told \`open\` (${order})`, 8000);
+    const dt = Date.now() - t0;
+    p.link.socket.destroy(); c.destroy();
+    must(dt > 2500 && dt < 5500 && !c.closed, `${order}: admitted after ${dt} ms, closed ${c.closed}`);
+  }
+});
+
+row('BDBG-28', 'bridge: a client that dialled 50 ms BEFORE the old one\'s FIN keeps waiting for a `closed` that comes 500 ms late: admitted on it, not refused at 300 ms', async () => {
+  const b = await startBridge();
+  const p = await rawPage(b);
+  const a = await tcp(b);
+  await p.until(() => p.frames('open') === 1, 'open');
+  const c = await tcp(b);   // dials first
+  await sleep(50);
+  a.destroy();              // then the old client's FIN
+  await p.until(() => p.frames('close') === 1, 'the page told `close`');
+  await sleep(500);         // the page is slow to confirm: longer than the 300 ms of a client that waits for a client
+  const opensBefore = p.frames('open');
+  const closedBefore = c.closed;
+  const t0 = Date.now();
+  p.say(1, 'closed');
+  await p.until(() => p.frames('open') === 2, 'the page told `open`');
+  const admitted = Date.now() - t0;
+  p.link.socket.destroy(); c.destroy();
+  must(opensBefore === 1 && !closedBefore, `before \`closed\`: opens ${opensBefore}, closed ${closedBefore}`);
+  must(admitted < 1500 && !c.closed, `admitted ${admitted} ms after \`closed\`, closed ${c.closed}`);
+});
+
+row('BDBG-29', 'the channel path: the old session\'s last reply reaches the host after the client left (the page\'s messages take 150 ms): the host releases the relay on the page\'s confirmation, and the client that dialled at once gets only its own answer', async () => {
+  const page = await started({ protocol: 'dzrp' });
+  const c = await channelRelay(page, 'dzrp', 150);
+  const A = net.connect(c.port, '127.0.0.1');
+  const rxA = [];
+  A.on('data', (d) => rxA.push(...d));
+  A.on('error', () => {});
+  await new Promise((r) => A.on('connect', r));
+  A.write(Buffer.from(INIT));
+  const t0 = Date.now();
+  while (rxA.length < 17 && Date.now() - t0 < 15000) await sleep(20);
+  must(isInitReply(rxA), 'the first client got no INIT answer');
+  A.write(Buffer.from([2, 0, 0, 0, 9, 15, 0x68, 0x69]));   // CMD_LOOPBACK "hi", seq 9
+  await sleep(80);    // the machine answers on a tick; the answer is on its way to the host, 150 ms
+  A.destroy();        // the client leaves while that answer is still in flight
+  const B = net.connect(c.port, '127.0.0.1');
+  const rxB = [];
+  B.on('data', (d) => rxB.push(...d));
+  B.on('error', () => {});
+  await new Promise((r) => B.on('connect', r));
+  B.write(Buffer.from(INIT));
+  const t1 = Date.now();
+  while (rxB.length < 17 && Date.now() - t1 < 15000) await sleep(20);
+  await sleep(500);   // anything late would be here by now
+  B.destroy();
+  must(isInitReply(rxB) && rxB.length === 4 + (rxB[0] | (rxB[1] << 8)), `the redialled client got ${rxB.length} bytes: ${rxB.join(',')}`);
 });
 
 // ---------------------------------------------------------------------------------------------------

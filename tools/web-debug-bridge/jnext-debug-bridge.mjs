@@ -18,9 +18,10 @@
 //   binary messages        the bytes of the session, in order, both ways;
 //   any other text message is ignored.
 //
-// ONE page at a time (a second link is refused with HTTP 409) and ONE TCP client at a time (a second
-// client is closed after 300 ms, which is how long a client that hangs up and dials again waits for the
-// session before it; one while no page is linked is closed at once). The debug protocols have no
+// ONE page at a time (a second link is refused with HTTP 409) and ONE TCP client at a time. A client that
+// dials while another is connected waits for it to end (300 ms) and is then closed; one that dials after a
+// client left waits for the page to confirm the end of that session with `closed` (up to 3 s, then admitted
+// anyway); one while no page is linked is closed at once. The debug protocols have no
 // authentication, so this listens on the loopback address by default, and the WebSocket accepts only a
 // page whose Origin is http(s)://localhost or http(s)://127.0.0.1 (any port): without that, any web site
 // the user visits could dial this port and read the debug traffic. `--origin ORIGIN` adds one origin
@@ -28,8 +29,9 @@
 // is accepted: a web page always sends one.
 //
 // `TcpRelay` is the half a webview host needs (a VS Code extension host, say): a TCP listener whose
-// events `open`, `data` and `close` and whose methods `send` and `end` are exactly the channel's
-// messages, so the host only forwards them to and from the page (postMessage).
+// events `open`, `data` and `close` and whose methods `send`, `end` and `release` are the channel's
+// messages, so the host forwards them to and from the page (postMessage). After the client's `close` the host
+// calls `release()` once the page has confirmed the end of that session (see TcpRelay).
 import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -45,17 +47,29 @@ const HOLD_GRACE_MS = 3000;   // how long a redial waits for the page to confirm
 // TcpRelay: one TCP client at a time.
 //   listen(port, host) -> Promise<the bound port>
 //   events: 'open' (a client arrived), 'data' (Uint8Array from it), 'close' (it left),
-//           'rejected' (a connection was closed at once: another client is open, or `accept` said no)
-//   send(bytes) to the client, end() to end it (no 'close' follows: the caller did it), close().
+//           'drain' (the client's write buffer emptied, or the client was retired),
+//           'rejected' (a connection was closed: another client is open, or `accept` said no)
+//   send(bytes) to the client (false when its write buffer is full: wait for 'drain'), end() to end it
+//   (no 'close' follows: the caller did it), release(), close().
 //   options.accept: () => boolean, asked for each new connection (default: always).
+//
+// THE END OF A SESSION IS CONFIRMED BY THE HOST. When the client leaves ('close'), the host tells the page,
+// and the page may still have bytes for that client in flight (its last reply, its own close). So the relay
+// admits no new client until the host calls `release()`, which it does when the page has confirmed the end:
+// everything the page sent before the confirmation then belongs to the old session and is dropped or
+// delivered to the old client, never to the new one. A host that never confirms is not stuck: the relay
+// releases itself after HOLD_GRACE_MS. A client that dials again meanwhile waits (up to HOLD_GRACE_MS plus a
+// second); one that arrives while a client is still open and no end was seen waits GRACE_MS, because node may
+// deliver a redial before the old client's FIN. end() (the host ended the session) does not hold.
 export class TcpRelay extends EventEmitter {
   constructor(options = {}) {
     super();
     this.accept = options.accept || (() => true);
     this.client = null;
-    this.waiting = null;     // a connection that arrived while a client was open, for GRACE_MS
-    this.held = false;       // a session the client ended is not yet confirmed by the page: admit no one
+    this.waiting = null;     // a connection that arrived while a client was open or the end unconfirmed
     this.waitTimer = null;
+    this.held = false;       // a session the client ended is not yet confirmed by the host: admit no one
+    this.holdTimer = null;
     this.server = net.createServer((sock) => this.#connection(sock));
   }
 
@@ -78,11 +92,12 @@ export class TcpRelay extends EventEmitter {
     return this.client.write(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
   }
 
-  // After the client ended a session the caller holds the next client back until the page has confirmed
-  // the end (`hold()`, then `release()`): what the page sent for the old session (its last bytes, its own
-  // `close`) is then all behind us and cannot be taken for the new session's.
-  hold() { this.held = true; }
-  release() { this.held = false; this.#promote(); }
+  // The host confirms the end of the session the client ended: the next client may come in.
+  release() {
+    clearTimeout(this.holdTimer);
+    this.held = false;
+    this.#promote();
+  }
 
   // Stop and restart reading from the client (the caller's sink is full).
   pauseClient() { if (this.client) this.client.pause(); }
@@ -104,14 +119,22 @@ export class TcpRelay extends EventEmitter {
 
   close() {
     this.end();
+    clearTimeout(this.holdTimer);
     this.server.close();
   }
 
-  // A connection that arrives while a client is still open waits up to GRACE_MS for that client to be
-  // retired before it is refused. A client that hangs up and dials again at once (DeZog's DZRP client
-  // sends CMD_CLOSE, closes and reconnects) reaches us as FIN then connect, but node may deliver the
-  // connect before it has delivered the FIN. The debugger server's own transport does the same
-  // (a redial waits for the session it follows).
+  #armWaiter(ms) {
+    clearTimeout(this.waitTimer);
+    this.waitTimer = setTimeout(() => {
+      const w = this.waiting;
+      this.waiting = null;
+      if (!w) return;
+      this.emit('rejected', w.remoteAddress);
+      w.destroy();
+    }, ms);
+    this.waitTimer.unref();
+  }
+
   #connection(sock) {
     sock.on('error', () => {});
     if (!this.client && !this.held) return this.#admit(sock);
@@ -121,14 +144,7 @@ export class TcpRelay extends EventEmitter {
       return;
     }
     this.waiting = sock;
-    this.waitTimer = setTimeout(() => {
-      const w = this.waiting;
-      this.waiting = null;
-      if (!w) return;
-      this.emit('rejected', w.remoteAddress);
-      w.destroy();
-    }, this.held ? HOLD_GRACE_MS : GRACE_MS);
-    this.waitTimer.unref();
+    this.#armWaiter(this.held ? HOLD_GRACE_MS + 1000 : GRACE_MS);
   }
 
   #promote() {
@@ -152,10 +168,15 @@ export class TcpRelay extends EventEmitter {
     const gone = () => {
       if (this.client !== sock) return;   // ended by end(), or already seen
       this.client = null;
+      this.held = true;
+      clearTimeout(this.holdTimer);
+      this.holdTimer = setTimeout(() => this.release(), HOLD_GRACE_MS);   // a host that never confirms
+      this.holdTimer.unref();
+      // A redial that arrived before this FIN is waiting on the short deadline: it waits for the host now.
+      if (this.waiting) this.#armWaiter(HOLD_GRACE_MS + 1000);
       this.emit('close');
       this.emit('drain');
       sock.destroy();
-      this.#promote();
     };
     sock.on('end', gone);
     sock.on('close', gone);
@@ -419,24 +440,16 @@ export async function main(argv) {
     const page = pages.page;
     if (page && !page.sendBinary(d)) { relay.pauseClient(); page.once('drain', () => relay.resumeClient()); }
   });
-  // The client ended the session: tell the page, and admit no new client until the page has confirmed with
-  // `closed`. The page's own `close` (if the machine ended the session first) and its last bytes for the old
-  // session reach us before that confirmation, so they cannot end or feed the next client.
-  let holdTimer = null;
-  const release = () => { clearTimeout(holdTimer); relay.release(); };
-  relay.on('close', () => {
-    if (!pages.page) return;
-    pages.page.sendText('close');
-    relay.hold();
-    clearTimeout(holdTimer);
-    holdTimer = setTimeout(release, HOLD_GRACE_MS);   // a link that never confirms
-    holdTimer.unref();
-  });
+  // The client ended the session: tell the page; TcpRelay admits no new client until the page confirms with
+  // `closed` (release() below), or HOLD_GRACE_MS passes. The page's own `close` (if the machine ended the
+  // session first) and its last bytes for the old session reach us before that confirmation, so they cannot
+  // end or feed the next client.
+  relay.on('close', () => { if (pages.page) pages.page.sendText('close'); });
   pages.on('link', (ws) => {
     process.stdout.write('jnext-debug-bridge: page linked\n');
     ws.on('text', (t) => {
       if (t === 'close') relay.end();
-      else if (t === 'closed') release();
+      else if (t === 'closed') relay.release();
     });
     ws.on('binary', (b) => {
       if (!relay.send(b)) { ws.pause(); relay.once('drain', () => ws.resume()); }
@@ -444,7 +457,7 @@ export async function main(argv) {
   });
   pages.on('unlink', () => {
     relay.end();
-    release();
+    relay.release();
     process.stdout.write('jnext-debug-bridge: page unlinked\n');
   });
 

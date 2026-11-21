@@ -142,7 +142,7 @@ output and then its end, and calls the `EM_JS` `jnext_web_debug_out`, which copi
 stack. `jnext_api.js` delivers `onData` and `onClose` from a microtask, so a page handler never runs
 inside a wasm call. A `ws` entry is a link kept by `jnext_api.js` over a channel (messages `open`,
 `close` and binary bytes, redialled once a second); the bridge, `tools/web-debug-bridge/jnext-debug-bridge.mjs`,
-is plain node with no dependency (the user guide's 8.6 documents its use).
+is plain node with no dependency (the user guide's 8.6 documents its use). `TcpRelay`, its TCP half, admits no new client after a client left until the host confirms the end of that session (`release()`, or 3 s), so the old session's last bytes cannot reach the next client.
 
 *Size.* The debugger (the three protocol servers, the pipe transport and the script library ZRCP compiles its conditions with) adds about 705 KiB to the shipped `.wasm`, 12.7% of it (5693287 to 6415005 bytes), or about 250 KiB compressed with `gzip -9` (1812629 to 2068256 bytes, 14.1%), and about 8 KiB to the `.js` (267679 to 275944 bytes; about 2 KiB compressed). Measured at version 1.3.41, one Release LTO `wasm-core` build of the tree before the debugger and one of the same tree with it, same version string length. There is no separate debug build: the code does nothing unless a page sets `debug`.
 

@@ -4659,7 +4659,7 @@ bridge, on its own two ports, for each protocol the page serves.</p>
 <ul>
 <li><strong>One page and one client.</strong> A second page that dials gets HTTP 409. A second TCP client is
   closed. A client that hangs up and dials again at once is not a second client: it waits
-  for the session before it to end (up to 300 ms, and up to 3 s for the page's <code>closed</code>). A client that connects while no page is
+  for the session before it to end: up to 300 ms for a client that has not left yet, and up to 3 s for the page's <code>closed</code> once it has. A client that connects while no page is
   linked is closed at once.</li>
 <li><strong>Only a local page may link.</strong> The bridge accepts a page whose <code>Origin</code> is <code>http://</code> or
   <code>https://</code> with the host <code>localhost</code> or <code>127.0.0.1</code> and any port, and answers HTTP 403 to every
@@ -4714,7 +4714,13 @@ play the bridge's part (an IDE extension, say):</p>
 a WebSocket: use <code>transport: 'channel'</code> and carry the bytes with the editor's message passing.
 <code>jnext-debug-bridge.mjs</code> exports the TCP half as <code>TcpRelay</code>, an <code>EventEmitter</code> with
 <code>listen(port, host)</code> (resolves to the bound port), the events <code>open</code>, <code>data</code> and <code>close</code>, and
-the methods <code>send(bytes)</code> and <code>end()</code>:</p>
+the methods <code>send(bytes)</code>, <code>end()</code> and <code>release()</code>.</p>
+<p><strong>Confirm the end of every session.</strong> When the client leaves (<code>close</code>), the page may still have bytes
+for it in flight: its last answer. If the next client were admitted at once, that answer would reach it.
+So after a <code>close</code> the relay admits no new client until the host calls <code>release()</code>, which the host does
+when the page has confirmed that it closed its channel, on the same message path as the page's bytes, so
+that the confirmation comes behind them. A host that never calls <code>release()</code> is not stuck: the relay
+releases itself after 3 s.</p>
 <pre><code class="language-js">// in the extension host (node)
 import { TcpRelay } from './jnext-debug-bridge.mjs';
 const relay = new TcpRelay();
@@ -4723,7 +4729,8 @@ relay.on('data',  (b) =&gt; panel.webview.postMessage({ t: 'data', b: Array.from
 relay.on('close', () =&gt; panel.webview.postMessage({ t: 'close' }));
 panel.webview.onDidReceiveMessage((m) =&gt; {
   if (m.t === 'data') relay.send(new Uint8Array(m.b));
-  else if (m.t === 'close') relay.end();
+  else if (m.t === 'close') relay.end();          // the machine ended the session
+  else if (m.t === 'closed') relay.release();     // the page confirmed the end of the client's session
 });
 await relay.listen(11000);
 </code></pre>
@@ -4735,7 +4742,10 @@ window.addEventListener('message', (e) =&gt; {
   const m = e.data;
   if (m.t === 'open') ch.open();
   else if (m.t === 'data') ch.send(new Uint8Array(m.b));
-  else if (m.t === 'close' &amp;&amp; ch.isOpen) ch.close();
+  else if (m.t === 'close') {
+    if (ch.isOpen) ch.close();
+    vscode.postMessage({ t: 'closed' });          // behind every `data` posted before
+  }
 });
 </code></pre>
 <h2 id="what-to-expect">What to expect<a class="headerlink" href="#what-to-expect" title="Permanent link">&para;</a></h2>
