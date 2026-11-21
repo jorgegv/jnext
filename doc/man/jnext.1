@@ -251,9 +251,8 @@ likely cause,
 e.g.\ \f[CR]executed ROM code at $0038 (IM 1); \-\-no\-sdcard has no ROM\f[R],
 and the program will hang or show garbage.
 DivMMC and the Multiface are held off, the NMI buttons are refused, File
-> Insert SD Card Image\&...
-and Eject SD Card are disabled and the status bar shows \f[B]SD:
-none\f[R].
+> Insert SD Card Image\&..., Eject SD Card and their second\-card twins
+are disabled and the status bar shows \f[B]SD: none\f[R].
 A hard reset runs the boot ROM, which stops at its no\-card screen as on
 hardware; the program is not loaded again.
 Requires \f[B]\-\-load\f[R] of a \f[B].nex\f[R] (directly or in a
@@ -2075,7 +2074,8 @@ The card can also come from \f[B]Preferences > Paths > Second SD card
 image\f[R] (\f[CR]paths.sd_card2_path\f[R], reachable with
 \f[B]\-\-set\f[R]) when \f[B]\-\-sdcard2\f[R] is not given.
 A saved path that no longer exists is logged and leaves the slot empty;
-only an explicit \f[B]\-\-sdcard2\f[R] refuses to start.
+only an explicit \f[B]\-\-sdcard2\f[R], or \f[B]\-\-set\f[R]
+\f[CR]paths.sd_card2_path=\f[R], refuses to start.
 .IP \(bu 2
 The slot is optional: with nothing in it the machine behaves exactly as
 it did before the slot existed.
@@ -2219,10 +2219,12 @@ jnext \-\-sdcard\-writes dev.jsdw
 .EE
 .PP
 The rules are those of a copy into the image.
-A second add of the same destination is refused (exit 4) and
-\f[I]FILE\f[R] is left alone; with \f[B]\-\-sdcard\-file\-force\f[R] it
-is replaced, and replacing a file by one of the same size does not make
-\f[I]FILE\f[R] grow.
+A second add of the same destination is refused (exit 4) and the card
+kept in \f[I]FILE\f[R] is left as it was; with
+\f[B]\-\-sdcard\-file\-force\f[R] it is replaced.
+The first replacement adds the new copy\(cqs sectors to \f[I]FILE\f[R];
+replacing it again by a file of the same size does not make
+\f[I]FILE\f[R] grow further.
 \f[B]\-\-sdcard\-writes\-reset\f[R] starts again from the image.
 Adds accumulate in \f[I]FILE\f[R], together with anything a run of the
 machine wrote and the file the esxDOS stand\-in keeps.
@@ -3630,7 +3632,10 @@ It is driven from the Qt6 UI, so it needs a GUI build
 SDL\-only build has no way to open it.
 .IP \(bu 2
 \f[B]CPU registers\f[R] \- all Z80/Z80N registers, flags
-(S/Z/H/P/V/N/C), halt state, interrupt mode, active ULA screen
+(S/Z/H/P/V/N/C), halt state, interrupt mode, active ULA screen; while
+paused, every register, flag, IFF and IM can be edited in place
+(double\-click a value, click a flag), and \f[B]T\-states\f[R] shows the
+time since the last stop (\f[B]Accumulate\f[R] adds stops up)
 .IP \(bu 2
 \f[B]MMU panel\f[R] \- the Next 8\-slot MMU table (page numbers and
 type) and the 128K bank mappings
@@ -3665,8 +3670,13 @@ File\&...\f[R]), with line numbers, a breakpoint column, a current\-line
 arrow, coverage tint and the Disassembly\(cqs right\-click menu; source
 Step Into, Over, Out, Back and Reverse, also in \f[B]Debug > Source\f[R]
 .IP \(bu 2
-\f[B]Breakpoints\f[R] \- execution, read, write and I/O watchpoints, in
-one panel.
+\f[B]Breakpoints\f[R] \- execute, read, write, read/write and I/O
+watchpoints and Interrupt/NMI breakpoints, in one panel, with optional
+address ranges, I/O port masks, conditions (debugger\-script
+expressions), hit counts and count\-only breakpoints; \f[B]Breakpoints >
+Save as Script\f[R] / \f[B]Load from Script\f[R] keep them in a
+\f[CR].jds\f[R] file, and \f[B]Debug > Run to Next Interrupt\f[R] stops
+once at the next maskable interrupt.
 An I/O watchpoint address of \f[B]00\f[R]\-\f[B]FF\f[R] matches any port
 with that low byte (\f[B]FE\f[R] catches every ULA access, whatever the
 high byte holds); \f[B]0100\f[R] and above matches that exact 16\-bit
@@ -3698,6 +3708,12 @@ once (raw \f[CR]hc\f[R]/\f[CR]vc\f[R], the ULA\(cqs
 0x1E/0x1F report, and the pixel being generated), whether the beam is in
 paper, border or blanking, and whether the ULA is fetching a bitmap
 byte, an attribute byte or nothing
+.IP \(bu 2
+\f[B]Graphics\f[R] \- the sprite patterns, the tile definitions and all
+eight palettes (RGB333 values and priority bit)
+.IP \(bu 2
+\f[B]Symbols\f[R] \- every known label, filterable; double\-click one to
+show it in the Disassembly (also \f[B]Go > Symbols\f[R])
 .IP \(bu 2
 \f[B]Sprite viewer\f[R] \- all 128 hardware sprites with their attribute
 table
@@ -3819,13 +3835,22 @@ Forward
 T}
 .TE
 .PP
+Every panel except the Disassembly is a dock: drag it to another edge,
+onto another panel to make a tab, or out of the window to float it, and
+close it from its title bar.
+\f[B]Window > Panels\f[R] brings a closed panel back and \f[B]Window >
+Reset Layout\f[R] restores the default arrangement.
+The arrangement is remembered (\f[CR]layout\f[R] in the
+\f[CR][debugger]\f[R] section, see \f[B]FILES\f[R]).
+.PP
 Those are defaults.
-All twenty debugger commands \- the fifteen above plus Run to Cursor,
-Run to End of Frame, Run to End of Scan Line, Source Step Back and
-Source Reverse Continue, which ship unbound \- can be rebound under
-\f[B]Settings > Preferences > Debugger Keys\f[R] in the emulator window,
-or by hand in the \f[CR][debugger_keys]\f[R] section of the
-configuration file (\f[CR]step_over=F10\f[R]).
+All twenty\-one debugger commands \- the fifteen above plus Run to
+Cursor, Run to End of Frame, Run to End of Scan Line, Run to Next
+Interrupt, Source Step Back and Source Reverse Continue, which ship
+unbound \- can be rebound under \f[B]Settings > Preferences > Debugger
+Keys\f[R] in the emulator window, or by hand in the
+\f[CR][debugger_keys]\f[R] section of the configuration file
+(\f[CR]step_over=F10\f[R]).
 Only the commands you change are written there, so a default that
 changes in a later release still reaches you.
 .PP

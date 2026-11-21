@@ -210,8 +210,8 @@ naming the option and the value, and exits with status 1.
     error naming the address and the likely cause, e.g. `executed ROM code at
     $0038 (IM 1); --no-sdcard has no ROM`, and the program will hang or show
     garbage. DivMMC and the Multiface are held off, the NMI buttons are
-    refused, File > Insert SD Card Image... and Eject SD Card are disabled and
-    the status bar shows **SD: none**. A hard reset runs the boot ROM, which
+    refused, File > Insert SD Card Image..., Eject SD Card and their second-card
+    twins are disabled and the status bar shows **SD: none**. A hard reset runs the boot ROM, which
     stops at its no-card screen as on hardware; the program is not loaded
     again. Requires **\--load** of a **.nex** (directly or in a **.zip**) on
     the Next (a machine saved in Preferences other than the Next is refused
@@ -1638,7 +1638,8 @@ the machine boots or hard-resets; there is no card-detect line.
 - The card can also come from **Preferences > Paths > Second SD card image**
   (`paths.sd_card2_path`, reachable with **\--set**) when **\--sdcard2** is not
   given. A saved path that no longer exists is logged and leaves the slot empty;
-  only an explicit **\--sdcard2** refuses to start.
+  only an explicit **\--sdcard2**, or **\--set** `paths.sd_card2_path=`, refuses
+  to start.
 - The slot is optional: with nothing in it the machine behaves exactly as it did
   before the slot existed.
 - One image never goes in both slots: **\--sdcard2**, a Preferences path, **File >
@@ -1746,9 +1747,10 @@ that is given the same image and *FILE* boots a card that has the file:
     jnext --sdcard-writes dev.jsdw
 
 The rules are those of a copy into the image. A second add of the same
-destination is refused (exit 4) and *FILE* is left alone; with
-**\--sdcard-file-force** it is replaced, and replacing a file by one of the same
-size does not make *FILE* grow. **\--sdcard-writes-reset** starts again from the
+destination is refused (exit 4) and the card kept in *FILE* is left as it was; with
+**\--sdcard-file-force** it is replaced. The first replacement adds the new
+copy's sectors to *FILE*; replacing it again by a file of the same size does not
+make *FILE* grow further. **\--sdcard-writes-reset** starts again from the
 image. Adds accumulate in *FILE*, together with anything a run of the machine
 wrote and the file the esxDOS stand-in keeps. *FILE* holds a copy of everything
 added, so for a big tree a private copy of the image is the better tool. A
@@ -2751,7 +2753,9 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
 `make gui-debug`); the SDL-only build has no way to open it.
 
 - **CPU registers** - all Z80/Z80N registers, flags (S/Z/H/P/V/N/C), halt
-  state, interrupt mode, active ULA screen
+  state, interrupt mode, active ULA screen; while paused, every register, flag,
+  IFF and IM can be edited in place (double-click a value, click a flag), and
+  **T-states** shows the time since the last stop (**Accumulate** adds stops up)
 - **MMU panel** - the Next 8-slot MMU table (page numbers and type) and the
   128K bank mappings
 - **Disassembly** - Z80 + Z80N, PC highlight, breakpoint gutter, follow-PC,
@@ -2775,7 +2779,12 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   **Debug > Source > Open Source File...**), with line numbers, a breakpoint
   column, a current-line arrow, coverage tint and the Disassembly's right-click
   menu; source Step Into, Over, Out, Back and Reverse, also in **Debug > Source**
-- **Breakpoints** - execution, read, write and I/O watchpoints, in one panel.
+- **Breakpoints** - execute, read, write, read/write and I/O watchpoints and
+  Interrupt/NMI breakpoints, in one panel, with optional address ranges, I/O port
+  masks, conditions (debugger-script expressions), hit counts and count-only
+  breakpoints; **Breakpoints > Save as Script** / **Load from Script** keep them
+  in a `.jds` file, and **Debug > Run to Next Interrupt** stops once at the next
+  maskable interrupt.
   An I/O watchpoint address of **00**-**FF** matches any port with that low
   byte (**FE** catches every ULA access, whatever the high byte holds);
   **0100** and above matches that exact 16-bit port (**243B**, not **253B**).
@@ -2800,6 +2809,10 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   report, and the pixel being generated), whether the beam is in paper, border
   or blanking, and whether the ULA is fetching a bitmap byte, an attribute byte
   or nothing
+- **Graphics** - the sprite patterns, the tile definitions and all eight
+  palettes (RGB333 values and priority bit)
+- **Symbols** - every known label, filterable; double-click one to show it in
+  the Disassembly (also **Go > Symbols**)
 - **Sprite viewer** - all 128 hardware sprites with their attribute table
 - **Copper disassembly** - decoded WAIT/MOVE, with the current Copper PC
 - **NextREG panel** - all 256 registers, named, editable inline
@@ -2838,8 +2851,14 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
 | Alt+Left | Back                |
 | Alt+Right | Forward            |
 
-Those are defaults. All twenty debugger commands - the fifteen above plus Run to
-Cursor, Run to End of Frame, Run to End of Scan Line, Source Step Back and Source
+Every panel except the Disassembly is a dock: drag it to another edge, onto
+another panel to make a tab, or out of the window to float it, and close it from
+its title bar. **Window > Panels** brings a closed panel back and **Window >
+Reset Layout** restores the default arrangement. The arrangement is remembered
+(`layout` in the `[debugger]` section, see **FILES**).
+
+Those are defaults. All twenty-one debugger commands - the fifteen above plus Run to
+Cursor, Run to End of Frame, Run to End of Scan Line, Run to Next Interrupt, Source Step Back and Source
 Reverse Continue, which ship unbound -
 can be rebound under **Settings > Preferences > Debugger Keys** in the emulator
 window, or by hand in the `[debugger_keys]` section of the configuration file
