@@ -30,6 +30,7 @@
 - Debugger breakpoints gain ranges, conditions, IO masks, Interrupt/NMI types, hit counts and count-only; Run to Next Interrupt
 
 ### Bug Fixes
+- Web page and first-run download use SpecNext's current emulator image, sn-emulator-26.11a (NextZXOS 2.10a)
 - Web example pages fit a phone screen instead of being laid out at desktop width and shrunk
 
 ### Contributors in this release

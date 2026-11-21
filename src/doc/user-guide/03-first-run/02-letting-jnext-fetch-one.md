@@ -23,8 +23,8 @@ SD card image**. Answer yes and JNEXT will:
     - it gets a default `/MACHINES/NEXT/config.ini`, the firmware's settings
       file;
     - `/MACHINES/NEXT/zx81.rom` is made 32 KB long, the same 16 KB ROM twice,
-      when the distribution ships it as 16 KB (NextZXOS 24.11 did; 26.11 already
-      ships 32 KB and is left alone). The firmware's boot menu loads the ZX81
+      when the distribution ships it as 16 KB (NextZXOS 24.11 did; 26.11 and 26.11a already
+      ship 32 KB and is left alone). The firmware's boot menu loads the ZX81
       entry as 32 KB and stops on `zx81.rom...error reading!` otherwise. The
       ZX Spectrum Next team made the same change after the 24.11 distribution
       was released. JNEXT makes it only when the file is exactly the one that
@@ -52,12 +52,12 @@ browser to see whether the file can be reached at all.
 Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.
 
-## NextZXOS 26.11 and the FPGA core
+## NextZXOS 26.11a and the FPGA core
 
-The distribution JNEXT downloads is NextZXOS 26.11. It ships FPGA core 3.03.00 in
-its `TBBLUE.TBU` update file, while JNEXT emulates core 3.02.03, the one it follows.
-NextZXOS 2.10 boots and runs on it, and the firmware shows core 3.02.03 on its
-splash screen. Whatever core 3.03.00 adds over 3.02.03 is not emulated.
+The distribution JNEXT downloads is NextZXOS 26.11a (NextZXOS 2.10a). It is made for
+FPGA core 3.03.03 and ships no core update file, while JNEXT emulates core 3.02.03,
+the one it follows. NextZXOS 2.10a boots and runs on it, and the firmware shows core
+3.02.03 on its splash screen. Whatever core 3.03.03 adds over 3.02.03 is not emulated.
 
 ## When a newer distribution is available
 

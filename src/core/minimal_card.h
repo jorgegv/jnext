@@ -35,7 +35,7 @@
 /// is only hashed.
 ///
 /// A single forward pass needs every directory to come before its contents in the image.
-/// That holds for 26.11 (measured over the whole tree); a layout that breaks it is refused
+/// That holds for 26.11 and 26.11a (measured over the whole tree); a layout that breaks it is refused
 /// with a message naming "second pass", and shows loudly when a developer pins a new
 /// distribution (make-minimal-card, MINIMG-01).
 namespace minimal_card {
@@ -45,7 +45,7 @@ namespace minimal_card {
 /// literal stays in kDistroUrl, where the test harness's sed reads it).
 struct Pins {
     const char* url;          // == sdcard::kDistroUrl
-    const char* file;         // "sn-emulator-26.11.zip" (the last path element of url)
+    const char* file;         // "sn-emulator-26.11a.zip" (the last path element of url)
     uint64_t    zip_size;
     const char* zip_sha256;
     const char* image_sha256; // the inflated cspect-next-1gb.img
@@ -60,7 +60,7 @@ enum class Status { NeedMore, InflateDone, Done, Error };
 /// What is enforced. An empty string / 0 means "not checked" (unpinned: tests, the tool's
 /// --unpinned). pinned() gives the production values from kDistribution.
 struct Expect {
-    std::string file;                 // named in a refusal ("sn-emulator-26.11.zip")
+    std::string file;                 // named in a refusal ("sn-emulator-26.11a.zip")
     std::string zip_sha256;           // Input::Zip: the whole zip, checked BEFORE anything is written
     uint64_t    zip_size = 0;
     std::string image_sha256;         // Input::Image: the whole image, likewise

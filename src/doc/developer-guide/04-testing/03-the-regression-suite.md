@@ -119,8 +119,8 @@ itself a failure, so it cannot pass by finding nothing to look for.
 A row that presses a key, captures a screen or resets "at frame N of a cold boot"
 must mean the same moment of the boot on every card, and a new NextZXOS distribution
 loads its firmware for a different number of frames before it reaches the same
-state (the 26.11 firmware commits its machine type at frame 472, the 24.11 one at
-frame 295). The anchor is the **firmware's machine-type commit**: the first NR
+state (the 26.11a firmware commits its machine type at frame 476, the 26.11 one at 472, the
+24.11 one at frame 295). The anchor is the **firmware's machine-type commit**: the first NR
 0x03 write whose bits 2:0 are 001 to 100, which by `zxnext.vhd` is the write that
 clears config mode. It happens on every firmware boot whatever personality
 `config.ini` selects, and `boot-commit-probe.jds` reports its frame in a couple of
@@ -151,15 +151,16 @@ NextZXOS (`beam-replay-func` injects a halt program at frame 160, before the
 firmware commits, and a shift does not help it) stay literals.
 
 There is one deliberate exception, `boot-nextzxos-splash`: its frame 429 is before the
-commit (472 on the 26.11 card), but it captures the firmware's own splash and the
+commit (476 on the 26.11a card), but it captures the firmware's own splash and the
 screen must be taken at the same stage of that boot on every card. It is adopted
 (`@bf:429`); on the 24.11 card (commit 295) the shifted frame 252 shows the same splash
 stage with the older firmware's text, so the shift keeps its distance to the commit.
 
-The literals are those of the default 26.11 card, whose shift is 0: every adopted row's
-command line, and every script it generates, is the literal one. (They were written
-against 24.11, commit 295, and rebased by `+177` per firmware run when 26.11 became the
-default: a 24.11 card now shifts by -177.) The `[sdcard-provision]` row reports the
+The literals are those of the 26.11 card (commit 472, `BOOT_REF_COMMIT`), whose shift is 0.
+The default card is 26.11a, commit 476, so every adopted row's frames shift by +4 on it and
+no literal changed when it became the default. (They were written against 24.11, commit
+295, and rebased by `+177` per firmware run when 26.11 became the default: a 24.11 card
+shifts by -177.) The `[sdcard-provision]` row reports the
 commit frame and the shift, and on the default master FAILS when the commit is not
 `BOOT_DEFAULT_COMMIT`: an emulator change that moves the boot is a red row, never a
 shift the helper quietly absorbs. On a candidate card (the seam below) any commit frame
@@ -168,7 +169,7 @@ is allowed and reported.
 
 ## Evaluating a new NextZXOS distribution
 
-The default card is the 26.11 distribution, and the references and pins are
+The default card is the 26.11a distribution, and the references and pins are
 made against it. To find out what another distribution would change, without
 touching the machine-wide master that every concurrent run tests against, run
 the same tree twice (the same non-PGO `jnext`, master A = the default, master B

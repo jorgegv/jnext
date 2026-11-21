@@ -19,6 +19,9 @@
 #   CIKEY-03  the parser fails loud: it reads a fixture source and fixture workflows
 #             correctly, and refuses (never passes) a source with no definition and a
 #             directory with no keys
+#   CIKEY-04  a distribution name with a trailing letter ("26.11a") parses, and the key
+#             must carry the letter: 99.12-recipe7 is refused for a 99.12a source, and
+#             99.12a-recipe7 for a 99.12 source
 #
 set -u
 cd "$(dirname "$0")/../.." || exit 2   # repo root
@@ -36,7 +39,7 @@ read_expected() {
     zip=$(sed -n '/^const char\* const kDistroUrl =$/{n;s#.*/\([^/"]*\)";$#\1#p;}' "$src" 2>/dev/null)
     [[ -n "$zip" && "$zip" != *$'\n'* ]] || return 1
     distro=${zip#sn-emulator-}; distro=${distro%.zip}
-    [[ "$distro" != "$zip" && "$distro" =~ ^[0-9][0-9.]*$ ]] || return 1
+    [[ "$distro" != "$zip" && "$distro" =~ ^[0-9][0-9.]*[a-z]?$ ]] || return 1
     [[ "$(grep -cE "$pat" "$src" 2>/dev/null)" == 1 ]] || return 1
     recipe=$(grep -E "$pat" "$src" | grep -oE '[0-9]+')
     printf '%s %s\n' "$distro" "$recipe"
@@ -94,6 +97,24 @@ check_keys "$tmp/wf-none" "$tmp/src-ok.cpp" >/dev/null && msg="$msg no-keys-acce
 check_keys "$tmp/wf-digit" "$tmp/src-ok.cpp" >/dev/null && msg="$msg recipe70-accepted-for-recipe7;"
 if [ -z "$msg" ]; then ok "CIKEY-03 the parser reads a fixture source, and refuses a stale key, a missing definition and a directory with no keys"
 else bad "CIKEY-03 $msg"; fi
+
+# CIKEY-04: SpecNext's point releases carry a letter (sn-emulator-26.11a.zip).
+mkdir -p "$tmp/wf-a" "$tmp/wf-noletter" "$tmp/wf-letter"
+cat > "$tmp/src-a.cpp" <<'CPP'
+const char* const kDistroUrl =
+    "https://www.specnext.com/distro/99.12a/sn-emulator-99.12a.zip";
+const int kFixedImageRecipe = 7;
+CPP
+printf 'x: sdcard-image-distro-99.12a-recipe7-macos\ny: sdcard-image-distro-99.12a-recipe7-fedora45\n' > "$tmp/wf-a/a.yml"
+printf 'x: sdcard-image-distro-99.12-recipe7-macos\n' > "$tmp/wf-noletter/a.yml"
+printf 'x: sdcard-image-distro-99.12a-recipe7-macos\n' > "$tmp/wf-letter/a.yml"
+msg=""
+[ "$(read_expected "$tmp/src-a.cpp")" = "99.12a 7" ] || msg="$msg letter-reader-wrong;"
+check_keys "$tmp/wf-a" "$tmp/src-a.cpp" >/dev/null || msg="$msg agreeing-letter-fixture-refused;"
+check_keys "$tmp/wf-noletter" "$tmp/src-a.cpp" >/dev/null && msg="$msg letterless-key-accepted-for-letter-source;"
+check_keys "$tmp/wf-letter" "$tmp/src-ok.cpp" >/dev/null && msg="$msg letter-key-accepted-for-letterless-source;"
+if [ -z "$msg" ]; then ok "CIKEY-04 a trailing letter in the distribution name parses, and the key must match it exactly"
+else bad "CIKEY-04 $msg"; fi
 
 printf '\nTotal: %d  Pass: %d  Fail: %d\n' $((pass+fail)) "$pass" "$fail"
 [ "$fail" -eq 0 ]
