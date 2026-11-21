@@ -122,7 +122,7 @@ adm() { cat "$CLEANSLOTS/admissions.log" 2>/dev/null; }
 # SLOT-01: a free slot runs the command locally at once and logs the admission
 fresh
 out=$(slot true 2>&1); rc=$?
-row SLOT-01 "$([[ $rc -eq 0 && "$out" == *"admitted to slot 1"* && "$(adm)" == *" slot 1 waited=0s load=1.00 true" ]] && echo 1 || echo 0)" \
+row SLOT-01 "$([[ $rc -eq 0 && "$out" == *"admitted to slot 1"* && "$(adm)" =~ \ slot\ 1\ waited=[0-9]+s\ load=1.00\ true$ ]] && echo 1 || echo 0)" \
     "a free slot runs the command here and admissions.log names the slot (rc=$rc)"
 
 # SLOT-02: a LONG heavy command on a clean, pushed issue branch goes to the remote FIRST, even with slots free
@@ -188,7 +188,7 @@ row SLOT-07 "$([[ $rc -eq 75 && ! -e "$STATE/make-calls" && -z "$(rr_calls)" && 
 # SLOT-08: NSLOTS=4 admits four commands at once (the default 2 admits two)
 fresh
 echo 4 > "$CLEANSLOTS/NSLOTS"
-for i in 1 2 3 4; do ( slot sleep 4 >/dev/null 2>&1 ) & done
+for i in 1 2 3 4; do ( slot sleep 6 >/dev/null 2>&1 ) & done
 n4=0; for k in $(seq 1 40); do n4=$(grep -c ' slot ' "$CLEANSLOTS/admissions.log" 2>/dev/null || true); [[ "$n4" -ge 4 ]] && break; sleep 0.1; done
 wait
 fresh

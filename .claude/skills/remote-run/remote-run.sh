@@ -41,6 +41,8 @@ options:
   --stream               also print the log live (default: only the summary)
   --fallback-local DIR   on exit 75, run the targets in DIR on this host (the log says so);
                          REMOTE_RUN_LOCAL_WRAP, if set, is the wrapper command put in front
+                         (REMOTE_RUN_FALLBACK=1 is set in the wrapper's environment, so a wrapper that
+                         itself sends heavy runs here, like slot.sh, never sends one back)
   --id ID                run id (default: a timestamp); unique among live runs
   --log-dir DIR          where logs go (default ~/tmp/remote-run); logs older than 7 days are deleted
   --local-shell          TEST SEAM: run the remote side as a local shell instead of over ssh
