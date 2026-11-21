@@ -3308,11 +3308,11 @@ clone as <code>python3 -I</code>, and needs no jnext build and no card. It is no
   that is missing, more than 4096 members, any member that declares more than 64 MiB and a total above 256 MiB (all
   checked from the central directory, before anything is inflated), and a member that cannot be read. A member is
   read at most up to its declared size. Every text goes through <code>html.escape</code>; a picture is embedded only if it
-  starts with the PNG signature; JSON nested too deep or that is not JSON is shown as absent, never a crash;
+  starts with the PNG signature; JSON nested too deep, that is not JSON, or that has the wrong shape (a list where an object belongs) is shown as absent (the section says so), never a crash; <code>--text</code> writes every control character of the report (escape sequences, DEL, C1) as <code>\xNN</code>;
   nothing is extracted to disk.</li>
 </ul>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
-<p><code>bug_view_test</code> (BV-01 to 15) builds reports in memory and runs the viewer as <code>python3 -I</code> in a child with an explicit minimal environment (<code>LANG=C</code>, <code>PATH=/usr/bin:/bin</code>, no <code>HOME</code>): refusals, every section, names and values from the report, the pictures byte for byte, memory present and absent, escaping, text mode, and hostile structure. <code>bug_report_ui_test</code> (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. <code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
+<p><code>bug_view_test</code> (BV-01 to 19) builds reports in memory and runs the viewer as <code>python3 -I</code> in a child with an explicit minimal environment (<code>LANG=C</code>, <code>PATH=/usr/bin:/bin</code>, no <code>HOME</code>): refusals, every section, names and values from the report, the pictures byte for byte, memory present and absent, escaping, text mode, and hostile structure. <code>bug_report_ui_test</code> (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. <code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows <code>bug-report-nosd-func</code> and
 <code>bug-report-card-func</code> run the real binary. The second one is the end-to-end check of the
