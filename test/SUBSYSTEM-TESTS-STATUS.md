@@ -88,7 +88,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Render-skip policy    |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Screenshot output (PNG/.SCR) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Bug report writer: zip, RAM rule, privacy, decoded state (GH #492) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Bug report viewer tools/jnext-bug-view.py (GH #492) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Bug report viewer tools/jnext-bug-view.py (GH #492) |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Emulator Boot         |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Emulator Boot (ESP thread) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -240,6 +240,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17262**| **17262**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17266**| **17266**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
