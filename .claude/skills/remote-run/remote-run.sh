@@ -158,10 +158,10 @@ run_local() {
         echo "=== remote-run target: $t" >> "$LOG"
         rc=0
         if [[ "$t" == sh:* ]]; then
-            "${wrap[@]}" env LANG=C bash -c "cd '$dir' && ${t#sh:}" </dev/null >> "$LOG" 2>&1 || rc=$?
+            REMOTE_RUN_FALLBACK=1 "${wrap[@]}" env LANG=C bash -c "cd '$dir' && ${t#sh:}" </dev/null >> "$LOG" 2>&1 || rc=$?
         else
             IFS=' ' read -ra words <<<"$t"
-            "${wrap[@]}" env LANG=C make -C "$dir" "${words[@]}" </dev/null >> "$LOG" 2>&1 || rc=$?
+            REMOTE_RUN_FALLBACK=1 "${wrap[@]}" env LANG=C make -C "$dir" "${words[@]}" </dev/null >> "$LOG" 2>&1 || rc=$?
         fi
         echo "=== remote-run result: $t rc=$rc time=?s peak=?MiB" >> "$LOG"
         if [[ $rc -ne 0 ]]; then

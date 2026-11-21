@@ -9,13 +9,13 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-36. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-37. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=36
+EXPECTED_ROWS=37
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -709,5 +709,20 @@ done
 row RRUN-36 "$([[ $m_a -eq 0 && $m_b -eq 0 && "$line2" == *"--memory 6553m --memory-swap 6553m"* && "$line2" == *"JNEXT_TEST_JOBS=12"* && "$line1" == *"--memory 13107m --memory-swap 13107m"* \
     && -z "$bad" ]] && echo 1 || echo 0)" \
     "per-lane memory: 16 GiB host gives 6553m for 2 lanes, 13107m for 1; LANES 0, x and 10 exit 2 naming LANES (a=$m_a b=$m_b bad:$bad)"
+
+# RRUN-37: the local fallback marks its wrapper's environment REMOTE_RUN_FALLBACK=1, so a wrapper that itself
+# sends heavy runs to the remote (the autonomous run's slot.sh, GH #547 stage 4) never sends one back
+rm -f "$FAKE_STATE/make-calls"
+cat > "$TMP/wrap2" <<'EOF'
+#!/usr/bin/env bash
+echo "fallback=${REMOTE_RUN_FALLBACK:-unset}" >> "$FAKE_STATE/make-calls"
+exec "$@"
+EOF
+chmod +x "$TMP/wrap2"
+REMOTE_RUN_LOCAL_WRAP="$TMP/wrap2" timeout --kill-after=5s 60s bash "$DRIVER" --log-dir "$TMP/logs" --id u37 \
+    --fallback-local "$TMP/local" feature "$SHA" unit-test 'sh:true' >/dev/null 2>&1
+fb=$(grep fallback= "$FAKE_STATE/make-calls" | sort -u)
+row RRUN-37 "$([[ "$fb" == "fallback=1" && $(grep -c fallback= "$FAKE_STATE/make-calls") -eq 2 ]] && echo 1 || echo 0)" \
+    "both fallback forms (make target, sh:) put REMOTE_RUN_FALLBACK=1 in the wrapper's environment"
 
 finish
