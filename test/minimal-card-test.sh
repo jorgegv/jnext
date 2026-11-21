@@ -414,7 +414,7 @@ rm -f "$LIST" "$T/l/o1.img" "$T/l/o2.img"
 # NextZXOS runs every dot command (and so opens most files from its browser) from C:/DOT (GH #549).
 # Oracle: the source image read by mtools. $T/xc and $T/xs (MINIMG-05) hold the card's and the
 # source's boot-set trees, /dot among them.
-dot_card=$(mdir -/ -a -b -i "$CARD@@32256" ::/dot 2>/dev/null | LC_ALL=C sort || true)
+dot_card=$(mdir -/ -a -b -i "$CARD@@32256" ::/ 2>/dev/null | { grep -iE '^::/dot(/|$)' || true; } | LC_ALL=C sort || true)
 dot_src=$(grep -iE '^::/dot(/|$)' <<<"$src_all" | LC_ALL=C sort || true)
 ok=1; bad=""
 [[ -n "$dot_card" && "$dot_card" == "$dot_src" ]] || { ok=0; bad+=" list"; }
