@@ -153,7 +153,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `palette_priority()` (the Palettes `Pri` column), `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
 | Copper | `copper()` | — |
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
-| Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
+| Audio | `audio_state()`, `ay_mode()` | `set_audio_mute_mask()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 | Symbols | `symbols().symbols()` (the toolchain's labels and the user's), `shown_name()`, `source_page()`, `source_map().lookup()`, `state_revision()` | — |
@@ -216,7 +216,12 @@ redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, 
 redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1107`; `PausedStamp`,
 `debugger_manager.h:262`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
-everything, the Video tab's composited frame included, fifty times a second. The stamp is:
+everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
+exception to the running cadence: while the window is open, the Audio dock is on show (`panel_on_show()`) and its
+Chips sub-tab is the current one (`AudioPanel::chips_on_show()`), `refresh_panels()` calls
+`AudioPanel::refresh_live()` on every tick, so the decoded chips follow the music. It is a refresh of its own,
+counted by `take_audio_live_refresh_count()`, not a `refresh_window()` call, so no other panel's cadence moves.
+The stamp is:
 
 - the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and
   host actions make);
