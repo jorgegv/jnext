@@ -117,6 +117,11 @@ public:
     /// Access individual AY chip (for debugging).
     const AyChip& ay(int idx) const { return ay_[idx]; }
 
+    /// Index (0-2) of the chip ay_select_ names, and one chip's pan bits
+    /// ({left_en, right_en}, turbosound.vhd:129-136). Debugger views.
+    int selected_index() const { return active_ay_index(); }
+    uint8_t pan(int idx) const { return pan_[idx]; }
+
     /// The chip a classic AY program reaches through ports 0xFFFD/0xBFFD:
     /// the one ay_select_ names (AY#0 unless TurboSound moved it).
     const AyChip& active_ay() const { return ay_[active_ay_index()]; }

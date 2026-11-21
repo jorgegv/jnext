@@ -12103,7 +12103,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     //
     // Audio timing constant: PSG clock = 28 MHz / 16 = 1.75 MHz → one
     // PSG tick every 16 master cycles.
-    static constexpr uint64_t PSG_DIVISOR = 16;
+    static constexpr uint64_t PSG_DIVISOR = PSG_CLOCK_DIVISOR;
 
     // Execute the Copper at 28 MHz granularity over the master-cycle
     // window covered by this CPU instruction (G117), stopping at each

@@ -686,6 +686,41 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-02 | The same for muting the DAC and for muting the beeper | State bytes and framebuffer hash are equal                |
 | AIZ-03 | Positive control: one extra `OUT 0xBFFD` in one run | State bytes differ (the comparison can fail)             |
 | AIZ-04 | Mute AY1, load a state saved unmuted             | The state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
+| AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
+
+### 8.3 `Debugger::audio_state()`
+
+Driven by real port writes (0xFFFD/0xBFFD, 0xFE, the DAC ports) and NextREG writes on a ZXN_ISSUE2
+machine; PSG time by ticking TurboSound. Oracles as cited per row.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| ADS-01 | none                                             | `psg_clock_hz` 1750000 (`zxnext_top_issue2.vhd:1209,1217`)  |
+| ADS-02 | R7 = every value 0x00-0x3F                       | Tone enabled = bit k clear, noise enabled = bit k+3 clear (`ym2149.vhd:467-469`) |
+| ADS-03 | R0-R5 distinct                                   | Periods 0xF34, 0x256, 0x378 (`:302-304`, R1/R3/R5 bits 3:0) |
+| ADS-04 | R8=0x0A, R9=0x1F, R10=0xE5                       | Volumes 10, 15, 5; envelope on B only (`:476-520`)          |
+| ADS-05 | R6 = 0xFF                                        | Noise period 31 (`:283`)                                    |
+| ADS-06 | R11=0x34, R12=0x12, R13=0xFE                     | Period 0x1234, shape 0x0E (`:332`)                          |
+| ADS-07 | Address 0x1D, then a data write                  | Address 0x1D, registers unchanged (`:173,188`)              |
+| ADS-08 | TurboSound on; 0xFFFD = 0xBE, 0xDD, 0x9F         | Active chip 1 pan 01, 2 pan 10, 0 pan 00; pans end [0,1,2] (`turbosound.vhd:129-136`) |
+| ADS-09 | TurboSound off; 0xFFFD = 0xBE                    | Active chip and pan unchanged (`:129`)                      |
+| ADS-10 | Select AY2, TurboSound off, then on              | In-mix [F,F,T], then [T,T,T] (`:197,252,307`)               |
+| ADS-11 | NR 0x09 = 0x40                                   | Mono [F,T,F] (`zxnext.vhd:5747`)                            |
+| ADS-12 | NR 0x06 = 0x03                                   | psg_mode 3, held in reset (`:5731,6989`)                    |
+| ADS-13 | NR 0x06 = 0x02                                   | psg_mode 2, not held, YM curve (`:6999`)                    |
+| ADS-14 | NR 0x06 = 0x01, then 0x00                        | psg_mode 1, 0; never held                                   |
+| ADS-15 | NR 0x08 = 0x22, then 0x00                        | TurboSound on and ACB, then off and ABC (`:5739-5742`)      |
+| ADS-16 | Mid-ramp, then R13 = 0x08 and 0x0C, no tick      | Step 31 falling, then 0 rising: the pending reload (`ym2149.vhd:393-401`) |
+| ADS-21 | AY and YM curves; fixed volume 7, 0; envelope step 28; a gated channel | Levels 0x22/0x13, 0, 0xD7/0xA1; the gated channel still reports its level while its output is 0 (`:476-537`) |
+| ADS-22 | NR 0x08 bit 3, NR 0x84; ports 0x1F/0x0F/0x4F/0x5F | Channels 0x11, 0x22, 0x33, 0x44; enabled (`zxnext.vhd:2745,2967-2980`) |
+| ADS-23 | Then NR 0x08 bit 3 off                           | Disabled, all channels 0x80 (`soundrive.vhd:72-101`)        |
+| ADS-24 | NR 0x84 = 0xA5, 0xFE; expansion bus on, NR 0x88 = 0x0F | Port families 0xA4 and AY ports on; ports off; 0x0E and on (`zxnext.vhd:2708-2709,2744-2751`) |
+| ADS-25 | Port 0xFE = 0x10 with tape EAR high; 0x08 with it low | EAR + tape; MIC only                                   |
+| ADS-26 | NR 0x06 bit 6 x NR 0x08 bit 4                    | The two flags as written; excluded is their AND (`:5724,5739,7114`) |
+| ADS-27 | NR 0xA2 = 0x81, 0x41, 0x01                       | (left, right, EAR) = (T,F,T), (F,T,T), (F,F,F) (`:2593-2598,2677-2690`) |
+| ADS-28 | Gains and mute masks set on the mixer            | Host fields equal; muted on the muted chip's channels only  |
+| ADS-29 | `--silent` and a default machine                 | Synthesis off / on                                          |
+| ADS-30 | Distinct bytes in all 16 registers of each chip  | `regs` equals the bytes written and `ay_registers(c)`       |
 
 ## Test Implementation Strategy
 

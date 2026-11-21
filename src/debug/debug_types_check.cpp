@@ -29,6 +29,7 @@
 #include "debug/result.h"
 
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
 
 // The things the published types mirror. None of these may ever be included by
@@ -247,6 +248,13 @@ static_assert(Keyboard::MAX_AUTO_TYPE_KEYS == 16,
 static_assert(AudioMute::AY_ALL == (AudioMute::AY0 | AudioMute::AY1 | AudioMute::AY2), "");
 static_assert(AudioMute::ALL == (AudioMute::AY_ALL | AudioMute::DAC | AudioMute::BEEPER), "");
 static_assert(AudioMute::NONE == 0, "");
+
+// INS-22: the audio view is three chips of three channels and a four-channel DAC,
+// the TurboSound stack and the Soundrive DAC the machine really has.
+static_assert(AY_CHANNELS_PER_CHIP == 3, "an AY/YM chip has three channels");
+static_assert(DAC_CHANNEL_COUNT == 4, "the Soundrive DAC has four channels");
+static_assert(std::tuple_size<decltype(AudioState::chips)>::value == AY_CHIP_COUNT, "");
+static_assert(static_cast<int>(EnvelopeMotion::Holding) == 2, "Falling, Rising, Holding");
 
 // INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons. From
 // `RegId::Count`, so an appended register fires it.
