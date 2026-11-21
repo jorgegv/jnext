@@ -53,10 +53,12 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 # What `make unit-test` runs before the suites, in three steps (GH #547): the LINTS one after another and first
 # (seconds, fail fast, no build needed); the CHECKS concurrently WITH the build (none reads or writes build/);
 # the POST checks concurrently after it (each reads the built tree). UNIT_TEST_CHECK_JOBS caps both groups.
-# sdcard-image stays the last prerequisite of unit-test itself (sdcard-ensure-func greps for it).
+# docs-check and sdcard-image stay prerequisites of unit-test itself, sdcard-image last: sdcard-ensure-func greps for
+# that, and HS-102 needs the cite check in `make -n unit-test`, which a prerequisite that fails under the self-test's
+# scratch HOME (sdcard-image) would cut off before the recipe if docs-check were in it.
 UNIT_TEST_LINTS      := lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check wasm-function-size-selftest traceability-dup-check
-UNIT_TEST_CHECKS     := lint-user-docs-card-selftest docs-tree-same-selftest traceability-selftest cmake-guard-selftest docs-check package-contract-test
-UNIT_TEST_POST       := schema-check snapshot-zip-check minimal-image-test
+UNIT_TEST_CHECKS     := lint-user-docs-card-selftest docs-tree-same-selftest traceability-selftest cmake-guard-selftest
+UNIT_TEST_POST       := schema-check snapshot-zip-check minimal-image-test package-contract-test
 UNIT_TEST_CHECK_JOBS ?= 6
 # Empty in the sub-makes of the POST group and of traceability-check-run: the tree is already built there, and a
 # concurrent `cmake --build` of one tree from three sub-makes is exactly what the group must not start.
@@ -993,7 +995,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: $(UNIT_TEST_LINTS) sdcard-image
+unit-test: $(UNIT_TEST_LINTS) docs-check sdcard-image
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
