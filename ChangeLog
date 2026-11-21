@@ -34,6 +34,9 @@
 - Web page and first-run download use SpecNext's current emulator image, sn-emulator-26.11a (NextZXOS 2.10a)
 - Web example pages fit a phone screen instead of being laid out at desktop width and shrunk
 
+### Internal JNEXT Development
+- Builds, test suites and the batch gate can run on a remote podman host over SSH, in the CI container (remote-run)
+
 ### Contributors in this release
 - @janko-jj, @derekfountain, @vmorilla
 
@@ -45,7 +48,6 @@
 
 ### Internal JNEXT Development
 - CI and release builds move to Fedora 45; packages track the two supported Fedora and two latest Ubuntu LTS releases
-- Builds, test suites and the batch gate can run on a remote podman host over SSH, in the CI container (remote-run)
 
 ## v1.3.0 (2026-11-15)
 
