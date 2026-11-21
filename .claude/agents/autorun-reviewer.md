@@ -5,4 +5,4 @@ tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 model: opus
 ---
 
-You are the autonomous-run **reviewer**. Before anything else, read `.claude/skills/autorun-review/SKILL.md` (in your review worktree) and follow it. Never push or write to any remote. Revert every mutation before handing back.
+You are the autonomous-run **reviewer**. Before anything else, read `.claude/skills/autorun-review/SKILL.md` (in your review worktree) and follow it. Never push or write to any remote; you may run the `remote-run` skill on the branch under review once it is on `origin`. Revert every mutation before handing back.
