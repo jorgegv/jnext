@@ -63,7 +63,8 @@ and delete `gate-v<version>` on origin right after, green or red. `--gate` runs 
 `GATE_LANE_WAIT`. **Green means the exit status is 0 AND the summary ends with `--- verdict: CLEAN`**:
 each step's own `totals` line (`Total: ... Failed: 0 Skipped: 0`, or regression's `Pass: .. Fail: 0
 Skip: 0`) is shown, and exactly one result line per step must exist. A step that exits 0 but reports a
-failure or a skip, or a step that never ran, is NOT CLEAN and the driver exits 1. A green `make regression`
+failure or a skip, a step that never ran, or a step during which the container's memory limit killed a
+process (an `=== remote-run oom:` line) is NOT CLEAN and the driver exits 1. A green `make regression`
 stamp is copied back only when the whole run is green (exit 0 and CLEAN), then `make regression-stamp-check`
 here sees it; a gate that fails after the regression step returns no stamp.
 
@@ -107,10 +108,13 @@ directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`)
   driver copies it to `~/.cache/jnext/regression-stamps`, so `make regression-stamp-check` here sees
   it for that content key. A loaded-host timing FAIL is re-run solo on the remote
   (`make regression-confirm`), the same rule as locally; that is a separate target in a second call.
-- **One lane**: an `flock`; a plain run waits for it only `LANE_WAIT` (30 s) and then falls back, `--gate` waits `GATE_LANE_WAIT`. Caps: `JOBS` 8 (4 for LTO/PGO link targets),
-  `JNEXT_TEST_JOBS` 8, a hard container memory limit (the configured 10g, or 80% of the host's memory
-  when smaller; swap off) and 1 GB `/dev/shm`. The preflight reports MemAvailable and the ZFS ARC size
-  and counts reclaimable ARC as available. Raise the caps from the logged peak memory.
+- **One lane**: an `flock`; a plain run waits for it only `LANE_WAIT` (30 s) and then falls back, `--gate`
+  waits `GATE_LANE_WAIT`. Caps: `JOBS` 11 (6 for LTO/PGO link targets), `JNEXT_TEST_JOBS` 12, a hard
+  container memory limit (the configured 11g, or 80% of the host's memory when smaller; swap off) and 1 GB
+  `/dev/shm`. The preflight reports MemAvailable and the ZFS ARC size and counts reclaimable ARC as
+  available. Every result line logs `peak=` (the cgroup's cumulative high-water mark, page cache included)
+  and `anon=` (the step's own peak of anonymous memory): tune the caps on `anon=`, not `peak=`. A process
+  killed by the limit is logged as `oom` and makes the run NOT CLEAN.
 - **Orphans are killed**: while a run is live the remote sends a heartbeat down the ssh session; if the
   session drops (or the driver gets TERM/INT) the remote kills the container, frees the lane and removes
   the run's checkout. Leftovers older than an hour are swept at the next run's start.

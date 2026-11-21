@@ -82,7 +82,7 @@ summarize_log() {
     echo "--- targets"
     grep -E '^=== remote-run result:' <<<"$clean" || echo "(no target finished)"
     local bad nbad
-    bad=$(grep -E '(^|[[:space:]])(FAIL|SKIP|SKIPPED)([[:space:]:]|$)' <<<"$clean" | grep -vE '^=== remote-run' || true)
+    bad=$(grep -E '(^|[[:space:]])(FAIL|SKIP|SKIPPED)([[:space:]:]|$)' <<<"$clean" | grep -vE '^=== remote-run|^-- ' || true)
     nbad=0
     [[ -z "$bad" ]] || nbad=$(wc -l <<<"$bad")
     echo "--- FAIL / SKIP lines: $nbad"

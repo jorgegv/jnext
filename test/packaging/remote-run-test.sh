@@ -9,13 +9,13 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-28. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-30. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=28
+EXPECTED_ROWS=30
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -75,7 +75,7 @@ case "${1:-}" in
     info)
         case "$*" in
             *GraphDriverName*) [[ "${FAKE_INFO_FAIL:-0}" != 1 ]] || { echo "boom: store broken" >&2; exit 1; }; echo overlay ;;
-            *) echo true ;;
+            *) echo "${FAKE_ROOTLESS:-true}" ;;
         esac ;;
     image)
         case "${2:-}" in
@@ -130,7 +130,7 @@ echo "make $*" >> "$FAKE_STATE/make-calls"
 [[ " $* " != *" tot1 "* ]] || echo "Total:    4  Passed:    4  Failed:    0  Skipped:    0"
 [[ " $* " != *" tot2 "* ]] || echo "  Pass: 7  Fail: 0  Skip: 0"
 if [[ " $* " == *" oomy "* ]]; then
-    echo "anon 3221225472" > "$RR_CGROUP/memory.stat"; sleep 0.6
+    echo "anon 3221225472" > "$RR_CGROUP/memory.stat"; sleep 2
     echo "anon 104857600" > "$RR_CGROUP/memory.stat"; echo "oom_kill 1" > "$RR_CGROUP/memory.events"
 fi
 [[ " $* " != *" bad "* ]]
@@ -238,6 +238,7 @@ noise line
   PASS A-01 fine
   FAIL B-02 broke
   SKIP C-03 not run
+-- libspectrum NOT found: szx_probe/sna_probe not built, rows will SKIP
 Total:  10  Passed:  8  Failed:  1  Skipped:  1
 === remote-run result: unit-test rc=1 time=12s peak=900MiB
 === remote-run totals: unit-test :: Total: 10 Passed: 8 Failed: 1 Skipped: 1
@@ -289,6 +290,8 @@ built=$(calls | grep -c ' build ' || true)
 reset_state
 FAKE_STAMP=1 FAKE_RC=0 drive --id r1 feature "$SHA" unit-test sh:true
 run_rc=$RC
+# nothing the run started (the watchdog's sleep) may still hold the lane lock once the driver returned
+lane_free=0; flock -n "$WORK/lane.lock" true && lane_free=1
 runline=$(calls | grep -E '(^| )run ' | head -n 1)
 roots_ok=1
 while read -r s r; do [[ "$s" == "$WORK/"* && "$r" == "$WORK/"* ]] || roots_ok=0; done < "$FAKE_STATE/roots"
@@ -297,9 +300,9 @@ while read -r v; do [[ "$v" == "$WORK/"* ]] || vols_ok=0; done < <(grep -oE -- '
 [[ "$runline" == *"/root/.cache/ccache"* && "$runline" == *":/root/.jnext "* ]] || vols_ok=0
 mem_ok=0; [[ "$runline" == *"--memory "*"--memory-swap "* ]] && mem_ok=1
 drv_ok=0; [[ "$(cat "$WORK/containers/driver" 2>/dev/null)" == overlay ]] && drv_ok=1
-row RRUN-08 "$([[ $warm_rc -eq 0 && $built -eq 1 && $run_rc -eq 0 && $roots_ok -eq 1 && $vols_ok -eq 1 && $mem_ok -eq 1 && $drv_ok -eq 1 \
+row RRUN-08 "$([[ $warm_rc -eq 0 && $built -eq 1 && $run_rc -eq 0 && $roots_ok -eq 1 && $vols_ok -eq 1 && $mem_ok -eq 1 && $drv_ok -eq 1 && $lane_free -eq 1 \
     && -f "$TMP/stamps/fakekey" && -z "$(find "$WORK/runs" "$WORK/ctl" "$WORK/stamps" -mindepth 1)" ]] && echo 1 || echo 0)" \
-    "warm builds once; a run mounts only dirs under the work dir, stores podman there, records the driver, caps memory, returns the stamp, leaves no checkout (warm=$warm_rc run=$run_rc roots=$roots_ok vols=$vols_ok mem=$mem_ok drv=$drv_ok)"
+    "warm builds once; a run mounts only dirs under the work dir, stores podman there, records the driver, caps memory, returns the stamp, leaves no checkout (warm=$warm_rc run=$run_rc roots=$roots_ok vols=$vols_ok mem=$mem_ok drv=$drv_ok lane=$lane_free)"
 
 # RRUN-09: a failing container exits the driver with 1, copies no stamp, and the log keeps the result
 reset_state; rm -rf "$TMP/stamps"
@@ -546,5 +549,21 @@ row RRUN-28 "$([[ $o1 -eq 1 && "$(grep -a 'result: oomy' "$TMP/logs/o1.log")" ==
     && "$(grep -a 'remote-run oom:' "$TMP/logs/o1.log")" == *"oomy killed 1 process"* \
     && "$OUT" == *"memory limit killed a process"* ]] && echo 1 || echo 0)" \
     "per-step anon peak logged; an oom kill is logged and the run is NOT CLEAN (rc=$o1)"
+
+# RRUN-29: a step that prints a fallback marker of its own at column 0 and fails stays a red run: exit 1,
+# not 75, no local re-run (the markers count only before the run started)
+reset_state; rm -f "$FAKE_STATE/make-calls"
+runin --id n1 --fallback-local "$TMP/local" feature "$SHA" 'sh:echo "=== remote-run fallback: x"; false'
+n1=$RC
+row RRUN-29 "$([[ $n1 -eq 1 && "$OUT" != *"RAN LOCALLY"* && ! -e "$FAKE_STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "a step's own '=== remote-run fallback:' line does not turn a failing run into a fallback (rc=$n1)"
+
+# RRUN-30: a podman that is not rootless is refused before anything is built or run (75)
+reset_state
+FAKE_ROOTLESS=false drive --id n2 feature "$SHA" unit-test
+n2=$RC
+row RRUN-30 "$([[ $n2 -eq 75 && "$(grep -a 'fallback:' "$TMP/logs/n2.log")" == *"not rootless"* ]] \
+    && ! grep -qE '(^| )(run|build) ' <<<"$(calls)" && echo 1 || echo 0)" \
+    "a podman that is not rootless: exit 75 'not rootless', nothing built or run (rc=$n2)"
 
 finish
