@@ -128,6 +128,8 @@
 #     perl test/refresh-traceability-matrix.pl                  # full refresh
 #     perl test/refresh-traceability-matrix.pl --check-accounting
 #     perl test/refresh-traceability-matrix.pl --planned-ids      # for the dup-ID gate
+#     perl test/refresh-traceability-matrix.pl --fails-from-logs=build/test-logs
+#                       # statuses from `make unit-test`'s own run (GH #547), no suite re-run
 #
 # Exit status:
 #     0  clean
@@ -205,6 +207,12 @@ my $EMIT_TO;
 # rather than beside fpga_src() further down: parse_args() below assigns it,
 # and a `my` is not in scope before its own declaration.
 my $FPGA_SRC_OPT;
+# --fails-from-logs=DIR (GH #547). Where run_fails() reads a suite's FAIL set
+# from instead of running the binary: DIR/<binary basename>.log, the file
+# test/run-unit-tests.sh writes for every suite it ran. `make unit-test` runs
+# every traced suite itself, in parallel, and then asks this script for the
+# matrix; re-running them here one at a time was a second copy of the same run.
+my $FAILS_LOG_DIR;
 sub parse_args {
     for my $arg (@_) {
         if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
@@ -233,6 +241,11 @@ sub parse_args {
         # Refused up front when it is not a directory: a typo'd path would
         # otherwise degrade silently into the unvalidated mode this exists to
         # make impossible.
+        if ($arg =~ /^--fails-from-logs=(.+)$/) {
+            $FAILS_LOG_DIR = $1;
+            fatal("--fails-from-logs='$1' is not a directory") unless -d $FAILS_LOG_DIR;
+            next;
+        }
         if ($arg =~ /^--fpga-src=(.+)$/) {
             $FPGA_SRC_OPT = $1;
             fatal("--fpga-src='$1' is not a directory") unless -d $FPGA_SRC_OPT;
@@ -240,7 +253,8 @@ sub parse_args {
         }
         fatal("unknown option '$arg'\n"
             . "usage: refresh-traceability-matrix.pl [--check-accounting] "
-            . "[--planned-ids] [--dump-descriptions] [--fpga-src=PATH]");
+            . "[--planned-ids] [--dump-descriptions] [--fails-from-logs=DIR] "
+            . "[--fpga-src=PATH]");
     }
 }
 
@@ -1295,9 +1309,33 @@ sub as_list {
 # own name.
 my %FAILS_CACHE;
 
+# The FAIL set of one suite from the log the unit harness wrote for it
+# (--fails-from-logs). A missing or unreadable log, or one with no `Total:`
+# line (the suite died before it could report), is fatal: an absent log must
+# never read as an empty FAIL set, which would pass-whitewash every row of the
+# section, the same posture as the "binary not executable" refusal below.
+sub fails_from_log {
+    my ($binary) = @_;
+    (my $base = $binary) =~ s{.*/}{};
+    my $log = "$FAILS_LOG_DIR/$base.log";
+    fatal("no log for suite $base: $log") unless -f $log && -r $log;
+    open(my $fh, '<', $log) or fatal("cannot read the log of suite $base: $log: $!");
+    my (%fails, $total);
+    while (my $line = <$fh>) {
+        $total = 1 if $line =~ /^Total:\s+\d+/;
+        if ($line =~ $FAIL_RE) {
+            $fails{ defined $1 ? $1 : $2 } = 1;
+        }
+    }
+    close $fh;
+    fatal("the log of suite $base has no 'Total:' line: $log") unless $total;
+    return \%fails;
+}
+
 sub run_fails {
     my ($binary) = @_;
     return $FAILS_CACHE{$binary} if exists $FAILS_CACHE{$binary};
+    return $FAILS_CACHE{$binary} = fails_from_log($binary) if defined $FAILS_LOG_DIR;
     my $abs = "$ROOT/$binary";
 
     # Mirror Python subprocess.run's FileNotFoundError: refuse to "run" a

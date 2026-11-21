@@ -23,6 +23,12 @@
 #
 # Standalone script, run with bash (not sourced by a row runner), so it owns its trap.
 #
+# Parallel (GH #547): the fixture preparation is a set of independent chains (native runs, each with its own
+# clone and config dir), and the specs run through spec-runner.inc's bounded runner, both at most
+# JNEXT_BROWSER_JOBS at once (default min(4, max(1, nproc/2)); 1 = one after another). A spec writes only under
+# its own $SMOKE_WORK (<scratch>/work/<spec>) and the shared fixtures are read-only while the specs run. A spec
+# tagged `file:count:serial` runs alone after the parallel group (only with evidence, see spec-runner.inc).
+#
 # What it provides to the specs, all in ONE scratch directory under ~/tmp that is
 # deleted at the end:
 #   card.img      the 40 MiB minimal NextZXOS card, built from the cached distribution
@@ -43,13 +49,16 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:34" "image.mjs:9" "api.mjs:34" "package.mjs:7" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:42" "card-errors.mjs:5" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "$@")
+# Longest first (the specs run in parallel, so the order is the schedule): wall times of the CI run 44897420688.
+SPECS=("crt.mjs:13" "api.mjs:34" "smoke.mjs:34" "writes.mjs:17" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
+# shellcheck source=spec-runner.inc
+. "$HERE/spec-runner.inc"
 BUILD=$(cd "$BUILD" && pwd) || exit 2
 
-die() { echo "browser-smoke: $*" >&2; exit 2; }
+die() { br_die "$@"; }
 
 EMSDK=$(bash "$ROOT/test/provision-emsdk.sh" --print-path) || die "no provisioned emsdk (make emsdk)"
 NODE=$(ls -d "$EMSDK"/node/*/bin/node)
@@ -69,8 +78,8 @@ PKGZIP="$BUILD/jnext-$VERSION-web.zip"
 
 mkdir -p "$HOME/tmp"
 SCRATCH=$(mktemp -d "$HOME/tmp/jnext-browser-smoke.XXXXXX")
-trap 'rm -rf "$SCRATCH"' EXIT
-mkdir "$SCRATCH/oracle" "$SCRATCH/out"
+trap 'br_thaw "$SCRATCH"; rm -rf "$SCRATCH"' EXIT
+mkdir "$SCRATCH/oracle" "$SCRATCH/out" "$SCRATCH/work"
 
 CARD_TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/sdl-release/tools/make-minimal-card/make-minimal-card}"
 [[ -x "$CARD_TOOL" ]] || die "$CARD_TOOL is not built (make sdl-release)"
@@ -103,72 +112,84 @@ oracle() {
 }
 O="$SCRATCH/oracle"
 TAPF="$ROOT/test/00regression/tap/beeper_demo.tap"
-oracle boot     sdl      --machine 48k --delayed-screenshot "$O/boot.png"  --delayed-screenshot-frames 150 --delayed-automatic-exit-frames 400
-oracle idle     sdl      --machine 48k --delayed-screenshot "$O/idle.png"  --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 500
-oracle tap      sdl      --machine 48k --load "$TAPF" --delayed-screenshot "$O/tap.png" --delayed-screenshot-frames 300 --delayed-automatic-exit-frames 600
-oracle tzx      sdl      --machine 48k --load "$SCRATCH/beeper_demo.tzx" --delayed-screenshot "$O/tzx.png" --delayed-screenshot-frames 400 --delayed-automatic-exit-frames 700
-oracle wav      sdl      --machine 48k --load "$SCRATCH/beeper_demo.wav" --delayed-screenshot "$O/wav.png" --delayed-screenshot-frames 1500 --delayed-automatic-exit-frames 1600
-oracle tilemap  sdl      --machine next --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/tilemap_demo.nex" \
-                         --delayed-screenshot "$O/tilemap.png" --delayed-screenshot-frames 150 --delayed-automatic-exit-frames 400
-oracle keys     headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
-                         --delayed-keypress-frames 245 enter --delayed-screenshot "$O/keys.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 500
-oracle key1     headless --machine 48k --delayed-keypress-frames 200 1 --delayed-screenshot "$O/key1.png" --delayed-screenshot-frames 400 --delayed-automatic-exit-frames 600
-oracle pad      headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 6 \
-                         --delayed-keypress-frames 245 enter --delayed-screenshot "$O/pad.png" --delayed-screenshot-frames 420 --delayed-automatic-exit-frames 600
-oracle kmx      headless --machine 48k --load "$ROOT/test/fixtures/tap/key_matrix_demo.tap" --magic-port 0xCAFE --magic-port-mode line \
-                         --delayed-keypress-frames 400 p --delayed-screenshot "$O/kmx.png" --delayed-screenshot-frames 500 --delayed-automatic-exit-frames 600
+
+# The fixture preparation is a set of independent CHAINS (GH #547): a step that needs another's file is in
+# its chain, after it, and no two chains write the same path (every file below carries its own name; each
+# native run has its own clone and JNEXT_CONFIG_DIR). `prep` runs a chain in the background, at most
+# JNEXT_BROWSER_JOBS at once (the specs' value); `prep_join` waits and dies naming every chain that failed.
+# A chain's `die` ends only its own subshell. Launch order is longest first.
+PREP_JOBS=$(br_jobs) || exit 2
+PREP_FAILED="$SCRATCH/out/prep.failed"
+prep() {
+    local name=$1; shift
+    while (( $(jobs -rp | wc -l) >= PREP_JOBS )); do sleep 0.1; done
+    { ( "$@" ) || echo "$name" >>"$PREP_FAILED"; } &
+}
+prep_join() {
+    wait
+    [[ ! -s "$PREP_FAILED" ]] || die "fixture preparation failed: $(tr '\n' ' ' <"$PREP_FAILED")"
+}
 
 # The per-subsystem log level oracle (BRW-27): the same arguments natively print the line the page must print.
-cp --reflink=auto "$SCRATCH/card.img" "$O/copper.card"
-SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/copper.cfg" \
-    timeout --foreground --kill-after=5s 300s "$NATIVE" --sdcard "$O/copper.card" --silent --machine next \
-    --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/copper_demo.nex" --log-level copper=debug \
-    --delayed-automatic-exit-frames 300 >"$O/copper.log" 2>&1 || die "oracle copper failed"
-rm -rf "$O/copper.card" "$O/copper.cfg"
+chain_copper() {
+    cp --reflink=auto "$SCRATCH/card.img" "$O/copper.card"
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/copper.cfg" \
+        timeout --foreground --kill-after=5s 300s "$NATIVE" --sdcard "$O/copper.card" --silent --machine next \
+        --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/copper_demo.nex" --log-level copper=debug \
+        --delayed-automatic-exit-frames 300 >"$O/copper.log" 2>&1 || die "oracle copper failed"
+    rm -rf "$O/copper.card" "$O/copper.cfg"
+}
 
 # The frame period / CPU speed oracle (BRW-31): the BENCH line of the same arguments natively.
-cp --reflink=auto "$SCRATCH/card.img" "$O/beast.card"
-SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/beast.cfg" \
-    timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/beast.card" --silent --machine next \
-    --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/beast.nex" --benchmark 450 >"$O/beast.bench" 2>"$O/beast.err" \
-    || die "oracle beast failed"
-rm -rf "$O/beast.card" "$O/beast.cfg"
+chain_beast() {
+    cp --reflink=auto "$SCRATCH/card.img" "$O/beast.card"
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/beast.cfg" \
+        timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/beast.card" --silent --machine next \
+        --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/beast.nex" --benchmark 450 >"$O/beast.bench" 2>"$O/beast.err" \
+        || die "oracle beast failed"
+    rm -rf "$O/beast.card" "$O/beast.cfg"
+}
 
 # The write journal oracle (writes.mjs WBW-01..03): the save_counter program natively, twice, on a
 # clone of the card with --sdcard-writes. The journal after each run (w1.jsdw, w2.jsdw) and the
 # guest's magic-port lines are what the page's stored record must equal byte for byte. The clone
 # is deleted; the journals hold only the sectors the guest wrote.
-cp --reflink=auto "$SCRATCH/card.img" "$O/w.card"
-for n in 1 2; do
-    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/w.cfg" \
-        timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/w.card" --silent --machine next \
-        --sdcard-sha256 "$CARD_SHA256" --sdcard-writes "$O/w.jsdw" \
-        --rtc 2026-07-10T08:55:00 --magic-port 0xCAFE --magic-port-mode line \
-        --load "$ROOT/test/fixtures/nex/save_counter.nex" --delayed-automatic-exit-frames 400 \
-        >"$O/w$n.log" 2>&1 || { cat "$O/w$n.log" >&2; die "oracle writes run $n failed"; }
-    cp "$O/w.jsdw" "$O/w$n.jsdw"
-    grep -a "^SAVE $n OK\$" "$O/w$n.log" >/dev/null || { cat "$O/w$n.log" >&2; die "oracle writes run $n did not save"; }
-done
-rm -rf "$O/w.card" "$O/w.cfg" "$O/w.jsdw"
+chain_writes() {
+    cp --reflink=auto "$SCRATCH/card.img" "$O/w.card"
+    local n
+    for n in 1 2; do
+        SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/w.cfg" \
+            timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/w.card" --silent --machine next \
+            --sdcard-sha256 "$CARD_SHA256" --sdcard-writes "$O/w.jsdw" \
+            --rtc 2026-07-10T08:55:00 --magic-port 0xCAFE --magic-port-mode line \
+            --load "$ROOT/test/fixtures/nex/save_counter.nex" --delayed-automatic-exit-frames 400 \
+            >"$O/w$n.log" 2>&1 || { cat "$O/w$n.log" >&2; die "oracle writes run $n failed"; }
+        cp "$O/w.jsdw" "$O/w$n.jsdw"
+        grep -a "^SAVE $n OK\$" "$O/w$n.log" >/dev/null || { cat "$O/w$n.log" >&2; die "oracle writes run $n did not save"; }
+    done
+    rm -rf "$O/w.card" "$O/w.cfg" "$O/w.jsdw"
+}
 
 # The esxDOS stand-in's kept file (writes.mjs WBW-13..17): esx_save_counter.nex natively, twice
 # (e1.jsdw, e2.jsdw), then the same program built with another constant byte (e3.jsdw: it reads the
 # old save, as a changed NEX does on a real Next), then the original again (e4.jsdw), always on one
 # journal of one clone of the card. The clone is deleted; each journal holds only the kept file.
-cp --reflink=auto "$SCRATCH/card.img" "$O/e.card"
-n=0
-for nex in esx_save_counter esx_save_counter esx_save_counter_b esx_save_counter; do
-    n=$((n + 1))
-    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/e.cfg" \
-        timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/e.card" --silent --machine next \
-        --sdcard-sha256 "$CARD_SHA256" --sdcard-writes "$O/e.jsdw" \
-        --rtc 2026-07-10T08:55:00 --magic-port 0xCAFE --magic-port-mode line \
-        --load "$ROOT/test/fixtures/nex/$nex.nex" --delayed-automatic-exit-frames 400 \
-        >"$O/e$n.log" 2>&1 || { cat "$O/e$n.log" >&2; die "oracle esx run $n failed"; }
-    cp "$O/e.jsdw" "$O/e$n.jsdw"
-    grep -a "^ESX $n OK\$" "$O/e$n.log" >/dev/null || { cat "$O/e$n.log" >&2; die "oracle esx run $n did not save"; }
-done
-rm -rf "$O/e.card" "$O/e.cfg" "$O/e.jsdw"
+chain_esx() {
+    cp --reflink=auto "$SCRATCH/card.img" "$O/e.card"
+    local n=0 nex
+    for nex in esx_save_counter esx_save_counter esx_save_counter_b esx_save_counter; do
+        n=$((n + 1))
+        SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/e.cfg" \
+            timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/e.card" --silent --machine next \
+            --sdcard-sha256 "$CARD_SHA256" --sdcard-writes "$O/e.jsdw" \
+            --rtc 2026-07-10T08:55:00 --magic-port 0xCAFE --magic-port-mode line \
+            --load "$ROOT/test/fixtures/nex/$nex.nex" --delayed-automatic-exit-frames 400 \
+            >"$O/e$n.log" 2>&1 || { cat "$O/e$n.log" >&2; die "oracle esx run $n failed"; }
+        cp "$O/e.jsdw" "$O/e$n.jsdw"
+        grep -a "^ESX $n OK\$" "$O/e$n.log" >/dev/null || { cat "$O/e$n.log" >&2; die "oracle esx run $n did not save"; }
+    done
+    rm -rf "$O/e.card" "$O/e.cfg" "$O/e.jsdw"
+}
 
 # The snapshot fixtures (snapshots.mjs BSN-01..11), all made here from OUR programs on clones of the
 # card, headless (--delayed-snapshot is headless-only), and their native oracle pictures: the
@@ -189,103 +210,160 @@ fixture() {
     [[ $rc -eq 0 ]] || { cat "$SCRATCH/out/$name.fixture.log" >&2; die "fixture $name failed (rc=$rc)"; }
 }
 printf '\xF3\x3E\x0F\x01\xFD\x7F\xED\x79\x21\x00\xC0\x11\x01\xC0\x01\xFF\x17\x36\x00\xED\xB0\x21\x00\xD8\x11\x01\xD8\x01\xFF\x02\x36\x20\xED\xB0\x18\xFE' >"$SCRATCH/shadow.bin"
-fixture s48      no   --machine 48k --load "$TAPF" --delayed-snapshot "$SCRATCH/s48.sna" --delayed-snapshot-frames 300 --delayed-automatic-exit-frames 320
-python3 -I "$HERE/sna2z80.py" "$SCRATCH/s48.sna" "$SCRATCH/s48.z80" || die "sna2z80 failed"
-# The state both loaders build, as the SAME writer sees it: the .sna and the converted .z80 each loaded,
-# run one frame and saved again as .sna; the two files must be byte-identical (BSN-02). A picture
-# cannot tell a wrong SP or PC from a right one, this can.
-fixture rtsna    no   --load "$SCRATCH/s48.sna" --delayed-snapshot "$SCRATCH/rtsna.sna" --delayed-snapshot-frames 1 --delayed-automatic-exit-frames 10
-fixture rtz80    no   --load "$SCRATCH/s48.z80" --delayed-snapshot "$SCRATCH/rtz80.sna" --delayed-snapshot-frames 1 --delayed-automatic-exit-frames 10
-fixture s128     no   --machine 128k --inject "$SCRATCH/shadow.bin" --inject-org 8000 --inject-delay 250 \
-                      --delayed-snapshot "$SCRATCH/s128.szx" --delayed-snapshot-frames 300 --delayed-automatic-exit-frames 320
-fixture tilemap  no   --machine next --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/tilemap_demo.nex" \
-                      --delayed-snapshot "$SCRATCH/tilemap.jns" --delayed-snapshot-frames 150 --delayed-automatic-exit-frames 170
-fixture blue     no   --machine next --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/blue.nex" \
-                      --delayed-snapshot "$SCRATCH/blue.jns" --delayed-snapshot-frames 100 --delayed-automatic-exit-frames 120
-fixture other48  grow --machine 48k --delayed-snapshot "$SCRATCH/other48.jns" --delayed-snapshot-frames 150 --delayed-automatic-exit-frames 170
-oracle sna     sdl --load "$SCRATCH/s48.sna"  --delayed-screenshot "$O/sna.png"     --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
-oracle z80     sdl --load "$SCRATCH/s48.z80"  --delayed-screenshot "$O/z80.png"     --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
-oracle szx     sdl --load "$SCRATCH/s128.szx" --delayed-screenshot "$O/szx.png"     --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
-oracle jns     sdl --rtc 2026-07-10T08:55:00 --load "$SCRATCH/tilemap.jns" --delayed-screenshot "$O/jns.png" --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
-oracle bluejns sdl --rtc 2026-07-10T08:55:00 --load "$SCRATCH/blue.jns"    --delayed-screenshot "$O/bluejns.png" --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
+chain_s48() {
+    fixture s48      no   --machine 48k --load "$TAPF" --delayed-snapshot "$SCRATCH/s48.sna" --delayed-snapshot-frames 300 --delayed-automatic-exit-frames 320
+    python3 -I "$HERE/sna2z80.py" "$SCRATCH/s48.sna" "$SCRATCH/s48.z80" || die "sna2z80 failed"
+    # The state both loaders build, as the SAME writer sees it: the .sna and the converted .z80 each loaded,
+    # run one frame and saved again as .sna; the two files must be byte-identical (BSN-02). A picture
+    # cannot tell a wrong SP or PC from a right one, this can.
+    fixture rtsna    no   --load "$SCRATCH/s48.sna" --delayed-snapshot "$SCRATCH/rtsna.sna" --delayed-snapshot-frames 1 --delayed-automatic-exit-frames 10
+    fixture rtz80    no   --load "$SCRATCH/s48.z80" --delayed-snapshot "$SCRATCH/rtz80.sna" --delayed-snapshot-frames 1 --delayed-automatic-exit-frames 10
+    oracle sna     sdl --load "$SCRATCH/s48.sna"  --delayed-screenshot "$O/sna.png"     --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
+    oracle z80     sdl --load "$SCRATCH/s48.z80"  --delayed-screenshot "$O/z80.png"     --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
+}
+# s128.szx feeds RZX fixture s128.rzx (GH #473: s128.rzx records #471's bank-7 shadow-screen snapshot, embedded 128K SZX).
+chain_s128() {
+    fixture s128     no   --machine 128k --inject "$SCRATCH/shadow.bin" --inject-org 8000 --inject-delay 250 \
+                          --delayed-snapshot "$SCRATCH/s128.szx" --delayed-snapshot-frames 300 --delayed-automatic-exit-frames 320
+    oracle szx     sdl --load "$SCRATCH/s128.szx" --delayed-screenshot "$O/szx.png"     --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
+    oracle rzxrec128 headless --machine 128k --load "$SCRATCH/s128.szx" --rzx-record "$SCRATCH/s128.rzx" \
+                              --delayed-screenshot "$O/rzxrec128.png" --delayed-screenshot-frames 60 --delayed-automatic-exit-frames 120
+    oracle rzxplay128 sdl     --load "$SCRATCH/s128.rzx" --delayed-screenshot "$O/rzxplay128.png" --delayed-screenshot-frames 60 --delayed-automatic-exit-frames 120
+}
+chain_tilemap_jns() {
+    fixture tilemap  no   --machine next --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/tilemap_demo.nex" \
+                          --delayed-snapshot "$SCRATCH/tilemap.jns" --delayed-snapshot-frames 150 --delayed-automatic-exit-frames 170
+    oracle jns     sdl --rtc 2026-07-10T08:55:00 --load "$SCRATCH/tilemap.jns" --delayed-screenshot "$O/jns.png" --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
+}
+chain_blue_jns() {
+    fixture blue     no   --machine next --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/blue.nex" \
+                          --delayed-snapshot "$SCRATCH/blue.jns" --delayed-snapshot-frames 100 --delayed-automatic-exit-frames 120
+    oracle bluejns sdl --rtc 2026-07-10T08:55:00 --load "$SCRATCH/blue.jns"    --delayed-screenshot "$O/bluejns.png" --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
+}
 
 # RZX fixtures (GH #473): recorded by jnext itself from our own inputs, then replayed natively for the
 # oracle pictures. keys48.rzx is the `keys` typing recorded from power-on on a 48K (400 frames, embedded
-# 48K SNA); s128.rzx records #471's bank-7 shadow-screen snapshot (embedded 128K SZX).
-oracle rzxrec48  headless --machine 48k --rzx-record "$SCRATCH/keys48.rzx" \
-                          --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
-                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/rzxrec48.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 400
-oracle rzxplay48 sdl      --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 420
-oracle rzxplay48f200 sdl  --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48f200.png" --delayed-screenshot-frames 200 --delayed-automatic-exit-frames 210
-oracle rzxplay48f201 sdl  --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48f201.png" --delayed-screenshot-frames 201 --delayed-automatic-exit-frames 210
-oracle rzxend48  sdl      --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxend48.png" --delayed-screenshot-frames 500 --delayed-automatic-exit-frames 520
-oracle rzxrec128 headless --machine 128k --load "$SCRATCH/s128.szx" --rzx-record "$SCRATCH/s128.rzx" \
-                          --delayed-screenshot "$O/rzxrec128.png" --delayed-screenshot-frames 60 --delayed-automatic-exit-frames 120
-oracle rzxplay128 sdl     --load "$SCRATCH/s128.rzx" --delayed-screenshot "$O/rzxplay128.png" --delayed-screenshot-frames 60 --delayed-automatic-exit-frames 120
-oracle keys352   headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
-                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/keys352.png" --delayed-screenshot-frames 352 --delayed-automatic-exit-frames 500
+# 48K SNA); s128.rzx (above, chain_s128) records #471's bank-7 shadow-screen snapshot (embedded 128K SZX).
+chain_rzx48() {
+    oracle rzxrec48  headless --machine 48k --rzx-record "$SCRATCH/keys48.rzx" \
+                              --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
+                              --delayed-keypress-frames 245 enter --delayed-screenshot "$O/rzxrec48.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 400
+    oracle rzxplay48 sdl      --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 420
+    oracle rzxplay48f200 sdl  --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48f200.png" --delayed-screenshot-frames 200 --delayed-automatic-exit-frames 210
+    oracle rzxplay48f201 sdl  --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48f201.png" --delayed-screenshot-frames 201 --delayed-automatic-exit-frames 210
+    oracle rzxend48  sdl      --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxend48.png" --delayed-screenshot-frames 500 --delayed-automatic-exit-frames 520
+}
 
 # The NMI button (nmi.mjs WEBNMI-01): NextZXOS booted, the Multiface NMI pressed natively at frame NMI_PRESS
 # (the page presses at its first frame at or after it), picture at NMI_SHOT. A second native run 100 frames
-# later must give the same picture, or the page's press frame (not exact) could not be compared.
+# later must give the same picture, or the page's press frame (not exact) could not be compared (checked
+# after the join).
 NMI_PRESS=1300; NMI_SHOT=1800
-oracle nmi      headless --machine next --rtc 2026-07-10T08:55:00 --delayed-nmi-frames $NMI_PRESS nmi \
-                         --delayed-screenshot "$O/nmi.png" --delayed-screenshot-frames $NMI_SHOT --delayed-automatic-exit-frames $((NMI_SHOT + 20))
-oracle nmilater headless --machine next --rtc 2026-07-10T08:55:00 --delayed-nmi-frames $NMI_PRESS nmi \
-                         --delayed-screenshot "$O/nmilater.png" --delayed-screenshot-frames $((NMI_SHOT + 100)) --delayed-automatic-exit-frames $((NMI_SHOT + 120))
-cmp -s "$O/nmi.png" "$O/nmilater.png" || die "the native NMI Menu picture changes between frame $NMI_SHOT and $((NMI_SHOT + 100)): pick a stable frame"
+chain_nmi() {
+    oracle nmi      headless --machine next --rtc 2026-07-10T08:55:00 --delayed-nmi-frames $NMI_PRESS nmi \
+                             --delayed-screenshot "$O/nmi.png" --delayed-screenshot-frames $NMI_SHOT --delayed-automatic-exit-frames $((NMI_SHOT + 20))
+}
+chain_nmilater() {
+    oracle nmilater headless --machine next --rtc 2026-07-10T08:55:00 --delayed-nmi-frames $NMI_PRESS nmi \
+                             --delayed-screenshot "$O/nmilater.png" --delayed-screenshot-frames $((NMI_SHOT + 100)) --delayed-automatic-exit-frames $((NMI_SHOT + 120))
+}
 
 # The card flow (card.mjs, BCARD-01..): a SYNTHETIC distribution zip (invented files, mtools + python,
 # licence-clean) and the card the native tool makes from it (the byte oracle), and, for BCARD-13 only,
 # a zip of the cached real image made by python (deflate), so the page builds the real card in wasm
 # from real data. All in the scratch directory, deleted with it; nothing of it is ever committed.
-bash "$HERE/make-synthetic-distro.sh" "$SCRATCH/syn" || die "cannot build the synthetic distribution"
-"$CARD_TOOL" --unpinned "$SCRATCH/syn/synthetic-distro.zip" "$SCRATCH/syn/synthetic-card.img" >"$SCRATCH/out/syn-card.log" 2>&1 \
-    || { cat "$SCRATCH/out/syn-card.log" >&2; die "cannot build the card of the synthetic distribution"; }
-SYN_CARD_SHA256=$(sha256sum "$SCRATCH/syn/synthetic-card.img" | cut -d' ' -f1)
-SYN_ZIP_SHA256=$(sha256sum "$SCRATCH/syn/synthetic-distro.zip" | cut -d' ' -f1)
-SYN_ZIP_SIZE=$(stat -c %s "$SCRATCH/syn/synthetic-distro.zip")
-python3 -I -c 'import sys, zipfile
+# card.dirs (GH #509): the native tool's cards with --dirs, the byte oracles of BCARD-36 (synthetic) and
+# BCARD-41 (real). The synthetic one is hashed and deleted at once (its digest is read after the join).
+chain_syn() {
+    bash "$HERE/make-synthetic-distro.sh" "$SCRATCH/syn" || die "cannot build the synthetic distribution"
+    "$CARD_TOOL" --unpinned "$SCRATCH/syn/synthetic-distro.zip" "$SCRATCH/syn/synthetic-card.img" >"$SCRATCH/out/syn-card.log" 2>&1 \
+        || { cat "$SCRATCH/out/syn-card.log" >&2; die "cannot build the card of the synthetic distribution"; }
+    "$CARD_TOOL" --unpinned --dirs /APPS,/GAMES "$SCRATCH/syn/synthetic-distro.zip" "$SCRATCH/syn/dirs-card.img" >"$SCRATCH/out/syn-dirs-card.log" 2>&1 \
+        || { cat "$SCRATCH/out/syn-dirs-card.log" >&2; die "cannot build the --dirs card of the synthetic distribution"; }
+    sha256sum "$SCRATCH/syn/dirs-card.img" | cut -d' ' -f1 >"$SCRATCH/out/syn-dirs-card.sha256"
+    rm -f "$SCRATCH/syn/dirs-card.img"
+}
+chain_realzip() {
+    python3 -I -c 'import sys, zipfile
 with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
     z.write(sys.argv[1], "cspect-next-1gb.img")
     z.writestr("enNextZX.rom", b"x")' "$DIST" "$SCRATCH/real-distro.zip" || die "cannot zip the distribution image"
-REAL_ZIP_SHA256=$(sha256sum "$SCRATCH/real-distro.zip" | cut -d' ' -f1)
-REAL_ZIP_SIZE=$(stat -c %s "$SCRATCH/real-distro.zip")
-PINNED_CARD_SHA256=$(sed -n '/^const Pins kDistribution/,/^};/p' "$ROOT/src/core/sdcard_provisioner.cpp" | grep -oE '"[0-9a-f]{64}"' | sed -n 3p | tr -d '"')
-PINNED_URL=$(sed -n 's/^ *"\(https:[^"]*\)";$/\1/p' "$ROOT/src/core/sdcard_provisioner.cpp" | head -n1)
-
-# card.dirs (GH #509): the native tool's cards with --dirs, the byte oracles of BCARD-36 (synthetic) and
-# BCARD-41 (real). The synthetic card is deleted at once; the real one stays in the scratch directory for the program-on-the-card oracles below.
-"$CARD_TOOL" --unpinned --dirs /APPS,/GAMES "$SCRATCH/syn/synthetic-distro.zip" "$SCRATCH/syn/dirs-card.img" >"$SCRATCH/out/syn-dirs-card.log" 2>&1 \
-    || { cat "$SCRATCH/out/syn-dirs-card.log" >&2; die "cannot build the --dirs card of the synthetic distribution"; }
-SYN_DIRS_CARD_SHA256=$(sha256sum "$SCRATCH/syn/dirs-card.img" | cut -d' ' -f1)
-rm -f "$SCRATCH/syn/dirs-card.img"
-"$CARD_TOOL" --dirs /GAMES,/APPS "$DIST" "$SCRATCH/real-dirs-card.img" >"$SCRATCH/out/real-dirs-card.log" 2>&1 \
-    || { cat "$SCRATCH/out/real-dirs-card.log" >&2; die "cannot build the --dirs card of the real image"; }
-REAL_DIRS_CARD_SHA256=$(sha256sum "$SCRATCH/real-dirs-card.img" | cut -d' ' -f1)
+}
 
 # A program on the card (cardfile.mjs BCFILE-01..03, pages.mjs PAGES-03..04): the two game directories copied
 # out of the native --dirs card by a FOREIGN FAT reader (mtools), and the native runs that load them with the
 # esxDOS stand-in, the oracle pictures. The card, the copies and the pictures are copyrighted content: they
 # stay in this scratch directory, which is deleted at exit, and are never committed, uploaded or traced.
 MTX="$SCRATCH/mtx"; mkdir "$MTX"
-RD_OFF=$(( $(sfdisk -d "$SCRATCH/real-dirs-card.img" | sed -n 's/.*start= *\([0-9]*\),.*/\1/p' | head -n1) * 512 ))
-MTOOLS_SKIP_CHECK=1 mcopy -s -n -i "$SCRATCH/real-dirs-card.img@@$RD_OFF" ::/GAMES/Next/Warhawk ::/GAMES/Next/TX-1696 "$MTX/" \
-    >"$SCRATCH/out/mtx.log" 2>&1 || { cat "$SCRATCH/out/mtx.log" >&2; die "cannot copy the game directories out of the --dirs card"; }
-[[ -f "$MTX/Warhawk/Warhawk.nex" && -f "$MTX/TX-1696/main.nex" ]] || die "the mtools copies lack Warhawk.nex or main.nex"
 WH_SHOT=600; TX_SHOT=1000
-ORACLE_CARD="$SCRATCH/real-dirs-card.img" oracle warhawk sdl --machine next --rtc 2026-07-10T08:55:00 --esxdos-stub --load "$MTX/Warhawk/Warhawk.nex" \
-    --delayed-screenshot "$O/warhawk.png" --delayed-screenshot-frames $WH_SHOT --delayed-automatic-exit-frames $((WH_SHOT + 20))
-ORACLE_CARD="$SCRATCH/real-dirs-card.img" oracle tx1696 sdl --machine next --rtc 2026-07-10T08:55:00 --esxdos-stub --load "$MTX/TX-1696/main.nex" \
-    --delayed-screenshot "$O/tx1696.png" --delayed-screenshot-frames $TX_SHOT --delayed-automatic-exit-frames $((TX_SHOT + 20))
+chain_realdirs() {
+    "$CARD_TOOL" --dirs /GAMES,/APPS "$DIST" "$SCRATCH/real-dirs-card.img" >"$SCRATCH/out/real-dirs-card.log" 2>&1 \
+        || { cat "$SCRATCH/out/real-dirs-card.log" >&2; die "cannot build the --dirs card of the real image"; }
+    local rd_off
+    rd_off=$(( $(sfdisk -d "$SCRATCH/real-dirs-card.img" | sed -n 's/.*start= *\([0-9]*\),.*/\1/p' | head -n1) * 512 ))
+    MTOOLS_SKIP_CHECK=1 mcopy -s -n -i "$SCRATCH/real-dirs-card.img@@$rd_off" ::/GAMES/Next/Warhawk ::/GAMES/Next/TX-1696 "$MTX/" \
+        >"$SCRATCH/out/mtx.log" 2>&1 || { cat "$SCRATCH/out/mtx.log" >&2; die "cannot copy the game directories out of the --dirs card"; }
+    [[ -f "$MTX/Warhawk/Warhawk.nex" && -f "$MTX/TX-1696/main.nex" ]] || die "the mtools copies lack Warhawk.nex or main.nex"
+    ORACLE_CARD="$SCRATCH/real-dirs-card.img" oracle warhawk sdl --machine next --rtc 2026-07-10T08:55:00 --esxdos-stub --load "$MTX/Warhawk/Warhawk.nex" \
+        --delayed-screenshot "$O/warhawk.png" --delayed-screenshot-frames $WH_SHOT --delayed-automatic-exit-frames $((WH_SHOT + 20))
+    ORACLE_CARD="$SCRATCH/real-dirs-card.img" oracle tx1696 sdl --machine next --rtc 2026-07-10T08:55:00 --esxdos-stub --load "$MTX/TX-1696/main.nex" \
+        --delayed-screenshot "$O/tx1696.png" --delayed-screenshot-frames $TX_SHOT --delayed-automatic-exit-frames $((TX_SHOT + 20))
+}
 
 # A zipped NEX with its data (api.mjs WEBAPI-32..34, GH #541): our own probe program and a data file, zipped by
 # CPython's zipfile (a foreign writer). Deleted with the scratch directory.
-python3 "$ROOT/test/00regression/esxdos-hostfs-probe.py" "$SCRATCH/hostfs.nex" || die "cannot build the esxdos probe NEX"
-python3 -I -c 'import sys, zipfile
+chain_hostfs() {
+    python3 "$ROOT/test/00regression/esxdos-hostfs-probe.py" "$SCRATCH/hostfs.nex" || die "cannot build the esxdos probe NEX"
+    python3 -I -c 'import sys, zipfile
 with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
     z.write(sys.argv[1], "game/hostfs.nex")
     z.writestr("game/data.txt", b"0123456789ABCDEF")' "$SCRATCH/hostfs.nex" "$SCRATCH/hostfs-data.zip" || die "cannot zip the esxdos probe"
+}
+
+prep realdirs     chain_realdirs
+prep nmilater     chain_nmilater
+prep nmi          chain_nmi
+prep rzx48        chain_rzx48
+prep s48          chain_s48
+prep s128         chain_s128
+prep esx          chain_esx
+prep writes       chain_writes
+prep realzip      chain_realzip
+prep syn          chain_syn
+prep oracle-wav   oracle wav     sdl      --machine 48k --load "$SCRATCH/beeper_demo.wav" --delayed-screenshot "$O/wav.png" --delayed-screenshot-frames 1500 --delayed-automatic-exit-frames 1600
+prep oracle-tzx   oracle tzx     sdl      --machine 48k --load "$SCRATCH/beeper_demo.tzx" --delayed-screenshot "$O/tzx.png" --delayed-screenshot-frames 400 --delayed-automatic-exit-frames 700
+prep oracle-tap   oracle tap     sdl      --machine 48k --load "$TAPF" --delayed-screenshot "$O/tap.png" --delayed-screenshot-frames 300 --delayed-automatic-exit-frames 600
+prep oracle-boot  oracle boot    sdl      --machine 48k --delayed-screenshot "$O/boot.png"  --delayed-screenshot-frames 150 --delayed-automatic-exit-frames 400
+prep oracle-idle  oracle idle    sdl      --machine 48k --delayed-screenshot "$O/idle.png"  --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 500
+prep oracle-tilemap oracle tilemap sdl    --machine next --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/tilemap_demo.nex" \
+                                          --delayed-screenshot "$O/tilemap.png" --delayed-screenshot-frames 150 --delayed-automatic-exit-frames 400
+prep oracle-keys  oracle keys    headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
+                                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/keys.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 500
+prep oracle-keys352 oracle keys352 headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
+                                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/keys352.png" --delayed-screenshot-frames 352 --delayed-automatic-exit-frames 500
+prep oracle-key1  oracle key1    headless --machine 48k --delayed-keypress-frames 200 1 --delayed-screenshot "$O/key1.png" --delayed-screenshot-frames 400 --delayed-automatic-exit-frames 600
+prep oracle-pad   oracle pad     headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 6 \
+                                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/pad.png" --delayed-screenshot-frames 420 --delayed-automatic-exit-frames 600
+prep oracle-kmx   oracle kmx     headless --machine 48k --load "$ROOT/test/fixtures/tap/key_matrix_demo.tap" --magic-port 0xCAFE --magic-port-mode line \
+                                          --delayed-keypress-frames 400 p --delayed-screenshot "$O/kmx.png" --delayed-screenshot-frames 500 --delayed-automatic-exit-frames 600
+prep tilemap-jns  chain_tilemap_jns
+prep blue-jns     chain_blue_jns
+prep other48      fixture other48 grow --machine 48k --delayed-snapshot "$SCRATCH/other48.jns" --delayed-snapshot-frames 150 --delayed-automatic-exit-frames 170
+prep copper       chain_copper
+prep beast        chain_beast
+prep hostfs       chain_hostfs
+prep_join
+cmp -s "$O/nmi.png" "$O/nmilater.png" || die "the native NMI Menu picture changes between frame $NMI_SHOT and $((NMI_SHOT + 100)): pick a stable frame"
+
+SYN_CARD_SHA256=$(sha256sum "$SCRATCH/syn/synthetic-card.img" | cut -d' ' -f1)
+SYN_ZIP_SHA256=$(sha256sum "$SCRATCH/syn/synthetic-distro.zip" | cut -d' ' -f1)
+SYN_ZIP_SIZE=$(stat -c %s "$SCRATCH/syn/synthetic-distro.zip")
+SYN_DIRS_CARD_SHA256=$(cat "$SCRATCH/out/syn-dirs-card.sha256")
+REAL_ZIP_SHA256=$(sha256sum "$SCRATCH/real-distro.zip" | cut -d' ' -f1)
+REAL_ZIP_SIZE=$(stat -c %s "$SCRATCH/real-distro.zip")
+REAL_DIRS_CARD_SHA256=$(sha256sum "$SCRATCH/real-dirs-card.img" | cut -d' ' -f1)
+PINNED_CARD_SHA256=$(sed -n '/^const Pins kDistribution/,/^};/p' "$ROOT/src/core/sdcard_provisioner.cpp" | grep -oE '"[0-9a-f]{64}"' | sed -n 3p | tr -d '"')
+PINNED_URL=$(sed -n 's/^ *"\(https:[^"]*\)";$/\1/p' "$ROOT/src/core/sdcard_provisioner.cpp" | head -n1)
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg" \
@@ -294,25 +372,10 @@ export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_
        SMOKE_NMI_PRESS="$NMI_PRESS" SMOKE_NMI_SHOT="$NMI_SHOT" SMOKE_MTX="$MTX" SMOKE_WH_SHOT="$WH_SHOT" SMOKE_TX_SHOT="$TX_SHOT" \
        SMOKE_REAL_ZIP_SHA256="$REAL_ZIP_SHA256" SMOKE_REAL_ZIP_SIZE="$REAL_ZIP_SIZE" SMOKE_PINNED_CARD_SHA256="$PINNED_CARD_SHA256" SMOKE_DISTRO_URL="$PINNED_URL"
 
-TOTAL=0; PASS=0; FAIL=0; SKIP=0; FAULT=0
-for spec in "${SPECS[@]}"; do
-    file=${spec%%:*}; want=${spec##*:}
-    [[ "$file" == /* ]] || file="$HERE/$file"
-    [[ -f "$file" && "$want" =~ ^[0-9]+$ ]] || die "bad spec [$spec] (file:count)"
-    log="$SCRATCH/out/$(basename "$file").log"
-    rc=0
-    # Not under ulimit -v: V8 and wasm reserve far more address space than 4 GiB.
-    timeout --kill-after=10s 1500s "$NODE" "$file" >"$log" 2>&1 || rc=$?
-    cat "$log"
-    line=$(grep '^Total:' "$log" | tail -1)
-    if [[ -z "$line" ]]; then echo "browser-smoke: $file printed no Total line (rc=$rc)" >&2; FAULT=1; continue; fi
-    t=$(awk '{print $2}' <<<"$line"); p=$(awk '{print $4}' <<<"$line"); f=$(awk '{print $6}' <<<"$line"); s=$(awk '{print $8}' <<<"$line")
-    if [[ "$t" != "$want" ]]; then echo "browser-smoke: $file reported $t rows, expected $want" >&2; FAULT=1; fi
-    TOTAL=$((TOTAL + t)); PASS=$((PASS + p)); FAIL=$((FAIL + f)); SKIP=$((SKIP + s))
-    [[ $rc -eq 0 ]] || FAULT=1
-done
 
-echo
-echo "===================================================="
-printf 'Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
-[[ $FAIL -eq 0 && $SKIP -eq 0 && $FAULT -eq 0 ]]
+# The shared fixtures are read-only from here on (br_freeze: everything under the scratch directory but out/ and
+# work/): the specs run in parallel, so a spec that writes into the shared area fails with EACCES instead of racing
+# another one. Each spec writes only under its own $SMOKE_WORK (work/<spec>) and the logs in out/. As root a mode
+# bit is no guard, so br_run_specs also compares a fingerprint of the shared area before and after.
+br_freeze "$SCRATCH"
+br_run_specs "$NODE" "$SCRATCH" "$HERE" "${SPECS[@]}"

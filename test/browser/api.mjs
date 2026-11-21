@@ -17,7 +17,7 @@ import http from 'http';
 import path from 'path';
 
 const E = process.env;
-const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE;
+const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE, WORK = E.SMOKE_WORK;
 const VERSION = E.SMOKE_BUILD_VERSION;
 const MODULE = `/build/jnext-${VERSION}.js`;
 const SHA = E.SMOKE_CARD_SHA256;
@@ -39,7 +39,7 @@ const B = http.createServer((req, res) => {
 });
 await new Promise((r) => B.listen(0, '127.0.0.1', r));
 const MIMES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.nex': 'application/octet-stream' };
-const ROOTS = { build: BUILD, page: path.join(ROOT, 'test/browser/page'), nex: path.join(ROOT, 'test/00regression/nex'), scratch: SCRATCH };
+const ROOTS = { build: BUILD, page: path.join(ROOT, 'test/browser/page'), nex: path.join(ROOT, 'test/00regression/nex'), scratch: SCRATCH, work: WORK };
 const aLog = [];
 function files(log) {
   return (req, res) => {
@@ -532,9 +532,9 @@ row('WEBAPI-25', 'plain.html: the status line follows the player (click to start
 });
 
 row('WEBAPI-26', 'a startup program the loader refuses: ready rejects with the loader message, onError fires once, the machine stays up', async () => {
-  fs.writeFileSync(path.join(SCRATCH, 'bad.nex'), Buffer.from(Array.from({ length: 16 }, (_, i) => (i * 37 + 11) & 255)));
+  fs.writeFileSync(path.join(WORK, 'bad.nex'), Buffer.from(Array.from({ length: 16 }, (_, i) => (i * 37 + 11) & 255)));
   const page = await newPage(); attach(page);
-  await open(page, [{ machine: 'next', muted: true, file: '/scratch/bad.nex' }]);
+  await open(page, [{ machine: 'next', muted: true, file: '/work/bad.nex' }]);
   await click(page);
   const out = await page.evaluate(() => window.player0.ready.then(() => 'resolved', (e) => e.message));
   await sleep(1000);
@@ -697,9 +697,9 @@ row('WEBAPI-32', 'file: a .zip holding a NEX and its data: the program reads the
 });
 
 row('WEBAPI-33', 'file: a .zip whose program is not a NEX is refused with today\'s text: ready rejects naming --load /media/ and "a browser page loads only .nex, .tap, .tzx, "; no frames run', async () => {
-  fs.copyFileSync(path.join(ROOT, 'test/fixtures/zip/beeper.tap.zip'), path.join(SCRATCH, 'beeper.tap.zip'));
+  fs.copyFileSync(path.join(ROOT, 'test/fixtures/zip/beeper.tap.zip'), path.join(WORK, 'beeper.tap.zip'));
   const page = await newPage(); attach(page);
-  await open(page, [{ machine: '48k', muted: true, file: '/scratch/beeper.tap.zip' }]);
+  await open(page, [{ machine: '48k', muted: true, file: '/work/beeper.tap.zip' }]);
   await click(page);
   const out = await page.evaluate(() => window.player0.ready.then(() => 'resolved', (e) => e.message));
   must(out !== 'resolved' && out.includes('--load /media/') && out.includes('a browser page loads only .nex, .tap, .tzx, '), 'ready: ' + out);
