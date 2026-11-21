@@ -37,7 +37,8 @@ if want esp-wifi-setup-func; then
     guest_py="$SCRIPT_DIR/esp-wifi-setup-guest.py"
     guest_bin="$TMP_DIR/esp_wifi_guest.bin"
     run_log="$TMP_DIR/esp_wifi_run.log"
-    rm -f "$guest_bin" "$run_log"
+    jnext_log="$TMP_DIR/esp_wifi_jnext.log"
+    rm -f "$guest_bin" "$run_log" "$jnext_log"
 
     if ! command -v python3 &>/dev/null; then
         skip_row " (python3 not available to build the guest binary)"
@@ -50,11 +51,14 @@ if want esp-wifi-setup-func; then
             --magic-port 0xCAFE --magic-port-mode line \
             --inject "$guest_bin" --inject-org 8000 --inject-pc 8000 \
             --inject-delay 100 --delayed-automatic-exit-frames 1200 \
+            --log-file "$jnext_log" \
             >"$run_log" 2>&1 || true
 
-        # Every spdlog line starts with its `[timestamp]`; the magic port writes
-        # with a bare fprintf. So the non-bracketed lines ARE the wire.
-        mapfile -t wire < <(grep -av '^\[' "$run_log" || true)
+        # The log goes to --log-file, so this file holds ONLY the magic port's
+        # stderr output: the wire. On one shared stream the ESP worker thread's
+        # log line splices into the middle of a wire line (Windows stderr is
+        # unbuffered and fprintf writes it in pieces): GH #154 CI failure.
+        mapfile -t wire < <(cat "$run_log" || true)
         joined=$(printf '%s\n' "${wire[@]}")
 
         fails=()

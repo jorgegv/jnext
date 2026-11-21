@@ -61,7 +61,8 @@ if want esp-udp-sntp-func; then
     sent="$TMP_DIR/esp_udp_sent"
     peer_log="$TMP_DIR/esp_udp_peer.log"
     run_log="$TMP_DIR/esp_udp_run.log"
-    rm -f "$guest_bin" "$ready" "$received" "$sent" "$peer_log" "$run_log"
+    jnext_log="$TMP_DIR/esp_udp_jnext.log"
+    rm -f "$guest_bin" "$ready" "$received" "$sent" "$peer_log" "$run_log" "$jnext_log"
 
     # The AT reply stream the guest must observe, in order, as a hex string.
     # Spelled out as the ASCII it is, so a reader can check it against the
@@ -112,11 +113,13 @@ if want esp-udp-sntp-func; then
             --magic-port 0xCAFE --magic-port-mode hex \
             --inject "$guest_bin" --inject-org 8000 --inject-pc 8000 \
             --inject-delay 100 --delayed-automatic-exit-frames 1500 \
+            --log-file "$jnext_log" \
             >"$run_log" 2>&1 || true
 
-        # Every spdlog line starts with its `[timestamp]`; the magic port writes
-        # one uppercase hex byte per line with a bare fprintf. So the two-hex-digit
-        # lines ARE the wire, in order.
+        # The log goes to --log-file, so this file holds ONLY the magic port's
+        # stderr output: the wire. On one shared stream the ESP worker thread's
+        # log line splices into the middle of a wire line (Windows stderr is
+        # unbuffered and fprintf writes it in pieces): GH #154 CI failure.
         observed_hex=$(grep -aE '^[0-9A-F][0-9A-F]$' "$run_log" | tr -d '\n' || true)
 
         expected_hex=$(printf '%s' "$expected_ascii" | od -An -tx1 -v | tr -d ' \n' \
@@ -147,7 +150,7 @@ if want esp-udp-sntp-func; then
             fails+=("want $want_hex")
         fi
 
-        grep -aq "UDP connection OPENED to $peer_ip:$peer_port" "$run_log" \
+        grep -aq "UDP connection OPENED to $peer_ip:$peer_port" "$jnext_log" \
             || fails+=("no 'UDP connection OPENED' log line for $peer_ip:$peer_port")
 
         if [[ ${#fails[@]} -eq 0 ]]; then
