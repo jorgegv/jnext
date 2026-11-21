@@ -690,6 +690,7 @@ int main(int argc, char* argv[]) {
         case KeyId::ConfigVersion:
         case KeyId::DebuggerSize:
         case KeyId::DebuggerPosition:
+        case KeyId::DebuggerLayout:
         case KeyId::Count:
             break;
         }

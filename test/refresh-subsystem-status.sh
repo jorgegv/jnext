@@ -279,6 +279,8 @@ BEGIN {
     M["debugger_panel_data_test"]      = "Debugger data per panel (GUI)"
     M["debugger_inspect_watchpoint_test"] = "Debugger Inspection Reads"
     M["window_attach_test"]            = "Debugger Window Attach"
+    M["debugger_dock_test"]           = "Debugger Dockable Panels (GH #377, GUI)"
+    M["dock_layout_test"]             = "Debugger Dock Layout (GH #377)"
     M["tstate_counter_test"]          = "Debugger T-State Counter"
     M["reg_edit_test"]                = "Debugger CPU Register Edit (GH #368)"
     M["nav_history_test"]             = "Debugger Navigation History (GH #366)"

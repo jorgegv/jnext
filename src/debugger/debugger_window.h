@@ -8,7 +8,11 @@
 #include <optional>
 #include "debug/debug_keymap.h"
 #include "debug/mem_space.h"
+#include "debugger/dock_layout.h"   // GH #377
 #include "debugger/window_attach.h"
+#include <QHash>
+#include <QRect>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -33,9 +37,8 @@ class StackPanel;
 class CallStackPanel;
 class VariablesPanel;
 class SourcePanel;
+class QDockWidget;
 class QPushButton;
-class QSplitter;
-class QTabWidget;
 class QSlider;
 class QLabel;
 class QToolBar;
@@ -57,6 +60,8 @@ public:
     explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr,
                             std::optional<bool> attach_override = std::nullopt,
                             std::optional<bool> physical_override = std::nullopt);
+
+    ~DebuggerWindow() override;
 
     /// GH #360 - the style every panel prints "which memory" in. Physical differs
     /// from Friendly only on a Next (plan D3). Applies to every panel and refreshes.
@@ -142,16 +147,14 @@ public:
         return index >= 0 && index < 8 ? script_key_actions_[index] : nullptr;
     }
 
-    /// GH #498 - is `panel` on show (its tab current, the window open)? NOT QWidget::isVisible():
-    /// after GH #377 a tabbed-away dock is still isVisible(). The body names the three tab
-    /// widgets on purpose: when #377 removes them it cannot compile, so the re-implementation
-    /// (from QDockWidget::visibilityChanged) cannot be forgotten.
+    /// GH #498 - is `panel` on show (its dock open and the shown tab of its group, or floating; the
+    /// window open)? NOT QWidget::isVisible(): a tabbed-away dock is still isVisible() (GH #377).
     bool panel_on_show(const QWidget* panel) const;
 
 signals:
     void window_closed();
-    /// GH #498 - some panel_on_show() answer may have changed. Emitted once per change of a tab
-    /// widget's current page.
+    /// GH #498 - some panel_on_show() answer may have changed. Emitted once per tab switch of a group
+    /// (by the dock that became visible), per close and reopen, and per change of floating.
     void panels_on_show_changed();
 
 protected:
@@ -159,6 +162,8 @@ protected:
     void showEvent(QShowEvent* event) override;
     void changeEvent(QEvent* event) override;   // GH #363
     void resizeEvent(QResizeEvent* event) override;   // GH #360: resumes the opening fit
+    void hideEvent(QHideEvent* event) override;       // GH #377: floating panels follow the window
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void create_panels();
@@ -244,16 +249,49 @@ private:
     void end_fit_();
     bool   fit_known_size_(const QSize& s) const;
     int    initial_fit_width_passes_ = 0;
-    int    fit_last_add_ = 0;       // window width added by the previous width pass
-    int    fit_last_lacking_ = 0;   // what the left column still lacked before it
+    // GH #377: the panels whose minimum width the fit raised to their sizeHint (end_fit_() restores it).
+    static constexpr int kLeftColumnMinWidth = 380;
+    static constexpr int kRightColumnWidth = 250;
+    std::vector<std::pair<QWidget*, int>> fit_raised_;   // the panel, and the minimum width it had
     static constexpr int kMaxWidthFitPasses = 8;
     // GH #363 — one queued refresh_panels() per palette change (changeEvent).
     bool palette_refresh_queued_ = false;
 
-    // Layout
-    QSplitter* main_splitter_ = nullptr;
-    QSplitter* top_splitter_ = nullptr;
-    QTabWidget* tab_widget_ = nullptr;
+    // GH #377 - dockable panels. The panels live in `dock_host_`, an inner QMainWindow (Qt::Widget)
+    // that is the widget of the central QScrollArea (GH #114: docks cannot sit inside a scroll area of
+    // the window that owns them, and docks on THIS window would make its minimum the sum of theirs).
+    // Its central widget is the Disassembly box; every other panel is the widget of a QDockWidget,
+    // `docks_`, in src/debugger/dock_layout.h's kPanelIds order.
+    QMainWindow* dock_host_ = nullptr;
+    std::vector<QDockWidget*> docks_;
+    // Floating panels hidden because this window was (a floating dock is a window of its own and
+    // Qt leaves it on screen): shown again with it, and saved as floating rather than closed.
+    QHash<QDockWidget*, QRect> parked_floats_;
+    // The layout text applied last, written back until the window has been shown once (before that
+    // the docks hold no real geometry to capture).
+    std::string layout_text_;
+    bool shown_once_ = false;
+    jnext::dock::Layout pending_sizes_;
+    bool sizes_pending_ = false;
+    /// Raise a panel: reopen it when closed, make it its group's shown tab, and bring a floating one up.
+    void raise_panel(QWidget* panel);
+    jnext::dock::Layout capture_layout() const;
+    /// Arrange the docks as `layout` says (complete()d first), docking every floating panel and
+    /// reopening every closed one that it does not name as such.
+    void apply_layout(const jnext::dock::Layout& layout);
+    /// The sizes a layout carries; only meaningful once the host has been laid out.
+    void apply_dock_sizes();
+    void reset_layout();
+    void place_floating(QDockWidget* d, const QRect& r);
+    void tune_tab_bars();
+    void size_hidden_tabs();
+    bool tab_bars_tune_queued_ = false;
+    bool applying_layout_ = false;   // apply_layout() running: the on-show change is announced once, at its end
+    /// What the left dock area's panels still lack in width (GH #360); the group's shown dock in `shown`.
+    int left_column_lacking(QDockWidget** shown) const;
+    QDockWidget* shown_dock_of(QDockWidget* d) const;
+    /// Height of the tab bar of `d`'s group (0 when it is alone): the area's size counts it, the dock's does not.
+    int tab_bar_height_of(QDockWidget* d) const;
 
     // Panels
     CpuPanel* cpu_panel_ = nullptr;
@@ -363,8 +401,6 @@ private:
     /// Show `addr` in the Memory panel and raise its tab.
     void show_in_memory(uint16_t addr);
     bool source_has_focus() const;
-    QTabWidget* memory_tab_widget_ = nullptr;
-    QTabWidget* bottom_tab_widget_ = nullptr;   // GH #498: Watches, Variables, Breakpoints
     QAction* rewind_enable_action_ = nullptr;
 
     // GH #1 — toolbar buttons whose captions or tooltips quote a key. They are

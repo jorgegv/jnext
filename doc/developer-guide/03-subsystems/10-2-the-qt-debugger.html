@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.38</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.38</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3159,11 +3159,12 @@ Opening the window attaches it. What it then asks of the backend follows what is
 on show (<code>DebuggerManager::apply_data_needs()</code>): call tracking while the Call Stack or
 Variables panel is on show or a source Step Over or Step Out runs, and the live raster
 while the Video panel is. Each request is sent only when it changes, from
-<code>DebuggerWindow::panels_on_show_changed</code>, which fires once per change of a tab
-widget's current page. <code>DebuggerWindow::panel_on_show()</code> is the one answer: a panel is
-on show when the window is open and its tab is current. It is never <code>isVisible()</code>, which
-stays true for a page or dock hidden behind another; a window that holds its panels as
-docks answers from each dock's visibility change instead. A source-map load that
+<code>DebuggerWindow::panels_on_show_changed</code>, which fires once per switch of a group's tab (the dock that became visible announces it),
+per close and reopen of a dock, and per change of floating.
+<code>DebuggerWindow::panel_on_show()</code> is the one answer: a panel is
+on show when the window is open and its dock is open and either floating or the shown tab of
+its group (read from the group's tab bar). It is never <code>isVisible()</code>, which
+stays true for a dock tabbed away behind another. A source-map load that
 carries C variable records keeps tracking on whatever the window asks.
 Closing it resumes a paused machine — whoever paused it — and
 detaches. Every verb the window issues is attributed to this client. It is not
@@ -3442,20 +3443,62 @@ machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <co
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,
 the framebuffer generation and the upload gate that stops a paused machine re-presenting an unchanged frame,
 is in <a href="../02-architecture/03-a-frame-end-to-end.html">2.3</a>.</p>
+<p><strong>The window's structure: docks.</strong> <code>DebuggerWindow</code> keeps the menu bar, the bottom button bar and the rewind toolbar.
+Its central widget is a <code>QScrollArea</code> whose widget is <code>dock_host_</code>, an inner <code>QMainWindow</code> with <code>Qt::Widget</code> flags:
+docks cannot sit in a scroll area of the window that owns them, and docks on the outer window would make its minimum
+the sum of theirs, the unshrinkable window again. The host's central widget is the Disassembly box (Qt does not
+support a main window without a central widget, and every stop lands in the Disassembly); every other panel is the
+widget of a <code>QDockWidget</code> in <code>docks_</code>, built in <code>create_panels()</code> from one table whose order is
+<code>jnext::dock::kPanelIds</code>. Adding a panel is one row in that table plus its token in <code>kDefaultLayoutText</code>
+(<code>src/debugger/dock_layout.h</code>); the Window &gt; Panels menu lists each dock's own <code>toggleViewAction()</code>. Nesting is off (Qt's default),
+the tab bars are on top, both bottom corners belong to the bottom area. Anything that raises a panel (Follow on a
+memory operand, Show in Source, Go &gt; Symbols, Debug &gt; Source &gt; Open Source File) goes through <code>raise_panel()</code>, which
+reopens a closed dock and makes it its group's shown tab. Two Qt facts shape the code that reads the window:
+a floating dock is a window of its own that Qt leaves on screen when its main window hides
+(<code>hideEvent()</code> parks it in <code>parked_floats_</code>, <code>showEvent()</code> brings it back through <code>place_floating()</code>); the debugger's
+window shortcuts keep working with the keyboard in a floating panel without help (measured, <code>QDOCK-11</code>). Three smaller facts: whether the tab bar
+of a dock group scrolls is the style's choice (<code>SH_TabBar_PreferNoArrows</code>: off with Fusion, on with the macOS style), and
+a bar that does not scroll has a minimum width equal to the sum of its tabs (<code>tune_tab_bars()</code> turns the scroll buttons
+on, whenever Qt creates a bar; <code>QDOCK-19</code> runs under a style that prefers no arrows); a tabbed-away dock is not laid out until it is shown and keeps the size it was
+created with, so <code>size_hidden_tabs()</code> gives it its group's size (a panel that is read while it is not the shown tab,
+as the screenshot tool and some rows do, is then drawn at a real width); and the left column's panels carry an
+explicit minimum width of 380, as the tab widget they replaced did, because a page's own <code>minimumSizeHint()</code> (Video's
+is 700) would otherwise make the column wider than the widest page wants. A tabbed-away dock is still
+<code>isVisible()</code> (Qt moves it off screen instead of hiding it); a consumer that needs to know whether a panel is on show
+must use <code>QDockWidget::visibilityChanged()</code> or <code>visibleRegion()</code>, never the panel's <code>isVisible()</code>. The Graphics panel is the one consumer today: it draws only while on show (<code>on_show()</code> in <code>graphics_panel.cpp</code> asks the group's tab bar) and the window connects its dock's <code>visibilityChanged(true)</code> to a redraw, since selecting its tab sends the panel no <code>showEvent()</code> and a paused window that did not change is not redrawn.</p>
+<p><strong>The saved layout.</strong> <code>[debugger] layout</code> in <code>jnext.conf</code> is one line of plain text in a grammar of our own, not
+<code>QMainWindow::saveState()</code> (a binary Qt blob that depends on the Qt version): <code>"v1" { area | float | closed }</code>, in
+any order on input and canonical on output (areas, then floats, then closed). An area is <code>left|right|top|bottom
+v|h THICKNESS</code> followed by groups, each <code>tabs EXTENT</code> and its tab IDs, the shown one marked <code>*</code>; a float is
+<code>float ID X Y W H</code>; <code>closed ID</code> is a closed panel; the numbers are 0 to 32767 (X and Y down to -32768). The grammar,
+<code>parse()</code>, <code>format()</code>, <code>complete()</code> and <code>default_layout()</code> are in <code>src/debugger/dock_layout.h</code>, Qt-free and tested by
+<code>dock_layout_test</code> (<code>DLAY-01</code>..<code>12</code>). A value that is not <code>v1</code> or does not parse is refused whole and the default is
+used; an unknown ID is dropped; a panel the value does not name (a layout saved before the panel existed) is added by
+<code>complete()</code> to the group of its first default group-mate that is docked, else as a new group of its default area;
+the first place of an ID named twice wins. <code>capture_layout()</code> reads Qt's own state (<code>dockWidgetArea()</code>,
+<code>tabifiedDockWidgets()</code>, the group's <code>QTabBar</code>, <code>isFloating()</code>, <code>geometry()</code>) and clamps the numbers into the
+grammar's ranges, since <code>format()</code> does not validate; <code>apply_layout()</code> docks every panel afresh and applies the sizes
+once the host has been laid out (<code>apply_dock_sizes()</code>, queued from the first show: <code>resizeDocks()</code> before that is not
+applied). A floating panel is clamped so its whole frame is inside a screen. A closed panel reopens at its default
+place in a new session. The value is read through the same comma-joining rule as the other free-text keys, because
+QSettings hands a hand-edited value with a comma back as a list. Rows: <code>QDOCK-01</code>..<code>14</code> in <code>debugger_dock_test</code>.</p>
 <p><strong>The window's opening size.</strong> A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (<code>DebuggerWindow::grow_default_size_to_natural()</code>,
-<code>debugger_window.cpp:539</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
-alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left column
-of tabs is widened by what its pages' <code>sizeHint()</code> lack, using the share of a widening the splitter really gave
-it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</code>; bounded by <code>kMaxInitialFitPasses</code> = 4
-(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:222</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:249</code>)). The frame, not the client area, must fit the screen
+queued from the first <code>showEvent()</code>); a size restored from the config file is left
+alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left dock area
+is widened by what its panels' <code>sizeHint()</code> lack: the minimum width of the panels docked left and right is raised to their <code>sizeHint()</code> for the
+length of the fit (<code>fit_raised_</code>, given back by <code>end_fit_()</code>), the host's minimum then grows, and the scroll pass
+widens the window by the scroll range; a column found wider than its widest page afterwards is trimmed back with
+<code>resizeDocks()</code> (a dock area keeps its width when the window widens, so there is no share to measure and the result
+does not depend on the order of the passes; bounded by <code>kMaxInitialFitPasses</code> = 4
+(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:227</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:256</code>)). The frame, not the client area, must fit the screen
 (<code>jnext::clamp_window_size_to_screen</code>). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
 at most <code>kMaxFitEchoes</code> = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-(<code>resizeEvent()</code>, <code>debugger_window.cpp:520-531</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:510</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:558-563</code>), after which every size is the user's and the remembered sizes are
+(<code>resizeEvent()</code>, <code>debugger_window.cpp:614-624</code>); any other size is the user's and ends the fit
+(<code>end_fit_()</code>, <code>debugger_window.cpp:595</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
+pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:651-656</code>), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (<code>fit_passes_queued_</code>, <code>queue_fit_pass_()</code>), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's), <code>GR-08</code> (an earlier request landing while a pass is queued), <code>GR-09</code> (a user resize while the fit runs stands), <code>GR-10</code> (each late answer counts once: the 7th stands) and <code>GR-11</code> (a loop stalled past the grace window does not end the fit), <code>GR-12</code> (the bound holds on the pass's own path), <code>GR-13</code> and <code>GR-14</code> (the grace waits for the pass a re-ask, or a late answer, queued), in <code>debugger_window_grow_test</code>; <code>GR-09</code> to <code>GR-14</code> use a window no window manager sees.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the

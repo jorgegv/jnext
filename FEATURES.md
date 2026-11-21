@@ -175,6 +175,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Disassembly PC line shows where a taken jump, call or return goes: an up/down arrow, the destination line marked when in view, the target of RET and JP (HL)
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
+- Dockable debugger panels: move, tab, float and close any panel but the Disassembly; the layout is remembered; Window > Panels and Window > Reset Layout
 - Debugger window: File > Reload Last File (Alt+L) reloads the rebuilt program with its maps, breakpoints kept
 - Redefinable debugger keys: all twenty debugger commands under Settings > Preferences > Debugger Keys
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider

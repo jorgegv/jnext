@@ -4666,8 +4666,10 @@ The Quick Save retention is stored under \f[CR][snapshot]\f[R] as
 unrecognised value keeps the default.
 The debugger window\(cqs layout is stored under \f[CR][debugger]\f[R]:
 \f[CR]size\f[R] (\f[CR]W, H\f[R]), \f[CR]position\f[R] (\f[CR]X, Y\f[R],
-written only while the window is detached) and \f[CR]attached\f[R]
-(\f[CR]true\f[R]/\f[CR]false\f[R]).
+written only while the window is detached), \f[CR]attached\f[R]
+(\f[CR]true\f[R]/\f[CR]false\f[R]) and \f[CR]layout\f[R] (the
+arrangement of its panels, one line of plain text; deleting it, or
+Window > Reset Layout, restores the default).
 An older \f[CR]\(ti/.jnext/Debugger.conf\f[R] is merged into this
 section once and removed.
 All section names are lowercase.
@@ -4676,9 +4678,10 @@ never read it.
 Every setting above can also be set for one run, without touching the
 file (the Recent Files history, the joystick controller names
 \f[CR]joy1_device_name\f[R] and \f[CR]joy2_device_name\f[R],
-\f[CR][config] version\f[R] and the debugger window\(cqs \f[CR]size\f[R]
-and \f[CR]position\f[R] are refused), with \f[B]\-\-set\f[R]
-\f[I]section.key=value\f[R] (see \f[B]Settings for \-\-set\f[R]).
+\f[CR][config] version\f[R] and the debugger window\(cqs
+\f[CR]size\f[R], \f[CR]position\f[R] and \f[CR]layout\f[R] are refused),
+with \f[B]\-\-set\f[R] \f[I]section.key=value\f[R] (see \f[B]Settings
+for \-\-set\f[R]).
 .TP
 \f[CR]\(ti/.jnext/screenshots/\f[R]
 Where \f[B]File > Quick Screenshot\f[R] writes, unless

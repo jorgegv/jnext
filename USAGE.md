@@ -3745,16 +3745,18 @@ the default. The Quick Save retention is stored under `[snapshot]` as
 **Settings \> Preferences \> Paths**; **--quick-snapshot-keep**
 overrides it for one run, and an unrecognised value keeps the default.
 The debugger window’s layout is stored under `[debugger]`: `size`
-(`W, H`), `position` (`X, Y`, written only while the window is detached)
-and `attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is
+(`W, H`), `position` (`X, Y`, written only while the window is
+detached), `attached` (`true`/`false`) and `layout` (the arrangement of
+its panels, one line of plain text; deleting it, or Window \> Reset
+Layout, restores the default). An older `~/.jnext/Debugger.conf` is
 merged into this section once and removed. All section names are
 lowercase. CLI options always take precedence over saved values, and
 headless runs never read it. Every setting above can also be set for one
 run, without touching the file (the Recent Files history, the joystick
 controller names `joy1_device_name` and `joy2_device_name`,
-`[config] version` and the debugger window’s `size` and `position` are
-refused), with **--set** *section.key=value* (see **Settings for
---set**).
+`[config] version` and the debugger window’s `size`, `position` and
+`layout` are refused), with **--set** *section.key=value* (see
+**Settings for --set**).
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless

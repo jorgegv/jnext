@@ -28,6 +28,7 @@
 #include "debugger/window_attach.h"
 #include "platform/config_keys.h"
 
+#include <algorithm>
 #include <cmath>
 #include <QCloseEvent>
 #include <QGuiApplication>
@@ -51,6 +52,9 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QDialog>
+#include <QDockWidget>
+#include <QPointer>
+#include <QTabBar>
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QDialogButtonBox>
@@ -97,6 +101,46 @@ bool read_int_pair(const QVariant& v, int& a, int& b) {
     b = l[1].trimmed().toInt(&ok_b);
     return ok_a && ok_b;
 }
+
+// GH #377: the layout is plain text with no comma, but a hand-edited value may contain one, and QSettings
+// then hands it back as a QStringList whose toString() is "": join it back (app_config.cpp's ini_text()).
+QString layout_text_of(const QVariant& v) {
+    if (v.userType() == QMetaType::QStringList) return v.toStringList().join(QLatin1Char(','));
+    return v.toString();
+}
+
+Qt::DockWidgetArea qt_area(jnext::dock::Area a) {
+    switch (a) {
+    case jnext::dock::Area::Left:   return Qt::LeftDockWidgetArea;
+    case jnext::dock::Area::Right:  return Qt::RightDockWidgetArea;
+    case jnext::dock::Area::Top:    return Qt::TopDockWidgetArea;
+    case jnext::dock::Area::Bottom: return Qt::BottomDockWidgetArea;
+    }
+    return Qt::LeftDockWidgetArea;
+}
+
+bool dock_area_of(Qt::DockWidgetArea a, jnext::dock::Area& out) {
+    switch (a) {
+    case Qt::LeftDockWidgetArea:   out = jnext::dock::Area::Left;   return true;
+    case Qt::RightDockWidgetArea:  out = jnext::dock::Area::Right;  return true;
+    case Qt::TopDockWidgetArea:    out = jnext::dock::Area::Top;    return true;
+    case Qt::BottomDockWidgetArea: out = jnext::dock::Area::Bottom; return true;
+    default: return false;
+    }
+}
+
+/// The area a panel has in the default layout: where a closed or floating panel is parked, and where
+/// it comes back to in a new session.
+jnext::dock::Area default_area_of(const std::string& id) {
+    const jnext::dock::Layout d = jnext::dock::default_layout();
+    for (const auto& ln : d.lines)
+        for (const auto& g : ln.groups)
+            for (const auto& t : g.tabs)
+                if (t == id) return ln.area;
+    return jnext::dock::Area::Left;
+}
+
+int clamp_int(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 // GH #114 — the size the debugger opens at when nothing is saved. Unchanged
 // from before the issue: a user with room must see exactly what they saw.
@@ -183,6 +227,14 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
         jnext::clamp_window_size_to_screen(want_w, want_h, work, deco_h);
     resize(fit.w, fit.h);
 
+    // GH #377: the panel layout; a missing, corrupt or foreign-version value is the default one.
+    {
+        const std::string text =
+            layout_text_of(settings.value(config_key(config_keys::KeyId::DebuggerLayout))).toStdString();
+        const auto parsed = jnext::dock::parse(text);
+        apply_layout(parsed ? *parsed : jnext::dock::default_layout());
+    }
+
     attach_saved_   = settings.value(config_key(config_keys::KeyId::DebuggerAttached), true).toBool();
     attach_enabled_ = attach_override.value_or(attach_saved_);
 
@@ -218,13 +270,25 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
     }
 }
 
-// GH #498 - see the declaration. The panels outside the three tab widgets (CPU, Disassembly,
-// MMU) are on show with the window.
+// GH #498 - see the declaration. GH #377: the panels are docks. A closed dock is not on show, a floating
+// one is, a docked one is when it is the shown tab of its group (a tabbed-away dock is still isVisible()
+// to Qt, so its tab bar is asked, through shown_dock_of()). The Disassembly, the central widget, is on
+// show with the window.
 bool DebuggerWindow::panel_on_show(const QWidget* panel) const {
     if (!panel || !isVisible()) return false;
-    for (const QTabWidget* tw : {tab_widget_, memory_tab_widget_, bottom_tab_widget_})
-        if (tw && tw->indexOf(const_cast<QWidget*>(panel)) >= 0) return tw->currentWidget() == panel;
+    for (QDockWidget* d : docks_) {
+        if (d->widget() != panel) continue;
+        if (d->isHidden()) return false;
+        if (d->isFloating()) return true;
+        return shown_dock_of(d) == d;
+    }
     return true;
+}
+
+// GH #377/#498: the docks hide (and say so) while this window's children are deleted, after its own members
+// are gone; their visibility signals must not reach a half-destroyed window.
+DebuggerWindow::~DebuggerWindow() {
+    for (QDockWidget* d : docks_) d->disconnect(this);
 }
 
 void DebuggerWindow::closeEvent(QCloseEvent* event) {
@@ -478,12 +542,33 @@ void DebuggerWindow::apply_keymap() {
 
 void DebuggerWindow::showEvent(QShowEvent* event) {
     QMainWindow::showEvent(event);
+    shown_once_ = true;
+    // GH #377: the floating panels that went away with the window come back with it.
+    const QHash<QDockWidget*, QRect> parked = parked_floats_;
+    parked_floats_.clear();
+    for (auto it = parked.begin(); it != parked.end(); ++it)
+        place_floating(it.key(), it.value());
     if (initial_fit_done_)
         return;
     initial_fit_done_ = true;
+    // The sizes a saved layout carries only apply to a laid-out host; queued before the fit pass so the
+    // fit measures them.
+    QTimer::singleShot(0, this, [this]() { if (sizes_pending_) apply_dock_sizes(); size_hidden_tabs(); });
     // Queued, not immediate: the scroll range this reads is only correct once
     // the shown window has been laid out.
     queue_fit_pass_();
+}
+
+// GH #377: a floating panel is a window of its own and Qt leaves it on screen when this one goes
+// away (measured), so it goes with it and is remembered in parked_floats_.
+void DebuggerWindow::hideEvent(QHideEvent* event) {
+    QMainWindow::hideEvent(event);
+    for (QDockWidget* d : docks_) {
+        if (d->isFloating() && !d->isHidden()) {
+            parked_floats_.insert(d, d->geometry());
+            d->hide();
+        }
+    }
 }
 
 // GH #363 — a light/dark switch while the window is open. Painted panels pick
@@ -508,6 +593,9 @@ bool DebuggerWindow::fit_known_size_(const QSize& s) const {
 
 // The fit's explicit end: from now on every size is the user's.
 void DebuggerWindow::end_fit_() {
+    for (auto it = fit_raised_.rbegin(); it != fit_raised_.rend(); ++it)   // GH #377: the first value saved wins
+        it->first->setMinimumWidth(it->second);
+    fit_raised_.clear();
     fit_over_ = true;
     fit_sizes_.clear();
     fit_prev_size_ = QSize();
@@ -588,26 +676,57 @@ void DebuggerWindow::grow_default_size_to_natural() {
     // The share of a widening the splitter gives that column is MEASURED, from what the previous
     // width pass gained (the stretch factors, set in create_panels(), are only the first guess), so
     // this converges on its own bound whatever the style, font or DPI.
+    // GH #377: under docks a dock area keeps its width when the window widens (the central widget takes
+    // the rest), so the share of a widening the left column gets is no longer a thing to measure. Instead the
+    // panels docked left and right are asked for the width their sizeHint wants, as a minimum for the length of
+    // the fit (end_fit_() gives the 380 back): the host's minimum then grows, the scroll range shows how much
+    // wider the window must be, and a queued pass adds it. The result is a function of the layout, not of
+    // the order of the passes, which is what keeps a window manager's late answers harmless.
     int add_w = scroll_w;
-    int lacking = 0;
-    if (tab_widget_ && top_splitter_ && initial_fit_width_passes_ < kMaxWidthFitPasses) {
-        for (int i = 0; i < tab_widget_->count(); ++i) {
-            QWidget* page = tab_widget_->widget(i);
-            lacking = std::max(lacking, page->sizeHint().width() - page->width());
+    bool dock_pass = false;
+    if (initial_fit_width_passes_ < kMaxWidthFitPasses) {
+        for (QDockWidget* d : docks_) {
+            const Qt::DockWidgetArea area = dock_host_->dockWidgetArea(d);
+            if (d->isFloating() || d->isHidden() ||
+                (area != Qt::LeftDockWidgetArea && area != Qt::RightDockWidgetArea)) continue;
+            QWidget* page = d->widget();
+            // The right column opened ~250 px wide as a splitter child; its panels' sizeHint alone is a
+            // little short for their longest lines (the CPU panel's State / Screen row clips).
+            const int want = area == Qt::RightDockWidgetArea
+                                 ? std::max(page->sizeHint().width(), kRightColumnWidth)
+                                 : page->sizeHint().width();
+            if (want > page->minimumWidth()) {
+                fit_raised_.push_back({page, page->minimumWidth()});
+                page->setMinimumWidth(want);
+                dock_pass = true;
+            }
         }
-        if (lacking > 0) {
-            const int left  = top_splitter_->widget(0)->sizePolicy().horizontalStretch();
-            const int right = top_splitter_->widget(1)->sizePolicy().horizontalStretch();
-            double share = (left + right) > 0 ? double(left) / (left + right) : 1.0;
-            if (fit_last_add_ > 0 && fit_last_lacking_ > lacking)
-                share = double(fit_last_lacking_ - lacking) / fit_last_add_;
-            share = std::min(1.0, std::max(0.2, share));
-            add_w = std::max(add_w, static_cast<int>(std::ceil(lacking / share)));
+        if (dock_pass) ++initial_fit_width_passes_;
+        // The window grew by the scroll range, which is exact only up to the layout's rounding: a left
+        // column found wider than its widest page wants is given the excess back (the central widget
+        // takes it), so the column ends at its sizeHint, as the share-measuring fit it replaces did.
+        if (!dock_pass) {
+            QDockWidget* worst = nullptr;
+            int want = 0, have = 0;
+            for (QDockWidget* d : docks_) {
+                if (d->isFloating() || d->isHidden() ||
+                    dock_host_->dockWidgetArea(d) != Qt::LeftDockWidgetArea) continue;
+                want = std::max(want, d->widget()->sizeHint().width());
+                QDockWidget* s = shown_dock_of(d);
+                if (!worst) { worst = s; have = s->widget()->width(); }
+            }
+            if (worst && want > 0 && have > want + 2) {
+                dock_host_->resizeDocks({worst}, {worst->width() - (have - want)}, Qt::Horizontal);
+                ++initial_fit_width_passes_;
+                dock_pass = true;
+            }
         }
     }
 
-    if (add_w <= 0 && hidden_h <= 0)
+    if (add_w <= 0 && hidden_h <= 0) {
+        if (dock_pass) queue_fit_pass_();
         return;   // nothing is out of view and the left column has its width: leave the window alone
+    }
 
     // The FRAME must fit the screen: the side borders come off the width as the title bar comes off the height.
     const int deco_w = std::max(0, frameGeometry().width() - width());
@@ -618,23 +737,15 @@ void DebuggerWindow::grow_default_size_to_natural() {
     const jnext::WindowSize fit = jnext::clamp_window_size_to_screen(
         width() + add_w, height() + hidden_h,
         work_area_of(this), deco_h, deco_w);
-    if (fit.w == width() && fit.h == height())
+    if (fit.w == width() && fit.h == height()) {
+        if (dock_pass) queue_fit_pass_();
         return;   // nothing to grow, or the screen has no more room to give
-    const int old_w = width();
+    }
     fit_prev_size_ = size();
     fit_set_size_ = QSize(fit.w, fit.h);
     fit_sizes_.push_back(fit_prev_size_);
     fit_sizes_.push_back(fit_set_size_);
     resize(fit.w, fit.h);
-
-    const bool width_pass = lacking > 0 && add_w > scroll_w;
-    if (width_pass) {
-        ++initial_fit_width_passes_;
-        fit_last_add_ = fit.w - old_w;
-        fit_last_lacking_ = lacking;
-    } else {
-        fit_last_add_ = 0;
-    }
 
     // A panel's minimum can itself change as the window grows (a wider panel
     // may need more height), so one pass lands close but not always exactly.
@@ -644,8 +755,7 @@ void DebuggerWindow::grow_default_size_to_natural() {
     // passes (GH #114) and the width passes (GH #360) have a bound each.
     const bool scroll_pass = scroll_w > 0 || hidden_h > 0;
     if (scroll_pass) ++initial_fit_passes_;
-    if ((scroll_pass && initial_fit_passes_ < kMaxInitialFitPasses) ||
-        (width_pass && initial_fit_width_passes_ < kMaxWidthFitPasses))
+    if ((scroll_pass && initial_fit_passes_ < kMaxInitialFitPasses) || dock_pass)
         queue_fit_pass_();
 }
 
@@ -779,7 +889,7 @@ void DebuggerWindow::create_menus() {
     source_open_action_ = source_menu->addAction(tr("Open Source &File..."));
     connect(source_open_action_, &QAction::triggered, this, [this]() {
         if (!source_panel_) return;
-        tab_widget_->setCurrentWidget(source_panel_);
+        raise_panel(source_panel_);
         source_panel_->choose_file();
     });
     source_open_action_->setEnabled(false);
@@ -914,7 +1024,7 @@ void DebuggerWindow::create_menus() {
     QAction* symbols_action = go_menu->addAction(tr("&Symbols"));
     connect(symbols_action, &QAction::triggered, this, [this]() {
         if (!symbols_panel_) return;
-        tab_widget_->setCurrentWidget(symbols_panel_);
+        raise_panel(symbols_panel_);
         symbols_panel_->focus_filter();
     });
 
@@ -1070,6 +1180,15 @@ void DebuggerWindow::create_menus() {
     attach_action_->setChecked(attach_enabled_ && attach_supported_);
     connect(attach_action_, &QAction::toggled, this, &DebuggerWindow::set_attach_enabled);
 
+    // GH #377: the panels. One checkable item per panel (the dock's own view action, titled as the
+    // panel), and the way back to the default arrangement. P and R are free in this popup (A is Attach).
+    window_menu->addSeparator();
+    QMenu* panels_menu = window_menu->addMenu(tr("&Panels"));
+    for (QDockWidget* d : docks_)
+        panels_menu->addAction(d->toggleViewAction());
+    QAction* reset_layout_action = window_menu->addAction(tr("&Reset Layout"));
+    connect(reset_layout_action, &QAction::triggered, this, &DebuggerWindow::reset_layout);
+
     if (attach_platform_blocked_) {
         // Do not offer a switch that cannot do anything. Wayland gives a client
         // no way to position its own toplevel, and a move() there is dropped
@@ -1161,6 +1280,11 @@ void DebuggerWindow::save_geometry() {
     // command-line override into the file.
     settings.setValue(config_key(config_keys::KeyId::DebuggerAttached), attach_saved_);
     settings.setValue(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), physical_saved_);   // GH #360
+
+    // GH #377: the panel layout, as plain text (src/debugger/dock_layout.h).
+    settings.setValue(config_key(config_keys::KeyId::DebuggerLayout),
+                      QString::fromStdString(shown_once_ ? jnext::dock::format(capture_layout())
+                                                         : layout_text_));
 
     // Issue #39: only a DETACHED window owns its position. An attached one
     // derives it from the emulator window, so saving it would pin a stale
@@ -1566,28 +1690,14 @@ void DebuggerWindow::create_panels() {
         return box;
     };
 
-    // --- Tab widget for left-side panels (tabs at bottom) ---
-    tab_widget_ = new QTabWidget();
-    tab_widget_->setTabPosition(QTabWidget::North);
-    tab_widget_->addTab(video_panel_, tr("Video"));
-    tab_widget_->addTab(sprite_panel_, tr("Sprites"));
-    tab_widget_->addTab(graphics_panel_, tr("Graphics"));
-    tab_widget_->addTab(copper_panel_, tr("Copper"));
-    tab_widget_->addTab(nextreg_panel_, tr("NextREG"));
-    tab_widget_->addTab(audio_panel_, tr("Audio"));
     // GH #26 WP5 — the Script tab (dsl-frontend.md §6.4). Its host is the
     // manager's, handed over in set_debugger_manager().
     script_panel_ = new ScriptPanel();
-    tab_widget_->addTab(script_panel_, tr("Script"));
     // CAP-SRC — the source view and its steps (the manager wires the buttons
     // in set_debugger_manager()).
     source_panel_ = new SourcePanel(&dbg_);
-    tab_widget_->addTab(source_panel_, tr("Source"));
     // GH #366 - every label the backend knows, filterable.
     symbols_panel_ = new SymbolsPanel(&dbg_);
-    tab_widget_->addTab(symbols_panel_, tr("Symbols"));
-
-    tab_widget_->setMinimumWidth(380);
 
     stack_panel_ = new StackPanel(&dbg_);
     callstack_panel_ = new CallStackPanel(&dbg_);
@@ -1609,7 +1719,7 @@ void DebuggerWindow::create_panels() {
     connect(cpu_panel_, &CpuPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
     connect(cpu_panel_, &CpuPanel::show_in_source_requested, this, [this](uint16_t addr) {
         source_panel_->show_address(addr);
-        tab_widget_->setCurrentWidget(source_panel_);
+        raise_panel(source_panel_);
     });
 
     // GH #366 - the Symbols tab asks for a place to be shown.
@@ -1617,7 +1727,7 @@ void DebuggerWindow::create_panels() {
     connect(symbols_panel_, &SymbolsPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
     connect(symbols_panel_, &SymbolsPanel::show_in_source_requested, this, [this](uint16_t addr) {
         source_panel_->show_address(addr);
-        tab_widget_->setCurrentWidget(source_panel_);
+        raise_panel(source_panel_);
     });
 
     // GH #366 - Follow on a memory operand shows it in the Memory panel; a history change refreshes
@@ -1637,7 +1747,7 @@ void DebuggerWindow::create_panels() {
             });
     connect(disasm_panel_, &DisasmPanel::show_source_requested, this, [this](uint16_t addr) {
         source_panel_->show_address(addr);
-        tab_widget_->setCurrentWidget(source_panel_);
+        raise_panel(source_panel_);
     });
 
     // GH #435 - the frame is chosen in either place and the other follows. The mapping (Call Stack row i is C frame i + 1) is
@@ -1655,73 +1765,33 @@ void DebuggerWindow::create_panels() {
 
     mmu_panel_ = new MmuPanel(&dbg_);
 
-    auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
-    auto* mmu_box = make_group(tr("MMU"), mmu_panel_);
     auto* disasm_box = make_group(tr("Disassembly"), disasm_panel_);
 
-    // Right column: CPU Registers (top half) + MMU (bottom half)
-    auto* right_col = new QSplitter(Qt::Vertical);
-    right_col->addWidget(cpu_box);
-    right_col->addWidget(mmu_box);
-    right_col->setStretchFactor(0, 1);
-    right_col->setStretchFactor(1, 1);
-    right_col->setHandleWidth(1);
-    right_col->setChildrenCollapsible(false);
-
-    auto* right_widget = new QWidget();
-    auto* right_layout = new QHBoxLayout(right_widget);
-    right_layout->setContentsMargins(0, 0, 0, 0);
-    right_layout->setSpacing(2);
-    right_layout->addWidget(disasm_box, 1);  // disasm gets stretch
-    right_layout->addWidget(right_col, 0);   // CPU+MMU on the right, narrow
-
-    // --- Top: tabs (left) | CPU+disasm (right) ---
-    top_splitter_ = new QSplitter(Qt::Horizontal);
-    top_splitter_->addWidget(tab_widget_);
-    top_splitter_->addWidget(right_widget);
-    top_splitter_->setStretchFactor(0, 3);  // left tabs get more space
-    top_splitter_->setStretchFactor(1, 2);  // right side (disasm+CPU)
-    top_splitter_->setSizes({450, 300});
-    top_splitter_->setHandleWidth(1);
-    top_splitter_->setChildrenCollapsible(false);
-
-    // --- Bottom: memory tabs (left) | watches+breakpoints tabs (right) ---
-    auto* memory_tab_widget = new QTabWidget();
-    memory_tab_widget_ = memory_tab_widget;
-    memory_tab_widget->setTabPosition(QTabWidget::North);
-    memory_tab_widget->addTab(stack_panel_, tr("Stack"));
-    memory_tab_widget->addTab(callstack_panel_, tr("Call Stack"));
-    memory_tab_widget->addTab(memory_panel_, tr("Memory"));
-
-    auto* bottom_tab_widget = new QTabWidget();
-    bottom_tab_widget_ = bottom_tab_widget;
-    bottom_tab_widget->setTabPosition(QTabWidget::North);
-    bottom_tab_widget->addTab(watch_panel_, tr("Watches"));
-    bottom_tab_widget->addTab(variables_panel_, tr("Variables"));
-    bottom_tab_widget->addTab(breakpoint_panel_, tr("Breakpoints"));
-
-    // GH #498 - the panel_on_show() answers change with the current tab of each of the three
-    // tab widgets; one emission per change (currentChanged does not fire for a re-selection).
-    for (QTabWidget* tw : {tab_widget_, memory_tab_widget, bottom_tab_widget})
-        connect(tw, &QTabWidget::currentChanged, this, [this](int) { emit panels_on_show_changed(); });
-
-    auto* bottom_splitter = new QSplitter(Qt::Horizontal);
-    bottom_splitter->addWidget(memory_tab_widget);
-    bottom_splitter->addWidget(bottom_tab_widget);
-    bottom_splitter->setStretchFactor(0, 1);
-    bottom_splitter->setStretchFactor(1, 1);
-    bottom_splitter->setSizes({600, 400});
-    bottom_splitter->setHandleWidth(1);
-    bottom_splitter->setChildrenCollapsible(false);
-
-    // --- Main: top area | bottom (memory + watches) ---
-    main_splitter_ = new QSplitter(Qt::Vertical);
-    main_splitter_->addWidget(top_splitter_);
-    main_splitter_->addWidget(bottom_splitter);
-    main_splitter_->setStretchFactor(0, 1);  // top gets stretch
-    main_splitter_->setStretchFactor(1, 0);  // bottom stays at preferred size
-    main_splitter_->setHandleWidth(1);
-    main_splitter_->setChildrenCollapsible(false);
+    // GH #377: the panel table, in src/debugger/dock_layout.h's kPanelIds order. Adding a panel is one
+    // row here plus its token in kDefaultLayoutText. The Disassembly is not a row: it is the central
+    // widget (Qt does not support a main window without one, and every stop lands in it).
+    struct Row { const char* id; QString title; QWidget* panel; };
+    const Row table[] = {
+        {"video",      tr("Video"),         video_panel_},
+        {"sprites",    tr("Sprites"),       sprite_panel_},
+        {"graphics",   tr("Graphics"),      graphics_panel_},
+        {"copper",     tr("Copper"),        copper_panel_},
+        {"nextreg",    tr("NextREG"),       nextreg_panel_},
+        {"audio",      tr("Audio"),         audio_panel_},
+        {"script",     tr("Script"),        script_panel_},
+        {"source",     tr("Source"),        source_panel_},
+        {"symbols",    tr("Symbols"),       symbols_panel_},
+        {"cpu",        tr("CPU Registers"), cpu_panel_},
+        {"mmu",        tr("MMU"),           mmu_panel_},
+        {"stack",      tr("Stack"),         stack_panel_},
+        {"callstack",  tr("Call Stack"),    callstack_panel_},
+        {"memory",     tr("Memory"),        memory_panel_},
+        {"watches",    tr("Watches"),       watch_panel_},
+        {"variables",  tr("Variables"),     variables_panel_},
+        {"breakpoints", tr("Breakpoints"),  breakpoint_panel_},
+    };
+    static_assert(sizeof(table) / sizeof(table[0]) == jnext::dock::kPanelCount,
+                  "the panel table must have one row per kPanelIds entry");
 
     // GH #114: the panels live inside a scroll area so the window can be made
     // SMALLER than their combined minimum size and panned instead. The panel
@@ -1730,15 +1800,410 @@ void DebuggerWindow::create_panels() {
     // now produces scrollbars rather than a window that refuses to shrink and
     // hangs off a small screen.
     //
+    // GH #377: the scrolled widget is the dock host, an inner QMainWindow with Qt::Widget flags
+    // (docks cannot sit in a scroll area of the window that owns them, and docks on THIS window would
+    // make its minimum the sum of theirs: the unshrinkable window again).
+    //
     // Only the central widget is scrolled. The debug-controls toolbar is a
     // QMainWindow toolbar (addToolBar, see set_debugger_manager) and therefore
     // OUTSIDE this scroll area, which is what keeps the button bar on screen at
     // every window size.
+    dock_host_ = new QMainWindow(nullptr, Qt::Widget);
+    dock_host_->setCentralWidget(disasm_box);
+    dock_host_->setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
+    // Both bottom corners to the bottom area: the bottom row spans the width, as it always did.
+    dock_host_->setCorner(Qt::BottomLeftCorner, Qt::BottomDockWidgetArea);
+    dock_host_->setCorner(Qt::BottomRightCorner, Qt::BottomDockWidgetArea);
+    dock_host_->installEventFilter(this);   // eventFilter(): tune the tab bars Qt creates
+    for (std::size_t i = 0; i < jnext::dock::kPanelCount; ++i) {
+        // The left column of tabs had setMinimumWidth(380), an explicit minimum that overrides a page's own
+        // minimumSizeHint (Video's is 700 and its sizeHint 600): the opening fit then widens the column to
+        // what the pages WANT. Kept per panel, so the same holds wherever the user docks them.
+        if (default_area_of(table[i].id) == jnext::dock::Area::Left)
+            table[i].panel->setMinimumWidth(kLeftColumnMinWidth);
+        auto* dock = new QDockWidget(table[i].title, dock_host_);
+        dock->setObjectName(QString::fromLatin1(table[i].id));
+        dock->setWidget(table[i].panel);
+        docks_.push_back(dock);
+        // GH #498: the panel_on_show() answers change with a dock's visibility (the shown tab of its group
+        // changed, closed, reopened) and with floating. A tab switch makes one dock visible and another
+        // not-visible-but-not-hidden: it is announced once, by the dock that became visible; a close is
+        // announced by the dock that is now hidden (an implicit hide with the window is not a change).
+        connect(dock, &QDockWidget::visibilityChanged, this, [this, dock](bool visible) {
+            if (!applying_layout_ && (visible || dock->isHidden())) emit panels_on_show_changed();
+        });
+        connect(dock, &QDockWidget::topLevelChanged, this, [this](bool) {
+            if (!applying_layout_) emit panels_on_show_changed();
+        });
+        // A tabbed-away dock is still visible to Qt, so its panel gets no showEvent when its tab is
+        // selected; the Graphics panel draws only while on show and no tick redraws a paused window that
+        // did not change, so it is told when its dock becomes the shown one (it re-checks on_show()).
+        if (std::string(table[i].id) == "graphics") {
+            QPointer<QWidget> gp = table[i].panel;
+            connect(dock, &QDockWidget::visibilityChanged, this, [this, gp](bool visible) {
+                if (!visible) return;
+                QTimer::singleShot(0, this, [gp]() { if (auto* g = qobject_cast<GraphicsPanel*>(gp.data())) g->refresh(); });
+            });
+        }
+    }
+
     auto* scroll = new QScrollArea();
-    scroll->setWidget(main_splitter_);
-    scroll->setWidgetResizable(true);   // splitter still fills a roomy window
+    scroll->setWidget(dock_host_);
+    scroll->setWidgetResizable(true);   // the host still fills a roomy window
     scroll->setFrameShape(QFrame::NoFrame);
     setCentralWidget(scroll);
+}
+
+// Whether a new tab bar has scroll buttons comes from the style (SH_TabBar_PreferNoArrows, which the macOS
+// style sets): without them a bar's minimum width is the sum of its tabs, and nine tabs make the left column
+// wider than its widest panel. Every group's tab bar gets scroll buttons, whenever Qt makes one (a drag
+// creates them on the fly), as the QTabWidget this window used to have scrolled.
+void DebuggerWindow::tune_tab_bars() {
+    for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
+        bar->setUsesScrollButtons(true);
+}
+
+// A tabbed-away dock is not laid out by Qt until it is shown (it keeps whatever size it was created with:
+// 187 px wide for the Memory panel), so a panel read while it is not the shown tab would be drawn at that.
+// Give each one the size of its group's shown dock.
+void DebuggerWindow::size_hidden_tabs() {
+    for (QDockWidget* d : docks_) {
+        if (d->isFloating() || d->isHidden()) continue;
+        QDockWidget* s = shown_dock_of(d);
+        if (s == d) continue;
+        const QSize want = s->size().expandedTo(d->sizeHint());
+        if (d->size() != want) d->resize(want);
+    }
+}
+
+bool DebuggerWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == dock_host_ && event->type() == QEvent::ChildAdded && !tab_bars_tune_queued_) {
+        tab_bars_tune_queued_ = true;
+        QTimer::singleShot(0, this, [this]() { tab_bars_tune_queued_ = false; tune_tab_bars(); });
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void DebuggerWindow::raise_panel(QWidget* panel) {
+    for (QDockWidget* d : docks_) {
+        if (d->widget() != panel) continue;
+        if (d->isHidden()) d->show();
+        d->raise();
+        if (d->isFloating()) d->activateWindow();
+        return;
+    }
+}
+
+int DebuggerWindow::tab_bar_height_of(QDockWidget* d) const {
+    if (dock_host_->tabifiedDockWidgets(d).isEmpty()) return 0;
+    for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly))
+        for (int i = 0; i < bar->count(); ++i)
+            if (bar->tabText(i) == d->windowTitle()) return bar->isHidden() ? 0 : bar->height();   // not isVisible(): the window closes (hides) before its last save
+    return 0;
+}
+
+QDockWidget* DebuggerWindow::shown_dock_of(QDockWidget* d) const {
+    const QList<QDockWidget*> group = dock_host_->tabifiedDockWidgets(d);
+    if (group.isEmpty()) return d;
+    // The group's tab bar says which tab is shown, also before the window has been mapped.
+    for (QTabBar* bar : dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly)) {
+        bool mine = false;
+        for (int i = 0; i < bar->count(); ++i) mine = mine || bar->tabText(i) == d->windowTitle();
+        if (!mine || bar->currentIndex() < 0) continue;
+        const QString shown = bar->tabText(bar->currentIndex());
+        if (d->windowTitle() == shown) return d;
+        for (QDockWidget* t : group) if (t->windowTitle() == shown) return t;
+    }
+    if (!d->visibleRegion().isEmpty()) return d;
+    for (QDockWidget* t : group)
+        if (!t->isHidden() && !t->visibleRegion().isEmpty()) return t;
+    return d;
+}
+
+int DebuggerWindow::left_column_lacking(QDockWidget** shown) const {
+    int lacking = 0;
+    QDockWidget* worst = nullptr;
+    for (QDockWidget* d : docks_) {
+        if (d->isFloating() || d->isHidden() ||
+            dock_host_->dockWidgetArea(d) != Qt::LeftDockWidgetArea) continue;
+        QDockWidget* s = shown_dock_of(d);
+        const int l = d->widget()->sizeHint().width() - s->widget()->width();
+        if (l > lacking) { lacking = l; worst = s; }
+    }
+    if (shown) *shown = worst;
+    return lacking;
+}
+
+void DebuggerWindow::apply_layout(const jnext::dock::Layout& in) {
+    using namespace jnext::dock;
+    const Layout l = complete(in);
+    auto find = [this](const std::string& id) -> QDockWidget* {
+        for (std::size_t i = 0; i < kPanelCount; ++i)
+            if (id == kPanelIds[i]) return docks_[i];
+        return nullptr;
+    };
+    applying_layout_ = true;   // the docks hide, show and float ~26 times below: announced once, at the end
+
+    // Start from nothing placed: dock every floating panel and take every dock out of the host.
+    parked_floats_.clear();
+    for (QDockWidget* d : docks_) {
+        if (d->isFloating()) d->setFloating(false);
+        dock_host_->removeDockWidget(d);
+    }
+
+    std::vector<QDockWidget*> shown;
+    for (const AreaLine& ln : l.lines) {
+        const Qt::DockWidgetArea area = qt_area(ln.area);
+        const Qt::Orientation orient = ln.horizontal ? Qt::Horizontal : Qt::Vertical;
+        for (const Group& g : ln.groups) {
+            QDockWidget* first = find(g.tabs.front());
+            if (!first) continue;
+            dock_host_->addDockWidget(area, first, orient);
+            first->show();
+            for (std::size_t k = 1; k < g.tabs.size(); ++k) {
+                if (QDockWidget* d = find(g.tabs[k])) {
+                    dock_host_->tabifyDockWidget(first, d);
+                    d->show();
+                }
+            }
+            if (QDockWidget* s = find(g.tabs[g.shown < g.tabs.size() ? g.shown : 0])) shown.push_back(s);
+        }
+    }
+    for (QDockWidget* s : shown) s->raise();
+
+    for (const Floating& f : l.floats) {
+        QDockWidget* d = find(f.id);
+        if (!d) continue;
+        dock_host_->addDockWidget(qt_area(default_area_of(f.id)), d);
+        d->setFloating(true);
+        d->setGeometry(f.x, f.y, f.w, f.h);
+        if (isVisible()) place_floating(d, QRect(f.x, f.y, f.w, f.h));
+        else parked_floats_.insert(d, QRect(f.x, f.y, f.w, f.h));   // a window of its own: shown with this one
+    }
+    for (const std::string& id : l.closed) {
+        QDockWidget* d = find(id);
+        if (!d) continue;
+        // Parked where it will come back to: tabbed with its first default group-mate that is docked, else
+        // in its default area (Window > Panels then reopens it there).
+        QDockWidget* mate_dock = nullptr;
+        const Layout def = default_layout();
+        for (const AreaLine& dl : def.lines)
+            for (const Group& dg : dl.groups) {
+                if (std::find(dg.tabs.begin(), dg.tabs.end(), id) == dg.tabs.end()) continue;
+                for (const std::string& mate : dg.tabs) {
+                    QDockWidget* m = mate == id ? nullptr : find(mate);
+                    if (m && !m->isHidden() && !m->isFloating() && !mate_dock) mate_dock = m;
+                }
+            }
+        if (mate_dock) dock_host_->tabifyDockWidget(mate_dock, d);
+        else dock_host_->addDockWidget(qt_area(default_area_of(id)), d);
+        d->close();
+    }
+
+    tune_tab_bars();
+    layout_text_ = format(l);
+    pending_sizes_ = l;
+    sizes_pending_ = true;
+    if (isVisible()) apply_dock_sizes();
+    applying_layout_ = false;
+    emit panels_on_show_changed();   // GH #498
+}
+
+// A layout's sizes. resizeDocks() before the host has been laid out is not applied (measured), hence
+// this runs off the first show, or at once when the window is already up.
+void DebuggerWindow::apply_dock_sizes() {
+    using namespace jnext::dock;
+    if (!sizes_pending_) return;
+    sizes_pending_ = false;
+    auto find = [this](const std::string& id) -> QDockWidget* {
+        for (std::size_t i = 0; i < kPanelCount; ++i)
+            if (id == kPanelIds[i]) return docks_[i];
+        return nullptr;
+    };
+    for (const AreaLine& ln : pending_sizes_.lines) {
+        std::vector<QDockWidget*> firsts;
+        std::vector<QDockWidget*> shown;
+        for (const Group& g : ln.groups) {
+            QDockWidget* s = find(g.tabs[g.shown < g.tabs.size() ? g.shown : 0]);
+            if (!s) continue;
+            shown.push_back(s);
+            firsts.push_back(s);
+        }
+        if (shown.empty()) continue;
+        const Qt::Orientation along = ln.horizontal ? Qt::Horizontal : Qt::Vertical;
+        const Qt::Orientation across = ln.horizontal ? Qt::Vertical : Qt::Horizontal;
+        if (ln.thickness > 0)
+            dock_host_->resizeDocks({shown.front()}, {ln.thickness}, across);
+        // The groups with an extent get it; the others share what is left of the line's length in
+        // proportion to what they have (sizes that add up to more than the line are scaled by Qt,
+        // which would put the asked extent off).
+        const std::size_t n = std::min(ln.groups.size(), shown.size());
+        std::vector<int> cur(n);
+        int total = 0, given = 0, free_cur = 0;
+        bool any = false;
+        for (std::size_t i = 0; i < n; ++i) {
+            cur[i] = ln.horizontal ? shown[i]->width() : shown[i]->height() + tab_bar_height_of(shown[i]);
+            total += cur[i];
+            if (ln.groups[i].extent > 0) { any = true; given += ln.groups[i].extent; }
+            else free_cur += cur[i];
+        }
+        QList<int> sizes;
+        const int rest = std::max(total - given, 0);
+        for (std::size_t i = 0; i < n; ++i) {
+            const int e = ln.groups[i].extent;
+            sizes.push_back(e > 0 ? e : (free_cur > 0 ? rest * cur[i] / free_cur : cur[i]));
+        }
+        if (any)
+            dock_host_->resizeDocks(QList<QDockWidget*>(firsts.begin(), firsts.begin() + n), sizes, along);
+    }
+}
+
+// Show a floating panel with its client area at `r`, pulled fully inside the work area of the screen `r`
+// lands on (GH #114's contract: a panel saved on a monitor that is gone comes back reachable). The FRAME
+// is what has to fit, so the margins Qt measures around the client area once it is shown are counted.
+void DebuggerWindow::place_floating(QDockWidget* d, const QRect& r) {
+    jnext::AttachRect screen = work_area_of(this);
+    for (const QScreen* sc : QGuiApplication::screens())
+        if (sc->availableGeometry().contains(r.topLeft())) screen = to_attach_rect(sc->availableGeometry());
+    d->setGeometry(r);
+    d->show();
+    const QRect g = d->geometry();
+    const QRect fg = d->frameGeometry();
+    const int ml = g.x() - fg.x(), mt = g.y() - fg.y();
+    const int mw = fg.width() - g.width(), mh = fg.height() - g.height();
+    const jnext::WindowSize sz = jnext::clamp_window_size_to_screen(r.width() + mw, r.height() + mh, screen);
+    const jnext::AttachPlacement p = jnext::clamp_window_to_work_area(r.x() - ml, r.y() - mt, sz.w, sz.h, screen);
+    d->setGeometry((p.reposition ? p.x : r.x() - ml) + ml, (p.reposition ? p.y : r.y() - mt) + mt,
+                   sz.w - mw, sz.h - mh);
+}
+
+void DebuggerWindow::reset_layout() {
+    apply_layout(jnext::dock::default_layout());
+    // The left column opens at least as wide as its widest page wants, as at the first opening.
+    QTimer::singleShot(0, this, [this]() {
+        QDockWidget* shown = nullptr;
+        const int lacking = left_column_lacking(&shown);
+        if (lacking > 0 && shown)
+            dock_host_->resizeDocks({shown}, {shown->width() + lacking}, Qt::Horizontal);
+    });
+}
+
+jnext::dock::Layout DebuggerWindow::capture_layout() const {
+    using namespace jnext::dock;
+    Layout out;
+    constexpr Area kAreas[] = {Area::Left, Area::Right, Area::Top, Area::Bottom};
+
+    std::vector<bool> done(docks_.size(), false);
+    struct G { std::vector<std::size_t> idx; std::size_t shown = 0; Area area = Area::Left; QPoint pos; QSize size; };
+    std::vector<G> groups;
+
+    auto index_of = [this](QDockWidget* d) -> std::size_t {
+        for (std::size_t i = 0; i < docks_.size(); ++i) if (docks_[i] == d) return i;
+        return docks_.size();
+    };
+
+    for (std::size_t i = 0; i < docks_.size(); ++i) {
+        QDockWidget* d = docks_[i];
+        const std::string id = kPanelIds[i];
+        if (parked_floats_.contains(d)) {
+            const QRect r = parked_floats_.value(d);
+            Floating f;
+            f.id = id;
+            f.x = clamp_int(r.x(), -32768, 32767); f.y = clamp_int(r.y(), -32768, 32767);
+            f.w = clamp_int(r.width(), 1, 32767);  f.h = clamp_int(r.height(), 1, 32767);
+            out.floats.push_back(f);
+            done[i] = true;
+        } else if (d->isHidden()) {
+            out.closed.push_back(id);
+            done[i] = true;
+        } else if (d->isFloating()) {
+            const QRect r = d->geometry();
+            Floating f;
+            f.id = id;
+            f.x = clamp_int(r.x(), -32768, 32767); f.y = clamp_int(r.y(), -32768, 32767);
+            f.w = clamp_int(r.width(), 1, 32767);  f.h = clamp_int(r.height(), 1, 32767);
+            out.floats.push_back(f);
+            done[i] = true;
+        }
+    }
+
+    // The tab bars of the host, by the set of titles they carry.
+    const QList<QTabBar*> bars = dock_host_->findChildren<QTabBar*>(QString(), Qt::FindDirectChildrenOnly);
+
+    for (std::size_t i = 0; i < docks_.size(); ++i) {
+        if (done[i]) continue;
+        QDockWidget* d = docks_[i];
+        G g;
+        std::vector<QDockWidget*> members{d};
+        for (QDockWidget* t : dock_host_->tabifiedDockWidgets(d)) {
+            const std::size_t k = index_of(t);
+            if (k < docks_.size() && !done[k] && !t->isHidden() && !t->isFloating()) members.push_back(t);
+        }
+        for (QDockWidget* m : members) done[index_of(m)] = true;
+
+        Area area = Area::Left;
+        if (!dock_area_of(dock_host_->dockWidgetArea(d), area)) area = default_area_of(kPanelIds[i]);
+        g.area = area;
+
+        // Tab order and the shown tab from the group's tab bar when it has one.
+        std::vector<QDockWidget*> ordered = members;
+        QDockWidget* shown = nullptr;
+        if (members.size() > 1) {
+            for (QTabBar* bar : bars) {
+                if (bar->count() != static_cast<int>(members.size())) continue;
+                std::vector<QDockWidget*> by_bar;
+                for (int t = 0; t < bar->count(); ++t)
+                    for (QDockWidget* m : members)
+                        if (m->windowTitle() == bar->tabText(t)) by_bar.push_back(m);
+                if (by_bar.size() != members.size()) continue;
+                ordered = by_bar;
+                shown = by_bar[static_cast<std::size_t>(clamp_int(bar->currentIndex(), 0, bar->count() - 1))];
+                break;
+            }
+            if (!shown) shown = shown_dock_of(d);
+        } else {
+            shown = d;
+        }
+        for (QDockWidget* m : ordered) g.idx.push_back(index_of(m));
+        for (std::size_t k = 0; k < ordered.size(); ++k) if (ordered[k] == shown) g.shown = k;
+        g.pos = shown->mapTo(dock_host_, QPoint(0, 0));
+        // The area's size counts the group's tab bar (resizeDocks() sets it), the dock's own does not: a
+        // size read back without it would shrink by the bar's height at every save.
+        g.size = shown->size() + QSize(0, tab_bar_height_of(shown));
+        groups.push_back(g);
+    }
+
+    for (Area a : kAreas) {
+        std::vector<const G*> in_area;
+        for (const G& g : groups) if (g.area == a) in_area.push_back(&g);
+        if (in_area.empty()) continue;
+        AreaLine line;
+        line.area = a;
+        bool horizontal = (a == Area::Top || a == Area::Bottom);
+        if (in_area.size() > 1) {
+            int minx = in_area[0]->pos.x(), maxx = minx, miny = in_area[0]->pos.y(), maxy = miny;
+            for (const G* g : in_area) {
+                minx = std::min(minx, g->pos.x()); maxx = std::max(maxx, g->pos.x());
+                miny = std::min(miny, g->pos.y()); maxy = std::max(maxy, g->pos.y());
+            }
+            horizontal = (maxx - minx) > (maxy - miny);
+        }
+        line.horizontal = horizontal;
+        std::sort(in_area.begin(), in_area.end(), [horizontal](const G* x, const G* y) {
+            return horizontal ? x->pos.x() < y->pos.x() : x->pos.y() < y->pos.y();
+        });
+        const QSize first = in_area.front()->size;
+        line.thickness = clamp_int(horizontal ? first.height() : first.width(), 0, 32767);
+        for (const G* g : in_area) {
+            Group grp;
+            grp.extent = clamp_int(horizontal ? g->size.width() : g->size.height(), 0, 32767);
+            for (std::size_t k : g->idx) grp.tabs.push_back(kPanelIds[k]);
+            grp.shown = g->shown;
+            line.groups.push_back(grp);
+        }
+        out.lines.push_back(line);
+    }
+    return out;
 }
 
 bool DebuggerWindow::source_has_focus() const {
@@ -1756,7 +2221,7 @@ void DebuggerWindow::update_nav_actions() {
 void DebuggerWindow::show_in_memory(uint16_t addr) {
     if (!memory_panel_) return;
     memory_panel_->show_address(addr);
-    if (memory_tab_widget_) memory_tab_widget_->setCurrentWidget(memory_panel_);
+    raise_panel(memory_panel_);
 }
 
 void DebuggerWindow::activate_follow_pc() {
