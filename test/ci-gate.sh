@@ -117,7 +117,8 @@ allow = set(a for a in os.environ["ALLOW"].split("\n") if a)
 def mins(j):
     try:
         f = lambda s: datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
-        return "%.1f" % ((f(j["completedAt"]) - f(j["startedAt"])).total_seconds() / 60)
+        m = (f(j["completedAt"]) - f(j["startedAt"])).total_seconds() / 60
+        return "%.1f" % m if m >= 0 else "?"
     except Exception:
         return "?"
 bad = []
