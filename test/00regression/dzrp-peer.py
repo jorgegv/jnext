@@ -701,7 +701,42 @@ def sc_paused_headless(port, pid_file, exit_frames):
             "%.1f s)" % (chats, used * 100, gone, exit_frames, expected))
 
 
+# ---------------------------------------------------------------------------
+# debugger-*-func rows (GH #548) - a machine started with --debugger
+# ---------------------------------------------------------------------------
+
+
+def sc_startup(port, expect_pc):
+    """`--debugger` started the machine paused where the program starts.
+
+    A client that connects finds it paused: CMD_INIT pauses only a RUNNING
+    machine, so the PC read here is the startup stop's. It is read three times
+    half a second apart (a held machine does not move), then CONTINUE runs it and
+    a PAUSE answers with a PC somewhere else.
+    """
+    want = int(expect_pc, 0)
+    c = connect(port)
+    try:
+        pcs = [c.get_registers().PC]
+        for _ in range(2):
+            time.sleep(0.5)
+            pcs.append(c.get_registers().PC)
+        check(pcs[0] == want, "the machine is paused at 0x%04X, expected 0x%04X" % (pcs[0], want))
+        check(pcs == [want] * 3, "the paused machine moved: PCs %s" % ["0x%04X" % p for p in pcs])
+        c.cont()
+        time.sleep(0.4)
+        c.pause()
+        pause_expecting(c, dz.BreakReason.MANUAL_BREAK)
+        after = c.get_registers().PC
+        check(after != want, "CONTINUE ran nothing: PC is still 0x%04X" % after)
+    finally:
+        c.close()
+    return ("attached to a machine paused at 0x%04X, held over 1 s, CONTINUE ran it (PAUSE at 0x%04X)"
+            % (want, after))
+
+
 SCENARIOS = {
+    "startup": sc_startup,
     "loopback": sc_loopback,
     "init-regs": sc_init_regs,
     "bp-continue": sc_bp_continue,
