@@ -1111,6 +1111,7 @@ my %NO_MATRIX_SECTION = (
     # GH #381. The oracle is the World of Spectrum POKformat.txt (a host file
     # format the FPGA core never sees) and jnext's own apply/remove policy; the
     # bank-to-page rows cite zxnext.vhd:4613-4616 / :4679-4680 in their own source.
+    'startup_stop_test' => 'the --debugger / --break-at startup stop (host side): its stop points are the file formats\' own entry PCs and the Breakpoints panel\'s address rules',
     'pok_trainers_test' => 'the WoS POK trainer file format and jnext\'s apply/remove policy (host side); its bank-to-page rows cite zxnext.vhd in their own source',
     'pok_dialog_test'   => 'POK trainers dialog (GUI), no core counterpart',
     'load_error_test' => 'GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart',
