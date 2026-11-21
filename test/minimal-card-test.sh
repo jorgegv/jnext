@@ -10,7 +10,8 @@
 # (third_party/fatfs/ff.c MAX_FAT16 0xFFF5: FAT32 needs MORE than 65525 clusters).
 #
 # Rows MINIMG-01 .. MINIMG-13, MINIMG-17, MINIMG-19, MINIMG-20 (15), and MINIMG-21 .. MINIMG-26
-# (GH #509: extra distribution paths, --dirs) (21). A missing tool or
+# (GH #509: extra distribution paths, --dirs) (21), and MINIMG-27 (the Makefile orders sdcard-image
+# before this script; GH #510) (22). A missing tool or
 # source image FAILS MINIMG-01; there is no SKIP path.
 #
 # Retired with the script (GH #458), by the same hand as the mtools builder:
@@ -29,7 +30,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/tools/make-minimal-card/make-minimal-card}"
 SRC="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}/sdcard/cspect-next-1gb.img"   # one variable to rename for another release; the seam lets a branch test a candidate card (sd-master-ensure.sh honours it too)
 PROV="$ROOT/src/core/sdcard_provisioner.cpp"
-EXPECTED_ROWS=21
+EXPECTED_ROWS=22
 export MTOOLS_SKIP_CHECK=1
 
 total=0; passed=0; failed=0
@@ -405,6 +406,14 @@ hl=$(sha256sum "$LIST" 2>/dev/null | cut -d' ' -f1 || true)
 ok=0; [[ $rc1 == 0 && $rc2 == 0 && -n "$h1" && "$h1" == "$h2" && "$h1" == "$hl" ]] && ok=1
 row MINIMG-26 "$ok" "'/apps/, /GAMES', '/games,/Apps' and '/GAMES,/APPS' give the same card sha256"
 rm -f "$LIST" "$T/l/o1.img" "$T/l/o2.img"
+
+# ---- MINIMG-27: the raw image it reads is ensured first ----
+# unit-test ran this target BEFORE sdcard-image, so a host whose shared master was another
+# distribution's (the first run after the default moved from 26.11 to 26.11a) failed MINIMG-01..05
+# on the old image, and passed on the second run. The dependency is what orders them.
+deps=$(make -C "$ROOT" -qp -f Makefile : 2>/dev/null | sed -n 's/^minimal-image-test: *//p' | head -n 1 || true)   # -q exits 1: nothing is up to date
+ok=0; [[ " $deps " == *" sdcard-image "* ]] && ok=1
+row MINIMG-27 "$ok" "make minimal-image-test depends on sdcard-image, which re-derives a master of another distribution before this script reads the raw image (prerequisites: $deps)"
 
 # ---- MINIMG-08: the source was only read ----
 src_sha1=$(sha256sum "$SRC" | cut -d' ' -f1)

@@ -2237,7 +2237,7 @@ package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
 # Test tools/make-minimal-card (15 rows) against the cached distribution image and a synthetic zip - Linux only; needs mtools + sfdisk + python3
-minimal-image-test: unit-test-build
+minimal-image-test: unit-test-build sdcard-image
 	@bash test/minimal-card-test.sh
 
 # Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s
