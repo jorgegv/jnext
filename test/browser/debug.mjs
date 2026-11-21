@@ -1,4 +1,4 @@
-// Browser rows BDBG-01..23: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
+// Browser rows BDBG-01..25: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
 // channel and over a WebSocket to the bridge (make wasm-browser-test, spec debug.mjs). Run by
 // browser-smoke.sh on the SDK's node.
 //
@@ -659,6 +659,77 @@ row('BDBG-23', 'bridge framing, violations: a 1-byte close payload, close codes 
     await closeCode(maskedFrame(true, 8, Buffer.concat([Buffer.from([0x0b, 0xb8]), Buffer.from('bye')]))),
   ];
   must(got.join() === '1002,1002,1002,1007,1007,1000', 'close codes ' + got.join());
+});
+
+
+row('BDBG-24', 'the session ends in the same write as a 20 MiB reply (one binary frame and the close): the TCP client starts reading 3 s later and gets every byte, then EOF', async () => {
+  const b = await startBridge();
+  const link = await upgradeOk(b.wsPort);
+  must(/^HTTP\/1\.1 101/.test(link.status), 'link: ' + link.status);
+  link.socket.on('error', () => {});
+  const c = net.connect(b.tcpPort, '127.0.0.1');
+  await new Promise((r) => c.on('connect', r));
+  c.pause();   // reads nothing yet
+  await sleep(300);
+  const payload = crypto.randomBytes(20 * 1024 * 1024);
+  link.socket.write(Buffer.concat([maskedFrame(true, 2, payload), maskedFrame(true, 1, Buffer.from('close'))]));
+  await sleep(3000);   // longer than the 2 s that used to cut a queued tail
+  const got = [];
+  c.on('data', (d) => got.push(d));
+  const eof = await new Promise((resolve) => { c.on('close', () => resolve(true)); c.on('error', () => {}); c.resume(); setTimeout(() => resolve(false), 30000); });
+  const all = Buffer.concat(got);
+  link.socket.destroy();
+  must(all.length === payload.length && all.equals(payload), `${all.length} of ${payload.length} bytes, identical ${all.equals(payload)}`);
+  must(eof, 'no EOF after the bytes');
+});
+
+row('BDBG-25', 'backpressure towards the page: a page link that stops reading makes the bridge stop reading a TCP client that writes 80 MiB (its writes back up); once the page reads, every byte arrives byte-identical', async () => {
+  const b = await startBridge();
+  const link = await upgradeOk(b.wsPort);
+  must(/^HTTP\/1\.1 101/.test(link.status), 'link: ' + link.status);
+  link.socket.removeAllListeners('data');
+  link.socket.on('error', () => {});
+  link.socket.pause();   // the page reads nothing
+  const c = net.connect(b.tcpPort, '127.0.0.1');
+  c.on('error', () => {});
+  await new Promise((r) => c.on('connect', r));
+  const MiB = 1 << 20, N = 80;
+  const hash = crypto.createHash('sha1');
+  for (let i = 0; i < N; i++) {
+    const m = crypto.randomBytes(MiB);
+    hash.update(m);
+    c.write(m);
+  }
+  await sleep(1500);
+  const queued = c.writableLength;
+  const chunks = [];
+  link.socket.on('data', (d) => chunks.push(d));
+  link.socket.resume();
+  const got = crypto.createHash('sha1');
+  let total = 0, done = 0;
+  const t0 = Date.now();
+  while (total < N * MiB && Date.now() - t0 < 90000) {
+    await sleep(100);
+    const buf = Buffer.concat(chunks);
+    chunks.length = 0;
+    // keep an incomplete tail for the next round
+    let used = 0;
+    for (let off = 0; off + 2 <= buf.length;) {
+      let len = buf[off + 1] & 0x7f, h = 2;
+      if (len === 126) { if (off + 4 > buf.length) break; len = buf.readUInt16BE(off + 2); h = 4; }
+      else if (len === 127) { if (off + 10 > buf.length) break; len = Number(buf.readBigUInt64BE(off + 2)); h = 10; }
+      if (off + h + len > buf.length) break;
+      if ((buf[off] & 0x0f) === 2) { const p = buf.subarray(off + h, off + h + len); got.update(p); total += p.length; }
+      off += h + len;
+      used = off;
+    }
+    if (used < buf.length) chunks.push(buf.subarray(used));
+    done++;
+  }
+  c.destroy();
+  link.socket.destroy();
+  must(queued > 32 * MiB, `the client's write queue was ${queued} bytes after 1.5 s: the bridge read it though the page did not`);
+  must(total === N * MiB && got.digest('hex') === hash.digest('hex'), `${total} of ${N * MiB} bytes, digest ${total === N * MiB ? 'differs' : 'n/a'}`);
 });
 
 // ---------------------------------------------------------------------------------------------------

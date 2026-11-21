@@ -79,13 +79,15 @@ export class TcpRelay extends EventEmitter {
   resumeClient() { if (this.client) this.client.resume(); }
 
   // Ends the client's session from our side: a FIN after what was written (graceful, never a reset that
-  // could cost the client the reply it is still reading); the socket is dropped anyway after 2 s.
+  // could cost the client the reply it is still reading). The socket is dropped 2 s after the FIN has
+  // gone out, i.e. once every queued byte has been handed to the kernel: never while bytes are still
+  // queued for a client that has not read them yet (a reply larger than the kernel buffers).
   end() {
     const c = this.client;
     if (!c) return;
     this.client = null;
     c.end();
-    setTimeout(() => c.destroy(), 2000).unref();
+    c.once('finish', () => setTimeout(() => c.destroy(), 2000).unref());
     this.emit('drain');
     this.#promote();
   }
