@@ -10,8 +10,8 @@
 # (third_party/fatfs/ff.c MAX_FAT16 0xFFF5: FAT32 needs MORE than 65525 clusters).
 #
 # Rows MINIMG-01 .. MINIMG-13, MINIMG-17, MINIMG-19, MINIMG-20 (15), and MINIMG-21 .. MINIMG-26
-# (GH #509: extra distribution paths, --dirs) (21), and MINIMG-27 (the Makefile orders sdcard-image
-# before this script; GH #510) (22). A missing tool or
+# (GH #509: extra distribution paths, --dirs) (21), MINIMG-27 (the Makefile orders sdcard-image
+# before this script; GH #510) (22), and MINIMG-28 .. MINIMG-30 (GH #549: /dot on the card, /DOT refused in --dirs, the Pages list fits) (25). A missing tool or
 # source image FAILS MINIMG-01; there is no SKIP path.
 #
 # Retired with the script (GH #458), by the same hand as the mtools builder:
@@ -30,7 +30,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/tools/make-minimal-card/make-minimal-card}"
 SRC="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}/sdcard/cspect-next-1gb.img"   # one variable to rename for another release; the seam lets a branch test a candidate card (sd-master-ensure.sh honours it too)
 PROV="$ROOT/src/core/sdcard_provisioner.cpp"
-EXPECTED_ROWS=22
+EXPECTED_ROWS=25
 export MTOOLS_SKIP_CHECK=1
 
 total=0; passed=0; failed=0
@@ -76,7 +76,7 @@ if [[ ${#missing[@]} -gt 0 || ! -f "$SRC" || ! -x "$TOOL" || ${#pinned_card} != 
     [[ -x "$TOOL" ]] || echo "  missing $TOOL (make unit-test-build)"
     [[ ${#pinned_card} == 64 ]] || echo "  cannot read the pinned card digest from $PROV"
     row MINIMG-01 0 "tools, the builder and the distribution image are present"
-    for i in 02 03 04 05 06 07 08 09 10 12 13 17 19 20 21 22 23 24 25 26; do
+    for i in 02 03 04 05 06 07 08 09 10 12 13 17 19 20 21 22 23 24 25 26 28 29 30; do
         total=$((total + 1)); failed=$((failed + 1)); echo "  FAIL MINIMG-$i not run: MINIMG-01 failed"
     done
     finish
@@ -133,7 +133,7 @@ start=$(sfdisk --dump "$SRC" 2>/dev/null | sed -n 's/^.* : start= *\([0-9]*\),.*
 src_all=$(mdir -/ -a -b -i "$SRC@@$((start * 512))" ::/ 2>/dev/null || true)
 # A distribution that already carries CONFIG.INI (26.11 does, 24.11 did not) has it replaced by the
 # patched one, so the source's own entry is dropped whatever its case.
-src_list=$( { grep -iE '^::/(TBBLUE\.FW|machines|nextzxos|sys|LICENSE\.md|README\.md)(/|$)' <<<"$src_all" \
+src_list=$( { grep -iE '^::/(TBBLUE\.FW|machines|nextzxos|sys|dot|LICENSE\.md|README\.md)(/|$)' <<<"$src_all" \
                 | grep -viFx '::/machines/next/config.ini' || true
               echo "::/machines/next/config.ini"; } | norm_cfg | LC_ALL=C sort)
 ok=0
@@ -161,7 +161,7 @@ missing_t=$(comm -23 <(cat <<<"$tc") <(cat <<<"$ts") | head -n 3 || true)
 [[ -z "$missing_t" ]] || { ok=0; bad+=" mtime:$missing_t"; }
 [[ -n "$tc" ]] || ok=0
 # Attributes (R/H/S/A) over the boot set; the two patched files and the root line are excluded.
-attr() { { mattrib -/ -i "$1" ::/ 2>/dev/null || true; } | { grep -iE '::/(TBBLUE\.FW|machines|nextzxos|sys|LICENSE\.md|README\.md)(/|$)' || true; } \
+attr() { { mattrib -/ -i "$1" ::/ 2>/dev/null || true; } | { grep -iE '::/(TBBLUE\.FW|machines|nextzxos|sys|dot|LICENSE\.md|README\.md)(/|$)' || true; } \
          | { grep -vi -e '::/machines/next/zx81\.rom$' -e '::/machines/next/config\.ini$' || true; } | LC_ALL=C sort; }
 attr_c=$(attr "$CARD@@32256"); attr_s=$(attr "$SRC@@$((start * 512))")
 [[ -n "$attr_c" && "$attr_c" == "$attr_s" ]] || { ok=0; bad+=" attributes"; }
@@ -209,7 +209,7 @@ row MINIMG-09 "$ok" "an existing file or dangling symlink destination is refused
 # A SYNTHETIC distribution (licence-clean: invented names and bytes), built with the FOREIGN
 # writers mtools (FAT32, partition at 63, 4 KiB clusters) and python zipfile (deflate, the image
 # entry first, then two dummy ROM entries).
-S="$T/s"; mkdir -p "$S/files/machines/next" "$S/files/nextzxos" "$S/files/sys" "$S/files/apps" "$T/e"
+S="$T/s"; mkdir -p "$S/files/machines/next" "$S/files/nextzxos" "$S/files/sys" "$S/files/dot" "$S/files/apps" "$T/e"
 truncate -s 24M "$S/synth.img"
 printf 'label: dos\nunit: sectors\n\nstart=63, type=c\n' | sfdisk -q "$S/synth.img" >/dev/null 2>&1
 SI="$S/synth.img@@32256"
@@ -218,12 +218,14 @@ for f in TBBLUE.FW LICENSE.md README.md; do head -c 3000 /dev/urandom > "$S/file
 head -c 5000 /dev/urandom > "$S/files/machines/next/48.rom"
 head -c 700 /dev/urandom > "$S/files/nextzxos/a.sys"
 head -c 600 /dev/urandom > "$S/files/sys/b.bas"
+head -c 800 /dev/urandom > "$S/files/dot/c.bin"
 head -c 900 /dev/urandom > "$S/files/apps/x.bin"
-mmd -i "$SI" ::/machines ::/machines/next ::/nextzxos ::/sys ::/apps >/dev/null 2>&1
+mmd -i "$SI" ::/machines ::/machines/next ::/nextzxos ::/sys ::/dot ::/apps >/dev/null 2>&1
 mcopy -i "$SI" "$S/files/TBBLUE.FW" "$S/files/LICENSE.md" "$S/files/README.md" ::/ >/dev/null 2>&1
 mcopy -i "$SI" "$S/files/machines/next/48.rom" ::/machines/next/ >/dev/null 2>&1
 mcopy -i "$SI" "$S/files/nextzxos/a.sys" ::/nextzxos/ >/dev/null 2>&1
 mcopy -i "$SI" "$S/files/sys/b.bas" ::/sys/ >/dev/null 2>&1
+mcopy -i "$SI" "$S/files/dot/c.bin" ::/dot/ >/dev/null 2>&1
 mcopy -i "$SI" "$S/files/apps/x.bin" ::/apps/ >/dev/null 2>&1
 python3 -I - "$S/synth.img" "$S/synth.zip" <<'PYEOF'
 import sys, zipfile
@@ -242,7 +244,8 @@ truncate -s 48M "$S/nosys.img"
 printf 'label: dos\nunit: sectors\n\nstart=2048, type=c\n' | sfdisk -q "$S/nosys.img" >/dev/null 2>&1
 NI="$S/nosys.img@@$((2048 * 512))"
 mformat -F -c 1 -i "$NI" :: >/dev/null 2>&1
-mmd -i "$NI" ::/machines ::/nextzxos >/dev/null 2>&1
+mmd -i "$NI" ::/machines ::/nextzxos ::/dot >/dev/null 2>&1
+mcopy -i "$NI" "$S/files/dot/c.bin" ::/dot/ >/dev/null 2>&1
 mcopy -i "$NI" "$S/files/TBBLUE.FW" "$S/files/LICENSE.md" "$S/files/README.md" ::/ >/dev/null 2>&1
 rc=0; err=$("$TOOL" --unpinned "$S/nosys.img" "$T/e/out.img" 2>&1 >/dev/null) || rc=$?
 ok=0
@@ -300,7 +303,7 @@ ok=0
 [[ $rc == 0 && $rc2 == 0 && -n "$h1" && "$h1" == "$h2" ]] && ok=1
 mkdir -p "$T/e/back"
 mcopy -s -n -i "$T/e/z1.img@@32256" ::/ "$T/e/back/" </dev/null >/dev/null 2>&1 || ok=0
-for f in TBBLUE.FW LICENSE.md README.md machines/next/48.rom nextzxos/a.sys sys/b.bas; do
+for f in TBBLUE.FW LICENSE.md README.md machines/next/48.rom nextzxos/a.sys sys/b.bas dot/c.bin; do
     cmp -s "$S/files/$f" "$T/e/back/$f" || { ok=0; echo "  differs: $f"; }
 done
 [[ ! -e "$T/e/back/apps" && -f "$T/e/back/machines/next/config.ini" ]] || ok=0
@@ -406,6 +409,52 @@ hl=$(sha256sum "$LIST" 2>/dev/null | cut -d' ' -f1 || true)
 ok=0; [[ $rc1 == 0 && $rc2 == 0 && -n "$h1" && "$h1" == "$h2" && "$h1" == "$hl" ]] && ok=1
 row MINIMG-26 "$ok" "'/apps/, /GAMES', '/games,/Apps' and '/GAMES,/APPS' give the same card sha256"
 rm -f "$LIST" "$T/l/o1.img" "$T/l/o2.img"
+
+# ---- MINIMG-28: the card's /dot is the source's /dot ----
+# NextZXOS runs every dot command (and so opens most files from its browser) from C:/DOT (GH #549).
+# Oracle: the source image read by mtools. $T/xc and $T/xs (MINIMG-05) hold the card's and the
+# source's boot-set trees, /dot among them.
+dot_card=$(mdir -/ -a -b -i "$CARD@@32256" ::/dot 2>/dev/null | LC_ALL=C sort || true)
+dot_src=$(grep -iE '^::/dot(/|$)' <<<"$src_all" | LC_ALL=C sort || true)
+ok=1; bad=""
+[[ -n "$dot_card" && "$dot_card" == "$dot_src" ]] || { ok=0; bad+=" list"; }
+nd=0
+while IFS= read -r f; do
+    nd=$((nd + 1))
+    cmp -s "$T/xc/$f" "$T/xs/$f" || { ok=0; bad+=" $f"; }
+done < <(cd "$T/xs" && find dot -type f -printf '%p\n' | LC_ALL=C sort)
+nd_card=$(cd "$T/xc" && find dot -type f 2>/dev/null | wc -l)
+[[ $nd -gt 0 && $nd == "$nd_card" ]] || { ok=0; bad+=" count:$nd/$nd_card"; }
+tld() { (cd "$1" && find dot -type f -printf '%p %T@\n' | LC_ALL=C sort) || true; }
+[[ "$(tld "$T/xc")" == "$(tld "$T/xs")" ]] || { ok=0; bad+=" mtimes"; }
+attrd() { { mattrib -/ -i "$1" ::/ 2>/dev/null || true; } | { grep -iE '::/dot(/|$)' || true; } | LC_ALL=C sort; }
+ad_c=$(attrd "$CARD@@32256"); ad_s=$(attrd "$SRC@@$((start * 512))")
+[[ -n "$ad_c" && "$ad_c" == "$ad_s" ]] || { ok=0; bad+=" attributes"; }
+row MINIMG-28 "$ok" "the pinned card's ::/dot is the source's: same entry list, all $nd files byte-identical with the source's mtimes and R/H/S/A bits${bad:+ (bad:$bad)}"
+
+# ---- MINIMG-29: /DOT in --dirs is part of the boot set ----
+rc=0; err=$("$TOOL" --dirs /DOT "$SRC" "$T/l/dot.img" 2>&1 >/dev/null) || rc=$?
+ok=0
+[[ $rc == 1 && "$err" == *"/DOT"* && "$err" == *"boot set"* && ! -e "$T/l/dot.img" ]] && ok=1
+row MINIMG-29 "$ok" "--dirs /DOT is refused (exit 1) naming /DOT and the boot set, no card written"
+[[ $ok == 1 ]] || echo "  rc=$rc err=$err"
+
+# ---- MINIMG-30: the Pages demo's own list fits ----
+# The site config is the oracle (web/pages/index.html.in data-card-dirs) with the builder's 32 MiB
+# cap: a later edit of the list, or a later distribution, that no longer fits fails here and not
+# in a visitor's browser.
+pages_dirs=$(grep -oE 'data-card-dirs="[^"]*"' "$ROOT/web/pages/index.html.in" | head -n1 | sed 's/^data-card-dirs="//;s/"$//' || true)
+rc=0; "$TOOL" --dirs "$pages_dirs" "$SRC" "$T/l/pages.img" >/dev/null 2>"$T/l/stderr_p" || rc=$?
+np=$(stat -c %s "$T/l/pages.img" 2>/dev/null || echo -1)
+pages_card=$(mdir -/ -a -b -i "$T/l/pages.img@@32256" ::/ 2>/dev/null | LC_ALL=C sort || true)
+ok=0
+[[ -n "$pages_dirs" && $rc == 0 && "$np" == 41943040 ]] && ok=1
+grep -qiE '^::/dot/' <<<"$pages_card" || ok=0
+IFS=, read -ra pd <<<"$pages_dirs"
+for d in "${pd[@]}"; do grep -qiE "^::${d,,}/" <<<"${pages_card,,}" || ok=0; done
+row MINIMG-30 "$ok" "the Pages demo's list ($pages_dirs) builds with /dot: exit 0, a 40 MiB card holding ::/dot and every listed directory"
+[[ $ok == 1 ]] || { tail -n 3 "$T/l/stderr_p"; echo "  rc=$rc size=$np"; }
+rm -f "$T/l/pages.img"
 
 # ---- MINIMG-27: the raw image it reads is ensured first ----
 # unit-test ran this target BEFORE sdcard-image, so a host whose shared master was another
