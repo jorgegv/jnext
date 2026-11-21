@@ -564,7 +564,7 @@ int main() {
     // BV-16: terminal escape sequences in a report never reach the terminal through --text
     {
         Members esc = nocard;
-        const std::string osc = "\x1b]0;pwned\x07\x1b[31mred\x1b]52;c;QUJD\x07\x9b" "2J\x7f";
+        const std::string osc = "\x1b]0;pwned\x07\x1b[31mred\x1b]52;c;QUJD\x07\xC2\x9B" "2J\x7f";
         json m = member_json(esc, "manifest.json");
         m["producer"]["jnext_version"] = osc;
         m["machine"] = osc;
