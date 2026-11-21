@@ -22,7 +22,7 @@
 namespace sdcard {
 
 const char* const kDistroUrl =
-    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip";
+    "https://www.specnext.com/distro/26.11a/sn-emulator-26.11a.zip";
 const char* const kImageFileName = "cspect-next-1gb.img";
 const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
 const int kFixedImageRecipe = 3;
@@ -43,11 +43,11 @@ const char* const kZx81Rom16kSha256 =
 namespace minimal_card {
 const Pins kDistribution = {
     sdcard::kDistroUrl,
-    "sn-emulator-26.11.zip",
-    70286227ull,
-    "81fe97d37ef4e373643b4d399c22ab2acca631c02a778e8d01e136e0c7c5d2d6",
-    "144d503e976e2b802d41e304375f362b8b854bd94ede7d78a7f3885271994fd7",
-    "82c4b0d65361f73a3bd6868d9a812d172d65407c9bc9a0f972942bb566184a37",
+    "sn-emulator-26.11a.zip",
+    68971934ull,
+    "0245d847da440155fb6f55d6cfadc64c0158118d7cea98066395d68f93fb3ab0",
+    "e2b635a27703741ef20bfb4597f3a2dd46257af175fa44ddd8f0b9dba8408b23",
+    "d7393d7fdf500aa49b016ae75eabb424e8f3540c42fd1e4042e4b7089620ad99",
     1,
 };
 }  // namespace minimal_card
@@ -178,7 +178,12 @@ std::string distribution_title(const std::string& distribution) {
     if (distribution.size() > lp + lq && distribution.compare(0, lp, pre) == 0 &&
         distribution.compare(distribution.size() - lq, lq, post) == 0) {
         const std::string v = distribution.substr(lp, distribution.size() - lp - lq);
-        if (v.find_first_not_of("0123456789.") == std::string::npos) return "NextZXOS " + v;
+        // Digits and dots, then at most one lower-case letter after a digit ("26.11a").
+        const size_t n = v.find_first_not_of("0123456789.");
+        const bool ok = n == std::string::npos ||
+                        (n + 1 == v.size() && n > 0 && v[n] >= 'a' && v[n] <= 'z' &&
+                         std::isdigit(static_cast<unsigned char>(v[n - 1])));
+        if (ok) return "NextZXOS " + v;
     }
     return distribution;
 }

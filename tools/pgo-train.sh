@@ -155,7 +155,7 @@ GUI_ARGS=(--machine next --silent --load "$NEX/parallax.nex")
 # The MOD player, launched as a user launches it: the NextZXOS Browser down to
 # /apps/audio/NXModPlayer/nxmodplayer.nex, then the player's own Mod Browser to
 # mods/Jarresque.mod. Every key is pressed at a fixed frame (frame, key pairs
-# below; the cursor positions are those of the 26.11 image), so the run is as
+# below; the cursor positions are those of the 26.11 image, which 26.11a shares), so the run is as
 # deterministic as the others. That navigation runs UNPROFILED (see BALANCED)
 # and saves a .jns at frame 1107, with the MOD playing; the profiled run then
 # plays MOD_PLAY frames from it. A key pressed at a fixed frame cannot tell

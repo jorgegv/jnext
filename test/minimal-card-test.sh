@@ -27,7 +27,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/tools/make-minimal-card/make-minimal-card}"
-SRC="$HOME/.jnext/sdcard/cspect-next-1gb.img"   # one variable to rename for another release
+SRC="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}/sdcard/cspect-next-1gb.img"   # one variable to rename for another release; the seam lets a branch test a candidate card (sd-master-ensure.sh honours it too)
 PROV="$ROOT/src/core/sdcard_provisioner.cpp"
 EXPECTED_ROWS=21
 export MTOOLS_SKIP_CHECK=1
@@ -310,8 +310,9 @@ row MINIMG-19 "$ok" "a synthetic distribution (mtools image, python zip) builds 
 rc=0; err=$("$TOOL" "$S/synth.zip" "$T/e/pinned.img" 2>&1 >/dev/null) || rc=$?
 zsz=$(grep -oE 'kDistribution = \{' "$PROV" >/dev/null && sed -n '/^const Pins kDistribution/,/^};/p' "$PROV" | grep -oE '[0-9]{7,}ull' | tr -d 'ul' || true)
 zhash=$(sed -n '/^const Pins kDistribution/,/^};/p' "$PROV" | grep -oE '"[0-9a-f]{64}"' | sed -n 1p | tr -d '"')
+zfile=$(sed -n '/^const Pins kDistribution/,/^};/p' "$PROV" | grep -oE '"sn-emulator-[^"]*\.zip"' | sed -n 1p | tr -d '"')
 ok=0
-if [[ $rc == 1 && "$err" == *"sn-emulator-26.11.zip"* && "$err" == *"$zhash"* && "$err" == *"$zsz"* \
+if [[ $rc == 1 && -n "$zfile" && "$err" == *"$zfile"* && "$err" == *"$zhash"* && "$err" == *"$zsz"* \
       && "$err" == *"$(sha256sum "$S/synth.zip" | cut -d' ' -f1)"* && ! -e "$T/e/pinned.img" ]]; then ok=1; fi
 row MINIMG-20 "$ok" "the synthetic zip without --unpinned is refused naming the official file and both digests, nothing created"
 [[ $ok == 1 ]] || echo "  rc=$rc err=$err"

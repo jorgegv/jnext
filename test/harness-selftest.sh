@@ -4267,13 +4267,13 @@ if command -v magick &>/dev/null; then seam_im=(magick); else seam_im=(convert);
 "${seam_im[@]}" -size 4x4 xc:red "$T/shot-a.png" 2>/dev/null; "${seam_im[@]}" -size 4x4 xc:blue "$T/shot-b.png" 2>/dev/null
 cat > "$T/seam-jnext" <<FAKE
 #!/bin/sh
-# the boot-ready probe (boot-commit-probe.jds): answer with FAKE_COMMIT (default 472), or with nothing
+# the boot-ready probe (boot-commit-probe.jds): answer with FAKE_COMMIT (default 476, the default card's), or with nothing
 case " \$* " in *boot-commit-probe*)
     # FAKE_BY_CARD: answer by the card the probe was started on (the seam card holds STAYS), as a real boot does
     if [ -n "\$FAKE_BY_CARD" ]; then
-        if [ "\$(cat "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" = STAYS ]; then FAKE_COMMIT=649; else FAKE_COMMIT=472; fi
+        if [ "\$(cat "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" = STAYS ]; then FAKE_COMMIT=649; else FAKE_COMMIT=476; fi
     fi
-    [ -n "\$FAKE_PROBE_NONE" ] || echo "[jds F:\$FAKE_COMMIT C:1] BOOT-COMMIT FRAME=\${FAKE_COMMIT:-472} NR03=B3 [client 2]"
+    [ -n "\$FAKE_PROBE_NONE" ] || echo "[jds F:\$FAKE_COMMIT C:1] BOOT-COMMIT FRAME=\${FAKE_COMMIT:-476} NR03=B3 [client 2]"
     exit 0 ;;
 esac
 echo "\$*" >> "$T/seam-argv.log"
@@ -4483,12 +4483,12 @@ def_run() {   # def_run <VAR=value ...> -- <regression.sh args...>: a pristine d
       JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 JNEXT_TEST_JOBS=1 "${envs[@]}" \
       timeout --kill-after=5s 120s bash "$SQT/regression.sh" "$@" 2>&1 )
 }
-out=$(def_run FAKE_COMMIT=473 -- ok-func); rc=$?
-check "HS-172e" "on the DEFAULT master a commit at frame 473 FAILS sdcard-provision, naming 473 and the pinned 472" 1 $rc "$out" \
-    "commits the machine type at frame 473" "must commit at frame 472"
-out=$(def_run FAKE_COMMIT=472 -- ok-func); rc=$?
+out=$(def_run FAKE_COMMIT=477 -- ok-func); rc=$?
+check "HS-172e" "on the DEFAULT master a commit at frame 477 FAILS sdcard-provision, naming 477 and the pinned 476" 1 $rc "$out" \
+    "commits the machine type at frame 477" "must commit at frame 476"
+out=$(def_run FAKE_COMMIT=476 -- ok-func); rc=$?
 check "HS-172e2" "the control: a commit at the pinned frame passes sdcard-provision on the default master and the row reports the shift" 0 $rc "$out" \
-    "commits the machine type at frame 472 (reference 472): boot-relative frames shift by 0"
+    "commits the machine type at frame 476 (reference 472): boot-relative frames shift by 4"
 out=$(def_run FAKE_PROBE_NONE=1 -- ok-func); rc=$?
 check "HS-172f" "a probe with no BOOT-COMMIT line FAILS sdcard-provision: the firmware never committed within 1500 frames" 1 $rc "$out" \
     "the firmware never committed a machine type within 1500 frames"
@@ -4505,7 +4505,7 @@ out=$(BOOT_COMMIT_MEASURED=472 seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-b
 check "HS-172i" "a boot anchor inherited from an enclosing run (BOOT_COMMIT_MEASURED in the environment) never hides an unmeasurable boot: the driver drops it and the row is still a harness fault" 2 $rc "$out" \
     "never committed a machine type within 1500 frames"
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_BY_CARD=1 -- ok-func); rc=$?
-check "HS-172j" "the probe boots the RUN's card: a candidate (seam) run reports the candidate's commit (649, shift 177), not the default master's (472)" 0 $rc "$out" \
+check "HS-172j" "the probe boots the RUN's card: a candidate (seam) run reports the candidate's commit (649, shift 177), not the default master's (476)" 0 $rc "$out" \
     "commits the machine type at frame 649 (reference 472): boot-relative frames shift by 177"
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=100 -- bfneg-func); rc=$?
 check "HS-172k" "a frame that the shift would make negative (commit 100, shift -372, bf 150) is a harness fault naming it, never a negative or wrapped frame" 2 $rc "$out" \
@@ -4521,10 +4521,10 @@ em_provision() {   # em_provision <VAR=value ...>
         timeout --kill-after=5s 60s bash "$SQT/scripts/01-sdcard-provision.sh" 2>&1 )
 }
 out=$(em_provision); rc=$?
-check "HS-189a" "an emscripten sdcard-provision on the default card takes the pinned commit frame 472, runs no probe and passes" 0 $rc "$out" \
-    "the boot anchor is the default card's pinned commit frame 472 (boot-relative frames shift by 0)" "Pass: 1"
+check "HS-189a" "an emscripten sdcard-provision on the default card takes the pinned commit frame 476, runs no probe and passes" 0 $rc "$out" \
+    "the boot anchor is the default card's pinned commit frame 476 (boot-relative frames shift by 4)" "Pass: 1"
 out=$(em_provision JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf"); rc=$?
-check "HS-189b" "an emscripten sdcard-provision on a candidate card (the seam) FAILS saying its commit frame cannot be measured without a debugger, never assuming 472" 1 $rc "$out" \
+check "HS-189b" "an emscripten sdcard-provision on a candidate card (the seam) FAILS saying its commit frame cannot be measured without a debugger, never assuming 476" 1 $rc "$out" \
     "cannot be measured without a debugger" "Fail: 1"
 
 # HS-175: the run's SD clone carries the master's distribution sidecar, and "do not ask again" for the

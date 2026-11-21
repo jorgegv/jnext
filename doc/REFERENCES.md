@@ -114,7 +114,8 @@ Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURC
 | Reference | URL |
 |---|---|
 | NextZXOS 24.11 emulator distribution: the previous default card (a master made from it is re-derived, `sd_master_gate`) | <https://www.specnext.com/distro/24.11/sn-emulator-24.11.zip> |
-| NextZXOS 26.11 emulator distribution (`sn-emulator-26.11`): the default card `kDistroUrl` downloads (`src/core/sdcard_provisioner.cpp`) | <https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip> |
+| NextZXOS 26.11 emulator distribution (`sn-emulator-26.11`): the previous default card (a master made from it is re-derived) | <https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip> |
+| NextZXOS 26.11a emulator distribution (`sn-emulator-26.11a`): the default card `kDistroUrl` downloads (`src/core/sdcard_provisioner.cpp`) | <https://www.specnext.com/distro/26.11a/sn-emulator-26.11a.zip> |
 
 ## Adding to this file
 
