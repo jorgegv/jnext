@@ -35,6 +35,7 @@ the two can never disagree. For building jnext from source, see
     programs](#a-host-directory-for-directly-loaded-programs)
   - [POK trainers](#pok-trainers)
 - [JNEXT SNAPSHOTS](#jnext-snapshots)
+- [BUG REPORTS](#bug-reports)
 - [HEADLESS MODE, SCREENSHOTS AND
   RECORDING](#headless-mode-screenshots-and-recording)
   - [SCREENSHOT FORMATS](#screenshot-formats)
@@ -1449,6 +1450,16 @@ are replaced or removed; any other file there, any other `*.ghidra.txt`
 included, is never touched. A failed export is logged and jnext exits
 with status 1.
 
+**--bug-report** *PATH*  
+When jnext exits, write a bug report to *PATH*: one zip file with the
+state of the machine and of jnext, for reading, not for replaying. If
+*PATH* is an existing directory, or ends in a slash (a backslash on
+Windows), the report is written inside it, named
+*PROGRAM*`.YYYYMMDDhhmm.jnext-bug.zip` (local time; *PROGRAM* is the
+last program loaded, `jnext` if none, and `-2`, `-3`… is added when the
+name is taken). Otherwise *PATH* is the file. A failed write is logged
+and jnext exits with status 1. See **BUG REPORTS**.
+
 **--magic-port** *PORT*  
 Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for
 example `0x00FF`).
@@ -2310,6 +2321,57 @@ It does contain **all of RAM**, which on a Next includes NextZXOS and
 DivMMC ROM code paged into it. Those are not redistributable: keep your
 snapshots rather than posting them, and hand somebody a `.nex` instead.
 
+## BUG REPORTS
+
+**--bug-report** *PATH* saves, when jnext exits, one zip file that holds
+what a developer needs to understand a failure: the state of the machine
+and of jnext at that moment. In the Qt window **File \> Save Bug
+Report…** saves one at once: it opens a save dialog in your home folder
+that proposes the name below. It is a snapshot for reading, not a
+session to replay. It holds:
+
+- the jnext version, the host operating system and architecture, the
+  frontend and the settings in use (the command line and, in the Qt
+  frontend, the settings file), with host paths blanked;
+- the machine, decoded: the CPU registers, every NextREG with its name,
+  the paging map, the ULA, Layer 2, sprite, tilemap and Copper state,
+  the palettes, the interrupt, DivMMC and Multiface flags, the audio
+  chips;
+- the screenshot, and each of the seven video layers on its own;
+- the last 500 lines of the log at info level and above;
+- the debugger’s state: the run state, breakpoints, the call stack and
+  the recent instruction trace;
+- the SD card’s name, size and SHA-256, never its bytes;
+- the program file you loaded, byte for byte (a `.jns` snapshot, which
+  holds the machine’s whole memory, is the exception: only its SHA-256
+  and size are recorded). It is your file, and you are responsible for
+  what you attach: jnext does not check it against anything;
+- **memory, only when no firmware has run**: RAM, the CPU’s 64 KB view,
+  the sprite patterns, a disassembly, the bytes at the stack pointer and
+  the opcode bytes of the trace. That is a `--no-sdcard` session whose
+  memory has not seen the boot ROM run or a saved state loaded since it
+  was cleared. In every other session, memory holds NextZXOS, ROM or
+  DivMMC firmware from the card, so the report carries the machine state
+  but none of its memory, and the manifest says why.
+
+jnext never puts NextZXOS, ROM or any other distribution content in a
+report, and no byte of the SD card. The program file you loaded is
+yours, goes in as it is and is your responsibility. The card is named
+and identified by its SHA-256 only. The serial (UART) FIFOs and the SD
+buffers of the machine state are left out, because they can carry what
+the program or NextZXOS exchanged with the card or the network.
+
+Your user name and every absolute path on your computer are blanked in
+the file (`<user>` and `<path>/name`). Look through a report before you
+attach it anyway.
+
+To read a report, `tools/jnext-bug-view.py` in the jnext sources shows
+it as a page, or as text with `--text`; it needs only Python 3, and
+refuses a file that is not a jnext bug report.
+
+`manifest.json` lists every member of the file and what was left out and
+why. A file is a report when it has that manifest, whatever its name.
+
 ## HEADLESS MODE, SCREENSHOTS AND RECORDING
 
 **--headless** runs the emulator with no window and no audio device, as
@@ -2703,7 +2765,8 @@ for the second SD card (see **CHANGING THE CARD WHILE RUNNING**), Record
 MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
 RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
 (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot
-(Alt+Shift+F9) (see **JNEXT SNAPSHOTS** above), Quit (Alt+Q or Alt+F4).
+(Alt+Shift+F9) (see **JNEXT SNAPSHOTS** above), Save Bug Report… (see
+**BUG REPORTS**), Quit (Alt+Q or Alt+F4).
 
 **Save Screenshot…** asks for a name; the extension chooses the format
 (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
@@ -3735,16 +3798,18 @@ the default. The Quick Save retention is stored under `[snapshot]` as
 **Settings \> Preferences \> Paths**; **--quick-snapshot-keep**
 overrides it for one run, and an unrecognised value keeps the default.
 The debugger window’s layout is stored under `[debugger]`: `size`
-(`W, H`), `position` (`X, Y`, written only while the window is detached)
-and `attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is
+(`W, H`), `position` (`X, Y`, written only while the window is
+detached), `attached` (`true`/`false`) and `layout` (the arrangement of
+its panels, one line of plain text; deleting it, or Window \> Reset
+Layout, restores the default). An older `~/.jnext/Debugger.conf` is
 merged into this section once and removed. All section names are
 lowercase. CLI options always take precedence over saved values, and
 headless runs never read it. Every setting above can also be set for one
 run, without touching the file (the Recent Files history, the joystick
 controller names `joy1_device_name` and `joy2_device_name`,
-`[config] version` and the debugger window’s `size` and `position` are
-refused), with **--set** *section.key=value* (see **Settings for
---set**).
+`[config] version` and the debugger window’s `size`, `position` and
+`layout` are refused), with **--set** *section.key=value* (see
+**Settings for --set**).
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless
@@ -3754,6 +3819,12 @@ Where **File \> Quick Screenshot** writes, unless
 Where **File \> Quick Save Snapshot** writes and **Quick Load Snapshot**
 reads (the newest `.jns` in it). Created on the first save. Quick Save
 keeps the newest 20 files it made (see **--quick-snapshot-keep**).
+
+`*.jnext-bug.zip`  
+A bug report (see **BUG REPORTS**), named
+`PROGRAM.YYYYMMDDhhmm.jnext-bug.zip` by **--bug-report** *DIR*`/` and
+proposed under that name by **File \> Save Bug Report…**. Where it goes
+is your choice; jnext keeps no folder of them.
 
 `~/.jnext/warm-start/`  
 The recorded NextZXOS-resident machine a **--load** of a `.nex` starts
@@ -3805,6 +3876,9 @@ recording given to **--load** or **--rzx-play**. This holds in the GUI,
 the SDL-only build and under **--headless** alike. The error is logged,
 the machine keeps running without the program, and the non-zero status
 is reported when **jnext** exits.
+
+It exits 1 when a **--bug-report** file cannot be written, the way it
+does for a failed **--export-skoolkit**.
 
 SIGTERM, or SIGINT (Ctrl-C in the terminal), ends **jnext** the way
 closing the window does: recordings and captures are finished and no
@@ -3865,7 +3939,9 @@ Project home page: <https://github.com/jorgegv/jnext>
 
 ## BUGS
 
-Report bugs at <https://github.com/jorgegv/jnext/issues>.
+Report bugs at <https://github.com/jorgegv/jnext/issues>. Attach a bug
+report (**File \> Save Bug Report…**, or **--bug-report** *DIR*`/`): see
+**BUG REPORTS**.
 
 ## AUTHORS
 

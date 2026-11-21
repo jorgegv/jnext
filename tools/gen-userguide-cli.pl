@@ -52,6 +52,8 @@ my %SECTION_LINK = (
         '[5.6 Networking](../05-running-programs/06-networking.md)',
     'JNEXT SNAPSHOTS' =>
         '[5.9 Snapshots](../05-running-programs/09-snapshots.md)',
+    'BUG REPORTS' =>
+        '[5.12 Bug reports](../05-running-programs/12-bug-reports.md)',
     'LOADING PROGRAMS' =>
         '[Programs that need NextZXOS]'
         . '(../05-running-programs/index.md#programs-that-need-nextzxos)',

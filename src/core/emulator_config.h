@@ -267,6 +267,12 @@ struct EmulatorConfig {
     std::string export_skoolkit_dir;
     std::string export_ghidra_dir;
 
+    // GH #492 (--bug-report): where the loop owners write the bug report when jnext
+    // exits (platform/bug_report_at_exit.h), and the command line it records. Not a
+    // Preferences field, like --delayed-screenshot: a per-run action.
+    std::string              bug_report_path;
+    std::vector<std::string> command_line;
+
     // Magic breakpoint: ED FF (ZEsarUX), FD 00 (CSpect, sjasmplus break) and DD 01 (older CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 

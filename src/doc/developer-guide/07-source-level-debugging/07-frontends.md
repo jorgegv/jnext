@@ -79,7 +79,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`source_panel.cpp:581`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1762`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:2227`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -90,8 +90,8 @@ the SDL-only and Windows trees test it): an absolute name; then the map's direct
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
 `DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:342`) takes the
-configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3225`, fed by
-`apply_startup_config()`, `:2996`: the saved list with the command line's `--source-dir` or
+configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3275`, fed by
+`apply_startup_config()`, `:3046`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:460`)
 adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:354`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
@@ -231,7 +231,7 @@ shows the labels and comments; the Source tab does not. How they are stored, sav
 ### Selection sync with the Disassembly
 
 `DebuggerWindow::create_panels()` wires the two panels with four `connect()` calls
-(`connect()`, `debugger_window.cpp:1579-1616`), and nothing else couples them. Each carries only what the *user*
+(`connect()`, `debugger_window.cpp:1706-1743`), and nothing else couples them. Each carries only what the *user*
 did in its sender, so no move echoes.
 
 - **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is

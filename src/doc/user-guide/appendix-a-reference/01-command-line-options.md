@@ -1434,6 +1434,17 @@ with status 1.
     `*.ghidra.txt` included, is never touched. A failed export is logged
     and jnext exits with status 1.
 
+**--bug-report** *PATH*
+:   When jnext exits, write a bug report to *PATH*: one zip file with
+    the state of the machine and of jnext, for reading, not for
+    replaying. If *PATH* is an existing directory, or ends in a slash (a
+    backslash on Windows), the report is written inside it, named
+    *PROGRAM*`.YYYYMMDDhhmm.jnext-bug.zip` (local time; *PROGRAM* is the
+    last program loaded, `jnext` if none, and `-2`, `-3`… is added when
+    the name is taken). Otherwise *PATH* is the file. A failed write is
+    logged and jnext exits with status 1. See [5.12 Bug
+    reports](../05-running-programs/12-bug-reports.md).
+
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional,
     for example `0x00FF`).

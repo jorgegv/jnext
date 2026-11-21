@@ -239,6 +239,16 @@ struct Fixture {
         put_on_show(mgr->debugger_window_ptr(), mgr->debugger_window_ptr()->callstack_panel());   // GH #498
     }
 
+
+    ~Fixture() {
+        // The window is parentless and outlives the manager's teardown: delete it while the backend lives
+        // (as panel_data_test does), or a later event-loop run paints it over a destroyed machine.
+        if (!mgr) return;
+        DebuggerWindow* w = mgr->debugger_window_ptr();
+        mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        delete w;
+    }
+
     DebuggerWindow* dbg() const { return mgr->debugger_window_ptr(); }
 
     // Put `addr` in the Watches panel — the panel a user puts an address in

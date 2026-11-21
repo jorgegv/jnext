@@ -133,6 +133,16 @@ public:
     void quick_save_now();
     void quick_load_now();
 
+    /// GH #492 - File > Save Bug Report...: the writer's file name for the loaded program
+    /// (`PROGRAM.YYYYMMDDhhmm.jnext-bug.zip`, local time), the name the dialog proposes.
+    QString proposed_bug_report_name() const;
+
+    /// GH #492 - write the bug report to `path` and say so in the status bar (or, on failure, in a
+    /// dialog unless unattended). The settings file is included (the Qt frontend reads it). False when
+    /// there is no machine or debugger backend, or the write failed. What the menu entry does once
+    /// the file dialog has named a path; the unit suite calls it directly.
+    bool save_bug_report_to(const QString& path);
+
     /// Toggle between windowed and fullscreen mode.
     void toggle_fullscreen();
 
@@ -523,6 +533,7 @@ private:
 
     // Snapshot save slot (G35: wires SnaSaver to File menu).
     void on_save_snapshot();
+    void on_save_bug_report();   // GH #492
 
     /// GH #321 — File > Quick Save Snapshot (Alt+Shift+F5) / Quick Load
     /// Snapshot (Alt+Shift+F9): no dialog, `<state dir>/snapshots/`, newest `.jns` on load.
@@ -755,6 +766,7 @@ private:
     HostActionCallback host_action_callback_;   // GH #386
     QAction* quick_save_action_ = nullptr;   // GH #321
     QAction* quick_load_action_ = nullptr;   // GH #321
+    QAction* save_bug_report_action_ = nullptr;   // GH #492
 
     // Task 66 — persisted GUI preferences (~/.jnext/jnext.conf).
     // Loaded in the constructor; saved whenever the Preferences dialog is

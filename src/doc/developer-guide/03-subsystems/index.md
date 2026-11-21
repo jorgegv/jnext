@@ -123,3 +123,4 @@ omission below is a decision with a reason, not a gap waiting to be filled:
     - [3.10.5 The ZRCP server (ZEsarUX's protocol)](12-the-zrcp-server.md)
     - [3.10.6 The debugger scripting language](13-the-debugger-scripting-language.md)
     - [3.10.7 Extending the debug subsystem](10-7-extending-the-debug-subsystem.md)
+- [3.11 Bug reports](14-bug-reports.md)

@@ -8,6 +8,10 @@ body:
       value: |
         Thanks for reporting a bug. The **version**, **platform** and **emulated
         machine** are the most useful fields for triage — please fill them in.
+
+        **Attach a bug report if you can**: File > Save Bug Report... in the window, or run with
+        `--bug-report DIR/`. It is one zip with the machine's and jnext's state; drag it into
+        "Additional files" below. Look through it before you attach it.
   - type: input
     id: version
     attributes:

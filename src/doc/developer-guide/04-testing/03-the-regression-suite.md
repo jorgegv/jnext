@@ -102,6 +102,18 @@ lookup instead, and the suite provisions that image for itself in the
   because `cp --reflink` cannot cross a filesystem and `--reflink=auto` would
   quietly degrade to a real 1 GB copy into RAM.
 
+## A content scan: the bug report row
+
+`bug-report-card-func` proves a rule by looking for its violation. A bug report
+([3.11](../03-subsystems/14-bug-reports.md)) taken in a session that booted NextZXOS must
+carry none of the card's firmware, so the row extracts every file under `/MACHINES/NEXT`,
+`/NEXTZXOS` and `/TBBLUE.FW` of the run's card clone with `mcopy`, adds `nextboot.rom`,
+and fails if any 32-byte window of them (taken every 32 bytes, windows with a period of 4
+or less, fewer than 8 distinct byte values, or a counting sequence left out: register files and register numbers equal such tables) occurs at any offset of any decompressed member of the report, as raw bytes and as what the member decodes to (JSON hex strings and integer arrays, nested zips). The only member left out is the program, proved byte-equal to the row's own file, and only when it is the one program. The
+extracted files live in the row's scratch directory and are removed with it: nothing is
+kept, and nothing of a distribution is ever committed. A scan with no files to scan is
+itself a failure, so it cannot pass by finding nothing to look for.
+
 ## Boot-timeline frames: the boot-ready helper
 
 A row that presses a key, captures a screen or resets "at frame N of a cold boot"

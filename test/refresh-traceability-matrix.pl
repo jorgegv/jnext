@@ -1149,6 +1149,9 @@ my %NO_MATRIX_SECTION = (
     'browser_policy_test' => 'browser page rAF callback gate and refusals (host UI, GH #463)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
     'no_sdcard_test' => '--no-sdcard (GH #540): a NEX with no SD card and no ROMs, an emulator convenience like the esxDOS stand-in; a real Next always has its ROMs, so the core has nothing to cite',
+    'bug_report_test' => 'bug report writer (GH #492): a host-side diagnostic file; its oracles are the debugger facade, files on disk and the issue rules, with no VHDL counterpart',
+    'bug_view_test' => 'bug report viewer tools/jnext-bug-view.py (host tool run as python3 in a child; GH #492): no VHDL counterpart',
+    'bug_report_ui_test' => 'File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written',
     'no_sdcard_ui_test' => '--no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
@@ -1185,6 +1188,7 @@ my %NO_MATRIX_SECTION = (
     # here would make this document's content depend on the host's build
     # configuration, which a traceability record must not.
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
+    'dock_layout_test'          => 'debugger dockable-panel layout grammar (GH #377; host UI, no VHDL oracle)',
     'tstate_counter_test'       => 'debugger CPU panel T-state counter start point and accumulate policy (host GUI, no VHDL oracle)',
     'reg_edit_test'             => 'debugger CPU panel register edit parsing (host UI policy; no VHDL oracle)',
     'nav_history_test'          => 'debugger Disassembly/Source back/forward history (host UI policy; no VHDL oracle)',
@@ -1253,6 +1257,7 @@ my %NO_MATRIX_SECTION = (
     'debugger_window_size_test' => 'debugger window geometry (host GUI)',
     'debugger_window_grow_test' => 'debugger window geometry (host GUI)',
     'debugger_accel_test'       => 'debugger keyboard accelerators (host GUI)',
+    'debugger_dock_test'        => 'debugger dockable panels, saved layout, Window > Panels and Reset Layout (host GUI)',
     'debugger_keymap_test'      => 'user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives',
     'debugger_menu_test'        => 'debugger menu reachability (host GUI)',
     'debugger_disasm_copy_test' => 'disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N`',

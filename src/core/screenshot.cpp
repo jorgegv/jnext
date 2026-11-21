@@ -91,51 +91,43 @@ const char* screenshot_format_ext(ScreenshotFormat fmt)
     return fmt == ScreenshotFormat::Scr ? ".scr" : ".png";
 }
 
-bool save_screenshot_png(const std::string& path,
-                         const uint32_t* framebuffer,
-                         int width, int height) {
-    FILE* fp = fopen(path.c_str(), "wb");
-    if (!fp) {
-        // Name the path AND the reason: "cannot open" alone leaves the user
-        // guessing between a missing directory, a permission problem and a
-        // read-only mount.
-        Log::platform()->error("screenshot: cannot open '{}' for writing: {}",
-                               path, std::strerror(errno));
-        return false;
-    }
+namespace {
 
+void png_vector_write(png_structp png, png_bytep data, png_size_t len)
+{
+    auto* out = static_cast<std::vector<uint8_t>*>(png_get_io_ptr(png));
+    out->insert(out->end(), data, data + len);
+}
+
+void png_vector_flush(png_structp) {}
+
+}  // namespace
+
+bool encode_png(const uint32_t* framebuffer, int width, int height,
+                std::vector<uint8_t>& out)
+{
+    out.clear();
     png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING,
                                               nullptr, nullptr, nullptr);
-    if (!png) {
-        fclose(fp);
-        return false;
-    }
+    if (!png) return false;
 
     png_infop info = png_create_info_struct(png);
     if (!info) {
         png_destroy_write_struct(&png, nullptr);
-        fclose(fp);
         return false;
     }
 
-    // libpng longjmps here when a write fails MID-STREAM, i.e. only when stdio
-    // actually issues a write(2) while rows are still being emitted.
-    //
-    // It does NOT cover the usual disk-full case, because a 640x512 screenshot
-    // compresses to a few KB and so never leaves glibc's stdio buffer until
-    // the final flush. That flush is the fclose() at the end of this function,
-    // whose result IS checked — see the comment there.
+    // libpng longjmps here on an internal failure (out of memory while growing
+    // `out`, a bad parameter).
     if (setjmp(png_jmpbuf(png))) {
         png_destroy_write_struct(&png, &info);
-        fclose(fp);
-        Log::platform()->error("screenshot: PNG write error on '{}': {}",
-                               path, std::strerror(errno));
+        out.clear();
         return false;
     }
 
-    png_init_io(png, fp);
-    // PNG file dimensions: width × (height * 2). The input framebuffer is
-    // 640×256; the PNG is 640×512 — each in-memory row written twice for
+    png_set_write_fn(png, &out, png_vector_write, png_vector_flush);
+    // PNG file dimensions: width x (height * 2). The input framebuffer is
+    // 640x256; the PNG is 640x512 - each in-memory row written twice for
     // square-pixel CRT-faithful 4:3 geometry (G104 Phase 7).
     png_set_IHDR(png, info, width, height * 2, 8,
                  PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
@@ -143,10 +135,10 @@ bool save_screenshot_png(const std::string& path,
     png_write_info(png, info);
 
     // Convert ARGB8888 to RGB888 row by row, emitting each row twice
-    // (vertical 2× doubling at PNG-export time).
-    std::vector<uint8_t> row(width * 3);
+    // (vertical 2x doubling at PNG-export time).
+    std::vector<uint8_t> row(static_cast<size_t>(width) * 3);
     for (int y = 0; y < height; ++y) {
-        const uint32_t* src = framebuffer + y * width;
+        const uint32_t* src = framebuffer + static_cast<size_t>(y) * width;
         for (int x = 0; x < width; ++x) {
             uint32_t pixel = src[x];
             row[x * 3 + 0] = (pixel >> 16) & 0xFF;  // R
@@ -160,13 +152,42 @@ bool save_screenshot_png(const std::string& path,
 
     png_write_end(png, nullptr);
     png_destroy_write_struct(&png, &info);
+    return true;
+}
+
+bool save_screenshot_png(const std::string& path,
+                         const uint32_t* framebuffer,
+                         int width, int height) {
+    FILE* fp = fopen(path.c_str(), "wb");
+    if (!fp) {
+        // Name the path AND the reason: "cannot open" alone leaves the user
+        // guessing between a missing directory, a permission problem and a
+        // read-only mount.
+        Log::platform()->error("screenshot: cannot open '{}' for writing: {}",
+                               path, std::strerror(errno));
+        return false;
+    }
+
+    std::vector<uint8_t> bytes;
+    if (!encode_png(framebuffer, width, height, bytes)) {
+        fclose(fp);
+        Log::platform()->error("screenshot: PNG encode error for '{}'", path);
+        return false;
+    }
+    if (fwrite(bytes.data(), 1, bytes.size(), fp) != bytes.size()) {
+        const int err = errno;
+        fclose(fp);
+        Log::platform()->error("screenshot: PNG write error on '{}': {}",
+                               path, std::strerror(err));
+        return false;
+    }
 
     // fclose() is where a 640x512 PNG's data actually reaches the disk: it
     // compresses to a few KB, so it fits entirely inside glibc's stdio buffer
     // and no write(2) happens until this flush. Ignoring the result was the
-    // gap the comment on setjmp() above used to record: on a full disk the
-    // file was truncated and "saved" was printed anyway, exit 0. Checked now,
-    // so the only silent-truncation route left is closed (GH #18/#19).
+    // gap that used to be recorded here: on a full disk the file was truncated
+    // and "saved" was printed anyway, exit 0. Checked, so the only
+    // silent-truncation route left is closed (GH #18/#19).
     if (fclose(fp) != 0) {
         Log::platform()->error("screenshot: failed to flush '{}': {}",
                                path, std::strerror(errno));

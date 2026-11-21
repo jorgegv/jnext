@@ -27,6 +27,7 @@
 
 #include "core/emulator.h"
 
+#include "core/host_platform.h"
 #include "core/jns_snapshot.h"
 #include "core/log.h"
 #include "core/program_archive.h"
@@ -516,6 +517,70 @@ struct SaveVisitor {
 
 }  // namespace
 
+void Emulator::stage_jns_exceptions_()
+{
+    jns_monotonic_tstates_ = monotonic_tstates();
+    {
+        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t last   = cpu_.int_window_last_ts();
+        jns_int_first_ts_ = cpu_.int_window_first_ts() - now_ts;
+        jns_int_last_ts_  = (last == INT64_MAX) ? last : last - now_ts;
+    }
+    jns_stackless_retn_    = cpu_.stackless_retn_active();
+    jns_joy_uart_present_  = (joy_uart_source_ != nullptr);
+    jns_multiface_present_ = true;
+}
+
+namespace {
+
+/// The state-document visitor: SaveVisitor's walk, kept as text per subsystem
+/// (GH #492). Blobs are skipped: guest memory never goes into a report's JSON.
+struct DocumentVisitor {
+    std::vector<Emulator::StateDocument>* out = nullptr;
+    std::string*                          why = nullptr;
+    bool                                  ok  = true;
+
+    template <typename T, typename... M>
+    void operator()(const char* name, T& obj, M... methods) {
+        if (!ok) return;
+        JsonWriteDesc d;
+        d.set_machine_level(true);
+        if (sizeof...(methods) == 0) {
+            obj.describe_state(d);
+        } else {
+            using expand = int[];
+            (void)expand{0, ((obj.*methods)(d), 0)...};
+        }
+        if (d.failed()) {
+            *why = std::string("subsystem ") + name + ": " +
+                   (d.failure() ? d.failure() : "declaration failed");
+            ok = false;
+            return;
+        }
+        Emulator::StateDocument doc;
+        doc.subsystem   = name;
+        doc.json        = d.str();
+        doc.content_keys = d.content_keys();
+        out->push_back(std::move(doc));
+    }
+};
+
+}  // namespace
+
+bool Emulator::state_documents(std::vector<StateDocument>& out, std::string& why)
+{
+    out.clear();
+    why.clear();
+    // Where the machine stands: unlike save_jns() this never advances to a
+    // frame boundary, so a report taken at a breakpoint shows that instruction.
+    stage_jns_exceptions_();
+    DocumentVisitor v;
+    v.out = &out;
+    v.why = &why;
+    visit_jns_subsystems(v);
+    return v.ok;
+}
+
 bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
                         std::vector<uint8_t>& out,
                         jnext::JnsLoadReport& report, std::string& why)
@@ -532,16 +597,7 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
     report.advanced_to_frame_boundary = advance_to_frame_boundary();
 
     // Stage the four §9.5 exceptions so the sixth declaration can carry them.
-    jns_monotonic_tstates_ = monotonic_tstates();
-    {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
-        const int64_t last   = cpu_.int_window_last_ts();
-        jns_int_first_ts_ = cpu_.int_window_first_ts() - now_ts;
-        jns_int_last_ts_  = (last == INT64_MAX) ? last : last - now_ts;
-    }
-    jns_stackless_retn_    = cpu_.stackless_retn_active();
-    jns_joy_uart_present_  = (joy_uart_source_ != nullptr);
-    jns_multiface_present_ = true;
+    stage_jns_exceptions_();
 
     jnext::jns::SnapshotWriter w(opt.uncompressed);
     jnext::jns::Manifest m;
@@ -549,15 +605,7 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
     m.created        = iso8601_now_utc();
 
     m.producer.jnext_version = JNEXT_VERSION_STRING;
-#ifdef __linux__
-    m.producer.platform = "linux";
-#elif defined(_WIN32)
-    m.producer.platform = "windows";
-#elif defined(__APPLE__)
-    m.producer.platform = "macos";
-#else
-    m.producer.platform = "unknown";
-#endif
+    m.producer.platform = host_platform_name();
 
     m.model.machine        = manifest_machine_name(config_.type);
     m.model.ram_kb         = static_cast<uint32_t>(ram_.size() / 1024);
@@ -1393,6 +1441,7 @@ bool Emulator::load_jns_file(const std::string& path, bool tape_realtime)
     for (const std::string& k : jns_report_.ignored_keys) {
         Log::emulator()->info("load_jns: ignored unknown key '{}'", k);
     }
+    note_program_file_(path);   // GH #492
     Log::emulator()->info("Snapshot loaded: {}", path);
     return true;
 }

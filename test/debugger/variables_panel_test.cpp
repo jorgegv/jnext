@@ -40,6 +40,7 @@
 #include <QMainWindow>
 #include <QSignalSpy>
 #include <QTabWidget>
+#include "dock_lookup.h"
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTest>
@@ -332,9 +333,9 @@ void test_rows() {
         Fix f;
         f.load("master/sccz80-cvars", "q01");
         const bool at = f.run_to(kS41);
-        auto* tabs = qobject_cast<QTabWidget*>(f.vp()->parentWidget() ? f.vp()->parentWidget()->parentWidget() : nullptr);
-        QStringList tab_names;
-        for (int i = 0; tabs && i < tabs->count(); ++i) tab_names << tabs->tabText(i);
+        // GH #377: the three bottom-right panels are docks tabbed together; the group's tab bar gives the order.
+        QDockWidget* var_dock = f.vp() ? qobject_cast<QDockWidget*>(f.vp()->parentWidget()) : nullptr;
+        const QStringList tab_names = var_dock ? dock_group_titles(var_dock) : QStringList();
         // not paused: nothing is read or redrawn
         QTreeWidgetItem* a = child(locals(f), "a");
         const QString before = val(a);
@@ -346,7 +347,7 @@ void test_rows() {
         f.vp()->refresh();
         check("QVAR-01", "the bottom-right tabs are Watches, Variables, Breakpoints in that order and the Variables panel is the second; a refresh while the panel is not "
                          "paused redraws nothing, and the next paused one does",
-              at && tabs && tab_names == QStringList({"Watches", "Variables", "Breakpoints"}) && tabs->widget(1) == f.vp() && a && before == "0" && untouched &&
+              at && var_dock && tab_names == QStringList({"Watches", "Variables", "Breakpoints"}) && var_dock->windowTitle() == "Variables" && a && before == "0" && untouched &&
                   val(a) == "0",
               s(tab_names.join("|")) + " before=" + s(before));
     }

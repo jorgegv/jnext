@@ -111,6 +111,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 
 ## GUI (Qt 6)
 - Native Qt 6 main window with menu bar, toolbar, and status bar
+- File > Save Bug Report... writes one zip with the machine and jnext state (registers, NextREGs, paging, video, settings, screenshots, log tail, debugger state, the program); RAM only in a `--no-sdcard` session, never any NextZXOS or ROM content
 - Monochrome SVG toolbar icons that follow a light or dark theme live
 - Light and dark mode: windows (debugger included) follow the desktop colour scheme live (`JNEXT_COLOR_SCHEME=dark|light` forces one)
 - Hi-DPI pixel-perfect rendering at integer scale (2×/3×/4×)
@@ -174,6 +175,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Disassembly PC line shows where a taken jump, call or return goes: an up/down arrow, the destination line marked when in view, the target of RET and JP (HL)
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
+- Dockable debugger panels: move, tab, float and close any panel but the Disassembly; the layout is remembered; Window > Panels and Window > Reset Layout
 - Debugger window: File > Reload Last File (Alt+L) reloads the rebuilt program with its maps, breakpoints kept
 - Redefinable debugger keys: all twenty debugger commands under Settings > Preferences > Debugger Keys
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
@@ -211,6 +213,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `.rzx` recordings play in a page, and a page records one from JavaScript (`player.startRzxRecording()` / `stopRzxRecording()` return the file for download).
 
 ## CLI
+- `--bug-report PATH` writes the same bug report when jnext exits (a directory gets `PROGRAM.YYYYMMDDhhmm.jnext-bug.zip`)
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`
 - `--esxdos-stub-root DIR`, `--esxdos-stub-writable` (host directory for a loaded NEX / dot commands)
 - `--sdcard` mounts an SD image, the source of all ROMs; falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img`, offering a download

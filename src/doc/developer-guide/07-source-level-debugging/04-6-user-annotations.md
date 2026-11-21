@@ -9,8 +9,8 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 ## 1. The producer
 
 JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
-loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:1024` and copies
-it to the configuration at `src/main.cpp:2650`, and `ScriptHost::start()` loads it (`annotations_file`,
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:1026` and copies
+it to the configuration at `src/main.cpp:2655`, and `ScriptHost::start()` loads it (`annotations_file`,
 `src/script/script_host.cpp:201-215`), after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
@@ -192,7 +192,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
-  (`connect`, `src/debugger/debugger_window.cpp:922-926`), connected to `DebuggerManager::on_open_annotations()`
+  (`connect`, `src/debugger/debugger_window.cpp:1099-1104`), connected to `DebuggerManager::on_open_annotations()`
   (`debugger_manager.cpp:916`), `on_save_annotations()` (`:828`) and `on_save_annotations_as()` (`:818`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).
@@ -200,11 +200,11 @@ The same two views edit the store and draw it; nothing here changes what the sto
   `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
   `confirm_discard_annotations()` (`debugger_manager.cpp:898`) asks Save / Discard / Cancel when they differ, and is
   asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
-  (`confirm_discard_annotations`, `src/gui/main_window.cpp:3927`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
+  (`confirm_discard_annotations`, `src/gui/main_window.cpp:3977`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
-  SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3924`) asks nothing: it logs that the unsaved changes were
+  SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3974`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:799`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:396`), makes that file
+  (`debugger_manager.cpp:799`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:397`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.

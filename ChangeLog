@@ -12,6 +12,7 @@
 - Live browser demo at jorgegv.github.io/jnext: NextZXOS, Warhawk and TX-1696 from the official distribution
 - Browser widget: NMI button; a page can run a NEX straight from the SD card with its data files
 - A zipped NEX loads with its data files, served through the esxDOS stand-in (command line, File > Load, web page)
+- Save Bug Report (File menu, `--bug-report`): machine and jnext state, screenshots, log and debugger state in one zip
 
 ### Developer Features
 - Disassembly: the PC line shows whether a conditional jump, call or return is taken, and the value at its memory operand
@@ -25,6 +26,8 @@
 - Disassembly: a taken jump, call or return shows its direction and marks its destination line; RET and JP (HL) name their target
 - Debugger Graphics tab: sprite patterns, tile definitions and all eight palettes with RGB333 values and priority
 - Debugger window: call tracking only while the Call Stack or Variables tab shows, with the calls already on the stack rebuilt
+- Debugger panels can be moved, tabbed, floated and closed; the layout is remembered, Window > Reset Layout restores it
+- `tools/jnext-bug-view.py` shows a bug report as a page or text, no build needed
 - Debugger breakpoints gain ranges, conditions, IO masks, Interrupt/NMI types, hit counts and count-only; Run to Next Interrupt
 
 ### Bug Fixes
@@ -41,6 +44,7 @@
 
 ### Internal JNEXT Development
 - CI and release builds move to Fedora 45; packages track the two supported Fedora and two latest Ubuntu LTS releases
+- Builds, test suites and the batch gate can run on a remote podman host over SSH, in the CI container (remote-run)
 
 ## v1.3.0 (2026-11-15)
 
