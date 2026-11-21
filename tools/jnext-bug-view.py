@@ -73,7 +73,7 @@ class Report:
         ver = self.manifest.get("format_version")
         if not isinstance(ver, int) or isinstance(ver, bool) or ver < 1:
             raise Refused("manifest.json has no usable format_version")
-        if ver > 99:
+        if ver > SUPPORTED_FORMAT:
             raise Refused("format_version %d is newer than this viewer understands (%d): use a newer jnext-bug-view.py" % (ver, SUPPORTED_FORMAT))
         for m in self.manifest.get("members", []):
             name = m.get("name") if isinstance(m, dict) else None
