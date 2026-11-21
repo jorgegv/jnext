@@ -4763,9 +4763,9 @@ rm -rf "$BR/s"; mkdir -p "$BR/s/out" "$BR/s/work" "$BR/s/sub"; echo f > "$BR/s/s
 res="root_w=$(stat -c %A "$BR/s" | grep -c w) shared_w=$(stat -c %A "$BR/s/shared.txt" | grep -c w) sub_w=$(stat -c %A "$BR/s/sub/f.txt" | grep -c w) out_w=$(stat -c %A "$BR/s/out" | cut -c3) work_w=$(stat -c %A "$BR/s/work" | cut -c3)"
 chmod -R u+w "$BR/s"
 out=$(br_drive 2 1 writer.sh:1); rc=$?
-res+=" writer_rc=$rc writer_exit7=$(grep -q 'writer.sh exited 7' <<<"$out" && echo yes || echo no)"
+res+=" writer_rc=$rc writer_caught=$(grep -qE 'writer.sh exited 7|a spec wrote into the shared fixtures' <<<"$out" && echo yes || echo no)"
 check "HS-192h" "br_freeze makes the shared fixtures read-only (out/ and work/ stay writable) and a spec that writes into them fails the run" 0 0 "$res" \
-    "root_w=0" "shared_w=0" "sub_w=0" "out_w=w" "work_w=w" "writer_rc=1" "writer_exit7=yes"
+    "root_w=0" "shared_w=0" "sub_w=0" "out_w=w" "work_w=w" "writer_rc=1" "writer_caught=yes"
 # F2/F3 of the GH #547 review. The fingerprint alone (no br_freeze, so the write succeeds on any uid) must fail the run; and
 # a spec that reports a Failed or a Skipped row with exit 0 must fail it (a SKIP is not a pass).
 mkspec writer2.sh "echo x >> \"\$SC/shared.txt\"; echo '  PASS H-1'; $(tot 1 1 0 0)"

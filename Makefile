@@ -1042,12 +1042,12 @@ unit-test: $(UNIT_TEST_LINTS) sdcard-image
 	@# directories (strace of every one, recorded in the GH #547 report); each POST check reads
 	@# the built tree and writes none of it. The suites run alone: they already fill every CPU
 	@# and carry timing rows (XPT-NET-05), so nothing new runs beside them. The checks' output is
-	@# kept per target and printed after the build; a failure of either side fails the target.
-	@checks=$$(mktemp); \
-	 $(MAKE) --no-print-directory -j$(UNIT_TEST_CHECK_JOBS) --output-sync=target --keep-going $(UNIT_TEST_CHECKS) >$$checks 2>&1 & cpid=$$!; \
+	@# synced per target (each check's block stays whole, between the build's lines), and not
+	@# redirected, so the dry run `make -n unit-test` still shows their commands (HS-102);
+	@# a failure of either side fails the target.
+	@$(MAKE) --no-print-directory -j$(UNIT_TEST_CHECK_JOBS) --output-sync=target --keep-going $(UNIT_TEST_CHECKS) & cpid=$$!; \
 	 brc=0; $(MAKE) --no-print-directory unit-test-build || brc=1; \
 	 crc=0; wait $$cpid || crc=1; \
-	 printf "\n$(BOLD)unit-test checks (ran concurrently with the build):$(RESET)\n"; cat $$checks; unlink $$checks; \
 	 if [ $$crc -ne 0 ]; then printf "$(BADGE_FAIL) FAIL $(RESET) a unit-test check failed (see above)\n"; fi; \
 	 [ $$brc -eq 0 ] && [ $$crc -eq 0 ]
 	@$(MAKE) --no-print-directory -j$(UNIT_TEST_CHECK_JOBS) --output-sync=target --keep-going UNIT_TEST_BUILD_DEP= $(UNIT_TEST_POST)
