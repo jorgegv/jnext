@@ -673,6 +673,20 @@ PSG clock 1 750 000 Hz unless stated; frequencies to 1e-3 Hz, cents to 0.005.
 | ANO-16 | Envelope glyph of each of the 16 shapes          | The table at `ym2149.vhd:371-391`, four ASCII characters   |
 | ANO-17 | The same period at the Next's and the 128K's PSG clock | 1.75 MHz is 23.00 cents flat of 1.7734 MHz           |
 
+### 8.2 Invisible to the Z80
+
+Oracle: `src/audio/audio_mute.h` (the debugger's mutes and views have no hardware analogue, so the
+machine's saved state and video must not depend on them) and the hardware, which sums every chip
+(`turbosound.vhd:184-337`) with no mute. Fixture: one Next with TurboSound on, all three AY chips and
+the DAC and beeper making sound, written through real ports and NextREGs.
+
+| ID     | Test                                             | Verification                                               |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AIZ-01 | Mute AY1, run 50 frames; load the same starting state, run 50 frames unmuted | State bytes and framebuffer hash are equal |
+| AIZ-02 | The same for muting the DAC and for muting the beeper | State bytes and framebuffer hash are equal                |
+| AIZ-03 | Positive control: one extra `OUT 0xBFFD` in one run | State bytes differ (the comparison can fail)             |
+| AIZ-04 | Mute AY1, load a state saved unmuted             | The state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
+
 ## Test Implementation Strategy
 
 ### Phase 1: Unit Tests (Internal State)
