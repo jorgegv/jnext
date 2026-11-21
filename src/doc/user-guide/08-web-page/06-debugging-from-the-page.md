@@ -178,7 +178,7 @@ ch.onClose = () => vscode.postMessage({ t: 'close' });
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.t === 'open') ch.open();
-  else if (m.t === 'data') ch.send(new Uint8Array(m.b));
+  else if (m.t === 'data') { if (ch.isOpen) ch.send(new Uint8Array(m.b)); }   // a just-ended session
   else if (m.t === 'close') {
     if (ch.isOpen) ch.close();
     vscode.postMessage({ t: 'closed' });          // behind every `data` posted before

@@ -1,4 +1,4 @@
-// Browser rows BDBG-01..29: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
+// Browser rows BDBG-01..30: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
 // channel and over a WebSocket to the bridge (make wasm-browser-test, spec debug.mjs). Run by
 // browser-smoke.sh on the SDK's node.
 //
@@ -868,6 +868,35 @@ row('BDBG-29', 'the channel path: the old session\'s last reply reaches the host
   await sleep(500);   // anything late would be here by now
   B.destroy();
   must(isInitReply(rxB) && rxB.length === 4 + (rxB[0] | (rxB[1] << 8)), `the redialled client got ${rxB.length} bytes: ${rxB.join(',')}`);
+});
+
+
+row('BDBG-30', 'the real player answers the bridge\'s `close` with `closed`: a client that dials again at once gets its CMD_INIT answered less than 1.5 s after the first one left (the 3 s fallback is not the way in)', async () => {
+  const b = await startBridge();
+  const page = await started({ protocol: 'dzrp', transport: 'ws', url: b.url });
+  await linked(b);
+  const A = net.connect(b.tcpPort, '127.0.0.1');
+  const rxA = [];
+  A.on('data', (d) => rxA.push(...d));
+  A.on('error', () => {});
+  await new Promise((r) => A.on('connect', r));
+  A.write(Buffer.from(INIT));
+  const t0 = Date.now();
+  while (rxA.length < 17 && Date.now() - t0 < 15000) await sleep(20);
+  must(isInitReply(rxA), 'the first client got no INIT answer');
+  A.destroy();
+  const left = Date.now();
+  const B = net.connect(b.tcpPort, '127.0.0.1');
+  const rxB = [];
+  B.on('data', (d) => rxB.push(...d));
+  B.on('error', () => {});
+  await new Promise((r) => B.on('connect', r));
+  B.write(Buffer.from(INIT));
+  while (rxB.length < 17 && Date.now() - left < 8000) await sleep(10);
+  const dt = Date.now() - left;
+  B.destroy();
+  must(isInitReply(rxB), `the redialled client got ${rxB.length} bytes`);
+  must(dt < 1500, `the redialled client was answered ${dt} ms after the first one left`);
 });
 
 // ---------------------------------------------------------------------------------------------------
