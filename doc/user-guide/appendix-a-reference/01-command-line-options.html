@@ -2348,6 +2348,8 @@
       
         
       
+        
+      
     
     
     
@@ -2860,6 +2862,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-debugger/functions/18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -5633,6 +5663,48 @@ on every instruction for the whole run, which is what “persistent”
 costs; it is accepted but has no effect in <strong>--headless</strong>, in the
 SDL-only build and in builds without the debugger, since only the
 debugger can set a breakpoint.</dd>
+<dt><strong>--debugger</strong></dt>
+<dd>
+<p>Start the program under the debugger: the machine starts <strong>paused</strong>,
+where the program starts, instead of running. The stop is, for a
+<strong>NEX</strong> file, its entry point (a NEX whose entry is 0 is a load-only
+file: the CPU is parked, and that is where it stops); for a snapshot
+(<strong>SNA</strong>, <strong>Z80</strong>, <strong>SZX</strong>, <strong>JNS</strong>) or an <strong>RZX</strong> recording, the PC
+it restores; for <strong>--inject</strong>, the injected program’s PC; with no
+file, power-on, before the first instruction (PC 0). It stops right
+after the program is loaded, before it has run an instruction. A
+tape (<strong>TAP</strong>, <strong>TZX</strong>, <strong>WAV</strong>) has no default stop yet: give it
+<strong>--break-at</strong>. The stop is logged
+(<code>debugger: stopped at $8000 (the NEX entry)</code>).</p>
+<p>In the Qt GUI the debugger window opens, paused. In <strong>--headless</strong>
+and the SDL-only build there is no window, so the run waits for a
+remote debugger and serves DZRP on port 11000 (DeZog’s <code>cspect</code>
+remote) unless a protocol port is given: with <strong>--zrcp-port</strong> or
+<strong>--gdb-port</strong> only those are served, and an explicit
+<strong>--dzrp-port</strong> is used as it is. The same applies to a Qt build
+made without the debugger. A paused headless run waits for the
+debugger without using the CPU, and a debugger that attaches finds
+the machine already paused. Stops in these two frontends pause and
+wait for the remote instead of ending the run with exit code 3:
+under <strong>--script</strong>, a <code>stop</code> or a failed <code>assert</code> pauses, and a
+script’s own <code>exit</code> still exits. Not available in the browser.</p>
+</dd>
+<dt><strong>--break-at</strong> <em>ADDR|SYMBOL</em></dt>
+<dd>Implies <strong>--debugger</strong>, and replaces its default stop: run to
+<em>ADDR</em>, stop there once, and stay paused. It takes the forms the
+debugger’s Breakpoints panel takes for an Execute breakpoint: a
+hexadecimal address (<code>8000</code>, <code>$8000</code> or <code>0x8000</code>; there is no
+decimal form, so <code>32768</code> is not an address), a symbol of the
+program’s own map or of <strong>--map</strong>, <code>@symbol</code> (always the symbol,
+even when its name reads as hex), or a source line <code>file:line</code> of a
+loaded source map. A symbol or line keeps the memory it was
+assembled for: it stops only while that memory supplies the code.
+The stop is armed when the program is loaded, before it has run, so
+it also catches code a tape runs while it loads. It fires once and
+never appears in the Breakpoints panel. A value that is not an
+address, a symbol or a source line is refused when the program is
+loaded, before it has run an instruction, with exit code 1. Not
+available in the browser.</dd>
 <dt><strong>--dzrp-port</strong> <em>PORT</em></dt>
 <dd>Serve the DeZog Remote Protocol (DZRP) on TCP <em>PORT</em>, so DeZog - or
 any other DZRP client - can debug the running machine; see <strong>REMOTE
