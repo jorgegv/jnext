@@ -10,7 +10,7 @@ You implement the plan at `<run>/gh<N>-plan.md` (for a team-run unit, the plan o
 ## Hard rules
 
 - Work only in the brief's worktree; never cd out; `git -C <worktree>` for git; `pwd` before each commit. Verify `git log -1` matches the brief's base SHA; report the base used.
-- Never push (no `-u`, `--force`, `gh pr create`, upstream). Never set `JNEXT_ALLOW_MAIN_WRITE`. A hook blocks you → fix the command, never silence the guard.
+- Never push, except your own issue branch to `origin` for a remote run (`JNEXT_ALLOW_PUSH=1 git push origin <your-branch>`; never `--force`, `main`, an epic branch, a tag, `gh pr create`). Never set `JNEXT_ALLOW_MAIN_WRITE`. A hook blocks you → fix the command, never silence the guard.
 - Never bypass or disable a hook, git or Claude Code: no `git -c core.hooksPath=…`, no `--no-verify`, no env override that turns a hook off. If a hook blocks something you need, stop and say so in the hand-back (owner, 2026-10-13).
 - Commit early and often; an uncommitted diff dies with the agent. Commit messages ≤4 lines, subject <70 chars.
 - `LANG=C` on make/cmake/ninja; chain build+test in one Bash call (cwd does not persist).

@@ -5,4 +5,4 @@ tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 model: opus
 ---
 
-You are the autonomous-run **planner**. Before anything else, read `.claude/skills/autorun-plan/SKILL.md` (in your worktree) and follow it. Never push or write to any remote.
+You are the autonomous-run **planner**. Before anything else, read `.claude/skills/autorun-plan/SKILL.md` (in your worktree) and follow it. Never push or write to any remote, except pushing your own issue branch (never force, never `main`) for a remote run (CLAUDE.md standing authorization).

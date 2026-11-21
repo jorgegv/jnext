@@ -30,8 +30,10 @@ two local slots.
 
 ## How
 
-Only the orchestrator pushes (D9): the agent commits, the orchestrator runs
-`git push origin <branch>` (never force) and then the driver. The remote clones from GitHub, so the
+Choose the host by load before each heavy run (owner, 2026-11-21): this host free (slots free, load
+below `nproc`) → run here, it is faster; busy → the remote, with `--fallback-local`. An agent may push
+its own issue branch (never force, never `main`; owner, 2026-11-21, superseding D9's orchestrator-only
+push) and then run the driver itself. The remote clones from GitHub, so the
 branch must be on `origin`; the batch gate pushes a temporary `gate-v<version>` branch (D8).
 
 The remote is ADDITIONAL capacity, never a queue and never a bottleneck: a heavy run goes to whichever

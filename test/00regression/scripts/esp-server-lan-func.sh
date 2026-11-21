@@ -50,7 +50,8 @@ if want esp-server-lan-func; then
     received="$TMP_DIR/esp_lan_received"
     peer_log="$TMP_DIR/esp_lan_peer.log"
     run_log="$TMP_DIR/esp_lan_run.log"
-    rm -f "$guest_bin" "$ready" "$received" "$peer_log" "$run_log"
+    jnext_log="$TMP_DIR/esp_lan_jnext.log"
+    rm -f "$guest_bin" "$ready" "$received" "$peer_log" "$run_log" "$jnext_log"
 
     peer_pid=""
     verdict=""
@@ -85,6 +86,7 @@ if want esp-server-lan-func; then
             --magic-port 0xCAFE --magic-port-mode line \
             --inject "$guest_bin" --inject-org 8000 --inject-pc 8000 \
             --inject-delay 100 --delayed-automatic-exit-frames 1500 \
+            --log-file "$jnext_log" \
             >"$run_log" 2>&1 || true
 
         fails=()
@@ -95,14 +97,13 @@ if want esp-server-lan-func; then
         # The LISTENER's own line, which names the address it really bound —
         # the config string is printed by a different line, and it is that
         # difference the row exists to close.
-        grep -aq "listening for inbound connections on $listen_ip:$listen_port" "$run_log" \
+        grep -aq "listening for inbound connections on $listen_ip:$listen_port" "$jnext_log" \
             || fails+=("the listener did not bind $listen_ip:$listen_port")
-        grep -aq "connection ACCEPTED from $listen_ip" "$run_log" \
+        grep -aq "connection ACCEPTED from $listen_ip" "$jnext_log" \
             || fails+=("no 'connection ACCEPTED' log line for $listen_ip")
 
-        # The guest's own view, in the magic-port trace: non-bracketed lines are
-        # the wire (every spdlog line starts with its `[timestamp]`).
-        grep -q '^1,CONNECT$' <<<"$(grep -av '^\[' "$run_log")" \
+        # The guest's own view, in the magic-port trace: run_log is the wire only.
+        grep -aq '^1,CONNECT$' "$run_log" \
             || fails+=("the guest never saw 1,CONNECT")
 
         if [[ ${#fails[@]} -eq 0 ]]; then
