@@ -40,8 +40,10 @@
 #include "../core/batch_ab.h"
 
 #include <QApplication>
+#include <QDockWidget>
 #include <QLabel>
 #include <QMainWindow>
+#include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
 
@@ -174,7 +176,8 @@ std::string write_source_files(Fixture& fx, const std::string& dir) {
 }
 
 // The machine for the A/B row: LD HL,$9000 / loop: INC (HL) / JR loop. State moves every frame.
-std::vector<batch_ab::FrameHash> busy_run(bool window_open) {
+// `audio_live`: the Audio panel on show, and every frame is a full QtApp tick (so the live refresh runs).
+std::vector<batch_ab::FrameHash> busy_run(bool window_open, bool audio_live = false) {
     std::vector<batch_ab::FrameHash> out;
     Fixture fx;
     if (!fx.ok) return out;
@@ -183,9 +186,10 @@ std::vector<batch_ab::FrameHash> busy_run(bool window_open) {
     r.PC = kMain;
     fx.emu.cpu().set_registers(r);
     if (window_open) fx.enable();
+    if (audio_live) fx.show(fx.dbg()->audio_panel());
     batch_ab::Scratch scratch;
     for (int f = 0; f < 50; ++f) {
-        fx.emu.run_frame();
+        if (audio_live) fx.tick(); else fx.emu.run_frame();
         out.push_back(batch_ab::capture(fx.emu, scratch, true));
     }
     return out;
@@ -401,6 +405,104 @@ int main(int argc, char** argv) {
         }
         check("QLAZY-11",
               "a busy program, 50 frames with the window closed and 50 with it open (default layout): identical state, video and audio hashes every frame",
+              same, detail);
+    }
+
+    // QLAZY-13..16 - the Audio panel's live refresh (GH #529): every tick while the window is open, the Audio
+    // dock is on show and its Chips sub-tab is current; otherwise nothing, and never through refresh_window().
+    {
+        uint64_t live_on = 0, panels_on = 0, live_off = 0, panels_off = 0;
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            fx.mgr->take_audio_live_refresh_count();
+            fx.mgr->take_panel_refresh_count();
+            for (int i = 0; i < 8; ++i) fx.tick();
+            live_on = fx.mgr->take_audio_live_refresh_count();
+            panels_on = fx.mgr->take_panel_refresh_count();
+        }
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->nextreg_panel());   // the default layout tabs Audio away behind it
+            fx.mgr->take_audio_live_refresh_count();
+            fx.mgr->take_panel_refresh_count();
+            for (int i = 0; i < 8; ++i) fx.tick();
+            live_off = fx.mgr->take_audio_live_refresh_count();
+            panels_off = fx.mgr->take_panel_refresh_count();
+        }
+        check("QLAZY-13",
+              "running, Audio dock shown and Chips current: one live refresh per tick (8 in 8 ticks), none with the dock tabbed away, and the other panels' refresh count is the same either way",
+              live_on == 8 && live_off == 0 && panels_on == panels_off,
+              "live=" + std::to_string(live_on) + "/" + std::to_string(live_off) + " panels=" +
+                  std::to_string(panels_on) + "/" + std::to_string(panels_off));
+    }
+    {
+        uint64_t away = 0, closed_dock = 0, closed_window = 0;
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->nextreg_panel());
+            fx.mgr->take_audio_live_refresh_count();
+            for (int i = 0; i < 4; ++i) fx.tick();
+            away = fx.mgr->take_audio_live_refresh_count();
+        }
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            for (QDockWidget* d : fx.dbg()->findChildren<QDockWidget*>())
+                if (d->widget() == fx.dbg()->audio_panel()) d->hide();
+            QApplication::processEvents();
+            fx.mgr->take_audio_live_refresh_count();
+            for (int i = 0; i < 4; ++i) fx.tick();
+            closed_dock = fx.mgr->take_audio_live_refresh_count();
+        }
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            fx.mgr->set_enabled(false);
+            fx.mgr->take_audio_live_refresh_count();
+            for (int i = 0; i < 4; ++i) fx.tick();
+            closed_window = fx.mgr->take_audio_live_refresh_count();
+        }
+        check("QLAZY-14",
+              "no live refresh with the Audio dock tabbed away, with its dock closed, or with the window closed",
+              away == 0 && closed_dock == 0 && closed_window == 0,
+              "away=" + std::to_string(away) + " closed_dock=" + std::to_string(closed_dock) + " closed_window=" +
+                  std::to_string(closed_window));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(2);   // Log
+        fx.mgr->take_audio_live_refresh_count();
+        for (int i = 0; i < 4; ++i) fx.tick();
+        const uint64_t log_tab = fx.mgr->take_audio_live_refresh_count();
+        if (tabs) tabs->setCurrentIndex(0);   // Chips again
+        for (int i = 0; i < 4; ++i) fx.tick();
+        const uint64_t chips_tab = fx.mgr->take_audio_live_refresh_count();
+        check("QLAZY-15", "the Audio dock shown with the Log sub-tab current: no live refresh; with Chips current again: one per tick",
+              tabs && log_tab == 0 && chips_tab == 4, "log=" + std::to_string(log_tab) + " chips=" + std::to_string(chips_tab));
+    }
+    {
+        const auto closed = busy_run(false, false);
+        const auto live = busy_run(true, true);
+        bool same = closed.size() == 50 && live.size() == 50;
+        std::string detail;
+        for (size_t f = 0; same && f < closed.size(); ++f) {
+            if (closed[f].state != live[f].state || closed[f].video != live[f].video ||
+                closed[f].audio != live[f].audio) {
+                same = false;
+                detail = "frame " + std::to_string(f);
+            }
+        }
+        check("QLAZY-16",
+              "a busy program, 50 frames with the window closed and 50 with the Audio panel refreshing live every frame: identical state, video and audio hashes every frame",
               same, detail);
     }
 

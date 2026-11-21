@@ -39,7 +39,9 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QLabel>
+#include <QProgressBar>
 #include <QString>
+#include <QTabWidget>
 #include <QTableWidget>
 
 #include <cstdarg>
@@ -183,6 +185,29 @@ void mixer_sample(Emulator& emu, int16_t& L, int16_t& R) {
     emu.mixer().read_samples(pair, 1);
     L = pair[0];
     R = pair[1];
+}
+
+
+// The decoded widgets are found by objectName (chip<c>_<a|b|c>_period, ...).
+QLabel* lbl(AudioPanel& panel, const char* name) { return panel.findChild<QLabel*>(name); }
+QString txt(AudioPanel& panel, const char* name) {
+    QLabel* l = lbl(panel, name);
+    return l ? l->text() : QStringLiteral("<no label>");
+}
+bool lit(AudioPanel& panel, const char* name) {
+    QLabel* l = lbl(panel, name);
+    return l && l->property("lit").toBool();
+}
+
+QString cell_text(QTableWidget* t, int row, int col) {
+    QTableWidgetItem* it = t ? t->item(row, col) : nullptr;
+    return it ? it->text() : QStringLiteral("<no cell>");
+}
+
+// One register of the CURRENT chip through the real ports.
+void ay_reg(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0xFFFD, reg);
+    emu.port().out(0xBFFD, val);
 }
 
 } // namespace
@@ -619,6 +644,214 @@ static void test_turbosound_label(Emulator& emu) {
               on.toUtf8().constData()));
 }
 
+// ── DAP-DEC: the decoded Chips view (GH #529) ───────────────────────────
+//
+// Oracles: ym2149.vhd:302-325 and 467-537 (periods, gates, levels), :371-391
+// (the shape glyphs), turbosound.vhd:129-136 (selection and pan), zxnext.vhd
+// :5731 (NR 0x06 psg mode); the note arithmetic is the one pinned by ANO-* in
+// audio_debug_test. The widgets are found by objectName.
+
+static void test_decoded_view(Emulator& emu) {
+    set_group("DAP-DEC");
+
+    {
+        if (!build_next_emulator(emu)) { check("DAP-18", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        QStringList names;
+        for (int i = 0; tabs && i < tabs->count(); ++i) names << tabs->tabText(i).replace("&&", "&");
+        bool outside = tabs != nullptr;
+        for (const char* t : {"AY #0", "AY #1", "AY #2", "DAC", "Beeper"}) {
+            QCheckBox* cb = source_box(panel, t);
+            outside = outside && cb && !tabs->isAncestorOf(cb);
+        }
+        check("DAP-18", "the sub-tabs are Chips, DAC & Beeper, Log, Tracker, Scopes in that order; the five source checkboxes sit outside the tab widget",
+              names == QStringList({"Chips", "DAC & Beeper", "Log", "Tracker", "Scopes"}) && outside,
+              names.join("|").toStdString());
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-19", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        ay_reg(emu, 0, 252); ay_reg(emu, 1, 0);
+        panel.refresh();
+        const QString n = txt(panel, "chip0_a_note"), c = txt(panel, "chip0_a_cents");
+        ay_reg(emu, 0, 0);
+        panel.refresh();
+        const QString n0 = txt(panel, "chip0_a_note");
+        check("DAP-19", "ym2149.vhd:306-325 tone period 252 on AY0 A at 1.75 MHz shows A4 and -23.7 cents; period 0 shows no note",
+              n == "A4" && c == "-23.7" && n0 == "-", (n + " " + c + " " + n0).toStdString());
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-20", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        bool ok = true;
+        std::string bad;
+        // Channel B's (tone, noise) enables x the other channels equal to B or opposite to it.
+        for (int combo = 0; combo < 8; ++combo) {
+            const bool bt = combo & 1, bn = combo & 2, opposite = combo & 4;
+            const bool ot = opposite ? !bt : bt, on = opposite ? !bn : bn;
+            const bool tone[3] = {ot, bt, ot}, noise[3] = {on, bn, on};
+            uint8_t r7 = 0;
+            for (int k = 0; k < 3; ++k) {
+                if (!tone[k])  r7 |= static_cast<uint8_t>(1 << k);
+                if (!noise[k]) r7 |= static_cast<uint8_t>(8 << k);
+            }
+            ay_reg(emu, 7, r7);
+            panel.refresh();
+            static const char* const tn[3] = {"chip0_a_tone", "chip0_b_tone", "chip0_c_tone"};
+            static const char* const nn[3] = {"chip0_a_noise", "chip0_b_noise", "chip0_c_noise"};
+            for (int k = 0; k < 3; ++k)
+                if (lit(panel, tn[k]) != tone[k] || lit(panel, nn[k]) != noise[k]) {
+                    ok = false;
+                    bad += fmt("combo %d ch %d ", combo, k);
+                }
+        }
+        check("DAP-20", "ym2149.vhd:467-469 the T and N indicators of every channel are lit exactly when R7 enables them (channel B in all four combinations, the others equal or opposite)",
+              ok, bad);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-21", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        ay_reg(emu, 8, 0x10); ay_reg(emu, 9, 0x0B); ay_reg(emu, 10, 0x1F);
+        panel.refresh();
+        const QString a = txt(panel, "chip0_a_vol"), b = txt(panel, "chip0_b_vol"), c = txt(panel, "chip0_c_vol");
+        check("DAP-21", "ym2149.vhd:476-520 the volume column reads Env when R8-R10 bit 4 is set, else the decimal volume",
+              a == "Env" && b == "11" && c == "Env", (a + " " + b + " " + c).toStdString());
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-22", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        // ym2149.vhd:371-391.
+        static const char* const want[16] = {
+            "\\___", "\\___", "\\___", "\\___", "/___", "/___", "/___", "/___",
+            "\\\\\\\\", "\\___", "\\/\\/", "\\'''", "////", "/'''", "/\\/\\", "/___",
+        };
+        std::string bad;
+        for (int sh = 0; sh < 16; ++sh) {
+            ay_reg(emu, 13, static_cast<uint8_t>(sh));
+            panel.refresh();
+            if (txt(panel, "chip0_env_glyph") != want[sh]) bad += fmt("shape %d ", sh);
+        }
+        check("DAP-22", "ym2149.vhd:371-391 the envelope glyph of each of the 16 shapes", bad.empty(), bad);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-23", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        ay_reg(emu, 11, 100); ay_reg(emu, 12, 0);
+        std::string bad;
+        for (int sh = 0; sh < 16; ++sh) {
+            ay_reg(emu, 13, static_cast<uint8_t>(sh));
+            panel.refresh();
+            const char* want = (sh == 8 || sh == 12) ? "C#2" : (sh == 10 || sh == 14) ? "C#1" : "-";
+            if (txt(panel, "chip0_env_note") != want) bad += fmt("shape %d ", sh);
+        }
+        check("DAP-23", "ym2149.vhd:334-350,402-462 envelope period 100: the envelope note is C#2 for shapes 8 and 12, C#1 for 10 and 14, none for the other twelve",
+              bad.empty(), bad);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-24", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* hex = panel.findChild<QCheckBox*>("audio_hex");
+        auto* table = panel.findChild<QTableWidget*>();
+        const bool default_hidden = table && table->isHidden();
+        if (hex) hex->setChecked(true);
+        const bool shown = table && !table->isHidden();
+        ay_reg(emu, 8, 0x5A);
+        panel.refresh();
+        const QString on = cell_text(table, 8, 0);
+        if (hex) hex->setChecked(false);
+        const bool hidden = table && table->isHidden();
+        ay_reg(emu, 8, 0xA5);
+        panel.refresh();
+        const QString off = cell_text(table, 8, 0);
+        check("DAP-24", "the Hex toggle swaps the decoded view for the register table; the table is refreshed while hidden",
+              hex && default_hidden && shown && hidden && on == "5A" && off == "A5",
+              (on + " " + off).toStdString());
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-25", "emulator init", false); return; }
+        nr_write(emu, 0x08, 0x02);
+        nr_write(emu, 0x09, 0x80);                 // chip 2 mono
+        emu.port().out(0xFFFD, 0xDD);              // AY2 selected, pan 10 (left only)
+        emu.port().out(0xFFFD, 0x1D);              // 5-bit address 0x1D on it
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.refresh();
+        const bool marker = !txt(panel, "chip2_active").isEmpty() && txt(panel, "chip0_active").isEmpty() &&
+                            txt(panel, "chip1_active").isEmpty();
+        const bool header = txt(panel, "chip2_addr") == "0x1D" && txt(panel, "chip2_pan") == "L -" &&
+                            txt(panel, "chip2_mono") == "mono" && txt(panel, "chip0_mono") == "stereo" &&
+                            txt(panel, "chip0_pan") == "L R";
+        const QString mix_on = txt(panel, "chip0_mix");
+        nr_write(emu, 0x08, 0x00);
+        panel.refresh();
+        const QString mix0_off = txt(panel, "chip0_mix"), mix2_off = txt(panel, "chip2_mix");
+        check("DAP-25", "turbosound.vhd:129-136,197 chip header: active marker on the selected chip only, address 0x1D, pan 'L -' for pan 10, mono flag; in mix for all with TurboSound on, only the selected chip with it off",
+              marker && header && mix_on == "in mix" && mix0_off == "not in mix" && mix2_off == "in mix",
+              (mix_on + "|" + mix0_off + "|" + mix2_off).toStdString());
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-26", "emulator init", false); return; }
+        nr_write(emu, 0x06, 0x01);                  // the AY curve
+        ay_reg(emu, 7, 0x00);                       // gates open: the bar still shows the level
+        ay_reg(emu, 8, 3); ay_reg(emu, 9, 9); ay_reg(emu, 10, 15);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.refresh();
+        // ym2149.vhd:529-537 AY table at index volume (R << 1 | 1) >> 1.
+        const int want[3] = {0x06, 0x41, 0xFF};
+        static const char* const names[3] = {"chip0_a_level", "chip0_b_level", "chip0_c_level"};
+        bool ok = true;
+        std::string got;
+        for (int k = 0; k < 3; ++k) {
+            auto* bar = panel.findChild<QProgressBar*>(names[k]);
+            ok = ok && bar && bar->value() == want[k];
+            got += fmt("%d ", bar ? bar->value() : -1);
+        }
+        check("DAP-26", "ym2149.vhd:476-537 the level bar of channels A, B, C at fixed volumes 3, 9, 15 reads 0x06, 0x41, 0xFF (AY curve)", ok, got);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-27", "emulator init", false); return; }
+        ay_reg(emu, 13, 0x08);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.refresh();
+        const QString s = txt(panel, "chip0_env_step");
+        check("DAP-27", "ym2149.vhd:393-401 after an R13 write and before any tick the envelope reads its reload: 31 falling",
+              s == "31 falling", s.toStdString());
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-28", "emulator init", false); return; }
+        nr_write(emu, 0x06, 0x03);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.refresh();
+        const QString held = label_text(panel, "PSG mode:");
+        nr_write(emu, 0x06, 0x01);
+        panel.refresh();
+        check("DAP-28", "zxnext.vhd:5731 NR 0x06 = 0x03 reads 'PSG mode: held in reset'; = 0x01 still reads exactly 'Mode: AY'",
+              held == "PSG mode: held in reset" && label_text(panel, "Mode:") == "Mode: AY",
+              (held + "|" + label_text(panel, "Mode:")).toStdString());
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-29", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        const bool chips = panel.chips_on_show();
+        if (tabs) tabs->setCurrentIndex(2);
+        check("DAP-29", "chips_on_show() is true with the Chips sub-tab current and false with Log current",
+              tabs && chips && !panel.chips_on_show());
+    }
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -637,6 +870,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-REGS       — done\n");
     test_turbosound_label(emu);
     std::printf("  Group: DAP-TS         — done\n");
+    test_decoded_view(emu);
+    std::printf("  Group: DAP-DEC        — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
