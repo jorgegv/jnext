@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1703,6 +1703,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-qt-window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Qt window
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tests" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3102,7 +3113,7 @@ member not listed there is never written. Member names follow the container's gr
 </tr>
 <tr>
 <td><code>settings.json</code></td>
-<td>the command line (paths reduced to <code>&lt;path&gt;/name</code>), the settings file as <code>section.key</code> to value (no frontend reads it yet, so it reads "not read by this frontend"; the writer takes the map from its caller and blanks it), and the session switches</td>
+<td>the command line (paths reduced to <code>&lt;path&gt;/name</code>), the settings file as <code>section.key</code> to value (the Qt frontend reads it through <code>AppConfig::file_for_report()</code> and the writer blanks what could name the host; the SDL and headless frontends read none and it says "not read by this frontend"), and the session switches</td>
 <td>always</td>
 </tr>
 <tr>
@@ -3249,8 +3260,18 @@ outside <code>A-Za-z0-9._-</code> replaced by <code>_</code>, cut at 64, <code>j
 time when the name is taken. <code>resolve_path()</code> is the <code>--bug-report PATH</code> rule: an existing
 directory or a path ending in a separator names a directory (created when needed), anything
 else is the file. A failed write logs an error and the loop owner exits 1.</p>
+<h2 id="the-qt-window">The Qt window<a class="headerlink" href="#the-qt-window" title="Permanent link">&para;</a></h2>
+<p><strong>File &gt; Save Bug Report...</strong> (<code>MainWindow::on_save_bug_report()</code>, after Quick Load Snapshot, no
+shortcut) opens a save dialog in the home directory (nothing is remembered: that would be a new
+persisted setting) proposing <code>bug_report::file_name()</code> for the loaded program, filtered to
+<code>*.jnext-bug.zip</code>. <code>MainWindow::save_bug_report_to()</code> then calls <code>bug_report::write()</code> with the
+command line, <code>frontend</code> <code>qt</code>, and the settings file from <code>AppConfig::file_for_report()</code> (every row of
+<code>config_keys::KEYS</code> the file holds, plus whatever keys <code>[debugger_keys]</code> has). The status bar names the
+file and whether memory is included; a failure shows a dialog (not when unattended). <code>QtApp::shutdown()</code>
+passes the same map to <code>--bug-report</code>. There is no Preferences field, so no <code>config_keys</code> row: <code>--bug-report</code>
+is a per-run action like <code>--delayed-screenshot</code>.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
-<p><code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
+<p><code>bug_report_ui_test</code> (BRUI-01 to 05) drives the real menu action and file dialog of an offscreen window. <code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows <code>bug-report-nosd-func</code> and
 <code>bug-report-card-func</code> run the real binary. The second one is the end-to-end check of the

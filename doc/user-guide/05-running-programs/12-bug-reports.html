@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4494,7 +4494,11 @@ one file with the state of the machine and of JNEXT at that moment. It is for a
 developer to read, not a recording to play back: nobody can run your session from it.
 Attach it to the issue you open at <a href="https://github.com/jorgegv/jnext/issues">https://github.com/jorgegv/jnext/issues</a>.</p>
 <h2 id="saving-one">Saving one<a class="headerlink" href="#saving-one" title="Permanent link">&para;</a></h2>
-<p>Start JNEXT with <strong><code>--bug-report PATH</code></strong> and quit when the problem has appeared. The
+<p>In the window, choose <strong>File ▸ Save Bug Report…</strong>. A save dialog opens in your home
+folder with the file name already filled in (<code>game.202611201530.jnext-bug.zip</code>: the
+program you loaded, the date and the time); press Save. The status bar says where it went
+and whether the memory is included. It has no keyboard shortcut.</p>
+<p>From the command line, start JNEXT with <strong><code>--bug-report PATH</code></strong> and quit when the problem has appeared. The
 report is written as JNEXT exits (also when the run ends by itself, for example with
 <code>--delayed-automatic-exit</code>):</p>
 <pre><code>jnext --bug-report ~/reports/ --load game.nex
@@ -4506,8 +4510,8 @@ time, then <code>.jnext-bug.zip</code>. With no program loaded the name starts <
 exits with status 1.</p>
 <h2 id="what-is-in-it">What is in it<a class="headerlink" href="#what-is-in-it" title="Permanent link">&para;</a></h2>
 <ul>
-<li>The JNEXT version, your operating system and the settings in use (the command line; the
-  settings file is not included yet), with the folders of your computer
+<li>The JNEXT version, your operating system and the settings in use (the command line and, in
+  the window, the settings file with every folder, device and recent-files entry blanked), with the folders of your computer
   left out.</li>
 <li>The machine, decoded: CPU registers, every NextREG with its name, the memory paging,
   the ULA, Layer 2, sprites, tilemap and Copper, the palettes, the interrupt, DivMMC
