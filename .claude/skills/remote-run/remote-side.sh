@@ -183,6 +183,7 @@ if [[ ! -s "$DRV_FILE" ]]; then
     pick_driver
     for ofd in "${other_fds[@]}"; do exec {ofd}>&-; done
 fi
+set_pm   # a run that waited for a lane while another probed must pick up the driver recorded meanwhile
 rootless=$(pm info --format '{{.Host.Security.Rootless}}' 2>/dev/null) || fallback "podman info failed"
 [[ "$rootless" == true ]] || fallback "podman is not rootless (got '$rootless')"
 

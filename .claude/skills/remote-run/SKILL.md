@@ -49,7 +49,7 @@ once through the slot wrapper and the log says `RAN LOCALLY`. Only `--gate` wait
 
 ```bash
 export REMOTE_RUN_LOCAL_WRAP=<run dir>/slot.sh
-S=.claude/skills/remote-run
+S=/home/jorgegv/src/spectrum/jnext/.claude/skills/remote-run   # the MAIN checkout's copy, never a worktree's
 $S/remote-run.sh --warm                              # once, and after test/ci-deps.sh changes
 $S/remote-run.sh <branch> $(git rev-parse <branch>) unit-test unit-test-sdl
 $S/remote-run.sh --fallback-local <worktree> <branch> <sha> unit-test    # THE NORMAL CALL: remote if free, else here

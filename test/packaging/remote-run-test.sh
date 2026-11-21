@@ -70,17 +70,19 @@ cat > "$TMP/bin/podman" <<'EOF'
 echo "$*" >> "$FAKE_STATE/calls"
 if [[ "${1:-}" == --version ]]; then echo "podman version 0.0-fake"; exit 0; fi
 if [[ "${1:-}" != --root ]]; then : > "$FAKE_STATE/noroot"; exit 99; fi
-echo "$2 $4" >> "$FAKE_STATE/roots"; shift 4
+echo "$2 $4" >> "$FAKE_STATE/roots"; wdir=${2%/containers/storage}; shift 4
 if [[ "${1:-}" == --storage-driver ]]; then echo "$2" >> "$FAKE_STATE/drivers"; shift 2; fi
 case "${1:-}" in
     info)
         case "$*" in
-            *GraphDriverName*) [[ "${FAKE_INFO_FAIL:-0}" != 1 ]] || { echo "boom: store broken" >&2; exit 1; }; echo overlay ;;
+            *GraphDriverName*) flock -n "$wdir/lane-L2.lock" true && echo free >> "$FAKE_STATE/probe-lane2" || echo held >> "$FAKE_STATE/probe-lane2"
+                [[ "${FAKE_INFO_FAIL:-0}" != 1 ]] || { echo "boom: store broken" >&2; exit 1; }; echo overlay ;;
             *) echo "${FAKE_ROOTLESS:-true}" ;;
         esac ;;
     image)
         case "${2:-}" in
-            exists) [[ -e "$FAKE_STATE/image-${3//\//_}" ]] ;;
+            exists) flock -n "$wdir/setup.lock" true && echo free >> "$FAKE_STATE/setup-at-image" || echo held >> "$FAKE_STATE/setup-at-image"
+                [[ -e "$FAKE_STATE/image-${3//\//_}" ]] ;;
             *) exit 0 ;;
         esac ;;
     build) while [[ $# -gt 0 ]]; do [[ "$1" == -t ]] && : > "$FAKE_STATE/image-${2//\//_}"; shift; done ;;
@@ -217,7 +219,7 @@ hold_lock() {
 }
 hold_lane() { hold_lock "$1" "$WORK/lane.lock" "$WORK/lane-L2.lock"; }
 calls() { cat "$FAKE_STATE/calls" 2>/dev/null; }
-reset_state() { rm -f "$FAKE_STATE"/calls "$FAKE_STATE"/killed "$FAKE_STATE"/roots "$FAKE_STATE"/running "$FAKE_STATE"/live; }
+reset_state() { rm -f "$FAKE_STATE"/calls "$FAKE_STATE"/killed "$FAKE_STATE"/roots "$FAKE_STATE"/running "$FAKE_STATE"/live "$FAKE_STATE"/probe-lane2 "$FAKE_STATE"/setup-at-image; }
 
 # RRUN-01: usage refusals exit 2, --help exits 0
 out=""
@@ -599,9 +601,12 @@ ids_lane() { grep -aE "lane [0-9] of" "$TMP/logs/$1.log" | head -n 1; }
 # RRUN-31: two runs at once: while A lives in lane 1 (and its checkout looks like an orphan of two hours),
 # B takes lane 2 at once, succeeds, and neither kills A's container nor sweeps A's checkout
 reset_state; rm -rf "$WORK/runs-L2" "$WORK/ctl-L2"
+# orphans seeded before A starts: a lane-1 container (A must kill it) and a lane-2 one (A must not)
+printf 'rr-jnext-orph 1\nrr-L2-jnext-other 2\n' > "$FAKE_STATE/live"
 FAKE_SLEEP=1 setsid bash "$DRIVER" --local-shell --log-dir "$TMP/logs" --id twoA feature "$SHA" unit-test >/dev/null 2>&1 &
 apid=$!
 for _ in $(seq 1 900); do [[ -e "$FAKE_STATE/running" ]] && break; sleep 0.2; done
+a_orph=0; grep -qx 'rr-jnext-orph' "$FAKE_STATE/killed" 2>/dev/null && ! grep -qx 'rr-L2-jnext-other' "$FAKE_STATE/killed" && a_orph=1
 touch -d '2 hours ago' "$WORK/runs/twoA" "$WORK/ctl/twoA"
 start=$SECONDS
 REMOTE_RUN_LANE_WAIT=20 drive --id twoB feature "$SHA" unit-test
@@ -613,9 +618,9 @@ kill -TERM "$apid" 2>/dev/null
 for _ in $(seq 1 450); do kill -0 "$apid" 2>/dev/null || break; sleep 0.2; done
 kill -KILL "$apid" 2>/dev/null; wait "$apid" 2>/dev/null
 row RRUN-31 "$([[ $b_rc -eq 0 && $b_took -lt 15 && "$(ids_lane twoB)" == *"lane 2 of 2"* && "$(ids_lane twoA)" == *"lane 1 of 2"* \
-    && $a_alive -eq 1 && $a_dir -eq 1 && $a_killed -eq 0 && "$OUT" == *"verdict: CLEAN"* \
+    && $a_alive -eq 1 && $a_dir -eq 1 && $a_killed -eq 0 && $a_orph -eq 1 && "$OUT" == *"verdict: CLEAN"* \
     && "$(grep -a 'RR_JOBS_DEFAULT' "$FAKE_STATE/env.sh")" == *"RR_JOBS_DEFAULT=6 RR_JOBS_HEAVY=3"* && "$(calls | grep -E '(^| )run ' | grep -c 'JNEXT_TEST_JOBS=6')" -eq 1 ]] && echo 1 || echo 0)" \
-    "run B takes lane 2 beside live run A at halved CPU caps, and neither kills A's container nor sweeps A's checkout (rc=$b_rc ${b_took}s alive=$a_alive dir=$a_dir killed=$a_killed)"
+    "run B takes lane 2 beside live run A at halved CPU caps, and neither kills A's container nor sweeps A's checkout, while A kills its own lane's orphan only (rc=$b_rc ${b_took}s alive=$a_alive dir=$a_dir killed=$a_killed orph=$a_orph)"
 
 # RRUN-32: a lane-2 run's names, mounts and label; the per-lane sweep; cleanup mode finds lane 2's dirs
 reset_state
@@ -623,17 +628,20 @@ mkdir -p "$WORK/cache/jnext-home-L2/runs/x" "$WORK/cache/jnext-home/runs/y"
 touch -d '3 days ago' "$WORK/cache/jnext-home-L2/runs/x" "$WORK/cache/jnext-home/runs/y"
 hold_one() { hold_lock "$1" "$LOCK1"; }
 hold_one 40; holder=$!
+printf 'rr-L2-jnext-orph2 2\nrr-jnext-keep 1\n' > "$FAKE_STATE/live"
 FAKE_KILL_PARENT=1 drive --id lane2 feature "$SHA" unit-test
 l2_rc=$RC
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 runline=$(calls | grep -E '(^| )run ' | head -n 1)
-row RRUN-32 "$([[ $l2_rc -eq 1 && "$runline" == *"-v $WORK/runs-L2/lane2/src:/src"* && "$runline" == *"-v $WORK/ctl-L2/lane2:/rr:ro"* \
+orph_ok=0; grep -qx 'rr-L2-jnext-orph2' "$FAKE_STATE/killed" 2>/dev/null && ! grep -qx 'rr-jnext-keep' "$FAKE_STATE/killed" && orph_ok=1
+setup_ok=0; [[ "$(tail -n 1 "$FAKE_STATE/setup-at-image" 2>/dev/null)" == held ]] && setup_ok=1
+row RRUN-32 "$([[ $l2_rc -eq 1 && $orph_ok -eq 1 && $setup_ok -eq 1 && "$runline" == *"-v $WORK/runs-L2/lane2/src:/src"* && "$runline" == *"-v $WORK/ctl-L2/lane2:/rr:ro"* \
     && "$runline" == *"-v $WORK/cache/jnext-home-L2:/root/.jnext"* && "$runline" == *"-v $WORK/cache/extra-repo-L2:/fpga-core:ro"* \
     && "$runline" == *"-v $WORK/cache/ccache:/root/.cache/ccache"* && "$runline" == *"-v $WORK/cache/tools:/root/.cache/jnext"* \
     && "$runline" == *"--label rr-lane=2"* && "$runline" == *"--name rr-L2-jnext-lane2 "* \
     && ! -e "$WORK/cache/jnext-home-L2/runs/x" && -e "$WORK/cache/jnext-home/runs/y" \
     && ! -e "$WORK/runs-L2/lane2" && ! -e "$WORK/ctl-L2/lane2" && "$(grep -a RR_BOOTSTRAP "$FAKE_STATE/env.sh")" == *"sdcard-image"* ]] && echo 1 || echo 0)" \
-    "lane 2: runs-L2/ctl-L2, jnext-home-L2 and extra-repo-L2 mounts, shared ccache and tools, label and name; its own sweep; cleanup mode removes its dirs; the bootstrap provisions an empty SD home (rc=$l2_rc)"
+    "lane 2: runs-L2/ctl-L2, jnext-home-L2 and extra-repo-L2 mounts, shared ccache and tools, label and name; its own sweep; cleanup mode removes its dirs; the bootstrap provisions an empty SD home; the lane kills its own orphan only; the setup lock is held at the image check (rc=$l2_rc orph=$orph_ok setup=$setup_ok)"
 
 # RRUN-33: LANES=1 is the one-lane contract: a busy lane.lock gives 75 / local run, no second lock appears
 reset_state; rm -f "$WORK/lane-L2.lock"; rm -f "$FAKE_STATE/make-calls"; mkdir -p "$TMP/local"
@@ -671,9 +679,20 @@ live_ok=0; [[ -e "$WORK/containers/storage/live" ]] && live_ok=1
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 drive --id pr2 feature "$SHA" unit-test
 p2=$RC
+drec=$(cat "$WORK/containers/driver" 2>/dev/null)
+probe_ok=0; [[ "$(tail -n 1 "$FAKE_STATE/probe-lane2" 2>/dev/null)" == held ]] && probe_ok=1
+# a run that waits for a lane while another run records the driver must use it (vfs here) once it has its lane
+rm -f "$WORK/containers/driver" "$FAKE_STATE/drivers"
+hold_lane 4; holder=$!
+( sleep 1.5; echo vfs > "$WORK/containers/driver" ) &
+REMOTE_RUN_LANE_WAIT=30 drive --id pr3 feature "$SHA" unit-test
+p3=$RC
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+drv_ok=0; [[ "$(tail -n 1 "$FAKE_STATE/drivers" 2>/dev/null)" == vfs ]] && drv_ok=1
+echo overlay > "$WORK/containers/driver"
 row RRUN-35 "$([[ $p1 -eq 75 && "$(grep -a 'fallback:' "$TMP/logs/pr1.log")" == *"another lane is live"* && $live_ok -eq 1 \
-    && $p2 -eq 0 && "$(cat "$WORK/containers/driver" 2>/dev/null)" == overlay ]] && echo 1 || echo 0)" \
-    "the storage probe needs every lane: refused while another lane is live, store kept (rc=$p1, live=$live_ok); runs when idle (rc=$p2)"
+    && $p2 -eq 0 && "$drec" == overlay && $probe_ok -eq 1 && $p3 -eq 0 && $drv_ok -eq 1 ]] && echo 1 || echo 0)" \
+    "the storage probe needs every lane: refused while another lane is live, store kept (rc=$p1, live=$live_ok); runs when idle with the other lane held during the probe (rc=$p2 probe=$probe_ok); a run that waited for its lane uses the driver recorded meanwhile (rc=$p3 drv=$drv_ok)"
 
 # RRUN-36: the memory cap is the host's 80% divided by LANES; LANES must be one digit 1-9
 reset_state

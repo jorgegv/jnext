@@ -30,7 +30,7 @@ locally as today.
 | D12 | A real-time-paced row that FAILs remotely is **re-run solo on the remote** (`make regression-confirm` there, same tree, quiet-host wait), exactly the local rule |
 | D13 | (superseded by D22: two lanes) **One lane** on the remote; the skill caps make's `-j` and `JNEXT_TEST_JOBS` so a link cannot exhaust 16 GB; the first gate run measures peak memory to tune the caps |
 | D14 | **Heavy runs only** go remote: the batch gate, full `make unit-test` / `-sdl` / `-win` / `-wasm`, `wasm-browser-test`, regression rows. Single-suite rebuilds and mutation cycles stay local |
-| D15 | The remote lane is **in addition** to the 2 local slots (nice 19): up to 3 heavy runs at once |
+| D15 | (superseded by D22: two lanes, up to 4 heavy runs at once) The remote lane is **in addition** to the 2 local slots (nice 19): up to 3 heavy runs at once |
 | D16 | Merged branches are deleted locally and on `origin` **at issue close**, with the existing cleanup step |
 | D17 | **Caps start conservative, then tune:** `-j8` compiles, `-j4` for LTO/PGO links, `JNEXT_TEST_JOBS=8`; the first gate logs peak memory (cgroup / `podman stats`) and the caps in `project.conf` are raised if there is headroom |
 | D18 | **Explicit warm-up:** `remote-run --warm` builds the image, provisions every tool cache and the SD image, and builds main once to fill ccache. Run once, and after a deps change; a normal run refuses with "run --warm" when the image for the current deps hash is missing |
@@ -47,7 +47,7 @@ dev host                                   remote host ($JNEXT_REMOTE_RUN_HOST)
 git push origin <branch>      ──GitHub──►  ~/remote-run/jnext/mirror    (bare clone; git fetch)
                                            ~/remote-run/jnext/runs/<id>  (git worktree at <sha>)
 remote-run <branch> <sha> <targets>
-   └─ ssh $JNEXT_REMOTE_RUN_HOST ─────────► flock lane (1)
+   └─ ssh $JNEXT_REMOTE_RUN_HOST ─────────► flock a lane (1 of 2, D22)
         stdout/stderr streamed back          podman run --rm jnext-f45:<deps-hash>
         into ~/tmp/remote-run/<id>.log         -v runs/<id>:/src
    exit status = remote make's                 -v jnext-ccache:/root/.cache/ccache
@@ -73,7 +73,7 @@ remote-run <branch> <sha> <targets>
      `-j` and job caps (D13).
    - **Log:** streamed to `~/tmp/remote-run/<id>.log`, with a summary line at the end.
    - **Stamp:** after a green `make regression`, the stamp file is copied back (D10).
-   - **Lane:** `flock` on the remote, so a second caller queues there (D13).
+   - **Lane:** one `flock` per lane (two, D22) on the remote; a caller takes the first free one, else queues there.
    - **Cleanup:** remove the run's worktree; keep the mirror, the image and the volumes.
 3. **`.claude/skills/remote-run/project.conf`**, the jnext specifics:
    - the repo URL, the deps script and its leg names, the bootstrap command (`make worktree-bootstrap`);
