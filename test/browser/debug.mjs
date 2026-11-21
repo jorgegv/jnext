@@ -97,7 +97,8 @@ function peer(script, scenario, port) {
   });
 }
 const peerOk = (r) => r.rc === 0 && /^PASS /m.test(r.out);
-const must_peer = (r, what) => must(peerOk(r), `${what}: rc=${r.rc} ${r.out.slice(-400)}`);
+const must_peer = (r, what, ...bridges) => must(peerOk(r), `${what}: rc=${r.rc} ${r.out.slice(-400)}` +
+  bridges.map((b) => ` [bridge: ${b.out.trim().replace(/\n/g, ' / ')} ${b.err.trim().replace(/\n/g, ' / ')}]`).join(''));
 
 // ---- the page ----------------------------------------------------------------------------------------
 async function newPage() {
@@ -191,7 +192,7 @@ row('BDBG-01', 'DZRP over a WebSocket to the bridge: dzrp-peer.py init-regs PASS
   const page = await started(ws('dzrp', b));
   await linked(b);
   const r = await peer('dzrp-peer.py', 'init-regs', b.tcpPort);
-  must_peer(r, 'init-regs');
+  must_peer(r, 'init-regs', b);
 });
 
 row('BDBG-02', 'DZRP over a WebSocket: dzrp-peer.py bp-continue PASS (breakpoint, continue, the stop notification, the bank byte)', async () => {
@@ -325,7 +326,7 @@ row('BDBG-13', 'a page mounted while nothing listens on its ws port: the bridge 
   const t0 = Date.now();
   await linked(b1);
   must(Date.now() - t0 < 3000, `linked after ${Date.now() - t0} ms`);
-  must_peer(await peer('dzrp-peer.py', 'init-regs', b1.tcpPort), 'first init-regs');
+  must_peer(await peer('dzrp-peer.py', 'init-regs', b1.tcpPort), 'first init-regs', b1);
   await b1.kill();
   const b2 = await startBridge([], port);
   const t1 = Date.now();
