@@ -94,15 +94,17 @@ public:
     void tick_n(uint32_t count);
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
-    /// Gates ONLY this chip's contribution to the 3-PSG sum in
-    /// compute_stereo_mix(); the chip keeps ticking and its register file
-    /// keeps reading back. Not hardware, not machine state — see
-    /// audio/audio_mute.h. Deliberately not touched by reset() /
+    /// Gates ONLY this chip's contribution to the AUDIBLE 3-PSG sum
+    /// (pcm_left()/pcm_right(), chip_pcm()); the chip keeps ticking, its
+    /// register file keeps reading back, and the hardware sum that save_state()
+    /// serialises is computed without the mute. Not hardware, not machine state
+    /// — see audio/audio_mute.h. Deliberately not touched by reset() /
     /// reset_ay_only() / save_state() / load_state().
     void set_chip_mute_mask(uint8_t m) { chip_mute_mask_ = m & AudioMute::AY_ALL; mix_dirty_ = true; }
     uint8_t chip_mute_mask() const { return chip_mute_mask_; }
 
-    /// Get mixed stereo output (12-bit per channel).
+    /// Get the audible mixed stereo output (12-bit per channel): the hardware sum
+    /// less the chips the debugger muted.
     uint16_t pcm_left() const { return pcm_L_; }
     uint16_t pcm_right() const { return pcm_R_; }
 
@@ -139,8 +141,14 @@ private:
     bool stereo_mode_ = false;    // false=ABC, true=ACB
     uint8_t mono_mode_ = 0;      // Per-chip mono flags
 
+    // The audible sum (chips muted by chip_mute_mask_ excluded) and the hardware
+    // sum (every active chip, no mute). Only the hardware pair is machine state:
+    // describe_state() serialises it, so a debugger mute never reaches a saved
+    // state, a rewind slot or the Z80 (audio/audio_mute.h).
     uint16_t pcm_L_ = 0;
     uint16_t pcm_R_ = 0;
+    uint16_t hw_pcm_L_ = 0;
+    uint16_t hw_pcm_R_ = 0;
     std::array<uint16_t, 3> chip_pcm_L_{};
     std::array<uint16_t, 3> chip_pcm_R_{};
     bool chip_pcm_valid_ = true;

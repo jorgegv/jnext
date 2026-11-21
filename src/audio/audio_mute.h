@@ -20,7 +20,10 @@
 ///   - It is NOT machine state: it is deliberately excluded from
 ///     save_state()/load_state() (a rewind must not silently un-mute) and
 ///     from reset() (a machine reset is not a reason to move the user's
-///     "volume knob").
+///     "volume knob"). TurboSound therefore keeps two sums: the audible one
+///     (muted chips left out) and the hardware one, which is what it
+///     serialises, so a snapshot taken while muted is byte-identical to one
+///     taken unmuted.
 ///
 /// Composition with `--silent` (Task 47): global silence wins trivially —
 /// in silent mode the PSG tick and the whole mixer synthesis are skipped in

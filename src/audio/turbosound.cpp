@@ -87,6 +87,8 @@ void TurboSound::reset_ay_only()
     pan_.fill(0x03);  // Both L and R enabled for all chips
     pcm_L_ = 0;
     pcm_R_ = 0;
+    hw_pcm_L_ = 0;
+    hw_pcm_R_ = 0;
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = true;
@@ -188,18 +190,32 @@ inline void TurboSound::compute_stereo_mix()
     //
     // Then panning gates L and R independently.
     // Final: sum all 3 PSGs for 12-bit output.
+    //
+    // Two sums: the hardware one (every active chip; the machine state) and the
+    // audible one, which leaves out the chips the debugger muted. The mute is a
+    // host listening aid with no hardware analogue and must not reach the
+    // saved state (audio/audio_mute.h).
 
+    uint16_t hw_L = 0, hw_R = 0;
     uint16_t total_L = 0;
     uint16_t total_R = 0;
 
     for (int i = 0; i < 3; i++) {
-        compute_chip_stereo(i, chip_pcm_L_[i], chip_pcm_R_[i]);
+        uint16_t l, r;
+        compute_chip_stereo(i, l, r);
+        hw_L += l;
+        hw_R += r;
 
+        const bool muted = (chip_mute_mask_ >> i) & 1;
+        chip_pcm_L_[i] = muted ? 0 : l;
+        chip_pcm_R_[i] = muted ? 0 : r;
         total_L += chip_pcm_L_[i];
         total_R += chip_pcm_R_[i];
     }
 
     // Output: 12-bit (0-4095 max with all 3 PSGs at full volume)
+    hw_pcm_L_ = hw_L & 0x0FFF;
+    hw_pcm_R_ = hw_R & 0x0FFF;
     pcm_L_ = total_L & 0x0FFF;
     pcm_R_ = total_R & 0x0FFF;
     chip_pcm_valid_ = true;
@@ -221,7 +237,7 @@ void TurboSound::compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) c
         idx == 0 ? (ay_select_ == 3 || enabled_) :
         idx == 1 ? (ay_select_ == 2 || enabled_) :
                    (ay_select_ == 1 || enabled_);
-    if (!active || ((chip_mute_mask_ >> idx) & 1)) return;
+    if (!active) return;
 
     const uint16_t a = ay_[idx].output_a();
     const uint16_t b = ay_[idx].output_b();
@@ -248,8 +264,10 @@ void TurboSound::describe_state(jnext::save::StateDesc& d)
     d.boolean("enabled", enabled_);
     d.boolean("stereo_mode", stereo_mode_);
     d.u8("mono_mode", mono_mode_);
-    d.u16("pcm_l", pcm_L_);
-    d.u16("pcm_r", pcm_R_);
+    // The HARDWARE aggregate under the keys it always had: the audible pair
+    // (pcm_L_/pcm_R_) depends on the debugger's mute and is not machine state.
+    d.u16("pcm_l", hw_pcm_L_);
+    d.u16("pcm_r", hw_pcm_R_);
 }
 
 void TurboSound::save_state(StateWriter& w) const
@@ -268,6 +286,10 @@ void TurboSound::load_state(StateReader& r)
     // pcm_L_/pcm_R_. The mixer falls back to the serialised aggregate until
     // the next PSG tick. Kept OUTSIDE the declaration deliberately: this is a
     // reset of derived state (§9.5(7)), not a field.
+    // The audible aggregate starts as the loaded hardware one, and the first PSG
+    // tick (mix_dirty_) rebuilds both with the current mute.
+    pcm_L_ = hw_pcm_L_;
+    pcm_R_ = hw_pcm_R_;
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = false;
