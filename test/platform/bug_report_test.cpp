@@ -39,6 +39,9 @@
 #include "save/zip_archive.h"
 #include "third_party/nlohmann-json/nlohmann/json.hpp"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 #include <chrono>
 #include <cstdarg>
 #include <exception>
@@ -475,7 +478,15 @@ int main() {
         // Local time, not UTC: with a zone far from UTC the fields differ from gmtime's.
         const char* old_tz = std::getenv("TZ");
         const std::string saved_tz = old_tz ? old_tz : "";
+#ifdef __EMSCRIPTEN__
+        // Emscripten's libc ignores TZ and setenv() never reaches node's process.env: localtime
+        // follows node's own zone, which a runtime assignment to process.env.TZ moves (as an
+        // IANA name; node does not parse a POSIX rule string). Without this the check fails
+        // on a UTC host, where local time equals UTC.
+        EM_ASM({ globalThis.jnextSavedTz = process.env.TZ; process.env.TZ = 'Asia/Kolkata'; });
+#else
         jtp::set_env("TZ", "IST-5:30");
+#endif
 #ifdef _WIN32
         _tzset();
 #else
@@ -491,6 +502,12 @@ int main() {
 #endif
         const bool local_not_utc = (local.tm_hour * 60 + local.tm_min) != (utc.tm_hour * 60 + utc.tm_min);
         if (old_tz) jtp::set_env("TZ", saved_tz.c_str()); else jtp::unset_env("TZ");
+#ifdef __EMSCRIPTEN__
+        EM_ASM({
+            if (globalThis.jnextSavedTz === undefined) delete process.env.TZ;
+            else process.env.TZ = globalThis.jnextSavedTz;
+        });
+#endif
 #ifdef _WIN32
         _tzset();
 #else
