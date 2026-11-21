@@ -397,9 +397,16 @@ int main() {
         std::string missing;
         for (const char* id : ids) if (!has(html, std::string("id=\"") + id + "\"")) missing += std::string(id) + " ";
         // Nothing is extracted: the scratch directory holds only what the rows made, plus out.html.
-        check("BV-06", "the HTML has every section id, no <script>, and is written to -o without opening anything",
+        // A VALID report must never trip the wrong-shape guard (it would hide a bug in a renderer): neither the
+        // page nor the text output (with memory) may say a section is of an unexpected shape.
+        Run t6 = run_viewer({nocard_path, "--text", "--memory"});
+        Run c6 = run_viewer({card_path, "--text"});
+        const std::string h6c = html_of(card_path, nullptr, "card6.html");
+        const bool no_guard = !has(html, "unexpected shape") && !has(t6.out, "unexpected shape") &&
+                              !has(h6c, "unexpected shape") && !has(c6.out, "unexpected shape") && t6.rc == 0 && !h6c.empty();
+        check("BV-06", "the HTML has every section id, no <script>, is written to -o without opening anything, and a valid report (page and text, with and without memory) never says \"unexpected shape\"",
               r6.rc == 0 && missing.empty() && !has(html, "<script") && !has(html, "http://") && !has(html, "https://") &&
-              fs::exists(tmp_path("out.html")), "missing: " + missing + fmtf(" rc=%d", r6.rc));
+              fs::exists(tmp_path("out.html")) && no_guard, "missing: " + missing + fmtf(" rc=%d no_guard=%d", r6.rc, no_guard));
     }
     // BV-07
     {
