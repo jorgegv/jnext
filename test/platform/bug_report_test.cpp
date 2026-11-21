@@ -29,6 +29,7 @@
 #include "core/snapshot_file.h"
 #include "core/screenshot.h"
 #include "core/sha256.h"
+#include "debug/debug_keymap.h"
 #include "debug/debugger.h"
 #include "debug/disasm_text.h"
 #include "debug/nextreg_names.h"
@@ -737,6 +738,7 @@ int main() {
         const std::string d = bug_report::redact("hello zq7user", ctx);
         const std::string e = bug_report::redact("--sdcard=/mnt/cards/big.img (ok)", ctx);
         const std::string f = bug_report::redact("D:/data/x/y.tap and 1/2 and http://host/x", ctx);
+        const std::string g = bug_report::redact("wav:/mnt/cap/out.wav and file:/opt/x/y.txt", ctx);
         // End to end: the process environment names the user; nothing in a report may.
         const char* old_home = std::getenv("HOME");
         const char* old_user = std::getenv("USER");
@@ -763,7 +765,8 @@ int main() {
         check("BR-13", "redaction: POSIX, Windows and UNC paths and the user name, in text and in a whole report",
               a == "loading <path>/game.nex now" && b == "<path>/game.nex" && c == "<path>/a.img" &&
               d == "hello <user>" && e == "--sdcard=<path>/big.img (ok)" &&
-              f == "<path>/y.tap and 1/2 and http://host/x" && !leaked && argv_ok,
+              f == "<path>/y.tap and 1/2 and http://host/x" && g == "wav:<path>/out.wav and file:<path>/y.txt" &&
+              !leaked && argv_ok,
               fmtf("a=%s b=%s c=%s d=%s e=%s f=%s leaked=%d argv=%d", a.c_str(), b.c_str(), c.c_str(), d.c_str(),
                   e.c_str(), f.c_str(), leaked, argv_ok));
     }
@@ -1309,6 +1312,76 @@ int main() {
               m["cards"][1]["name"] == "second-card.img" && m["cards"][1]["sha256"] == sdcard::sha256_file(card2) &&
               m["cards"][0]["slot"] == 0,
               fmtf("mounted=%d ok=%d", mounted, r.ok));
+    }
+
+    // ---- BR-35 no key of the settings file carries a host path ----------------------------
+    {
+        namespace ck = config_keys;
+        const std::string sentinel = "/mnt/zq7secret/data/x.wav";
+        // Every row of config_keys::KEYS (the debugger-key family by a real action id), plus a
+        // hand-typed unknown action, with the sentinel as the value: nothing may carry it.
+        auto name_of = [](const ck::Key& k) {
+            return k.id == ck::KeyId::DebuggerKey
+                       ? std::string(k.section) + "." + jnext::dbgkeys::action_table()[0].id
+                       : std::string(k.section) + "." + k.name;
+        };
+        bug_report::Inputs in = inputs();
+        in.config_file_read = true;
+        for (const ck::Key& k : ck::KEYS) in.config_file.push_back({ name_of(k), "wav:" + sentinel });
+        in.config_file.push_back({ "debugger_keys.zq7secret_action", sentinel });
+        in.config_file.push_back({ "debugger.position", "zq7secret" });
+        // The log line of a refused [debugger_keys] entry echoes the hand-typed name and text.
+        Log::platform()->error("Config [debugger_keys] {}={}: unknown debugger action; the entry is kept but does nothing",
+                               "zq7secret_action", sentinel);
+        Session s1 = nocard_session();
+        Report r1 = make_report(s1, in);
+        const bool clean = r1.ok && !report_contains(r1, "zq7secret");
+
+        // The same rows with a plausible value each: the kept keys are exactly this list.
+        bug_report::Inputs ok_in = inputs();
+        ok_in.config_file_read = true;
+        for (const ck::Key& k : ck::KEYS) {
+            std::string v = "x";
+            switch (k.type) {
+                case ck::Type::Bool:  v = "true"; break;
+                case ck::Type::Int:   v = "2"; break;
+                case ck::Type::Float: v = "0.5"; break;
+                case ck::Type::Keep:  v = "5"; break;
+                case ck::Type::Machine: v = "next"; break;
+                case ck::Type::Combo: v = "Alt+F9"; break;
+                case ck::Type::Word:  v = std::string(ck::word_at(k.values, 0)); break;
+                default: break;
+            }
+            if (k.id == ck::KeyId::DebuggerSize || k.id == ck::KeyId::DebuggerPosition) v = "800,600";
+            ok_in.config_file.push_back({ name_of(k), v });
+        }
+        Session s2 = nocard_session();
+        Report r2 = make_report(s2, ok_in);
+        std::set<std::string> kept;
+        if (r2.ok)
+            for (auto it = r2.js("settings.json")["config_file"].begin(); it != r2.js("settings.json")["config_file"].end(); ++it)
+                if (it.value() != "<blanked>") kept.insert(it.key());
+        const std::string first_action = std::string("debugger_keys.") + jnext::dbgkeys::action_table()[0].id;
+        // THE LIST: a key added to config_keys::KEYS is blanked unless it is decided here and in
+        // bug_report.cpp's config_value_rule().
+        const std::set<std::string> expected = {
+            "startup.machine_type", "startup.cpu_speed", "startup.emulator_speed_percent", "startup.window_scale",
+            "startup.crt_filter", "startup.crt_shader", "startup.crt_shader_style", "startup.silent",
+            "startup.tape_fast_load", "startup.tape_auto_play", "startup.when_slow_prefer",
+            "startup.fast_boot_seconds", "startup.fast_boot_hide_screen",
+            "audio.gain_db", "audio.gain_beeper_db", "audio.gain_ay0_db", "audio.gain_ay1_db",
+            "audio.gain_ay2_db", "audio.gain_dac_db", "screenshot.quick_format", "snapshot.quick_keep",
+            "input.joy1_source", "input.joy2_source", "input.mouse_release", "source.colour_scheme",
+            "esp.enabled", "nextpi.enabled", "nextpi.release", "config.version",
+            "debugger.attached", "debugger.physical_addresses", "debugger.size", "debugger.position",
+            first_action,
+        };
+        std::string missing, extra;
+        for (const auto& e : expected) if (!kept.count(e)) missing += e + " ";
+        for (const auto& e : kept) if (!expected.count(e)) extra += e + " ";
+        check("BR-35", "settings: no key of config_keys::KEYS carries a host path; the kept keys are exactly the listed ones",
+              clean && r2.ok && missing.empty() && extra.empty(),
+              fmtf("clean=%d missing: %s | unexpected: %s", clean, missing.c_str(), extra.c_str()));
     }
 
     std::error_code ec;

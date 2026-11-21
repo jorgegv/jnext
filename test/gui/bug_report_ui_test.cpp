@@ -20,6 +20,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QDialog>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QLineEdit>
@@ -164,25 +165,29 @@ int main(int argc, char** argv)
         QAction* action = nullptr;
         for (QAction* a : file_actions(f.win)) if (a->text() == QStringLiteral("Save Bug Report...")) action = a;
         const std::string target = (dir.path() + QStringLiteral("/chosen.jnext-bug.zip")).toStdString();
-        QString proposed;
+        QString proposed, dialog_dir;
         const int polls = drive_modals(
             [&](QWidget* w) {
                 if (auto* fd = qobject_cast<QFileDialog*>(w)) {
                     if (auto* edit = fd->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) proposed = edit->text();
+                    dialog_dir = fd->directory().absolutePath();
                     fd->selectFile(QString::fromStdString(target));
                     static_cast<QDialog*>(fd)->accept();   // QFileDialog::accept() is protected
                 }
             },
             [&]() { if (action) action->trigger(); });
         const nlohmann::json man = member_json(target, "manifest.json");
-        check("BRUI-02", "the real action opens a save dialog; the path chosen gets a report made by the Qt frontend",
+        const QString shown = f.win.statusBar()->currentMessage();
+        check("BRUI-02", "the real action opens a save dialog; the path chosen gets a report made by the Qt frontend, and the status bar says so",
               action && polls > 0 && man.is_object() && man.value("kind", "") == "jnext-bug-report" &&
-              man["producer"]["frontend"] == "qt",
+              man["producer"]["frontend"] == "qt" &&
+              shown == QStringLiteral("Bug report saved: chosen.jnext-bug.zip (memory: included)"),
+              shown.toStdString() + " | "
               "polls=" + std::to_string(polls) + " manifest=" + (man.is_object() ? "ok" : "missing"));
         const std::string expect_prefix = "gamefile.";
         const std::string p = proposed.toStdString();
-        check("BRUI-03", "the dialog proposes the writer's name for the loaded program (PROGRAM.YYYYMMDDhhmm.jnext-bug.zip)",
-              p.rfind(expect_prefix, 0) == 0 && p.size() == expect_prefix.size() + 12 + std::string(".jnext-bug.zip").size() &&
+        check("BRUI-03", "the dialog opens in the home folder and proposes the writer's name for the loaded program (PROGRAM.YYYYMMDDhhmm.jnext-bug.zip)",
+              dialog_dir == QDir::home().absolutePath() && p.rfind(expect_prefix, 0) == 0 && p.size() == expect_prefix.size() + 12 + std::string(".jnext-bug.zip").size() &&
               p.compare(p.size() - 14, 14, ".jnext-bug.zip") == 0 &&
               f.win.proposed_bug_report_name().toStdString().rfind(expect_prefix, 0) == 0,
               "proposed='" + p + "'");

@@ -9,6 +9,7 @@
 #include "core/screenshot.h"
 #include "core/sd_snapshot_identity.h"
 #include "core/sha256.h"
+#include "debug/debug_keymap.h"
 #include "debug/debugger.h"
 #include "debug/disasm.h"
 #include "debug/disasm_text.h"
@@ -264,6 +265,19 @@ bool read_file(const std::string& path, std::vector<uint8_t>& out)
 
 std::string hex_dump_json_text(const json& j) { return j.dump(2) + "\n"; }
 
+/// The log line of a refused `[debugger_keys]` entry is "Config [debugger_keys] NAME=TEXT: reason",
+/// where NAME and TEXT are as hand-typed in the file: neither is echoed into a report.
+std::string scrub_config_issue(const std::string& line)
+{
+    static const std::string tag = "Config [debugger_keys] ";
+    const size_t at = line.find(tag);
+    if (at == std::string::npos) return line;
+    const size_t from = at + tag.size();
+    const size_t end = line.rfind(": ");
+    if (end == std::string::npos || end < from) return line;
+    return line.substr(0, from) + "<blanked>" + line.substr(end);
+}
+
 // Every free text the report takes from outside goes through this (argv, log,
 // settings values, file and symbol names, error strings).
 struct Redactor {
@@ -316,41 +330,127 @@ const KeyRow kKeyTable[] = {
 // Settings
 // ---------------------------------------------------------------------------
 
-/// A jnext.conf value is kept only when its type cannot name the host: numbers,
-/// booleans, words, key combinations. Paths, lists of paths and hosts, device ids
-/// and names, the recent-files history, command lines and anything the table does not
-/// know are blanked.
-bool keep_config_value(const std::string& section, const std::string& name)
+/// How a jnext.conf key's value goes into the report. DECIDED PER KEY in `config_value_rule()`, a
+/// switch with no default: `-Werror=switch` makes a key added to `config_keys::KEYS` a build error
+/// here until someone decides it, so no key is ever kept by an accident of its type.
+enum class ValueRule {
+    Blank,      ///< can name the host (a path, a device, a command, a history): never shipped
+    Plain,      ///< a number, boolean or word: kept only when it is nothing but [A-Za-z0-9._+-]
+    Combo,      ///< a debugger key combination: kept only when it parses (rendered canonically)
+    Geometry,   ///< "W,H" or "X,Y" as jnext writes a window's size and position: kept only then
+};
+
+ValueRule config_value_rule(config_keys::KeyId id)
+{
+    using K = config_keys::KeyId;
+    switch (id) {
+        case K::StartupMachineType:
+        case K::StartupCpuSpeed:
+        case K::StartupEmulatorSpeedPercent:
+        case K::StartupWindowScale:
+        case K::StartupCrtFilter:
+        case K::StartupCrtShader:
+        case K::StartupCrtShaderStyle:
+        case K::StartupSilent:
+        case K::StartupTapeFastLoad:
+        case K::StartupTapeAutoPlay:
+        case K::StartupWhenSlowPrefer:
+        case K::StartupFastBootSeconds:
+        case K::StartupFastBootHideScreen:
+        case K::AudioGainDb:
+        case K::AudioGainBeeperDb:
+        case K::AudioGainAy0Db:
+        case K::AudioGainAy1Db:
+        case K::AudioGainAy2Db:
+        case K::AudioGainDacDb:
+        case K::ScreenshotQuickFormat:
+        case K::SnapshotQuickKeep:
+        case K::InputJoy1Source:
+        case K::InputJoy2Source:
+        case K::InputMouseRelease:
+        case K::SourceColourScheme:
+        case K::EspEnabled:
+        case K::NextpiEnabled:
+        case K::NextpiRelease:
+        case K::ConfigVersion:
+        case K::DebuggerAttached:
+        case K::DebuggerPhysicalAddresses:
+            return ValueRule::Plain;
+        case K::PathsLastLoadDir:
+        case K::PathsSdCardPath:
+        case K::PathsSdCard2Path:
+        case K::PathsScreenshotDir:
+        case K::PathsSourceDirs:
+        case K::RecentFiles:
+        case K::ScreenshotQuickDir:
+        case K::InputJoy1Device:
+        case K::InputJoy2Device:
+        case K::InputJoy1DeviceName:
+        case K::InputJoy2DeviceName:
+        case K::EspAllowedHosts:
+        case K::NextpiDir:
+        case K::NextpiQemuBinary:
+        case K::NextpiAudio:        // empty, a mode, or `wav:FILE`
+        case K::NextpiQemuArgs:
+            return ValueRule::Blank;
+        case K::DebuggerKey:
+            return ValueRule::Combo;
+        case K::DebuggerSize:
+        case K::DebuggerPosition:
+            return ValueRule::Geometry;
+        case K::Count:
+            return ValueRule::Blank;
+    }
+    return ValueRule::Blank;
+}
+
+bool is_plain_value(const std::string& v)
+{
+    if (v.size() > 40) return false;
+    for (char c : v) {
+        const bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '+' || c == '-';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+bool is_geometry_value(const std::string& v)
+{
+    // `W,H` or `X,Y` (spaces around the comma allowed): two small signed integers.
+    const size_t comma = v.find(',');
+    if (comma == std::string::npos) return false;
+    auto num = [](std::string t) {
+        while (!t.empty() && t.front() == ' ') t.erase(t.begin());
+        while (!t.empty() && t.back() == ' ') t.pop_back();
+        if (t.empty() || t.size() > 6) return false;
+        size_t i = (t[0] == '-') ? 1 : 0;
+        if (i == t.size()) return false;
+        for (; i < t.size(); ++i) if (!std::isdigit(static_cast<unsigned char>(t[i]))) return false;
+        return true;
+    };
+    return num(v.substr(0, comma)) && num(v.substr(comma + 1));
+}
+
+/// The value to write for `section.name` = `value`: itself when the key's rule keeps it and it
+/// passes, else "<blanked>".
+std::string config_value_for_report(const std::string& section, const std::string& name, const std::string& value)
 {
     const config_keys::Key* k = config_keys::find(section, name);
-    if (!k) return false;
-    switch (k->id) {
-        case config_keys::KeyId::RecentFiles:
-        case config_keys::KeyId::InputJoy1DeviceName:
-        case config_keys::KeyId::InputJoy2DeviceName:
-        case config_keys::KeyId::NextpiQemuArgs:
-            return false;
-        default:
-            break;
+    if (!k) return "<blanked>";   // a key the table does not know
+    switch (config_value_rule(k->id)) {
+        case ValueRule::Blank:
+            return "<blanked>";
+        case ValueRule::Plain:
+            return is_plain_value(value) ? value : "<blanked>";
+        case ValueRule::Combo: {
+            jnext::dbgkeys::Combo c;
+            std::string why;
+            return jnext::dbgkeys::parse_combo(value, c, why) ? jnext::dbgkeys::render_combo(c) : "<blanked>";
+        }
+        case ValueRule::Geometry:
+            return is_geometry_value(value) ? value : "<blanked>";
     }
-    switch (k->type) {
-        case config_keys::Type::Bool:
-        case config_keys::Type::Int:
-        case config_keys::Type::Float:
-        case config_keys::Type::Word:
-        case config_keys::Type::Keep:
-        case config_keys::Type::Combo:
-        case config_keys::Type::Machine:
-        case config_keys::Type::Text:
-        case config_keys::Type::TrimmedText:
-            return true;
-        case config_keys::Type::Path:
-        case config_keys::Type::PathList:
-        case config_keys::Type::HostList:
-        case config_keys::Type::DeviceId:
-            return false;
-    }
-    return false;
+    return "<blanked>";
 }
 
 /// argv with every path redacted: an argument (or the value of `--opt=value`) that
@@ -852,11 +952,17 @@ std::vector<uint8_t> build(Emulator& emu, const dbg::Debugger& d, const Inputs& 
         s["command_line"] = redact_argv(in.argv, R);
         if (in.config_file_read) {
             json cf = json::object();
+            int unknown = 0;
             for (const auto& kv : in.config_file) {
                 const size_t dot = kv.first.find('.');
                 const std::string section = dot == std::string::npos ? "" : kv.first.substr(0, dot);
                 const std::string name    = dot == std::string::npos ? kv.first : kv.first.substr(dot + 1);
-                cf[R(kv.first)] = keep_config_value(section, name) ? json(R(kv.second)) : json("<blanked>");
+                if (!config_keys::find(section, name)) {
+                    // An unknown key's NAME can carry a hand-typed secret too: it is not echoed.
+                    cf[section + ".<unknown-" + std::to_string(++unknown) + ">"] = "<blanked>";
+                    continue;
+                }
+                cf[R(kv.first)] = R(config_value_for_report(section, name, kv.second));
             }
             s["config_file"] = cf;
         } else {
@@ -908,7 +1014,7 @@ std::vector<uint8_t> build(Emulator& emu, const dbg::Debugger& d, const Inputs& 
 
     {
         std::string log;
-        for (const std::string& line : Log::tail()) log += R(line) + "\n";
+        for (const std::string& line : Log::tail()) log += R(scrub_config_issue(line)) + "\n";
         add_text(members, "log.txt", log);
     }
 
@@ -1157,7 +1263,9 @@ std::string redact(const std::string& text, const RedactContext& ctx)
         const char c = s[i];
         const char prev = i == 0 ? ' ' : s[i - 1];
         bool start = false;
-        if (can_start_path_after(prev)) {
+        if (c == '/' && prev == ':' && i + 1 < s.size() && s[i + 1] != '/' && !is_path_end(s[i + 1])) {
+            start = true;   // `wav:/abs/path`, `file:/abs/path`; a `scheme://` URL is not a host path
+        } else if (can_start_path_after(prev)) {
             if (c == '/' && i + 1 < s.size() && !is_path_end(s[i + 1])) start = true;
             else if (c == '\\' && i + 1 < s.size() && s[i + 1] == '\\' && i + 2 < s.size() &&
                      !is_path_end(s[i + 2])) start = true;   // UNC
