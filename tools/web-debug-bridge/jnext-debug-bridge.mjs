@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_MESSAGE = 64 * 1024 * 1024;
+const GRACE_MS = 300;
 
 // ---------------------------------------------------------------------------------------------
 // TcpRelay: one TCP client at a time.
@@ -48,6 +49,8 @@ export class TcpRelay extends EventEmitter {
     super();
     this.accept = options.accept || (() => true);
     this.client = null;
+    this.waiting = null;     // a connection that arrived while a client was open, for GRACE_MS
+    this.waitTimer = null;
     this.server = net.createServer((sock) => this.#connection(sock));
   }
 
@@ -75,6 +78,7 @@ export class TcpRelay extends EventEmitter {
     this.client = null;
     c.end();
     setTimeout(() => c.destroy(), 2000).unref();
+    this.#promote();
   }
 
   close() {
@@ -82,23 +86,53 @@ export class TcpRelay extends EventEmitter {
     this.server.close();
   }
 
+  // A connection that arrives while a client is still open waits up to GRACE_MS for that client to be
+  // retired before it is refused. A client that hangs up and dials again at once (DeZog's DZRP client
+  // sends CMD_CLOSE, closes and reconnects) reaches us as FIN then connect, but node may deliver the
+  // connect before it has delivered the FIN. The debugger server's own transport does the same
+  // (a redial waits for the session it follows).
   #connection(sock) {
-    if (this.client || !this.accept()) {
+    sock.on('error', () => {});
+    if (!this.client) return this.#admit(sock);
+    if (this.waiting) {
+      this.emit('rejected', sock.remoteAddress);
+      sock.destroy();
+      return;
+    }
+    this.waiting = sock;
+    this.waitTimer = setTimeout(() => {
+      const w = this.waiting;
+      this.waiting = null;
+      if (!w) return;
+      this.emit('rejected', w.remoteAddress);
+      w.destroy();
+    }, GRACE_MS);
+    this.waitTimer.unref();
+  }
+
+  #promote() {
+    const w = this.waiting;
+    if (!w || this.client) return;
+    this.waiting = null;
+    clearTimeout(this.waitTimer);
+    if (!w.destroyed) this.#admit(w);
+  }
+
+  #admit(sock) {
+    if (!this.accept()) {
       this.emit('rejected', sock.remoteAddress);
       sock.destroy();
       return;
     }
     this.client = sock;
     sock.on('data', (d) => { if (this.client === sock) this.emit('data', new Uint8Array(d.buffer, d.byteOffset, d.length)); });
-    sock.on('error', () => {});
-    // The client's FIN is the end of its session: a client that hangs up and dials again at once has
-    // its new connection judged after this one is retired, not refused as a second client (the socket's
-    // own 'close' event can come after the next connection).
+    // The client's FIN is the end of its session; the socket's own 'close' covers a reset.
     const gone = () => {
       if (this.client !== sock) return;   // ended by end(), or already seen
       this.client = null;
       this.emit('close');
       sock.destroy();
+      this.#promote();
     };
     sock.on('end', gone);
     sock.on('close', gone);
