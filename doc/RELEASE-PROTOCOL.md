@@ -397,7 +397,8 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
    the bump (the bump changes `version.yaml`, so its commit has a new key),
    `make regression-ci-check` looks up the green `ci.yml` runs (`gh run list`,
    read-only) and passes if one of them, from a push or a manual dispatch, is
-   on a commit with the same content key — docs excluded, so the release prep
+   on a commit with the same content key (the batch gate's run is a `workflow_dispatch`
+   run on a temporary `gate-v<version>` branch, and is found that way) — docs excluded, so the release prep
    commits of step 2 keep the key. It prints the run's URL; record it. Pull
    request runs never count: they test a merge of the PR into `main`, not the
    commit they name. A CI run can only match if it was skip-free: the key

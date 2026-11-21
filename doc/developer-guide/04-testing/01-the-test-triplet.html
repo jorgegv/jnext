@@ -3066,8 +3066,19 @@ $ make regression
 <code>make wasm-core</code>, <code>make wasm-browser-test</code>, <code>make unit-test-wasm</code> and
 <code>make regression-wasm</code> (<a href="../05-building/06-the-browser-build.html">5.6</a>).</p>
 <ul>
-<li><strong>When it runs:</strong> on <code>main</code>'s tip, once, after all of a work session's landings
-  and before any push.</li>
+<li><strong>When it runs:</strong> once, after all of a work session's landings and before any
+  push, at a sync point: the end of a session, a public release or an urgent
+  user-facing fix. The landing count never triggers it.</li>
+<li><strong>Where it runs:</strong> on GitHub, as a CI run on the commit to be pushed. The
+  maintainer puts that commit on <code>origin</code> as a temporary <code>gate-v&lt;version&gt;</code>
+  branch and runs <code>bash test/ci-gate.sh dispatch gate-v&lt;version&gt; &lt;sha&gt;</code>, then
+  <code>wait &lt;run-id&gt;</code>, then <code>make ci-gate-check RUN=&lt;run-id&gt;</code>. The verdict is
+  <code>CLEAN</code> only if the run and every job succeeded (a skipped or cancelled job is
+  not clean) and no job of the last green <code>main</code> run is missing. The commit
+  that was gated, not the local tip, is what is pushed to <code>main</code>. CI saves its
+  caches only from a push to <code>main</code>, so a gate run reads main's warm ccache and
+  evicts nothing. When GitHub cannot run it, the list above is run locally or on
+  the remote-run host as a fallback.</li>
 <li><strong>On a branch, nobody runs it.</strong> The author runs the suites and regression
   rows the change touches, plus <code>make unit-test</code> before each review. The
   reviewer runs the targeted rows again.</li>
@@ -3155,9 +3166,9 @@ lanes; it is no longer needed for correctness, and CI passes none. Rows that
 merely spawn short-lived processes have failed under outside load too, which is
 why the suite itself flags a FAIL that happened on a loaded host.</p>
 <p>A green <code>make regression</code> on a committed tree leaves a stamp keyed on the
-tree's non-doc content, and <code>make regression-stamp-check</code> finds it. A batch gate
-whose tree changed only in documentation since the last green run need not
-repeat it. Reviewers run targeted rows, never a full run.</p>
+tree's non-doc content, and <code>make regression-stamp-check</code> finds it (the CI gate
+needs no stamp: <code>make regression-ci-check</code> finds its run). A fallback gate whose
+tree changed only in documentation since the last green run need not repeat it. Reviewers run targeted rows, never a full run.</p>
 <h2 id="what-the-triplet-does-not-prove">What the triplet does not prove<a class="headerlink" href="#what-the-triplet-does-not-prove" title="Permanent link">&para;</a></h2>
 <p>It does not prove that the emulator matches real hardware anywhere no test row
 asserts that it does; making those gaps visible is the job of the traceability
