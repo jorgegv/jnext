@@ -456,9 +456,17 @@ int main() {
         const size_t mem = h.find("id=\"memory\"");
         const size_t next = h.find("<section", mem + 1);
         const std::string sec = mem == std::string::npos ? "" : h.substr(mem, next - mem);
-        check("BV-11", "memory absent: the section says not included, with the manifest's reason, and has no hex rows",
+        // A report that CLAIMS no memory but carries memory/cpu.bin: the manifest decides, not the member.
+        Members liar = nocard;
+        json lm = member_json(liar, "manifest.json");
+        lm["memory"] = json{{"included", false}, {"withheld", json{{"code", "card-session"}, {"reason", "claimed withheld"}}}};
+        put_json(liar, "manifest.json", lm);
+        write_bytes(tmp_path("liar.zip"), zip_of(liar));
+        const std::string hl = html_of(tmp_path("liar.zip"), nullptr, "liar.html");
+        check("BV-11", "memory absent: the section says not included, with the manifest's reason, and has no hex rows; the manifest decides, not a stray cpu.bin",
               card_ok && !h.empty() && has(sec, "not included") && has(sec, reason.substr(0, 30)) && !has(sec, "<pre>") &&
-              !has(sec, "CPU view"), "section: " + sec.substr(0, 200));
+              !has(sec, "CPU view") && !hl.empty() && !has(hl, "CPU view (64 KB)") && has(hl, "not included: claimed withheld"),
+              "section: " + sec.substr(0, 200));
     }
     // BV-12
     {
@@ -474,11 +482,15 @@ int main() {
         st["command_line"] = json::array({ evil });
         st["config_file"] = json{{ "a<b", evil }};
         put_json(hostile, "settings.json", st);
+        // A "picture" that is not a PNG (an SVG with a handler) must not be embedded at all.
+        const std::string svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(3)\"/>";
+        *find(hostile, "screen/composite.png") = std::vector<uint8_t>(svg.begin(), svg.end());
         write_bytes(tmp_path("hostile.zip"), zip_of(hostile));
         const std::string h = html_of(tmp_path("hostile.zip"), nullptr, "hostile.html");
-        check("BV-12", "hostile text (a log line, warnings, names, settings) appears only escaped: no <script, no raw tag",
+        const std::string svg_b64 = "PHN2Zy";   // base64 of "<svg"
+        check("BV-12", "hostile text (a log line, warnings, names, settings) appears only escaped, and a non-PNG picture is never embedded",
               !h.empty() && has(h, "&lt;/pre&gt;&lt;script&gt;alert(1)&lt;/script&gt;") && !has(h, "<script") &&
-              !has(h, "<img src=x") && !has(h, "onerror=alert(2)>"));
+              !has(h, "<img src=x") && !has(h, "onerror=alert(2)>") && !has(h, svg_b64) && has(h, "not a PNG, not shown"));
     }
     // BV-13
     {
