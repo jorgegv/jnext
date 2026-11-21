@@ -41,7 +41,7 @@ options:
   --stream               also print the log live (default: only the summary)
   --fallback-local DIR   on exit 75, run the targets in DIR on this host (the log says so);
                          REMOTE_RUN_LOCAL_WRAP, if set, is the wrapper command put in front
-  --id ID                run id (default: a timestamp)
+  --id ID                run id (default: a timestamp); unique among live runs
   --log-dir DIR          where logs go (default ~/tmp/remote-run); logs older than 7 days are deleted
   --local-shell          TEST SEAM: run the remote side as a local shell instead of over ssh
   --conf FILE            project configuration (default project.conf beside this script)
@@ -63,14 +63,15 @@ load_conf() {
     local k v
     for k in PROJECT HOST_ENV_VAR DIR_ENV_VAR DIR_DEFAULT REPO_URL DEFAULT_BRANCH BASE_IMAGE DEPS_SCRIPT \
              DEPS_ARGS BOOTSTRAP_CMD CACHE_MOUNTS CONTAINER_ENV JOBS_DEFAULT JOBS_HEAVY HEAVY_TARGET_RE \
-             TEST_JOBS CACHE_MIGRATE CACHE_SWEEP CONTAINER_MEMORY CONTAINER_SHM TIMEOUT_DEFAULT LANE_WAIT GATE_LANE_WAIT MIN_MEM_MB MIN_DISK_GB \
+             TEST_JOBS CACHE_MIGRATE CACHE_SWEEP LANES LANE_CACHES CONTAINER_MEMORY CONTAINER_SHM TIMEOUT_DEFAULT LANE_WAIT GATE_LANE_WAIT MIN_MEM_MB MIN_DISK_GB \
              HEAVY_TARGETS WARM_TARGETS GATE_STEPS TIMEOUT_GATE STAMP_ENV STAMP_LOCAL_DIR \
              EXTRA_REPO_URL EXTRA_REF_FILE EXTRA_REF_SED EXTRA_SPARSE EXTRA_MOUNT EXTRA_ENV; do
         v="REMOTE_RUN_$k"
         if [[ -n "${!v:-}" ]]; then printf -v "$k" '%s' "${!v}"; fi
-        [[ -n "${!k:-}" || "$k" == CACHE_MIGRATE || "$k" == CACHE_SWEEP || "$k" == BOOTSTRAP_CMD || "$k" == STAMP_ENV || "$k" == CONTAINER_ENV || "$k" == EXTRA_* ]] \
+        [[ -n "${!k:-}" || "$k" == CACHE_MIGRATE || "$k" == CACHE_SWEEP || "$k" == LANE_CACHES || "$k" == BOOTSTRAP_CMD || "$k" == STAMP_ENV || "$k" == CONTAINER_ENV || "$k" == EXTRA_* ]] \
             || die "project.conf does not set $k"
     done
+    [[ "$LANES" =~ ^[1-9]$ ]] || die "LANES must be one digit, 1 to 9: '$LANES'"
 }
 
 # ---- summary ----------------------------------------------------------------
@@ -122,8 +123,8 @@ build_payload() {
         printf 'RR_MODE=%q\nRR_ID=%q\nRR_PROJECT=%q\nRR_BRANCH=%q\nRR_SHA=%q\n' "$mode" "$ID" "$PROJECT" "$BRANCH" "$SHA"
         printf 'RR_REPO_URL=%q\nRR_DIR=%q\nRR_BASE_IMAGE=%q\nRR_DEPS_SCRIPT=%q\nRR_DEPS_ARGS=%q\n' \
             "$REPO_URL" "$DIR" "$BASE_IMAGE" "$DEPS_SCRIPT" "$DEPS_ARGS"
-        printf 'RR_BOOTSTRAP=%q\nRR_TARGETS=%q\nRR_KEEP_GOING=%q\nRR_TIMEOUT=%q\nRR_LANE_WAIT=%q\n' \
-            "$BOOTSTRAP_CMD" "$targets" "$KEEP_GOING" "$TIMEOUT" "$LANE_WAIT"
+        printf 'RR_BOOTSTRAP=%q\nRR_TARGETS=%q\nRR_KEEP_GOING=%q\nRR_TIMEOUT=%q\nRR_LANE_WAIT=%q\nRR_LANES=%q\nRR_LANE_CACHES=%q\n' \
+            "$BOOTSTRAP_CMD" "$targets" "$KEEP_GOING" "$TIMEOUT" "$LANE_WAIT" "$LANES" "${LANE_CACHES:-}"
         printf 'RR_MIN_MEM_MB=%q\nRR_MIN_DISK_GB=%q\nRR_MEMORY=%q\nRR_SHM=%q\nRR_TEST_JOBS=%q\n' \
             "$MIN_MEM_MB" "$MIN_DISK_GB" "$CONTAINER_MEMORY" "$CONTAINER_SHM" "$TEST_JOBS"
         printf 'RR_JOBS_DEFAULT=%q\nRR_JOBS_HEAVY=%q\nRR_HEAVY_RE=%q\nRR_CACHE_MOUNTS=%q\nRR_CACHE_MIGRATE=%q\nRR_CACHE_SWEEP=%q\nRR_CONTAINER_ENV=%q\nRR_STAMP_ENV=%q\n' \
