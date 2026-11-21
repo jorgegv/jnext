@@ -101,8 +101,23 @@ if(USE_CCACHE)
     find_program(CCACHE_PROGRAM ccache)
     if(CCACHE_PROGRAM)
         message(STATUS "ccache found (${CCACHE_PROGRAM}) — using it as compiler launcher")
-        set(CMAKE_C_COMPILER_LAUNCHER   "${CCACHE_PROGRAM}")
-        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        # GH #547: share objects between worktrees. CMake hands the compiler
+        # absolute source and include paths, and ccache hashes them (and, with
+        # -g, the working directory), so the same file compiled in two worktrees
+        # was two cache entries and every new worktree built from nothing.
+        # BASEDIR makes ccache hash paths under the source dir as relative,
+        # NOHASHDIR drops the working directory from the hash, and the prefix
+        # map makes the object itself name no worktree (debug info and
+        # __FILE__), so a hit from another worktree is byte-equivalent. Set per
+        # launch (cmake -E env), never in the user's ccache.conf: CI and the
+        # remote host get it too.
+        set(JNEXT_CCACHE_LAUNCHER ${CMAKE_COMMAND} -E env
+            "CCACHE_BASEDIR=${CMAKE_SOURCE_DIR}" CCACHE_NOHASHDIR=1 "${CCACHE_PROGRAM}")
+        set(CMAKE_C_COMPILER_LAUNCHER   ${JNEXT_CCACHE_LAUNCHER})
+        set(CMAKE_CXX_COMPILER_LAUNCHER ${JNEXT_CCACHE_LAUNCHER})
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.>")
+        endif()
     else()
         message(STATUS "ccache not found — compiling without a launcher")
     endif()
