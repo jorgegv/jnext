@@ -41,6 +41,7 @@
 
 ### Internal JNEXT Development
 - CI and release builds move to Fedora 45; packages track the two supported Fedora and two latest Ubuntu LTS releases
+- Builds, test suites and the batch gate can run on a remote podman host over SSH, in the CI container (remote-run)
 
 ## v1.3.0 (2026-11-15)
 
