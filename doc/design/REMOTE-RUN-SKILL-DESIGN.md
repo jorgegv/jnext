@@ -22,13 +22,13 @@ locally as today.
 | D4 | The container's package list comes from **one shared script**, `test/ci-deps.sh <leg>`, called by both `ci.yml` and the remote image build |
 | D5 | jnext's SD-image cache lives in a **podman volume** on the remote, owned by the dedicated user; it never leaves that host |
 | D6 | The remote runs the **same make targets** as CI and as a local run, in the same `fedora:45` container |
-| D7 | Remote host: **12 cores, 16 GB RAM**; rootless podman, no `--privileged` |
+| D7 | (superseded by D22 for the memory) Remote host: **12 cores, 16 GB RAM**; rootless podman, no `--privileged` |
 | D8 | The gate's commit (main's tip, unpushed before a green gate) goes to a **temporary branch `gate-v<version>`**, deleted right after its gate, green or red |
 | D9 | **Only the orchestrator pushes.** Agents ask; the main session pushes their `gh<N>-<slug>` branch (never force) and starts the run. Agents still never push |
 | D10 | The **remote run's result is the verdict**: exit status plus the fetched log (fail=0, skip=0). The regression stamp file is copied back, so `make regression-stamp-check` here sees it for that content key |
 | D11 | Remote unreachable or preflight fails: **fall back to local `slot.sh`**; the log says it ran locally |
 | D12 | A real-time-paced row that FAILs remotely is **re-run solo on the remote** (`make regression-confirm` there, same tree, quiet-host wait), exactly the local rule |
-| D13 | **One lane** on the remote; the skill caps make's `-j` and `JNEXT_TEST_JOBS` so a link cannot exhaust 16 GB; the first gate run measures peak memory to tune the caps |
+| D13 | (superseded by D22: two lanes) **One lane** on the remote; the skill caps make's `-j` and `JNEXT_TEST_JOBS` so a link cannot exhaust 16 GB; the first gate run measures peak memory to tune the caps |
 | D14 | **Heavy runs only** go remote: the batch gate, full `make unit-test` / `-sdl` / `-win` / `-wasm`, `wasm-browser-test`, regression rows. Single-suite rebuilds and mutation cycles stay local |
 | D15 | The remote lane is **in addition** to the 2 local slots (nice 19): up to 3 heavy runs at once |
 | D16 | Merged branches are deleted locally and on `origin` **at issue close**, with the existing cleanup step |
@@ -37,6 +37,7 @@ locally as today.
 | D19 | **Logs:** the full log stays in `~/tmp/remote-run/<id>.log`, kept 7 days then deleted; the caller gets a summary (per-target result lines, FAIL/SKIP names, totals) and greps the file for detail |
 | D20 | **Orphans:** the ssh session carries the run; if it drops, the remote side kills the container, frees the lane and removes the run's worktree |
 | D21 | **One remote work directory**, set per session in `JNEXT_REMOTE_RUN_DIR`: the mirror, per-run worktrees, temp files, logs, caches (bind-mounted directories, not named volumes), the SD-image cache, and podman's image storage if rootless podman allows it. `--warm` and cleanup touch nothing outside it |
+| D22 | **N lanes (`LANES=2`)** on a 32 GB host (ZFS ARC capped at 8 GB): one `flock` per lane, a run takes the first free one (`--gate` too, and runs beside the other lane). Lane 1 keeps the one-lane names, lane n adds `-L<n>`; per lane are only the lock, `runs/` and `ctl/`, the container name and `rr-lane` label (the orphan kill is by label), the SD home (`LANE_CACHES`; a run on another distribution re-derives a shared master) and the FPGA clone. Shared: ccache, tools (and the regression host lock), the mirror, the image, the stamps, the podman store. One setup lock serializes the mirror fetch, image build, cache migration and the clone out of the mirror; the storage-driver probe (a failed one wipes the store) holds every lane. Caps per lane: 10g (measured peak 8.3 GiB anon + 1 GiB `/dev/shm`), `JOBS`/`TEST_JOBS` unchanged (CPU is work-conserving), the 80%-of-host cap divided by `LANES`. Rejected: a symmetric `L1`/`L2` layout (migrations), per-lane ccache/tools/podman store (no collision, duplicated cost), a `--gate` that holds every lane, a 6/6 CPU split |
 
 ## Architecture
 
