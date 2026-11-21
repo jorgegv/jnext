@@ -52,7 +52,9 @@ CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 # What `make unit-test` runs before the suites, in three steps (GH #547): the LINTS one after another and first
 # (seconds, fail fast, no build needed); the CHECKS concurrently WITH the build (none reads or writes build/);
-# the POST checks concurrently after it (each reads the built tree). UNIT_TEST_CHECK_JOBS caps both groups.
+# the POST checks concurrently after it (schema-check, snapshot-zip-check and minimal-image-test read the built tree;
+# package-contract-test reads none, and is here only because its RRUN-16/21 timing rows (60 s bounds) must not run
+# beside the full-CPU build: do not move it into UNIT_TEST_CHECKS). UNIT_TEST_CHECK_JOBS caps both groups.
 # docs-check and sdcard-image stay prerequisites of unit-test itself, sdcard-image last: sdcard-ensure-func greps for
 # that, and HS-102 needs the cite check in `make -n unit-test`, which a prerequisite that fails under the self-test's
 # scratch HOME (sdcard-image) would cut off before the recipe if docs-check were in it.
@@ -1041,8 +1043,10 @@ unit-test: $(UNIT_TEST_LINTS) docs-check sdcard-image
 	@# expensive), then the CHECKS concurrently with the build, then the POST checks concurrently,
 	@# then the suites, then the matrix. They used to be ONE serial prerequisite list (~400 s on a
 	@# warm tree). The CHECKS read no built file and write nothing outside their own mktemp
-	@# directories (strace of every one, recorded in the GH #547 report); each POST check reads
-	@# the built tree and writes none of it. The suites run alone: they already fill every CPU
+	@# directories (strace of every one, recorded in the GH #547 report); the POST checks
+	@# schema-check, snapshot-zip-check and minimal-image-test read the built tree and write none of it;
+	@# package-contract-test reads none and is POST only for its timing rows (RRUN-16/21, 60 s bounds),
+	@# which must not run beside the full-CPU build. The suites run alone: they already fill every CPU
 	@# and carry timing rows (XPT-NET-05), so nothing new runs beside them. The checks' output is
 	@# synced per target (each check's block stays whole, between the build's lines), and not
 	@# redirected, so the dry run `make -n unit-test` still shows their commands (HS-102);
