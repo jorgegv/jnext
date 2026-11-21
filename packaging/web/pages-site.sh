@@ -66,7 +66,7 @@ zpath, ver, template, stage = sys.argv[1:5]
 top = "jnext-%s-web/" % ver
 MiB = 1 << 20
 PAGES = {"plain.html", "itch-host.html", "itch-game.html", "widget.html"}
-# The reference bridge of the `debug` option is a node tool for a developer's own machine: not a site file.
+# The reference bridge of the `debug` option is a node tool for a developer computer: not a site file.
 NOT_SITE = {"jnext-debug-bridge.mjs"}
 BANNED = {"img", "mmc", "rom", "bin", "dsk", "trd", "scl", "hdf", "vhd", "mdr", "p",
           "nex", "tap", "tzx", "sna", "szx", "z80", "jns", "rzx", "wav", "raw",
