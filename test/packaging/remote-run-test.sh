@@ -552,10 +552,11 @@ row RRUN-28 "$([[ $o1 -eq 1 && "$(grep -a 'result: oomy' "$TMP/logs/o1.log")" ==
 
 # RRUN-29: a step that prints a fallback marker of its own at column 0 and fails stays a red run: exit 1,
 # not 75, no local re-run (the markers count only before the run started)
-reset_state; rm -f "$FAKE_STATE/make-calls"
+reset_state
 runin --id n1 --fallback-local "$TMP/local" feature "$SHA" 'sh:echo "=== remote-run fallback: x"; false'
 n1=$RC
-row RRUN-29 "$([[ $n1 -eq 1 && "$OUT" != *"RAN LOCALLY"* && ! -e "$FAKE_STATE/make-calls" ]] && echo 1 || echo 0)" \
+row RRUN-29 "$([[ $n1 -eq 1 && "$OUT" != *"RAN LOCALLY"* && "$(cat "$TMP/logs/n1.log")" != *"RAN LOCALLY"* \
+    && "$(grep -a 'remote-run exit:' "$TMP/logs/n1.log")" == "=== remote-run exit: 1" ]] && echo 1 || echo 0)" \
     "a step's own '=== remote-run fallback:' line does not turn a failing run into a fallback (rc=$n1)"
 
 # RRUN-30: a podman that is not rootless is refused before anything is built or run (75)
