@@ -122,7 +122,7 @@ directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`)
   leaves the work directory) and FPGA clone `cache/extra-repo-L2`. The ccache, the tool caches (which
   hold the regression host lock, so two full regressions serialize), the mirror, the image and the
   podman store are shared; a setup lock serializes the mirror fetch, image build and checkout clone. Caps, per lane:
-  `JOBS` 11 (6 for LTO/PGO link targets), `JNEXT_TEST_JOBS` 12 (no CPU split), a hard container memory
+  `JOBS` 11 (6 for LTO/PGO link targets), `JNEXT_TEST_JOBS` 12 (halved, rounded up, for a lane that starts while the other is busy), a hard container memory
   limit (the configured 10g, or 80% of the host's memory divided by `LANES` when smaller; swap off) and 1 GB
   `/dev/shm`. The preflight reports MemAvailable and the ZFS ARC size and counts reclaimable ARC as
   available. Every result line logs `peak=` (the cgroup's cumulative high-water mark, page cache included)
