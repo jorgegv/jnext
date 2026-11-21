@@ -3556,8 +3556,9 @@ no client is open, and with a `RangeError` when the input is full);
 `close()` says the client left (no `onClose` follows). `onData` is
 called with a `Uint8Array` of what the machine answered, and `onClose`
 when the machine ended the session (ZRCP `quit`, `destroy()`, the
-machine exiting); both are called from a task of their own, never from
-inside a call into the player. `isOpen` tells whether a client is open.
+machine exiting); both are called from a microtask, after the player’s
+own call has returned, never from inside it. `isOpen` tells whether a
+client is open.
 
 ### The debug link
 

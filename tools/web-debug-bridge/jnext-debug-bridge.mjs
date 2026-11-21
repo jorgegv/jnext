@@ -17,7 +17,8 @@
 //   any other text message is ignored.
 //
 // ONE page at a time (a second link is refused with HTTP 409) and ONE TCP client at a time (a second
-// client, or one while no page is linked, is closed at once). The debug protocols have no
+// client is closed after 300 ms, which is how long a client that hangs up and dials again waits for the
+// session before it; one while no page is linked is closed at once). The debug protocols have no
 // authentication, so this listens on the loopback address by default, and the WebSocket accepts only a
 // page whose Origin is http(s)://localhost or http(s)://127.0.0.1 (any port): without that, any web site
 // the user visits could dial this port and read the debug traffic. `--origin ORIGIN` adds one origin
@@ -66,9 +67,16 @@ export class TcpRelay extends EventEmitter {
 
   get hasClient() { return this.client !== null; }
 
+  // Bytes for the client. False when its write buffer is full: the caller stops its source until 'drain'
+  // (emitted when the buffer empties, and also when the client is retired, which releases the caller).
   send(bytes) {
-    if (this.client) this.client.write(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+    if (!this.client) return true;
+    return this.client.write(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
   }
+
+  // Stop and restart reading from the client (the caller's sink is full).
+  pauseClient() { if (this.client) this.client.pause(); }
+  resumeClient() { if (this.client) this.client.resume(); }
 
   // Ends the client's session from our side: a FIN after what was written (graceful, never a reset that
   // could cost the client the reply it is still reading); the socket is dropped anyway after 2 s.
@@ -78,6 +86,7 @@ export class TcpRelay extends EventEmitter {
     this.client = null;
     c.end();
     setTimeout(() => c.destroy(), 2000).unref();
+    this.emit('drain');
     this.#promote();
   }
 
@@ -126,11 +135,13 @@ export class TcpRelay extends EventEmitter {
     }
     this.client = sock;
     sock.on('data', (d) => { if (this.client === sock) this.emit('data', new Uint8Array(d.buffer, d.byteOffset, d.length)); });
+    sock.on('drain', () => { if (this.client === sock) this.emit('drain'); });
     // The client's FIN is the end of its session; the socket's own 'close' covers a reset.
     const gone = () => {
       if (this.client !== sock) return;   // ended by end(), or already seen
       this.client = null;
       this.emit('close');
+      this.emit('drain');
       sock.destroy();
       this.#promote();
     };
@@ -158,25 +169,44 @@ export function encodeFrame(opcode, payload) {
   return Buffer.concat([head, payload]);
 }
 
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+function validUtf8(buf) {
+  try { UTF8.decode(buf); return true; } catch (e) { return false; }
+}
+// RFC 6455 section 7.4: the codes a peer may send in a close frame.
+function validCloseCode(c) {
+  return (c >= 1000 && c <= 1003) || (c >= 1007 && c <= 1014) || (c >= 3000 && c <= 4999);
+}
+
 // A WebSocket connection over an upgraded socket. Events: 'text' (string), 'binary' (Uint8Array),
-// 'close'. A protocol violation closes with 1002 and then 'close'.
+// 'drain' (the write buffer emptied, or the link ended), 'close'. A protocol violation closes with the
+// code the RFC names (1002, 1007 or 1009) and then 'close'. The link also ends on the socket's FIN
+// with no close frame (a killed browser): half-open sockets would otherwise leave it for ever.
 export class WsConnection extends EventEmitter {
   constructor(socket, head) {
     super();
     this.socket = socket;
-    this.buf = head && head.length ? Buffer.from(head) : Buffer.alloc(0);
+    this.buf = Buffer.alloc(0);
+    this.pending = [];       // chunks not yet joined into buf: a big frame is joined once, not per chunk
+    this.pendingLen = 0;
+    this.need = 0;           // bytes buf + pending must hold before parsing can go further
     this.fragOpcode = 0;
     this.frag = [];
     this.fragLen = 0;
     this.closed = false;
-    socket.on('data', (d) => { this.buf = Buffer.concat([this.buf, d]); this.#parse(); });
+    socket.on('data', (d) => this.#onData(d));
     socket.on('error', () => {});
+    socket.on('drain', () => this.emit('drain'));
+    socket.on('end', () => { socket.end(); this.#finish(); });
     socket.on('close', () => this.#finish());
-    if (this.buf.length) this.#parse();
+    if (head && head.length) this.#onData(Buffer.from(head));
   }
 
-  sendText(text) { this.#write(1, Buffer.from(text, 'utf8')); }
-  sendBinary(bytes) { this.#write(2, Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)); }
+  sendText(text) { return this.#write(1, Buffer.from(text, 'utf8')); }
+  // False when the write buffer is full: stop the source until 'drain'.
+  sendBinary(bytes) { return this.#write(2, Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)); }
+  pause() { this.socket.pause(); }
+  resume() { this.socket.resume(); }
 
   close(code = 1000) {
     if (this.closed) return;
@@ -184,29 +214,45 @@ export class WsConnection extends EventEmitter {
     p.writeUInt16BE(code, 0);
     this.#write(8, p);
     this.socket.end();
+    setTimeout(() => this.socket.destroy(), 1000).unref();
   }
 
   #write(opcode, payload) {
-    if (this.closed || this.socket.destroyed) return;
-    this.socket.write(encodeFrame(opcode, payload));
+    if (this.closed || this.socket.destroyed) return true;
+    return this.socket.write(encodeFrame(opcode, payload));
   }
 
   #finish() {
     if (this.closed) return;
     this.closed = true;
+    this.pending = [];
+    this.buf = Buffer.alloc(0);
     this.emit('close');
+    this.emit('drain');
   }
 
   #fail(code) {
     this.close(code);
-    this.socket.destroy();
     this.#finish();
+  }
+
+  #onData(d) {
+    if (this.closed) return;
+    this.pending.push(d);
+    this.pendingLen += d.length;
+    if (this.buf.length + this.pendingLen < this.need) return;
+    this.buf = Buffer.concat([this.buf, ...this.pending]);
+    this.pending = [];
+    this.pendingLen = 0;
+    this.#parse();
   }
 
   #parse() {
     for (;;) {
+      if (this.closed) return;
       const b = this.buf;
-      if (b.length < 2) return;
+      this.need = 0;
+      if (b.length < 2) { this.need = 2; return; }
       const fin = (b[0] & 0x80) !== 0;
       const opcode = b[0] & 0x0f;
       const masked = (b[1] & 0x80) !== 0;
@@ -214,25 +260,33 @@ export class WsConnection extends EventEmitter {
       let off = 2;
       if ((b[0] & 0x70) !== 0 || !masked) return this.#fail(1002);   // reserved bits; clients must mask
       if (len === 126) {
-        if (b.length < 4) return;
+        if (b.length < 4) { this.need = 4; return; }
         len = b.readUInt16BE(2);
         off = 4;
       } else if (len === 127) {
-        if (b.length < 10) return;
+        if (b.length < 10) { this.need = 10; return; }
         const big = b.readBigUInt64BE(2);
         if (big > BigInt(MAX_MESSAGE)) return this.#fail(1009);
         len = Number(big);
         off = 10;
       }
       if (len > MAX_MESSAGE) return this.#fail(1009);
-      if (b.length < off + 4 + len) return;
+      if (b.length < off + 4 + len) { this.need = off + 4 + len; return; }
       const mask = b.subarray(off, off + 4);
       const payload = Buffer.alloc(len);
       for (let i = 0; i < len; i++) payload[i] = b[off + 4 + i] ^ mask[i & 3];
       this.buf = b.subarray(off + 4 + len);
       if (opcode >= 8) {   // control frames: never fragmented, at most 125 bytes
         if (!fin || len > 125) return this.#fail(1002);
-        if (opcode === 8) { this.close(1000); this.socket.destroy(); this.#finish(); return; }
+        if (opcode === 8) {
+          // A close payload is empty, or a valid code and a UTF-8 reason (a 1-byte payload is neither).
+          if (len === 1) return this.#fail(1002);
+          if (len >= 2 && !validCloseCode(payload.readUInt16BE(0))) return this.#fail(1002);
+          if (len > 2 && !validUtf8(payload.subarray(2))) return this.#fail(1007);
+          this.close(1000);
+          this.#finish();
+          return;
+        }
         if (opcode === 9) this.#write(10, payload);
         else if (opcode !== 10) return this.#fail(1002);
         continue;
@@ -254,8 +308,12 @@ export class WsConnection extends EventEmitter {
         this.fragOpcode = 0;
         this.frag = [];
         this.fragLen = 0;
-        if (op === 1) this.emit('text', whole.toString('utf8'));
-        else this.emit('binary', new Uint8Array(whole.buffer, whole.byteOffset, whole.length));
+        if (op === 1) {
+          if (!validUtf8(whole)) return this.#fail(1007);
+          this.emit('text', whole.toString('utf8'));
+        } else {
+          this.emit('binary', new Uint8Array(whole.buffer, whole.byteOffset, whole.length));
+        }
       }
     }
   }
@@ -277,6 +335,9 @@ export class PageServer extends EventEmitter {
     this.page = null;
     this.server = http.createServer((req, res) => { res.writeHead(426, { 'Content-Type': 'text/plain' }); res.end('WebSocket only\n'); });
     this.server.on('upgrade', (req, socket, head) => {
+      // First: node removed its own listener before emitting 'upgrade'. A peer that resets while a
+      // refusal is being written would otherwise be an unhandled 'error' and end the process.
+      socket.on('error', () => {});
       const refuse = (status, text) => {
         socket.end(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
       };
@@ -339,14 +400,20 @@ export async function main(argv) {
   const pages = new PageServer({ origins: o.origins, anyOrigin: o.anyOrigin });
   const relay = new TcpRelay({ accept: () => pages.page !== null });
   relay.on('rejected', () => process.stderr.write(
-    `jnext-debug-bridge: a client was closed at once (${pages.page ? 'one is already connected' : 'no page is linked'})\n`));
+    `jnext-debug-bridge: a client was closed (${pages.page ? 'one is already connected' : 'no page is linked'})\n`));
   relay.on('open', () => pages.page && pages.page.sendText('open'));
-  relay.on('data', (d) => pages.page && pages.page.sendBinary(d));
+  // Backpressure: a sink that is full stops its source until it drains (or the session ends).
+  relay.on('data', (d) => {
+    const page = pages.page;
+    if (page && !page.sendBinary(d)) { relay.pauseClient(); page.once('drain', () => relay.resumeClient()); }
+  });
   relay.on('close', () => pages.page && pages.page.sendText('close'));
   pages.on('link', (ws) => {
     process.stdout.write('jnext-debug-bridge: page linked\n');
     ws.on('text', (t) => { if (t === 'close') relay.end(); });
-    ws.on('binary', (b) => relay.send(b));
+    ws.on('binary', (b) => {
+      if (!relay.send(b)) { ws.pause(); relay.once('drain', () => ws.resume()); }
+    });
   });
   pages.on('unlink', () => {
     relay.end();

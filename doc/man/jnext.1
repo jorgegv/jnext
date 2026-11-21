@@ -4430,8 +4430,8 @@ follows).
 \f[CR]onData\f[R] is called with a \f[CR]Uint8Array\f[R] of what the
 machine answered, and \f[CR]onClose\f[R] when the machine ended the
 session (ZRCP \f[CR]quit\f[R], \f[CR]destroy()\f[R], the machine
-exiting); both are called from a task of their own, never from inside a
-call into the player.
+exiting); both are called from a microtask, after the player\(cqs own
+call has returned, never from inside it.
 \f[CR]isOpen\f[R] tells whether a client is open.
 .SS The debug link
 A \f[CR]debug\f[R] entry with \f[CR]transport: \(aqws\(aq\f[R] keeps one

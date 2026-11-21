@@ -1,4 +1,4 @@
-// Browser rows BDBG-01..17: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
+// Browser rows BDBG-01..23: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
 // channel and over a WebSocket to the bridge (make wasm-browser-test, spec debug.mjs). Run by
 // browser-smoke.sh on the SDK's node.
 //
@@ -316,18 +316,22 @@ row('BDBG-12', 'misuse: debugChannel of a ws entry throws; open() before the cli
   must(isInitReply(first) && isInitReply(second), `INIT answers ${first.length} / ${second.length} bytes`);
 });
 
-row('BDBG-13', 'a page mounted while nothing listens on its ws port: the bridge started afterwards links within 3 s and init-regs PASSes; killed and restarted on the same port it relinks and init-regs PASSes again', async () => {
+row('BDBG-13', 'a page mounted while nothing listens on its ws port: the bridge started afterwards links within 3 s and init-regs PASSes; killed and restarted on the same port it relinks and init-regs PASSes again; the console says the link is down once for each episode, not for each redial', async () => {
   const probe = await startBridge();   // only to learn a free port
   const port = probe.wsPort;
   await probe.kill();
   const page = await started({ protocol: 'dzrp', transport: 'ws', url: `ws://127.0.0.1:${port}` });
-  await sleep(1500);   // at least one failed dial
+  const down = () => page.console.filter((l) => /debug link .* is down/.test(l)).length;
+  await sleep(3500);   // three or four failed dials: one console line for the whole episode
+  must(down() === 1, `${down()} "debug link ... is down" lines in the first down episode`);
   const b1 = await startBridge([], port);
   const t0 = Date.now();
   await linked(b1);
   must(Date.now() - t0 < 3000, `linked after ${Date.now() - t0} ms`);
   must_peer(await peer('dzrp-peer.py', 'init-regs', b1.tcpPort), 'first init-regs', b1);
   await b1.kill();
+  await sleep(3500);   // the link is down again: one more line, however many redials
+  must(down() === 2, `${down()} "debug link ... is down" lines after the second down episode`);
   const b2 = await startBridge([], port);
   const t1 = Date.now();
   await linked(b2);
@@ -335,16 +339,35 @@ row('BDBG-13', 'a page mounted while nothing listens on its ws port: the bridge 
   must_peer(await peer('dzrp-peer.py', 'init-regs', b2.tcpPort), 'second init-regs');
 });
 
-// A raw upgrade request: resolves with the status line (and the socket, closed, when `keep` is false).
-function upgrade(port, origin, key = 'dGhlIHNhbXBsZSBub25jZQ==') {
+// A raw upgrade request: resolves with the status line and the (open) socket.
+const upgradeRequest = (port, origin, key = 'dGhlIHNhbXBsZSBub25jZQ==') =>
+  `GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+  `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n${origin ? `Origin: ${origin}\r\n` : ''}\r\n`;
+function upgrade(port, origin, key) {
   return new Promise((resolve, reject) => {
     const s = net.connect(port, '127.0.0.1');
     let data = '';
-    s.on('data', (d) => { data += d.toString('latin1'); if (data.includes('\r\n\r\n')) resolve({ status: data.split('\r\n')[0], head: data, socket: s }); });
+    s.on('data', (d) => { data += d.toString('latin1'); if (data.includes('\r\n\r\n')) resolve({ status: data.split('\r\n')[0], head: data, socket: s, rx: [] }); });
     s.on('error', reject);
-    s.on('connect', () => s.write(`GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
-      `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n${origin ? `Origin: ${origin}\r\n` : ''}\r\n`));
+    s.on('connect', () => s.write(upgradeRequest(port, origin, key)));
   });
+}
+// A refused upgrade the client resets as soon as it has sent it.
+const resetOnce = (port, origin) => new Promise((resolve) => {
+  const s = net.connect(port, '127.0.0.1');
+  s.on('error', () => {});
+  s.on('close', resolve);
+  s.on('connect', () => { s.write(upgradeRequest(port, origin)); s.resetAndDestroy(); });
+});
+// Retry an upgrade until it gets a 101 (or ms run out): the link a bridge frees is freed on an event.
+async function upgradeOk(port, ms = 4000) {
+  const t0 = Date.now();
+  for (;;) {
+    const u = await upgrade(port, 'http://localhost:1');
+    if (/^HTTP\/1\.1 101/.test(u.status) || Date.now() - t0 > ms) return u;
+    u.socket.destroy();
+    await sleep(50);
+  }
 }
 
 row('BDBG-14', 'bridge: a second TCP client during a session gets EOF at once and the first still answers; a page link from Origin http://evil.example gets HTTP 403, and --origin http://evil.example admits it; a second page gets 409', async () => {
@@ -505,6 +528,137 @@ row('BDBG-17', 'bridge framing against FOREIGN clients: node\'s WebSocket sends 
   c2.destroy();
   must(frag === 'frag-mented', 'the fragmented message reached the client as ' + JSON.stringify(frag));
   must(pong, 'no pong for the ping');
+});
+
+
+row('BDBG-18', 'bridge: 40 refused upgrades (403) and 40 more refused with 409 beside a linked page, each reset by the client, leave the bridge alive; a good link still gets 101', async () => {
+  const b = await startBridge();
+  for (let i = 0; i < 40; i++) await resetOnce(b.wsPort, 'http://evil.example');
+  const first = await upgradeOk(b.wsPort);
+  must(/^HTTP\/1\.1 101/.test(first.status), 'the first good link: ' + first.status);
+  for (let i = 0; i < 40; i++) await resetOnce(b.wsPort, 'http://localhost:1');
+  await sleep(300);
+  must(!b.exited, 'the bridge died: ' + b.err.slice(0, 300));
+  first.socket.destroy();
+  const again = await upgradeOk(b.wsPort);
+  again.socket.destroy();
+  must(/^HTTP\/1\.1 101/.test(again.status), 'a link after the resets: ' + again.status);
+});
+
+row('BDBG-19', 'bridge: a page link that ends in a FIN with no close frame frees the slot: the TCP client gets EOF and a new link gets 101', async () => {
+  const b = await startBridge();
+  const link = await upgradeOk(b.wsPort);
+  must(/^HTTP\/1\.1 101/.test(link.status), 'link: ' + link.status);
+  const c = net.connect(b.tcpPort, '127.0.0.1');
+  const eof = new Promise((resolve) => { c.on('close', () => resolve(true)); c.on('error', () => {}); setTimeout(() => resolve(false), 4000); });
+  await new Promise((r) => c.on('connect', r));
+  await sleep(200);
+  link.socket.end();   // FIN only: a killed browser
+  must(await eof, 'the TCP client was held open after the page link ended');
+  const again = await upgradeOk(b.wsPort);
+  again.socket.destroy();
+  must(/^HTTP\/1\.1 101/.test(again.status), 'a new link after the FIN: ' + again.status);
+});
+
+row('BDBG-20', 'the machine exits by itself with a session open: onClose fires exactly once (JS channel), and a ws page\'s TCP client gets EOF', async () => {
+  const exitArgs = ['--delayed-automatic-exit-frames', '600'];
+  const page = await started({ protocol: 'dzrp' }, exitArgs);
+  const opened = await page.evaluate(() => {
+    const ch = window.player0.debugChannel('dzrp');
+    window.__closes = 0;
+    ch.onClose = () => { window.__closes++; };
+    ch.open();
+    return ch.isOpen;
+  });
+  must(opened, 'open() did not open');
+  await waitFor(page, () => window.player0.state === 'exited', null, 120000);
+  await sleep(500);
+  const closes = await page.evaluate(() => window.__closes);
+  const stillOpen = await page.evaluate(() => window.player0.debugChannel('dzrp').isOpen);
+  must(closes === 1 && !stillOpen, `onClose fired ${closes} times, isOpen ${stillOpen}`);
+  const b = await startBridge();
+  const p2 = await started({ protocol: 'dzrp', transport: 'ws', url: b.url }, exitArgs);
+  await linked(b);
+  const c = net.connect(b.tcpPort, '127.0.0.1');
+  await new Promise((r) => c.on('connect', r));
+  c.on('error', () => {});
+  const eof = await new Promise((resolve) => { c.on('close', () => resolve(true)); setTimeout(() => resolve(false), 120000); });
+  must(eof, 'the TCP client was not closed when the machine exited');
+});
+
+row('BDBG-21', 'the session ends right after a reply larger than the kernel buffers: ZRCP over ws, 100 x read-memory 0 65535 and quit in one write, the client reading 4 s late: every reply and "Sayonara baby" arrive before EOF', async () => {
+  const b = await startBridge();
+  const page = await started(ws('zrcp', b), MAGIC);
+  await linked(b);
+  const c = net.connect(b.tcpPort, '127.0.0.1');
+  await new Promise((r) => c.on('connect', r));
+  const N = 100;
+  c.write('read-memory 0 65535\n'.repeat(N) + 'quit\n');
+  await sleep(4000);   // nothing is read meanwhile
+  const chunks = [];
+  const done = new Promise((resolve) => { c.on('close', () => resolve(true)); setTimeout(() => resolve(false), 90000); });
+  c.on('data', (d) => chunks.push(d));
+  c.on('error', () => {});
+  must(await done, 'no EOF');
+  const text = Buffer.concat(chunks).toString('latin1');
+  const prompts = text.split('command> ').length - 1;
+  must(text.length >= N * 131070, `${text.length} bytes, expected at least ${N * 131070}`);
+  must(prompts >= N + 1, `${prompts} prompts, expected at least ${N + 1}`);
+  must(text.endsWith('Sayonara baby\n'), 'the stream does not end with Sayonara baby: ' + JSON.stringify(text.slice(-60)));
+});
+
+row('BDBG-22', 'backpressure: a TCP client that reads nothing makes the bridge stop reading the page link (the sender\'s bufferedAmount stays high); once it reads, all 48 MiB arrive byte-identical', async () => {
+  const b = await startBridge();
+  const w = new WebSocket(b.url);
+  w.binaryType = 'arraybuffer';
+  const msgs = [];
+  w.onmessage = (ev) => msgs.push(ev.data);
+  await new Promise((resolve, reject) => { w.onopen = resolve; w.onerror = () => reject(new Error('WebSocket error')); });
+  const c = net.connect(b.tcpPort, '127.0.0.1');
+  await new Promise((r) => c.on('connect', r));
+  const MiB = 1 << 20, N = 48;
+  const hash = crypto.createHash('sha1');
+  for (let i = 0; i < N; i++) {
+    const m = crypto.randomBytes(MiB);
+    hash.update(m);
+    w.send(m);
+  }
+  await sleep(1500);
+  const buffered = w.bufferedAmount;
+  const got = crypto.createHash('sha1');
+  let total = 0;
+  c.on('data', (d) => { got.update(d); total += d.length; });
+  const t0 = Date.now();
+  while (total < N * MiB && Date.now() - t0 < 60000) await sleep(50);
+  w.close();
+  c.destroy();
+  must(buffered > 8 * MiB, `bufferedAmount ${buffered} after 1.5 s: the bridge read the link though the client did not read`);
+  must(total === N * MiB && got.digest('hex') === hash.digest('hex'), `${total} of ${N * MiB} bytes, digests ${total === N * MiB ? 'differ' : 'n/a'}`);
+});
+
+row('BDBG-23', 'bridge framing, violations: a 1-byte close payload, close codes 1005 and 999, and a close reason that is not UTF-8 are refused (1002, 1002, 1002, 1007); a text message that is not UTF-8 is 1007; a close with code 3000 is answered 1000', async () => {
+  const b = await startBridge();
+  const closeCode = async (frame) => {
+    const u = await upgradeOk(b.wsPort);
+    must(/^HTTP\/1\.1 101/.test(u.status), 'link: ' + u.status);
+    const rx = [];
+    u.socket.on('data', (d) => rx.push(d));
+    u.socket.write(frame);
+    const t0 = Date.now();
+    while (Buffer.concat(rx).length < 4 && Date.now() - t0 < 4000) await sleep(20);
+    const r = Buffer.concat(rx);
+    u.socket.destroy();
+    return r.length >= 4 && r[0] === 0x88 ? r.readUInt16BE(2) : -1;
+  };
+  const got = [
+    await closeCode(maskedFrame(true, 8, Buffer.from([0x03]))),
+    await closeCode(maskedFrame(true, 8, Buffer.from([0x03, 0xed]))),
+    await closeCode(maskedFrame(true, 8, Buffer.from([0x03, 0xe7]))),
+    await closeCode(maskedFrame(true, 8, Buffer.from([0x03, 0xe8, 0xff]))),
+    await closeCode(maskedFrame(true, 1, Buffer.from([0xff, 0xfe]))),
+    await closeCode(maskedFrame(true, 8, Buffer.concat([Buffer.from([0x0b, 0xb8]), Buffer.from('bye')]))),
+  ];
+  must(got.join() === '1002,1002,1002,1007,1007,1000', 'close codes ' + got.join());
 });
 
 // ---------------------------------------------------------------------------------------------------
