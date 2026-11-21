@@ -23,10 +23,10 @@ If that address does not download in a web browser on the same computer either,
 the cause is the network or the server, not JNEXT: check the connection, a
 proxy or firewall, and try again later.
 
-**The card carries a core update newer than the one JNEXT emulates.** The NextZXOS 26.11
-distribution ships FPGA core 3.03.00 in `TBBLUE.TBU`; JNEXT emulates core 3.02.03. The
-system boots and runs on it, and nothing in the update file is applied, so what
-3.03.00 adds is simply not there. This is a known difference, not a fault of your
+**The card was made for a newer FPGA core than the one JNEXT emulates.** The NextZXOS
+26.11a distribution is made for core 3.03.03; JNEXT emulates core 3.02.03. The
+system boots and runs on it, and nothing of the newer core is applied, so what
+3.03.03 adds is simply not there. This is a known difference, not a fault of your
 image or of the download.
 
 **The boot menu's ZX81 entry stops on `zx81.rom...error reading!`.** Your

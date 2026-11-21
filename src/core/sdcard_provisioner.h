@@ -80,7 +80,8 @@ extern const char* const kLegacyDistribution;      // "sn-emulator-24.11.zip"
 extern const char* const kDeclinedSuffix;          // ".distro-declined"
 // The zip file name of `url`: the part after its last '/', without a query.
 std::string distribution_of_url(const std::string& url);
-// "NextZXOS 26.11" for "sn-emulator-26.11.zip", else the name as it is.
+// "NextZXOS 26.11a" for "sn-emulator-26.11a.zip" (digits and dots, then at most one
+// lower-case letter after a digit), else the name as it is.
 std::string distribution_title(const std::string& distribution);
 
 // GH #284 — SHA-256 of the 16 KB /MACHINES/NEXT/zx81.rom the 24.11

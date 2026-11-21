@@ -478,11 +478,14 @@ sd_master_gate() {
 #   BOOT_DEFAULT_COMMIT  the frame the DEFAULT master must give (01-sdcard-provision.sh fails on
 #                        any other, so an emulator change that moves the boot is a red row and
 #                        never a shift the helper quietly absorbs). A candidate card reports its own.
+#                        476 is the 26.11a firmware's; the row literals were written against the
+#                        26.11 boot (472), so every @bf literal shifts by +4 on the default card
+#                        and no literal changed when 26.11a became the default.
 #   bf N [K]             N + K * (measured - BOOT_REF_COMMIT). K = 2 for a frame after a hard reset
 #                        that runs the firmware again. With the reference card the shift is 0 and
 #                        every adopted row's command line is byte-identical to the literal one.
 BOOT_REF_COMMIT=472
-BOOT_DEFAULT_COMMIT=472
+BOOT_DEFAULT_COMMIT=476
 
 # boot_commit_measure: run the probe on this run's card clone; print the commit frame, or fail.
 boot_commit_measure() {
