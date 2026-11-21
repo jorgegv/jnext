@@ -8,7 +8,7 @@
 #   bash packaging-test.sh --contracts-only   (`make package-contract-test`)
 #       The packaging-layer contract suites — six on the packaging
 #       scripts, one on the package-* recipes themselves (GH #148), one on
-#       the artifact selection the package rows below use, one on the CI cache keys, one on the Flatpak
+#       the artifact selection the package rows below use, one on the CI cache keys, one on the remote-run driver, one on the Flatpak
 #       manifest. Hermetic:
 #       pure bash on throwaway fake roots, no compiler, no toolchain, ~4 s.
 #       This half holds the highest-value rows (verify-bundle is the GH #46
@@ -171,6 +171,9 @@ contract regression-package test/packaging/regression-package-test.sh regpkg "un
 
 # --- CI cache-key contract (GH #494) ----------------------------------------
 contract ci-cache-key test/packaging/ci-cache-key-test.sh cikey "every sdcard-image-distro key names the distribution and recipe jnext derives; one macOS key"
+
+# --- remote-run driver + ci-deps.sh contract (GH #546) ------------------------
+contract remote-run test/packaging/remote-run-test.sh remoterun "driver exit codes, refusals, fallback, summary, work-dir confinement; ci.yml uses ci-deps.sh"
 
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
