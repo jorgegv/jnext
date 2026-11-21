@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.38</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.38</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1707,6 +1707,17 @@
     <span class="md-ellipsis">
       
         The Qt window
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-viewer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The viewer
       
     </span>
   </a>
@@ -3277,8 +3288,31 @@ command line, <code>frontend</code> <code>qt</code>, and the settings file from 
 file and whether memory is included; a failure shows a dialog (not when unattended). <code>QtApp::shutdown()</code>
 passes the same map to <code>--bug-report</code>. There is no Preferences field, so no <code>config_keys</code> row: <code>--bug-report</code>
 is a per-run action like <code>--delayed-screenshot</code>.</p>
+<h2 id="the-viewer">The viewer<a class="headerlink" href="#the-viewer" title="Permanent link">&para;</a></h2>
+<p><code>tools/jnext-bug-view.py</code> shows a report: <code>jnext-bug-view.py REPORT [-o OUT.html] [--text [--memory]] [--no-open]</code>.
+It is Python 3, standard library only (<code>zipfile</code>, <code>json</code>, <code>html</code>, <code>base64</code>, <code>argparse</code>, <code>webbrowser</code>), runs from a
+clone as <code>python3 -I</code>, and needs no jnext build and no card. It is not packaged.</p>
+<ul>
+<li><strong>Output.</strong> By default one self-contained HTML page (no JavaScript, no external resource; the pictures are
+  embedded as <code>data:</code> PNGs) written to a temporary folder, or to <code>-o</code>, and opened with <code>webbrowser</code> unless
+  <code>--no-open</code>. <code>--text</code> prints the summary and the registers as text instead, and with <code>--memory</code> the hex dump of
+  the CPU view; the text is what a terminal and the regression rows read. Sections, as element ids: <code>summary</code>,
+  <code>settings</code>, <code>machine</code>, <code>nextregs</code>, <code>paging</code>, <code>video</code>, <code>interrupts</code>, <code>pictures</code>, <code>log</code>, <code>debugger</code>, <code>memory</code>,
+  <code>raw-state</code>. A section whose member is not in the report says so; without memory the <code>memory</code> section says "not
+  included" and why, from the manifest.</li>
+<li><strong>It decodes nothing.</strong> Register names, NextREG names, the paging map and the disassembly are what jnext wrote
+  into the report; the viewer has no register table and no Z80 disassembler to keep in step.</li>
+<li><strong>Exit status.</strong> 0 shown, 2 refused (with a message naming the file and the reason), 1 an I/O error.</li>
+<li><strong>Hostile input.</strong> A report is an issue attachment. The viewer refuses a file that is not a zip, a zip with no
+  <code>manifest.json</code>, a <code>kind</code> other than <code>jnext-bug-report</code>, a <code>format_version</code> above 1 ("newer"), a declared member
+  that is missing, more than 4096 members, any member that declares more than 64 MiB and a total above 256 MiB (all
+  checked from the central directory, before anything is inflated), and a member that cannot be read. A member is
+  read at most up to its declared size. Every text goes through <code>html.escape</code>; a picture is embedded only if it
+  starts with the PNG signature; JSON nested too deep or that is not JSON is shown as absent, never a crash;
+  nothing is extracted to disk.</li>
+</ul>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
-<p><code>bug_report_ui_test</code> (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. <code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
+<p><code>bug_view_test</code> (BV-01 to 15) builds reports in memory and runs the viewer as <code>python3 -I</code> in a child with an explicit minimal environment (<code>LANG=C</code>, <code>PATH=/usr/bin:/bin</code>, no <code>HOME</code>): refusals, every section, names and values from the report, the pictures byte for byte, memory present and absent, escaping, text mode, and hostile structure. <code>bug_report_ui_test</code> (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. <code>bug_report_test</code> (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows <code>bug-report-nosd-func</code> and
 <code>bug-report-card-func</code> run the real binary. The second one is the end-to-end check of the

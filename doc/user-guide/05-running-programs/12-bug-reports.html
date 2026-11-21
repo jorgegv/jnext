@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.38</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.38</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1670,6 +1670,17 @@
     <span class="md-ellipsis">
       
         What is in it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-a-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading a report
       
     </span>
   </a>
@@ -4522,6 +4533,15 @@ exits with status 1.</p>
 <li>The name, size and SHA-256 of your SD card. Never its contents.</li>
 <li>The program you loaded, the file as it is on disk.</li>
 </ul>
+<h2 id="reading-a-report">Reading a report<a class="headerlink" href="#reading-a-report" title="Permanent link">&para;</a></h2>
+<p>A report is a zip file; you can open it with any zip tool. To read it as a page, run the viewer that comes with the
+JNEXT sources, from a clone (it needs only Python 3, not a JNEXT build):</p>
+<pre><code>python3 tools/jnext-bug-view.py game.202611201530.jnext-bug.zip
+</code></pre>
+<p>It opens a page in your browser with the machine's registers, every NextREG by name, the memory map, the pictures, the log and
+the debugger's state, and the memory when the report has it. <code>--text</code> prints a summary and the registers in the terminal
+instead (<code>--text --memory</code> adds the hex dump), and <code>-o FILE.html --no-open</code> writes the page without opening it. The viewer
+refuses a file that is not a JNEXT bug report.</p>
 <h2 id="when-the-memory-is-included">When the memory is included<a class="headerlink" href="#when-the-memory-is-included" title="Permanent link">&para;</a></h2>
 <p>The machine's memory is in the report <strong>only when no firmware has run</strong>: a
 <code>--no-sdcard</code> session that has not run the boot ROM or loaded a saved state since

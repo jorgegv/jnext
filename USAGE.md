@@ -2356,6 +2356,10 @@ Your user name and every absolute path on your computer are blanked in
 the file (`<user>` and `<path>/name`). Look through a report before you
 attach it anyway.
 
+To read a report, `tools/jnext-bug-view.py` in the jnext sources shows
+it as a page, or as text with `--text`; it needs only Python 3, and
+refuses a file that is not a jnext bug report.
+
 `manifest.json` lists every member of the file and what was left out and
 why. A file is a report when it has that manifest, whatever its name.
 
