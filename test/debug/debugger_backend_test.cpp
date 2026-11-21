@@ -8162,7 +8162,7 @@ static void gh428_rev_rows() {
             probe.filter.lo = probe.filter.hi = AFTER_CALL;
             probe.transient = true;
             probe.action    = Action::Continue;
-            probe.handler   = [&](const Event& ev, Debugger&) { seen = ev.space; return Action::Continue; };
+            probe.handler   = [&](const DbgEvent& ev, Debugger&) { seen = ev.space; return Action::Continue; };
             dbg.subscribe(4, probe);
             dbg.run_to(3, PARK);
             run_until_paused(emu);
