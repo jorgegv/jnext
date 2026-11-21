@@ -80,6 +80,7 @@ mkdir -p "$HOME/tmp"
 SCRATCH=$(mktemp -d "$HOME/tmp/jnext-browser-smoke.XXXXXX")
 trap 'br_thaw "$SCRATCH"; rm -rf "$SCRATCH"' EXIT
 mkdir "$SCRATCH/oracle" "$SCRATCH/out" "$SCRATCH/work"
+PREP_T0=$SECONDS
 
 CARD_TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/sdl-release/tools/make-minimal-card/make-minimal-card}"
 [[ -x "$CARD_TOOL" ]] || die "$CARD_TOOL is not built (make sdl-release)"
@@ -378,4 +379,5 @@ export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_
 # another one. Each spec writes only under its own $SMOKE_WORK (work/<spec>) and the logs in out/. As root a mode
 # bit is no guard, so br_run_specs also compares a fingerprint of the shared area before and after.
 br_freeze "$SCRATCH"
+echo "browser-smoke: fixtures prepared in $((SECONDS - PREP_T0)) s (JNEXT_BROWSER_JOBS=$PREP_JOBS)"
 br_run_specs "$NODE" "$SCRATCH" "$HERE" "${SPECS[@]}"
