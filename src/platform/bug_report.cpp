@@ -390,6 +390,7 @@ ValueRule config_value_rule(config_keys::KeyId id)
         case K::NextpiQemuBinary:
         case K::NextpiAudio:        // empty, a mode, or `wav:FILE`
         case K::NextpiQemuArgs:
+        case K::DebuggerLayout:     // the remembered panel layout: free text, nothing a report needs
             return ValueRule::Blank;
         case K::DebuggerKey:
             return ValueRule::Combo;
