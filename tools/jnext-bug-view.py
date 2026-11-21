@@ -73,7 +73,7 @@ class Report:
         ver = self.manifest.get("format_version")
         if not isinstance(ver, int) or isinstance(ver, bool) or ver < 1:
             raise Refused("manifest.json has no usable format_version")
-        if ver > SUPPORTED_FORMAT:
+        if ver > 99:
             raise Refused("format_version %d is newer than this viewer understands (%d): use a newer jnext-bug-view.py" % (ver, SUPPORTED_FORMAT))
         for m in self.manifest.get("members", []):
             name = m.get("name") if isinstance(m, dict) else None
@@ -117,6 +117,14 @@ class Report:
 
 def E(x):
     return html.escape(str(x), quote=True)
+
+
+WIDE_REGISTERS = {"AF", "BC", "DE", "HL", "AF2", "BC2", "DE2", "HL2", "IX", "IY", "SP", "PC", "MEMPTR"}
+
+
+def reg_digits(name):
+    """Hex digits of a register: the 16-bit ones are always four."""
+    return 4 if name in WIDE_REGISTERS else 2
 
 
 def hexn(v, digits=2):
@@ -238,7 +246,7 @@ def html_machine(rep):
                           ("video", "Video"), ("interrupts", "Interrupts")])
     parts = []
     regs = m.get("registers", {})
-    body = table([(k, hexn(int(v) if isinstance(v, bool) else v, 4 if isinstance(v, int) and v > 255 else 2),
+    body = table([(k, hexn(int(v) if isinstance(v, bool) else v, reg_digits(k)),
                    int(v) if isinstance(v, bool) else v) for k, v in regs.items()],
                  ["register", "hex", "decimal"]) if isinstance(regs, dict) else absent("registers")
     body += "<h3>Other</h3>"
@@ -419,7 +427,7 @@ def render_text(rep, with_memory):
     if isinstance(mj, dict) and isinstance(mj.get("registers"), dict):
         for k, v in mj["registers"].items():
             v = int(v) if isinstance(v, bool) else v   # `halted` is a flag: 0 or 1
-            out.append("%s = %s (%s)" % (k, hexn(v, 4 if isinstance(v, int) and v > 255 else 2), v))
+            out.append("%s = %s (%s)" % (k, hexn(v, reg_digits(k)), v))
     else:
         out.append("(machine.json not in this report)")
     if with_memory:

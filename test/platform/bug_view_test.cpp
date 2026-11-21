@@ -487,7 +487,8 @@ int main() {
         bool ok = r.rc == 0 && has(r.out, "== Summary ==") && has(r.out, "machine: next");
         for (auto it = mj["registers"].begin(); it != mj["registers"].end(); ++it) {
             const int v = it.value().is_boolean() ? int(it.value().get<bool>()) : it.value().get<int>();
-            const std::string line = fmtf("%s = 0x%0*X (%d)", it.key().c_str(), v > 255 ? 4 : 2, v, v);
+            static const std::set<std::string> wide = { "AF", "BC", "DE", "HL", "AF2", "BC2", "DE2", "HL2", "IX", "IY", "SP", "PC", "MEMPTR" };
+            const std::string line = fmtf("%s = 0x%0*X (%d)", it.key().c_str(), wide.count(it.key()) ? 4 : 2, v, v);
             if (!has(r.out, line + "\n")) { ok = false; std::printf("    missing: %s\n", line.c_str()); }
         }
         check("BV-13", "--text: the summary, and every register value as machine.json has it", ok, fmtf("rc=%d", r.rc));
