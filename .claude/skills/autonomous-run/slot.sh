@@ -6,7 +6,7 @@
 #
 # The run directory's own slot.sh is a two-line wrapper the orchestrator writes at run start:
 #   #!/bin/bash
-#   exec /home/jorgegv/src/spectrum/jnext/.claude/skills/autonomous-run/slot.sh --dir <run>/slots "$@"
+#   exec <main checkout>/.claude/skills/autonomous-run/slot.sh --dir <run>/slots "$@"
 # (the MAIN checkout's copy: it also finds remote-run.sh next to it, and the driver must be main's).
 #
 # LOCAL ADMISSION (unchanged from the hand-written script this replaces)
