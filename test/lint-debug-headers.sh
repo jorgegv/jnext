@@ -81,6 +81,7 @@ HEADERS=(
     debug/events.h
     debug/inspect.h
     debug/debugger.h
+    debug/audio_math.h
 )
 
 # Forbidden dependencies, as extended regexes matched against each path `-M`

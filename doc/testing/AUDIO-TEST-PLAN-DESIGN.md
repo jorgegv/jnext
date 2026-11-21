@@ -638,6 +638,41 @@ VHDL ref: `zxnext.vhd` lines 2775-2778
 | IO-16  | NR 0x84 b6 gates GS Covox port (0xB3 chB+chC)                 | `port_dac_mono_BC_b3_io_en <= internal_port_enable(22)`. skip — bit dropped (see G114) |
 | IO-17  | NR 0x84 b7 gates SpecDrum port (0xDF chA+chD)                 | `port_dac_mono_AD_df_io_en <= internal_port_enable(23)`. skip — bit dropped (see G114) |
 
+## 8. Debugger audio introspection
+
+Suite `test/debug/audio_debug_test.cpp` (`audio_debug_test`, GH #529). It tests what the debugger
+backend reports about the audio chain, not the chain itself (sections 1-7 do that). The rows of this
+section are the ones this suite asserts today: `ANO` (the note helper), `AIZ` (the debugger's audio
+features are invisible to the Z80) and `ADS` (`Debugger::audio_state()`). Later sub-issues of the
+same epic add rows to the same suite under their own prefixes, each documented here with the work
+that implements it.
+
+### 8.1 Note helper (`src/debug/audio_math.h`)
+
+VHDL ref: `ym2149.vhd` lines 306-325 (tone divider), 334-350 and 402-462 (envelope rate and shape),
+371-391 (shape table); `turbosound.vhd` line 164 (I_SEL_L = 1). A4 = 440 Hz equal temperament.
+PSG clock 1 750 000 Hz unless stated; frequencies to 1e-3 Hz, cents to 0.005.
+
+| ID     | Test                                             | Verification                                               |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| ANO-01 | Tone period 0 behaves as period 1                | 109375.000 Hz, equal to period 1; not a note               |
+| ANO-02 | Tone period 1                                    | 109375.000 Hz; above MIDI 127, not a note                  |
+| ANO-03 | Tone period 8                                    | 13671.875 Hz is MIDI 128: not valid (upper bound)          |
+| ANO-04 | Tone period 9                                    | 12152.778 Hz is F#9 +45.17, the highest valid note         |
+| ANO-05 | Tone period 252                                  | 434.028 Hz is A4 -23.66                                    |
+| ANO-06 | Tone period 253                                  | 432.312 Hz is A4 -30.52                                    |
+| ANO-07 | Tone period 239                                  | 457.636 Hz is A#4 -31.96 (sharps only)                     |
+| ANO-08 | Tone period 428                                  | 255.549 Hz is C4 -40.68 (scientific octave)                |
+| ANO-09 | Tone period 4095                                 | 26.709 Hz is G#0 +49.50                                    |
+| ANO-10 | A frequency exactly half way between two notes   | 452.893 Hz is A#4 -50.00: the tie goes to the upper note   |
+| ANO-11 | The bottom of the range                          | 8.176 Hz is C-1 +0.00 (MIDI 0), valid; 0.6 semitone below it, 0, negative, NaN and infinite frequencies are not |
+| ANO-12 | Envelope shapes 8 and 12, period 100             | 68.359 Hz, C#2 -23.55 (clock / (256 * period))             |
+| ANO-13 | Envelope shapes 10 and 14, period 100            | 34.180 Hz, C#1 -23.55 (clock / (512 * period))             |
+| ANO-14 | Envelope period 0 and 1, shapes 8 and 10         | Saw 6835.938 Hz, triangle 3417.969 Hz; period 0 equals period 1 |
+| ANO-15 | Shapes 0-7, 9, 11, 13, 15                        | No repeat frequency (0 Hz)                                 |
+| ANO-16 | Envelope glyph of each of the 16 shapes          | The table at `ym2149.vhd:371-391`, four ASCII characters   |
+| ANO-17 | The same period at the Next's and the 128K's PSG clock | 1.75 MHz is 23.00 cents flat of 1.7734 MHz           |
+
 ## Test Implementation Strategy
 
 ### Phase 1: Unit Tests (Internal State)
