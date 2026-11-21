@@ -103,8 +103,8 @@ jobs:
     # accepts --fpga-src=PATH); locally it needs neither, because it finds the
     # sibling checkout by walking up from its own directory.
     #
-    # Scoped to THIS job on purpose. `traceability-check` is a prerequisite of
-    # `make unit-test` only, and only this job runs it — pointing the other
+    # Scoped to THIS job on purpose. `make unit-test` runs the traceability check
+    # (`traceability-check-run`), and only this job runs it — pointing the other
     # jobs at a directory they never clone would be a lie waiting to be read.
     # Cloned OUTSIDE the workspace (runner.temp), never inside it. Same reason
     # CLAUDE.md puts agent worktrees outside the repo: anything that walks the

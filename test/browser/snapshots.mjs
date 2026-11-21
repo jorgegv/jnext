@@ -16,7 +16,7 @@ import http from 'http';
 import path from 'path';
 
 const E = process.env;
-const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE;
+const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, ORACLE = E.SMOKE_ORACLE, WORK = E.SMOKE_WORK;
 const VERSION = E.SMOKE_BUILD_VERSION;
 const MODULE = `/build/jnext-${VERSION}.js`;
 const SHA = E.SMOKE_CARD_SHA256;
@@ -304,7 +304,7 @@ row('BSN-09', 'a .jns saved in the page restores in the native jnext: the screen
   await waitFrame(page, 0, 200);
   const bytes = await saved(page);
   await page.ctx.close();
-  const dir = fs.mkdtempSync(path.join(SCRATCH, 'bsn09-'));
+  const dir = fs.mkdtempSync(path.join(WORK, 'bsn09-'));
   fs.writeFileSync(path.join(dir, 'page.jns'), bytes);
   fs.copyFileSync(path.join(SCRATCH, 'card.img'), path.join(dir, 'card.img'));
   try {

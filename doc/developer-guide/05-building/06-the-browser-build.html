@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3547,7 +3547,12 @@ the recording was made on is not the one it now boots from.</p>
   thing as the native build under the WebAssembly compiler: the second to the pixel.</li>
 <li><code>make wasm-browser-test</code> proves the page: the frame loop and pacing, input and sound
   policy, the card build, cache and warm start, and the JavaScript API, with the
-  example pages. Details: <a href="01-make-targets.html">5.1</a>, <a href="04-continuous-integration.html">5.4</a>,
+  example pages. The fixture preparation (independent chains of native runs) and the
+  specs run in parallel, at most <code>JNEXT_BROWSER_JOBS</code> at once (default
+  <code>min(4, max(1, nproc/2))</code>; <code>1</code> is one at a time), longest spec first
+  (<code>test/browser/spec-runner.inc</code>). Each spec writes only under its own
+  <code>$SMOKE_WORK</code>; the shared fixtures are read-only while the specs run, and a spec
+  tagged <code>file:count:serial</code> runs alone afterwards. Details: <a href="01-make-targets.html">5.1</a>, <a href="04-continuous-integration.html">5.4</a>,
   <a href="../04-testing/02-declared-suites-and-pinned-counts.html">4.2</a> and
   <a href="../04-testing/03-the-regression-suite.html">4.3</a>.</li>
 <li>The widget (<code>web/jnext-widget.js.in</code>) is a plain script on top of <code>jnext.mount()</code>:

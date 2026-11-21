@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3073,12 +3073,15 @@ assertion lives. Read one way it is a coverage map; read the other way it is
 the honest list of what nothing yet asserts.</p>
 <p>Crucially, it is <strong>generated</strong> rather than written — <code>test/refresh-traceability-matrix.pl</code>
 builds it out of the test sources themselves — and it is <strong>gated</strong> exactly the
-way the man page is. <code>make traceability-check</code>, a prerequisite of
-<code>make unit-test</code>, regenerates the matrix and fails when the committed copy
+way the man page is. <code>make unit-test</code> regenerates the matrix and fails when the committed copy
 differs. The generator is idempotent, so regenerate-and-diff is an exact
-staleness test. It needs a built test tree, because a row's <code>Status</code> comes from
-actually running its suite; that dependency is why it could not exist while
-refreshing the matrix was a manual step of the version bump.</p>
+staleness test. A row's <code>Status</code> comes from actually running its suite, so the
+check needs a test run. Inside <code>make unit-test</code> it is <code>make traceability-check-run</code>,
+which runs after the suites and reads their own logs
+(<code>build/test-logs/&lt;suite&gt;.log</code>, <code>refresh-traceability-matrix.pl --fails-from-logs=DIR</code>)
+instead of running every traced suite a second time; a missing log, or one with
+no <code>Total:</code> line, is a refusal, never an empty FAIL set. The standalone
+<code>make traceability-check</code> still runs the suites itself.</p>
 <h2 id="where-each-column-comes-from">Where each column comes from<a class="headerlink" href="#where-each-column-comes-from" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Test ID and description</strong> come from the row's own

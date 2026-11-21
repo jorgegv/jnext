@@ -334,7 +334,7 @@ not the prose**: the v0.98.60 defects were GUI descriptions in the man page's
 narrative sections, which nothing checks. Keep reading the running product.
 
 **`doc/testing/TRACEABILITY-MATRIX.md` is generated too, and gated the same way**
-(GH #196). `make traceability-check` — a prerequisite of `make unit-test` —
+(GH #196). `make traceability-check` — which `make unit-test` runs after the suites, from their logs (`traceability-check-run`) —
 regenerates it and fails if the committed copy differs, exactly as `docs-check`
 does for the man page. It needs a built test tree, because a row's `Status`
 comes from actually running its suite.

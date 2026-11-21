@@ -3803,6 +3803,91 @@ check('SELF-239', 'a marked call is REFUSED when another call of the row has a f
              && $nv_eb =~ /REFUSING/ && $nv_eb =~ m{h4b_test\.cpp:3} && $nv_eb =~ /H4-02/),
       "marked-first=[$nv_ea] marked-second=[$nv_eb]");
 
+# ── GH #547: the matrix from the unit run's own logs (SELF-242..245) ───
+# `make unit-test` runs every traced suite itself (run-unit-tests.sh writes
+# build/test-logs/<suite>.log) and used to run each of them AGAIN, one at a
+# time, in run_fails(). --fails-from-logs=DIR reads the first run's log
+# instead, so (a) the matrix must equal the one made by running the binaries,
+# (b) a FAIL line in a log must reach the matrix, and a missing log (c) or one
+# with no `Total:` line (d) must be a refusal (exit 3), never an empty FAIL set,
+# which would publish every row of its section as `pass`.
+# Fixture: the real generator, conf and CMake files, the real source of ONE
+# suite (mmu_test, so its rows carry statuses), an empty file for every other
+# suite source and a stub binary per declared suite, as the e2e tree above. No
+# VHDL core is consulted: both sides of every comparison run without it.
+{
+    my $TR = "$FIXTURE_ROOT/logs547";
+    for my $d ('test/mmu', 'doc/testing', 'build/test', 'src/esp01', 'logs') {
+        system('mkdir', '-p', "$TR/$d") == 0 or die "logs547: mkdir $d: $?";
+    }
+    for my $f ('test/refresh-traceability-matrix.pl', 'test/SuiteSources.pm',
+               'test/unit-tests.conf', 'test/CMakeLists.txt',
+               'src/esp01/CMakeLists.txt', 'doc/testing/TRACEABILITY-MATRIX.md',
+               'test/mmu/mmu_test.cpp') {
+        system('cp', "$REAL_ROOT/$f", "$TR/$f") == 0 or die "logs547: cp $f: $?";
+    }
+    my %src = %{ SuiteSources::cmake_suite_sources($REAL_ROOT) };
+    my %seen;
+    for my $s (grep { !$seen{$_}++ } map { @$_ } values %src) {
+        next if -e "$TR/$s";
+        (my $d = "$TR/$s") =~ s{/[^/]+$}{};
+        system('mkdir', '-p', $d) == 0 or die "logs547: mkdir $d: $?";
+        open(my $h, '>', "$TR/$s") or die "logs547: write $s: $!";
+        close $h;
+    }
+    my @suites;
+    open(my $ch, '<', "$REAL_ROOT/test/unit-tests.conf") or die "logs547: conf: $!";
+    while (my $l = <$ch>) {
+        next if $l =~ /^\s*#/ || $l !~ /\S/;
+        my ($n) = split(' ', $l);
+        $n =~ s/^\?//;
+        push @suites, $n;
+    }
+    close $ch;
+    my $stub = sub {
+        my ($name, $fail_id) = @_;
+        open(my $h, '>', "$TR/build/test/$name") or die "logs547: stub $name: $!";
+        print $h "#!/bin/sh\n";
+        print $h "echo \"  FAIL $fail_id: boom\"\n" if defined $fail_id;
+        print $h defined $fail_id
+            ? "echo \"Total:    1  Passed:    0  Failed:    1  Skipped:    0\"\n"
+            : "echo \"Total:    1  Passed:    1  Failed:    0  Skipped:    0\"\n";
+        close $h;
+        chmod 0755, "$TR/build/test/$name";
+    };
+    for my $s (@suites) {
+        $stub->($s, $s eq 'mmu_test' ? 'MMU-09' : undef);
+        system("sh '$TR/build/test/$s' > '$TR/logs/$s.log'") == 0 or die "logs547: log $s";
+    }
+    my $gen = sub {
+        my (@args) = @_;
+        my $out = `cd '$TR' && perl test/refresh-traceability-matrix.pl @args 2>&1`;
+        return ($? >> 8, $out);
+    };
+    my ($rc_run, undef)  = $gen->("--emit-to='$TR/from-run.md'");
+    my ($rc_logs, undef) = $gen->("--emit-to='$TR/from-logs.md'", "--fails-from-logs='$TR/logs'");
+    my $slurp = sub { open(my $h, '<', $_[0]) or return ''; local $/; my $b = <$h>; close $h; return $b; };
+    my ($run_md, $logs_md) = ($slurp->("$TR/from-run.md"), $slurp->("$TR/from-logs.md"));
+    check('SELF-242', 'the matrix from --fails-from-logs equals the matrix from running the same suites (one failing row and all)',
+          scalar($rc_run == 0 && $rc_logs == 0 && length($logs_md) > 1000 && $run_md eq $logs_md),
+          "rc_run=$rc_run rc_logs=$rc_logs same=" . ($run_md eq $logs_md ? 'yes' : 'NO'));
+    check('SELF-243', 'a FAIL line in a suite\'s log puts that row\'s status to fail in the matrix (the FAIL set is read, not assumed empty)',
+          scalar($logs_md =~ /^\| MMU-09 [^\n]*\| fail \|/m && $logs_md !~ /^\| MMU-09 [^\n]*\| pass \|/m),
+          'MMU-09 row: ' . (($logs_md =~ /^(\| MMU-09 [^\n]*)$/m)[0] // 'absent'));
+    rename("$TR/logs/uart_test.log", "$TR/uart_test.log.away") or die "logs547: mv log: $!";
+    my ($rc_miss, $out_miss) = $gen->("--emit-to='$TR/missing.md'", "--fails-from-logs='$TR/logs'");
+    check('SELF-244', '--fails-from-logs with one suite\'s log missing is a refusal (exit 3) that names the suite and writes nothing',
+          scalar($rc_miss == 3 && $out_miss =~ /no log for suite uart_test/ && !-e "$TR/missing.md"),
+          "rc=$rc_miss wrote=" . (-e "$TR/missing.md" ? 'YES' : 'no') . " out=[$out_miss]");
+    open(my $nh, '>', "$TR/logs/uart_test.log") or die "logs547: write log: $!";
+    print $nh "the suite died before it reported\n";
+    close $nh;
+    my ($rc_nt, $out_nt) = $gen->("--emit-to='$TR/notot.md'", "--fails-from-logs='$TR/logs'");
+    check('SELF-245', 'a log with no Total: line is a refusal (exit 3) that names the suite',
+          scalar($rc_nt == 3 && $out_nt =~ /the log of suite uart_test has no 'Total:' line/),
+          "rc=$rc_nt out=[$out_nt]");
+}
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 
@@ -3825,7 +3910,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 241;
+my $EXPECTED_ROWS = 245;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
