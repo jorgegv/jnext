@@ -11,6 +11,7 @@
 #include "platform/cli_delay.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
+#include "platform/startup_stop.h"
 #include "platform/pok_trainers.h"
 #ifndef __EMSCRIPTEN__
 #include "script/script_host.h"
@@ -179,6 +180,7 @@ private:
     // listener detach from the Debugger they were started on.
 #ifndef __EMSCRIPTEN__
     jnext::script::ScriptHost script_host_;
+    StartupStop               startup_stop_;   // GH #548: --debugger / --break-at (after debugger_)
 #endif
 
     /// The cold boot itself (reconstruct + init, platform/emulator_boot.h) and
