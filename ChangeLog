@@ -1,5 +1,10 @@
 # ChangeLog
 
+## Unreleased (2026-11-21)
+
+### Internal JNEXT Development
+- Remote runs: two lanes on the remote host, so two heavy runs share it at once
+
 ## v1.3.47 (2026-11-21)
 
 ### User Features
