@@ -79,6 +79,27 @@ port is a startup error in every frontend: the loop owner logs it and exits.
 [3.9.3](09-3-sessions-the-pump-and-reconstruct.md):
 `frame_loop_budget()`, `headless_should_wait()` and `headless_wait_budget()`.
 
+## The page channel
+
+`remote::PipeChannel` (`src/remote/pipe_transport.*`) is the third implementation of the seam, for the
+browser build, where a page cannot listen. `PipeChannel::make_listener()` returns an
+`esp::EspListener` whose `accept()` yields a transport the **host** feeds; the production `Server`
+runs over it unchanged (`open()` logs `<name>: listening on channel:0`). The host's calls:
+
+| call | effect |
+|---|---|
+| `host_open()` | a client arrived: a transport is parked for `accept()`. Refused while a session is open or has ended and not been reported |
+| `host_send(p, n)` | bytes from the client, queued for this session; refused whole once 64 MiB wait; accepted and dropped after jnext ended the session |
+| `host_close()` | the client left: what it sent is still delivered, then the transport reports `Closed`; this session's unread output is dropped; a new `host_open()` may follow at once |
+| `take_output()` | everything jnext wrote on the current session since the last take |
+| `take_ended()` | true once after jnext ended the session, and only after `take_output()` has returned what was written before |
+
+Each `host_open()` gets a session of its own, so bytes of one session never reach another, even
+when a close and a redial come in one turn. The channel shares its state with its listener, so it
+outlives `Server::stop()` and the host can still collect a stopped session's last bytes and end.
+`host_*` return a `PipeResult` (0 ok, 1 no listener, 2 wrong state, 3 input full). The class has no
+Emscripten include and is tested natively and under node (`remote_pipe_test`).
+
 ## The fake
 
 `FakeListener`, `FakeTransport` and `FakePeer` (`src/remote/fake_transport.*`)

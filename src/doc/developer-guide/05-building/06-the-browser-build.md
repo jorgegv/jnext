@@ -34,13 +34,11 @@ the output of `git grep -n EMSCRIPTEN` over the CMake files.
 | `CMakeLists.txt` | `if(EMSCRIPTEN)` after the Windows API floor | Refuses `ENABLE_QT_UI` and `ENABLE_DEBUGGER` with a `FATAL_ERROR`; adds `-fwasm-exceptions` to every translation unit and the link; adds `-sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2MB`. |
 | `CMakeLists.txt` | `if(EMSCRIPTEN)` before `find_package(ZLIB)` | Defines `ZLIB::ZLIB` and `PNG::PNG` as INTERFACE targets carrying `-sUSE_ZLIB=1` and `-sUSE_LIBPNG=1`: the sysroot's default libpng is the SJLJ variant, which does not link with wasm exceptions. |
 | `CMakeLists.txt` | `if(NOT WIN32 AND NOT EMSCRIPTEN)` | Looks for CURL and OpenSSL only on POSIX hosts: the browser build links neither. |
-| `CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `src/remote` | No debugger protocol servers: a page has no sockets to serve on. |
-| `CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `src/script` | No script host. |
 | `CMakeLists.txt` | `if(EMSCRIPTEN)` after the `jnext` target | The node `jnext` links with `-sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1`. |
 | `CMakeLists.txt` | `if(EMSCRIPTEN)` around `jnext_web` | Defines the `jnext_web` target: `main.cpp`, `browser_frontend.cpp` and `web/web_controller.cpp`; `OUTPUT_NAME` `jnext-<version>`; `JNEXT_BROWSER=1`; the web link options (`-sENVIRONMENT=web`, `-sMODULARIZE=1`, `-sEXPORT_NAME=createJnextModule`, `-sINVOKE_RUN=0`, `-sEXIT_RUNTIME=0`, the exported runtime methods and functions, `-lidbfs.js`); the three `--extern-post-js` files, `web/jnext-image.js`, `web/jnext-touch-keyboard.js`, then the configured `jnext_api.js`; and a `configure_file` of `jnext_api.js.in`, of each example page and of `jnext-widget.js.in`. |
 | `src/core/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `find_package(PNG)` | No libpng package search: the port target above stands in. |
 | `src/core/CMakeLists.txt` | `elseif(EMSCRIPTEN)` in the network-library choice | No network library: `sdcard_provisioner_net_web.cpp` is self-contained (a portable SHA-256, no download). |
-| `src/platform/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` (twice) | `jnext_platform` does not link `jnext_remote` or `jnext_script`; and the sources `browser_crt.cpp` and `crtemu_browser_impl.cpp` (the CRT effect) are left out of every other build. |
+| `src/platform/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` | The sources `browser_crt.cpp` and `crtemu_browser_impl.cpp` (the CRT effect) are left out of every other build. `jnext_platform` links `jnext_remote` and `jnext_script` in every build: the debugger protocol servers and the script library are compiled into the browser build (the script host is not, by source arms below). |
 | `src/esp01/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` (twice) and `if(NOT WIN32 AND NOT EMSCRIPTEN)` (twice) | The ESP-01 suites (`esp_at_test`, `esp_socket_test`, `esp_sigpipe_test`) and their `add_test` lines are not built. |
 | `test/CMakeLists.txt` | `if(EMSCRIPTEN)` | The test executables link with `-sNODERAWFS=1 -sENVIRONMENT=node`, an 8 MB stack, `-sSTACK_OVERFLOW_CHECK=2`, `-sEXIT_RUNTIME=1`, and at `-O1`. |
 | `test/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` and `if(NOT WIN32 AND NOT EMSCRIPTEN)`, many | The suites whose subject the browser build compiles out or cannot run (processes, threads, sockets). One arm each; they are declared `# os: native` (or `posix`, `linux`) in `test/unit-tests.conf`, see [4.2](../04-testing/02-declared-suites-and-pinned-counts.md). |
@@ -49,7 +47,7 @@ Source files carry the same two symbols. The list below is the output of
 `git grep -c '__EMSCRIPTEN__\|JNEXT_BROWSER' -- src` and what each arm does:
 
 - `src/main.cpp`: the refusals (`cli::browser_refusal`, `config_keys::browser_refusal`,
-  and for `jnext_web` `browser_page.h`); no NextPi; the SD-card download declined
+  and for `jnext_web` `browser_page.h`); `--debug-channel`, refused by every build but `jnext_web` (`cli::page_only_refusal`); no NextPi; the SD-card download declined
   without reading stdin; extraction of a zipped `--sdcard` and its removal at exit; a `.zip` page file, accepted only when its program is a NEX (extracted, with its directory, before the program-format refusal would apply, which a refused archive still prints); handing the run to `browser_frontend::run`
   and keeping the application and the logging alive after `main()` returns.
 - `src/platform/sdl_app.cpp` and `sdl_app.h`: no script host; the stepped warm-start
@@ -61,7 +59,8 @@ Source files carry the same two symbols. The list below is the output of
   page owns its size (window scale does nothing); `set_crt()` and the CRT draw (below).
 - `src/platform/browser_crt.cpp`, `browser_crt.h` and `crtemu_browser_impl.cpp`: the CRT
   effect, whole files.
-- `src/platform/debug_servers.cpp` and `debug_servers.h`: no protocol servers (the three servers are neither declared nor started).
+- `src/platform/debug_servers.cpp` and `debug_servers.h`: the three socket servers (`--dzrp-port`, `--gdb-port`, `--zrcp-port`) are neither declared nor started, so `esp::make_socket_listener` is never referenced from this file in the browser build (the symbol is still compiled in, through esp01 and `remote::Server::open(address, port)`); the three channel servers are built in every build; and `frame_loop_budget()` returns `PumpBudget{0, 0, 10}` for a paused machine with a client attached, where the native build waits 2 ms for the next command.
+- `src/platform/web/web_controller.cpp`: the exports of the page's debug channels, below.
 - `src/core/nextpi_provisioner.cpp`: compiled out.
 - `src/core/video_recorder.cpp`: no process to run ffmpeg, so the call fails as a
   missing ffmpeg does.
@@ -121,6 +120,31 @@ effective CPU speed, read by the browser bench) are test seams, not API. Pause i
 because the backend's pause needs an armed machine, which costs a check per
 instruction. Several players on a page share one IndexedDB database for the
 warm-start recording.
+
+*The debugger over a page channel.* A page cannot listen, so the protocol servers
+(`DzrpServer`, `ZrcpServer`, `GdbServer`) run over a second `esp::EspListener`, the
+`remote::PipeChannel` of `src/remote/pipe_transport.*` ([3.10.1](../03-subsystems/10-1-the-socket-transport.md)),
+which the host feeds instead of a kernel. `--debug-channel PROTOCOL` (the page option `debug` emits it)
+sets `EmulatorConfig::{dzrp,zrcp,gdb}_channel`, and `DebugServers::start` builds the server over a
+channel; `DebugServers::channel(p)` hands the channel to the controller. Nothing pumps on data
+arrival: the page's `requestAnimationFrame` tick pumps `Debugger::pump()` once per tick like every loop
+owner, so the debugger is served on the frame loop, and a paused player (`emscripten_pause_main_loop`)
+or a hidden tab serves nothing until frames resume; the bytes wait in the channel. While wasm runs no
+byte can arrive (the page's events wait), so a paused machine's budget has no 2 ms drain: `{0, 0, 10}`
+still answers every command already buffered, one pass each, and is bounded by 10 ms.
+The exports `jnext_web_debug_open`, `jnext_web_debug_send` and `jnext_web_debug_close` take the
+protocol number (`cli::DebugProtocol`: 0 dzrp, 1 zrcp, 2 gdb) and return the `PipeResult` (0 ok, 1 no
+channel or no machine, 2 wrong state, 3 input full); the page calls them between two ticks. Output
+travels the other way by pull: after each tick `web_controller::after_tick` takes each channel's
+output and then its end, and calls the `EM_JS` `jnext_web_debug_out`, which copies the bytes
+(`HEAPU8.slice`) and calls `Module.jnextDebug`; calling JavaScript from inside
+`EspTransport::send()` was rejected because it re-enters the module while `Server::push()` is on the
+stack. `jnext_api.js` delivers `onData` and `onClose` from a microtask, so a page handler never runs
+inside a wasm call. A `ws` entry is a link kept by `jnext_api.js` over a channel (messages `open`,
+`close` and binary bytes, redialled once a second); the bridge, `tools/web-debug-bridge/jnext-debug-bridge.mjs`,
+is plain node with no dependency (the user guide's 8.6 documents its use).
+
+*Size.* The debugger code costs the one shipped `.wasm` about @SIZE@ (no separate debug build: the code does nothing unless a page sets `debug`).
 
 *Pacing.* `SdlApp::tick()` never sleeps; it reports the sleep it wants before the
 next tick. A `requestAnimationFrame` callback cannot sleep, so that sleep becomes
@@ -362,7 +386,7 @@ the recording was made on is not the one it now boots from.
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..16 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-09, WEBAPI-01 to WEBAPI-34 (WEBAPI-30 and 31 load a WAV, made at run time from `demo/beeper_demo`'s TAP by `tap2wav.py` beside `tap2tzx.py`, and compare the page with a native run and with `tap-demo-reference.png`; WEBAPI-32 to 34 load a zipped NEX and its data file, made at run time with CPython's `zipfile` around the esxDOS probe NEX, and refuse a zipped TAP), WIDGET-01 to WIDGET-17, BCARD-01 to BCARD-44 (the card flow, the poster, the stored form of the card and `card.dirs`, `card.mjs`: a synthetic distribution through the localhost seam, and BCARD-13 and BCARD-41 on real data; BCARD-22 to 25 and 44, `card-errors.mjs`: the wording of the pick path's refusals, driven with a stub module under node, no browser and no seam), TKB-01 to TKB-17 (the on-screen keyboard, `touch.mjs`: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's `keymaps.vhd`, `membrane.vhd` and `zxnext.vhd`, with `demo/key_matrix_demo`, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run `kmx.log` as oracle), WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BRZ-01 to BRZ-12 (RZX in a page, `rzx.mjs`: `keys48.rzx` and `s128.rzx` are recorded at run time by the native jnext from our own inputs; a page's replay equals the native replay, and `stopRzxRecording()`'s file replays natively), BSN-01 to BSN-11 (snapshots, `snapshots.mjs`: a `.sna`, `.z80`, `.szx` and `.jns` loaded in the page equal the native run of the same file, and `saveSnapshot()` is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01 to WEBPKG-BR-07, which boot `plain.html` from the extracted `make package-web` zip, check that its four example pages lay out at the device width on a phone (02 to 05), and that `plain.html` and `itch-host.html` fit their player in a phone-wide page (06 and 07) (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-09, WEBAPI-01 to WEBAPI-34 (WEBAPI-30 and 31 load a WAV, made at run time from `demo/beeper_demo`'s TAP by `tap2wav.py` beside `tap2tzx.py`, and compare the page with a native run and with `tap-demo-reference.png`; WEBAPI-32 to 34 load a zipped NEX and its data file, made at run time with CPython's `zipfile` around the esxDOS probe NEX, and refuse a zipped TAP), WIDGET-01 to WIDGET-17, BDBG-01 to BDBG-25 (the debugger protocols served by a page, `debug.mjs`: the unchanged native peers `dzrp-peer.py`, `zrcp-peer.py` and `gdb-peer.py` against the page over the JS channel, through a `TcpRelay` that stands in for a webview host, and over a WebSocket to the bridge run as a child process; the bridge's origin check, framing against node's own WebSocket client and the RFC 6455 handshake vector, backpressure and the end of a session after a reply larger than the kernel buffers), BCARD-01 to BCARD-44 (the card flow, the poster, the stored form of the card and `card.dirs`, `card.mjs`: a synthetic distribution through the localhost seam, and BCARD-13 and BCARD-41 on real data; BCARD-22 to 25 and 44, `card-errors.mjs`: the wording of the pick path's refusals, driven with a stub module under node, no browser and no seam), TKB-01 to TKB-17 (the on-screen keyboard, `touch.mjs`: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's `keymaps.vhd`, `membrane.vhd` and `zxnext.vhd`, with `demo/key_matrix_demo`, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run `kmx.log` as oracle), WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BRZ-01 to BRZ-12 (RZX in a page, `rzx.mjs`: `keys48.rzx` and `s128.rzx` are recorded at run time by the native jnext from our own inputs; a page's replay equals the native replay, and `stopRzxRecording()`'s file replays natively), BSN-01 to BSN-11 (snapshots, `snapshots.mjs`: a `.sna`, `.z80`, `.szx` and `.jns` loaded in the page equal the native run of the same file, and `saveSnapshot()` is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01 to WEBPKG-BR-07, which boot `plain.html` from the extracted `make package-web` zip, check that its four example pages lay out at the device width on a phone (02 to 05), and that `plain.html` and `itch-host.html` fit their player in a phone-wide page (06 and 07) (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.
@@ -385,6 +409,7 @@ the recording was made on is not the one it now boots from.
   table, the argv and the man page's browser section; `make cli-check` runs it),
   `browser_policy_test` (the frame-callback gate and the page's refusals),
   `warm_start_card_test` and `sha256_test`.
+- `remote_pipe_test` (XPT-PIPE-01 to 13, DBGS-CH-01 and 02, DBGS-BUD-01) tests the channel through the production `remote::Server`, and `DebugServers` over it with the bytes the native peers check; it runs natively and under node. `dzrp_adapter_test`, `gdb_rsp_test` and `zrcp_adapter_test` run under node too, which proves the protocol code with a 32-bit `size_t` and `long`.
 - `make package-web` builds the browser zip and `make web-package-test` is the hermetic contract suite of its script (WEBPKG-01 to WEBPKG-50, run by `make unit-test`); both are described in [5.3](03-packaging-and-release.md).
 - All four wasm targets are in the batch gate ([4.1](../04-testing/01-the-test-triplet.md)).
 - The SDK and Playwright are provisioned by `make emsdk` and `make playwright`, pinned by

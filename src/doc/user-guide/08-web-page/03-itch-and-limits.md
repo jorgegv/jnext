@@ -32,6 +32,9 @@ Because of the `iframe`:
 - **Host process features.** Flags and `--set` keys that need a process, a socket or a
   terminal are refused with a message. The list is in the man page ("Not available in the
   browser").
+- **Debugger servers are not TCP listeners.** A page cannot listen on a port, so `--dzrp-port`,
+  `--zrcp-port`, `--gdb-port` and `--debug-listen-address` are refused. The `debug` option serves the
+  same protocols to the page's own code or through a WebSocket bridge ([8.6](06-debugging-from-the-page.md)).
 - **Program formats.** Programs load as `.nex`, `.tap`, `.tzx` or `.wav` (a tape, in real
   time), recordings as `.rzx`, snapshots as `.jns`, `.sna`, `.szx` or `.z80`.
 - **Headless and command-line recording.** `--headless` and `--rzx-record` are refused. A

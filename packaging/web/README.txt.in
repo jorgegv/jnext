@@ -11,6 +11,12 @@ jnext-widget.js, a ready-made player: a div, one script tag. Serve them from a
 web server over https (or http://localhost): a page opened as a local file
 cannot load the .wasm, and the player needs a secure context.
 
+jnext-debug-bridge.mjs is a node script (node 18 or later, no other dependency) that lets a debugger
+which speaks TCP (DeZog, z88dk-gdb) reach a page whose player has the `debug` option: run
+`node jnext-debug-bridge.mjs --ws-port 12000 --tcp-port 11000`. It is explained in the user guide's chapter
+"JNEXT in a web page", section "Debugging from the page". It has no authentication: keep it on the
+loopback address.
+
 This package contains no part of NextZXOS and no ROM. NextZXOS is SpecNext's
 copyrighted software, and JNEXT does not ship, host or serve it. The player
 gets the official distribution from specnext.com, or asks the visitor to
