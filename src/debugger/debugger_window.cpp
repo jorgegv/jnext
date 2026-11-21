@@ -1830,9 +1830,11 @@ void DebuggerWindow::create_panels() {
         // not-visible-but-not-hidden: it is announced once, by the dock that became visible; a close is
         // announced by the dock that is now hidden (an implicit hide with the window is not a change).
         connect(dock, &QDockWidget::visibilityChanged, this, [this, dock](bool visible) {
-            if (visible || dock->isHidden()) emit panels_on_show_changed();
+            if (!applying_layout_ && (visible || dock->isHidden())) emit panels_on_show_changed();
         });
-        connect(dock, &QDockWidget::topLevelChanged, this, [this](bool) { emit panels_on_show_changed(); });
+        connect(dock, &QDockWidget::topLevelChanged, this, [this](bool) {
+            if (!applying_layout_) emit panels_on_show_changed();
+        });
         // A tabbed-away dock is still visible to Qt, so its panel gets no showEvent when its tab is
         // selected; the Graphics panel draws only while on show and no tick redraws a paused window that
         // did not change, so it is told when its dock becomes the shown one (it re-checks on_show()).
@@ -1940,6 +1942,7 @@ void DebuggerWindow::apply_layout(const jnext::dock::Layout& in) {
             if (id == kPanelIds[i]) return docks_[i];
         return nullptr;
     };
+    applying_layout_ = true;   // the docks hide, show and float ~26 times below: announced once, at the end
 
     // Start from nothing placed: dock every floating panel and take every dock out of the host.
     parked_floats_.clear();
@@ -2002,6 +2005,8 @@ void DebuggerWindow::apply_layout(const jnext::dock::Layout& in) {
     pending_sizes_ = l;
     sizes_pending_ = true;
     if (isVisible()) apply_dock_sizes();
+    applying_layout_ = false;
+    emit panels_on_show_changed();   // GH #498
 }
 
 // A layout's sizes. resizeDocks() before the host has been laid out is not applied (measured), hence

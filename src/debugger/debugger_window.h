@@ -286,6 +286,7 @@ private:
     void tune_tab_bars();
     void size_hidden_tabs();
     bool tab_bars_tune_queued_ = false;
+    bool applying_layout_ = false;   // apply_layout() running: the on-show change is announced once, at its end
     /// What the left dock area's panels still lack in width (GH #360); the group's shown dock in `shown`.
     int left_column_lacking(QDockWidget** shown) const;
     QDockWidget* shown_dock_of(QDockWidget* d) const;

@@ -18,6 +18,8 @@
 #include "core/emulator_config.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/debugger_manager.h"
+#include "debug/debugger.h"
+#include "debugger/callstack_panel.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/dock_layout.h"
@@ -879,6 +881,33 @@ int main(int argc, char** argv)
             if (!w->panel_on_show(w->memory_panel())) why += "reopened and raised Memory off ";
         }
         check("QDOCK-24", "panel_on_show() answers from the docks: off for a tabbed-away or closed one, on for the shown tab, a floating one and the Disassembly; panels_on_show_changed fires on a tab switch and on a close",
+              why.empty(), why);
+    }
+
+    // QDOCK-25: closing a dock that is ALONE in its group (a floating Call Stack, also one restored floating
+    // from a saved layout) is announced (no other dock becomes visible) and call tracking goes off with it.
+    {
+        std::string why;
+        for (int variant = 0; variant < 2; ++variant) {
+            wipe(dir);
+            if (variant == 1) write_conf(dir, "v1 float callstack 100 120 500 340");
+            Fixture fx;
+            if (!fx.ok) { why += "fixture "; continue; }
+            QDockWidget* cs = fx.dock("Call Stack");
+            int changes = 0;
+            QObject::connect(fx.dbg, &DebuggerWindow::panels_on_show_changed, [&changes]() { ++changes; });
+            if (variant == 0) { cs->setFloating(true); settle(100); }
+            settle(100);
+            const std::string tag = variant == 0 ? "floated: " : "restored floating: ";
+            if (!cs->isFloating()) why += tag + "not floating ";
+            if (!fx.backend->call_stack_enabled()) why += tag + "tracking off with the Call Stack on show ";
+            const int before = changes;
+            cs->close();
+            settle(100);
+            if (changes <= before) why += tag + "no panels_on_show_changed on close ";
+            if (fx.backend->call_stack_enabled()) why += tag + "tracking still on after the close ";
+        }
+        check("QDOCK-25", "closing a floating Call Stack (alone in its group; also one restored floating from a saved layout) fires panels_on_show_changed and switches call tracking off",
               why.empty(), why);
     }
 
