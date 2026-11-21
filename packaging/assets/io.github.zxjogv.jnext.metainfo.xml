@@ -44,6 +44,7 @@
        patch tags are NOT listed here (sync-version.sh gates this on
        releases.yaml membership). -->
   <releases>
+    <release version="1.3.47" date="2026-11-21"/>
     <release version="1.3.5" date="2026-11-17"/>
     <release version="1.3.0" date="2026-11-15"/>
     <release version="1.2.0" date="2026-11-06"/>
