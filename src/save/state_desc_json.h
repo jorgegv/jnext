@@ -76,6 +76,13 @@ public:
     };
     const std::vector<BlobRef>& blobs() const { return blobs_; }
 
+    /// The names of the keys this declaration wrote through `bytes()`, `fifo()`
+    /// and `log()`, in declaration order: the arrays that can carry memory, card
+    /// sectors or traffic rather than a register's value. The bug report writer
+    /// classifies each one (state, memory or never); blobs are not here, they
+    /// never enter the JSON.
+    const std::vector<std::string>& content_keys() const { return content_keys_; }
+
 protected:
     void do_boolean(const char*, bool&, Def<bool>) override;
     void do_u8 (const char*, uint8_t&,  Def<uint8_t>) override;
@@ -91,6 +98,7 @@ private:
     struct Impl;
     std::unique_ptr<Impl> p_;
     std::vector<BlobRef>  blobs_;
+    std::vector<std::string> content_keys_;
 };
 
 /// Walk a declaration restoring from one subsystem's `state/<name>.json`.

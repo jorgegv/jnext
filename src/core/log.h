@@ -71,8 +71,11 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/dist_sink.h>
+#include <spdlog/sinks/ringbuffer_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "core/log_sink_policy.h"
@@ -274,11 +277,28 @@ public:
                     : spdlog::color_mode::automatic);
         }
         sink->set_pattern(PATTERN);
+        sink = with_ring(sink);
         current_sink() = sink;
         spdlog::apply_all([&sink](std::shared_ptr<spdlog::logger> l) {
             l->sinks().assign(1, sink);
         });
         return {};
+    }
+
+    /// Lines the bug report's log tail keeps (GH #492).
+    static constexpr size_t TAIL_LINES = 500;
+
+    /// The last `TAIL_LINES` lines at info level and above that any logger emitted,
+    /// oldest first, formatted as the console shows them, without the line ending.
+    /// Debug and trace lines are never in it: they can carry byte dumps. The ring
+    /// sits behind the one shared sink (a dist sink: destination + ring), so a
+    /// logger still has exactly one sink and a file or console destination is
+    /// unchanged.
+    static std::vector<std::string> tail() {
+        std::vector<std::string> out = tail_ring()->last_formatted();
+        for (std::string& l : out)
+            while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
+        return out;
     }
 
 private:
@@ -296,9 +316,31 @@ private:
             auto s = std::make_shared<spdlog::sinks::stderr_color_sink_mt>(
                 spdlog::color_mode::automatic);
             s->set_pattern(PATTERN);
-            return std::shared_ptr<spdlog::sinks::sink>(s);
+            return with_ring(std::shared_ptr<spdlog::sinks::sink>(s));
         }();
         return sink;
+    }
+
+    /// The process-wide ring behind tail(): info level and above only.
+    static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt>& tail_ring() {
+        static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> ring = [] {
+            auto r = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(TAIL_LINES);
+            r->set_level(spdlog::level::info);
+            r->set_pattern(PATTERN);
+            return r;
+        }();
+        return ring;
+    }
+
+    /// `destination` and the ring behind ONE sink, so every logger keeps a single
+    /// sink (a second per-logger sink would change what log_test pins).
+    static std::shared_ptr<spdlog::sinks::sink>
+    with_ring(std::shared_ptr<spdlog::sinks::sink> destination) {
+        auto dist = std::make_shared<spdlog::sinks::dist_sink_mt>();
+        dist->add_sink(std::move(destination));
+        dist->add_sink(tail_ring());
+        dist->set_pattern(PATTERN);
+        return dist;
     }
 
     static std::shared_ptr<spdlog::logger> make(const char* name) {

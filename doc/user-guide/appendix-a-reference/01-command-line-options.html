@@ -1227,6 +1227,8 @@
       
         
       
+        
+      
     
     
     
@@ -1571,6 +1573,34 @@
     
   
     5.11 POK trainers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-running-programs/12-bug-reports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.12 Bug reports
   
 
     
@@ -5771,6 +5801,16 @@ exits (<code>0x8000</code>, no overlay needed). A previous export’s
 <em>DIR</em> are replaced or removed; any other file there, any other
 <code>*.ghidra.txt</code> included, is never touched. A failed export is logged
 and jnext exits with status 1.</dd>
+<dt><strong>--bug-report</strong> <em>PATH</em></dt>
+<dd>When jnext exits, write a bug report to <em>PATH</em>: one zip file with
+the state of the machine and of jnext, for reading, not for
+replaying. If <em>PATH</em> is an existing directory, or ends in a slash (a
+backslash on Windows), the report is written inside it, named
+<em>PROGRAM</em><code>.YYYYMMDDhhmm.jnext-bug.zip</code> (local time; <em>PROGRAM</em> is the
+last program loaded, <code>jnext</code> if none, and <code>-2</code>, <code>-3</code>… is added when
+the name is taken). Otherwise <em>PATH</em> is the file. A failed write is
+logged and jnext exits with status 1. See <a href="../05-running-programs/12-bug-reports.html">5.12 Bug
+reports</a>.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
 for example <code>0x00FF</code>).</dd>

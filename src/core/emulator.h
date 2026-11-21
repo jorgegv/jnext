@@ -1191,6 +1191,48 @@ public:
     const EmulatorConfig& config() const { return config_; }
     const MachineTiming& timing() const { return timing_; }
 
+    // ── Bug report support (GH #492) ─────────────────────────────────────
+
+    /// Why the bug report must not carry this machine's RAM, or None when it may.
+    ///
+    /// RAM is the program's alone only when no firmware can have run: a
+    /// `--no-sdcard` session (the machine then holds no ROM, DivMMC or Multiface
+    /// bytes at all) whose RAM has not seen the boot ROM run or a foreign state
+    /// come in since it was last cleared. Every other session is a card session:
+    /// the firmware and ROMs came from the card. A latch, set at init() and at
+    /// load_state(), never per instruction: it fails safe at any restore path
+    /// added later. A soft reset keeps it (RAM survives it).
+    enum class RamWithheld : uint8_t {
+        None,
+        CardSession,     ///< the machine holds ROM / NextZXOS bytes from a card
+        BootRomRan,      ///< the embedded boot ROM was installed and ran
+        StateRestored,   ///< a state not from this session's own rewind ring was loaded
+    };
+    RamWithheld ram_withheld() const;
+
+    /// A program file the user loaded since RAM was last cleared: where it was,
+    /// and its size and mtime at load (what the report checks it against, so a
+    /// file edited since is not shipped as the one that ran). No hashing at load.
+    struct ProgramFile {
+        std::string name;      ///< base name (a file extracted from a zip: the member's)
+        std::string path;      ///< absolute
+        uint64_t    size  = 0;
+        int64_t     mtime = 0; ///< file_time_type ticks
+    };
+    const std::vector<ProgramFile>& program_files() const { return program_files_; }
+
+    /// One subsystem's `.jns` state document, for a bug report.
+    struct StateDocument {
+        std::string              subsystem;
+        std::string              json;
+        std::vector<std::string> content_keys;   ///< keys written through bytes/fifo/log
+    };
+    /// Describe the machine WHERE IT STANDS, subsystem by subsystem, as the `.jns`
+    /// writer does: no advance to a frame boundary (a report taken at a breakpoint
+    /// must show that instruction), so the machine is not moved. False and `why`
+    /// when a declaration fails.
+    bool state_documents(std::vector<StateDocument>& out, std::string& why);
+
     /// Real-time duration of one emulated frame, in milliseconds. Follows the
     /// current video refresh (50 Hz → ~20.26 ms, 60 Hz → ~17.20 ms). Frontends
     /// pace their frame timer from this so a 60 Hz demo (NR 0x05 bit 2) runs at
@@ -2008,6 +2050,16 @@ private:
     //
     // Their lifetime is one `save_jns` or one `load_jns` call. Nothing else
     // reads them, and a reviewer should treat any other reader as a defect.
+    /// Fill the `jns_*_` members below from the live machine. save_jns() and
+    /// state_documents() both call it.
+    void stage_jns_exceptions_();
+
+    // GH #492: see ram_withheld() and program_files().
+    RamWithheld              ram_withheld_ = RamWithheld::CardSession;
+    std::vector<ProgramFile> program_files_;
+    /// Record `path` as a program file loaded now (replacing the same path).
+    void note_program_file_(const std::string& path);
+
     uint64_t jns_monotonic_tstates_ = 0;   ///< base + live, folded at capture
     int64_t  jns_int_first_ts_      = 0;   ///< /INT window, relative to FUSE
     int64_t  jns_int_last_ts_       = 0;   ///< INT64_MAX stays INT64_MAX

@@ -111,6 +111,7 @@ enum class OptId {
     ImportGhidra,
     ExportSkoolkit,
     ExportGhidra,
+    BugReport,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -1034,6 +1035,17 @@ inline constexpr Option OPTIONS[] = {
       "page (an overlay named TAG), CPU.ghidra.txt for the unpaged\n"
       "labels and view.ghidra.txt for the memory as mapped at exit.\n"
       "A failure exits 1" },
+    // GH #492: the bug report, written when jnext exits.
+    { "--bug-report", 1, Doc::Documented, OptId::BugReport,
+      "PATH",
+      "At exit, write a bug report to PATH: one zip file with the\n"
+      "machine and jnext state (registers, NextREGs, paging, video,\n"
+      "settings), the picture and each video layer, the log tail,\n"
+      "the debugger state and the program loaded. RAM only in a\n"
+      "--no-sdcard session, never any NextZXOS or ROM content. If\n"
+      "PATH is a directory (or ends in a slash) the file is named\n"
+      "PROGRAM.YYYYMMDDhhmm.jnext-bug.zip inside it. A failure\n"
+      "exits 1" },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

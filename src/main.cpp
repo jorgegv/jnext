@@ -490,6 +490,7 @@ int main(int argc, char* argv[]) {
     bool        coverage_enabled = false;
     std::string export_skoolkit_dir;       // GH #389
     std::string export_ghidra_dir;
+    std::string bug_report_path;           // GH #492
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
     bool        compositor_trace_frame_set = false;
@@ -1502,6 +1503,9 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::ExportGhidra:
                 export_ghidra_dir = v[0];
+                break;
+            case cli::OptId::BugReport:
+                bug_report_path = v[0];
                 break;
             case cli::OptId::CompositorTrace:
                 compositor_trace_path = v[0];
@@ -2657,6 +2661,8 @@ int main(int argc, char* argv[]) {
         cfg.coverage = coverage_enabled;
         cfg.export_skoolkit_dir = export_skoolkit_dir;
         cfg.export_ghidra_dir   = export_ghidra_dir;
+        cfg.bug_report_path     = bug_report_path;
+        cfg.command_line.assign(argv, argv + argc);   // GH #492: what the bug report records
         cfg.compositor_trace_path  = compositor_trace_path;
         cfg.compositor_trace_frame = compositor_trace_frame;
         cfg.profile                = profile_enabled;

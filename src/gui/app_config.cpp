@@ -560,3 +560,27 @@ void AppConfig::save() const {
 
     settings_.sync();
 }
+
+// GH #492 - see the declaration.
+std::vector<std::pair<std::string, std::string>> AppConfig::file_for_report() const
+{
+    namespace ck = config_keys;
+    settings_.sync();
+    auto text = [](const QVariant& v) {
+        if (v.userType() == QMetaType::QStringList) return v.toStringList().join(QLatin1Char(',')).toStdString();
+        return v.toString().toStdString();
+    };
+    std::vector<std::pair<std::string, std::string>> out;
+    for (const ck::Key& k : ck::KEYS) {
+        if (k.id == ck::KeyId::DebuggerKey) {
+            settings_.beginGroup(QString::fromLatin1(k.section));
+            for (const QString& child : settings_.childKeys())
+                out.emplace_back(std::string(k.section) + "." + child.toStdString(), text(settings_.value(child)));
+            settings_.endGroup();
+            continue;
+        }
+        const QString path = QString::fromLatin1(k.section) + QLatin1Char('/') + QString::fromLatin1(k.name);
+        if (settings_.contains(path)) out.emplace_back(std::string(k.section) + "." + k.name, text(settings_.value(path)));
+    }
+    return out;
+}

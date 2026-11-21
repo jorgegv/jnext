@@ -1230,6 +1230,30 @@ target_link_libraries(screenshot_test PRIVATE
 target_include_directories(screenshot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME screenshot_tests COMMAND screenshot_test)
 
+# GH #492 - the bug report writer: a machine (no card, and a synthetic card), the debugger
+# facade, the zip it writes. Links the whole emulator like no_sdcard_test, plus jnext_platform
+# for the writer; ${CMAKE_SOURCE_DIR} for the vendored JSON header.
+add_executable(bug_report_test platform/bug_report_test.cpp)
+target_link_libraries(bug_report_test PRIVATE
+    jnext_platform jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(bug_report_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+add_test(NAME bug_report_tests COMMAND bug_report_test)
+
+# GH #492 stage 3 - the viewer (tools/jnext-bug-view.py): reports built in memory, the viewer run as
+# `python3 -I` in a child with a minimal environment. Forks python3: POSIX only (os: posix in the manifest).
+if(NOT WIN32 AND NOT EMSCRIPTEN)
+    add_executable(bug_view_test platform/bug_view_test.cpp)
+    target_link_libraries(bug_view_test PRIVATE
+        jnext_platform jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(bug_view_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(bug_view_test PRIVATE JNEXT_TOOLS_DIR="${CMAKE_SOURCE_DIR}/tools")
+    add_test(NAME bug_view_tests COMMAND bug_view_test)
+endif()
+
 # Superseded-composite render-skip policy test (issue #9 / Task 63). Header-only
 # decision helper under test (src/platform/render_policy.h) — no Qt, no SDL,
 # no emulator core.
@@ -2020,6 +2044,14 @@ if(ENABLE_QT_UI)
     target_link_libraries(no_sdcard_ui_test PRIVATE jnext_gui)
     target_include_directories(no_sdcard_ui_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME no_sdcard_ui_tests COMMAND no_sdcard_ui_test)
+
+    # GH #492 stage 2 - File > Save Bug Report...: the menu entry, the real file dialog, the report the Qt
+    # frontend writes (settings file included).
+    add_executable(bug_report_ui_test gui/bug_report_ui_test.cpp)
+    set_target_properties(bug_report_ui_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(bug_report_ui_test PRIVATE jnext_gui)
+    target_include_directories(bug_report_ui_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+    add_test(NAME bug_report_ui_tests COMMAND bug_report_ui_test)
 
     # File > Recent Files wiring (GH #406): what is recorded, the numbered
     # entries, Clear, a vanished file, persistence, the load-dialog seed.

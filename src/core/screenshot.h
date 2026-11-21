@@ -35,6 +35,13 @@ bool save_screenshot_png(const std::string& path,
                          const uint32_t* framebuffer,
                          int width, int height);
 
+/// Encode an ARGB8888 framebuffer as a PNG into memory: the same bytes
+/// `save_screenshot_png()` writes for the same input (it calls this), so there is
+/// one encoder. `width` x `height` are the in-memory framebuffer, the PNG is
+/// `width` x `height * 2` as above. Returns false (and `out` empty) on failure.
+bool encode_png(const uint32_t* framebuffer, int width, int height,
+                std::vector<uint8_t>& out);
+
 /// Save a `.SCR` body (from Ula::screen_dump()) verbatim.
 ///
 /// Returns true only when every byte reached the file AND the stream closed

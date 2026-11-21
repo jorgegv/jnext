@@ -89,6 +89,7 @@ nav:
           - 3.10.5 The ZRCP server (ZEsarUX's protocol): 03-subsystems/12-the-zrcp-server.md
           - 3.10.6 The debugger scripting language: 03-subsystems/13-the-debugger-scripting-language.md
           - 3.10.7 Extending the debug subsystem: 03-subsystems/10-7-extending-the-debug-subsystem.md
+      - 3.11 Bug reports: 03-subsystems/14-bug-reports.md
   - 4. Testing:
       - 04-testing/index.md
       - 4.1 The test triplet: 04-testing/01-the-test-triplet.md

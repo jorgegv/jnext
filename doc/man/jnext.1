@@ -1666,6 +1666,20 @@ A previous export\(cqs \f[CR]CPU.ghidra.txt\f[R],
 \f[CR]*.ghidra.txt\f[R] included, is never touched.
 A failed export is logged and jnext exits with status 1.
 .TP
+\f[B]\-\-bug\-report\f[R] \f[I]PATH\f[R]
+When jnext exits, write a bug report to \f[I]PATH\f[R]: one zip file
+with the state of the machine and of jnext, for reading, not for
+replaying.
+If \f[I]PATH\f[R] is an existing directory, or ends in a slash (a
+backslash on Windows), the report is written inside it, named
+\f[I]PROGRAM\f[R]\f[CR].YYYYMMDDhhmm.jnext\-bug.zip\f[R] (local time;
+\f[I]PROGRAM\f[R] is the last program loaded, \f[CR]jnext\f[R] if none,
+and \f[CR]\-2\f[R], \f[CR]\-3\f[R]\&...
+is added when the name is taken).
+Otherwise \f[I]PATH\f[R] is the file.
+A failed write is logged and jnext exits with status 1.
+See \f[B]BUG REPORTS\f[R].
+.TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, \f[CR]0x\f[R] prefix
 optional, for example \f[CR]0x00FF\f[R]).
@@ -2703,6 +2717,68 @@ It does contain \f[B]all of RAM\f[R], which on a Next includes NextZXOS
 and DivMMC ROM code paged into it.
 Those are not redistributable: keep your snapshots rather than posting
 them, and hand somebody a \f[CR].nex\f[R] instead.
+.SH BUG REPORTS
+\f[B]\-\-bug\-report\f[R] \f[I]PATH\f[R] saves, when jnext exits, one
+zip file that holds what a developer needs to understand a failure: the
+state of the machine and of jnext at that moment.
+In the Qt window \f[B]File > Save Bug Report\&...\f[R] saves one at
+once: it opens a save dialog in your home folder that proposes the name
+below.
+It is a snapshot for reading, not a session to replay.
+It holds:
+.IP \(bu 2
+the jnext version, the host operating system and architecture, the
+frontend and the settings in use (the command line and, in the Qt
+frontend, the settings file), with host paths blanked;
+.IP \(bu 2
+the machine, decoded: the CPU registers, every NextREG with its name,
+the paging map, the ULA, Layer 2, sprite, tilemap and Copper state, the
+palettes, the interrupt, DivMMC and Multiface flags, the audio chips;
+.IP \(bu 2
+the screenshot, and each of the seven video layers on its own;
+.IP \(bu 2
+the last 500 lines of the log at info level and above;
+.IP \(bu 2
+the debugger\(cqs state: the run state, breakpoints, the call stack and
+the recent instruction trace;
+.IP \(bu 2
+the SD card\(cqs name, size and SHA\-256, never its bytes;
+.IP \(bu 2
+the program file you loaded, byte for byte (a \f[CR].jns\f[R] snapshot,
+which holds the machine\(cqs whole memory, is the exception: only its
+SHA\-256 and size are recorded).
+It is your file, and you are responsible for what you attach: jnext does
+not check it against anything;
+.IP \(bu 2
+\f[B]memory, only when no firmware has run\f[R]: RAM, the CPU\(cqs 64 KB
+view, the sprite patterns, a disassembly, the bytes at the stack pointer
+and the opcode bytes of the trace.
+That is a \f[CR]\-\-no\-sdcard\f[R] session whose memory has not seen
+the boot ROM run or a saved state loaded since it was cleared.
+In every other session, memory holds NextZXOS, ROM or DivMMC firmware
+from the card, so the report carries the machine state but none of its
+memory, and the manifest says why.
+.PP
+jnext never puts NextZXOS, ROM or any other distribution content in a
+report, and no byte of the SD card.
+The program file you loaded is yours, goes in as it is and is your
+responsibility.
+The card is named and identified by its SHA\-256 only.
+The serial (UART) FIFOs and the SD buffers of the machine state are left
+out, because they can carry what the program or NextZXOS exchanged with
+the card or the network.
+.PP
+Your user name and every absolute path on your computer are blanked in
+the file (\f[CR]<user>\f[R] and \f[CR]<path>/name\f[R]).
+Look through a report before you attach it anyway.
+.PP
+To read a report, \f[CR]tools/jnext\-bug\-view.py\f[R] in the jnext
+sources shows it as a page, or as text with \f[CR]\-\-text\f[R]; it
+needs only Python 3, and refuses a file that is not a jnext bug report.
+.PP
+\f[CR]manifest.json\f[R] lists every member of the file and what was
+left out and why.
+A file is a report when it has that manifest, whatever its name.
 .SH HEADLESS MODE, SCREENSHOTS AND RECORDING
 \f[B]\-\-headless\f[R] runs the emulator with no window and no audio
 device, as fast as the host allows: the mode built for scripting and CI.
@@ -3199,7 +3275,8 @@ RUNNING\f[R]), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
 Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot
 (Alt+K), Save Snapshot (Alt+Shift+S), Quick Save Snapshot
 (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see \f[B]JNEXT
-SNAPSHOTS\f[R] above), Quit (Alt+Q or Alt+F4).
+SNAPSHOTS\f[R] above), Save Bug Report\&...
+(see \f[B]BUG REPORTS\f[R]), Quit (Alt+Q or Alt+F4).
 .RS
 .PP
 \f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses
@@ -4618,6 +4695,13 @@ Created on the first save.
 Quick Save keeps the newest 20 files it made (see
 \f[B]\-\-quick\-snapshot\-keep\f[R]).
 .TP
+\f[CR]*.jnext\-bug.zip\f[R]
+A bug report (see \f[B]BUG REPORTS\f[R]), named
+\f[CR]PROGRAM.YYYYMMDDhhmm.jnext\-bug.zip\f[R] by
+\f[B]\-\-bug\-report\f[R] \f[I]DIR\f[R]\f[CR]/\f[R] and proposed under
+that name by \f[B]File > Save Bug Report\&...\f[R].
+Where it goes is your choice; jnext keeps no folder of them.
+.TP
 \f[CR]\(ti/.jnext/warm\-start/\f[R]
 The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a
 \f[CR].nex\f[R] starts from, one file per machine type, around 100 KB
@@ -4674,6 +4758,9 @@ This holds in the GUI, the SDL\-only build and under
 \f[B]\-\-headless\f[R] alike.
 The error is logged, the machine keeps running without the program, and
 the non\-zero status is reported when \f[B]jnext\f[R] exits.
+.PP
+It exits 1 when a \f[B]\-\-bug\-report\f[R] file cannot be written, the
+way it does for a failed \f[B]\-\-export\-skoolkit\f[R].
 .PP
 SIGTERM, or SIGINT (Ctrl\-C in the terminal), ends \f[B]jnext\f[R] the
 way closing the window does: recordings and captures are finished and no
@@ -4742,6 +4829,9 @@ Report bugs at \c
 .UR https://github.com/jorgegv/jnext/issues
 .UE \c
 \&.
+Attach a bug report (\f[B]File > Save Bug Report\&...\f[R], or
+\f[B]\-\-bug\-report\f[R] \f[I]DIR\f[R]\f[CR]/\f[R]): see \f[B]BUG
+REPORTS\f[R].
 .SH AUTHORS
 Main author: Jorge Gonzalez, aka ZXjogv \c
 .MT zx@jogv.es
