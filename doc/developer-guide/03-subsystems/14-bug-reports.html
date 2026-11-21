@@ -3240,10 +3240,16 @@ the JSON, and <code>ram_window</code> writes a reference without bytes.</p>
 <p><code>bug_report::redact()</code> replaces every user name (from <code>USER</code>, <code>USERNAME</code>, <code>LOGNAME</code> and
 the home directory's last component, three characters or more) with <code>&lt;user&gt;</code>, then every
 absolute path (POSIX, <code>X:\</code> or <code>X:/</code>, UNC) with <code>&lt;path&gt;/&lt;base name&gt;</code>. It runs on the
-command line, the log tail, settings values and every name from outside. A settings value
-is kept only when its type cannot name the host (numbers, booleans, words, key
-combinations); paths, host lists, device names, the recent-files history and any key the
-table does not know are written as <code>&lt;blanked&gt;</code>. The three members that carry free text
+command line, the log tail, settings values and every name from outside. Whether a settings value is kept is decided per key, in <code>config_value_rule()</code> (<code>bug_report.cpp</code>): a
+<code>switch</code> over <code>config_keys::KeyId</code> with no <code>default</code>, so a key added to the table is a build error
+(<code>-Werror=switch</code>) until someone classifies it, and <code>bug_report_test</code> BR-35 keeps the list of kept keys
+explicit. Numbers, booleans and words are kept only when they are nothing but <code>[A-Za-z0-9._+-]</code>; a debugger
+key combination only when it parses; the debugger window's size and position only as <code>W,H</code> or <code>X,Y</code>.
+Everything that can name the host is blanked whatever it holds: paths and path lists, host lists, device
+ids and names, the recent-files history, the NextPi folder, QEMU binary, QEMU arguments and audio mode
+(which can be <code>wav:FILE</code>), and any key the table does not know (its name is not echoed either). The same
+holds for the log line of a refused <code>[debugger_keys]</code> entry. <code>redact()</code> also starts a path after a colon
+(<code>wav:/abs/path</code>), except in a <code>scheme://</code> URL. The three members that carry free text
 (<code>settings.json</code>, <code>log.txt</code>, <code>debugger.json</code>) are scrubbed a second time for the exact
 user names and the home directory.</p>
 <p>The SD card is named by its base name, size and SHA-256, with the identity the <code>.jns</code>
