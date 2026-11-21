@@ -160,6 +160,7 @@ nav:
       - 8.3 On itch.io, and what the browser build does not do: 08-web-page/03-itch-and-limits.md
       - 8.4 NextZXOS, the SD card, and what the browser keeps: 08-web-page/04-the-image-and-what-the-browser-keeps.md
       - 8.5 Two ways to embed JNEXT, your own page or the widget: 08-web-page/05-two-ways-to-embed.md
+      - 8.6 Debugging from the page: 08-web-page/06-debugging-from-the-page.md
   - Appendix A. Reference:
       - appendix-a-reference/index.md
       - A.1 Command-line options: appendix-a-reference/01-command-line-options.md

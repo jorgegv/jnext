@@ -2448,10 +2448,10 @@ void ZrcpServer::cmd_cpu_history(const Cmd& c) {
     }
     if (iequals(p, "get-max-size")) return reply(std::to_string(hist_max_));
     const auto& view  = history_view();
-    const long  total = static_cast<long>(view.size());
+    const std::int64_t total = static_cast<std::int64_t>(view.size());
     if (iequals(p, "get-size")) return reply(std::to_string(total));
     // `cpu_history_get_*_element`'s three answers for an index.
-    const auto element = [&](long idx, bool pc_only, std::string& out) {
+    const auto element = [&](std::int64_t idx, bool pc_only, std::string& out) {
         if (idx < 0) {
             out = pc_only ? "ERROR: index can't be negative" : "ERROR: index out of range";
             return;
@@ -2471,23 +2471,23 @@ void ZrcpServer::cmd_cpu_history(const Cmd& c) {
     };
     // ZEsarUX reads these with `parse_string_to_number`: a sign is honoured,
     // garbage is 0.
-    const auto signed_arg = [](const std::string& tok) -> long {
+    const auto signed_arg = [](const std::string& tok) -> std::int64_t {
         const bool neg = !tok.empty() && tok[0] == '-';
         std::uint32_t v = 0;
         if (!parse_number(neg ? tok.substr(1) : tok, v)) return 0;
-        return neg ? -static_cast<long>(v) : static_cast<long>(v);
+        return neg ? -static_cast<std::int64_t>(v) : static_cast<std::int64_t>(v);
     };
-    const long i = signed_arg(value);
+    const std::int64_t i = signed_arg(value);
     if (iequals(p, "get")) {
         std::string out;
         element(total - i - 1, false, out);
         return reply(out);
     }
     // get-pc start n: n PCs from `start` towards the oldest, each "%04x ".
-    const long n = c.args.size() > 2 ? signed_arg(c.args[2]) : 0;
+    const std::int64_t n = c.args.size() > 2 ? signed_arg(c.args[2]) : 0;
     if (n < 0) return reply("Error. Can't be negative");
-    long count = std::min<long>(n, total);
-    long idx   = total - i - 1;
+    std::int64_t count = std::min<std::int64_t>(n, total);
+    std::int64_t idx = total - i - 1;
     std::string out;
     for (; count > 0; --count, --idx) {
         std::string one;

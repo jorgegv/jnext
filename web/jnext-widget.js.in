@@ -18,6 +18,10 @@
 //                                     comma-separated absolute paths, e.g. /GAMES,/APPS (user guide 8.4)
 // data-nmi                           add the NMI button (Multiface: opens NextZXOS's NMI Menu); disabled
 //                                     with data-card-source="none", which has no Multiface ROM
+// data-debug-protocol                 the mount() option debug: dzrp, zrcp or gdb: serve that debugger protocol to a
+//                                     client of the page (one entry; the player is el.jnextPlayer)
+// data-debug-transport                channel (default: el.jnextPlayer.debugChannel(protocol)) or ws
+// data-debug-url                      the WebSocket url (ws:// or wss://) of a ws transport
 // data-width, data-height             the screen size in CSS pixels (640 x 512)
 // data-keep-writes                    the mount() option keepWrites: keep the program's saves across
 //                                     reloads (any value but "false"); el.jnextPlayer.resetCard() clears them
@@ -222,6 +226,11 @@
     if (el.getAttribute('data-file')) options.file = el.getAttribute('data-file');
     if (el.getAttribute('data-card-file')) options.file = { card: el.getAttribute('data-card-file') };
     if (el.getAttribute('data-touch-keyboard')) options.touchKeyboard = el.getAttribute('data-touch-keyboard');
+    if (el.getAttribute('data-debug-protocol')) {
+      options.debug = { protocol: el.getAttribute('data-debug-protocol') };
+      if (el.getAttribute('data-debug-transport')) options.debug.transport = el.getAttribute('data-debug-transport');
+      if (el.getAttribute('data-debug-url')) options.debug.url = el.getAttribute('data-debug-url');
+    }
     if (el.hasAttribute('data-keep-writes') && el.getAttribute('data-keep-writes') !== 'false') options.keepWrites = true;
 
     var p = jnext.mount(ui.stage, options);

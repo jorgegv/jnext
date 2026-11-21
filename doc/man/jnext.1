@@ -251,9 +251,8 @@ likely cause,
 e.g.\ \f[CR]executed ROM code at $0038 (IM 1); \-\-no\-sdcard has no ROM\f[R],
 and the program will hang or show garbage.
 DivMMC and the Multiface are held off, the NMI buttons are refused, File
-> Insert SD Card Image\&...
-and Eject SD Card are disabled and the status bar shows \f[B]SD:
-none\f[R].
+> Insert SD Card Image\&..., Eject SD Card and their second\-card twins
+are disabled and the status bar shows \f[B]SD: none\f[R].
 A hard reset runs the boot ROM, which stops at its no\-card screen as on
 hardware; the program is not loaded again.
 Requires \f[B]\-\-load\f[R] of a \f[B].nex\f[R] (directly or in a
@@ -1448,6 +1447,16 @@ A port that cannot be bound is a startup error.
 Works in every frontend, \f[B]\-\-headless\f[R] included, and alongside
 \f[B]\-\-dzrp\-port\f[R] and \f[B]\-\-gdb\-port\f[R].
 .TP
+\f[B]\-\-debug\-channel\f[R] \f[I]PROTOCOL\f[R]
+Browser page only: serve the debugger protocol \f[I]PROTOCOL\f[R]
+(\f[CR]dzrp\f[R], \f[CR]zrcp\f[R] or \f[CR]gdb\f[R]) to the page\(cqs
+debug channel, the \f[CR]debug\f[R] option of \f[CR]jnext.mount\f[R].
+May be given once for each protocol.
+Every other build refuses it with exit status 1, because a server that
+was asked for and cannot be reached is a startup error: use
+\f[B]\-\-dzrp\-port\f[R], \f[B]\-\-zrcp\-port\f[R] or
+\f[B]\-\-gdb\-port\f[R] there.
+.TP
 \f[B]\-\-debug\-listen\-address\f[R] \f[I]ADDR\f[R]
 Bind address for the debugger protocol servers
 (\f[B]\-\-dzrp\-port\f[R], \f[B]\-\-gdb\-port\f[R],
@@ -2065,7 +2074,8 @@ The card can also come from \f[B]Preferences > Paths > Second SD card
 image\f[R] (\f[CR]paths.sd_card2_path\f[R], reachable with
 \f[B]\-\-set\f[R]) when \f[B]\-\-sdcard2\f[R] is not given.
 A saved path that no longer exists is logged and leaves the slot empty;
-only an explicit \f[B]\-\-sdcard2\f[R] refuses to start.
+only an explicit \f[B]\-\-sdcard2\f[R], or \f[B]\-\-set\f[R]
+\f[CR]paths.sd_card2_path=\f[R], refuses to start.
 .IP \(bu 2
 The slot is optional: with nothing in it the machine behaves exactly as
 it did before the slot existed.
@@ -2209,10 +2219,12 @@ jnext \-\-sdcard\-writes dev.jsdw
 .EE
 .PP
 The rules are those of a copy into the image.
-A second add of the same destination is refused (exit 4) and
-\f[I]FILE\f[R] is left alone; with \f[B]\-\-sdcard\-file\-force\f[R] it
-is replaced, and replacing a file by one of the same size does not make
-\f[I]FILE\f[R] grow.
+A second add of the same destination is refused (exit 4) and the card
+kept in \f[I]FILE\f[R] is left as it was; with
+\f[B]\-\-sdcard\-file\-force\f[R] it is replaced.
+The first replacement adds the new copy\(cqs sectors to \f[I]FILE\f[R];
+replacing it again by a file of the same size does not make
+\f[I]FILE\f[R] grow further.
 \f[B]\-\-sdcard\-writes\-reset\f[R] starts again from the image.
 Adds accumulate in \f[I]FILE\f[R], together with anything a run of the
 machine wrote and the file the esxDOS stand\-in keeps.
@@ -3620,7 +3632,10 @@ It is driven from the Qt6 UI, so it needs a GUI build
 SDL\-only build has no way to open it.
 .IP \(bu 2
 \f[B]CPU registers\f[R] \- all Z80/Z80N registers, flags
-(S/Z/H/P/V/N/C), halt state, interrupt mode, active ULA screen
+(S/Z/H/P/V/N/C), halt state, interrupt mode, active ULA screen; while
+paused, every register, flag, IFF and IM can be edited in place
+(double\-click a value, click a flag), and \f[B]T\-states\f[R] shows the
+time since the last stop (\f[B]Accumulate\f[R] adds stops up)
 .IP \(bu 2
 \f[B]MMU panel\f[R] \- the Next 8\-slot MMU table (page numbers and
 type) and the 128K bank mappings
@@ -3655,8 +3670,13 @@ File\&...\f[R]), with line numbers, a breakpoint column, a current\-line
 arrow, coverage tint and the Disassembly\(cqs right\-click menu; source
 Step Into, Over, Out, Back and Reverse, also in \f[B]Debug > Source\f[R]
 .IP \(bu 2
-\f[B]Breakpoints\f[R] \- execution, read, write and I/O watchpoints, in
-one panel.
+\f[B]Breakpoints\f[R] \- execute, read, write, read/write and I/O
+watchpoints and Interrupt/NMI breakpoints, in one panel, with optional
+address ranges, I/O port masks, conditions (debugger\-script
+expressions), hit counts and count\-only breakpoints; \f[B]Breakpoints >
+Save as Script\f[R] / \f[B]Load from Script\f[R] keep them in a
+\f[CR].jds\f[R] file, and \f[B]Debug > Run to Next Interrupt\f[R] stops
+once at the next maskable interrupt.
 An I/O watchpoint address of \f[B]00\f[R]\-\f[B]FF\f[R] matches any port
 with that low byte (\f[B]FE\f[R] catches every ULA access, whatever the
 high byte holds); \f[B]0100\f[R] and above matches that exact 16\-bit
@@ -3688,6 +3708,12 @@ once (raw \f[CR]hc\f[R]/\f[CR]vc\f[R], the ULA\(cqs
 0x1E/0x1F report, and the pixel being generated), whether the beam is in
 paper, border or blanking, and whether the ULA is fetching a bitmap
 byte, an attribute byte or nothing
+.IP \(bu 2
+\f[B]Graphics\f[R] \- the sprite patterns, the tile definitions and all
+eight palettes (RGB333 values and priority bit)
+.IP \(bu 2
+\f[B]Symbols\f[R] \- every known label, filterable; double\-click one to
+show it in the Disassembly (also \f[B]Go > Symbols\f[R])
 .IP \(bu 2
 \f[B]Sprite viewer\f[R] \- all 128 hardware sprites with their attribute
 table
@@ -3809,13 +3835,22 @@ Forward
 T}
 .TE
 .PP
+Every panel except the Disassembly is a dock: drag it to another edge,
+onto another panel to make a tab, or out of the window to float it, and
+close it from its title bar.
+\f[B]Window > Panels\f[R] brings a closed panel back and \f[B]Window >
+Reset Layout\f[R] restores the default arrangement.
+The arrangement is remembered (\f[CR]layout\f[R] in the
+\f[CR][debugger]\f[R] section, see \f[B]FILES\f[R]).
+.PP
 Those are defaults.
-All twenty debugger commands \- the fifteen above plus Run to Cursor,
-Run to End of Frame, Run to End of Scan Line, Source Step Back and
-Source Reverse Continue, which ship unbound \- can be rebound under
-\f[B]Settings > Preferences > Debugger Keys\f[R] in the emulator window,
-or by hand in the \f[CR][debugger_keys]\f[R] section of the
-configuration file (\f[CR]step_over=F10\f[R]).
+All twenty\-one debugger commands \- the fifteen above plus Run to
+Cursor, Run to End of Frame, Run to End of Scan Line, Run to Next
+Interrupt, Source Step Back and Source Reverse Continue, which ship
+unbound \- can be rebound under \f[B]Settings > Preferences > Debugger
+Keys\f[R] in the emulator window, or by hand in the
+\f[CR][debugger_keys]\f[R] section of the configuration file
+(\f[CR]step_over=F10\f[R]).
 Only the commands you change are written there, so a default that
 changes in a later release still reaches you.
 .PP
@@ -4386,6 +4421,31 @@ page\(cqs memory only.
 on\-screen keyboard is shown on a phone or tablet),
 \f[CR]\(aqon\(aq\f[R] or \f[CR]\(aqoff\(aq\f[R].
 .TP
+\f[CR]debug\f[R] \f[I]{protocol, transport, url} | array\f[R]
+\f[B]\-\-debug\-channel\f[R], once for each entry: serve a debugger
+protocol to a client of the page.
+\f[CR]protocol\f[R] is \f[CR]\(aqdzrp\(aq\f[R] (DeZog\(cqs DZRP),
+\f[CR]\(aqzrcp\(aq\f[R] (the ZEsarUX remote command protocol, also
+DeZog\(cqs) or \f[CR]\(aqgdb\(aq\f[R] (the GDB remote protocol of
+\f[CR]z88dk\-gdb\f[R]); an array holds one entry for each protocol at
+most, up to three.
+\f[CR]transport\f[R] is \f[CR]\(aqchannel\(aq\f[R] (the default: the
+page\(cqs own code is the client, through
+\f[CR]player.debugChannel(protocol)\f[R], see The player) or
+\f[CR]\(aqws\(aq\f[R]: the player dials the WebSocket \f[CR]url\f[R]
+(\f[CR]ws://\f[R] or \f[CR]wss://\f[R], required with
+\f[CR]\(aqws\(aq\f[R], refused with \f[CR]\(aqchannel\(aq\f[R]) and
+carries the bytes of one client at a time over it, in the format of The
+debug link.
+A page cannot listen on TCP, so a client that is a program on the same
+computer (DeZog, \f[CR]z88dk\-gdb\f[R]) reaches the page through a
+bridge such as
+\f[CR]tools/web\-debug\-bridge/jnext\-debug\-bridge.mjs\f[R], which the
+web package ships.
+The machine is served on the frame loop: while the player is paused or
+the tab is hidden, a client waits.
+There is no authentication.
+.TP
 \f[CR]muted\f[R] \f[I]boolean\f[R]
 \f[CR]startup.silent\f[R]: no audio device for the session.
 .TP
@@ -4455,6 +4515,41 @@ option, and resolves when the program is running again.
 \f[B]\-\-touch\-keyboard\f[R] says; the page\(cqs call wins, before or
 after the start, and anything but a boolean throws.
 \f[CR]keyboardVisible\f[R] tells whether it is shown.
+.PP
+\f[CR]debugChannel(protocol)\f[R] returns the channel of the
+\f[CR]debug\f[R] entry for \f[CR]\(aqdzrp\(aq\f[R],
+\f[CR]\(aqzrcp\(aq\f[R] or \f[CR]\(aqgdb\(aq\f[R] whose
+\f[CR]transport\f[R] is \f[CR]\(aqchannel\(aq\f[R]; it throws for a
+protocol the page did not ask for and for one served over WebSocket.
+It can be fetched as soon as \f[CR]mount()\f[R] resolves, but
+\f[CR]open()\f[R] and \f[CR]send()\f[R] throw until the machine runs.
+\f[CR]open()\f[R] says a client arrived (it throws when one is open);
+\f[CR]send(bytes)\f[R] gives the channel what the client said (a
+\f[CR]Uint8Array\f[R] or an \f[CR]ArrayBuffer\f[R]; it throws when no
+client is open, and with a \f[CR]RangeError\f[R] when the input is
+full); \f[CR]close()\f[R] says the client left (no \f[CR]onClose\f[R]
+follows).
+\f[CR]onData\f[R] is called with a \f[CR]Uint8Array\f[R] of what the
+machine answered, and \f[CR]onClose\f[R] when the machine ended the
+session (ZRCP \f[CR]quit\f[R], \f[CR]destroy()\f[R], the machine
+exiting); both are called from a microtask, after the player\(cqs own
+call has returned, never from inside it.
+\f[CR]isOpen\f[R] tells whether a client is open.
+.SS The debug link
+A \f[CR]debug\f[R] entry with \f[CR]transport: \(aqws\(aq\f[R] keeps one
+WebSocket open to its \f[CR]url\f[R] for as long as the player runs, and
+redials once a second when it is lost.
+The link carries one client at a time: the text message \f[CR]open\f[R]
+says a client arrived, the text message \f[CR]close\f[R] says either
+side ended it, and binary messages carry the bytes in both directions,
+in order.
+When the bridge sends \f[CR]close\f[R] (its client left), the player
+answers with the text message \f[CR]closed\f[R], and the bridge admits
+no new client before it: what the player sent for the old session is
+then all behind it.
+Any other text message is ignored.
+The player tells the console once for each time the link goes down, and
+never through \f[CR]onError\f[R].
 .SS The touch keyboard
 The on\-screen Spectrum Next keyboard is for devices with no keyboard.
 It sits at the bottom of the player\(cqs box, which keeps the size the
@@ -4504,6 +4599,8 @@ a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],
 \f[B]\-\-sdcard2\-writes\-reset\f[R], \f[B]\-\-headless\f[R] (it would
 block the tab for ever) and \f[B]\-\-rzx\-record\f[R] (a page records
 from JavaScript, see The player).
+The debugger protocols are served to the page instead: see the debug
+option under JavaScript options.
 The settings of the refused flags are refused when given as set entries
 too: \f[CR]esp.enabled\f[R], \f[CR]esp.allowed_hosts\f[R],
 \f[CR]nextpi.enabled\f[R], \f[CR]nextpi.dir\f[R],

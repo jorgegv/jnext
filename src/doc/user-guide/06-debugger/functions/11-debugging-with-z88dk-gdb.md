@@ -142,6 +142,8 @@ is refused unless a server port is given too). **The GDB protocol has no
 authentication**: anyone who can reach the port controls the machine and can
 read and write all of its memory.
 
+A page can serve the GDB protocol too, through a bridge: see [8.6](../../08-web-page/06-debugging-from-the-page.md).
+
 ---
 
 For the command-line options, see **jnext**(1) or

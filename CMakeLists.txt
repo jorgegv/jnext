@@ -407,15 +407,15 @@ add_subdirectory(src/esp01)
 # GH #287 — the debugger protocol servers' shared socket transport (arch §3.1,
 # `jnext_remote`). Over esp01's public socket seam and the jnext_debug backend;
 # no toolkit, so it is built in every configuration (arch §3.2).
-if(NOT EMSCRIPTEN)   # the browser build has no sockets to serve on
-    add_subdirectory(src/remote)
-endif()
+# The browser build compiles it too: its page channel is a second EspListener
+# (remote/pipe_transport.h); the socket listener is never referenced there.
+add_subdirectory(src/remote)
 # GH #26 — the debugger scripting language (arch §3.1, `jnext_script`): lexer,
 # parser, load-time checks and the expression compiler library. Over the
 # jnext_debug facade only; no toolkit, so built in every configuration (§3.2).
-if(NOT EMSCRIPTEN)   # no --script in the browser build
-    add_subdirectory(src/script)
-endif()
+# The browser build compiles the LIBRARY (ZRCP compiles its conditions through it); the script
+# HOST stays out and --script is refused there.
+add_subdirectory(src/script)
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)

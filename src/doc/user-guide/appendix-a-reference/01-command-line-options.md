@@ -215,13 +215,13 @@ with status 1.
     e.g. `executed ROM code at $0038 (IM 1); --no-sdcard has no ROM`,
     and the program will hang or show garbage. DivMMC and the Multiface
     are held off, the NMI buttons are refused, File \> Insert SD Card
-    Image… and Eject SD Card are disabled and the status bar shows **SD:
-    none**. A hard reset runs the boot ROM, which stops at its no-card
-    screen as on hardware; the program is not loaded again. Requires
-    **--load** of a **.nex** (directly or in a **.zip**) on the Next (a
-    machine saved in Preferences other than the Next is refused too:
-    give **--machine next**), and excludes every **--sdcard** and
-    **--sdcard2** option, **--warm-start-regenerate**,
+    Image…, Eject SD Card and their second-card twins are disabled and
+    the status bar shows **SD: none**. A hard reset runs the boot ROM,
+    which stops at its no-card screen as on hardware; the program is not
+    loaded again. Requires **--load** of a **.nex** (directly or in a
+    **.zip**) on the Next (a machine saved in Preferences other than the
+    Next is refused too: give **--machine next**), and excludes every
+    **--sdcard** and **--sdcard2** option, **--warm-start-regenerate**,
     **--delayed-sdcard-insert-frames**,
     **--delayed-sdcard2-insert-frames** and **--delayed-nmi**. In a
     browser page it is `card: { source: 'none' }`.
@@ -1243,6 +1243,14 @@ with status 1.
     second connection is told so and closed. A port that cannot be bound
     is a startup error. Works in every frontend, **--headless**
     included, and alongside **--dzrp-port** and **--gdb-port**.
+
+**--debug-channel** *PROTOCOL*
+:   Browser page only: serve the debugger protocol *PROTOCOL* (`dzrp`,
+    `zrcp` or `gdb`) to the page’s debug channel, the `debug` option of
+    `jnext.mount`. May be given once for each protocol. Every other
+    build refuses it with exit status 1, because a server that was asked
+    for and cannot be reached is a startup error: use **--dzrp-port**,
+    **--zrcp-port** or **--gdb-port** there.
 
 **--debug-listen-address** *ADDR*
 :   Bind address for the debugger protocol servers (**--dzrp-port**,

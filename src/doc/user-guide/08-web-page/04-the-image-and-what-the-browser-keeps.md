@@ -9,7 +9,7 @@ browser the page needs that card too, and this is how it gets it.
   and neither does a page that embeds JNEXT: the only place that offers it is
   specnext.com.
 - The player makes its SD card in the visitor's browser, from the official NextZXOS
-  file from specnext.com (`sn-emulator-26.11a.zip`, 66 MB, for this release), unchanged.
+  file from specnext.com (`sn-emulator-26.11a.zip`, 69 MB (65.8 MiB), for this release), unchanged.
   Another file, or a changed copy, is refused.
 - The card the browser makes stays in the visitor's browser (Cache Storage, for that
   site only). Nothing is sent anywhere, and the page's author never receives it.

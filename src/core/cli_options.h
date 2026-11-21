@@ -99,6 +99,7 @@ enum class OptId {
     DzrpPort,
     GdbPort,
     ZrcpPort,
+    DebugChannel,
     DebugListenAddress,
     Script,
     ScriptKey,
@@ -367,7 +368,8 @@ inline constexpr Option OPTIONS[] = {
       "The first ROM code the program runs is logged as an error;\n"
       "DivMMC, Multiface and the NMI buttons are off. Needs --load\n"
       "of a .nex on the Next; excludes every --sdcard and --sdcard2\n"
-      "option, --delayed-sdcard-insert-frames,\n"
+      "option, --warm-start-regenerate,\n"
+      "--delayed-sdcard-insert-frames,\n"
       "--delayed-sdcard2-insert-frames and --delayed-nmi" },
     // GH #505 - the second SD card (the board's second socket; NextZXOS maps it
     // to the next drive letter, D: with a one-partition card 0).
@@ -933,6 +935,16 @@ inline constexpr Option OPTIONS[] = {
       "can drive the debugger. 10000 is the port those clients\n"
       "assume. Off unless given; PORT 0 binds an OS-chosen port\n"
       "and logs it. One client at a time." },
+    // GH #545 — the browser page's debug channel. The page option `debug` emits it; every other
+    // build refuses it at once (page_only_refusal), because a server the user asked for and
+    // cannot reach is a startup failure.
+    { "--debug-channel", 1, Doc::Documented, OptId::DebugChannel,
+      "PROTOCOL",
+      "Browser page only: serve the debugger protocol PROTOCOL\n"
+      "(dzrp, zrcp or gdb) to the page's debug channel (the\n"
+      "debug option of jnext.mount); repeatable. Refused by\n"
+      "every other build: use --dzrp-port, --zrcp-port or\n"
+      "--gdb-port." },
     // GH #287 — the bind address of the debugger protocol servers (DZRP #12,
     // ZRCP #280, GDB RSP #281), shared by all three and landed with their
     // common transport. Numeric only and loopback by default, on the same
@@ -1120,6 +1132,27 @@ inline bool parse_touch_keyboard(const char* s, TouchKeyboard& out) {
     if (std::strcmp(s, "on") == 0)   { out = TouchKeyboard::On;   return true; }
     if (std::strcmp(s, "off") == 0)  { out = TouchKeyboard::Off;  return true; }
     return false;
+}
+
+// --debug-channel (browser page only): which protocol the page's channel serves. The page
+// reads the numbers too, so they are fixed: 0 dzrp, 1 zrcp, 2 gdb.
+enum class DebugProtocol : int { Dzrp = 0, Zrcp = 1, Gdb = 2 };
+inline bool parse_debug_protocol(const char* s, DebugProtocol& out) {
+    if (!s) return false;
+    if (std::strcmp(s, "dzrp") == 0) { out = DebugProtocol::Dzrp; return true; }
+    if (std::strcmp(s, "zrcp") == 0) { out = DebugProtocol::Zrcp; return true; }
+    if (std::strcmp(s, "gdb") == 0)  { out = DebugProtocol::Gdb;  return true; }
+    return false;
+}
+
+// Why a spelling is refused by every build EXCEPT the browser page, or nullptr. The mirror of
+// browser_refusal: `--debug-channel` serves the page's channel, which only a page has. Called by
+// main() in the native and node builds before the option's handler runs.
+inline const char* page_only_refusal(OptId id) {
+    if (id == OptId::DebugChannel)
+        return "only a browser page has a debug channel (use --dzrp-port, --zrcp-port or "
+               "--gdb-port to serve a debugger protocol on TCP)";
+    return nullptr;
 }
 
 // Why a spelling is refused by the BROWSER (WebAssembly) build, or nullptr when

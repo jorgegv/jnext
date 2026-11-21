@@ -16,7 +16,7 @@
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser) and `crt.mjs:13` (rows
 # BCRT-01..13: the CRT effect, crtemu on SDL's WebGL context, and its fallbacks) and `rzx.mjs:12` (rows BRZ-01..12:
 # .rzx recordings played and recorded in the page), `nmi.mjs:4` (rows WEBNMI-01..04: the NMI button, player.nmi() and the
-# widget's button) and `cardfile.mjs:6` (rows BCFILE-01..06: a program on the SD card, file {card}) and `pages.mjs:5` (rows PAGES-01..05: the Pages demo site of `make pages-site`, served alone, and its three demos). Further specs
+# widget's button) and `cardfile.mjs:6` (rows BCFILE-01..06: a program on the SD card, file {card}) and `pages.mjs:5` (rows PAGES-01..05: the Pages demo site of `make pages-site`, served alone, and its three demos) and `debug.mjs:30` (rows BDBG-01..30: DZRP, ZRCP and GDB served by a page over the JS channel and over a WebSocket to the reference bridge, driven by the native regression peers). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -50,7 +50,7 @@ export LC_ALL=C LANG=C
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
 # Longest first (the specs run in parallel, so the order is the schedule): wall times of the CI run 44897420688.
-SPECS=("crt.mjs:13" "api.mjs:34" "smoke.mjs:34" "writes.mjs:17" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "$@")
+SPECS=("crt.mjs:13" "api.mjs:34" "smoke.mjs:34" "writes.mjs:17" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

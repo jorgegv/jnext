@@ -1239,6 +1239,7 @@ my %NO_MATRIX_SECTION = (
     # core has no debugger and no host socket; the authority is the backend's
     # SES-03 `Service` contract and the host socket layer (esp01's seam).
     'remote_transport_test'     => 'debugger socket transport (GH #287, jnext-internal host sockets); the T80N core has no debugger',
+    'remote_pipe_test'          => 'browser page debug channel (GH #545, jnext-internal host byte channel); the T80N core has no debugger',
     # GH #12 — the DZRP adapter. Its oracle is DeZog's protocol specification
     # (`DeZogProtocol.md`, DZRP 2.2.0) and the DeZog client, not the FPGA: the
     # hardware each command reads or writes is traced in its own section, and

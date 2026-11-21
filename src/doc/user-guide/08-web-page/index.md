@@ -17,6 +17,7 @@ Every public release ships `jnext-VERSION-web.zip`:
 
 - the two files above;
 - the ready-made widget, `jnext-widget.js`;
+- `jnext-debug-bridge.mjs`, a node script that lets DeZog or `z88dk-gdb` debug a page ([8.6](06-debugging-from-the-page.md));
 - four example pages: `plain.html`, `widget.html`, `itch-game.html`, `itch-host.html`;
 - a `README.txt` with the link to the source of that build;
 - `LICENSE`, `CREDITS.md` and a `licenses/` directory.
@@ -46,3 +47,4 @@ emulator. The reference list is the man page section "THE BROWSER BUILD". The pl
 | [8.3 On itch.io, and what the browser build does not do](03-itch-and-limits.md) | An itch.io upload, several players on a page, the limits, the speed |
 | [8.4 NextZXOS, the SD card, and what the browser keeps](04-the-image-and-what-the-browser-keeps.md) | Where NextZXOS comes from, what is stored, what to do when a page does not start |
 | [8.5 Two ways to embed JNEXT](05-two-ways-to-embed.md) | Your own page or the ready-made widget, each as a complete page to copy |
+| [8.6 Debugging from the page](06-debugging-from-the-page.md) | The `debug` option, the channel, the WebSocket bridge, DeZog and `z88dk-gdb` against a page |

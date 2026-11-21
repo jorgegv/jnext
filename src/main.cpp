@@ -408,6 +408,7 @@ int main(int argc, char* argv[]) {
     int         dzrp_port = -1;
     int         zrcp_port = -1;
     int         gdb_port  = -1;
+    bool        dzrp_channel = false, zrcp_channel = false, gdb_channel = false;   // GH #545
     std::vector<std::string>              script_files;   // GH #26 WP4
     std::vector<std::pair<uint32_t, int>> script_keys;
     std::string                           map_file;
@@ -736,6 +737,13 @@ int main(int argc, char* argv[]) {
             }
 #endif
 #endif
+#ifndef JNEXT_BROWSER
+            // GH #545: the page's debug channel exists only in a page.
+            if (const char* why = cli::page_only_refusal(opt->id)) {
+                fprintf(stderr, "%s: %s\n", arg.c_str(), why);
+                return 1;
+            }
+#endif
 
             switch (opt->id) {
             case cli::OptId::LogLevel:
@@ -1052,6 +1060,19 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 zrcp_port = static_cast<int>(n);
+                break;
+            }
+            case cli::OptId::DebugChannel: {
+                cli::DebugProtocol dp;
+                if (!cli::parse_debug_protocol(v[0], dp)) {
+                    fprintf(stderr,
+                            "--debug-channel: PROTOCOL must be dzrp, zrcp or gdb, not \"%s\".\n",
+                            v[0]);
+                    return 1;
+                }
+                (dp == cli::DebugProtocol::Dzrp   ? dzrp_channel
+                 : dp == cli::DebugProtocol::Zrcp ? zrcp_channel
+                                                  : gdb_channel) = true;
                 break;
             }
             case cli::OptId::DebugListenAddress: {
@@ -2624,6 +2645,9 @@ int main(int argc, char* argv[]) {
         cfg.dzrp_port = dzrp_port;
         cfg.zrcp_port = zrcp_port;
         cfg.gdb_port = gdb_port;
+        cfg.dzrp_channel = dzrp_channel;
+        cfg.zrcp_channel = zrcp_channel;
+        cfg.gdb_channel  = gdb_channel;
         cfg.script_files = script_files;   // GH #26 WP4
         cfg.script_keys  = script_keys;
         cfg.map_file     = map_file;

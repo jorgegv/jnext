@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.44</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.48</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.44</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.48</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1472,6 +1472,17 @@
     <span class="md-ellipsis">
       
         How a loop owner opens the servers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-page-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The page channel
       
     </span>
   </a>
@@ -3166,6 +3177,46 @@ port is a startup error in every frontend: the loop owner logs it and exits.
 <code>DebugServers</code> also holds the pump budgets of
 <a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a>:
 <code>frame_loop_budget()</code>, <code>headless_should_wait()</code> and <code>headless_wait_budget()</code>.</p>
+<h2 id="the-page-channel">The page channel<a class="headerlink" href="#the-page-channel" title="Permanent link">&para;</a></h2>
+<p><code>remote::PipeChannel</code> (<code>src/remote/pipe_transport.*</code>) is the third implementation of the seam, for the
+browser build, where a page cannot listen. <code>PipeChannel::make_listener()</code> returns an
+<code>esp::EspListener</code> whose <code>accept()</code> yields a transport the <strong>host</strong> feeds; the production <code>Server</code>
+runs over it unchanged (<code>open()</code> logs <code>&lt;name&gt;: listening on channel:0</code>). The host's calls:</p>
+<table>
+<thead>
+<tr>
+<th>call</th>
+<th>effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>host_open()</code></td>
+<td>a client arrived: a transport is parked for <code>accept()</code>. Refused while a session is open or has ended and not been reported</td>
+</tr>
+<tr>
+<td><code>host_send(p, n)</code></td>
+<td>bytes from the client, queued for this session; refused whole once 64 MiB wait; accepted and dropped after jnext ended the session</td>
+</tr>
+<tr>
+<td><code>host_close()</code></td>
+<td>the client left: what it sent is still delivered, then the transport reports <code>Closed</code>; this session's unread output is dropped; a new <code>host_open()</code> may follow at once</td>
+</tr>
+<tr>
+<td><code>take_output()</code></td>
+<td>everything jnext wrote on the current session since the last take</td>
+</tr>
+<tr>
+<td><code>take_ended()</code></td>
+<td>true once after jnext ended the session, and only after <code>take_output()</code> has returned what was written before</td>
+</tr>
+</tbody>
+</table>
+<p>Each <code>host_open()</code> gets a session of its own, so bytes of one session never reach another, even
+when a close and a redial come in one turn. The channel shares its state with its listener, so it
+outlives <code>Server::stop()</code> and the host can still collect a stopped session's last bytes and end.
+<code>host_*</code> return a <code>PipeResult</code> (0 ok, 1 no listener, 2 wrong state, 3 input full). The class has no
+Emscripten include and is tested natively and under node (<code>remote_pipe_test</code>).</p>
 <h2 id="the-fake">The fake<a class="headerlink" href="#the-fake" title="Permanent link">&para;</a></h2>
 <p><code>FakeListener</code>, <code>FakeTransport</code> and <code>FakePeer</code> (<code>src/remote/fake_transport.*</code>)
 implement the same esp interfaces in memory. An adapter's unit suite runs the

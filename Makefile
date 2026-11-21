@@ -747,7 +747,7 @@ pages-site-test:
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web package-web pages-site playwright sdl-release sdcard-image
-	@# BRW-01..34, WBI-PW-01..09, WEBAPI-01..34, WEBPKG-BR-01..07, WIDGET-01..17, WEBNMI-01..04 (the NMI button), PAGES-01..02 (the Pages demo site served alone), BCARD-01..47 (the card flow, the poster, the stored form of the card, card.dirs, the wording of the pick path's refusals and card source none), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..34, WBI-PW-01..09, WEBAPI-01..34, WEBPKG-BR-01..07, WIDGET-01..17, WEBNMI-01..04 (the NMI button), PAGES-01..02 (the Pages demo site served alone), BDBG-01..30 (the debugger protocols served by a page, over the JS channel and over a WebSocket to the bridge), BCARD-01..47 (the card flow, the poster, the stored form of the card, card.dirs, the wording of the pick path's refusals and card source none), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -890,7 +890,7 @@ traceability-accounting-check:
 	@perl test/refresh-traceability-matrix.pl --check-accounting
 
 # Fail when the committed traceability matrix is stale vs a fresh generation
-traceability-check: $(UNIT_TEST_BUILD_DEP)
+traceability-check: $(UNIT_TEST_BUILD_DEP) sdcard-image
 	@# GH #196 phase 3.1 — the same shape as docs-check, and for the same
 	@# reason: doc/testing/TRACEABILITY-MATRIX.md is GENERATED and COMMITTED,
 	@# so a stale committed copy is a silent lie no other gate can see. The

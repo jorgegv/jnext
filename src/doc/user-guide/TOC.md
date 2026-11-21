@@ -157,8 +157,10 @@ JNEXT built for WebAssembly, run in a browser tab from a page you write or from 
 itch.io upload. 8.1 a page with a game, 8.2 the options and the player's controls,
 8.3 itch.io and what the browser build does not do, 8.4 NextZXOS and the SD card, what the
 browser keeps (per origin) and what to do when a page does not start, 8.5 the two ways to
-embed JNEXT (your own page, or the ready-made widget), each as a complete page to copy.
-Added 2026-11-08.
+embed JNEXT (your own page, or the ready-made widget), each as a complete page to copy,
+8.6 debugging from the page: the `debug` option, the channel, the WebSocket bridge, DeZog and
+`z88dk-gdb` against a page.
+Added 2026-11-08; 8.6 added 2026-11-21.
 
 ## Appendix A. Reference
 

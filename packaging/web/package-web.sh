@@ -9,7 +9,8 @@
 #       Check a zip against its sources; exit non-zero on any failure.
 #
 # WHAT IT HOLDS (one list, manifest() below): jnext-<ver>.js and .wasm, the four
-# example pages, jnext-widget.js, README.txt (with the source link), LICENSE,
+# example pages, jnext-widget.js, jnext-debug-bridge.mjs (the reference bridge for the
+# `debug` option, tools/web-debug-bridge/; a node script, not a web file), README.txt (with the source link), LICENSE,
 # CREDITS.md and licenses/, the licence texts of the libraries linked into jnext_web. The
 # <ver> comes from version.yaml and nowhere else.
 #
@@ -85,6 +86,7 @@ manifest() {
     local p
     for p in "${PAGES[@]}"; do ent "$p" "$build/$p"; done
     ent jnext-widget.js "$build/jnext-widget.js"
+    ent jnext-debug-bridge.mjs "$ROOT/tools/web-debug-bridge/jnext-debug-bridge.mjs"
     ent README.txt "$readme"
     ent LICENSE "$ROOT/LICENSE"
     ent CREDITS.md "$ROOT/CREDITS.md"
