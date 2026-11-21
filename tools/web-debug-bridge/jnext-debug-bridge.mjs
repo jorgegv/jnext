@@ -67,11 +67,14 @@ export class TcpRelay extends EventEmitter {
     if (this.client) this.client.write(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
   }
 
+  // Ends the client's session from our side: a FIN after what was written (graceful, never a reset that
+  // could cost the client the reply it is still reading); the socket is dropped anyway after 2 s.
   end() {
     const c = this.client;
     if (!c) return;
     this.client = null;
-    c.destroy();
+    c.end();
+    setTimeout(() => c.destroy(), 2000).unref();
   }
 
   close() {
