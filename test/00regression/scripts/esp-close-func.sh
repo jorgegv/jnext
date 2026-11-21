@@ -56,7 +56,8 @@ if want esp-close-func; then
     received="$TMP_DIR/esp_close_received"
     peer_log="$TMP_DIR/esp_close_peer.log"
     run_log="$TMP_DIR/esp_close_run.log"
-    rm -f "$guest_bin" "$ready" "$received" "$peer_log" "$run_log"
+    jnext_log="$TMP_DIR/esp_close_jnext.log"
+    rm -f "$guest_bin" "$ready" "$received" "$peer_log" "$run_log" "$jnext_log"
 
     # The AT reply stream the guest must observe, in order. LINE mode flushes on
     # CR/LF, so each reply is one line; `> ` keeps its mandatory trailing space
@@ -109,11 +110,14 @@ if want esp-close-func; then
             --magic-port 0xCAFE --magic-port-mode line \
             --inject "$guest_bin" --inject-org 8000 --inject-pc 8000 \
             --inject-delay 100 --delayed-automatic-exit-frames 1500 \
+            --log-file "$jnext_log" \
             >"$run_log" 2>&1 || true
 
-        # Every spdlog line starts with its `[timestamp]`; the magic port writes
-        # with a bare fprintf. So the non-bracketed lines ARE the wire.
-        mapfile -t observed < <(grep -av '^\[' "$run_log" || true)
+        # The log goes to --log-file, so this file holds ONLY the magic port's
+        # stderr output: the wire. On one shared stream the ESP worker thread's
+        # log line splices into the middle of a wire line (Windows stderr is
+        # unbuffered and fprintf writes it in pieces): GH #154 CI failure.
+        mapfile -t observed < <(cat "$run_log" || true)
 
         fails=()
         # The peer writes its verdict after the reconnect attempt, which in the
@@ -140,7 +144,7 @@ if want esp-close-func; then
             done
         fi
 
-        grep -aq "closed by the guest (AT+CIPCLOSE=1)" "$run_log" \
+        grep -aq "closed by the guest (AT+CIPCLOSE=1)" "$jnext_log" \
             || fails+=("no 'closed by the guest (AT+CIPCLOSE=1)' log line")
 
         if [[ ${#fails[@]} -eq 0 ]]; then
