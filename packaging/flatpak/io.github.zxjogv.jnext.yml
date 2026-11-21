@@ -69,7 +69,7 @@ modules:
       # Native/DEB/RPM/gui-release builds keep full LTO. See CMakeLists.txt.
       - >-
         env HOME="$FLATPAK_BUILDER_BUILDDIR/pgo-home"
-        JNEXT_SDCARD_DISTRO_URL="file://$FLATPAK_BUILDER_BUILDDIR/sn-emulator-26.11.zip"
+        JNEXT_SDCARD_DISTRO_URL="file://$FLATPAK_BUILDER_BUILDDIR/sn-emulator-26.11a.zip"
         bash tools/pgo-build.sh build/flatpak --
         cmake -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF
         -DJNEXT_ENABLE_LTO=OFF -DCMAKE_INSTALL_PREFIX=/app
@@ -110,8 +110,8 @@ modules:
       # The training's SD image source (see above). The same zip jnext's
       # provisioner downloads (kDistroUrl, src/core/sdcard_provisioner.cpp).
       - type: file
-        url: https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip
-        sha256: 81fe97d37ef4e373643b4d399c22ab2acca631c02a778e8d01e136e0c7c5d2d6
+        url: https://www.specnext.com/distro/26.11a/sn-emulator-26.11a.zip
+        sha256: 0245d847da440155fb6f55d6cfadc64c0158118d7cea98066395d68f93fb3ab0
     # No post-install needed: CMakeLists.txt's own install() rules (Task 67)
     # already place the .desktop/metainfo/icon files under the standard
     # freedesktop paths, which `cmake --install` puts under /app.

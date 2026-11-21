@@ -200,12 +200,12 @@ PY
     grep -q "recorded a NextZXOS-resident machine" "$wc_w/a.log" \
         || wc_faults+=("A: the warm start did not record")
     # The recipe's length on this card is a deterministic function of the card
-    # and the recipe's idle/state rules (777 frames on the distribution card);
+    # and the recipe's idle/state rules (780 frames on the 26.11a distribution card; 777 on 26.11);
     # a change to any of them moves it, so it is pinned here, not only through
     # the pixels of an R-seeded program.
     wc_n=$(sed -n 's/.*recorded a NextZXOS-resident machine ([0-9]* KB, \([0-9]*\) frames).*/\1/p' "$wc_w/a.log" | head -1)
-    [[ "$wc_n" == 777 ]] \
-        || wc_faults+=("A: the recording took ${wc_n:-?} frames, not the 777 measured on the distribution card")
+    [[ "$wc_n" == 780 ]] \
+        || wc_faults+=("A: the recording took ${wc_n:-?} frames, not the 780 measured on the distribution card")
     wc_v=$(python3 -I "$wc_w/fields.py" a A "$wc_w/a.log")
     [[ -z "$wc_v" ]] || wc_faults+=("$wc_v")
 

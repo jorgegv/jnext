@@ -414,7 +414,7 @@ A row that presses a key, captures a screen or resets at a frame of a cold NextZ
 boot writes that frame with the boot-ready helper, so it keeps its meaning on a card
 whose firmware boots for a different number of frames. The anchor is the firmware's
 machine-type commit (first NR 0x03 write with bits 2:0 = 001..100), measured once per
-run by `boot-commit-probe.jds` in the `[sdcard-provision]` row (26.11: frame 472; a 24.11 card: 295). In
+run by `boot-commit-probe.jds` in the `[sdcard-provision]` row (26.11a: frame 476; 26.11: 472; a 24.11 card: 295). In
 a shell row: `shot=$(bf 400)`, `bf_keys 400 space 470 down ...` (fills `BF_KEYS`),
 `bf 900 2` for a frame after a hard reset (K = 2: the firmware runs again), and
 `bf_jds in.jds.in out.jds` for `{{bf N}}` placeholders; in `regression_tests.conf`,

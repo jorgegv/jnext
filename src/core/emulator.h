@@ -438,7 +438,7 @@ public:
     /// bounded by T0 plus one kWarmStartPhaseUnits (frame 800 at 50 Hz); a
     /// firmware that has not committed by then is given up (the checkpoint is the
     /// deadline and the residency check refuses). The 24.11 firmware commits at
-    /// frame 295, the 26.11 one at 472. Nothing is pressed at a fixed frame: every
+    /// frame 295, the 26.11 one at 472, the 26.11a one at 476. Nothing is pressed at a fixed frame: every
     /// key waits for the machine to be idle in the state that wants it (see
     /// warm_start_recipe_tick()).
     static constexpr uint32_t kWarmStartT0Units = 400 * 6;

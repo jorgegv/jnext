@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.43</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.43</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3440,7 +3440,7 @@ line is <code>&lt;card.img&gt;: &lt;bytes&gt; bytes, sha256 &lt;hex&gt;</code> a
 exits 1 with the reason on standard error and leaves the destination untouched or
 uncreated; a usage error exits 2. An existing destination is never overwritten.</p>
 <p>On your own download of the official zip, for local development and tests:</p>
-<pre><code class="language-bash">make-minimal-card ~/Downloads/sn-emulator-26.11.zip ~/tmp/nextzxos-minimal.img
+<pre><code class="language-bash">make-minimal-card ~/Downloads/sn-emulator-26.11a.zip ~/tmp/nextzxos-minimal.img
 curl -s &lt;the zip's URL&gt; | make-minimal-card - ~/tmp/nextzxos-minimal.img
 </code></pre>
 <p>The second form is the one manual check against the real file, with no zip on disk. Keep
@@ -3468,7 +3468,7 @@ call it: a malformed entry, <code>/</code>, a boot-set name, a duplicate and a p
 one are refused, naming the entry. A path the distribution does not hold is refused at build,
 naming every missing one. A card with extra paths has no pinned card digest (no per-list pin
 can exist): the tool and <code>jnext_card_begin</code> clear <code>Expect::card_sha256</code> for a non-empty list, and
-the zip and image pins still apply in full. <code>/GAMES,/APPS</code> of 26.11 is accepted; adding <code>/DEMOS</code>
+the zip and image pins still apply in full. <code>/GAMES,/APPS</code> of 26.11a is accepted; adding <code>/DEMOS</code>
 is refused with its size.</p>
 <p><strong>One pass.</strong> The builder reads the zip once, from byte 0, in the order it is stored: the
 image is its first entry, the inflated image is read by offset, and a directory is parsed

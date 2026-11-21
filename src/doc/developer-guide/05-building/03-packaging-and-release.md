@@ -297,7 +297,7 @@ uncreated; a usage error exits 2. An existing destination is never overwritten.
 On your own download of the official zip, for local development and tests:
 
 ```bash
-make-minimal-card ~/Downloads/sn-emulator-26.11.zip ~/tmp/nextzxos-minimal.img
+make-minimal-card ~/Downloads/sn-emulator-26.11a.zip ~/tmp/nextzxos-minimal.img
 curl -s <the zip's URL> | make-minimal-card - ~/tmp/nextzxos-minimal.img
 ```
 
@@ -328,7 +328,7 @@ call it: a malformed entry, `/`, a boot-set name, a duplicate and a path inside 
 one are refused, naming the entry. A path the distribution does not hold is refused at build,
 naming every missing one. A card with extra paths has no pinned card digest (no per-list pin
 can exist): the tool and `jnext_card_begin` clear `Expect::card_sha256` for a non-empty list, and
-the zip and image pins still apply in full. `/GAMES,/APPS` of 26.11 is accepted; adding `/DEMOS`
+the zip and image pins still apply in full. `/GAMES,/APPS` of 26.11a is accepted; adding `/DEMOS`
 is refused with its size.
 
 **One pass.** The builder reads the zip once, from byte 0, in the order it is stored: the
