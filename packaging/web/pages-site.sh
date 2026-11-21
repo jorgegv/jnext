@@ -5,7 +5,7 @@
 #   pages-site.sh <build-dir>
 #       <build-dir> (build/wasm-core) holds jnext-<ver>-web.zip, made by `make package-web`.
 #       The site is that zip's content (read by CPython's zipfile, a foreign reader of
-#       Info-ZIP's output) minus the four example pages and the node bridge, plus index.html made from
+#       Info-ZIP's output) minus the four example pages, plus index.html made from
 #       web/pages/index.html.in with the version of version.yaml. <ROOT>/build/pages is
 #       written whole or not at all: on a refusal it is removed and the exit is non-zero.
 #
@@ -66,8 +66,6 @@ zpath, ver, template, stage = sys.argv[1:5]
 top = "jnext-%s-web/" % ver
 MiB = 1 << 20
 PAGES = {"plain.html", "itch-host.html", "itch-game.html", "widget.html"}
-# The reference bridge of the `debug` option is a node tool for a developer computer: not a site file.
-NOT_SITE = {"jnext-debug-bridge.mjs"}
 BANNED = {"img", "mmc", "rom", "bin", "dsk", "trd", "scl", "hdf", "vhd", "mdr", "p",
           "nex", "tap", "tzx", "sna", "szx", "z80", "jns", "rzx", "wav", "raw",
           "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "tar"}
@@ -103,7 +101,7 @@ for r in sorted(files):
 need = ["jnext-%s.js" % ver, "jnext-%s.wasm" % ver, "jnext-widget.js"]
 for r in need:
     if r not in files: bad("the zip has no %s" % r)
-keep = sorted(r for r in files if r not in PAGES and r not in NOT_SITE)
+keep = sorted(r for r in files if r not in PAGES)
 if "index.html" in files: bad("the zip has an index.html of its own")
 for r in keep:
     if r.endswith(".wasm") and files[r].file_size > 16 * MiB:

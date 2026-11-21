@@ -374,8 +374,8 @@ zip has one top directory, `jnext-<ver>-web/`, and 25 files:
   loads `jnext-widget.js`, the ready-made widget (`web/jnext-widget.js.in`, configured
   with the version like the pages, so that it can load `jnext-<ver>.js` from beside itself);
 - `jnext-debug-bridge.mjs`, the reference bridge of the page option `debug`
-  (`tools/web-debug-bridge/`, a plain node script; it is a tool for a developer's computer, so
-  `pages-site.sh` leaves it off the Pages demo site);
+  (`tools/web-debug-bridge/`, a plain node script for a developer's computer; the Pages demo
+  site, which is this zip minus the example pages, carries it too);
 - `README.txt` (from `packaging/web/README.txt.in`, with the link to the source
   of exactly that version), `LICENSE` and `CREDITS.md`;
 - `licenses/`: the licence texts of the libraries linked into `jnext_web`
