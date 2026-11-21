@@ -2991,8 +2991,13 @@ silent skip.</p>
 </ul>
 <p>None of this is optional tooling that you run when you remember to.
 <code>make unit-test</code> and <code>make regression</code> pull the lints, the documentation checks
-and the traceability gates in as prerequisites, so they run in the inner loop,
-where a failure is still cheap to fix.</p>
+and the traceability gates in, so they run in the inner loop, where a failure is
+still cheap to fix. <code>make unit-test</code> runs them in this order: the cheap lints,
+<code>docs-check</code> and <code>sdcard-image</code> first, one after another (they are its prerequisites);
+the self-tests concurrently with the build; <code>schema-check</code>, <code>snapshot-zip-check</code>,
+<code>minimal-image-test</code> and <code>package-contract-test</code> concurrently after it; then the
+suites, alone; then the traceability check from the suites' logs.
+<code>UNIT_TEST_CHECK_JOBS</code> (default 6) caps the two concurrent groups.</p>
 <p>Pages in this chapter:</p>
 <ul>
 <li><a href="01-the-test-triplet.html">4.1 The test triplet</a></li>

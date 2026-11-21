@@ -61,7 +61,7 @@ anyway, so that a fresh clone can read them with no toolchain installed at all:
 Committing a generated file has an obvious hazard: the copy in git can stop
 matching the source it came from, and a stale copy is a silent lie that no
 reviewer can see by reading the diff. So the project closes that hole
-mechanically — **`make docs-check` is a prerequisite of both `make unit-test`
+mechanically — **`make docs-check` runs in both `make unit-test`
 and `make regression`**, which means a stale generated document fails the test
 run itself rather than waiting to be noticed. What that asks of you is simple:
 edit the source, re-render, and commit both halves in the same change.
