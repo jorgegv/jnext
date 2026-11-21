@@ -911,6 +911,41 @@ int main(int argc, char** argv)
               why.empty(), why);
     }
 
+    // QDOCK-26: Window > Reset Layout is announced (apply_layout() silences the docks while it runs, so its
+    // single closing emission is the only notice): after it, call tracking and the live raster follow what
+    // the default layout shows, checked through the backend.
+    {
+        std::string why;
+        for (int variant = 0; variant < 3; ++variant) {
+            wipe(dir);
+            Fixture fx;
+            if (!fx.ok) { why += "fixture "; continue; }
+            const char* tags[] = {"shown Call Stack: ", "floating Call Stack: ", "Video closed: "};
+            const std::string tag = tags[variant];
+            if (variant == 0) {
+                fx.dock("Call Stack")->raise();
+                settle(100);
+                if (!fx.backend->call_stack_enabled()) why += tag + "tracking not on before the reset ";
+            } else if (variant == 1) {
+                fx.dock("Call Stack")->setFloating(true);
+                settle(100);
+                if (!fx.backend->call_stack_enabled()) why += tag + "tracking not on before the reset ";
+            } else {
+                fx.dock("Video")->close();
+                settle(100);
+                if (fx.backend->live_raster()) why += tag + "raster still on with Video closed ";
+            }
+            QAction* reset = fx.menu_action("Window", "Reset Layout");
+            if (!reset) { why += tag + "no Reset Layout "; continue; }
+            reset->trigger();
+            settle(150);
+            if (variant < 2 && fx.backend->call_stack_enabled()) why += tag + "tracking still on after the reset ";
+            if (variant == 2 && !fx.backend->live_raster()) why += tag + "raster still off after the reset ";
+        }
+        check("QDOCK-26", "Window > Reset Layout turns call tracking off when the Call Stack was on show (shown or floating) and the live raster back on when Video was closed, through the backend",
+              why.empty(), why);
+    }
+
     // QDOCK-22: closing with the window's own close button (closeEvent() saves again AFTER the hide) loses
     // no height per session: a tabbed group's height is stable over three sessions.
     {
