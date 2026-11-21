@@ -762,9 +762,9 @@ async function rawPage(b) {
 }
 const tcp = (b) => new Promise((resolve) => {
   const c = net.connect(b.tcpPort, '127.0.0.1');
-  c.got = []; c.closed = false;
+  c.got = []; c.isGone = false;
   c.on('data', (d) => c.got.push(d));
-  c.on('close', () => { c.closed = true; });
+  c.on('close', () => { c.isGone = true; });
   c.on('error', () => {});
   c.on('connect', () => resolve(c));
 });
@@ -781,7 +781,7 @@ row('BDBG-26', 'bridge: a client that dials again after the old one left waits f
   p.link.socket.write(Buffer.concat([maskedFrame(true, 2, Buffer.from('STALE')), maskedFrame(true, 1, Buffer.from('close'))]));
   await sleep(400);
   const early = Buffer.concat(c.got).toString();
-  const earlyClosed = c.closed;
+  const earlyClosed = c.isGone;
   const earlyOpens = p.frames('open');
   const t0 = Date.now();
   p.say(1, 'closed');
@@ -793,7 +793,7 @@ row('BDBG-26', 'bridge: a client that dials again after the old one left waits f
   p.link.socket.destroy(); c.destroy();
   must(early === '' && !earlyClosed && earlyOpens === 1, `before the confirmation: ${JSON.stringify(early)}, closed ${earlyClosed}, opens ${earlyOpens}`);
   must(admitted < 1500, `admitted ${admitted} ms after \`closed\` (the 3 s timeout is not the way in)`);
-  must(late === 'FRESH' && !c.closed, `after it: ${JSON.stringify(late)}, closed ${c.closed}`);
+  must(late === 'FRESH' && !c.isGone, `after it: ${JSON.stringify(late)}, closed ${c.isGone}`);
 });
 
 row('BDBG-27', 'bridge: a page that never sends `closed` does not wedge a redial: it is admitted after about 3 s, whether it dialled after the old client left or 50 ms before', async () => {
@@ -817,7 +817,7 @@ row('BDBG-27', 'bridge: a page that never sends `closed` does not wedge a redial
     await p.until(() => p.frames('open') === 2, `the page told \`open\` (${order})`, 8000);
     const dt = Date.now() - t0;
     p.link.socket.destroy(); c.destroy();
-    must(dt > 2500 && dt < 5500 && !c.closed, `${order}: admitted after ${dt} ms, closed ${c.closed}`);
+    must(dt > 2500 && dt < 5500 && !c.isGone, `${order}: admitted after ${dt} ms, closed ${c.isGone}`);
   }
 });
 
@@ -832,14 +832,14 @@ row('BDBG-28', 'bridge: a client that dialled 50 ms BEFORE the old one\'s FIN ke
   await p.until(() => p.frames('close') === 1, 'the page told `close`');
   await sleep(500);         // the page is slow to confirm: longer than the 300 ms of a client that waits for a client
   const opensBefore = p.frames('open');
-  const closedBefore = c.closed;
+  const closedBefore = c.isGone;
   const t0 = Date.now();
   p.say(1, 'closed');
   await p.until(() => p.frames('open') === 2, 'the page told `open`');
   const admitted = Date.now() - t0;
   p.link.socket.destroy(); c.destroy();
   must(opensBefore === 1 && !closedBefore, `before \`closed\`: opens ${opensBefore}, closed ${closedBefore}`);
-  must(admitted < 1500 && !c.closed, `admitted ${admitted} ms after \`closed\`, closed ${c.closed}`);
+  must(admitted < 1500 && !c.isGone, `admitted ${admitted} ms after \`closed\`, closed ${c.isGone}`);
 });
 
 row('BDBG-29', 'the channel path: the old session\'s last reply reaches the host after the client left (the page\'s messages take 150 ms): the host releases the relay on the page\'s confirmation, and the client that dialled at once gets only its own answer', async () => {
