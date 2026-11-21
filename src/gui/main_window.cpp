@@ -287,7 +287,7 @@ MainWindow::MainWindow(QWidget* parent)
     // is on the log AND at the top of Preferences > Debugger Keys.
     for (const auto& issue : app_config_.debug_key_issues()) {
         Log::platform()->error(
-            "Config [debugger_keys] {}={}: {}",
+            "{}{}={}: {}", bug_report::kConfigIssueTag,
             issue.action_id, issue.text, issue.reason);
     }
     debug_keys_ = app_config_.data().debug_keys;

@@ -265,17 +265,15 @@ bool read_file(const std::string& path, std::vector<uint8_t>& out)
 
 std::string hex_dump_json_text(const json& j) { return j.dump(2) + "\n"; }
 
-/// The log line of a refused `[debugger_keys]` entry is "Config [debugger_keys] NAME=TEXT: reason",
-/// where NAME and TEXT are as hand-typed in the file: neither is echoed into a report.
+/// A refused `[debugger_keys]` entry is logged as `kConfigIssueTag` NAME=TEXT: reason, where the
+/// name and text are as hand-typed and the reason quotes the text again: nothing after the tag goes
+/// into a report.
 std::string scrub_config_issue(const std::string& line)
 {
-    static const std::string tag = "Config [debugger_keys] ";
+    const std::string tag = kConfigIssueTag;
     const size_t at = line.find(tag);
     if (at == std::string::npos) return line;
-    const size_t from = at + tag.size();
-    const size_t end = line.rfind(": ");
-    if (end == std::string::npos || end < from) return line;
-    return line.substr(0, from) + "<blanked>" + line.substr(end);
+    return line.substr(0, at + tag.size()) + "<blanked>";
 }
 
 // Every free text the report takes from outside goes through this (argv, log,
@@ -335,7 +333,7 @@ const KeyRow kKeyTable[] = {
 /// here until someone decides it, so no key is ever kept by an accident of its type.
 enum class ValueRule {
     Blank,      ///< can name the host (a path, a device, a command, a history): never shipped
-    Plain,      ///< a number, boolean or word: kept only when it is nothing but [A-Za-z0-9._+-]
+    Plain,      ///< a number, boolean or word: kept only as config_keys' own validator accepts it, in canonical form
     Combo,      ///< a debugger key combination: kept only when it parses (rendered canonically)
     Geometry,   ///< "W,H" or "X,Y" as jnext writes a window's size and position: kept only then
 };
@@ -404,13 +402,42 @@ ValueRule config_value_rule(config_keys::KeyId id)
     return ValueRule::Blank;
 }
 
-bool is_plain_value(const std::string& v)
+/// A Plain key's value: kept only in the canonical form config_keys' own validator writes (the one
+/// `--set` and the settings file share), never as whatever short token the file holds. A key that is
+/// not a setting (config.version) is kept only as a short number; nextpi.release only as empty,
+/// `latest` or a release tag (digits and dots, an optional leading `v`).
+bool plain_value_for_report(const config_keys::Key& k, const std::string& value, std::string& out)
 {
-    if (v.size() > 40) return false;
-    for (char c : v) {
-        const bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '+' || c == '-';
-        if (!ok) return false;
+    auto digits = [](const std::string& t, size_t max) {
+        if (t.empty() || t.size() > max) return false;
+        for (char c : t) if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+        return true;
+    };
+    if (k.not_setting) {
+        if (!digits(value, 4)) return false;
+        out = value;
+        return true;
     }
+    config_keys::Assignment a;
+    std::string why;
+    const std::string arg = std::string(k.section) + "." + k.name + "=" + value;
+    if (!config_keys::parse_assignment(arg.c_str(), a, why)) return false;
+    if (k.id == config_keys::KeyId::NextpiRelease) {
+        const std::string& t = a.text;
+        bool tag = t.empty() || t == "latest";
+        if (!tag) {
+            size_t i = (t[0] == 'v') ? 1 : 0;
+            bool dot = false, ok = i < t.size() && t.size() <= 24;
+            for (; ok && i < t.size(); ++i) {
+                if (t[i] == '.') { if (dot) ok = false; dot = true; }
+                else if (std::isdigit(static_cast<unsigned char>(t[i]))) dot = false;
+                else ok = false;
+            }
+            tag = ok && !dot;
+        }
+        if (!tag) return false;
+    }
+    out = a.text;
     return true;
 }
 
@@ -440,8 +467,10 @@ std::string config_value_for_report(const std::string& section, const std::strin
     switch (config_value_rule(k->id)) {
         case ValueRule::Blank:
             return "<blanked>";
-        case ValueRule::Plain:
-            return is_plain_value(value) ? value : "<blanked>";
+        case ValueRule::Plain: {
+            std::string canon;
+            return plain_value_for_report(*k, value, canon) ? canon : "<blanked>";
+        }
         case ValueRule::Combo: {
             jnext::dbgkeys::Combo c;
             std::string why;

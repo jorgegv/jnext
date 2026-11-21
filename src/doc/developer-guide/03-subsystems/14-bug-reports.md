@@ -91,12 +91,13 @@ absolute path (POSIX, `X:\` or `X:/`, UNC) with `<path>/<base name>`. It runs on
 command line, the log tail, settings values and every name from outside. Whether a settings value is kept is decided per key, in `config_value_rule()` (`bug_report.cpp`): a
 `switch` over `config_keys::KeyId` with no `default`, so a key added to the table is a build error
 (`-Werror=switch`) until someone classifies it, and `bug_report_test` BR-35 keeps the list of kept keys
-explicit. Numbers, booleans and words are kept only when they are nothing but `[A-Za-z0-9._+-]`; a debugger
+explicit. Numbers, booleans and words are kept only as `config_keys`' own validator accepts them (the one `--set` and the settings file share), written in its canonical form, so a host or person name is refused by the key it sits in; `nextpi.release` only as empty, `latest` or a release tag; a debugger
 key combination only when it parses; the debugger window's size and position only as `W,H` or `X,Y`.
 Everything that can name the host is blanked whatever it holds: paths and path lists, host lists, device
 ids and names, the recent-files history, the NextPi folder, QEMU binary, QEMU arguments and audio mode
-(which can be `wav:FILE`), and any key the table does not know (its name is not echoed either). The same
-holds for the log line of a refused `[debugger_keys]` entry. `redact()` also starts a path after a colon
+(which can be `wav:FILE`), and any key the table does not know (its name is not echoed either). The log line of a refused `[debugger_keys]` entry (which quotes the hand-typed value in its reason) is
+blanked after `bug_report::kConfigIssueTag`, the constant the emitter and the scrub share; `bug_report_ui_test`
+BRUI-06 drives the real window with a bad `jnext.conf`. `redact()` also starts a path after a colon
 (`wav:/abs/path`), except in a `scheme://` URL. The three members that carry free text
 (`settings.json`, `log.txt`, `debugger.json`) are scrubbed a second time for the exact
 user names and the home directory.
@@ -134,7 +135,7 @@ is a per-run action like `--delayed-screenshot`.
 
 ## Tests
 
-`bug_report_ui_test` (BRUI-01 to 05) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
+`bug_report_ui_test` (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows `bug-report-nosd-func` and
 `bug-report-card-func` run the real binary. The second one is the end-to-end check of the

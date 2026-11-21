@@ -92,6 +92,12 @@ bool resolve_path(const std::string& arg, const std::string& program, const std:
 /// reporter's own program files and ship.
 bool holds_machine_snapshot(const std::string& path);
 
+/// The log line of a refused `[debugger_keys]` entry is `kConfigIssueTag` + what the emitter says
+/// (the hand-typed action name and value, and a reason that quotes the value). ONE constant,
+/// used by the emitter (MainWindow) and by the report's log scrub, so rewording the line cannot
+/// silently disable the scrub. A report never carries anything after the tag.
+inline constexpr const char* kConfigIssueTag = "Config [debugger_keys] ";
+
 /// `file_name()`'s program: the last program file loaded since RAM was last cleared.
 std::string program_name(const Emulator& emu);
 

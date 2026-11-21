@@ -1336,7 +1336,16 @@ int main() {
                                "zq7secret_action", sentinel);
         Session s1 = nocard_session();
         Report r1 = make_report(s1, in);
-        const bool clean = r1.ok && !report_contains(r1, "zq7secret");
+        // And a sentinel with no slash at all, which no path rule can catch: a host or person name,
+        // as a value of every row (a word, number, release tag or combo must be refused by its own
+        // validator) and as an unknown key name.
+        bug_report::Inputs in3 = inputs();
+        in3.config_file_read = true;
+        for (const ck::Key& k : ck::KEYS) in3.config_file.push_back({ name_of(k), "zq7secretvalue.example.org" });
+        in3.config_file.push_back({ "debugger_keys.zq7secretvaluename", "Ctrl+X" });
+        Session s3 = nocard_session();
+        Report r3 = make_report(s3, in3);
+        const bool clean = r1.ok && !report_contains(r1, "zq7secret") && r3.ok && !report_contains(r3, "zq7secretvalue");
 
         // The same rows with a plausible value each: the kept keys are exactly this list.
         bug_report::Inputs ok_in = inputs();

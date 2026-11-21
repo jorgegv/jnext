@@ -12,6 +12,8 @@
 //   BRUI-04  the report carries the settings file the Qt frontend read: a path blanked, a machine
 //            type kept (config_file_read true)
 //   BRUI-05  a path that cannot be written is refused: false, and the status bar says so
+//   BRUI-06  a hand-edited [debugger_keys] entry the window REALLY logs as refused (name, value and a
+//            reason that quotes the value) reaches no member of the report
 //
 // Qt is required (MainWindow is a real QWidget), no display is: main() forces the offscreen platform.
 // Run: ./build/test/bug_report_ui_test
@@ -30,6 +32,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 
+#include <algorithm>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -116,6 +119,23 @@ nlohmann::json member_json(const std::string& zip_path, const std::string& name)
     if (!r.open(reinterpret_cast<const uint8_t*>(b.constData()), static_cast<size_t>(b.size()), why)) return nlohmann::json();
     if (!r.read_text(name, text, why)) return nlohmann::json();
     return nlohmann::json::parse(text, nullptr, false);
+}
+
+// True when `needle` is in any member of the zip at `zip_path` (as text, decompressed).
+bool zip_contains(const std::string& zip_path, const std::string& needle)
+{
+    QFile f(QString::fromStdString(zip_path));
+    if (!f.open(QIODevice::ReadOnly)) return true;   // unreadable: fail the row
+    const QByteArray b = f.readAll();
+    jnext::zip::Reader r;
+    std::string why;
+    if (!r.open(reinterpret_cast<const uint8_t*>(b.constData()), static_cast<size_t>(b.size()), why)) return true;
+    for (const auto& e : r.entries()) {
+        std::vector<uint8_t> data;
+        if (!r.read(e.name, data, why)) return true;
+        if (std::search(data.begin(), data.end(), needle.begin(), needle.end()) != data.end()) return true;
+    }
+    return false;
 }
 
 }  // namespace
@@ -206,6 +226,26 @@ int main(int argc, char** argv)
         check("BRUI-05", "a path that cannot be written is refused, and the status bar says so",
               !ok && f.win.statusBar()->currentMessage().startsWith(QStringLiteral("Bug report failed")),
               f.win.statusBar()->currentMessage().toStdString());
+    }
+
+    {
+        // A second settings directory whose [debugger_keys] holds entries the config layer refuses: a
+        // known action bound to a name no key has, one with a colon in the value, an unknown action.
+        QTemporaryDir dir2;
+        QFile conf2(dir2.path() + QStringLiteral("/jnext.conf"));
+        const bool wrote = dir2.isValid() && conf2.open(QIODevice::WriteOnly);
+        if (wrote) {
+            conf2.write("[debugger_keys]\nstep_into=zq7secret-notes\npause=\"a: zq7secret-password\"\n"
+                        "zq7secret_action=Ctrl+X\n");
+            conf2.close();
+        }
+        qputenv("JNEXT_CONFIG_DIR", dir2.path().toUtf8());
+        Fixture f{prog};   // the window reads that file and logs every refusal
+        const std::string out = (dir.path() + QStringLiteral("/refused.jnext-bug.zip")).toStdString();
+        const bool saved = wrote && f.win.save_bug_report_to(QString::fromStdString(out));
+        check("BRUI-06", "refused [debugger_keys] entries, logged by the real window, reach no member of the report",
+              saved && !zip_contains(out, "zq7secret"), saved ? "a member holds the sentinel" : "no report");
+        qputenv("JNEXT_CONFIG_DIR", dir.path().toUtf8());
     }
 
     std::printf("\n============================================\n");
