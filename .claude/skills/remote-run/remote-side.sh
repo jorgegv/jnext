@@ -275,7 +275,7 @@ if [[ -n "$extra_dir" ]]; then
 fi
 args+=("$image" bash /rr/inner.sh)
 
-# Watchdog: a heartbeat line every 20 s; when the ssh session is gone the write fails and the
+# Watchdog: a heartbeat line every RR_HEARTBEAT (default 20) s; when the ssh session is gone the write fails and the
 # run is stopped (the container is killed and the checkout removed by the EXIT trap).
 main_pid=$$
 (
@@ -283,7 +283,7 @@ main_pid=$$
     exec 9>&-   # the lane lock is the run's, not the watchdog's: a lingering sleep must not hold it
     while kill -0 "$main_pid" 2>/dev/null; do
         printf '\001HB\n' || { kill -TERM "$main_pid" 2>/dev/null; exit 0; }
-        sleep 20 >/dev/null 2>&1   # nor the session's stdout
+        sleep "${RR_HEARTBEAT:-20}" >/dev/null 2>&1   # nor the session's stdout
     done
 ) &
 watchdog=$!

@@ -288,10 +288,12 @@ drive --warm --id w1
 warm_rc=$RC
 built=$(calls | grep -c ' build ' || true)
 reset_state
-FAKE_STAMP=1 FAKE_RC=0 drive --id r1 feature "$SHA" unit-test sh:true
-run_rc=$RC
+t0=$SECONDS
+RR_HEARTBEAT=60 FAKE_STAMP=1 FAKE_RC=0 drive --id r1 feature "$SHA" unit-test sh:true
+run_rc=$RC; run_took=$((SECONDS - t0))
 # nothing the run started (the watchdog's sleep) may still hold the lane lock once the driver returned
-lane_free=0; flock -n "$WORK/lane.lock" true && lane_free=1
+# nor may it keep the session open: the driver returns long before the (60 s here) heartbeat sleep ends
+lane_free=0; flock -n "$WORK/lane.lock" true && [[ $run_took -lt 45 ]] && lane_free=1
 runline=$(calls | grep -E '(^| )run ' | head -n 1)
 roots_ok=1
 while read -r s r; do [[ "$s" == "$WORK/"* && "$r" == "$WORK/"* ]] || roots_ok=0; done < "$FAKE_STATE/roots"
@@ -302,7 +304,7 @@ mem_ok=0; [[ "$runline" == *"--memory "*"--memory-swap "* ]] && mem_ok=1
 drv_ok=0; [[ "$(cat "$WORK/containers/driver" 2>/dev/null)" == overlay ]] && drv_ok=1
 row RRUN-08 "$([[ $warm_rc -eq 0 && $built -eq 1 && $run_rc -eq 0 && $roots_ok -eq 1 && $vols_ok -eq 1 && $mem_ok -eq 1 && $drv_ok -eq 1 && $lane_free -eq 1 \
     && -f "$TMP/stamps/fakekey" && -z "$(find "$WORK/runs" "$WORK/ctl" "$WORK/stamps" -mindepth 1)" ]] && echo 1 || echo 0)" \
-    "warm builds once; a run mounts only dirs under the work dir, stores podman there, records the driver, caps memory, returns the stamp, leaves no checkout (warm=$warm_rc run=$run_rc roots=$roots_ok vols=$vols_ok mem=$mem_ok drv=$drv_ok lane=$lane_free)"
+    "warm builds once; a run mounts only dirs under the work dir, stores podman there, records the driver, caps memory, returns the stamp, leaves no checkout (warm=$warm_rc run=$run_rc roots=$roots_ok vols=$vols_ok mem=$mem_ok drv=$drv_ok lane=$lane_free took=${run_took}s)"
 
 # RRUN-09: a failing container exits the driver with 1, copies no stamp, and the log keeps the result
 reset_state; rm -rf "$TMP/stamps"
