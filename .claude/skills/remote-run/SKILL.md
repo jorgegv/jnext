@@ -40,7 +40,7 @@ The remote is ADDITIONAL capacity, never a queue and never a bottleneck: a heavy
 is free. **Call the driver from the main checkout**
 (`/home/jorgegv/src/spectrum/jnext/.claude/skills/remote-run/remote-run.sh`), never from an older worktree:
 the remote side comes from the driver's own copy, and an old one kills every `rr-jnext-*` container
-in its orphan sweep, the other lane's included. **`--id` must be unique among live runs** (the log
+in its orphan sweep, a lane 1 run's included (lane 2's name does not match). **`--id` must be unique among live runs** (the log
 file and the run's directories are named by it). The normal call therefore always carries `--fallback-local <worktree>` with
 `REMOTE_RUN_LOCAL_WRAP` set to the local slot wrapper (`slot.sh`): a lane free, the run goes to the remote;
 every lane busy past `LANE_WAIT` (30 s), alias unset, unreachable or preflight failing, it runs locally at
@@ -117,7 +117,7 @@ directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`)
 - **Two lanes** (`LANES=2`, D22): one `flock` each (`lane.lock`, `lane-L2.lock`); a run takes the first free
   one and logs `lane n of 2`. A plain run waits for a lane only `LANE_WAIT` (30 s) and then falls back,
   `--gate` waits `GATE_LANE_WAIT` and runs beside the other lane. Lane 1 keeps the one-lane names; lane 2
-  has its own `runs-L2/`, `ctl-L2/`, container name `rr-jnext-L2-<id>`, label `rr-lane=2`, SD home
+  has its own `runs-L2/`, `ctl-L2/`, container name `rr-L2-jnext-<id>` (not matching the `rr-jnext-` prefix an older remote side sweeps), label `rr-lane=2`, SD home
   `cache/jnext-home-L2` (provisioned by its first run through jnext's own download: the SD image never
   leaves the work directory) and FPGA clone `cache/extra-repo-L2`. The ccache, the tool caches (which
   hold the regression host lock, so two full regressions serialize), the mirror, the image and the

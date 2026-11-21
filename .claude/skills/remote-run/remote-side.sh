@@ -185,7 +185,9 @@ for m in ${RR_CACHE_SWEEP:-}; do
     find "$CACHE/$(lane_dir "$m")" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null
 done
 
-cname="rr-$RR_PROJECT-${SFX:+L$lane-}$RR_ID"
+# lane n > 1 names its container rr-L<n>-<project>-<id>, NOT rr-<project>-L<n>-<id>: a remote side from before
+# the lanes kills every container matching ^rr-<project>- at its start, and must not find lane 2's.
+cname="rr-${SFX:+L$lane-}$RR_PROJECT-$RR_ID"
 run="$RUNS/$RR_ID"
 ctl="$CTL/$RR_ID"
 stamps="$STAMPS/$RR_ID"
