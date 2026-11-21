@@ -1354,7 +1354,7 @@ int main() {
             std::string v = "x";
             switch (k.type) {
                 case ck::Type::Bool:  v = "true"; break;
-                case ck::Type::Int:   v = "2"; break;
+                case ck::Type::Int:   v = std::to_string(static_cast<long>(k.lo)); break;   // the lowest valid value
                 case ck::Type::Float: v = "0.5"; break;
                 case ck::Type::Keep:  v = "5"; break;
                 case ck::Type::Machine: v = "next"; break;
@@ -1363,6 +1363,7 @@ int main() {
                 default: break;
             }
             if (k.id == ck::KeyId::DebuggerSize || k.id == ck::KeyId::DebuggerPosition) v = "800,600";
+            if (k.id == ck::KeyId::NextpiRelease) v = "v1.2.3";
             ok_in.config_file.push_back({ name_of(k), v });
         }
         Session s2 = nocard_session();
