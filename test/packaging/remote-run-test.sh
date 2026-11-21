@@ -631,8 +631,8 @@ row RRUN-32 "$([[ $l2_rc -eq 1 && "$runline" == *"-v $WORK/runs-L2/lane2/src:/sr
     && "$runline" == *"-v $WORK/cache/ccache:/root/.cache/ccache"* && "$runline" == *"-v $WORK/cache/tools:/root/.cache/jnext"* \
     && "$runline" == *"--label rr-lane=2"* && "$runline" == *"--name rr-jnext-L2-lane2 "* \
     && ! -e "$WORK/cache/jnext-home-L2/runs/x" && -e "$WORK/cache/jnext-home/runs/y" \
-    && ! -e "$WORK/runs-L2/lane2" && ! -e "$WORK/ctl-L2/lane2" ]] && echo 1 || echo 0)" \
-    "lane 2: runs-L2/ctl-L2, jnext-home-L2 and extra-repo-L2 mounts, shared ccache and tools, label and name; its own sweep; cleanup mode removes its dirs (rc=$l2_rc)"
+    && ! -e "$WORK/runs-L2/lane2" && ! -e "$WORK/ctl-L2/lane2" && "$(grep -a RR_BOOTSTRAP "$FAKE_STATE/env.sh")" == *"sdcard-image"* ]] && echo 1 || echo 0)" \
+    "lane 2: runs-L2/ctl-L2, jnext-home-L2 and extra-repo-L2 mounts, shared ccache and tools, label and name; its own sweep; cleanup mode removes its dirs; the bootstrap provisions an empty SD home (rc=$l2_rc)"
 
 # RRUN-33: LANES=1 is the one-lane contract: a busy lane.lock gives 75 / local run, no second lock appears
 reset_state; rm -f "$WORK/lane-L2.lock"; rm -f "$FAKE_STATE/make-calls"; mkdir -p "$TMP/local"
