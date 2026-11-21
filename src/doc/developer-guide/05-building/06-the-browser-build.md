@@ -370,7 +370,12 @@ the recording was made on is not the one it now boots from.
   thing as the native build under the WebAssembly compiler: the second to the pixel.
 - `make wasm-browser-test` proves the page: the frame loop and pacing, input and sound
   policy, the card build, cache and warm start, and the JavaScript API, with the
-  example pages. Details: [5.1](01-make-targets.md), [5.4](04-continuous-integration.md),
+  example pages. The fixture preparation (independent chains of native runs) and the
+  specs run in parallel, at most `JNEXT_BROWSER_JOBS` at once (default
+  `min(4, max(1, nproc/2))`; `1` is one at a time), longest spec first
+  (`test/browser/spec-runner.inc`). Each spec writes only under its own
+  `$SMOKE_WORK`; the shared fixtures are read-only while the specs run, and a spec
+  tagged `file:count:serial` runs alone afterwards. Details: [5.1](01-make-targets.md), [5.4](04-continuous-integration.md),
   [4.2](../04-testing/02-declared-suites-and-pinned-counts.md) and
   [4.3](../04-testing/03-the-regression-suite.md).
 - The widget (`web/jnext-widget.js.in`) is a plain script on top of `jnext.mount()`:

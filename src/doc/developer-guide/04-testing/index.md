@@ -42,8 +42,13 @@ The rest of the chapter works through the pieces:
 
 None of this is optional tooling that you run when you remember to.
 `make unit-test` and `make regression` pull the lints, the documentation checks
-and the traceability gates in as prerequisites, so they run in the inner loop,
-where a failure is still cheap to fix.
+and the traceability gates in, so they run in the inner loop, where a failure is
+still cheap to fix. `make unit-test` runs them in this order: the cheap lints
+first, one after another; the self-tests, `docs-check` and
+`package-contract-test` concurrently with the build; `schema-check`,
+`snapshot-zip-check`, `minimal-image-test` and `sdcard-image` concurrently after
+it; then the suites, alone; then the traceability check from the suites' logs.
+`UNIT_TEST_CHECK_JOBS` (default 6) caps the two concurrent groups.
 
 Pages in this chapter:
 
