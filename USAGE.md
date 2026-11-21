@@ -3629,8 +3629,11 @@ A `debug` entry with `transport: 'ws'` keeps one WebSocket open to its
 `url` for as long as the player runs, and redials once a second when it
 is lost. The link carries one client at a time: the text message `open`
 says a client arrived, the text message `close` says either side ended
-it, and binary messages carry the bytes in both directions, in order;
-any other text message is ignored. The player tells the console once for
+it, and binary messages carry the bytes in both directions, in order.
+When the bridge sends `close` (its client left), the player answers with
+the text message `closed`, and the bridge admits no new client before
+it: what the player sent for the old session is then all behind it. Any
+other text message is ignored. The player tells the console once for
 each time the link goes down, and never through `onError`.
 
 ### The touch keyboard

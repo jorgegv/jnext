@@ -560,6 +560,9 @@
             try { debugOpen(entry); } catch (e) { if (ws.readyState === 1) ws.send('close'); }
           } else if (ev.data === 'close') {
             if (entry.open) { try { debugClose(entry); } catch (e) { /* module gone */ } }
+            // The confirmation the bridge waits for before it admits the next client: everything this
+            // side sent for the old session (its last bytes, its own `close`) went before it.
+            if (ws.readyState === 1) ws.send('closed');
           } else if (!entry.warned) {
             entry.warned = true;
             console.warn('jnext: an unknown message of the debug link was ignored');

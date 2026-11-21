@@ -13,6 +13,8 @@
 // THE LINK (what the page speaks; an IDE can serve it directly):
 //   text message `open`    a client arrived;
 //   text message `close`   either side ended the session (from the page: the emulator ended it);
+//   text message `closed`  the page's answer to the bridge's `close`: the end is confirmed, and everything the
+//                          page sent for that session is behind it, so the next client may be admitted;
 //   binary messages        the bytes of the session, in order, both ways;
 //   any other text message is ignored.
 //
@@ -37,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_MESSAGE = 64 * 1024 * 1024;
 const GRACE_MS = 300;
+const HOLD_GRACE_MS = 3000;   // how long a redial waits for the page to confirm the end of the session before it
 
 // ---------------------------------------------------------------------------------------------
 // TcpRelay: one TCP client at a time.
@@ -51,6 +54,7 @@ export class TcpRelay extends EventEmitter {
     this.accept = options.accept || (() => true);
     this.client = null;
     this.waiting = null;     // a connection that arrived while a client was open, for GRACE_MS
+    this.held = false;       // a session the client ended is not yet confirmed by the page: admit no one
     this.waitTimer = null;
     this.server = net.createServer((sock) => this.#connection(sock));
   }
@@ -73,6 +77,12 @@ export class TcpRelay extends EventEmitter {
     if (!this.client) return true;
     return this.client.write(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
   }
+
+  // After the client ended a session the caller holds the next client back until the page has confirmed
+  // the end (`hold()`, then `release()`): what the page sent for the old session (its last bytes, its own
+  // `close`) is then all behind us and cannot be taken for the new session's.
+  hold() { this.held = true; }
+  release() { this.held = false; this.#promote(); }
 
   // Stop and restart reading from the client (the caller's sink is full).
   pauseClient() { if (this.client) this.client.pause(); }
@@ -104,7 +114,7 @@ export class TcpRelay extends EventEmitter {
   // (a redial waits for the session it follows).
   #connection(sock) {
     sock.on('error', () => {});
-    if (!this.client) return this.#admit(sock);
+    if (!this.client && !this.held) return this.#admit(sock);
     if (this.waiting) {
       this.emit('rejected', sock.remoteAddress);
       sock.destroy();
@@ -117,13 +127,13 @@ export class TcpRelay extends EventEmitter {
       if (!w) return;
       this.emit('rejected', w.remoteAddress);
       w.destroy();
-    }, GRACE_MS);
+    }, this.held ? HOLD_GRACE_MS : GRACE_MS);
     this.waitTimer.unref();
   }
 
   #promote() {
     const w = this.waiting;
-    if (!w || this.client) return;
+    if (!w || this.client || this.held) return;
     this.waiting = null;
     clearTimeout(this.waitTimer);
     if (!w.destroyed) this.#admit(w);
@@ -409,16 +419,32 @@ export async function main(argv) {
     const page = pages.page;
     if (page && !page.sendBinary(d)) { relay.pauseClient(); page.once('drain', () => relay.resumeClient()); }
   });
-  relay.on('close', () => pages.page && pages.page.sendText('close'));
+  // The client ended the session: tell the page, and admit no new client until the page has confirmed with
+  // `closed`. The page's own `close` (if the machine ended the session first) and its last bytes for the old
+  // session reach us before that confirmation, so they cannot end or feed the next client.
+  let holdTimer = null;
+  const release = () => { clearTimeout(holdTimer); relay.release(); };
+  relay.on('close', () => {
+    if (!pages.page) return;
+    pages.page.sendText('close');
+    relay.hold();
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(release, HOLD_GRACE_MS);   // a link that never confirms
+    holdTimer.unref();
+  });
   pages.on('link', (ws) => {
     process.stdout.write('jnext-debug-bridge: page linked\n');
-    ws.on('text', (t) => { if (t === 'close') relay.end(); });
+    ws.on('text', (t) => {
+      if (t === 'close') relay.end();
+      else if (t === 'closed') release();
+    });
     ws.on('binary', (b) => {
       if (!relay.send(b)) { ws.pause(); relay.once('drain', () => ws.resume()); }
     });
   });
   pages.on('unlink', () => {
     relay.end();
+    release();
     process.stdout.write('jnext-debug-bridge: page unlinked\n');
   });
 

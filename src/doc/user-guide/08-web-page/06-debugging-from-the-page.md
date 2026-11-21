@@ -105,7 +105,7 @@ The bridge's rules:
 
 - **One page and one client.** A second page that dials gets HTTP 409. A second TCP client is
   closed. A client that hangs up and dials again at once is not a second client: it waits
-  up to 300 ms for the session before it to end. A client that connects while no page is
+  for the session before it to end (up to 300 ms, and up to 3 s for the page's `closed`). A client that connects while no page is
   linked is closed at once.
 - **Only a local page may link.** The bridge accepts a page whose `Origin` is `http://` or
   `https://` with the host `localhost` or `127.0.0.1` and any port, and answers HTTP 403 to every
@@ -135,6 +135,7 @@ play the bridge's part (an IDE extension, say):
 |---|---|
 | text `open` | A client arrived. |
 | text `close` | Either side ended the session. From the page it means the machine ended it. |
+| text `closed` | The page's answer to the bridge's `close`: the end is confirmed, and everything the page sent for that session came before this message, so the bridge may admit the next client. |
 | binary | The bytes of the session, in order, in both directions. |
 
 Any other text message is ignored (the player says so once in the console).

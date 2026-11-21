@@ -1,4 +1,4 @@
-// Browser rows BDBG-01..25: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
+// Browser rows BDBG-01..26: the debugger protocols (DZRP, ZRCP, GDB) served by a page, over the JS
 // channel and over a WebSocket to the bridge (make wasm-browser-test, spec debug.mjs). Run by
 // browser-smoke.sh on the SDK's node.
 //
@@ -730,6 +730,49 @@ row('BDBG-25', 'backpressure towards the page: a page link that stops reading ma
   link.socket.destroy();
   must(queued > 32 * MiB, `the client's write queue was ${queued} bytes after 1.5 s: the bridge read it though the page did not`);
   must(total === N * MiB && got.digest('hex') === hash.digest('hex'), `${total} of ${N * MiB} bytes, digest ${total === N * MiB ? 'differs' : 'n/a'}`);
+});
+
+
+row('BDBG-26', 'bridge: a client that dials again after the old one left waits for the page\'s `closed`: the old session\'s late bytes and late `close` neither reach the new client nor end it', async () => {
+  const b = await startBridge();
+  const link = await upgradeOk(b.wsPort);
+  must(/^HTTP\/1\.1 101/.test(link.status), 'link: ' + link.status);
+  link.socket.on('error', () => {});
+  const rx = [];
+  link.socket.on('data', (d) => rx.push(d));
+  const frames = (text) => {
+    const want = Buffer.concat([Buffer.from([0x81, text.length]), Buffer.from(text)]);
+    let n = 0;
+    for (let at = Buffer.concat(rx).indexOf(want); at >= 0; at = Buffer.concat(rx).indexOf(want, at + 1)) n++;
+    return n;
+  };
+  const until = async (fn, what) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > 5000) throw new Error('timeout: ' + what); await sleep(20); } };
+  const a = net.connect(b.tcpPort, '127.0.0.1');
+  a.on('error', () => {});
+  await new Promise((r) => a.on('connect', r));
+  await until(() => frames('open') === 1, 'the page told `open`');
+  a.destroy();   // the client leaves
+  const c = net.connect(b.tcpPort, '127.0.0.1');   // and a new one dials at once
+  const got = [];
+  let closed = false;
+  c.on('data', (d) => got.push(d));
+  c.on('close', () => { closed = true; });
+  c.on('error', () => {});
+  await until(() => frames('close') === 1, 'the page told `close`');
+  // The page now sends the late messages of the old session, before it confirms: bytes, and its own close.
+  link.socket.write(Buffer.concat([maskedFrame(true, 2, Buffer.from('STALE')), maskedFrame(true, 1, Buffer.from('close'))]));
+  await sleep(400);
+  const early = Buffer.concat(got).toString();
+  const earlyClosed = closed;
+  const earlyOpens = frames('open');
+  link.socket.write(maskedFrame(true, 1, Buffer.from('closed')));
+  await until(() => frames('open') === 2, 'the page told `open` for the new client');
+  link.socket.write(maskedFrame(true, 2, Buffer.from('FRESH')));
+  await until(() => Buffer.concat(got).length >= 5, 'FRESH');
+  const late = Buffer.concat(got).toString();
+  link.socket.destroy(); c.destroy();
+  must(early === '' && !earlyClosed && earlyOpens === 1, `before the confirmation: ${JSON.stringify(early)}, closed ${earlyClosed}, opens ${earlyOpens}`);
+  must(late === 'FRESH' && !closed, `after it: ${JSON.stringify(late)}, closed ${closed}`);
 });
 
 // ---------------------------------------------------------------------------------------------------
