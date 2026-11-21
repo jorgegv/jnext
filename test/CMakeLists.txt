@@ -7,6 +7,15 @@ if(WIN32)
     add_link_options(-Wl,--stack,8388608)
 endif()
 
+# GH #547: `make test-affected` (tools/test-affected.pl) needs to know which object files each
+# suite's link really pulled out of the static archives (link.d only names the archive, and
+# most suites list libjnext_video.a). GNU ld's map has that list ("Archive member included"),
+# so each suite links with a map next to its executable. Native Linux trees with GNU ld
+# only; a suite without a map is selected on the archive's whole membership (never fewer).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_link_options("-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/$<TARGET_PROPERTY:NAME>.map")
+endif()
+
 # WebAssembly (`make wasm-core`): the test executables run under node and read
 # host files and the host environment (HOME, TMPDIR) through NODERAWFS; jnext.js
 # itself keeps the default environment and its in-memory filesystem.
