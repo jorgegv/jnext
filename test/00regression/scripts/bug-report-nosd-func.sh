@@ -31,7 +31,7 @@ if want bug-report-nosd-func; then
     a_out=$(timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --no-sdcard \
         --load "$TMP_DIR/im1.nex" --bug-report "$br_dir/" --delayed-automatic-exit-frames 150 2>&1) || a_rc=$?
     [[ "$a_rc" -eq 0 ]] || br_faults+=("A: exit status $a_rc, want 0")
-    mapfile -t br_files < <(find "$br_dir" -maxdepth 1 -type f -name '*.zip' -printf '%f\n')
+    mapfile -t br_files < <(find "$br_dir" -maxdepth 1 -type f -name '*.zip' -exec basename {} \;)
     [[ "${#br_files[@]}" -eq 1 ]] || br_faults+=("A: ${#br_files[@]} files in the directory, want 1")
     br_name="${br_files[0]:-none}"
     if ! [[ "$br_name" =~ ^im1\.[0-9]{12}\.jnext-bug\.zip$ ]]; then
