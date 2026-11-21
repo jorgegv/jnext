@@ -23,9 +23,7 @@ esac
 case "$RR_DIR" in /*) ;; *) fallback "the work directory '$RR_DIR' is not an absolute path" ;; esac
 
 MIRROR="$RR_DIR/mirror"
-RUNS="$RR_DIR/runs"
 STAMPS="$RR_DIR/stamps"
-CTL="$RR_DIR/ctl"
 CACHE="$RR_DIR/cache"
 export TMPDIR="$RR_DIR/tmp"
 
@@ -46,11 +44,12 @@ if [[ "$RR_MODE" == stamps ]]; then
     exec tar -C "$STAMPS/$RR_ID" -cf - .
 fi
 if [[ "$RR_MODE" == cleanup ]]; then
-    rm -rf "${RUNS:?}/$RR_ID" "${STAMPS:?}/$RR_ID" "${CTL:?}/$RR_ID"
+    # the run's lane is not known here: its checkout is in runs/ or runs-L<n>/, ctl likewise
+    rm -rf "$RR_DIR"/runs*/"${RR_ID:?}" "$RR_DIR"/ctl*/"${RR_ID:?}" "${STAMPS:?}/$RR_ID"
     exit 0
 fi
 
-mkdir -p "$RR_DIR" "$TMPDIR" "$RUNS" "$STAMPS" "$CTL" "$RR_DIR/containers/storage" "$RR_DIR/containers/run" \
+mkdir -p "$RR_DIR" "$TMPDIR" "$STAMPS" "$RR_DIR/containers/storage" "$RR_DIR/containers/run" \
     || fallback "cannot create the work directory $RR_DIR"
 
 # ---- preflight --------------------------------------------------------------
@@ -60,8 +59,9 @@ done
 
 # Memory: MemAvailable leaves out the ZFS ARC, which the kernel gives back under pressure, so
 # the gate counts the ARC above its minimum as available; both are reported.
-mem_avail_mb=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
-mem_total_mb=$(awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+MEMINFO=${RR_MEMINFO:-/proc/meminfo}   # test seam
+mem_avail_mb=$(awk '/^MemAvailable:/ {print int($2/1024)}' "$MEMINFO" 2>/dev/null || echo 0)
+mem_total_mb=$(awk '/^MemTotal:/ {print int($2/1024)}' "$MEMINFO" 2>/dev/null || echo 0)
 arc_mb=0; arc_reclaim_mb=0
 if [[ -r /proc/spl/kstat/zfs/arcstats ]]; then
     arc_mb=$(awk '$1=="size" {print int($3/1048576)}' /proc/spl/kstat/zfs/arcstats)
@@ -73,15 +73,15 @@ say "preflight: $(podman --version), nproc=$(nproc), mem-total=${mem_total_mb}Mi
 [[ "$mem_mb" -ge "$RR_MIN_MEM_MB" ]] || fallback "only ${mem_mb} MiB memory available incl. reclaimable ARC (need $RR_MIN_MEM_MB)"
 [[ "$disk_gb" -ge "$RR_MIN_DISK_GB" ]] || fallback "only ${disk_gb} GiB disk free (need $RR_MIN_DISK_GB)"
 
-# The container gets a hard memory limit: the configured one, or 80% of the host's memory when
-# that is smaller. That needs the memory controller delegated to the user (cgroup v2).
+# The container gets a hard memory limit: the configured one, or 80% of the host's memory shared
+# between the lanes when that is smaller. That needs the memory controller delegated to the user (cgroup v2).
 mem_limit=$RR_MEMORY
 case "$RR_MEMORY" in
     *g) cfg_mb=$(( ${RR_MEMORY%g} * 1024 )) ;;
     *m) cfg_mb=${RR_MEMORY%m} ;;
     *)  fallback "RR_MEMORY must end in g or m: '$RR_MEMORY'" ;;
 esac
-cap_mb=$((mem_total_mb * 8 / 10))
+cap_mb=$((mem_total_mb * 8 / 10 / RR_LANES))
 if [[ "$mem_total_mb" -gt 0 && "$cfg_mb" -gt "$cap_mb" ]]; then mem_limit="${cap_mb}m"; fi
 if [[ -z "${RR_SKIP_CGROUP_CHECK:-}" ]]; then
     uid=$(id -u)
@@ -91,16 +91,62 @@ fi
 say "container memory limit: $mem_limit (swap off)"
 
 
-# ---- lane: one run at a time ------------------------------------------------
-exec 9>"$RR_DIR/lane.lock"
-if ! flock -n 9; then
-    say "the lane is busy: queued (waiting up to ${RR_LANE_WAIT}s)"
-    flock -w "$RR_LANE_WAIT" 9 || fallback "the lane stayed busy for ${RR_LANE_WAIT}s"
+# ---- lane: RR_LANES runs at once, one lock each ----------------------------------
+# Lane 1 keeps the names of the one-lane layout (lane.lock, runs/, ctl/, rr-<project>-<id>); lane n
+# adds -L<n> to them (SFX). Only what two concurrent runs would trample is per lane (the lock, runs/
+# and ctl/, the container's name and label, the LANE_CACHES directories, the FPGA clone); the other
+# caches, the podman store, the mirror and the stamps are shared.
+lane_lock() { if [[ "$1" -eq 1 ]]; then echo "$RR_DIR/lane.lock"; else echo "$RR_DIR/lane-L$1.lock"; fi; }
+lane=0
+deadline=$((SECONDS + RR_LANE_WAIT)); queued=0
+while :; do
+    for n in $(seq 1 "$RR_LANES"); do
+        exec 9>"$(lane_lock "$n")"
+        if flock -n 9; then lane=$n; break; fi
+    done
+    [[ $lane -eq 0 ]] || break
+    if [[ $queued -eq 0 ]]; then
+        say "every lane is busy: queued (waiting up to ${RR_LANE_WAIT}s)"; queued=1
+    fi
+    [[ $SECONDS -lt $deadline ]] || fallback "every lane stayed busy for ${RR_LANE_WAIT}s"
+    sleep 1
+done
+SFX=""; [[ $lane -eq 1 ]] || SFX="-L$lane"
+say "lane $lane of $RR_LANES"
+# A lane that starts while another is busy runs at half the CPU caps (rounded up): measured no slower than
+# full caps for the pair (project.conf), and it keeps two compiling lanes from oversubscribing the host.
+for n in $(seq 1 "$RR_LANES"); do
+    [[ $n -ne $lane ]] || continue
+    exec {pfd}>"$(lane_lock "$n")"
+    if ! flock -n "$pfd"; then
+        RR_JOBS_DEFAULT=$(( (RR_JOBS_DEFAULT + 1) / 2 )); RR_JOBS_HEAVY=$(( (RR_JOBS_HEAVY + 1) / 2 )); RR_TEST_JOBS=$(( (RR_TEST_JOBS + 1) / 2 ))
+        say "another lane is busy: caps halved (JOBS $RR_JOBS_DEFAULT, heavy $RR_JOBS_HEAVY, test jobs $RR_TEST_JOBS)"
+        exec {pfd}>&-
+        break
+    fi
+    exec {pfd}>&-
+done
+RUNS="$RR_DIR/runs$SFX"
+CTL="$RR_DIR/ctl$SFX"
+mkdir -p "$RUNS" "$CTL" || fallback "cannot create the work directory $RR_DIR"
+# lane_dir <cache path>: the path of a per-lane cache directory (the first component is listed in LANE_CACHES)
+lane_dir() {
+    local first=${1%%/*} rest=""
+    [[ "$1" != */* ]] || rest=/${1#*/}
+    if [[ -n "$SFX" && " ${RR_LANE_CACHES:-} " == *" $first "* ]]; then echo "$first$SFX$rest"; else echo "$1"; fi
+}
+
+# The setup lock: the shared mirror, the image, the cache migration and the clone out of the mirror
+# take it, one run at a time. The checkout, the submodules and the container run do not.
+exec 8>"$RR_DIR/setup.lock"
+if ! flock -n 8; then
+    say "waiting for the setup lock (another run is fetching or building)"
+    flock -w "$RR_LANE_WAIT" 8 || fallback "the setup lock stayed busy for ${RR_LANE_WAIT}s"
 fi
 
 # Storage driver: try the default (overlay) in the work directory, then fuse-overlayfs, then vfs;
 # the first that can start is recorded in containers/driver (the default too, by the name podman
-# reports) and used by every later call. Runs only while holding the lane: a failed probe wipes
+# reports) and used by every later call. Runs only while holding EVERY lane: a failed probe wipes
 # the store, which must never be one a live run is using.
 pick_driver() {
     local d out
@@ -125,11 +171,23 @@ pick_driver() {
     rm -f "$DRV_FILE"; set_pm
     fallback "no podman storage driver works under $RR_DIR"
 }
-pick_driver
+if [[ ! -s "$DRV_FILE" ]]; then
+    # the other lanes must be idle for the probe; their locks are held (fds 10 and up) until it is done
+    other_fds=()
+    for n in $(seq 1 "$RR_LANES"); do
+        [[ $n -ne $lane ]] || continue
+        exec {ofd}>"$(lane_lock "$n")"
+        flock -n "$ofd" || fallback "no storage driver recorded and another lane is live: probe later"
+        other_fds+=("$ofd")
+    done
+    pick_driver
+    for ofd in "${other_fds[@]}"; do exec {ofd}>&-; done
+fi
+set_pm   # a run that waited for a lane while another probed must pick up the driver recorded meanwhile
 rootless=$(pm info --format '{{.Host.Security.Rootless}}' 2>/dev/null) || fallback "podman info failed"
 [[ "$rootless" == true ]] || fallback "podman is not rootless (got '$rootless')"
 
-# Cache directories that moved: renamed once, while holding the lane (same filesystem: instant).
+# Cache directories that moved: renamed once, while holding the setup lock (same filesystem: instant).
 for m in ${RR_CACHE_MIGRATE:-}; do
     if [[ -d "$CACHE/${m%%:*}" && ! -e "$CACHE/${m#*:}" ]]; then
         mkdir -p "$(dirname "$CACHE/${m#*:}")" && mv "$CACHE/${m%%:*}" "$CACHE/${m#*:}" \
@@ -138,10 +196,12 @@ for m in ${RR_CACHE_MIGRATE:-}; do
 done
 
 for m in ${RR_CACHE_SWEEP:-}; do
-    find "$CACHE/$m" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null
+    find "$CACHE/$(lane_dir "$m")" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null
 done
 
-cname="rr-$RR_PROJECT-$RR_ID"
+# lane n > 1 names its container rr-L<n>-<project>-<id>, NOT rr-<project>-L<n>-<id>: a remote side from before
+# the lanes kills every container matching ^rr-<project>- at its start, and must not find lane 2's.
+cname="rr-${SFX:+L$lane-}$RR_PROJECT-$RR_ID"
 run="$RUNS/$RR_ID"
 ctl="$CTL/$RR_ID"
 stamps="$STAMPS/$RR_ID"
@@ -160,8 +220,8 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 143' TERM HUP INT
 
-# The lane is ours, so anything left under RUNS/CTL/STAMPS or still running is an orphan.
-for c in $(pm ps -q --filter "name=^rr-$RR_PROJECT-" 2>/dev/null); do pm kill "$c" >/dev/null 2>&1; done
+# The lane is ours, so anything of this lane left under RUNS/CTL or still running is an orphan.
+for c in $(pm ps -q --filter "label=rr-lane=$lane" 2>/dev/null); do pm kill "$c" >/dev/null 2>&1; done
 find "$RUNS" "$CTL" -mindepth 1 -maxdepth 1 -mmin +60 -exec rm -rf {} + 2>/dev/null
 # stamps wait for the driver to fetch them in a later session: only a day-old one is an orphan
 find "$STAMPS" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null
@@ -226,7 +286,7 @@ extra_dir=""
 if [[ -n "${RR_EXTRA_URL:-}" ]]; then
     extra_ref=$(git -C "$MIRROR" show "$RR_SHA:$RR_EXTRA_REF_FILE" 2>/dev/null | sed -nE "$RR_EXTRA_REF_SED" | head -n 1)
     [[ "$extra_ref" =~ ^[0-9a-f]{40}$ ]] || fallback "no pinned commit for $RR_EXTRA_URL found in $RR_EXTRA_REF_FILE at $RR_SHA"
-    extra_dir="$CACHE/extra-repo"
+    extra_dir="$CACHE/extra-repo$SFX"
     mkdir -p "$CACHE"
     if [[ "$(git -C "$extra_dir" rev-parse HEAD 2>/dev/null)" == "$extra_ref" ]]; then
         say "extra repository: reusing $extra_dir @ $extra_ref (pin read from $RR_EXTRA_REF_FILE)"
@@ -247,6 +307,7 @@ fi
 # ---- per-run checkout -------------------------------------------------------
 rm -rf "$run"; mkdir -p "$run" "$ctl" "$stamps"
 git clone -q --local --no-checkout "$MIRROR" "$run/src" 2>&1 </dev/null | grep -v "remote HEAD refers" || true
+exec 8>&-   # the setup lock is released: the rest is this run's own
 git -C "$run/src" checkout -q --detach "$RR_SHA" || fallback "cannot check out $RR_SHA"
 git -C "$run/src" submodule update --init --recursive --depth 1 -q </dev/null \
     || git -C "$run/src" submodule update --init --recursive -q </dev/null \
@@ -260,13 +321,13 @@ printf '%s' "$RR_INNER" > "$ctl/inner.sh"
 } > "$ctl/env.sh"
 
 # ---- run --------------------------------------------------------------------
-args=(run --rm --name "$cname" --memory "$mem_limit" --memory-swap "$mem_limit" --shm-size "$RR_SHM" --security-opt label=disable
+args=(run --rm --name "$cname" --label "rr-lane=$lane" --memory "$mem_limit" --memory-swap "$mem_limit" --shm-size "$RR_SHM" --security-opt label=disable
       -v "$run/src:/src" -v "$ctl:/rr:ro" -v "$stamps:/rr-stamps" -w /src
       -e "JNEXT_TEST_JOBS=$RR_TEST_JOBS")
 [[ -z "$RR_STAMP_ENV" ]] || args+=(-e "$RR_STAMP_ENV=/rr-stamps")
 for m in $RR_CACHE_MOUNTS; do
-    mkdir -p "$CACHE/${m%%:*}"
-    args+=(-v "$CACHE/${m%%:*}:${m#*:}")
+    mkdir -p "$CACHE/$(lane_dir "${m%%:*}")"
+    args+=(-v "$CACHE/$(lane_dir "${m%%:*}"):${m#*:}")
 done
 for e in $RR_CONTAINER_ENV; do args+=(-e "$e"); done
 if [[ -n "$extra_dir" ]]; then
