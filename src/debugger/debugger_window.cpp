@@ -1724,6 +1724,9 @@ void DebuggerWindow::create_panels() {
 
     // GH #530 - a dropped CPU write in the Audio tab names the OUT that was discarded.
     connect(audio_panel_, &AudioPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);
+    // GH #531 - the Log sub-tab asks the backend to record the audio write log only while it is
+    // the shown one, so a sub-tab change re-derives what the Audio panel asks for (GH #498).
+    connect(audio_panel_, &AudioPanel::sub_tab_changed, this, &DebuggerWindow::panels_on_show_changed);
 
     // GH #366 - the Symbols tab asks for a place to be shown.
     connect(symbols_panel_, &SymbolsPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);

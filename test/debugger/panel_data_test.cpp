@@ -506,6 +506,57 @@ int main(int argc, char** argv) {
               same, detail);
     }
 
+
+    // QLAZY-17 / 18 - the audio write log (GH #531): the window asks the backend to record it only while the
+    // Audio dock is on show with its Log sub-tab current, and takes back only its own request.
+    {
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        const bool chips = !fx.backend->audio_log_enabled();   // Chips is the current sub-tab
+        if (tabs) tabs->setCurrentIndex(2);                    // Log
+        QApplication::processEvents();
+        const bool log = fx.backend->audio_log_enabled();
+        const uint64_t rev = fx.backend->state_revision();
+        for (int i = 0; i < 4; ++i) fx.tick();
+        const bool once = fx.backend->state_revision() == rev && fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(0);                    // Chips again
+        QApplication::processEvents();
+        const bool chips_again = !fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(2);
+        fx.show(fx.dbg()->nextreg_panel());                    // the Audio dock tabbed away behind it
+        const bool away = !fx.backend->audio_log_enabled();
+        fx.show(fx.dbg()->audio_panel());
+        const bool back = fx.backend->audio_log_enabled();
+        fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        QApplication::processEvents();
+        const bool closed = !fx.backend->audio_log_enabled();
+        check("QLAZY-17",
+              "window open, Audio dock shown: the log is on with Log current and off with Chips current, off with the dock tabbed away, on when shown again, off with the window closed; ticks change nothing",
+              fx.ok && tabs && chips && log && once && chips_again && away && back && closed,
+              "chips=" + b2s(chips) + " log=" + b2s(log) + " once=" + b2s(once) + " chips_again=" + b2s(chips_again) +
+                  " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed));
+    }
+    {
+        Fixture fx;
+        const auto other = fx.backend->attach(jnext::dbg::ClientInfo{"other", jnext::dbg::ClientKind::Test}).value;
+        fx.backend->set_audio_log_enabled(other, true);
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(2);
+        QApplication::processEvents();
+        fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        QApplication::processEvents();
+        const bool kept = fx.backend->audio_log_enabled();
+        fx.backend->detach(other);
+        const bool off = !fx.backend->audio_log_enabled();
+        check("QLAZY-18",
+              "another client asks for the log; the window opens with Log current and then closes: the log stays on (the window takes back only its own request); the other client's detach turns it off",
+              fx.ok && tabs && kept && off, "kept=" + b2s(kept) + " off=" + b2s(off));
+    }
+
     {
         // The Audio tab's dropped-write table names the OUT it discarded: the window connects the
         // panel's signal to the Disassembly (GH #530).

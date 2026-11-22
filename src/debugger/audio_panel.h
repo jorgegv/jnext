@@ -17,6 +17,8 @@
 
 namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 
+class AudioLogView;
+
 /// Debugger panel showing the decoded AY chips and the audio source controls.
 ///
 /// The Sources strip (the five mute checkboxes) sits above a tab widget:
@@ -25,8 +27,8 @@ namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 /// envelope) from `Debugger::audio_state()`; its Hex toggle shows the raw
 /// 16 x 3 register table instead. DAC & Beeper shows the four DAC channels, the
 /// NR 0x84 port families, the beeper and Pi inputs, the host gains and mutes and
-/// the table of discarded writes. Log, Tracker and Scopes are placeholders until
-/// their features land.
+/// the table of discarded writes. Log lists the decoded audio writes (see
+/// AudioLogView). Tracker and Scopes are placeholders until their features land.
 class AudioPanel : public QWidget {
     Q_OBJECT
 public:
@@ -50,10 +52,19 @@ public:
     /// True while the Chips tab is the current one: the only tab with live data.
     bool chips_on_show() const;
 
+    /// True while the Log tab is the current one: the tab that asks the backend to
+    /// record the write log (DebuggerManager::apply_data_needs()), and the other one
+    /// with live data.
+    bool log_on_show() const;
+
     QSize sizeHint() const override { return QSize(400, 600); }
     QSize minimumSizeHint() const override { return QSize(350, 580); }
 
 signals:
+    /// The current sub-tab changed: which of Chips and Log (if either) is live
+    /// changed with it, so the manager re-derives what the panel asks of the backend.
+    void sub_tab_changed();
+
     /// A dropped-write row of CPU source was double-clicked: show the OUT or
     /// NEXTREG that was discarded in the Disassembly (the same signal the
     /// Symbols, CPU and Memory panels use).
@@ -78,6 +89,7 @@ private:
     QTabWidget* tabs_ = nullptr;
     QScrollArea* chips_scroll_ = nullptr;
     QScrollArea* dac_scroll_ = nullptr;
+    AudioLogView* log_view_ = nullptr;
 
     // The decoded widgets of one chip, found again by refresh().
     struct ChannelWidgets {
