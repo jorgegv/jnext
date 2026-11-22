@@ -904,13 +904,13 @@ static void test_dac_tab(Emulator& emu) {
         const bool real = dac && dac->findChild<QTreeWidget*>("audio_drops") && dac->findChild<QLabel*>("dac_a_value") &&
                           !dac->findChild<QLabel*>("dac_a_value")->text().isEmpty();
         bool placeholders = tabs != nullptr;
-        for (int i = 2; tabs && i < 5; ++i) {
+        for (int i = 2; tabs && i < 4; ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
             placeholders = placeholders && found;
         }
-        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Log, Tracker and Scopes still show 'Not available yet.'",
+        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Log and Tracker still show 'Not available yet.' (Scopes is the real view, DAP-70)",
               real && placeholders);
     }
     {
