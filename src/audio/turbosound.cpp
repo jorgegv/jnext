@@ -227,23 +227,39 @@ inline void TurboSound::compute_stereo_mix()
     uint16_t total_L = 0;
     uint16_t total_R = 0;
 
-    for (int i = 0; i < 3; i++) {
-        uint16_t l, r;
-        compute_chip_stereo(i, 0, l, r);
-        hw_L += l;
-        hw_R += r;
+    if (__builtin_expect(channel_mute_mask_ == 0, 1)) {
+        // No channel muted (every normal run): the pre-mute loop, unchanged.
+        for (int i = 0; i < 3; i++) {
+            uint16_t l, r;
+            compute_chip_stereo(i, 0, l, r);
+            hw_L += l;
+            hw_R += r;
 
-        // The audible pair: 0 for a muted chip; else, when the debugger muted
-        // channels of this chip, the same mix with those inputs zeroed (the
-        // mute never reaches the hardware sum above).
-        const bool muted = (chip_mute_mask_ >> i) & 1;
-        const uint8_t silenced = (channel_mute_mask_ >> (3 * i)) & 7;
-        uint16_t al = l, ar = r;
-        if (!muted && silenced) compute_chip_stereo(i, silenced, al, ar);
-        chip_pcm_L_[i] = muted ? 0 : al;
-        chip_pcm_R_[i] = muted ? 0 : ar;
-        total_L += chip_pcm_L_[i];
-        total_R += chip_pcm_R_[i];
+            const bool muted = (chip_mute_mask_ >> i) & 1;
+            chip_pcm_L_[i] = muted ? 0 : l;
+            chip_pcm_R_[i] = muted ? 0 : r;
+            total_L += chip_pcm_L_[i];
+            total_R += chip_pcm_R_[i];
+        }
+    } else {
+        for (int i = 0; i < 3; i++) {
+            uint16_t l, r;
+            compute_chip_stereo(i, 0, l, r);
+            hw_L += l;
+            hw_R += r;
+
+            // The audible pair: 0 for a muted chip; else, when the debugger muted
+            // channels of this chip, the same mix with those inputs zeroed (the
+            // mute never reaches the hardware sum above).
+            const bool muted = (chip_mute_mask_ >> i) & 1;
+            const uint8_t silenced = (channel_mute_mask_ >> (3 * i)) & 7;
+            uint16_t al = l, ar = r;
+            if (!muted && silenced) compute_chip_stereo(i, silenced, al, ar);
+            chip_pcm_L_[i] = muted ? 0 : al;
+            chip_pcm_R_[i] = muted ? 0 : ar;
+            total_L += chip_pcm_L_[i];
+            total_R += chip_pcm_R_[i];
+        }
     }
 
     // Output: 12-bit (0-4095 max with all 3 PSGs at full volume)
