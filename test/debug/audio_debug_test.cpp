@@ -335,6 +335,34 @@ static void build_batch(Emulator& emu, bool poll) {
 }
 
 
+// DIAGNOSTIC (GH #536 SCP-09): poll-loop variants. 1: as build_batch (DI, TurboSound, AY0 + AY1, DAC); 2: AY0 only, NR 0x08
+// untouched; 3: the poll-batch suites' own shape (IM 2 + EI, the beeper-toggling handler, AY0 only).
+static void build_poll_variant(Emulator& emu, int v) {
+    if (v == 1) { build_batch(emu, true); return; }
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    nr_write(emu, 0x03, 0x01);
+    nr_write(emu, 0x07, 3);
+    ay_write(emu, 7, 0x3E); ay_write(emu, 8, 0x0F); ay_write(emu, 0, 0x40);
+    if (v == 3) install_im2_halt(emu);
+    const uint8_t pre[] = {0x3E, 0xFD, 0xED, 0x47, 0xED, 0x5E};   // ld a,0xFD; ld i,a; im 2
+    const uint8_t loop[] = {0x01, 0x3B, 0x24, 0x3E, 0x1F, 0xED, 0x79, 0x04,
+                            0xED, 0x78, 0xFE, 0xB4, 0x20, 0xFA,
+                            0x21, 0x10, 0xC2, 0x34,
+                            0xED, 0x78, 0xFE, 0xB4, 0x28, 0xFA, 0x18, 0xEE};
+    uint16_t at = 0xC000;
+    if (v == 3) for (uint8_t b : pre) emu.mmu().write(at++, b);
+    for (size_t i = 0; i < sizeof loop; ++i) {
+        if (v == 3 && i == 8) emu.mmu().write(at++, 0xFB);   // EI before the first read, as the suites do
+        emu.mmu().write(at++, loop[i]);
+    }
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0xC000; r.SP = 0xBFF0; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
 // True when `n` is valid, named `name` in octave `oct`, `cents` away (to 0.005).
 static bool is_note(const PsgNote& n, const char* name, int oct, double cents) {
     return n.valid && std::strcmp(n.name, name) == 0 && n.octave == oct &&
@@ -1580,15 +1608,15 @@ int main() {
         on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
         Out mon, moff;
         for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); off.run_frame(); drain(off, moff); }
-        {
-            // DIAGNOSTIC: the same two machines with NO tap: is the poll batch itself audio-identical here?
-            Emulator uon, uoff; build_batch(uon, true); build_batch(uoff, true);
+        for (int v = 1; v <= 3; ++v) {
+            // DIAGNOSTIC: untapped machines, poll batch on and off: is the batch itself audio-identical here?
+            Emulator uon, uoff; build_poll_variant(uon, v); build_poll_variant(uoff, v);
             uoff.set_cycle_batching_for_test(false, false, false);
             Out uo_on, uo_off;
             for (int f = 0; f < 8; ++f) { uon.run_frame(); drain(uon, uo_on); uoff.run_frame(); drain(uoff, uo_off); }
-            std::printf("  SCP-09 UNTAPPED on/off mixer equal=%d (%zu samples)\n", uo_on.l == uo_off.l && uo_on.r == uo_off.r ? 1 : 0, uo_on.l.size());
-            std::printf("  SCP-09 tapped-on vs untapped-on mixer equal=%d; tapped-off vs untapped-off equal=%d\n",
-                        mon.l == uo_on.l && mon.r == uo_on.r ? 1 : 0, moff.l == uo_off.l && moff.r == uo_off.r ? 1 : 0);
+            std::printf("  SCP-09 variant %d UNTAPPED on/off mixer equal=%d (%zu samples) poll_on=%llu\n", v,
+                        uo_on.l == uo_off.l && uo_on.r == uo_off.r ? 1 : 0, uo_on.l.size(),
+                        static_cast<unsigned long long>(uon.poll_passes_batched_for_test()));
         }
         {
             size_t mix_nd = 0, tap_vs_mixer_on = 0, tap_vs_mixer_off = 0;
