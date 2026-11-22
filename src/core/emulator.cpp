@@ -12363,7 +12363,8 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     finish_slot_interrupts();
 }
 
-[[gnu::noinline]] void Emulator::halt_batch_replay_(uint64_t master_cycles)
+template <bool Tapped>
+[[gnu::always_inline]] inline void Emulator::halt_batch_replay_body_(uint64_t master_cycles)
 {
     // GH #452 - the device cluster of a batched HALT slot of n repeats of `batch_first_mc_`. All of it
     // is linear in the window (the batch's gates and bounds see to that) EXCEPT the PSG and the mixer,
@@ -12378,6 +12379,13 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // per-slot function is what the compiler inlines, and a second caller of the same function (or
     // a twin the link-time optimiser folds back into it) made it stop, natively and in WebAssembly
     // (measured: 1-2 % of all instructions of every program).
+    //
+    // GH #536 - `Tapped` is the same replay for a machine whose debugger source tap is installed: the
+    // PSG and the audio span go through cold entry points of their own (TurboSound::tick_n_cold(),
+    // Mixer::integrate_span_tapped()), so the untapped instance below is the replay as it always was:
+    // no test and no second call site inside its loop (a test of the divert byte there cost 0.1 % of
+    // every HALT-idle and DAC-paced program's instructions, measured), and no second caller of tick_n()
+    // or integrate_span().
     static constexpr uint64_t PSG_DIVISOR = 16;
     const uint64_t each = batch_first_mc_;
     batch_first_mc_ = 0;
@@ -12386,7 +12394,10 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     for (uint64_t i = 0; i < n; ) {
         psg_accum_ += each;
         if (psg_accum_ >= PSG_DIVISOR) {
-            turbosound_.tick_n(static_cast<uint32_t>(psg_accum_ / PSG_DIVISOR));
+            if constexpr (Tapped)
+                turbosound_.tick_n_cold(static_cast<uint32_t>(psg_accum_ / PSG_DIVISOR));
+            else
+                turbosound_.tick_n(static_cast<uint32_t>(psg_accum_ / PSG_DIVISOR));
             psg_accum_ %= PSG_DIVISOR;
         }
         uint64_t span = each;
@@ -12396,14 +12407,34 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
             span += each;
             ++i;
         }
-        if (__builtin_expect(audio_divert_ == 0, 1))
-            mixer_.integrate_span(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
-                                  &Emulator::pi_sample_thunk_, this);
-        else
-            audio_divert_span_(span);
+        if constexpr (Tapped) {
+            // A replay never batches (batch_window_limit_ refuses it), so the byte is the tap's alone.
+            if (!replay_mode_ && audio_scope_tap_)
+                mixer_.integrate_span_tapped(*audio_scope_tap_, beeper_, turbosound_, dac_, span, sample_accum_,
+                                             MASTER_CLOCK_HZ, &Emulator::pi_sample_thunk_, this);
+        } else {
+            if (!replay_mode_)
+                mixer_.integrate_span(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
+                                      &Emulator::pi_sample_thunk_, this);
+        }
     }
     audio_off_ = true;
     batch_silenced_ = true;
+}
+
+[[gnu::noinline]] void Emulator::halt_batch_replay_(uint64_t master_cycles)
+{
+    // One test per window (per replayed slot of a poll window), not per repeat.
+    if (__builtin_expect(audio_divert_ != 0, 0)) {
+        halt_batch_replay_tapped_(master_cycles);
+        return;
+    }
+    halt_batch_replay_body_<false>(master_cycles);
+}
+
+[[gnu::noinline, gnu::cold]] void Emulator::halt_batch_replay_tapped_(uint64_t master_cycles)
+{
+    halt_batch_replay_body_<true>(master_cycles);
 }
 
 [[gnu::noinline]] uint64_t Emulator::batch_window_limit_(uint64_t slot_start, uint64_t slot_mc,
