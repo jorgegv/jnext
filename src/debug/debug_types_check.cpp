@@ -256,6 +256,13 @@ static_assert(DAC_CHANNEL_COUNT == 4, "the Soundrive DAC has four channels");
 static_assert(std::tuple_size<decltype(AudioState::chips)>::value == AY_CHIP_COUNT, "");
 static_assert(static_cast<int>(EnvelopeMotion::Holding) == 2, "Falling, Rising, Holding");
 
+// GH #530: the dropped-write reasons are the eight of DEBUGGER-MUSIC-SOUND-PLAN.md
+// §3.5 plus the unused slot 0; the panel rows and the counters index by them.
+static_assert(AUDIO_DROP_REASON_COUNT == 9, "None + eight reasons");
+static_assert(static_cast<uint8_t>(AudioDropReason::AyPortDisabled) == 1, "");
+static_assert(static_cast<uint8_t>(AudioDropReason::DacMirrorDisabled) == 8, "");
+static_assert(std::tuple_size<decltype(AudioState::drops)>::value == AUDIO_DROP_REASON_COUNT, "");
+
 // INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons. From
 // `RegId::Count`, so an appended register fires it.
 static_assert(REG_ID_COUNT == 37, "INS-01: 12 pairs + 20 halves + I/R/IFF1/IFF2/IM");

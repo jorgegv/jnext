@@ -827,6 +827,14 @@ Result Debugger::set_audio_mute_mask(ClientId by, uint8_t mask) {
     return Result::Ok;
 }
 
+Result Debugger::clear_audio_drops(ClientId by) {
+    uint64_t total = 0;
+    for (const AudioDropCounter& c : impl_->emu.audio_drops()) total += c.count;
+    impl_->emu.clear_audio_drops();
+    impl_->log_mutate(by, "audio drop counters", total, 0);
+    return Result::Ok;
+}
+
 // INS-22 -- the decoded audio chain. Every source is a const accessor or a
 // peek: nothing here runs a NextREG read handler or a port read.
 AudioState Debugger::audio_state() const {
@@ -869,6 +877,7 @@ AudioState Debugger::audio_state() const {
     st.host.mute_mask = mute;
     // The user setting, not audio_off_: a HALT batch raises that for one call.
     st.host.synthesis_on = !emu.config().silent;
+    st.drops = emu.audio_drops();
 
     for (size_t c = 0; c < AY_CHIP_COUNT; ++c) {
         const int ci = static_cast<int>(c);

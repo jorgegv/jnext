@@ -31,8 +31,10 @@ public:
     /// Select a register (0-15). addr bits 4:0 are used.
     void select_register(uint8_t addr);
 
-    /// Write to the currently selected register.
-    void write_data(uint8_t val);
+    /// Write to the currently selected register. Returns false when the write is
+    /// discarded because the register address is 16-31 (ym2149.vhd:188 writes only
+    /// when `addr(4) = '0'`), true when a register took it (GH #530).
+    bool write_data(uint8_t val);
 
     /// Read the currently selected register.
     /// @param reg_mode  If true, returns AY_ID & selected register number
