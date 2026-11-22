@@ -97,6 +97,14 @@ say "container memory limit: $mem_limit (swap off)"
 # and ctl/, the container's name and label, the LANE_CACHES directories, the FPGA clone); the other
 # caches, the podman store, the mirror and the stamps are shared.
 lane_lock() { if [[ "$1" -eq 1 ]]; then echo "$RR_DIR/lane.lock"; else echo "$RR_DIR/lane-L$1.lock"; fi; }
+if [[ "$RR_MODE" == probe ]]; then
+    # a lane is free right now: take its lock and let go at once (the real run takes it again, atomically)
+    for n in $(seq 1 "$RR_LANES"); do
+        exec 9>"$(lane_lock "$n")"
+        if flock -n 9; then echo "probe: lane $n of $RR_LANES is free"; exit 0; fi
+    done
+    echo "probe: every lane of $RR_LANES is busy"; exit 75
+fi
 lane=0
 deadline=$((SECONDS + RR_LANE_WAIT)); queued=0
 while :; do

@@ -24,7 +24,7 @@ polluted_selfrun() {
     chmod +x "$d/bin/ssh" "$d/bin/wrap"
     (
         env SKILLTEST_INNER=1 PATH="$d/bin:$PATH" REMOTE_RUN_FALLBACK=1 REMOTE_RUN_LOCAL_WRAP="$d/bin/wrap" \
-            JNEXT_SLOT_NO_OVERFLOW=1 JNEXT_REMOTE_RUN_HOST=polluted-host JNEXT_REMOTE_RUN_DIR="$d/remote-dir" \
+            JNEXT_SLOT_NO_OVERFLOW=1 JNEXT_REMOTE_RUN_HOST=polluted-host JNEXT_REMOTE_RUN_HOSTS="polluted-host polluted-host2" JNEXT_REMOTE_RUN_DIR="$d/remote-dir" \
             JNEXT_SLOT_DIR="$d/slots" JNEXT_SLOT_LOAD_LIMIT=0 REMOTE_RUN_LANES=1 REMOTE_RUN_LANE_WAIT=1000 \
             REMOTE_RUN_REPO_URL=file:///nonexistent REMOTE_RUN_CONF=/nonexistent \
             RR_MEMINFO=/nonexistent RR_TARGETS=bogus RR_KEEP_GOING=1 RR_JOBS_DEFAULT=99 RR_JOBS_HEAVY=99 \
