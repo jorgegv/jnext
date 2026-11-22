@@ -1283,6 +1283,7 @@ static void test_tape_mix() {
         nr_write(*e, 0x08, 0x10);
         idle_loop(*e);
         e->port().out(0x00FE, 0x00);
+        step_to_clock(*e, 3 * kRelaxMaster);   // well past any power-on hold: only the edge below can hold it
         e->i2s().set_sample(0x3FF, 0x3FF);
         nr_write(*e, 0xA2, 0xC1);
         const uint64_t t0 = e->clock().get();
@@ -1413,6 +1414,52 @@ static void test_tape_mix() {
               "ear_relax hold, so the restarted tape is heard at once, not relaxed "
               "[symmetric_relaxation.vhd:70-77,89-90]",
               ok && a && ok2 && b && restarted == 512, fmt("restarted=%d (want 512)", restarted));
+    }
+    {
+        // The raw tape level is cleared when the tape stops (the tape block's stop
+        // path), and a restore with no tape playing clears a saved level the same way.
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        const bool ok = start_tzx_tone(*e);
+        const bool a = step_to_level(*e, true);
+        e->tzx_tape().eject();
+        e->execute_single_instruction();
+        const bool stopped_clear = !e->beeper().tape_ear();
+        check("MX-85", "a tape stopped at level 1 leaves the raw tape level 0 after one "
+              "instruction (no stale EAR level) [zxnext.vhd:6503]",
+              ok && a && stopped_clear, fmt("tape_ear after stop=%d (want 0)", e->beeper().tape_ear()));
+
+        auto p = next_machine_550();
+        nr_write(*p, 0x06, 0x00);
+        nr_write(*p, 0x08, 0x10);
+        idle_loop(*p);
+        const bool ok2 = start_tzx_tone(*p);
+        const bool b = step_to_level(*p, true);
+        const auto img = snapshot_of(*p);
+        auto q = next_machine_550();
+        idle_loop(*q);
+        const bool ok3 = restore_into(*q, img);
+        q->execute_single_instruction();
+        check("MX-86", "a restore with no tape playing clears a saved raw tape level after one "
+              "instruction [zxnext.vhd:6503]",
+              ok2 && b && ok3 && !q->beeper().tape_ear(),
+              fmt("tape_ear after restore+step=%d (want 0)", q->beeper().tape_ear()));
+    }
+    {
+        // A reset puts the MIC term back at rest: mic_final is not left over from before.
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        e->port().out(0x00FE, 0x08);
+        const int before = mix_val(*e);
+        build_next_emulator(*e);
+        nr_write(*e, 0x06, 0x00);
+        const int after = mix_val(*e);
+        check("MX-84", "a reset clears the mixer's MIC term with the port 0xFE MIC bit "
+              "[zxnext.vhd:3588-3594,6503]", before == 512 && after == 0,
+              fmt("before=%d after reset=%d (want 512 / 0)", before, after));
     }
     {
         // Issue 2 + MIC = 1: the relaxed level is 1. A held 0 reads 0 until the

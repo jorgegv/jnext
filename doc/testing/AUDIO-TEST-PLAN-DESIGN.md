@@ -566,6 +566,9 @@ so EAR alone = 2048 and the MIC term alone = 512; the beeper is mono (L == R). `
 | MX-81  | A state load re-derives the exc gate in the other direction | snapshot with the gate open into a machine with it closed: mixes 2048 |
 | MX-82  | Replay mode holds the Pi's EAR term off, and the MIC term follows it | 512 / 0 / 512 |
 | MX-83  | A tape stopped and started again restarts the hold at its first edge | the restarted tape is heard at once (512), not relaxed (D6) |
+| MX-84  | A reset clears the mixer's MIC term with the port 0xFE MIC bit | MIC 1: 512; after a reset: 0 (`zxnext.vhd:3588-3594,6503`) |
+| MX-85  | A tape stopped at level 1 leaves the raw tape level 0 | one instruction after the eject: no stale EAR level |
+| MX-86  | A restore with no tape playing clears a saved raw tape level | one instruction after the load |
 
 ## 6. NextREG Configuration
 
