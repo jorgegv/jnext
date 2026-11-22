@@ -37,8 +37,9 @@ Because of the `iframe`:
   same protocols to the page's own code or through a WebSocket bridge ([8.6](06-debugging-from-the-page.md)).
 - **Program formats.** Programs load as `.nex`, `.tap`, `.tzx` or `.wav` (a tape, in real
   time), recordings as `.rzx`, snapshots as `.jns`, `.sna`, `.szx` or `.z80`.
-- **Headless and command-line recording.** `--headless` and `--rzx-record` are refused. A
-  page records with `startRzxRecording()` and `stopRzxRecording()`.
+- **Headless and command-line recording.** `--headless`, `--rzx-record` and `--audio-log` are
+  refused. A page records with `startRzxRecording()` and `stopRzxRecording()`; the audio write log
+  is a file the page cannot hand over, and a page never exits to close it.
 - **WAV files.** A WAV is large and stays in the page's memory for the session. Give the
   `.tap` or `.tzx` of a game when there is one.
 - **Saves.** What the guest writes to the SD card is kept across reloads only when the

@@ -4582,8 +4582,9 @@ arrangement, a game inside a frame of another page:</p>
   same protocols to the page's own code or through a WebSocket bridge (<a href="06-debugging-from-the-page.html">8.6</a>).</li>
 <li><strong>Program formats.</strong> Programs load as <code>.nex</code>, <code>.tap</code>, <code>.tzx</code> or <code>.wav</code> (a tape, in real
   time), recordings as <code>.rzx</code>, snapshots as <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code>.</li>
-<li><strong>Headless and command-line recording.</strong> <code>--headless</code> and <code>--rzx-record</code> are refused. A
-  page records with <code>startRzxRecording()</code> and <code>stopRzxRecording()</code>.</li>
+<li><strong>Headless and command-line recording.</strong> <code>--headless</code>, <code>--rzx-record</code> and <code>--audio-log</code> are
+  refused. A page records with <code>startRzxRecording()</code> and <code>stopRzxRecording()</code>; the audio write log
+  is a file the page cannot hand over, and a page never exits to close it.</li>
 <li><strong>WAV files.</strong> A WAV is large and stays in the page's memory for the session. Give the
   <code>.tap</code> or <code>.tzx</code> of a game when there is one.</li>
 <li><strong>Saves.</strong> What the guest writes to the SD card is kept across reloads only when the
