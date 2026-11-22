@@ -171,6 +171,9 @@ private:
     [[gnu::always_inline]] inline void mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
              int32_t& pcm_L, int32_t& pcm_R) const;
 
+    /// The DAC terms with the per-channel mute applied (cold, out of line: GH #533 bench).
+    void dac_channel_muted_terms(const Dac& dac, int32_t& dac_L, int32_t& dac_R) const;
+
     // Box-filter accumulator: sum of (13-bit mix x master cycles held), and the
     // total cycles, since the last emit_sample().
     int64_t acc_l_ = 0;
