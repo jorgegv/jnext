@@ -1771,8 +1771,9 @@ int main() {
         const auto after = all_entries(dbg);
         bool removed = false;
         const bool ok = landing_ok(before, after, emu.clock().get(), removed);
-        if (!(ok && removed)) std::printf("    before %zu after %zu landing %llu removed %d r=%d\n", before.size(), after.size(),
-                                          static_cast<unsigned long long>(emu.clock().get()), int(removed), int(r));
+        if (!(ok && removed)) std::printf("    before %zu after %zu landing %llu removed %d r=%d newest-before-cycle %llu\n", before.size(), after.size(),
+                                          static_cast<unsigned long long>(emu.clock().get()), int(removed), int(r),
+                                          static_cast<unsigned long long>(before.back().cycle));
         check("AWL-14", "a step back replays frames without logging: the entries at or before the landing are unchanged, the entries after it are gone, the newest is ONE Rewind marker at the landing cycle, and there is no StateLoad marker for the ring restore",
               r == Result::Ok && before.size() > 100 && ok && removed);
     }
@@ -1847,7 +1848,7 @@ int main() {
         const std::string got = slurp(path);
         const std::string want =
             "frame,line,hc,tstate,cycle,pc,source,target,chip,reg,value,prev,flags,reason,port\n"
-            "0,0,0,0,0,0x0000,debugger,ay,0,7,0x38,0x00,0,none,0xBFFD\n"
+            "0,0,0,0,0,0x0000,debugger,ay,0,7,0x38,0xFF,0,none,0xBFFD\n"
             "0,0,0,0,0,0x0000,debugger,dac,1,0,0x55,0x80,0,none,0x00B3\n"
             "0,0,0,0,0,0x0000,debugger,dac,2,0,0x55,0x80,0,none,0x00B3\n"
             "0,0,0,0,0,0x0000,debugger,dac_mirror,,45,0x66,0x00,2,dac_mirror_disabled,0x002D\n"
@@ -1859,7 +1860,7 @@ int main() {
         const Result bad = (dbg.set_audio_log_enabled(cid, true),
                             dbg.audio_log_export((std::filesystem::temp_directory_path() / "jnext-no-such-dir" / "x.csv").string()));
         std::remove(path.c_str());
-        check("AWL-18", "the export is the header plus 5 literal LF lines (an AY write, DAC B and C of 0xB3, the dropped mirror with an empty chip, the reset marker); an export while off, or to an unwritable path, is RefusedUnavailable",
+        check("AWL-18", "ym2149.vhd:186 (R7 resets to 0xFF) the export is the header plus 5 literal LF lines (an AY write over R7's reset value, DAC B and C of 0xB3, the dropped mirror with an empty chip, the reset marker); an export while off, or to an unwritable path, is RefusedUnavailable",
               ok == Result::Ok && got == want && off == Result::RefusedUnavailable && bad == Result::RefusedUnavailable);
     }
     {
