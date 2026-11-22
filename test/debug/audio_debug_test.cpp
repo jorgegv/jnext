@@ -687,7 +687,10 @@ int main() {
         const uint16_t unmuted = emu.turbosound().pcm_left();
         uint16_t c1l = 0, c1r = 0;
         emu.turbosound().chip_pcm(1, c1l, c1r);
-        ticks(emu, 3000);   // chip 1's square wave moves the live sum away from the saved one
+        // Move the live sum away from the saved one: chip 1's DC level on B goes from 5 to 15.
+        ay_select(emu, 1);
+        ay_write(emu, 9, 0x0F);
+        ticks(emu, 20);
         const bool moved = emu.turbosound().pcm_left() != agg0;
         emu.set_audio_mute_mask(AudioMute::AY1);
         const bool loaded = s0.status == Result::Ok &&
