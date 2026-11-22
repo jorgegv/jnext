@@ -48,7 +48,7 @@ enum class Builtin : uint8_t {
     // the VHDL raster counters (raster_state.h)
     RAW_HC, RAW_VC, HC_ULA, VC_ULA, CVC, PHC,
     // host / machine
-    AUDIO_MUTE, MACHINE,
+    AUDIO_MUTE, AUDIO_CHANNEL_MUTE, MACHINE,
 
     // event payload (§2.3 second table)
     P_ADDR, P_VALUE, P_PREV, P_PAGE, P_PORT, P_REG, P_SOURCE, P_KEY, P_REASON,

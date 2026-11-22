@@ -4,14 +4,17 @@
 #include <QTableWidget>
 #include <QCheckBox>
 #include <QLabel>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTabWidget>
+#include <QToolButton>
 #include <QTreeWidget>
 
 #include <array>
+#include <cstdint>
 
 #include "debug/events.h"   // jnext::dbg::ClientId
 
@@ -25,9 +28,11 @@ class AudioLogView;
 /// Chips, DAC & Beeper, Log, Tracker, Scopes. Chips shows each AY chip decoded
 /// (period, note, cents, tone/noise gates, volume or envelope, level, the
 /// envelope) from `Debugger::audio_state()`; its Hex toggle shows the raw
-/// 16 x 3 register table instead. DAC & Beeper shows the four DAC channels, the
-/// NR 0x84 port families, the beeper and Pi inputs, the host gains and mutes and
-/// the table of discarded writes. Log lists the decoded audio writes (see
+/// 16 x 3 register table instead. DAC & Beeper shows the four DAC channels with
+/// their M and S buttons, the NR 0x84 port families, the beeper and Pi inputs, the
+/// host gains and mutes and the table of discarded writes. Each of the 13
+/// channels (9 AY, 4 DAC) has an M (mute) and an S (solo) button, which act on
+/// `AUDIO_CHANNEL_MUTE` only. Log lists the decoded audio writes (see
 /// AudioLogView). Tracker and Scopes are placeholders until their features land.
 class AudioPanel : public QWidget {
     Q_OBJECT
@@ -77,6 +82,20 @@ private:
     void refresh_dac_(const jnext::dbg::AudioState& st);
     QWidget* placeholder_tab();
 
+    /// The "DAC channels" group: rows A-D, each with M and S.
+    QGroupBox* create_dac_channel_group();
+    /// M and S buttons of channel `index` (0-8 = 3*chip+channel, 9-12 = DAC A-D)
+    /// into `grid` at (`row`, `col`) and (`row`, `col` + 1). `stem` is the
+    /// objectName stem ("chip1_c", "dac_d").
+    void add_channel_buttons(QGridLayout* grid, int row, int col, int index, const QString& stem);
+
+    /// Mute / solo clicks on channel `index` (see the .cpp for the rules).
+    void channel_mute_clicked(int index);
+    void channel_solo_clicked(int index);
+    /// Cancel the solo when `mask` is no longer the one it set, then show `mask`
+    /// on every button.
+    void settle_channel_buttons(uint16_t mask);
+
     /// Collect the five source checkboxes into an AudioMute mask (unchecked =
     /// muted) and push it to the backend. Called on every toggle.
     void apply_source_mutes();
@@ -111,6 +130,14 @@ private:
     QCheckBox* mute_ay2_ = nullptr;
     QCheckBox* mute_dac_ = nullptr;
     QCheckBox* mute_beeper_ = nullptr;
+
+    // Per-channel mute / solo. The solo is the panel's: `solo_` is the soloed
+    // channel (-1 = none) and `pre_solo_mask_` the channel mask to restore when
+    // it ends. Neither is machine state.
+    std::array<QToolButton*, 13> mute_btn_{};
+    std::array<QToolButton*, 13> solo_btn_{};
+    int      solo_ = -1;
+    uint16_t pre_solo_mask_ = 0;
 
     // Info labels
     QLabel* turbosound_label_ = nullptr;

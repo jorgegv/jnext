@@ -294,6 +294,7 @@ VHDL ref: `ym2149.vhd` lines 332-465
 | AY-130 | RESET_H keeps the noise LFSR and the envelope     | Twin lockstep of noise and envelope outputs across a reset (`:286-300,338-462`) |
 | AY-131 | A reset between an R13 write and the next tick keeps the envelope load | Twin lockstep; the load is applied before `reg(13)` is cleared (`:180-207,340-341,393-401`) |
 | AY-132 | `power_on()` restores the declared initial values, keeps AY/YM | Lockstep with a fresh chip; `ctrl_aymode` is an input port (`:105-125`) |
+| AY-133 | The first envelope step comes with the R13 write (YM, shape 0, period 0x0100, channel A forced on) | One tick after the write the output is `volTableYm[30]` (0xE0), not 0xFF; the next change (0xC0) follows 2040 to 2048 ticks later, whatever the divider phase (`:340-342,344-349,393-409`) |
 
 ## 2. Turbosound Next (3x AY)
 
@@ -689,6 +690,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
 | AIZ-07 | A parked CPU looping over every audio write site (chip select, R13, a plain DAC port, 0xDF, a NextREG mirror, 0xFE with EAR toggling, a dropped 0xB3); `set_audio_log_enabled()` on in one run, off in the other | State bytes and framebuffer hash are equal over 50 frames: the write log only reads. Positive control: the run with the log on holds entries of all five targets |
+| AIZ-09 | Each of the 13 channel mute bits, and ALL, for 50 frames, on versus off (14 runs) | State bytes and framebuffer hash are equal in every run (the hardware sums every channel: `turbosound.vhd:186-334`, `soundrive.vhd:112-113`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 
 ### 8.3 `Debugger::audio_state()`
@@ -714,6 +716,10 @@ machine; PSG time by ticking TurboSound. Oracles as cited per row.
 | ADS-14 | NR 0x06 = 0x01, then 0x00                        | psg_mode 1, 0; never held                                   |
 | ADS-15 | NR 0x08 = 0x22, then 0x00                        | TurboSound on and ACB, then off and ABC (`:5739-5742`)      |
 | ADS-16 | Mid-ramp, then R13 = 0x08 and 0x0C, no tick      | Step 31 falling, then 0 rising: the pending reload (`ym2149.vhd:393-401`) |
+| ADS-17 | R11=2, R13=8, ticks counted from the write; samples all eight divider phases agree on | Level 28 falling after 40 ticks, 14 after 264, 30 after 520, 0 after 1000: the forced first step (`ym2149.vhd:340-342,393-409`) |
+| ADS-18 | The same with R13=10                             | 14 falling after 264, 1 rising after 520, 6 rising after 600, 31 holding after 1000 |
+| ADS-19 | The same with R13=13                             | 3 rising after 40, 13 rising after 200, 31 holding after 520 and 1000 |
+| ADS-20 | The same with R13=14                             | 17 rising after 264, 30 falling after 520, 25 falling after 600, 0 holding after 1000 |
 | ADS-31 | Shape 13, R11=2, 520 and 1000 ticks | 31 holding (`ym2149.vhd:422-443`) |
 | ADS-32 | Shapes 0 and 9, 1000 ticks | 0 holding |
 | ADS-33 | 40 ticks | Shapes 12 and 13 rising, shape 8 falling (motion only; the same with or without the forced first step) |
@@ -773,7 +779,52 @@ reason fails as well. Writes are `emu.port().out()` (source Debugger) unless the
 | DRP-31 | Rewind on, a CPU loop of dropped OUTs, run 10 frames, pause, `step_back(1)` | The machine's cycle moves back and the count is unchanged (no counting in a replay) |
 | DRP-32 | Two drops of one reason                          | Count 2, the last port and value are the second write's     |
 
-### 8.5 Audio write log
+### 8.5 Per-channel mute (`AudioChannelMute`)
+
+Suite `audio_debug_test`, GH #533. The mute has no hardware analogue, so the oracle is the VHDL mix
+with the muted channel's INPUT read as silent: 0 for an AY output, 0x80 for a DAC channel. The AY
+fixture programs nine distinct DC levels (volumes 1-9, R7 = 0x3F; `ym2149.vhd:467-520`) through real
+ports. The test-local oracle `expect_chip()` is a copy of `turbosound.vhd:186-199` with the pan gates
+(`:323-329`) that reads the chips' own outputs and shares no code with TurboSound; the expected pcm is
+the sum over the chips (`:334`). The DAC fixture opens the DAC (NR 0x08 bit 3, NR 0x84) at 0x40/0x50/0x60/0x70
+with the AY silent; the expected sample is `4 * ((pair << 2) - 1024)` (`audio_mixer.vhd:86,99`, I2S idle
+0x200, so the mix rests at 1536) with a muted channel counting 0x80 (`soundrive.vhd:74-77`).
+
+| ID | Drive | Expected |
+|----|-------|----------|
+| ACM-01 | Mute chip 0 channel A (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-02 | Mute chip 0 channel B (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-03 | Mute chip 0 channel C (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-04 | Mute chip 1 channel A (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-05 | Mute chip 1 channel B (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-06 | Mute chip 1 channel C (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-07 | Mute chip 2 channel A (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-08 | Mute chip 2 channel B (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-09 | Mute chip 2 channel C (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-10 | Mute DAC A: sample; then clear it, sample | The muted side reads that channel at 0x80 (-768 left, right -768); the other side is unchanged; clearing restores -1792 / -768 (`soundrive.vhd:74-77`, `audio_mixer.vhd:86,99`) |
+| ACM-11 | Mute DAC B: sample; then clear it, sample | The muted side reads that channel at 0x80 (-1024 left, right -768); the other side is unchanged; clearing restores -1792 / -768 (`soundrive.vhd:74-77`, `audio_mixer.vhd:86,99`) |
+| ACM-12 | Mute DAC C: sample; then clear it, sample | The muted side reads that channel at 0x80 (-1792 left, right -256); the other side is unchanged; clearing restores -1792 / -768 (`soundrive.vhd:74-77`, `audio_mixer.vhd:86,99`) |
+| ACM-13 | Mute DAC D: sample; then clear it, sample | The muted side reads that channel at 0x80 (-1792 left, right -512); the other side is unchanged; clearing restores -1792 / -768 (`soundrive.vhd:74-77`, `audio_mixer.vhd:86,99`) |
+| ACM-14 | DAC gain -6 dB: DAC_ALL, then DAC_A alone | All four muted: (0, 0); A alone: each side `4 * lround(-192 * g)` (an 0xD0 pair), so the muted arm scales like the unmuted one |
+| ACM-15 | ACB; mute chip 0 channel C | Removed from BOTH sides (`turbosound.vhd:186,189`) |
+| ACM-16 | Chip 1 mono (NR 0x09 bit 6); mute channel A | Removed from both sides, which are equal (`:186-192`) |
+| ACM-17 | Chip 2 pan left only; mute channel B | Left drops, right stays 0 (the pan gate follows the mux, `:323-329`) |
+| ACM-18 | `AUDIO_MUTE` = AY1 plus channel bits of chips 0 and 1; then `AUDIO_MUTE` = 0 | A muted chip is 0 whatever its channel bits; unmuting it leaves its channel bit in force |
+| ACM-19 | DAC B muted, EAR high; then the beeper muted | Beeper silent, B still at 0x80 |
+| ACM-20 | The beeper muted, DAC B muted, the source mask set again; then cleared | The Mixer's `mute_mask()` is the source mask only (BEEPER, then NONE) and `Dac::channel_mute()` stays 0x2 through both; B reads 0x80 throughout, the beeper returns when its mute is cleared |
+| ACM-21 | `set_audio_channel_mute_mask(0xFFFF)` | Stored 0x1FFF; TurboSound 0x1FF; DAC 0xF |
+| ACM-22 | Mask set; soft reset; separately an in-place `init()` | Mask, both copies and the audible effect unchanged |
+| ACM-23 | Mask set; `emulator_cold_boot()` | Mask and both copies (TurboSound, Dac) kept |
+| ACM-24 | Save with no mute; set a mask; load | The mask is unchanged |
+| ACM-25 | Channel mask plus `AUDIO_MUTE` = AY2 | `host.channel_mute_mask` as set; `muted` is its channel bit OR its chip's source bit |
+| ACM-26 | A written while muted, then unmuted; a state load while muted | The DAC's audible copy follows: the write shows once unmuted, the load refreshes it, `channel()` keeps the register value (`soundrive.vhd:74-77`) |
+
+The Qt side (`debugger_audio_panel_test` DAP-31..37, `debugger_panels_test` QATR-04), the backend
+(`debugger_backend_test` REV-47) and the script (`script_parse_test` PARSE-ACM-01 and EVAL-ACM-01,
+`script_events_test` SCRIPT-EV-MUT-ACM) rows are documented in their own suites' headers and in the
+traceability matrix.
+
+### 8.6 Audio write log
 
 Every decoded AY, DAC, NR 0x2C-0x2E and beeper write, logged through `Debugger::audio_log_entries()`
 (GH #531). Fixture: a bare Next (ZXN_ISSUE2). Oracles: `ym2149.vhd:186,188,207-210`,

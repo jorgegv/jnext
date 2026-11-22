@@ -80,6 +80,7 @@ filter itself is 64-bit.
 |---|---|
 | `MACHINE` | 0 = 48K, 1 = 128K, 2 = +3, 3 = Pentagon, 4 = Next |
 | `AUDIO_MUTE` | the host-side mute mask, the Audio panel's (bit 0 to 2: AY chips 0 to 2, bit 3: the DACs, bit 4: the beeper) |
+| `AUDIO_CHANNEL_MUTE` | the host-side channel mute mask, the Audio panel's M and S buttons (bit 0 to 8: AY chip 0 channel A to chip 2 channel C, three bits per chip; bit 9 to 12: DAC channels A to D) |
 
 ## An example
 

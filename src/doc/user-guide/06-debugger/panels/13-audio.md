@@ -8,6 +8,9 @@ is a debugging aid on the output stage only: the Z80 cannot observe it, and it
 is not part of a saved state or a rewind slot, so muting a chip to work out
 which one is making a noise does not change the program's behaviour.
 
+Each channel also has its own **M** (mute) and **S** (solo) buttons, described
+under [Mute and solo](#mute-and-solo) below.
+
 Below it are five tabs: **Chips**, **DAC & Beeper**, **Log**, **Tracker** and
 **Scopes**. Tracker and Scopes are not available yet.
 
@@ -69,8 +72,11 @@ the mix: they do not when both of those are set.
 **Pi I2S.** Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).
 
-**Host.** The output, AY, DAC and beeper gains in dB, the sources muted from the
-Sources strip, and whether the emulator is synthesising audio at all (it is not
+**DAC channels.** Under the DAC values: an **M** and an **S** button per channel (see
+[Mute and solo](#mute-and-solo) below).
+
+**Host.** The output, AY, DAC and beeper gains in dB, the sources and channels muted
+(from the Sources strip and the M buttons), and whether the emulator is synthesising audio at all (it is not
 with `--silent`).
 
 **Dropped writes.** A table with one fixed row per reason an audio write is thrown
@@ -135,5 +141,33 @@ and the Source; **Envelope restarts only**; and **Dropped only**. Double-click a
 written by the CPU to show the instruction in the Disassembly. **Export CSV...** writes
 the whole log in the same format as the `--audio-log` option, described in the manual
 page.
+
+## Mute and solo
+
+Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,
+and the 4 DAC channels in the DAC & Beeper tab) has an **M** and an **S**
+button. A channel is heard only if both its Sources box and its M allow it: M
+checked means the channel is muted, and the box and the button are independent
+switches.
+
+- **M** mutes or unmutes that channel. The channel keeps running, so unmuting
+  it resumes mid-note; a muted DAC channel reads as the DAC's silent midpoint (0x80), not as zero. A channel that held another value still steps the output to 0x80 at the moment it is muted.
+- **S** solos the channel: the other twelve channels are muted. The Sources
+  strip is left alone, so a source you have switched off stays off (the
+  beeper follows its own box). Clicking S again ends the solo and restores the
+  mutes you had before it. Soloing a second channel moves the solo and still
+  restores the first set of mutes. Any other change to the mutes (an M click,
+  a script, another debugger client) ends the solo, so ending it never undoes
+  that change.
+
+Like the Sources boxes, channel mutes are a listening aid on the output stage
+only: the Z80 cannot observe them, they survive a reset and a state load, and
+they are not in a snapshot or a rewind slot. They change what you hear and what
+is recorded from the mix (a WAV recording or a video capture). The buttons
+follow the live mutes, so a mute set by a script shows on them.
+
+A script reads and sets the channel mutes with `AUDIO_CHANNEL_MUTE`: bit 0 to 8
+are the AY channels (bit `3 * chip + channel`, channel A = 0), bit 9 to 12 are
+DAC A to D, and a set bit is a muted channel.
 
 ---

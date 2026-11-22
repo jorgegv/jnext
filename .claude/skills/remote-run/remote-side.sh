@@ -97,6 +97,14 @@ say "container memory limit: $mem_limit (swap off)"
 # and ctl/, the container's name and label, the LANE_CACHES directories, the FPGA clone); the other
 # caches, the podman store, the mirror and the stamps are shared.
 lane_lock() { if [[ "$1" -eq 1 ]]; then echo "$RR_DIR/lane.lock"; else echo "$RR_DIR/lane-L$1.lock"; fi; }
+if [[ "$RR_MODE" == probe ]]; then
+    # a lane is free right now: take its lock and let go at once (the real run takes it again, atomically)
+    for n in $(seq 1 "$RR_LANES"); do
+        exec 9>"$(lane_lock "$n")"
+        if flock -n 9; then echo "probe: lane $n of $RR_LANES is free"; exit 0; fi
+    done
+    echo "probe: every lane of $RR_LANES is busy"; exit 75
+fi
 lane=0
 deadline=$((SECONDS + RR_LANE_WAIT)); queued=0
 while :; do
@@ -231,12 +239,13 @@ find "$STAMPS" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null
 git -C "$MIRROR" remote get-url origin >/dev/null 2>&1 || git -C "$MIRROR" remote add origin "$RR_REPO_URL"
 git -C "$MIRROR" remote set-url origin "$RR_REPO_URL"
 say "fetching $RR_BRANCH from $RR_REPO_URL"
-if ! fetch_out=$(git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_BRANCH:refs/rr/$RR_BRANCH" 2>&1 </dev/null); then
+FETCH_T="${RR_FETCH_TIMEOUT:-120}s"   # a stalled network must not hold the setup lock (every lane waits on it)
+if ! fetch_out=$(timeout --kill-after=5s "$FETCH_T" git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_BRANCH:refs/rr/$RR_BRANCH" 2>&1 </dev/null); then
     echo "$fetch_out"
     if [[ "$fetch_out" == *"couldn't find remote ref"* ]]; then
         refuse "branch $RR_BRANCH is not on the remote repository: push it first"
     fi
-    fallback "git fetch failed"
+    fallback "git fetch failed (or timed out after $FETCH_T)"
 fi
 tip=$(git -C "$MIRROR" rev-parse "refs/rr/$RR_BRANCH") || fallback "no tip for $RR_BRANCH after fetch"
 if [[ -z "$RR_SHA" ]]; then
@@ -245,12 +254,18 @@ elif [[ "$tip" != "$RR_SHA" ]]; then
     refuse "$RR_BRANCH is at $tip on the remote repository, not at the expected $RR_SHA: the push did not land or the branch moved"
 fi
 say "source: $RR_BRANCH @ $RR_SHA"
+# The run tree gets origin/main so a tool inside the run (test/test-affected.pl --explain-miss, GH #547)
+# can take a merge base. Best effort: no main on the remote, or a failed fetch, is not a failure of the run.
+base_main=""
+if timeout --kill-after=5s "$FETCH_T" git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/main:refs/rr/main" </dev/null >/dev/null 2>&1; then
+    base_main=$(git -C "$MIRROR" rev-parse "refs/rr/main" 2>/dev/null || true)
+fi
 
 # ---- image ------------------------------------------------------------------
 # The dependency script comes from the commit under test, or from RR_DEPS_REF when one is given.
 deps_from="$RR_SHA"
 if [[ -n "${RR_DEPS_REF:-}" ]]; then
-    if ! fetch_out=$(git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_DEPS_REF:refs/rr/$RR_DEPS_REF" 2>&1 </dev/null); then
+    if ! fetch_out=$(timeout --kill-after=5s "$FETCH_T" git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_DEPS_REF:refs/rr/$RR_DEPS_REF" 2>&1 </dev/null); then
         echo "$fetch_out"
         fallback "cannot fetch --deps-ref $RR_DEPS_REF"
     fi
@@ -309,6 +324,7 @@ rm -rf "$run"; mkdir -p "$run" "$ctl" "$stamps"
 git clone -q --local --no-checkout "$MIRROR" "$run/src" 2>&1 </dev/null | grep -v "remote HEAD refers" || true
 exec 8>&-   # the setup lock is released: the rest is this run's own
 git -C "$run/src" checkout -q --detach "$RR_SHA" || fallback "cannot check out $RR_SHA"
+[[ -z "$base_main" ]] || git -C "$run/src" update-ref refs/remotes/origin/main "$base_main" 2>/dev/null || true
 git -C "$run/src" submodule update --init --recursive --depth 1 -q </dev/null \
     || git -C "$run/src" submodule update --init --recursive -q </dev/null \
     || fallback "submodule fetch failed"

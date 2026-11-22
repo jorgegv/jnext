@@ -87,7 +87,7 @@ it.
 
 #### Sub-issue 5: solo and mute per channel (scope item 5)
 
-- [ ] **A1.12** Per-channel mute and solo: the 13-bit host mask in TurboSound and the Mixer, backend verbs, `AUDIO_CHANNEL_MUTE` in the DSL, Solo and Mute controls
+- [ ] **A1.12** Per-channel mute and solo: the 13-bit host mask in TurboSound and the Dac, backend verbs, `AUDIO_CHANNEL_MUTE` in the DSL, Solo and Mute controls
 
 #### Epic-level task before the Phase 1 merge into `main`
 
@@ -1043,22 +1043,23 @@ placeholder that points at unfinished work except the Tracker and Scopes sub-tab
 - **Design.** `Emulator::set_audio_channel_mute_mask(uint16_t)` fans out to
   `TurboSound::set_channel_mute_mask(bits 0-8)`: the audible copy of A1.2 zeroes the muted
   channels' `a/b/c` inputs before the per-chip stereo math, so ACB, mono and pan stay right.
-  It also goes to `Mixer::set_dac_channel_mute(bits 9-12)`, where a muted DAC channel is
-  replaced by 0x80 in the audible DAC sum (its silence is the midpoint, as for `AudioMute::DAC`,
-  `mixer.cpp:149-162`). The DAC channel test shares the existing per-slice branch: the Mixer
-  folds both masks into the one byte `mix()` already tests (`mute_mask_ != AudioMute::NONE`,
-  `mixer.cpp:143`, gaining a bit that means "a DAC channel is muted"), so an unmuted run still
-  pays exactly one branch. Today `set_mute_mask()` overwrites the whole byte, so each of the two
-  setters (`set_mute_mask()` and the new `set_dac_channel_mute()`) must keep the other's bits,
-  and `mute_mask()` must strip the internal bit so that it still returns only `AudioMute`
-  bits. The mask is not machine state: not reset, not serialised. The
+  It also goes to `Dac::set_channel_mute(bits 9-12)` (as built): `Dac` keeps an audible copy
+  `aud_[4]` of its registers in which a muted channel reads 0x80 (its silence is the midpoint, as
+  for `AudioMute::DAC`), updated on each write, on a mute change, on `reset()` and on `load_state()`;
+  `pcm_left()/pcm_right()` sum that copy, the registers `ch_` (what `channel()` returns and what is
+  serialised) never see the mute, and `Mixer::mix()` is unchanged, so an unmuted run runs the same
+  code as before (measured, perf-attach: +0.00% instructions). A `.jns` load rebuilds the copy through
+  its `load_state` round trip. TurboSound's muted mix is an out-of-line cold function behind one
+  test, and its chip mute became AND gates so that test costs nothing net. The mask is not machine
+  state: not reset, not serialised. The
   backend verbs are as in §4.4, with a MUTATE log line. In the DSL, `AUDIO_CHANNEL_MUTE` is a
   live name, readable and assignable (`set AUDIO_CHANNEL_MUTE = 0x1FE`), mirroring `AUDIO_MUTE`
   (`names.cpp` `LIVE[]`, `script_engine.cpp:794-796`). GUI: a Mute and a Solo button per channel row
   in Chips and per DAC channel in DAC & Beeper. Solo is GUI-only (decision 4): it sets the mask
   to everything except that channel and remembers the previous mask to restore on un-solo.
   `AudioChannelMute` is defined in `audio_mute.h`.
-- **Files.** `src/audio/turbosound.{h,cpp}`, `mixer.{h,cpp}`, `audio_mute.h`,
+- **Files.** `src/audio/turbosound.{h,cpp}`, `dac.{h,cpp}`, `audio_mute.h`, `emulator_jns.cpp` (a comment),
+  `src/platform/emulator_boot.h` (the cold boot carries the mask),
   `src/core/emulator.h`, `src/debug/debugger_inspect.cpp`, `debugger.h`, `debug_types_check.cpp`,
   `src/script/names.{h,cpp}`, `script_engine.cpp`, the scripting pages `04-reading-the-machine.md`,
   `08-changing-the-machine.md` and `13-quick-reference.md`, `src/debugger/audio_panel.cpp`.

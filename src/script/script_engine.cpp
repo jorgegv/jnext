@@ -798,6 +798,11 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                                 d.set_audio_mute_mask(cid_, static_cast<uint8_t>(v)));
                         break;
                     }
+                    if (t.builtin == Builtin::AUDIO_CHANNEL_MUTE) {
+                        refused(a.pos, "`set AUDIO_CHANNEL_MUTE`",
+                                d.set_audio_channel_mute_mask(cid_, static_cast<uint16_t>(v)));
+                        break;
+                    }
                     const int bit = flag_bit(t.builtin);
                     if (bit >= 0) {
                         const uint16_t f = d.registers().AF & 0xFF;

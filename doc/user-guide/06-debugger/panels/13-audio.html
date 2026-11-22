@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2218,10 +2218,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#log" class="md-nav__link">
+  <a href="#mute-and-solo" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Log
+        Mute and solo
       
     </span>
   </a>
@@ -4516,8 +4516,10 @@ beeper independently, whichever tab is showing; a checked box is audible. This
 is a debugging aid on the output stage only: the Z80 cannot observe it, and it
 is not part of a saved state or a rewind slot, so muting a chip to work out
 which one is making a noise does not change the program's behaviour.</p>
+<p>Each channel also has its own <strong>M</strong> (mute) and <strong>S</strong> (solo) buttons, described
+under <a href="#mute-and-solo">Mute and solo</a> below.</p>
 <p>Below it are five tabs: <strong>Chips</strong>, <strong>DAC &amp; Beeper</strong>, <strong>Log</strong>, <strong>Tracker</strong> and
-<strong>Scopes</strong>. Tracker and Scopes are not available yet.</p>
+<strong>Scopes</strong>. Log, Tracker and Scopes are not available yet.</p>
 <h2 id="chips">Chips<a class="headerlink" href="#chips" title="Permanent link">&para;</a></h2>
 <p>The header reports whether TurboSound is enabled, whether the chips are in AY
 or YM mode, whether the stereo layout is ABC or ACB, the PSG mode set in
@@ -4566,8 +4568,10 @@ beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC re
 the mix: they do not when both of those are set.</p>
 <p><strong>Pi I2S.</strong> Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).</p>
-<p><strong>Host.</strong> The output, AY, DAC and beeper gains in dB, the sources muted from the
-Sources strip, and whether the emulator is synthesising audio at all (it is not
+<p><strong>DAC channels.</strong> Under the DAC values: an <strong>M</strong> and an <strong>S</strong> button per channel (see
+<a href="#mute-and-solo">Mute and solo</a> below).</p>
+<p><strong>Host.</strong> The output, AY, DAC and beeper gains in dB, the sources and channels muted
+(from the Sources strip and the M buttons), and whether the emulator is synthesising audio at all (it is not
 with <code>--silent</code>).</p>
 <p><strong>Dropped writes.</strong> A table with one fixed row per reason an audio write is thrown
 away. Each row shows how many writes were dropped and, for the latest, the port, the
@@ -4592,37 +4596,31 @@ cleared only by <strong>Clear</strong>. Writes made from the debugger or a scrip
 Debugger, and stepping back or rewinding does not count the replayed writes again.
 Double-click a row written by the CPU to show the instruction in the Disassembly.</p>
 <p>The DAC &amp; Beeper tab is refreshed at about 4 Hz with the rest of the window.</p>
-<h2 id="log">Log<a class="headerlink" href="#log" title="Permanent link">&para;</a></h2>
-<p>A table of the audio writes the program made, one row per write, newest last. The
-machine records them only while this tab is the one on show in an open debugger window
-(or while something else asks for the log, such as <code>--audio-log</code>); the rows you see
-start when you open the tab, and the log holds the newest 65536 writes. The tab is
-refreshed with the rest of the window when the machine is paused or stepped.</p>
-<p>The columns are the <strong>Frame</strong>, <strong>Line</strong>, <strong>HC</strong> and <strong>T-state</strong> the write happened at,
-the <strong>PC</strong> of the instruction (only for a write the CPU made), the <strong>Source</strong> (CPU, DMA,
-Copper or Debugger), the <strong>Target</strong> (AY register, AY select, DAC, DAC mirror or Beeper),
-the <strong>Chip</strong> (the AY chip 0 to 2, or the DAC channel A to D), the <strong>Reg</strong> (<code>R7</code> for an
-AY register, <code>NR 0x2D</code> for a DAC mirror write), the <strong>Value</strong> written, the <strong>Prev</strong> value
-it replaced and the <strong>Flags</strong>.</p>
-<p>What is recorded: AY register writes; the TurboSound chip-select and pan commands
-(written to port 0xFFFD) and any discarded 0xFFFD write; DAC channel writes, one row per
-channel a write reaches (port 0xB3 gives channels B and C); writes to NextREG 0x2C to
-0x2E, which mirror into the DAC; and a change of the beeper's EAR or MIC line. A plain
-AY register select, a border-only write to port 0xFE and a repeat of the same EAR and
-MIC levels are not recorded.</p>
-<p>The <strong>Flags</strong> cell reads <code>restart</code> for a write to AY register 13, which restarts the
-envelope even when the value does not change, and <code>dropped:</code> with the reason (the same
-texts as the Dropped writes table above) for a write the hardware discarded; a dropped
-DAC write reached no channel, so its Chip is <code>-</code>.</p>
-<p>A <strong>marker</strong> row reports a break in the log: <code>reset</code> (the machine was reset), <code>state load</code>
-(a state was loaded) or <code>rewind</code> (the machine stepped back or rewound). Stepping back
-removes the rows from the point you landed on, so the log follows the timeline you are
-now on, and adds a <code>rewind</code> marker. Markers are shown under every filter.</p>
-<p>The filters narrow the rows: the Target, the AY chip, the AY register, the DAC channel
-and the Source; <strong>Envelope restarts only</strong>; and <strong>Dropped only</strong>. Double-click a row
-written by the CPU to show the instruction in the Disassembly. <strong>Export CSV...</strong> writes
-the whole log in the same format as the <code>--audio-log</code> option, described in the manual
-page.</p>
+<h2 id="mute-and-solo">Mute and solo<a class="headerlink" href="#mute-and-solo" title="Permanent link">&para;</a></h2>
+<p>Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,
+and the 4 DAC channels in the DAC &amp; Beeper tab) has an <strong>M</strong> and an <strong>S</strong>
+button. A channel is heard only if both its Sources box and its M allow it: M
+checked means the channel is muted, and the box and the button are independent
+switches.</p>
+<ul>
+<li><strong>M</strong> mutes or unmutes that channel. The channel keeps running, so unmuting
+  it resumes mid-note; a muted DAC channel reads as the DAC's silent midpoint (0x80), not as zero. A channel that held another value still steps the output to 0x80 at the moment it is muted.</li>
+<li><strong>S</strong> solos the channel: the other twelve channels are muted. The Sources
+  strip is left alone, so a source you have switched off stays off (the
+  beeper follows its own box). Clicking S again ends the solo and restores the
+  mutes you had before it. Soloing a second channel moves the solo and still
+  restores the first set of mutes. Any other change to the mutes (an M click,
+  a script, another debugger client) ends the solo, so ending it never undoes
+  that change.</li>
+</ul>
+<p>Like the Sources boxes, channel mutes are a listening aid on the output stage
+only: the Z80 cannot observe them, they survive a reset and a state load, and
+they are not in a snapshot or a rewind slot. They change what you hear and what
+is recorded from the mix (a WAV recording or a video capture). The buttons
+follow the live mutes, so a mute set by a script shows on them.</p>
+<p>A script reads and sets the channel mutes with <code>AUDIO_CHANNEL_MUTE</code>: bit 0 to 8
+are the AY channels (bit <code>3 * chip + channel</code>, channel A = 0), bit 9 to 12 are
+DAC A to D, and a set bit is a muted channel.</p>
 <hr />
 
 

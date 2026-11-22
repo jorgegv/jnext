@@ -211,6 +211,20 @@ sums: the hardware one (every active chip; what a snapshot or a rewind slot stor
 chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.
 
+The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
+`env_reset`, which reloads the level and also forces `env_ena` (`ym2149.vhd:340-342` and `ym2149.vhd:393-409`), so the first
+step comes with the write instead of one envelope period later. `AyChip::load_envelope()` applies the reload
+and then runs `step_shape_()`, the half of `update_envelope()` that follows the period counter.
+
+A second host mask, the 13-bit per-channel one (`AudioChannelMute`, set through
+`Emulator::set_audio_channel_mute_mask()`), follows the same rules and composes with the first. Its nine AY
+bits go to `TurboSound`, which zeroes the muted channel's input BEFORE the chip's A/B/C mux when it builds
+the audible pair, so ACB, mono and pan stay exact; the hardware pair never sees them. Its four DAC bits go
+to the `Dac`, which keeps an audible copy of its four registers (a muted channel reads its idle 0x80),
+updated on each write and on a mute change; `pcm_left()` and `pcm_right()` sum that copy, so the Mixer's
+`mix()` is the same code muted or not, and the registers (what the debugger reads and a snapshot stores)
+never see the mute. A state load rebuilds the copy. The cold boot carries both masks.
+
 ## Getting samples to the host
 
 `src/platform/sdl_audio.*` is the only place SDL audio appears. The device is

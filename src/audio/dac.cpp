@@ -12,12 +12,14 @@ void Dac::reset()
     ch_[1] = 0x80;
     ch_[2] = 0x80;
     ch_[3] = 0x80;
+    refresh_audible_();
 }
 
 void Dac::write_channel(int ch, uint8_t val)
 {
     if (ch < 0 || ch >= 4) return;
     ch_[ch] = val;
+    aud_[ch] = ((channel_mute_ >> ch) & 1) ? 0x80 : val;
     if (write_callback_) write_callback_(ch, val);
 }
 
@@ -63,4 +65,5 @@ void Dac::save_state(StateWriter& w) const
 void Dac::load_state(StateReader& r)
 {
     jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+    refresh_audible_();   // the audible copy is derived, never in the stream
 }
