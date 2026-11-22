@@ -35,6 +35,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -118,8 +120,10 @@ struct Rig {
     StartupStop               ss;
     std::string               why;
 
-    explicit Rig(const std::string& break_at = {}) {
-        cfg.type           = MachineType::ZX48K;
+    bool realtime = false;   // tape mode of land(): the deck plays in real time
+
+    explicit Rig(const std::string& break_at = {}, MachineType type = MachineType::ZX48K) {
+        cfg.type           = type;
         cfg.debugger_start = true;
         cfg.break_at       = break_at;
         emu.init(cfg);
@@ -128,7 +132,7 @@ struct Rig {
     bool start(int coming) { return ss.start(*dbg, emu, cfg, coming, true, why); }
     // The loop owner's sequence for a `--load`: the load, its sidecars, the landing.
     bool land(const std::string& file) {
-        const bool ok = emulator_apply_load(emu, file, false);
+        const bool ok = emulator_apply_load(emu, file, realtime);
         dbg->load_program_sidecars(file);
         return ss.program_landed(file, ok, false, why);
     }
@@ -143,6 +147,110 @@ struct Rig {
         }
     }
 };
+
+// ---- tape fixtures (GH #548, DBGST-30..): built here, from the TAP and TZX formats ----
+
+using Bytes = std::vector<uint8_t>;
+
+// One TAP block: length word, flag, payload, XOR checksum.
+Bytes tap_block(uint8_t flag, const Bytes& payload) {
+    Bytes b;
+    const unsigned n = static_cast<unsigned>(payload.size()) + 2;
+    b.push_back(static_cast<uint8_t>(n & 0xFF));
+    b.push_back(static_cast<uint8_t>(n >> 8));
+    b.push_back(flag);
+    uint8_t x = flag;
+    for (uint8_t v : payload) { b.push_back(v); x ^= v; }
+    b.push_back(x);
+    return b;
+}
+
+// A header block (flag 0): type, 10-char name, length, param1, param2.
+Bytes tap_header(uint8_t type, const char* name, unsigned len, unsigned p1, unsigned p2) {
+    Bytes p{type};
+    std::string nm = name;
+    nm.resize(10, ' ');
+    for (char c : nm) p.push_back(static_cast<uint8_t>(c));
+    for (unsigned v : {len, p1, p2}) { p.push_back(static_cast<uint8_t>(v & 0xFF)); p.push_back(static_cast<uint8_t>(v >> 8)); }
+    return tap_block(0x00, p);
+}
+
+Bytes cat(std::initializer_list<Bytes> parts) {
+    Bytes r;
+    for (const Bytes& p : parts) r.insert(r.end(), p.begin(), p.end());
+    return r;
+}
+
+// A BASIC line: number, tokens (ending 0x0D added here), as the ROM's program area holds it.
+Bytes basic_line(unsigned number, const Bytes& body) {
+    Bytes l{static_cast<uint8_t>(number >> 8), static_cast<uint8_t>(number & 0xFF)};
+    const unsigned n = static_cast<unsigned>(body.size()) + 1;
+    l.push_back(static_cast<uint8_t>(n & 0xFF));
+    l.push_back(static_cast<uint8_t>(n >> 8));
+    l.insert(l.end(), body.begin(), body.end());
+    l.push_back(0x0D);
+    return l;
+}
+
+// Program block pair that autostarts at line 10.
+Bytes program_pair(const Bytes& program) {
+    return cat({tap_header(0, "prog", static_cast<unsigned>(program.size()), 10,
+                           static_cast<unsigned>(program.size())),
+                tap_block(0xFF, program)});
+}
+
+// TAP -> TZX 1.20: each TAP block is a standard-speed 0x10 block (pause 1000 ms), then `tail`.
+Bytes tzx_of(const Bytes& tap, const Bytes& tail) {
+    Bytes z{'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 1, 20};
+    for (size_t off = 0; off + 2 <= tap.size();) {
+        const unsigned n = tap[off] | (tap[off + 1] << 8);
+        z.push_back(0x10);
+        z.push_back(0xE8); z.push_back(0x03);   // pause 1000 ms
+        z.push_back(tap[off]); z.push_back(tap[off + 1]);
+        z.insert(z.end(), tap.begin() + static_cast<long>(off) + 2, tap.begin() + static_cast<long>(off) + 2 + n);
+        off += 2 + n;
+    }
+    z.insert(z.end(), tail.begin(), tail.end());
+    return z;
+}
+
+// TAP -> 8-bit mono 44100 Hz WAV with the standard ROM pulse timings (T-states / 79.365 per sample).
+Bytes wav_of(const Bytes& tap) {
+    Bytes pcm;
+    int level = 0;
+    auto pulse = [&](double tstates) {
+        const int n = static_cast<int>(tstates / 79.365 + 0.5);
+        for (int i = 0; i < n; ++i) pcm.push_back(level ? 0xE0 : 0x20);
+        level ^= 1;
+    };
+    for (size_t off = 0; off + 2 <= tap.size();) {
+        const unsigned n = tap[off] | (tap[off + 1] << 8);
+        const uint8_t* blk = tap.data() + off + 2;
+        const int pilot = blk[0] < 0x80 ? 8063 : 3223;
+        for (int i = 0; i < pilot; ++i) pulse(2168);
+        pulse(667); pulse(735);
+        for (unsigned i = 0; i < n; ++i)
+            for (int bit = 7; bit >= 0; --bit) {
+                const double t = (blk[i] >> bit) & 1 ? 1710 : 855;
+                pulse(t); pulse(t);
+            }
+        for (int i = 0; i < 44; ++i) pcm.push_back(0x80);   // 1 ms of silence
+        level = 0;
+        for (int i = 0; i < 44100; ++i) pcm.push_back(0x80);   // and a second between blocks
+        off += 2 + n;
+    }
+    Bytes w;
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) w.push_back(static_cast<uint8_t>(v >> (8 * i))); };
+    auto u16 = [&](uint16_t v) { w.push_back(static_cast<uint8_t>(v)); w.push_back(static_cast<uint8_t>(v >> 8)); };
+    for (char c : std::string("RIFF")) w.push_back(static_cast<uint8_t>(c));
+    u32(36 + static_cast<uint32_t>(pcm.size()));
+    for (char c : std::string("WAVEfmt ")) w.push_back(static_cast<uint8_t>(c));
+    u32(16); u16(1); u16(1); u32(44100); u32(44100); u16(1); u16(8);
+    for (char c : std::string("data")) w.push_back(static_cast<uint8_t>(c));
+    u32(static_cast<uint32_t>(pcm.size()));
+    w.insert(w.end(), pcm.begin(), pcm.end());
+    return w;
+}
 
 ClientInfo other_client(const char* name) {
     ClientInfo ci;
@@ -492,6 +600,175 @@ int main() {
         r.run();
         check("DBGST-20", "a cold boot before the --break-at stop cancels it: the client is gone and nothing stops",
               cancelled && !r.paused(), "cancelled=" + std::to_string(cancelled) + " paused=" + std::to_string(r.paused()));
+    }
+
+    // ---- stage 2: the default stop of a tape program (D2-D4) --------------------------------
+    // The tape's CODE header is the oracle for where the program starts: 0x8000 in the z88dk
+    // fixture (read from its header block here), and the loader's own addresses in the built tapes.
+    const std::string fixture = std::string(JNEXT_TAPE_FIXTURE_DIR) + "/prog.tap";
+    unsigned code_start = 0;
+    Bytes fixture_bytes;
+    {
+        std::ifstream f(fixture, std::ios::binary);
+        fixture_bytes.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        for (size_t off = 0; off + 2 <= fixture_bytes.size();) {
+            const unsigned n = fixture_bytes[off] | (fixture_bytes[off + 1] << 8);
+            if (n == 19 && fixture_bytes[off + 2] == 0 && fixture_bytes[off + 3] == 3)
+                code_start = fixture_bytes[off + 2 + 14] | (fixture_bytes[off + 2 + 15] << 8);
+            off += 2 + n;
+        }
+    }
+    constexpr int kTapeFrames = 1500, kRealFrames = 6000;
+    auto tape_stop = [&](Rig& r, const std::string& file, int frames) {
+        r.start(1);
+        const bool ok = r.land(file);
+        const bool armed_running = ok && !r.paused() && r.dbg->subscriptions(false).empty();
+        r.run(frames);
+        return armed_running;
+    };
+    auto in_stub = [](uint16_t pc) { return pc >= 0x5B00 && pc <= 0x5BFF; };
+
+    // DBGST-30 / 31: the z88dk tape on a 48K: the stop is the first instruction of the CODE the
+    // tape loaded (its header's start), after the last block; fast load and real time alike.
+    {
+        std::string bad;
+        for (int mode = 0; mode < 2; ++mode) {
+            Rig r;
+            r.realtime = mode == 1;
+            std::string log;
+            bool armed = false;
+            log = logged([&] { armed = tape_stop(r, fixture, mode ? kRealFrames : kTapeFrames); });
+            if (!(armed && r.paused() && r.pc() == code_start && code_start == 0x8000 &&
+                  log.find("(the first instruction from the tape's memory after its last block)") != std::string::npos))
+                bad += " [" + std::string(mode ? "realtime" : "fast") + " armed=" + std::to_string(armed) +
+                       " paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()) + "]";
+        }
+        check("DBGST-30", "48K z88dk tape, fast load and real time: paused at the CODE header's start after the last block, "
+                          "having run no instruction of it before; the stop is logged with the tape's reason",
+              bad.empty(), bad);
+    }
+
+    // DBGST-32: the same tape on a 128K and a +3: not in the ROM's RAM paging stubs (0x5B00..).
+    {
+        std::string bad;
+        for (MachineType t : {MachineType::ZX128K, MachineType::ZX_PLUS3}) {
+            Rig r("", t);
+            tape_stop(r, fixture, 2500);
+            if (!(r.paused() && r.pc() == code_start && !in_stub(r.pc())))
+                bad += " [machine " + std::to_string(static_cast<int>(t)) + " paused=" + std::to_string(r.paused()) +
+                       " pc=" + hex(r.pc()) + "]";
+        }
+        check("DBGST-32", "the same tape on a 128K and on a +3 stops at the program (0x8000), not in the ROM's RAM stubs at 0x5B00",
+              bad.empty(), bad);
+    }
+
+    // DBGST-33: a TZX the test builds from that tape (standard 0x10 blocks, TZX 1.20) with a trailing
+    // 0x30 text block, where at_end() stays false: fast and real time.
+    {
+        const Bytes tail{0x30, 4, 'e', 'n', 'd', '.'};
+        write_bytes(path("prog.tzx"), tzx_of(fixture_bytes, tail));
+        std::string bad;
+        for (int mode = 0; mode < 2; ++mode) {
+            Rig r;
+            r.realtime = mode == 1;
+            tape_stop(r, path("prog.tzx"), mode ? kRealFrames : kTapeFrames);
+            if (!(r.paused() && r.pc() == code_start))
+                bad += " [" + std::string(mode ? "realtime" : "fast") + " paused=" + std::to_string(r.paused()) +
+                       " pc=" + hex(r.pc()) + "]";
+        }
+        check("DBGST-33", "a TZX with a trailing text block stops at the program, fast and real time",
+              bad.empty(), bad);
+    }
+
+    // DBGST-34: a WAV the test makes from that tape.
+    {
+        write_bytes(path("prog.wav"), wav_of(fixture_bytes));
+        Rig r;
+        tape_stop(r, path("prog.wav"), 8000);
+        check("DBGST-34", "a WAV made from the tape stops at the program after its last pulse",
+              r.paused() && r.pc() == code_start, "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
+    }
+
+    // The custom-loader tape: BASIC `LOAD ""CODE : RANDOMIZE USR 32768`; a 16-byte CODE loader at
+    // 0x8000 that CALLs LD-BYTES (0x0556) for one more headerless block into 0xA000, then JPs there.
+    const Bytes loader_code{0xDD, 0x21, 0x00, 0xA0,   // 8000 LD IX,0xA000
+                            0x11, 0x10, 0x00,         // 8004 LD DE,16
+                            0x3E, 0xFF,               // 8007 LD A,0xFF
+                            0x37,                     // 8009 SCF
+                            0xCD, 0x56, 0x05,         // 800A CALL 0x0556
+                            0x00,                     // 800D NOP   <- the first instruction after the last block
+                            0xC3, 0x00};              // 800E JP 0xA000 (the address byte follows in padding)
+    Bytes loader_padded = loader_code;
+    loader_padded.push_back(0xA0);
+    const Bytes last_block(16, 0x00);   // never run: the stop is the NOP at 0x800D
+    const Bytes loader_basic = basic_line(10, {0xEF, 0x22, 0x22, 0xAF, 0x3A, 0xF9, 0xC0, '3', '2', '7', '6', '8',
+                                               0x0E, 0x00, 0x00, 0x00, 0x80, 0x00});
+    const Bytes loader_tap = cat({program_pair(loader_basic),
+                                  tap_header(3, "loader", static_cast<unsigned>(loader_padded.size()), 0x8000, 0x8000),
+                                  tap_block(0xFF, loader_padded), tap_block(0xFF, last_block)});
+    write_bytes(path("loader.tap"), loader_tap);
+
+    // DBGST-35: the stop is the loader's instruction after the CALL: the first tape-loaded
+    // instruction after delivery, not 0xA000 and not before the last block.
+    {
+        Rig r;
+        tape_stop(r, path("loader.tap"), kTapeFrames);
+        check("DBGST-35", "a custom loader that CALLs LD-BYTES for a last headerless block: paused at the instruction after the "
+                          "CALL (0x800D), the last block delivered, not at 0xA000",
+              r.paused() && r.pc() == 0x800D && r.emu.tape_delivered(),
+              "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
+    }
+
+    // DBGST-36 / 37: a tape that cannot carry code (rule 1): BASIC only, and BASIC + SCREEN$. The
+    // stop is the first instruction after the last block's delivery: the trap's exit RET, 0x05E2
+    // (tape_trap.h), in any memory.
+    {
+        const Bytes rem = basic_line(10, {0xEA});
+        write_bytes(path("rem.tap"), program_pair(rem));
+        const Bytes screen = basic_line(10, {0xEF, 0x22, 0x22, 0xAA});
+        write_bytes(path("screen.tap"), cat({program_pair(screen),
+                                              tap_header(3, "screen", 6912, 16384, 0x8000),
+                                              tap_block(0xFF, Bytes(6912, 0x00))}));
+        Rig a;
+        tape_stop(a, path("rem.tap"), kTapeFrames);
+        check("DBGST-36", "a BASIC-only tape (nothing can run from RAM): paused at the first instruction after its last block "
+                          "was delivered, 0x05E2",
+              a.paused() && a.pc() == 0x05E2 && !a.emu.tape_holds_code(), "paused=" + std::to_string(a.paused()) + " pc=" + hex(a.pc()));
+        Rig b;
+        tape_stop(b, path("screen.tap"), kTapeFrames);
+        check("DBGST-37", "BASIC + SCREEN$ is still a tape that cannot carry code: the stop is the first instruction after "
+                          "the screen's block, 0x05E2",
+              b.paused() && b.pc() == 0x05E2 && !b.emu.tape_holds_code(), "paused=" + std::to_string(b.paused()) + " pc=" + hex(b.pc()));
+    }
+
+    // DBGST-38: --break-at 8000 on the loader tape stops INSIDE the loader, before the last block:
+    // armed when the tape attaches, so it catches code a tape runs while it loads.
+    {
+        Rig r("8000");
+        tape_stop(r, path("loader.tap"), kTapeFrames);
+        check("DBGST-38", "--break-at 8000 on the custom-loader tape stops at the loader's start with the last block not yet delivered",
+              r.paused() && r.pc() == 0x8000 && !r.emu.tape_delivered(),
+              "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
+    }
+
+    // DBGST-39: the tape stop's subscriptions are transient (never listed), and a pause by another
+    // client before delivery removes them: nothing stops afterwards.
+    {
+        Rig r;
+        r.start(1);
+        r.land(fixture);
+        r.run(100);   // the capture has fired for the first block by now or soon: never listed
+        const bool hidden = r.dbg->subscriptions(false).empty();
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->pause(other);
+        r.ss.poll();
+        const bool cancelled = !r.ss.active();
+        r.dbg->run(other);
+        r.run(kTapeFrames);
+        check("DBGST-39", "the tape stop's subscriptions are never listed, and another client's pause before delivery cancels "
+                          "the stop: the program runs on",
+              hidden && cancelled && !r.paused(),
+              "hidden=" + std::to_string(hidden) + " cancelled=" + std::to_string(cancelled) + " paused=" + std::to_string(r.paused()));
     }
 
     // DBGST-21: a target that IS the PC the program starts at stops there at once (a resume

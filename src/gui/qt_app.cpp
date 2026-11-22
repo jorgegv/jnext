@@ -793,6 +793,7 @@ bool QtApp::TickEffects::pre_frames() {
             a.exit_code_ = 1;
             if (a.main_window_) a.main_window_->set_unattended(true);
             a.qapp_->quit();
+            a.load_countdown_ = -1;   // the load is done: the abandoned tick must not repeat it
             return false;   // abandon the tick: not one frame of the program runs
         }
         a.config_.source_map_file.clear();

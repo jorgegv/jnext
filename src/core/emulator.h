@@ -713,6 +713,14 @@ public:
     const TapePollDetector& tape_poll() const { return tape_poll_; }
 
     /// Access the tape loader (e.g. for UI tape controls).
+    /// GH #548: has the command-line tape delivered its last block (the data of the last
+    /// block played or served, not the deck's trailing pause)? One predicate over the three
+    /// decks and both modes; false with no tape. See TapLoader::at_end(),
+    /// TzxLoader::data_delivered(), WavLoader::past_end().
+    bool tape_delivered();
+    /// GH #548: can the attached tape carry machine code (holds_code_block of the deck)? A WAV
+    /// always can (it has no block structure to tell).
+    bool tape_holds_code() const;
     TapLoader& tape() { return tape_; }
     const TapLoader& tape() const { return tape_; }
 

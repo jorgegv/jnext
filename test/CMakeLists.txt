@@ -1145,6 +1145,8 @@ target_link_libraries(startup_stop_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(startup_stop_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(startup_stop_test PRIVATE
+    JNEXT_TAPE_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk/v2.4/sccz80-tape")
 add_test(NAME startup_stop_tests COMMAND startup_stop_test)
 
 # CLI option table / man page alignment (issue #43). Header-only table under

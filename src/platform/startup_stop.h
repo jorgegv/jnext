@@ -77,6 +77,7 @@ private:
 
     bool resolve_target(Target& t, std::string& why) const;
     bool arm(const std::string& default_why, std::string& why);
+    void arm_tape();
     void finish();
     void log_stop(const char* what);
 
@@ -88,4 +89,5 @@ private:
     int                   landings_left_ = 0;
     bool                  last_ok_ = true;
     uint64_t              stop_cycle_ = 0;
+    std::string           armed_what_;   ///< the log's reason for a stop that is not --break-at's
 };

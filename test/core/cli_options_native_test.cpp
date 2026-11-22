@@ -898,8 +898,9 @@ int main() {
                 const std::string refusal = "--debug-listen-address requires a debugger server port";
                 // The implied port is the fixed 11000, which a shared host may hold. The listen
                 // address is therefore one this host does not own (192.0.2.1, TEST-NET-1): the
-                // bind fails at once, after the option check, so nothing is ever bound, and the
-                // failure names the port the option implied.
+                // bind normally fails at once, after the option check (a host with ip_nonlocal_bind
+                // set binds it for a moment instead), and either way the log names the port the
+                // option implied: the row reads that, so it needs neither outcome.
                 run_split(base + " --debugger --debug-listen-address 192.0.2.1 --delayed-automatic-exit-frames 1");
                 const std::string with_err = slurp(err_path) + slurp(out_path);
                 const int rc_without = run_split(base + " --debug-listen-address 192.0.2.1 --delayed-automatic-exit-frames 1");
@@ -907,7 +908,9 @@ int main() {
                 check("CLI-DBG-08", "--debugger makes --debug-listen-address valid (the implied DZRP port counts); the same "
                                     "without --debugger is refused with the existing message",
                       with_err.find(refusal) == std::string::npos &&
-                          with_err.find("--dzrp-port 11000") != std::string::npos && rc_without != 0 &&
+                          (with_err.find("--dzrp-port 11000") != std::string::npos ||
+                           with_err.find("dzrp: listening on 192.0.2.1:11000") != std::string::npos) &&
+                          rc_without != 0 &&
                           without_err.find(refusal) != std::string::npos,
                       "rc_without=" + std::to_string(rc_without) + " with: " + with_err.substr(0, 160));
             }

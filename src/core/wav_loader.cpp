@@ -159,6 +159,16 @@ void WavLoader::eject()
     data_size_ = 0;
 }
 
+bool WavLoader::past_end(uint64_t current_tstates) const
+{
+    if (!loaded_ || start_tstates_ == 0 || current_tstates <= start_tstates_) return false;
+    const uint64_t bytes_per_frame = static_cast<uint64_t>(channels_) * (bits_per_sample_ / 8u);
+    if (bytes_per_frame == 0) return false;
+    const uint64_t frames = data_size_ / bytes_per_frame;
+    const uint64_t elapsed = current_tstates - start_tstates_;
+    return (elapsed * sample_rate_) / CPU_CLOCK_HZ >= frames;
+}
+
 uint8_t WavLoader::get_ear_bit(uint64_t current_tstates) const
 {
     if (!playing_ || !loaded_) return 0;

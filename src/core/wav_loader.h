@@ -40,6 +40,9 @@ public:
     /// Returns 0 if past end of data or not playing.
     uint8_t get_ear_bit(uint64_t current_tstates) const;
 
+    /// GH #548: playback has begun and the clock is past the last sample.
+    bool past_end(uint64_t current_tstates) const;
+
     /// True if a file has been loaded.
     bool is_loaded() const { return loaded_; }
 

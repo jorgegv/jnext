@@ -425,6 +425,7 @@ bool TzxLoader::load(const std::string& path) {
     loaded_ = true;
     sha256_ = digest;
     fast_load_offset_ = is_tzx_ ? 10 : 0;  // skip TZX header
+    scan_tape();   // GH #548
 
     // Extract filename for UI. (std::filesystem splits on the host's own
     // separators: a Windows path from `--load C:\...` or a native dialog has
@@ -444,6 +445,8 @@ void TzxLoader::eject() {
     file_data_.clear();
     loaded_ = false;
     fast_load_offset_ = 0;
+    holds_code_ = false;
+    last_data_end_ = 0;
     handover_pending_ = false;
     filename_.clear();
     path_.clear();
@@ -577,6 +580,7 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
         uint8_t id = data[fast_load_offset_];
         const uint8_t* b = data + fast_load_offset_ + 1;
         int remaining = len - fast_load_offset_ - 1;
+        if (id == 0x11 || id == 0x14 || id == 0x15 || id == 0x18 || id == 0x19) scan_exotic_ = true;
 
         switch (id) {
         case 0x10: {
@@ -677,6 +681,47 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
         }
     }
     return nullptr;
+}
+
+void TzxLoader::scan_tape() {
+    holds_code_ = false;
+    last_data_end_ = 0;
+    scan_exotic_ = false;
+    const int save = fast_load_offset_;
+    fast_load_offset_ = is_tzx_ ? 10 : 0;
+    int prev_type = -1;
+    unsigned prev_len = 0, prev_start = 0;
+    int len = 0;
+    while (const uint8_t* b = next_data_block(len)) {
+        last_data_end_ = fast_load_offset_;
+        if (len == 19 && b[0] == 0x00) {   // a header: flag, type, name, length, params
+            prev_type  = b[1];
+            prev_len   = static_cast<unsigned>(b[12] | (b[13] << 8));
+            prev_start = static_cast<unsigned>(b[14] | (b[15] << 8));
+            continue;
+        }
+        const bool basic = prev_type >= 0 && prev_type <= 2;
+        const bool screen = prev_type == 3 && prev_start == 16384 && prev_len == 6912;
+        if (!basic && !screen) holds_code_ = true;
+        prev_type = -1;
+    }
+    if (scan_exotic_) holds_code_ = true;
+    fast_load_offset_ = save;
+}
+
+bool TzxLoader::data_delivered() {
+    if (!loaded_) return false;
+    if (fast_load_) {
+        const int save = fast_load_offset_;
+        int len = 0;
+        const bool more = next_data_block(len) != nullptr;
+        fast_load_offset_ = save;
+        return !more;
+    }
+    const TZXPlayer* p = static_cast<const TZXPlayer*>(player_);
+    if (p->offset < last_data_end_) return false;
+    return p->phase != TZX_PHASE_PILOT && p->phase != TZX_PHASE_SYNC1 &&
+           p->phase != TZX_PHASE_SYNC2 && p->phase != TZX_PHASE_DATA;
 }
 
 bool TzxLoader::handle_ld_bytes_trap(Emulator& emu) {

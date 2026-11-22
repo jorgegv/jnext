@@ -6,6 +6,7 @@
 
 #include "core/emulator.h"
 #include "core/log.h"
+#include "core/tape_trap.h"
 
 using jnext::dbg::ClientId;
 using jnext::dbg::PauseReason;
@@ -148,11 +149,8 @@ bool StartupStop::program_landed(const std::string& file, bool ok, bool injected
             break;
         case Format::Snapshot: default_why = "the restored PC"; break;
         case Format::Tape:
-            if (break_at_.empty()) {
-                // The default tape stop is not built yet: say so rather than run on silently.
-                Log::platform()->warn("debugger: no default stop for a tape yet; running "
-                                      "(use --break-at)");
-                finish();
+            if (break_at_.empty() && ok) {
+                arm_tape();
                 return true;
             }
             break;
@@ -164,6 +162,72 @@ bool StartupStop::program_landed(const std::string& file, bool ok, bool injected
         return false;
     }
     return true;
+}
+
+// The default stop of a tape program (GH #548). The tape's last block is "delivered" when
+// Emulator::tape_delivered() says so (the data of the last block, not the deck's pause after it).
+//  Rule 1, a tape that cannot carry code (BASIC and screens only): the first instruction
+//  after delivery, any memory.
+//  Rule 2, otherwise: the first instruction fetched from memory the TAPE LOADED, after
+//  delivery. The loaded memory is learned at LD-BREAK (0x056B), where every LD-BYTES entry
+//  converges in both tape modes and the ROM has put the destination in IX and the length in
+//  DE: each call watches the 8 K slots [IX, IX+DE) covers, tied to the memory that supplies
+//  them then. A RAM stub the ROM copied itself (the 128K and +3 paging routines at 0x5B00) is
+//  never tape-loaded, so it never matches. Every subscription is a transient one of this
+//  client: no listing shows it, and any other client's pause removes it.
+void StartupStop::arm_tape() {
+    Emulator* const emu = emu_;
+    const jnext::dbg::ClientId cid = cid_;
+    const auto delivered = [emu](const jnext::dbg::Event&, const jnext::dbg::Debugger&) {
+        return emu->tape_delivered();
+    };
+    if (!emu_->tape_holds_code()) {
+        jnext::dbg::Subscription all;
+        all.kind      = jnext::dbg::EventKind::Execute;
+        all.filter.lo = 0x0000;
+        all.filter.hi = 0xFFFF;
+        all.transient = true;
+        all.action    = jnext::dbg::Action::Stop;
+        all.condition = delivered;
+        (void)dbg_->subscribe(cid, all);
+        armed_what_ = "the end of the tape's last block";
+        phase_ = Phase::Armed;
+        return;
+    }
+    jnext::dbg::Subscription cap;
+    cap.kind      = jnext::dbg::EventKind::Execute;
+    cap.filter.lo = tape_trap::LD_BREAK_ADDR;
+    cap.filter.hi = tape_trap::LD_BREAK_ADDR;
+    cap.transient = true;
+    cap.action    = jnext::dbg::Action::Continue;
+    cap.condition = [emu](const jnext::dbg::Event&, const jnext::dbg::Debugger& d) {
+        const Z80Registers r = d.registers();
+        return (r.AF2 & 0x01) != 0 && (r.AF & 0x40) != 0 &&   // LOAD (carry of F'), Z set
+               tape_trap::ld_bytes_rom_present(emu->mmu());
+    };
+    cap.handler = [cid, delivered](const jnext::dbg::Event&, jnext::dbg::Debugger& d) {
+        const Z80Registers r = d.registers();
+        if (r.DE == 0) return jnext::dbg::Action::Continue;
+        const uint32_t first = r.IX;
+        const uint32_t last  = std::min<uint32_t>(first + r.DE - 1u, 0xFFFFu);
+        const auto slots = d.mmu_slots();
+        for (uint32_t slot = first >> 13; slot <= (last >> 13); ++slot) {
+            if (slots[slot].is_rom) continue;
+            jnext::dbg::Subscription w;
+            w.kind         = jnext::dbg::EventKind::Execute;
+            w.filter.lo    = static_cast<uint16_t>(std::max<uint32_t>(first, slot << 13));
+            w.filter.hi    = static_cast<uint16_t>(std::min<uint32_t>(last, (slot << 13) | 0x1FFFu));
+            w.filter.space = slots[slot].space;
+            w.transient    = true;
+            w.action       = jnext::dbg::Action::Stop;
+            w.condition    = delivered;
+            (void)d.subscribe(cid, w);
+        }
+        return jnext::dbg::Action::Continue;
+    };
+    (void)dbg_->subscribe(cid, cap);
+    armed_what_ = "the first instruction from the tape's memory after its last block";
+    phase_ = Phase::Armed;
 }
 
 void StartupStop::log_stop(const char* what) {
@@ -184,7 +248,7 @@ void StartupStop::poll() {
         if (!st.paused) break;
         if (st.pause_reason.by == cid_) {
             stop_cycle_ = st.cycle;
-            log_stop(("--break-at " + break_at_).c_str());
+            log_stop(break_at_.empty() ? armed_what_.c_str() : ("--break-at " + break_at_).c_str());
             phase_ = Phase::Stopped;
         } else {
             finish();   // someone else paused first: the stop is cancelled
