@@ -2121,7 +2121,7 @@ static void test_panel_attribution() {
               me_again == want("mem cpu:0x9000", 0x5B, 0x5C, win2),
           fmt("open '%s' | shut '%s' | again '%s'", me_open.c_str(), me_shut.c_str(),
               me_again.c_str()));
-    // QATR-04 — GH #533: a per-channel mute click is the backend's
+    // QATR-04 - GH #533: a per-channel mute click is the backend's
     // set_audio_channel_mute_mask, attributed to the window's client.
     {
         QToolButton* cb = ap->findChild<QToolButton*>("chip1_b_mute");

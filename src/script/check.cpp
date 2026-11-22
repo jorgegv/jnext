@@ -361,7 +361,7 @@ struct ScriptChecker {
     void check_target(ExprPtr& t, const PayloadScope& scope) {
         if (t->kind == ExprKind::Name) {
             // A `set` target is always the MACHINE register (or flag / IFF /
-            // IM / AUDIO_MUTE / AUDIO_CHANNEL_MUTE) — never the payload name it may share a
+            // IM / AUDIO_MUTE / AUDIO_CHANNEL_MUTE) - never the payload name it may share a
             // spelling with (`set PC = …` in an event rule writes the CPU's PC).
             t->builtin = *live_builtin(t->text);
             return;

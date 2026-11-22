@@ -113,7 +113,7 @@ checked means the channel is muted, and the box and the button are independent
 switches.
 
 - **M** mutes or unmutes that channel. The channel keeps running, so unmuting
-  it resumes mid-note; a muted DAC channel reads as silence, not as a click.
+  it resumes mid-note; a muted DAC channel reads as the DAC's silent midpoint (0x80), not as zero, so muting adds no click.
 - **S** solos the channel: the other twelve channels are muted. The Sources
   strip is left alone, so a source you have switched off stays off (the
   beeper follows its own box). Clicking S again ends the solo and restores the

@@ -805,10 +805,10 @@ with the AY silent; the expected sample is `4 * ((pair << 2) - 1024)` (`audio_mi
 | ACM-17 | Chip 2 pan left only; mute channel B | Left drops, right stays 0 (the pan gate follows the mux, `:323-329`) |
 | ACM-18 | `AUDIO_MUTE` = AY1 plus channel bits of chips 0 and 1; then `AUDIO_MUTE` = 0 | A muted chip is 0 whatever its channel bits; unmuting it leaves its channel bit in force |
 | ACM-19 | DAC B muted, EAR high; then the beeper muted | Beeper silent, B still at 0x80 |
-| ACM-20 | The beeper muted, DAC B muted, the source mask set again; then cleared | `mute_mask()` shows no channel flag; the channel mute stays |
+| ACM-20 | The beeper muted, DAC B muted, the source mask set again; then cleared | The Mixer's `mute_mask()` is the source mask only (BEEPER, then NONE) and `Dac::channel_mute()` stays 0x2 through both; B reads 0x80 throughout, the beeper returns when its mute is cleared |
 | ACM-21 | `set_audio_channel_mute_mask(0xFFFF)` | Stored 0x1FFF; TurboSound 0x1FF; DAC 0xF |
 | ACM-22 | Mask set; soft reset; separately an in-place `init()` | Mask, both copies and the audible effect unchanged |
-| ACM-23 | Mask set; `emulator_cold_boot()` | Mask and both copies kept |
+| ACM-23 | Mask set; `emulator_cold_boot()` | Mask and both copies (TurboSound, Dac) kept |
 | ACM-24 | Save with no mute; set a mask; load | The mask is unchanged |
 | ACM-25 | Channel mask plus `AUDIO_MUTE` = AY2 | `host.channel_mute_mask` as set; `muted` is its channel bit OR its chip's source bit |
 | ACM-26 | A written while muted, then unmuted; a state load while muted | The DAC's audible copy follows: the write shows once unmuted, the load refreshes it, `channel()` keeps the register value (`soundrive.vhd:74-77`) |

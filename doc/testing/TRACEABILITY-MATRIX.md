@@ -2214,7 +2214,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | ACM-20 | audio_mute.h composition: setting the source mask after the channel mask keeps the DAC channel mute, and clearing it leaves the channel mute in force; the Mixer's mute_mask() is only the source mask | — | pass | test/debug/audio_debug_test.cpp:1065 |
 | ACM-21 | a mask with bits above 12 is stored masked to 0x1FFF; TurboSound gets the 9 AY bits, the DAC the 4 DAC bits | — | pass | test/debug/audio_debug_test.cpp:1075 |
 | ACM-22 | a soft reset and an in-place init() leave the channel mask, its TurboSound and DAC copies, and its audible effect (chip 2 A silent) unchanged | — | pass | test/debug/audio_debug_test.cpp:1102 |
-| ACM-23 | a hard reset (cold boot, which rebuilds the Emulator) keeps the channel mask and refans it to TurboSound and the Mixer | — | pass | test/debug/audio_debug_test.cpp:1110 |
+| ACM-23 | a hard reset (cold boot, which rebuilds the Emulator) keeps the channel mask and refans it to TurboSound and the Dac | — | pass | test/debug/audio_debug_test.cpp:1110 |
 | ACM-24 | a state saved with no mute and loaded with channels muted leaves the channel mask, and its two copies, as they were | — | pass | test/debug/audio_debug_test.cpp:1124 |
 | ACM-25 | audio_state(): host.channel_mute_mask as set; a channel is muted when its channel bit or its chip's source bit is set | — | pass | test/debug/audio_debug_test.cpp:1163 |
 | ACM-26 | soundrive.vhd:74-77 the DAC's audible copy: a write while muted shows once unmuted, a state load refreshes it (B back to 0x50, A still read as 0x80), and channel() keeps the register value | soundrive.vhd:74-77 | pass | test/debug/audio_debug_test.cpp:1145 |

@@ -1107,7 +1107,7 @@ int main() {
         Emulator emu; build_channels(emu);
         emu.set_audio_channel_mute_mask(mask);
         emulator_cold_boot(emu, emu.config());
-        check("ACM-23", "a hard reset (cold boot, which rebuilds the Emulator) keeps the channel mask and refans it to TurboSound and the Mixer",
+        check("ACM-23", "a hard reset (cold boot, which rebuilds the Emulator) keeps the channel mask and refans it to TurboSound and the Dac",
               emu.audio_channel_mute_mask() == mask && emu.turbosound().channel_mute_mask() == AudioChannelMute::ay_bit(1, 2) &&
               emu.dac().channel_mute() == 0x1);
     }
