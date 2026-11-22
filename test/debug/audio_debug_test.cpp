@@ -1579,6 +1579,18 @@ int main() {
         AudioSourceTap ton, toff;
         on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
         for (int f = 0; f < 8; ++f) { on.run_frame(); off.run_frame(); }
+        {
+            size_t nd = 0;
+            for (size_t src = 0; src < AudioSourceTap::SOURCES; ++src)
+                for (size_t i = 0; i < static_cast<size_t>(ton.written); ++i) {
+                    const size_t k = src * AudioSourceTap::RING + i;
+                    if (ton.ring[k] != toff.ring[k]) {
+                        if (nd++ < 8)
+                            std::printf("  SCP-09 diff src=%zu i=%zu on=%d off=%d\n", src, i, ton.ring[k], toff.ring[k]);
+                    }
+                }
+            std::printf("  SCP-09 differing samples: %zu\n", nd);
+        }
         std::printf("  SCP-09 written=%llu/%llu equal=%d poll_on=%llu poll_off=%llu halt_on=%llu\n",
                     static_cast<unsigned long long>(ton.written), static_cast<unsigned long long>(toff.written),
                     rings_equal(ton, toff) ? 1 : 0, static_cast<unsigned long long>(on.poll_passes_batched_for_test()),
