@@ -2277,13 +2277,24 @@ private:
     /// for the Pi edge stamps).
     [[gnu::noinline]] void refresh_mic_final_();
 
-    /// The output-sample boundary's test: has anything `beep_mic_final` depends
-    /// on and that has no event of its own moved since the last refresh? The
-    /// raw tape level (the tape block stores it every instruction, and stays
-    /// what it was: no per-instruction cost), a tape that stopped playing, or
-    /// the `ear_relax` hold of the Pi's level running out. So a tape's level
-    /// reaches the MIC term at output-sample granularity (one sample, about 635
-    /// master cycles, 14 us), well inside any tape pulse.
+    /// A PLAYING tape's level, from the tape block, once per instruction: store
+    /// it, and when it CHANGED refresh the MIC term at once (the board's MIC
+    /// term follows the tape continuously; the mixer integrates it across the
+    /// sample like EAR, so the edge must land in its own instruction). One
+    /// load, compare and branch per instruction while a tape plays, and the
+    /// no-tape path of the block is untouched.
+    void tape_level_(bool lvl) {
+        if (lvl != beeper_.tape_ear()) [[unlikely]] {
+            beeper_.set_tape_ear(lvl);
+            refresh_mic_final_();
+        }
+    }
+
+    /// The output-sample boundary's test, for what has no event of its own: a
+    /// tape that started or stopped playing (the stop clears the raw level in
+    /// the tape block, and a start at level 0 has no edge), and the `ear_relax`
+    /// hold of the Pi's level running out. A level CHANGE of a playing tape is
+    /// refreshed by tape_level_() in its own instruction, not here.
     bool mic_stale_() const {
         return beeper_.tape_ear() != mic_tape_level_ || clock_.get() >= mic_relax_due_ ||
                mic_tape_live_ !=
