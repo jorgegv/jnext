@@ -18,8 +18,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   800C LD A,7                 800E OUT (C),A   a plain register select: NOT logged
 #   8010 LD B,0xBF
 #   8012 LD A,0x38              8014 OUT (C),A   R7 write: logged
-#   8016 LD A,0x11              8018 OUT (0x1F),A
-#   801A LD A,0x22              801C OUT (0x1F),A
+#   8016 LD A,0x11              8018 OUT (0x1F),A   (port 0x111F: OUT (n),A puts A on A15..A8)
+#   801A LD A,0x22              801C OUT (0x1F),A   (port 0x221F)
 #   801E NEXTREG 0x2D,0x33      the DAC mirror: channels A then D
 #   8022 JR $
 if want audio-log-func; then
@@ -39,8 +39,8 @@ if want audio-log-func; then
     [[ $ok == 1 && $(head -n 1 "$alog_csv" 2>/dev/null) =~ $head_re ]] || ok=0
     sel_re="${pre}0x800A,cpu,ay_select,0,0,0xFF,$u8,0,none,0xFFFD\$"
     r7_re="${pre}0x8014,cpu,ay,0,7,0x38,$u8,0,none,0xBFFD\$"
-    dac1_re="${pre}0x8018,cpu,dac,0,0,0x11,$u8,0,none,0x001F\$"
-    dac2_re="${pre}0x801C,cpu,dac,0,0,0x22,0x11,0,none,0x001F\$"
+    dac1_re="${pre}0x8018,cpu,dac,0,0,0x11,$u8,0,none,0x111F\$"
+    dac2_re="${pre}0x801C,cpu,dac,0,0,0x22,0x11,0,none,0x221F\$"
     mir0_re="${pre}0x801E,cpu,dac_mirror,0,45,0x33,0x22,0,none,0x002D\$"
     mir3_re="${pre}0x801E,cpu,dac_mirror,3,45,0x33,$u8,0,none,0x002D\$"
     if [[ $ok == 1 ]]; then
@@ -52,7 +52,7 @@ if want audio-log-func; then
         # The fixture's rows come in program order.
         order=""
         for re in "$sel_re" "$r7_re" "$dac1_re" "$dac2_re" "$mir0_re" "$mir3_re"; do
-            order+="$(grep -nE "$re" "$alog_csv" | cut -d: -f1) "
+            order+="$(grep -nE "$re" "$alog_csv" | cut -d: -f1 || true) "
         done
         sorted="$(tr ' ' '\n' <<<"$order" | sed '/^$/d' | sort -n | tr '\n' ' ')"
         [[ "$order" == "$sorted" ]] || ok=0
