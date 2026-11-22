@@ -26,6 +26,8 @@
 //
 // Qt is required (the panel is a QWidget), but no display is: main() forces
 // the offscreen QPA platform (same idiom as debugger_video_panel_test).
+// Rows DAP-48..59 (GH #531) drive the Log sub-tab: real guest, DMA and debugger writes, then the
+// table's cells, its filters, the double-click, the CSV export and the mirror of the backend's ring.
 // Run: ./build/test/debugger_audio_panel_test
 
 #include "audio/audio_mute.h"
@@ -33,15 +35,19 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
+#include "debugger/audio_log_view.h"
 #include "debugger/audio_panel.h"
 #include "platform/emulator_boot.h"
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QLabel>
 #include <QProgressBar>
 #include <QString>
 #include <QTabWidget>
+#include <QPushButton>
+#include <QTableView>
 #include <QTabBar>
 #include <QTableWidget>
 #include <QToolButton>
@@ -49,9 +55,11 @@
 #include <QTreeWidget>
 #include <QStringList>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include "../row_id.h"
@@ -921,10 +929,10 @@ static void test_channel_mute_solo(Emulator& emu) {
         int boxes = 0;
         for (const char* t : {"AY #0", "AY #1", "AY #2", "DAC", "Beeper"}) if (source_box(panel, t)) ++boxes;
         check("DAP-31", "the Chips tab has 9 M and 9 S buttons and the DAC & Beeper tab 4 + 4, all QToolButtons, none checked on a fresh machine "
-              "(mask NONE); the Sources strip is still exactly its five checkboxes (plus Hex)",
+              "(mask NONE); the Sources strip is still exactly its five checkboxes (plus Hex, plus the Log tab's two filter boxes)",
               chips_m == 9 && chips_s == 9 && dac_m == 4 && dac_s == 4 && other == 0 && m_mask(panel) == 0 &&
                   s_mask(panel) == 0 && emu.audio_channel_mute_mask() == 0 && boxes == 5 &&
-                  panel.findChildren<QCheckBox*>().size() == 6,
+                  panel.findChildren<QCheckBox*>().size() == 6 + 2,   // + the Log tab's two filter boxes (GH #531)
               fmt("chips %d/%d dac %d/%d other %d m=%04X s=%04X boxes %d checkboxes %d", chips_m, chips_s, dac_m, dac_s,
                   other, m_mask(panel), s_mask(panel), boxes, static_cast<int>(panel.findChildren<QCheckBox*>().size())));
     }
@@ -1055,13 +1063,13 @@ static void test_dac_tab(Emulator& emu) {
         const bool real = dac && dac->findChild<QTreeWidget*>("audio_drops") && dac->findChild<QLabel*>("dac_a_value") &&
                           !dac->findChild<QLabel*>("dac_a_value")->text().isEmpty();
         bool placeholders = tabs != nullptr;
-        for (int i = 2; tabs && i < 5; ++i) {
+        for (int i = 3; tabs && i < 5; ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
             placeholders = placeholders && found;
         }
-        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Log, Tracker and Scopes still show 'Not available yet.'",
+        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Tracker and Scopes still show 'Not available yet.'",
               real && placeholders);
     }
     {
@@ -1334,6 +1342,405 @@ static void test_dac_tab(Emulator& emu) {
     }
 }
 
+// ── DAP-LOG: the Log sub-tab (GH #531) ─────────────────────────────────
+//
+// The rows drive real writes (a guest program, DMA, the debugger) and read the table's cells.
+// Oracles are those of AWL-* in audio_debug_test (ym2149.vhd:188,207-210; zxnext.vhd:2965,
+// 2974-2980, 5412-5414; soundrive.vhd:85-101); the cell texts are this tab's own spec.
+
+static QTableView* log_table(AudioPanel& panel) { return panel.findChild<QTableView*>("audio_log_table"); }
+
+static QString log_cell(AudioPanel& panel, int row, int col) {
+    QTableView* t = log_table(panel);
+    return t && row < t->model()->rowCount() ? t->model()->index(row, col).data().toString()
+                                             : QStringLiteral("<none>");
+}
+
+static int log_rows(AudioPanel& panel) {
+    QTableView* t = log_table(panel);
+    return t ? t->model()->rowCount() : -1;
+}
+
+static void show_log_tab(AudioPanel& panel) {
+    if (auto* tabs = panel.findChild<QTabWidget*>("audio_tabs")) tabs->setCurrentIndex(2);
+}
+
+static void set_combo(AudioPanel& panel, const char* name, int data) {
+    if (auto* c = panel.findChild<QComboBox*>(name)) c->setCurrentIndex(c->findData(data));
+}
+
+// Every visible row is a marker or passes `keep(row)`, and the count of the others is `want`.
+template <class Keep>
+static bool only_rows(AudioPanel& panel, int want, Keep keep) {
+    int others = 0;
+    bool ok = true;
+    for (int r = 0; r < log_rows(panel); ++r) {
+        if (log_cell(panel, r, 5) == "marker") continue;
+        ++others;
+        ok = ok && keep(r);
+    }
+    return ok && others == want;
+}
+
+static int marker_rows(AudioPanel& panel) {
+    int n = 0;
+    for (int r = 0; r < log_rows(panel); ++r) n += log_cell(panel, r, 5) == "marker";
+    return n;
+}
+
+// The guest program at 0x8000, the CPU parked on it.
+static void cpu_program(Emulator& emu, std::initializer_list<uint8_t> code) {
+    uint16_t a = 0x8000;
+    for (uint8_t b : code) emu.mmu().write(a++, b);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+static void run_instructions(Emulator& emu, int n) {
+    for (int i = 0; i < n; ++i) emu.execute_single_instruction();
+}
+
+static void ay_wr(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0xFFFD, reg);
+    emu.port().out(0xBFFD, val);
+}
+
+// A machine whose log holds a known mix, a soft reset marker first:
+//   marker | AY0 select | AY0 R7 | AY1 select | AY1 R7 | AY1 R8 | DAC A (0x1F) | DAC B (0x0F) |
+//   DAC A+D (0xDF) | AY1 R13 (restart) | a dropped 0xB3 (b6 off)
+// The DAC B row (channel 1, reg 0) sits on the other side of every target condition of the chip, reg
+// and DAC filters: an AY chip 1 filter must not pick it, and a DAC channel A filter must not pick the
+// AY chip 0 rows.
+static void fill_mix(Emulator& emu, jnext::dbg::Debugger& dbg, jnext::dbg::ClientId cid) {
+    dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+    nr_write(emu, 0x08, 0x0A);
+    emu.port().out(0xFFFD, 0xFF);
+    ay_wr(emu, 7, 0x38);
+    emu.port().out(0xFFFD, 0xFE);
+    ay_wr(emu, 7, 0x11);
+    ay_wr(emu, 8, 0x05);
+    emu.port().out(0x1F, 0x11);
+    emu.port().out(0x0F, 0x33);
+    emu.port().out(0xDF, 0x22);
+    ay_wr(emu, 13, 0x08);
+    nr_write(emu, 0x84, 0xBF);
+    emu.port().out(0xB3, 0x55);
+}
+
+static void test_log_tab(Emulator& emu) {
+    set_group("DAP-LOG");
+    using jnext::dbg::ClientInfo;
+    using jnext::dbg::ClientKind;
+
+    {
+        if (!build_dac_machine(emu)) { check("DAP-48", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        const auto tables = panel.findChildren<QTableWidget*>();
+        bool placeholders = tabs != nullptr;
+        for (int i = 3; tabs && i < 5; ++i) {
+            bool found = false;
+            for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
+                found = found || l->text() == "Not available yet.";
+            placeholders = placeholders && found;
+        }
+        bool only_log = tabs != nullptr;
+        for (int i = 0; tabs && i < tabs->count(); ++i) {
+            tabs->setCurrentIndex(i);
+            only_log = only_log && (panel.log_on_show() == (i == 2));
+        }
+        QWidget* log_tab = tabs ? tabs->widget(2) : nullptr;
+        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; Tracker and Scopes still show 'Not available yet.'; log_on_show() is true only with Log current",
+              log_tab && log_tab->findChild<QTableView*>("audio_log_table") && tables.size() == 1 &&
+              tables[0]->objectName() != "audio_log_table" && placeholders && only_log);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-49", "emulator init", false); return; }
+        nr_write(emu, 0x08, 0x08);
+        ay_wr(emu, 7, 0x3F);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap49", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        // 8000 LD BC,FFFD  8003 LD A,7  8005 OUT (C),A  8007 LD B,BF  8009 LD A,38  800B OUT (C),A
+        // 800D LD A,11  800F OUT (1F),A  8011 NEXTREG 2D,22  8015 LD A,10  8017 OUT (FE),A
+        cpu_program(emu, {0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79,
+                          0x3E, 0x11, 0xD3, 0x1F, 0xED, 0x91, 0x2D, 0x22, 0x3E, 0x10, 0xD3, 0xFE, 0x18, 0xFE});
+        run_instructions(emu, 11);
+        panel.refresh();
+        const bool ay = log_rows(panel) == 5 && log_cell(panel, 0, 5) == "CPU" && log_cell(panel, 0, 6) == "AY register" &&
+                        log_cell(panel, 0, 7) == "0" && log_cell(panel, 0, 8) == "R7" && log_cell(panel, 0, 9) == "0x38" &&
+                        log_cell(panel, 0, 10) == "0x3F" && log_cell(panel, 0, 4) == "0x800B";
+        const bool dac = log_cell(panel, 1, 6) == "DAC" && log_cell(panel, 1, 7) == "A" && log_cell(panel, 1, 8) == "-" &&
+                         log_cell(panel, 1, 9) == "0x11" && log_cell(panel, 1, 4) == "0x800F";
+        const bool mir = log_cell(panel, 2, 6) == "DAC mirror" && log_cell(panel, 2, 7) == "A" &&
+                         log_cell(panel, 2, 8) == "NR 0x2D" && log_cell(panel, 2, 9) == "0x22" &&
+                         log_cell(panel, 3, 7) == "D" && log_cell(panel, 3, 8) == "NR 0x2D";
+        const bool beep = log_cell(panel, 4, 6) == "Beeper" && log_cell(panel, 4, 7) == "-" &&
+                          log_cell(panel, 4, 9) == "0x10" && log_cell(panel, 4, 10) == "0x00";
+        check("DAP-49", "the AWL-01 write, a 0x1F write, an NR 0x2D write and an EAR change show rows: R7/0x38/0x3F/CPU/'AY register'/PC 0x800B; DAC A 0x11; the mirror as A and D with 'NR 0x2D'; Beeper 0x10 over 0x00",
+              ay && dac && mir && beep);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-50", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap50", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        ay_wr(emu, 13, 0x08);
+        nr_write(emu, 0x84, 0xBF);
+        nr_write(emu, 0x08, 0x08);
+        emu.port().out(0xB3, 0x55);
+        panel.refresh();
+        auto* drops = panel.findChild<QTreeWidget*>("audio_drops");
+        const QString family = tree_cell(drops, 5, 0);
+        check("DAP-50", "an R13 row's Flags cell reads 'restart'; a dropped 0xB3 row reads 'dropped: ' followed by exactly the text the DAC & Beeper drop table shows for DacFamilyDisabled",
+              log_rows(panel) == 2 && log_cell(panel, 0, 11) == "restart" &&
+              log_cell(panel, 1, 11) == QString("dropped: ") + family && family == kDropRows[5]);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-51", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap51", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        fill_mix(emu, dbg, cid);
+        panel.refresh();
+        const int all = log_rows(panel);
+        set_combo(panel, "audio_log_target", int(jnext::dbg::AudioTarget::Dac));
+        const bool dac = only_rows(panel, 5, [&](int r) { return log_cell(panel, r, 6) == "DAC"; }) && marker_rows(panel) == 1;
+        set_combo(panel, "audio_log_target", -1);
+        check("DAP-51", "the audio_log_target filter 'DAC' leaves only the 5 DAC rows plus the marker row; 'Any' restores every row",
+              all == 12 && dac && log_rows(panel) == all);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-52", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap52", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        fill_mix(emu, dbg, cid);
+        panel.refresh();
+        set_combo(panel, "audio_log_chip", 1);
+        check("DAP-52", "audio_log_chip = 1 (AY writes on chips 0 and 1, and a DAC channel B write, chip 1) leaves chip 1's four AY rows (select, R7, R8, R13) plus the marker, not the DAC B row",
+              only_rows(panel, 4, [&](int r) { return log_cell(panel, r, 7) == "1" && log_cell(panel, r, 6).startsWith("AY"); }) &&
+              marker_rows(panel) == 1);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-53", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap53", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        fill_mix(emu, dbg, cid);
+        panel.refresh();
+        set_combo(panel, "audio_log_reg", 7);
+        const bool r7 = only_rows(panel, 2, [&](int r) { return log_cell(panel, r, 8) == "R7"; }) && marker_rows(panel) == 1;
+        // The DAC rows carry reg 0 underneath ("-"): a register-0 filter must not pick them.
+        set_combo(panel, "audio_log_reg", 0);
+        const bool r0 = only_rows(panel, 0, [&](int) { return false; }) && marker_rows(panel) == 1;
+        check("DAP-53", "audio_log_reg = 7 leaves the two R7 rows plus the marker; audio_log_reg = 0 leaves no write (no AY R0 write was made, and the DAC rows, whose reg is 0 underneath, are not AY register rows)",
+              r7 && r0);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-54", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap54", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        fill_mix(emu, dbg, cid);
+        panel.refresh();
+        set_combo(panel, "audio_log_dac", 3);
+        const bool d = only_rows(panel, 1, [&](int r) { return log_cell(panel, r, 7) == "D" && log_cell(panel, r, 6) == "DAC"; }) &&
+                       marker_rows(panel) == 1;
+        // Channel A is also AY chip 0 (chip cell "0"): the AY rows of chip 0 must not be picked.
+        set_combo(panel, "audio_log_dac", 0);
+        const bool a = only_rows(panel, 2, [&](int r) { return log_cell(panel, r, 7) == "A" && log_cell(panel, r, 6) == "DAC"; }) &&
+                       marker_rows(panel) == 1;
+        check("DAP-54", "audio_log_dac = D leaves the one channel-D row plus the marker; audio_log_dac = A leaves the two channel-A rows (0x1F, 0xDF), not the AY chip 0 rows",
+              d && a);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-55", "emulator init", false); return; }
+        nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x08, 0x08);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap55", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        cpu_program(emu, {0xF3, 0x18, 0xFE});   // parked while the DMA runs
+        emu.mmu().write(0xA000, 0x5A);
+        {
+            auto w = [&](uint8_t v) { emu.dma().write(v, false); };
+            w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00); w(0x14); w(0x28);
+            w(0xAD); w(0xDF); w(0x00); w(0xCF); w(0x87);
+            emu.run_frame();
+        }
+        cpu_program(emu, {0x3E, 0x33, 0xD3, 0x1F, 0x18, 0xFE});
+        run_instructions(emu, 2);
+        panel.refresh();
+        const int all = log_rows(panel);
+        set_combo(panel, "audio_log_source", int(jnext::dbg::EventSource::Dma));
+        const bool dma = only_rows(panel, 2, [&](int r) { return log_cell(panel, r, 5) == "DMA"; });
+        check("DAP-55", "audio_log_source = DMA (a DMA byte to 0xDF and a CPU write) leaves the two DMA rows; Any shows all three",
+              all == 3 && dma);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-56", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap56", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        fill_mix(emu, dbg, cid);
+        panel.refresh();
+        auto* restarts = panel.findChild<QCheckBox*>("audio_log_restarts");
+        auto* dropped = panel.findChild<QCheckBox*>("audio_log_dropped");
+        if (restarts) restarts->setChecked(true);
+        const bool r13 = only_rows(panel, 1, [&](int r) { return log_cell(panel, r, 11) == "restart"; }) && marker_rows(panel) == 1;
+        if (restarts) restarts->setChecked(false);
+        if (dropped) dropped->setChecked(true);
+        const bool drop = only_rows(panel, 1, [&](int r) { return log_cell(panel, r, 11).startsWith("dropped: "); }) &&
+                          marker_rows(panel) == 1;
+        set_combo(panel, "audio_log_target", int(jnext::dbg::AudioTarget::Beeper));
+        const bool still = marker_rows(panel) == 1 && log_cell(panel, 0, 6) == "reset";
+        check("DAP-56", "'Envelope restarts only' leaves the R13 row and 'Dropped only' the dropped row; the soft-reset marker row stays visible under every filter (and its Target reads 'reset')",
+              restarts && dropped && r13 && drop && still);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-57", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap57", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+        cpu_program(emu, {0x3E, 0x33, 0xD3, 0x1F, 0x18, 0xFE});
+        run_instructions(emu, 2);
+        emu.port().out(0x0F, 0x44);
+        panel.refresh();
+        int emitted = 0, addr = -1;
+        QObject::connect(&panel, &AudioPanel::show_in_disassembly_requested, &panel, [&](uint16_t a) { ++emitted; addr = a; });
+        QTableView* t = log_table(panel);
+        auto dbl = [&](int row) { if (t) emit t->doubleClicked(t->model()->index(row, 0)); };
+        const bool rows = log_rows(panel) == 3 && log_cell(panel, 0, 5) == "marker" && log_cell(panel, 1, 5) == "CPU" &&
+                          log_cell(panel, 2, 5) == "Debugger";
+        dbl(1);
+        const bool cpu = emitted == 1 && addr == 0x8002;
+        dbl(2);
+        dbl(0);
+        check("DAP-57", "a double-click on a CPU row (the OUT at 0x8002) emits show_in_disassembly_requested(0x8002) once; on a Debugger-source row or a marker row it emits nothing",
+              rows && cpu && emitted == 1);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-58", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap58", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        fill_mix(emu, dbg, cid);
+        panel.refresh();
+        const std::string a = (std::filesystem::temp_directory_path() / "jnext-dap58-a.csv").string();
+        const std::string b = (std::filesystem::temp_directory_path() / "jnext-dap58-b.csv").string();
+        auto* view = panel.findChild<AudioLogView*>();
+        const bool wrote = view && view->export_to(QString::fromStdString(a)) &&
+                           dbg.audio_log_export(b) == jnext::dbg::Result::Ok;
+        auto slurp = [](const std::string& p) {
+            std::string s;
+            if (std::FILE* f = std::fopen(p.c_str(), "rb")) {
+                char buf[4096]; size_t n;
+                while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) s.append(buf, n);
+                std::fclose(f);
+            }
+            return s;
+        };
+        const std::string sa = slurp(a), sb = slurp(b);
+        std::remove(a.c_str()); std::remove(b.c_str());
+        check("DAP-58", "export_to(path) writes a file whose bytes equal Debugger::audio_log_export of the same log (the header and 12 rows)",
+              wrote && !sa.empty() && sa == sb && std::count(sa.begin(), sa.end(), '\n') == 13);
+    }
+    {
+        Emulator rw;
+        {
+            EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+            rw.init(cfg);
+            rw.set_audio_mute_mask(AudioMute::NONE);
+            rw.clear_audio_drops();
+            rw.set_rewind_enabled(true);
+            rw.resize_rewind_buffer(50);
+        }
+        jnext::dbg::Debugger dbg(rw);
+        const auto cid = dbg.attach(ClientInfo{"dap59", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        cpu_program(rw, {0xF3, 0x3C, 0xD3, 0x1F, 0x06, 0xFF, 0x10, 0xFE, 0x18, 0xF7});
+        for (int i = 0; i < 6; ++i) rw.run_frame();
+        panel.refresh();
+        dbg.pause(cid);
+        const size_t n0 = dbg.audio_log_entries(0).value.size();
+        for (int i = 0; i < 100000 && dbg.audio_log_entries(0).value.size() == n0; ++i) rw.execute_single_instruction();
+        panel.refresh();
+        const jnext::dbg::Result r = dbg.step_back(cid, 1);
+        panel.refresh();
+        const auto entries = dbg.audio_log_entries(0).value;
+        bool mirror = r == jnext::dbg::Result::Ok && log_rows(panel) == int(entries.size()) && !entries.empty() &&
+                      entries.back().marker == jnext::dbg::AudioMarker::Rewind;
+        for (size_t i = 0; mirror && i < entries.size(); ++i) {
+            const QString want = entries[i].marker != jnext::dbg::AudioMarker::None
+                                     ? QString() : QString::asprintf("0x%02X", entries[i].value);
+            mirror = log_cell(panel, int(i), 9) == want && log_cell(panel, int(i), 0) == QString::number(entries[i].frame);
+        }
+        const bool rec = txt(panel, "audio_log_status") == "Recording";
+        dbg.set_audio_log_enabled(cid, false);
+        panel.refresh();
+        const bool off = txt(panel, "audio_log_status") == "Not recording";
+        dbg.set_audio_log_enabled(cid, true);
+        for (int i = 0; i < 100000 && dbg.audio_log_entries(0).value.empty(); ++i) rw.execute_single_instruction();
+        panel.refresh();
+        const auto fresh = dbg.audio_log_entries(0).value;
+        check("DAP-59", "after writes, a step back landing and refresh() the rows equal audio_log_entries(0) (truncated, the Rewind marker last); after the request is dropped and taken again the rows are only the new entries; the status label reads 'Recording', then 'Not recording'",
+              mirror && rec && off && log_rows(panel) == int(fresh.size()) && !fresh.empty() &&
+              fresh.front().seq > entries.back().seq);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-60", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap60", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        auto* view = panel.findChild<AudioLogView*>();
+        if (view) view->set_row_cap(5);
+        nr_write(emu, 0x08, 0x08);
+        // 12 writes in three refreshes: the model is bounded to the cap and holds the NEWEST rows, and the
+        // incremental fetch keeps working across the trim (no gap, no spurious resync).
+        for (uint8_t v = 1; v <= 4; ++v) emu.port().out(0x1F, v);
+        panel.refresh();
+        for (uint8_t v = 5; v <= 9; ++v) emu.port().out(0x1F, v);
+        panel.refresh();
+        for (uint8_t v = 10; v <= 12; ++v) emu.port().out(0x1F, v);
+        panel.refresh();
+        bool newest = log_rows(panel) == 5;
+        for (int i = 0; newest && i < 5; ++i) newest = log_cell(panel, i, 9) == QString::asprintf("0x%02X", 8 + i);
+        // A marker resyncs from the whole ring: still capped.
+        dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+        panel.refresh();
+        const bool marker = log_rows(panel) <= 5 && marker_rows(panel) == 1;
+        check("DAP-60", "the Log view holds at most its row cap (5): after 12 writes over three refreshes it shows the newest five (values 8-12) in order, and a resync after a marker is capped too",
+              view && newest && marker);
+    }
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1359,6 +1766,8 @@ int main(int argc, char** argv) {
 
     test_dac_tab(emu);
     std::printf("  Group: DAP-DAC        -- done\n");
+    test_log_tab(emu);
+    std::printf("  Group: DAP-LOG        -- done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

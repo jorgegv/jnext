@@ -121,6 +121,7 @@ enum class OptId {
     Record,
     WavRecord,
     DacTrace,
+    AudioLog,
     AudioGainDb,
     AudioGainBeeperDb,
     AudioGainAy0Db,
@@ -696,6 +697,10 @@ inline constexpr Option OPTIONS[] = {
     { "--dac-trace", 1, Doc::Documented, OptId::DacTrace,
       "FILE",
       "Record timestamped physical DAC writes to CSV" },
+    { "--audio-log", 1, Doc::Documented, OptId::AudioLog,
+      "FILE",
+      "Record decoded audio writes (AY, DAC, NR 0x2C-0x2E mirrors, beeper)\n"
+      "to CSV" },
     { "--audio-gain-db", 1, Doc::Documented, OptId::AudioGainDb,
       "DB",
       "Host audio gain in dB (-24..+24, default 0);\n"
@@ -1162,7 +1167,7 @@ inline const char* page_only_refusal(OptId id) {
 // `--set` derives its refusals from it through config_keys (Key::flag).
 // `--no-esp` and `--no-nextpi` are NOT refused: they ask for the only state
 // there is. The debugger-side options that jnext_debug alone serves (--wav-record,
-// --source-map, --export-*) and the joystick UART endpoints (no thread, socket
+// --audio-log, --source-map, --export-*) and the joystick UART endpoints (no thread, socket
 // or process of their own) stay accepted.
 inline const char* browser_refusal(OptId id) {
     switch (id) {

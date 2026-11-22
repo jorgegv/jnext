@@ -119,6 +119,40 @@ carried over a cold boot by `emulator_cold_boot()` beside the mute mask, cleared
 only by `Debugger::clear_audio_drops()`, and not counted while a rewind replays
 frames. `Debugger::audio_state()` publishes them as `AudioState::drops`.
 
+**The write tap.** Every decoded audio write can also be logged, for the debugger's Log
+tab and `--audio-log`. `Emulator` holds one `AudioTapSink*` (`src/debug/audio_tap.h`,
+the core-to-backend seam, implemented by the debugger backend) and one bool,
+`audio_tap_active_`; the backend switches it on while any client asks for the log
+(`Emulator::set_audio_tap()`). The sites are the three AY handlers (0xFFFD, 0xBFFD and
+0xBFF5), the 14 DAC channel writes in the 11 DAC handlers (`Emulator::dac_write_()`
+wraps each), the three NextREG 0x2C-0x2E mirror handlers, the 0xFE handler and
+`note_audio_drop_()`, so the counter and the log come from one call. Each site tests
+the one bool and nothing else, and there is no test on the per-instruction path.
+Rule R1: the tap observes and never writes. A handler reads what the entry needs
+(the chip, the address, the previous byte) before its write and records after it,
+so the hot path's own writes stay where they are, and the log cannot drift from them.
+The cold bodies are in `src/core/emulator_audio_tap.cpp`, marked cold and out of line,
+so adding one cannot move inlining in `emulator.cpp`. They return at once while a rewind
+replays frames (`replay_mode_`). A plain register select is not logged; an applied
+0xFFFD write with bit 7 set is exactly the chip-select or pan command, because a bit-7
+value that is not the command returns `SelectIgnored`. An entry's timestamp comes from
+`Emulator::stamp_at_()`, the arithmetic the event latch stamper also uses, so the log
+agrees with the event system by construction; the stamp is the start of the instruction
+slot that raised the write, which is also why a rewind landing removes the entries at its
+own cycle. The landing removes everything from that cycle on, markers included: the rewind ring is this
+session's own history on one clock, and a soft reset, a rewind and a state load taken from it all keep that
+clock (loading a checkpoint of this session puts it back to the checkpoint's cycle), so every marker is
+crossed. A state-load marker AT the landing cycle is the landing state itself and stays, just before the
+new `Rewind` marker. A state loaded from another session has a clock that cannot be ordered against this
+one, so across such a load the cycle order, and the result, is best-effort. The `Rewind` marker is always
+recorded, and only the same marker twice at one cycle is one row, so a reset right after a rewind keeps its
+own row. Markers come from `debug_after_machine_transition_()` (every reset and every
+state load pass through it; a ring restore for a rewind is left out by
+`DebugState::restoring_from_rewind()`) and from the two rewind landings. A hard reset
+rebuilds the `Emulator`, so the backend installs the sink again in
+`reapply_after_machine_rebuild()`. The ring, the seq counter and the verbs live in the
+backend (`src/debug/debugger_audio.cpp`).
+
 **Beeper** — `src/audio/beeper.*`. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is

@@ -243,6 +243,46 @@ struct AudioDropCounter {
     EventSource last_source = EventSource::Cpu;
 };
 
+/// What an audio write reached, or would have reached when `Dropped`. GH #531
+/// (INS-23). The columns of `AudioLogEntry` mean, per target:
+///   target       chip              reg                value  prev               port
+///   AyRegister   active chip 0-2   latched address    byte   register before    0xBFFD / 0xBFF5
+///                                  (5 bits)                  (0 for 16-31)
+///   AyChipSelect chip selected     0                  byte   chip before        0xFFFD
+///                after the write
+///   Dac          channel 0-3       0                  byte   channel before     the 16-bit port
+///   DacMirror    channel 0-3       0x2C-0x2E          byte   channel before     0x002C-0x002E
+///   Beeper       0                 0                  byte   EAR<<4 | MIC<<3    the 16-bit port
+///                                                            before
+/// A dropped DAC or mirror write reached no channel: `chip` is 0xFF.
+enum class AudioTarget : uint8_t { AyRegister = 0, AyChipSelect, Dac, DacMirror, Beeper, Count };
+namespace AudioFlag {
+    /// An APPLIED write to AY R13, whether or not the value changed
+    /// (ym2149.vhd:188,207-210).
+    constexpr uint8_t EnvelopeRestart = 0x01;
+    /// `drop_reason != None`: the write was discarded.
+    constexpr uint8_t Dropped = 0x02;
+}
+/// A discontinuity in the log: the machine was reset, a state was loaded, or a
+/// rewind landed (earlier cycles may follow it).
+enum class AudioMarker : uint8_t { None = 0, Reset, StateLoad, Rewind };
+struct AudioLogEntry {
+    uint64_t seq = 0;                 ///< assigned by the log; never reused in a run
+    uint64_t cycle = 0;               ///< master cycles, the event stamper's clock
+    uint32_t frame = 0;               ///< the event stamper's frame tag
+    int16_t  vc = 0, hc = 0;          ///< raw raster counters at `cycle`
+    uint32_t tstate_in_frame = 0;     ///< `vc * tstates_per_line + hc / 2`
+    uint16_t pc = 0;                  ///< the slot's instruction (meaningful for Cpu)
+    EventSource source = EventSource::Cpu;
+    AudioTarget target = AudioTarget::AyRegister;
+    uint8_t chip = 0, reg = 0, value = 0, prev = 0, flags = 0;
+    AudioDropReason drop_reason = AudioDropReason::None;
+    uint16_t port = 0;
+    AudioMarker marker = AudioMarker::None;   ///< != None: only the timestamp fields mean anything
+};
+constexpr size_t AUDIO_LOG_DEFAULT_ENTRIES = 65536;
+constexpr size_t AUDIO_LOG_MAX_ENTRIES = size_t(1) << 22;
+
 /// CAP-EVT — memory / port access direction. Used BOTH as a single value in a
 /// payload and as a mask in a subscription (§4.3 "`access` ⊆ {Read, Write}").
 enum class Access : uint8_t {

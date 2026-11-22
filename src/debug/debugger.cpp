@@ -69,6 +69,9 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
 
     impl_->gates_changed();
 
+    // GH #531 -- the audio write tap's sink, off until a client asks for the log.
+    impl_->emu.set_audio_tap(&impl_->audio_sink, false);
+
     // GH #276 B4 — INS-20's coverage sink is NOT published here, and that is not
     // an omission from the pair: coverage starts off, and every `DebugState` a
     // new `Debugger` can meet already has a null sink — a fresh one, or one whose
@@ -97,6 +100,8 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
 // header (cycle, frame, pc, vc, hc) was never stamped, until the next `init()`.
 // Row LIFE-06.
 Debugger::~Debugger() {
+    // GH #531 -- the sink points into `Impl`; nothing in the machine may keep it.
+    impl_->emu.set_audio_tap(nullptr, false);
     impl_->ds().set_event_table(nullptr);
     impl_->ds().set_event_hooks(nullptr, nullptr);
     impl_->ds().set_machine_replaced_hook(nullptr);

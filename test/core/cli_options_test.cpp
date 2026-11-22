@@ -1094,6 +1094,16 @@ int main() {
               good && nums && bad.empty(), bad);
     }
 
+    // --- CLI-ALOG-01: --audio-log (GH #531) ------------------------------------------------------
+    {
+        const cli::Option* o = cli::find("--audio-log");
+        check("CLI-ALOG-01", "--audio-log is Documented with one value, and neither cli::browser_refusal nor "
+                             "browser_page::option_refusal refuses it (a page runs it like the desktop build: the stream is "
+                             "finalised by the page loop's teardown)",
+              o && o->doc == cli::Doc::Documented && o->arity == 1 && o->id == cli::OptId::AudioLog &&
+                  !cli::browser_refusal(o->id) && !browser_page::option_refusal(o->id));
+    }
+
     // --- CLI-DCH-01..03: --debug-channel (GH #545), the browser page's debugger channel -----------
     {
         const cli::Option* o = cli::find("--debug-channel");

@@ -28,6 +28,11 @@
 // zxnext.vhd:2744-2751,2963-2965,2974-2980,3024,3034-3041,3088-3094,5412-5414,
 // 6989,7046 and soundrive.vhd:72-101 (ports, enables, mirror, reset).
 //
+//   AWL-*  the audio write log (GH #531): every AY, DAC, NR mirror and beeper write is decoded into
+//          a ring with its timestamps; markers, rewind landings, the CSV and the --audio-log stream.
+//          Oracles: ym2149.vhd:188,207-210, turbosound.vhd:129-141, zxnext.vhd:2965,2974-2980,5412-5414,
+//          soundrive.vhd:85-101; the timestamps against the event system's own (DebugState's stamper).
+//
 // Run: ./build/test/audio_debug_test
 
 #include "audio/turbosound.h"
@@ -35,6 +40,8 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "debug/audio_log_csv.h"
+#include "debug/audio_log_stream.h"
 #include "debug/audio_math.h"
 #include "debug/debugger.h"
 #include "debug/events.h"
@@ -44,10 +51,12 @@
 #include "port/port_dispatch.h"
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <initializer_list>
 #include <utility>
 #include <memory>
@@ -455,6 +464,165 @@ static void copper_words(Emulator& emu, std::initializer_list<uint16_t> words) {
     }
     emu.nextreg().write(0x61, 0);
     emu.nextreg().write(0x62, 0x40);   // mode 01: run the program once
+}
+
+// ── AWL: the audio write log (GH #531) ──────────────────────────────────
+
+namespace AudioFlag = jnext::dbg::AudioFlag;
+using jnext::dbg::AudioLogEntry;
+using jnext::dbg::AudioMarker;
+using jnext::dbg::AudioTarget;
+using AT = jnext::dbg::AudioTarget;
+
+// A client that has asked for the log.
+static ClientId log_client(Debugger& dbg, const char* name) {
+    const ClientId cid = dbg.attach(client(name)).value;
+    dbg.set_audio_log_enabled(cid, true);
+    return cid;
+}
+
+// Every entry (markers included), oldest first.
+static std::vector<AudioLogEntry> all_entries(const Debugger& dbg) {
+    return dbg.audio_log_entries(0).value;
+}
+
+// The entries that are writes, not markers.
+static std::vector<AudioLogEntry> writes_only(const Debugger& dbg) {
+    std::vector<AudioLogEntry> w;
+    for (const AudioLogEntry& e : all_entries(dbg))
+        if (e.marker == AudioMarker::None) w.push_back(e);
+    return w;
+}
+
+static size_t markers_of(const std::vector<AudioLogEntry>& v, AudioMarker m) {
+    size_t n = 0;
+    for (const AudioLogEntry& e : v) n += e.marker == m;
+    return n;
+}
+
+// Executes `n` instructions of whatever the CPU is parked on.
+static void steps(Emulator& emu, int n) {
+    for (int i = 0; i < n; ++i) emu.execute_single_instruction();
+}
+
+// A guest `LD A,val; OUT (port8),A`, the CPU parked on it.
+static void cpu_out(Emulator& emu, uint8_t port8, uint8_t val) {
+    run_from(emu, 0x8000, {0x3E, val, 0xD3, port8, 0x18, 0xFE});
+    steps(emu, 2);
+}
+
+static std::string tmp_path(const char* tag) {
+    const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    return (std::filesystem::temp_directory_path() /
+            (std::string("jnext-awl-") + tag + "-" + std::to_string(stamp) + ".csv")).string();
+}
+
+static std::string slurp(const std::string& path) {
+    std::string s;
+    if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
+        char b[4096];
+        size_t n;
+        while ((n = std::fread(b, 1, sizeof b, f)) > 0) s.append(b, n);
+        std::fclose(f);
+    }
+    return s;
+}
+
+// A parked CPU looping over every write site (AIZ-07): AY chip select, an R13
+// write, a plain DAC port, a fan-out port (0xDF), a NextREG mirror, the beeper
+// with EAR toggling, and a dropped write (0xB3 with NR 0x84 bit 6 off).
+static void build_writer(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    nr_write(emu, 0x08, 0x0A);
+    nr_write(emu, 0x84, 0xBF);
+    std::vector<uint8_t> p = {
+        0xF3,                         // DI
+        0x01, 0xFD, 0xFF,             // LD BC,0xFFFD
+        0x3E, 0xFE, 0xED, 0x79,       // LD A,0xFE; OUT (C),A       chip select
+        0x3E, 0x0D, 0xED, 0x79,       // LD A,13;   OUT (C),A       plain select
+        0x06, 0xBF,                   // LD B,0xBF
+        0x3E, 0x0A, 0xED, 0x79,       // LD A,10;   OUT (C),A       R13 write
+        0x3E, 0x55, 0xD3, 0x1F,       // LD A,0x55; OUT (0x1F),A    DAC A
+        0xD3, 0xDF,                   // OUT (0xDF),A               DAC A and D
+        0xED, 0x91, 0x2D, 0x66,       // NEXTREG 0x2D,0x66          mirror
+        0x7B, 0xEE, 0x10, 0x5F,       // LD A,E; XOR 0x10; LD E,A
+        0xD3, 0xFE,                   // OUT (0xFE),A               beeper
+        0x01, 0xB3, 0x00,             // LD BC,0x00B3
+        0xED, 0x79,                   // OUT (C),A                  dropped
+    };
+    const int back = -int(p.size() + 2 - 1);   // JR to the byte after DI
+    p.push_back(0x18);
+    p.push_back(uint8_t(back));
+    uint16_t a = 0x8000;
+    for (uint8_t b : p) emu.mmu().write(a++, b);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0; r.DE = 0;
+    emu.cpu().set_registers(r);
+}
+
+// `invisible()` with a feature that needs the Debugger and a client.
+template <class F>
+static bool invisible_dbg(F feature, int frames, bool& ran, void (*fixture)(Emulator&)) {
+    Emulator emu; fixture(emu);
+    Debugger dbg(emu);
+    const ClientId cid = dbg.attach(client("aiz")).value;
+    emu.run_frame(); emu.run_frame();
+    const auto s0 = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+    feature(emu, dbg, cid, true);
+    const Outcome a = run_and_save(emu, dbg, cid, frames);
+    ran = s0.status == Result::Ok && a.ok &&
+          dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
+    feature(emu, dbg, cid, false);
+    const Outcome b = run_and_save(emu, dbg, cid, frames);
+    ran = ran && b.ok && !a.state.empty();
+    return a.state == b.state && a.video == b.video;
+}
+
+// A rewind machine (50 frames of ring) whose parked CPU writes an incrementing
+// value to port 0x1F about 20 times a frame.
+static void build_counter(Emulator& emu) {
+    fresh(emu);
+    nr_write(emu, 0x08, 0x08);   // the DAC on: the writes are APPLIED ones, which a replay must not log again
+    emu.set_rewind_enabled(true);
+    emu.resize_rewind_buffer(50);
+    run_from(emu, 0x8000, {0xF3,                // DI
+                           0x3C,                // INC A
+                           0xD3, 0x1F,          // OUT (0x1F),A
+                           0x06, 0xFF,          // LD B,0xFF
+                           0x10, 0xFE,          // DJNZ $
+                           0x18, 0xF7});        // JR 0x8001
+}
+
+// The build_counter() program again, the CPU back on it (after a reset).
+static void cpu_program_loop(Emulator& emu) {
+    run_from(emu, 0x8000, {0xF3, 0x3C, 0xD3, 0x1F, 0x06, 0xFF, 0x10, 0xFE, 0x18, 0xF7});
+}
+
+// Steps until the newest entry is a fresh write, so a landing before it has something to remove.
+static void step_to_a_write(Emulator& emu, Debugger& dbg) {
+    steps(emu, 100);
+    const size_t n0 = all_entries(dbg).size();
+    for (int i = 0; i < 100000 && all_entries(dbg).size() == n0; ++i) emu.execute_single_instruction();
+}
+
+// A landing's result against the entries before it: those BEFORE the landing cycle
+// kept field for field, exactly one `Rewind` marker last, no `StateLoad`, and at
+// least one entry gone.
+static bool landing_ok(const std::vector<AudioLogEntry>& before, const std::vector<AudioLogEntry>& after,
+                       uint64_t landing, bool& removed_some) {
+    std::vector<AudioLogEntry> kept;
+    for (const AudioLogEntry& e : before) if (e.cycle < landing) kept.push_back(e);
+    removed_some = kept.size() < before.size();
+    if (after.size() != kept.size() + 1) return false;
+    for (size_t i = 0; i < kept.size(); ++i)
+        if (after[i].seq != kept[i].seq || after[i].cycle != kept[i].cycle || after[i].value != kept[i].value)
+            return false;
+    const AudioLogEntry& m = after.back();
+    return m.marker == AudioMarker::Rewind && m.cycle == landing &&
+           markers_of(after, AudioMarker::Rewind) == 1 && markers_of(after, AudioMarker::StateLoad) == 0;
 }
 
 int main() {
@@ -1668,6 +1836,676 @@ int main() {
         check("AIZ-10", "the dropped-write counters are outside describe_state(): clearing them in one run leaves the saved state and the video unchanged (a CPU dropping thousands of writes a frame; positive control: the counters do move)",
               ran && same && probe.audio_drops()[size_t(AR::DacFamilyDisabled)].count > 1000);
     }
+
+
+    // ─────────────────── AWL: the audio write log (GH #531) ───────────────────
+    // Oracles: ym2149.vhd:188,207-210; turbosound.vhd:129-141; zxnext.vhd:2965,2974-2980,
+    // 5412-5414; soundrive.vhd:85-101. Expected values are from those terms, never from the tap.
+
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        ay_write(emu, 7, 0x3F);
+        const ClientId cid = log_client(dbg, "awl01");
+        (void)cid;
+        // 8000 LD BC,0xFFFD  8003 LD A,7  8005 OUT (C),A  8007 LD B,0xBF  8009 LD A,0x38  800B OUT (C),A
+        run_from(emu, 0x8000, {0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79});
+        steps(emu, 6);
+        const auto w = writes_only(dbg);
+        check("AWL-01", "ym2149.vhd:188 a CPU select of R7 then a write of 0x38 through 0xBFFD, R7 preset 0x3F: exactly one entry (the select is not logged): AyRegister, chip 0, reg 7, value 0x38, prev 0x3F, Cpu, PC 0x800B, port 0xBFFD, flags 0, reason None",
+              w.size() == 1 && w[0].target == AT::AyRegister && w[0].chip == 0 && w[0].reg == 7 &&
+              w[0].value == 0x38 && w[0].prev == 0x3F && w[0].source == EventSource::Cpu &&
+              w[0].pc == 0x800B && w[0].port == 0xBFFD && w[0].flags == 0 && w[0].drop_reason == AR::None);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        ay_write(emu, 7, 0x3F);
+        log_client(dbg, "awl02");
+        // 8000 LD BC,0xFFFD  8003 LD A,7  8005 OUT (C),A  8007 LD BC,0xBFF5  800A LD A,0x38  800C OUT (C),A
+        run_from(emu, 0x8000, {0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x01, 0xF5, 0xBF, 0x3E, 0x38, 0xED, 0x79});
+        steps(emu, 6);
+        const auto w = writes_only(dbg);
+        check("AWL-02", "zxnext.vhd:2965 the same data write through 0xBFF5: one AyRegister entry, reg 7, value 0x38, prev 0x3F, PC 0x800C, port 0xBFF5",
+              w.size() == 1 && w[0].target == AT::AyRegister && w[0].reg == 7 && w[0].value == 0x38 &&
+              w[0].prev == 0x3F && w[0].pc == 0x800C && w[0].port == 0xBFF5 && w[0].flags == 0);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x0A);
+        log_client(dbg, "awl03");
+        ay_select(emu, 1);
+        ay_select(emu, 2);
+        nr_write(emu, 0x08, 0x08);
+        emu.port().out(0xFFFD, 0xFF);
+        emu.port().out(0xFFFD, 0x05);
+        const auto w = writes_only(dbg);
+        check("AWL-03", "turbosound.vhd:129-141 TurboSound on, 0xFFFD = 0xFE then 0xFD: AyChipSelect (chip, prev) = (1, 0) then (2, 1), flags 0; TurboSound off, 0xFFFD = 0xFF: one Dropped AyChipSelect (AyChipSelectTurboOff, value 0xFF); the plain select 0x05 logs nothing",
+              w.size() == 3 &&
+              w[0].target == AT::AyChipSelect && w[0].chip == 1 && w[0].prev == 0 && w[0].value == 0xFE && w[0].flags == 0 &&
+              w[1].target == AT::AyChipSelect && w[1].chip == 2 && w[1].prev == 1 && w[1].value == 0xFD && w[1].flags == 0 &&
+              w[2].target == AT::AyChipSelect && w[2].flags == AudioFlag::Dropped &&
+              w[2].drop_reason == AR::AyChipSelectTurboOff && w[2].value == 0xFF && w[2].port == 0xFFFD);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        log_client(dbg, "awl04");
+        ay_write(emu, 13, 0x08);
+        ay_write(emu, 13, 0x08);
+        ay_write(emu, 12, 0x08);
+        emu.port().out(0xFFFD, 0x1D);
+        emu.port().out(0xBFFD, 0x55);
+        const auto w = writes_only(dbg);
+        check("AWL-04", "ym2149.vhd:188,207-210 R13 written 0x08 twice: both flagged EnvelopeRestart, the second with prev 0x08 (unchanged value, still flagged); R12 flags 0; a write with the address at 0x1D: one Dropped entry (AyAddressHigh, reg 0x1D) with no restart flag",
+              w.size() == 4 &&
+              w[0].reg == 13 && w[0].flags == AudioFlag::EnvelopeRestart &&
+              w[1].reg == 13 && w[1].flags == AudioFlag::EnvelopeRestart && w[1].prev == 0x08 && w[1].value == 0x08 &&
+              w[2].reg == 12 && w[2].flags == 0 &&
+              w[3].target == AT::AyRegister && w[3].reg == 0x1D && w[3].flags == AudioFlag::Dropped &&
+              w[3].drop_reason == AR::AyAddressHigh);
+    }
+    {
+        // zxnext.vhd:2974-2980, one row per port: each write's entries are the decode's channels, in order.
+        struct Case { uint16_t port; uint8_t nr84; std::vector<int> chans; const char* name; };
+        const Case cases[] = {
+            {0x001F, 0xFF, {0}, "0x1F"},    {0x000F, 0xFF, {1}, "0x0F"},    {0x004F, 0xFF, {2}, "0x4F"},
+            {0x005F, 0xFF, {3}, "0x5F"},    {0x003F, 0xFF, {0}, "0x3F"},    {0x00F1, 0xFF, {0}, "0xF1"},
+            {0x00F3, 0xFF, {1}, "0xF3"},    {0x00F9, 0xFF, {2}, "0xF9"},    {0x00FB, 0x20, {3, 0}, "0xFB mono"},
+            {0x00FB, 0xFF, {3}, "0xFB SD2"}, {0x12B3, 0xFF, {1, 2}, "0xB3"}, {0x00DF, 0xFF, {0, 3}, "0xDF"},
+        };
+        bool ok = true;
+        for (const Case& c : cases) {
+            Emulator emu; fresh(emu); Debugger dbg(emu);
+            nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x08, 0x08);
+            emu.port().out(0x1F, 0x41); emu.port().out(0x0F, 0x42);
+            emu.port().out(0x4F, 0x43); emu.port().out(0x5F, 0x44);
+            nr_write(emu, 0x84, c.nr84);
+            log_client(dbg, "awl05");
+            emu.port().out(c.port, 0x11);
+            const auto w = writes_only(dbg);
+            bool row = w.size() == c.chans.size();
+            for (size_t i = 0; row && i < w.size(); ++i)
+                row = w[i].target == AT::Dac && w[i].chip == c.chans[i] && w[i].value == 0x11 &&
+                      w[i].prev == 0x41 + c.chans[i] && w[i].port == c.port && w[i].flags == 0 &&
+                      w[i].cycle == w[0].cycle && w[i].vc == w[0].vc && w[i].hc == w[0].hc;
+            if (!row) {
+                std::printf("    port %s: %zu entries (want %zu)\n", c.name, w.size(), c.chans.size());
+                ok = false;
+            }
+        }
+        check("AWL-05", "zxnext.vhd:2974-2980 each of the 12 DAC port cases (family on, DAC on), preset channels 0x41-0x44: the entries' chips, in order, are the decode's channels, each with the channel's preset as prev, the port and value, and equal timestamps within a fan-out",
+              ok);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x08);
+        emu.port().out(0x1F, 0x41); emu.port().out(0x0F, 0x42);
+        emu.port().out(0x4F, 0x43); emu.port().out(0x5F, 0x44);
+        log_client(dbg, "awl06");
+        run_from(emu, 0x8000, {0xED, 0x91, 0x2C, 0x11, 0xED, 0x91, 0x2D, 0x22, 0xED, 0x91, 0x2E, 0x33, 0x18, 0xFE});
+        steps(emu, 3);
+        const auto w = writes_only(dbg);
+        check("AWL-06", "soundrive.vhd:85-101 CPU NEXTREG 0x2C, 0x2D, 0x2E: DacMirror entries: 0x2C gives chip 1; 0x2D gives chips 0 then 3; 0x2E gives chip 2; reg = the NextREG, port 0x002C-0x002E, source Cpu, PC = the NEXTREG instruction, prev = the channel before",
+              w.size() == 4 &&
+              w[0].target == AT::DacMirror && w[0].chip == 1 && w[0].reg == 0x2C && w[0].port == 0x002C && w[0].value == 0x11 && w[0].prev == 0x42 && w[0].pc == 0x8000 &&
+              w[1].chip == 0 && w[1].reg == 0x2D && w[1].port == 0x002D && w[1].value == 0x22 && w[1].prev == 0x41 && w[1].pc == 0x8004 &&
+              w[2].chip == 3 && w[2].reg == 0x2D && w[2].value == 0x22 && w[2].prev == 0x44 && w[2].pc == 0x8004 &&
+              w[3].chip == 2 && w[3].reg == 0x2E && w[3].port == 0x002E && w[3].value == 0x33 && w[3].prev == 0x43 && w[3].pc == 0x8008 &&
+              w[0].source == EventSource::Cpu && w[3].source == EventSource::Cpu);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        log_client(dbg, "awl07");
+        run_from(emu, 0x8000, {0x3E, 0x00, 0xD3, 0xFE, 0x3E, 0x01, 0xD3, 0xFE, 0x3E, 0x10, 0xD3, 0xFE,
+                               0x3E, 0x18, 0xD3, 0xFE, 0x3E, 0x18, 0xD3, 0xFE, 0x18, 0xFE});
+        steps(emu, 10);
+        const auto w = writes_only(dbg);
+        check("AWL-07", "OUT 0xFE of 0x00, 0x01 (border only), 0x10 (EAR), 0x18 (MIC), 0x18 again: entries only for 0x10 (prev 0x00) and 0x18 (prev 0x10), none for the border-only write or the repeat",
+              w.size() == 2 && w[0].target == AT::Beeper && w[0].value == 0x10 && w[0].prev == 0x00 &&
+              (w[0].port & 0xFF) == 0xFE && w[1].target == AT::Beeper && w[1].value == 0x18 && w[1].prev == 0x10);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        emu.port().out(0xFFFD, 0x07);
+        log_client(dbg, "awl08");
+        nr_write(emu, 0x84, 0xFE);
+        emu.port().out(0xBFFD, 0x12);
+        nr_write(emu, 0x84, 0xBF); nr_write(emu, 0x08, 0x08);
+        emu.port().out(0xB3, 0x55);
+        nr_write(emu, 0x08, 0x00);
+        nr_write(emu, 0x2D, 0x66);
+        const auto w = writes_only(dbg);
+        check("AWL-08", "dropped writes: 0xBFFD with NR 0x84 b0 off, 0xB3 with b6 off, NR 0x2D with the DAC off: three Dropped entries (AyRegister/AyPortDisabled with the latched address 7; Dac chip 0xFF/DacFamilyDisabled; DacMirror chip 0xFF reg 0x2D/DacMirrorDisabled), and each reason's counter moved by exactly 1",
+              w.size() == 3 &&
+              w[0].target == AT::AyRegister && w[0].reg == 7 && w[0].flags == AudioFlag::Dropped &&
+              w[0].drop_reason == AR::AyPortDisabled && w[0].value == 0x12 &&
+              w[1].target == AT::Dac && w[1].chip == 0xFF && w[1].drop_reason == AR::DacFamilyDisabled && w[1].value == 0x55 &&
+              w[2].target == AT::DacMirror && w[2].chip == 0xFF && w[2].reg == 0x2D && w[2].drop_reason == AR::DacMirrorDisabled &&
+              counts_are(dbg.audio_state(), {{AR::AyPortDisabled, 1}, {AR::DacFamilyDisabled, 1}, {AR::DacMirrorDisabled, 1}}));
+    }
+    {
+        bool ok = true;
+        std::vector<AudioLogEntry> d, c, g, p;
+        {   // DMA byte to 0x00DF
+            Emulator emu; fresh(emu); Debugger dbg(emu);
+            nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x08, 0x08);
+            park(emu);
+            emu.mmu().write(0xA000, 0x5A);
+            log_client(dbg, "awl09a");
+            auto w = [&](uint8_t v) { emu.dma().write(v, false); };
+            w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00);
+            w(0x14); w(0x28); w(0xAD); w(0xDF); w(0x00); w(0xCF); w(0x87);
+            emu.run_frame();
+            d = writes_only(dbg);
+        }
+        {   // Copper MOVE 0x2D
+            Emulator emu; fresh(emu); Debugger dbg(emu);
+            nr_write(emu, 0x08, 0x08);
+            park(emu);
+            log_client(dbg, "awl09b");
+            copper_words(emu, {static_cast<uint16_t>((0x2D << 8) | 0x66), static_cast<uint16_t>(0x8000u | 0x1FFu)});
+            emu.run_frame();
+            c = writes_only(dbg);
+        }
+        {   // the debugger
+            Emulator emu; fresh(emu); Debugger dbg(emu);
+            nr_write(emu, 0x08, 0x08);
+            const ClientId cid = log_client(dbg, "awl09c");
+            ok = ok && dbg.port_out(cid, 0x1F, 0x22) == Result::Ok;
+            g = writes_only(dbg);
+        }
+        {   // the CPU
+            Emulator emu; fresh(emu); Debugger dbg(emu);
+            nr_write(emu, 0x08, 0x08);
+            log_client(dbg, "awl09d");
+            cpu_out(emu, 0x1F, 0x33);
+            p = writes_only(dbg);
+        }
+        check("AWL-09", "a DMA byte to 0x00DF (two entries, A and D), a Copper MOVE 0x2D (two), dbg.port_out 0x1F (one), a CPU OUT 0x1F (one): the sources are Dma, Copper, Debugger and Cpu",
+              ok && d.size() == 2 && c.size() == 2 && g.size() == 1 && p.size() == 1 &&
+              d[0].source == EventSource::Dma && d[1].source == EventSource::Dma && d[0].value == 0x5A &&
+              c[0].source == EventSource::Copper && c[1].source == EventSource::Copper && c[0].value == 0x66 &&
+              g[0].source == EventSource::Debugger && g[0].value == 0x22 &&
+              p[0].source == EventSource::Cpu && p[0].value == 0x33);
+    }
+    {
+        // §4.3: the log's timestamps are the event system's own. Each driver is compared, field for
+        // field, with the event the same write delivered; the machine ran two frames first, so the
+        // frame, line and hc are non-zero.
+        using jnext::dbg::Event;
+        using jnext::dbg::EventKind;
+        auto drive = [](EventKind kind, auto setup, auto filter, std::vector<Event>& ev,
+                        std::vector<AudioLogEntry>& w, int& tpl) {
+            Emulator emu; fresh(emu); Debugger dbg(emu);
+            nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x08, 0x08);
+            park(emu);
+            emu.run_frame(); emu.run_frame();
+            const ClientId cid = log_client(dbg, "awl10");
+            jnext::dbg::Subscription s;
+            s.kind = kind;
+            s.access = jnext::dbg::Access::Write;
+            s.action = jnext::dbg::Action::Continue;
+            filter(s.filter);
+            s.handler = [&ev](const Event& e, Debugger&) { ev.push_back(e); return jnext::dbg::Action::Continue; };
+            dbg.subscribe(cid, s);
+            setup(emu);
+            emu.run_frame();
+            w = writes_only(dbg);
+            tpl = dbg.machine().tstates_per_line;
+        };
+        auto same = [](const std::vector<Event>& ev, const std::vector<AudioLogEntry>& w, int tpl, size_t n) {
+            if (ev.size() != 1 || w.size() != n) return false;
+            const Event& v = ev[0];
+            if (v.cycle == 0 || v.frame == 0) return false;
+            for (const AudioLogEntry& e : w) {
+                if (e.cycle != v.cycle || e.frame != v.frame || e.vc != v.vc || e.hc != v.hc || e.pc != v.pc) return false;
+                if (e.tstate_in_frame != uint32_t(e.vc) * uint32_t(tpl) + uint32_t(e.hc) / 2u) return false;
+            }
+            return true;
+        };
+        std::vector<Event> ev1, ev2, ev3, ev4;
+        std::vector<AudioLogEntry> w1, w2, w3, w4;
+        int t1 = 0, t2 = 0, t3 = 0, t4 = 0;
+        drive(EventKind::Port,
+              [](Emulator& e) {   // CPU OUT (C),A to 0xBFFD after a select
+                  run_from(e, 0x8000, {0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE}); },
+              [](jnext::dbg::EventFilter& f) { f.port_mask = 0xFFFF; f.port_value = 0xBFFD; }, ev1, w1, t1);
+        drive(EventKind::Port,
+              [](Emulator& e) {   // a DMA byte to 0x00DF
+                  e.mmu().write(0xA000, 0x5A);
+                  auto w = [&](uint8_t v) { e.dma().write(v, false); };
+                  w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00); w(0x14); w(0x28);
+                  w(0xAD); w(0xDF); w(0x00); w(0xCF); w(0x87); },
+              [](jnext::dbg::EventFilter& f) { f.port_mask = 0x00FF; f.port_value = 0x00DF; }, ev2, w2, t2);
+        drive(EventKind::NextRegWrite,
+              [](Emulator& e) { run_from(e, 0x8000, {0xED, 0x91, 0x2D, 0x11, 0x18, 0xFE}); },
+              [](jnext::dbg::EventFilter& f) { f.regs = {0x2D}; }, ev3, w3, t3);
+        drive(EventKind::NextRegWrite,
+              [](Emulator& e) {
+                  copper_words(e, {static_cast<uint16_t>((0x2D << 8) | 0x66), static_cast<uint16_t>(0x8000u | 0x1FFu)}); },
+              [](jnext::dbg::EventFilter& f) { f.regs = {0x2D}; }, ev4, w4, t4);
+        check("AWL-10", "§4.3 the log's cycle, frame, vc, hc and pc equal the delivered event's for a CPU OUT 0xBFFD, a DMA byte to 0xDF, a CPU NEXTREG 0x2D and a Copper MOVE 0x2D, after two frames; and tstate_in_frame = vc * tstates_per_line + hc / 2",
+              same(ev1, w1, t1, 1) && same(ev2, w2, t2, 2) && same(ev3, w3, t3, 2) && same(ev4, w4, t4, 2) &&
+              ev2[0].source == EventSource::Dma && ev4[0].source == EventSource::Copper);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("awl11")).value;
+        cpu_out(emu, 0x1F, 0x11);
+        const bool off0 = !dbg.audio_log_enabled() && !emu.audio_tap_active() &&
+                          dbg.audio_log_entries(0).status == Result::RefusedUnavailable;
+        dbg.set_audio_log_enabled(cid, true);
+        cpu_out(emu, 0x1F, 0x22);
+        const auto first = all_entries(dbg);
+        dbg.set_audio_log_enabled(cid, false);
+        cpu_out(emu, 0x1F, 0x33);
+        const bool off1 = !dbg.audio_log_enabled() && !emu.audio_tap_active() &&
+                          dbg.audio_log_entries(0).status == Result::RefusedUnavailable;
+        dbg.set_audio_log_enabled(cid, true);
+        cpu_out(emu, 0x1F, 0x44);
+        const auto second = all_entries(dbg);
+        check("AWL-11", "nothing is recorded with no request (enabled false, tap inactive, entries refused); a request logs; dropping it frees the ring (refused again); a new request holds ONLY the new write, with a seq greater than the first run's",
+              off0 && first.size() == 1 && first[0].value == 0x22 && off1 && second.size() == 1 &&
+              second[0].value == 0x44 && second[0].seq > first[0].seq);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("awl12a")).value;
+        jnext::dbg::ClientInfo oi = client("awl12b");
+        oi.observer = true;
+        const ClientId b = dbg.attach(oi).value;
+        dbg.set_audio_log_enabled(a, true);
+        dbg.set_audio_log_enabled(b, true);
+        dbg.set_audio_log_enabled(a, false);
+        const bool or_on = dbg.audio_log_enabled() && emu.audio_tap_active();
+        dbg.detach(b);
+        const bool off = !dbg.audio_log_enabled() && !emu.audio_tap_active();
+        Emulator emu2; fresh(emu2); Debugger dbg2(emu2);
+        jnext::dbg::ClientInfo oi2 = client("awl12c");
+        oi2.observer = true;
+        const ClientId c = dbg2.attach(oi2).value;
+        dbg2.set_audio_log_enabled(c, true);
+        check("AWL-12", "two clients (one an observer) both request: the log stays on after one drops its request (an OR, not last-wins), is off after the other detaches, and an observer alone turns it on",
+              or_on && off && dbg2.audio_log_enabled() && emu2.audio_tap_active());
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl13");
+        dbg.audio_log_resize(4);
+        for (uint8_t v = 1; v <= 6; ++v) emu.port().out(0x1F, v);
+        const auto a = all_entries(dbg);
+        dbg.audio_log_resize(2);
+        const auto b = all_entries(dbg);
+        const Result r0 = dbg.audio_log_resize(0);
+        const Result r1 = dbg.audio_log_resize(jnext::dbg::AUDIO_LOG_MAX_ENTRIES + 1);
+        const auto c = all_entries(dbg);
+        // The bounds are inclusive: 1 and MAX are accepted (checked with the log off, which only stores the size).
+        dbg.set_audio_log_enabled(cid, false);
+        const Result lo = dbg.audio_log_resize(1);
+        const Result hi = dbg.audio_log_resize(jnext::dbg::AUDIO_LOG_MAX_ENTRIES);
+        dbg.audio_log_resize(jnext::dbg::AUDIO_LOG_DEFAULT_ENTRIES);
+        check("AWL-13", "resize(4) then 6 writes: the 4 newest (values 3-6), seq contiguous and increasing; resize(2): the 2 newest; resize(0) and resize(MAX + 1) are RefusedUnavailable with the content unchanged; resize(1) and resize(MAX) are Ok",
+              a.size() == 4 && a[0].value == 3 && a[3].value == 6 && a[1].seq == a[0].seq + 1 && a[3].seq == a[0].seq + 3 &&
+              b.size() == 2 && b[0].value == 5 && b[1].value == 6 && r0 == Result::RefusedUnavailable &&
+              r1 == Result::RefusedUnavailable && c.size() == 2 && c[0].seq == b[0].seq && c[1].seq == b[1].seq &&
+              lo == Result::Ok && hi == Result::Ok);
+    }
+    {
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl14");
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        dbg.pause(cid);
+        step_to_a_write(emu, dbg);
+        const auto before = all_entries(dbg);
+        const Result r = dbg.step_back(cid, 1);
+        const auto after = all_entries(dbg);
+        bool removed = false;
+        const bool ok = landing_ok(before, after, emu.clock().get(), removed);
+        if (!(ok && removed)) std::printf("    before %zu after %zu landing %llu removed %d r=%d newest-before-cycle %llu\n", before.size(), after.size(),
+                                          static_cast<unsigned long long>(emu.clock().get()), int(removed), int(r),
+                                          static_cast<unsigned long long>(before.back().cycle));
+        check("AWL-14", "a step back replays frames without logging: the entries before the landing cycle are unchanged, the entries from it on (an entry is stamped at the start of its instruction slot, which a landing re-runs) are gone, the newest is ONE Rewind marker at the landing cycle, and there is no StateLoad marker for the ring restore",
+              r == Result::Ok && before.size() > 100 && ok && removed);
+    }
+    {
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl15");
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        dbg.pause(cid);
+        const auto before = all_entries(dbg);
+        const uint32_t target = dbg.time().frame - 3;
+        const Result r = dbg.rewind_to_frame(cid, target);
+        const auto after = all_entries(dbg);
+        bool removed = false;
+        const bool ok = landing_ok(before, after, emu.clock().get(), removed);
+        check("AWL-15", "rewind_to_frame(frame - 3), the no-replay landing: entries from the landing cycle on removed, those before kept, one Rewind marker",
+              r == Result::Ok && ok && removed);
+    }
+    {
+        // Two landings, the second EARLIER than the first: the first Rewind marker and every write from the
+        // second landing on go, and running on does not log the abandoned future twice. The clock is one
+        // clock across both landings, so the walk crosses the first Rewind marker.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl23");
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        dbg.pause(cid);
+        const Result r1 = dbg.rewind_to_frame(cid, dbg.time().frame - 1);
+        const uint64_t l1 = emu.clock().get();
+        const Result r2 = dbg.rewind_to_frame(cid, dbg.time().frame - 3);
+        const uint64_t l2 = emu.clock().get();
+        const auto v = all_entries(dbg);
+        size_t stale = 0;
+        for (const AudioLogEntry& e : v) stale += e.marker == AudioMarker::None && e.cycle >= l2;
+        const bool one_marker = markers_of(v, AudioMarker::Rewind) == 1 && v.back().marker == AudioMarker::Rewind &&
+                                v.back().cycle == l2;
+        dbg.run(cid);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const auto w = writes_only(dbg);
+        size_t dup = 0, unordered = 0;
+        for (size_t i = 0; i + 1 < w.size(); ++i) {
+            dup += w[i].cycle == w[i + 1].cycle && w[i].value == w[i + 1].value;
+            unordered += w[i + 1].cycle <= w[i].cycle;
+        }
+        if (!(stale == 0 && one_marker && dup == 0 && unordered == 0))
+            std::printf("    r1=%d r2=%d l1=%llu l2=%llu stale=%zu one_marker=%d dup=%zu unordered=%zu\n", int(r1), int(r2),
+                        static_cast<unsigned long long>(l1), static_cast<unsigned long long>(l2), stale, int(one_marker), dup, unordered);
+        check("AWL-23", "two landings in a row, the second earlier: no write from the second landing's cycle on survives, the first Rewind marker is gone and one Rewind marker is last; after running 3 frames on, no write is logged twice and the cycles are strictly increasing",
+              r1 == Result::Ok && r2 == Result::Ok && l2 < l1 && stale == 0 && one_marker && dup == 0 && unordered == 0 &&
+              w.size() > 10);
+    }
+    {
+        // A landing EARLIER than a soft reset: a soft reset keeps the clock (emulator.cpp init(): clock_,
+        // frame_cycle_ and frame_num_ are not reset; GH #263 keeps the rewind ring), so the cycles on both
+        // sides of the Reset marker are comparable, and the landing undoes the reset.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl24");
+        for (int i = 0; i < 6; ++i) emu.run_frame();
+        const uint64_t before_reset = emu.clock().get();
+        dbg.reset(cid, ResetKind::Soft);
+        const uint64_t after_reset = emu.clock().get();
+        nr_write(emu, 0x08, 0x08);
+        cpu_program_loop(emu);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.pause(cid);
+        const auto pre = all_entries(dbg);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame - 6);
+        const uint64_t l = emu.clock().get();
+        const auto v = all_entries(dbg);
+        size_t stale = 0, kept = 0;
+        for (const AudioLogEntry& e : v) stale += e.marker == AudioMarker::None && e.cycle >= l;
+        for (const AudioLogEntry& e : pre) kept += e.marker == AudioMarker::None && e.cycle < l;
+        const bool shape = v.size() == kept + 1 && v.back().marker == AudioMarker::Rewind && v.back().cycle == l &&
+                           markers_of(v, AudioMarker::Reset) == 0;
+        if (!(stale == 0 && shape))
+            std::printf("    r=%d l=%llu stale=%zu kept=%zu entries=%zu resets=%zu\n", int(r), static_cast<unsigned long long>(l),
+                        stale, kept, v.size(), markers_of(v, AudioMarker::Reset));
+        check("AWL-24", "a soft reset keeps the clock; a landing earlier than it removes every write from the landing cycle on and the undone Reset marker, keeps the writes before the landing, and ends with one Rewind marker",
+              before_reset == after_reset && r == Result::Ok && l < after_reset && stale == 0 && kept > 10 && shape);
+    }
+    {
+        // A reset right after a landing is its own row, not folded into the Rewind marker: a reader must
+        // tell a reset from a rewind (the markers are typed for that). Same kind at the same cycle is one row.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl25");
+        for (int i = 0; i < 6; ++i) emu.run_frame();
+        dbg.pause(cid);
+        dbg.rewind_to_frame(cid, dbg.time().frame - 2);
+        dbg.reset(cid, ResetKind::Soft);
+        dbg.reset(cid, ResetKind::Soft);
+        const auto v = all_entries(dbg);
+        const size_t n = v.size();
+        check("AWL-25", "a soft reset right after a landing gets its own Reset row after the Rewind row, at the same cycle; a second soft reset at that cycle is the same row",
+              n >= 2 && v[n - 1].marker == AudioMarker::Reset && v[n - 2].marker == AudioMarker::Rewind &&
+              v[n - 1].cycle == v[n - 2].cycle && markers_of(v, AudioMarker::Reset) == 1 &&
+              markers_of(v, AudioMarker::Rewind) == 1);
+    }
+    {
+        // The same marker kind at ANOTHER cycle is its own row (only the same marker at the same cycle is
+        // one): a soft reset, a frame with the CPU parked, a second soft reset.
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl26");
+        dbg.reset(cid, ResetKind::Soft);
+        park(emu);
+        emu.run_frame();
+        dbg.reset(cid, ResetKind::Soft);
+        const auto v = all_entries(dbg);
+        check("AWL-26", "a soft reset, one frame with the CPU parked, a second soft reset: two Reset rows, at two cycles (the same marker at ANOTHER cycle is its own row)",
+              v.size() == 2 && v[0].marker == AudioMarker::Reset && v[1].marker == AudioMarker::Reset &&
+              v[1].cycle > v[0].cycle);
+    }
+    {
+        // A state load does not clear the rewind ring, so "load my checkpoint, then step back past it" is
+        // ordinary: the ring's snapshots and the log's cycles are this session's own history on one clock.
+        // 10 frames, a checkpoint, 5 more frames, load the checkpoint (the clock goes back), then a landing
+        // BEFORE the checkpoint: the abandoned run between the landing and the checkpoint goes, with the
+        // undone StateLoad marker, and running on logs nothing twice.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl27");
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        const uint64_t saved_at = emu.clock().get();
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        const Result rl = dbg.load_state_bytes(cid, saved.value.data(), saved.value.size());
+        const uint64_t loaded_at = emu.clock().get();
+        dbg.pause(cid);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame - 3);
+        const uint64_t l = emu.clock().get();
+        const auto v = all_entries(dbg);
+        size_t stale = 0;
+        for (const AudioLogEntry& e : v) stale += e.marker == AudioMarker::None && e.cycle >= l;
+        const bool shape = markers_of(v, AudioMarker::StateLoad) == 0 && markers_of(v, AudioMarker::Rewind) == 1 &&
+                           v.back().marker == AudioMarker::Rewind && v.back().cycle == l;
+        dbg.run(cid);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const auto w = writes_only(dbg);
+        size_t dup = 0, unordered = 0;
+        for (size_t i = 0; i + 1 < w.size(); ++i) {
+            dup += w[i].cycle == w[i + 1].cycle && w[i].value == w[i + 1].value;
+            unordered += w[i + 1].cycle <= w[i].cycle;
+        }
+        if (!(stale == 0 && shape && dup == 0 && unordered == 0))
+            std::printf("    saved=%llu loaded=%llu r=%d l=%llu stale=%zu shape=%d dup=%zu unordered=%zu\n",
+                        static_cast<unsigned long long>(saved_at), static_cast<unsigned long long>(loaded_at), int(r),
+                        static_cast<unsigned long long>(l), stale, int(shape), dup, unordered);
+        check("AWL-27", "checkpoint, 5 more frames, load the checkpoint, then a landing before the checkpoint: no write from the landing cycle on survives (the abandoned run before the load included), the undone StateLoad marker is gone, one Rewind marker last; running 3 frames on logs no write twice",
+              saved.status == Result::Ok && rl == Result::Ok && loaded_at == saved_at && r == Result::Ok && l < loaded_at &&
+              stale == 0 && shape && dup == 0 && unordered == 0 && w.size() > 10);
+    }
+    {
+        // A landing exactly at the load point is the loaded state itself: its StateLoad marker stays (before
+        // the Rewind marker), the writes from that cycle on go.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl28");
+        for (int i = 0; i < 6; ++i) emu.run_frame();
+        const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        const uint64_t saved_at = emu.clock().get();
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.load_state_bytes(cid, saved.value.data(), saved.value.size());
+        dbg.pause(cid);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame + 1);   // the frame tag is pre-increment: the frame that starts at the save
+        const uint64_t l = emu.clock().get();
+        const auto v = all_entries(dbg);
+        const size_t n = v.size();
+        size_t stale = 0;
+        for (const AudioLogEntry& e : v) stale += e.marker == AudioMarker::None && e.cycle >= l;
+        if (!(l == saved_at && n >= 2))
+            std::printf("    saved=%llu l=%llu entries=%zu r=%d\n", static_cast<unsigned long long>(saved_at),
+                        static_cast<unsigned long long>(l), n, int(r));
+        check("AWL-28", "a landing exactly at the load point (the loaded state itself): the StateLoad marker at that cycle stays, just before the Rewind marker, and no write from that cycle on survives",
+              r == Result::Ok && l == saved_at && n >= 2 && v[n - 1].marker == AudioMarker::Rewind &&
+              v[n - 2].marker == AudioMarker::StateLoad && v[n - 2].cycle == l && markers_of(v, AudioMarker::StateLoad) == 1 &&
+              stale == 0);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl16");
+        dbg.reset(cid, ResetKind::Soft);
+        dbg.reset(cid, ResetKind::Soft);
+        emu.port().out(0x1F, 0x01);
+        const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        dbg.load_state_bytes(cid, saved.value.data(), saved.value.size());
+        emu.port().out(0x1F, 0x02);
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+        dbg.on_cold_boot_begin();
+        emulator_cold_boot(emu, cfg);
+        dbg.on_cold_boot_done();
+        const bool live = emu.audio_tap_active();
+        nr_write(emu, 0x08, 0x08);
+        cpu_out(emu, 0x1F, 0x03);
+        const auto v = all_entries(dbg);
+        // [Reset (two resets coalesced)] [write 1] [StateLoad] [write 2] [Reset (hard)] [write 3]
+        check("AWL-16", "two soft resets in a row give ONE Reset marker, a state load one StateLoad, a hard reset one Reset, and a write after the hard reset IS logged (the sink was re-installed on the rebuilt machine)",
+              live && v.size() == 6 && v[0].marker == AudioMarker::Reset && v[1].value == 0x01 &&
+              v[2].marker == AudioMarker::StateLoad && v[3].value == 0x02 &&
+              v[4].marker == AudioMarker::Reset && v[5].value == 0x03 && v[5].source == EventSource::Cpu);
+    }
+    {
+        Emulator emu; fresh(emu);
+        auto dbg = std::make_unique<Debugger>(emu);
+        const ClientId cid = log_client(*dbg, "awl17");
+        emu.port().out(0x1F, 0x01); emu.port().out(0x1F, 0x02);
+        const auto before = all_entries(*dbg);
+        const uint64_t rev = dbg->state_revision();
+        const Result rc = dbg->audio_log_clear(cid);
+        const bool cleared = all_entries(*dbg).empty() && dbg->state_revision() > rev;
+        emu.port().out(0x1F, 0x03);
+        const auto after = all_entries(*dbg);
+        park(emu);
+        dbg.reset();
+        emu.run_frame();
+        check("AWL-17", "clear: Ok, the ring empty, a MUTATE line (state_revision advanced), the next write's seq follows the cleared ones; destroying the Debugger with the log on leaves no sink (the tap is inactive and a frame runs)",
+              rc == Result::Ok && cleared && before.size() == 2 && after.size() == 1 && after[0].seq > before[1].seq &&
+              !emu.audio_tap_active());
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl18");
+        nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x08, 0x08);
+        emu.port().out(0xFFFD, 0x07);
+        emu.port().out(0xBFFD, 0x38);
+        emu.port().out(0xB3, 0x55);
+        nr_write(emu, 0x08, 0x00);
+        nr_write(emu, 0x2D, 0x66);
+        dbg.reset(cid, ResetKind::Soft);
+        const std::string path = tmp_path("export");
+        const Result ok = dbg.audio_log_export(path);
+        const std::string got = slurp(path);
+        const std::string want =
+            "frame,line,hc,tstate,cycle,pc,source,target,chip,reg,value,prev,flags,reason,port\n"
+            "0,0,0,0,0,0x0000,debugger,ay,0,7,0x38,0xFF,0,none,0xBFFD\n"
+            "0,0,0,0,0,0x0000,debugger,dac,1,0,0x55,0x80,0,none,0x00B3\n"
+            "0,0,0,0,0,0x0000,debugger,dac,2,0,0x55,0x80,0,none,0x00B3\n"
+            "0,0,0,0,0,0x0000,debugger,dac_mirror,,45,0x66,0x00,2,dac_mirror_disabled,0x002D\n"
+            "0,0,0,0,0,,marker,reset,,,,,,,\n";
+        std::remove(path.c_str());
+        if (got != want) std::printf("    export:\n%s    want:\n%s", got.c_str(), want.c_str());
+        dbg.set_audio_log_enabled(cid, false);
+        const Result off = dbg.audio_log_export(path);
+        const Result bad = (dbg.set_audio_log_enabled(cid, true),
+                            dbg.audio_log_export((std::filesystem::temp_directory_path() / "jnext-no-such-dir" / "x.csv").string()));
+        std::remove(path.c_str());
+        check("AWL-18", "ym2149.vhd:186 (R7 resets to 0xFF) the export is the header plus 5 literal LF lines (an AY write over R7's reset value, DAC B and C of 0xB3, the dropped mirror with an empty chip, the reset marker); an export while off, or to an unwritable path, is RefusedUnavailable",
+              ok == Result::Ok && got == want && off == Result::RefusedUnavailable && bad == Result::RefusedUnavailable);
+    }
+    {
+        Emulator emu;
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
+        emu.init(cfg);
+        nr_write(emu, 0x08, 0x08);   // the DAC on: an applied write, past the tap's own gate
+        Debugger dbg(emu);
+        log_client(dbg, "awl19");
+        cpu_out(emu, 0x1F, 0x44);
+        const auto w = writes_only(dbg);
+        check("AWL-19", "with synthesis off (silent) a CPU OUT 0x1F is still logged: the tap does not need the mixer",
+              w.size() == 1 && w[0].value == 0x44 && w[0].source == EventSource::Cpu);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const std::string path = tmp_path("stream");
+        jnext::dbg::AudioLogStream stream;
+        std::string why;
+        const bool opened = stream.open(path, why) && stream.attach(dbg);
+        for (uint8_t v = 1; v <= 3; ++v) {
+            emu.port().out(0x1F, v);
+            emu.port().out(0x0F, uint8_t(v + 0x10));
+            dbg.pump(jnext::dbg::PumpBudget{});
+        }
+        emu.port().out(0x1F, 0x77);   // undrained when finish() runs: the final drain takes it
+        std::string want = jnext::dbg::audio_log_csv_header();
+        for (const AudioLogEntry& e : all_entries(dbg)) jnext::dbg::audio_log_csv_append(want, e);
+        const bool fin = stream.finish(why);
+        const bool detached = !dbg.audio_log_enabled();
+        const std::string got = slurp(path);
+        std::remove(path.c_str());
+        check("AWL-20", "AudioLogStream: open + attach, writes with a pump after each, finish() true; the file is the header plus audio_log_csv_append of every entry in order (the last one taken by finish's final drain), no duplicates; after finish the stream's client is gone and, with no other requester, the log is off",
+              opened && fin && got == want && want.size() > jnext::dbg::audio_log_csv_header().size() &&
+              detached);
+    }
+    {
+        // Loss: the ring held 4 and 6 writes arrived between two pumps.
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const std::string path = tmp_path("lost");
+        jnext::dbg::AudioLogStream stream;
+        std::string why, why2;
+        stream.open(path, why);
+        stream.attach(dbg);
+        emu.port().out(0x1F, 0x01);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        dbg.audio_log_resize(4);
+        for (uint8_t v = 2; v <= 7; ++v) emu.port().out(0x1F, v);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const bool fin = stream.finish(why);
+        std::remove(path.c_str());
+        // A truncation: a step back removes writes the stream never drained.
+        Emulator emu2; build_counter(emu2);
+        Debugger dbg2(emu2);
+        const ClientId cid = dbg2.attach(client("awl21")).value;
+        const std::string path2 = tmp_path("trunc");
+        jnext::dbg::AudioLogStream stream2;
+        stream2.open(path2, why2);
+        stream2.attach(dbg2);
+        for (int i = 0; i < 6; ++i) { emu2.run_frame(); dbg2.pump(jnext::dbg::PumpBudget{}); }
+        dbg2.pause(cid);
+        step_to_a_write(emu2, dbg2);
+        const Result r = dbg2.step_back(cid, 1);
+        dbg2.pump(jnext::dbg::PumpBudget{});
+        const bool fin2 = stream2.finish(why2);
+        const std::string file2 = slurp(path2);
+        std::remove(path2.c_str());
+        check("AWL-21", "a stream whose ring was overwritten before a pump: finish() false, saying 2 audio writes were overwritten; a stream whose undrained writes a step back removed: finish() true (a truncation before a Rewind marker is not loss) and the file holds the rewind marker row",
+              !fin && why.find("2 audio writes") != std::string::npos &&
+              r == Result::Ok && fin2 && why2.empty() && file2.find(",marker,rewind,") != std::string::npos);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const std::string path = (std::filesystem::temp_directory_path() / "jnext-no-such-dir" / "x.csv").string();
+        jnext::dbg::AudioLogStream stream;
+        std::string why;
+        const bool opened = stream.open(path, why);
+        check("AWL-22", "AudioLogStream::open on a path whose directory does not exist: false, the reason names the path, and attach() then refuses (no client, the log stays off)",
+              !opened && why.find(path) != std::string::npos && !stream.attach(dbg) && !dbg.audio_log_enabled());
+    }
+
+    {
+        bool ran = false;
+        bool all5 = false;
+        const bool same = invisible_dbg([&all5](Emulator&, Debugger& dbg, ClientId cid, bool on) {
+            if (on) { dbg.set_audio_log_enabled(cid, true); return; }
+            unsigned seen = 0;
+            for (const AudioLogEntry& e : all_entries(dbg)) seen |= 1u << unsigned(e.target);
+            all5 = seen == 0x1F;
+            dbg.set_audio_log_enabled(cid, false);
+        }, 50, ran, build_writer);
+        check("AIZ-07", "the write log is invisible to the Z80: 50 frames of a CPU looping over every write site with the log on and off leave the saved state and the video unchanged (positive control: the log of the run that had it on holds entries of all five targets)",
+              ran && same && all5);
+    }
+
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

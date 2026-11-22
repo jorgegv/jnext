@@ -272,6 +272,14 @@ static_assert(AUDIO_DROP_REASON_COUNT == 9, "None + eight reasons");
 static_assert(static_cast<uint8_t>(AudioDropReason::AyPortDisabled) == 1, "");
 static_assert(static_cast<uint8_t>(AudioDropReason::DacMirrorDisabled) == 8, "");
 static_assert(std::tuple_size<decltype(AudioState::drops)>::value == AUDIO_DROP_REASON_COUNT, "");
+// GH #531 (INS-23): the write log's enums and constants.
+static_assert(static_cast<uint8_t>(AudioTarget::AyRegister) == 0 &&
+              static_cast<uint8_t>(AudioTarget::Count) == 5, "five targets, AyRegister first");
+static_assert(static_cast<uint8_t>(AudioMarker::Rewind) == 3, "None, Reset, StateLoad, Rewind");
+static_assert(AudioFlag::EnvelopeRestart == 1 && AudioFlag::Dropped == 2, "");
+static_assert(AUDIO_LOG_DEFAULT_ENTRIES == 65536, "");
+static_assert(AUDIO_LOG_MAX_ENTRIES == (size_t(1) << 22), "");
+static_assert(std::is_trivially_copyable<AudioLogEntry>::value, "the tap copies it by value");
 
 // INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons. From
 // `RegId::Count`, so an appended register fires it.

@@ -44,7 +44,7 @@ Because of the `iframe`:
 - **Saves.** What the guest writes to the SD card is kept across reloads only when the
   page asks with `keepWrites` ([8.4](04-the-image-and-what-the-browser-keeps.md)). Without
   it the card lives in memory for the session.
-- **Files JNEXT writes** (screenshots, snapshots) live in memory in either case.
+- **Files JNEXT writes** (screenshots, snapshots, WAV and the audio write log) live in memory in either case.
   `saveSnapshot()` hands a snapshot to the page.
 - **Browser shortcuts.** Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own
   keys never reach the page.

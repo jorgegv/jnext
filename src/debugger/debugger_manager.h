@@ -321,6 +321,7 @@ private:
     void apply_data_needs();
     bool call_stack_requested_ = false;
     bool raster_requested_ = false;
+    bool audio_log_requested_ = false;   ///< GH #531: the Audio panel's Log tab is on show
     bool source_step_in_flight_ = false;
 
     /// The four paused-only panels (CPU, Disassembly, Stack, Call Stack).

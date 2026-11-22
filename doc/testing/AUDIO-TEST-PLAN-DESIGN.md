@@ -689,6 +689,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-04 | Mute AY1, load a state saved unmuted             | Before any tick the audible sum is the loaded hardware sum; the state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
+| AIZ-07 | A parked CPU looping over every audio write site (chip select, R13, a plain DAC port, 0xDF, a NextREG mirror, 0xFE with EAR toggling, a dropped 0xB3); `set_audio_log_enabled()` on in one run, off in the other | State bytes and framebuffer hash are equal over 50 frames: the write log only reads. Positive control: the run with the log on holds entries of all five targets |
 | AIZ-09 | Each of the 13 channel mute bits, and ALL, for 50 frames, on versus off (14 runs) | State bytes and framebuffer hash are equal in every run (the hardware sums every channel: `turbosound.vhd:186-334`, `soundrive.vhd:112-113`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 
@@ -822,6 +823,45 @@ The Qt side (`debugger_audio_panel_test` DAP-31..37, `debugger_panels_test` QATR
 (`debugger_backend_test` REV-47) and the script (`script_parse_test` PARSE-ACM-01 and EVAL-ACM-01,
 `script_events_test` SCRIPT-EV-MUT-ACM) rows are documented in their own suites' headers and in the
 traceability matrix.
+
+### 8.6 Audio write log
+
+Every decoded AY, DAC, NR 0x2C-0x2E and beeper write, logged through `Debugger::audio_log_entries()`
+(GH #531). "The ring is allocated only while the log is on" (3 MB at the default size) has no row: no API shows the release, and adding one for a memory-only property is not worth it, so it is checked by review. Fixture: a bare Next (ZXN_ISSUE2). Oracles: `ym2149.vhd:186,188,207-210`,
+`turbosound.vhd:129-141`, `zxnext.vhd:2965,2974-2980,5412-5414`, `soundrive.vhd:85-101`; the
+timestamps against the event system's own. CPU rows run a guest program; a write from the test
+(`emu.port().out()`) is a Debugger-source write.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AWL-01 | CPU: select R7, then write 0x38 through 0xBFFD, R7 preset 0x3F | One entry (the select is not logged): AyRegister, chip 0, reg 7, value 0x38, prev 0x3F, Cpu, the data OUT's PC, port 0xBFFD, flags 0 |
+| AWL-02 | The same data write through 0xBFF5               | The same with port 0xBFF5 (`zxnext.vhd:2965`)               |
+| AWL-03 | TurboSound on: 0xFFFD = 0xFE then 0xFD; off: 0xFFFD = 0xFF, then 0x05 | AyChipSelect (chip, prev) = (1, 0) then (2, 1); one Dropped AyChipSelectTurboOff; nothing for the plain select (`turbosound.vhd:129-141`) |
+| AWL-04 | R13 = 0x08 twice, R12 = 0x08, a data write with the address at 0x1D | Both R13 entries flagged EnvelopeRestart (the second with an unchanged value); R12 flags 0; one Dropped AyAddressHigh entry, no restart flag (`ym2149.vhd:188,207-210`) |
+| AWL-05 | Twelve DAC port cases, family and DAC on, channels preset | Per port the entries' chips, in order, are the decode's channels, each with its preset as prev and equal timestamps (`zxnext.vhd:2974-2980`) |
+| AWL-06 | CPU NEXTREG 0x2C, 0x2D, 0x2E                     | DacMirror entries: chip 1; chips 0 then 3; chip 2; the NEXTREG's PC; prev the channel before (`soundrive.vhd:85-101`) |
+| AWL-07 | OUT 0xFE: 0x00, 0x01, 0x10, 0x18, 0x18           | Beeper entries only for 0x10 (prev 0x00) and 0x18 (prev 0x10) |
+| AWL-08 | Dropped: 0xBFFD with NR 0x84 b0 off; 0xB3 with b6 off; NR 0x2D with the DAC off | Three Dropped entries with their target, chip (0xFF for the DAC ones), register and reason; each counter moved by 1 |
+| AWL-09 | A DMA byte to 0xDF; a Copper MOVE 0x2D; `port_out` 0x1F; a CPU OUT 0x1F | Sources Dma, Copper, Debugger, Cpu |
+| AWL-10 | A CPU OUT 0xBFFD, a DMA byte to 0xDF, a CPU NEXTREG 0x2D, a Copper MOVE 0x2D, after two frames | The entry's cycle, frame, vc, hc and pc equal the delivered event's; tstate_in_frame = vc * tstates_per_line + hc / 2 |
+| AWL-11 | No request; request; drop it; request again     | Nothing recorded and entries refused with no request; the ring is freed when the request goes; the seq is never reused |
+| AWL-12 | Two clients (one an observer) request; one drops; the other detaches | The log is an OR of the requests: on after the first drops, off after the detach; an observer alone turns it on |
+| AWL-13 | `audio_log_resize(4)`, 6 writes; resize(2); resize(0) and resize(MAX + 1) | The 4 newest, then the 2 newest; both bad sizes refused, content unchanged |
+| AWL-14 | Rewind on, a CPU loop writing 0x1F; 10 frames; `step_back(1)` | The replay logged nothing; entries before the landing cycle kept, those from it on removed (an entry is stamped at the start of its instruction slot, which the landing re-runs); one Rewind marker last; no StateLoad marker for the ring restore |
+| AWL-15 | The same machine, `rewind_to_frame(frame - 3)`   | The no-replay landing: the same truncation and one Rewind marker. The walk crosses every marker (Rewind, Reset and StateLoad): the rewind ring is this session's own history on one clock, and a state load does not clear it; AWL-23/24/27 pin the crossings, AWL-28 the one exception (a StateLoad marker at the landing cycle stays). A state loaded from another session has an unordered clock: a stated limit, best-effort, no row |
+| AWL-16 | Two soft resets; a state save and load; a hard reset; a CPU write | One Reset marker for the two resets (the same marker at the same cycle is one row); one StateLoad; one Reset for the hard reset; the write after it is logged (the sink was re-installed) |
+| AWL-17 | `audio_log_clear()`; destroy the Debugger with the log on | Ok, the ring empty, state_revision advanced, the next seq follows; after the destructor no tap is installed and a frame runs |
+| AWL-18 | An AY write, a DAC fan-out, a dropped NR 0x2D, a soft reset, then `audio_log_export()` | The file's bytes equal a literal: the header and 5 LF lines (R7 resets to 0xFF, `ym2149.vhd:186`); export while off or to an unwritable path is refused |
+| AWL-19 | `cfg.silent` (synthesis off); a CPU OUT 0x1F      | Logged: the tap does not need the mixer |
+| AWL-20 | `AudioLogStream`, writes with a pump after each, `finish()` | True; the file is the header plus `audio_log_csv_append` of every entry in order; the stream's client is gone and the log off |
+| AWL-21 | A ring of 4 and 6 writes between two pumps; a step back removing undrained writes | `finish()` false saying 2 audio writes were overwritten; and true for the truncation, whose file holds the rewind marker row |
+| AWL-22 | `AudioLogStream::open` in a directory that does not exist | False, naming the path; `attach()` then refuses and the log stays off |
+| AWL-23 | The same machine: `rewind_to_frame(frame - 1)`, then `rewind_to_frame(frame - 3)`; run 3 frames on | No write from the second landing's cycle on survives and the first Rewind marker is gone (the clock is one clock, so the walk crosses it); one Rewind marker last; running on logs no write twice and the cycles increase strictly |
+| AWL-24 | 6 frames, soft reset (the clock is kept, `init()`), 3 frames, `rewind_to_frame(frame - 6)` (a landing before the reset) | Every write from the landing cycle on is removed together with the undone Reset marker; the writes before the landing are kept; one Rewind marker last |
+| AWL-25 | A landing, then a soft reset, then a second soft reset | The reset is its own Reset row after the Rewind row, at the same cycle; the second reset (same marker, same cycle) is the same row |
+| AWL-26 | A soft reset, one frame with the CPU parked, a second soft reset | Two Reset rows at two cycles: only the same marker at the same cycle is one row |
+| AWL-27 | 10 frames, a checkpoint, 5 frames, load the checkpoint (the clock goes back), `rewind_to_frame(frame - 3)` (before the checkpoint); run 3 frames on | No write from the landing cycle on survives, the abandoned run before the load included; the undone StateLoad marker is gone; one Rewind marker last; running on logs no write twice |
+| AWL-28 | The same with the landing exactly at the load point (`rewind_to_frame(frame + 1)` after the load, the snapshot taken at the save cycle) | The StateLoad marker at that cycle stays, just before the Rewind marker; no write from that cycle on survives |
 
 ## Test Implementation Strategy
 

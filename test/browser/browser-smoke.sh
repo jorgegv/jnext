@@ -4,7 +4,7 @@
 #
 #   bash test/browser/browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]
 #
-# Specs default to `smoke.mjs:34` (rows BRW-01..34, this directory) and `image.mjs:9`
+# Specs default to `smoke.mjs:35` (rows BRW-01..35, this directory) and `image.mjs:9`
 # (rows WBI-PW-01..09, the SD-card image and the warm start in the browser) and `api.mjs:34`
 # (rows WEBAPI-01..34, the JavaScript API: jnext.mount and its controller) and `package.mjs:7`
 # (rows WEBPKG-BR-01..07: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
@@ -50,7 +50,7 @@ export LC_ALL=C LANG=C
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
 # Longest first (the specs run in parallel, so the order is the schedule): wall times of the CI run 44897420688.
-SPECS=("crt.mjs:13" "api.mjs:34" "smoke.mjs:34" "writes.mjs:17" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
+SPECS=("crt.mjs:13" "api.mjs:34" "smoke.mjs:35" "writes.mjs:17" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -139,6 +139,18 @@ chain_copper() {
         --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/copper_demo.nex" --log-level copper=debug \
         --delayed-automatic-exit-frames 300 >"$O/copper.log" 2>&1 || die "oracle copper failed"
     rm -rf "$O/copper.card" "$O/copper.cfg"
+}
+
+# The audio write log oracle (BRW-35): the audio-log-func program (test/00regression/scripts/audio-log-func.sh,
+# the same 36 bytes) injected at 0x8000 natively; the CSV it writes is what the page's must equal byte for byte.
+chain_alog() {
+    printf '\xF3\xED\x91\x08\x0A\x01\xFD\xFF\x3E\xFF\xED\x79\x3E\x07\xED\x79\x06\xBF\x3E\x38\xED\x79\x3E\x11\xD3\x1F\x3E\x22\xD3\x1F\xED\x91\x2D\x33\x18\xFE' >"$SCRATCH/alog.bin"
+    cp --reflink=auto "$SCRATCH/card.img" "$O/alog.card"
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/alog.cfg" \
+        timeout --foreground --kill-after=5s 300s "$NATIVE" --sdcard "$O/alog.card" --silent --machine next \
+        --rtc 2026-07-10T08:55:00 --inject "$SCRATCH/alog.bin" --inject-org 8000 --inject-pc 8000 \
+        --audio-log "$O/alog.csv" --delayed-automatic-exit-frames 30 >"$O/alog.log" 2>&1 || die "oracle alog failed"
+    rm -rf "$O/alog.card" "$O/alog.cfg"
 }
 
 # The frame period / CPU speed oracle (BRW-31): the BENCH line of the same arguments natively.
@@ -352,6 +364,7 @@ prep blue-jns     chain_blue_jns
 prep other48      fixture other48 grow --machine 48k --delayed-snapshot "$SCRATCH/other48.jns" --delayed-snapshot-frames 150 --delayed-automatic-exit-frames 170
 prep copper       chain_copper
 prep beast        chain_beast
+prep alog         chain_alog
 prep hostfs       chain_hostfs
 prep_join
 cmp -s "$O/nmi.png" "$O/nmilater.png" || die "the native NMI Menu picture changes between frame $NMI_SHOT and $((NMI_SHOT + 100)): pick a stable frame"
