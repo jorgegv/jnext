@@ -1,5 +1,6 @@
 #include "debugger/audio_panel.h"
 #include "debugger/audio_log_view.h"
+#include "debugger/audio_tracker_view.h"
 #include "debug/audio_math.h"
 #include "debug/debugger.h"   // also AudioMute::* (via inspect.h)
 
@@ -132,7 +133,10 @@ void AudioPanel::create_ui() {
     connect(log_view_, &AudioLogView::show_in_disassembly_requested,
             this, &AudioPanel::show_in_disassembly_requested);
     connect(tabs_, &QTabWidget::currentChanged, this, [this](int) { emit sub_tab_changed(); });
-    tabs_->addTab(placeholder_tab(), tr("Tracker"));
+    tracker_view_ = new AudioTrackerView(dbg_, tabs_);
+    tabs_->addTab(tracker_view_, tr("Tracker"));
+    connect(tracker_view_, &AudioTrackerView::rewind_to_frame_requested,
+            this, &AudioPanel::rewind_to_frame_requested);
     tabs_->addTab(placeholder_tab(), tr("Scopes"));
     layout->addWidget(tabs_, 1);
 
@@ -235,6 +239,10 @@ bool AudioPanel::chips_on_show() const {
 
 bool AudioPanel::log_on_show() const {
     return tabs_ && log_view_ && tabs_->currentWidget() == log_view_;
+}
+
+bool AudioPanel::tracker_on_show() const {
+    return tabs_ && tracker_view_ && tabs_->currentWidget() == tracker_view_;
 }
 
 QWidget* AudioPanel::create_chips_tab() {
@@ -514,6 +522,7 @@ void AudioPanel::refresh() {
 
     // The Log tab reads its own verb, and only while it is the tab on show.
     if (log_on_show()) log_view_->refresh();
+    if (tracker_on_show()) tracker_view_->refresh();
 }
 
 namespace {

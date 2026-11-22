@@ -24,6 +24,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/audio_panel.h"
+#include "debugger/audio_tracker_view.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
@@ -44,6 +45,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QTabWidget>
+#include <QTableView>
 #include <QTableWidget>
 #include <QTemporaryDir>
 
@@ -136,6 +138,61 @@ struct Fixture {
     }
     bool tracking() const { return backend->call_stack_enabled(); }
     bool raster() const { return backend->live_raster(); }
+};
+
+// GH #534 -- a Next with an IM2 tune player: every frame's interrupt writes AY R8 once, with a counter
+// that goes up by one (the value the frame leaves in the register), after the frame's own interrupt (D8).
+//   I = 0x90, a 257-byte table at 0x9000 of 0x92 (so any bus byte vectors to 0x9292), the ISR at 0x9292
+//   PUSH AF; PUSH BC; LD BC,FFFD; LD A,8; OUT (C),A; LD A,(9400); INC A; LD (9400),A; LD B,BF; OUT (C),A;
+//   POP BC; POP AF; EI; RETI  (opcodes: UM0080), the main loop DI; LD A,90; LD I,A; IM 2; EI; HALT; JR -3.
+// The real manager, the window NOT opened, the machine running, the rewind ring 50 frames.
+struct AudioFixture {
+    Emulator emu;
+    std::unique_ptr<jnext::dbg::Debugger> backend;
+    QMainWindow win;
+    DebuggerManager* mgr = nullptr;
+    bool ok = false;
+
+    AudioFixture() {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 50;
+        if (!emu.init(cfg)) return;
+        for (int i = 0; i < 257; ++i) emu.mmu().write(uint16_t(0x9000 + i), 0x92);
+        poke(emu, 0x9292, {0xF5, 0xC5, 0x01, 0xFD, 0xFF, 0x3E, 0x08, 0xED, 0x79, 0x3A, 0x00, 0x94, 0x3C,
+                           0x32, 0x00, 0x94, 0x06, 0xBF, 0xED, 0x79, 0xC1, 0xF1, 0xFB, 0xED, 0x4D});
+        poke(emu, 0x9400, {0x00});
+        poke(emu, kMain, {0xF3, 0x3E, 0x90, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFD});
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = kMain;
+        r.SP = kSp;
+        r.IFF1 = r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &win);
+        ok = backend->rewind_enabled();
+    }
+    ~AudioFixture() {
+        if (!mgr) return;
+        DebuggerWindow* w = mgr->debugger_window_ptr();
+        mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        delete w;
+    }
+    void enable() {
+        mgr->set_enabled(true);
+        QApplication::processEvents();
+    }
+    DebuggerWindow* dbg() const { return mgr->debugger_window_ptr(); }
+    void show(QWidget* panel) {
+        put_on_show(dbg(), panel);
+        QApplication::processEvents();
+    }
+    bool paused() { return emu.debug_state().paused(); }
+    void tick() {
+        if (!paused()) emu.run_frame();
+        mgr->check_breakpoint_hit();
+        mgr->refresh_panels();
+    }
 };
 
 QString cell(QWidget* panel, int row, int col) {
@@ -565,6 +622,108 @@ int main(int argc, char** argv) {
               fx.ok && tabs && kept && off, "kept=" + b2s(kept) + " off=" + b2s(off));
     }
 
+    {
+        // GH #534: the log is asked for while the Audio dock is on show with Log OR Tracker current.
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        const bool chips = tabs && !fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(3);                    // Tracker
+        QApplication::processEvents();
+        const bool tracker = fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(2);                    // Log
+        QApplication::processEvents();
+        const uint64_t rev = fx.backend->state_revision();
+        if (tabs) tabs->setCurrentIndex(3);                    // Tracker again: not a request change
+        QApplication::processEvents();
+        const bool switched = fx.backend->audio_log_enabled() && fx.backend->state_revision() == rev;
+        if (tabs) tabs->setCurrentIndex(4);                    // Scopes: no log
+        QApplication::processEvents();
+        const bool scopes = !fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(3);
+        fx.show(fx.dbg()->nextreg_panel());                    // the Audio dock tabbed away behind it
+        const bool away = !fx.backend->audio_log_enabled();
+        fx.show(fx.dbg()->audio_panel());
+        const bool back = fx.backend->audio_log_enabled();
+        fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        QApplication::processEvents();
+        const bool closed = !fx.backend->audio_log_enabled();
+        check("QLAZY-22",
+              "window open, Audio dock shown: the log is off with Chips current and on with Tracker current; Log then Tracker leaves it on and does not move state_revision (no request change); off with Scopes current, off with the dock tabbed away, on when shown again, off with the window closed",
+              fx.ok && tabs && chips && tracker && switched && scopes && away && back && closed,
+              "chips=" + b2s(chips) + " tracker=" + b2s(tracker) + " switched=" + b2s(switched) + " scopes=" + b2s(scopes) +
+                  " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed));
+    }
+    {
+        // GH #534: a double-click on a Tracker row lands the machine on the START of that frame, paused.
+        AudioFixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(3);
+        QApplication::processEvents();
+        for (int i = 0; i < 10; ++i) fx.tick();
+        fx.emu.debug_state().pause();
+        fx.tick();                                             // the paused refresh
+        auto* view = fx.dbg()->audio_panel()->findChild<AudioTrackerView*>();
+        auto* table = fx.dbg()->audio_panel()->findChild<QTableView*>("audio_tracker_table");
+        AudioTrackerModel* model = view ? view->model() : nullptr;
+        int newest_row = -1;
+        for (int r = model ? model->rowCount() - 1 : -1; r >= 0 && newest_row < 0; --r)
+            if (model->frame_at(r)) newest_row = r;
+        const uint32_t newest = newest_row >= 0 ? model->frame_at(newest_row)->frame : 0;
+        const uint32_t target = newest - 3;
+        int row = -1;
+        for (int r = 0; model && r < model->rowCount(); ++r)
+            if (model->frame_at(r) && model->frame_at(r)->frame == target) row = r;
+        const int16_t start_r8 = row >= 0 ? model->frame_at(row)->before[0][8] : int16_t(-2);
+        const bool found = row >= 0 && newest_row >= 0 && start_r8 >= 0;
+        if (found) emit table->doubleClicked(model->index(row, 0));
+        QApplication::processEvents();
+        const uint32_t landed = fx.backend->time().frame;
+        const bool at_frame = found && landed == target;
+        const bool paused = fx.paused();
+        const bool r8 = found && fx.backend->audio_state().chips[0].regs[8] == uint8_t(start_r8);
+        fx.tick();
+        bool no_later = model && model->rowCount() > 0;
+        for (int r = 0; model && r < model->rowCount(); ++r)
+            if (model->frame_at(r) && model->frame_at(r)->frame >= target) no_later = false;
+        const bool rewind_last = model && model->rowCount() > 0 &&
+                                 model->index(model->rowCount() - 1, 1).data().toString() == "rewind";
+        check("QLAZY-23",
+              "Tracker current, 10 frames of an IM2 player (one R8 write per frame), paused: a double-click on the frame row three before the newest lands the machine on that frame (time().frame), paused, with R8 equal to the row's start value (what the frame before wrote); after the next refresh the last row is 'rewind' and no frame row is at or after the target",
+              fx.ok && found && at_frame && paused && r8 && no_later && rewind_last,
+              "found=" + b2s(found) + " newest=" + std::to_string(newest) + " landed=" + std::to_string(landed) + " paused=" + b2s(paused) +
+                  " r8=" + b2s(r8) + " no_later=" + b2s(no_later) + " rewind_last=" + b2s(rewind_last));
+    }
+    {
+        // GH #534: while the machine is RUNNING a double-click does nothing.
+        AudioFixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(3);
+        QApplication::processEvents();
+        for (int i = 0; i < 10; ++i) fx.tick();
+        auto* view = fx.dbg()->audio_panel()->findChild<AudioTrackerView*>();
+        auto* table = fx.dbg()->audio_panel()->findChild<QTableView*>("audio_tracker_table");
+        AudioTrackerModel* model = view ? view->model() : nullptr;
+        const int rows = model ? model->rowCount() : 0;
+        const uint32_t before = fx.backend->time().frame;
+        if (model && rows > 3) emit table->doubleClicked(model->index(rows / 2, 0));
+        QApplication::processEvents();
+        const bool unmoved = fx.backend->time().frame == before && !fx.paused();
+        fx.tick();
+        fx.tick();
+        bool no_rewind = fx.backend->time().frame > before && !fx.paused();
+        for (int r = 0; model && r < model->rowCount(); ++r)
+            if (model->index(r, 1).data().toString() == "rewind") no_rewind = false;
+        check("QLAZY-24",
+              "Tracker current with rows, the machine RUNNING: a double-click on a row changes nothing (time().frame does not move, the machine stays running), the machine keeps running afterwards and no 'rewind' row appears",
+              fx.ok && rows > 3 && unmoved && no_rewind,
+              "rows=" + std::to_string(rows) + " unmoved=" + b2s(unmoved) + " no_rewind=" + b2s(no_rewind));
+    }
     {
         // The Audio tab's dropped-write table names the OUT it discarded: the window connects the
         // panel's signal to the Disassembly (GH #530).

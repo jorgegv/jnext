@@ -2514,7 +2514,6 @@ int main() {
     {
         using jnext::dbg::AudioFrame;
         using jnext::dbg::AudioFrameAccumulator;
-        using jnext::dbg::AudioFlag;
         using jnext::dbg::AudioMarker;
         using jnext::dbg::AudioTarget;
         using jnext::dbg::AudioDropReason;
