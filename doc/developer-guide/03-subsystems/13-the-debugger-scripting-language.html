@@ -3256,7 +3256,7 @@ The <code>-debug</code> records of a map (names starting <code>__C_LINE_</code>,
 <code>__CDBINFO__</code>) are not symbols: the loader drops them (rows SYM-14 to SYM-18).</p>
 <p><strong><code>cvar(PATH)</code></strong> (<a href="../07-source-level-debugging/07-frontends.html">7.7</a>) is the atom that reads a C variable of frame 0, as
 an int32. Its path is not the DSL's grammar (<code>-&gt;</code>, <code>::</code>, <code>*</code>, <code>$1F</code>, a file name with a <code>.</code>), so <code>lex_ident()</code> takes <code>cvar</code> directly
-followed by <code>(</code> as one <code>Tok::CVar</code> and <code>lex_cvar()</code> (<code>lexer.cpp:195</code>) captures the raw text to the first <code>)</code> on the line, trimmed;
+followed by <code>(</code> as one <code>Tok::CVar</code> and <code>lex_cvar()</code> (<code>lexer.cpp:196</code>) captures the raw text to the first <code>)</code> on the line, trimmed;
 a <code>(</code>, a <code>"</code>, a missing <code>)</code> and an empty path are lexical errors, and <code>cvar</code> is a reserved word (<code>RESERVED</code> in <code>names.cpp</code>, as <code>depth</code> and <code>changed</code> are), so <code>var cvar</code> is refused at load. The word was
 not free before: <code>dump_mem</code> and <code>out</code> take two expressions side by side, so <code>dump_mem cvar(4)</code> with a <code>var cvar</code> was two operands; it
 now fails to load, loudly, rather than meaning something else. Inside a <code>${...}</code> interpolation a <code>::</code> is not the format separator. <code>parse_primary()</code> makes an

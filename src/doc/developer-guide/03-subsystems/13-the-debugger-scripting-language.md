@@ -83,7 +83,7 @@ The `-debug` records of a map (names starting `__C_LINE_`, `__ASM_LINE_` or
 
 **`cvar(PATH)`** ([7.7](../07-source-level-debugging/07-frontends.md)) is the atom that reads a C variable of frame 0, as
 an int32. Its path is not the DSL's grammar (`->`, `::`, `*`, `$1F`, a file name with a `.`), so `lex_ident()` takes `cvar` directly
-followed by `(` as one `Tok::CVar` and `lex_cvar()` (`lexer.cpp:195`) captures the raw text to the first `)` on the line, trimmed;
+followed by `(` as one `Tok::CVar` and `lex_cvar()` (`lexer.cpp:196`) captures the raw text to the first `)` on the line, trimmed;
 a `(`, a `"`, a missing `)` and an empty path are lexical errors, and `cvar` is a reserved word (`RESERVED` in `names.cpp`, as `depth` and `changed` are), so `var cvar` is refused at load. The word was
 not free before: `dump_mem` and `out` take two expressions side by side, so `dump_mem cvar(4)` with a `var cvar` was two operands; it
 now fails to load, loudly, rather than meaning something else. Inside a `${...}` interpolation a `::` is not the format separator. `parse_primary()` makes an
