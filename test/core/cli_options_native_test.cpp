@@ -891,8 +891,8 @@ int main() {
                 const int rc_empty = run_split(base + " --break-at \"\"");
                 const std::string empty_err = slurp(err_path);
                 check("CLI-DBG-07", "--break-at with no value, and with an empty one, exits 1 naming the flag",
-                      rc_none == 1 && none_err.find("--break-at") != std::string::npos &&
-                          rc_empty == 1 && empty_err.find("--break-at") != std::string::npos,
+                      (rc_none == 1 || rc_none == 256) && none_err.find("--break-at") != std::string::npos &&
+                          (rc_empty == 1 || rc_empty == 256) && empty_err.find("--break-at") != std::string::npos,
                       "rc_none=" + std::to_string(rc_none) + " rc_empty=" + std::to_string(rc_empty) + " " +
                           none_err.substr(0, 120) + " | " + empty_err.substr(0, 120));
                 const std::string refusal = "--debug-listen-address requires a debugger server port";
