@@ -3107,6 +3107,11 @@ matters mainly when you invoke CMake directly.</p>
 <td>Use ccache as the compiler launcher when it is found; a no-op if it is not</td>
 </tr>
 <tr>
+<td><code>JNEXT_CCACHE_SHARE</code></td>
+<td>ON</td>
+<td>With ccache, make objects independent of the worktree path so worktrees share cache entries (OFF in the rpm and deb packaging)</td>
+</tr>
+<tr>
 <td><code>JNEXT_ENABLE_LTO</code></td>
 <td>ON</td>
 <td>LTO/IPO for Release builds. Flipped OFF in exactly one place — see below</td>
