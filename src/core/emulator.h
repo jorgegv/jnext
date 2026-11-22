@@ -2286,8 +2286,8 @@ private:
     /// master cycles, 14 us), well inside any tape pulse.
     bool mic_stale_() const {
         return beeper_.tape_ear() != mic_tape_level_ || clock_.get() >= mic_relax_due_ ||
-               (mic_tape_live_ &&
-                !(tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing()));
+               mic_tape_live_ !=
+                   (tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing());
     }
 
     /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read, the MIC
