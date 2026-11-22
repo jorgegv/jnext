@@ -10,12 +10,12 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-30. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-31. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=30
+EXPECTED_ROWS=31
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -58,6 +58,8 @@ HOLDERS=()
 cleanup() {
     local p
     for p in "${HOLDERS[@]:-}"; do [[ -z "$p" ]] || kill "$p" 2>/dev/null; done
+    # helpers a broken TERM forwarding would leave running (they also end by themselves after 30 s)
+    [[ ! -f "$TMP/state/helper-pids" ]] || while read -r p; do kill "$p" 2>/dev/null; done < "$TMP/state/helper-pids"
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -86,11 +88,18 @@ echo "stub driver ran"
 [[ -z "${STUB_PAUSE:-}" ]] || : > "$STUB_PAUSE"
 if [[ "${STUB_WAIT:-0}" == 1 ]]; then
     trap 'echo term > "$STATE/rr-term"; sleep 1; exit 5' TERM
-    while :; do sleep 0.2; done
+    echo $$ >> "$STATE/helper-pids"
+    for _ in $(seq 1 150); do sleep 0.2; done
 fi
 exit "${STUB_RC:-0}"
 EOF
-chmod +x "$TMP/bin/git" "$TMP/bin/make" "$TMP/rr-stub"
+# nice shim: records its arguments, then runs the real nice (so the test does not depend on its own niceness).
+cat > "$TMP/bin/nice" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >> "$TMP/state/nice-calls"
+exec "$(command -v nice)" "\$@"
+EOF
+chmod +x "$TMP/bin/git" "$TMP/bin/make" "$TMP/bin/nice" "$TMP/rr-stub"
 export STATE=$TMP/state PATH="$TMP/bin:$PATH"
 export JNEXT_SLOT_REMOTE_RUN=$TMP/rr-stub JNEXT_SLOT_LOADAVG=$TMP/loadavg JNEXT_SLOT_POLL=0.2
 export JNEXT_SLOT_LOAD_LIMIT=12 JNEXT_REMOTE_RUN_HOST=fakehost JNEXT_SLOT_REMOTE_LOG_DIR=$TMP/rrlogs
@@ -356,20 +365,23 @@ row SLOT-23 "$([[ -z "$(rr_calls)" && "$(grep -c '^make ' "$STATE/make-calls")" 
 
 # SLOT-24: nice 19 for a local command
 fresh
-n=$(slot nice 2>/dev/null)
-row SLOT-24 "$([[ "$n" == 19 ]] && echo 1 || echo 0)" "a local command runs at nice 19 (got $n)"
+rm -f "$STATE/nice-calls"
+slot true >/dev/null 2>&1
+row SLOT-24 "$([[ "$(cat "$TMP/state/nice-calls" 2>/dev/null)" == "-n 19 true" ]] && echo 1 || echo 0)" \
+    "slot.sh runs a local command as 'nice -n 19 <command>' (recorded: $(cat "$TMP/state/nice-calls" 2>/dev/null))"
 
 # SLOT-25: TERM to slot.sh reaches a local command, and the slot stays locked until that command is gone
 fresh
 cat > "$TMP/term-local.sh" <<'EOF'
 #!/usr/bin/env bash
 trap 'echo term > "$1"; sleep 1.5; echo done > "$2"; exit 0' TERM
+echo $$ >> "$4"
 : > "$3"
-while :; do sleep 0.2; done
+for _ in $(seq 1 150); do sleep 0.2; done
 EOF
 chmod +x "$TMP/term-local.sh"
 rm -f "$TMP/t25a" "$TMP/t25b" "$TMP/t25c"
-"$SLOT" --dir "$CLEANSLOTS" "$TMP/term-local.sh" "$TMP/t25a" "$TMP/t25b" "$TMP/t25c" >/dev/null 2>&1 & p25=$!
+timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$TMP/term-local.sh" "$TMP/t25a" "$TMP/t25b" "$TMP/t25c" "$STATE/helper-pids" >/dev/null 2>&1 & p25=$!
 for k in $(seq 1 50); do [[ -e "$TMP/t25c" ]] && break; sleep 0.1; done
 kill -TERM "$p25"; sleep 0.5
 held=0; flock -n "$CLEANSLOTS/slot1" true 2>/dev/null || held=1
@@ -380,7 +392,7 @@ row SLOT-25 "$([[ "$(cat "$TMP/t25a" 2>/dev/null)" == term && $held -eq 1 && "$(
 # SLOT-26: TERM to slot.sh reaches the driver, and slot.sh returns the driver's own status, not 143
 fresh
 rm -f "$STATE/rr-term"
-STUB_WAIT=1 "$SLOT" --dir "$CLEANSLOTS" env LANG=C make -C "$WT" unit-test >/dev/null 2>&1 & p26=$!
+STUB_WAIT=1 timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" env LANG=C make -C "$WT" unit-test >/dev/null 2>&1 & p26=$!
 for k in $(seq 1 50); do [[ -e "$STATE/rr-calls" ]] && break; sleep 0.1; done
 sleep 0.3; kill -TERM "$p26"
 wait "$p26"; rc=$?
@@ -422,5 +434,13 @@ mkdir -p "$TMP/not-a-repo"
 out=$(slot env LANG=C make -C "$TMP/not-a-repo" unit-test 2>&1); rc=$?
 row SLOT-30 "$([[ -z "$(rr_calls)" && "$out" == *"not sent to the remote"* ]] && echo 1 || echo 0)" \
     "a directory that is not a repository is never sent (the reason names it)"
+
+# SLOT-31: a repository whose `git status` fails (corrupt index; symbolic-ref still works) is not read as clean
+fresh
+printf garbage > "$WT/.git/index"
+out=$(slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+rm -f "$WT/.git/index"; git -C "$WT" reset -q
+row SLOT-31 "$([[ $rc -eq 0 && -z "$(rr_calls)" && "$out" == *"git status failed"* && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "a failing git status keeps the run here and says so, the driver is not called (rc=$rc)"
 
 finish
