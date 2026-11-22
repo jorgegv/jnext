@@ -2,6 +2,10 @@
 
 #include "debug/debugger.h"
 
+#include <initializer_list>
+#include <utility>
+
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QFont>
 #include <QHBoxLayout>

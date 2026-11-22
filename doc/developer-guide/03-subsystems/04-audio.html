@@ -3190,6 +3190,32 @@ counters are host state: outside <code>describe_state()</code>, <code>init()</co
 carried over a cold boot by <code>emulator_cold_boot()</code> beside the mute mask, cleared
 only by <code>Debugger::clear_audio_drops()</code>, and not counted while a rewind replays
 frames. <code>Debugger::audio_state()</code> publishes them as <code>AudioState::drops</code>.</p>
+<p><strong>The write tap.</strong> Every decoded audio write can also be logged, for the debugger's Log
+tab and <code>--audio-log</code>. <code>Emulator</code> holds one <code>AudioTapSink*</code> (<code>src/debug/audio_tap.h</code>,
+the core-to-backend seam, implemented by the debugger backend) and one bool,
+<code>audio_tap_active_</code>; the backend switches it on while any client asks for the log
+(<code>Emulator::set_audio_tap()</code>). The sites are the three AY handlers (0xFFFD, 0xBFFD and
+0xBFF5), the 14 DAC channel writes in the 11 DAC handlers (<code>Emulator::dac_write_()</code>
+wraps each), the three NextREG 0x2C-0x2E mirror handlers, the 0xFE handler and
+<code>note_audio_drop_()</code>, so the counter and the log come from one call. Each site tests
+the one bool and nothing else, and there is no test on the per-instruction path.
+Rule R1: the tap observes and never writes. A handler reads what the entry needs
+(the chip, the address, the previous byte) before its write and records after it,
+so the hot path's own writes stay where they are, and the log cannot drift from them.
+The cold bodies are in <code>src/core/emulator_audio_tap.cpp</code>, marked cold and out of line,
+so adding one cannot move inlining in <code>emulator.cpp</code>. They return at once while a rewind
+replays frames (<code>replay_mode_</code>). A plain register select is not logged; an applied
+0xFFFD write with bit 7 set is exactly the chip-select or pan command, because a bit-7
+value that is not the command returns <code>SelectIgnored</code>. An entry's timestamp comes from
+<code>Emulator::stamp_at_()</code>, the arithmetic the event latch stamper also uses, so the log
+agrees with the event system by construction; the stamp is the start of the instruction
+slot that raised the write, which is also why a rewind landing removes the entries at its
+own cycle. Markers come from <code>debug_after_machine_transition_()</code> (every reset and every
+state load pass through it; a ring restore for a rewind is left out by
+<code>DebugState::restoring_from_rewind()</code>) and from the two rewind landings. A hard reset
+rebuilds the <code>Emulator</code>, so the backend installs the sink again in
+<code>reapply_after_machine_rebuild()</code>. The ring, the seq counter and the verbs live in the
+backend (<code>src/debug/debugger_audio.cpp</code>).</p>
 <p><strong>Beeper</strong> — <code>src/audio/beeper.*</code>. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is

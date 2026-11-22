@@ -5339,6 +5339,31 @@ headless and requires neither an audio device nor ffmpeg.</dd>
 <dt><strong>--dac-trace</strong> <em>FILE</em></dt>
 <dd>Record <code>segment,tstate,channel,value</code> rows for physical DAC writes.
 A cold boot starts a new segment.</dd>
+<dt><strong>--audio-log</strong> <em>FILE</em></dt>
+<dd>Record the decoded audio writes to a CSV, one row per write, with
+the frame, line, hc and T-state it happened at. Rows cover AY
+register writes, the TurboSound chip-select and pan commands (and
+every discarded 0xFFFD write), DAC channel writes (one row per
+channel written), the NextREG 0x2C-0x2E DAC mirror writes and beeper
+EAR/MIC changes, and every write the hardware discarded with its
+reason. Plain AY register selects, border-only writes to port 0xFE
+and the frames a rewind replays are not recorded. The first line is
+the header
+<code>frame,line,hc,tstate,cycle,pc,source,target,chip,reg,value,prev,flags,reason,port</code>.
+<code>frame</code>, <code>line</code>, <code>hc</code>, <code>tstate</code>, <code>cycle</code>, <code>chip</code>, <code>reg</code> and <code>flags</code>
+are decimal; <code>pc</code> and <code>port</code> are <code>0x%04X</code>; <code>value</code> and <code>prev</code> are
+<code>0x%02X</code>. <code>source</code> is <code>cpu</code>, <code>dma</code>, <code>copper</code> or <code>debugger</code> (writes
+made by the debugger or a script carry <code>debugger</code>), <code>target</code> is
+<code>ay</code>, <code>ay_select</code>, <code>dac</code>, <code>dac_mirror</code> or <code>beeper</code>, and <code>chip</code> is
+empty for a discarded DAC write that reached no channel. A reset, a
+state load or a rewind adds a row with <code>marker</code> in <code>source</code> and
+<code>reset</code>, <code>load</code> or <code>rewind</code> in <code>target</code>. After a <code>rewind</code> row the
+following rows may carry earlier cycles: the file is append-only and
+the rows before the marker are kept. It works in every frontend,
+headless and with <strong>--silent</strong>, and is refused by a browser page. An
+unwritable <em>FILE</em> is refused before the machine starts. A write
+error, or writes lost because more than 65536 arrived between two
+services of the loop, makes the run exit non-zero.</dd>
 <dt><strong>--audio-gain-db</strong> <em>DB</em></dt>
 <dd>Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
 gain is applied after the emulated hardware mix; overflow saturates

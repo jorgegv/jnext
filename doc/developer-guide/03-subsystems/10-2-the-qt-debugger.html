@@ -3340,8 +3340,8 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Audio</td>
-<td><code>audio_state()</code>, <code>ay_mode()</code></td>
-<td><code>set_audio_mute_mask()</code>, <code>clear_audio_drops()</code>; the panel emits <code>show_in_disassembly_requested</code> for a CPU-written dropped-write row</td>
+<td><code>audio_state()</code>, <code>ay_mode()</code>, <code>audio_log_entries()</code>, <code>audio_log_enabled()</code>, <code>audio_log_export()</code></td>
+<td><code>set_audio_mute_mask()</code>, <code>clear_audio_drops()</code>, <code>set_audio_log_enabled()</code> (from <code>DebuggerManager::apply_data_needs()</code>, only while the Log sub-tab is on show: <code>AudioPanel::log_on_show()</code>, re-run on <code>AudioPanel::sub_tab_changed()</code>); the panel emits <code>show_in_disassembly_requested</code> for a CPU-written dropped-write row and a CPU-written Log row</td>
 </tr>
 <tr>
 <td>Script</td>
