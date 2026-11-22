@@ -1194,7 +1194,7 @@ inline const char* browser_refusal(OptId id) {
     case OptId::DebugListenAddress:
         return "not available in the browser build (the debugger servers need to listen on TCP)";
     case OptId::Debugger: case OptId::BreakAt:
-        return "not available in the browser build (the debugger servers and the script host are not part of it)";
+        return "not available in the browser build (it waits for a debugger on a TCP port, which a page cannot open; a page serves its debugger over the debug channel)";
     case OptId::Script: case OptId::ScriptKey: case OptId::RecordScript:
     case OptId::Map: case OptId::Annotations:
     case OptId::ImportSkoolkit: case OptId::ImportGhidra:
