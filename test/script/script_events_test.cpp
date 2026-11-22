@@ -3487,7 +3487,7 @@ static void audio_rows() {
               MachineType::ZXN_ISSUE2);
         next_rig(g);
         g.emu.nextreg().write(0x06, 0x03);
-        const bool ok = g.load("on ay_write reg 7 do log \"W ${VALUE}\" end\n");
+        const bool ok = g.load("on ay_write do log \"W ${VALUE}\" end\n");
         g.frames(1);
         check("EVT-AYW-05", "a write held in reset (NR 0x06 = 11, AyHeldInReset) fires no `ay_write` (applied writes only); the applied write after the release fires",
               ok && g.sink.count("W ") == 1 && g.sink.count("W 52") == 1, g.sink.tail(3));

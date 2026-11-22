@@ -843,14 +843,13 @@ static void aev_rows() {
         Aev m;
         nr_write(m.emu, 0x06, 0x03);
         Subscription s = Aev::make(T_AYREG);
-        s.filter.regs = {7};
         s.filter.audio_flags_none = AudioFlag::Dropped;
         m.sub(s);
         // select 7; write 0x12 while held in reset (dropped); NEXTREG 6,0 releases it; select 7; write 0x34
         m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x12, 0xED, 0x79,
               0xED, 0x91, 0x06, 0x00, 0x06, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x34, 0xED, 0x79, 0x18, 0xFE});
         const auto ev = m.events();
-        check("AEV-13", "zxnext.vhd:6989 an applied-only R7 sub: the write held in reset (AyHeldInReset) makes no stop; the applied write after the release makes exactly one",
+        check("AEV-13", "zxnext.vhd:6989 an applied-only AY register sub: the write held in reset (AyHeldInReset) makes no stop; the applied write after the release makes exactly one",
               m.paused() && ev.size() == 1 && ev[0].value == 0x34 && ev[0].audio_flags == 0);
     }
     {
@@ -941,6 +940,8 @@ static void aev_rows() {
         m.sub(s);
         m.dbg().port_out(lc, 0xFFFD, 7);
         m.dbg().port_out(lc, 0xBFFD, 0x22);
+        park(m.emu);
+        m.emu.run_frame();   // an event latched by the writes above would be delivered at this boundary
         const auto w = writes_only(m.dbg());
         check("AEV-21", "a debugger write (port_out) is logged with source Debugger and fires no AudioWrite event (4.2a)",
               w.size() == 1 && w[0].target == AT::AyRegister && w[0].source == EventSource::Debugger && m.events().empty());

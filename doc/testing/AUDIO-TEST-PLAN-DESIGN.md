@@ -882,7 +882,7 @@ An `AudioWrite` event kind: a subscription on the decoded audio writes, filtered
 | AEV-10 | The same subscription; an AY data write, an EAR change on 0xFE, a 0xFFFD chip-select command | No stop (near miss: target) |
 | AEV-11 | Dropped-only subscription, NR 0x84 bit 6 off, `OUT (C),A` to 0x00B3 | Stop; Event Dac, chip 0xFF, flags Dropped, reason DacFamilyDisabled, port 0x00B3 (`zxnext.vhd:2974-2980`) |
 | AEV-12 | The same subscription with the 0xB3 decode on (the write applies) | No stop (near miss: not dropped) |
-| AEV-13 | Applied-only R7 subscription; NR 0x06 = 11 (held in reset), a write; NEXTREG 6,0, select 7, a write | No stop for the held write (AyHeldInReset, `zxnext.vhd:6989`); one stop for the applied one |
+| AEV-13 | Applied-only AY register subscription; NR 0x06 = 11 (held in reset), a write; NEXTREG 6,0, select 7, a write | No stop for the held write (AyHeldInReset, `zxnext.vhd:6989`); one stop for the applied one |
 | AEV-14 | AY chip-select subscription, TurboSound on; the plain select 7, then the command 0xFE | One stop, at the command: chip 1, prev 0, value 0xFE, port 0xFFFD (`turbosound.vhd:129,141`) |
 | AEV-15 | Targets ANY with regs {0}; OUT 0x1F (a Dac entry, reg 0); then an AY R0 write | No stop at the DAC write; one stop at R0 (a register set applies to the AY register and mirror targets only) |
 | AEV-16 | Source-Dma subscription; a CPU OUT 0x1F; then a DMA byte to 0x00DF | No stop for the CPU write; the DMA write stops, with source Dma and two events (chips 0 and 3) |
