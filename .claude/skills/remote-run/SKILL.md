@@ -60,6 +60,8 @@ $S/remote-run.sh <branch> <sha> 'sh:make regression-rows ROWS="a b"'     # words
 
 ### The batch gate
 
+The batch gate is a CI run (CLAUDE.md merge protocol step 2); `--gate` here is its fallback.
+
 Push main's tip to origin as the temporary branch `gate-v<version>` (D8, never force), then:
 
 ```bash

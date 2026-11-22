@@ -16,8 +16,19 @@ The triplet is the core of the **batch gate**, which adds `make unit-test-sdl`,
 `make wasm-core`, `make wasm-browser-test`, `make unit-test-wasm` and
 `make regression-wasm` ([5.6](../05-building/06-the-browser-build.md)).
 
-- **When it runs:** on `main`'s tip, once, after all of a work session's landings
-  and before any push.
+- **When it runs:** once, after all of a work session's landings and before any
+  push, at a sync point: the end of a session, a public release or an urgent
+  user-facing fix. The landing count never triggers it.
+- **Where it runs:** on GitHub, as a CI run on the commit to be pushed. The
+  maintainer puts that commit on `origin` as a temporary `gate-v<version>`
+  branch and runs `bash test/ci-gate.sh dispatch gate-v<version> <sha>`, then
+  `wait <run-id>`, then `make ci-gate-check RUN=<run-id> SHA=<sha>`; the sha is mandatory, so a run on any other commit is refused. The verdict is
+  `CLEAN` only if the run and every job succeeded (a skipped or cancelled job is
+  not clean) and no job of the last green `main` run is missing. The commit
+  that was gated, not the local tip, is what is pushed to `main`. CI saves its
+  caches only from a push to `main`, so a gate run reads main's warm ccache and
+  evicts nothing. When GitHub cannot run it, the list above is run locally or on
+  the remote-run host as a fallback.
 - **On a branch, nobody runs it.** The author runs the suites and regression
   rows the change touches, plus `make unit-test` before each review. The
   reviewer runs the targeted rows again.
@@ -125,9 +136,9 @@ merely spawn short-lived processes have failed under outside load too, which is
 why the suite itself flags a FAIL that happened on a loaded host.
 
 A green `make regression` on a committed tree leaves a stamp keyed on the
-tree's non-doc content, and `make regression-stamp-check` finds it. A batch gate
-whose tree changed only in documentation since the last green run need not
-repeat it. Reviewers run targeted rows, never a full run.
+tree's non-doc content, and `make regression-stamp-check` finds it (the CI gate
+needs no stamp: `make regression-ci-check` finds its run). A fallback gate whose
+tree changed only in documentation since the last green run need not repeat it. Reviewers run targeted rows, never a full run.
 
 ## What the triplet does not prove
 
