@@ -6,6 +6,7 @@
 - `--debugger` and `--break-at`: a program loaded from the command line stops at its start (tape loads included) and waits for a debugger
 
 ### Bug Fixes
+- Browser build: --joy-uart-pty and --joy-uart-fifo are refused with a clear reason instead of failing obscurely
 - Browser: dot commands work, so the NextZXOS browser opens text files and NEX programs again
 
 ### Internal JNEXT Development
