@@ -735,8 +735,9 @@ public:
     /// True while either saver is armed.
     bool tape_save_active() const { return tap_saver_.active() || tape_recorder_.active(); }
     /// The tape-out (MIC jack) level, zxnext.vhd:6503 `beep_mic_final` — see
-    /// the definition.
-    bool tape_out_level() const;
+    /// the definition. `*relax_due`, when given, receives the master cycle at
+    /// which a held level relaxes (UINT64_MAX when none is pending).
+    bool tape_out_level(uint64_t* relax_due = nullptr) const;
     /// When a port 0xFE write lands: a CPU OUT's bus request edge, or a DMA
     /// transfer's place in its burst (see the definition).
     uint64_t port_fe_write_time() const;
@@ -2269,11 +2270,16 @@ private:
     /// Called where an input of that model changes: a port 0xFE write while a
     /// tape plays or the Pi is routed, a tape level change, NR 0x08 and NR
     /// 0xA2 writes, a state load, a replay-mode change, and, while a tape
-    /// plays or the Pi is routed, at each output-sample boundary, because the
-    /// `ear_relax` hold is a matter of time (it lands at most one output
-    /// sample, about 635 master cycles, after the 32768-cycle hold; inside a
-    /// HALT batch the clock is at the window end, as for the Pi edge stamps).
-    void refresh_mic_final_() { beeper_.set_mic_final(tape_out_level()); }
+    /// plays or the Pi is routed, at the first output-sample boundary at or
+    /// after `mic_relax_due_`, because the `ear_relax` hold is a matter of time
+    /// (it lands at most one output sample, about 635 master cycles, after the
+    /// 32768-cycle hold; inside a HALT batch the clock is at the window end, as
+    /// for the Pi edge stamps).
+    void refresh_mic_final_() {
+        uint64_t due = UINT64_MAX;
+        beeper_.set_mic_final(tape_out_level(&due));
+        mic_relax_due_ = due;
+    }
 
     /// The tape block's per-instruction step for a PLAYING tape: note the
     /// level for the relaxation (an edge of the jack restarts the hold), store
@@ -2308,7 +2314,16 @@ private:
     /// MIC level.
     /// During a rewind replay or an RZX playback the Pi term is held off: it
     /// is host-timed, like the sample NR 0x2C/0x2E show.
-    bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) const;
+    /// `*due`, when given, receives the master cycle at which a held level
+    /// relaxes (UINT64_MAX when nothing is pending).
+    bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now,
+                      uint64_t* due = nullptr) const;
+
+    /// Master cycle from which `beep_mic_final` changes with no other event
+    /// (the `ear_relax` hold of a held tape or Pi level running out), else
+    /// UINT64_MAX: the output-sample boundary refreshes only when the clock
+    /// reaches it. Derived, not serialised; set by refresh_mic_final_().
+    uint64_t mic_relax_due_ = UINT64_MAX;
 
     /// True while the tape block last saw a tape playing (so `mic_final` is
     /// kept fresh at port 0xFE writes and output-sample boundaries). Derived,

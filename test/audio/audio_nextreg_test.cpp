@@ -1394,6 +1394,27 @@ static void test_tape_mix() {
               fmt("port 0xFE early=0x%02X late=0x%02X (want bit6 1 / 0)", port_early, port_late));
     }
     {
+        // A tape that stops and starts again starts a new jack: its first edge
+        // restarts the hold (the previous session's edge stamp is gone).
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x00);
+        const bool ok = start_tzx_tone(*e);
+        uint64_t t = 0;
+        const bool a = step_to_edge(*e, true, &t);
+        e->tzx_tape().eject();
+        step_to_clock(*e, t + kRelaxMaster + 1700);   // stopped, and long past any hold
+        const bool ok2 = start_tzx_tone(*e);
+        const bool b = step_to_level(*e, true);
+        const int restarted = mix_val(*e);
+        check("MX-83", "a tape stopped and started again: its first level edge restarts the "
+              "ear_relax hold, so the restarted tape is heard at once, not relaxed "
+              "[symmetric_relaxation.vhd:70-77,89-90]",
+              ok && a && ok2 && b && restarted == 512, fmt("restarted=%d (want 512)", restarted));
+    }
+    {
         // Issue 2 + MIC = 1: the relaxed level is 1. A held 0 reads 0 until the
         // hold, 1 after; the next edge restarts the hold.
         auto e = next_machine_550();
