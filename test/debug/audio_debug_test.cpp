@@ -1590,6 +1590,17 @@ int main() {
         Out mon, moff;
         for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); }
         for (int f = 0; f < 8; ++f) { off.run_frame(); drain(off, moff); }
+        {
+            // DIAGNOSTIC: the same fixture with no tap, run one after the other.
+            Out uo[2];
+            for (int k = 0; k < 2; ++k) {
+                Emulator e; build_batch(e, true);
+                e.set_cycle_batching_for_test(k == 0, k == 0, k == 0);
+                for (int f = 0; f < 8; ++f) { e.run_frame(); drain(e, uo[k]); }
+            }
+            std::printf("  SCP-09 UNTAPPED on/off mixer equal=%d; tapped-on vs untapped-on equal=%d; tapped-off vs untapped-off equal=%d\n",
+                        uo[0].l == uo[1].l ? 1 : 0, mon.l == uo[0].l ? 1 : 0, moff.l == uo[1].l ? 1 : 0);
+        }
         std::printf("  SCP-09 written=%llu/%llu rings_equal=%d poll_on=%llu poll_off=%llu mixer_equal=%d (%zu/%zu samples)\n",
                     static_cast<unsigned long long>(ton.written), static_cast<unsigned long long>(toff.written),
                     rings_equal(ton, toff) ? 1 : 0, static_cast<unsigned long long>(on.poll_passes_batched_for_test()),
