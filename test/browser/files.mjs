@@ -318,7 +318,7 @@ row('BOUT-10', '--bug-report: both zips open in CPython\'s zipfile; the same mem
   must(unexpected.length === 0, 'members that differ: ' + JSON.stringify(unexpected) + ' (zips equal as bytes: ' + sameBytes(b, nat('a', 'br.zip')) + ')');
 });
 
-row('BOUT-11', '--log-file: complete after the exit and holding the native log\'s export, Tape SAVE and bug report lines (timestamp dropped, the output directory as a token)', async () => {
+row('BOUT-11', '--log-file: complete after the exit and holding the native log\'s export, Tape SAVE, bug report and (the last line of the run) profiler lines (timestamp dropped, the output directory as a token)', async () => {
   const a = await useA();
   const e = byFile(a.files, '/tmp/j.log');
   must(e && e.complete, 'j.log ' + JSON.stringify(e));
@@ -326,7 +326,7 @@ row('BOUT-11', '--log-file: complete after the exit and holding the native log\'
   must(Buffer.isBuffer(b), 'j.log: ' + b);
   const dir = path.join(OUT, 'a');
   const pick = (text, root) => text.toString('latin1').split('\n')
-    .filter((l) => /--export-skoolkit .*: \d+ files|Tape SAVE:|bug report saved:/.test(l))
+    .filter((l) => /--export-skoolkit .*: \d+ files|Tape SAVE:|bug report saved:|profiler: wrote \d+ non-zero entries/.test(l))
     .map((l) => l.replace(/^\[[0-9:.]+\] /, '').split(root).join('OUT'));
   const pl = pick(b, '/tmp'), nl = pick(nat('a', 'j.log'), dir);
   must(nl.length >= 3 && JSON.stringify(pl) === JSON.stringify(nl), `page ${JSON.stringify(pl)} native ${JSON.stringify(nl)}`);
