@@ -1177,8 +1177,8 @@ inline const char* page_only_refusal(OptId id) {
 // `--set` derives its refusals from it through config_keys (Key::flag).
 // `--no-esp` and `--no-nextpi` are NOT refused: they ask for the only state
 // there is. The debugger-side options that jnext_debug alone serves (--wav-record,
-// --source-map, --export-*) and the joystick UART endpoints (no thread, socket
-// or process of their own) stay accepted.
+// --source-map, --export-*) stay accepted, and so do the joystick UART's plain-file
+// endpoints (--joy-uart-rx, --joy-uart-connector); its pty and FIFO ones are refused.
 inline const char* browser_refusal(OptId id) {
     switch (id) {
     case OptId::Nextpi: case OptId::NextpiDir: case OptId::NextpiRelease:
@@ -1199,6 +1199,10 @@ inline const char* browser_refusal(OptId id) {
     case OptId::Map: case OptId::Annotations:
     case OptId::ImportSkoolkit: case OptId::ImportGhidra:
         return "not available in the browser build (the script host is not part of it)";
+    case OptId::JoyUartPty:
+        return "not available in the browser build (a pseudo-terminal needs the host's terminal devices)";
+    case OptId::JoyUartFifo:
+        return "not available in the browser build (it has no named pipes)";
     case OptId::Sdcard2: case OptId::Sdcard2Readonly:
     case OptId::Sdcard2Writes: case OptId::Sdcard2WritesReset:
         return "not available in the browser build (a page has no second SD card)";

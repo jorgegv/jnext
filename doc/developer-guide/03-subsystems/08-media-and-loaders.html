@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -5165,6 +5165,22 @@ sector: the card the machine sees would differ from the one the copy is laid out
 failure messages name the journal file (<code>MountedCard::target</code>), not the image. A forced
 replace of a file reuses its clusters (FatFs's <code>f_open</code> reuses the cluster hole), so the next
 <code>bind()</code> compacts the superseded records and the file does not grow.</p>
+<p><strong>The glue caches sectors.</strong> FatFs keeps one sector window per volume, so every path lookup
+re-reads its directory, and an uncached <code>disk_read</code> costs an <code>lseek</code> plus an 8 KiB stream-buffer
+refill. <code>fatfs_glue::attach()</code> therefore gives the drive a direct-mapped, write-through cache
+(8192 lines of 512 bytes, 4 MiB, indexed by the FatFs sector number) that lives until <code>detach()</code>.
+It holds the image FILE's raw bytes, never the journal's: <code>disk_read</code> serves a request from the
+cache only when every sector of it is there, otherwise it reads the whole request from the file
+and fills the lines, and the journal overlay is applied after either path. In image mode
+<code>disk_write</code> writes the file first and updates the lines only on success (a failed write drops
+them). The write itself goes into the stream's 8 KiB buffer, so <code>detach()</code> and <code>CTRL_SYNC</code> still
+flush that buffer exactly as before, and a write the stream cannot flush is reported by
+<code>CTRL_SYNC</code> (FatFs's <code>f_close</code> and <code>f_sync</code>, which the callers check), not by the write; only the
+cache needs no flush. Journal mode never writes the file and never touches the cache. The scope is one attach: every user of the
+glue (<code>fatfs_format.cpp</code>, <code>MountedCard</code>, <code>card_extract.cpp</code>) attaches, works and detaches inside
+one call, and nothing may write the image by another route while it is attached. The rows are
+<code>FGC-01..09</code> (<code>fat32_image_test</code>) and, for the write-failure paths that need <code>/dev/full</code> and
+<code>RLIMIT_FSIZE</code>, <code>FGC-L01..02</code> (<code>fatfs_glue_linux_test</code>).</p>
 <p>The rows are <code>SDW-01..28</code> (<code>sdcard_writes_test</code>), <code>SDFA-J01..J14</code> and <code>SDFA-JP01..JP02</code>
 (<code>sdcard_file_add_test</code> and <code>sdcard_file_add_posix_test</code>: the journal-mode add, read back from
 the journal by a reader written from the table above), <code>SDP-SDW-01..02</code> (a sector append and a

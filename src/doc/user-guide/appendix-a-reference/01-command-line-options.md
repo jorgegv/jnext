@@ -544,14 +544,15 @@ with status 1.
     program on the other end of the cable, so a debugger session will
     not survive one.
 
-    POSIX only.
+    POSIX only. Refused in the browser build, which has no named pipes.
 
 **--joy-uart-pty**
 :   As **--joy-uart-fifo**, but allocate a pseudo-terminal instead and
     log the slave device path at startup. This is the form a serial
     client opens — DeZog’s serial remote wants one serial device, not a
     pair of pipes — and it is put in raw mode so a binary protocol
-    passes through untranslated. POSIX only.
+    passes through untranslated. POSIX only. Refused in the browser
+    build, which has no terminals.
 
 **--nextpi**
 
