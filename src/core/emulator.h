@@ -1055,6 +1055,16 @@ public:
     }
     uint8_t audio_mute_mask() const { return audio_mute_mask_; }
 
+    /// Debugger-only per-channel mute (AudioChannelMute bits: 9 AY, 4 DAC). Same
+    /// rules as the source mute above; composes with it. The AY bits go to
+    /// TurboSound, the DAC bits to the Mixer.
+    void set_audio_channel_mute_mask(uint16_t mask) {
+        audio_channel_mute_mask_ = mask & AudioChannelMute::ALL;
+        turbosound_.set_channel_mute_mask(audio_channel_mute_mask_ & AudioChannelMute::AY_ALL);
+        mixer_.set_dac_channel_mute(static_cast<uint8_t>(audio_channel_mute_mask_ >> 9));
+    }
+    uint16_t audio_channel_mute_mask() const { return audio_channel_mute_mask_; }
+
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
     const CallStack& call_stack() const { return call_stack_; }
@@ -2091,6 +2101,7 @@ private:
 
     // Debugger-only source mute; NOT machine state (not reset, not serialised).
     uint8_t         audio_mute_mask_ = AudioMute::NONE;
+    uint16_t        audio_channel_mute_mask_ = AudioChannelMute::NONE;
     DebugState      debug_state_;
     TraceLog        trace_log_;
     CallStack       call_stack_;

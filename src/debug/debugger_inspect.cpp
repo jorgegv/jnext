@@ -827,6 +827,18 @@ Result Debugger::set_audio_mute_mask(ClientId by, uint8_t mask) {
     return Result::Ok;
 }
 
+uint16_t Debugger::audio_channel_mute_mask() const {
+    return impl_->emu.audio_channel_mute_mask();
+}
+
+Result Debugger::set_audio_channel_mute_mask(ClientId by, uint16_t mask) {
+    const uint16_t old_mask = impl_->emu.audio_channel_mute_mask();
+    impl_->emu.set_audio_channel_mute_mask(mask);
+    // The logged value is the stored one, after masking.
+    impl_->log_mutate(by, "audio channel mute mask", old_mask, impl_->emu.audio_channel_mute_mask());
+    return Result::Ok;
+}
+
 // INS-22 -- the decoded audio chain. Every source is a const accessor or a
 // peek: nothing here runs a NextREG read handler or a port read.
 AudioState Debugger::audio_state() const {
@@ -861,12 +873,14 @@ AudioState Debugger::audio_state() const {
     st.pi.to_ear = emu.i2s().ear_routed();
 
     const uint8_t mute = emu.audio_mute_mask();
+    const uint16_t channel_mute = emu.audio_channel_mute_mask();
     st.host.output_gain_db = emu.mixer().output_gain_db();
     st.host.beeper_gain_db = emu.mixer().beeper_gain_db();
     st.host.dac_gain_db = emu.mixer().dac_gain_db();
     for (size_t c = 0; c < AY_CHIP_COUNT; ++c)
         st.host.ay_gain_db[c] = emu.mixer().ay_gain_db(static_cast<int>(c));
     st.host.mute_mask = mute;
+    st.host.channel_mute_mask = channel_mute;
     // The user setting, not audio_off_: a HALT batch raises that for one call.
     st.host.synthesis_on = !emu.config().silent;
 
@@ -891,7 +905,8 @@ AudioState Debugger::audio_state() const {
             ch.volume = cs.regs[8 + k] & 0x0F;
             ch.uses_envelope = (cs.regs[8 + k] & 0x10) != 0;
             ch.amplitude = dv.amplitude[k];
-            ch.muted = ((mute >> c) & 1) != 0;
+            ch.muted = ((mute >> c) & 1) != 0 ||
+                       ((channel_mute >> (AY_CHANNELS_PER_CHIP * c + k)) & 1) != 0;
         }
         cs.envelope.period = static_cast<uint16_t>((cs.regs[12] << 8) | cs.regs[11]);
         cs.envelope.shape = cs.regs[13] & 0x0F;

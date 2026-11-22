@@ -107,12 +107,12 @@ void Mixer::reset()
     // DAC is unsigned around a physical midpoint. Scale only its signed
     // excursion, then restore the midpoint so every gain leaves silence at
     // exactly DAC_REST_LEVEL and cannot introduce a DC offset.
-    int32_t dac_L = DAC_REST_LEVEL +
-        scale((static_cast<int32_t>(dac.pcm_left()) << 2) - DAC_REST_LEVEL,
-              dac_gain_);
-    int32_t dac_R = DAC_REST_LEVEL +
-        scale((static_cast<int32_t>(dac.pcm_right()) << 2) - DAC_REST_LEVEL,
-              dac_gain_);
+    auto dac_term = [&](uint16_t sum9) {
+        return DAC_REST_LEVEL +
+            scale((static_cast<int32_t>(sum9) << 2) - DAC_REST_LEVEL, dac_gain_);
+    };
+    int32_t dac_L = dac_term(dac.pcm_left());
+    int32_t dac_R = dac_term(dac.pcm_right());
 
     // Pi I2S term: mirrors audio_mixer.vhd:89-90 (10-bit zero-extended
     // to 13-bit). Mixer does not own the I2s; Emulator wires it via
@@ -158,6 +158,14 @@ void Mixer::reset()
             // plus a chunk of lost headroom) instead of silence.
             dac_L = DAC_REST_LEVEL;
             dac_R = DAC_REST_LEVEL;
+        } else if (mute_mask_ & DAC_CHANNEL_MUTED) {
+            // Per-channel mute: a muted channel reads as its idle 0x80
+            // (soundrive.vhd:74-77); A+B feed the left sum, C+D the right.
+            auto lvl = [&](int k) -> uint16_t {
+                return ((dac_channel_mute_ >> k) & 1) ? 0x80 : dac.channel(k);
+            };
+            dac_L = dac_term(lvl(0) + lvl(1));
+            dac_R = dac_term(lvl(2) + lvl(3));
         }
     }
 

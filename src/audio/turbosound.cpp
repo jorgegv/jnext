@@ -202,13 +202,19 @@ inline void TurboSound::compute_stereo_mix()
 
     for (int i = 0; i < 3; i++) {
         uint16_t l, r;
-        compute_chip_stereo(i, l, r);
+        compute_chip_stereo(i, 0, l, r);
         hw_L += l;
         hw_R += r;
 
+        // The audible pair: 0 for a muted chip; else, when the debugger muted
+        // channels of this chip, the same mix with those inputs zeroed (the
+        // mute never reaches the hardware sum above).
         const bool muted = (chip_mute_mask_ >> i) & 1;
-        chip_pcm_L_[i] = muted ? 0 : l;
-        chip_pcm_R_[i] = muted ? 0 : r;
+        const uint8_t silenced = (channel_mute_mask_ >> (3 * i)) & 7;
+        uint16_t al = l, ar = r;
+        if (!muted && silenced) compute_chip_stereo(i, silenced, al, ar);
+        chip_pcm_L_[i] = muted ? 0 : al;
+        chip_pcm_R_[i] = muted ? 0 : ar;
         total_L += chip_pcm_L_[i];
         total_R += chip_pcm_R_[i];
     }
@@ -229,7 +235,9 @@ void TurboSound::chip_pcm(int idx, uint16_t& left, uint16_t& right) const
     right = chip_pcm_R_[idx];
 }
 
-void TurboSound::compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const
+// `silenced`: bit 0/1/2 = the channel A/B/C input read as 0 (debugger channel
+// mute); 0 gives the hardware value.
+void TurboSound::compute_chip_stereo(int idx, uint8_t silenced, uint16_t& left, uint16_t& right) const
 {
     left = right = 0;
 
@@ -239,9 +247,9 @@ void TurboSound::compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) c
                    (ay_select_ == 1 || enabled_);
     if (!active) return;
 
-    const uint16_t a = ay_[idx].output_a();
-    const uint16_t b = ay_[idx].output_b();
-    const uint16_t c = ay_[idx].output_c();
+    const uint16_t a = (silenced & 1) ? 0 : ay_[idx].output_a();
+    const uint16_t b = (silenced & 2) ? 0 : ay_[idx].output_b();
+    const uint16_t c = (silenced & 4) ? 0 : ay_[idx].output_c();
     const bool mono = (mono_mode_ >> idx) & 1;
 
     const uint16_t left_mux = (stereo_mode_ || mono) ? c : b;
