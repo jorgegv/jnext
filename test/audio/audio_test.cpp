@@ -1842,7 +1842,9 @@ static void g_ay_envelope() {
     // its first regular step in the same 8 ticks, so 8 ticks after the At=0
     // write the level is volTableYm[29], not [30]; the threshold is [29]
     // (a cycle model of ym2149.vhd:334-350,393-409 gives 0xC0 at divider phase
-    // 0). Owner-approved 2026-11-22, GH #529 F4.
+    // 0). The row pins the two levels exactly (a bound would also pass the
+    // pre-F4 value 0xE0): 96 ticks of ramp (12 steps) read kYm[18] (0x20) and 8 ticks
+    // after the At=0 write kYm[29] (0xC0). Owner-approved 2026-11-22, GH #529 F4.
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -1867,11 +1869,11 @@ static void g_ay_envelope() {
         check("AY-103", "R13 write reloads the envelope from the Attack bit "
               "mid-ramp: At=1 jumps to the bottom and ascends, At=0 jumps "
               "back to the top",
-              mid != 0xFF && mid != 0x00 &&
+              mid == kYm[18] &&
               after_up <= kYm[1] && up_next > after_up &&
-              after_dn >= kYm[29],
+              after_dn == kYm[29],
               fmt("mid=0x%02x after_up=0x%02x up_next=0x%02x after_dn=0x%02x "
-                  "VHDL ym2149.vhd:209-211,392-402",
+                  "VHDL ym2149.vhd:209-211,340-342,392-402",
                   mid, after_up, up_next, after_dn));
     }
 
