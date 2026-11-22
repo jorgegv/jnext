@@ -133,9 +133,10 @@ void AudioPanel::create_ui() {
     tabs_->addTab(scope_view_, tr("Scopes"));
     layout->addWidget(tabs_, 1);
     connect(tabs_, &QTabWidget::currentChanged, this, [this](int) {
-        // A tab that has just come on show draws at once (a paused machine has no tick to do it).
-        if (scopes_on_show()) scope_view_->refresh();
+        // The window asks the backend for the tap on this signal; then a tab that has come on show draws at once, which matters
+        // when the tap is already held (another client asked) and the machine is paused, so no tick will do it.
         emit sub_tab_changed();
+        if (scopes_on_show()) scope_view_->refresh();
     });
 
     // The M and S buttons show the live channel mask (a panel rebuilt against a

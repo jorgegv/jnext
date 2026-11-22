@@ -1457,6 +1457,22 @@ static void test_scopes(Emulator& emu) {
               off && !off->isHidden() && off->text().contains("--silent") && !dbg.audio_scope_enabled());
     }
     {
+        // The refresh on a tab change: the tap is already held by another client and the machine is paused, so no tick will draw
+        // the view; switching to Scopes must draw it at once.
+        if (!build_next_emulator(emu)) { check("DAP-75", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap75", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        for (int f = 0; f < 3; ++f) emu.run_frame();
+        AudioPanel panel(&dbg);
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        const bool empty_before = view && view->shown(3).empty();
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        check("DAP-75", "switching to the Scopes sub-tab with the tap already held and the machine paused draws the view at once (no tick, no refresh call)",
+              view && empty_before && view->shown(3).size() == AudioScopeView::WINDOW && view->trace(3).triggered);
+    }
+    {
         if (!build_next_emulator(emu)) { check("DAP-74", "emulator init", false); return; }
         scope_machine(emu);
         jnext::dbg::Debugger dbg(emu);

@@ -845,14 +845,16 @@ Bresenham threshold of 44100 x 635, so one output sample is exactly 635 master c
 | SCP-09 | A raster-poll loop with sound, 8 frames, the same four runs (machines built over a fixed fill, GH #551) | The poll batch engages untapped and is refused while a tap is installed; tapped equals batch-off, sample for sample |
 | SCP-10 | Rewind on, tap on and off, `step_back(1)` | A replay mixes nothing and `written` does not move; samples again afterwards |
 | SCP-11 | Backend lifecycle | Off before a request; on after it with 16 equal vectors at 44100, first_sample 0; revision +1 per accepted set; refused after the drop; a re-request starts afresh; an unknown client is refused |
-| SCP-12 | Two clients and an observer | On while any live client asks; off after the last drops or detaches; an observer alone turns it on |
-| SCP-13 | Soft reset, in-place `init()`, hard reset, state load | The tap stays installed and keeps growing |
+| SCP-12 | Two clients and an observer | On while any live client asks (a second request keeps the first's tap); off after the last drops or detaches; an observer alone turns it on; a client attached later that never asks leaves it on |
+| SCP-13 | Soft reset, in-place `init()`, hard reset, state load | The same tap stays installed and its sample count keeps rising from where it was |
 | SCP-14 | `--silent` | The request is refused; the tap stays off and uninstalled |
 | SCP-15 | 12 frames (more than the ring holds) | 8192 samples; `first_sample = written - 8192`; the mix traces are the newest mixer outputs in order; a short count gives the newest; count 0 an empty Ok |
 | SCP-16 | `scope_trigger()` on a square, a flat block, a short block, a falling edge and a sample equal to the level | Latest rising edge with a whole window after it; free-run; start 0; free-run; the equal sample crosses |
 | SCP-17 | `scope_meter()` on a square, DC and a mixed block, rest 512 | Peak and RMS about the rest |
-| SCP-18 | A live Pi stream consumed, tap on and off | The audible output is bit-identical |
+| SCP-18 | A live Pi stream consumed, tap on and off | The audible output is bit-identical, and the Left/Right traces equal the mixer's output + 6144 for every sample |
 | SCP-19 | A HALT loop with a tap installed, then the tap dropped | Nothing batches while tapped; the HALT batch engages again afterwards |
+| SCP-20 | Tape EAR high in a standalone mixer; then EAR + MIC + tape; then the speaker-exclusive gate | Beeper 2048 and MixL = MixR = 8192; Beeper 4608; Beeper 0; the mix traces equal the mixer's output + 6144 (audio_mixer.vhd:80-81,99-100) |
+| SCP-21 | A Debugger destroyed while the tap is on | The machine's tap pointer is retired and the HALT batch engages again |
 
 ## Test Implementation Strategy
 

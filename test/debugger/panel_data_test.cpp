@@ -534,13 +534,19 @@ int main(int argc, char** argv) {
         const bool shown_on = fx.backend->audio_scope_enabled();
         fx.mgr->set_enabled(false);
         const bool closed_off = !fx.backend->audio_scope_enabled();
+        // Reopen the window: the Audio dock and its Scopes sub-tab are still current, so the request is made again.
+        fx.mgr->set_enabled(true);
+        QApplication::processEvents();
+        auto* tabs2 = fx.dbg() ? fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs") : nullptr;
+        const bool still_scopes = tabs2 && tabs2->currentIndex() == 4 && fx.dbg()->audio_panel()->scopes_on_show();
+        const bool reopened_on = still_scopes && fx.backend->audio_scope_enabled();
         check("QLAZY-19",
-              "Audio on show: the tap is off with Chips current, on with Scopes current, off again with Chips, off with the dock tabbed away, on when it is shown again, off with the window closed",
-              fx.ok && tabs && chips_off && scopes_on && chips_again_off && back_on && away_off && shown_on && closed_off,
-              b2s(chips_off) + b2s(scopes_on) + b2s(chips_again_off) + b2s(back_on) + b2s(away_off) + b2s(shown_on) + b2s(closed_off));
+              "Audio on show: the tap is off with Chips current, on with Scopes current, off again with Chips, off with the dock tabbed away, on when it is shown again, off with the window closed, and on again when the window is reopened with Scopes still current",
+              fx.ok && tabs && chips_off && scopes_on && chips_again_off && back_on && away_off && shown_on && closed_off && reopened_on,
+              b2s(chips_off) + b2s(scopes_on) + b2s(chips_again_off) + b2s(back_on) + b2s(away_off) + b2s(shown_on) + b2s(closed_off) + b2s(still_scopes) + b2s(reopened_on));
     }
     {
-        uint64_t scope_n = 0, chips_in_scope = 0, panels_scope = 0, panels_away = 0, scope_in_chips = 0;
+        uint64_t scope_n = 0, chips_in_scope = 0, panels_scope = 0, panels_away = 0, scope_in_chips = 0, scope_in_siblings = 0;
         {
             Fixture fx;
             fx.enable();
@@ -572,12 +578,26 @@ int main(int argc, char** argv) {
             for (int i = 0; i < 8; ++i) fx.tick();
             scope_in_chips = fx.mgr->take_audio_scope_refresh_count();
         }
+        {
+            // The sibling sub-tabs (DAC & Beeper, Log, Tracker) refresh no scopes either.
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+            for (int idx : {1, 2, 3}) {
+                if (tabs) tabs->setCurrentIndex(idx);
+                QApplication::processEvents();
+                fx.mgr->take_audio_scope_refresh_count();
+                for (int i = 0; i < 4; ++i) fx.tick();
+                scope_in_siblings += fx.mgr->take_audio_scope_refresh_count();
+            }
+        }
         check("QLAZY-20",
-              "running with the Audio dock shown and Scopes current: 8 scope refreshes in 8 ticks, no Chips live refresh, and the other panels' refresh count equals the tabbed-away run; with Chips current: no scope refresh",
-              scope_n == 8 && chips_in_scope == 0 && panels_scope == panels_away && scope_in_chips == 0,
+              "running with the Audio dock shown and Scopes current: 8 scope refreshes in 8 ticks, no Chips live refresh, and the other panels' refresh count equals the tabbed-away run; with Chips, DAC & Beeper, Log or Tracker current: no scope refresh",
+              scope_n == 8 && chips_in_scope == 0 && panels_scope == panels_away && scope_in_chips == 0 && scope_in_siblings == 0,
               "scope=" + std::to_string(scope_n) + " chips=" + std::to_string(chips_in_scope) + " panels=" +
                   std::to_string(panels_scope) + "/" + std::to_string(panels_away) + " scope_in_chips=" +
-                  std::to_string(scope_in_chips));
+                  std::to_string(scope_in_chips) + " siblings=" + std::to_string(scope_in_siblings));
     }
     {
         const auto closed = busy_run(false, false);
