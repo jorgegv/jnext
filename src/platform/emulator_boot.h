@@ -293,6 +293,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     const uint64_t saved_fb_generation = emu.framebuffer_generation();   // GH #428
 
     const uint8_t saved_mute   = emu.audio_mute_mask();
+    const auto saved_drops     = emu.audio_drops();   // GH #530: host state, like the mask
     auto saved_esxdos_state    = emu.esxdos_stub_state();
     // GH #93 — a card change still pending dies with the machine unless it is
     // carried. The loop owners service it BEFORE their cold-boot polls, so this
@@ -391,6 +392,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // ────────────────────────────────────────────────────────────────────────
     emu.carry_framebuffer_generation(saved_fb_generation);
     emu.set_audio_mute_mask(saved_mute);
+    emu.restore_audio_drops(saved_drops);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
     emu.restore_rzx_failed_outputs(std::move(saved_rzx_failed));
     if (pending_sd_change) emu.carry_sd_card_change(std::move(*pending_sd_change));

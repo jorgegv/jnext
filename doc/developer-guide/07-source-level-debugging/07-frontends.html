@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3265,7 +3265,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 </ol>
 <p><code>follow_pc()</code> (<code>source_panel.cpp:581</code>) clears <code>placed_</code> and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-<code>DebuggerWindow::activate_follow_pc()</code> (<code>debugger_window.cpp:2227</code>) calls it, and
+<code>DebuggerWindow::activate_follow_pc()</code> (<code>debugger_window.cpp:2230</code>) calls it, and
 <code>apply_pause_state(true)</code> runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.</p>
 <h3 id="finding-the-file">Finding the file<a class="headerlink" href="#finding-the-file" title="Permanent link">&para;</a></h3>
@@ -3559,7 +3559,7 @@ a run override like <code>debugger.attached</code>).</p>
   its <code>@NN</code>, which is a different thing (<a href="01-which-memory.html">7.1</a>).</li>
 </ul>
 <p>The instruction at the PC is read as the CPU will fetch it, not as a data read.
-<code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:916</code>) takes the bytes of that one instruction
+<code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:925</code>) takes the bytes of that one instruction
 (at most four) from <code>Emulator::predict_instruction_bytes()</code> and every other address from
 <code>Mmu::peek()</code>; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
 other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:175</code>: <code>is_call_like()</code> at <code>:184</code> and <code>instruction_length()</code> at <code>:190</code>

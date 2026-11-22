@@ -208,6 +208,41 @@ enum class NmiButton : uint8_t {
 /// `Any` is a filter value only.
 enum class EventSource : uint8_t { Cpu = 0, Copper, Dma, Debugger, Any };
 
+/// Why an audio write was discarded (GH #530; DEBUGGER-MUSIC-SOUND-PLAN.md §3.5).
+/// Each reason is one VHDL term. A write gets the FIRST reason that applies, in
+/// this order: decode comes before the gate, because an undecoded write is not a
+/// write to that device at all.
+///   AyPortDisabled        NR 0x84 bit 0 off: port_fffd/port_bffd do not decode
+///                         (zxnext.vhd:2744,2963-2964)
+///   AyHeldInReset         NR 0x06 psg_mode = 11: audio_ay_reset (zxnext.vhd:6989,
+///                         turbosound.vhd:121, ym2149.vhd:170,184)
+///   AyChipSelectTurboOff  select/pan command with TurboSound off (turbosound.vhd:129)
+///   AySelectIgnored       a 0xFFFD value that is neither a register select nor a
+///                         select/pan command (turbosound.vhd:141)
+///   AyAddressHigh         data written while the register address is 16-31
+///                         (ym2149.vhd:188)
+///   DacFamilyDisabled     the port's family bit in NR 0x84 is off: no port_dac_X
+///                         decode (zxnext.vhd:2745-2751,2974-2980)
+///   DacDisabled           NR 0x08 bit 3 off: port_dac_X_wr and soundrive reset
+///                         (zxnext.vhd:2776,3091-3094,7046)
+///   DacMirrorDisabled     NR 0x2C/0x2D/0x2E write with the DAC off
+///                         (zxnext.vhd:5412-5414,7046; soundrive.vhd:72-101)
+/// `None` is the unused slot 0 of a per-reason array.
+enum class AudioDropReason : uint8_t {
+    None = 0, AyPortDisabled, AyHeldInReset, AyChipSelectTurboOff, AySelectIgnored,
+    AyAddressHigh, DacFamilyDisabled, DacDisabled, DacMirrorDisabled, Count };
+constexpr size_t AUDIO_DROP_REASON_COUNT = size_t(AudioDropReason::Count);
+
+/// One reason's always-on counter: host state, never in a snapshot (GH #530).
+struct AudioDropCounter {
+    uint64_t    count = 0;
+    uint16_t    last_port = 0;    ///< the 16-bit port; 0x002C-0x002E for a NR mirror
+    uint8_t     last_value = 0;
+    uint16_t    last_pc = 0;      ///< the slot's instruction (debug_slot_pc); meaningful for Cpu
+    uint32_t    last_frame = 0;   ///< the event stamper's frame tag
+    EventSource last_source = EventSource::Cpu;
+};
+
 /// CAP-EVT — memory / port access direction. Used BOTH as a single value in a
 /// payload and as a mask in a subscription (§4.3 "`access` ⊆ {Read, Write}").
 enum class Access : uint8_t {

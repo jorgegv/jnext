@@ -506,6 +506,20 @@ int main(int argc, char** argv) {
               same, detail);
     }
 
+    {
+        // The Audio tab's dropped-write table names the OUT it discarded: the window connects the
+        // panel's signal to the Disassembly (GH #530).
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->disasm_panel());
+        const uint16_t before = fx.dbg()->disasm_panel()->selected_address();
+        emit fx.dbg()->audio_panel()->show_in_disassembly_requested(0x8005);
+        const uint16_t after = fx.dbg()->disasm_panel()->selected_address();
+        check("QAUD-01", "the Audio panel's show_in_disassembly_requested(0x8005) makes the Disassembly select 0x8005 (the window's connect)",
+              fx.ok && before != 0x8005 && after == 0x8005,
+              "before=" + std::to_string(before) + " after=" + std::to_string(after));
+    }
+
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
