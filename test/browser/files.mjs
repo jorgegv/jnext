@@ -176,15 +176,20 @@ const useA = () => mountA || (mountA = (async () => {
   await fsWrite(page, '/tmp/tape_save_demo.bin', tsd);
   await fsMkdir(page, '/tmp/sk'); await fsMkdir(page, '/tmp/gh');
   await click(page);
+  await waitFrame(page, 0, 100);
+  const mid = await list(page);   // frame 100: the compositor trace (frame 50) is finished, the rest is open
   await waitExited(page);
   const rc = await page.evaluate(() => window.player0.stop());
-  return { page, before, stateBefore, rc, files: await list(page) };
+  return { page, before, stateBefore, mid, rc, files: await list(page) };
 })());
 
-row('BOUT-01', 'listFiles(): [] before the click; after the automatic exit exactly the native run\'s files, every one complete with its FS size; never a file under /sdcard, /jnext or /media', async () => {
+row('BOUT-01', 'listFiles(): [] before the click; at frame 100 the tape, WAV and log are open and the compositor trace (frame 50) is complete; after the automatic exit exactly the native run\'s files, every one complete with its FS size; never a file under /sdcard, /jnext or /media', async () => {
   const a = await useA();
   must(a.stateBefore === 'waiting' && a.before.length === 0, `before the click: state ${a.stateBefore}, ${JSON.stringify(a.before)}`);
   must(a.rc === 0, 'stop() after the automatic exit resolved ' + a.rc);
+  const open = (p) => a.mid.find((e) => e.path === p);
+  must(['/tmp/o.tzx', '/tmp/o.wav', '/tmp/j.log'].every((p) => open(p) && open(p).complete === false) &&
+       open('/tmp/c.csv') && open('/tmp/c.csv').complete === true, 'at frame 100: ' + JSON.stringify(a.mid));
   const want = [...tree(path.join(OUT, 'a')).keys()].map((k) => '/tmp/' + k).sort();
   const got = a.files.map((e) => e.path).sort();
   must(JSON.stringify(got) === JSON.stringify(want), `listed ${JSON.stringify(got)} native ${JSON.stringify(want)}`);
