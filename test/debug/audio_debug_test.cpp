@@ -1889,6 +1889,7 @@ int main() {
         Emulator emu;
         EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
         emu.init(cfg);
+        nr_write(emu, 0x08, 0x08);   // the DAC on: an applied write, past the tap's own gate
         Debugger dbg(emu);
         log_client(dbg, "awl19");
         cpu_out(emu, 0x1F, 0x44);
