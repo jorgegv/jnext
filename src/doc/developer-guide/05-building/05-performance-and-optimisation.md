@@ -354,6 +354,9 @@ objects compiled with a path in a `-D` definition (the fixture and source direct
 tests take), which belong to their worktree. The price is in the debug info: sources are
 named relative to the tree root, so run `gdb` from the worktree's root directory, or
 `set substitute-path . <root>`.
+PGO trees (`JNEXT_PGO=GENERATE` or `USE`) are left out of this: ccache's path rewriting changes the
+file names gcc folds into its per-function profile checksum in the instrumented compile only, and
+the optimised compile then refuses the profile (`-Werror=coverage-mismatch`).
 
 Give ccache room once per machine; the 5 GB default thrashes on this tree:
 

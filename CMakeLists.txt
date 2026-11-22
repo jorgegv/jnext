@@ -115,7 +115,12 @@ if(USE_CCACHE)
         # __FILE__), so a hit from another worktree is byte-equivalent. Set per
         # launch (cmake -E env), never in the user's ccache.conf: CI and the
         # remote host get it too.
-        if(JNEXT_CCACHE_SHARE)
+        # Never in a PGO tree (JNEXT_PGO=GENERATE or USE): the instrumented compile goes through
+        # ccache's preprocessed mode, which rewrites the paths under CCACHE_BASEDIR in the
+        # line markers, while the profile-use compile is never cached and keeps them absolute;
+        # gcc's per-function profile checksum includes the file name, so the profile then
+        # "has changed" (-Werror=coverage-mismatch). Measured with a two-file reproduction.
+        if(JNEXT_CCACHE_SHARE AND NOT JNEXT_PGO MATCHES "^(GENERATE|USE)$")
             set(JNEXT_CCACHE_LAUNCHER ${CMAKE_COMMAND} -E env
                 "CCACHE_BASEDIR=${CMAKE_SOURCE_DIR}" CCACHE_NOHASHDIR=1 "${CCACHE_PROGRAM}")
             if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
