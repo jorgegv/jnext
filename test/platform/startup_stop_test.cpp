@@ -115,7 +115,10 @@ constexpr uint16_t TARGET = 0x8003;
 
 // The machine, its backend, and the stop, declared in the order they are destroyed in reverse.
 struct Rig {
-    Emulator                  emu;
+    // On the heap: an Emulator is large, and main() holds dozens of Rigs. Their stack slots add up under the
+    // MinGW build's 1 MB default stack (a stack overflow at startup on Windows).
+    std::unique_ptr<Emulator> emu_owner = std::make_unique<Emulator>();
+    Emulator&                 emu = *emu_owner;
     EmulatorConfig            cfg;
     std::unique_ptr<Debugger> dbg;
     StartupStop               ss;

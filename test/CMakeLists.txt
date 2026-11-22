@@ -1156,6 +1156,11 @@ target_link_libraries(startup_stop_test PRIVATE
 target_include_directories(startup_stop_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(startup_stop_test PRIVATE
     JNEXT_TAPE_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk/v2.4/sccz80-tape")
+# main() holds some fifty rows, each with its own Rig (a machine, a debugger and a client); the 8 MB
+# reserve above overflowed at startup under wine once the suite passed 40 rows. 16 MB for this one.
+if(WIN32)
+    target_link_options(startup_stop_test PRIVATE -Wl,--stack,16777216)
+endif()
 add_test(NAME startup_stop_tests COMMAND startup_stop_test)
 
 # CLI option table / man page alignment (issue #43). Header-only table under
