@@ -200,11 +200,18 @@ tap enabled mid-sample, a reset, a state load and a switch between the tapped an
 Nothing may be added to the hot audio path when no tap is installed (a debugger feature that is unused
 costs nothing). A test per instruction slice was rejected, and so was a second per-slot accumulate
 entry point (a second caller of a hot function stopped the compiler inlining it, 1 to 7 % of every
-program). Instead the two places that tested `replay_mode_` before mixing, the device cluster and the
-HALT batch's replay, now test one byte, `Emulator::audio_divert_` (bit 0 a replay, bit 1 a tap
-installed): the same load, test and branch, so zero costs nothing extra, and a non-zero byte goes to
-`audio_divert_span_()`, which is cold and out of line and calls `integrate_span_tapped()` (a replay
-mixes nothing). `refresh_audio_divert_()` runs at every writer of `replay_mode_` and of the tap pointer.
+program). Instead the device cluster's `replay_mode_` test became a test of one byte,
+`Emulator::audio_divert_` (bit 0 a replay, bit 1 a tap installed): the same load, test and branch, so
+zero costs nothing extra, and a non-zero byte goes to `audio_divert_span_()`, which is cold and out of
+line and calls `integrate_span_tapped()` (a replay mixes nothing). `refresh_audio_divert_()` runs at
+every writer of `replay_mode_` and of the tap pointer.
+
+The HALT and raster-poll batches do not feed the tap: a test in their replay loop cost one instruction
+per replayed segment (0.1 % of whole programs, measured), and a twin of the replay cost more elsewhere.
+While a tap is installed `batch_window_limit_()` refuses every window (it tests `audio_divert_`, which
+it already did for a rewind replay as `replay_mode_`), so those programs run slot by slot, the path the
+batches are held equivalent to, and the tap sees exactly the batch-off samples. Batching resumes when
+the tap is dropped.
 
 The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 `env_reset`, which reloads the level and also forces `env_ena` (`ym2149.vhd:340-342` and `ym2149.vhd:393-409`), so the first

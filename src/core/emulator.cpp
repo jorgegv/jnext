@@ -12396,14 +12396,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
             span += each;
             ++i;
         }
-        // GH #536: a debugger source tap, if one is installed, takes the span through the cold tapped path. This
-        // tests the tap pointer, not audio_divert_: a replay never batches (batch_window_limit_ refuses it), so
-        // here the two say the same, and the untapped arm stays the straight-line one. (Measured: a test here
-        // costs one instruction per replayed segment, 0.1 % of a HALT-idle program; moving it out of the loop
-        // into a twin of this function cost more elsewhere, see the issue.)
-        if (__builtin_expect(audio_scope_tap_ != nullptr, 0))
-            audio_divert_span_(span);
-        else
+        if (!replay_mode_)
             mixer_.integrate_span(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
                                   &Emulator::pi_sample_thunk_, this);
     }
@@ -12441,8 +12434,11 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // client alone does not refuse (GH #489): the raster walk is advanced over the window below, and
     // the call-stack tracker learns nothing from a HALT repeat (the real repeat has filled the newest
     // frame's target space; no 0x76 path pushes or pops).
+    // GH #536: audio_divert_ is a rewind replay (bit 0) or an installed debugger source tap (bit 1). The tap
+    // is fed per slot by the cluster, never by the batch's replay, which stays exactly the loop it was (a divert
+    // test in it cost 0.1 % of whole programs, measured): while a tap is installed nothing batches.
     if (debug_state_.halt_batch_blocked() || trace_log_.enabled() || profiler_.active() ||
-        replay_mode_)
+        audio_divert_ != 0)
         return 0;
 
     // G3: RZX counts instructions per frame and replays input per instruction.

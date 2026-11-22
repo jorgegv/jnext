@@ -440,6 +440,20 @@ static void build_batch(Emulator& emu, bool poll) {
 }
 
 
+// An Emulator on the heap over a known fill (GH #551: machines that are stack locals of one test process can differ in
+// audio, so every A/B pair of the batch rows is built the same way).
+struct HeapEmu {
+    void* mem;
+    Emulator* e;
+    explicit HeapEmu(uint8_t fill) : mem(::operator new(sizeof(Emulator))) {
+        std::memset(mem, fill, sizeof(Emulator));
+        e = new (mem) Emulator;
+    }
+    ~HeapEmu() { e->~Emulator(); ::operator delete(mem); }
+    HeapEmu(const HeapEmu&) = delete;
+    HeapEmu& operator=(const HeapEmu&) = delete;
+};
+
 // True when `n` is valid, named `name` in octave `oct`, `cents` away (to 0.005).
 static bool is_note(const PsgNote& n, const char* name, int oct, double cents) {
     return n.valid && std::strcmp(n.name, name) == 0 && n.octave == oct &&
@@ -1925,56 +1939,50 @@ int main() {
               ta.written > 1000 && rings_equal(ta, tb) && oa.l != ob.l && oa.r != ob.r);
     }
     {
-        // HALT batch: the tap sees the same samples with batching on and off, and the batch ran. The machines run one
-        // after the other, as the batch suites' A/B rig runs them (batch_ab.h): not in lockstep.
-        Emulator on, off; build_batch(on, false); build_batch(off, false);
-        on.set_cycle_batching_for_test(true, true, true);
-        off.set_cycle_batching_for_test(false, false, false);
-        AudioSourceTap ton, toff;
-        on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
-        Out mon, moff;
-        for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); }
-        for (int f = 0; f < 8; ++f) { off.run_frame(); drain(off, moff); }
-        std::printf("  SCP-08 written=%llu/%llu rings_equal=%d halt_on=%llu halt_off=%llu mixer_equal=%d\n",
-                    static_cast<unsigned long long>(ton.written), static_cast<unsigned long long>(toff.written),
-                    rings_equal(ton, toff) ? 1 : 0, static_cast<unsigned long long>(on.halt_repeats_batched_for_test()),
-                    static_cast<unsigned long long>(off.halt_repeats_batched_for_test()), mon.l == moff.l && mon.r == moff.r ? 1 : 0);
-        check("SCP-08", "an IM 2 HALT loop with AY tones and a toggling beeper, 8 frames: the tap sequences are identical with HALT batching on and off, the batch ran only in the 'on' machine, and the mix trace is each machine's own mixer output",
-              ton.written > 5000 && rings_equal(ton, toff) && on.halt_repeats_batched_for_test() > 0 &&
-              off.halt_repeats_batched_for_test() == 0 && mon.l == moff.l && mon.r == moff.r);
+        // The tap refuses batching (batch_window_limit_ tests audio_divert_): the HALT replay never feeds it, so while a tap is
+        // installed nothing batches, and what the tap and the mixer see equals the batch-off machine's, sample for sample.
+        // Machines are built over a known fill, one after the other (GH #551: stack-resident pairs differ).
+        struct Run { Out out; AudioSourceTap tap; uint64_t batched = 0; };
+        auto go = [](bool poll, bool batch, bool tap, uint8_t fill, Run& r) {
+            HeapEmu h(fill);
+            build_batch(*h.e, poll);
+            h.e->set_cycle_batching_for_test(batch, batch, batch);
+            if (tap) h.e->set_audio_scope_tap(&r.tap);
+            for (int f = 0; f < 8; ++f) { h.e->run_frame(); drain(*h.e, r.out); }
+            r.batched = poll ? h.e->poll_passes_batched_for_test() : h.e->halt_repeats_batched_for_test();
+        };
+        for (int poll = 0; poll < 2; ++poll) {
+            Run untapped_on, tapped_on, tapped_off, untapped_off;
+            go(poll, true,  false, 0x00, untapped_on);
+            go(poll, true,  true,  0x00, tapped_on);
+            go(poll, false, true,  0x00, tapped_off);
+            go(poll, false, false, 0x00, untapped_off);
+            const bool refuses = untapped_on.batched > 0 && tapped_on.batched == 0 && tapped_off.batched == 0;
+            const bool same_tap = tapped_on.tap.written > 5000 && rings_equal(tapped_on.tap, tapped_off.tap);
+            const bool same_audio = tapped_on.out.l == untapped_off.out.l && tapped_on.out.r == untapped_off.out.r &&
+                                    untapped_on.out.l == untapped_off.out.l;
+            if (!poll)
+                check("SCP-08", "an IM 2 HALT loop with AY tones and a toggling beeper, 8 frames: HALT batching engages untapped and is refused while a tap is installed; the tapped run's tap sequences and mixer output equal the batch-off run's, sample for sample",
+                      refuses && same_tap && same_audio);
+            else
+                // GH #551: the heap-over-fixed-fill construction is deliberate; do not return to stack-resident machines.
+                check("SCP-09", "a raster-poll loop with AY tones, 8 frames: the poll batch engages untapped and is refused while a tap is installed; the tapped run's tap sequences and mixer output equal the batch-off run's, sample for sample (machines over a fixed fill: GH #551)",
+                      refuses && same_tap && same_audio);
+        }
     }
     {
-        // The poll-batch A/B, one machine at a time on the heap over a known fill: every machine of the matrix
-        // below starts from the same bytes, so nothing the constructor leaves unset can differ between them.
-        auto run = [](bool batch, bool tap, uint8_t fill, Out& out, AudioSourceTap& t, uint64_t& passes) {
-            void* mem = ::operator new(sizeof(Emulator));
-            std::memset(mem, fill, sizeof(Emulator));
-            Emulator* e = new (mem) Emulator;
-            build_batch(*e, true);
-            e->set_cycle_batching_for_test(batch, batch, batch);
-            if (tap) e->set_audio_scope_tap(&t);
-            for (int f = 0; f < 8; ++f) { e->run_frame(); drain(*e, out); }
-            passes = e->poll_passes_batched_for_test();
-            e->~Emulator();
-            ::operator delete(mem);
-        };
-        Out o[8]; AudioSourceTap t[8]; uint64_t pp[8];
-        run(true,  false, 0x00, o[0], t[0], pp[0]);
-        run(true,  false, 0xFF, o[1], t[1], pp[1]);
-        run(true,  false, 0xA5, o[2], t[2], pp[2]);
-        run(false, false, 0x00, o[3], t[3], pp[3]);
-        run(false, false, 0xFF, o[4], t[4], pp[4]);
-        run(true,  true,  0x00, o[5], t[5], pp[5]);
-        run(true,  true,  0xFF, o[6], t[6], pp[6]);
-        run(false, true,  0x00, o[7], t[7], pp[7]);
-        std::printf("  SCP-09 matrix (batch,tap,fill): on/00 on/FF=%d on/00 on/A5=%d off/00 off/FF=%d on/00 off/00=%d | "
-                    "tap on/00 vs untapped on/00=%d tap on/FF vs untapped on/FF=%d tap on/00 tap on/FF=%d tap on/00 vs tap off/00 mixers=%d rings=%d | passes %llu %llu %llu\n",
-                    o[0].l == o[1].l, o[0].l == o[2].l, o[3].l == o[4].l, o[0].l == o[3].l,
-                    o[5].l == o[0].l, o[6].l == o[1].l, o[5].l == o[6].l, o[5].l == o[7].l, rings_equal(t[5], t[7]),
-                    (unsigned long long)pp[0], (unsigned long long)pp[1], (unsigned long long)pp[5]);
-        check("SCP-09", "a raster-poll loop with AY tones, 8 frames, machines built over the same bytes: the tap sequences are identical with the poll batch on and off, the batch ran only in the 'on' machine, and the tap leaves the audible output unchanged",
-              t[5].written > 5000 && rings_equal(t[5], t[7]) && pp[5] > 0 && pp[7] == 0 && o[5].l == o[0].l && o[5].r == o[0].r &&
-              o[5].l == o[7].l);
+        // Dropping the tap lets batching resume.
+        HeapEmu h(0x00);
+        build_batch(*h.e, false);
+        h.e->set_cycle_batching_for_test(true, true, true);
+        AudioSourceTap tap;
+        h.e->set_audio_scope_tap(&tap);
+        for (int f = 0; f < 4; ++f) h.e->run_frame();
+        const uint64_t while_tapped = h.e->halt_repeats_batched_for_test();
+        h.e->set_audio_scope_tap(nullptr);
+        for (int f = 0; f < 4; ++f) h.e->run_frame();
+        check("SCP-19", "a HALT loop with a tap installed batches nothing; once the tap is dropped the HALT batch engages again",
+              while_tapped == 0 && h.e->halt_repeats_batched_for_test() > 0);
     }
     {
         // A rewind replay mixes nothing, tapped or not (audio_divert_ bit 0), and normal running resumes after it.

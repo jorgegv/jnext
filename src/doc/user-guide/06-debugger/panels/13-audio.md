@@ -165,7 +165,7 @@ as a percentage of the most it can swing; beside it, `pk` is that swing and `rms
 the root mean square, in the source's own units (0 to 255 for an AY or DAC channel).
 
 Samples are collected only while this tab is on show, and the scopes redraw on
-every frame while the machine runs. With `--silent` the emulator does not
+every frame while the machine runs. While it is collecting, programs that sit in HALT or poll the raster run without the emulator's idle shortcuts, which costs some host speed; it ends when you leave the tab. With `--silent` the emulator does not
 synthesise audio, and the tab says so instead of drawing traces.
 
 ---

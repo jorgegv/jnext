@@ -841,8 +841,8 @@ Bresenham threshold of 44100 x 635, so one output sample is exactly 635 master c
 | SCP-05 | Emulator with an AY0 tone (period 100, volume 15), tap on, 2 frames | Ay0A holds 0 and 1020, all within range, at most one in-between sample per edge; the other AY sources 0, DAC 512, Beeper 0 |
 | SCP-06 | The all-sources fixture at 0 dB, no mute | Left/Right - 6144 equal the mixer's own output, sample for sample |
 | SCP-07 | The same machine with every source muted and every host gain at -6 dB | The 16 traces are identical; the audible output differs (control) |
-| SCP-08 | An IM 2 HALT loop with sound, 8 frames, HALT batching on and off | Tap sequences identical; the batch ran only in the 'on' machine |
-| SCP-09 | A raster-poll loop with sound, 8 frames, the poll batch on and off | Identical; the poll batch ran only in the 'on' machine |
+| SCP-08 | An IM 2 HALT loop with sound, 8 frames; untapped and tapped, batching on and off | HALT batching engages untapped and is refused while a tap is installed; the tapped run's tap and mixer output equal the batch-off run's, sample for sample |
+| SCP-09 | A raster-poll loop with sound, 8 frames, the same four runs (machines built over a fixed fill, GH #551) | The poll batch engages untapped and is refused while a tap is installed; tapped equals batch-off, sample for sample |
 | SCP-10 | Rewind on, tap on and off, `step_back(1)` | A replay mixes nothing and `written` does not move; samples again afterwards |
 | SCP-11 | Backend lifecycle | Off before a request; on after it with 16 equal vectors at 44100, first_sample 0; revision +1 per accepted set; refused after the drop; a re-request starts afresh; an unknown client is refused |
 | SCP-12 | Two clients and an observer | On while any live client asks; off after the last drops or detaches; an observer alone turns it on |
@@ -852,6 +852,7 @@ Bresenham threshold of 44100 x 635, so one output sample is exactly 635 master c
 | SCP-16 | `scope_trigger()` on a square, a flat block, a short block, a falling edge and a sample equal to the level | Latest rising edge with a whole window after it; free-run; start 0; free-run; the equal sample crosses |
 | SCP-17 | `scope_meter()` on a square, DC and a mixed block, rest 512 | Peak and RMS about the rest |
 | SCP-18 | A live Pi stream consumed, tap on and off | The audible output is bit-identical |
+| SCP-19 | A HALT loop with a tap installed, then the tap dropped | Nothing batches while tapped; the HALT batch engages again afterwards |
 
 ## Test Implementation Strategy
 
