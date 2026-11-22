@@ -212,9 +212,9 @@ refresh, because a page can be mapped with no revision change. It never jumps to
 Source tab show the CPU's map. Rows: `QSYML-*`.
 
 **Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1118`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:403`: ~4 Hz). Paused, it
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:413`: ~4 Hz). Paused, it
 redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1107`; `PausedStamp`,
-`debugger_manager.h:262`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+`debugger_manager.h:271`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
 exception to the running cadence: while the window is open, the Audio dock is on show (`panel_on_show()`) and its
