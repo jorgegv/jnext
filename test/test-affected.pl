@@ -29,7 +29,8 @@
 #   --files FILE     changed files, one per line (instead of git)
 #   --smoke a,b,c    suites that always run (each must be declared in the manifest, else exit 2)
 #   --plan FILE      write the machine-readable plan here (key=value lines)
-#   --last FILE      write the record of this selection (base, head, files, suites)
+#   --explain-miss a,b  print `TEST-AFFECTED MISS` for each named suite this plan would NOT have selected
+#                    (stateless: run-unit-tests.sh asks it after a full run fails)
 #   --check          list tracked files that are unmapped; exit 1 if any (--all: list every one)
 #   --tracked FILE   the tracked-file list for --check (default: git ls-files)
 # Exit: 0 ok, 1 --check found unmapped files, 2 refusal (bad input).
@@ -46,7 +47,7 @@ while (@args) {
     my $a = shift @args;
     if    ($a eq '--check') { $o{check} = 1 }
     elsif ($a eq '--all')   { $o{all} = 1 }
-    elsif ($a =~ /^--(root|build|manifest|conf|base|files|smoke|plan|last|tracked)$/) {
+    elsif ($a =~ /^--(root|build|manifest|conf|base|files|smoke|plan|tracked|explain-miss)$/) {
         defined(my $v = shift @args) or die "test-affected: $a needs a value\n";
         $o{$1} = $v;
     } else { die "test-affected: unknown argument '$a'\n" }
@@ -141,7 +142,7 @@ sub obj_files {
 }
 
 # per suite file sets
-my (%suite_files, %nomap, %suite_present);
+my (%suite_files, %nomap, %suite_present, %suite_defs, %suite_rootdef);
 my %any_mapped;   # file -> 1 : read by some object in the tree
 for my $d (grep { m{/link\.d$} } @files) {
     my $tdir = dirname($d);
@@ -183,6 +184,25 @@ for my $d (grep { m{/link\.d$} } @files) {
     for my $ob (keys %objs) { %fs = (%fs, %{ obj_files($ob) }) }
     $suite_files{$suite} = \%fs;
     $suite_present{$suite} = 1;
+    # Files the suite reads AT RUN TIME through a path baked in as a compile definition
+    # (-DJNEXT_MAIN_SRC="<root>/src/main.cpp", a fixture directory, ...): no depfile sees them.
+    if (open(my $fm, '<', "$tdir/flags.make")) {
+        while (<$fm>) {
+            next unless /^(?:CXX|C)_DEFINES\s*=\s*(.*)$/;
+            my $defs = $1;
+            while ($defs =~ /-D(\w+)=\\?"([^"\\]*)\\?"/g) {
+                my ($name, $v) = ($1, $2);
+                next if $name =~ /^QT_TESTCASE_/;   # Qt's QFINDTESTDATA roots; nothing here calls it
+
+                next unless $v =~ m{^/};
+                $v = norm($v);
+                if ($v eq $root || $v eq $home) { $suite_rootdef{$suite} = 1; next }
+                my $r = rel($v);
+                push @{ $suite_defs{$suite} }, $r if defined $r && length $r;
+            }
+        }
+        close $fm;
+    }
 }
 # files read by any object at all (the application binary, tools): the "mapped" set
 for my $f (grep { m{\.o\.d$} } @files) {
@@ -216,7 +236,14 @@ my @rules;
 sub classify { my $f = shift; for my $r (@rules) { return $r->[1] if $f =~ $r->[0] } return undef }
 
 # ---------------------------------------------------------------- --check
-sub git { my @c = ('git', '-C', $root, @_); open(my $p, '-|', @c) or die "git: $!"; my @l = <$p>; close $p; chomp @l; return @l }
+sub git {   # stderr is silenced: a root that is not a git checkout (a fixture) just yields no lines
+    my @c = ('git', '-C', $root, @_);
+    open(my $olderr, '>&', \*STDERR); open(STDERR, '>', '/dev/null');
+    my $ok = open(my $p, '-|', @c);
+    my @l = $ok ? <$p> : (); close $p if $ok;
+    open(STDERR, '>&', $olderr);
+    chomp @l; return @l;
+}
 
 if ($o{check}) {
     my @tracked;
@@ -243,8 +270,8 @@ if ($o{files}) {
     chomp(@changed = grep { /\S/ } <$t>);
     $base = $o{base} // '(files list)';
 } else {
-    $base = $o{base} // (git('merge-base', 'HEAD', 'main'))[0];
-    refuse("no base: pass --base REF (no `main` branch to take a merge-base with)") unless $base;
+    $base = $o{base} // (git('merge-base', 'HEAD', 'main'))[0] // (git('merge-base', 'HEAD', 'origin/main'))[0];
+    refuse("no base: pass --base REF (no `main` or `origin/main` to take a merge-base with)") unless $base;
     my %s;
     $s{$_} = 1 for git('diff', '--name-only', '--no-renames', $base);
     $s{$_} = 1 for git('ls-files', '--others', '--exclude-standard');
@@ -252,6 +279,9 @@ if ($o{files}) {
 }
 
 # smoke suites
+if (!defined $o{smoke} && defined $o{'explain-miss'} && open(my $mk, '<', "$root/Makefile")) {   # the set `make test-affected` always runs
+    while (<$mk>) { if (/^SMOKE_SUITES\s*:=\s*(.*?)\s*$/) { ($o{smoke} = $1) =~ s/\s+/,/g; last } }
+}
 my @smoke = grep { length } split /,/, ($o{smoke} // '');
 for my $s (@smoke) { refuse("smoke suite '$s' is not declared in $manifest") unless $is_declared{$s} }
 
@@ -269,6 +299,42 @@ sub rows_declared {
     return \%r;
 }
 my $declared_rows = rows_declared();
+
+my %suite_text_cache;
+sub suite_text {   # the sources of the suite's own objects plus its manifest arguments
+    my $s = shift;
+    return $suite_text_cache{$s} //= do {
+        my $text = $args_of{$s} // '';
+        for my $f (sort keys %{ $suite_files{$s} }) {
+            next unless $f =~ m{^(test|src)/.*\.(cpp|h|cc|c|hpp)$};
+            open(my $fh, '<', "$root/$f") or next;
+            local $/; my $src = <$fh>; close $fh;
+            # Comments name files without reading them (a header's "see doc/man/jnext.1.md").
+            $src =~ s{/\*.*?\*/}{}gs;
+            $src =~ s{(^|\s)//[^\n]*}{$1}g;
+            $text .= $src;
+        }
+        $text;
+    };
+}
+
+# Suites that read changed file $f at run time, whatever its class: a compile-definition path
+# equal to it or a directory holding it; a literal mention of its path in the suite's sources
+# (every suite for a file no object compiles, only the suites given the whole source root
+# (JNEXT_SRC_DIR) for one that is compiled).
+sub edge_suites {
+    my ($f, $mapped) = @_;
+    my %r;
+    for my $s (keys %suite_defs) {
+        for my $dp (@{ $suite_defs{$s} }) { if ($f eq $dp || index($f, "$dp/") == 0) { $r{$s} = 1; last } }
+    }
+    my $needle = qr/\Q$f\E(?![A-Za-z0-9_.\-])/;
+    for my $s (keys %suite_files) {
+        next if $mapped && !$suite_rootdef{$s};
+        $r{$s} = 1 if suite_text($s) =~ $needle;
+    }
+    return \%r;
+}
 
 sub grep_refs {   # suites and rows whose sources/args/row scripts name path $p (or its directory)
     my $p = shift;
@@ -302,8 +368,21 @@ sub grep_refs {   # suites and rows whose sources/args/row scripts name path $p 
     return (\%ss, \%rr);
 }
 
+my $have_git = -e "$root/.git";
 for my $f (@changed) {
-    if ($file_suites{$f}) { $suites{$_} = 1 for @{ $file_suites{$f} }; next }
+    my $edges = edge_suites($f, ($file_suites{$f} || $any_mapped{$f}) ? 1 : 0);
+    $suites{$_} = 1 for keys %$edges;
+    # A submodule pointer (gitlink) changes every object that includes the submodule.
+    if ($have_git) {
+        my ($ls) = git('ls-files', '-s', '--', $f);
+        if (defined $ls && $ls =~ /^160000\b/) { $full = 1; $full_why{"$f (a submodule pointer)"} = 1; next }
+    }
+    if ($file_suites{$f}) {
+        my @decl = grep { $is_declared{$_} } @{ $file_suites{$f} };
+        $suites{$_} = 1 for @decl;
+        $notes{"$f is compiled into the application only (no unit suite links it): regression rows are the gate's, run the ones it touches"} = 1 if !@decl && !%$edges;
+        next;
+    }
     if ($any_mapped{$f}) { $notes{"$f is compiled into the application only (no unit suite reads it): regression rows are the gate's, run the ones it touches"} = 1; next }
     my $act = classify($f);
     if (!defined $act) { push @unmapped, $f; next }
@@ -334,7 +413,7 @@ for my $f (@changed) {
     }
     elsif ($act eq 'fixture') {
         my ($ss, $rr) = grep_refs($f);
-        if (!%$ss && !%$rr) { $full = 1; $full_why{"$f (no suite source or row script names it)"} = 1 }
+        if (!%$ss && !%$rr && !%$edges) { $full = 1; $full_why{"$f (no suite source or row script names it)"} = 1 }
         $suites{$_} = 1 for keys %$ss;
         $rows{$_} = 1 for keys %$rr;
     }
@@ -351,9 +430,13 @@ sub slurp { my $f = shift; open(my $fh, '<', "$root/$f") or return ''; local $/;
 my $harness_re = qr{^test/(run-unit-tests\.sh|unit-tests\.conf|row_id\.h)$};
 for my $f (@changed) {
     my $t = ($f =~ m{\.(cpp|h|hpp|c|cc|mm|cmake|sh|txt|mjs|js|in)$} || $f =~ /CMakeLists\.txt$|^Makefile$/) ? slurp($f) : '';
+    # What the change REMOVED counts too: deleting the last _WIN32 arm still changes that tree.
+    $t .= "\n" . join("\n", map { substr($_, 1) } grep { /^-[^-]/ } git('diff', '-U0', $base, '--', $f)) if $have_git && !$o{files};
+    my $browser_only = $f =~ m{^src/platform/(browser_frontend\.|web/)};
     my $iscmake = $f =~ /(^|\/)CMakeLists\.txt$|\.cmake$/;
     # sdl
-    if    ($f =~ m{^src/(platform|gui)/}) { push @{ $plat{sdl} }, "$f (frontend/platform code the SDL-only tree builds)" }
+    if    ($browser_only) { }
+    elsif ($f =~ m{^src/(platform|gui)/}) { push @{ $plat{sdl} }, "$f (frontend/platform code the SDL-only tree builds)" }
     elsif ($t =~ /\b(ENABLE_QT_UI|ENABLE_DEBUGGER)\b/) { push @{ $plat{sdl} }, "$f (mentions ENABLE_QT_UI/ENABLE_DEBUGGER)" }
     elsif ($iscmake)               { push @{ $plat{sdl} }, "$f (CMake file)" }
     elsif ($f =~ $harness_re)      { push @{ $plat{sdl} }, "$f (the unit harness)" }
@@ -370,7 +453,8 @@ for my $f (@changed) {
     push @{ $plat{win} }, $w if $w;
     # wasm
     my $m;
-    if    ($t =~ /__EMSCRIPTEN__/)    { $m = "$f (contains __EMSCRIPTEN__)" }
+    if    ($browser_only)             { $m = "$f (compiled only by the browser build)" }
+    elsif ($t =~ /__EMSCRIPTEN__/)    { $m = "$f (contains __EMSCRIPTEN__)" }
     elsif ($iscmake && $t =~ /EMSCRIPTEN/) { $m = "$f (EMSCRIPTEN CMake arm)" }
     elsif ($f eq 'test/node-run.sh' || $f =~ m{^web/}) { $m = "$f (WebAssembly runner or web tree)" }
     elsif ($f =~ $harness_re)         { $m = "$f (the unit harness)" }
@@ -411,11 +495,14 @@ if ($o{plan}) {
     print $po "platforms=", join(' ', grep { $plat{$_} } qw(sdl win wasm)), "\n";
     close $po;
 }
-if ($o{last}) {
-    open(my $lo, '>', $o{last}) or refuse("cannot write $o{last}");
-    print $lo "base=$base\nhead=$head\nmode=$mode\n";
-    print $lo "files=", join(' ', @changed), "\n";
-    print $lo "suites=", join(',', @sel), "\n";
-    close $lo;
+# Stateless miss detection: run-unit-tests.sh asks which of the suites that just failed this plan
+# would not have selected (only meaningful when the plan is a subset; FULL would have run them).
+if (defined $o{'explain-miss'}) {
+    my %sel = map { $_ => 1 } @sel;
+    if ($mode eq 'subset') {
+        for my $n (grep { length } split /,/, $o{'explain-miss'}) {
+            print "TEST-AFFECTED MISS: $n was not selected for ", join(' ', @changed), "\n" unless $sel{$n};
+        }
+    }
 }
 exit 0;
