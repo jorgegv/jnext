@@ -204,6 +204,7 @@ BEGIN {
     M["nex_v13_test"]                  = "NEX loader (V1.3)"
     M["extended_nex_test"]             = "Extended NEX streaming"
     M["tap_loader_test"]               = "TAP loader (container)"
+    M["tap_loader_autoplay_test"]      = "TAP loader (auto play/stop)"
     M["program_archive_test"]          = "ZIP program archives"
     M["halt_batch_equiv_test"]         = "Cycle batching equivalence (fixtures)"
     M["halt_batch_periph_test"]        = "Cycle batching equivalence (peripherals)"
