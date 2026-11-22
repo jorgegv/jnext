@@ -32,6 +32,8 @@ if want debugger-qt-func; then
                 "$JNEXT" "${SD_CARD_ARGS[@]}" --silent --rewind-buffer-size 0 --debugger --dzrp-port 0 \
                 --load "$DBGSTART_NEX"; then
             fails+=("the Qt frontend never logged 'dzrp: listening on': $(tail -n 3 "$log" | tr '\n' ' ')")
+        elif ! dbgstart_wait_stop "$log" "$DZRP_PID"; then
+            fails+=("QtApp: no stop within 90 s: $(tail -n 3 "$log" | tr '\n' ' ')")
         elif dzrp_peer startup "$(dbgstart_pc_of nex "$DBGSTART_NEX")"; then
             ok_msg="QtApp: ${DZRP_OUT#PASS }"
         else

@@ -96,6 +96,20 @@ dbgstart_python() {
     command -v python3 &>/dev/null
 }
 
+# dbgstart_wait_stop <log> <pid> — wait (bounded, 90 s) for the `debugger: stopped at` line before a client
+# attaches. A NEX on the Next machine is applied over a recorded NextZXOS, which takes seconds on a host
+# with a cold warm-start cache or a loaded one, and CMD_INIT / a GDB or ZRCP attach during it would find
+# the machine running. Returns 1 when jnext died or no stop came.
+dbgstart_wait_stop() {
+    local log=$1 pid=$2 i
+    for i in $(seq 1 900); do
+        grep -aq "debugger: stopped at" "$log" && return 0
+        kill -0 "$pid" 2>/dev/null || return 1
+        sleep 0.1
+    done
+    return 1
+}
+
 # dbgstart_have_python <row> — true when python3 is there; else the row (already begun) is
 # reported SKIPPED (the client and the PC readers are Python) and false.
 dbgstart_have_python() {

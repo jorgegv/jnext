@@ -26,6 +26,9 @@ if want debugger-gdb-port-func; then
                 --load "$DBGSTART_NEX"; then
             gdb_stop
             fail_row " (no 'gdb: listening on' line within 10 s: $(tail -n 3 "$log" | tr '\n' ' '))"
+        elif ! dbgstart_wait_stop "$log" "$GDB_PID"; then
+            gdb_stop
+            fail_row " (no stop within 90 s: $(tail -n 3 "$log" | tr '\n' ' '))"
         elif gdb_peer startup "$GDB_PORT" "$pc"; then
             gdb_stop
             if grep -aq "dzrp:" "$log"; then

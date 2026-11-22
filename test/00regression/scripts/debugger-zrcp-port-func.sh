@@ -26,6 +26,9 @@ if want debugger-zrcp-port-func; then
                 --load "$DBGSTART_NEX"; then
             zrcp_stop
             fail_row " (no 'zrcp: listening on' line within 10 s: $(tail -n 3 "$log" | tr '\n' ' '))"
+        elif ! dbgstart_wait_stop "$log" "$ZRCP_PID"; then
+            zrcp_stop
+            fail_row " (no stop within 90 s: $(tail -n 3 "$log" | tr '\n' ' '))"
         elif zrcp_peer startup "$pc"; then
             zrcp_stop
             if grep -aq "dzrp:" "$log"; then

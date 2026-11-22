@@ -32,6 +32,7 @@ if want debugger-script-func; then
             fail_row " (no 'dzrp: listening on' line within 10 s: $(tail -n 3 "$log" | tr '\n' ' '))"
         else
             fails=()
+            dbgstart_wait_stop "$log" "$DZRP_PID" || fails+=("no stop within 90 s")
             dzrp_peer startup "0x$main_hex" || fails+=("${DZRP_OUT#FAIL }")
             kill -0 "$DZRP_PID" 2>/dev/null || fails+=("jnext exited during the session")
             ! grep -aqi "requesting exit\|requested exit" "$log" || fails+=("the log says an exit was requested")

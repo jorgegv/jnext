@@ -35,6 +35,7 @@ if want debugger-sdl-func; then
         fi
     else
         fails=()
+        dbgstart_wait_stop "$log" "$DZRP_PID" || fails+=("no stop within 90 s")
         if dzrp_peer startup "$(dbgstart_pc_of nex "$DBGSTART_NEX")"; then
             ok_msg="SdlApp: ${DZRP_OUT#PASS }"
         else
@@ -49,6 +50,7 @@ if want debugger-sdl-func; then
                 --break-at _main --script "$jds" --dzrp-port 0 --load "$DBGSTART_NEX"; then
             fails+=("--break-at _main --script: never listened: $(tail -n 3 "$log2" | tr '\n' ' ')")
         else
+            dbgstart_wait_stop "$log2" "$DZRP_PID" || fails+=("--script run: no stop within 90 s")
             dzrp_peer startup "0x$main_hex" || fails+=("--script run: ${DZRP_OUT#FAIL }")
             kill -0 "$DZRP_PID" 2>/dev/null || fails+=("the SDL run under --script exited during the session")
             ! grep -aqi "requesting exit\|requested exit" "$log2" || fails+=("the SDL run under --script requested an exit")
