@@ -33,6 +33,8 @@
 //   FGC-01..06      The FatFs glue's sector cache (GH #547 stage 5): read-after-write,
 //                   a second attach, the journal overlay over the cache, two sectors
 //                   on one line, a partly cached read, a read past the volume.
+//   FAT32-WIN-01..02 The FAT reader's one-sector window (GH #547 stage 5): chains that
+//                   cross FAT sector boundaries, and a re-read after a reformat.
 //   FAT32-UPSERT-01 fat32_tree_upsert creates missing dirs (case-insensitive)
 //                   and replaces an existing file (unchanged unit).
 
@@ -446,6 +448,45 @@ int main() {
             check("FGC-06", "a read past sector_count is RES_PARERR and leaves the buffer alone",
                   at && rr == RES_PARERR && untouched && last_ok, gerr);
         }
+        std::remove(img.c_str());
+    }
+
+    // ---- FAT32-WIN-01..02: the reader's one-sector FAT window (GH #547 stage 5) ----
+    // 512-byte clusters hold 128 FAT entries per FAT sector, so a 300 KB file's chain
+    // (~600 clusters) crosses four FAT sector boundaries. Oracle: the bytes written.
+    {
+        const std::string img = tmp_path("win.img");
+        const uint32_t lba = 63, sectors = 80000; // ~39 MB: > 65525 clusters of 512 bytes
+        Fat32WriteOptions o; o.au_size = 512;
+        auto pat = [](size_t n, int mul, int add) {
+            std::string v(n, 0);
+            for (size_t i = 0; i < n; ++i) v[i] = static_cast<char>(static_cast<int>(i) * mul + add + static_cast<int>(i >> 9));
+            return v;
+        };
+        auto read_back = [&](Fat32Tree& t) { return fat32_read_tree(img, lba, t); };
+        auto same = [](const Fat32Tree& t, const char* name, const std::string& want) {
+            const Fat32Node* n = find_child(t.root, name);
+            return n && std::string(n->data.begin(), n->data.end()) == want;
+        };
+        std::string werr;
+        const std::string a1 = pat(300 * 1024, 7, 1), b1 = pat(200 * 1024, 5, 2);
+        Fat32Tree t1; t1.root.push_back(fnode("A.BIN", a1)); t1.root.push_back(fnode("B.BIN", b1));
+        const bool ok1 = make_blank(img, lba, sectors) &&
+                         fat32_format_and_populate(img, lba, sectors, t1, werr, o);
+        Fat32Tree r1;
+        const bool rd1 = ok1 && read_back(r1);
+        check("FAT32-WIN-01", "files whose chains cross FAT sector boundaries read back byte-identical",
+              ok1 && rd1 && same(r1, "A.BIN", a1) && same(r1, "B.BIN", b1), werr);
+
+        // A second read of the SAME path after the image was reformatted with other
+        // contents (so the same FAT sectors hold other chains) sees the new image.
+        const std::string a2 = pat(250 * 1024, 3, 9), b2 = pat(350 * 1024, 11, 4);
+        Fat32Tree t2; t2.root.push_back(fnode("B.BIN", b2)); t2.root.push_back(fnode("A.BIN", a2));
+        const bool ok2 = fat32_format_and_populate(img, lba, sectors, t2, werr, o);
+        Fat32Tree r2;
+        const bool rd2 = ok2 && read_back(r2);
+        check("FAT32-WIN-02", "a read after the image was reformatted sees the new chains, none of the old window",
+              ok2 && rd2 && same(r2, "A.BIN", a2) && same(r2, "B.BIN", b2), werr);
         std::remove(img.c_str());
     }
 
