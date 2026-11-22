@@ -3250,9 +3250,6 @@ private:
     uint64_t halted_slot_(uint64_t master_cycles);
     uint64_t halt_batch_after_slot_(uint64_t master_cycles, bool& batched);
     void halt_batch_replay_(uint64_t master_cycles);
-    /// GH #536 - the replay for a machine whose debugger source tap is installed (`audio_divert_` set), called
-    /// instead of halt_batch_replay_() by its callers: a twin compiled apart, so the untapped replay is untouched.
-    [[gnu::noinline, gnu::cold]] void halt_batch_replay_tapped_(uint64_t master_cycles);
     void poll_replay_(uint64_t master_cycles);
     void halt_batch_end_();
     uint64_t batch_window_limit_(uint64_t slot_start, uint64_t slot_mc, uint64_t need, bool& dma_waiting);

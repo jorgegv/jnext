@@ -12396,44 +12396,16 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
             span += each;
             ++i;
         }
-        if (!replay_mode_)
+        // GH #536: a debugger source tap, if one is installed, takes the span through the cold tapped path. This
+        // tests the tap pointer, not audio_divert_: a replay never batches (batch_window_limit_ refuses it), so
+        // here the two say the same, and the untapped arm stays the straight-line one. (Measured: a test here
+        // costs one instruction per replayed segment, 0.1 % of a HALT-idle program; moving it out of the loop
+        // into a twin of this function cost more elsewhere, see the issue.)
+        if (__builtin_expect(audio_scope_tap_ != nullptr, 0))
+            audio_divert_span_(span);
+        else
             mixer_.integrate_span(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
                                   &Emulator::pi_sample_thunk_, this);
-    }
-    audio_off_ = true;
-    batch_silenced_ = true;
-}
-
-[[gnu::noinline, gnu::cold]] void Emulator::halt_batch_replay_tapped_(uint64_t master_cycles)
-{
-    // GH #536 - halt_batch_replay_() for a machine whose debugger source tap is installed (`audio_divert_`
-    // set), called instead of it by its callers. A textual twin, kept apart so that the untapped replay
-    // above is exactly what it was: no test and no second call site in its loop (a divert test there, or a
-    // dispatch at its entry, moved the instruction count of whole programs by 0.1 %, measured), and no
-    // second caller of tick_n() or integrate_span(): the PSG and the audio span go through cold entry points
-    // of their own, TurboSound::tick_n_cold() and Mixer::integrate_span_tapped(). Keep the two in step.
-    static constexpr uint64_t PSG_DIVISOR = 16;
-    const uint64_t each = batch_first_mc_;
-    batch_first_mc_ = 0;
-    if (audio_off_) return;     // --silent: the cluster skips its PSG / audio block itself
-    const uint64_t n = master_cycles / each;
-    for (uint64_t i = 0; i < n; ) {
-        psg_accum_ += each;
-        if (psg_accum_ >= PSG_DIVISOR) {
-            turbosound_.tick_n(static_cast<uint32_t>(psg_accum_ / PSG_DIVISOR));
-            psg_accum_ %= PSG_DIVISOR;
-        }
-        uint64_t span = each;
-        ++i;
-        while (i < n && psg_accum_ + each < PSG_DIVISOR) {
-            psg_accum_ += each;
-            span += each;
-            ++i;
-        }
-        // A replay never batches (batch_window_limit_ refuses it), so the divert byte is the tap's alone.
-        if (!replay_mode_ && audio_scope_tap_)
-            mixer_.integrate_span_tapped(*audio_scope_tap_, beeper_, turbosound_, dac_, span, sample_accum_,
-                                         MASTER_CLOCK_HZ, &Emulator::pi_sample_thunk_, this);
     }
     audio_off_ = true;
     batch_silenced_ = true;
@@ -12566,12 +12538,10 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     uint64_t pat_sum = 0;
     for (unsigned j = 0; j < pn; ++j) pat_sum += batch_pat_[j];
     const uint64_t passes = (master_cycles - first) / pat_sum;
-    const bool tapped = audio_divert_ != 0;     // GH #536: the debugger's source tap is installed
-    auto slot = [this, tapped](uint64_t len) {
+    auto slot = [this](uint64_t len) {
         audio_off_ = false;         // halt_batch_replay_() returns at once when it is set (and sets it again)
         batch_first_mc_ = len;
-        if (__builtin_expect(tapped, 0)) halt_batch_replay_tapped_(len);   // GH #536
-        else halt_batch_replay_(len);
+        halt_batch_replay_(len);
     };
     slot(first);
     for (uint64_t k = 0; k < passes; ++k)
@@ -12615,8 +12585,7 @@ void Emulator::pi_sample_thunk_(void* self)
     bool batched = false;
     const uint64_t total = halt_batch_after_slot_(master_cycles, batched);
     if (!batched) return 0;
-    if (__builtin_expect(audio_divert_ != 0, 0)) halt_batch_replay_tapped_(total);   // GH #536
-    else halt_batch_replay_(total);
+    halt_batch_replay_(total);
     return total;
 }
 
