@@ -165,8 +165,32 @@ public:
     /// Current block index (0-based).
     size_t current_block() const { return current_block_; }
 
-    /// True if all blocks have been consumed.
+    /// True if all blocks have been consumed. For BOTH modes this is "the last block has
+    /// been delivered": the fast trap serves a block and advances, and the real-time player
+    /// calls next_block() when the last bit of a block completes, before its trailing pause.
     bool at_end() const { return current_block_ >= blocks_.size(); }
+
+    /// GH #548: can the tape carry machine code? True when some data block is NOT the
+    /// data of a Program or array header (types 0, 1, 2) and is not the SCREEN$ a type 3
+    /// header of start 16384 and length 6912 announces: a CODE block, a headerless block.
+    /// A tape that cannot has nothing to run from RAM after its last block.
+    bool holds_code_block() const {
+        int prev_type = -1;
+        unsigned prev_len = 0, prev_start = 0;
+        for (const TapBlock& b : blocks_) {
+            if (b.flag == 0x00 && b.data.size() == 17) {   // a header: type, name, length, params
+                prev_type  = b.data[0];
+                prev_len   = static_cast<unsigned>(b.data[11] | (b.data[12] << 8));
+                prev_start = static_cast<unsigned>(b.data[13] | (b.data[14] << 8));
+                continue;
+            }
+            const bool basic = prev_type >= 0 && prev_type <= 2;
+            const bool screen = prev_type == 3 && prev_start == 16384 && prev_len == 6912;
+            if (!basic && !screen) return true;
+            prev_type = -1;
+        }
+        return false;
+    }
 
     /// Get the next block and advance the position.
     /// Returns nullptr if at end of tape.

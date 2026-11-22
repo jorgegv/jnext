@@ -1333,6 +1333,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-startup-stop-debugger-break-at" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The startup stop (--debugger, --break-at)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#no-verb-that-drives-the-machine-runs-inside-a-delivery" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3128,6 +3139,10 @@ survives a hard reset that rebuilds the machine under it.</p>
 <td>the script engine, the recorder, and <code>ScriptHost</code>'s observer listener</td>
 </tr>
 <tr>
+<td><code>CommandLine</code></td>
+<td>the startup stop of <code>--debugger</code> and <code>--break-at</code> (below)</td>
+</tr>
+<tr>
 <td><code>Test</code></td>
 <td>the test harnesses</td>
 </tr>
@@ -3318,7 +3333,7 @@ owner sets it, never an adapter:</p>
 </tr>
 <tr>
 <td><code>SdlApp</code>, <code>HeadlessApp</code></td>
-<td><code>ExitNonZero</code>: pause, log, push <code>on_exit_requested(3)</code></td>
+<td><code>ExitNonZero</code>: pause, log, push <code>on_exit_requested(3)</code>; <code>Pause</code> under <code>--debugger</code></td>
 </tr>
 </tbody>
 </table>
@@ -3333,6 +3348,49 @@ knows which code is taken, so <code>ScriptHost</code> logs the <code>requesting 
 when the stop is a script's.</p>
 <p>An explicit <code>pause()</code> is a stop that drops the transient subscriptions, but it
 is not an <code>Action::Stop</code>, so it never requests an exit.</p>
+<p>Under <code>--debugger</code> the SDL and headless loop owners set <code>Pause</code>: the user asked
+for a session, so every stop waits for the remote instead of becoming an exit. A
+script's own <code>exit N</code> still exits; a script <code>stop</code> or failed <code>assert</code> pauses.</p>
+<h2 id="the-startup-stop-debugger-break-at">The startup stop (<code>--debugger</code>, <code>--break-at</code>)<a class="headerlink" href="#the-startup-stop-debugger-break-at" title="Permanent link">&para;</a></h2>
+<p><code>StartupStop</code> (<code>src/platform/startup_stop.{h,cpp}</code>, toolkit-free) is how the
+command line starts a program paused. Each loop owner holds one, declared after
+its <code>debugger_</code>, and it is a <code>ClientKind::CommandLine</code> arming client. The loop
+owner calls it at four places: <code>start()</code> at the top of <code>run()</code>, once every
+pending load, inject and RZX replay is bound (it counts them); <code>program_landed()</code>
+as each of them lands, after the sidecar symbols and <code>--source-map</code>; <code>poll()</code>
+once per tick after the pump; <code>on_cold_boot()</code> from its boot routine.</p>
+<p>When the last program has landed the stop is armed: with no <code>--break-at</code>, a
+<code>pause()</code> by the client (the stop's reason says which: the NEX entry, the
+restored PC, the injected program, the failed load); with it, a one-shot
+<code>run_to()</code> resolved with the Breakpoints panel's chain (<code>SymbolTable::resolve_key</code>,
+then <code>SourceMap::resolve</code>), keeping the memory of a paged symbol through
+<code>run_to(by, addr, space)</code>. It is armed when the program lands rather than at
+power-on because a NEX or snapshot load rebuilds the machine and a sidecar
+symbol does not exist earlier. A name that resolves to nothing fails the landing,
+and the loop owner ends the run with exit 1 before the program has executed.</p>
+<p>A <code>--break-at</code> stop is a transient <code>Execute</code> subscription of the client (a Breakpoint stop of the
+command-line client, not a run-to), made by <code>subscribe()</code> alone and never by a run-control verb: <code>run_to()</code>
+resets the step mode, arms a step-off and overwrites the armed verb, and on a machine another client holds
+paused it would resume that pause. Every subscription carries a delivery handler that records the stop
+(<code>fired_</code>, PC, cycle) at the moment it is taken, so <code>poll()</code> does not infer it from a pause it may have missed.</p>
+<p>The stop is the client's own pause or transient subscription, so SES-01 keeps it
+from every other client: DeZog attaching or detaching does not resume it. The
+client detaches once the machine has run again after the stop (the next <code>poll()</code>
+sees it unpaused or its cycle changed), so its own detach resumes nothing, and it
+also detaches when its stop is cancelled by a cold boot. Another client's stop does NOT cancel it:
+DeZog's <code>CMD_INIT</code> pauses a machine still loading its tape, and <code>pause()</code> removes every client's transients
+(<code>apply_stop()</code>), ours included. <code>poll()</code> asks the subscriptions themselves (none of ours left in
+<code>subscriptions(true)</code>), not whether it saw a pause, because a pause and a resume inside one pump leave
+none to see, and the resume notification is edge-detected per pump. It then subscribes them again,
+paused or running: <code>--break-at</code>'s target, which <code>resolve_target()</code> fixed at the first arm, or the tape's
+capture and every range already in <code>watches_</code>. Two cases are decided without waiting for a gate: a machine
+another client holds paused ON the stop point, or about to resume from it with the one-instruction step-off a resume arms pending (it skips the Execute gate of the instruction the CPU stands on)
+(<code>DebugState::step_off_pending()</code>), has reached the stop (<code>StartupStop::reached_here()</code>; logged as reached while
+another debugger held the machine), and a pause-type stop due while another client already holds the machine
+takes that pause instead of re-attributing it. Only a cold boot or reaching the stop ends it. One limit: instructions another
+client steps through between its stop and our next <code>poll()</code> are not watched. A headless loop paused under <code>--debugger</code> waits on the servers with or
+without a peer (<code>DebugServers::headless_should_wait()</code>'s third parameter), so the
+wait for DeZog is a poll and not a spin.</p>
 <h2 id="no-verb-that-drives-the-machine-runs-inside-a-delivery">No verb that drives the machine runs inside a delivery<a class="headerlink" href="#no-verb-that-drives-the-machine-runs-inside-a-delivery" title="Permanent link">&para;</a></h2>
 <p>A handler runs with <code>run_frame()</code> still on the stack and the drain walking the
 latch ring. So every verb that would do any of the following refuses there with
@@ -3356,7 +3414,7 @@ through <code>run()</code>'s body rather than the refused public verb.</p>
 <h2 id="how-the-loop-owners-host-the-backend">How the loop owners host the backend<a class="headerlink" href="#how-the-loop-owners-host-the-backend" title="Permanent link">&para;</a></h2>
 <p><code>HeadlessApp</code>, <code>SdlApp</code> and <code>QtApp</code> each, in <code>init()</code>:</p>
 <ol>
-<li>build one <code>Debugger</code> and set the stop policy;</li>
+<li>build one <code>Debugger</code> and set the stop policy (<code>Pause</code> for the SDL and headless loop owners when <code>--debugger</code> is given);</li>
 <li>register a <code>LoopDriver</code> with <code>set_loop_driver()</code>: <code>cold_boot</code> runs the loop
    owner's own boot sequence, and <code>load</code> its load dispatch. Both live in
    <code>src/platform/</code>, above the backend, so a closure is the only way the backend

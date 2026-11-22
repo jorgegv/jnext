@@ -1613,6 +1613,62 @@ int main() {
         }
     }
 
+    // GH #548 (the command-line debugger start): the deck predicates the tape stop reads.
+    // Oracle: the design (a tape's last block is DELIVERED when its data has played or been
+    // served, not when the deck stops) and the ROM's own classes of data: a Program or an array
+    // (header types 0, 1, 2) and a SCREEN$ (type 3, start 16384, length 6912) are not code.
+    {
+        TapLoader t;
+        const bool ok = t.load(write_file("tape01.tap", concat({header_block(), data_block()})));
+        bool delivered_after_first = false;
+        t.next_block();
+        delivered_after_first = t.at_end();
+        t.next_block();
+        check("TAPE-01", "TAP: at_end() is false while a block remains and true once the last block was taken (the fast trap "
+                         "and the real-time player both end a block by next_block())",
+              ok && !delivered_after_first && t.at_end());
+    }
+    {
+        TapLoader t;
+        const bool ok = t.load(write_file("tape02.tap", concat({header_block(), data_block()})));
+        t.set_fast_load(false);
+        t.start_realtime_playback();
+        uint64_t clock = 0;
+        bool flipped_while_playing = false;
+        while (clock < 400000000ull && t.is_playing()) {
+            t.tick_realtime(500);
+            clock += 500;
+            if (t.at_end()) { flipped_while_playing = t.is_playing(); break; }
+        }
+        check("TAPE-02", "TAP real time: the last block counts as delivered at the end of its data, while the deck is still "
+                         "playing its trailing pause (the instant a loader's USR can run)",
+              ok && flipped_while_playing);
+    }
+    {
+        auto holds = [&](const char* name, const Bytes& tap) {
+            TapLoader t;
+            return t.load(write_file(name, tap)) && t.holds_code_block();
+        };
+        auto hdr = [](uint8_t type, unsigned len, unsigned start) {
+            Bytes h = {type, 'T', 'E', 'S', 'T', ' ', ' ', ' ', ' ', ' ', ' ',
+                       static_cast<uint8_t>(len & 0xFF), static_cast<uint8_t>(len >> 8),
+                       static_cast<uint8_t>(start & 0xFF), static_cast<uint8_t>(start >> 8), 0x00, 0x80};
+            return tap_block(0x00, h);
+        };
+        const Bytes program = concat({hdr(0, 5, 10), data_block()});
+        const Bytes program_screen = concat({hdr(0, 5, 10), data_block(), hdr(3, 6912, 16384),
+                                             tap_block(0xFF, Bytes(6912, 0))});
+        const Bytes program_code = concat({hdr(0, 5, 10), data_block(), hdr(3, 5, 0x8000), data_block()});
+        const Bytes headerless = concat({hdr(0, 5, 10), data_block(), data_block()});
+        const Bytes screen_elsewhere = concat({hdr(0, 5, 10), data_block(), hdr(3, 6912, 0x8000),
+                                               tap_block(0xFF, Bytes(6912, 0))});
+        check("TAPE-03", "holds_code_block(): Program only false; Program + SCREEN$ (16384, 6912) false; Program + CODE true; a "
+                         "headerless block true; a 6912-byte CODE block anywhere but 16384 true",
+              !holds("tape03a.tap", program) && !holds("tape03b.tap", program_screen) &&
+                  holds("tape03c.tap", program_code) && holds("tape03d.tap", headerless) &&
+                  holds("tape03e.tap", screen_elsewhere));
+    }
+
     Log::emulator()->sinks().pop_back();
     std::filesystem::remove_all(g_root, ec);
 

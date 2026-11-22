@@ -402,6 +402,8 @@ int main(int argc, char* argv[]) {
     std::string tape_save_file;
     bool        magic_breakpoint = false;
     bool        persistent_breakpoints = false;
+    bool        debugger_start = false;   // GH #548: --debugger / --break-at
+    std::string break_at;                 // GH #548: --break-at ADDR|SYMBOL
     // GH #287 — the debugger protocol servers' bind address. Empty means "the
     // user did not say", which leaves EmulatorConfig's loopback default.
     std::string debug_listen_address;
@@ -970,6 +972,18 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::PersistentBreakpoints:
                 persistent_breakpoints = true;
+                break;
+            case cli::OptId::Debugger:
+                debugger_start = true;
+                break;
+            case cli::OptId::BreakAt:
+                // GH #548: implies --debugger. An empty value names nothing to stop at.
+                if (v[0][0] == '\0') {
+                    fprintf(stderr, "--break-at: ADDR|SYMBOL must not be empty.\n");
+                    return 1;
+                }
+                break_at = v[0];
+                debugger_start = true;
                 break;
             case cli::OptId::DzrpPort: {
                 // A port that silently became another one would be a server
@@ -2642,7 +2656,19 @@ int main(int argc, char* argv[]) {
         // could arrive from a config file is one the user cannot audit by
         // reading the command they ran.
         if (!debug_listen_address.empty()) cfg.debug_listen_address = debug_listen_address;
-        cfg.dzrp_port = dzrp_port;
+        // GH #548: --debugger waits for "a debugger" without naming one. A run with a debugger
+        // window (the Qt GUI) is its own; any other gets DZRP on the default port unless the
+        // user chose a protocol port. Before the --debug-listen-address check below, which
+        // asks for a server port.
+        bool debugger_has_window = false;
+#if defined(ENABLE_QT_UI) && defined(ENABLE_DEBUGGER)
+        debugger_has_window = !headless;
+#endif
+        cfg.debugger_start = debugger_start;
+        cfg.break_at = break_at;
+        cfg.dzrp_port = debugger_start
+            ? cli::debugger_implied_dzrp_port(debugger_has_window, dzrp_port, zrcp_port, gdb_port)
+            : dzrp_port;
         cfg.zrcp_port = zrcp_port;
         cfg.gdb_port = gdb_port;
         cfg.dzrp_channel = dzrp_channel;

@@ -1145,6 +1145,24 @@ target_link_libraries(pok_trainers_test PRIVATE
 target_include_directories(pok_trainers_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME pok_trainers_tests COMMAND pok_trainers_test)
 
+# GH #548 - the --debugger / --break-at startup stop (src/platform/startup_stop.*): a real
+# Emulator and Debugger, no Qt and no SD image, built like pok_trainers_test.
+add_executable(startup_stop_test platform/startup_stop_test.cpp)
+target_link_libraries(startup_stop_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(startup_stop_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(startup_stop_test PRIVATE
+    JNEXT_TAPE_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk/v2.4/sccz80-tape")
+# main() holds some fifty rows, each with its own Rig (a machine, a debugger and a client); the 8 MB
+# reserve above overflowed at startup under wine once the suite passed 40 rows. 16 MB for this one.
+if(WIN32)
+    target_link_options(startup_stop_test PRIVATE -Wl,--stack,16777216)
+endif()
+add_test(NAME startup_stop_tests COMMAND startup_stop_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory
@@ -2393,7 +2411,7 @@ if(ENABLE_DEBUGGER)
     add_executable(debugger_persistent_bp_test debugger/persistent_bp_test.cpp)
     set_target_properties(debugger_persistent_bp_test PROPERTIES AUTOMOC ON)
     target_link_libraries(debugger_persistent_bp_test PRIVATE
-        jnext_debugger
+        jnext_debugger jnext_platform
         jnext_core jnext_cpu jnext_memory jnext_video
         jnext_audio jnext_port jnext_peripheral jnext_input
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
