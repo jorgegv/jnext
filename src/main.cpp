@@ -3338,7 +3338,9 @@ int main(int argc, char* argv[]) {
         // The run's teardown: recorders, app.shutdown() and the exit status.
         // A function of its own because the browser frontend runs it from the
         // page's loop, after main() has returned.
-        auto finish = [&, record_file]() -> int {
+        // `audio_log_wanted` by value like `record_file`: the browser frontend runs this after main()
+        // returned, when main()'s own locals (audio_log_file) are gone.
+        auto finish = [&, record_file, audio_log_wanted = !audio_log_file.empty()]() -> int {
             // Capture requests are part of the CLI contract: if one cannot start
             // or finalize, an otherwise-clean run must not report success.
             bool capture_ok = true;
@@ -3380,7 +3382,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            if (!audio_log_file.empty()) {
+            if (audio_log_wanted) {
                 std::string why;
                 if (!audio_log.finish(why)) {
                     Log::audio()->error("--audio-log: {}", why);
