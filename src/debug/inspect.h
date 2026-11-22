@@ -430,7 +430,8 @@ enum class AyChipMode : uint8_t { Ym = 0, Ay = 1 };
 enum class StereoMode : uint8_t { Abc = 0, Acb = 1 };
 
 // INS-10 — the `audio_mute_mask` bits are `AudioMute::{AY0, AY1, AY2, DAC,
-// BEEPER, AY_ALL, ALL, NONE}` (`audio/audio_mute.h`), REUSED rather than
+// BEEPER, AY_ALL, ALL, NONE}` and the `audio_channel_mute_mask` bits are
+// `AudioChannelMute::*` (`audio/audio_mute.h`), REUSED rather than
 // redefined: that header already documents why the mask has no hardware
 // analogue, why it must stay invisible to the Z80, and why it is excluded from
 // save_state() and reset(). A second copy of the bit assignment here is exactly
@@ -461,7 +462,7 @@ struct AyChannelState {
     /// through the table, without the gate, so it does not follow the square
     /// wave. Not `output_a/b/c()`.
     uint8_t  amplitude = 0;
-    bool     muted = false;         ///< this chip's `AudioMute` bit
+    bool     muted = false;         ///< its `AudioChannelMute` bit or its chip's `AudioMute` bit
 };
 
 struct AyEnvelopeState {
@@ -514,6 +515,7 @@ struct HostAudioState {
     float   dac_gain_db = 0.0f;
     std::array<float, AY_CHIP_COUNT> ay_gain_db{};
     uint8_t mute_mask = 0;          ///< `AudioMute::*`
+    uint16_t channel_mute_mask = 0; ///< `AudioChannelMute::*`
     bool    synthesis_on = false;   ///< the user setting: not `--silent`
 };
 

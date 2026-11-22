@@ -3446,8 +3446,8 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 </tr>
 <tr>
 <td>audio</td>
-<td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code>, <code>audio_state()</code></td>
-<td><code>set_audio_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX), <code>clear_audio_drops(by)</code> (zeroes the dropped-write counters in <code>audio_state().drops</code>; host-side too)</td>
+<td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code>, <code>audio_channel_mute_mask()</code>, <code>audio_state()</code></td>
+<td><code>set_audio_mute_mask(by, m)</code>, <code>set_audio_channel_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX), <code>clear_audio_drops(by)</code> (zeroes the dropped-write counters in <code>audio_state().drops</code>; host-side too)</td>
 </tr>
 <tr>
 <td>video</td>

@@ -184,6 +184,64 @@ uint8_t TurboSound::reg_read(bool reg_mode) const
 void TurboSound::tick() { tick_impl_(); }
 void TurboSound::tick_n(uint32_t count) { for (uint32_t i = 0; i < count; ++i) tick_impl_(); }
 
+// `silenced`: bit 0/1/2 = the channel A/B/C input read as 0 (debugger channel
+// mute); 0 gives the hardware value.
+[[gnu::always_inline]] inline void TurboSound::compute_chip_stereo(int idx, uint8_t silenced, uint16_t& left, uint16_t& right) const
+{
+    left = right = 0;
+
+    const bool active =
+        idx == 0 ? (ay_select_ == 3 || enabled_) :
+        idx == 1 ? (ay_select_ == 2 || enabled_) :
+                   (ay_select_ == 1 || enabled_);
+    if (!active) return;
+
+    const uint16_t a = (silenced & 1) ? 0 : ay_[idx].output_a();
+    const uint16_t b = (silenced & 2) ? 0 : ay_[idx].output_b();
+    const uint16_t c = (silenced & 4) ? 0 : ay_[idx].output_c();
+    const bool mono = (mono_mode_ >> idx) & 1;
+
+    const uint16_t left_mux = (stereo_mode_ || mono) ? c : b;
+    const uint16_t left_sum = left_mux + a;
+    const uint16_t right_mux = mono ? left_sum : c;
+    const uint16_t right_sum = right_mux + b;
+    const uint16_t left_final = mono ? right_sum : left_sum;
+
+    left = (pan_[idx] & 0x02) ? left_final : 0;
+    right = (pan_[idx] & 0x01) ? right_sum : 0;
+}
+
+// The mix with debugger channel mutes in force: the hardware sum as ever, and the audible pair of a
+// chip with muted channels recomputed from silenced inputs (the mute never reaches the hardware sum).
+[[gnu::noinline, gnu::cold]] void TurboSound::compute_stereo_mix_channels_()
+{
+    uint16_t hw_L = 0, hw_R = 0;
+    uint16_t total_L = 0;
+    uint16_t total_R = 0;
+
+    for (int i = 0; i < 3; i++) {
+        uint16_t l, r;
+        compute_chip_stereo(i, 0, l, r);
+        hw_L += l;
+        hw_R += r;
+
+        const bool muted = (chip_mute_mask_ >> i) & 1;
+        const uint8_t silenced = (channel_mute_mask_ >> (3 * i)) & 7;
+        uint16_t al = l, ar = r;
+        if (!muted && silenced) compute_chip_stereo(i, silenced, al, ar);
+        chip_pcm_L_[i] = muted ? 0 : al;
+        chip_pcm_R_[i] = muted ? 0 : ar;
+        total_L += chip_pcm_L_[i];
+        total_R += chip_pcm_R_[i];
+    }
+
+    hw_pcm_L_ = hw_L & 0x0FFF;
+    hw_pcm_R_ = hw_R & 0x0FFF;
+    pcm_L_ = total_L & 0x0FFF;
+    pcm_R_ = total_R & 0x0FFF;
+    chip_pcm_valid_ = true;
+}
+
 inline void TurboSound::compute_stereo_mix()
 {
     // Per-chip stereo mixing (matches VHDL turbosound.vhd exactly)
@@ -202,19 +260,26 @@ inline void TurboSound::compute_stereo_mix()
     // host listening aid with no hardware analogue and must not reach the
     // saved state (audio/audio_mute.h).
 
+    // Debugger channel mutes in force: the same mix, out of line (cold). Every normal run
+    // takes the loop below, which is the pre-mute code.
+    if (__builtin_expect(channel_mute_mask_ != 0, 0)) {
+        compute_stereo_mix_channels_();
+        return;
+    }
+
     uint16_t hw_L = 0, hw_R = 0;
     uint16_t total_L = 0;
     uint16_t total_R = 0;
 
     for (int i = 0; i < 3; i++) {
         uint16_t l, r;
-        compute_chip_stereo(i, l, r);
+        compute_chip_stereo(i, 0, l, r);
         hw_L += l;
         hw_R += r;
 
-        const bool muted = (chip_mute_mask_ >> i) & 1;
-        chip_pcm_L_[i] = muted ? 0 : l;
-        chip_pcm_R_[i] = muted ? 0 : r;
+        const uint16_t gate = chip_gate_[i];
+        chip_pcm_L_[i] = l & gate;
+        chip_pcm_R_[i] = r & gate;
         total_L += chip_pcm_L_[i];
         total_R += chip_pcm_R_[i];
     }
@@ -233,31 +298,6 @@ void TurboSound::chip_pcm(int idx, uint16_t& left, uint16_t& right) const
     if (idx < 0 || idx >= 3 || !chip_pcm_valid_) return;
     left = chip_pcm_L_[idx];
     right = chip_pcm_R_[idx];
-}
-
-void TurboSound::compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const
-{
-    left = right = 0;
-
-    const bool active =
-        idx == 0 ? (ay_select_ == 3 || enabled_) :
-        idx == 1 ? (ay_select_ == 2 || enabled_) :
-                   (ay_select_ == 1 || enabled_);
-    if (!active) return;
-
-    const uint16_t a = ay_[idx].output_a();
-    const uint16_t b = ay_[idx].output_b();
-    const uint16_t c = ay_[idx].output_c();
-    const bool mono = (mono_mode_ >> idx) & 1;
-
-    const uint16_t left_mux = (stereo_mode_ || mono) ? c : b;
-    const uint16_t left_sum = left_mux + a;
-    const uint16_t right_mux = mono ? left_sum : c;
-    const uint16_t right_sum = right_mux + b;
-    const uint16_t left_final = mono ? right_sum : left_sum;
-
-    left = (pan_[idx] & 0x02) ? left_final : 0;
-    right = (pan_[idx] & 0x01) ? right_sum : 0;
 }
 
 // GH #27 S5 — the ONE field list (design §9.2): three chips, then the

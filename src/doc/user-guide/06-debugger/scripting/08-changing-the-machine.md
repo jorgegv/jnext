@@ -21,6 +21,7 @@ changes is as repeatable as one that does not.
 | `phys[p, o]` | a byte in physical 8K page `p` |
 | `nextreg[r]` | a NextREG, as a `NEXTREG` instruction would write it |
 | `AUDIO_MUTE` | the host-side mute mask (not the machine; never saved in a snapshot) |
+| `AUDIO_CHANNEL_MUTE` | the host-side mute mask of the 13 channels (bit 0 to 8: the AY channels, 3 per chip; bit 9 to 12: DAC A to D; bits above 12 are dropped); also not the machine, never saved. `set AUDIO_CHANNEL_MUTE = 0x1FE` leaves only chip 0 channel A audible among the AY channels |
 | `cvar(PATH)` | a C variable of the frame the CPU is in (see below) |
 
 ### `set cvar(PATH)`

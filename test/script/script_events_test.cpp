@@ -938,6 +938,20 @@ static void mutation_rows() {
               "9000=" + hex(g.peek(0x9000)) + " 9001=" + hex(g.peek(0x9001)));
     }
     {
+        Rig g(kPark);
+        const bool ok = g.load("on execute 0x8000 once do set AUDIO_CHANNEL_MUTE = 0x1FE end\n");
+        g.frames(1);
+        const uint16_t first = g.dbg->audio_channel_mute_mask();
+        const size_t lines = g.sink.count("MUTATE audio channel mute mask 0x0 -> 0x1FE");
+        Rig h(kPark);
+        const bool ok2 = h.load("on execute 0x8000 once do set AUDIO_CHANNEL_MUTE = 0x12345 end\n");
+        h.frames(1);
+        check("SCRIPT-EV-MUT-ACM", "set AUDIO_CHANNEL_MUTE lands through the debugger with one MUTATE line; bits above 12 are masked "
+                                   "like AUDIO_MUTE's (0x12345 stores 0x0345)",
+              ok && ok2 && first == 0x1FE && lines == 1 && h.dbg->audio_channel_mute_mask() == 0x0345,
+              "mask=" + hex(first) + " lines=" + std::to_string(lines) + " masked=" + hex(h.dbg->audio_channel_mute_mask()));
+    }
+    {
         Rig g(kWriter);
         const bool ok = g.load("on write 0x9000 do set mem[0x9000] = 0xEE end\n"
                                "on write 0x9001 do log \"peek ${mem[0xA000]}\" end\n"

@@ -42,8 +42,10 @@
 #include <QProgressBar>
 #include <QString>
 #include <QTabWidget>
-#include <QPushButton>
+#include <QTabBar>
 #include <QTableWidget>
+#include <QToolButton>
+#include <QPushButton>
 #include <QTreeWidget>
 #include <QStringList>
 
@@ -113,6 +115,7 @@ bool build_next_emulator(Emulator& emu) {
     // genuine power-on default on its own fresh Emulator, so this reset cannot
     // paper over a bad default.
     emu.set_audio_mute_mask(AudioMute::NONE);
+    emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);   // the same, for the per-channel mask
     return true;
 }
 
@@ -866,6 +869,156 @@ static void test_decoded_view(Emulator& emu) {
     }
 }
 
+// ── DAP-CHM: per-channel mute and solo (GH #533) ────────────────────────
+//
+// The M and S buttons of the 13 channels act on AUDIO_CHANNEL_MUTE (bit 3*chip +
+// channel for the AY, bits 9-12 for DAC A-D). The bits are chosen asymmetric so
+// that a swapped 3*k+c shows: chip 2 A is bit 6 (swapped: 2), chip 1 C is bit 5
+// (swapped: 7).
+
+static QToolButton* tbtn(AudioPanel& panel, const char* name) {
+    return panel.findChild<QToolButton*>(name);
+}
+
+// "chip<c>_<a|b|c>" / "dac_<a..d>" stem of channel `i`, then the suffix.
+static QString chan_name(int i, const char* suffix) {
+    const QString stem = i < 9 ? QString("chip%1_%2").arg(i / 3).arg(QChar('a' + i % 3))
+                               : QString("dac_%1").arg(QChar('a' + (i - 9)));
+    return stem + suffix;
+}
+
+static QToolButton* mbtn(AudioPanel& panel, int i) { return tbtn(panel, chan_name(i, "_mute").toLatin1().constData()); }
+static QToolButton* sbtn(AudioPanel& panel, int i) { return tbtn(panel, chan_name(i, "_solo").toLatin1().constData()); }
+
+// Which M buttons are checked, as a mask; and the soloed channels as a mask.
+static uint16_t m_mask(AudioPanel& panel) {
+    uint16_t m = 0;
+    for (int i = 0; i < 13; ++i) if (mbtn(panel, i) && mbtn(panel, i)->isChecked()) m |= static_cast<uint16_t>(1u << i);
+    return m;
+}
+static uint16_t s_mask(AudioPanel& panel) {
+    uint16_t m = 0;
+    for (int i = 0; i < 13; ++i) if (sbtn(panel, i) && sbtn(panel, i)->isChecked()) m |= static_cast<uint16_t>(1u << i);
+    return m;
+}
+
+static void test_channel_mute_solo(Emulator& emu) {
+    set_group("DAP-CHM");
+
+    {
+        if (!build_next_emulator(emu)) { check("DAP-31", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        int chips_m = 0, chips_s = 0, dac_m = 0, dac_s = 0, other = 0;
+        for (QToolButton* b : panel.findChildren<QToolButton*>()) {
+            const QString n = b->objectName();
+            if (n.startsWith("chip") && n.endsWith("_mute")) ++chips_m;
+            else if (n.startsWith("chip") && n.endsWith("_solo")) ++chips_s;
+            else if (n.startsWith("dac_") && n.endsWith("_mute")) ++dac_m;
+            else if (n.startsWith("dac_") && n.endsWith("_solo")) ++dac_s;
+            else if (!qobject_cast<QTabBar*>(b->parent())) ++other;   // the tab bar's own scroll buttons are not ours
+        }
+        int boxes = 0;
+        for (const char* t : {"AY #0", "AY #1", "AY #2", "DAC", "Beeper"}) if (source_box(panel, t)) ++boxes;
+        check("DAP-31", "the Chips tab has 9 M and 9 S buttons and the DAC & Beeper tab 4 + 4, all QToolButtons, none checked on a fresh machine "
+              "(mask NONE); the Sources strip is still exactly its five checkboxes (plus Hex)",
+              chips_m == 9 && chips_s == 9 && dac_m == 4 && dac_s == 4 && other == 0 && m_mask(panel) == 0 &&
+                  s_mask(panel) == 0 && emu.audio_channel_mute_mask() == 0 && boxes == 5 &&
+                  panel.findChildren<QCheckBox*>().size() == 6,
+              fmt("chips %d/%d dac %d/%d other %d m=%04X s=%04X boxes %d checkboxes %d", chips_m, chips_s, dac_m, dac_s,
+                  other, m_mask(panel), s_mask(panel), boxes, static_cast<int>(panel.findChildren<QCheckBox*>().size())));
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-32", "emulator init", false); return; }
+        nr_write(emu, 0x08, 0x02);
+        program_ay_dc(emu, 2);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        const uint32_t before = ay_level(emu);
+        // The chip is mono here (measured: the total is 6 x one level, not 4): mono sums A+B+C into
+        // BOTH sides (turbosound.vhd:186-192), so muting A removes its output twice.
+        const uint32_t share = 2u * emu.turbosound().ay(2).output_a();
+        mbtn(panel, 6)->click();
+        const uint16_t m1 = emu.audio_channel_mute_mask();
+        const uint32_t muted = ay_level(emu);
+        mbtn(panel, 6)->click();
+        const uint16_t m2 = emu.audio_channel_mute_mask();
+        const uint32_t back = ay_level(emu);
+        check("DAP-32", "clicking chip 2 A's M sets mask 0x0040 and the AY level drops by exactly that channel's output; clicking again clears it",
+              share != 0 && m1 == 0x0040 && muted == before - share && m2 == 0 && back == before,
+              fmt("before=%u share=%u m1=%04X muted=%u m2=%04X back=%u", before, share, m1, muted, m2, back));
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-33", "emulator init", false); return; }
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_C);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        sbtn(panel, 5)->click();
+        const uint16_t m1 = emu.audio_channel_mute_mask();
+        const bool on = sbtn(panel, 5)->isChecked();
+        sbtn(panel, 5)->click();
+        check("DAP-33", "with DAC C muted, soloing chip 1 C mutes the other twelve and checks its S; clicking it again restores the earlier mask 0x0800, not 0",
+              m1 == (0x1FFF & ~0x0020) && on && emu.audio_channel_mute_mask() == 0x0800 && !sbtn(panel, 5)->isChecked() &&
+                  s_mask(panel) == 0);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-34", "emulator init", false); return; }
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_C);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        sbtn(panel, 0)->click();
+        sbtn(panel, 12)->click();
+        const uint16_t m1 = emu.audio_channel_mute_mask();
+        const uint16_t s1 = s_mask(panel);
+        sbtn(panel, 12)->click();
+        check("DAP-34", "soloing chip 0 A then DAC D moves the solo (only D's S checked, mask ALL minus D) and keeps the first saved mask: un-solo gives 0x0800",
+              m1 == (0x1FFF & ~AudioChannelMute::DAC_D) && s1 == AudioChannelMute::DAC_D && emu.audio_channel_mute_mask() == 0x0800 &&
+                  s_mask(panel) == 0);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-35", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto other = dbg.attach(jnext::dbg::ClientInfo{"dap35", jnext::dbg::ClientKind::Test});
+        AudioPanel panel(&dbg);
+        sbtn(panel, 0)->click();
+        dbg.set_audio_channel_mute_mask(other.value, 0x0003);   // another client changes the mutes
+        panel.refresh();
+        const bool cancelled = s_mask(panel) == 0 && m_mask(panel) == 0x0003;
+        sbtn(panel, 0)->click();
+        const uint16_t m1 = emu.audio_channel_mute_mask();
+        sbtn(panel, 0)->click();
+        check("DAP-35", "a mask changed from outside ends the solo on the next refresh; soloing again saves that mask (0x0003) and un-solo restores it",
+              cancelled && m1 == (0x1FFF & ~0x0001) && emu.audio_channel_mute_mask() == 0x0003);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-36", "emulator init", false); return; }
+        emu.set_audio_channel_mute_mask(0x1041);
+        jnext::dbg::Debugger dbg(emu);
+        const auto other = dbg.attach(jnext::dbg::ClientInfo{"dap36", jnext::dbg::ClientKind::Test});
+        AudioPanel panel(&dbg);
+        const uint16_t seeded = m_mask(panel);
+        dbg.set_audio_channel_mute_mask(other.value, 0x0002);
+        const uint16_t stale = m_mask(panel);
+        panel.refresh();
+        check("DAP-36", "a panel built against mask 0x1041 shows exactly those M buttons checked; a later change to 0x0002 shows after refresh()",
+              seeded == 0x1041 && stale == 0x1041 && m_mask(panel) == 0x0002);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-37", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto other = dbg.attach(jnext::dbg::ClientInfo{"dap37", jnext::dbg::ClientKind::Test});
+        AudioPanel panel(&dbg);
+        dbg.set_audio_mute_mask(other.value, AudioMute::AY0 | AudioMute::BEEPER);
+        const uint64_t rev = dbg.state_revision();
+        panel.refresh();
+        check("DAP-37", "a source mute set from outside shows in the Sources boxes after refresh() (AY #0 and Beeper unticked, the rest ticked), "
+              "and the refresh pushes nothing: no MUTATE line, the revision does not move",
+              !source_box(panel, "AY #0")->isChecked() && source_box(panel, "AY #1")->isChecked() &&
+                  source_box(panel, "AY #2")->isChecked() && source_box(panel, "DAC")->isChecked() &&
+                  !source_box(panel, "Beeper")->isChecked() && dbg.state_revision() == rev &&
+                  emu.audio_mute_mask() == (AudioMute::AY0 | AudioMute::BEEPER));
+    }
+}
 
 // ── DAP-DAC: the DAC & Beeper sub-tab (GH #530) ────────────────────────
 //
@@ -1028,14 +1181,21 @@ static void test_dac_tab(Emulator& emu) {
         emu.set_audio_mute_mask(AudioMute::AY0 | AudioMute::AY2 | AudioMute::BEEPER);
         panel.refresh();
         const QString muted2 = txt(panel, "host_mutes");
+        // GH #533: the channel mutes join the line (AY channels as "AY #c X", DAC channels as "DAC X").
+        emu.set_audio_mute_mask(AudioMute::AY1);
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_C | AudioChannelMute::ay_bit(0, 1));
+        panel.refresh();
+        const QString muted3 = txt(panel, "host_mutes");
+        emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);
+        emu.set_audio_mute_mask(AudioMute::NONE);
         EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
         Emulator quiet; quiet.init(cfg);
         jnext::dbg::Debugger dq(quiet);
         AudioPanel pq(&dq);
         pq.refresh();
-        check("DAP-43", "host settings: gains -3/-1/-2/-4/-9/-6 dB as set; 'Muted: none' then 'Muted: AY #1, DAC' and 'Muted: AY #0, AY #2, Beeper'; 'Synthesis: on', and 'Synthesis: off (--silent)' with silent set",
+        check("DAP-43", "host settings: gains -3/-1/-2/-4/-9/-6 dB as set; 'Muted: none' then 'Muted: AY #1, DAC' and 'Muted: AY #0, AY #2, Beeper'; with a source mute and two channel mutes 'Muted: AY #1, AY #0 B, DAC C'; 'Synthesis: on', and 'Synthesis: off (--silent)' with silent set",
               gains && none && muted == "Muted: AY #1, DAC" && muted2 == "Muted: AY #0, AY #2, Beeper" &&
-              txt(pq, "host_synthesis") == "Synthesis: off (--silent)", (muted + "|" + muted2).toStdString());
+              muted3 == "Muted: AY #1, AY #0 B, DAC C" && txt(pq, "host_synthesis") == "Synthesis: off (--silent)", (muted + "|" + muted2).toStdString());
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-44", "emulator init", false); return; }
@@ -1194,6 +1354,9 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-TS         — done\n");
     test_decoded_view(emu);
     std::printf("  Group: DAP-DEC        -- done\n");
+    test_channel_mute_solo(emu);
+    std::printf("  Group: DAP-CHM        -- done\n");
+
     test_dac_tab(emu);
     std::printf("  Group: DAP-DAC        -- done\n");
 

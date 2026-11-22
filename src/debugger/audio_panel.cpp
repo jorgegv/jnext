@@ -130,6 +130,10 @@ void AudioPanel::create_ui() {
     tabs_->addTab(placeholder_tab(), tr("Tracker"));
     tabs_->addTab(placeholder_tab(), tr("Scopes"));
     layout->addWidget(tabs_, 1);
+
+    // The M and S buttons show the live channel mask (a panel rebuilt against a
+    // muted machine must not claim the channels are audible).
+    settle_channel_buttons(dbg_ ? dbg_->audio_channel_mute_mask() : static_cast<uint16_t>(AudioChannelMute::NONE));
 }
 
 QWidget* AudioPanel::placeholder_tab() {
@@ -140,6 +144,84 @@ QWidget* AudioPanel::placeholder_tab() {
     l->addWidget(label);
     l->addStretch(1);
     return w;
+}
+
+QGroupBox* AudioPanel::create_dac_channel_group() {
+    auto* box = new QGroupBox(tr("DAC channels"));
+    auto* grid = new QGridLayout(box);
+    grid->setContentsMargins(4, 4, 4, 4);
+    grid->setHorizontalSpacing(8);
+    grid->setVerticalSpacing(2);
+    static const char* const kDac[4] = {"a", "b", "c", "d"};
+    for (int d = 0; d < 4; ++d) {
+        grid->addWidget(new QLabel(QString(QChar('A' + d)), box), d, 0);
+        add_channel_buttons(grid, d, 1, 9 + d, QString("dac_") + kDac[d]);
+    }
+    grid->setColumnStretch(3, 1);
+    return box;
+}
+
+void AudioPanel::add_channel_buttons(QGridLayout* grid, int row, int col, int index, const QString& stem) {
+    QWidget* parent = grid->parentWidget();
+    auto make = [&](const char* text, const QString& name, const QString& tip) {
+        auto* b = new QToolButton(parent);
+        b->setObjectName(name);
+        b->setText(QString::fromLatin1(text));
+        b->setToolTip(tip);
+        b->setCheckable(true);
+        b->setAutoRaise(false);
+        return b;
+    };
+    QToolButton* m = make("M", stem + "_mute", tr("Mute this channel"));
+    QToolButton* s = make("S", stem + "_solo", tr("Solo this channel (mute the other twelve)"));
+    mute_btn_[index] = m;
+    solo_btn_[index] = s;
+    // `clicked`, not `toggled`: setChecked() from a refresh must not push.
+    connect(m, &QToolButton::clicked, this, [this, index] { channel_mute_clicked(index); });
+    connect(s, &QToolButton::clicked, this, [this, index] { channel_solo_clicked(index); });
+    grid->addWidget(m, row, col);
+    grid->addWidget(s, row, col + 1);
+}
+
+void AudioPanel::settle_channel_buttons(uint16_t mask) {
+    // A solo is the mask "everything but that channel". Any other mask means
+    // something else changed the mutes (a Mute click, a script, another
+    // client): the solo is over, and restoring the older mask later would undo
+    // that change.
+    if (solo_ >= 0 && mask != (AudioChannelMute::ALL & ~(1u << solo_)))
+        solo_ = -1;
+    for (int i = 0; i < 13; ++i) {
+        if (mute_btn_[i]) mute_btn_[i]->setChecked(((mask >> i) & 1) != 0);
+        if (solo_btn_[i]) solo_btn_[i]->setChecked(solo_ == i);
+    }
+}
+
+void AudioPanel::channel_mute_clicked(int index) {
+    if (!dbg_)
+        return;
+    const uint16_t live = dbg_->audio_channel_mute_mask();
+    settle_channel_buttons(live);   // a stale solo ends before this change
+    dbg_->set_audio_channel_mute_mask(client_, static_cast<uint16_t>(live ^ (1u << index)));
+    settle_channel_buttons(dbg_->audio_channel_mute_mask());
+}
+
+void AudioPanel::channel_solo_clicked(int index) {
+    if (!dbg_)
+        return;
+    const uint16_t live = dbg_->audio_channel_mute_mask();
+    settle_channel_buttons(live);
+    if (solo_ == index) {
+        // Un-solo: back to the mask the first solo found.
+        solo_ = -1;
+        dbg_->set_audio_channel_mute_mask(client_, pre_solo_mask_);
+    } else {
+        // Switching from one solo to another keeps the first saved mask.
+        if (solo_ < 0)
+            pre_solo_mask_ = live;
+        solo_ = index;
+        dbg_->set_audio_channel_mute_mask(client_, static_cast<uint16_t>(AudioChannelMute::ALL & ~(1u << index)));
+    }
+    settle_channel_buttons(dbg_->audio_channel_mute_mask());
 }
 
 bool AudioPanel::chips_on_show() const {
@@ -229,6 +311,7 @@ QWidget* AudioPanel::create_chips_tab() {
             grid->addWidget(ch.noise, row, 5);
             grid->addWidget(ch.vol, row, 6);
             grid->addWidget(ch.level, row, 7);
+            add_channel_buttons(grid, row, 8, 3 * c + k, QString("chip%1_%2").arg(c).arg(kChan[k]));
         }
         w.noise_period = mono_label(pre + "noise_period", "Noise 0", box);
         w.env_glyph = mono_label(pre + "env_glyph", "", box);
@@ -397,6 +480,20 @@ void AudioPanel::refresh() {
     psg_mode_label_->setText(tr("PSG mode: %1").arg(kPsgMode[st.psg_mode & 3]));
     ay_ports_label_->setText(tr("AY ports: %1").arg(st.ay_ports_enabled ? tr("on") : tr("off")));
 
+    // The mutes can change under the panel (a script's `set AUDIO_MUTE` or
+    // `set AUDIO_CHANNEL_MUTE`, another client): the Sources boxes and the M / S
+    // buttons follow the live masks. The boxes are re-seeded with their signals
+    // blocked, so this pushes nothing and logs no MUTATE line.
+    const struct { QCheckBox* box; uint8_t bit; } sources[5] = {
+        {mute_ay0_, AudioMute::AY0}, {mute_ay1_, AudioMute::AY1}, {mute_ay2_, AudioMute::AY2},
+        {mute_dac_, AudioMute::DAC}, {mute_beeper_, AudioMute::BEEPER},
+    };
+    for (const auto& s : sources) {
+        const QSignalBlocker blocker(s.box);
+        s.box->setChecked(!(st.host.mute_mask & s.bit));
+    }
+    settle_channel_buttons(st.host.channel_mute_mask);
+
     uint64_t ay_dropped = 0;
     for (size_t r = size_t(jnext::dbg::AudioDropReason::AyPortDisabled);
          r <= size_t(jnext::dbg::AudioDropReason::AyAddressHigh); ++r)
@@ -466,7 +563,7 @@ QWidget* AudioPanel::create_dac_tab() {
         dac_grid->addWidget(dac_bar_[i], 1 + i, 2);
     }
     layout->addWidget(dac_box);
-    // slot: dac_channels (#533 Mute/Solo)
+    layout->addWidget(create_dac_channel_group());   // slot: dac_channels (#533 Mute/Solo)
 
     // --- Port families (NR 0x84) ---
     auto* fam_box = new QGroupBox(tr("Port families (NR 0x84)"), page);
@@ -613,6 +710,14 @@ void AudioPanel::refresh_dac_(const jnext::dbg::AudioState& st) {
         {AudioMute::DAC, "DAC"}, {AudioMute::BEEPER, "Beeper"}};
     for (const auto& m : kMute)
         if (st.host.mute_mask & m.bit) muted << tr(m.name);
+    // The channel mutes (AUDIO_CHANNEL_MUTE): AY channels by chip and letter, DAC channels by letter.
+    static const char* const kLetter[3] = {"A", "B", "C"};
+    for (int i = 0; i < 9; ++i)
+        if ((st.host.channel_mute_mask >> i) & 1)
+            muted << tr("AY #%1 %2").arg(i / 3).arg(kLetter[i % 3]);
+    for (int d = 0; d < 4; ++d)
+        if ((st.host.channel_mute_mask >> (9 + d)) & 1)
+            muted << tr("DAC %1").arg(QChar('A' + d));
     host_mutes_->setText(muted.isEmpty() ? tr("Muted: none") : tr("Muted: %1").arg(muted.join(", ")));
     host_synthesis_->setText(st.host.synthesis_on ? tr("Synthesis: on") : tr("Synthesis: off (--silent)"));
 
