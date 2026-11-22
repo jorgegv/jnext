@@ -27,7 +27,7 @@ set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 GATE=$ROOT/test/ci-gate.sh
-EXPECTED_ROWS=10
+EXPECTED_ROWS=13
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -52,7 +52,7 @@ missing=()
 for t in python3 timeout date; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
 if [[ ${#missing[@]} -gt 0 ]]; then
     echo "  missing tools: ${missing[*]}"
-    for i in 1 2 3 4 5 6 7 8 9 10; do row "CIG-$(printf %02d "$i")" 0 "not run: missing tools"; done
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do row "CIG-$(printf %02d "$i")" 0 "not run: missing tools"; done
     total=$EXPECTED_ROWS; failed=$EXPECTED_ROWS; passed=0; ids_seen=" "; finish
 fi
 
@@ -73,6 +73,7 @@ case "$1 $2" in
     "run list")
         [[ "$a" == *" --workflow ci.yml "* ]] || exit 1
         if [[ "$a" == *" --branch main "* ]]; then
+            [ ! -f "$fx/hang-main" ] || sleep 40
             [[ "$a" == *" --event push "* && "$a" == *" --status success "* ]] || exit 1
             cat "$fx/main-list.json"
         else
@@ -82,6 +83,7 @@ case "$1 $2" in
     "run view")
         id=$3
         [ ! -f "$fx/hang" ] || sleep 40
+        [ ! -f "$fx/fail-view" ] || exit 1
         if [[ "$a" == *" --json status "* ]]; then
             n=$(cat "$fx/n-$id" 2>/dev/null || echo 0); echo $((n + 1)) > "$fx/n-$id"
             if [ "$n" -ge "$(cat "$fx/done-after-$id" 2>/dev/null || echo 999999)" ]; then s=completed; else s=in_progress; fi
@@ -95,6 +97,7 @@ STUB
 cat > "$TMP/bin/git" <<'STUB'
 #!/usr/bin/env bash
 [ "$1" = ls-remote ] || exit 1
+[ ! -f "$CI_GATE_FX/hang-git" ] || sleep 40
 [ -f "$CI_GATE_FX/remote-sha" ] || exit 0
 printf '%s\t%s\n' "$(cat "$CI_GATE_FX/remote-sha")" "$3"
 STUB
@@ -201,5 +204,29 @@ RUN_STATUS=in_progress run_json success workflow_dispatch "$SHA" "test (unit):su
 vrun --sha "$SHA" 10
 row CIG-10 "$([[ $RC -eq 1 && "$OUT" == *"run status is in_progress"* && "$OUT" != *"verdict: CLEAN"* ]] && echo 1 || echo 0)" \
     "a run still in progress whose jobs all read success: not clean, the status named"
+
+# CIG-11
+touch "$FX/hang-git"; echo "$SHA" > "$FX/remote-sha"
+t0=$SECONDS
+OUT=$(CI_GATE_GH_SEC=2 timeout --foreground --kill-after=5s 30s bash "$GATE" dispatch gate-v9 "$SHA" 2>&1); RC=$?
+row CIG-11 "$([[ $RC -eq 75 && $((SECONDS - t0)) -lt 15 && "$OUT" == *"git ls-remote failed or timed out"* ]] && echo 1 || echo 0)" \
+    "dispatch cuts a hanging git ls-remote at CI_GATE_GH_SEC and exits 75"
+rm -f "$FX/hang-git" "$FX/remote-sha"
+
+# CIG-12
+touch "$FX/fail-view"; rm -f "$FX/n-23"
+t0=$SECONDS
+OUT=$(CI_GATE_POLL_SEC=1 timeout --foreground --kill-after=5s 30s bash "$GATE" wait --max-min 1 23 2>&1); RC=$?
+row CIG-12 "$([[ $RC -eq 75 && $((SECONDS - t0)) -lt 15 && "$OUT" == *"unreachable while waiting for run 23"* ]] && echo 1 || echo 0)" \
+    "wait exits 75 after 5 consecutive failed polls, long before its bound"
+rm -f "$FX/fail-view"
+
+# CIG-13
+run_json success workflow_dispatch "$SHA" "test (unit):success" "test (regression):success" "package:success" > "$FX/run-24.json"
+touch "$FX/hang-main"; t0=$SECONDS
+OUT=$(CI_GATE_GH_SEC=2 timeout --foreground --kill-after=5s 30s bash "$GATE" verdict --sha "$SHA" 24 2>&1); RC=$?
+row CIG-13 "$([[ $RC -eq 75 && $((SECONDS - t0)) -lt 15 && "$OUT" != *"verdict: CLEAN"* ]] && echo 1 || echo 0)" \
+    "verdict exits 75, not 1, when the lookup of main's last green run times out"
+rm -f "$FX/hang-main"
 
 finish
