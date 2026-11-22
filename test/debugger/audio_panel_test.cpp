@@ -1816,8 +1816,8 @@ static void test_tracker_tab(Emulator& emu) {
         //  row 1: f101 holds only a DAC entry (not a write) and f102 nothing: the empty run is ONE row, 2 frames.
         //  row 2 (f103): R0 rewritten with its own value is no note; R8 written twice (0x0F -> 0x0E -> 0x0D) is
         //    `double` with before 0x0F, after 0x0D; R12:R11 = 0x0064; R13 = 0x0E from 0 is a change.
-        //  row 3 (f104): R13 rewritten with the same shape is shown (a restart) but not highlighted; R7 0x30 -> 0x38
-        //    turns noise A off (`--`, highlighted).
+        //  row 3 (f104): R13 rewritten with the same shape is shown (a restart) but not highlighted, and so is R9 written
+        //    with its own value 0 (B V `0`, not highlighted); R7 0x30 -> 0x38 turns noise A off (`--`, highlighted).
         //  row 4: the Reset marker. Row 5 (f106): R1 is unknown after the marker: TP is `???`.
         uint64_t seq = 0;
         std::vector<AudioLogEntry> in;
@@ -1829,7 +1829,8 @@ static void test_tracker_tab(Emulator& emu) {
         in.push_back(tw(seq, 103, 0, 8, 0x0E, 0x0F)); in.push_back(tw(seq, 103, 0, 8, 0x0D, 0x0E));
         in.push_back(tw(seq, 103, 0, 0, 0xFC, 0xFC)); in.push_back(tw(seq, 103, 0, 11, 0x64, 0x00));
         in.push_back(tw(seq, 103, 0, 12, 0x00, 0x00)); in.push_back(tw(seq, 103, 0, 13, 0x0E, 0x00));
-        in.push_back(tw(seq, 104, 0, 13, 0x0E, 0x0E)); in.push_back(tw(seq, 104, 0, 7, 0x38, 0x30));
+        in.push_back(tw(seq, 104, 0, 13, 0x0E, 0x0E)); in.push_back(tw(seq, 104, 0, 9, 0x00, 0x00));
+        in.push_back(tw(seq, 104, 0, 7, 0x38, 0x30));
         in.push_back(tmark(seq, 104, jnext::dbg::AudioMarker::Reset));
         in.push_back(tw(seq, 106, 0, 0, 0x05, 0x00)); in.push_back(tw(seq, 106, 0, 8, 0x0C, 0x00));
 
@@ -1845,7 +1846,7 @@ static void test_tracker_tab(Emulator& emu) {
                            {"....", ".", "---", ".", "..", "C-4", "E", "..", "---", ".", ".."}, U),
             row("101-102", "empty x2", U, U, U),
             row("103", "double", {"0064", "E", "---", "D", "..", "---", ".", "..", "---", ".", ".."}, U, U),
-            row("104", "", {"....", "E", "---", ".", "--", "---", ".", "--", "---", ".", "--"}, U, U),
+            row("104", "", {"....", "E", "---", ".", "--", "---", "0", "--", "---", ".", "--"}, U, U),
             std::vector<std::string>{"", "reset"} /* + 33 empty cells below */,
             row("106", "", {"....", ".", "???", "C", "..", "---", ".", "..", "---", ".", ".."}, U, U),
         };
