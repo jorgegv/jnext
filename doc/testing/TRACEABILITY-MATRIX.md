@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6301 | 6301 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6301**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5777**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17369**.
+Rows the sections above carry: **6301**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5777**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17386**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 186 suites (11676 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 186 suites (11693 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -163,7 +163,7 @@ These 186 suites (11676 live rows) have no VHDL-derived plan row to map, so they
 | `nex_loader_test` | 157 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 117 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
 | `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
-| `tap_loader_test` | 80 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
+| `tap_loader_test` | 83 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
 | `program_archive_test` | 101 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
 | `halt_batch_equiv_test` | 23 | cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal) |
 | `halt_batch_periph_test` | 38 | cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
@@ -188,7 +188,7 @@ These 186 suites (11676 live rows) have no VHDL-derived plan row to map, so they
 | `halt_batch_corpus_6_test` | 6 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_7_test` | 5 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_8_test` | 5 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
-| `tzx_loader_test` | 136 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
+| `tzx_loader_test` | 141 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
 | `tape_save_test` | 59 | TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source |
 | `snapshot_im_test` | 4 | snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0) |
 | `snapshot_machine_test` | 26 | which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / NTSC state they restore; its hardware rows (SNM-27, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source |
@@ -209,7 +209,7 @@ These 186 suites (11676 live rows) have no VHDL-derived plan row to map, so they
 | `source_debug_test` | 537 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
 | `source_debug_posix_test` | 11 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
 | `debugger_backend_test` | 1604 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
-| `startup_stop_test` | 25 | the --debugger / --break-at startup stop (host side): its stop points are the file formats' own entry PCs and the Breakpoints panel's address rules |
+| `startup_stop_test` | 34 | the --debugger / --break-at startup stop (host side): its stop points are the file formats' own entry PCs and the Breakpoints panel's address rules |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |

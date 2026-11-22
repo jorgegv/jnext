@@ -14,7 +14,7 @@ set -uo pipefail
 
 export LC_ALL=C LANG=C
 
-EXPECTED_TOTAL=10
+EXPECTED_TOTAL=11
 
 BUILD=${1:?usage: wasm-core-check.sh <build-dir>}
 HERE=$(cd "$(dirname "$0")" && pwd)
