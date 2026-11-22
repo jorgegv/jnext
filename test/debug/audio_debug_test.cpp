@@ -364,7 +364,7 @@ static void copper_words(Emulator& emu, std::initializer_list<uint16_t> words) {
 
 // ── AWL: the audio write log (GH #531) ──────────────────────────────────
 
-using jnext::dbg::AudioFlag;
+namespace AudioFlag = jnext::dbg::AudioFlag;
 using jnext::dbg::AudioLogEntry;
 using jnext::dbg::AudioMarker;
 using jnext::dbg::AudioTarget;
