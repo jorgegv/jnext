@@ -361,9 +361,14 @@ let stopped = null;
 const stopB = async () => {
   const b = await useB();
   if (!stopped) {
-    const rc = await b.page.evaluate(() => window.player0.stop());
-    const state = await stateOf(b.page);
-    stopped = { rc, state, files: await list(b.page), again: await b.page.evaluate(() => window.player0.stop()) };
+    // state and files in the same turn as the resolution: a stop() that resolved before the machine had
+    // finished (the exit is a later animation frame) would show an open file here
+    const r = await b.page.evaluate(async () => {
+      const p = window.player0;
+      const rc = await p.stop();
+      return { rc, state: p.state, files: p.listFiles() };
+    });
+    stopped = { ...r, again: await b.page.evaluate(() => window.player0.stop()) };
   }
   return { b, ...stopped };
 };
