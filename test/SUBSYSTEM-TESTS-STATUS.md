@@ -50,13 +50,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card write journal (GH #470) |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card (POSIX-only rows) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD File Add (GH #269) |      164 |      164 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD File Add (POSIX-only rows) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD File Add (case-sensitive host) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
-| FAT32 Image           |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (GH #269) |      165 |      165 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (POSIX-only rows) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (case-sensitive host) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
+| FAT32 Image           |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      183 |      183 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SHA-256 backends (GH #459) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Minimal NextZXOS card builder (GH #458) |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Minimal NextZXOS card builder (GH #458) |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |      120 |      120 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start on a real card (GH #464) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -124,7 +124,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NEX loader (screen ingest) |      157 |      157 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |      117 |      117 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TAP loader (container) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TAP loader (container) |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TAP loader (auto play/stop) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZIP program archives  |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -243,6 +244,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17331**| **17331**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17344**| **17344**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
