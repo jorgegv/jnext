@@ -2229,6 +2229,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#tracker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tracker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#mute-and-solo" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4530,7 +4541,7 @@ which one is making a noise does not change the program's behaviour.</p>
 <p>Each channel also has its own <strong>M</strong> (mute) and <strong>S</strong> (solo) buttons, described
 under <a href="#mute-and-solo">Mute and solo</a> below.</p>
 <p>Below it are five tabs: <strong>Chips</strong>, <strong>DAC &amp; Beeper</strong>, <strong>Log</strong>, <strong>Tracker</strong> and
-<strong>Scopes</strong>. Tracker and Scopes are not available yet.</p>
+<strong>Scopes</strong>. Scopes is not available yet.</p>
 <h2 id="chips">Chips<a class="headerlink" href="#chips" title="Permanent link">&para;</a></h2>
 <p>The header reports whether TurboSound is enabled, whether the chips are in AY
 or YM mode, whether the stereo layout is ABC or ACB, the PSG mode set in
@@ -4639,6 +4650,28 @@ and the Source; <strong>Envelope restarts only</strong>; and <strong>Dropped onl
 written by the CPU to show the instruction in the Disassembly. <strong>Export CSV...</strong> writes
 the whole log in the same format as the <code>--audio-log</code> option, described in the manual
 page.</p>
+<h2 id="tracker">Tracker<a class="headerlink" href="#tracker" title="Permanent link">&para;</a></h2>
+<p>The AY tune one frame per row, newest last, the three chips side by side. Each chip has
+the columns <strong>Env</strong> (the envelope period, hex), <strong>Sh</strong> (the envelope shape) and, for
+channels A, B and C, <strong>Note</strong>, <strong>V</strong> (volume) and <strong>N</strong> (noise), in the order of a
+tracker such as Vortex Tracker. The <strong>Frame</strong> column is the frame the writes were made in,
+and <strong>Mark</strong> says <code>double</code> when a register was written twice in that frame.</p>
+<p>A cell is filled only when its register was written in that frame: the note when the tone
+period changed (<code>A-4</code>, <code>A#4</code>; <code>^^^</code> above the named range; <code>???</code> or <code>??</code> when the log has
+not yet seen one of the registers), the volume when its register was written (<code>E</code> for
+envelope volume), the noise period for a channel whose noise is on (<code>--</code> when it is off),
+the envelope when R11, R12 or R13 was written. An empty cell shows dots. A cell whose
+value changed is highlighted. A run of frames with no AY write is a single row, <code>empty</code>
+or <code>empty xN</code>; a break in the log (reset, state load, rewind) is a row of its own, as in
+the Log tab.</p>
+<p>The Tracker reads the same log as the Log tab: it is recorded only while one of them is on
+show, and the log holds the newest 65536 writes. The rows follow the machine at about
+4 Hz while it runs and the tab keeps at most 65536 rows.</p>
+<p>Double-click a row while the machine is paused to rewind to the start of that frame (this
+needs the rewind buffer; the tooltip of a row that cannot be reached says why: running,
+an RZX in progress, an empty buffer, a frame outside the buffer, or one from before a
+reset or a state load). After the jump the rows from that frame on are removed and a
+<code>rewind</code> row is added; they come back as the machine runs again.</p>
 <h2 id="mute-and-solo">Mute and solo<a class="headerlink" href="#mute-and-solo" title="Permanent link">&para;</a></h2>
 <p>Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,
 and the 4 DAC channels in the DAC &amp; Beeper tab) has an <strong>M</strong> and an <strong>S</strong>
