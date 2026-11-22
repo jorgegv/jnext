@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-42. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-43. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=42
+EXPECTED_ROWS=43
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -773,6 +773,14 @@ PATH="$TMP/hang:$PATH" HANG_REF=ahead39 RR_FETCH_TIMEOUT=2 FAKE_RC=0 drive --id 
 took42=$((SECONDS - t0))
 row RRUN-42 "$([[ $RC -eq 75 && $took42 -lt 60 && "$OUT" == *"timed out after 2s"* ]] && echo 1 || echo 0)" \
     "a hanging branch fetch is cut at RR_FETCH_TIMEOUT and takes the fallback path (rc $RC, ${took42}s)"
+
+# RRUN-43: the --deps-ref fetch, also under the setup lock, is bounded too: a hang takes the existing 75 fallback
+reset_state
+t0=$SECONDS
+PATH="$TMP/hang:$PATH" HANG_REF=feature RR_FETCH_TIMEOUT=2 FAKE_RC=0 drive --id hd43 ahead39 "$AHEAD_SHA" unit-test --deps-ref feature
+took43=$((SECONDS - t0))
+row RRUN-43 "$([[ $RC -eq 75 && $took43 -lt 60 && "$OUT" == *"cannot fetch --deps-ref feature"* ]] && echo 1 || echo 0)" \
+    "a hanging --deps-ref fetch is cut at RR_FETCH_TIMEOUT and takes the fallback path (rc $RC, ${took43}s)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

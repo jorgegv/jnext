@@ -4897,8 +4897,8 @@ ta_fail docs-check $'mode=docs\nsuites=\nrows=\nmakes=\ndocs=1'; docs_rc=$TA_RC
 ta_fail m1 $'mode=subset\nsuites=a\nrows=\nmakes=m1 m2\ndocs=0'; make_rc=$TA_RC; make_after=$(grep -c ' m2$' "$TA_LOG")
 ta_fail regression-rows $'mode=subset\nsuites=a\nrows=r1\nmakes=\ndocs=0'; rows_rc=$TA_RC
 check "HS-194i" "the dispatch exits 1 when any step fails (make unit-test of a FULL plan, docs-check, the subset run, cli-check, the smoke row, a make target, regression-rows) and still runs the steps after a failure" 0 0 \
-    "unit_rc=$fail_unit_rc cli_rc=$fail_cli_rc reg_rc=$fail_reg_rc reg_after_unit_failure=$unit_then_reg full_unit_rc=$full_unit_rc docs_rc=$docs_rc make_rc=$make_rc make_after=$make_after rows_rc=$rows_rc" \
-    "unit_rc=1" "cli_rc=1" "reg_rc=1" "reg_after_unit_failure=1" "full_unit_rc=1" "docs_rc=1" "make_rc=1" "make_after=1" "rows_rc=1"
+    " only_rc=$fail_unit_rc cli_rc=$fail_cli_rc reg_rc=$fail_reg_rc reg_after_only_failure=$unit_then_reg fullrun_rc=$full_unit_rc docs_rc=$docs_rc make_rc=$make_rc make_after=$make_after rows_rc=$rows_rc " \
+    " only_rc=1 " " cli_rc=1 " " reg_rc=1 " " reg_after_only_failure=1 " " fullrun_rc=1 " " docs_rc=1 " " make_rc=1 " " make_after=1 " " rows_rc=1 "
 
 ta_recipe=$(awk '/^test-affected:/{f=1} f&&/^$/{exit} f' "$PROJECT_DIR/Makefile")
 ta_call=$(grep -c 'bash test/test-affected-run.sh \$\$plan' <<<"$ta_recipe" || true)
