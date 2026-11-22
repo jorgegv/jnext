@@ -1771,6 +1771,8 @@ int main() {
         const auto after = all_entries(dbg);
         bool removed = false;
         const bool ok = landing_ok(before, after, emu.clock().get(), removed);
+        if (!(ok && removed)) std::printf("    before %zu after %zu landing %llu removed %d r=%d\n", before.size(), after.size(),
+                                          static_cast<unsigned long long>(emu.clock().get()), int(removed), int(r));
         check("AWL-14", "a step back replays frames without logging: the entries at or before the landing are unchanged, the entries after it are gone, the newest is ONE Rewind marker at the landing cycle, and there is no StateLoad marker for the ring restore",
               r == Result::Ok && before.size() > 100 && ok && removed);
     }
@@ -1851,6 +1853,7 @@ int main() {
             "0,0,0,0,0,0x0000,debugger,dac_mirror,,45,0x66,0x00,2,dac_mirror_disabled,0x002D\n"
             "0,0,0,0,0,,marker,reset,,,,,,,\n";
         std::remove(path.c_str());
+        if (got != want) std::printf("    export:\n%s    want:\n%s", got.c_str(), want.c_str());
         dbg.set_audio_log_enabled(cid, false);
         const Result off = dbg.audio_log_export(path);
         const Result bad = (dbg.set_audio_log_enabled(cid, true),

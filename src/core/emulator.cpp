@@ -5645,7 +5645,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // before the DAC-enable test like every other site.
             if (!dac_gate_(sd2_en || mono_ad, port, val)) return;
             dac_write_(3, val, port);
-            if (mono_ad) dac_.write_channel(0, val);
+            if (mono_ad) dac_write_(0, val, port);
         });
 
     // GS Covox mono fan-out — port 0xB3 writes both channels B and C.
