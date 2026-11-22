@@ -4647,7 +4647,8 @@ from the startup line that the reset prints. A soft reset (the machine's own
 NextREG 0x02 reset) does not touch the cable at all, which is also what the
 hardware does.</p>
 <p><strong>It is POSIX-only.</strong> Neither form exists on Windows; JNEXT says so and stops
-rather than starting a run with a cable that is not there.</p>
+rather than starting a run with a cable that is not there. The browser build has no terminals or named pipes either, and refuses both
+forms at startup.</p>
 
 
 

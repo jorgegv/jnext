@@ -507,14 +507,14 @@ naming the option and the value, and exits with status 1.
     saved in a snapshot. Rewinding does not rewind the program on the other
     end of the cable, so a debugger session will not survive one.
 
-    POSIX only.
+    POSIX only. Refused in the browser build, which has no named pipes.
 
 **\--joy-uart-pty**
 :   As **\--joy-uart-fifo**, but allocate a pseudo-terminal instead and log the
     slave device path at startup. This is the form a serial client opens —
     DeZog's serial remote wants one serial device, not a pair of pipes — and it
     is put in raw mode so a binary protocol passes through untranslated. POSIX
-    only.
+    only. Refused in the browser build, which has no terminals.
 
 **\--nextpi**
 :   Start **NextPi** — the software that runs on the Raspberry Pi of the
@@ -3452,7 +3452,7 @@ that says so: **\--nextpi**, **\--nextpi-dir**, **\--nextpi-release**,
 **\--script**, **\--script-key**,
 **\--record-script**, **\--map**, **\--annotations**, **\--import-skoolkit**,
 **\--import-ghidra**, **\--sdcard2**, **\--sdcard2-readonly**, **\--sdcard2-writes**,
-**\--sdcard2-writes-reset**, **\--headless** (it would block the tab for ever)
+**\--sdcard2-writes-reset**, **\--joy-uart-pty**, **\--joy-uart-fifo**, **\--headless** (it would block the tab for ever)
 and **\--rzx-record** (a page records from JavaScript, see The player). The debugger protocols are served to the page instead: see the debug option under JavaScript options. The settings of the refused flags are refused
 when given as set entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
 `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`, `paths.sd_card2_path`.

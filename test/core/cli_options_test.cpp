@@ -1035,6 +1035,7 @@ int main() {
             "--script", "--script-key", "--record-script", "--map", "--annotations",
             "--import-skoolkit", "--import-ghidra",
             "--sdcard2", "--sdcard2-readonly", "--sdcard2-writes", "--sdcard2-writes-reset",
+            "--joy-uart-pty", "--joy-uart-fifo",
         };
         std::set<std::string> got;
         for (const cli::Option& o : cli::OPTIONS)
@@ -1042,9 +1043,10 @@ int main() {
         std::vector<std::string> extra, missing;
         for (const std::string& g : got) if (!want.count(g)) extra.push_back(g);
         for (const std::string& w : want) if (!got.count(w)) missing.push_back(w);
-        check("CLI-WEB-01", "the spellings the browser build refuses are exactly the 31 of NextPi, "
-                            "the ESP-01, --record, the debugger servers, the script host and the second SD card",
-              got.size() == 31 && extra.empty() && missing.empty(),
+        check("CLI-WEB-01", "the spellings the browser build refuses are exactly the 33 of NextPi, "
+                            "the ESP-01, --record, the debugger servers, the script host, the second SD card "
+                            "and the joystick UART's pty and FIFO",
+              got.size() == 33 && extra.empty() && missing.empty(),
               "extra: " + join(extra) + "; missing: " + join(missing));
     }
     {
