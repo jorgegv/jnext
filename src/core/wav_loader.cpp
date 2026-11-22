@@ -117,6 +117,16 @@ bool WavLoader::load(const std::string& path)
     }
 
     loaded_ = true;
+    last_edge_frame_ = 0;
+    {   // GH #548: the last signal edge, which is where the tape's last bit ends (the silence after it is not data)
+        const uint32_t n = total_frames();
+        bool prev = sample_amplitude(0) >= 0;
+        for (uint32_t i = 1; i < n; ++i) {
+            const bool bit = sample_amplitude(i) >= 0;
+            if (bit != prev) last_edge_frame_ = i;
+            prev = bit;
+        }
+    }
     sha256_ = sdcard::sha256_hex(buf);
     const auto slash = path.find_last_of("/\\");
     filename_ = (slash != std::string::npos) ? path.substr(slash + 1) : path;
@@ -157,6 +167,16 @@ void WavLoader::eject()
     playing_ = false;
     raw_data_.clear();
     data_size_ = 0;
+    last_edge_frame_ = 0;
+}
+
+bool WavLoader::past_end(uint64_t current_tstates) const
+{
+    if (!loaded_ || start_tstates_ == 0 || current_tstates <= start_tstates_) return false;
+    // Past the last EDGE, not the last sample: a WAV ends in silence, and a loader jumps to its
+    // program right after the last bit, not when the recording stops.
+    const uint64_t elapsed = current_tstates - start_tstates_;
+    return (elapsed * sample_rate_) / CPU_CLOCK_HZ >= last_edge_frame_;
 }
 
 uint32_t WavLoader::ticks_since_edge(uint64_t now, uint32_t cap) const

@@ -82,11 +82,11 @@ namespace dbg {
 
 /// Which frontend a client is (SES-01's `ClientInfo::kind`).
 ///
-/// FIVE consumer enumerators, not six: §1.1 names six consumers, but the sixth
+/// FIVE consumer enumerators (plus `CommandLine`, GH #548), not six: §1.1 names six consumers, but the sixth
 /// — the record/replay recorder — is `#20` folded into the DSL as its WP6
 /// (§10.1's `R` row), so it attaches as `Script` rather than as a kind of its
 /// own. Plus `Test`, for `debugger_backend_test`'s fake clients: six
-/// enumerators total.
+/// enumerators total; seven with `CommandLine`.
 enum class ClientKind : uint8_t {
     /// The Qt GUI adapter. It is TWO clients (qt-frontend.md §4.1, GH #278
     /// WP4c): a lifetime OBSERVER that owns the user's breakpoints
@@ -102,6 +102,9 @@ enum class ClientKind : uint8_t {
     GdbRsp,
     /// The scripting DSL engine, and the #20 recorder it carries.
     Script,
+    /// The command line's own client (GH #548 `--debugger` / `--break-at`): it owns
+    /// the startup stop, and detaches once the machine has run again after it.
+    CommandLine,
     /// A test harness.
     Test,
 };
@@ -394,8 +397,9 @@ public:
     Result step_out(ClientId by);
 
     /// CTL-06 — transient `Execute[addr,addr]` plus `run()`. "Run to Here", and
-    /// RSP's `i<len>` is `run_to(pc + len)`.
-    Result run_to(ClientId by, uint16_t addr);
+    /// RSP's `i<len>` is `run_to(pc + len)`. `space` (GH #548) is the memory that must
+    /// supply the fetch, as `EventFilter::space`; the default is any memory.
+    Result run_to(ClientId by, uint16_t addr, MemSpace space = MemSpace::cpu());
 
     /// CTL-06 for a source line (GH #423): a transient `Execute` group at every
     /// start of `file_line` (`subscribe_source_line`, each member tied to its

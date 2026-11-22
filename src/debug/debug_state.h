@@ -380,6 +380,11 @@ public:
     /// routine call.
     uint64_t stops_resumed() const { return stops_resumed_; }
 
+    /// GH #548 - a resume's one-instruction step-off (GH #221) is armed: the Execute gate of the instruction
+    /// the CPU stands on will be skipped. Read-only: the startup stop asks whether the stop point it waits for
+    /// is about to be skipped.
+    bool step_off_pending() const { return step_off_pending_; }
+
     /// Drop the "the ring holds something" flag after the ring itself was
     /// emptied from outside a drain (the same restore path).
     void clear_ring_flag() {

@@ -232,7 +232,7 @@ Result Debugger::step_out(ClientId by) {
 // CTL-06 / CTL-07 / CTL-08 — the run-to family
 // ---------------------------------------------------------------------------
 
-Result Debugger::run_to(ClientId by, uint16_t addr) {
+Result Debugger::run_to(ClientId by, uint16_t addr, MemSpace space) {
     if (const Result nested = impl_->refuse_inside_delivery("run_to"); nested != Result::Ok)
         return nested;
     const Result gate = impl_->execute_gate();
@@ -246,6 +246,7 @@ Result Debugger::run_to(ClientId by, uint16_t addr) {
     tgt.kind      = EventKind::Execute;
     tgt.filter.lo = addr;
     tgt.filter.hi = addr;
+    tgt.filter.space = space;
     tgt.transient = true;
     tgt.action    = Action::Stop;
     const Expected<EventId> t = subscribe(by, tgt);
