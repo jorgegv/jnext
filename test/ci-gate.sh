@@ -107,7 +107,8 @@ cmd_verdict() {
     local run main_id main_run
     run=$(gh_json run view "$id" --json status,conclusion,headSha,headBranch,event,jobs)
     main_id=$(gh_json run list --workflow "$WORKFLOW" --branch main --event push --status success --limit 1 \
-                --json databaseId | py 'print(d[0]["databaseId"] if d else "")')
+                --json databaseId)
+    main_id=$(py 'print(d[0]["databaseId"] if d else "")' <<<"$main_id")
     [ -n "$main_id" ] || die "no green push run of $WORKFLOW on main to compare the job set with" 1
     main_run=$(gh_json run view "$main_id" --json jobs)
     # the report: table to stdout, reasons (one per line) after a blank marker line

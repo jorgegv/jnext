@@ -65,8 +65,9 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 
 - **Standalone issue** (bug, feature, …): `gh<N>-<slug>` off `main`; target `main`.
 - **Epic**: `epic<E>-<slug>` off `main`, created when its first sub-issue starts, with its own worktree `~/tmp/worktrees/jnext/epic<E>` (merges and the final gate happen there). Sub-issues: `gh<N>-<slug>` off the epic branch (`worktree-launch` with the epic branch as base, not `main`); target the epic branch, never `main`. Merge `main` into the epic branch after each landing on `main`.
+- **Multi-stage issue**: one branch until the whole issue is done, merged once; each stage is still reviewed on that branch (owner, 2026-09-24).
 - **Epic finished** (all sub-issues closed, epic scope done):
-  1. Merge `main` into the epic branch; full gate on it. Push the epic branch and start CI on it (`gh workflow run CI --ref epic<E>-<slug>`); it must be green (it covers Qt5, macOS clang and the bare CI container, which no local gate reaches; GH #444).
+  1. Merge `main` into the epic branch; `make unit-test` on it. Push the epic branch and start CI on it (`gh workflow run CI --ref epic<E>-<slug>`); it must be green (it covers Qt5, macOS clang and the bare CI container, which no local gate reaches; GH #444).
   2. Reviewer (`autorun-reviewer`) on the whole epic diff vs `main`: cross-sub-issue interactions, the merge, acceptance criteria of the epic.
   3. APPROVE → merge into `main` as one merge commit, `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`, push (step 10).
   4. Terse summary comment on the epic (what was done, sub-issues closed, version), then close it.
@@ -78,12 +79,12 @@ Between phases: check comments on milestone issues (and issues closed this run) 
 
 ## Authorized
 
-Merge of an APPROVED branch (its targeted tests and `make unit-test` green), `bump-patch` (private), push `main` + its tags after a green batch gate, push epic branches, close issues (finished epics included), comment on, file and edit issues, ChangeLog `Unreleased` lines, Playwright for checking web artefacts.
+Merge of an APPROVED branch (its targeted tests and `make unit-test` green), `bump-patch` (private), push `main` + its tags after a green batch gate, push epic branches, push issue branches `gh<N>-<slug>` (never force) to share them with the remote-run host or to start CI on them before they land, push `main`'s tip as the temporary `gate-v<version>` branch and bisect branches `gate-v<version>-b<k>` and delete each from `origin` right after its run, close issues (finished epics included), after a push remove a closed issue's clean worktrees and merged branches (local and on `origin`), comment on, file and edit issues, ChangeLog `Unreleased` lines, Playwright for checking web artefacts.
 
 ## Never (owner's alone)
 
 - Public release (`PUBLIC_RELEASE=y`, `releases.yaml`, release announcements, renaming the ChangeLog `Unreleased` header).
-- Force push, pushing any branch other than `main` and epic branches, PRs, touching external PRs.
+- Force push, pushing any branch other than `main`, epic branches, issue branches `gh<N>-<slug>` and the temporary `gate-v*` branches, tags other than a batch's, PRs, touching external PRs.
 - Regenerating reference screenshots (sole exception: purely geometric change with 0 pixel AE everywhere).
 - Changing a test to match the code → park.
 - Editing `EMULATOR-DESIGN-PLAN.md` / `TASK*-PLAN.md`, changing reported issue titles.
