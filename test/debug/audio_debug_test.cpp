@@ -1598,6 +1598,14 @@ int main() {
                 e.set_cycle_batching_for_test(k == 0, k == 0, k == 0);
                 for (int f = 0; f < 8; ++f) { e.run_frame(); drain(e, uo[k]); }
             }
+            {
+                size_t nd = 0;
+                for (size_t i = 0; i < mon.l.size() && i < uo[0].l.size(); ++i)
+                    if (mon.l[i] != uo[0].l[i] || mon.r[i] != uo[0].r[i]) {
+                        if (nd++ < 6) std::printf("  SCP-09 tapped-on vs untapped-on: sample %zu L %d vs %d R %d vs %d\n", i, mon.l[i], uo[0].l[i], mon.r[i], uo[0].r[i]);
+                    }
+                std::printf("  SCP-09 tapped-on vs untapped-on differing samples %zu of %zu\n", nd, mon.l.size());
+            }
             std::printf("  SCP-09 UNTAPPED on/off mixer equal=%d; tapped-on vs untapped-on equal=%d; tapped-off vs untapped-off equal=%d\n",
                         uo[0].l == uo[1].l ? 1 : 0, mon.l == uo[0].l ? 1 : 0, moff.l == uo[1].l ? 1 : 0);
         }
