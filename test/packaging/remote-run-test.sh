@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-43. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-45. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=43
+EXPECTED_ROWS=45
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -781,6 +781,47 @@ PATH="$TMP/hang:$PATH" HANG_REF=feature RR_FETCH_TIMEOUT=2 FAKE_RC=0 drive --id 
 took43=$((SECONDS - t0))
 row RRUN-43 "$([[ $RC -eq 75 && $took43 -lt 60 && "$OUT" == *"cannot fetch --deps-ref feature"* ]] && echo 1 || echo 0)" \
     "a hanging --deps-ref fetch is cut at RR_FETCH_TIMEOUT and takes the fallback path (rc $RC, ${took43}s)"
+
+# RRUN-44: --probe answers "a lane is free right now" in one round trip and starts nothing: 0 with a free lane
+# (the second lane too), 75 with every lane held or no host, 2 with a branch or a mode beside it
+reset_state
+drive --probe; p_free=$RC; o_free=$OUT
+hold_lock 20 "$WORK/lane.lock"; holder=$!
+drive --probe; p_one=$RC; o_one=$OUT
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+hold_lane 20; holder=$!
+reset_state
+drive --probe; p_busy=$RC; o_busy=$OUT
+started=0; [[ "$(calls)" == *"run "* || "$(calls)" == *"build "* ]] && started=1
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+bash "$DRIVER" --probe >/dev/null 2>&1; p_nohost=$?
+bash "$DRIVER" --probe feature "$SHA" unit-test >/dev/null 2>&1; p_use=$?
+bash "$DRIVER" --probe --warm >/dev/null 2>&1; p_mode=$?
+row RRUN-44 "$([[ $p_free -eq 0 && "$o_free" == *"lane 1 of 2 is free"* && $p_one -eq 0 && "$o_one" == *"lane 2 of 2 is free"* \
+    && $p_busy -eq 75 && "$o_busy" == *"probe ${HOST:-local}: rc=75"* && $started -eq 0 && $p_nohost -eq 75 && $p_use -eq 2 && $p_mode -eq 2 ]] && echo 1 || echo 0)" \
+    "--probe: free=$p_free, lane 1 held=$p_one (takes lane 2), every lane held=$p_busy (nothing started=$((1 - started))), no host=$p_nohost, with a target=$p_use, with --warm=$p_mode"
+
+# RRUN-45: pick-host.sh prints the first host whose probe is free; 75 when none; --or-first prints the first
+# host anyway (a gate waits there); one host in JNEXT_REMOTE_RUN_HOST is a one-host list; no host is 2
+cat > "$TMP/pick-driver" <<'EOF'
+#!/usr/bin/env bash
+echo "$JNEXT_REMOTE_RUN_HOST" >> "$FAKE_STATE/picks"
+[[ " ${PICK_BUSY:-} " != *" $JNEXT_REMOTE_RUN_HOST "* ]]
+EOF
+chmod +x "$TMP/pick-driver"
+PICK=$SKILL/pick-host.sh
+rm -f "$FAKE_STATE/picks"
+export JNEXT_PICK_HOST_DRIVER=$TMP/pick-driver
+k1=$(JNEXT_REMOTE_RUN_HOSTS="hA hB hC" bash "$PICK" 2>/dev/null); r1=$?
+k2=$(PICK_BUSY="hA" JNEXT_REMOTE_RUN_HOSTS="hA hB hC" bash "$PICK" 2>/dev/null); r2=$?
+k3=$(PICK_BUSY="hA hB hC" JNEXT_REMOTE_RUN_HOSTS="hA hB hC" bash "$PICK" 2>/dev/null); r3=$?
+k4=$(PICK_BUSY="hA hB hC" JNEXT_REMOTE_RUN_HOSTS="hA hB hC" bash "$PICK" --or-first 2>/dev/null); r4=$?
+k5=$(JNEXT_REMOTE_RUN_HOST="hOnly" bash "$PICK" 2>/dev/null); r5=$?
+k6=$(bash "$PICK" 2>/dev/null); r6=$?
+unset JNEXT_PICK_HOST_DRIVER
+row RRUN-45 "$([[ "$k1" == hA && $r1 -eq 0 && "$k2" == hB && $r2 -eq 0 && -z "$k3" && $r3 -eq 75 && "$k4" == hA && $r4 -eq 0 \
+    && "$k5" == hOnly && $r5 -eq 0 && -z "$k6" && $r6 -eq 2 ]] && echo 1 || echo 0)" \
+    "pick-host.sh: first free host ($k1, $k2), none free 75 (rc=$r3), --or-first $k4, one-host list $k5, no host rc=$r6"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

@@ -10,14 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-32. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-38. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=32
+EXPECTED_ROWS=38
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -87,9 +87,16 @@ EOF
 # driver stub: records its arguments and the two environment variables slot.sh must set, exits STUB_RC.
 cat > "$TMP/rr-stub" <<'EOF'
 #!/usr/bin/env bash
-{ echo "ARGS $*"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; } >> "$STATE/rr-calls"
+# --probe: record the host asked, say busy (75) for a host listed in STUB_BUSY_HOSTS, else free (0). Not an rr-calls entry.
+if [[ "${1:-}" == --probe ]]; then
+    echo "${JNEXT_REMOTE_RUN_HOST:-unset}" >> "$STATE/probe-calls"
+    [[ " ${STUB_BUSY_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
+    exit 0
+fi
+{ echo "ARGS $*"; echo "HOST=${JNEXT_REMOTE_RUN_HOST:-unset}"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; } >> "$STATE/rr-calls"
 echo "stub driver ran"
 [[ -z "${STUB_PAUSE:-}" ]] || : > "$STUB_PAUSE"
+[[ " ${STUB_RC75_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
 if [[ "${STUB_WAIT:-0}" == 1 ]]; then
     trap 'echo term > "$STATE/rr-term"; sleep 1; exit 5' TERM
     echo $$ >> "$STATE/helper-pids"
@@ -122,7 +129,7 @@ CLEANSLOTS=$TMP/slots
 
 set_load() { echo "$1 1.00 1.00 1/100 1" > "$TMP/loadavg"; }
 fresh() {   # fresh slot dir, low load, empty records
-    rm -rf "$CLEANSLOTS" "$STATE"/rr-calls "$STATE"/make-calls "$STATE"/git-calls "$TMP/rrlogs"
+    rm -rf "$CLEANSLOTS" "$STATE"/rr-calls "$STATE"/make-calls "$STATE"/git-calls "$STATE"/probe-calls "$TMP/rrlogs"
     mkdir -p "$CLEANSLOTS"; set_load 1.00
 }
 slot() { timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$@"; }
@@ -446,6 +453,53 @@ out=$(slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
 rm -f "$WT/.git/index"; git -C "$WT" reset -q
 row SLOT-31 "$([[ $rc -eq 0 && -z "$(rr_calls)" && "$out" == *"git status failed"* && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
     "a failing git status keeps the run here and says so, the driver is not called (rc=$rc)"
+
+# SLOT-33: two hosts, both with a free lane: the FIRST in the list gets the run, one probe, no fallback flag
+fresh
+JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-33 "$([[ $rc -eq 0 && "$(cat "$STATE/probe-calls")" == hostA && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 \
+    && "$(rr_calls)" == *"HOST=hostA"* && "$(rr_calls)" != *"--fallback-local"* && "$(adm)" == *" remote hostA waited="* ]] && echo 1 || echo 0)" \
+    "two hosts, both free: the first gets the run (probed once, no --fallback-local), the log names it (rc=$rc)"
+
+# SLOT-34: the first host is busy: the second gets the run, and being the last it carries --fallback-local
+fresh
+STUB_BUSY_HOSTS=hostA JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-34 "$([[ $rc -eq 0 && "$(tr '\n' ' ' < "$STATE/probe-calls")" == "hostA hostB " && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 \
+    && "$(rr_calls)" == *"HOST=hostB"* && "$(rr_calls)" == *"--fallback-local $WT"* ]] && echo 1 || echo 0)" \
+    "first host busy: probed A then B, the run goes to B with --fallback-local (rc=$rc)"
+
+# SLOT-35: every host busy: no driver call at all, the command runs here, and no remote admission is logged
+fresh
+STUB_BUSY_HOSTS="hostA hostB" JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-35 "$([[ $rc -eq 0 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" && "$(adm)" != *remote* && "$(adm)" == *" slot 1 "* ]] && echo 1 || echo 0)" \
+    "every host busy: both probed, no run sent, the command runs in a local slot (rc=$rc)"
+
+# SLOT-36: a host that answers 75 after its probe (a lane lost, no image): the next host is tried, nothing ran twice
+fresh
+STUB_RC75_HOSTS=hostA JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-36 "$([[ $rc -eq 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 2 && "$(grep '^HOST=' "$STATE/rr-calls" | tr '\n' ' ')" == "HOST=hostA HOST=hostB " \
+    && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "driver status 75 from host A moves the run to host B (rc=$rc)"
+
+# SLOT-37: a run that STARTED on host A and failed is never retried on host B: its status is slot.sh's
+fresh
+STUB_RC=1 JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-37 "$([[ $rc -eq 1 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"HOST=hostA"* && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "a failed run on host A exits 1 and is not tried on B or here (rc=$rc)"
+
+# SLOT-38: JNEXT_REMOTE_RUN_HOST alone is a one-host list (and loses to JNEXT_REMOTE_RUN_HOSTS when both are set);
+# a one-host list whose host is busy runs here with no driver call
+fresh
+slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1
+one=$(rr_calls)
+fresh
+JNEXT_REMOTE_RUN_HOSTS=hostC slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1
+both=$(rr_calls)
+fresh
+STUB_BUSY_HOSTS=fakehost slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-38 "$([[ "$one" == *"HOST=fakehost"* && "$one" == *"--fallback-local $WT"* && "$both" == *"HOST=hostC"* && "$both" != *"HOST=fakehost"* \
+    && $rc -eq 0 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "JNEXT_REMOTE_RUN_HOST is a one-host list, JNEXT_REMOTE_RUN_HOSTS wins, a busy single host runs the command here"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and
