@@ -310,7 +310,7 @@ static void install_im2_halt(Emulator& e) {
 // A Next with sound and a loop that waits for a raster line: AY0 and AY1 tones, the beeper
 // toggled by the interrupt routine, then either `EI; HALT` (poll == false) or the NR 0x1F poll
 // loop of test/core/raster_poll_fixtures.h (preselected_loop: select NR 0x1F, read it until it
-// shows line 100, count, wait for it to leave).
+// shows line 180, count, wait for it to leave; 28 MHz).
 static void build_batch(Emulator& emu, bool poll) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
@@ -323,10 +323,11 @@ static void build_batch(Emulator& emu, bool poll) {
     ay_select(emu, 1);
     ay_write(emu, 7, 0x3E); ay_write(emu, 8, 0x0C); ay_write(emu, 0, 0x55);
     if (!poll) { install_im2_halt(emu); return; }
+    nr_write(emu, 0x07, 3);   // 28 MHz, as the poll-batch suites run it
     const uint8_t loop[] = {0x01, 0x3B, 0x24, 0x3E, 0x1F, 0xED, 0x79, 0x04,   // BC = 0x253B, NR 0x1F selected
-                            0xED, 0x78, 0xFE, 100, 0x20, 0xFA,                // L2: in a,(c); cp 100; jr nz,L2
+                            0xED, 0x78, 0xFE, 0xB4, 0x20, 0xFA,               // L2: in a,(c); cp 180; jr nz,L2
                             0x21, 0x10, 0xC2, 0x34,                           // count
-                            0xED, 0x78, 0xFE, 100, 0x28, 0xFA, 0x18, 0xEE};   // L3: wait to leave 100; jr L2
+                            0xED, 0x78, 0xFE, 0xB4, 0x28, 0xFA, 0x18, 0xEE};   // L3: wait to leave 180; jr L2
     for (size_t i = 0; i < sizeof loop; ++i) emu.mmu().write(static_cast<uint16_t>(0xC000 + i), loop[i]);
     Z80Registers r = emu.cpu().get_registers();
     r.PC = 0xC000; r.SP = 0xBFF0; r.IFF1 = 0; r.IFF2 = 0;
@@ -1578,6 +1579,11 @@ int main() {
         AudioSourceTap ton, toff;
         on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
         for (int f = 0; f < 8; ++f) { on.run_frame(); off.run_frame(); }
+        std::printf("  SCP-09 written=%llu/%llu equal=%d poll_on=%llu poll_off=%llu halt_on=%llu\n",
+                    static_cast<unsigned long long>(ton.written), static_cast<unsigned long long>(toff.written),
+                    rings_equal(ton, toff) ? 1 : 0, static_cast<unsigned long long>(on.poll_passes_batched_for_test()),
+                    static_cast<unsigned long long>(off.poll_passes_batched_for_test()),
+                    static_cast<unsigned long long>(on.halt_repeats_batched_for_test()));
         check("SCP-09", "a raster-poll loop with AY tones, 8 frames: the tap sequences are identical with the poll batch on and off, and it ran only in the 'on' machine",
               ton.written > 5000 && rings_equal(ton, toff) && on.poll_passes_batched_for_test() > 0 &&
               off.poll_passes_batched_for_test() == 0);
