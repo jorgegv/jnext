@@ -29,7 +29,7 @@ mentions them, so a test can no longer be absent from this document.
 | Tilemap                                    |   123 |  123 |    0 |    0 |       0 |          0 |
 | Copper                                     |   115 |  115 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   300 |  300 |    0 |    0 |       0 |          0 |
-| Audio                                      |   355 |  353 |    0 |    0 |       2 |          0 |
+| Audio                                      |   353 |  353 |    0 |    0 |       0 |          0 |
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   173 |  173 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6381 | 6379 |    0 |    0 |       2 |          0 |
+| **Total**                                  |  6379 | 6379 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6381**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5857**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17440**.
+Rows the sections above carry: **6379**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5855**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17440**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -2159,8 +2159,19 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | ADS-28 | host settings: gains -3/-6/-9 and AY -1/-2/-4 dB as set, the mute mask as set, muted on exactly the muted chip's channels | — | pass | test/debug/audio_debug_test.cpp:758 |
 | ADS-29 | host setting: --silent reads synthesis off, the default machine synthesis on | — | pass | test/debug/audio_debug_test.cpp:766 |
 | ADS-30 | distinct bytes in all 16 registers of each chip (R14/R15 as outputs): chips[c].regs equals the bytes written and ay_registers(c) | — | pass | test/debug/audio_debug_test.cpp:788 |
-| ACM-01..09 | One row per AY bit (`ay_bit(chip, channel)`): mute it, tick, then clear it, tick | turbosound.vhd:186-199,334 | missing | — |
-| ACM-10..13 | One row per DAC bit: mute, then clear | — | missing | — |
+| ACM-01 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:797 |
+| ACM-02 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:797 |
+| ACM-03 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:797 |
+| ACM-04 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:798 |
+| ACM-05 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:798 |
+| ACM-06 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:798 |
+| ACM-07 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:799 |
+| ACM-08 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:799 |
+| ACM-09 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:799 |
+| ACM-10 | soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it | soundrive.vhd:74-77, audio_mixer.vhd:86,99 | pass | test/debug/audio_debug_test.cpp:824 |
+| ACM-11 | soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it | soundrive.vhd:74-77, audio_mixer.vhd:86,99 | pass | test/debug/audio_debug_test.cpp:825 |
+| ACM-12 | soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it | soundrive.vhd:74-77, audio_mixer.vhd:86,99 | pass | test/debug/audio_debug_test.cpp:826 |
+| ACM-13 | soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it | soundrive.vhd:74-77, audio_mixer.vhd:86,99 | pass | test/debug/audio_debug_test.cpp:827 |
 | ACM-14 | audio_mixer.vhd:86 with the DAC at -6 dB: all four muted is the rest level (0, 0); A alone gives each side the scaled excursion of an 0xD0 pair (A muted: 0x80+0x50, unmuted C+D: 0x60+0x70) | audio_mixer.vhd:86 | pass | test/debug/audio_debug_test.cpp:853 |
 | ACM-15 | turbosound.vhd:186,189 ACB: muting chip 0 channel C removes it from BOTH sides (it feeds the left mux and the right mux) | turbosound.vhd:186,189 | pass | test/debug/audio_debug_test.cpp:864 |
 | ACM-16 | turbosound.vhd:186-192 chip 1 mono: muting channel A removes it from BOTH sides (mono sums A+C+B into each) | turbosound.vhd:186-192 | pass | test/debug/audio_debug_test.cpp:874 |
@@ -2175,21 +2186,8 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | ACM-25 | audio_state(): host.channel_mute_mask as set; a channel is muted when its channel bit or its chip's source bit is set | — | pass | test/debug/audio_debug_test.cpp:1003 |
 | AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:711 |
 | AY-50b | tone period 1 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:715 |
-| ACM-01 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:797 |
-| ACM-02 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:797 |
-| ACM-03 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:797 |
-| ACM-04 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:798 |
-| ACM-05 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:798 |
-| ACM-06 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:798 |
-| ACM-07 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:799 |
-| ACM-08 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:799 |
-| ACM-09 | turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it | turbosound.vhd:186-199,334 | pass | test/debug/audio_debug_test.cpp:799 |
 | AY-61a | noise period 0 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:811 |
 | AY-61b | noise period 1 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:815 |
-| ACM-10 | soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it | soundrive.vhd:74-77, audio_mixer.vhd:86,99 | pass | test/debug/audio_debug_test.cpp:824 |
-| ACM-11 | soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it | soundrive.vhd:74-77, audio_mixer.vhd:86,99 | pass | test/debug/audio_debug_test.cpp:825 |
-| ACM-12 | soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it | soundrive.vhd:74-77, audio_mixer.vhd:86,99 | pass | test/debug/audio_debug_test.cpp:826 |
-| ACM-13 | soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it | soundrive.vhd:74-77, audio_mixer.vhd:86,99 | pass | test/debug/audio_debug_test.cpp:827 |
 | SD2-01 | NR 0x84 b2 SET: OUT to 0x7FF1/0xDFF9/0x1FF1 (low byte F1/F9) leaves 7FFD/DFFD/1FFD unchanged, byte goes to Soundrive [zxnext.vhd:2708, 2718-2720; conflict resolves DAC-wards] | zxnext.vhd:2708,2718-2720 | pass | test/audio/audio_port_dispatch_test.cpp:831 |
 | SD2-02 | NR 0x84 b2 CLEAR: identical OUTs to 0x7FF1/0xDFF9/0x1FF1 DO reapply 7FFD/DFFD/1FFD paging, DAC untouched [zxnext.vhd:2708 conflict term 0; :2718-2720 fire] | zxnext.vhd:2708 | pass | test/audio/audio_port_dispatch_test.cpp:863 |
 | AY-63a | noise output is poly17 BIT 0: 96 shifts match an independent re-implementation of the VHDL LFSR recurrence bit for bit | ym2149.vhd:111,284,293,302 | pass | test/audio/audio_test.cpp:882 |
