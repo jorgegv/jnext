@@ -119,6 +119,21 @@ carried over a cold boot by `emulator_cold_boot()` beside the mute mask, cleared
 only by `Debugger::clear_audio_drops()`, and not counted while a rewind replays
 frames. `Debugger::audio_state()` publishes them as `AudioState::drops`.
 
+**Pacing engines.** `Debugger::ctc_state()` and `Debugger::dma_state()` (INS-25) report what paces a
+sample player: the CTC's four channels and the DMA's prescaler. Both read through a `DebugView` that
+is defined inline in `CtcChannel` and `Dma` (`ctc.h`, `dma.h`): no data member, so no layout change, and
+no core translation unit calls it, so no code is emitted in a hot path; an unused debugger pays nothing.
+The CTC rate is the ZC/TO rate: `MASTER_CLOCK_HZ / (prescaler x TC)` for a running timer (TC 0 counts
+256; `ctc_chan.vhd:132-170`), the source's rate divided by TC for a running counter. A counter's
+source is the previous channel, channel 0 being fed by channel 3 (`zxnext.vhd:4598`, `Ctc::handle_zc_to`
+arms `(channel + 1) & 3`); `Debugger::ctc_state()` walks that chain back at most four hops, a stopped
+channel or a ring of counters ends it with no rate, and the division is rounded once, at the end, in
+milli-hertz. A channel is `running` only in S_RUN or S_RUN_TC, the states in which `t_count` counts. The
+DMA rate is the NOMINAL pacing rate `MASTER_CLOCK_HZ / (32 x prescaler)`, the same at every CPU speed (the
+DMA timer adds 8, 4, 2 or 1 per CPU clock at 3.5, 7, 14 and 28 MHz, one per master cycle, `dma.vhd:250-255`):
+the gate (`dma.vhd:424`) is a minimum spacing from the read, and the state machine's own cycles come
+on top, so a real stream is slower than the nominal rate.
+
 **Beeper** — `src/audio/beeper.*`. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is

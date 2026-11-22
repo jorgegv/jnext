@@ -1644,10 +1644,10 @@ int main() {
                             dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
         const Outcome b = run(false);
         const bool loaded2 = dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
-        emu.port().out(0x1F, 0x11);                  // a real guest write: the control run must differ
+        ay_write(emu, 8, 0x01);                      // a real guest write (the DMA overwrites DAC A): the control run must differ
         const Outcome c = run(false);
         check("AIZ-11", "1000 ctc_state() + 1000 dma_state() calls (20 a frame) over 50 frames of a CTC timer and a DMA burst leave the saved state and the video unchanged "
-              "(positive control: both engines were seen moving, and a real DAC write between the runs makes them differ)",
+              "(positive control: both engines were seen moving, and a real AY write between the runs makes them differ)",
               loaded && loaded2 && b.ok && !a.state.empty() && a.state == b.state && a.video == b.video &&
               saw_dma && saw_ctc && c.ok && c.state != b.state);
     }

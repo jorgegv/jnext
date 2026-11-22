@@ -644,7 +644,7 @@ VHDL ref: `zxnext.vhd` lines 2775-2778
 Suite `test/debug/audio_debug_test.cpp` (`audio_debug_test`, GH #529). It tests what the debugger
 backend reports about the audio chain, not the chain itself (sections 1-7 do that). The rows of this
 section are the ones this suite asserts today: `ANO` (the note helper), `AIZ` (the debugger's audio
-features are invisible to the Z80) and `ADS` (`Debugger::audio_state()`). Later sub-issues of the
+features are invisible to the Z80) and `ADS` (`Debugger::audio_state()`), `ACT` (`ctc_state()` and `dma_state()`). Later sub-issues of the
 same epic add rows to the same suite under their own prefixes, each documented here with the work
 that implements it.
 
@@ -690,6 +690,8 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
+
+| AIZ-11 | A CTC timer (P16, TC 109) and an auto-restarting DMA burst to port 0x00DF (prescaler 55); 20 `ctc_state()` and 20 `dma_state()` calls after each of 50 frames in one run only | State bytes and framebuffer hash are equal. Both engines were seen moving; a real DAC write between the runs makes them differ |
 
 ### 8.3 `Debugger::audio_state()`
 
@@ -776,6 +778,42 @@ reason fails as well. Writes are `emu.port().out()` (source Debugger) unless the
 | DRP-30 | Drops; soft reset; state save and load; cold boot | The counters equal the original after each step             |
 | DRP-31 | Rewind on, a CPU loop of dropped OUTs, run 10 frames, pause, `step_back(1)` | The machine's cycle moves back and the count is unchanged (no counting in a replay) |
 | DRP-32 | Two drops of one reason                          | Count 2, the last port and value are the second write's     |
+
+### 8.5 CTC and DMA pacing (INS-25)
+
+`Debugger::ctc_state()` and `dma_state()` (GH #537), on a bare Next, with the CTC programmed through
+the real ports `0x183B + (n << 8)` and NR 0xC5, the DMA through port 0x6B. Oracles: `ctc_chan.vhd`
+(`:117,132-170,223,263-285`), `zxnext.vhd:4581-4607` and `dma.vhd` (`:230-236,250-255,287-361,424`). Rates are
+in milli-hertz, written as literals computed by hand from 28 MHz / (prescaler x TC) and 28 MHz / (32 x
+prescaler), rounded half up. "After the TC write, one edge leaves S_TRIGGER, then each count step falls 16 (or 256)
+edges later."
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| ACT-01 | Ch0 timer, P16, TC 1, 1 edge                     | Timer, prescaler 16, TC 1, running, interrupt off, 1 750 000 000 (`ctc_chan.vhd:146,150,282`) |
+| ACT-02 | Ch0 timer P16, TC 100                            | 17 500 000                                                 |
+| ACT-03 | Ch0 timer P16, TC 0                              | TC reads 256; 6 835 938 (6 835 937.5 rounded half up, `:153`) |
+| ACT-04 | Ch0 control 0x25 (P256), TC 1                    | Prescaler 256; 109 375 000 (`:146`)                        |
+| ACT-05 | Ch0 timer P256, TC 100                           | 1 093 750                                                  |
+| ACT-06 | Ch0 timer P256, TC 0                             | 427 246                                                    |
+| ACT-07 | Ch0 timer P16 TC 100; ch1 counter TC 10          | Ch1 counter, running, 1 750 000 (`:150`, `zxnext.vhd:4598`) |
+| ACT-08 | Ch3 timer P256 TC 50; ch0 counter TC 7           | Ch0 312 500 (channel 0 is clocked by channel 3)            |
+| ACT-09 | Ch0 timer P16 TC 100; ch1 counter TC 10; ch2 counter TC 5 | Ch2 350 000 (one rounding, at the end)            |
+| ACT-10 | A counter behind a never-programmed channel; a ring of four counters; a timer waiting for its trigger; a fresh machine | Rate 0 in each; running false for the last two; TC 256 and count 0 on a fresh machine (`:117,223,282`) |
+| ACT-11 | Ch0 timer P16 TC 100; 1, then 17, then 81 edges  | Count 100, 99, 95, each equal to the port read (`:155-168`) |
+| ACT-12 | Ch0 control 0x85; NR 0xC5 = 0x02; NR 0xC5 = 0x00 | Interrupt enable on ch0; then ch1 only; then none, each equal to `get_int_enable()` (`:263-276`, `zxnext.vhd:4592-4593`) |
+| ACT-13 | Ch0 timer running 161 edges, then control 0x03 (soft reset) | Not running, rate 0, count 100 (`:117,158-159`)  |
+| ACT-14 | Ch0 timer running; control 0x05 (TC follows), TC 50 | Running throughout, TC 50, 35 000 000 (`:228-239`)      |
+| ACT-15 | Ch0 timer P16 TC 100, 4000 edges, `on_zc_to` timestamps | Two ZC/TO edges 1600 apart; rate x 1600 = 28e9 (`:132-170`) |
+| ACT-20 | A fresh DMA                                      | Idle, mode 1, prescaler 0, rate 0, counter 0, no I/O port (`dma.vhd:230-236`) |
+| ACT-21 | CPU speed 3.5 MHz; a burst mem->mem, prescaler 55; the first byte, then clocks until the gate opens | Rate 15 909 091; 1760 master cycles to the gate right after the byte; it opens after 220 CPU clocks (+8 each, `:250-251,424`) |
+| ACT-22 | The same at 7 MHz                                | 15 909 091; 440 clocks (+4 each, `:252`)                   |
+| ACT-23 | The same at 14 MHz                               | 15 909 091; 880 clocks (+2 each, `:253`)                   |
+| ACT-24 | The same at 28 MHz                               | 15 909 091; 1760 clocks (+1 each, `:254`)                  |
+| ACT-25 | Burst A->B, port A memory 0x8000 increment, port B I/O 0x00DF fixed, length 100, prescaler 55; 3 bytes | Active, mode 2, prescaler 55, src 0x8003, dst 0x00DF, length 100, counter 3, src memory, dst I/O (`:287,290,346,351,361,381`) |
+| ACT-26 | The same with direction B->A                     | src 0x00DF (I/O), dst 0x8003 (memory)                      |
+| ACT-27 | ACT-25 run to the end of the block               | Not active, counter 100                                    |
+| ACT-28 | Prescaler 1, then 255                            | 875 000 000, then 3 431 373 (3 431 372.5 rounded half up)  |
 
 ## Test Implementation Strategy
 
