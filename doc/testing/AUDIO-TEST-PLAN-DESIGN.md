@@ -685,7 +685,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-01 | Mute AY1, run 50 frames; load the same starting state, run 50 frames unmuted | State bytes and framebuffer hash are equal |
 | AIZ-02 | The same for muting the DAC and for muting the beeper | State bytes and framebuffer hash are equal                |
 | AIZ-03 | Positive control: one extra `OUT 0xBFFD` in one run | State bytes differ (the comparison can fail)             |
-| AIZ-04 | Mute AY1, load a state saved unmuted             | The state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
+| AIZ-04 | Mute AY1, load a state saved unmuted             | Before any tick the audible sum is the loaded hardware sum; the state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 
 ### 8.3 `Debugger::audio_state()`

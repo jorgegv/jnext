@@ -682,21 +682,23 @@ int main() {
         const ClientId cid = dbg.attach(client("aiz4")).value;
         emu.run_frame(); emu.run_frame();
         const auto s0 = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        const uint16_t agg0 = emu.turbosound().pcm_left();   // the hardware sum at the save
         emu.turbosound().tick();
         const uint16_t unmuted = emu.turbosound().pcm_left();
         uint16_t c1l = 0, c1r = 0;
         emu.turbosound().chip_pcm(1, c1l, c1r);
-        emu.turbosound().tick();   // the mixer settles; the load below restores the state anyway
+        ticks(emu, 3000);   // chip 1's square wave moves the live sum away from the saved one
+        const bool moved = emu.turbosound().pcm_left() != agg0;
         emu.set_audio_mute_mask(AudioMute::AY1);
         const bool loaded = s0.status == Result::Ok &&
             dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
+        const uint16_t pre = emu.turbosound().pcm_left();    // before any tick: the loaded hardware sum
         const auto again = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
         const bool same = again.status == Result::Ok && again.value == s0.value;
         emu.turbosound().tick();
         const uint16_t after = emu.turbosound().pcm_left();
-        check("AIZ-04", "a state saved unmuted and loaded with AY1 muted saves back byte for byte, and one PSG tick later "
-              "the audible sum is the unmuted one minus AY1's share", 
-              loaded && same && c1l != 0 && static_cast<uint16_t>(unmuted - c1l) == after);
+        check("AIZ-04", "a state saved unmuted and loaded with AY1 muted: before any tick the audible sum is the loaded hardware sum, it saves back byte for byte, and one PSG tick later the audible sum is the unmuted one minus AY1's share",
+              loaded && moved && same && pre == agg0 && c1l != 0 && static_cast<uint16_t>(unmuted - c1l) == after);
     }
 
     std::printf("\n=====================================\n");
