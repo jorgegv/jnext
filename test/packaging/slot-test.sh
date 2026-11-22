@@ -59,7 +59,7 @@ cleanup() {
     local p
     for p in "${HOLDERS[@]:-}"; do [[ -z "$p" ]] || kill "$p" 2>/dev/null; done
     # helpers a broken TERM forwarding would leave running (they also end by themselves after 30 s)
-    [[ ! -f "$TMP/state/helper-pids" ]] || while read -r p; do kill "$p" 2>/dev/null; done < "$TMP/state/helper-pids"
+    [[ ! -f "$TMP/state/helper-pids" ]] || while read -r p; do grep -aq -- "$TMP" "/proc/$p/cmdline" 2>/dev/null && kill "$p" 2>/dev/null; done < "$TMP/state/helper-pids"
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -381,7 +381,7 @@ for _ in $(seq 1 150); do sleep 0.2; done
 EOF
 chmod +x "$TMP/term-local.sh"
 rm -f "$TMP/t25a" "$TMP/t25b" "$TMP/t25c"
-timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$TMP/term-local.sh" "$TMP/t25a" "$TMP/t25b" "$TMP/t25c" "$STATE/helper-pids" >/dev/null 2>&1 & p25=$!
+timeout --foreground --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$TMP/term-local.sh" "$TMP/t25a" "$TMP/t25b" "$TMP/t25c" "$STATE/helper-pids" >/dev/null 2>&1 & p25=$!
 for k in $(seq 1 50); do [[ -e "$TMP/t25c" ]] && break; sleep 0.1; done
 kill -TERM "$p25"; sleep 0.5
 held=0; flock -n "$CLEANSLOTS/slot1" true 2>/dev/null || held=1
@@ -392,7 +392,7 @@ row SLOT-25 "$([[ "$(cat "$TMP/t25a" 2>/dev/null)" == term && $held -eq 1 && "$(
 # SLOT-26: TERM to slot.sh reaches the driver, and slot.sh returns the driver's own status, not 143
 fresh
 rm -f "$STATE/rr-term"
-STUB_WAIT=1 timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" env LANG=C make -C "$WT" unit-test >/dev/null 2>&1 & p26=$!
+STUB_WAIT=1 timeout --foreground --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" env LANG=C make -C "$WT" unit-test >/dev/null 2>&1 & p26=$!
 for k in $(seq 1 50); do [[ -e "$STATE/rr-calls" ]] && break; sleep 0.1; done
 sleep 0.3; kill -TERM "$p26"
 wait "$p26"; rc=$?
