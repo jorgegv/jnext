@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.53</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.53</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3563,6 +3563,21 @@ optimised tree is always a cold build: a warm <code>make gui-release</code> afte
 change costs the training plus about a minute of compiling and linking, and
 retraining with unchanged sources does not hit either. The instrumented tree is
 cached normally.</p>
+<p><strong>Worktrees share the cache</strong> (<code>JNEXT_CCACHE_SHARE</code>, ON; the rpm and deb recipes turn it OFF, because their debuginfo extraction expects the absolute build paths). CMake hands the compiler absolute paths, and ccache hashes
+them (and, with <code>-g</code>, the working directory), so two worktrees of one commit used to be two
+sets of cache entries and every new worktree compiled from nothing. The launcher
+<code>CMakeLists.txt</code> builds now sets <code>CCACHE_BASEDIR</code> to the source directory and
+<code>CCACHE_NOHASHDIR=1</code> for each compile (so the setting does not depend on anyone's
+<code>ccache.conf</code>), and the compile options carry <code>-ffile-prefix-map=&lt;source dir&gt;=.</code>, so an
+object names no worktree in its debug info or in <code>__FILE__</code>. A second worktree of the same
+commit then builds <code>build/</code> almost entirely from the cache; what still misses are the
+objects compiled with a path in a <code>-D</code> definition (the fixture and source directories some
+tests take), which belong to their worktree. The price is in the debug info: sources are
+named relative to the tree root, so run <code>gdb</code> from the worktree's root directory, or
+<code>set substitute-path . &lt;root&gt;</code>.
+PGO trees (<code>JNEXT_PGO=GENERATE</code> or <code>USE</code>) are left out of this: ccache's path rewriting changes the
+file names gcc folds into its per-function profile checksum in the instrumented compile only, and
+the optimised compile then refuses the profile (<code>-Werror=coverage-mismatch</code>).</p>
 <p>Give ccache room once per machine; the 5 GB default thrashes on this tree:</p>
 <pre><code class="language-console">$ ccache -M 20G
 </code></pre>

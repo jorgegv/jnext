@@ -97,12 +97,40 @@ endif()
 # restore builds are near-total cache hits. Guarded: a machine without ccache
 # configures and builds exactly as before. Set USE_CCACHE=OFF to opt out.
 option(USE_CCACHE "Use ccache as compiler launcher when available" ON)
+# GH #547: make ccache entries independent of the worktree path (below). OFF for the rpm and deb
+# packages, whose debuginfo and debugsource extraction expects the absolute build paths in the
+# objects; a developer tree keeps it ON.
+option(JNEXT_CCACHE_SHARE "Share ccache entries between worktrees (path-independent objects)" ON)
 if(USE_CCACHE)
     find_program(CCACHE_PROGRAM ccache)
     if(CCACHE_PROGRAM)
         message(STATUS "ccache found (${CCACHE_PROGRAM}) — using it as compiler launcher")
-        set(CMAKE_C_COMPILER_LAUNCHER   "${CCACHE_PROGRAM}")
-        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        # GH #547: share objects between worktrees. CMake hands the compiler
+        # absolute source and include paths, and ccache hashes them (and, with
+        # -g, the working directory), so the same file compiled in two worktrees
+        # was two cache entries and every new worktree built from nothing.
+        # BASEDIR makes ccache hash paths under the source dir as relative,
+        # NOHASHDIR drops the working directory from the hash, and the prefix
+        # map makes the object itself name no worktree (debug info and
+        # __FILE__), so a hit from another worktree is byte-equivalent. Set per
+        # launch (cmake -E env), never in the user's ccache.conf: CI and the
+        # remote host get it too.
+        # Never in a PGO tree (JNEXT_PGO=GENERATE or USE): the instrumented compile goes through
+        # ccache's preprocessed mode, which rewrites the paths under CCACHE_BASEDIR in the
+        # line markers, while the profile-use compile is never cached and keeps them absolute;
+        # gcc's per-function profile checksum includes the file name, so the profile then
+        # "has changed" (-Werror=coverage-mismatch). Measured with a two-file reproduction.
+        if(JNEXT_CCACHE_SHARE AND NOT JNEXT_PGO MATCHES "^(GENERATE|USE)$")
+            set(JNEXT_CCACHE_LAUNCHER ${CMAKE_COMMAND} -E env
+                "CCACHE_BASEDIR=${CMAKE_SOURCE_DIR}" CCACHE_NOHASHDIR=1 "${CCACHE_PROGRAM}")
+            if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+                add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.>")
+            endif()
+        else()
+            set(JNEXT_CCACHE_LAUNCHER "${CCACHE_PROGRAM}")
+        endif()
+        set(CMAKE_C_COMPILER_LAUNCHER   ${JNEXT_CCACHE_LAUNCHER})
+        set(CMAKE_CXX_COMPILER_LAUNCHER ${JNEXT_CCACHE_LAUNCHER})
     else()
         message(STATUS "ccache not found — compiling without a launcher")
     endif()
