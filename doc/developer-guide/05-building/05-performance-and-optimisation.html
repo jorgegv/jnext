@@ -3574,7 +3574,10 @@ commit then builds <code>build/</code> almost entirely from the cache; what stil
 objects compiled with a path in a <code>-D</code> definition (the fixture and source directories some
 tests take), which belong to their worktree. The price is in the debug info: sources are
 named relative to the tree root, so run <code>gdb</code> from the worktree's root directory, or
-<code>set substitute-path . &lt;root&gt;</code>.</p>
+<code>set substitute-path . &lt;root&gt;</code>.
+PGO trees (<code>JNEXT_PGO=GENERATE</code> or <code>USE</code>) are left out of this: ccache's path rewriting changes the
+file names gcc folds into its per-function profile checksum in the instrumented compile only, and
+the optimised compile then refuses the profile (<code>-Werror=coverage-mismatch</code>).</p>
 <p>Give ccache room once per machine; the 5 GB default thrashes on this tree:</p>
 <pre><code class="language-console">$ ccache -M 20G
 </code></pre>
