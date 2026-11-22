@@ -399,12 +399,12 @@ int main() {
         Z80Cpu a(*ma, ioa);
         Z80Cpu b(*mb, iob);
         ma->m[0] = 0xFB;                                   // A: EI, then NOPs
-        mb->m[0] = 0x00; mb->m[1] = 0x00; mb->m[2] = 0xFB; // B: NOP NOP EI (its stamp differs from A's)
+        mb->m[0] = 0x00; mb->m[1] = 0xFB; mb->m[2] = 0x00; mb->m[3] = 0x00;   // B: NOP EI NOP NOP (own stamp, own clock)
         ma->m[0x38] = 0xED; ma->m[0x39] = 0x4D;            // IM 1 handler of A: RETI
         Z80Registers ra{}; ra.PC = 0; ra.SP = 0xFF00; ra.IM = 1; a.set_registers(ra);
         Z80Registers rb{}; rb.PC = 0; rb.SP = 0xFE00; rb.IM = 1; b.set_registers(rb);
         a.execute();                                       // A: EI; the grace is pending at the next boundary
-        b.execute(); b.execute(); b.execute();             // B runs and stamps its own EI at a different T-state
+        b.execute(); b.execute(); b.execute(); b.execute();   // B runs, stamping its own EI at a different T-state
         a.request_interrupt(0xFF, 0, INT64_MAX);           // /INT is already low when A reaches the boundary
         a.execute();                                       // the grace holds: the NOP runs, the /INT is not taken
         const uint16_t pc = a.pc();
