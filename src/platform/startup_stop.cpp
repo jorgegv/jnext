@@ -80,7 +80,7 @@ bool StartupStop::resolve_target(Target& t, std::string& why) const {
         t.space = r->space ? *r->space : jnext::dbg::MemSpace::cpu();
         return true;
     }
-    const jnext::dbg::SourceResolution src = dbg_->source_map().resolve(break_at_);
+    const auto src = dbg_->source_map().resolve(break_at_);
     if (!src.starts.empty()) {
         t.source_line = true;
         return true;
