@@ -860,13 +860,19 @@ FileAddStatus add_file_to_image(const std::string& image_path,
     err.clear();
 
     // ---- 1. the source -----------------------------------------------------
-    // A directory opens as an ifstream on some filesystems and reports a size of its own: on XFS
-    // lseek(SEEK_END) on one returns 0, so the copy loop below would never run and an EMPTY file
-    // would be created on the card (found on a Rocky/XFS remote-run host, SDFA-W30/W31 red).
+    // Only a regular file is a source. A directory opens as an ifstream on some filesystems and reports
+    // a size of its own: on XFS lseek(SEEK_END) on one returns 0, so the copy loop below would never run
+    // and an EMPTY file would be created on the card; a FIFO would block the open until a writer appears,
+    // and a device (/dev/null) would read as an empty file. A missing path is not refused here: the open
+    // below says so, as it always did.
     {
-        std::error_code dec;
-        if (std::filesystem::is_directory(host_file, dec)) {
-            err = "cannot open source file '" + host_file + "' (it is a directory)";
+        std::error_code sec;
+        const std::filesystem::file_status sst = std::filesystem::status(host_file, sec);
+        if (!sec && std::filesystem::exists(sst) && !std::filesystem::is_regular_file(sst)) {
+            err = "cannot open source file '" + host_file + "' (" +
+                  (std::filesystem::is_directory(sst)
+                       ? "it is a directory"
+                       : "it is not a regular file: a device, FIFO or socket") + ")";
             return FileAddStatus::SourceUnreadable;
         }
     }

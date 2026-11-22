@@ -108,8 +108,10 @@ preflight refused; nothing is started; a busy host therefore costs a moment, nev
 
 - `slot.sh` (autonomous runs): tries the aliases of `JNEXT_REMOTE_RUN_HOSTS` in order, probe first; the run goes to
   the first host with a free lane. A driver status 75 after a free probe (a lane lost in between, no image: nothing
-  ran) moves to the next host; a run that STARTED and failed is never retried elsewhere. Every host busy: a local slot.
-  The last host of the list carries `--fallback-local`, as with one host.
+  ran) moves to the next host; a run that STARTED and failed is never retried elsewhere. Every host busy: the run
+  waits for a local slot and, while it waits, the hosts are probed again quietly every `JNEXT_SLOT_REPROBE`-th poll
+  (default 3, about a minute), so a lane that frees up takes it. The last host of the list carries `--fallback-local`,
+  as with one host.
 - `pick-host.sh [--or-first]` (the batch gate and manual runs): prints the first host with a free lane; 75 when none;
   `--or-first` prints the first host of the list instead, for a caller that will wait for a lane there:
   `H=$(pick-host.sh --or-first) && JNEXT_REMOTE_RUN_HOST=$H remote-run.sh --gate <branch> <sha>`.

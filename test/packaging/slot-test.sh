@@ -10,14 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-38. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-42. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=38
+EXPECTED_ROWS=42
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -90,6 +90,8 @@ cat > "$TMP/rr-stub" <<'EOF'
 # --probe: record the host asked, say busy (75) for a host listed in STUB_BUSY_HOSTS, else free (0). Not an rr-calls entry.
 if [[ "${1:-}" == --probe ]]; then
     echo "${JNEXT_REMOTE_RUN_HOST:-unset}" >> "$STATE/probe-calls"
+    # STUB_BUSY_FIRST=N: busy for the first N probes of the whole run, free after (a lane that frees up later)
+    [[ -z "${STUB_BUSY_FIRST:-}" || $(wc -l < "$STATE/probe-calls") -gt "$STUB_BUSY_FIRST" ]] || exit 75
     [[ " ${STUB_BUSY_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
     exit 0
 fi
@@ -500,6 +502,43 @@ STUB_BUSY_HOSTS=fakehost slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1
 row SLOT-38 "$([[ "$one" == *"HOST=fakehost"* && "$one" == *"--fallback-local $WT"* && "$both" == *"HOST=hostC"* && "$both" != *"HOST=fakehost"* \
     && $rc -eq 0 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
     "JNEXT_REMOTE_RUN_HOST is a one-host list, JNEXT_REMOTE_RUN_HOSTS wins, a busy single host runs the command here"
+
+# SLOT-39: every host busy at the first probe, one free on a LATER probe while both local slots are held: the run goes
+# to that host (not run here), without waiting for a local slot
+fresh
+hold 1; hold 2
+STUB_BUSY_FIRST=2 JNEXT_REMOTE_RUN_HOSTS="hostA hostB" JNEXT_SLOT_REPROBE=2 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+release_all
+row SLOT-39 "$([[ $rc -eq 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"HOST=hostA"* && ! -e "$STATE/make-calls" \
+    && "$(wc -l < "$STATE/probe-calls")" -ge 3 ]] && echo 1 || echo 0)" \
+    "all hosts busy at the first probe, a lane free on a later one: the run goes to the remote while both local slots are held (rc=$rc)"
+
+# SLOT-40: PAUSED set while host A answers 75: exit 75, host B is never probed for a run or called
+fresh
+STUB_RC75_HOSTS=hostA STUB_PAUSE=$CLEANSLOTS/PAUSED JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-40 "$([[ $rc -eq 75 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"HOST=hostA"* && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "PAUSED appearing as a host answers 75 stops the search: exit 75, no run on the next host (rc=$rc)"
+
+# SLOT-41: every host busy with an UNPUSHED commit: nothing is pushed (a push is only for a host that will take the run)
+fresh
+git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m unpushed
+: > "$STATE/git-calls"
+STUB_BUSY_HOSTS="hostA hostB" JNEXT_REMOTE_RUN_HOSTS="hostA hostB" JNEXT_SLOT_REPROBE=1000 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+pushes=$(grep -cE '(^| )push( |$)' "$STATE/git-calls")
+git -C "$WT" reset -q --hard origin/gh900-demo
+row SLOT-41 "$([[ $rc -eq 0 && "$pushes" -eq 0 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "every host busy, unpushed commit: no push, the run goes to a local slot (pushes=$pushes, rc=$rc)"
+
+# SLOT-42: PAUSED created while a long run waits with every host busy and every slot held (re-probing): exit 75
+fresh
+hold 1; hold 2
+( STUB_BUSY_HOSTS="hostA hostB" JNEXT_REMOTE_RUN_HOSTS="hostA hostB" JNEXT_SLOT_REPROBE=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; echo $? > "$TMP/rc42" ) & w42=$!
+sleep 1; : > "$CLEANSLOTS/PAUSED"
+wait "$w42"
+release_all
+p_after=$(wc -l < "$STATE/probe-calls"); sleep 0.6; p_later=$(wc -l < "$STATE/probe-calls")
+row SLOT-42 "$([[ "$(cat "$TMP/rc42")" == 75 && ! -e "$STATE/rr-calls" && ! -e "$STATE/make-calls" && "$p_after" -eq "$p_later" ]] && echo 1 || echo 0)" \
+    "PAUSED during the wait exits 75 with re-probing running, nothing is sent or started, probing stops"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and

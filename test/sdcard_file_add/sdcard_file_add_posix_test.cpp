@@ -112,6 +112,25 @@ void test_defaults_posix() {
     check("SDFA-D15", "a device given as the source is refused, card untouched",
           st == FileAddStatus::SourceUnreadable &&
           err.find("device") != std::string::npos && file_digest(img) == before, err);
+    // The same two sources handed straight to add_file_to_image(), without add_to_image() in front: its own
+    // contract is "a regular file or nothing". A FIFO that reached the open would block this test forever.
+    {
+        const fs::path fifo2 = g_scratch / "direct.fifo";
+        fs::remove(fifo2, ec);
+        const bool made2 = ::mkfifo(fifo2.c_str(), 0600) == 0;
+        std::string e1, e2;
+        const FileAddStatus s1 =
+            made2 ? sdcard::add_file_to_image(img.string(), fifo2.string(), "/F2.BIN", false, e1)
+                  : FileAddStatus::Ok;
+        const FileAddStatus s2 =
+            sdcard::add_file_to_image(img.string(), "/dev/null", "/N2.BIN", false, e2);
+        fs::remove(fifo2, ec);
+        check("SDFA-JP03", "a FIFO and a device given straight to add_file_to_image are refused as not regular files, card untouched",
+              made2 && s1 == FileAddStatus::SourceUnreadable && s2 == FileAddStatus::SourceUnreadable &&
+              e1.find("not a regular file") != std::string::npos &&
+              e2.find("not a regular file") != std::string::npos && file_digest(img) == before,
+              made2 ? e1 + " / " + e2 : "mkfifo failed");
+    }
 }
 
 // SDFA-T20..T24, T29, T30, T41, T42: links followed or refused, a FIFO, files
