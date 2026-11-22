@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3105,6 +3105,11 @@ matters mainly when you invoke CMake directly.</p>
 <td><code>USE_CCACHE</code></td>
 <td>ON</td>
 <td>Use ccache as the compiler launcher when it is found; a no-op if it is not</td>
+</tr>
+<tr>
+<td><code>JNEXT_CCACHE_SHARE</code></td>
+<td>ON</td>
+<td>With ccache, make objects independent of the worktree path so worktrees share cache entries (OFF in the rpm and deb packaging)</td>
 </tr>
 <tr>
 <td><code>JNEXT_ENABLE_LTO</code></td>
