@@ -1743,45 +1743,51 @@ static void g_ay_envelope() {
     // AY-120 — Attack=0 loads env_vol="11111" and env_inc='0'
     // (ym2149.vhd:393-396). Shape 8 has At=0 and never holds, so the ramp
     // must begin at the TOP of the 32-level range and walk down to the
-    // bottom in exactly 31 steps. The reset value itself is on the wire for
+    // bottom. The reset value itself is on the wire for
     // a single chip clock — env_reset also forces `env_ena <= '1'` (:341),
-    // so a step is taken on the very next enable — which is why the first
-    // step-aligned sample may already be volTableYm[30]. The row accepts
-    // either and pins the DISTANCE to the bottom, which is what proves the
-    // load was 31 and not some level below it.
+    // so a step is taken on the very next enable. This trace runs at envelope
+    // period 0, where the regular count takes a second step at the following
+    // enable: a cycle model of ym2149.vhd:334-350,393-409 (divider phase 0,
+    // the phase of a fresh chip) reads 30 after 1 tick, 29 after 3 and 28
+    // after 11, so the first 8-tick sample is volTableYm[29] and the bottom
+    // is reached 29 samples later. The pre-F4 row expected 31 or 30 and 30:
+    // one step off the VHDL (owner-approved 2026-11-22, GH #529 F4). The
+    // distance to the bottom still proves the load was 31.
     {
         auto tr = env_trace(0x08, 40);
-        const bool from_top = (tr[0] == kYm[31]);
-        const int  want_bot = from_top ? 31 : 30;
+        const int  want_bot = 29;
         bool nonincreasing = true;
         for (int i = 1; i <= want_bot; ++i)
             if (tr[i] > tr[i - 1]) { nonincreasing = false; break; }
         check("AY-120", "Attack=0 loads env_vol=31 counting down: the ramp "
               "starts at the top of the range, never rises, and reaches the "
-              "bottom exactly 31 steps after the reset",
-              (tr[0] == kYm[31] || tr[0] == kYm[30]) && nonincreasing &&
+              "bottom 29 samples after the first one (the forced step and the first regular step are already in it)",
+              tr[0] == kYm[29] && nonincreasing &&
               first_of(tr, 0x00) == want_bot,
               fmt("first=0x%02x bottom_at=%d want=%d noninc=%d "
-                  "VHDL ym2149.vhd:393-396,341",
+                  "VHDL ym2149.vhd:340-342,393-396",
                   tr[0], first_of(tr, 0x00), want_bot, (int)nonincreasing));
     }
 
     // AY-121 — Attack=1 loads env_vol="00000" and env_inc='1'
-    // (ym2149.vhd:397-399). Shape 12 is the At=1 mirror of shape 8.
+    // (ym2149.vhd:397-399). Shape 12 is the At=1 mirror of shape 8: with the
+    // forced step of ym2149.vhd:340-342 and the first regular step the level
+    // is 2 at the first 8-tick sample (volTableYm[2] = 0x01) and the top is
+    // reached 29 samples later (owner-approved 2026-11-22, GH #529 F4;
+    // expectation re-derived from the same cycle model as AY-120).
     {
         auto tr = env_trace(0x0C, 40);
-        const bool from_bot = (tr[0] == kYm[0]);
-        const int  want_top = from_bot ? 31 : 30;
+        const int  want_top = 29;
         bool nondecreasing = true;
         for (int i = 1; i <= want_top; ++i)
             if (tr[i] < tr[i - 1]) { nondecreasing = false; break; }
         check("AY-121", "Attack=1 loads env_vol=0 counting up: the ramp "
               "starts at the bottom of the range, never falls, and reaches "
-              "the top exactly 31 steps after the reset",
-              (tr[0] == kYm[0] || tr[0] == kYm[1]) && nondecreasing &&
+              "the top 29 samples after the first one",
+              tr[0] == kYm[2] && nondecreasing &&
               first_of(tr, 0xFF) == want_top,
               fmt("first=0x%02x top_at=%d want=%d nondec=%d "
-                  "VHDL ym2149.vhd:397-399,341",
+                  "VHDL ym2149.vhd:340-342,397-399",
                   tr[0], first_of(tr, 0xFF), want_top, (int)nondecreasing));
     }
 
@@ -1831,7 +1837,12 @@ static void g_ay_envelope() {
     // :392-402 reloads env_vol / env_inc / env_hold). Run a descending ramp
     // well past the top, then re-write R13 with an At=1 shape: the level
     // must jump to the bottom and ascend; re-write an At=0 shape and it
-    // must jump back to the top and descend.
+    // must jump back to the top and descend. The R13 write also forces a step
+    // (env_reset sets env_ena, ym2149.vhd:340-342) and the period-0 trace takes
+    // its first regular step in the same 8 ticks, so 8 ticks after the At=0
+    // write the level is volTableYm[29], not [30]; the threshold is [29]
+    // (a cycle model of ym2149.vhd:334-350,393-409 gives 0xC0 at divider phase
+    // 0). Owner-approved 2026-11-22, GH #529 F4.
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -1858,7 +1869,7 @@ static void g_ay_envelope() {
               "back to the top",
               mid != 0xFF && mid != 0x00 &&
               after_up <= kYm[1] && up_next > after_up &&
-              after_dn >= kYm[30],
+              after_dn >= kYm[29],
               fmt("mid=0x%02x after_up=0x%02x up_next=0x%02x after_dn=0x%02x "
                   "VHDL ym2149.vhd:209-211,392-402",
                   mid, after_up, up_next, after_dn));
