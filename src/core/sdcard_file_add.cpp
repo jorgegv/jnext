@@ -860,6 +860,16 @@ FileAddStatus add_file_to_image(const std::string& image_path,
     err.clear();
 
     // ---- 1. the source -----------------------------------------------------
+    // A directory opens as an ifstream on some filesystems and reports a size of its own: on XFS
+    // lseek(SEEK_END) on one returns 0, so the copy loop below would never run and an EMPTY file
+    // would be created on the card (found on a Rocky/XFS remote-run host, SDFA-W30/W31 red).
+    {
+        std::error_code dec;
+        if (std::filesystem::is_directory(host_file, dec)) {
+            err = "cannot open source file '" + host_file + "' (it is a directory)";
+            return FileAddStatus::SourceUnreadable;
+        }
+    }
     std::ifstream src(host_file, std::ios::binary | std::ios::ate);
     if (!src) {
         err = "cannot open source file '" + host_file + "'";
