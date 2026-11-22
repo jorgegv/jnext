@@ -10,14 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-42. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-45. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=42
+EXPECTED_ROWS=45
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -539,6 +539,46 @@ release_all
 p_after=$(wc -l < "$STATE/probe-calls"); sleep 0.6; p_later=$(wc -l < "$STATE/probe-calls")
 row SLOT-42 "$([[ "$(cat "$TMP/rc42")" == 75 && ! -e "$STATE/rr-calls" && ! -e "$STATE/make-calls" && "$p_after" -eq "$p_later" ]] && echo 1 || echo 0)" \
     "PAUSED during the wait exits 75 with re-probing running, nothing is sent or started, probing stops"
+
+# SLOT-43: a rejected push ends the remote attempt for good: with both slots held and a re-probe on every poll the
+# push is tried exactly ONCE (not again every poll), the driver is never called, and the command then runs here
+fresh
+git clone -q "$TMP/origin.git" "$TMP/other43"
+git -C "$TMP/other43" -c user.name=t -c user.email=t@t checkout -q gh900-demo
+git -C "$TMP/other43" -c user.name=t -c user.email=t@t commit -q --allow-empty -m ahead43
+git -C "$TMP/other43" push -q origin gh900-demo
+git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m diverged43
+: > "$STATE/git-calls"
+hold 1; hold 2
+( JNEXT_SLOT_REPROBE=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; echo $? > "$TMP/rc43" ) & w43=$!
+sleep 1.5
+release_all
+wait "$w43"
+pushes=$(grep -cE '(^| )push( |$)' "$STATE/git-calls")
+git -C "$WT" fetch -q origin; git -C "$WT" reset -q --hard origin/gh900-demo
+row SLOT-43 "$([[ "$(cat "$TMP/rc43")" == 0 && "$pushes" -eq 1 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "a rejected push is tried once while the command waits (pushes=$pushes), the driver is not called, the command runs here"
+
+# SLOT-44: a refusal (driver exit 3) is final too: exactly one driver call over several re-probes, then the command runs here
+fresh
+hold 1; hold 2
+( STUB_RC=3 JNEXT_SLOT_REPROBE=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; echo $? > "$TMP/rc44" ) & w44=$!
+sleep 1.5
+release_all
+wait "$w44"
+row SLOT-44 "$([[ "$(cat "$TMP/rc44")" == 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "a driver refusal (exit 3) is not re-sent on later polls: one driver call, then the command runs here"
+
+# SLOT-45: a SHORT target whose local slot frees on a later poll runs here with no extra probe (the order is: try the
+# local slots, THEN re-probe every REPROBE-th failed poll)
+fresh
+hold 1; hold 2
+( STUB_BUSY_HOSTS=fakehost JNEXT_SLOT_REPROBE=3 slot make -C "$WT" regression-rows ROWS=a >/dev/null 2>&1; echo $? > "$TMP/rc45" ) & w45=$!
+sleep 0.5
+release_all
+wait "$w45"
+row SLOT-45 "$([[ "$(cat "$TMP/rc45")" == 0 && "$(wc -l < "$STATE/probe-calls")" -eq 1 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT regression-rows ROWS=a" ]] && echo 1 || echo 0)" \
+    "a short target whose slot frees after two failed polls runs here with exactly one probe (the first)"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and

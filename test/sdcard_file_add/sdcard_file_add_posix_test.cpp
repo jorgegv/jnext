@@ -13,6 +13,7 @@
 
 #include "sdcard_file_add_includes.h"
 #include <sys/stat.h>   // mkfifo, chmod
+#include <fcntl.h>      // open (a FIFO's write end, so a reader never blocks)
 #include <sys/resource.h> // RLIMIT_FSIZE
 #include <csignal>
 #include <unistd.h>       // geteuid, syscall
@@ -99,12 +100,16 @@ void test_defaults_posix() {
     std::error_code ec;
     fs::remove(fifo, ec);
     const bool made = ::mkfifo(fifo.c_str(), 0600) == 0;
+    // A write end held open for the whole call: a regression that opens the FIFO to read it then finds a writer and
+    // fails at once, instead of blocking until the harness times the suite out.
+    const int fifo_wr = made ? ::open(fifo.c_str(), O_RDWR | O_NONBLOCK) : -1;
     st = made ? sdcard::add_to_image(img.string(), fifo.string(), "/F.BIN", false, err)
               : FileAddStatus::Ok;
     check("SDFA-D12", "a FIFO given as the source is refused without opening it",
           made && st == FileAddStatus::SourceUnreadable &&
           err.find("FIFO") != std::string::npos && file_digest(img) == before,
           made ? err : "mkfifo failed");
+    if (fifo_wr >= 0) ::close(fifo_wr);
     fs::remove(fifo, ec);
     // A device is refused the same way: /dev/null would otherwise be read as
     // an empty file.
@@ -118,12 +123,14 @@ void test_defaults_posix() {
         const fs::path fifo2 = g_scratch / "direct.fifo";
         fs::remove(fifo2, ec);
         const bool made2 = ::mkfifo(fifo2.c_str(), 0600) == 0;
+        const int fifo2_wr = made2 ? ::open(fifo2.c_str(), O_RDWR | O_NONBLOCK) : -1;   // see SDFA-D12
         std::string e1, e2;
         const FileAddStatus s1 =
             made2 ? sdcard::add_file_to_image(img.string(), fifo2.string(), "/F2.BIN", false, e1)
                   : FileAddStatus::Ok;
         const FileAddStatus s2 =
             sdcard::add_file_to_image(img.string(), "/dev/null", "/N2.BIN", false, e2);
+        if (fifo2_wr >= 0) ::close(fifo2_wr);
         fs::remove(fifo2, ec);
         check("SDFA-JP03", "a FIFO and a device given straight to add_file_to_image are refused as not regular files, card untouched",
               made2 && s1 == FileAddStatus::SourceUnreadable && s2 == FileAddStatus::SourceUnreadable &&
