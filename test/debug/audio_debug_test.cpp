@@ -2328,7 +2328,7 @@ int main() {
         for (int i = 0; i < 3; ++i) emu.run_frame();
         dbg.load_state_bytes(cid, saved.value.data(), saved.value.size());
         dbg.pause(cid);
-        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame + 1);   // the frame tag is pre-increment: the frame that starts at the save
         const uint64_t l = emu.clock().get();
         const auto v = all_entries(dbg);
         const size_t n = v.size();
