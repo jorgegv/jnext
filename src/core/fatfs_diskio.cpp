@@ -10,6 +10,7 @@ extern "C" {
 #include <array>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -28,9 +29,12 @@ constexpr uint32_t kSectorSize = 512;
 // The cache holds the image FILE's raw bytes, indexed by the FatFs sector
 // number: never journal data (the overlay is applied after it), and the file
 // is always current (every write goes to the file first), so detach() and
-// CTRL_SYNC need no flush. 1024 lines = 512 KiB per attached drive; larger
-// caches measured no faster on the fixtures that matter (see the commit).
-constexpr size_t   kCacheLines = 1024;
+// CTRL_SYNC need no flush. 8192 lines = 4 MiB per attached drive. Measured on
+// minimal_card_test (8400 files in one directory): read syscalls 19.1 M with no
+// cache, 9.3 M with 128 lines, 0.86 M with 1024, 0.10 M with 8192. The data is
+// not initialised (a tag says which lines are valid), so an attach commits no
+// page it does not use.
+constexpr size_t   kCacheLines = 8192;
 constexpr uint64_t kNoTag      = ~0ull;
 
 struct Backing {
@@ -39,21 +43,21 @@ struct Backing {
     uint32_t     sector_count = 0; // volume size, in sectors
     bool         active       = false;
     std::shared_ptr<sd_write_journal::Journal> journal; // non-null = journal mode
-    std::vector<uint8_t>  cache_data; // kCacheLines * kSectorSize, empty = detached
-    std::vector<uint64_t> cache_tag;  // FatFs sector held by each line, or kNoTag
+    std::unique_ptr<uint8_t[]> cache_data; // kCacheLines * kSectorSize, null = detached
+    std::vector<uint64_t>      cache_tag;  // FatFs sector held by each line, or kNoTag
 
     void cache_reset() {
-        cache_data.assign(kCacheLines * kSectorSize, 0);
+        cache_data.reset(new uint8_t[kCacheLines * kSectorSize]); // left uninitialised
         cache_tag.assign(kCacheLines, kNoTag);
     }
     void cache_drop() {
-        std::vector<uint8_t>().swap(cache_data);
+        cache_data.reset();
         std::vector<uint64_t>().swap(cache_tag);
     }
     void cache_put(uint64_t sector, const uint8_t* src) {
         const size_t i = static_cast<size_t>(sector % kCacheLines);
         cache_tag[i] = sector;
-        std::memcpy(&cache_data[i * kSectorSize], src, kSectorSize);
+        std::memcpy(cache_data.get() + i * kSectorSize, src, kSectorSize);
     }
     void cache_invalidate(uint64_t sector) {
         const size_t i = static_cast<size_t>(sector % kCacheLines);
@@ -62,7 +66,7 @@ struct Backing {
     bool cache_get(uint64_t sector, uint8_t* dst) const {
         const size_t i = static_cast<size_t>(sector % kCacheLines);
         if (cache_tag[i] != sector) return false;
-        std::memcpy(dst, &cache_data[i * kSectorSize], kSectorSize);
+        std::memcpy(dst, cache_data.get() + i * kSectorSize, kSectorSize);
         return true;
     }
 };

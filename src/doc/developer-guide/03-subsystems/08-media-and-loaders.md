@@ -1889,6 +1889,20 @@ failure messages name the journal file (`MountedCard::target`), not the image. A
 replace of a file reuses its clusters (FatFs's `f_open` reuses the cluster hole), so the next
 `bind()` compacts the superseded records and the file does not grow.
 
+**The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup
+re-reads its directory, and an uncached `disk_read` costs an `lseek` plus an 8 KiB stream-buffer
+refill. `fatfs_glue::attach()` therefore gives the drive a direct-mapped, write-through cache
+(8192 lines of 512 bytes, 4 MiB, indexed by the FatFs sector number) that lives until `detach()`.
+It holds the image FILE's raw bytes, never the journal's: `disk_read` serves a request from the
+cache only when every sector of it is there, otherwise it reads the whole request from the file
+and fills the lines, and the journal overlay is applied after either path. In image mode
+`disk_write` writes the file first and updates the lines only on success (a failed write drops
+them), so the file is always current and `detach()` and `CTRL_SYNC` flush nothing; journal mode
+never writes the file and never touches the cache. The scope is one attach: every user of the
+glue (`fatfs_format.cpp`, `MountedCard`, `card_extract.cpp`) attaches, works and detaches inside
+one call, and nothing may write the image by another route while it is attached. The rows are
+`FGC-01..06` (`fat32_image_test`).
+
 The rows are `SDW-01..28` (`sdcard_writes_test`), `SDFA-J01..J14` and `SDFA-JP01..JP02`
 (`sdcard_file_add_test` and `sdcard_file_add_posix_test`: the journal-mode add, read back from
 the journal by a reader written from the table above), `SDP-SDW-01..02` (a sector append and a

@@ -148,7 +148,8 @@ bool bpb_is_valid_fat32(const std::string& path, uint32_t part_lba,
 // The oracle is the image FILE, read by an independent stream, and (journal
 // mode) the journal's committed bytes. No VHDL counterpart: a host-tool layer.
 constexpr uint32_t kGcLba     = 7;    // partition start, in sectors
-constexpr uint32_t kGcSectors = 3000; // FatFs sectors presented (> 2 * the cache's 1024 lines)
+constexpr uint32_t kGcLines   = 8192; // the cache's lines (kCacheLines in src/core/fatfs_diskio.cpp)
+constexpr uint32_t kGcSectors = 9000; // FatFs sectors presented (> kGcLines, so two sectors can share a line)
 
 std::vector<uint8_t> gc_pattern(uint32_t sector, uint8_t salt) {
     std::vector<uint8_t> v(512);
@@ -388,24 +389,28 @@ int main() {
             const bool raw30 = gc_read(30) == gc_pattern(30, 1);
             const DRESULT w = disk_write(0, later.data(), 30, 1);
             const bool post30 = gc_read(30) == later;
+            // The cache holds the file's raw bytes, never the journal's: with the journal
+            // emptied, every sector (cached while journaled or written) reads raw again.
+            j->clear();
+            const bool raw_again = gc_read(40) == gc_pattern(40, 1) && gc_read(30) == gc_pattern(30, 1);
             fatfs_glue::detach(0);
             sd_write_journal::forget_all_for_test();
             std::remove(jf.c_str());
-            check("FGC-03", "journal mode: the overlay reads over the cache and the file is unchanged",
-                  ok && at && pre1 && pre2 && raw30 && w == RES_OK && post30 &&
+            check("FGC-03", "journal mode: the overlay reads over a cache of raw bytes and the file is unchanged",
+                  ok && at && pre1 && pre2 && raw30 && w == RES_OK && post30 && raw_again &&
                   gc_file_sector(img, 40) == gc_pattern(40, 1) &&
                   gc_file_sector(img, 30) == gc_pattern(30, 1), gerr + jwhy);
         }
 
-        // FGC-04: two sectors on one cache line (S and S + 1024) keep their own bytes.
+        // FGC-04: two sectors on one cache line (S and S + kGcLines) keep their own bytes.
         {
             gc_make_image(img);
             const bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
-            const auto a = gc_pattern(3, 0x10), b = gc_pattern(3 + 1024, 0x11);
+            const auto a = gc_pattern(3, 0x10), b = gc_pattern(3 + kGcLines, 0x11);
             const bool w = disk_write(0, a.data(), 3, 1) == RES_OK &&
-                           disk_write(0, b.data(), 3 + 1024, 1) == RES_OK;
-            const bool r1 = gc_read(3) == a;          // evicted by the write of S + 1024: refetched
-            const bool r2 = gc_read(3 + 1024) == b;   // evicts S
+                           disk_write(0, b.data(), 3 + kGcLines, 1) == RES_OK;
+            const bool r1 = gc_read(3) == a;          // evicted by the write of S + kGcLines: refetched
+            const bool r2 = gc_read(3 + kGcLines) == b;   // evicts S
             const bool r3 = gc_read(3) == a;
             fatfs_glue::detach(0);
             check("FGC-04", "sectors that share a cache line alternate and each returns its own bytes",
