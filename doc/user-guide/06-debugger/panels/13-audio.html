@@ -2218,17 +2218,21 @@
 </li>
       
         <li class="md-nav__item">
-<<<<<<< HEAD
-  <a href="#scopes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Scopes
-=======
   <a href="#mute-and-solo" class="md-nav__link">
     <span class="md-ellipsis">
       
         Mute and solo
->>>>>>> epic224-music-sound
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scopes
       
     </span>
   </a>
@@ -4603,7 +4607,31 @@ cleared only by <strong>Clear</strong>. Writes made from the debugger or a scrip
 Debugger, and stepping back or rewinding does not count the replayed writes again.
 Double-click a row written by the CPU to show the instruction in the Disassembly.</p>
 <p>The DAC &amp; Beeper tab is refreshed at about 4 Hz with the rest of the window.</p>
-<<<<<<< HEAD
+<h2 id="mute-and-solo">Mute and solo<a class="headerlink" href="#mute-and-solo" title="Permanent link">&para;</a></h2>
+<p>Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,
+and the 4 DAC channels in the DAC &amp; Beeper tab) has an <strong>M</strong> and an <strong>S</strong>
+button. A channel is heard only if both its Sources box and its M allow it: M
+checked means the channel is muted, and the box and the button are independent
+switches.</p>
+<ul>
+<li><strong>M</strong> mutes or unmutes that channel. The channel keeps running, so unmuting
+  it resumes mid-note; a muted DAC channel reads as the DAC's silent midpoint (0x80), not as zero. A channel that held another value still steps the output to 0x80 at the moment it is muted.</li>
+<li><strong>S</strong> solos the channel: the other twelve channels are muted. The Sources
+  strip is left alone, so a source you have switched off stays off (the
+  beeper follows its own box). Clicking S again ends the solo and restores the
+  mutes you had before it. Soloing a second channel moves the solo and still
+  restores the first set of mutes. Any other change to the mutes (an M click,
+  a script, another debugger client) ends the solo, so ending it never undoes
+  that change.</li>
+</ul>
+<p>Like the Sources boxes, channel mutes are a listening aid on the output stage
+only: the Z80 cannot observe them, they survive a reset and a state load, and
+they are not in a snapshot or a rewind slot. They change what you hear and what
+is recorded from the mix (a WAV recording or a video capture). The buttons
+follow the live mutes, so a mute set by a script shows on them.</p>
+<p>A script reads and sets the channel mutes with <code>AUDIO_CHANNEL_MUTE</code>: bit 0 to 8
+are the AY channels (bit <code>3 * chip + channel</code>, channel A = 0), bit 9 to 12 are
+DAC A to D, and a set bit is a muted channel.</p>
 <h2 id="scopes">Scopes<a class="headerlink" href="#scopes" title="Permanent link">&para;</a></h2>
 <p>One oscilloscope trace and one level meter for each of sixteen sources, in this
 order: the three channels of each AY chip (AY0 A to AY2 C), the four DAC channels
@@ -4634,33 +4662,6 @@ the root mean square, in the source's own units (0 to 255 for an AY or DAC chann
 <p>Samples are collected only while this tab is on show, and the scopes redraw on
 every frame while the machine runs. With <code>--silent</code> the emulator does not
 synthesise audio, and the tab says so instead of drawing traces.</p>
-=======
-<h2 id="mute-and-solo">Mute and solo<a class="headerlink" href="#mute-and-solo" title="Permanent link">&para;</a></h2>
-<p>Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,
-and the 4 DAC channels in the DAC &amp; Beeper tab) has an <strong>M</strong> and an <strong>S</strong>
-button. A channel is heard only if both its Sources box and its M allow it: M
-checked means the channel is muted, and the box and the button are independent
-switches.</p>
-<ul>
-<li><strong>M</strong> mutes or unmutes that channel. The channel keeps running, so unmuting
-  it resumes mid-note; a muted DAC channel reads as the DAC's silent midpoint (0x80), not as zero. A channel that held another value still steps the output to 0x80 at the moment it is muted.</li>
-<li><strong>S</strong> solos the channel: the other twelve channels are muted. The Sources
-  strip is left alone, so a source you have switched off stays off (the
-  beeper follows its own box). Clicking S again ends the solo and restores the
-  mutes you had before it. Soloing a second channel moves the solo and still
-  restores the first set of mutes. Any other change to the mutes (an M click,
-  a script, another debugger client) ends the solo, so ending it never undoes
-  that change.</li>
-</ul>
-<p>Like the Sources boxes, channel mutes are a listening aid on the output stage
-only: the Z80 cannot observe them, they survive a reset and a state load, and
-they are not in a snapshot or a rewind slot. They change what you hear and what
-is recorded from the mix (a WAV recording or a video capture). The buttons
-follow the live mutes, so a mute set by a script shows on them.</p>
-<p>A script reads and sets the channel mutes with <code>AUDIO_CHANNEL_MUTE</code>: bit 0 to 8
-are the AY channels (bit <code>3 * chip + channel</code>, channel A = 0), bit 9 to 12 are
-DAC A to D, and a set bit is a muted channel.</p>
->>>>>>> epic224-music-sound
 <hr />
 
 

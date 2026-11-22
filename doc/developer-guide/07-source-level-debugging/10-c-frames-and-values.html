@@ -3160,11 +3160,7 @@ section whose entry <strong>value</strong> is the greatest at or below the recor
 function that crosses a slot (<code>cross.c</code>, in the <code>*-cross</code> fixtures).</p>
 <h2 id="the-frames">The frames<a class="headerlink" href="#the-frames" title="Permanent link">&para;</a></h2>
 <p><code>Debugger::c_frames()</code> (<code>debugger_cframes.cpp:30</code>) returns the frames newest first. Frame 0 is where
-<<<<<<< HEAD
-the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.h:1276</code>) has its function (an index into
-=======
-the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.h:1272</code>) has its function (an index into
->>>>>>> epic224-music-sound
+the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.h:1283</code>) has its function (an index into
 <code>variables()-&gt;functions()</code>, -1 for assembly), the <code>pc</code>, the source line and the base, with how it was found:</p>
 <ul>
 <li><strong>Tracked.</strong> With the tracker's frames (oldest first, <code>n</code> of them), frame <code>k</code> was entered by
