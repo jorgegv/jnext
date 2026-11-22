@@ -74,8 +74,8 @@ bool StartupStop::start(jnext::dbg::Debugger& dbg, Emulator& emu, const Emulator
 }
 
 bool StartupStop::resolve_target(Target& t, std::string& why) const {
-    // A resume steps off the instruction the machine is at, so a run-to whose target is the
-    // PC (`--break-at 8000` on a NEX that starts at 0x8000) would run straight past it. The
+    // A resume steps off the instruction the machine is at, so a stop whose target is the
+    // PC (`--break-at 8000` on a NEX that starts at 0x8000) would be skipped. The
     // machine IS at the target then, with the memory that supplies it: that is the stop.
     const uint16_t pc = dbg_->state().pc;
     const auto here = [&](const jnext::dbg::MemSpace& space, uint16_t addr) {
@@ -102,31 +102,49 @@ bool StartupStop::resolve_target(Target& t, std::string& why) const {
     return false;
 }
 
-// Arm the stop that applies now: --break-at's run-to, else a pause with `default_why`.
+// Our stop, taken: the log line, and the client waits until the machine has run on. `reached_while_held`:
+// the machine was standing on the stop point under another client (design A2.4/A2.5), so no pause of ours.
+void StartupStop::stop_taken(const std::string& why, bool reached_while_held) {
+    phase_ = Phase::Stopped;
+    stop_cycle_ = dbg_->state().cycle;
+    log_stop((why + (reached_while_held ? ", reached while another debugger held the machine" : "")).c_str());
+}
+
+// Arm the stop that applies now. A pause-type stop (no --break-at: power-on, NEX, snapshot, inject, a failed
+// load; or --break-at standing on the machine's PC) pauses the machine, unless another client already holds
+// it paused: that pause is then taken as the stop, since pause() would re-attribute it and drop that
+// client's own transients. --break-at otherwise subscribes its Execute and nothing else (no run_to: a
+// run-control verb would resume or re-arm a machine another client drives).
 bool StartupStop::arm(const std::string& default_why, std::string& why) {
+    const auto pause_type_stop = [&](const std::string& reason) {
+        const jnext::dbg::RunState st = dbg_->state();
+        if (st.paused && st.pause_reason.by != cid_) {
+            stop_taken(reason, true);
+            return;
+        }
+        (void)dbg_->pause(cid_);
+        stop_taken(reason, false);
+    };
     if (!break_at_.empty() && last_ok_) {
         Target t;
         if (!resolve_target(t, why)) return false;
         if (t.at_pc) {
-            (void)dbg_->pause(cid_);
-            phase_ = Phase::Stopped;
-            stop_cycle_ = dbg_->state().cycle;
-            log_stop(("--break-at " + break_at_).c_str());
+            pause_type_stop("--break-at " + break_at_);
             return true;
         }
-        const jnext::dbg::Result r = t.source_line ? dbg_->run_to_source_line(cid_, break_at_)
-                                                   : dbg_->run_to(cid_, t.addr, t.space);
-        if (r != jnext::dbg::Result::Ok) {
-            why = "--break-at " + break_at_ + ": the debugger refused the run-to";
-            return false;
+        starts_.clear();
+        break_source_line_ = t.source_line;
+        if (t.source_line) {
+            for (const auto& s : dbg_->source_map().resolve(break_at_).starts)
+                starts_.emplace_back(s.space, s.address);
+        } else {
+            starts_.emplace_back(t.space, t.addr);
         }
+        subscribe_break_at();
         phase_ = Phase::Armed;
         return true;
     }
-    (void)dbg_->pause(cid_);
-    phase_ = Phase::Stopped;
-    stop_cycle_ = dbg_->state().cycle;
-    log_stop(default_why.c_str());
+    pause_type_stop(default_why);
     return true;
 }
 
@@ -180,13 +198,46 @@ void StartupStop::arm_tape() {
     watches_.clear();
     armed_what_ = tape_rule1_ ? "the end of the tape's last block"
                               : "the first instruction from the tape's memory after its last block";
-    subscribe_tape();
+    subscribe_all();
     phase_ = Phase::Armed;
 }
 
-// The tape's subscriptions, created from `watches_` so a re-arm after a foreign stop (which
-// removes every transient) loses nothing the tape already loaded. Each loaded range is watched ONCE
-// (the capture fires on every pass of the ROM's edge-wait loop, with IX and DE unchanged).
+// A stopping subscription of ours: the delivery handler records the stop (fired_, PC, cycle) at the
+// moment it is taken, so poll() never has to infer it from a pause it may have missed (a client's
+// CONTINUE pipelined right behind our stop). The handler's verdict is Stop.
+jnext::dbg::Subscription StartupStop::stopping(jnext::dbg::Subscription s) {
+    s.transient = true;
+    s.action    = jnext::dbg::Action::Stop;
+    s.handler   = [this](const jnext::dbg::Event& ev, jnext::dbg::Debugger& d) {
+        fired_       = true;
+        fired_pc_    = ev.pc;
+        fired_cycle_ = d.state().cycle;
+        return jnext::dbg::Action::Stop;
+    };
+    return s;
+}
+
+void StartupStop::subscribe_all() {
+    if (!break_at_.empty()) subscribe_break_at();
+    else subscribe_tape();
+}
+
+// What run_to() / run_to_source_line() build, without the verb.
+void StartupStop::subscribe_break_at() {
+    jnext::dbg::Subscription s;
+    s.kind = jnext::dbg::EventKind::Execute;
+    if (break_source_line_) {
+        (void)dbg_->subscribe_source_line(cid_, break_at_, stopping(s));
+        return;
+    }
+    s.filter.lo = s.filter.hi = starts_.front().second;
+    s.filter.space = starts_.front().first;
+    (void)dbg_->subscribe(cid_, stopping(s));
+}
+
+// The tape's subscriptions, created from `watches_` so a re-add after another client's stop (which removes
+// every transient) loses nothing the tape already loaded. Each loaded range is watched ONCE (the capture
+// fires on every pass of the ROM's edge-wait loop, with IX and DE unchanged).
 void StartupStop::subscribe_tape() {
     Emulator* const emu = emu_;
     const jnext::dbg::ClientId cid = cid_;
@@ -198,22 +249,18 @@ void StartupStop::subscribe_tape() {
         all.kind      = jnext::dbg::EventKind::Execute;
         all.filter.lo = 0x0000;
         all.filter.hi = 0xFFFF;
-        all.transient = true;
-        all.action    = jnext::dbg::Action::Stop;
         all.condition = delivered;
-        (void)dbg_->subscribe(cid, all);
+        (void)dbg_->subscribe(cid, stopping(all));
         return;
     }
-    const auto watch = [cid, delivered](jnext::dbg::Debugger& d, const Watch& w) {
+    const auto watch = [this, cid, delivered](jnext::dbg::Debugger& d, const Watch& w) {
         jnext::dbg::Subscription s;
         s.kind         = jnext::dbg::EventKind::Execute;
         s.filter.lo    = w.lo;
         s.filter.hi    = w.hi;
         s.filter.space = w.space;
-        s.transient    = true;
-        s.action       = jnext::dbg::Action::Stop;
         s.condition    = delivered;
-        (void)d.subscribe(cid, s);
+        (void)d.subscribe(cid, stopping(s));
     };
     jnext::dbg::Subscription cap;
     cap.kind      = jnext::dbg::EventKind::Execute;
@@ -251,16 +298,30 @@ void StartupStop::subscribe_tape() {
     for (const Watch& w : watches_) watch(*dbg_, w);
 }
 
-// Another client's stop (DeZog's CMD_INIT pauses a machine that is still loading) removed our
-// transient subscriptions; when the machine runs again they are put back. Only a cold boot, or
-// reaching the stop, ends the startup stop.
-void StartupStop::rearm() {
+// Our transients are removed TOGETHER, by any client's stop (apply_stop() clears every client's), so "one
+// of ours is present" means "all of ours are". Asked of the subscriptions themselves: a stop and a resume
+// between two polls leave no pause to see.
+bool StartupStop::have_subscriptions() const {
+    for (const auto& s : dbg_->subscriptions(true))
+        if (s.owner == cid_) return true;
+    return false;
+}
+
+// The machine stands on our stop point right now (the GH #221 step-off makes a resume skip the gate there).
+bool StartupStop::here() const {
+    const uint16_t pc = dbg_->state().pc;
+    const auto slot_space = [&] { return dbg_->mmu_slots()[pc >> 13].space; };
     if (!break_at_.empty()) {
-        std::string why;
-        (void)arm(armed_what_, why);
-    } else {
-        subscribe_tape();
+        for (const auto& st : starts_)
+            if (st.second == pc && (st.first == jnext::dbg::MemSpace::cpu() || st.first == slot_space()))
+                return true;
+        return false;
     }
+    if (!emu_->tape_delivered()) return false;
+    if (tape_rule1_) return true;
+    for (const Watch& w : watches_)
+        if (pc >= w.lo && pc <= w.hi && w.space == slot_space()) return true;
+    return false;
 }
 
 void StartupStop::log_stop(const char* what) {
@@ -277,19 +338,25 @@ void StartupStop::poll() {
     if (!dbg_ || cid_ == jnext::dbg::CLIENT_NONE) return;
     const jnext::dbg::RunState st = dbg_->state();
     switch (phase_) {
-    case Phase::Armed:
-        if (!st.paused) {
-            if (lost_) { lost_ = false; rearm(); }
+    case Phase::Armed: {
+        if (fired_) {   // our own subscription delivered the stop
+            fired_ = false;
+            phase_ = Phase::Stopped;
+            stop_cycle_ = fired_cycle_;
+            Log::platform()->info("debugger: stopped at {} ({})", hex4(fired_pc_),
+                                  break_at_.empty() ? armed_what_ : "--break-at " + break_at_);
+            if (!st.paused || st.cycle != stop_cycle_) finish();   // another client already ran it on
             break;
         }
-        if (st.pause_reason.by == cid_) {
-            stop_cycle_ = st.cycle;
-            log_stop(break_at_.empty() ? armed_what_.c_str() : ("--break-at " + break_at_).c_str());
-            phase_ = Phase::Stopped;
-        } else {
-            lost_ = true;   // someone else's stop removed our subscriptions: re-armed when it runs on
+        const bool by_other = st.paused && st.pause_reason.by != cid_;
+        const bool step_off = emu_->debug_state().step_off_pending();
+        if (reached_here(by_other, step_off, (by_other || step_off) && here())) {
+            stop_taken(break_at_.empty() ? armed_what_ : "--break-at " + break_at_, true);
+            break;
         }
+        if (!have_subscriptions()) subscribe_all();   // another client's stop removed them
         break;
+    }
     case Phase::Stopped:
         // The machine has run again (resumed, or stepped): the client's job is done. Its
         // detach never resumes anything: no pause is its any more.

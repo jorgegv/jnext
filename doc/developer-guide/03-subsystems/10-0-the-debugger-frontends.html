@@ -3185,7 +3185,10 @@ so the stop needs no Qt code. The SDL and headless loop owners have no window: w
 protocol ports. <code>main.cpp</code> implies DZRP on <code>cli::kDebuggerDefaultDzrpPort</code> (11000)
 through <code>cli::debugger_implied_dzrp_port()</code> only when the run has no debugger window
 and no protocol port was given; a Qt build made without the debugger counts as having
-no window. The browser build refuses both flags.</p>
+no window. The browser build refuses both flags. <code>StartupStop::poll()</code> runs once per tick after the pump in all three
+loop owners (the verbs of a protocol client or a script are issued in the pump, so no frame runs between them and
+that poll), and the Qt loop owner polls once more at the top of <code>pre_frames()</code>, because the debugger window's Pause
+and Run are slots that run between ticks.</p>
 <h2 id="the-capability-matrix">The capability matrix<a class="headerlink" href="#the-capability-matrix" title="Permanent link">&para;</a></h2>
 <p>What each frontend actually calls, read from its call sites on the facade. A
 mark means the frontend uses at least one verb of that row; "r" is a read, "w"

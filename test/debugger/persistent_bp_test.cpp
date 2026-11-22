@@ -489,6 +489,30 @@ int main(int argc, char** argv) {
               started && shut_before && opened && !fx.backend->state().paused && !ss.active());
     }
 
+    // PBPUI-16 (GH #548) - the debugger window's Pause and Run are slots that run between ticks: both can
+    // fall before a tick's frames. The Pause removes the startup stop's transient --break-at, and the
+    // poll that QtApp::pre_frames() makes first puts it back, so the machine still stops at the target
+    // (0x8003, before the fixture's own breakpoint at 0x8006) and the window is still the one showing it.
+    {
+        Fixture fx(/*persistent=*/false);
+        fx.mgr->set_enabled(true);
+        EmulatorConfig cfg;
+        cfg.debugger_start = true;
+        cfg.break_at       = "8003";
+        StartupStop ss;                            // after the fixture: destroyed before the backend
+        std::string why;
+        const bool started = ss.start(*fx.backend, fx.emu, cfg, 0, /*has_window=*/true, why);
+        fx.mgr->on_pause();
+        fx.mgr->on_run();                          // no poll between: one tick's worth of slots
+        ss.poll();                                 // what pre_frames() does first
+        run_until_paused(fx.emu);
+        ss.poll();
+        const jnext::dbg::RunState st = fx.backend->state();
+        check("PBPUI-16", "the window's Pause then Run between two ticks does not lose the startup --break-at: the machine still "
+              "stops at its target, a stop of the command-line client, and the window is still open",
+              started && st.paused && st.pc == 0x8003 && st.pause_reason.by == ss.client() && fx.mgr->is_enabled());
+    }
+
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

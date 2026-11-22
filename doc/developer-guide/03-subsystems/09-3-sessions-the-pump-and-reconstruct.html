@@ -3368,15 +3368,27 @@ then <code>SourceMap::resolve</code>), keeping the memory of a paged symbol thro
 power-on because a NEX or snapshot load rebuilds the machine and a sidecar
 symbol does not exist earlier. A name that resolves to nothing fails the landing,
 and the loop owner ends the run with exit 1 before the program has executed.</p>
+<p>A <code>--break-at</code> stop is a transient <code>Execute</code> subscription of the client (a Breakpoint stop of the
+command-line client, not a run-to), made by <code>subscribe()</code> alone and never by a run-control verb: <code>run_to()</code>
+resets the step mode, arms a step-off and overwrites the armed verb, and on a machine another client holds
+paused it would resume that pause. Every subscription carries a delivery handler that records the stop
+(<code>fired_</code>, PC, cycle) at the moment it is taken, so <code>poll()</code> does not infer it from a pause it may have missed.</p>
 <p>The stop is the client's own pause or transient subscription, so SES-01 keeps it
 from every other client: DeZog attaching or detaching does not resume it. The
 client detaches once the machine has run again after the stop (the next <code>poll()</code>
 sees it unpaused or its cycle changed), so its own detach resumes nothing, and it
 also detaches when its stop is cancelled by a cold boot. Another client's stop does NOT cancel it:
-DeZog's <code>CMD_INIT</code> pauses a machine still loading its tape, and that stop removes every transient
-subscription, ours included. The client notes it (<code>lost_</code>) and, when the machine runs again, puts the
-run-to back (<code>--break-at</code>) or re-subscribes the tape's capture and every range it already watched
-(<code>StartupStop::rearm()</code>, at the next <code>poll()</code>), so only a cold boot or reaching the stop ends it. A headless loop paused under <code>--debugger</code> waits on the servers with or
+DeZog's <code>CMD_INIT</code> pauses a machine still loading its tape, and <code>pause()</code> removes every client's transients
+(<code>apply_stop()</code>), ours included. <code>poll()</code> asks the subscriptions themselves (none of ours left in
+<code>subscriptions(true)</code>), not whether it saw a pause, because a pause and a resume inside one pump leave
+none to see, and the resume notification is edge-detected per pump. It then subscribes them again,
+paused or running: <code>--break-at</code>'s target, which <code>resolve_target()</code> fixed at the first arm, or the tape's
+capture and every range already in <code>watches_</code>. Two cases are decided without waiting for a gate: a machine
+another client holds paused ON the stop point, or about to resume from it with the GH #221 step-off pending
+(<code>DebugState::step_off_pending()</code>), has reached the stop (<code>StartupStop::reached_here()</code>; logged as reached while
+another debugger held the machine), and a pause-type stop due while another client already holds the machine
+takes that pause instead of re-attributing it. Only a cold boot or reaching the stop ends it. One limit: instructions another
+client steps through between its stop and our next <code>poll()</code> are not watched. A headless loop paused under <code>--debugger</code> waits on the servers with or
 without a peer (<code>DebugServers::headless_should_wait()</code>'s third parameter), so the
 wait for DeZog is a poll and not a spin.</p>
 <h2 id="no-verb-that-drives-the-machine-runs-inside-a-delivery">No verb that drives the machine runs inside a delivery<a class="headerlink" href="#no-verb-that-drives-the-machine-runs-inside-a-delivery" title="Permanent link">&para;</a></h2>

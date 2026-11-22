@@ -118,8 +118,12 @@ Once the machine has run again, `--debugger` has nothing more to do: later
 breakpoints, steps and pauses are the debugger's as usual. Another debugger
 pausing the machine first does not cancel the stop: a DeZog that attaches while the tape is
 still loading pauses the machine, and when it continues the stop is still ahead (it is put back
-when the machine runs again, at the next tick). Only a hard reset cancels it (a soft reset leaves a
-pending `--break-at` armed), or reaching it.
+at the next tick, whether the machine is paused or running, and the other debugger's own Step Out,
+Run to or breakpoints are not disturbed). If that debugger holds the machine paused exactly on the stop
+point, the stop counts as reached. Only a hard reset cancels it (a soft reset leaves a
+pending `--break-at` armed), or reaching it. The stop is reported as a breakpoint of the command line.
+One limit: instructions another debugger steps through between its stop and our next tick are not watched,
+so a stop point it single-steps across in that window is missed.
 
 The browser build has no debugger servers or script host, so `--debugger` and
 `--break-at` are refused there.

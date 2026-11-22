@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.56</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.56</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4677,8 +4677,12 @@ the program is loaded, before it has run, with the reason and exit code 1.</p>
 breakpoints, steps and pauses are the debugger's as usual. Another debugger
 pausing the machine first does not cancel the stop: a DeZog that attaches while the tape is
 still loading pauses the machine, and when it continues the stop is still ahead (it is put back
-when the machine runs again, at the next tick). Only a hard reset cancels it (a soft reset leaves a
-pending <code>--break-at</code> armed), or reaching it.</p>
+at the next tick, whether the machine is paused or running, and the other debugger's own Step Out,
+Run to or breakpoints are not disturbed). If that debugger holds the machine paused exactly on the stop
+point, the stop counts as reached. Only a hard reset cancels it (a soft reset leaves a
+pending <code>--break-at</code> armed), or reaching it. The stop is reported as a breakpoint of the command line.
+One limit: instructions another debugger steps through between its stop and our next tick are not watched,
+so a stop point it single-steps across in that window is missed.</p>
 <p>The browser build has no debugger servers or script host, so <code>--debugger</code> and
 <code>--break-at</code> are refused there.</p>
 

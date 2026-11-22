@@ -421,13 +421,13 @@ int main() {
             r.run();
             const auto st = r.dbg->state();
             if (!(not_at_entry && hidden_while_armed && st.paused && st.pc == TARGET &&
-                  st.pause_reason.kind == PauseReason::Kind::RunTo && st.pause_reason.by == r.ss.client() &&
+                  st.pause_reason.kind == PauseReason::Kind::Breakpoint && st.pause_reason.by == r.ss.client() &&
                   r.dbg->subscriptions(false).empty()))
                 bad += std::string(" [") + spelling + " ok=" + std::to_string(ok) + " armed_paused=" +
                        std::to_string(!not_at_entry) + " pc=" + hex(st.pc) + "]";
         }
         check("DBGST-10", "--break-at 8003, $8003 and 0x8003 on a NEX: not paused after the load, stops at 0x8003 "
-                          "(RunTo, the command-line client's), and the subscription never shows in the listing",
+                          "(a Breakpoint of the command-line client), and the subscription never shows in the listing",
               bad.empty(), bad);
     }
 
@@ -440,7 +440,7 @@ int main() {
         const bool ok = r.land(path("prog.nex"));
         r.run();
         check("DBGST-11", "--break-at _main resolves from the sidecar map beside the program and stops at its address",
-              ok && r.paused() && r.pc() == 0x8003 && r.dbg->state().pause_reason.kind == PauseReason::Kind::RunTo,
+              ok && r.paused() && r.pc() == 0x8003 && r.dbg->state().pause_reason.kind == PauseReason::Kind::Breakpoint,
               "pc=" + hex(r.pc()) + " why=" + r.why);
     }
 
@@ -549,7 +549,7 @@ int main() {
         const bool landed = r.land(path("paged.nex"));
         r.run();
         check("DBGST-16", "--break-at file:line with a source map stops at the start of that line",
-              landed && r.paused() && r.pc() == 0x8003 && r.dbg->state().pause_reason.kind == PauseReason::Kind::RunTo,
+              landed && r.paused() && r.pc() == 0x8003 && r.dbg->state().pause_reason.kind == PauseReason::Kind::Breakpoint,
               "pc=" + hex(r.pc()) + " why=" + r.why);
     }
 
@@ -903,6 +903,194 @@ int main() {
               pcs[0] == 0x8000 && pcs[1] == 0x8000 && cyc[1] > cyc[0] + 10000000ull,
               "pcs=" + hex(pcs[0]) + "/" + hex(pcs[1]) + " cycles=" + std::to_string(cyc[0]) + "/" + std::to_string(cyc[1]));
     }
+
+    // ---- round 2 of stage 2: the stop survives, and interferes with nothing ---------------------------
+    // The startup stop's subscriptions are removed by ANY client's stop and put back by subscribe() alone.
+    write_nex(path("loop.nex"), {0x00, 0x00, 0x00, 0x00, 0x18, 0xFA}, ENTRY);   // NOP x4, JR 0x8000: passes 0x8003 every loop
+    auto owned = [](Rig& r) {
+        size_t n = 0;
+        for (const auto& s : r.dbg->subscriptions(true)) if (s.owner == r.ss.client()) ++n;
+        return n;
+    };
+    auto owned_covering = [](Rig& r, uint16_t addr) {
+        for (const auto& s : r.dbg->subscriptions(true))
+            if (s.owner == r.ss.client() && s.filter.lo <= addr && addr <= s.filter.hi) return true;
+        return false;
+    };
+
+    // DBGST-45: another client's pause and resume with NO poll between them (one pipelined pump) removes the
+    // transient; poll() must notice from the subscriptions, not from a pause it did not see.
+    {
+        Rig r("8003");
+        r.start(1);
+        r.land(path("target.nex"));
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->pause(other);
+        r.dbg->run(other);
+        r.ss.poll();
+        r.run();
+        const auto st = r.dbg->state();
+        check("DBGST-45", "another client's pause + run between two polls does not lose the --break-at stop: it still stops at 0x8003, "
+                          "a Breakpoint of the command-line client",
+              st.paused && st.pc == TARGET && st.pause_reason.by == r.ss.client() &&
+                  st.pause_reason.kind == PauseReason::Kind::Breakpoint,
+              "paused=" + std::to_string(st.paused) + " pc=" + hex(st.pc));
+    }
+
+    // DBGST-46: the same loss mid-load of the z88dk tape (after the first block's capture): the tape stop survives.
+    {
+        Rig r("", MachineType::ZX48K, true);
+        r.start(1);
+        r.land(fixture);
+        for (int i = 0; i < kTapeFrames && !r.paused() && owned(r) < 2; ++i) r.run(1);
+        const bool mid = !r.paused() && owned(r) >= 2;
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->pause(other);
+        r.dbg->run(other);
+        r.ss.poll();
+        r.run(kTapeFrames);
+        check("DBGST-46", "another client's pause + run between two polls mid-load does not lose the tape stop: it stops at the program",
+              mid && r.paused() && r.pc() == code_start,
+              "mid=" + std::to_string(mid) + " paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
+    }
+
+    // DBGST-47: re-adding the stop uses subscribe() and no run-control verb: another client's Step Out (armed
+    // after our subscription was removed and put back) keeps its step mode, completes at the return address, and
+    // our stop is still taken afterwards.
+    {
+        write_nex(path("call.nex"), {0xCD, 0x10, 0x80, 0x00, 0x00, 0x18, 0xFE, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                     0x00, 0x00, 0xC9}, ENTRY);   // 8000 CALL 8010; 8003 NOP; 8004 NOP; 8005 JR $; 8010 NOP NOP RET
+        Rig r("8004");
+        r.start(1);
+        r.land(path("call.nex"));
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->pause(other);
+        r.ss.poll();   // ours put back while the other client holds the machine
+        r.dbg->step_into(other);   // into the CALL: PC 0x8010
+        r.dbg->step_out(other);
+        r.ss.poll();
+        const auto before = r.dbg->state();
+        const bool mode_kept = before.step_mode == jnext::dbg::StepMode::Out;
+        for (int i = 0; i < 6 && !r.paused(); ++i) { r.emu.run_frame(); r.dbg->pump(jnext::dbg::PumpBudget{}); }
+        const auto step_stop = r.dbg->state();
+        const bool stepped = step_stop.paused && step_stop.pc == 0x8003 && step_stop.pause_reason.by == other &&
+                             step_stop.pause_reason.kind == PauseReason::Kind::Step;
+        r.dbg->run(other);
+        r.ss.poll();
+        r.run();
+        const auto st = r.dbg->state();
+        check("DBGST-47", "re-adding the startup stop leaves another client's Step Out alone (step mode kept, it completes at the "
+                          "return address 0x8003), and our stop is still taken at 0x8004 afterwards",
+              mode_kept && stepped && st.paused && st.pc == 0x8004 && st.pause_reason.by == r.ss.client(),
+              "mode_kept=" + std::to_string(mode_kept) + " stepped=" + std::to_string(stepped) + " pc=" + hex(st.pc) +
+                  " by_us=" + std::to_string(st.pause_reason.by == r.ss.client()));
+    }
+
+    // DBGST-48: real time, a foreign pause AFTER the last block's capture and BEFORE its delivery: the re-added stop must carry
+    // the ranges already captured (the capture does not fire again for that LD-BYTES call).
+    {
+        Rig r("", MachineType::ZX48K, true);
+        r.realtime = true;
+        r.start(1);
+        r.land(fixture);
+        bool mid = false;
+        for (int i = 0; i < kRealFrames && !r.paused(); ++i) {
+            r.run(1);
+            if (owned_covering(r, 0x8000) && !r.emu.tape_delivered()) { mid = true; break; }
+        }
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->pause(other);
+        r.ss.poll();
+        r.dbg->run(other);
+        r.run(kRealFrames);
+        check("DBGST-48", "a foreign pause between the last block's capture and its delivery keeps the watches already captured: "
+                          "the machine stops at the program",
+              mid && r.paused() && r.pc() == code_start,
+              "mid=" + std::to_string(mid) + " paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
+    }
+
+    // DBGST-49: our stop, then another client's run in the same pump (no poll between): the stop is recorded at delivery,
+    // logged once, and not taken a second time on the next pass over the target.
+    {
+        Rig r("8003");
+        r.start(1);
+        r.land(path("loop.nex"));
+        for (int i = 0; i < 6 && !r.paused(); ++i) r.emu.run_frame();   // no poll: the loop owner's pump has not come yet
+        const bool stopped = r.paused() && r.pc() == TARGET;
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->run(other);
+        int lines = 0;
+        const std::string log = logged([&] { r.ss.poll(); r.ss.poll(); r.run(4); });
+        for (size_t at = log.find("debugger: stopped at"); at != std::string::npos; at = log.find("debugger: stopped at", at + 1)) ++lines;
+        check("DBGST-49", "our --break-at stop followed at once by another client's run: logged exactly once, the machine is not "
+                          "stopped again at the next pass, and the client detaches",
+              stopped && lines == 1 && !r.paused() && !r.ss.active(),
+              "stopped=" + std::to_string(stopped) + " lines=" + std::to_string(lines) + " active=" + std::to_string(r.ss.active()));
+    }
+
+    // DBGST-50: another client holds the machine paused ON our stop point (it stepped there): the stop is reached, and after
+    // its run the next pass over the address (the step-off skipped the gate) is not a second stop.
+    {
+        Rig r("8003");
+        r.start(1);
+        r.land(path("loop.nex"));
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->pause(other);
+        r.dbg->step_into(other);
+        r.dbg->step_into(other);
+        r.dbg->step_into(other);   // 8000 -> 8003
+        std::string log = logged([&] { r.ss.poll(); });
+        const bool reached = r.paused() && r.pc() == TARGET &&
+                             log.find("reached while another debugger held the machine") != std::string::npos;
+        r.dbg->run(other);
+        r.ss.poll();
+        r.run(4);
+        check("DBGST-50", "a machine another client holds paused on the stop point has reached the stop (logged as such); after its "
+                          "run there is no second stop at the next pass",
+              reached && !r.paused() && !r.ss.active(),
+              "reached=" + std::to_string(reached) + " paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()) + " " + log);
+    }
+
+    // DBGST-51: a --break-at landing while another client holds the machine paused leaves that pause alone (run_to would have
+    // resumed it), and the stop is taken once it runs; an --inject landing (a pause-type stop) takes the held pause as the stop
+    // instead of re-attributing it.
+    {
+        Rig r("8003");
+        r.start(1);
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->pause(other);
+        // An --inject landing: a NEX load rebuilds the machine and would clear the other client's pause itself.
+        write_bytes(path("inject3.bin"), {0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        const bool inj1 = r.emu.inject_binary(path("inject3.bin"), 0x8000, 0x8000);
+        r.ss.program_landed(path("inject3.bin"), inj1, true, r.why);
+        const auto held = r.dbg->state();
+        const bool still_held = held.paused && held.pause_reason.by == other && owned(r) >= 1;
+        r.dbg->run(other);
+        r.run();
+        const bool stopped = r.paused() && r.pc() == TARGET && r.dbg->state().pause_reason.by == r.ss.client();
+
+        write_bytes(path("inject2.bin"), {0x00, 0x00, 0x18, 0xFE});
+        Rig q;
+        q.start(1);
+        const ClientId other2 = q.dbg->attach(other_client("remote")).value;
+        q.dbg->pause(other2);
+        const bool injected = q.emu.inject_binary(path("inject2.bin"), 0x8000, 0x8000);
+        const std::string log = logged([&] { q.ss.program_landed(path("inject2.bin"), injected, true, q.why); });
+        const auto qs = q.dbg->state();
+        const bool adopted = q.paused() && qs.pause_reason.by == other2 &&
+                             log.find("reached while another debugger held the machine") != std::string::npos;
+        check("DBGST-51", "a landing while another client holds the machine: --break-at neither resumes it nor re-pauses it and "
+                          "still stops once it runs; a pause-type stop takes that pause (the pause stays the other client's)",
+              still_held && stopped && adopted,
+              "still_held=" + std::to_string(still_held) + " stopped=" + std::to_string(stopped) + " adopted=" + std::to_string(adopted));
+    }
+
+    // DBGST-52: the decision "standing on the stop point counts as reaching it", over its truth table.
+    check("DBGST-52", "reached_here(): not on the point false; on it and held by another client true; on it, running, step-off pending true; "
+                      "on it, running, no step-off false (the gate fires at the next instruction)",
+          !StartupStop::reached_here(true, true, false) && !StartupStop::reached_here(false, false, false) &&
+              StartupStop::reached_here(true, false, true) && StartupStop::reached_here(false, true, true) &&
+              !StartupStop::reached_here(false, false, true));
 
     // DBGST-21: a target that IS the PC the program starts at stops there at once (a resume
     // steps off the instruction it is at, so a plain run-to would run straight past it).

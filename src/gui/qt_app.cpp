@@ -711,7 +711,10 @@ void QtApp::on_frame_tick() {
 // ordering decisions here and no state: both moved into the sequencer.
 
 bool QtApp::TickEffects::pre_frames() {
-    app.startup_stop_.poll();   // GH #548: re-arm after a resume made between ticks, before this tick's frames
+    // GH #548: the debugger window's Pause and Run are slots that run between ticks, so a stop and a resume
+    // can both fall before this tick's frames: the startup stop is checked (and put back) before them.
+    // SDL and headless issue every verb in the pump, which a poll already follows before any frame.
+    app.startup_stop_.poll();
     QtApp& a = app;
 
     // Task 79 — Qt owns the event loop, so SDL never runs its own; drain the

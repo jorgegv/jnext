@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/emulator_config.h"
@@ -62,6 +63,13 @@ public:
     /// A cold boot cancels a stop that has not happened yet.
     void on_cold_boot();
 
+    /// A2.4 of the design: standing on the stop point counts as reaching it when another client holds
+    /// the machine paused there, or a resume's step-off (GH #221) is about to skip our gate there. With
+    /// neither, the gate fires at the next instruction and there is nothing to decide.
+    static bool reached_here(bool paused_by_other, bool step_off_pending, bool here) {
+        return here && (paused_by_other || step_off_pending);
+    }
+
     /// The client is attached (the stop is pending, or held and not yet run past).
     bool active() const { return cid_ != jnext::dbg::CLIENT_NONE; }
     jnext::dbg::ClientId client() const { return cid_; }
@@ -79,12 +87,21 @@ private:
     bool resolve_target(Target& t, std::string& why) const;
     bool arm(const std::string& default_why, std::string& why);
     void arm_tape();
-    void subscribe_tape();   ///< (re)create the tape's subscriptions: the capture and every watch so far
-    void rearm();            ///< a foreign stop removed our transients: put them back
     struct Watch {
         uint16_t lo = 0, hi = 0;
         jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
     };
+    // The subscriptions are made by subscribe() alone, never by a run-control verb: a verb would
+    // resume, re-pause or re-arm a machine another client is driving (design A2.3). They are all
+    // transient, so any client's stop removes them together; poll() notices that from the
+    // subscriptions themselves (not from a pause it might not see) and puts them back.
+    void subscribe_all();          ///< --break-at's Execute, or the tape's capture and every watch so far
+    void subscribe_break_at();
+    void subscribe_tape();
+    bool have_subscriptions() const;
+    bool here() const;             ///< the machine stands on the stop point right now
+    void stop_taken(const std::string& why, bool reached_while_held);
+    jnext::dbg::Subscription stopping(jnext::dbg::Subscription s);   ///< `s` + the delivery handler (fired_)
     void finish();
     void log_stop(const char* what);
 
@@ -98,6 +115,10 @@ private:
     uint64_t              stop_cycle_ = 0;
     std::vector<Watch>    watches_;      ///< the tape-loaded ranges seen at LD-BREAK, each once
     bool                  tape_rule1_ = false;
-    bool                  lost_ = false;   ///< another client's stop removed the armed subscriptions
+    bool                  fired_ = false;  ///< one of our subscriptions delivered the stop (set by its handler)
+    uint16_t              fired_pc_ = 0;
+    uint64_t              fired_cycle_ = 0;
+    std::vector<std::pair<jnext::dbg::MemSpace, uint16_t>> starts_;   ///< --break-at's stop points, as resolved at the first arm
+    bool                  break_source_line_ = false;
     std::string           armed_what_;   ///< the log's reason for a stop that is not --break-at's
 };
