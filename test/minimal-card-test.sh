@@ -422,10 +422,10 @@ nd=0
 while IFS= read -r f; do
     nd=$((nd + 1))
     cmp -s "$T/xc/$f" "$T/xs/$f" || { ok=0; bad+=" $f"; }
-done < <(cd "$T/xs" && find dot -type f -printf '%p\n' | LC_ALL=C sort)
-nd_card=$(cd "$T/xc" && find dot -type f 2>/dev/null | wc -l)
+done < <(cd "$T/xs" && find dot -type f -printf '%p\n' 2>/dev/null | LC_ALL=C sort || true)
+nd_card=$(cd "$T/xc" && find dot -type f 2>/dev/null | wc -l || true)
 [[ $nd -gt 0 && $nd == "$nd_card" ]] || { ok=0; bad+=" count:$nd/$nd_card"; }
-tld() { (cd "$1" && find dot -type f -printf '%p %T@\n' | LC_ALL=C sort) || true; }
+tld() { (cd "$1" && find dot -type f -printf '%p %T@\n' 2>/dev/null | LC_ALL=C sort) || true; }
 [[ "$(tld "$T/xc")" == "$(tld "$T/xs")" ]] || { ok=0; bad+=" mtimes"; }
 attrd() { { mattrib -/ -i "$1" ::/ 2>/dev/null || true; } | { grep -iE '::/dot(/|$)' || true; } | LC_ALL=C sort; }
 ad_c=$(attrd "$CARD@@32256"); ad_s=$(attrd "$SRC@@$((start * 512))")
@@ -450,11 +450,14 @@ pages_card=$(mdir -/ -a -b -i "$T/l/pages.img@@32256" ::/ 2>/dev/null | LC_ALL=C
 ok=0
 [[ -n "$pages_dirs" && $rc == 0 && "$np" == 41943040 ]] && ok=1
 grep -qiE '^::/dot/' <<<"$pages_card" || ok=0
+mkdir -p "$T/l/pdot"
+MTOOLS_SKIP_CHECK=1 mcopy -s -n -i "$T/l/pages.img@@32256" ::/dot "$T/l/pdot/" </dev/null >/dev/null 2>&1 || true
+[[ -n "$(find "$T/l/pdot" -type f 2>/dev/null | head -n1 || true)" ]] || ok=0   # an empty /dot is not a pass
 IFS=, read -ra pd <<<"$pages_dirs"
 for d in "${pd[@]}"; do grep -qiE "^::${d,,}/" <<<"${pages_card,,}" || ok=0; done
 row MINIMG-30 "$ok" "the Pages demo's list ($pages_dirs) builds with /dot: exit 0, a 40 MiB card holding ::/dot and every listed directory"
 [[ $ok == 1 ]] || { tail -n 3 "$T/l/stderr_p"; echo "  rc=$rc size=$np"; }
-rm -f "$T/l/pages.img"
+rm -rf "$T/l/pages.img" "$T/l/pdot"
 
 # ---- MINIMG-27: the raw image it reads is ensured first ----
 # unit-test ran this target BEFORE sdcard-image, so a host whose shared master was another

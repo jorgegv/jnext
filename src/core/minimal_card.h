@@ -9,7 +9,8 @@
 #include "core/sdcard_provisioner.h"
 
 /// The minimal NextZXOS SD card (GH #458): a 40 MiB FAT32 card with 512-byte clusters that
-/// holds only the boot set (TBBLUE.FW, MACHINES, NEXTZXOS, SYS, DOT (NextZXOS runs its dot commands, and so opens files from its browser, from there), LICENSE.md, README.md), plus
+/// holds only the boot set (TBBLUE.FW, MACHINES, NEXTZXOS, SYS, DOT, LICENSE.md, README.md; DOT
+/// because NextZXOS runs its dot commands, and so opens files from its browser, from there), plus
 /// any paths the caller asks for (Expect::dirs, GH #509: each with its parent directories, the
 /// rest of the parents not copied), plus jnext's two patches (the default MACHINES/NEXT/config.ini, and the known 16 KB zx81.rom
 /// twice), made from the official specnext.com distribution zip, or from the 1 GB
@@ -29,7 +30,8 @@
 ///     32.8 MB counted with /GAMES and /APPS; refused above 32 MiB, which cannot fit a 40 MiB
 ///     card anyway, with the exact size and the limit;
 ///   - the FatFs work buffer, 64 KiB; the SHA-256 state.
-/// Total for 26.11: about 4.2 MB for the plain card; with /GAMES and /APPS the wasm heap grew by 21 MB (BCARD-41). The card itself is a FILE (MEMFS in the browser: JS-side
+/// Total for 26.11a: about 4.0 MB for the plain card; with /GAMES and /APPS the wasm heap grew by 21 MB
+/// (BCARD-41). The card itself is a FILE (MEMFS in the browser: JS-side
 /// storage, not the wasm heap). Inflation stops (InflateDone) as soon as the last wanted
 /// cluster has passed (about 166 MB into the image's 1 GiB), after which the rest of the zip
 /// is only hashed.

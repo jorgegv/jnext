@@ -69,7 +69,7 @@ A later visit to the same site needs no download and no file.
 
 | what | where |
 |---|---|
-| the SD card | Cache Storage: one entry of about 1.5 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it). A card with more of NextZXOS on it (`card.dirs`) is a further entry, much larger (about 15.5 MB for `/GAMES` and `/APPS`) |
+| the SD card | Cache Storage: one entry of about 1.5 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it). A card with more of NextZXOS on it (`card.dirs`) is a further entry, much larger (about 15.7 MB for `/GAMES` and `/APPS`) |
 | the warm-start recording | IndexedDB |
 | the saves, with `keepWrites` | IndexedDB, in a database of its own |
 
@@ -174,7 +174,7 @@ jnext.mount(el, { card: { dirs: ['/GAMES', '/APPS'] } });
   as files, so `/GAMES` and `/APPS` fit together and adding `/DEMOS` does not. The count is
   of the files plus the distribution's directories, and the boot card itself counts about 3.7 MB.
 - Every list makes its own card. It is made the first time, kept as a further entry in the
-  browser (about 15 MB for `/GAMES` and `/APPS`), and used by later visits without
+  browser (about 15.7 MB for `/GAMES` and `/APPS`), and used by later visits without
   a download. It has its own warm-start recording and its own saves.
 - While it builds the card for `/GAMES` and `/APPS` the page's memory grows by about 21 MB.
 - A page that changes its list leaves the card of the old list in the visitor's browser
