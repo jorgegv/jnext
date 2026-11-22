@@ -386,7 +386,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     i2s_.reset();
     pi_ear_edge_master_ = 0;
-    tape_mic_live_ = 0;
+    mic_tape_level_ = false;
+    mic_tape_live_ = false;
     mic_relax_due_ = UINT64_MAX;
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
@@ -5161,7 +5162,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // beep_mic_final = i_AUDIO_EAR xor ... xor port_fe_mic
             // (zxnext.vhd:6503): set_mic() set the no-tape value; with a tape
             // playing or the Pi routed the full formula decides.
-            if (tape_mic_live_ || i2s_.ear_routed()) refresh_mic_final_();
+            if (mic_tape_live_ || i2s_.ear_routed()) refresh_mic_final_();
             // GH #89 — a TZX / WAV save samples tape-out where port_fe_mic
             // changes: at the write's bus request edge, the CLK_28 edge that
             // latches port_fe_reg (zxnext.vhd:3588-3594). One flag test when
@@ -9661,23 +9662,8 @@ void Emulator::refresh_mic_final_()
     uint64_t due = UINT64_MAX;
     beeper_.set_mic_final(tape_out_level(&due));
     mic_relax_due_ = due;
-}
-
-void Emulator::tape_level_event_(bool lvl, uint8_t want)
-{
-    beeper_.set_tape_ear(lvl);
-    tape_mic_live_ = want;
-    refresh_mic_final_();
-}
-
-void Emulator::tape_stopped_()
-{
-    // The tape just stopped: the raw level is 0 again and i_AUDIO_EAR is back
-    // to the relaxed state (issue 2 + MIC = 1 at tape level 0 goes 0 -> 1:
-    // zxnext.vhd:6503).
-    beeper_.set_tape_ear(false);
-    tape_mic_live_ = 0;
-    refresh_mic_final_();
+    mic_tape_level_ = beeper_.tape_ear();
+    mic_tape_live_ = tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing();
 }
 
 bool Emulator::tape_out_level(uint64_t* relax_due) const
@@ -11986,8 +11972,7 @@ uint64_t Emulator::step_one_instruction()
                     ? tap_sync_ts_ : 0u;
             tape_.set_gap_hold(tape_gap_hold_(monotonic_tstates()));
             tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
-            // GH #550: the level and the mixer's MIC term (tape_level_step_).
-            tape_level_step_(tape_.tick_realtime(0) != 0);
+            beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
             // GH #89 — a playing tape is echoed to tape-out (zxnext.vhd:6503):
             // a TZX / WAV save samples it at the end of each instruction, and
             // only while a tape plays, so nothing is paid otherwise.
@@ -12000,18 +11985,15 @@ uint64_t Emulator::step_one_instruction()
             tzx_tape_.set_auto_policy(
                 tape_gap_hold_(monotonic_tstates()),
                 tape_auto_play_, config_.type == MachineType::ZX48K);
-            tape_level_step_(tzx_tape_.update(monotonic_tstates()) != 0);
+            beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else if (wav_tape_.is_playing()) {
-            tape_level_step_(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
+            beeper_.set_tape_ear(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
-        } else if (tape_mic_live_) [[unlikely]] {
-            // tape_mic_live_ is nonzero whenever tape_ear_ may be set
-            // (tape_level_step_, load_state), so with no tape ever playing this
-            // per-instruction path is one test and no store.
-            tape_stopped_();
+        } else {
+            beeper_.set_tape_ear(false);
         }
     }
     clock_.tick(master_cycles);
@@ -12571,7 +12553,7 @@ void Emulator::pi_sample_thunk_(void* self)
     // The Pi's next sample is latched at each output-sample boundary (see advance_audio()).
     Emulator* const e = static_cast<Emulator*>(self);
     if (e->config_.pi_audio) e->feed_pi_audio();
-    if (e->clock_.get() >= e->mic_relax_due_) [[unlikely]] e->refresh_mic_final_();
+    if (e->mic_stale_()) [[unlikely]] e->refresh_mic_final_();
 }
 
 [[gnu::noinline]] void Emulator::halt_batch_end_()
@@ -13136,7 +13118,7 @@ void Emulator::advance_audio(uint64_t master_cycles)
             // The ear_relax hold is a matter of time: beep_mic_final changes
             // without an event when a held level runs out its hold (see
             // refresh_mic_final_).
-            if (clock_.get() >= mic_relax_due_) [[unlikely]] refresh_mic_final_();
+            if (mic_stale_()) [[unlikely]] refresh_mic_final_();
         }
     }
 }
@@ -15595,9 +15577,6 @@ bool Emulator::load_state(StateReader& r)
         nr_06_ps2_mode_              = (nr06 & 0x04) != 0;
         emu_fnkeys_.set_nr_06_hotkey_enables((nr06 & 0x80) != 0, (nr06 & 0x20) != 0);
         mixer_.set_exc_i(beep_spkr_excl());
-        // A restored raw tape level with no tape playing is cleared by the
-        // tape block's stop path, which a live flag selects.
-        tape_mic_live_ = beeper_.tape_ear() ? 3 : 0;
         refresh_mic_final_();
     }
 

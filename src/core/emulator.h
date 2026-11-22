@@ -2277,18 +2277,18 @@ private:
     /// for the Pi edge stamps).
     [[gnu::noinline]] void refresh_mic_final_();
 
-    /// The tape block's per-instruction step for a PLAYING tape: one compare
-    /// against `tape_mic_live_` (bit 1 = a tape has stepped, bit 0 = the level
-    /// it stepped), and only a level change or the first step stores the raw
-    /// level and refreshes `mic_final`.
-    void tape_level_step_(bool lvl) {
-        const uint8_t want = lvl ? 3u : 2u;
-        if (tape_mic_live_ != want) [[unlikely]] tape_level_event_(lvl, want);
+    /// The output-sample boundary's test: has anything `beep_mic_final` depends
+    /// on and that has no event of its own moved since the last refresh? The
+    /// raw tape level (the tape block stores it every instruction, and stays
+    /// what it was: no per-instruction cost), a tape that stopped playing, or
+    /// the `ear_relax` hold of the Pi's level running out. So a tape's level
+    /// reaches the MIC term at output-sample granularity (one sample, about 635
+    /// master cycles, 14 us), well inside any tape pulse.
+    bool mic_stale_() const {
+        return beeper_.tape_ear() != mic_tape_level_ || clock_.get() >= mic_relax_due_ ||
+               (mic_tape_live_ &&
+                !(tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing()));
     }
-    /// The cold half of tape_level_step_ and the stop of the tape, out of line
-    /// so the per-instruction function stays as small as it was.
-    [[gnu::noinline]] void tape_level_event_(bool lvl, uint8_t want);
-    [[gnu::noinline]] void tape_stopped_();
 
     /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read, the MIC
     /// output and the mixer's MIC term: the tape jack (`tape_playing`,
@@ -2309,11 +2309,11 @@ private:
     /// reaches it. Derived, not serialised; set by refresh_mic_final_().
     uint64_t mic_relax_due_ = UINT64_MAX;
 
-    /// Nonzero while the tape block last saw a tape playing (bit 1) and at what
-    /// level (bit 0), so `mic_final` is kept fresh at port 0xFE writes and the
-    /// stop of the tape is seen. Derived, not serialised; cleared by init(),
-    /// set from the restored raw level by load_state().
-    uint8_t tape_mic_live_ = 0;
+    /// The raw tape level and whether a tape was playing, as of the last
+    /// refresh_mic_final_(); mic_stale_() compares them with the live ones.
+    /// Derived, not serialised.
+    bool mic_tape_level_ = false;
+    bool mic_tape_live_  = false;
 
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.

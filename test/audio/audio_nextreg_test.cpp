@@ -1092,6 +1092,14 @@ void step_to_clock(Emulator& emu, uint64_t t) {
     for (int i = 0; i < 400000 && emu.clock().get() < t; ++i) emu.execute_single_instruction();
 }
 
+// The tape reaches the MIC term at output-sample granularity (the mixer's own:
+// Emulator::mic_stale_ is tested at each sample boundary, 635 master cycles
+// apart), so a row that steps a tape lets two samples go by before it reads.
+int mix_settled(Emulator& emu) {
+    step_to_clock(emu, emu.clock().get() + 2000);
+    return mix_val(emu);
+}
+
 std::vector<uint8_t> snapshot_of(Emulator& emu) {
     StateWriter m;
     emu.save_state(m);
@@ -1122,9 +1130,9 @@ static void test_tape_mix() {
         e->port().out(0x00FE, 0x00);
         const bool ok = start_tap(*e);
         const bool a = step_to_level(*e, true);
-        const int hi = mix_val(*e);
+        const int hi = mix_settled(*e);
         const bool b = step_to_level(*e, false);
-        const int lo = mix_val(*e);
+        const int lo = mix_settled(*e);
         check("MX-62", "the tape reaches the mix through the MIC term at 128 (x4 = 512), not as a "
               "term of its own [audio_mixer.vhd:64,81,99; zxnext.vhd:6503,6516]",
               ok && a && b && hi == 512 && lo == 0,
@@ -1141,9 +1149,9 @@ static void test_tape_mix() {
         e->port().out(0x00FE, 0x08);
         const bool ok = start_tap(*e);
         const bool a = step_to_level(*e, true);
-        const int hi = mix_val(*e);
+        const int hi = mix_settled(*e);
         const bool b = step_to_level(*e, false);
-        const int lo = mix_val(*e);
+        const int lo = mix_settled(*e);
         check("MX-63", "issue 3: the tape level is XORed with the port 0xFE MIC bit "
               "[zxnext.vhd:6503]", ok && a && b && hi == 0 && lo == 512,
               fmt("level1=%d level0=%d (want 0 / 512)", hi, lo));
@@ -1158,9 +1166,9 @@ static void test_tape_mix() {
         e->port().out(0x00FE, 0x08);
         const bool ok = start_tap(*e);
         const bool a = step_to_level(*e, true);
-        const int hi = mix_val(*e);
+        const int hi = mix_settled(*e);
         const bool b = step_to_level(*e, false);
-        const int lo = mix_val(*e);
+        const int lo = mix_settled(*e);
         check("MX-64", "issue 2 (NR 0x08 bit 0): the port 0xFE MIC bit cancels while a tape plays "
               "[zxnext.vhd:6503]", ok && a && b && hi == 512 && lo == 0,
               fmt("level1=%d level0=%d (want 512 / 0)", hi, lo));
@@ -1176,10 +1184,9 @@ static void test_tape_mix() {
         e->port().out(0x00FE, 0x08);
         const bool ok = start_tap(*e);
         const bool a = step_to_level(*e, false);
-        const int playing0 = mix_val(*e);
+        const int playing0 = mix_settled(*e);
         e->tape().eject();
-        e->execute_single_instruction();
-        const int ejected = mix_val(*e);
+        const int ejected = mix_settled(*e);
 
         auto f = next_machine_550();
         nr_write(*f, 0x06, 0x00);
@@ -1207,9 +1214,9 @@ static void test_tape_mix() {
         e->port().out(0x00FE, 0x10);
         const bool ok = start_tap(*e);
         const bool a = step_to_level(*e, true);
-        const int hi = mix_val(*e);
+        const int hi = mix_settled(*e);
         const bool b = step_to_level(*e, false);
-        const int lo = mix_val(*e);
+        const int lo = mix_settled(*e);
         check("MX-66", "EAR (port 0xFE bit 4) stays 512 and the tape adds 128 on top, 4:1 "
               "[audio_mixer.vhd:63-64,99]", ok && a && b && hi == 2560 && lo == 2048,
               fmt("level1=%d level0=%d (want 2560 / 2048)", hi, lo));
@@ -1224,9 +1231,9 @@ static void test_tape_mix() {
         e->port().out(0x00FE, 0x18);
         const bool ok = start_tap(*e);
         const bool a = step_to_level(*e, true);
-        const int hi = mix_val(*e);
+        const int hi = mix_settled(*e);
         const bool b = step_to_level(*e, false);
-        const int lo = mix_val(*e);
+        const int lo = mix_settled(*e);
         check("MX-67", "exc_i (NR 0x06 b6 and NR 0x08 b4) silences the tape's term with EAR and MIC "
               "[audio_mixer.vhd:80-81; zxnext.vhd:6504,6514]",
               ok && a && b && hi == 0 && lo == 0,
