@@ -535,6 +535,10 @@ struct AudioState {
     BeeperState beeper;
     PiAudioState pi;
     HostAudioState host;
+    /// Discarded writes, indexed by `AudioDropReason` ([None] unused). Host
+    /// state: always counting, survives resets and loads, never in a snapshot
+    /// (GH #530). Cleared by `Debugger::clear_audio_drops()` only.
+    std::array<AudioDropCounter, AUDIO_DROP_REASON_COUNT> drops{};
 };
 
 // ---------------------------------------------------------------------------

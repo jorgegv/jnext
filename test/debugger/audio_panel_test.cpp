@@ -45,6 +45,9 @@
 #include <QTabBar>
 #include <QTableWidget>
 #include <QToolButton>
+#include <QPushButton>
+#include <QTreeWidget>
+#include <QStringList>
 
 #include <cstdarg>
 #include <cstdint>
@@ -1017,6 +1020,320 @@ static void test_channel_mute_solo(Emulator& emu) {
     }
 }
 
+// ── DAP-DAC: the DAC & Beeper sub-tab (GH #530) ────────────────────────
+//
+// zxnext.vhd:2744-2751,2974-2980 (the port families), :7114 (beep_spkr_excl),
+// :2593-2598 (NR 0xA2); the dropped-write reasons are those of DRP-* in
+// audio_debug_test. Widgets are found by objectName.
+
+static QString tree_cell(QTreeWidget* t, int row, int col) {
+    return t && t->topLevelItem(row) ? t->topLevelItem(row)->text(col) : QStringLiteral("<none>");
+}
+
+static const char* const kDropRows[8] = {
+    "AY ports off (NR 0x84 bit 0)", "AY held in reset (NR 0x06 = 11)", "Chip select, TurboSound off",
+    "Ignored 0xFFFD value", "Register address 16-31", "DAC port family off (NR 0x84)",
+    "DAC off (NR 0x08 bit 3)", "DAC mirror, DAC off (NR 0x08 bit 3)"};
+
+// The dropped-write counters are host state, like the mute mask: init() leaves them, and this
+// suite reuses one Emulator, so every DAP-DAC row starts from zero counts.
+static bool build_dac_machine(Emulator& emu) {
+    if (!build_next_emulator(emu)) return false;
+    emu.clear_audio_drops();
+    return true;
+}
+
+static void test_dac_tab(Emulator& emu) {
+    set_group("DAP-DAC");
+
+    {
+        if (!build_dac_machine(emu)) { check("DAP-38", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        QWidget* dac = tabs ? tabs->widget(1) : nullptr;
+        const bool real = dac && dac->findChild<QTreeWidget*>("audio_drops") && dac->findChild<QLabel*>("dac_a_value") &&
+                          !dac->findChild<QLabel*>("dac_a_value")->text().isEmpty();
+        bool placeholders = tabs != nullptr;
+        for (int i = 2; tabs && i < 5; ++i) {
+            bool found = false;
+            for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
+                found = found || l->text() == "Not available yet.";
+            placeholders = placeholders && found;
+        }
+        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Log, Tracker and Scopes still show 'Not available yet.'",
+              real && placeholders);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-39", "emulator init", false); return; }
+        nr_write(emu, 0x08, 0x08);
+        emu.port().out(0x1F, 0x11); emu.port().out(0x0F, 0x22);
+        emu.port().out(0x4F, 0x33); emu.port().out(0x5F, 0x44);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.refresh();
+        bool on = txt(panel, "dac_enabled") == "DAC: on";
+        static const char* const v[4] = {"dac_a_value", "dac_b_value", "dac_c_value", "dac_d_value"};
+        static const char* const b[4] = {"dac_a_bar", "dac_b_bar", "dac_c_bar", "dac_d_bar"};
+        for (int i = 0; i < 4; ++i) {
+            auto* bar = panel.findChild<QProgressBar*>(b[i]);
+            on = on && txt(panel, v[i]) == QString::asprintf("0x%02X", 0x11 * (i + 1)) &&
+                 bar && bar->value() == 17 * (i + 1);
+        }
+        nr_write(emu, 0x08, 0x00);
+        panel.refresh();
+        bool off = txt(panel, "dac_enabled") == "DAC: off";
+        for (int i = 0; i < 4; ++i) {
+            auto* bar = panel.findChild<QProgressBar*>(b[i]);
+            off = off && txt(panel, v[i]) == "0x80" && bar && bar->value() == 0x80;
+        }
+        check("DAP-39", "ports 0x1F/0x0F/0x4F/0x5F = 0x11..0x44: the four values and bars (17, 34, 51, 68; the raw byte) and 'DAC: on'; DAC off: 'DAC: off' and every channel 0x80",
+              on && off);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-40", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        bool ok = true;
+        std::string bad;
+        for (int bit = 0; bit < 8; ++bit) {
+            nr_write(emu, 0x84, static_cast<uint8_t>(1 << bit));
+            panel.refresh();
+            for (int n = 1; n <= 7; ++n) {
+                const bool want = (n == bit);
+                if (lit(panel, QString("dac_family_%1").arg(n).toLatin1().constData()) != want) {
+                    ok = false;
+                    bad += fmt("bit%d lamp%d ", bit, n);
+                }
+            }
+        }
+        nr_write(emu, 0x84, 0x24);
+        panel.refresh();
+        const bool both = lit(panel, "dac_family_2") && !lit(panel, "dac_family_5");
+        nr_write(emu, 0x84, 0x20);
+        panel.refresh();
+        const bool pent = lit(panel, "dac_family_5") && !lit(panel, "dac_family_2");
+        const bool texts = txt(panel, "dac_family_1") == "Soundrive 1: 1F 0F 4F 5F" &&
+                           txt(panel, "dac_family_2") == "Soundrive 2: F1 F3 F9 FB" &&
+                           txt(panel, "dac_family_3") == "Profi Covox: 3F 5F" &&
+                           txt(panel, "dac_family_4") == "Covox: 0F 4F" &&
+                           txt(panel, "dac_family_5") == "Pentagon/ATM: FB" &&
+                           txt(panel, "dac_family_6") == "GS Covox: B3" &&
+                           txt(panel, "dac_family_7") == "Specdrum: DF";
+        check("DAP-40", "zxnext.vhd:2744-2751,2749 NR 0x84 one bit at a time: exactly that lamp is lit (bit 0 none); 0x24: Soundrive 2 lit, Pentagon/ATM dark; 0x20: Pentagon/ATM lit; the seven texts",
+              ok && both && pent && texts, bad);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-41", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        emu.port().out(0xFE, 0x10);
+        panel.refresh();
+        const bool ear = lit(panel, "beeper_ear") && !lit(panel, "beeper_mic");
+        emu.port().out(0xFE, 0x08);
+        panel.refresh();
+        const bool mic = !lit(panel, "beeper_ear") && lit(panel, "beeper_mic");
+        emu.beeper().set_tape_ear(true);
+        panel.refresh();
+        const bool tape = lit(panel, "beeper_tape_ear");
+        bool combos = true;
+        for (int sp = 0; sp < 2; ++sp)
+            for (int en = 0; en < 2; ++en) {
+                nr_write(emu, 0x06, sp ? 0x40 : 0x00);
+                nr_write(emu, 0x08, en ? 0x10 : 0x00);
+                panel.refresh();
+                combos = combos &&
+                    txt(panel, "speaker_enabled") == (en ? "Internal speaker: on" : "Internal speaker: off") &&
+                    txt(panel, "beep_speaker_only") == (sp ? "Beep to speaker only: on" : "Beep to speaker only: off") &&
+                    txt(panel, "beeper_excluded") == ((sp && en) ? "EAR/MIC reach the mix: no" : "EAR/MIC reach the mix: yes");
+            }
+        check("DAP-41", "zxnext.vhd:7114 EAR (0x10) and MIC (0x08) and tape EAR lamps; NR 0x06 bit 6 x NR 0x08 bit 4 in all four combinations: the two lines follow their bits and EAR/MIC leave the mix only when both are set",
+              ear && mic && tape && combos);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-42", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        nr_write(emu, 0xA2, 0x81); panel.refresh();
+        const bool a = lit(panel, "pi_left") && !lit(panel, "pi_right") && txt(panel, "pi_ear") == "Pi to EAR: on";
+        nr_write(emu, 0xA2, 0x41); panel.refresh();
+        const bool b = !lit(panel, "pi_left") && lit(panel, "pi_right") && txt(panel, "pi_ear") == "Pi to EAR: on";
+        nr_write(emu, 0xA2, 0x01); panel.refresh();
+        const bool c = !lit(panel, "pi_left") && !lit(panel, "pi_right") && txt(panel, "pi_ear") == "Pi to EAR: off";
+        check("DAP-42", "zxnext.vhd:2593-2598 NR 0xA2 = 0x81, 0x41, 0x01: lamps (L,R) = (lit,dark), (dark,lit), (dark,dark); 'Pi to EAR' follows the routing",
+              a && b && c);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-43", "emulator init", false); return; }
+        emu.mixer().set_output_gain_db(-3.0f); emu.mixer().set_ay_gain_db(0, -1.0f);
+        emu.mixer().set_ay_gain_db(1, -2.0f); emu.mixer().set_ay_gain_db(2, -4.0f);
+        emu.mixer().set_dac_gain_db(-9.0f); emu.mixer().set_beeper_gain_db(-6.0f);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.refresh();
+        const bool gains = txt(panel, "gain_output") == "-3.0 dB" && txt(panel, "gain_ay0") == "-1.0 dB" &&
+                           txt(panel, "gain_ay1") == "-2.0 dB" && txt(panel, "gain_ay2") == "-4.0 dB" &&
+                           txt(panel, "gain_dac") == "-9.0 dB" && txt(panel, "gain_beeper") == "-6.0 dB";
+        const bool none = txt(panel, "host_mutes") == "Muted: none" && txt(panel, "host_synthesis") == "Synthesis: on";
+        emu.set_audio_mute_mask(AudioMute::AY1 | AudioMute::DAC);
+        panel.refresh();
+        const QString muted = txt(panel, "host_mutes");
+        emu.set_audio_mute_mask(AudioMute::AY0 | AudioMute::AY2 | AudioMute::BEEPER);
+        panel.refresh();
+        const QString muted2 = txt(panel, "host_mutes");
+        // GH #533: the channel mutes join the line (AY channels as "AY #c X", DAC channels as "DAC X").
+        emu.set_audio_mute_mask(AudioMute::AY1);
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_C | AudioChannelMute::ay_bit(0, 1));
+        panel.refresh();
+        const QString muted3 = txt(panel, "host_mutes");
+        emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);
+        emu.set_audio_mute_mask(AudioMute::NONE);
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
+        Emulator quiet; quiet.init(cfg);
+        jnext::dbg::Debugger dq(quiet);
+        AudioPanel pq(&dq);
+        pq.refresh();
+        check("DAP-43", "host settings: gains -3/-1/-2/-4/-9/-6 dB as set; 'Muted: none' then 'Muted: AY #1, DAC' and 'Muted: AY #0, AY #2, Beeper'; with a source mute and two channel mutes 'Muted: AY #1, AY #0 B, DAC C'; 'Synthesis: on', and 'Synthesis: off (--silent)' with silent set",
+              gains && none && muted == "Muted: AY #1, DAC" && muted2 == "Muted: AY #0, AY #2, Beeper" &&
+              muted3 == "Muted: AY #1, AY #0 B, DAC C" && txt(pq, "host_synthesis") == "Synthesis: off (--silent)", (muted + "|" + muted2).toStdString());
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-44", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const jnext::dbg::ClientId cid = dbg.attach(jnext::dbg::ClientInfo{"dap44", jnext::dbg::ClientKind::Test}).value;
+        AudioPanel panel(&dbg);
+        auto* t = panel.findChild<QTreeWidget*>("audio_drops");
+        // Two frames with the CPU parked (DI; JR $), so the frame tag is not 0.
+        {
+            const uint8_t prog[] = {0xF3, 0x18, 0xFE};
+            for (size_t i = 0; i < sizeof(prog); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.run_frame(); emu.run_frame();
+        }
+        panel.refresh();
+        bool fresh_ok = t && t->topLevelItemCount() == 8;
+        for (int i = 0; fresh_ok && i < 8; ++i) {
+            fresh_ok = tree_cell(t, i, 0) == kDropRows[i] && tree_cell(t, i, 1) == "0";
+            for (int col = 2; col < 7; ++col) fresh_ok = fresh_ok && tree_cell(t, i, col) == "-";
+        }
+        nr_write(emu, 0x84, 0xBF);
+        nr_write(emu, 0x08, 0x00);
+        // A DMA byte to port 0x00DF (b7 on, DAC off): a DacDisabled drop with source DMA.
+        emu.mmu().write(0xA000, 0x5A);
+        {
+            auto w = [&](uint8_t v) { emu.dma().write(v, false); };
+            w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00);
+            w(0x14); w(0x28); w(0xAD); w(0xDF); w(0x00);
+            w(0xCF); w(0x87);
+            emu.run_frame();
+        }
+        dbg.port_out(cid, 0x12B3, 0x55);
+        nr_write(emu, 0x2D, 0x66);
+        panel.refresh();
+        const uint32_t frame = emu.frame_num() > 0 ? emu.frame_num() - 1 : 0;
+        const bool fam = tree_cell(t, 5, 1) == "1" && tree_cell(t, 5, 2) == "0x12B3" && tree_cell(t, 5, 3) == "0x55" &&
+                         tree_cell(t, 5, 4) == "-" && tree_cell(t, 5, 5) == QString::number(frame) &&
+                         tree_cell(t, 5, 6) == "Debugger";
+        const bool mir = tree_cell(t, 7, 1) == "1" && tree_cell(t, 7, 2) == "NR 0x2D" && tree_cell(t, 7, 3) == "0x66" &&
+                         tree_cell(t, 7, 4) == "-" && tree_cell(t, 7, 6) == "Debugger";
+        const bool dma = tree_cell(t, 6, 1) == "1" && tree_cell(t, 6, 2) == "0x00DF" && tree_cell(t, 6, 3) == "0x5A" &&
+                         tree_cell(t, 6, 4) == "-" && tree_cell(t, 6, 6) == "DMA" && tree_cell(t, 6, 5).toUInt() > 0;
+        bool rest = true;
+        for (int i : {0, 1, 2, 3, 4}) rest = rest && tree_cell(t, i, 1) == "0" && tree_cell(t, i, 2) == "-";
+        check("DAP-44", "the table has 8 rows in reason order with their texts; fresh: Count 0 and '-'; a debugger write to 0x12B3 with b6 off fills the family row (1, 0x12B3, 0x55, PC '-', a nonzero frame, Debugger); an NR 0x2D drop shows 'NR 0x2D'; a DMA byte shows source DMA",
+              fresh_ok && fam && mir && dma && rest && frame > 0);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-45", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const jnext::dbg::ClientId cid = dbg.attach(jnext::dbg::ClientInfo{"dap45", jnext::dbg::ClientKind::Test}).value;
+        AudioPanel panel(&dbg);
+        auto* t = panel.findChild<QTreeWidget*>("audio_drops");
+        nr_write(emu, 0x84, 0xBF);
+        const uint8_t prog[] = {0x01, 0xB3, 0x12, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE};
+        for (size_t i = 0; i < sizeof(prog); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        for (int i = 0; i < 3; ++i) emu.execute_single_instruction();
+        panel.refresh();
+        int emitted = 0, addr = -1;
+        QObject::connect(&panel, &AudioPanel::show_in_disassembly_requested, &panel, [&](uint16_t a) { ++emitted; addr = a; });
+        const bool pc = tree_cell(t, 5, 4) == "0x8005" && tree_cell(t, 5, 6) == "CPU";
+        emit t->itemDoubleClicked(t->topLevelItem(5), 0);
+        const bool cpu_row = emitted == 1 && addr == 0x8005;
+        emit t->itemDoubleClicked(t->topLevelItem(0), 0);                // a zero row
+        dbg.port_out(cid, 0x12B3, 0x77);                                  // now the latest drop is the debugger's
+        panel.refresh();
+        emit t->itemDoubleClicked(t->topLevelItem(5), 0);                // a Debugger-source row
+        check("DAP-45", "a CPU-source drop (OUT at 0x8005) shows PC 0x8005 and source CPU; double-click on it emits show_in_disassembly_requested(0x8005) once; on a zero row or a Debugger-source row it emits nothing",
+              pc && cpu_row && emitted == 1);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-46", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* t = panel.findChild<QTreeWidget*>("audio_drops");
+        auto* clear = panel.findChild<QPushButton*>("audio_drops_clear");
+        nr_write(emu, 0x84, 0xBC);
+        nr_write(emu, 0x08, 0x00);
+        emu.port().out(0xFFFD, 0x08);
+        emu.port().out(0x1F, 0x01);
+        nr_write(emu, 0x2D, 0x02);
+        // The last family drop is a CPU one: OUT (C),A to 0x12B3 at PC 0x8005.
+        const uint8_t prog[] = {0x01, 0xB3, 0x12, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE};
+        for (size_t i = 0; i < sizeof(prog); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        for (int i = 0; i < 3; ++i) emu.execute_single_instruction();
+        panel.refresh();
+        const bool filled = tree_cell(t, 0, 1) == "1" && tree_cell(t, 5, 1) == "2" && tree_cell(t, 7, 1) == "1" &&
+                            tree_cell(t, 5, 4) == "0x8005";
+        int emitted = 0;
+        QObject::connect(&panel, &AudioPanel::show_in_disassembly_requested, &panel, [&](uint16_t) { ++emitted; });
+        if (clear) clear->click();
+        bool zero = clear != nullptr;
+        for (const auto& d : dbg.audio_state().drops) zero = zero && d.count == 0;
+        for (int i = 0; i < 8; ++i) {
+            zero = zero && tree_cell(t, i, 1) == "0";
+            for (int col = 2; col < 7; ++col) zero = zero && tree_cell(t, i, col) == "-";
+        }
+        emit t->itemDoubleClicked(t->topLevelItem(5), 0);   // the former CPU row
+        check("DAP-46", "Clear zeroes every counter in the backend; the table shows every Count 0 and '-' in the port, value, PC, frame and source columns, and a double-click on the former CPU row emits nothing",
+              filled && zero && emitted == 0);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-47", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        auto* link = panel.findChild<QLabel*>("ay_drops");
+        nr_write(emu, 0x84, 0xFC);          // AY ports off, Soundrive 1 off
+        nr_write(emu, 0x08, 0x00);
+        emu.port().out(0xFFFD, 0x08);       // AyPortDisabled
+        emu.port().out(0x1F, 0x01);         // DAC family drop
+        nr_write(emu, 0x84, 0xFF);
+        nr_write(emu, 0x06, 0x03);
+        emu.port().out(0xFFFD, 0x08);       // AyHeldInReset
+        nr_write(emu, 0x06, 0x01);
+        emu.port().out(0xFFFD, 0xFE);       // AyChipSelectTurboOff (TurboSound off)
+        emu.port().out(0xFFFD, 0x40);       // AySelectIgnored
+        emu.port().out(0xFFFD, 0x15);
+        emu.port().out(0xBFFD, 0x01);       // AyAddressHigh
+        emu.port().out(0x1F, 0x02);         // DAC off drop
+        nr_write(emu, 0x2D, 0x03);          // DAC mirror drop
+        panel.refresh();
+        const bool text = link && link->text().startsWith("AY writes dropped: 5 ");
+        const bool on_chips = panel.chips_on_show();
+        if (link) emit link->linkActivated("drops");
+        check("DAP-47", "one drop under each of the five AY reasons and three DAC drops: the Chips header reads 'AY writes dropped: 5'; its link makes DAC & Beeper the current sub-tab",
+              text && on_chips && tabs && tabs->currentIndex() == 1 && !panel.chips_on_show());
+    }
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1039,6 +1356,9 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-DEC        -- done\n");
     test_channel_mute_solo(emu);
     std::printf("  Group: DAP-CHM        -- done\n");
+
+    test_dac_tab(emu);
+    std::printf("  Group: DAP-DAC        -- done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

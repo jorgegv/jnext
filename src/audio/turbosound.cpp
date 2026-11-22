@@ -110,12 +110,12 @@ int TurboSound::active_ay_index() const
     }
 }
 
-void TurboSound::reg_addr(uint8_t data)
+AyPortStatus TurboSound::reg_addr(uint8_t data)
 {
     // Held in reset (NR 0x06 psg_mode = 11, zxnext.vhd:6379): the select/pan command
     // (turbosound.vhd:121, reset branch first) and the register select
     // (ym2149.vhd:170) are both ignored.
-    if (reset_held_) return;
+    if (reset_held_) return AyPortStatus::HeldInReset;
     // Check for AY select / panning command:
     // VHDL: turbosound_en_i = '1' AND psg_reg_addr_i = '1'
     //       AND psg_d_i(7) = '1' AND psg_d_i(4:2) = "111"
@@ -138,19 +138,25 @@ void TurboSound::reg_addr(uint8_t data)
                 ay_select_ = 3;
                 break;
         }
-        return;
+        return AyPortStatus::Applied;
     }
 
     // Normal register select: bits 7:5 must be "000"
     if ((data & 0xE0) == 0) {
         ay_[active_ay_index()].select_register(data);
+        return AyPortStatus::Applied;
     }
+    // Ignored. The enabled select/pan case returned above, so a d7=1, d(4:2)=111
+    // pattern reaching here means TurboSound is off (turbosound.vhd:129).
+    return ((data & 0x80) && ((data >> 2) & 0x07) == 0x07)
+        ? AyPortStatus::ChipSelectTurboOff : AyPortStatus::SelectIgnored;
 }
 
-void TurboSound::reg_write(uint8_t data)
+AyPortStatus TurboSound::reg_write(uint8_t data)
 {
-    if (reset_held_) return;   // ym2149.vhd:184, reset branch before busctrl_we
-    ay_[active_ay_index()].write_data(data);
+    if (reset_held_) return AyPortStatus::HeldInReset;   // ym2149.vhd:184, reset branch before busctrl_we
+    return ay_[active_ay_index()].write_data(data)
+        ? AyPortStatus::Applied : AyPortStatus::AddressHigh;
 }
 
 uint8_t TurboSound::reg_read(bool reg_mode) const

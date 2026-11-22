@@ -7,16 +7,18 @@
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QProgressBar>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QTabWidget>
 #include <QToolButton>
+#include <QTreeWidget>
 
 #include <array>
 #include <cstdint>
 
 #include "debug/events.h"   // jnext::dbg::ClientId
 
-namespace jnext { namespace dbg { class Debugger; } }
+namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 
 /// Debugger panel showing the decoded AY chips and the audio source controls.
 ///
@@ -24,10 +26,12 @@ namespace jnext { namespace dbg { class Debugger; } }
 /// Chips, DAC & Beeper, Log, Tracker, Scopes. Chips shows each AY chip decoded
 /// (period, note, cents, tone/noise gates, volume or envelope, level, the
 /// envelope) from `Debugger::audio_state()`; its Hex toggle shows the raw
-/// 16 x 3 register table instead. Each of the 13 channels (9 AY, 4 DAC) has an
-/// M (mute) and an S (solo) button, which act on `AUDIO_CHANNEL_MUTE` only: the
-/// Chips tab holds the AY ones, the DAC & Beeper tab the DAC ones. The other
-/// tabs are placeholders until their features land.
+/// 16 x 3 register table instead. DAC & Beeper shows the four DAC channels with
+/// their M and S buttons, the NR 0x84 port families, the beeper and Pi inputs, the
+/// host gains and mutes and the table of discarded writes. Each of the 13
+/// channels (9 AY, 4 DAC) has an M (mute) and an S (solo) button, which act on
+/// `AUDIO_CHANNEL_MUTE` only. Log, Tracker and Scopes are placeholders until
+/// their features land.
 class AudioPanel : public QWidget {
     Q_OBJECT
 public:
@@ -54,13 +58,19 @@ public:
     QSize sizeHint() const override { return QSize(400, 600); }
     QSize minimumSizeHint() const override { return QSize(350, 580); }
 
+signals:
+    /// A dropped-write row of CPU source was double-clicked: show the OUT or
+    /// NEXTREG that was discarded in the Disassembly (the same signal the
+    /// Symbols, CPU and Memory panels use).
+    void show_in_disassembly_requested(uint16_t addr);
+
 private:
     void create_ui();
     QWidget* create_chips_tab();
+    QWidget* create_dac_tab();
+    void refresh_dac_(const jnext::dbg::AudioState& st);
     QWidget* placeholder_tab();
 
-    /// DAC & Beeper tab: the DAC channel group, the rest not available yet.
-    QWidget* create_dac_tab();
     /// The "DAC channels" group: rows A-D, each with M and S.
     QGroupBox* create_dac_channel_group();
     /// M and S buttons of channel `index` (0-8 = 3*chip+channel, 9-12 = DAC A-D)
@@ -86,6 +96,7 @@ private:
     QCheckBox* hex_box_ = nullptr;
     QTabWidget* tabs_ = nullptr;
     QScrollArea* chips_scroll_ = nullptr;
+    QScrollArea* dac_scroll_ = nullptr;
 
     // The decoded widgets of one chip, found again by refresh().
     struct ChannelWidgets {
@@ -120,4 +131,17 @@ private:
     QLabel* turbosound_label_ = nullptr;
     QLabel* ay_ym_label_ = nullptr;
     QLabel* stereo_label_ = nullptr;
+    QLabel* ay_drops_label_ = nullptr;   // Chips header: the AY dropped-write total, a link to DAC & Beeper
+
+    // The DAC & Beeper tab, found again by refresh_dac_().
+    QLabel* dac_enabled_ = nullptr;
+    std::array<QLabel*, 4> dac_value_{};
+    std::array<QProgressBar*, 4> dac_bar_{};
+    std::array<QLabel*, 8> dac_family_{};          // [1]..[7]; [0] unused
+    QLabel *beeper_ear_ = nullptr, *beeper_mic_ = nullptr, *beeper_tape_ear_ = nullptr;
+    QLabel *speaker_enabled_ = nullptr, *beep_speaker_only_ = nullptr, *beeper_excluded_ = nullptr;
+    QLabel *pi_left_ = nullptr, *pi_right_ = nullptr, *pi_ear_ = nullptr;
+    std::array<QLabel*, 6> gain_{};                // output, AY0, AY1, AY2, DAC, beeper
+    QLabel *host_mutes_ = nullptr, *host_synthesis_ = nullptr;
+    QTreeWidget* drops_tree_ = nullptr;
 };

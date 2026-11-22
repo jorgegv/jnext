@@ -7,6 +7,16 @@
 namespace jnext { namespace save { class StateDesc; } }
 #include "audio/audio_mute.h"
 
+/// What an AY port write did, for the debugger's dropped-write counters (GH #530).
+/// Each non-Applied value is one VHDL term that makes the write a no-op.
+enum class AyPortStatus : uint8_t {
+    Applied = 0,
+    HeldInReset,          ///< audio_ay_reset: turbosound.vhd:121, ym2149.vhd:170,184
+    ChipSelectTurboOff,   ///< select/pan command needs turbosound_en_i: turbosound.vhd:129
+    SelectIgnored,        ///< psg_addr needs d(7:5)="000": turbosound.vhd:141
+    AddressHigh,          ///< register address 16-31: ym2149.vhd:188
+};
+
 /// TurboSound Next: 3× YM2149/AY-3-8910 with stereo panning.
 ///
 /// Manages three independent AY chips, with per-chip stereo/mono mode
@@ -77,10 +87,12 @@ public:
     /// Port 0xFFFD write: register select or AY/panning control.
     /// When bits 7:5 = "000", selects a register on the active AY.
     /// When bit 7 = 1 and bits 4:2 = "111", changes active AY and panning.
-    void reg_addr(uint8_t data);
+    /// Returns what the write did (GH #530); the value may be ignored.
+    AyPortStatus reg_addr(uint8_t data);
 
     /// Port 0xBFFD write: write data to selected register on active AY.
-    void reg_write(uint8_t data);
+    /// Returns what the write did (GH #530); the value may be ignored.
+    AyPortStatus reg_write(uint8_t data);
 
     /// Port 0xBFFD read: read from selected register on active AY.
     uint8_t reg_read(bool reg_mode = false) const;

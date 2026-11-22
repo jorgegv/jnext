@@ -79,7 +79,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`source_panel.cpp:581`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:2227`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:2230`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -394,7 +394,7 @@ Which space a view prints is a rule per view (design 10.3):
   its `@NN`, which is a different thing ([7.1](01-which-memory.md)).
 
 The instruction at the PC is read as the CPU will fetch it, not as a data read.
-`Debugger::memory_reader()` (`debugger_inspect.cpp:931`) takes the bytes of that one instruction
+`Debugger::memory_reader()` (`debugger_inspect.cpp:940`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
 other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:175`: `is_call_like()` at `:184` and `instruction_length()` at `:190`

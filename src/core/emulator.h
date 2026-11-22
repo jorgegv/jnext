@@ -4,6 +4,7 @@ namespace jnext { namespace save { class StateDesc; } }
 namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifest; struct Verdict; } }
 
 #include <cstdint>
+#include <array>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -59,6 +60,7 @@ namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifes
 #include "audio/i2s.h"
 #include "audio/mixer.h"
 #include "debug/debug_state.h"
+#include "debug/events.h"
 #include "core/tap_loader.h"
 #include "core/tap_saver.h"
 #include "core/tape_recorder.h"
@@ -1057,13 +1059,24 @@ public:
 
     /// Debugger-only per-channel mute (AudioChannelMute bits: 9 AY, 4 DAC). Same
     /// rules as the source mute above; composes with it. The AY bits go to
-    /// TurboSound, the DAC bits to the Mixer.
+    /// TurboSound, the DAC bits to the Dac (its audible copy).
     void set_audio_channel_mute_mask(uint16_t mask) {
         audio_channel_mute_mask_ = mask & AudioChannelMute::ALL;
         turbosound_.set_channel_mute_mask(audio_channel_mute_mask_ & AudioChannelMute::AY_ALL);
         dac_.set_channel_mute(static_cast<uint8_t>(audio_channel_mute_mask_ >> 9));
     }
     uint16_t audio_channel_mute_mask() const { return audio_channel_mute_mask_; }
+
+    /// Discarded audio writes, one counter per reason (GH #530). Always on, host
+    /// state only: not in describe_state(), not touched by init() or load_state(),
+    /// cleared only by clear_audio_drops(), and carried over a cold boot with
+    /// restore_audio_drops() like the mute mask. Index = AudioDropReason; [0] unused.
+    const std::array<jnext::dbg::AudioDropCounter, jnext::dbg::AUDIO_DROP_REASON_COUNT>&
+        audio_drops() const { return audio_drops_; }
+    void clear_audio_drops() { audio_drops_ = {}; }
+    void restore_audio_drops(
+        const std::array<jnext::dbg::AudioDropCounter, jnext::dbg::AUDIO_DROP_REASON_COUNT>& d)
+        { audio_drops_ = d; }
 
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
@@ -2102,6 +2115,35 @@ private:
     // Debugger-only source mute; NOT machine state (not reset, not serialised).
     uint8_t         audio_mute_mask_ = AudioMute::NONE;
     uint16_t        audio_channel_mute_mask_ = AudioChannelMute::NONE;
+
+
+    // GH #530: discarded-audio-write counters. Host state, like the mask above:
+    // outside describe_state(), init() and load_state(); see audio_drops().
+    std::array<jnext::dbg::AudioDropCounter, jnext::dbg::AUDIO_DROP_REASON_COUNT>
+        audio_drops_{};
+    /// Count one discarded audio write. Cold: every caller is already on a
+    /// discarding branch. Not counted while a rewind replays frames (replay_mode_).
+    [[gnu::cold]] void note_audio_drop_(jnext::dbg::AudioDropReason r,
+                                        uint16_t port, uint8_t value);
+    /// Map a TurboSound status to its reason; one compare when Applied.
+    void note_ay_status_(AyPortStatus s, uint16_t port, uint8_t value) {
+        if (s != AyPortStatus::Applied) note_ay_status_cold_(s, port, value);
+    }
+    [[gnu::cold]] void note_ay_status_cold_(AyPortStatus s, uint16_t port, uint8_t value);
+    /// The gate of every DAC port write: the family decode first, then the DAC
+    /// enable (zxnext.vhd:2974-2980, 3091-3094). True when the write may proceed;
+    /// otherwise it has been counted under the first reason that applies.
+    bool dac_gate_(bool family_on, uint16_t port, uint8_t value) {
+        if (!family_on) {
+            note_audio_drop_(jnext::dbg::AudioDropReason::DacFamilyDisabled, port, value);
+            return false;
+        }
+        if (!dac_enabled_) {
+            note_audio_drop_(jnext::dbg::AudioDropReason::DacDisabled, port, value);
+            return false;
+        }
+        return true;
+    }
     DebugState      debug_state_;
     TraceLog        trace_log_;
     CallStack       call_stack_;

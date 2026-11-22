@@ -45,7 +45,7 @@ function that crosses a slot (`cross.c`, in the `*-cross` fixtures).
 ## The frames
 
 `Debugger::c_frames()` (`debugger_cframes.cpp:30`) returns the frames newest first. Frame 0 is where
-the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1269`) has its function (an index into
+the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1272`) has its function (an index into
 `variables()->functions()`, -1 for assembly), the `pc`, the source line and the base, with how it was found:
 
 - **Tracked.** With the tracker's frames (oldest first, `n` of them), frame `k` was entered by
@@ -76,7 +76,7 @@ The tracker (`CallStack`, [7.5](05-breakpoints-steps-history.md)) costs per inst
 always on. Its state is **derived** (`Impl::sync_call_stack()`, `debugger_session.cpp:128`), the one
 writer, from two things:
 
-1. **A client's own request.** `Debugger::set_call_stack_enabled(by, on)` (`debugger_inspect.cpp:1004`) sets
+1. **A client's own request.** `Debugger::set_call_stack_enabled(by, on)` (`debugger_inspect.cpp:1013`) sets
    the request on that client's row. The tracker is on while any live client asked. One client switching off
    no longer takes another's tracking away (the Qt debugger window closing used to empty a ZRCP session's
    extended stack), and a detach drops the request with the client. The Qt window's request is made

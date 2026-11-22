@@ -86,14 +86,38 @@ the VHDL decodes them:
 | 0xF1, 0xF3, 0xF9, 0xFB | A, B, C, D (Soundrive mode 2) | b2 |
 | 0x3F, 0x5F | A, D (Profi Covox) | b3 |
 | 0x0F, 0x4F | B, C (Covox) | b4 |
+| 0xFB | A **and** D (Pentagon/ATM, mono) | b5, effective only while b2 is off (`zxnext.vhd:2749`) |
 | 0xB3 | B **and** C (GS Covox) | b6 |
 | 0xDF | A **and** D (Specdrum, mono) | b7 |
 | NR 0x2C / 0x2D / 0x2E | B / A+D / C | — |
 
 Every write is additionally gated on NR 0x08 b3; with the DAC disabled the
-Soundrive module is held in reset. The mono ports writing *two* channels is real
+Soundrive module is held in reset. The family decode comes first: a port whose
+NR 0x84 family bit is off is not a DAC port at all, whatever NR 0x08 says. The mono ports writing *two* channels is real
 hardware behaviour and a routine source of confusion — a program that expects
 0xDF to be "channel D" gets A as well.
+
+**Dropped writes.** Every audio write the machine discards is counted by the
+reason the VHDL gives for discarding it, so a debugger can say why a program is
+silent. `AudioDropReason` (`src/debug/events.h`) has eight reasons, and a write
+gets the first that applies: decode before gate, because an undecoded write is not
+a write to that device. The AY port gate (NR 0x84 b0) comes before the reset hold
+(NR 0x06 `psg_mode = 11`), which comes before the 0xFFFD value and the register
+address. The decision stays where it is made: `TurboSound::reg_addr()` and
+`reg_write()` return an `AyPortStatus`, and `AyChip::write_data()` returns false for
+an address of 16-31; `Emulator::note_ay_status_()` maps the status to a reason, and
+each DAC handler's gate goes through `Emulator::dac_gate_()`, family first, then the
+DAC enable. The 0xF1 and 0xF9 handlers count a closed Soundrive 2 family and then
+decline, so the byte still reaches the paging decode (`zxnext.vhd:3024`); the 0xFB
+handler counts its neither-decode case. The 0xDFFD write is not counted: its
+handler wins dispatch while NR 0x82 b2 is set, so the AY side never sees it.
+`Emulator::note_audio_drop_()` records the count and the last port, value, PC, frame
+tag and source; the source is `Debugger` outside guest execution, else the live
+write-source bracket the DMA and the Copper set around their port writes. The
+counters are host state: outside `describe_state()`, `init()` and `load_state()`,
+carried over a cold boot by `emulator_cold_boot()` beside the mute mask, cleared
+only by `Debugger::clear_audio_drops()`, and not counted while a rewind replays
+frames. `Debugger::audio_state()` publishes them as `AudioState::drops`.
 
 **Beeper** — `src/audio/beeper.*`. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from

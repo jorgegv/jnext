@@ -3443,8 +3443,8 @@ frontend and to script handlers, under one contract.</p>
 </tr>
 </tbody>
 </table>
-<p><code>set_audio_mute_mask</code> and <code>set_audio_channel_mute_mask</code> are not in the table: the
-mute masks are host-side state, in neither a snapshot nor an RZX recording. It logs a <code>MUTATE</code> line like a write,
+<p><code>set_audio_mute_mask</code>, <code>set_audio_channel_mute_mask</code> and <code>clear_audio_drops</code> are not in the table: the mute masks and
+the dropped-write counters are host-side state, in neither a snapshot nor an RZX recording. Each logs a <code>MUTATE</code> line like a write,
 but neither the RZX refusal nor the rewind wall below applies to it.</p>
 <p><strong>When a write lands.</strong> Always at a delivery point, never inside a hot-path
 hook. From a frontend command the machine is paused at an instruction boundary.

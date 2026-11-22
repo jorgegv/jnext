@@ -12,14 +12,15 @@ Each channel also has its own **M** (mute) and **S** (solo) buttons, described
 under [Mute and solo](#mute-and-solo) below.
 
 Below it are five tabs: **Chips**, **DAC & Beeper**, **Log**, **Tracker** and
-**Scopes**. The last four are not available yet.
+**Scopes**. Log, Tracker and Scopes are not available yet.
 
 ## Chips
 
 The header reports whether TurboSound is enabled, whether the chips are in AY
 or YM mode, whether the stereo layout is ABC or ACB, the PSG mode set in
 NextREG 0x06 (YM, AY, YM ZXN-8950, or held in reset) and whether the AY ports
-are open.
+are open. The last line counts the AY writes the machine discarded; click
+**show** to jump to the table that says why (see DAC & Beeper below).
 
 Each of the three chips has a block of its own:
 
@@ -52,8 +53,56 @@ another one, the panel is refreshed at about 4 Hz with the rest of the window.
 
 ## DAC & Beeper
 
-This tab holds the four DAC channels (A to D) with their M and S buttons. The
-rest of the tab is not available yet.
+**DAC.** The four DAC channels, A to D, each as the byte last written (`0x80` is
+silence) and a bar over the whole range, so silence sits mid-bar. The line above
+says whether the DAC is enabled (NextREG 0x08 bit 3); with it off every channel
+reads `0x80`.
+
+**Port families.** One lamp per NextREG 0x84 bit from 1 to 7, lit when that family
+of ports is open: Soundrive 1 (ports 1F, 0F, 4F, 5F), Soundrive 2 (F1, F3, F9,
+FB), Profi Covox (3F, 5F), Covox (0F, 4F), Pentagon/ATM (FB), GS Covox (B3) and
+Specdrum (DF). Pentagon/ATM works only while Soundrive 2 is off, so its lamp is dark
+while Soundrive 2 is lit even if bit 5 is set.
+
+**Beeper.** Lamps for EAR and MIC (port 0xFE bits 4 and 3) and for the tape EAR
+input, then whether the internal speaker is on (NextREG 0x08 bit 4), whether the
+beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC reach
+the mix: they do not when both of those are set.
+
+**Pi I2S.** Lamps for the left and right inputs and whether the Pi's audio goes to
+EAR (NextREG 0xA2).
+
+**DAC channels.** Under the DAC values: an **M** and an **S** button per channel (see
+[Mute and solo](#mute-and-solo) below).
+
+**Host.** The output, AY, DAC and beeper gains in dB, the sources and channels muted
+(from the Sources strip and the M buttons), and whether the emulator is synthesising audio at all (it is not
+with `--silent`).
+
+**Dropped writes.** A table with one fixed row per reason an audio write is thrown
+away. Each row shows how many writes were dropped and, for the latest, the port, the
+value, the PC (only when a program wrote it), the frame and who wrote it: CPU, DMA,
+Copper or Debugger. What to change for each reason:
+
+- AY ports off: set NextREG 0x84 bit 0.
+- AY held in reset: take NextREG 0x06 out of `11`.
+- Chip select, TurboSound off: set NextREG 0x08 bit 1.
+- Ignored 0xFFFD value: the value is neither a register select (bits 7:5 clear) nor
+  a chip select.
+- Register address 16-31: select a register from 0 to 15 before writing data.
+- DAC port family off: set the NextREG 0x84 bit of the family the program writes to.
+  A write to port F1 or F9 with Soundrive 2 off is also passed on to the memory
+  paging port, as on the hardware.
+- DAC off: set NextREG 0x08 bit 3.
+- DAC mirror, DAC off: the same, for writes to NextREG 0x2C to 0x2E.
+
+A write with the family off and the DAC off is counted as a family drop: the port is
+not decoded at all. Counts survive a reset, a state load and a hard reset, and are
+cleared only by **Clear**. Writes made from the debugger or a script count as
+Debugger, and stepping back or rewinding does not count the replayed writes again.
+Double-click a row written by the CPU to show the instruction in the Disassembly.
+
+The DAC & Beeper tab is refreshed at about 4 Hz with the rest of the window.
 
 ## Mute and solo
 

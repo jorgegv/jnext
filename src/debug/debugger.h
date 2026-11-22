@@ -671,6 +671,9 @@ public:
     /// INS-22 -- set it (bits above 0x1FFF are masked off). Never refused.
     Result set_audio_channel_mute_mask(ClientId by, uint16_t mask);
 
+    /// INS-22 -- zero every dropped-write counter (GH #530). MUTATE-logged.
+    Result clear_audio_drops(ClientId by);
+
     /// INS-11 — disassemble `n` instructions from `addr` over `peek(Cpu)`.
     /// `symbols` may be null; pass `&symbols()` for the backend's own table.
     std::vector<DisasmLine> disassemble(uint16_t addr, size_t n,
