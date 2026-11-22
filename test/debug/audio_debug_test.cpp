@@ -1751,7 +1751,7 @@ int main() {
     }
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);
-        log_client(dbg, "awl13");
+        const ClientId cid = log_client(dbg, "awl13");
         dbg.audio_log_resize(4);
         for (uint8_t v = 1; v <= 6; ++v) emu.port().out(0x1F, v);
         const auto a = all_entries(dbg);
@@ -1760,10 +1760,16 @@ int main() {
         const Result r0 = dbg.audio_log_resize(0);
         const Result r1 = dbg.audio_log_resize(jnext::dbg::AUDIO_LOG_MAX_ENTRIES + 1);
         const auto c = all_entries(dbg);
-        check("AWL-13", "resize(4) then 6 writes: the 4 newest (values 3-6), seq contiguous and increasing; resize(2): the 2 newest; resize(0) and resize(MAX + 1) are RefusedUnavailable with the content unchanged",
+        // The bounds are inclusive: 1 and MAX are accepted (checked with the log off, which only stores the size).
+        dbg.set_audio_log_enabled(cid, false);
+        const Result lo = dbg.audio_log_resize(1);
+        const Result hi = dbg.audio_log_resize(jnext::dbg::AUDIO_LOG_MAX_ENTRIES);
+        dbg.audio_log_resize(jnext::dbg::AUDIO_LOG_DEFAULT_ENTRIES);
+        check("AWL-13", "resize(4) then 6 writes: the 4 newest (values 3-6), seq contiguous and increasing; resize(2): the 2 newest; resize(0) and resize(MAX + 1) are RefusedUnavailable with the content unchanged; resize(1) and resize(MAX) are Ok",
               a.size() == 4 && a[0].value == 3 && a[3].value == 6 && a[1].seq == a[0].seq + 1 && a[3].seq == a[0].seq + 3 &&
               b.size() == 2 && b[0].value == 5 && b[1].value == 6 && r0 == Result::RefusedUnavailable &&
-              r1 == Result::RefusedUnavailable && c.size() == 2 && c[0].seq == b[0].seq && c[1].seq == b[1].seq);
+              r1 == Result::RefusedUnavailable && c.size() == 2 && c[0].seq == b[0].seq && c[1].seq == b[1].seq &&
+              lo == Result::Ok && hi == Result::Ok);
     }
     {
         Emulator emu; build_counter(emu);
