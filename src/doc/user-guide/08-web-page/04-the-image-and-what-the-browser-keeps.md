@@ -14,7 +14,8 @@ browser the page needs that card too, and this is how it gets it.
 - The card the browser makes stays in the visitor's browser (Cache Storage, for that
   site only). Nothing is sent anywhere, and the page's author never receives it.
 
-The card is a small boot card (40 MiB) with only what NextZXOS needs to reach its menu
+The card is a small boot card (40 MiB) with only what NextZXOS needs to reach its menu,
+to run its dot commands (its file browser uses them to open files and programs)
 and to warm-start a program, not the 1 GB distribution image. The browser build is made
 and tested for that card.
 
@@ -68,7 +69,7 @@ A later visit to the same site needs no download and no file.
 
 | what | where |
 |---|---|
-| the SD card | Cache Storage: one entry of about 1.1 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it). A card with more of NextZXOS on it (`card.dirs`) is a further entry, much larger (about 15 MB for `/GAMES` and `/APPS`) |
+| the SD card | Cache Storage: one entry of about 1.5 MB (the 40 MiB card, compressed), named by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it). A card with more of NextZXOS on it (`card.dirs`) is a further entry, much larger (about 15.7 MB for `/GAMES` and `/APPS`) |
 | the warm-start recording | IndexedDB |
 | the saves, with `keepWrites` | IndexedDB, in a database of its own |
 
@@ -152,7 +153,7 @@ how the first visit goes with the `card` option (`data-card-source` on the widge
 
 ### `card.dirs`: more of NextZXOS on the card
 
-The boot card has only what NextZXOS needs to start. A page whose visitors want more of
+The boot card has only what NextZXOS needs to start and to run its commands. A page whose visitors want more of
 what the distribution holds, its games or its programs, can ask for those directories
 (`data-card-dirs` on the widget, [8.5](05-two-ways-to-embed.md)):
 
@@ -171,9 +172,9 @@ jnext.mount(el, { card: { dirs: ['/GAMES', '/APPS'] } });
 - The card is 40 MiB whatever the list. What the list asks for has to fit in 32 MiB together
   with the boot card. In this release `/GAMES` is 23.2 MB, `/APPS` 3.7 MB and `/DEMOS` 2.1 MB
   as files, so `/GAMES` and `/APPS` fit together and adding `/DEMOS` does not. The count is
-  of the files plus the distribution's directories.
+  of the files plus the distribution's directories, and the boot card itself counts about 3.7 MB.
 - Every list makes its own card. It is made the first time, kept as a further entry in the
-  browser (about 15 MB for `/GAMES` and `/APPS`), and used by later visits without
+  browser (about 15.7 MB for `/GAMES` and `/APPS`), and used by later visits without
   a download. It has its own warm-start recording and its own saves.
 - While it builds the card for `/GAMES` and `/APPS` the page's memory grows by about 21 MB.
 - A page that changes its list leaves the card of the old list in the visitor's browser

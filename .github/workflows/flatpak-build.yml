@@ -169,6 +169,8 @@ jobs:
           artifact-name: jnext-linux-flatpak
           manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
           cache-key: flatpak-builder-${{ github.sha }}
+          # GH #547: restore always, save only from a push to main (the 10 GB repository limit).
+          save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       # GH #271 — the permission gate, on the bundle THIS job produced. It
       # installs that bundle into a throwaway FLATPAK_USER_DIR and reads the

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.50</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.50</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3474,16 +3474,16 @@ is refused with its size.</p>
 image is its first entry, the inflated image is read by offset, and a directory is parsed
 when its whole chain has gone by. A distribution whose layout would need a second pass (a
 directory's contents stored before the directory) is refused with a message naming the
-cluster; it is not worked around. Its memory is bounded: about 3 MB of heap for the 26.11
-distribution, with <code>/GAMES,/APPS</code> the wasm heap grew by 21 MB (BCARD-41), under 50 MiB before any refusal (the FAT copy
+cluster; it is not worked around. Its memory is bounded: about 4.0 MB of heap for the 26.11a
+distribution (3.7 MB of it kept data), with <code>/GAMES,/APPS</code> the wasm heap grew by 21 MB (BCARD-41), under 50 MiB before any refusal (the FAT copy
 is capped at 16 MiB and the kept data at 32 MiB), and the card itself is a file (MEMFS in the
 browser, not the wasm heap). The 32 MiB bound counts what the builder keeps: each file's SIZE
 and each directory's clusters, not the source's clusters (the distribution's are 32 KiB, which
-would count <code>/GAMES</code> and <code>/APPS</code> as 40.66 MiB when they are 30.26 MiB of files and
-directories). Past the bound it goes on counting but stops buffering, so the refusal gives the
+would count <code>/GAMES</code> and <code>/APPS</code> as 35.09 MiB when they are 27.77 MiB of files and
+directories; with the boot set the card counts 31.30 MiB of the 32). Past the bound it goes on counting but stops buffering, so the refusal gives the
 exact total and the limit, and a truncated image is reported as "at least N bytes".</p>
-<p>The boot set (<code>TBBLUE.FW</code>, <code>MACHINES</code>, <code>NEXTZXOS</code>, <code>SYS</code>, <code>LICENSE.md</code>, <code>README.md</code>)
-is copied with the source's own spelling and metadata, and JNEXT's two patches (the
+<p>The boot set (<code>TBBLUE.FW</code>, <code>MACHINES</code>, <code>NEXTZXOS</code>, <code>SYS</code>, <code>DOT</code>, <code>LICENSE.md</code>, <code>README.md</code>)
+is copied with the source's own spelling and metadata (<code>DOT</code> is there because NextZXOS runs its dot commands from it, and its file browser opens text files, NEX programs and most other types through one; a distribution without it is refused, and <code>/DOT</code> in <code>card.dirs</code> is refused as part of the boot set), and JNEXT's two patches (the
 <code>config.ini</code> and the doubled <code>zx81.rom</code>) are the functions the SD provisioner uses, not
 copies. The output is reproducible and the same bytes on every platform: no clock, the source's directory order, spelling, write times and R/H/S/A attributes, volume serial <code>4A4E5854</code>, hidden sectors 63.</p>
 <p><strong>A new distribution.</strong> A release that moves to a new distribution changes <code>kDistroUrl</code>
@@ -3491,10 +3491,10 @@ and all of <code>kDistribution</code> in one commit: the size, the zip digest an
 from your own download, the card digest from <code>make-minimal-card</code> on it, and the recipe
 number only if the builder changed what it writes. The tests (MINIMG-01 and the
 <code>minimal-sdcard-image-func</code> regression row) fail on a partial update.</p>
-<p>Tests: <code>minimal_card_test</code> (<code>MCARD-01..16</code> and <code>18..35</code>, on a synthetic distribution built in the test; <code>MCARD-17</code>, recipe 3 unchanged, is in <code>fat32_image_test</code>; every tree, the wasm one included), the
-<code>make minimal-image-test</code> shell suite (21 rows, <code>MINIMG-21..26</code> for <code>--dirs</code>: the tool on the cached image and on a synthetic zip, read back with mtools, sfdisk and python's zipfile) and the <code>minimal-sdcard-image-func</code> regression row,
+<p>Tests: <code>minimal_card_test</code> (<code>MCARD-01..16</code> and <code>18..41</code>, on a synthetic distribution built in the test; <code>MCARD-17</code>, recipe 3 unchanged, is in <code>fat32_image_test</code>; every tree, the wasm one included), the
+<code>make minimal-image-test</code> shell suite (25 rows, <code>MINIMG-21..26</code> for <code>--dirs</code>, <code>MINIMG-28..30</code> for <code>/dot</code> and the Pages list: the tool on the cached image and on a synthetic zip, read back with mtools, sfdisk and python's zipfile) and the <code>minimal-sdcard-image-func</code> regression row,
 which boots the card to the NextZXOS menu and warm-starts a NEX, both compared with the
-full card's references.</p>
+full card's references, and the <code>minimal-sdcard-dot-func</code> row, which runs <code>.more readme.md</code> on the card and compares it with the full card (and with the same card without <code>/dot</code>, which must differ).</p>
 <h2 id="the-browser-package">The browser package<a class="headerlink" href="#the-browser-package" title="Permanent link">&para;</a></h2>
 <p><code>make package-web</code> zips the output of <code>make wasm-web</code> as
 <code>build/wasm-core/jnext-&lt;ver&gt;-web.zip</code>, through <code>packaging/web/package-web.sh</code>. The

@@ -1,7 +1,7 @@
 // NextZXOS's SD card in the browser: the card is made in the visitor's browser from the
 // official distribution zip on specnext.com (fetched by the page when specnext.com
 // allows it, or chosen by the visitor after downloading it), checked, kept gzipped in the Cache
-// API under the card's own SHA-256 (about 1.1 MB for the 40 MiB card, which is mostly zeros;
+// API under the card's own SHA-256 (about 1.5 MB for the 40 MiB card, which is mostly zeros;
 // raw where the browser has no compression streams), and put in the in-memory filesystem. A page
 // that asks for more of the distribution on the card (card.dirs, e.g. /GAMES and /APPS) gets a card
 // of its own, kept under its own key (release, builder recipe, the canonical list) with its SHA-256
@@ -105,7 +105,7 @@
   }
 
   // The stored form of a card, in ONE place. Gzip where the browser has both compression
-  // streams (the card is mostly zeros: 40 MiB becomes about 1.1 MB); the bytes as they are
+  // streams (the card is mostly zeros: 40 MiB becomes about 1.5 MB); the bytes as they are
   // otherwise. Evaluated at call time.
   function canGzip() {
     return typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
