@@ -41,6 +41,8 @@ options:
   --stream               also print the log live (default: only the summary)
   --fallback-local DIR   on exit 75, run the targets in DIR on this host (the log says so);
                          REMOTE_RUN_LOCAL_WRAP, if set, is the wrapper command put in front
+                         (REMOTE_RUN_FALLBACK=1 is set in the wrapper's environment, so a wrapper that
+                         itself sends heavy runs here, like slot.sh, never sends one back)
   --id ID                run id (default: a timestamp); unique among live runs
   --log-dir DIR          where logs go (default ~/tmp/remote-run); logs older than 7 days are deleted
   --local-shell          TEST SEAM: run the remote side as a local shell instead of over ssh
@@ -158,10 +160,10 @@ run_local() {
         echo "=== remote-run target: $t" >> "$LOG"
         rc=0
         if [[ "$t" == sh:* ]]; then
-            "${wrap[@]}" env LANG=C bash -c "cd '$dir' && ${t#sh:}" </dev/null >> "$LOG" 2>&1 || rc=$?
+            REMOTE_RUN_FALLBACK=1 "${wrap[@]}" env LANG=C bash -c "cd '$dir' && ${t#sh:}" </dev/null >> "$LOG" 2>&1 || rc=$?
         else
             IFS=' ' read -ra words <<<"$t"
-            "${wrap[@]}" env LANG=C make -C "$dir" "${words[@]}" </dev/null >> "$LOG" 2>&1 || rc=$?
+            REMOTE_RUN_FALLBACK=1 "${wrap[@]}" env LANG=C make -C "$dir" "${words[@]}" </dev/null >> "$LOG" 2>&1 || rc=$?
         fi
         echo "=== remote-run result: $t rc=$rc time=?s peak=?MiB" >> "$LOG"
         if [[ $rc -ne 0 ]]; then

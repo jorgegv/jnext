@@ -2280,7 +2280,7 @@ packaging-selftest:
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
-# Test tools/make-minimal-card (15 rows) against the cached distribution image and a synthetic zip - Linux only; needs mtools + sfdisk + python3
+# Test tools/make-minimal-card (25 rows) against the cached distribution image and a synthetic zip - Linux only; needs mtools + sfdisk + python3
 minimal-image-test: $(UNIT_TEST_BUILD_DEP) sdcard-image
 	@bash test/minimal-card-test.sh
 

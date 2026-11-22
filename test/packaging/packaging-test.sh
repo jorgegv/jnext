@@ -175,6 +175,9 @@ contract ci-cache-key test/packaging/ci-cache-key-test.sh cikey "every sdcard-im
 # --- remote-run driver + ci-deps.sh contract (GH #546) ------------------------
 contract remote-run test/packaging/remote-run-test.sh remoterun "driver exit codes, refusals, fallback, summary, work-dir confinement; ci.yml uses ci-deps.sh"
 
+# --- autonomous-run slot.sh contract (GH #547 stage 4) ------------------------
+contract slot test/packaging/slot-test.sh slot "slot admission, NSLOTS, load limit, PAUSED; overflow of heavy runs to the remote-run driver"
+
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
 # packages. `make package-contract-test` (a prerequisite of `make unit-test`)
