@@ -1767,6 +1767,13 @@ static QString trk_cell(AudioPanel& panel, int row, int col) {
                                              : QStringLiteral("<none>");
 }
 
+static std::string trk_dump(AudioPanel& panel) {
+    std::string d;
+    for (int r = 0; r < trk_rows(panel); ++r)
+        d += "[" + trk_cell(panel, r, 0).toStdString() + "|" + trk_cell(panel, r, 1).toStdString() + "]";
+    return d;
+}
+
 static void show_tracker_tab(AudioPanel& panel) {
     if (auto* tabs = panel.findChild<QTabWidget*>("audio_tabs")) tabs->setCurrentIndex(3);
 }
@@ -1926,7 +1933,7 @@ static void test_tracker_tab(Emulator& emu) {
         const bool marker = n > 0 && trk_cell(panel, n - 1, 1) == "reset" && trk_cell(panel, n - 1, 0).isEmpty();
         check("DAP-63", "a CPU parked on JR $ and three frames of real AY writes (frame 1: R0=0xFC R1=0 R8=0x0F; frame 2 none; frame 3: R8=0x0A): the Tracker shows [frame row, 'empty' row, frame row] whose Frame cells are the debugger's own consecutive time().frame values; frame 1's 0A Note is A-4 and V F, frame 3's V is A; a soft reset then adds a 'reset' marker row last",
               rows && frames && cells && marker,
-              "rows=" + std::to_string(trk_rows(panel)) + " f1=" + std::to_string(f1) + " f2=" + std::to_string(f2) + " f3=" + std::to_string(f3));
+              "rows=" + trk_dump(panel) + " f1=" + std::to_string(f1) + " f2=" + std::to_string(f2) + " f3=" + std::to_string(f3));
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-64", "emulator init", false); return; }
@@ -1952,7 +1959,9 @@ static void test_tracker_tab(Emulator& emu) {
         bool unchanged = true;
         for (int c = 0; c < 35; ++c) unchanged = unchanged && trk_cell(panel, 0, c) == row0[size_t(c)];
         check("DAP-64", "writes in the frame being shown replace its row instead of adding one: R8 then R9 in one frame is 1 row, then 1 row with 0B V = 2; a write in the next frame makes 2 rows and row 0 is unchanged",
-              after1 == 1 && after2 == 1 && replaced && trk_rows(panel) == 2 && unchanged && trk_cell(panel, 1, 5) == "3");
+              after1 == 1 && after2 == 1 && replaced && trk_rows(panel) == 2 && unchanged && trk_cell(panel, 1, 5) == "3",
+              "after1=" + std::to_string(after1) + " after2=" + std::to_string(after2) + " replaced=" + std::to_string(replaced) +
+              " unchanged=" + std::to_string(unchanged) + " rows=" + trk_dump(panel));
     }
     {
         Emulator rw;
@@ -2021,7 +2030,10 @@ static void test_tracker_tab(Emulator& emu) {
         check("DAP-65", "paused with a rewind ring: a row inside [oldest_frame, newest_frame] is rewindable with the 'Double-click to rewind' tooltip and a double-click emits rewind_to_frame_requested(its frame) once; an empty-run row emits its first frame (when that is in the ring); a row older than the ring (ring shrunk to 2 frames) is greyed with the 'outside the rewind buffer' tooltip and emits nothing; a marker row emits nothing",
               in_range && rewindable && once && empty_ok && outside && marker,
               "in_range=" + std::to_string(in_range) + " rewindable=" + std::to_string(rewindable) + " once=" + std::to_string(once) +
-              " empty=" + std::to_string(empty_ok) + " outside=" + std::to_string(outside) + " marker=" + std::to_string(marker));
+              " empty=" + std::to_string(empty_ok) + " outside=" + std::to_string(outside) + " marker=" + std::to_string(marker) +
+              " fr=" + std::to_string(fr) + " range=" + std::to_string(range.oldest_frame) + "-" + std::to_string(range.newest_frame) +
+              " small=" + std::to_string(small.oldest_frame) + "-" + std::to_string(small.newest_frame) + " ofr=" + std::to_string(ofr) +
+              " rows=" + trk_dump(panel));
     }
     {
         Emulator rw;
@@ -2077,7 +2089,7 @@ static void test_tracker_tab(Emulator& emu) {
         for (int r = reset_row + 1; r < trk_rows(panel) && reset_row > 0; ++r) some_after = some_after || can(r);
         check("DAP-66", "why a row is not rewindable, in order: running -> 'Pause the machine to rewind to a frame' (and a double-click emits nothing); paused with an RZX playing -> the RZX text, and rewindable again once it stops; ring freed -> 'The rewind buffer is empty'; rows before a reset marker -> 'This frame is from before a reset or a state load' while rows after it follow the ring range (at least one rewindable)",
               running && rzx && back && empty && stale && after_ok && some_after,
-              "running=" + std::to_string(running) + " rzx=" + std::to_string(rzx) + " back=" + std::to_string(back) + " empty=" + std::to_string(empty) +
+              "running=" + std::to_string(running) + " (" + trk_dump(panel) + ") rzx=" + std::to_string(rzx) + " back=" + std::to_string(back) + " empty=" + std::to_string(empty) +
               " stale=" + std::to_string(stale) + " after_ok=" + std::to_string(after_ok) + " some_after=" + std::to_string(some_after));
     }
     {
@@ -2116,7 +2128,8 @@ static void test_tracker_tab(Emulator& emu) {
         show_tracker_tab(panel);
         panel.refresh();
         check("DAP-68", "writes over 2 frames with the Chips tab current: refresh() leaves the Tracker model empty (the grouping did not run); with Tracker current the same refresh() fills it",
-              while_chips == 0 && trk_rows(panel) == 2);
+              while_chips == 0 && trk_rows(panel) == 2,
+              "while_chips=" + std::to_string(while_chips) + " rows=" + trk_dump(panel));
     }
     {
         // Notes and unknowns: one frame, chip 0.
@@ -2132,8 +2145,8 @@ static void test_tracker_tab(Emulator& emu) {
         model.set_clock(1750000);
         model.set_entries(in);
         auto cell = [&](int c) { return model.rowCount() == 1 ? model.index(0, c).data().toString() : QString("<none>"); };
-        check("DAP-69", "one frame: TP 5 (21875 Hz) is '^^^' (above MIDI 127), TP 239 is 'A#4', R11 written with R12 never seen is '????', noise A on with R6 unknown is '??', noise B off is '--', R10 = 0x1F is 'E' and its noise (off) '--'",
-              cell(4) == "^^^" && cell(7) == "A#4" && cell(2) == "????" && cell(6) == "??" && cell(9) == "--" &&
+        check("DAP-69", "one frame: TP 5 (21875 Hz) is '^^^' (above MIDI 127), TP 239 is 'A#4', R11 written with R12 never seen shows four question marks, noise A on with R6 unknown shows two, noise B off is '--', R10 = 0x1F is 'E' and its noise (off) '--'",
+              cell(4) == "^^^" && cell(7) == "A#4" && cell(2) == "\?\?\?\?" && cell(6) == "\?\?" && cell(9) == "--" &&
               cell(11) == "E" && cell(12) == "--",
               cell(4).toStdString() + "," + cell(7).toStdString() + "," + cell(2).toStdString() + "," + cell(6).toStdString() + "," + cell(9).toStdString() + "," + cell(11).toStdString() + "," + cell(12).toStdString());
     }

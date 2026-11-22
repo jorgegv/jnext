@@ -705,7 +705,7 @@ int main(int argc, char** argv) {
         auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
         if (tabs) tabs->setCurrentIndex(3);
         QApplication::processEvents();
-        for (int i = 0; i < 10; ++i) fx.tick();
+        for (int i = 0; i < 30; ++i) fx.tick();            // a running window redraws every 12th tick
         auto* view = fx.dbg()->audio_panel()->findChild<AudioTrackerView*>();
         auto* table = fx.dbg()->audio_panel()->findChild<QTableView*>("audio_tracker_table");
         AudioTrackerModel* model = view ? view->model() : nullptr;
@@ -720,7 +720,7 @@ int main(int argc, char** argv) {
         for (int r = 0; model && r < model->rowCount(); ++r)
             if (model->index(r, 1).data().toString() == "rewind") no_rewind = false;
         check("QLAZY-24",
-              "Tracker current with rows, the machine RUNNING: a double-click on a row changes nothing (time().frame does not move, the machine stays running), the machine keeps running afterwards and no 'rewind' row appears",
+              "Tracker current with rows (30 running ticks), the machine RUNNING: a double-click on a row changes nothing (time().frame does not move, the machine stays running), the machine keeps running afterwards and no 'rewind' row appears",
               fx.ok && rows > 3 && unmoved && no_rewind,
               "rows=" + std::to_string(rows) + " unmoved=" + b2s(unmoved) + " no_rewind=" + b2s(no_rewind));
     }
