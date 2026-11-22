@@ -1897,11 +1897,14 @@ It holds the image FILE's raw bytes, never the journal's: `disk_read` serves a r
 cache only when every sector of it is there, otherwise it reads the whole request from the file
 and fills the lines, and the journal overlay is applied after either path. In image mode
 `disk_write` writes the file first and updates the lines only on success (a failed write drops
-them), so the file is always current and `detach()` and `CTRL_SYNC` flush nothing; journal mode
-never writes the file and never touches the cache. The scope is one attach: every user of the
+them). The write itself goes into the stream's 8 KiB buffer, so `detach()` and `CTRL_SYNC` still
+flush that buffer exactly as before, and a write the stream cannot flush is reported by
+`CTRL_SYNC` (FatFs's `f_close` and `f_sync`, which the callers check), not by the write; only the
+cache needs no flush. Journal mode never writes the file and never touches the cache. The scope is one attach: every user of the
 glue (`fatfs_format.cpp`, `MountedCard`, `card_extract.cpp`) attaches, works and detaches inside
 one call, and nothing may write the image by another route while it is attached. The rows are
-`FGC-01..06` (`fat32_image_test`).
+`FGC-01..09` (`fat32_image_test`) and, for the write-failure paths that need `/dev/full` and
+`RLIMIT_FSIZE`, `FGC-L01..02` (`fatfs_glue_linux_test`).
 
 The rows are `SDW-01..28` (`sdcard_writes_test`), `SDFA-J01..J14` and `SDFA-JP01..JP02`
 (`sdcard_file_add_test` and `sdcard_file_add_posix_test`: the journal-mode add, read back from

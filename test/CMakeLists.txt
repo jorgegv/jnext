@@ -535,6 +535,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories(sdcard_file_add_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME sdcard_file_add_linux_tests COMMAND sdcard_file_add_linux_test)
 endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # The glue sector cache's failed-write rows need /dev/full and RLIMIT_FSIZE (GH #547 stage 5).
+    add_executable(fatfs_glue_linux_test fat32_image/fatfs_glue_linux_test.cpp)
+    target_link_libraries(fatfs_glue_linux_test PRIVATE jnext_core)
+    target_include_directories(fatfs_glue_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME fatfs_glue_linux_tests COMMAND fatfs_glue_linux_test)
+endif()
 
 # FAT32 image read/write + geometry test (Task 27)
 # Native reimplementation of the mtools-based SD-image FAT32 cluster fix.

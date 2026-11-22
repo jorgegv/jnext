@@ -27,13 +27,17 @@ constexpr uint32_t kSectorSize = 512;
 // path lookup re-reads the directory from the image, and every uncached read
 // here costs an lseek plus an 8 KiB stream-buffer refill (GH #547 stage 5).
 // The cache holds the image FILE's raw bytes, indexed by the FatFs sector
-// number: never journal data (the overlay is applied after it), and the file
-// is always current (every write goes to the file first), so detach() and
-// CTRL_SYNC need no flush. 8192 lines = 4 MiB per attached drive. Measured on
+// number: never journal data (the overlay is applied after it). Every write goes
+// to the stream first (into its 8 KiB put area), so detach() and CTRL_SYNC still
+// flush the STREAM, as before; only the cache needs no flush. A write the
+// stream buffered and cannot flush is therefore reported later, by CTRL_SYNC
+// (FatFs's f_close/f_sync, which the callers check), not by the write.
+// 8192 lines = 4 MiB per attached drive. Measured on
 // minimal_card_test (8400 files in one directory): read syscalls 19.1 M with no
 // cache, 9.3 M with 128 lines, 0.86 M with 1024, 0.10 M with 8192. The data is
-// not initialised (a tag says which lines are valid), so an attach commits no
-// page it does not use.
+// not initialised (a tag says which lines are valid), so a native attach commits
+// no page it does not use (the WebAssembly build takes all 4 MiB of linear memory,
+// which it can grow).
 constexpr size_t   kCacheLines = 8192;
 constexpr uint64_t kNoTag      = ~0ull;
 
@@ -82,6 +86,7 @@ bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
             std::shared_ptr<sd_write_journal::Journal> journal) {
     if (pdrv >= FF_VOLUMES) { err = "fatfs_glue: pdrv out of range"; return false; }
     Backing& b = g_backing[pdrv];
+    b.active = false; // a failed re-attach leaves the drive not ready, never half torn down
     b.file.close();
     b.file.clear();
     b.cache_drop();

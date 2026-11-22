@@ -203,6 +203,7 @@ BEGIN {
     M["nex_loader_test"]               = "NEX loader (screen ingest)"
     M["nex_v13_test"]                  = "NEX loader (V1.3)"
     M["extended_nex_test"]             = "Extended NEX streaming"
+    M["fatfs_glue_linux_test"]         = "FatFs glue cache (Linux)"
     M["tap_loader_test"]               = "TAP loader (container)"
     M["tap_loader_autoplay_test"]      = "TAP loader (auto play/stop)"
     M["program_archive_test"]          = "ZIP program archives"

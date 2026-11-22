@@ -32,9 +32,11 @@
 //                   options and FF_USE_CHMOD) produced for the same fixture.
 //   FGC-01..06      The FatFs glue's sector cache (GH #547 stage 5): read-after-write,
 //                   a second attach, the journal overlay over the cache, two sectors
-//                   on one line, a partly cached read, a read past the volume.
+//                   on one line, a partly cached read, a read past the volume; FGC-07..09:
+//                   first/last-cached requests, a failed read, a failed re-attach.
 //   FAT32-WIN-01..02 The FAT reader's one-sector window (GH #547 stage 5): chains that
-//                   cross FAT sector boundaries, and a re-read after a reformat.
+//                   cross FAT sector boundaries, a re-read after a reformat, and the
+//                   reserved top bits of an entry (FAT32-WIN-03).
 //   FAT32-UPSERT-01 fat32_tree_upsert creates missing dirs (case-insensitive)
 //                   and replaces an existing file (unchanged unit).
 
@@ -448,6 +450,61 @@ int main() {
             check("FGC-06", "a read past sector_count is RES_PARERR and leaves the buffer alone",
                   at && rr == RES_PARERR && untouched && last_ok, gerr);
         }
+
+        // FGC-07: a partly cached request with only its first, only its last, then only its
+        // middle sector cached (FGC-05 covers the middle) returns the file's bytes for all.
+        {
+            gc_make_image(img);
+            const bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
+            bool all = at;
+            const uint32_t cached[3] = {200, 302, 401}; // first, last, middle of 200.., 300.., 400..
+            const uint32_t starts[3] = {200, 300, 400};
+            for (int k = 0; k < 3; ++k) {
+                (void)gc_read(cached[k]);
+                DRESULT rr = RES_ERROR;
+                const auto v = gc_read(starts[k], 3, &rr);
+                std::vector<uint8_t> want;
+                for (uint32_t n = starts[k]; n < starts[k] + 3; ++n) {
+                    const auto f = gc_file_sector(img, n);
+                    want.insert(want.end(), f.begin(), f.end());
+                }
+                all = all && rr == RES_OK && v == want;
+            }
+            fatfs_glue::detach(0);
+            check("FGC-07", "a request with only its first, last or middle sector cached returns the file's bytes",
+                  all, gerr);
+        }
+
+        // FGC-08: a failed (short) read fills no line: the file holds FatFs sectors 0..9, the
+        // drive declares 20, so a read of 9..10 fails and 10 must still fail afterwards.
+        {
+            { std::ofstream f(img, std::ios::binary | std::ios::trunc);
+              std::vector<char> z((kGcLba + 10) * 512, 0x11);
+              f.write(z.data(), static_cast<std::streamsize>(z.size())); }
+            const bool at = fatfs_glue::attach(0, img, kGcLba, 20, gerr);
+            DRESULT r1 = RES_OK, r2 = RES_OK;
+            (void)gc_read(9, 2, &r1);
+            (void)gc_read(10, 1, &r2);
+            fatfs_glue::detach(0);
+            check("FGC-08", "a failed read fills no cache line",
+                  at && r1 == RES_ERROR && r2 == RES_ERROR,
+                  "r1=" + std::to_string(r1) + " r2=" + std::to_string(r2));
+        }
+
+        // FGC-09: a failed re-attach of a still-attached drive leaves it unusable, an error and
+        // not a crash on a dropped cache.
+        {
+            gc_make_image(img);
+            const bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
+            (void)gc_read(5);
+            std::string e2;
+            const bool again = fatfs_glue::attach(0, tmp_path("no-such-dir/none.img"), kGcLba, kGcSectors, e2);
+            DRESULT rr = RES_OK;
+            (void)gc_read(5, 1, &rr);
+            fatfs_glue::detach(0);
+            check("FGC-09", "a failed re-attach leaves the drive not ready, a read is an error",
+                  at && !again && rr == RES_NOTRDY, "rr=" + std::to_string(rr));
+        }
         std::remove(img.c_str());
     }
 
@@ -487,6 +544,38 @@ int main() {
         const bool rd2 = ok2 && read_back(r2);
         check("FAT32-WIN-02", "a read after the image was reformatted sees the new chains, none of the old window",
               ok2 && rd2 && same(r2, "A.BIN", a2) && same(r2, "B.BIN", b2), werr);
+
+        // FAT32-WIN-03: the reserved top 4 bits of a FAT32 entry are masked off: every next
+        // pointer of FAT1 gets them set and the file still reads back byte-identical.
+        {
+            const std::string a3 = pat(300 * 1024, 13, 0);
+            Fat32Tree t3; t3.root.push_back(fnode("A.BIN", a3));
+            const bool ok3 = make_blank(img, lba, sectors) &&
+                             fat32_format_and_populate(img, lba, sectors, t3, werr, o);
+            uint32_t patched = 0;
+            if (ok3) {
+                std::fstream f(img, std::ios::in | std::ios::out | std::ios::binary);
+                uint8_t bpb[512];
+                f.seekg(static_cast<std::streamoff>(lba) * 512);
+                f.read(reinterpret_cast<char*>(bpb), 512);
+                const uint32_t rsvd = bpb[14] | (bpb[15] << 8);
+                const uint32_t fsz = rd32(bpb + 36);
+                std::vector<uint8_t> fat(static_cast<size_t>(fsz) * 512);
+                const auto at = static_cast<std::streamoff>(lba + rsvd) * 512;
+                f.seekg(at);
+                f.read(reinterpret_cast<char*>(fat.data()), static_cast<std::streamsize>(fat.size()));
+                for (size_t k = 8; k + 4 <= fat.size(); k += 4) {
+                    const uint32_t v = rd32(fat.data() + k);
+                    if (v >= 2 && v < 0x0FFFFFF8) { fat[k + 3] |= 0xF0; ++patched; }
+                }
+                f.seekp(at);
+                f.write(reinterpret_cast<const char*>(fat.data()), static_cast<std::streamsize>(fat.size()));
+            }
+            Fat32Tree r3;
+            const bool rd3 = ok3 && read_back(r3);
+            check("FAT32-WIN-03", "reserved top bits of the FAT entries are ignored",
+                  ok3 && patched > 500 && rd3 && same(r3, "A.BIN", a3), werr);
+        }
         std::remove(img.c_str());
     }
 
