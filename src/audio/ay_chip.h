@@ -42,6 +42,10 @@ public:
     /// Get the currently selected register number.
     uint8_t selected_register() const { return addr_ & 0x0F; }
 
+    /// The whole 5-bit address latch (ym2149.vhd:173). Bit 4 set makes every
+    /// data write vanish (:188), which selected_register() hides.
+    uint8_t address() const { return addr_ & 0x1F; }
+
     /// Read a specific register value (for debugger introspection).
     uint8_t read_register(uint8_t reg) const { return reg_[reg & 0x0F]; }
 
@@ -66,6 +70,22 @@ public:
     uint8_t output_a() const { return out_a_; }
     uint8_t output_b() const { return out_b_; }
     uint8_t output_c() const { return out_c_; }
+
+    /// Debugger view of the generators (const, no side effects). `env_*` is what
+    /// the VHDL holds: with an R13 write still pending (env_reset_) that is the
+    /// reload, 31 falling for attack 0 and 0 rising for attack 1, which the
+    /// VHDL loads on the next 28 MHz clock (ym2149.vhd:393-401) while jnext
+    /// defers it to the next PSG tick. `amplitude[k]` is the level channel k
+    /// plays when its tone/noise gate is open, through the AY or YM table
+    /// (update_output() without the `mixed[]` gate), so a panel's level bar does
+    /// not flicker with the square wave.
+    struct DebugView {
+        uint8_t env_step = 0;
+        bool env_inc = false;
+        bool env_hold = false;
+        std::array<uint8_t, 3> amplitude{};
+    };
+    DebugView debug_view() const;
 
 private:
     void load_envelope();   // apply a pending env_reset_ (ym2149.vhd:340-341, 393-401)

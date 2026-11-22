@@ -383,6 +383,34 @@ void AyChip::update_envelope()
     // else: C=1, Alt=0, Hold=0: shapes 8, 12 (\\\\, ////) — continuous, no hold
 }
 
+AyChip::DebugView AyChip::debug_view() const
+{
+    DebugView v;
+    if (env_reset_) {
+        // ym2149.vhd:393-401, the reload of the pending R13 write.
+        const bool attack = (reg_[13] & 0x04) != 0;
+        v.env_step = attack ? 0 : 31;
+        v.env_inc = attack;
+        v.env_hold = false;
+    } else {
+        v.env_step = env_vol_ & 0x1F;
+        v.env_inc = env_inc_;
+        v.env_hold = env_hold_;
+    }
+    for (int i = 0; i < 3; i++) {
+        const uint8_t vol_reg = reg_[8 + i];
+        uint8_t idx;
+        if (vol_reg & 0x10) {
+            idx = v.env_step;
+        } else {
+            const uint8_t fixed = vol_reg & 0x0F;
+            idx = fixed == 0 ? 0 : static_cast<uint8_t>((fixed << 1) | 1);
+        }
+        v.amplitude[i] = ay_mode_ ? vol_table_ay_[idx >> 1] : vol_table_ym_[idx];
+    }
+    return v;
+}
+
 void AyChip::update_output()
 {
     // Channel mixing: (tone_disable OR tone_op) AND (noise_disable OR noise_op)

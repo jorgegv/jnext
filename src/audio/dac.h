@@ -35,6 +35,9 @@ public:
     using WriteCallback = std::function<void(int, uint8_t)>;
     void set_write_callback(WriteCallback callback) { write_callback_ = std::move(callback); }
 
+    /// One channel's byte (0=A, 1=B, 2=C, 3=D), for the debugger.
+    uint8_t channel(int ch) const { return ch_[ch & 3]; }
+
     /// Get 9-bit stereo output (A+B for left, C+D for right).
     uint16_t pcm_left() const  { return static_cast<uint16_t>(ch_[0]) + ch_[1]; }
     uint16_t pcm_right() const { return static_cast<uint16_t>(ch_[2]) + ch_[3]; }

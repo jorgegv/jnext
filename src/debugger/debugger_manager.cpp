@@ -1138,6 +1138,16 @@ void DebuggerManager::refresh_panels() {
             refresh_window();
         update_actions();
     } else {
+        // The Audio panel's Chips view is live: every tick while the panel is on
+        // show (panel_on_show) with the Chips sub-tab current. It is its own
+        // refresh, not refresh_window(), so the cadence of every other panel and
+        // the paused-idle counts do not move.
+        if (AudioPanel* ap = debugger_window_->audio_panel()) {
+            if (debugger_window_->panel_on_show(ap) && ap->chips_on_show()) {
+                ap->refresh_live();
+                ++audio_live_refresh_count_;
+            }
+        }
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;
         if (refresh_counter_ >= REFRESH_INTERVAL) {

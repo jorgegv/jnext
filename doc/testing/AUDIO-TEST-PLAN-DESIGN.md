@@ -638,6 +638,94 @@ VHDL ref: `zxnext.vhd` lines 2775-2778
 | IO-16  | NR 0x84 b6 gates GS Covox port (0xB3 chB+chC)                 | `port_dac_mono_BC_b3_io_en <= internal_port_enable(22)`. skip — bit dropped (see G114) |
 | IO-17  | NR 0x84 b7 gates SpecDrum port (0xDF chA+chD)                 | `port_dac_mono_AD_df_io_en <= internal_port_enable(23)`. skip — bit dropped (see G114) |
 
+## 8. Debugger audio introspection
+
+Suite `test/debug/audio_debug_test.cpp` (`audio_debug_test`, GH #529). It tests what the debugger
+backend reports about the audio chain, not the chain itself (sections 1-7 do that). The rows of this
+section are the ones this suite asserts today: `ANO` (the note helper), `AIZ` (the debugger's audio
+features are invisible to the Z80) and `ADS` (`Debugger::audio_state()`). Later sub-issues of the
+same epic add rows to the same suite under their own prefixes, each documented here with the work
+that implements it.
+
+### 8.1 Note helper (`src/debug/audio_math.h`)
+
+VHDL ref: `ym2149.vhd` lines 306-325 (tone divider), 334-350 and 402-462 (envelope rate and shape),
+371-391 (shape table); `turbosound.vhd` line 164 (I_SEL_L = 1). A4 = 440 Hz equal temperament.
+PSG clock 1 750 000 Hz unless stated; frequencies to 1e-3 Hz, cents to 0.005.
+
+| ID     | Test                                             | Verification                                               |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| ANO-01 | Tone period 0 behaves as period 1                | 109375.000 Hz, equal to period 1; not a note               |
+| ANO-02 | Tone period 1                                    | 109375.000 Hz; above MIDI 127, not a note                  |
+| ANO-03 | Tone period 8                                    | 13671.875 Hz is MIDI 128: not valid (upper bound)          |
+| ANO-04 | Tone period 9                                    | 12152.778 Hz is F#9 +45.17, the highest valid note         |
+| ANO-05 | Tone period 252                                  | 434.028 Hz is A4 -23.66                                    |
+| ANO-06 | Tone period 253                                  | 432.312 Hz is A4 -30.52                                    |
+| ANO-07 | Tone period 239                                  | 457.636 Hz is A#4 -31.96 (sharps only)                     |
+| ANO-08 | Tone period 428                                  | 255.549 Hz is C4 -40.68 (scientific octave)                |
+| ANO-09 | Tone period 4095                                 | 26.709 Hz is G#0 +49.50                                    |
+| ANO-10 | A frequency exactly half way between two notes   | 452.893 Hz is A#4 -50.00: the tie goes to the upper note   |
+| ANO-11 | The bottom of the range                          | 8.176 Hz is C-1 +0.00 (MIDI 0), valid; 0.6 semitone below it, 0, negative, NaN and infinite frequencies are not |
+| ANO-12 | Envelope shapes 8 and 12, period 100             | 68.359 Hz, C#2 -23.55 (clock / (256 * period))             |
+| ANO-13 | Envelope shapes 10 and 14, period 100            | 34.180 Hz, C#1 -23.55 (clock / (512 * period))             |
+| ANO-14 | Envelope period 0 and 1, shapes 8 and 10         | Saw 6835.938 Hz, triangle 3417.969 Hz; period 0 equals period 1 |
+| ANO-15 | Shapes 0-7, 9, 11, 13, 15                        | No repeat frequency (0 Hz)                                 |
+| ANO-16 | Envelope glyph of each of the 16 shapes          | The table at `ym2149.vhd:371-391`, four ASCII characters   |
+| ANO-17 | The same period at the Next's and the 128K's PSG clock | 1.75 MHz is 23.00 cents flat of 1.7734 MHz           |
+
+### 8.2 Invisible to the Z80
+
+Oracle: `src/audio/audio_mute.h` (the debugger's mutes and views have no hardware analogue, so the
+machine's saved state and video must not depend on them) and the hardware, which sums every chip
+(`turbosound.vhd:184-337`) with no mute. Fixture: one Next with TurboSound on, all three AY chips and
+the DAC and beeper making sound, written through real ports and NextREGs.
+
+| ID     | Test                                             | Verification                                               |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AIZ-01 | Mute AY1, run 50 frames; load the same starting state, run 50 frames unmuted | State bytes and framebuffer hash are equal |
+| AIZ-02 | The same for muting the DAC and for muting the beeper | State bytes and framebuffer hash are equal                |
+| AIZ-03 | Positive control: one extra `OUT 0xBFFD` in one run | State bytes differ (the comparison can fail)             |
+| AIZ-04 | Mute AY1, load a state saved unmuted             | Before any tick the audible sum is the loaded hardware sum; the state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
+| AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
+| AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
+
+### 8.3 `Debugger::audio_state()`
+
+Driven by real port writes (0xFFFD/0xBFFD, 0xFE, the DAC ports) and NextREG writes on a ZXN_ISSUE2
+machine; PSG time by ticking TurboSound. Oracles as cited per row.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| ADS-01 | none                                             | `psg_clock_hz` 1750000 (`zxnext_top_issue2.vhd:1209,1217`)  |
+| ADS-02 | R7 = every value 0x00-0x3F                       | Tone enabled = bit k clear, noise enabled = bit k+3 clear (`ym2149.vhd:467-469`) |
+| ADS-03 | R0-R5 distinct                                   | Periods 0xF34, 0x256, 0x378 (`:302-304`, R1/R3/R5 bits 3:0) |
+| ADS-04 | R8=0x0A, R9=0x1F, R10=0xE5                       | Volumes 10, 15, 5; envelope on B only (`:476-520`)          |
+| ADS-05 | R6 = 0xFF                                        | Noise period 31 (`:283`)                                    |
+| ADS-06 | R11=0x34, R12=0x12, R13=0xFE                     | Period 0x1234, shape 0x0E (`:332`)                          |
+| ADS-07 | Address 0x1D, then a data write                  | Address 0x1D, registers unchanged (`:173,188`)              |
+| ADS-08 | TurboSound on; 0xFFFD = 0xBE, 0xDD, 0x9F         | Active chip 1 pan 01, 2 pan 10, 0 pan 00; pans end [0,1,2] (`turbosound.vhd:129-136`) |
+| ADS-09 | TurboSound off; 0xFFFD = 0xBE                    | Active chip and pan unchanged (`:129`)                      |
+| ADS-10 | Select AY2, TurboSound off, then on              | In-mix [F,F,T], then [T,T,T] (`:197,252,307`)               |
+| ADS-11 | NR 0x09 = 0x40                                   | Mono [F,T,F] (`zxnext.vhd:5747`)                            |
+| ADS-12 | NR 0x06 = 0x03                                   | psg_mode 3, held in reset (`:5731,6989`)                    |
+| ADS-13 | NR 0x06 = 0x02                                   | psg_mode 2, not held, YM curve (`:6999`)                    |
+| ADS-14 | NR 0x06 = 0x01, then 0x00                        | psg_mode 1, 0; never held                                   |
+| ADS-15 | NR 0x08 = 0x22, then 0x00                        | TurboSound on and ACB, then off and ABC (`:5739-5742`)      |
+| ADS-16 | Mid-ramp, then R13 = 0x08 and 0x0C, no tick      | Step 31 falling, then 0 rising: the pending reload (`ym2149.vhd:393-401`) |
+| ADS-31 | Shape 13, R11=2, 520 and 1000 ticks | 31 holding (`ym2149.vhd:422-443`) |
+| ADS-32 | Shapes 0 and 9, 1000 ticks | 0 holding |
+| ADS-33 | 40 ticks | Shapes 12 and 13 rising, shape 8 falling (motion only; the same with or without the forced first step) |
+| ADS-21 | AY and YM curves; fixed volume 7, 0 (also 0x00 in YM); envelope step 28; a gated channel | Levels 0x22/0x13, 0, 0xD7/0xA1; the gated channel still reports its level while its output is 0 (`:476-537`) |
+| ADS-22 | NR 0x08 bit 3, NR 0x84; ports 0x1F/0x0F/0x4F/0x5F | Channels 0x11, 0x22, 0x33, 0x44; enabled (`zxnext.vhd:2745,2967-2980`) |
+| ADS-23 | Then NR 0x08 bit 3 off                           | Disabled, all channels 0x80 (`soundrive.vhd:72-101`)        |
+| ADS-24 | NR 0x84 = 0xA5, 0xFE; expansion bus on, NR 0x88 = 0x0F | Port families 0xA4 and AY ports on; ports off; 0x0E and on (`zxnext.vhd:2708-2709,2744-2751`) |
+| ADS-25 | Port 0xFE = 0x10 with tape EAR high; 0x08 with it low | EAR + tape; MIC only                                   |
+| ADS-26 | NR 0x06 bit 6 x NR 0x08 bit 4                    | The two flags as written; excluded is their AND (`:5724,5739,7114`) |
+| ADS-27 | NR 0xA2 = 0x81, 0x41, 0x01                       | (left, right, EAR) = (T,F,T), (F,T,T), (F,F,F) (`:2593-2598,2677-2690`) |
+| ADS-28 | Gains and mute masks set on the mixer            | Host fields equal; muted on the muted chip's channels only  |
+| ADS-29 | `--silent` and a default machine                 | Synthesis off / on                                          |
+| ADS-30 | Distinct bytes in all 16 registers of each chip  | `regs` equals the bytes written and `ay_registers(c)`       |
+
 ## Test Implementation Strategy
 
 ### Phase 1: Unit Tests (Internal State)

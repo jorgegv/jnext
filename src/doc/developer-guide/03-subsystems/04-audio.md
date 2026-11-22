@@ -154,6 +154,12 @@ settings rather than machine state, so they are excluded from `reset()` and from
 snapshots, and the cold boot of a hard reset carries both across (the gains in
 the boot config, the mask in `emulator_cold_boot()`).
 
+The mask must not reach a snapshot, and the TurboSound sum is state, so `TurboSound` keeps two
+sums: the hardware one (every active chip; what a snapshot or a rewind slot stores, under the keys
+`pcm_l` and `pcm_r`) and the audible one (`pcm_left()`, `pcm_right()`, `chip_pcm()`), which leaves out the
+chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
+tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.
+
 ## Getting samples to the host
 
 `src/platform/sdl_audio.*` is the only place SDL audio appears. The device is

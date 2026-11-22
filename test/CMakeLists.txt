@@ -1720,6 +1720,17 @@ target_compile_definitions(debugger_backend_test PRIVATE
     JNEXT_SJASMBREAK_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmbreak")
 add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
 
+# GH #529 - the debugger's audio introspection: the note helper (ANO), the
+# invisibility of the debugger's audio features to the Z80 (AIZ) and
+# Debugger::audio_state() (ADS). Drives a real machine, no ROM, no SD image.
+add_executable(audio_debug_test debug/audio_debug_test.cpp)
+target_link_libraries(audio_debug_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(audio_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME audio_debug_tests COMMAND audio_debug_test)
+
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
 # and its wiring into the hot loop and the MMU watchpoint sites. Drives a real
 # machine with the debugger INACTIVE, so it links the emulator like step_out_test.
