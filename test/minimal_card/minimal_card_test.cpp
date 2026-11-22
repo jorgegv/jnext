@@ -333,7 +333,7 @@ Image build_image(FNode root, const LayoutOpts& o = LayoutOpts()) {
 }
 
 // The fixture tree. Boot set + APPS (not in it) + OTHER.TXT (not in it).
-FNode fixture(bool with_sys = true, bool big = false, bool dup_root = false) {
+FNode fixture(bool with_sys = true, bool big = false, bool dup_root = false, bool with_dot = true) {
     FNode root = dirn("<root>", 0, 0, 0);
     root.kids.push_back(file("TBBLUE.FW", pattern(3000, 1), 0x24, 0x5A21, 0x6C41));
     if (dup_root) root.kids.push_back(file("TbBlue.fw", pattern(3000, 99), 0x20, 0x5A21, 0x6C41));   // the same name: the first one wins
@@ -363,6 +363,11 @@ FNode fixture(bool with_sys = true, bool big = false, bool dup_root = false) {
             sys.kids.push_back(f);
         }
         root.kids.push_back(sys);
+    }
+    if (with_dot) {
+        FNode dot = dirn("dot", 0x00, 0x5A32, 0x8E00);           // NextZXOS runs its dot commands from here
+        dot.kids.push_back(file("MORE", pattern(1500, 10), 0x20, 0x5A33, 0x9000));
+        root.kids.push_back(dot);
     }
     root.kids.push_back(file("LICENSE.md", pattern(900, 7), 0x22, 0x5A2D, 0x8400));
     root.kids.push_back(file("README.md", pattern(800, 8), 0x21, 0x5A2E, 0x8600));
@@ -490,7 +495,7 @@ struct Card {
 void expected_paths(const FNode& n, const std::string& prefix, bool top, std::map<std::string, const FNode*>& out) {
     for (const auto& k : n.kids) {
         if (top && !(k.name == "TBBLUE.FW" || k.name == "machines" || k.name == "nextzxos" || k.name == "SYS" ||
-                     k.name == "LICENSE.md" || k.name == "README.md")) continue;
+                     k.name == "dot" || k.name == "LICENSE.md" || k.name == "README.md")) continue;
         const std::string p = prefix + "/" + lower(k.name);
         out[p] = &k;
         if (k.dir) expected_paths(k, p, false, out);
@@ -524,7 +529,7 @@ FNode fixture_games() {
 
 bool is_boot_name(const std::string& n) {
     const std::string l = lower(n);
-    return l == "tbblue.fw" || l == "machines" || l == "nextzxos" || l == "sys" || l == "license.md" || l == "readme.md";
+    return l == "tbblue.fw" || l == "machines" || l == "nextzxos" || l == "sys" || l == "dot" || l == "license.md" || l == "readme.md";
 }
 
 // What a card with the canonical requested `dirs` holds: the boot set, and each requested path with
@@ -1203,6 +1208,35 @@ int main() {
         const Run r = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/SYS"}));
         check("MCARD-34", "canonical_dirs refuses GAMES, /, '', /A//B, /A/../B, /A/./B, a backslash, a control character, /SYS, /machines/next, /TBBLUE.FW, a duplicate and a nested path (also with a sibling sorting between them), each naming the entry; the Builder refuses a bad list with no output file",
               bad.empty() && reasons.size() >= 8 && r.st == minimal_card::Status::Error && r.err.find("/SYS") != std::string::npos && !exists(c2),
+              bad + " " + r.err);
+    }
+
+    // MCARD-40: a missing DOT is named (the twin of MCARD-09): NextZXOS runs its dot commands from it.
+    {
+        const std::string c2 = tmp_path("card-nodot.img");
+        std::remove(c2.c_str());
+        const Run r = build(minimal_card::Input::Zip, make_zip(build_image(fixture(true, false, false, false)).bytes), c2, ex0);
+        check("MCARD-40", "a fixture without DOT: refused naming DOT, no output file",
+              r.st == minimal_card::Status::Error && r.err.find("DOT is not in the distribution's SD image") != std::string::npos &&
+                  !exists(c2),
+              r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-41: /DOT is part of the boot set in a page's list, as /SYS is (MCARD-34).
+    {
+        std::string bad;
+        for (const char* d : {"/DOT", "/dot/extra"}) {
+            std::vector<std::string> out;
+            std::string why;
+            if (minimal_card::canonical_dirs({d}, out, why) || why.find(std::string("'") + d + "'") == std::string::npos ||
+                why.find("is part of the boot set") == std::string::npos) bad += std::string(" ") + d + ":" + why;
+        }
+        const std::string c2 = tmp_path("card-d9.img");
+        std::remove(c2.c_str());
+        const Run r = build(minimal_card::Input::Zip, zip_g, c2, with_dirs({"/DOT"}));
+        check("MCARD-41", "canonical_dirs refuses /DOT and /dot/extra as part of the boot set, each quoted; the Builder given /DOT ends in Error naming /DOT with no output file",
+              bad.empty() && r.st == minimal_card::Status::Error && r.err.find("/DOT") != std::string::npos && !exists(c2),
               bad + " " + r.err);
     }
 
