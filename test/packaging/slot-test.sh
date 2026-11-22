@@ -10,14 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-46. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-47. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=46
+EXPECTED_ROWS=47
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -77,6 +77,8 @@ cat > "$TMP/bin/git" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >> "$TMP/state/git-calls"
 # STUB_PUSH_RACE=1: the push lands, then reports failure (the loser of a concurrent push of the same sha)
+# STUB_GIT_HANG=1: push and ls-remote hang (exec: the sleep is the killed process, no orphan holds the pipes)
+if [[ -n "\${STUB_GIT_HANG:-}" && ( " \$* " == *" push "* || " \$* " == *" ls-remote "* ) ]]; then exec sleep 30; fi
 if [[ -n "\${STUB_PUSH_RACE:-}" && " \$* " == *" push "* ]]; then "$REALGIT" "\$@"; exit 1; fi
 exec "$REALGIT" "\$@"
 EOF
@@ -451,6 +453,15 @@ RACESHA=$(git -C "$WT" rev-parse HEAD)
 out=$(STUB_PUSH_RACE=1 slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
 row SLOT-46 "$([[ $rc -eq 0 && "$out" != *"push failed"* && "$(rr_calls)" == *"gh900-demo $RACESHA unit-test"* && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
     "a push that fails while origin is at HEAD goes on to the driver, once (rc=$rc)"
+
+# SLOT-47: a hanging push and ls-remote are cut at JNEXT_SLOT_GIT_SEC: the command runs here within seconds,
+# says "push failed", and the driver is never called
+fresh
+git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m hung
+t0=$SECONDS
+out=$(STUB_GIT_HANG=1 JNEXT_SLOT_GIT_SEC=2 slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+row SLOT-47 "$([[ $rc -eq 0 && $((SECONDS - t0)) -lt 25 && "$out" == *"push failed; running here"* && -z "$(rr_calls)" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "a hanging push and ls-remote are cut at JNEXT_SLOT_GIT_SEC (rc=$rc, $((SECONDS - t0)) s): runs here, no driver call"
 
 # SLOT-30: a directory that is not a repository is never sent
 fresh
