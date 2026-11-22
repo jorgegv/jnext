@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-45. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-46. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=45
+EXPECTED_ROWS=46
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -822,6 +822,15 @@ unset JNEXT_PICK_HOST_DRIVER
 row RRUN-45 "$([[ "$k1" == hA && $r1 -eq 0 && "$k2" == hB && $r2 -eq 0 && -z "$k3" && $r3 -eq 75 && "$k4" == hA && $r4 -eq 0 \
     && "$k5" == hOnly && $r5 -eq 0 && -z "$k6" && $r6 -eq 2 ]] && echo 1 || echo 0)" \
     "pick-host.sh: first free host ($k1, $k2), none free 75 (rc=$r3), --or-first $k4, one-host list $k5, no host rc=$r6"
+
+# RRUN-46: test-affected is a heavy target (the driver prints no "not a heavy target" notice for it); a target
+# outside the list still gets the notice
+reset_state
+drive --id hv1 feature "$SHA" test-affected; hv_a=$OUT
+reset_state
+drive --id hv2 feature "$SHA" unit-test-build; hv_b=$OUT
+row RRUN-46 "$([[ "$hv_a" != *"is not a heavy target"* && "$hv_b" == *"'unit-test-build' is not a heavy target"* ]] && echo 1 || echo 0)" \
+    "test-affected raises no heavy-target notice, unit-test-build does"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green
