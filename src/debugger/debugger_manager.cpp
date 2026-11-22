@@ -113,9 +113,11 @@ void DebuggerManager::apply_data_needs() {
     const bool want_cs = open && (w->panel_on_show(w->callstack_panel()) ||
                                   w->panel_on_show(w->variables_panel()) || source_step_in_flight_);
     const bool want_raster = open && w->panel_on_show(w->video_panel());
-    // GH #531: the audio write log is recorded only while the Audio panel's Log tab is the one on show.
+    // GH #531: the audio write log is recorded only while the Audio panel's Log tab is the one on show;
+    // GH #537: also while DAC & Beeper is (its Sample stream is computed from the log). One request bit,
+    // so switching between the two does not free the ring.
     const bool want_log = open && w->audio_panel() && w->panel_on_show(w->audio_panel()) &&
-                          w->audio_panel()->log_on_show();
+                          (w->audio_panel()->log_on_show() || w->audio_panel()->dac_on_show());
     if (want_cs != call_stack_requested_) {
         call_stack_requested_ = want_cs;
         dbg_.set_call_stack_enabled(client_, want_cs);

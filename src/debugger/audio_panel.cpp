@@ -1,5 +1,6 @@
 #include "debugger/audio_panel.h"
 #include "debugger/audio_log_view.h"
+#include "debugger/audio_stream_view.h"
 #include "debug/audio_math.h"
 #include "debug/debugger.h"   // also AudioMute::* (via inspect.h)
 
@@ -235,6 +236,10 @@ bool AudioPanel::chips_on_show() const {
 
 bool AudioPanel::log_on_show() const {
     return tabs_ && log_view_ && tabs_->currentWidget() == log_view_;
+}
+
+bool AudioPanel::dac_on_show() const {
+    return tabs_ && dac_scroll_ && tabs_->currentWidget() == dac_scroll_;
 }
 
 QWidget* AudioPanel::create_chips_tab() {
@@ -514,6 +519,8 @@ void AudioPanel::refresh() {
 
     // The Log tab reads its own verb, and only while it is the tab on show.
     if (log_on_show()) log_view_->refresh();
+    // So does the DAC & Beeper tab's Pacing and Sample stream, which read the same log.
+    if (dac_on_show() && stream_view_) stream_view_->refresh();
 }
 
 namespace {
@@ -568,6 +575,12 @@ QWidget* AudioPanel::create_dac_tab() {
         fam_layout->addWidget(dac_family_[n]);
     }
     layout->addWidget(fam_box);
+
+    // --- Pacing and Sample stream (GH #537) ---
+    stream_view_ = new AudioStreamView(dbg_, page);
+    connect(stream_view_, &AudioStreamView::show_in_disassembly_requested,
+            this, &AudioPanel::show_in_disassembly_requested);
+    layout->addWidget(stream_view_);
 
     // --- Beeper ---
     auto* beep_box = new QGroupBox(tr("Beeper"), page);

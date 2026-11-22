@@ -424,6 +424,9 @@ static void build_pacing(Emulator& emu) {
 
 // ── DSS: the DAC sample stream (src/debug/dac_stream.h) ─────────────────
 
+using jnext::dbg::AudioLogEntry;
+using jnext::dbg::AudioMarker;
+using jnext::dbg::AudioTarget;
 using jnext::dbg::DacStreamStats;
 using jnext::dbg::DacWriterStats;
 using jnext::dbg::dac_stream_stats;
