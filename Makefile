@@ -230,7 +230,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test test-affected test-affected-check test-affected-selftest lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check ci-gate-check ccache-stats fuse-pgo unit-test test-affected test-affected-check test-affected-selftest lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -841,6 +841,15 @@ regression-confirm: unit-test-build gui-release sdl-release z88dk-gdb skoolkit g
 # Show the green regression stamp covering this tree (docs excluded); fail if there is none
 regression-stamp-check:
 	@bash test/regression-stamp.sh check
+
+# Print the ccache statistics (CI ends every leg with it; a host without ccache says so)
+ccache-stats:
+	@ccache -s 2>/dev/null || echo "ccache not installed"
+
+# Verdict of a CI gate run: make ci-gate-check RUN=<run-id> SHA=<sha>, the commit to be pushed (CLEAN only if every job succeeded; GH #547)
+ci-gate-check:
+	@test -n "$(RUN)" -a -n "$(SHA)" || { echo "usage: make ci-gate-check RUN=<run-id> SHA=<sha>  (SHA: the commit to be pushed; the run must be on it)"; exit 2; }
+	@bash test/ci-gate.sh verdict --sha $(SHA) $(RUN)
 
 # Find a green CI run on a commit with this tree's content key (read-only gh query; release step)
 regression-ci-check:
