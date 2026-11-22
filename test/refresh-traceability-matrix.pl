@@ -999,7 +999,9 @@ my %NO_MATRIX_SECTION = (
     # `## SD Card` traces against the SD SPI spec.
     'nex_loader_test'         => 'NEX file-format spec (host loader), no core counterpart',
     'nex_v13_test'            => 'NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart',
+    'fatfs_glue_linux_test'   => 'FatFs glue sector cache after a failed write (host tool, Linux-only: /dev/full, RLIMIT_FSIZE); the oracle is the image file read by an independent stream, no core counterpart',
     'tap_loader_test'         => 'TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart',
+    'tap_loader_autoplay_test' => 'TAP automatic play/stop (host deck feature), the design in GH #395 as oracle, no core counterpart',
     'program_archive_test'    => 'ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart',
     'halt_batch_equiv_test'   => 'cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal)',
     'halt_batch_periph_test'  => 'cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',

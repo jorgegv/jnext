@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -5068,14 +5068,15 @@ consumes host bytes the resumed timeline still needs. Nothing about
 a live cable is saved in a snapshot. Rewinding does not rewind the
 program on the other end of the cable, so a debugger session will
 not survive one.</p>
-<p>POSIX only.</p>
+<p>POSIX only. Refused in the browser build, which has no named pipes.</p>
 </dd>
 <dt><strong>--joy-uart-pty</strong></dt>
 <dd>As <strong>--joy-uart-fifo</strong>, but allocate a pseudo-terminal instead and
 log the slave device path at startup. This is the form a serial
 client opens — DeZog’s serial remote wants one serial device, not a
 pair of pipes — and it is put in raw mode so a binary protocol
-passes through untranslated. POSIX only.</dd>
+passes through untranslated. POSIX only. Refused in the browser
+build, which has no terminals.</dd>
 <dt><strong>--nextpi</strong></dt>
 <dd>
 <p>Start <strong>NextPi</strong> — the software that runs on the Raspberry Pi of the

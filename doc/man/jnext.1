@@ -638,6 +638,7 @@ Rewinding does not rewind the program on the other end of the cable, so
 a debugger session will not survive one.
 .PP
 POSIX only.
+Refused in the browser build, which has no named pipes.
 .RE
 .TP
 \f[B]\-\-joy\-uart\-pty\f[R]
@@ -647,6 +648,7 @@ This is the form a serial client opens \(em DeZog\(cqs serial remote
 wants one serial device, not a pair of pipes \(em and it is put in raw
 mode so a binary protocol passes through untranslated.
 POSIX only.
+Refused in the browser build, which has no terminals.
 .TP
 \f[B]\-\-nextpi\f[R]
 Start \f[B]NextPi\f[R] \(em the software that runs on the Raspberry Pi
@@ -4665,6 +4667,7 @@ a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],
 \f[B]\-\-import\-skoolkit\f[R], \f[B]\-\-import\-ghidra\f[R],
 \f[B]\-\-sdcard2\f[R], \f[B]\-\-sdcard2\-readonly\f[R],
 \f[B]\-\-sdcard2\-writes\f[R], \f[B]\-\-sdcard2\-writes\-reset\f[R],
+\f[B]\-\-joy\-uart\-pty\f[R], \f[B]\-\-joy\-uart\-fifo\f[R],
 \f[B]\-\-headless\f[R] (it would block the tab for ever) and
 \f[B]\-\-rzx\-record\f[R] (a page records from JavaScript, see The
 player).

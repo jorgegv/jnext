@@ -89,10 +89,35 @@ bool read_cluster(std::ifstream& f, const ReadGeom& g, uint32_t cl,
     return f.good() && static_cast<uint32_t>(f.gcount()) == g.bytes_per_cluster;
 }
 
-uint32_t fat_next(std::ifstream& f, const ReadGeom& g, uint32_t cl) {
+// One FAT sector, held so that the entries of a chain (consecutive clusters
+// share a FAT sector) cost a memory read instead of an lseek plus a buffer
+// refill each (GH #547 stage 5). Its lifetime is ONE fat32_read_tree call,
+// the same as the stream it caches: an image another call rewrote must never
+// be read through it, so it is never static and never outlives the call.
+struct FatWindow {
+    uint64_t             sector = ~0ull; // absolute sector held, or none
+    std::vector<uint8_t> data;
+};
+
+uint32_t fat_next(std::ifstream& f, const ReadGeom& g, FatWindow& w, uint32_t cl) {
     const uint64_t off =
         static_cast<uint64_t>(g.fat_start_lba) * g.bytes_per_sector +
         static_cast<uint64_t>(cl) * 4;
+    const uint64_t sec = off / g.bytes_per_sector;
+    const uint64_t in  = off % g.bytes_per_sector;
+    if (in + 4 <= g.bytes_per_sector) {
+        if (w.sector != sec) {
+            w.sector = ~0ull;
+            w.data.resize(g.bytes_per_sector);
+            f.seekg(static_cast<std::streamoff>(sec * g.bytes_per_sector), std::ios::beg);
+            f.read(reinterpret_cast<char*>(w.data.data()), g.bytes_per_sector);
+            if (f.good() && static_cast<uint32_t>(f.gcount()) == g.bytes_per_sector)
+                w.sector = sec;
+            else
+                f.clear(); // a truncated image: the 4-byte read below decides, as before
+        }
+        if (w.sector == sec) return rd_u32(w.data.data() + in) & FAT32_MASK;
+    }
     uint8_t e[4];
     f.seekg(static_cast<std::streamoff>(off), std::ios::beg);
     f.read(reinterpret_cast<char*>(e), 4);
@@ -101,7 +126,7 @@ uint32_t fat_next(std::ifstream& f, const ReadGeom& g, uint32_t cl) {
 }
 
 // Read a full cluster chain's raw bytes (bounded against cycles).
-bool read_chain(std::ifstream& f, const ReadGeom& g, uint32_t start,
+bool read_chain(std::ifstream& f, const ReadGeom& g, FatWindow& w, uint32_t start,
                 std::vector<uint8_t>& out) {
     out.clear();
     const uint64_t max_clusters =
@@ -113,7 +138,7 @@ bool read_chain(std::ifstream& f, const ReadGeom& g, uint32_t start,
         if (++steps > max_clusters) return false; // cyclic FAT
         if (!read_cluster(f, g, cl, buf)) return false;
         out.insert(out.end(), buf.begin(), buf.end());
-        cl = fat_next(f, g, cl);
+        cl = fat_next(f, g, w, cl);
         if (cl == 0) return false;
     }
     return true;
@@ -152,11 +177,11 @@ void lfn_slot_chars(const uint8_t* e, std::string& chars) {
 
 // Parse the directory whose cluster chain begins at `start_cluster`,
 // filling `out` with its child nodes. Recurses into subdirectories.
-bool read_directory(std::ifstream& f, const ReadGeom& g, uint32_t start_cluster,
+bool read_directory(std::ifstream& f, const ReadGeom& g, FatWindow& w, uint32_t start_cluster,
                     std::vector<Fat32Node>& out, int depth) {
     if (depth > 64) return false; // runaway nesting guard
     std::vector<uint8_t> dir;
-    if (!read_chain(f, g, start_cluster, dir)) return false;
+    if (!read_chain(f, g, w, start_cluster, dir)) return false;
 
     for (const Fat32Entry& e : fat32_parse_dir(dir)) {
         Fat32Node node;
@@ -168,13 +193,13 @@ bool read_directory(std::ifstream& f, const ReadGeom& g, uint32_t start_cluster,
 
         if (e.is_dir) {
             if (e.cluster >= 2) {
-                if (!read_directory(f, g, e.cluster, node.children, depth + 1))
+                if (!read_directory(f, g, w, e.cluster, node.children, depth + 1))
                     return false;
             }
         } else if (e.size > 0) {
             if (e.cluster < 2) return false;
             std::vector<uint8_t> raw;
-            if (!read_chain(f, g, e.cluster, raw)) return false;
+            if (!read_chain(f, g, w, e.cluster, raw)) return false;
             if (raw.size() < e.size) return false;
             node.data.assign(raw.begin(), raw.begin() + e.size);
         }
@@ -259,7 +284,8 @@ bool fat32_read_tree(const std::string& image_path, uint32_t part_lba,
         Log::emulator()->error("fat32_read_tree: invalid BPB in '{}'", image_path);
         return false;
     }
-    if (!read_directory(f, g, g.root_cluster, out.root, 0)) {
+    FatWindow w; // scoped to this call, see FatWindow
+    if (!read_directory(f, g, w, g.root_cluster, out.root, 0)) {
         Log::emulator()->error("fat32_read_tree: failed to read directory tree");
         return false;
     }

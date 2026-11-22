@@ -53,7 +53,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD File Add (GH #269) |      165 |      165 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (POSIX-only rows) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (case-sensitive host) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| FAT32 Image           |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| FatFs glue cache (Linux) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
+| FAT32 Image           |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      183 |      183 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SHA-256 backends (GH #459) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Minimal NextZXOS card builder (GH #458) |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -116,15 +117,16 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options / docs    |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options (real binary) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options / docs    |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options (real binary) |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | jnext.conf key table (GH #417) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (child process) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      157 |      157 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |      117 |      117 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TAP loader (container) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TAP loader (container) |       67 |       67 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TAP loader (auto play/stop) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZIP program archives  |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -149,7 +151,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Cycle batching equivalence (NEX corpus 6/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 7/8) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 8/8) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TZX loader (container) |      136 |      136 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TZX loader (container) |      141 |      141 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tape SAVE TZX/WAV (GH #89) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Loading .sna/.szx/.z80 selects the saved machine (GH #323) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -176,7 +178,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | C value formatting (frames and values) |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (backend) |      537 |      537 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1602 |     1602 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1604 |     1604 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Startup stop (--debugger, --break-at, GH #548) |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -213,7 +216,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | macOS host shortcuts on Command (GH #403) |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
 | macOS host shortcuts, default args (GH #403) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Main-window Pause (Alt+U, Pause key) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Main-window Pause (Alt+U, Pause key) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Joystick controller picker (Input menu, Preferences) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Window scale + fullscreen geometry |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -228,7 +231,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger persist. BP (GUI) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger HALT batch (GUI) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger data per panel (GUI) |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -243,6 +246,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17336**| **17336**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17419**| **17419**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
