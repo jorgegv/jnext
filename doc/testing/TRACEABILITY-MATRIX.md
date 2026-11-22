@@ -29,7 +29,7 @@ mentions them, so a test can no longer be absent from this document.
 | Tilemap                                    |   123 |  123 |    0 |    0 |       0 |          0 |
 | Copper                                     |   115 |  115 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   300 |  300 |    0 |    0 |       0 |          0 |
-| Audio                                      |   390 |  390 |    0 |    0 |       0 |          0 |
+| Audio                                      |   391 |  391 |    0 |    0 |       0 |          0 |
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   173 |  173 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6416 | 6416 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6417 | 6417 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6416**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5892**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17476**.
+Rows the sections above carry: **6417**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5893**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17477**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -2131,6 +2131,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AIZ-05 | 1000 audio_state() calls between two instructions leave the saved state unchanged and run no NextREG read | — | pass | test/debug/audio_debug_test.cpp:466 |
 | AIZ-06 | turbosound.vhd:118-138 a state saved right after reset_ay_only(), before any PSG tick, carries the same pcm_l/pcm_r as a fresh TurboSound's (and a sounding one does not) | turbosound.vhd:118-138 | pass | test/debug/audio_debug_test.cpp:1368 |
 | AIZ-10 | the dropped-write counters are outside describe_state(): clearing them in one run leaves the saved state and the video unchanged (a CPU dropping thousands of writes a frame; positive control: the counters do move) | — | pass | test/debug/audio_debug_test.cpp:1380 |
+| AIZ-11 | 1000 ctc_state() + 1000 dma_state() calls (20 a frame) over 50 frames of a CTC timer and a DMA burst leave the saved state and the video unchanged (positive control: both engines were seen moving, and a real AY write between the runs makes them differ) | — | pass | test/debug/audio_debug_test.cpp:1656 |
 | ADS-01 | zxnext_top_issue2.vhd:1209,1217 the PSG clock enable is 28 MHz / 16: psg_clock_hz == 1750000 | zxnext_top_issue2.vhd:1209,1217 | pass | test/debug/audio_debug_test.cpp:587 |
 | ADS-02 | ym2149.vhd:467-469 R7 = every value 0x00-0x3F: tone enabled = bit k clear, noise enabled = bit k+3 clear (active low) | ym2149.vhd:467-469 | pass | test/debug/audio_debug_test.cpp:601 |
 | ADS-03 | ym2149.vhd:302-304 tone periods 0xF34, 0x256, 0x378: R1/R3/R5 contribute bits 3:0 only | ym2149.vhd:302-304 | pass | test/debug/audio_debug_test.cpp:609 |
@@ -2204,22 +2205,23 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | ACT-06 | ctc_chan.vhd:146,153 timer P256 TC 0 (256): 28 MHz / 65536 = 427 246.09 mHz, rounded to 427 246 | ctc_chan.vhd:146,153 | pass | test/debug/audio_debug_test.cpp:1424 |
 | ACT-07 | ctc_chan.vhd:150, zxnext.vhd:4598 counter ch1 TC 10 fed by timer ch0 (17 500 Hz): 1 750 000 mHz | zxnext.vhd:4598 | pass | test/debug/audio_debug_test.cpp:1431 |
 | ACT-08 | zxnext.vhd:4598 channel 0 is clocked by channel 3: ch3 P256 TC 50 (2187.5 Hz) / 7 = 312 500 mHz | zxnext.vhd:4598 | pass | test/debug/audio_debug_test.cpp:1437 |
-| ACT-09 | zxnext.vhd:4598 a chain of two counters behind a timer: 17 500 Hz / 10 / 5 = 350 000 mHz (one rounding) | zxnext.vhd:4598 | pass | test/debug/audio_debug_test.cpp:1443 |
+| ACT-09 | zxnext.vhd:4598 a chain of two counters behind a timer: 17 500 Hz / 10 / 5 = 350 000 mHz (every hop exact; ACT-16 pins the single rounding) | zxnext.vhd:4598 | pass | test/debug/audio_debug_test.cpp:1443 |
 | ACT-10 | ctc_chan.vhd:117,223,282 no ZC/TO: a counter behind a never-programmed channel, a ring of four counters, a timer waiting for its trigger, a fresh machine (TC register 0 = 256) | ctc_chan.vhd:117,223,282 | pass | test/debug/audio_debug_test.cpp:1474 |
 | ACT-11 | ctc_chan.vhd:155-168 count is t_count (o_cpu_d): 100 after 1 edge, 99 after 17, 95 after 81, each equal to the port read | ctc_chan.vhd:155-168 | pass | test/debug/audio_debug_test.cpp:1486 |
 | ACT-12 | ctc_chan.vhd:263-276, zxnext.vhd:4592-4593 int_enabled is control bit 7, written alone by NR 0xC5, equal to get_int_enable() | zxnext.vhd:4592-4593 | pass | test/debug/audio_debug_test.cpp:1502 |
 | ACT-13 | ctc_chan.vhd:117,158-159 a soft reset stops the channel (no rate) and reloads the count from the TC register | ctc_chan.vhd:117,158-159 | pass | test/debug/audio_debug_test.cpp:1511 |
 | ACT-14 | ctc_chan.vhd:228-239 a TC rewritten while running (S_RUN_TC) keeps the channel running: TC 50, 28 MHz / 800 = 35 000 000 mHz | ctc_chan.vhd:228-239 | pass | test/debug/audio_debug_test.cpp:1523 |
 | ACT-15 | ctc_chan.vhd:132-170 ZC/TO edges of a P16 TC 100 timer are P x TC = 1600 apart, so rate x 1600 = 28e9 mHz x edges | ctc_chan.vhd:132-170 | pass | test/debug/audio_debug_test.cpp:1533 |
-| ACT-20 | dma.vhd:230-236 a fresh DMA: idle, mode 01, no prescaler (rate 0), counter 0, no I/O port | dma.vhd:230-236 | pass | test/debug/audio_debug_test.cpp:1542 |
-| ACT-21 | dma.vhd:250-251,424 at 3.5 MHz the timer adds 8 per clock: the gate (32 x 55 = 1760) opens after 220 clocks; rate 28 MHz / 1760 = 15 909 091 mHz | dma.vhd:250-251,424 | pass | test/debug/audio_debug_test.cpp:1550 |
-| ACT-22 | dma.vhd:252 at 7 MHz the timer adds 4 per clock: 440 clocks; the rate is the same 15 909 091 mHz | dma.vhd:252 | pass | test/debug/audio_debug_test.cpp:1557 |
-| ACT-23 | dma.vhd:253 at 14 MHz the timer adds 2 per clock: 880 clocks; the rate is the same 15 909 091 mHz | dma.vhd:253 | pass | test/debug/audio_debug_test.cpp:1564 |
-| ACT-24 | dma.vhd:254 at 28 MHz the timer adds 1 per clock: 1760 clocks; the rate is the same 15 909 091 mHz | dma.vhd:254 | pass | test/debug/audio_debug_test.cpp:1571 |
-| ACT-25 | dma.vhd:287,290,346,351,361,381 burst A->B, port A memory 0x8000 increment, port B I/O 0x00DF fixed, after 3 bytes | dma.vhd:287,290,346,351,361,381 | pass | test/debug/audio_debug_test.cpp:1581 |
-| ACT-26 | dma.vhd:287,290,346,351 direction B->A: the source is port B (I/O 0x00DF), the destination port A (0x8003) | dma.vhd:287,290,346,351 | pass | test/debug/audio_debug_test.cpp:1592 |
-| ACT-27 | dma.vhd:361 the block run to its end: no longer active, counter = the block length 100 | dma.vhd:361 | pass | test/debug/audio_debug_test.cpp:1602 |
-| ACT-28 | dma.vhd:424 prescaler 1: 28 MHz / 32 = 875 000 000 mHz; 255: 28e9 / 8160 = 3 431 372.5, rounded half up to 3 431 373 | dma.vhd:424 | pass | test/debug/audio_debug_test.cpp:1612 |
+| ACT-16 | zxnext.vhd:4598, ctc_chan.vhd:153 ch0 timer P16 TC 256 (6 835 937.5 mHz) feeding ch1 counter TC 4: 28e9 / (16 x 256 x 4) = 1 708 984.375, rounded once to 1 708 984 (a per-hop rounding gives 1 708 985) | zxnext.vhd:4598, ctc_chan.vhd:153 | pass | test/debug/audio_debug_test.cpp:1540 |
+| ACT-20 | dma.vhd:230-236 a fresh DMA: idle, mode 01, no prescaler (rate 0), counter 0, no I/O port | dma.vhd:230-236 | pass | test/debug/audio_debug_test.cpp:1549 |
+| ACT-21 | dma.vhd:250-251,424 at 3.5 MHz the timer adds 8 per clock: the gate (32 x 55 = 1760) opens after 220 clocks; rate 28 MHz / 1760 = 15 909 091 mHz | dma.vhd:250-251,424 | pass | test/debug/audio_debug_test.cpp:1557 |
+| ACT-22 | dma.vhd:252 at 7 MHz the timer adds 4 per clock: 440 clocks; the rate is the same 15 909 091 mHz | dma.vhd:252 | pass | test/debug/audio_debug_test.cpp:1564 |
+| ACT-23 | dma.vhd:253 at 14 MHz the timer adds 2 per clock: 880 clocks; the rate is the same 15 909 091 mHz | dma.vhd:253 | pass | test/debug/audio_debug_test.cpp:1571 |
+| ACT-24 | dma.vhd:254 at 28 MHz the timer adds 1 per clock: 1760 clocks; the rate is the same 15 909 091 mHz | dma.vhd:254 | pass | test/debug/audio_debug_test.cpp:1578 |
+| ACT-25 | dma.vhd:287,290,346,351,361,381 burst A->B, port A memory 0x8000 increment, port B I/O 0x00DF fixed, after 3 bytes | dma.vhd:287,290,346,351,361,381 | pass | test/debug/audio_debug_test.cpp:1588 |
+| ACT-26 | dma.vhd:287,290,346,351 direction B->A: the source is port B (I/O 0x00DF), the destination port A (0x8003) | dma.vhd:287,290,346,351 | pass | test/debug/audio_debug_test.cpp:1599 |
+| ACT-27 | dma.vhd:361 the block run to its end: no longer active, counter = the block length 100 | dma.vhd:361 | pass | test/debug/audio_debug_test.cpp:1609 |
+| ACT-28 | dma.vhd:424 prescaler 1: 28 MHz / 32 = 875 000 000 mHz; 255: 28e9 / 8160 = 3 431 372.55, rounded to 3 431 373 | dma.vhd:424 | pass | test/debug/audio_debug_test.cpp:1619 |
 | AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:711 |
 | AY-50b | tone period 1 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:715 |
 | AY-61a | noise period 0 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:811 |
@@ -2230,7 +2232,6 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AY-63b | a single shared noise drives all three channel mixers (A == B == C on every tick, with the stream actually moving) | ym2149.vhd:302,470-472 | pass | test/audio/audio_test.cpp:913 |
 | AY-101a | env period 0 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1360 |
 | AY-101b | env period 1 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1364 |
-| AIZ-11 | 1000 ctc_state() + 1000 dma_state() calls (20 a frame) over 50 frames of a CTC timer and a DMA burst leave the saved state and the video unchanged (positive control: both engines were seen moving, and a real AY write between the runs makes them differ) | — | pass | test/debug/audio_debug_test.cpp:1649 |
 | MX-BL-01 | emit_sample = time-weighted average of the interval | — | pass | test/audio/audio_test.cpp:3834 |
 | MX-BL-02 | a supersonic beeper averages out instead of aliasing | — | pass | test/audio/audio_test.cpp:3865 |
 | MX-BL-03 | emit with nothing accumulated produces no sample | — | pass | test/audio/audio_test.cpp:3878 |
