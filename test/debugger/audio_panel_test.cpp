@@ -882,11 +882,19 @@ static const char* const kDropRows[8] = {
     "Ignored 0xFFFD value", "Register address 16-31", "DAC port family off (NR 0x84)",
     "DAC off (NR 0x08 bit 3)", "DAC mirror, DAC off (NR 0x08 bit 3)"};
 
+// The dropped-write counters are host state, like the mute mask: init() leaves them, and this
+// suite reuses one Emulator, so every DAP-DAC row starts from zero counts.
+static bool build_dac_machine(Emulator& emu) {
+    if (!build_next_emulator(emu)) return false;
+    emu.clear_audio_drops();
+    return true;
+}
+
 static void test_dac_tab(Emulator& emu) {
     set_group("DAP-DAC");
 
     {
-        if (!build_next_emulator(emu)) { check("DAP-38", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-38", "emulator init", false); return; }
         jnext::dbg::Debugger dbg(emu);
         AudioPanel panel(&dbg);
         auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
@@ -904,7 +912,7 @@ static void test_dac_tab(Emulator& emu) {
               real && placeholders);
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-39", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-39", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x08);
         emu.port().out(0x1F, 0x11); emu.port().out(0x0F, 0x22);
         emu.port().out(0x4F, 0x33); emu.port().out(0x5F, 0x44);
@@ -930,7 +938,7 @@ static void test_dac_tab(Emulator& emu) {
               on && off);
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-40", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-40", "emulator init", false); return; }
         jnext::dbg::Debugger dbg(emu);
         AudioPanel panel(&dbg);
         bool ok = true;
@@ -963,7 +971,7 @@ static void test_dac_tab(Emulator& emu) {
               ok && both && pent && texts, bad);
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-41", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-41", "emulator init", false); return; }
         jnext::dbg::Debugger dbg(emu);
         AudioPanel panel(&dbg);
         emu.port().out(0xFE, 0x10);
@@ -990,7 +998,7 @@ static void test_dac_tab(Emulator& emu) {
               ear && mic && tape && combos);
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-42", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-42", "emulator init", false); return; }
         jnext::dbg::Debugger dbg(emu);
         AudioPanel panel(&dbg);
         nr_write(emu, 0xA2, 0x81); panel.refresh();
@@ -1003,7 +1011,7 @@ static void test_dac_tab(Emulator& emu) {
               a && b && c);
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-43", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-43", "emulator init", false); return; }
         emu.mixer().set_output_gain_db(-3.0f); emu.mixer().set_ay_gain_db(0, -1.0f);
         emu.mixer().set_ay_gain_db(1, -2.0f); emu.mixer().set_ay_gain_db(2, -4.0f);
         emu.mixer().set_dac_gain_db(-9.0f); emu.mixer().set_beeper_gain_db(-6.0f);
@@ -1030,7 +1038,7 @@ static void test_dac_tab(Emulator& emu) {
               txt(pq, "host_synthesis") == "Synthesis: off (--silent)", (muted + "|" + muted2).toStdString());
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-44", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-44", "emulator init", false); return; }
         jnext::dbg::Debugger dbg(emu);
         const jnext::dbg::ClientId cid = dbg.attach(jnext::dbg::ClientInfo{"dap44", jnext::dbg::ClientKind::Test}).value;
         AudioPanel panel(&dbg);
@@ -1058,7 +1066,7 @@ static void test_dac_tab(Emulator& emu) {
               fresh_ok && fam && mir && rest);
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-45", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-45", "emulator init", false); return; }
         jnext::dbg::Debugger dbg(emu);
         const jnext::dbg::ClientId cid = dbg.attach(jnext::dbg::ClientInfo{"dap45", jnext::dbg::ClientKind::Test}).value;
         AudioPanel panel(&dbg);
@@ -1084,7 +1092,7 @@ static void test_dac_tab(Emulator& emu) {
               pc && cpu_row && emitted == 1);
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-46", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-46", "emulator init", false); return; }
         jnext::dbg::Debugger dbg(emu);
         AudioPanel panel(&dbg);
         auto* t = panel.findChild<QTreeWidget*>("audio_drops");
@@ -1104,7 +1112,7 @@ static void test_dac_tab(Emulator& emu) {
               filled && zero);
     }
     {
-        if (!build_next_emulator(emu)) { check("DAP-47", "emulator init", false); return; }
+        if (!build_dac_machine(emu)) { check("DAP-47", "emulator init", false); return; }
         jnext::dbg::Debugger dbg(emu);
         AudioPanel panel(&dbg);
         auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
