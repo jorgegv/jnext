@@ -64,6 +64,10 @@ void Debugger::Impl::gates_changed() {
         /*start=*/events.has_dma_sub_kind(DmaEventKind::Start),
         /*per_byte=*/events.has_dma_sub_kind(DmaEventKind::Byte),
         /*end=*/events.has_dma_sub_kind(DmaEventKind::End));
+
+    // GH #532 -- the audio tap serves two consumers; this is where the second one's
+    // demand (a live AudioWrite subscription) joins the log's.
+    publish_audio_tap();
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +115,20 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
     if (sub.kind == EventKind::Port &&
         sub.filter.port_mask == 0xFFFF && sub.filter.port_value == 0x0000)
         return make_refused<EventId>(Result::RefusedUnavailable);
+
+    // GH #532 -- an `AudioWrite` filter that can never match while reporting `live`.
+    if (sub.kind == EventKind::AudioWrite) {
+        const EventFilter& f = sub.filter;
+        if ((f.audio_targets & 0x1F) == 0 ||
+            (f.chip >= 4 && f.chip != 0xFF) ||
+            (f.value_match & ~f.value_mask) ||
+            (f.audio_flags_all & f.audio_flags_none) ||
+            // only an AY register or a NextREG mirror write carries a register
+            (!f.regs.empty() &&
+             !(f.audio_targets & (audio_target_bit(AudioTarget::AyRegister) |
+                                  audio_target_bit(AudioTarget::DacMirror)))))
+            return make_refused<EventId>(Result::RefusedUnavailable);
+    }
 
     // WHY `RefusedUnavailable` FOR ALL OF THESE, and it is a compromise: `result.h` is
     // frozen by B0 and its eleven values have NO argument-validation member.
@@ -461,6 +479,18 @@ Event Debugger::Impl::build_event(const LatchEntry& le) const {
             ev.source        = EventSource::Dma;
             break;
 
+        case EventKind::AudioWrite:
+            ev.audio_target = static_cast<AudioTarget>(le.sub_kind);
+            ev.port         = le.addr;
+            ev.reg          = le.reg;
+            ev.value        = le.value;
+            ev.prev         = le.prev;
+            ev.source       = le.source;
+            ev.chip         = le.misc;
+            ev.audio_flags  = le.misc2;
+            ev.drop_reason  = static_cast<AudioDropReason>(le.misc3);
+            break;
+
         // No payload beyond the common header.
         case EventKind::Execute:
         case EventKind::Frame:
@@ -473,6 +503,28 @@ Event Debugger::Impl::build_event(const LatchEntry& le) const {
     return ev;
 }
 
+// GH #532 -- one decoded audio write becomes an `AudioWrite` latch entry, when a live
+// subscription accepts it. Called by the tap sink in the core's context, mid-instruction.
+void Debugger::Impl::latch_audio_write(const AudioLogEntry& e) {
+    // A debugger write fires no event at all (4.2a).
+    if (e.source == EventSource::Debugger) return;
+    // Cost only: `latch_event` drops an unarmed latch anyway.
+    if (!ds().armed()) return;
+    if (!events.audio_would_match(e)) return;
+    LatchEntry le;
+    le.kind     = EventKind::AudioWrite;
+    le.sub_kind = static_cast<uint8_t>(e.target);
+    le.addr     = e.port;
+    le.reg      = e.reg;
+    le.value    = e.value;
+    le.prev     = e.prev;
+    le.source   = e.source;
+    le.misc     = e.chip;
+    le.misc2    = e.flags;
+    le.misc3    = static_cast<uint8_t>(e.drop_reason);
+    ds().latch_event(le);
+}
+
 // The address a `Hit` and a subscription stop's `pause_reason.addr` report —
 // events.h's `Hit`: "The address (`Mem`, `Execute`) or port (`Port`) that
 // matched". ONE function for both, because they are the same fact: B2 read
@@ -483,6 +535,7 @@ static uint16_t matched_addr(const Event& ev) {
     switch (ev.kind) {
         case EventKind::Port:    return ev.port;
         case EventKind::Execute: return ev.pc;
+        case EventKind::AudioWrite: return ev.port;
         default:                 return ev.addr;
     }
 }
@@ -794,6 +847,13 @@ std::string Debugger::Impl::log_line_for(const Event& ev) const {
         case EventKind::Execute:
             std::snprintf(buf, sizeof(buf), "EVENT execute 0x%04X id %u", ev.pc,
                           unsigned(ev.id));
+            break;
+        case EventKind::AudioWrite:
+            std::snprintf(buf, sizeof(buf),
+                          "EVENT audio_write target %u chip %u reg %u = 0x%02X "
+                          "(prev 0x%02X) port 0x%04X pc 0x%04X id %u",
+                          unsigned(ev.audio_target), unsigned(ev.chip), unsigned(ev.reg),
+                          ev.value, ev.prev, ev.port, ev.pc, unsigned(ev.id));
             break;
         default:
             std::snprintf(buf, sizeof(buf),

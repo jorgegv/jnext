@@ -67,10 +67,9 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     for (int s = 0; s < 8; ++s)
         impl_->ds().on_slot_remapped(s, impl_->emu.mmu().get_effective_page(s));
 
+    // GH #531/#532 -- gates_changed() also installs the audio write tap's sink, off until
+    // a client asks for the log or a live AudioWrite subscription exists.
     impl_->gates_changed();
-
-    // GH #531 -- the audio write tap's sink, off until a client asks for the log.
-    impl_->emu.set_audio_tap(&impl_->audio_sink, false);
 
     // GH #276 B4 — INS-20's coverage sink is NOT published here, and that is not
     // an omission from the pair: coverage starts off, and every `DebugState` a

@@ -48,7 +48,7 @@
 //
 // READS ARE SIDE-EFFECT FREE. Every name reads through the `Debugger`'s const
 // inspection surface (`registers()`, `peek()`, `nextreg_peek()`,
-// `mmu_slots()`, `raster()`, `time()`, `machine()`, `audio_mute_mask()`, `audio_channel_mute_mask()`), which
+// `mmu_slots()`, `raster()`, `time()`, `machine()`, `audio_mute_mask()`, `audio_channel_mute_mask()`, `ay_registers()`), which
 // is non-perturbing by contract — a read here fires no watchpoint and no
 // destructive NextREG read handler.
 // ---------------------------------------------------------------------------

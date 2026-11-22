@@ -19,7 +19,8 @@ namespace {
 // The three kinds the GUI creates. A master-switch flip notifies all three,
 // as BreakpointSet's did (it notified both of its halves).
 constexpr EventKindMask kGuiKinds =
-    kind_bit(EventKind::Execute) | kind_bit(EventKind::Mem) | kind_bit(EventKind::Port);
+    kind_bit(EventKind::Execute) | kind_bit(EventKind::Mem) | kind_bit(EventKind::Port) |
+    kind_bit(EventKind::AudioWrite);
 
 using jnext::script::BpSpec;
 using jnext::script::bp_kind_name;
@@ -30,7 +31,8 @@ static_assert(same_kind(BreakpointModel::Execute, BpSpec::Execute) && same_kind(
               same_kind(BreakpointModel::Write, BpSpec::Write) &&
               same_kind(BreakpointModel::ReadWrite, BpSpec::ReadWrite) &&
               same_kind(BreakpointModel::IoRead, BpSpec::IoRead) && same_kind(BreakpointModel::IoWrite, BpSpec::IoWrite) &&
-              same_kind(BreakpointModel::Interrupt, BpSpec::Interrupt) && same_kind(BreakpointModel::Nmi, BpSpec::Nmi),
+              same_kind(BreakpointModel::Interrupt, BpSpec::Interrupt) && same_kind(BreakpointModel::Nmi, BpSpec::Nmi) &&
+              same_kind(BreakpointModel::AudioWrite, BpSpec::AudioWrite),
               "BreakpointModel::Type and the codec's BpSpec::Kind are one numbering");
 
 // The subscription one PLAIN GUI breakpoint is: a single address, no condition,
@@ -68,8 +70,64 @@ Subscription sub_for(int type, uint16_t addr, jnext::dbg::MemSpace space) {
         case BreakpointModel::Nmi:
             s.kind = EventKind::Nmi;
             break;
+        case BreakpointModel::AudioWrite:
+            s.kind = EventKind::AudioWrite;   // the filter comes from the spec's BpAudio (audio_filter)
+            break;
     }
     return s;
+}
+
+using jnext::dbg::AudioTarget;
+using jnext::dbg::audio_target_bit;
+using jnext::script::BpAudio;
+
+// The filter each audio dialog field maps to (GH #532, QBA-02..06). "Applied writes only" is the default: a
+// dropped write never reached the device.
+void audio_filter(const BpAudio& a, jnext::dbg::EventFilter& f) {
+    switch (a.target) {
+        case BpAudio::AyRegister:   f.audio_targets = audio_target_bit(AudioTarget::AyRegister); break;
+        case BpAudio::AyChipSelect: f.audio_targets = audio_target_bit(AudioTarget::AyChipSelect); break;
+        case BpAudio::Dac:
+            f.audio_targets = audio_target_bit(AudioTarget::Dac) | audio_target_bit(AudioTarget::DacMirror);
+            break;
+        case BpAudio::Any:          f.audio_targets = jnext::dbg::AUDIO_TARGETS_ANY; break;
+    }
+    f.chip = a.target == BpAudio::Any ? 0xFF : a.chip;
+    if (a.target == BpAudio::AyRegister && a.reg) f.regs.push_back(*a.reg);
+    if (a.value) {
+        f.value_mask  = a.mask;
+        f.value_match = static_cast<uint8_t>(*a.value & a.mask);
+    }
+    if (a.dropped_only) f.audio_flags_all  = jnext::dbg::AudioFlag::Dropped;
+    else                f.audio_flags_none = jnext::dbg::AudioFlag::Dropped;
+}
+
+// The inverse: the dialog's fields when `f` is a filter the dialog can make, else false (a script's
+// `reg 8..10`, an envelope-restart flag, a source filter...).
+bool audio_of(const jnext::dbg::EventFilter& f, BpAudio& a) {
+    if ((f.audio_targets & 0x1F) == 0x1F && f.audio_targets == jnext::dbg::AUDIO_TARGETS_ANY) a.target = BpAudio::Any;
+    else if (f.audio_targets == audio_target_bit(AudioTarget::AyRegister)) a.target = BpAudio::AyRegister;
+    else if (f.audio_targets == audio_target_bit(AudioTarget::AyChipSelect)) a.target = BpAudio::AyChipSelect;
+    else if (f.audio_targets == (audio_target_bit(AudioTarget::Dac) | audio_target_bit(AudioTarget::DacMirror)))
+        a.target = BpAudio::Dac;
+    else return false;
+    if (f.regs.size() > 1 || (!f.regs.empty() && a.target != BpAudio::AyRegister)) return false;
+    if (a.target == BpAudio::Any && f.chip != 0xFF) return false;
+    if (f.chip != 0xFF && f.chip > (a.target == BpAudio::Dac ? 3 : 2)) return false;
+    if (f.value_match & ~f.value_mask) return false;
+    if (f.audio_flags_all == jnext::dbg::AudioFlag::Dropped && f.audio_flags_none == 0) a.dropped_only = true;
+    else if (f.audio_flags_all == 0 && f.audio_flags_none == jnext::dbg::AudioFlag::Dropped) a.dropped_only = false;
+    else return false;
+    a.chip = f.chip;
+    a.reg.reset();
+    if (!f.regs.empty()) a.reg = f.regs.front();
+    a.value.reset();
+    a.mask = 0xFF;
+    if (f.value_mask != 0) {
+        a.value = f.value_match;
+        a.mask  = f.value_mask;
+    }
+    return true;
 }
 
 // The inverse: which of the types this listed subscription IS, or -1 when it is
@@ -106,6 +164,10 @@ int type_of(const SubscriptionInfo& si, bool counted, bool conditional) {
             return -1;
         case EventKind::IntAck: return BreakpointModel::Interrupt;
         case EventKind::Nmi:    return BreakpointModel::Nmi;
+        case EventKind::AudioWrite: {
+            BpAudio a;
+            return audio_of(f, a) ? BreakpointModel::AudioWrite : -1;
+        }
         default:
             return -1;
     }
@@ -140,6 +202,7 @@ QString kind_text(const SubscriptionInfo& si) {
         case EventKind::Host:         return QStringLiteral("Host");
         case EventKind::Copper:       return QStringLiteral("Copper");
         case EventKind::Dma:          return QStringLiteral("DMA");
+        case EventKind::AudioWrite:   return QStringLiteral("Audio Write");
         default:                      return QStringLiteral("?");
     }
 }
@@ -181,7 +244,8 @@ void BreakpointModel::publish_() {
         r.own     = si.owner == client_ && r.type >= 0;
         r.count_only = r.own && counted;
         const bool port = si.kind == EventKind::Port;
-        const bool addressless = r.type == Interrupt || r.type == Nmi;
+        const bool addressless = r.type == Interrupt || r.type == Nmi || r.type == AudioWrite;
+        if (r.type == AudioWrite) audio_of(si.filter, r.audio);
         r.addr = addressless ? 0 : port ? si.filter.port_value : si.filter.lo;
         r.hi   = port || addressless ? r.addr : si.filter.hi;
         r.mask = port ? si.filter.port_mask : bp_port_mask_for(r.addr);
@@ -192,7 +256,7 @@ void BreakpointModel::publish_() {
         if (si.kind == EventKind::Execute) r.space = si.filter.space;
         if (r.own)
             members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live, si.group, r.count_only,
-                                     r.hi, r.mask, r.own && conditional ? ex->second.condition : std::string()});
+                                     r.hi, r.mask, r.own && conditional ? ex->second.condition : std::string(), r.audio});
         // E23-09 -- the members of one source breakpoint are ONE row: the
         // lowest address's, enabled only while every location is, live while
         // any is.
@@ -219,7 +283,8 @@ void BreakpointModel::publish_() {
             if (r.count_only) r.type_text += QStringLiteral(" (count only)");
             // The same texts another client's range or masked port had before the dialog could make
             // one: `$8000-$80FF`, `$00FE/FFFF`.
-            if (addressless) {}
+            if (r.type == AudioWrite) r.addr_text = QString::fromStdString(jnext::script::bp_audio_text(r.audio));
+            else if (addressless) {}
             else if (port && r.mask != bp_port_mask_for(r.addr))
                 r.addr_text = QString::asprintf("$%04X/%04X", r.addr, r.mask);
             else if (r.hi != r.addr)
@@ -361,7 +426,8 @@ const BreakpointModel::Member* BreakpointModel::find_own_(int type, uint16_t add
 const BreakpointModel::Member* BreakpointModel::find_spec_(const BpSpec& s) const {
     for (const Member& m : members_)
         if (m.type == s.kind && m.addr == s.addr && m.hi == jnext::script::bp_effective_hi(s) && m.space == s.space &&
-            m.mask == jnext::script::bp_effective_mask(s) && m.condition == s.condition && m.count_only == s.count_only)
+            m.mask == jnext::script::bp_effective_mask(s) && m.condition == s.condition && m.count_only == s.count_only &&
+            (s.kind != BpSpec::AudioWrite || m.audio == s.audio))
             return &m;
     return nullptr;
 }
@@ -388,6 +454,7 @@ bool BreakpointModel::build_(const BpSpec& spec, Subscription& out, std::shared_
         s.filter.space = jnext::dbg::MemSpace::cpu();
     }
     if (io) s.filter.port_mask = jnext::script::bp_effective_mask(spec);
+    if (spec.kind == BpSpec::AudioWrite) audio_filter(spec.audio, s.filter);
     // A condition: compiled in the kind's payload scope, with the run-time failure kept for the panel.
     if (!spec.condition.empty()) {
         error = std::make_shared<std::string>();
@@ -432,7 +499,7 @@ void BreakpointModel::add(int type, uint16_t addr, jnext::dbg::MemSpace space) {
 }
 
 void BreakpointModel::add(const BpSpec& in, std::string* error) {
-    if (in.kind > BpSpec::Nmi) return;
+    if (in.kind > BpSpec::AudioWrite) return;
     BpSpec s = normalised_(in);
     if (find_spec_(s)) return;
     Subscription sub;
@@ -452,7 +519,17 @@ void BreakpointModel::add(const BpSpec& in, std::string* error) {
 // is the default is the default, and a condition is its trimmed text.
 BpSpec BreakpointModel::normalised_(BpSpec s) {
     if (s.kind != BpSpec::Execute) s.space = jnext::dbg::MemSpace::cpu();
-    if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi) { s.addr = 0; s.hi.reset(); s.mask.reset(); }
+    if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi || s.kind == BpSpec::AudioWrite) {
+        s.addr = 0;
+        s.hi.reset();
+        s.mask.reset();
+    }
+    if (s.kind == BpSpec::AudioWrite) {
+        BpAudio& a = s.audio;
+        if (a.target == BpAudio::Any) a.chip = 0xFF;
+        if (a.target != BpAudio::AyRegister) a.reg.reset();
+        if (!a.value || a.mask == 0) { a.value.reset(); a.mask = 0xFF; }
+    }
     if (s.hi && *s.hi == s.addr) s.hi.reset();
     if (s.hi) s.space = jnext::dbg::MemSpace::cpu();
     if (s.mask && *s.mask == bp_port_mask_for(s.addr)) s.mask.reset();
@@ -541,6 +618,7 @@ std::vector<jnext::script::BpSpec> BreakpointModel::script_specs() const {
         if (r.hi != r.addr) s.hi = r.hi;
         if (r.mask != bp_port_mask_for(r.addr)) s.mask = r.mask;
         s.condition = r.condition.toStdString();
+        if (r.type == AudioWrite) s.audio = r.audio;
         if (r.group != jnext::dbg::GROUP_NONE) {
             const auto line = group_lines_.find(r.group);
             if (line != group_lines_.end()) s.file_line = line->second;
