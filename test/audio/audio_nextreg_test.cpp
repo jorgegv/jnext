@@ -1295,6 +1295,27 @@ static void test_tape_mix() {
               early == 512 && late == 0, fmt("+30000=%d +34500=%d (want 512 / 0)", early, late));
     }
 
+    // MX-82 - a replay (rewind fast-forward, RZX) holds the Pi's EAR term off, so
+    // beep_mic_final loses it when replay mode starts and gets it back when it ends.
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x00);
+        e->i2s().set_sample(0x3FF, 0x3FF);
+        nr_write(*e, 0xA2, 0xC1);
+        const int live = mix_val(*e);
+        e->set_replay_mode(true);
+        const int replay = mix_val(*e);
+        e->set_replay_mode(false);
+        const int back = mix_val(*e);
+        check("MX-82", "replay mode holds the Pi's EAR term off and the MIC term follows it in and "
+              "out [zxnext.vhd:6503; Emulator::audio_ear_in]",
+              live == 512 && replay == 0 && back == 512,
+              fmt("live=%d replay=%d after=%d (want 512 / 0 / 512)", live, replay, back));
+    }
+
     // MX-71 - a state load re-derives the MIC term (no tape: port_fe_mic).
     {
         auto a = next_machine_550();
