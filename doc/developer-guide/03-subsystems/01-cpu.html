@@ -3109,11 +3109,21 @@ abstract interfaces declared in that header — <code>MemoryInterface</code> and
 from FUSE 1.6.0 (GPLv2-or-later, compatible with JNEXT's GPLv3).
 <code>fuse_z80_core.c</code> is a single translation unit that <code>#include</code>s the opcode
 files, while <code>fuse_z80_shim.h</code> stubs out every FUSE emulator dependency those
-files would otherwise pull in. The core is inherently single-instance — it keeps
-one global <code>z80</code> struct and one global <code>tstates</code> counter — which happens to suit
-JNEXT's one-CPU design. <code>Z80Cpu</code> re-points the file-static <code>s_mem</code> / <code>s_io</code>
-pointers on every <code>reset()</code> and <code>execute()</code>, and copies the register file in and
-out around each instruction.</p>
+files would otherwise pull in. The core keeps its state in process globals: one
+<code>z80</code> struct, one <code>tstates</code> counter, and, in <code>z80_cpu.cpp</code>, the memory and I/O
+pointers, the contention runtime (<code>ContentionModel</code> and <code>Mmu</code>), the raster
+geometry and the ULA counter origins. The opcode macros name them directly, so
+they stay globals, and they are a <strong>cache of the bound <code>Z80Cpu</code></strong>: each <code>Z80Cpu</code>
+owns a saved copy (<code>Z80CoreRuntime</code>), and every entry point that touches the
+globals (<code>reset()</code>, <code>execute()</code>, the setters, <code>tstates_ref()</code>, the batch and
+state accessors) first calls <code>bind_()</code>. That is one pointer compare while a single machine
+runs; when another machine's CPU runs, it saves the bound one's state and loads its
+own. A <code>Z80Cpu</code> that is destroyed while bound unbinds and clears the pointers, so a
+short-lived second machine (the warm-start recorder) leaves nothing dangling. The
+free <code>z80_set_*</code> functions and <code>fuse_z80_tstates_ptr()</code> act on whichever CPU is
+bound: only code that drives a single machine uses them. <code>Z80Cpu</code> copies the register file in and
+out around each instruction. State that is valid only inside one <code>execute()</code>
+(the M1 fetch buffer, the I/O stretch record) is not swapped.</p>
 <p><strong>HALT.</strong> FUSE executes <code>HALT</code> as <code>halted = 1; PC--</code>, so the CPU stays on the opcode and
 every later <code>execute()</code> re-fetches it (the VHDL does the same, <code>t80n.vhd:496-503</code>): <code>PC++; R++;
 Q = 0; halted = 1; PC--</code> and the T-states of one M1. <code>Z80Cpu::repeat_halt(count, each)</code>
