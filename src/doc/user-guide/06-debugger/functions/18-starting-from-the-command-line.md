@@ -100,7 +100,7 @@ the program is loaded, before it has run, with the reason and exit code 1.
 
 Once the machine has run again, `--debugger` has nothing more to do: later
 breakpoints, steps and pauses are the debugger's as usual. Another debugger
-pausing the machine first cancels the stop, and so does a reset.
+pausing the machine first cancels the stop, and so does a hard reset (a soft reset leaves a pending `--break-at` armed).
 
 The browser build has no debugger servers or script host, so `--debugger` and
 `--break-at` are refused there.

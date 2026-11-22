@@ -509,6 +509,83 @@ int main() {
               "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()) + " " + log);
     }
 
+    // The SLD fixture of DBGST-15/16 for the entry PC: a label and a source line at 0x8000, both
+    // assembled for `page` (0x8000 is in slot 4).
+    auto entry_sld = [&](unsigned page) {
+        std::ostringstream o;
+        o << "|SLD.data.version|1\n"
+          << "x.asm|3||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+             "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+          << "x.asm|5||0|" << page << "|32768|L|,entryname,,\n"
+          << "x.asm|20||0|" << page << "|32768|T|\n";
+        write_text(path("paged.sld"), o.str());
+    };
+    unsigned entry_page = 0;
+    {
+        Rig probe;
+        probe.start(1);
+        probe.land(path("paged.nex"));
+        entry_page = probe.dbg->mmu_slots()[4].space.index;
+    }
+
+    // DBGST-22: the at-PC stop is memory-qualified too: a symbol AT the entry address, assembled
+    // for another page than the one mapped there, is not the stop (the program runs on).
+    {
+        entry_sld(entry_page + 1);
+        Rig other("entryname");
+        other.start(1);
+        const bool ok = other.land(path("paged.nex"));
+        other.run();
+        entry_sld(entry_page);
+        Rig same("entryname");
+        same.start(1);
+        const bool ok2 = same.land(path("paged.nex"));
+        check("DBGST-22", "a symbol at the entry PC assembled for the next page is not an at-PC stop (not paused after the "
+                          "load); assembled for the mapped page it stops at the entry at once",
+              ok && !other.paused() && ok2 && same.paused() && same.pc() == ENTRY,
+              "other_paused=" + std::to_string(other.paused()) + " same_paused=" + std::to_string(same.paused()) +
+                  " " + other.why);
+    }
+
+    // DBGST-23: a source line that starts at the entry PC stops there at once, as an address does.
+    {
+        entry_sld(entry_page);
+        Rig r("x.asm:20");
+        r.start(1);
+        const bool ok = r.land(path("paged.nex"));
+        check("DBGST-23", "--break-at file:line whose line starts at the entry PC stops at the entry right after the load",
+              ok && r.paused() && r.pc() == ENTRY && r.dbg->state().pause_reason.by == r.ss.client(),
+              "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()) + " " + r.why);
+    }
+
+    // DBGST-24: the detach rule's second half: another client STEPS the paused machine (it stays
+    // paused, its cycle moved); the startup client is then gone, so when that client detaches
+    // nothing holds the pause and the machine is released (a crashed DeZog cannot leave it hung).
+    {
+        Rig r;
+        r.start(0);
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->step_into(other);
+        const bool stepped = r.paused();
+        r.ss.poll();
+        const bool gone = !r.ss.active();
+        r.dbg->detach(other);
+        check("DBGST-24", "after another client steps the paused machine the startup client detaches on the next poll, so "
+                          "that client's own detach leaves the machine running",
+              stepped && gone && !r.paused(),
+              "stepped=" + std::to_string(stepped) + " gone=" + std::to_string(gone) + " paused=" + std::to_string(r.paused()));
+    }
+
+    // DBGST-25: a failed load stops where the machine is even with --break-at (no run-to is armed).
+    {
+        Rig r("8003");
+        r.start(1);
+        bool ok = false;
+        const std::string log = logged([&] { ok = r.land(path("broken.nex")); });
+        check("DBGST-25", "a failed load with --break-at 8003: paused where the machine is, the log says the load failed",
+              ok && r.paused() && log.find("(the load failed)") != std::string::npos, log);
+    }
+
     std::filesystem::remove_all(g_dir);
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

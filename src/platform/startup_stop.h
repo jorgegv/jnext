@@ -86,9 +86,6 @@ private:
     Phase                 phase_ = Phase::Off;
     std::string           break_at_;
     int                   landings_left_ = 0;
-    std::string           last_file_;
-    bool                  last_injected_ = false;
     bool                  last_ok_ = true;
     uint64_t              stop_cycle_ = 0;
-    std::string           stop_why_;
 };

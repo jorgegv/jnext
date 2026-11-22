@@ -132,8 +132,6 @@ bool StartupStop::arm(const std::string& default_why, std::string& why) {
 bool StartupStop::program_landed(const std::string& file, bool ok, bool injected,
                                  std::string& why) {
     if (phase_ != Phase::Waiting || landings_left_ <= 0) return true;
-    last_file_     = file;
-    last_injected_ = injected;
     last_ok_       = ok;
     if (--landings_left_ > 0) return true;
 
@@ -169,7 +167,6 @@ bool StartupStop::program_landed(const std::string& file, bool ok, bool injected
 }
 
 void StartupStop::log_stop(const char* what) {
-    stop_why_ = what;
     Log::platform()->info("debugger: stopped at {} ({})", hex4(dbg_->state().pc), what);
 }
 

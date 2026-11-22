@@ -739,8 +739,9 @@ bool QtApp::TickEffects::pre_frames() {
         if (std::string why; !a.startup_stop_.program_landed(a.inject_file_, injected, true, why)) {
             Log::platform()->error("{}", why);
             a.exit_code_ = 1;
-            a.main_window_->set_unattended(true);
+            if (a.main_window_) a.main_window_->set_unattended(true);
             a.qapp_->quit();
+            return false;   // abandon the tick: not one frame of the program runs
         }
     } else if (a.inject_countdown_ > 0) {
         --a.inject_countdown_;
@@ -792,6 +793,7 @@ bool QtApp::TickEffects::pre_frames() {
             a.exit_code_ = 1;
             if (a.main_window_) a.main_window_->set_unattended(true);
             a.qapp_->quit();
+            return false;   // abandon the tick: not one frame of the program runs
         }
         a.config_.source_map_file.clear();
         // GH #346 - the scripts held back for the program's maps (the GUI keeps
