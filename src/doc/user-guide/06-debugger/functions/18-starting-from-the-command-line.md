@@ -30,7 +30,11 @@ is in the loader's code right after its last block. Fast load and real time,
 TAP, TZX and WAV all stop at the same place, and on the 128K and +3 the ROM's own
 paging routines in RAM are never the stop, because the tape did not load them. A
 tape that cannot carry code (a BASIC program, a SCREEN$) stops at the first
-instruction after its last block. Two limits: a BASIC program that runs code from a
+instruction after its last block. A **WAV** has no blocks to tell the two apart, so it
+always takes the code rule: a BASIC-only WAV is never stopped, and a recording with
+noise in its trailing silence can stop late (the end of the tape is taken as its last
+signal edge). A trailing pure-data or direct-recording block of a TZX counts as data
+in real time only. Two limits: a BASIC program that runs code from a
 `REM` stops at the end of its last block, not in the `REM`; and a tape that loads
 code which never runs is never stopped (give it `--break-at`, which is armed before the
 first block).
@@ -112,7 +116,10 @@ the program is loaded, before it has run, with the reason and exit code 1.
 
 Once the machine has run again, `--debugger` has nothing more to do: later
 breakpoints, steps and pauses are the debugger's as usual. Another debugger
-pausing the machine first cancels the stop, and so does a hard reset (a soft reset leaves a pending `--break-at` armed).
+pausing the machine first does not cancel the stop: a DeZog that attaches while the tape is
+still loading pauses the machine, and when it continues the stop is still ahead (it is put back
+when the machine runs again, at the next tick). Only a hard reset cancels it (a soft reset leaves a
+pending `--break-at` armed), or reaching it.
 
 The browser build has no debugger servers or script host, so `--debugger` and
 `--break-at` are refused there.

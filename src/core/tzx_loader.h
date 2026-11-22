@@ -223,6 +223,7 @@ private:
     void scan_tape();
     bool holds_code_ = false;
     int  last_data_end_ = 0;      ///< file offset just past the last 0x10 / 0x11 block
+    int  scan_exotic_end_ = 0;    ///< file offset just past the last 0x14 / 0x15 block seen
     bool scan_exotic_ = false;    ///< set by next_data_block() on a non-standard data block
 
     std::vector<uint8_t> file_data_;    // owned copy of the file

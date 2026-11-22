@@ -211,8 +211,11 @@ The stop is the client's own pause or transient subscription, so SES-01 keeps it
 from every other client: DeZog attaching or detaching does not resume it. The
 client detaches once the machine has run again after the stop (the next `poll()`
 sees it unpaused or its cycle changed), so its own detach resumes nothing, and it
-also detaches when its stop is cancelled: another client paused first, or a cold
-boot. A headless loop paused under `--debugger` waits on the servers with or
+also detaches when its stop is cancelled by a cold boot. Another client's stop does NOT cancel it:
+DeZog's `CMD_INIT` pauses a machine still loading its tape, and that stop removes every transient
+subscription, ours included. The client notes it (`lost_`) and, when the machine runs again, puts the
+run-to back (`--break-at`) or re-subscribes the tape's capture and every range it already watched
+(`StartupStop::rearm()`, at the next `poll()`), so only a cold boot or reaching the stop ends it. A headless loop paused under `--debugger` waits on the servers with or
 without a peer (`DebugServers::headless_should_wait()`'s third parameter), so the
 wait for DeZog is a poll and not a spin.
 

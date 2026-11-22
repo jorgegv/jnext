@@ -304,7 +304,13 @@ after delivery. Otherwise the stop is the first instruction fetched from memory 
 a transient `Execute` subscription at LD-BREAK (0x056B), where every LD-BYTES entry converges in
 both modes (condition: LOAD, Z set, the 48K ROM present), whose handler adds one transient `Execute`
 subscription per 8 K slot that `[IX, IX+DE)` covers, tied to the memory that supplies the slot then and
-conditioned on delivery. The ROM's own RAM routines on a 128K or +3 (paging stubs at 0x5B00) are never
+conditioned on delivery. Each loaded range is watched once: the capture fires on every pass of the
+ROM's edge-wait loop (about every 4 ms, with IX and DE unchanged), and a watch per pass made a
+real-time load several times slower. The ranges are kept so they are watched again after another
+client's stop removes them. A WAV always takes this rule (it has no blocks to classify), and its end is the
+last signal edge, so noise in a recording's trailing silence delays the stop. A trailing 0x14 or 0x15
+TZX block counts as data in real time (`last_data_end_` includes it) but never in fast mode, which
+does not serve it. The ROM's own RAM routines on a 128K or +3 (paging stubs at 0x5B00) are never
 tape-loaded, so they never match. The limits are documented in the user guide: a BASIC program that
 runs code from a REM stops at its last block, and a tape that loads code that never runs is not stopped.
 

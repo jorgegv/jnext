@@ -1140,7 +1140,12 @@ naming the option and the value, and exits with status 1.
     mode alike); a tape that cannot carry code (BASIC and a SCREEN$ only) stops at
     the first instruction after its last block. A BASIC program that runs code from
     a REM stops at the end of its last block, not in the REM, and a tape that loads
-    code which never runs is never stopped (use **\--break-at**). The stop is logged
+    code which never runs is never stopped (use **\--break-at**). A **WAV** has no block
+    structure to tell a code tape from a BASIC one, so it always takes the code rule: a
+    BASIC-only WAV is never stopped, and a recording with noise in its trailing silence
+    can stop late (the end of the tape is taken as the last signal edge). A trailing
+    pure-data or direct-recording TZX block counts as data in real time only (fast load
+    never plays it). The stop is logged
     (`debugger: stopped at $8000 (the NEX entry)`).
 
     In the Qt GUI the debugger window opens, paused. In **\--headless** and the
@@ -1168,7 +1173,9 @@ naming the option and the value, and exits with status 1.
     catches code a tape runs while it loads. It fires once and never appears in
     the Breakpoints panel. A value that is not an address, a symbol or a
     source line is refused when the program is loaded, before it has run an
-    instruction, with exit code 1. Not available in the browser.
+    instruction, with exit code 1. Another client's pause before the stop does not cancel
+    it: DeZog attaching (which pauses the machine) while a tape loads, then continuing,
+    still ends at the stop. Not available in the browser.
 
 **\--dzrp-port** *PORT*
 :   Serve the DeZog Remote Protocol (DZRP) on TCP *PORT*, so DeZog - or any

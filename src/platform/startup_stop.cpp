@@ -176,12 +176,24 @@ bool StartupStop::program_landed(const std::string& file, bool ok, bool injected
 //  never tape-loaded, so it never matches. Every subscription is a transient one of this
 //  client: no listing shows it, and any other client's pause removes it.
 void StartupStop::arm_tape() {
+    tape_rule1_ = !emu_->tape_holds_code();
+    watches_.clear();
+    armed_what_ = tape_rule1_ ? "the end of the tape's last block"
+                              : "the first instruction from the tape's memory after its last block";
+    subscribe_tape();
+    phase_ = Phase::Armed;
+}
+
+// The tape's subscriptions, created from `watches_` so a re-arm after a foreign stop (which
+// removes every transient) loses nothing the tape already loaded. Each loaded range is watched ONCE
+// (the capture fires on every pass of the ROM's edge-wait loop, with IX and DE unchanged).
+void StartupStop::subscribe_tape() {
     Emulator* const emu = emu_;
     const jnext::dbg::ClientId cid = cid_;
     const auto delivered = [emu](const jnext::dbg::Event&, const jnext::dbg::Debugger&) {
         return emu->tape_delivered();
     };
-    if (!emu_->tape_holds_code()) {
+    if (tape_rule1_) {
         jnext::dbg::Subscription all;
         all.kind      = jnext::dbg::EventKind::Execute;
         all.filter.lo = 0x0000;
@@ -190,10 +202,19 @@ void StartupStop::arm_tape() {
         all.action    = jnext::dbg::Action::Stop;
         all.condition = delivered;
         (void)dbg_->subscribe(cid, all);
-        armed_what_ = "the end of the tape's last block";
-        phase_ = Phase::Armed;
         return;
     }
+    const auto watch = [this, cid, delivered](jnext::dbg::Debugger& d, const Watch& w) {
+        jnext::dbg::Subscription s;
+        s.kind         = jnext::dbg::EventKind::Execute;
+        s.filter.lo    = w.lo;
+        s.filter.hi    = w.hi;
+        s.filter.space = w.space;
+        s.transient    = true;
+        s.action       = jnext::dbg::Action::Stop;
+        s.condition    = delivered;
+        (void)d.subscribe(cid, s);
+    };
     jnext::dbg::Subscription cap;
     cap.kind      = jnext::dbg::EventKind::Execute;
     cap.filter.lo = tape_trap::LD_BREAK_ADDR;
@@ -205,7 +226,7 @@ void StartupStop::arm_tape() {
         return (r.AF2 & 0x01) != 0 && (r.AF & 0x40) != 0 &&   // LOAD (carry of F'), Z set
                tape_trap::ld_bytes_rom_present(emu->mmu());
     };
-    cap.handler = [cid, delivered](const jnext::dbg::Event&, jnext::dbg::Debugger& d) {
+    cap.handler = [this, watch](const jnext::dbg::Event&, jnext::dbg::Debugger& d) {
         const Z80Registers r = d.registers();
         if (r.DE == 0) return jnext::dbg::Action::Continue;
         const uint32_t first = r.IX;
@@ -213,21 +234,33 @@ void StartupStop::arm_tape() {
         const auto slots = d.mmu_slots();
         for (uint32_t slot = first >> 13; slot <= (last >> 13); ++slot) {
             if (slots[slot].is_rom) continue;
-            jnext::dbg::Subscription w;
-            w.kind         = jnext::dbg::EventKind::Execute;
-            w.filter.lo    = static_cast<uint16_t>(std::max<uint32_t>(first, slot << 13));
-            w.filter.hi    = static_cast<uint16_t>(std::min<uint32_t>(last, (slot << 13) | 0x1FFFu));
-            w.filter.space = slots[slot].space;
-            w.transient    = true;
-            w.action       = jnext::dbg::Action::Stop;
-            w.condition    = delivered;
-            (void)d.subscribe(cid, w);
+            Watch w;
+            w.lo    = static_cast<uint16_t>(std::max<uint32_t>(first, slot << 13));
+            w.hi    = static_cast<uint16_t>(std::min<uint32_t>(last, (slot << 13) | 0x1FFFu));
+            w.space = slots[slot].space;
+            bool seen = false;
+            for (const Watch& o : watches_)
+                if (o.lo == w.lo && o.hi == w.hi && o.space == w.space) { seen = true; break; }
+            if (seen) continue;
+            watches_.push_back(w);
+            watch(d, w);
         }
         return jnext::dbg::Action::Continue;
     };
     (void)dbg_->subscribe(cid, cap);
-    armed_what_ = "the first instruction from the tape's memory after its last block";
-    phase_ = Phase::Armed;
+    for (const Watch& w : watches_) watch(*dbg_, w);
+}
+
+// Another client's stop (DeZog's CMD_INIT pauses a machine that is still loading) removed our
+// transient subscriptions; when the machine runs again they are put back. Only a cold boot, or
+// reaching the stop, ends the startup stop.
+void StartupStop::rearm() {
+    if (!break_at_.empty()) {
+        std::string why;
+        (void)arm(armed_what_, why);
+    } else {
+        subscribe_tape();
+    }
 }
 
 void StartupStop::log_stop(const char* what) {
@@ -245,13 +278,16 @@ void StartupStop::poll() {
     const jnext::dbg::RunState st = dbg_->state();
     switch (phase_) {
     case Phase::Armed:
-        if (!st.paused) break;
+        if (!st.paused) {
+            if (lost_) { lost_ = false; rearm(); }
+            break;
+        }
         if (st.pause_reason.by == cid_) {
             stop_cycle_ = st.cycle;
             log_stop(break_at_.empty() ? armed_what_.c_str() : ("--break-at " + break_at_).c_str());
             phase_ = Phase::Stopped;
         } else {
-            finish();   // someone else paused first: the stop is cancelled
+            lost_ = true;   // someone else's stop removed our subscriptions: re-armed when it runs on
         }
         break;
     case Phase::Stopped:

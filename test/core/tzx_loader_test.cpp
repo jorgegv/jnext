@@ -1159,18 +1159,40 @@ int main(int argc, char** argv) {
         t.load(write_file("e02.tzx", tape));
         t.set_fast_load(false);
         t.start_playback(0);
-        uint64_t clock = 0;
-        bool early = t.data_delivered();
-        bool flipped_playing = false;
+        // The oracle is the TZX 1.20 timing of a standard block: pilot (8063 pulses for a header flag,
+        // 3223 for data) of 2168 T, syncs 667 + 735, then two pulses per bit (855 for 0, 1710 for 1);
+        // block 1's 1000 ms pause is 3.5 M T-states. The last data block's DATA ends there.
+        auto block_t = [](const Bytes& body) {
+            uint64_t n = static_cast<uint64_t>(body[0] < 0x80 ? 8063 : 3223) * 2168 + 667 + 735;
+            for (uint8_t byte : body)
+                for (int bit = 7; bit >= 0; --bit) n += 2u * (((byte >> bit) & 1) ? 1710u : 855u);
+            return n;
+        };
+        const uint64_t last_start = block_t(hdr_body()) + 3500000ull;
+        const uint64_t last_end = last_start + block_t(data_body());
+        uint64_t clock = 0, flipped_at = 0;
+        bool early = t.data_delivered(), false_inside = true, flipped_playing = false;
         while (clock < 400000000ull && t.is_playing()) {
             clock += 500;
             t.update(clock);
-            if (t.data_delivered()) { flipped_playing = t.is_playing(); break; }
+            const bool d = t.data_delivered();
+            if (!d && clock > last_start + 1000000ull && clock + 1000000ull < last_end) {
+                // inside the last block's pilot and data: still not delivered
+            }
+            if (d && !flipped_at) {
+                flipped_at = clock;
+                flipped_playing = t.is_playing();
+                break;
+            }
         }
-        // The last data block's own pause (1000 ms = 3.5 M T-states) has not run when it flips.
-        check("TZXE-02", "real time: false at the start and during the last data block, true once its data is out while the deck "
-                         "still plays its pause",
-              !early && flipped_playing && clock > 100000 && clock < 400000000ull);
+        // False through the whole of the last block (it flips only at the end of its data), true once its
+        // data is out while the deck still plays the trailing pause.
+        false_inside = flipped_at + 20000 >= last_end && flipped_at <= last_end + 20000;
+        check("TZXE-02", "real time: false from the start through the whole last data block (pilot, syncs, data), true within 20000 T of "
+                         "the end of its data, the deck still playing its pause",
+              !early && flipped_playing && false_inside,
+              "flipped_at=" + std::to_string(flipped_at) + " last_start=" + std::to_string(last_start) +
+                  " last_end=" + std::to_string(last_end));
     }
     {
         // 0x11 turbo block: 18-byte header (pilot, syncs, bit pulses, pilot count, used bits, pause, 24-bit length) + data.

@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
@@ -78,6 +79,12 @@ private:
     bool resolve_target(Target& t, std::string& why) const;
     bool arm(const std::string& default_why, std::string& why);
     void arm_tape();
+    void subscribe_tape();   ///< (re)create the tape's subscriptions: the capture and every watch so far
+    void rearm();            ///< a foreign stop removed our transients: put them back
+    struct Watch {
+        uint16_t lo = 0, hi = 0;
+        jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
+    };
     void finish();
     void log_stop(const char* what);
 
@@ -89,5 +96,8 @@ private:
     int                   landings_left_ = 0;
     bool                  last_ok_ = true;
     uint64_t              stop_cycle_ = 0;
+    std::vector<Watch>    watches_;      ///< the tape-loaded ranges seen at LD-BREAK, each once
+    bool                  tape_rule1_ = false;
+    bool                  lost_ = false;   ///< another client's stop removed the armed subscriptions
     std::string           armed_what_;   ///< the log's reason for a stop that is not --break-at's
 };

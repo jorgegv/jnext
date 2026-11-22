@@ -617,12 +617,14 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
             if (remaining < 10) return nullptr;
             uint32_t dl = read_u24(b + 7);
             fast_load_offset_ += 1 + 10 + static_cast<int>(dl);
+            scan_exotic_end_ = fast_load_offset_;   // GH #548: a pure-data block is data too
             break;
         }
         case 0x15: {
             if (remaining < 8) return nullptr;
             uint32_t dl = read_u24(b + 5);
             fast_load_offset_ += 1 + 8 + static_cast<int>(dl);
+            scan_exotic_end_ = fast_load_offset_;   // GH #548: a direct recording is data too
             break;
         }
         case 0x20: fast_load_offset_ += 1 + 2; break;
@@ -691,6 +693,7 @@ void TzxLoader::scan_tape() {
     holds_code_ = false;
     last_data_end_ = 0;
     scan_exotic_ = false;
+    scan_exotic_end_ = 0;
     const int save = fast_load_offset_;
     fast_load_offset_ = is_tzx_ ? 10 : 0;
     int prev_type = -1;
@@ -710,6 +713,9 @@ void TzxLoader::scan_tape() {
         prev_type = -1;
     }
     if (scan_exotic_) holds_code_ = true;
+    // A trailing 0x14 / 0x15 block is data that plays after the last standard one: real-time
+    // delivery waits for it (fast load never serves it, so there it cannot).
+    if (scan_exotic_end_ > last_data_end_) last_data_end_ = scan_exotic_end_;
     fast_load_offset_ = save;
 }
 

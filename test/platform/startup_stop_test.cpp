@@ -584,7 +584,9 @@ int main() {
               r.paused() && r.ss.active() && r.dbg->state().pause_reason.by == r.ss.client());
     }
 
-    // DBGST-19: a pause by another client before the stop cancels it.
+    // DBGST-19: a pause by another client before the stop does NOT cancel it (DeZog's CMD_INIT pauses
+    // a machine still on its way): its stop removes our transient run-to, and it is put back when the
+    // machine runs again, so the machine still stops at the target.
     {
         Rig r("8003");
         r.start(1);
@@ -592,13 +594,13 @@ int main() {
         const ClientId other = r.dbg->attach(other_client("remote")).value;
         r.dbg->pause(other);
         r.ss.poll();
-        const bool cancelled = !r.ss.active();
+        const bool kept = r.ss.active();
         r.dbg->run(other);
         r.run();
-        check("DBGST-19", "a pause by another client before the --break-at stop cancels it: the client detaches and "
-                          "the machine runs past the target",
-              cancelled && !r.paused() && r.pc() >= 0x8003,
-              "cancelled=" + std::to_string(cancelled) + " paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
+        check("DBGST-19", "a pause by another client before the --break-at stop does not cancel it: the machine still stops at the target "
+                          "once it runs on",
+              kept && r.paused() && r.pc() == 0x8003 && r.dbg->state().pause_reason.by == r.ss.client(),
+              "kept=" + std::to_string(kept) + " paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
     }
 
     // DBGST-20: a cold boot before the stop cancels it.
@@ -765,24 +767,140 @@ int main() {
               "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
     }
 
-    // DBGST-39: the tape stop's subscriptions are transient (never listed), and a pause by another
-    // client before delivery removes them: nothing stops afterwards.
+    // DBGST-39: the tape stop's subscriptions are transient (never listed), and another client's pause while
+    // the tape loads (the usual DeZog attach) does not cancel the stop: the machine still stops at the program.
     {
         Rig r("", MachineType::ZX48K, true);
         r.start(1);
         r.land(fixture);
-        r.run(100);   // the capture has fired for the first block by now or soon: never listed
+        r.run(100);   // mid-load
         const bool hidden = r.dbg->subscriptions(false).empty();
         const ClientId other = r.dbg->attach(other_client("remote")).value;
         r.dbg->pause(other);
         r.ss.poll();
-        const bool cancelled = !r.ss.active();
+        const bool kept = r.ss.active();
         r.dbg->run(other);
         r.run(kTapeFrames);
-        check("DBGST-39", "the tape stop's subscriptions are never listed, and another client's pause before delivery cancels "
-                          "the stop: the program runs on",
-              hidden && cancelled && !r.paused(),
-              "hidden=" + std::to_string(hidden) + " cancelled=" + std::to_string(cancelled) + " paused=" + std::to_string(r.paused()));
+        check("DBGST-39", "the tape stop's subscriptions are never listed, and another client's pause mid-load does not cancel the stop: "
+                          "the machine still stops at the program",
+              hidden && kept && r.paused() && r.pc() == code_start && r.dbg->state().pause_reason.by == r.ss.client(),
+              "hidden=" + std::to_string(hidden) + " kept=" + std::to_string(kept) + " paused=" + std::to_string(r.paused()) +
+                  " pc=" + hex(r.pc()));
+    }
+
+    // ---- round 1 of stage 2: rows the review asked for ---------------------------------------------
+    auto loader_tape = [&](const Bytes& code, std::initializer_list<Bytes> extra) {
+        Bytes t = cat({program_pair(loader_basic),
+                       tap_header(3, "loader", static_cast<unsigned>(code.size()), 0x8000, 0x8000),
+                       tap_block(0xFF, code)});
+        for (const Bytes& e : extra) t = cat({t, e});
+        return t;
+    };
+    const Bytes jr_block = [] { Bytes b(16, 0x00); b[0] = 0x18; b[1] = 0xFE; return b; }();
+
+    // DBGST-40: the real-time capture watches each loaded range ONCE. The ROM's edge-wait loop passes
+    // LD-BREAK every ~4 ms with IX and DE unchanged; a watch per pass left hundreds of live transients
+    // (642 for this tape) and slowed a real-time load about 6x. The four LD-BYTES calls need a handful.
+    {
+        Rig r("", MachineType::ZX48K, true);
+        r.realtime = true;
+        r.start(1);
+        r.land(fixture);
+        size_t most = 0;
+        for (int i = 0; i < kRealFrames && !r.paused(); ++i) {
+            r.run(1);
+            most = std::max(most, r.dbg->subscriptions(true).size());
+        }
+        check("DBGST-40", "a real-time tape load keeps a handful of live subscriptions (each loaded range watched once), "
+                          "not one set per pass of the ROM's edge-wait loop",
+              r.paused() && r.pc() == code_start && most <= 10, "most=" + std::to_string(most));
+    }
+
+    // DBGST-41: the capture ignores a VERIFY (carry of F' clear). A loader relocates a stub to 0xD000
+    // (memory the tape never loaded); the stub VERIFYs a block at 0xC000, LOADs the last block into 0xA000,
+    // then JP 0xC000 where a JP 0xA000 waits: the first TAPE-LOADED fetch is 0xA000, not the verified 0xC000.
+    {
+        const Bytes stub{0x3E, 0xFF, 0xA7, 0xDD, 0x21, 0x00, 0xC0, 0x11, 0x10, 0x00, 0xCD, 0x56, 0x05,   // VERIFY into C000
+                         0x3E, 0xFF, 0x37, 0xDD, 0x21, 0x00, 0xA0, 0x11, 0x10, 0x00, 0xCD, 0x56, 0x05,   // LOAD into A000
+                         0xC3, 0x00, 0xC0};                                                               // JP C000
+        Bytes code{0x21, 0x19, 0x80, 0x11, 0x00, 0xD0, 0x01, static_cast<uint8_t>(stub.size()), 0x00, 0xED, 0xB0,
+                   0x21, 0x00, 0xC0, 0x36, 0xC3, 0x23, 0x36, 0x00, 0x23, 0x36, 0xA0, 0xC3, 0x00, 0xD0};
+        code.insert(code.end(), stub.begin(), stub.end());
+        write_bytes(path("verify.tap"), loader_tape(code, {tap_block(0xFF, Bytes(16, 0x00)), tap_block(0xFF, jr_block)}));
+        Rig r("", MachineType::ZX48K, true);
+        tape_stop(r, path("verify.tap"), kTapeFrames);
+        check("DBGST-41", "a VERIFY'd block is not tape-loaded memory: the stop is the first fetch from the block that was LOADed "
+                          "(0xA000), not from the one only verified (0xC000)",
+              r.paused() && r.pc() == 0xA000, "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
+    }
+
+    // DBGST-42: LD-BREAK of ANOTHER ROM is not LD-BYTES. A +3 at power-on has ROM 0 at 0x056B; with the tape
+    // landed, execution there with F' carry and Z set, IX=0x9000 and DE=0x100 must create no watch.
+    {
+        Rig r("", MachineType::ZX_PLUS3, true);
+        r.start(1);
+        r.land(fixture);
+        Z80Registers rg = r.emu.cpu().get_registers();
+        rg.PC = 0x056B;
+        rg.AF = static_cast<uint16_t>(rg.AF | 0x40);
+        rg.AF2 = static_cast<uint16_t>(rg.AF2 | 0x01);
+        rg.IX = 0x9000;
+        rg.DE = 0x0100;
+        r.emu.cpu().set_registers(rg);
+        r.emu.run_frame();
+        int watches = 0;
+        for (const auto& s : r.dbg->subscriptions(true))
+            if (s.filter.lo == 0x9000) ++watches;
+        check("DBGST-42", "execution at 0x056B in a +3's ROM 0 (not the 48K LD-BYTES) creates no watch",
+              watches == 0, "watches=" + std::to_string(watches));
+    }
+
+    // DBGST-43: the watches are tied to the memory that was loaded. A 128K loader relocates a stub to 0x7000;
+    // it puts a RET in bank 3 at 0xC000, pages bank 1 and LOADs the last block there, pages bank 3 and CALLs
+    // 0xC000 (the RET: not tape-loaded), then pages bank 1 and JPs 0xC000 (tape-loaded). The stop is the JP.
+    {
+        auto out = [](uint8_t value) { return Bytes{0x01, 0xFD, 0x7F, 0x3E, value, 0xED, 0x79}; };   // LD BC,7FFD; LD A,v; OUT (C),A
+        Bytes stub{0x31, 0x00, 0x7F};                                                              // LD SP,7F00
+        for (const Bytes& p : {out(0x13), Bytes{0x3E, 0xC9, 0x32, 0x00, 0xC0}, out(0x11),
+                               Bytes{0x3E, 0xFF, 0x37, 0xDD, 0x21, 0x00, 0xC0, 0x11, 0x10, 0x00, 0xCD, 0x56, 0x05},
+                               out(0x13), Bytes{0xCD, 0x00, 0xC0}, out(0x11), Bytes{0xC3, 0x00, 0xC0}})
+            stub.insert(stub.end(), p.begin(), p.end());
+        Bytes code{0x21, 0x0E, 0x80, 0x11, 0x00, 0x70, 0x01, static_cast<uint8_t>(stub.size()), 0x00, 0xED, 0xB0, 0xC3, 0x00, 0x70};
+        code.insert(code.end(), stub.begin(), stub.end());
+        write_bytes(path("bank.tap"), loader_tape(code, {tap_block(0xFF, jr_block)}));
+        Rig r("", MachineType::ZX128K, true);
+        tape_stop(r, path("bank.tap"), 2500);
+        check("DBGST-43", "128K: a stub executing 0xC000 in another bank is not the stop; the JP into the bank the tape loaded is "
+                          "(SP 0x7F00, not 0x7EFE inside the CALL)",
+              r.paused() && r.pc() == 0xC000 && r.emu.cpu().get_registers().SP == 0x7F00,
+              "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()) +
+                  " sp=" + hex(r.emu.cpu().get_registers().SP));
+    }
+
+    // DBGST-44: a trailing 0x14 (pure data) block counts as data in real time: with one the stop comes after
+    // it has played (two minutes of data later in master cycles), without it right after the CODE block.
+    {
+        const Bytes pure = [] {
+            Bytes b{0x14, 0x57, 0x03, 0xAE, 0x06, 8, 0, 0, 200, 0, 0};   // zero 855, one 1710, 8 bits, pause 0, 200 bytes
+            b.insert(b.end(), 200, 0x00);
+            return b;
+        }();
+        const Bytes tap = loader_tape(jr_block, {});
+        write_bytes(path("a.tzx"), tzx_of(tap, {}));
+        write_bytes(path("b.tzx"), tzx_of(tap, pure));
+        uint64_t cyc[2] = {0, 0};
+        uint16_t pcs[2] = {0, 0};
+        for (int i = 0; i < 2; ++i) {
+            Rig r("", MachineType::ZX48K, true);
+            r.realtime = true;
+            tape_stop(r, path(i ? "b.tzx" : "a.tzx"), 9000, 110);
+            cyc[i] = r.dbg->state().cycle;
+            pcs[i] = r.pc();
+        }
+        check("DBGST-44", "a real-time TZX with a trailing pure-data (0x14) block stops after that block has played, not at the "
+                          "loader's first instruction",
+              pcs[0] == 0x8000 && pcs[1] == 0x8000 && cyc[1] > cyc[0] + 10000000ull,
+              "pcs=" + hex(pcs[0]) + "/" + hex(pcs[1]) + " cycles=" + std::to_string(cyc[0]) + "/" + std::to_string(cyc[1]));
     }
 
     // DBGST-21: a target that IS the PC the program starts at stops there at once (a resume

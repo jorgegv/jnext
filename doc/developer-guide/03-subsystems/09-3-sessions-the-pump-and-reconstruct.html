@@ -3372,8 +3372,11 @@ and the loop owner ends the run with exit 1 before the program has executed.</p>
 from every other client: DeZog attaching or detaching does not resume it. The
 client detaches once the machine has run again after the stop (the next <code>poll()</code>
 sees it unpaused or its cycle changed), so its own detach resumes nothing, and it
-also detaches when its stop is cancelled: another client paused first, or a cold
-boot. A headless loop paused under <code>--debugger</code> waits on the servers with or
+also detaches when its stop is cancelled by a cold boot. Another client's stop does NOT cancel it:
+DeZog's <code>CMD_INIT</code> pauses a machine still loading its tape, and that stop removes every transient
+subscription, ours included. The client notes it (<code>lost_</code>) and, when the machine runs again, puts the
+run-to back (<code>--break-at</code>) or re-subscribes the tape's capture and every range it already watched
+(<code>StartupStop::rearm()</code>, at the next <code>poll()</code>), so only a cold boot or reaching the stop ends it. A headless loop paused under <code>--debugger</code> waits on the servers with or
 without a peer (<code>DebugServers::headless_should_wait()</code>'s third parameter), so the
 wait for DeZog is a poll and not a spin.</p>
 <h2 id="no-verb-that-drives-the-machine-runs-inside-a-delivery">No verb that drives the machine runs inside a delivery<a class="headerlink" href="#no-verb-that-drives-the-machine-runs-inside-a-delivery" title="Permanent link">&para;</a></h2>

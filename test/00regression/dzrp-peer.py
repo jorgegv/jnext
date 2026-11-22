@@ -735,7 +735,29 @@ def sc_startup(port, expect_pc):
             % (want, after))
 
 
+def sc_midload(port, expect_pc):
+    """GH #548: a client that attaches while the tape is still loading does not cancel the stop.
+
+    CMD_INIT pauses the machine (still on its way); CONTINUE runs it on; the startup stop, which the
+    pause removed, is put back, and the machine stops at the tape's entry: an NTF_PAUSE at `expect_pc`.
+    """
+    want = int(expect_pc, 0)
+    c = connect(port)
+    try:
+        c.cont()
+        try:
+            ntf = c.wait_for_pause(timeout=90.0)
+        except TimeoutError:
+            raise Fail("no NTF_PAUSE within 90 s of CONTINUE: the startup stop was lost")
+        got = ntf.long_address & 0xFFFF
+        check(got == want, "stopped at 0x%04X after the attach and CONTINUE, expected 0x%04X" % (got, want))
+    finally:
+        c.close()
+    return "attached mid-load, CONTINUE, and the machine still stopped at 0x%04X" % want
+
+
 SCENARIOS = {
+    "midload": sc_midload,
     "startup": sc_startup,
     "loopback": sc_loopback,
     "init-regs": sc_init_regs,
