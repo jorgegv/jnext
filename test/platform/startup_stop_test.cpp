@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -122,8 +123,18 @@ struct Rig {
 
     bool realtime = false;   // tape mode of land(): the deck plays in real time
 
-    explicit Rig(const std::string& break_at = {}, MachineType type = MachineType::ZX48K) {
+    // `with_rom`: the real ROM from the SD image (like every suite that executes ROM code): the
+    // tape rows run the ROM's LD-BYTES. The other rows use the bare machine.
+    explicit Rig(const std::string& break_at = {}, MachineType type = MachineType::ZX48K,
+                 bool with_rom = false) {
         cfg.type           = type;
+        if (with_rom) {
+            const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
+            const char* home = std::getenv("HOME");
+            cfg.sd_card_image = env ? env : std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+            cfg.sd_card_readonly = true;
+            cfg.rewind_buffer_frames = 0;
+        }
         cfg.debugger_start = true;
         cfg.break_at       = break_at;
         emu.init(cfg);
@@ -619,8 +630,11 @@ int main() {
         }
     }
     constexpr int kTapeFrames = 1500, kRealFrames = 6000;
-    auto tape_stop = [&](Rig& r, const std::string& file, int frames) {
+    // `delay`: frames the machine runs before the tape attaches, as the loop owner waits 100 frames
+    // for a .tzx / .wav so BASIC is at its prompt (a .tap types LOAD "" itself).
+    auto tape_stop = [&](Rig& r, const std::string& file, int frames, int delay = 0) {
         r.start(1);
+        if (delay) r.run(delay);
         const bool ok = r.land(file);
         const bool armed_running = ok && !r.paused() && r.dbg->subscriptions(false).empty();
         r.run(frames);
@@ -633,7 +647,7 @@ int main() {
     {
         std::string bad;
         for (int mode = 0; mode < 2; ++mode) {
-            Rig r;
+            Rig r("", MachineType::ZX48K, true);
             r.realtime = mode == 1;
             std::string log;
             bool armed = false;
@@ -652,7 +666,7 @@ int main() {
     {
         std::string bad;
         for (MachineType t : {MachineType::ZX128K, MachineType::ZX_PLUS3}) {
-            Rig r("", t);
+            Rig r("", t, true);
             tape_stop(r, fixture, 2500);
             if (!(r.paused() && r.pc() == code_start && !in_stub(r.pc())))
                 bad += " [machine " + std::to_string(static_cast<int>(t)) + " paused=" + std::to_string(r.paused()) +
@@ -669,9 +683,9 @@ int main() {
         write_bytes(path("prog.tzx"), tzx_of(fixture_bytes, tail));
         std::string bad;
         for (int mode = 0; mode < 2; ++mode) {
-            Rig r;
+            Rig r("", MachineType::ZX48K, true);
             r.realtime = mode == 1;
-            tape_stop(r, path("prog.tzx"), mode ? kRealFrames : kTapeFrames);
+            tape_stop(r, path("prog.tzx"), mode ? kRealFrames : kTapeFrames, 110);
             if (!(r.paused() && r.pc() == code_start))
                 bad += " [" + std::string(mode ? "realtime" : "fast") + " paused=" + std::to_string(r.paused()) +
                        " pc=" + hex(r.pc()) + "]";
@@ -683,8 +697,8 @@ int main() {
     // DBGST-34: a WAV the test makes from that tape.
     {
         write_bytes(path("prog.wav"), wav_of(fixture_bytes));
-        Rig r;
-        tape_stop(r, path("prog.wav"), 8000);
+        Rig r("", MachineType::ZX48K, true);
+        tape_stop(r, path("prog.wav"), 8000, 110);
         check("DBGST-34", "a WAV made from the tape stops at the program after its last pulse",
               r.paused() && r.pc() == code_start, "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()));
     }
@@ -711,7 +725,7 @@ int main() {
     // DBGST-35: the stop is the loader's instruction after the CALL: the first tape-loaded
     // instruction after delivery, not 0xA000 and not before the last block.
     {
-        Rig r;
+        Rig r("", MachineType::ZX48K, true);
         tape_stop(r, path("loader.tap"), kTapeFrames);
         check("DBGST-35", "a custom loader that CALLs LD-BYTES for a last headerless block: paused at the instruction after the "
                           "CALL (0x800D), the last block delivered, not at 0xA000",
@@ -729,12 +743,12 @@ int main() {
         write_bytes(path("screen.tap"), cat({program_pair(screen),
                                               tap_header(3, "screen", 6912, 16384, 0x8000),
                                               tap_block(0xFF, Bytes(6912, 0x00))}));
-        Rig a;
+        Rig a("", MachineType::ZX48K, true);
         tape_stop(a, path("rem.tap"), kTapeFrames);
         check("DBGST-36", "a BASIC-only tape (nothing can run from RAM): paused at the first instruction after its last block "
                           "was delivered, 0x05E2",
               a.paused() && a.pc() == 0x05E2 && !a.emu.tape_holds_code(), "paused=" + std::to_string(a.paused()) + " pc=" + hex(a.pc()));
-        Rig b;
+        Rig b("", MachineType::ZX48K, true);
         tape_stop(b, path("screen.tap"), kTapeFrames);
         check("DBGST-37", "BASIC + SCREEN$ is still a tape that cannot carry code: the stop is the first instruction after "
                           "the screen's block, 0x05E2",
@@ -744,7 +758,7 @@ int main() {
     // DBGST-38: --break-at 8000 on the loader tape stops INSIDE the loader, before the last block:
     // armed when the tape attaches, so it catches code a tape runs while it loads.
     {
-        Rig r("8000");
+        Rig r("8000", MachineType::ZX48K, true);
         tape_stop(r, path("loader.tap"), kTapeFrames);
         check("DBGST-38", "--break-at 8000 on the custom-loader tape stops at the loader's start with the last block not yet delivered",
               r.paused() && r.pc() == 0x8000 && !r.emu.tape_delivered(),
@@ -754,7 +768,7 @@ int main() {
     // DBGST-39: the tape stop's subscriptions are transient (never listed), and a pause by another
     // client before delivery removes them: nothing stops afterwards.
     {
-        Rig r;
+        Rig r("", MachineType::ZX48K, true);
         r.start(1);
         r.land(fixture);
         r.run(100);   // the capture has fired for the first block by now or soon: never listed

@@ -1136,6 +1136,86 @@ int main(int argc, char** argv) {
         }
     }
 
+    // GH #548 (the command-line debugger start): the TZX deck's predicates. Oracles: the TZX 1.20
+    // block layouts (0x10, 0x11, 0x14, 0x15, 0x30) and the design's definition of "delivered".
+    {
+        const Bytes text30 = concat({{0x30}, pstr("done")});
+        const Bytes pause20 = concat({{0x20}, le16(500)});
+        const Bytes two = concat({kHeader, b10(hdr_body()), b10(data_body())});
+        const Bytes with_tail = concat({two, pause20, text30});
+        TzxLoader a, b;
+        a.load(write_file("e01a.tzx", with_tail));
+        b.load(write_file("e01b.tzx", concat({kHeader, text30})));
+        const bool ahead = !a.data_delivered();
+        const bool again = !a.data_delivered();
+        check("TZXE-01", "fast: data blocks ahead of the cursor means not delivered (and the probe leaves the cursor, so it says "
+                         "so again); a tape with only a text block has none ahead: delivered while at_end() is false",
+              a.holds_code_block() && ahead && again && !a.at_end() && b.data_delivered() && !b.at_end());
+    }
+    {
+        const Bytes tape = concat({kHeader, b10(hdr_body()), b10(data_body()), concat({{0x20}, le16(500)}),
+                                   concat({{0x30}, pstr("done")})});
+        TzxLoader t;
+        t.load(write_file("e02.tzx", tape));
+        t.set_fast_load(false);
+        t.start_playback(0);
+        uint64_t clock = 0;
+        bool early = t.data_delivered();
+        bool flipped_playing = false;
+        while (clock < 400000000ull && t.is_playing()) {
+            clock += 500;
+            t.update(clock);
+            if (t.data_delivered()) { flipped_playing = t.is_playing(); break; }
+        }
+        // The last data block's own pause (1000 ms = 3.5 M T-states) has not run when it flips.
+        check("TZXE-02", "real time: false at the start and during the last data block, true once its data is out while the deck "
+                         "still plays its pause",
+              !early && flipped_playing && clock > 100000 && clock < 400000000ull);
+    }
+    {
+        // 0x11 turbo block: 18-byte header (pilot, syncs, bit pulses, pilot count, used bits, pause, 24-bit length) + data.
+        const Bytes body = tap_body(0xFF, {1, 2, 3});
+        const Bytes b11 = concat({{0x11}, le16(2168), le16(667), le16(735), le16(855), le16(1710), le16(3223),
+                                  {8}, le16(1000), le24(static_cast<uint32_t>(body.size())), body});
+        TzxLoader t;
+        t.load(write_file("e03.tzx", concat({kHeader, b10(hdr_body()), b11})));
+        check("TZXE-03", "a turbo (0x11) last block: not delivered while it is ahead of the fast cursor, and the tape holds code",
+              t.holds_code_block() && !t.data_delivered());
+    }
+    {
+        const Bytes body = tap_body(0xFF, {1, 2, 3});
+        const Bytes p = concat({kHeader, b10(tap_body(0x00, {0, 'P', 'R', 'O', 'G', ' ', ' ', ' ', ' ', ' ', ' ',
+                                                           5, 0, 10, 0, 5, 0})), b10(data_body())});
+        const Bytes b14 = concat({{0x14}, le16(855), le16(1710), {8}, le16(1000), le24(static_cast<uint32_t>(body.size())), body});
+        const Bytes b15 = concat({{0x15}, le16(79), le16(1000), {8}, le24(static_cast<uint32_t>(body.size())), body});
+        const Bytes b11 = concat({{0x11}, le16(2168), le16(667), le16(735), le16(855), le16(1710), le16(3223),
+                                  {8}, le16(1000), le24(static_cast<uint32_t>(body.size())), body});
+        std::string bad;
+        for (const auto& [name, blk] : std::vector<std::pair<const char*, Bytes>>{{"0x11", b11}, {"0x14", b14}, {"0x15", b15}}) {
+            TzxLoader t;
+            const bool ok = t.load(write_file(std::string("e04-") + name + ".tzx", concat({p, blk})));
+            if (!ok || !t.holds_code_block()) bad += std::string(" ") + name;
+        }
+        check("TZXE-04", "a Program tape followed by a non-standard data block (0x11, 0x14, 0x15) holds code",
+              bad.empty(), bad);
+    }
+    {
+        auto holds = [&](const char* name, const Bytes& tape) {
+            TzxLoader t;
+            return t.load(write_file(name, tape)) && t.holds_code_block();
+        };
+        auto hdr = [](uint8_t type, unsigned len, unsigned start) {
+            return b10(tap_body(0x00, {type, 'T', 'E', 'S', 'T', ' ', ' ', ' ', ' ', ' ', ' ',
+                                       static_cast<uint8_t>(len & 0xFF), static_cast<uint8_t>(len >> 8),
+                                       static_cast<uint8_t>(start & 0xFF), static_cast<uint8_t>(start >> 8), 0, 0x80}));
+        };
+        const Bytes program = concat({kHeader, hdr(0, 5, 10), b10(data_body())});
+        const Bytes screen = concat({program, hdr(3, 6912, 16384), b10(tap_body(0xFF, Bytes(6912, 0)))});
+        const Bytes code = concat({program, hdr(3, 5, 0x8000), b10(data_body())});
+        check("TZXE-05", "standard blocks: Program only and Program + SCREEN$ do not hold code; Program + CODE does",
+              !holds("e05a.tzx", program) && !holds("e05b.tzx", screen) && holds("e05c.tzx", code));
+    }
+
     Log::emulator()->sinks().pop_back();
     if (!keep) std::filesystem::remove_all(g_root, ec);
 
