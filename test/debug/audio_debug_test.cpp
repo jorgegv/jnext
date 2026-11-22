@@ -1581,6 +1581,16 @@ int main() {
         Out mon, moff;
         for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); off.run_frame(); drain(off, moff); }
         {
+            // DIAGNOSTIC: the same two machines with NO tap: is the poll batch itself audio-identical here?
+            Emulator uon, uoff; build_batch(uon, true); build_batch(uoff, true);
+            uoff.set_cycle_batching_for_test(false, false, false);
+            Out uo_on, uo_off;
+            for (int f = 0; f < 8; ++f) { uon.run_frame(); drain(uon, uo_on); uoff.run_frame(); drain(uoff, uo_off); }
+            std::printf("  SCP-09 UNTAPPED on/off mixer equal=%d (%zu samples)\n", uo_on.l == uo_off.l && uo_on.r == uo_off.r ? 1 : 0, uo_on.l.size());
+            std::printf("  SCP-09 tapped-on vs untapped-on mixer equal=%d; tapped-off vs untapped-off equal=%d\n",
+                        mon.l == uo_on.l && mon.r == uo_on.r ? 1 : 0, moff.l == uo_off.l && moff.r == uo_off.r ? 1 : 0);
+        }
+        {
             size_t mix_nd = 0, tap_vs_mixer_on = 0, tap_vs_mixer_off = 0;
             const size_t t = static_cast<size_t>(ton.written);
             for (size_t i = 0; i < mon.l.size() && i < moff.l.size(); ++i)
