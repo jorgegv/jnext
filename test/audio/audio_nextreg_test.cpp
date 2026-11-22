@@ -1590,13 +1590,13 @@ static void test_nr06_restore() {
         const auto img = snapshot_of(*a);
         auto b = next_machine_550();                 // power-on: both enables set (0xA0)
         const bool ok = restore_into(*b, img);
-        const uint8_t before = nr_read(*b, 0x05) & 0x04;
+        const uint8_t before = b->nextreg().cached(0x05) & 0x04;
         b->emu_fnkeys().simulate_mf_fkey_press(3);
-        const uint8_t after = nr_read(*b, 0x05) & 0x04;
+        const uint8_t after = b->nextreg().cached(0x05) & 0x04;
         auto c = next_machine_550();
-        const uint8_t cb = nr_read(*c, 0x05) & 0x04;
+        const uint8_t cb = c->nextreg().cached(0x05) & 0x04;
         c->emu_fnkeys().simulate_mf_fkey_press(3);
-        const uint8_t ca = nr_read(*c, 0x05) & 0x04;
+        const uint8_t ca = c->nextreg().cached(0x05) & 0x04;
         check("MX-90", "a state load re-derives the F3 hotkey enable from the restored NR 0x06 bit 5: "
               "F3 (bit 5 clear) leaves NR 0x05 bit 2 alone, a power-on machine toggles it "
               "[zxnext.vhd:6342,5164]", ok && before == after && cb != ca,
