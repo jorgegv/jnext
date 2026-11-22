@@ -159,6 +159,17 @@ void WavLoader::eject()
     data_size_ = 0;
 }
 
+uint32_t WavLoader::ticks_since_edge(uint64_t now, uint32_t cap) const
+{
+    const uint8_t level = get_ear_bit(now);
+    const uint32_t step = 20;                       // a quarter of a sample at 44.1 kHz
+    for (uint32_t back = step; back <= cap; back += step) {
+        if (back > now) return back;                // before the start: the level began with the tape
+        if (get_ear_bit(now - back) != level) return back;
+    }
+    return cap;
+}
+
 uint8_t WavLoader::get_ear_bit(uint64_t current_tstates) const
 {
     if (!playing_ || !loaded_) return 0;

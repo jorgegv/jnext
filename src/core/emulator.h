@@ -2286,9 +2286,16 @@ private:
     void tape_level_(bool lvl) {
         if (lvl != beeper_.tape_ear()) [[unlikely]] {
             beeper_.set_tape_ear(lvl);
+            tape_edge_master_ = clock_.get();      // the ear_relax hold counts from here
             refresh_mic_final_();
         }
     }
+
+    /// After a restore: the master cycle of the playing tape's last edge,
+    /// derived from the deck's position (TapLoader / TzxLoader / WavLoader
+    /// `ticks_since_edge`), since the stamp itself is not saved. A deck that
+    /// does not play leaves it alone.
+    void derive_tape_edge_();
 
     /// The output-sample boundary's test, for what has no event of its own: a
     /// tape that started or stopped playing (the stop clears the raw level in
@@ -2305,8 +2312,8 @@ private:
     /// output and the mixer's MIC term: the tape jack (`tape_playing`,
     /// `tape_level`) and, while NR 0xA2 bit 0 sends the Pi's audio there,
     /// `pi_fe_ear` XORed in through `ear_relax` (zxnext_top_issue2.vhd:
-    /// 663-677). A level held for the relaxation time with no tape playing
-    /// reads as the issue-2 MIC level.
+    /// 663-677). A level held for the relaxation time with no edge (a tape
+    /// edge, or the Pi's comparator) reads as the issue-2 MIC level.
     /// During a rewind replay or an RZX playback the Pi term is held off: it
     /// is host-timed, like the sample NR 0x2C/0x2E show.
     /// `*due`, when given, receives the master cycle at which a held level
@@ -2319,6 +2326,12 @@ private:
     /// UINT64_MAX: the output-sample boundary refreshes only when the clock
     /// reaches it. Derived, not serialised; set by refresh_mic_final_().
     uint64_t mic_relax_due_ = UINT64_MAX;
+
+    /// Master cycle of the playing tape's last level change (0 = none): the
+    /// `ear_relax` hold of a playing tape counts from it (GH #550, zxnext_top_
+    /// issue2.vhd:662-677). Derived: tape_level_() stamps it, derive_tape_edge_()
+    /// rebuilds it from the deck after a restore; not serialised.
+    uint64_t tape_edge_master_ = 0;
 
     /// The raw tape level and whether a tape was playing, as of the last
     /// refresh_mic_final_(); mic_stale_() compares them with the live ones.

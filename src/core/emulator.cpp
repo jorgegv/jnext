@@ -388,6 +388,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     pi_ear_edge_master_ = 0;
     mic_tape_level_ = false;
     mic_tape_live_ = false;
+    tape_edge_master_ = 0;
     mic_relax_due_ = UINT64_MAX;
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
@@ -9657,6 +9658,22 @@ uint64_t Emulator::port_fe_write_time() const
     return io_request_edge();
 }
 
+void Emulator::derive_tape_edge_()
+{
+    // The ear_relax hold of a playing tape counts from its last edge, which
+    // a restore does not carry: rebuild it from where the deck is (TAP exact for every
+    // phase, TZX exact in the pauses and 0 elsewhere, WAV by looking back along the
+    // recording), so a restored run relaxes exactly when the continuous one does.
+    uint64_t age_t;
+    if (tape_.is_playing())          age_t = tape_.ticks_since_edge();
+    else if (tzx_tape_.is_playing()) age_t = tzx_tape_.ticks_since_edge(monotonic_tstates());
+    else if (wav_tape_.is_playing()) age_t = wav_tape_.ticks_since_edge(monotonic_tstates(), 8192);
+    else return;
+    const uint64_t age = age_t * static_cast<uint64_t>(clock_.cpu_divisor());
+    const uint64_t now = clock_.get();
+    tape_edge_master_ = now > age ? now - age : 0;
+}
+
 void Emulator::refresh_mic_final_()
 {
     uint64_t due = UINT64_MAX;
@@ -9694,7 +9711,6 @@ bool Emulator::audio_ear_in(bool tape_playing, bool tape_level, uint64_t now,
     const uint8_t a2 = i2s_.nr_a2_ctl();
     const bool pi_path = (a2 & 0xC0) != 0 && (a2 & 0x01) != 0 &&
                          !replay_mode_ && !rzx_player_.is_playing();
-    if (!pi_path) return tape_playing ? tape_level : issue2_mic;
     // ear_relax (zxnext_top_issue2.vhd:663-677): i_sig = ear_jack xor not
     // pi_fe_ear with INVERT = 1, so the output is ear_jack xor pi_fe_ear,
     // passed straight through on an edge; after COUNTER_SIZE = 6 (64) ticks
@@ -9702,18 +9718,17 @@ bool Emulator::audio_ear_in(bool tape_playing, bool tape_level, uint64_t now,
     // (symmetric_relaxation.vhd:62,76,89-90). The enable fires once per 512
     // master cycles (clk_28_div(8 downto 0) all ones, zxnext_top_issue2.vhd:
     // 1172-1179), so the hold is 64 x 512 master cycles, give or take one
-    // enable with the free-running divider's phase. With no tape playing the
-    // jack is idle and the Pi's comparator is the only edge source; a playing
-    // tape keeps today's model, its own level passed through: the board
-    // relaxes it too, but a restored snapshot cannot know how long the level
-    // was held (the deck's pause holds it), so GH #550 leaves that out.
+    // enable with the free-running divider's phase. The edges are those of
+    // ear_jack xor pi_fe_ear: the Pi's (pi_ear_edge_master_) and, GH #550,
+    // the playing tape's (tape_edge_master_). A tape that does not play with
+    // no Pi leaves the jack idle: the relaxed state.
     static constexpr uint64_t kEarRelaxMaster = 64 * 512;
-    const bool sig = (tape_playing && tape_level) != i2s_.fe_ear();
-    if (!tape_playing) {
-        if (now >= pi_ear_edge_master_ && now - pi_ear_edge_master_ >= kEarRelaxMaster)
-            return issue2_mic;
-        if (due) *due = pi_ear_edge_master_ + kEarRelaxMaster;
-    }
+    if (!pi_path && !tape_playing) return issue2_mic;
+    const bool sig = pi_path ? ((tape_playing && tape_level) != i2s_.fe_ear()) : tape_level;
+    uint64_t edge = pi_path ? pi_ear_edge_master_ : 0;
+    if (tape_playing && tape_edge_master_ > edge) edge = tape_edge_master_;
+    if (now >= edge && now - edge >= kEarRelaxMaster) return issue2_mic;
+    if (due) *due = edge + kEarRelaxMaster;
     return sig;
 }
 
@@ -15577,6 +15592,7 @@ bool Emulator::load_state(StateReader& r)
         nr_06_ps2_mode_              = (nr06 & 0x04) != 0;
         emu_fnkeys_.set_nr_06_hotkey_enables((nr06 & 0x80) != 0, (nr06 & 0x20) != 0);
         mixer_.set_exc_i(beep_spkr_excl());
+        derive_tape_edge_();
         refresh_mic_final_();
     }
 

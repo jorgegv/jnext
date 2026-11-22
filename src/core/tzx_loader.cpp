@@ -717,6 +717,18 @@ bool TzxLoader::handle_ld_bytes_trap(Emulator& emu) {
 static const char* const kTzxPhaseNames[] = {
     "idle", "pilot", "sync1", "sync2", "data", "pause", "tone", "pulses", "direct", "pause2"};
 
+uint32_t TzxLoader::ticks_since_edge(uint64_t now) const {
+    const TZXPlayer* p = static_cast<const TZXPlayer*>(player_);
+    if (!loaded_ || !p->playing) return 0;
+    uint32_t len = 0;
+    if (p->phase == TZX_PHASE_PAUSE2)                              len = 3500;               // the 1 ms hold at the final level
+    else if (p->phase == TZX_PHASE_IDLE && p->gap_done)            len = p->pause_tstates;   // the pause's remainder
+    else return 0;
+    const int64_t left = static_cast<int64_t>(p->edge_clock) - static_cast<int64_t>(now);
+    if (left <= 0) return len;
+    return left >= static_cast<int64_t>(len) ? 0 : len - static_cast<uint32_t>(left);
+}
+
 TzxLoader::DeckState TzxLoader::deck_state(uint64_t now) const {
     const TZXPlayer* p = static_cast<const TZXPlayer*>(player_);
     DeckState d;

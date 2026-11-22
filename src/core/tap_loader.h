@@ -207,6 +207,13 @@ public:
     /// Returns the current EAR bit value (0 or 1).
     uint8_t tick_realtime(uint64_t tstates);
 
+    /// T-states since the EAR level last changed, derived from the deck's
+    /// position (GH #550): the length of the pulse or pause in progress minus
+    /// what is left of it. Every pulse starts at an edge, so this is exact for
+    /// each phase, and it needs nothing saved: a restored deck carries the phase,
+    /// the byte and bit and `pulse_left`. 0 when the deck is not playing.
+    uint32_t ticks_since_edge() const;
+
     /// True if real-time playback is in progress.
     bool is_playing() const { return playing_; }
 
