@@ -182,7 +182,8 @@ QWidget* AudioPanel::create_chips_tab() {
         auto* box = new QGroupBox(tr("AY #%1").arg(c), decoded_);
         auto* grid = new QGridLayout(box);
         grid->setContentsMargins(4, 4, 4, 4);
-        grid->setSpacing(2);
+        grid->setHorizontalSpacing(12);
+        grid->setVerticalSpacing(2);
         w.active = mono_label(pre + "active", "", box);
         w.addr = mono_label(pre + "addr", "0x00", box);
         w.pan = mono_label(pre + "pan", "L R", box);
