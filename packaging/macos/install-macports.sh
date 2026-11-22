@@ -26,6 +26,9 @@ PREFIX=/opt/local
 
 PORTS=("$@")
 [ "${#PORTS[@]}" -gt 0 ] || PORTS=(qt6-qtbase qt6-qtsvg SDL3 libpng openssl3 bash coreutils grep)
+# MACPORTS_EXTRA_PORTS: more ports on top of the default list (ci.yml's macos-intel job adds ccache)
+# shellcheck disable=SC2206
+[ "$#" -gt 0 ] || PORTS+=(${MACPORTS_EXTRA_PORTS:-})
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
