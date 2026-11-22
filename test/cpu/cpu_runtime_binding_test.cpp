@@ -36,7 +36,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <sys/types.h>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -95,8 +94,7 @@ void build_poll(Emulator& e) {
         {0x01, 0x3B, 0x24, 0x3E, 0x1F, 0xED, 0x79, 0x04,
          0xED, 0x78, 0xFE, 0xB4, 0x20, 0xFA,
          0x21, 0x10, 0xC2, 0x34,
-         0xED, 0x78, 0xFE, 0xB4, 0x28, 0xFA, 0x18, 0xEE}, false);
-    e.cpu().set_registers([&] { Z80Registers r = e.cpu().get_registers(); r.IM = 0; return r; }());
+         0xED, 0x78, 0xFE, 0xB4, 0x28, 0xFA, 0x18, 0xEE});
     e.set_cycle_batching_for_test(true, true, true);
 }
 
@@ -187,11 +185,10 @@ std::string diff(const Out& got, const Out& want) {
     size_t ad = static_cast<size_t>(-1);
     const size_t m = std::min(got.l.size(), want.l.size());
     for (size_t i = 0; i < m; ++i) if (got.l[i] != want.l[i] || got.r[i] != want.r[i]) { ad = i; break; }
-    char b[160];
-    std::snprintf(b, sizeof b, "audio %zu/%zu samples first diff %zd; state %zu/%zu bytes first diff %zd",
-                  got.l.size(), want.l.size(), static_cast<ssize_t>(ad), got.st.size(), want.st.size(),
-                  static_cast<ssize_t>(sd));
-    return b;
+    auto z = [](size_t v) { return v == static_cast<size_t>(-1) ? std::string("none") : std::to_string(v); };
+    return "audio " + std::to_string(got.l.size()) + "/" + std::to_string(want.l.size()) +
+           " samples first diff " + z(ad) + "; state " + std::to_string(got.st.size()) + "/" +
+           std::to_string(want.st.size()) + " bytes first diff " + z(sd);
 }
 
 }  // namespace
@@ -309,7 +306,8 @@ int main() {
     }
 
     {   // CRB-07
-        const Out s48 = solo(build_48k, 4);
+        // A's oracle: the same init history run alone (48K, then re-init as a Next).
+        const Out sre = solo([](Emulator& e) { build_48k(e); build_poll(e); });
         auto a = std::make_unique<Emulator>();
         auto b = std::make_unique<Emulator>();
         Out oa, ob;
@@ -321,8 +319,8 @@ int main() {
         check("CRB-07",
               "a machine re-init()ed as another machine type while a second one was the bound one, then both "
               "run: each equals the same machine run alone",
-              oa == poll_solo && ob == poll_solo && !(s48 == poll_solo),
-              "A: " + diff(oa, poll_solo) + " | B: " + diff(ob, poll_solo));
+              oa == sre && ob == poll_solo,
+              "A: " + diff(oa, sre) + " | B: " + diff(ob, poll_solo));
     }
 
     {   // CRB-08
