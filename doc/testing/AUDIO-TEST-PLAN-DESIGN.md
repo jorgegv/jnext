@@ -690,6 +690,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
 | AIZ-07 | A parked CPU looping over every audio write site (chip select, R13, a plain DAC port, 0xDF, a NextREG mirror, 0xFE with EAR toggling, a dropped 0xB3); `set_audio_log_enabled()` on in one run, off in the other | State bytes and framebuffer hash are equal over 50 frames: the write log only reads. Positive control: the run with the log on holds entries of all five targets |
+| AIZ-08 | A parked CPU looping over every audio write site (as AIZ-07); an AudioWrite subscription on ANY with a Log action on in one run, off in the other | State bytes and framebuffer hash are equal over 50 frames: the event only reads. Positive control: the run with it on delivered all five targets and a dropped write |
 | AIZ-09 | Each of the 13 channel mute bits, and ALL, for 50 frames, on versus off (14 runs) | State bytes and framebuffer hash are equal in every run (the hardware sums every channel: `turbosound.vhd:186-334`, `soundrive.vhd:112-113`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 
@@ -862,6 +863,50 @@ timestamps against the event system's own. CPU rows run a guest program; a write
 | AWL-26 | A soft reset, one frame with the CPU parked, a second soft reset | Two Reset rows at two cycles: only the same marker at the same cycle is one row |
 | AWL-27 | 10 frames, a checkpoint, 5 frames, load the checkpoint (the clock goes back), `rewind_to_frame(frame - 3)` (before the checkpoint); run 3 frames on | No write from the landing cycle on survives, the abandoned run before the load included; the undone StateLoad marker is gone; one Rewind marker last; running on logs no write twice |
 | AWL-28 | The same with the landing exactly at the load point (`rewind_to_frame(frame + 1)` after the load, the snapshot taken at the save cycle) | The StateLoad marker at that cycle stays, just before the Rewind marker; no write from that cycle on survives |
+
+### 8.7 Audio-write events (GH #532)
+
+An `AudioWrite` event kind: a subscription on the decoded audio writes, filtered by target, chip, register, value/mask, applied or dropped, and source. Oracles: `ym2149.vhd:188,210`, `turbosound.vhd:129,141`, `zxnext.vhd:2974-2980,3088,3091,5413,6989`, `soundrive.vhd:85-101`, and the event system's delivery contract (the raising boundary; one instruction late for a CPU NextREG write and a Copper MOVE). Suite: `audio_debug_test`. AIZ-08 is in 8.2.
+
+| ID | Drive | Expected |
+|----|-------|----------|
+| AEV-01 | Subscribe an AudioWrite filter with: no valid target (`0x20`); chip 4; a value outside its mask; a flag both required and forbidden; a register set with only DAC targets. Then the default filter | The five are `RefusedUnavailable`; the default is `Ok` |
+| AEV-02 | AY chip 0 R7 subscription (Stop), log off; `LD BC,0xFFFD; LD A,7; OUT (C),A; LD B,0xBF; LD A,0x38; OUT (C),A` with R7 preset 0x3F (the data OUT at 0x800B) | Paused at 0x800D with `matched` = the id; the Event: AudioWrite, AyRegister, chip 0, reg 7, value 0x38, prev 0x3F, port 0xBFFD, source Cpu, pc 0x800B, flags 0, reason None; the plain select made no stop (`ym2149.vhd:188`) |
+| AEV-03 | The same program, a chip 1 subscription | No stop (near miss: chip) |
+| AEV-04 | The same program, register 8 | No stop (near miss: register) |
+| AEV-05 | The same program, value/mask low nibble 8 | Stops at the 0x38 write |
+| AEV-06 | The same with the value 0x37 | No stop (near miss: value/mask) |
+| AEV-07 | Envelope-restart flag subscription; R13 = 8, R13 = 8 again, R12 = 8 | Two stops, one at each R13 OUT, the second with prev 0x08 (an unchanged value still restarts, `ym2149.vhd:188,210`); none at R12 |
+| AEV-08 | DAC subscription; `LD A,0x11; OUT (0x1F),A` | Stop at 0x8004; Event Dac, chip 0, port 0x001F, value 0x11, prev 0x80 |
+| AEV-09 | The same subscription; `NEXTREG 0x2D,0x66` then `NOP` | Two events (chips 0 then 3, DacMirror, reg 0x2D, port 0x002D, pc 0x8000); the stop is one instruction late (0x8005), as NextRegWrite is (`soundrive.vhd:85-101`) |
+| AEV-10 | The same subscription; an AY data write, an EAR change on 0xFE, a 0xFFFD chip-select command | No stop (near miss: target) |
+| AEV-11 | Dropped-only subscription, NR 0x84 bit 6 off, `OUT (C),A` to 0x00B3 | Stop; Event Dac, chip 0xFF, flags Dropped, reason DacFamilyDisabled, port 0x00B3 (`zxnext.vhd:2974-2980`) |
+| AEV-12 | The same subscription with the 0xB3 decode on (the write applies) | No stop (near miss: not dropped) |
+| AEV-13 | Applied-only R7 subscription; NR 0x06 = 11 (held in reset), a write; NEXTREG 6,0, select 7, a write | No stop for the held write (AyHeldInReset, `zxnext.vhd:6989`); one stop for the applied one |
+| AEV-14 | AY chip-select subscription, TurboSound on; the plain select 7, then the command 0xFE | One stop, at the command: chip 1, prev 0, value 0xFE, port 0xFFFD (`turbosound.vhd:129,141`) |
+| AEV-15 | Targets ANY with regs {0}; OUT 0x1F (a Dac entry, reg 0); then an AY R0 write | No stop at the DAC write; one stop at R0 (a register set applies to the AY register and mirror targets only) |
+| AEV-16 | Source-Dma subscription; a CPU OUT 0x1F; then a DMA byte to 0x00DF | No stop for the CPU write; the DMA write stops, with source Dma and two events (chips 0 and 3) |
+| AEV-17 | Mirror subscription; a Copper MOVE 0x2D,0x66 | Two events, source Copper, chips 0 then 3, delivered at the boundary after the instruction during which the MOVE ran |
+| AEV-18 | R7 subscription with `once`; two R7 writes | One stop; the subscription then reports `enabled == false`; the second write passes |
+| AEV-19 | The same filter, Log action | One SES-06 line per write, no pause |
+| AEV-20 | The same filter, Continue with a counting handler | Called once per write with value 0x38 and chip 0; no pause |
+| AEV-21 | Log ON and subscription ANY; `port_out` 0xFFFD = 7 then 0xBFFD = 0x22 | The log holds one AyRegister entry with source Debugger and no AudioWrite event fired (a debugger write fires nothing) |
+| AEV-22 | A one-entry latch ring (`shrink_ring_for_test(1)`); DAC subscription; `OUT (0xDF),A` (A and D) | One event delivered, chip 0, `overflowed` and `dropped == 1` |
+| AEV-23 | Log ON, ANY subscription with a Continue handler, after two frames: a CPU OUT 0xBFFD and a DMA byte to 0x00DF | Each event's cycle, frame, vc, hc and pc equal its log entry's (one stamp function) |
+| AEV-24 | Rewind on, a loop writing 0x1F; DAC subscription with a counting handler; 10 frames; `step_back(1)` | The count did not move during the replay; the landing is not a stop of the subscription |
+| AEV-25 | `audio_tap_active()` before anything; subscribed; disabled; re-enabled; master off; master on; unsubscribed | false, true, false, true, false, true, false: the tap is on exactly while a live AudioWrite subscription exists |
+| AEV-26 | DAC subscription; hard reset (`on_cold_boot_begin`, `emulator_cold_boot`, `on_cold_boot_done`); a CPU OUT 0x1F | The tap is on again on the rebuilt machine and the OUT stops |
+| AEV-27 | The AEV-02 stop | `matched[0].addr` and the pause reason's addr are the port 0xBFFD |
+| AEV-28 | Two subscriptions (AY chip 0, AY chip 1); a chip 0 write | `matched` holds exactly the chip 0 id (the drain applies the filter) |
+| AEV-29 | A Copper MOVE 0x2D,0x5A with the DAC off, subscription ANY: `audio_target` | DacMirror (`zxnext.vhd:5413`) |
+| AEV-30 | The same delivery: `port` | 0x002D |
+| AEV-31 | The same delivery: `reg` | 0x2D |
+| AEV-32 | The same delivery: `value` | 0x5A |
+| AEV-33 | The same delivery: `source` | Copper |
+| AEV-34 | The same delivery: `chip` | 0xFF (a dropped mirror write reached no channel) |
+| AEV-35 | The same delivery: `audio_flags` | Dropped |
+| AEV-36 | The same delivery: `drop_reason` | DacMirrorDisabled |
+| AEV-37 | A CPU R13 write on chip 2 (R13 preset 0x04, write 0x0A) | prev 0x04, chip 2, flags EnvelopeRestart, reg 13; with AEV-29..36 the four packed bytes carry pairwise distinct values in each fixture, so a swap of any two kills a row |
 
 ## Test Implementation Strategy
 

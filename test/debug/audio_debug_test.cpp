@@ -48,6 +48,7 @@
 #include "debug/audio_log_stream.h"
 #include "debug/audio_math.h"
 #include "debug/debugger.h"
+#include "debug/event_table.h"
 #include "debug/events.h"
 #include "platform/emulator_boot.h"
 #include "core/log.h"

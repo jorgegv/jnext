@@ -171,4 +171,10 @@ A script reads and sets the channel mutes with `AUDIO_CHANNEL_MUTE`: bit 0 to 8
 are the AY channels (bit `3 * chip + channel`, channel A = 0), bit 9 to 12 are
 DAC A to D, and a set bit is a muted channel.
 
+## Stopping on an audio write
+
+To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an
+**Audio Write** breakpoint in the [Breakpoints panel](08-breakpoints.md#audio-write-breakpoints),
+or write a rule with [`on ay_write` or `on audio_write`](../scripting/03-events.md#audio-ay_write-audio_write).
+
 ---

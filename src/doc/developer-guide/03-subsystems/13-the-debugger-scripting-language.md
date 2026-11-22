@@ -19,7 +19,7 @@ code departs from it. This page describes the code.
 
 | File | What it holds |
 |---|---|
-| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead; the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`) as single tokens; `cvar(PATH)` as one `CVar` token carrying the raw C path |
+| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead; the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`, `ay[`) as single tokens; `cvar(PATH)` as one `CVar` token carrying the raw C path |
 | `parser.{h,cpp}`, `ast.h` | recursive descent over the grammar; the syntax tree (`Script`, `Rule`, `EventSpec`, `Action`, `Expr`) |
 | `names.{h,cpp}` | the one table of reserved words, built-in state names (`LIVE`) and payload names (`PAYLOAD`); which names `set` may assign |
 | `check.{h,cpp}` | the load-time checks and BINDING: each upper-case name resolved to what it reads in its scope; `payload_legal()` — the per-event payload table |
@@ -33,6 +33,15 @@ code departs from it. This page describes the code.
 | `src/platform/recording_info.h` | `recording_info_of()`: the recorder's header facts, taken from the booted machine |
 | `src/platform/host_key_latch.h`, `host_key_wiring.h` | the script host keys (Alt+1..Alt+8) in the emulator windows |
 | `src/debugger/script_panel.*`, `debugger_window.cpp` | the Qt Script tab and Script menu |
+
+**Audio events (GH #532).** `on ay_write [chip] [reg] [mask value]` and `on audio_write [ay_reg | ay_select | dac]
+[chip] [reg] [mask value] [dropped]` are one `EventKind::AudioWrite` subscription: `subscriptions_for()` builds the
+target mask, the chip, the register set, the value/mask pair and the flags (`ay_write` is `audio_write ay_reg`;
+both are applied-only unless `dropped`, through `audio_flags_none`), and the parser enforces which qualifier
+needs which target. The payload is `TARGET CHIP REG VALUE PREV` (`P_TARGET`, `P_CHIP`; the other three are
+shared with `nextreg`). `ay[chip, reg]` is `ExprKind::Ay`, evaluated through `Debugger::ay_registers()`: the
+raw register latch, read-only (`parse_lvalue` refuses it), bounds-checked at run time. `ay_write`, `audio_write`,
+`chip`, `reg`, `ay_reg`, `ay_select`, `dac`, `dropped` and `ay` are reserved words.
 
 ## From text to a checked script
 

@@ -52,6 +52,18 @@ code as well as RAM page 0: check `mmu[s] != 0xFF` if you need RAM only.
 
 `nextreg[r]` reads NextREG `r` (0 to 0xFF), without its read side effects.
 
+## The AY chips
+
+`ay[c, r]` reads register `r` (0 to 15) of AY chip `c` (0 to 2): the raw register latch, the
+value the Audio panel's register table shows. It has no side effect. A chip or register out of
+range is a run-time error. It is read-only: write a register with `out 0xFFFD` and `out 0xBFFD`.
+
+```
+on ay_write reg 7 when ay[0, 7] == 0x3F do log "chip 0 mixer closed" end
+```
+
+At an `ay_write` the write has already landed, so `ay[CHIP, REG] == VALUE`.
+
 ## Time and the raster
 
 | Name | What |
