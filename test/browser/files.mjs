@@ -278,7 +278,7 @@ row('BOUT-08', '--export-skoolkit: the same file names as the native run and eve
   const n = await dirRow(a, 'sk', 'sk');
   must(n > 0, 'no skoolkit file');
 });
-row('BOUT-09', '--export-ghidra: the same file names and count as the native run and every file byte-equal', async () => {
+row('BOUT-09', '--export-ghidra: the same file names and count as the native run (measured: 0 files, the program has no labels) and every file byte-equal', async () => {
   const a = await useA();
   const n = await dirRow(a, 'gh', 'gh');
   must(n === tree(path.join(OUT, 'a', 'gh')).size, 'count ' + n);
@@ -293,7 +293,11 @@ function zipMembers(file) {
 }
 // The members whose bytes differ between the page's report and the native one, each with its reason
 // (found from a measured diff): the report says when and where it was made.
-const BR_DIFFERS = {};
+const BR_DIFFERS = {
+  'manifest.json': 'the creation time, the card file name and the sizes of settings.json and log.txt, and the host arch, OS and toolkit',
+  'settings.json': 'the argv: the program name, the card path and the page\'s --sdcard-sha256, in the page\'s order',
+  'log.txt': 'the timestamps, the audio driver and buffer line, and the page\'s ffmpeg warning',
+};
 row('BOUT-10', '--bug-report: both zips open in CPython\'s zipfile; the same member names; every member byte-equal except ' +
     (Object.keys(BR_DIFFERS).length ? Object.entries(BR_DIFFERS).map(([k, v]) => `${k} (${v})`).join(', ') : 'none'), async () => {
   const a = await useA();
