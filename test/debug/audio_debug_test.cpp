@@ -1604,7 +1604,7 @@ int main() {
             const Result r = dbg.step_back(cid, 1);
             const uint64_t w1 = tapped ? dbg.audio_scope_samples(0).value.first_sample : 0;
             const int after = emu.mixer().available();
-            dbg.resume(cid);
+            dbg.run(cid);
             for (int i = 0; i < 2; ++i) emu.run_frame();
             const uint64_t w2 = tapped ? dbg.audio_scope_samples(0).value.first_sample : 0;
             const bool resumed = emu.mixer().available() > 1000;
