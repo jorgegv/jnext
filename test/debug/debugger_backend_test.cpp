@@ -7674,6 +7674,7 @@ static void e25_mem_coverage_rows() {
 // Verb table (every non-const public method of debugger.h):
 //   bump      set_register poke set_mmu_slot nextreg_write port_in port_out
 //             set_sprite_attr_raw write_pattern_ram set_audio_mute_mask
+//             set_audio_channel_mute_mask
 //             set_palette set_border set_key set_extended_key set_joystick
 //             press_key press_nmi reset(Soft) load_state_bytes bookmark_restore
 //             load_map clear_symbols load_source_map clear_source_map
@@ -7733,6 +7734,8 @@ static void gh428_rev_rows() {
                 return d.write_pattern_ram(a, 0x100, pat, 2) == Result::Ok; });
     rev_row1("REV-08", "set_audio_mute_mask advances the revision",
             [](Debugger& d, Emulator&, ClientId a) { return d.set_audio_mute_mask(a, 0x01) == Result::Ok; });
+    rev_row1("REV-47", "set_audio_channel_mute_mask advances the revision (GH #533)",
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_audio_channel_mute_mask(a, 0x0003) == Result::Ok; });
     rev_row1("REV-09", "set_palette advances the revision",
             [](Debugger& d, Emulator&, ClientId a) {
                 return d.set_palette(a, jnext::dbg::PaletteId::UlaFirst, 3, 0x1FF) == Result::Ok; });

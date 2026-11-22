@@ -1112,6 +1112,14 @@ static void lvalue_rows() {
               bad.empty(), bad);
     }
     {
+        const auto b = body_of("set AUDIO_CHANNEL_MUTE = 0x1FE");
+        const auto lb = live_builtin("AUDIO_CHANNEL_MUTE");
+        check("PARSE-ACM-01", "AUDIO_CHANNEL_MUTE parses as a set target, is a live built-in, is assignable and is not a payload name",
+              b.size() == 1 && is_kind(b[0].target, ExprKind::Name) && b[0].target->text == "AUDIO_CHANNEL_MUTE" &&
+                  lb.has_value() && *lb == Builtin::AUDIO_CHANNEL_MUTE && is_assignable(*lb) &&
+                  !payload_builtin("AUDIO_CHANNEL_MUTE").has_value() && is_builtin_name("AUDIO_CHANNEL_MUTE"));
+    }
+    {
         static const char* const NAMES[] = {"HALTED", "FRAME", "CYCLE", "TFRAME", "RAW_HC",
                                             "CVC", "MACHINE", "ADDR", "VALUE", "PC2"};
         std::string bad;
@@ -1524,6 +1532,18 @@ static void eval_state_rows(Emulator& emu) {
         check("EVAL-AUDIO", "AUDIO_MUTE reads the host mute mask", set && E_is("AUDIO_MUTE", 0x16),
               E_str("AUDIO_MUTE"));
         if (cid) g_dbg->detach(cid.value);
+    }
+    {
+        auto cid = g_dbg->attach(jnext::dbg::ClientInfo{"script_parse_test", jnext::dbg::ClientKind::Test});
+        const bool set = cid && g_dbg->set_audio_mute_mask(cid.value, 0x16) == jnext::dbg::Result::Ok &&
+                         g_dbg->set_audio_channel_mute_mask(cid.value, 0x1234) == jnext::dbg::Result::Ok;
+        check("EVAL-ACM-01", "AUDIO_CHANNEL_MUTE reads the channel mute mask, AUDIO_MUTE still reads its own, and a breakpoint "
+              "condition over it compiles and holds",
+              set && E_is("AUDIO_CHANNEL_MUTE", 0x1234) && E_is("AUDIO_MUTE", 0x16) &&
+                  compiles("AUDIO_CHANNEL_MUTE & 0x0200", PayloadScope::none()) &&
+                  C("AUDIO_CHANNEL_MUTE & 0x0200", PayloadScope::none(), DbgEvent{}).value_or(false),
+              E_str("AUDIO_CHANNEL_MUTE"));
+        if (cid) { g_dbg->set_audio_channel_mute_mask(cid.value, 0); g_dbg->detach(cid.value); }
     }
 
     {
