@@ -9,7 +9,6 @@
 #include "core/emulator.h"
 
 using jnext::dbg::AudioDropReason;
-using jnext::dbg::AudioFlag;
 using jnext::dbg::AudioLogEntry;
 using jnext::dbg::AudioMarker;
 using jnext::dbg::AudioTarget;
@@ -50,7 +49,7 @@ void Emulator::tap_ay_data_(uint16_t port, uint8_t val, uint8_t prev, uint8_t ch
     e.port = port;
     // Any APPLIED write to R13 restarts the envelope, whatever the value
     // (ym2149.vhd:188,207-210).
-    if (addr == 13) e.flags |= AudioFlag::EnvelopeRestart;
+    if (addr == 13) e.flags |= jnext::dbg::AudioFlag::EnvelopeRestart;
     audio_tap_->audio_record(e);
 }
 
@@ -99,7 +98,7 @@ void Emulator::tap_drop_(AudioDropReason r, uint16_t port, uint8_t val)
     AudioLogEntry e = tap_entry_();
     e.value = val;
     e.port = port;
-    e.flags = AudioFlag::Dropped;
+    e.flags = jnext::dbg::AudioFlag::Dropped;
     e.drop_reason = r;
     switch (r) {
         case AudioDropReason::DacFamilyDisabled:
