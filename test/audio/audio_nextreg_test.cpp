@@ -40,6 +40,9 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 #include "../row_id.h"
@@ -978,17 +981,515 @@ static void test_nr_mixer(Emulator& emu) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Group NR-DAC-GATE — dac_hw_en / dac_en gate (NR 0x08 bit 3 = 1 enables
-// the Soundrive port-write path; =0 drops writes and holds the channel
-// registers at silence).
+// Group NR-TAPE-MIX — what reaches the mixer from the tape, the Pi's EAR
+// route and the beeper (GH #550), and what a state load re-derives.
 // ══════════════════════════════════════════════════════════════════════
 //
-// VHDL zxnext.vhd:5179, :6436:
-//   nr_08_dac_en <= nr_wr_dat(3);
-//   soundrive.reset_i <= reset OR NOT nr_08_dac_en;  → channels held at 0x80
-// jnext models this at src/core/emulator.cpp:1304-1308 where every DAC
-// port handler is wrapped in `if (dac_enabled_) …`. With the gate closed
-// the registers stay at 0x80 silence.
+// audio_mixer.vhd has exactly three beeper-side inputs: ear_i (512), mic_i
+// (128) and exc_i (35-37, 63-64, 80-81, 99-100). There is no tape input: the
+// tape (i_AUDIO_EAR) reaches the mix only inside mic_i = beep_mic_final
+//   i_AUDIO_EAR xor (port_fe_mic and nr_08_keyboard_issue2) xor port_fe_mic
+// (zxnext.vhd:6503, 6516 on master). Signed sample = (13-bit sum - 1536) x 4
+// (Mixer::MIX_REST_LEVEL: DAC 1024 + I2S 512), so EAR alone = 512 x 4 = 2048
+// and the MIC term alone = 128 x 4 = 512. The beeper is mono: L == R always.
+// i_AUDIO_EAR is the jack through ear_relax (zxnext_top_issue2.vhd:662-677,
+// symmetric_relaxation.vhd:62-90): a level with no edge for 64 enables of
+// CLK_28_MEMBRANE_EN (one per 512 master cycles, :1179) relaxes to
+// zxn_issue2_fe_mic = port_fe_mic and nr_08_keyboard_issue2 (zxnext.vhd:1636).
+// ══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+constexpr uint64_t kRelaxMaster = 64 * 512;   // symmetric_relaxation.vhd:62,89-90
+
+using Bytes = std::vector<uint8_t>;
+
+std::string tape_tmp(const char* name) {
+    const std::filesystem::path d = std::filesystem::temp_directory_path() / "jnext_gh550";
+    std::filesystem::create_directories(d);
+    return (d / name).string();
+}
+
+void tape_write(const std::string& path, const Bytes& b) {
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    f.write(reinterpret_cast<const char*>(b.data()), static_cast<std::streamsize>(b.size()));
+}
+
+std::unique_ptr<Emulator> next_machine_550() {
+    auto e = std::make_unique<Emulator>();
+    build_next_emulator(*e);
+    return e;
+}
+
+// DI; JR $ at 0x8000, PC there: stepping instructions writes no port.
+void idle_loop(Emulator& emu) {
+    emu.mmu().write(0x8000, 0xF3);
+    emu.mmu().write(0x8001, 0x18);
+    emu.mmu().write(0x8002, 0xFE);
+    auto r = emu.cpu().get_registers();
+    r.PC = 0x8000;
+    r.SP = 0x7FF0;
+    r.IFF1 = r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+// The mixer's instantaneous output with the emulator's OWN mixer (its exc_i
+// and its I2s wiring are the real ones): flush and drain what stepping left,
+// generate one sample, read the pair.
+bool mix_now(Emulator& emu, int& L, int& R) {
+    emu.mixer().emit_sample();
+    int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};
+    emu.mixer().read_samples(scratch, emu.mixer().available());
+    emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
+    int16_t s[2] = {0, 0};
+    const int got = emu.mixer().read_samples(s, 1);
+    L = s[0];
+    R = s[1];
+    return got == 1;
+}
+
+// One value for both channels (the beeper is mono); -99999 when L != R.
+int mix_val(Emulator& emu) {
+    int L = 0, R = 0;
+    if (!mix_now(emu, L, R)) return -88888;
+    return L == R ? L : -99999;
+}
+
+// TAP with one 1-byte block: 0x04 0x00 0xFF 0x01 0x02 0xFC (TSAVE-30's).
+bool start_tap(Emulator& emu) {
+    const std::string tap = tape_tmp("mx.tap");
+    tape_write(tap, {0x04, 0x00, 0xFF, 0x01, 0x02, 0xFC});
+    if (!emu.load_tap(tap, false)) return false;
+    emu.tape().start_realtime_playback();
+    return true;
+}
+
+// TZX of one pure-tone block (0x12): 8 pulses of `pulse_t` T-states (8 master
+// cycles each at 3.5 MHz), each longer than the 4096 T relaxation hold.
+bool start_tzx_tone(Emulator& emu, uint16_t pulse_t = 6000) {
+    const std::string p = tape_tmp("tone.tzx");
+    Bytes b = {'Z','X','T','a','p','e','!', 0x1A, 1, 20, 0x12,
+               static_cast<uint8_t>(pulse_t & 0xFF), static_cast<uint8_t>(pulse_t >> 8), 0x08, 0x00};
+    tape_write(p, b);
+    return emu.load_tzx(p, false);
+}
+
+// Step until the raw tape level reads `want` (bounded). Returns the master
+// clock at the instruction that showed it (the edge, to one instruction).
+bool step_to_level(Emulator& emu, bool want, uint64_t* at = nullptr) {
+    for (int i = 0; i < 400000; ++i) {
+        emu.execute_single_instruction();
+        if (emu.beeper().tape_ear() == want) {
+            if (at) *at = emu.clock().get();
+            return true;
+        }
+    }
+    return false;
+}
+
+// Step until the master clock reaches `t`.
+void step_to_clock(Emulator& emu, uint64_t t) {
+    for (int i = 0; i < 400000 && emu.clock().get() < t; ++i) emu.execute_single_instruction();
+}
+
+// Wait for a real EDGE to `want`: first leave `want`, then enter it.
+bool step_to_edge(Emulator& emu, bool want, uint64_t* at) {
+    return step_to_level(emu, !want) && step_to_level(emu, want, at);
+}
+
+std::vector<uint8_t> snapshot_of(Emulator& emu) {
+    StateWriter m;
+    emu.save_state(m);
+    std::vector<uint8_t> img(m.position(), 0);
+    StateWriter w(img.data(), img.size());
+    emu.save_state(w);
+    return img;
+}
+
+bool restore_into(Emulator& emu, const std::vector<uint8_t>& img) {
+    StateReader r(img.data(), img.size());
+    return emu.load_state(r);
+}
+
+} // namespace
+
+static void test_tape_mix() {
+    set_group("NR-TAPE-MIX");
+
+    // MX-62 - the tape reaches the mix through the MIC term at 128, not as a
+    // term of its own: issue 3, port 0xFE = 0, tape playing: level 1 -> 512,
+    // level 0 -> 0. (audio_mixer.vhd:64,81,99; zxnext.vhd:6503,6516)
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x00);
+        const bool ok = start_tap(*e);
+        const bool a = step_to_level(*e, true);
+        const int hi = mix_val(*e);
+        const bool b = step_to_level(*e, false);
+        const int lo = mix_val(*e);
+        check("MX-62", "the tape reaches the mix through the MIC term at 128 (x4 = 512), not as a "
+              "term of its own [audio_mixer.vhd:64,81,99; zxnext.vhd:6503,6516]",
+              ok && a && b && hi == 512 && lo == 0,
+              fmt("level1=%d level0=%d (want 512 / 0)", hi, lo));
+    }
+
+    // MX-63 - tape XOR MIC on issue 3: port 0xFE = 0x08 (MIC 1): level 1 -> 0,
+    // level 0 -> 512. (zxnext.vhd:6503: 1 xor 0 xor 1 = 0; 0 xor 0 xor 1 = 1)
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x08);
+        const bool ok = start_tap(*e);
+        const bool a = step_to_level(*e, true);
+        const int hi = mix_val(*e);
+        const bool b = step_to_level(*e, false);
+        const int lo = mix_val(*e);
+        check("MX-63", "issue 3: the tape level is XORed with the port 0xFE MIC bit "
+              "[zxnext.vhd:6503]", ok && a && b && hi == 0 && lo == 512,
+              fmt("level1=%d level0=%d (want 0 / 512)", hi, lo));
+    }
+
+    // MX-64 - issue 2: the MIC bit cancels while a tape plays (t xor 1 xor 1 = t).
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x11);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x08);
+        const bool ok = start_tap(*e);
+        const bool a = step_to_level(*e, true);
+        const int hi = mix_val(*e);
+        const bool b = step_to_level(*e, false);
+        const int lo = mix_val(*e);
+        check("MX-64", "issue 2 (NR 0x08 bit 0): the port 0xFE MIC bit cancels while a tape plays "
+              "[zxnext.vhd:6503]", ok && a && b && hi == 512 && lo == 0,
+              fmt("level1=%d level0=%d (want 512 / 0)", hi, lo));
+    }
+
+    // MX-65 - no tape: the MIC term is the MIC bit on both settings, also right
+    // after a stop (the issue-2 relaxed state returns).
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x11);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x08);
+        const bool ok = start_tap(*e);
+        const bool a = step_to_level(*e, false);
+        const int playing0 = mix_val(*e);
+        e->tape().eject();
+        e->execute_single_instruction();
+        const int ejected = mix_val(*e);
+
+        auto f = next_machine_550();
+        nr_write(*f, 0x06, 0x00);
+        nr_write(*f, 0x08, 0x10);
+        idle_loop(*f);
+        f->port().out(0x00FE, 0x08);
+        f->execute_single_instruction();
+        const int mic_on = mix_val(*f);
+        f->port().out(0x00FE, 0x00);
+        f->execute_single_instruction();
+        const int mic_off = mix_val(*f);
+        check("MX-65", "no tape: the MIC term is the MIC bit on both keyboard settings, including "
+              "right after a stop [zxnext.vhd:6503,1636; zxnext_top_issue2.vhd:674-675]",
+              ok && a && playing0 == 0 && ejected == 512 && mic_on == 512 && mic_off == 0,
+              fmt("issue2 level0=%d after-eject=%d issue3 mic1=%d mic0=%d (want 0/512/512/0)",
+                  playing0, ejected, mic_on, mic_off));
+    }
+
+    // MX-66 - EAR stays 512 and the tape adds 128 on top (EAR:tape = 4:1).
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x10);
+        const bool ok = start_tap(*e);
+        const bool a = step_to_level(*e, true);
+        const int hi = mix_val(*e);
+        const bool b = step_to_level(*e, false);
+        const int lo = mix_val(*e);
+        check("MX-66", "EAR (port 0xFE bit 4) stays 512 and the tape adds 128 on top, 4:1 "
+              "[audio_mixer.vhd:63-64,99]", ok && a && b && hi == 2560 && lo == 2048,
+              fmt("level1=%d level0=%d (want 2560 / 2048)", hi, lo));
+    }
+
+    // MX-67 - exc_i silences the tape with EAR and MIC.
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x40);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x18);
+        const bool ok = start_tap(*e);
+        const bool a = step_to_level(*e, true);
+        const int hi = mix_val(*e);
+        const bool b = step_to_level(*e, false);
+        const int lo = mix_val(*e);
+        check("MX-67", "exc_i (NR 0x06 b6 and NR 0x08 b4) silences the tape's term with EAR and MIC "
+              "[audio_mixer.vhd:80-81; zxnext.vhd:6504,6514]",
+              ok && a && b && hi == 0 && lo == 0,
+              fmt("level1=%d level0=%d (want 0 / 0)", hi, lo));
+    }
+
+    // MX-68 - Pi audio routed to EAR reaches the MIC term; the I2S term stays
+    // at rest (zxnext.vhd:2358,2364-2373,6503).
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x00);
+        e->i2s().set_sample(0x3FF, 0x3FF);
+        nr_write(*e, 0xA2, 0xC1);
+        e->execute_single_instruction();
+        const int v = mix_val(*e);
+        check("MX-68", "Pi audio routed to EAR (NR 0xA2 = 0xC1) reaches the MIC term at 128; the "
+              "I2S term stays at rest [zxnext.vhd:2358,2364-2373,6503; zxnext_top_issue2.vhd:673]",
+              e->i2s().fe_ear() && v == 512, fmt("fe_ear=%d mix=%d (want 1 / 512)",
+              e->i2s().fe_ear() ? 1 : 0, v));
+    }
+
+    // MX-69 - while routed and unrelaxed, port 0xFE MIC and NR 0x08 issue 2 both
+    // feed the MIC term (1 xor 0 xor 1 = 0; 1 xor 1 xor 1 = 1).
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x00);
+        e->i2s().set_sample(0x3FF, 0x3FF);
+        nr_write(*e, 0xA2, 0xC1);
+        e->port().out(0x00FE, 0x08);
+        const int a = mix_val(*e);
+        nr_write(*e, 0x08, 0x11);
+        const int b = mix_val(*e);
+        check("MX-69", "while the Pi's EAR is routed and unrelaxed, port 0xFE MIC and NR 0x08 issue "
+              "2 both feed the MIC term [zxnext.vhd:6503]", a == 0 && b == 512,
+              fmt("mic=%d issue2=%d (want 0 / 512)", a, b));
+    }
+
+    // MX-70 - ear_relax: a Pi level held 64 x 512 master cycles relaxes to
+    // issue2_mic (0 here). Step instructions: before the hold it is 512, after 0.
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x00);
+        e->i2s().set_sample(0x3FF, 0x3FF);
+        nr_write(*e, 0xA2, 0xC1);
+        const uint64_t t0 = e->clock().get();
+        step_to_clock(*e, t0 + 30000);
+        const int early = mix_val(*e);
+        step_to_clock(*e, t0 + 34500);
+        const int late = mix_val(*e);
+        check("MX-70", "ear_relax: a Pi EAR level held 64 x 512 master cycles relaxes to the issue-2 "
+              "MIC level [symmetric_relaxation.vhd:76,89-90; zxnext_top_issue2.vhd:666-675,1179]",
+              early == 512 && late == 0, fmt("+30000=%d +34500=%d (want 512 / 0)", early, late));
+    }
+
+    // MX-71 - a state load re-derives the MIC term (no tape: port_fe_mic).
+    {
+        auto a = next_machine_550();
+        a->port().out(0x00FE, 0x08);
+        const auto img = snapshot_of(*a);
+        auto b = next_machine_550();
+        nr_write(*b, 0x06, 0x00);
+        const bool ok = restore_into(*b, img);
+        check("MX-71", "a state load re-derives the MIC term [zxnext.vhd:6503]",
+              ok && mix_val(*b) == 512, fmt("mix=%d (want 512)", mix_val(*b)));
+    }
+
+    // MX-72 - R1: a state load re-derives the exc gate.
+    {
+        auto a = next_machine_550();
+        nr_write(*a, 0x06, 0x40);
+        nr_write(*a, 0x08, 0x10);
+        a->port().out(0x00FE, 0x10);
+        const auto img = snapshot_of(*a);
+        auto b = next_machine_550();
+        nr_write(*b, 0x06, 0x00);
+        const bool ok = restore_into(*b, img);
+        const int v = mix_val(*b);
+        check("MX-72", "a state load re-derives the exc gate: NR 0x06 b6 and exc_i come back from the "
+              "restored registers [zxnext.vhd:6504,6514; audio_mixer.vhd:80]",
+              ok && b->beep_spkr_excl() && v == 0,
+              fmt("excl=%d mix=%d (want 1 / 0)", b->beep_spkr_excl() ? 1 : 0, v));
+        // And the reverse: a snapshot with the gate open into a machine with it closed.
+        auto c = next_machine_550();
+        nr_write(*c, 0x06, 0x00);
+        nr_write(*c, 0x08, 0x10);
+        c->port().out(0x00FE, 0x10);
+        const auto img2 = snapshot_of(*c);
+        auto d = next_machine_550();
+        nr_write(*d, 0x06, 0x40);
+        nr_write(*d, 0x08, 0x10);
+        const bool ok2 = restore_into(*d, img2);
+        const int v2 = mix_val(*d);
+        check("MX-81", "a state load re-derives the exc gate in the other direction too "
+              "[zxnext.vhd:6504,6514; audio_mixer.vhd:80]",
+              ok2 && !d->beep_spkr_excl() && v2 == 2048,
+              fmt("excl=%d mix=%d (want 0 / 2048)", d->beep_spkr_excl() ? 1 : 0, v2));
+    }
+
+    // D6 - ear_relax on a PLAYING tape: i_AUDIO_EAR is the jack through
+    // ear_relax, so a level with no edge for 64 x 512 master cycles relaxes to
+    // zxn_issue2_fe_mic, tape or not (zxnext_top_issue2.vhd:662-677). The tone
+    // pulses are 6000 T (48000 master cycles), longer than the hold.
+    {
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x10);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x00);
+        const bool ok = start_tzx_tone(*e);
+        uint64_t t = 0;
+        const bool a = step_to_edge(*e, true, &t);
+        const int fresh_hi = mix_val(*e);
+        step_to_clock(*e, t + 4000 * 8 / 2);
+        const int held_early = mix_val(*e);
+        const uint8_t port_early = e->port().in(0x00FE);
+        step_to_clock(*e, t + kRelaxMaster + 1700);
+        const int held_late = mix_val(*e);
+        const uint8_t port_late = e->port().in(0x00FE);
+        check("MX-74", "a tape level held with no edge for 64 x 512 master cycles relaxes to the "
+              "issue-2 MIC level (0 here) in the mix [symmetric_relaxation.vhd:76,89-90; "
+              "zxnext_top_issue2.vhd:666-677]",
+              ok && a && e->beeper().tape_ear() && fresh_hi == 512 && held_early == 512 &&
+              held_late == 0,
+              fmt("edge=%d held<K=%d held>K=%d tape_ear=%d (want 512/512/0, tape 1)",
+                  fresh_hi, held_early, held_late, e->beeper().tape_ear() ? 1 : 0));
+        check("MX-75", "the same relaxation reaches the port 0xFE read: bit 6 follows the held tape "
+              "level until the hold, then the issue-2 MIC level [zxnext.vhd:3459; "
+              "symmetric_relaxation.vhd:89-90]",
+              ((port_early >> 6) & 1) == 1 && ((port_late >> 6) & 1) == 0,
+              fmt("port 0xFE early=0x%02X late=0x%02X (want bit6 1 / 0)", port_early, port_late));
+    }
+    {
+        // Issue 2 + MIC = 1: the relaxed level is 1. A held 0 reads 0 until the
+        // hold, 1 after; the next edge restarts the hold.
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x11);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x08);
+        const bool ok = start_tzx_tone(*e);
+        uint64_t t = 0;
+        const bool a = step_to_edge(*e, false, &t);
+        const int fresh_lo = mix_val(*e);
+        step_to_clock(*e, t + kRelaxMaster + 1700);
+        const int relaxed = mix_val(*e);
+        uint64_t t2 = 0;
+        const bool b = step_to_level(*e, true, &t2);
+        const int hi = mix_val(*e);
+        const bool c = step_to_level(*e, false, &t2);
+        const int fresh_lo2 = mix_val(*e);
+        check("MX-76", "issue 2 + MIC: a held tape 0 relaxes to the MIC level (mix 0 -> 512), and "
+              "the next edge restarts the hold [symmetric_relaxation.vhd:62,76,89-90; "
+              "zxnext.vhd:1636,6503]",
+              ok && a && b && c && fresh_lo == 0 && relaxed == 512 && hi == 512 && fresh_lo2 == 0,
+              fmt("edge=%d relaxed=%d next-high=%d next-low=%d (want 0/512/512/0)",
+                  fresh_lo, relaxed, hi, fresh_lo2));
+    }
+    {
+        // A tape plus the Pi, issue 2 + MIC (relaxed level 1): the hold counts
+        // from the latest edge of EITHER source (sig = tape xor pi_fe_ear).
+        auto e = next_machine_550();
+        nr_write(*e, 0x06, 0x00);
+        nr_write(*e, 0x08, 0x11);
+        idle_loop(*e);
+        e->port().out(0x00FE, 0x08);
+        const bool ok = start_tzx_tone(*e, 12000);
+        uint64_t t = 0;
+        const bool a = step_to_edge(*e, true, &t);
+        step_to_clock(*e, t + 30000);
+        // A Pi edge inside the tape's hold: tape 1 xor pi 1 = sig 0.
+        e->i2s().set_sample(0x3FF, 0x3FF);
+        nr_write(*e, 0xA2, 0xC1);
+        const uint64_t tp = e->clock().get();
+        step_to_clock(*e, t + kRelaxMaster + 1700);      // past the tape's own hold
+        const int extended = mix_val(*e);
+        step_to_clock(*e, tp + kRelaxMaster + 1700);     // past the Pi edge's hold
+        const int relaxed = mix_val(*e);
+        check("MX-77", "the relaxation hold restarts at an edge of tape XOR pi_fe_ear: a Pi edge "
+              "inside the tape's hold extends it [zxnext_top_issue2.vhd:673; "
+              "symmetric_relaxation.vhd:70-77]",
+              ok && a && e->i2s().fe_ear() && extended == 0 && relaxed == 512,
+              fmt("extended=%d relaxed=%d (want 0 / 512)", extended, relaxed));
+    }
+}
+
+// D9 - the NR 0x06 shadows `init()` derives and `load_state` must re-derive
+// (the registers restore through NextReg, the shadows are not in the stream).
+static void test_nr06_restore() {
+    set_group("NR-06-RESTORE");
+
+    // MX-78 - the NMI button enables (bits 4:3, zxnext.vhd:5726-5727).
+    {
+        auto a = next_machine_550();
+        nr_write(*a, 0x06, 0x18);
+        const auto img = snapshot_of(*a);
+        auto b = next_machine_550();
+        nr_write(*b, 0x06, 0x00);
+        const bool ok = restore_into(*b, img);
+        // And the reverse direction.
+        auto c = next_machine_550();
+        nr_write(*c, 0x06, 0x00);
+        const auto img2 = snapshot_of(*c);
+        auto d = next_machine_550();
+        nr_write(*d, 0x06, 0x18);
+        const bool ok2 = restore_into(*d, img2);
+        check("MX-78", "a state load re-derives the NMI button enables from the restored NR 0x06 "
+              "(bits 4:3) [zxnext.vhd:5726-5727,2399-2400]",
+              ok && ok2 && b->nr_06_button_m1_nmi_en() && b->nr_06_button_drive_nmi_en() &&
+              !d->nr_06_button_m1_nmi_en() && !d->nr_06_button_drive_nmi_en(),
+              fmt("restored m1=%d drive=%d (want 1/1); cleared m1=%d drive=%d (want 0/0)",
+                  b->nr_06_button_m1_nmi_en(), b->nr_06_button_drive_nmi_en(),
+                  d->nr_06_button_m1_nmi_en(), d->nr_06_button_drive_nmi_en()));
+    }
+
+    // MX-79 - nr_06_ps2_mode (bit 2, config mode only, zxnext.vhd:5728-5729): the
+    // NR 0x06 read returns it (:6488).
+    {
+        auto a = next_machine_550();
+        nr_write(*a, 0x06, 0x04);          // power-on is config mode: the latch is open
+        const uint8_t a_read = nr_read(*a, 0x06);
+        const auto img = snapshot_of(*a);
+        auto b = next_machine_550();
+        nr_write(*b, 0x06, 0x00);
+        const bool ok = restore_into(*b, img);
+        const uint8_t b_read = nr_read(*b, 0x06);
+        check("MX-79", "a state load re-derives nr_06_ps2_mode: the NR 0x06 read returns bit 2 as "
+              "saved [zxnext.vhd:5728-5729,6488]",
+              ok && (a_read & 0x04) != 0 && (b_read & 0x04) != 0,
+              fmt("saved read=0x%02X restored read=0x%02X (want bit 2 set in both)", a_read, b_read));
+    }
+
+    // MX-80 - the F3 / F8 hotkey enables (bits 5, 7, zxnext.vhd:6342,6347): F8
+    // steps the CPU speed only while NR 0x06 bit 7 is set. Snapshot with the
+    // hotkeys disabled, restore into a machine with them enabled: F8 must do nothing.
+    {
+        auto a = next_machine_550();
+        nr_write(*a, 0x06, 0x00);
+        const auto img = snapshot_of(*a);
+        auto b = next_machine_550();                 // power-on: both enables set (0xA0)
+        const bool ok = restore_into(*b, img);
+        const uint8_t before = nr_read(*b, 0x07) & 0x03;
+        b->emu_fnkeys().simulate_mf_fkey_press(8);
+        const uint8_t after = nr_read(*b, 0x07) & 0x03;
+        check("MX-80", "a state load re-derives the hotkey enables from the restored NR 0x06: F8 "
+              "(bit 7 clear) leaves the CPU speed alone [zxnext.vhd:6347,5162]",
+              ok && before == after, fmt("speed before=%u after=%u (want equal)", before, after));
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_nr_dac_gate(Emulator& emu) {
@@ -1371,6 +1872,8 @@ int main() {
     test_nr_dac(emu);       std::printf("  Group: NR-DAC -- done\n");
     test_nr_beep(emu);      std::printf("  Group: NR-BEEP -- done\n");
     test_nr_mixer(emu);     std::printf("  Group: NR-MIXER -- done\n");
+    test_tape_mix();        std::printf("  Group: NR-TAPE-MIX -- done\n");
+    test_nr06_restore();    std::printf("  Group: NR-06-RESTORE -- done\n");
     test_nr_dac_gate(emu);  std::printf("  Group: NR-DAC-GATE -- done\n");
     test_nr_a2(emu);        std::printf("  Group: NR-0xA2 -- done\n");
     test_reset_scope(emu);  std::printf("  Group: Reset-scope -- done\n");
