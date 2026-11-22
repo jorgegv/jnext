@@ -88,7 +88,8 @@ public:
     DebugView debug_view() const;
 
 private:
-    void load_envelope();   // apply a pending env_reset_ (ym2149.vhd:340-341, 393-401)
+    void load_envelope();   // apply a pending env_reset_ (ym2149.vhd:340-342, 393-409)
+    void step_shape_();     // one envelope shape step: the half of update_envelope() after the period counter
 
     uint8_t id_;
     bool ay_mode_ = true;  // true=AY, false=YM
