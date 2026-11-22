@@ -491,6 +491,11 @@ static void build_counter(Emulator& emu) {
                            0x18, 0xF7});        // JR 0x8001
 }
 
+// The build_counter() program again, the CPU back on it (after a reset).
+static void cpu_program_loop(Emulator& emu) {
+    run_from(emu, 0x8000, {0xF3, 0x3C, 0xD3, 0x1F, 0x06, 0xFF, 0x10, 0xFE, 0x18, 0xF7});
+}
+
 // Steps until the newest entry is a fresh write, so a landing before it has something to remove.
 static void step_to_a_write(Emulator& emu, Debugger& dbg) {
     steps(emu, 100);
@@ -1789,8 +1794,24 @@ int main() {
         const auto after = all_entries(dbg);
         bool removed = false;
         const bool ok = landing_ok(before, after, emu.clock().get(), removed);
-        check("AWL-15", "rewind_to_frame(frame - 3), the no-replay landing: entries from the landing cycle on removed, those before kept, one Rewind marker",
-              r == Result::Ok && ok && removed);
+        // A landing stops at the previous marker: what precedes it belongs to another timeline, whose
+        // cycles are not comparable. A soft reset, a few frames, then a landing at a cycle far below the
+        // pre-reset entries' cycles must keep every pre-reset entry.
+        const size_t pre = after.size();
+        const Result rr = dbg.reset(cid, ResetKind::Soft);
+        cpu_program_loop(emu);
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(cid);
+        const uint32_t t2 = dbg.time().frame - 1;
+        const Result rf = dbg.rewind_to_frame(cid, t2);
+        const auto fin = all_entries(dbg);
+        size_t markers_before_tail = 0;
+        for (size_t i = 0; i < fin.size() && i < pre + 1; ++i) markers_before_tail += fin[i].marker != AudioMarker::None;
+        bool kept = fin.size() >= pre + 1 && rr == Result::Ok && rf == Result::Ok;
+        for (size_t i = 0; kept && i < pre; ++i) kept = fin[i].seq == after[i].seq && fin[i].cycle == after[i].cycle;
+        if (!kept) std::printf("    marker stop: pre %zu fin %zu rr=%d rf=%d\n", pre, fin.size(), int(rr), int(rf));
+        check("AWL-15", "rewind_to_frame(frame - 3), the no-replay landing: entries from the landing cycle on removed, those before kept, one Rewind marker; after a soft reset a second landing keeps every entry before the Reset marker (a landing stops at a marker)",
+              r == Result::Ok && ok && removed && kept && markers_before_tail >= 1);
     }
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);
