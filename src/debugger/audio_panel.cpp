@@ -154,7 +154,7 @@ bool AudioPanel::chips_on_show() const {
 }
 
 bool AudioPanel::scopes_on_show() const {
-    return tabs_ && tabs_->currentWidget() == scope_view_;
+    return tabs_ && scope_view_ && tabs_->currentWidget() == scope_view_;
 }
 
 void AudioPanel::refresh_scopes() {
