@@ -1913,7 +1913,7 @@ static void test_tracker_tab(Emulator& emu) {
         AudioPanel panel(&dbg);
         show_tracker_tab(panel);
         cpu_program(emu, {0x18, 0xFE});                 // JR $
-        run_instructions(emu, 5);
+        emu.run_frame();                                // a frame boundary: the writes below are stamped by it
         const uint32_t f1 = dbg.time().frame;
         ay_wr(emu, 0, 0xFC); ay_wr(emu, 1, 0x00); ay_wr(emu, 8, 0x0F);
         emu.run_frame();
@@ -1943,7 +1943,7 @@ static void test_tracker_tab(Emulator& emu) {
         AudioPanel panel(&dbg);
         show_tracker_tab(panel);
         cpu_program(emu, {0x18, 0xFE});
-        run_instructions(emu, 5);
+        emu.run_frame();                                // a frame boundary: the writes below are stamped by it
         ay_wr(emu, 8, 0x01);
         panel.refresh();
         const int after1 = trk_rows(panel);
@@ -1972,7 +1972,7 @@ static void test_tracker_tab(Emulator& emu) {
         AudioPanel panel(&dbg);
         show_tracker_tab(panel);
         cpu_program(rw, {0x18, 0xFE});
-        run_instructions(rw, 5);
+        rw.run_frame();
         for (int f = 0; f < 8; ++f) { ay_wr(rw, 8, uint8_t(f + 1)); rw.run_frame(); }
         rw.debug_state().pause();
         std::vector<uint32_t> asked;
@@ -2005,8 +2005,12 @@ static void test_tracker_tab(Emulator& emu) {
             empty_ok = ei.data(AudioTrackerModel::RewindableRole).toBool() == (first >= dbg.rewind_range().oldest_frame) &&
                        (!ei.data(AudioTrackerModel::RewindableRole).toBool() || (asked.size() == 1 && asked[0] == first));
         }
-        // A row older than the ring: shrink it to 2 frames, so row 0 is outside; greyed, reason, nothing emitted.
-        rw.resize_rewind_buffer(2);
+        // A row older than the ring: a 3-frame ring that 4 more frames of writes have rolled past row 0
+        // (a resize empties the ring, so the frames are run after it); greyed, reason, nothing emitted.
+        rw.resize_rewind_buffer(3);
+        rw.debug_state().resume();
+        for (int f = 0; f < 4; ++f) { ay_wr(rw, 8, uint8_t(f + 0x20)); rw.run_frame(); }
+        rw.debug_state().pause();
         panel.refresh();
         const QModelIndex old = t->model()->index(0, 0);
         const jnext::dbg::RewindRange small = dbg.rewind_range();
@@ -2027,7 +2031,7 @@ static void test_tracker_tab(Emulator& emu) {
         emit t->doubleClicked(t->model()->index(last, 0));
         const bool marker = trk_cell(panel, last, 1) == "reset" && asked.empty() &&
                             !t->model()->index(last, 0).data(AudioTrackerModel::RewindableRole).toBool();
-        check("DAP-65", "paused with a rewind ring: a row inside [oldest_frame, newest_frame] is rewindable with the 'Double-click to rewind' tooltip and a double-click emits rewind_to_frame_requested(its frame) once; an empty-run row emits its first frame (when that is in the ring); a row older than the ring (ring shrunk to 2 frames) is greyed with the 'outside the rewind buffer' tooltip and emits nothing; a marker row emits nothing",
+        check("DAP-65", "paused with a rewind ring: a row inside [oldest_frame, newest_frame] is rewindable with the 'Double-click to rewind' tooltip and a double-click emits rewind_to_frame_requested(its frame) once; an empty-run row emits its first frame (when that is in the ring); a row older than the ring (a 3-frame ring rolled past it) is greyed with the 'outside the rewind buffer' tooltip and emits nothing; a marker row emits nothing",
               in_range && rewindable && once && empty_ok && outside && marker,
               "in_range=" + std::to_string(in_range) + " rewindable=" + std::to_string(rewindable) + " once=" + std::to_string(once) +
               " empty=" + std::to_string(empty_ok) + " outside=" + std::to_string(outside) + " marker=" + std::to_string(marker) +
@@ -2044,7 +2048,7 @@ static void test_tracker_tab(Emulator& emu) {
         AudioPanel panel(&dbg);
         show_tracker_tab(panel);
         cpu_program(rw, {0x18, 0xFE});
-        run_instructions(rw, 5);
+        rw.run_frame();
         for (int f = 0; f < 6; ++f) { ay_wr(rw, 8, uint8_t(f + 1)); rw.run_frame(); }
         QTableView* t = trk_table(panel);
         std::vector<uint32_t> asked;
@@ -2119,7 +2123,7 @@ static void test_tracker_tab(Emulator& emu) {
         dbg.set_audio_log_enabled(cid, true);
         AudioPanel panel(&dbg);                          // Chips is current
         cpu_program(emu, {0x18, 0xFE});
-        run_instructions(emu, 5);
+        emu.run_frame();                                // a frame boundary: the writes below are stamped by it
         ay_wr(emu, 8, 0x01);
         emu.run_frame();
         ay_wr(emu, 8, 0x02);
