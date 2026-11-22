@@ -27,6 +27,8 @@ polluted_selfrun() {
             JNEXT_SLOT_NO_OVERFLOW=1 JNEXT_REMOTE_RUN_HOST=polluted-host JNEXT_REMOTE_RUN_DIR="$d/remote-dir" \
             JNEXT_SLOT_DIR="$d/slots" JNEXT_SLOT_LOAD_LIMIT=0 REMOTE_RUN_LANES=1 REMOTE_RUN_LANE_WAIT=1000 \
             REMOTE_RUN_REPO_URL=file:///nonexistent REMOTE_RUN_CONF=/nonexistent \
+            RR_MEMINFO=/nonexistent RR_TARGETS=bogus RR_KEEP_GOING=1 RR_JOBS_DEFAULT=99 RR_JOBS_HEAVY=99 \
+            RR_HEAVY_RE=bogus RR_BOOTSTRAP=false RR_TIMEOUT=1 RR_LANES=7 \
             timeout --kill-after=5s 900s bash "$script" > "$d/out" 2>&1
         echo $? > "$d/rc"
     ) &
