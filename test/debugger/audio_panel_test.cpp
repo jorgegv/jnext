@@ -929,10 +929,10 @@ static void test_channel_mute_solo(Emulator& emu) {
         int boxes = 0;
         for (const char* t : {"AY #0", "AY #1", "AY #2", "DAC", "Beeper"}) if (source_box(panel, t)) ++boxes;
         check("DAP-31", "the Chips tab has 9 M and 9 S buttons and the DAC & Beeper tab 4 + 4, all QToolButtons, none checked on a fresh machine "
-              "(mask NONE); the Sources strip is still exactly its five checkboxes (plus Hex)",
+              "(mask NONE); the Sources strip is still exactly its five checkboxes (plus Hex, plus the Log tab's two filter boxes)",
               chips_m == 9 && chips_s == 9 && dac_m == 4 && dac_s == 4 && other == 0 && m_mask(panel) == 0 &&
                   s_mask(panel) == 0 && emu.audio_channel_mute_mask() == 0 && boxes == 5 &&
-                  panel.findChildren<QCheckBox*>().size() == 6,
+                  panel.findChildren<QCheckBox*>().size() == 6 + 2,   // + the Log tab's two filter boxes (GH #531)
               fmt("chips %d/%d dac %d/%d other %d m=%04X s=%04X boxes %d checkboxes %d", chips_m, chips_s, dac_m, dac_s,
                   other, m_mask(panel), s_mask(panel), boxes, static_cast<int>(panel.findChildren<QCheckBox*>().size())));
     }

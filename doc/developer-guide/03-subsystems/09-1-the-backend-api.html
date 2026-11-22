@@ -3446,8 +3446,8 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 </tr>
 <tr>
 <td>audio</td>
-<td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code>, <code>audio_channel_mute_mask()</code>, <code>audio_state()</code></td>
-<td><code>set_audio_mute_mask(by, m)</code>, <code>set_audio_channel_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX), <code>clear_audio_drops(by)</code> (zeroes the dropped-write counters in <code>audio_state().drops</code>; host-side too)</td>
+<td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code>, <code>audio_channel_mute_mask()</code>, <code>audio_state()</code>, <code>audio_log_enabled()</code>, <code>audio_log_entries(since_seq)</code>, <code>audio_log_export(path)</code></td>
+<td><code>set_audio_mute_mask(by, m)</code>, <code>set_audio_channel_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX), <code>clear_audio_drops(by)</code> (zeroes the dropped-write counters in <code>audio_state().drops</code>; host-side too), <code>set_audio_log_enabled(by, on)</code> (a client's request; the log is on while any live client asks), <code>audio_log_clear(by)</code>, <code>audio_log_resize(n)</code></td>
 </tr>
 <tr>
 <td>video</td>

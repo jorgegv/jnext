@@ -5360,10 +5360,10 @@ state load or a rewind adds a row with <code>marker</code> in <code>source</code
 <code>reset</code>, <code>load</code> or <code>rewind</code> in <code>target</code>. After a <code>rewind</code> row the
 following rows may carry earlier cycles: the file is append-only and
 the rows before the marker are kept. It works in every frontend,
-headless and with <strong>--silent</strong>, and is refused by a browser page. An
-unwritable <em>FILE</em> is refused before the machine starts. A write
-error, or writes lost because more than 65536 arrived between two
-services of the loop, makes the run exit non-zero.</dd>
+headless, with <strong>--silent</strong> and in a browser page. An unwritable
+<em>FILE</em> is refused before the machine starts. A write error, or
+writes lost because more than 65536 arrived between two services of
+the loop, makes the run exit non-zero.</dd>
 <dt><strong>--audio-gain-db</strong> <em>DB</em></dt>
 <dd>Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
 gain is applied after the emulated hardware mix; overflow saturates

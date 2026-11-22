@@ -1053,8 +1053,8 @@ A reset, a state load or a rewind adds a row with \f[CR]marker\f[R] in
 After a \f[CR]rewind\f[R] row the following rows may carry earlier
 cycles: the file is append\-only and the rows before the marker are
 kept.
-It works in every frontend, headless and with \f[B]\-\-silent\f[R], and
-is refused by a browser page.
+It works in every frontend, headless, with \f[B]\-\-silent\f[R] and in a
+browser page.
 An unwritable \f[I]FILE\f[R] is refused before the machine starts.
 A write error, or writes lost because more than 65536 arrived between
 two services of the loop, makes the run exit non\-zero.
@@ -4635,9 +4635,8 @@ a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],
 \f[B]\-\-import\-ghidra\f[R], \f[B]\-\-sdcard2\f[R],
 \f[B]\-\-sdcard2\-readonly\f[R], \f[B]\-\-sdcard2\-writes\f[R],
 \f[B]\-\-sdcard2\-writes\-reset\f[R], \f[B]\-\-headless\f[R] (it would
-block the tab for ever) \f[B]\-\-rzx\-record\f[R] (a page records from
-JavaScript, see The player) and \f[B]\-\-audio\-log\f[R] (the log is a
-file the page cannot hand over, and a page never exits to close it).
+block the tab for ever) and \f[B]\-\-rzx\-record\f[R] (a page records
+from JavaScript, see The player).
 The debugger protocols are served to the page instead: see the debug
 option under JavaScript options.
 The settings of the refused flags are refused when given as set entries

@@ -942,10 +942,10 @@ write that reached no channel. A reset, a state load or a rewind adds a
 row with `marker` in `source` and `reset`, `load` or `rewind` in
 `target`. After a `rewind` row the following rows may carry earlier
 cycles: the file is append-only and the rows before the marker are kept.
-It works in every frontend, headless and with **--silent**, and is
-refused by a browser page. An unwritable *FILE* is refused before the
-machine starts. A write error, or writes lost because more than 65536
-arrived between two services of the loop, makes the run exit non-zero.
+It works in every frontend, headless, with **--silent** and in a browser
+page. An unwritable *FILE* is refused before the machine starts. A write
+error, or writes lost because more than 65536 arrived between two
+services of the loop, makes the run exit non-zero.
 
 **--audio-gain-db** *DB*  
 Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
@@ -3726,14 +3726,13 @@ a message that says so: **--nextpi**, **--nextpi-dir**,
 **--annotations**, **--import-skoolkit**, **--import-ghidra**,
 **--sdcard2**, **--sdcard2-readonly**, **--sdcard2-writes**,
 **--sdcard2-writes-reset**, **--headless** (it would block the tab for
-ever) **--rzx-record** (a page records from JavaScript, see The player)
-and **--audio-log** (the log is a file the page cannot hand over, and a
-page never exits to close it). The debugger protocols are served to the
-page instead: see the debug option under JavaScript options. The
-settings of the refused flags are refused when given as set entries too:
-`esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
-`nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`,
-`nextpi.qemu_args`, `paths.sd_card2_path`.
+ever) and **--rzx-record** (a page records from JavaScript, see The
+player). The debugger protocols are served to the page instead: see the
+debug option under JavaScript options. The settings of the refused flags
+are refused when given as set entries too: `esp.enabled`,
+`esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`, `nextpi.release`,
+`nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`,
+`paths.sd_card2_path`.
 
 ## EXAMPLES
 

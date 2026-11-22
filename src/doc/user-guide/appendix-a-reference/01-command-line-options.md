@@ -901,10 +901,10 @@ with status 1.
     `reset`, `load` or `rewind` in `target`. After a `rewind` row the
     following rows may carry earlier cycles: the file is append-only and
     the rows before the marker are kept. It works in every frontend,
-    headless and with **--silent**, and is refused by a browser page. An
-    unwritable *FILE* is refused before the machine starts. A write
-    error, or writes lost because more than 65536 arrived between two
-    services of the loop, makes the run exit non-zero.
+    headless, with **--silent** and in a browser page. An unwritable
+    *FILE* is refused before the machine starts. A write error, or
+    writes lost because more than 65536 arrived between two services of
+    the loop, makes the run exit non-zero.
 
 **--audio-gain-db** *DB*
 :   Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
