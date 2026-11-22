@@ -30,6 +30,9 @@
 //                   patched synthetic image's SHA-256 is the one the BASE commit
 //                   (df023b328, before the shared directory parser, the write
 //                   options and FF_USE_CHMOD) produced for the same fixture.
+//   FGC-01..06      The FatFs glue's sector cache (GH #547 stage 5): read-after-write,
+//                   a second attach, the journal overlay over the cache, two sectors
+//                   on one line, a partly cached read, a read past the volume.
 //   FAT32-UPSERT-01 fat32_tree_upsert creates missing dirs (case-insensitive)
 //                   and replaces an existing file (unchanged unit).
 
@@ -38,9 +41,11 @@
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
 #include "core/sha256.h"
+#include "peripheral/sd_write_journal.h"
 
 extern "C" {
 #include "third_party/fatfs/ff.h"
+#include "third_party/fatfs/diskio.h"
 }
 
 #include <cstdint>
@@ -136,6 +141,45 @@ bool bpb_is_valid_fat32(const std::string& path, uint32_t part_lba,
     if (tot <= sysect) return false;
     nclst_out = (tot - sysect) / spc;
     return nclst_out > 65525u;                    // FatFs FS_FAT32 threshold
+}
+
+
+// ---- FatFs glue sector cache (GH #547 stage 5) ------------------------------
+// The oracle is the image FILE, read by an independent stream, and (journal
+// mode) the journal's committed bytes. No VHDL counterpart: a host-tool layer.
+constexpr uint32_t kGcLba     = 7;    // partition start, in sectors
+constexpr uint32_t kGcSectors = 3000; // FatFs sectors presented (> 2 * the cache's 1024 lines)
+
+std::vector<uint8_t> gc_pattern(uint32_t sector, uint8_t salt) {
+    std::vector<uint8_t> v(512);
+    for (uint32_t j = 0; j < 512; ++j) v[j] = static_cast<uint8_t>(sector * 31 + j * 7 + salt);
+    return v;
+}
+
+// An image whose FatFs sector n (absolute n + kGcLba) holds gc_pattern(n, 1).
+bool gc_make_image(const std::string& path) {
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    for (uint32_t a = 0; a < kGcLba + kGcSectors; ++a) {
+        const auto v = gc_pattern(a >= kGcLba ? a - kGcLba : 0, 1);
+        f.write(reinterpret_cast<const char*>(v.data()), 512);
+    }
+    return f.good();
+}
+
+// The file's 512 bytes at FatFs sector `n`, read by a stream of its own.
+std::vector<uint8_t> gc_file_sector(const std::string& path, uint32_t n) {
+    std::ifstream f(path, std::ios::binary);
+    std::vector<uint8_t> v(512, 0xEE);
+    f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(kGcLba + n) * 512));
+    f.read(reinterpret_cast<char*>(v.data()), 512);
+    return v;
+}
+
+std::vector<uint8_t> gc_read(uint32_t n, UINT count = 1, DRESULT* rr = nullptr) {
+    std::vector<uint8_t> v(static_cast<size_t>(count) * 512, 0xEE);
+    const DRESULT r = disk_read(0, v.data(), n, count);
+    if (rr) *rr = r;
+    return v;
 }
 
 } // namespace
@@ -279,6 +323,125 @@ int main() {
         const Fat32Node* nf = cfg ? find_child(cfg->children, "new.cfg") : nullptr;
         check("FAT32-UPSERT-01b", "missing directories created for new file",
               s && s->is_dir && cfg && cfg->is_dir && nf && nf->data.size() == 1);
+    }
+
+    // ---- FGC-01..06: the glue's sector cache ---------------------------------
+    {
+        const std::string img = tmp_path("gc.img");
+        std::string gerr;
+        const bool made = gc_make_image(img);
+
+        // FGC-01: read-after-write in image mode, and the file holds the bytes.
+        {
+            const bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
+            const auto a = gc_pattern(5, 0x40), b = gc_pattern(6, 0x41), c = gc_pattern(7, 0x42);
+            (void)gc_read(5); // 5 is cached with the old bytes first
+            const DRESULT w1 = disk_write(0, a.data(), 5, 1);
+            std::vector<uint8_t> bc(b); bc.insert(bc.end(), c.begin(), c.end());
+            const DRESULT w2 = disk_write(0, bc.data(), 6, 2);
+            const bool back = gc_read(5) == a && gc_read(6) == b && gc_read(7) == c &&
+                              gc_read(6, 2) == bc;
+            fatfs_glue::detach(0);
+            check("FGC-01", "a written sector reads back as written (cache updated) and the file holds it",
+                  made && at && w1 == RES_OK && w2 == RES_OK && back &&
+                  gc_file_sector(img, 5) == a && gc_file_sector(img, 6) == b &&
+                  gc_file_sector(img, 7) == c, gerr);
+        }
+
+        // FGC-02: the cache does not survive detach/attach.
+        {
+            gc_make_image(img);
+            bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
+            const bool before = gc_read(9) == gc_pattern(9, 1);
+            fatfs_glue::detach(0);
+            const auto nw = gc_pattern(9, 0x77);
+            {
+                std::fstream f(img, std::ios::in | std::ios::out | std::ios::binary);
+                f.seekp(static_cast<std::streamoff>(static_cast<uint64_t>(kGcLba + 9) * 512));
+                f.write(reinterpret_cast<const char*>(nw.data()), 512);
+            }
+            at = at && fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
+            const bool after = gc_read(9) == nw;
+            fatfs_glue::detach(0);
+            check("FGC-02", "a second attach after the file changed on disk reads the new bytes",
+                  at && before && after, gerr);
+        }
+
+        // FGC-03: journal mode: the overlay is applied after the cache, the file is untouched.
+        {
+            gc_make_image(img);
+            const std::string jf = tmp_path("gc.jsdw");
+            std::remove(jf.c_str());
+            sd_write_journal::forget_all_for_test();
+            sd_write_journal::Binding bd;
+            bd.bytes = static_cast<uint64_t>(kGcLba + kGcSectors) * 512;
+            bd.sha256.fill(0x5C);
+            std::string jwhy;
+            const bool bound = sd_write_journal::bind(img, jf, bd, false, jwhy);
+            auto j = sd_write_journal::for_image(img);
+            const auto mark = gc_pattern(40, 0x99), later = gc_pattern(30, 0x98);
+            bool ok = bound && j && j->commit(kGcLba + 40, mark.data());
+            const bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr, j);
+            // 40: journaled before the attach; the first read fills the cache with the RAW bytes.
+            const bool pre1 = gc_read(40) == mark, pre2 = gc_read(40) == mark;
+            // 30: read raw (cached), then written through the journal: reads as the journal's bytes.
+            const bool raw30 = gc_read(30) == gc_pattern(30, 1);
+            const DRESULT w = disk_write(0, later.data(), 30, 1);
+            const bool post30 = gc_read(30) == later;
+            fatfs_glue::detach(0);
+            sd_write_journal::forget_all_for_test();
+            std::remove(jf.c_str());
+            check("FGC-03", "journal mode: the overlay reads over the cache and the file is unchanged",
+                  ok && at && pre1 && pre2 && raw30 && w == RES_OK && post30 &&
+                  gc_file_sector(img, 40) == gc_pattern(40, 1) &&
+                  gc_file_sector(img, 30) == gc_pattern(30, 1), gerr + jwhy);
+        }
+
+        // FGC-04: two sectors on one cache line (S and S + 1024) keep their own bytes.
+        {
+            gc_make_image(img);
+            const bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
+            const auto a = gc_pattern(3, 0x10), b = gc_pattern(3 + 1024, 0x11);
+            const bool w = disk_write(0, a.data(), 3, 1) == RES_OK &&
+                           disk_write(0, b.data(), 3 + 1024, 1) == RES_OK;
+            const bool r1 = gc_read(3) == a;          // evicted by the write of S + 1024: refetched
+            const bool r2 = gc_read(3 + 1024) == b;   // evicts S
+            const bool r3 = gc_read(3) == a;
+            fatfs_glue::detach(0);
+            check("FGC-04", "sectors that share a cache line alternate and each returns its own bytes",
+                  at && w && r1 && r2 && r3, gerr);
+        }
+
+        // FGC-05: a multi-sector read partly cached, partly not.
+        {
+            gc_make_image(img);
+            const bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
+            (void)gc_read(101); // 101 cached; 100 and 102 are not
+            DRESULT rr = RES_ERROR;
+            const auto v = gc_read(100, 3, &rr);
+            std::vector<uint8_t> want;
+            for (uint32_t n = 100; n < 103; ++n) {
+                const auto s = gc_file_sector(img, n);
+                want.insert(want.end(), s.begin(), s.end());
+            }
+            fatfs_glue::detach(0);
+            check("FGC-05", "a read partly cached returns the file's bytes for every sector",
+                  at && rr == RES_OK && v == want, gerr);
+        }
+
+        // FGC-06: a read past the volume is RES_PARERR and fills nothing.
+        {
+            gc_make_image(img);
+            const bool at = fatfs_glue::attach(0, img, kGcLba, kGcSectors, gerr);
+            DRESULT rr = RES_OK;
+            const auto v = gc_read(kGcSectors - 1, 2, &rr);
+            const bool untouched = v == std::vector<uint8_t>(1024, 0xEE);
+            const bool last_ok = gc_read(kGcSectors - 1) == gc_pattern(kGcSectors - 1, 1);
+            fatfs_glue::detach(0);
+            check("FGC-06", "a read past sector_count is RES_PARERR and leaves the buffer alone",
+                  at && rr == RES_PARERR && untouched && last_ok, gerr);
+        }
+        std::remove(img.c_str());
     }
 
     std::printf("\n====================================\n");

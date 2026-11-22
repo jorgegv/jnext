@@ -8,7 +8,9 @@ extern "C" {
 #include "peripheral/sd_write_journal.h"
 
 #include <array>
+#include <cstring>
 #include <fstream>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // Per-drive backing store. FatFs here is used single-threaded, one operation
@@ -19,12 +21,50 @@ namespace {
 
 constexpr uint32_t kSectorSize = 512;
 
+// Direct-mapped, write-through sector cache, one per drive, living from
+// attach() to detach(). FatFs keeps a single sector window per volume, so a
+// path lookup re-reads the directory from the image, and every uncached read
+// here costs an lseek plus an 8 KiB stream-buffer refill (GH #547 stage 5).
+// The cache holds the image FILE's raw bytes, indexed by the FatFs sector
+// number: never journal data (the overlay is applied after it), and the file
+// is always current (every write goes to the file first), so detach() and
+// CTRL_SYNC need no flush. 1024 lines = 512 KiB per attached drive; larger
+// caches measured no faster on the fixtures that matter (see the commit).
+constexpr size_t   kCacheLines = 1024;
+constexpr uint64_t kNoTag      = ~0ull;
+
 struct Backing {
     std::fstream file;
     uint32_t     part_lba     = 0; // partition start offset, in sectors
     uint32_t     sector_count = 0; // volume size, in sectors
     bool         active       = false;
     std::shared_ptr<sd_write_journal::Journal> journal; // non-null = journal mode
+    std::vector<uint8_t>  cache_data; // kCacheLines * kSectorSize, empty = detached
+    std::vector<uint64_t> cache_tag;  // FatFs sector held by each line, or kNoTag
+
+    void cache_reset() {
+        cache_data.assign(kCacheLines * kSectorSize, 0);
+        cache_tag.assign(kCacheLines, kNoTag);
+    }
+    void cache_drop() {
+        std::vector<uint8_t>().swap(cache_data);
+        std::vector<uint64_t>().swap(cache_tag);
+    }
+    void cache_put(uint64_t sector, const uint8_t* src) {
+        const size_t i = static_cast<size_t>(sector % kCacheLines);
+        cache_tag[i] = sector;
+        std::memcpy(&cache_data[i * kSectorSize], src, kSectorSize);
+    }
+    void cache_invalidate(uint64_t sector) {
+        const size_t i = static_cast<size_t>(sector % kCacheLines);
+        if (cache_tag[i] == sector) cache_tag[i] = kNoTag;
+    }
+    bool cache_get(uint64_t sector, uint8_t* dst) const {
+        const size_t i = static_cast<size_t>(sector % kCacheLines);
+        if (cache_tag[i] != sector) return false;
+        std::memcpy(dst, &cache_data[i * kSectorSize], kSectorSize);
+        return true;
+    }
 };
 
 std::array<Backing, FF_VOLUMES> g_backing;
@@ -40,6 +80,7 @@ bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
     Backing& b = g_backing[pdrv];
     b.file.close();
     b.file.clear();
+    b.cache_drop();
     b.journal = std::move(journal);
     if (b.journal) {
         b.file.open(image_path, std::ios::in | std::ios::binary);
@@ -56,6 +97,7 @@ bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
     }
     b.part_lba     = part_lba;
     b.sector_count = sector_count;
+    b.cache_reset();
     b.active       = true;
     return true;
 }
@@ -66,6 +108,7 @@ void detach(uint8_t pdrv) {
     if (b.file.is_open()) { b.file.flush(); b.file.close(); }
     b.file.clear();
     b.journal.reset();
+    b.cache_drop();
     b.active = false;
 }
 
@@ -93,10 +136,21 @@ DRESULT disk_read(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count) {
         (static_cast<uint64_t>(b.part_lba) + sector) * kSectorSize;
     const std::streamsize len =
         static_cast<std::streamsize>(count) * kSectorSize;
-    b.file.clear();
-    b.file.seekg(static_cast<std::streamoff>(off), std::ios::beg);
-    b.file.read(reinterpret_cast<char*>(buff), len);
-    if (b.file.gcount() != len) return RES_ERROR;
+    // Served from the cache only when every sector of the request is there;
+    // otherwise the whole request is read from the file (a failed read fills
+    // no line).
+    bool all_cached = true;
+    for (UINT i = 0; i < count && all_cached; ++i)
+        all_cached = b.cache_get(sector + i, buff + static_cast<size_t>(i) * kSectorSize);
+    if (!all_cached) {
+        b.file.clear();
+        b.file.seekg(static_cast<std::streamoff>(off), std::ios::beg);
+        b.file.read(reinterpret_cast<char*>(buff), len);
+        if (b.file.gcount() != len) return RES_ERROR;
+        for (UINT i = 0; i < count; ++i)
+            b.cache_put(sector + i, buff + static_cast<size_t>(i) * kSectorSize);
+    }
+    // The journal overlay comes AFTER the cache, on both paths.
     if (b.journal) {
         for (UINT i = 0; i < count; ++i)
             b.journal->lookup(b.part_lba + static_cast<uint32_t>(sector) + i,
@@ -124,7 +178,14 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
     b.file.clear();
     b.file.seekp(static_cast<std::streamoff>(off), std::ios::beg);
     b.file.write(reinterpret_cast<const char*>(buff), len);
-    if (!b.file.good()) return RES_ERROR;
+    if (!b.file.good()) {
+        // A failed write may have reached the file in part: the lines of the
+        // request no longer match it, so they are dropped, never updated.
+        for (UINT i = 0; i < count; ++i) b.cache_invalidate(sector + i);
+        return RES_ERROR;
+    }
+    for (UINT i = 0; i < count; ++i)
+        b.cache_put(sector + i, buff + static_cast<size_t>(i) * kSectorSize);
     return RES_OK;
 }
 
