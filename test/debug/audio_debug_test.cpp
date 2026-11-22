@@ -51,6 +51,7 @@
 #include "debug/audio_log_csv.h"
 #include "debug/audio_log_stream.h"
 #include "debug/audio_math.h"
+#include "debug/dac_stream.h"
 #include "debug/debugger.h"
 #include "debug/events.h"
 #include "platform/emulator_boot.h"
@@ -60,6 +61,8 @@
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <chrono>
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -416,6 +419,78 @@ static void build_pacing(Emulator& emu) {
     ctc_port(emu, 0, 0x05, 109);
     for (int i = 0; i < 256; ++i) emu.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i));
     dma_program(emu, 0x9000, 0x00DF, 255, 55, true, true);
+}
+
+
+// ── DSS: the DAC sample stream (src/debug/dac_stream.h) ─────────────────
+
+using jnext::dbg::DacStreamStats;
+using jnext::dbg::DacWriterStats;
+using jnext::dbg::dac_stream_stats;
+using jnext::dbg::nearest_pacing;
+
+// A hand-built log entry for the helper's rows: a DAC write of `chip` at `cycle` to `port`.
+static AudioLogEntry dacw(uint64_t seq, uint64_t cycle, uint8_t chip, uint16_t port,
+                          EventSource source = EventSource::Cpu, uint16_t pc = 0x8010,
+                          AudioTarget target = AudioTarget::Dac) {
+    AudioLogEntry e;
+    e.seq = seq; e.cycle = cycle; e.chip = chip; e.port = port; e.source = source; e.pc = pc;
+    e.target = target; e.value = 0x80;
+    return e;
+}
+
+static AudioLogEntry marker_at(uint64_t seq, uint64_t cycle, AudioMarker m) {
+    AudioLogEntry e;
+    e.seq = seq; e.cycle = cycle; e.marker = m;
+    return e;
+}
+
+// `n` samples of one Cpu writer (pc, chip 0, port 0x1F) from `start`, `period` cycles apart.
+static std::vector<AudioLogEntry> stream_of(int n, uint64_t start, uint64_t period, uint16_t pc = 0x8010,
+                                            uint64_t seq0 = 1) {
+    std::vector<AudioLogEntry> v;
+    for (int i = 0; i < n; ++i) v.push_back(dacw(seq0 + uint64_t(i), start + uint64_t(i) * period, 0, 0x001F,
+                                                 EventSource::Cpu, pc));
+    return v;
+}
+
+// The entries of a list of cycles, one Cpu writer.
+static std::vector<AudioLogEntry> at_cycles(const std::vector<uint64_t>& cycles) {
+    std::vector<AudioLogEntry> v;
+    uint64_t seq = 1;
+    for (uint64_t c : cycles) v.push_back(dacw(seq++, c, 0, 0x001F));
+    return v;
+}
+
+static const DacWriterStats* writer_of(const DacStreamStats& st, EventSource src, uint16_t pc = 0) {
+    for (const DacWriterStats& w : st.writers) if (w.source == src && w.pc == pc) return &w;
+    return nullptr;
+}
+
+// DSS-13/14: the halt_bench.asm CTCDAC program (demo/halt_bench/halt_bench.asm), hand-placed. A Next at 28 MHz
+// (NR 0x07 = 3): IM2 table 0xD000-0xD100 = 0xD1, JP 0x8100 at 0xD1D1, the ULA frame interrupt off (NR 0x22),
+// hardware IM2 (NR 0xC0), CTC channel 0 interrupt (NR 0xC5), the DAC on (NR 0x08 bit 3), CTC ch0 0x87 then TC
+// 109. The program at 0x8000: LD A,0xD0; LD I,A; IM 2; EI; HALT; JR $-3. The ISR at 0x8100: tick++ then OUT
+// (0xDF),A; with `skip_wrap` the OUT is skipped when tick wraps to 0 (JR Z over it).
+// Returns the address of the OUT.
+static void run_from(Emulator& emu, uint16_t addr, std::initializer_list<uint8_t> code);
+static uint16_t build_ctcdac(Emulator& emu, bool skip_wrap) {
+    fresh(emu);
+    nr_write(emu, 0x07, 0x03);
+    for (int i = 0; i <= 256; ++i) emu.mmu().write(static_cast<uint16_t>(0xD000 + i), 0xD1);
+    emu.mmu().write(0xD1D1, 0xC3); emu.mmu().write(0xD1D2, 0x00); emu.mmu().write(0xD1D3, 0x81);
+    std::vector<uint8_t> isr = {0xF5, 0xC5, 0x3A, 0x00, 0x82, 0x3C, 0x32, 0x00, 0x82};
+    if (skip_wrap) { isr.push_back(0x28); isr.push_back(0x02); }
+    const uint16_t out_at = static_cast<uint16_t>(0x8100 + isr.size());
+    for (uint8_t b : {0xD3, 0xDF, 0xC1, 0xF1, 0xFB, 0xED, 0x4D}) isr.push_back(b);
+    for (size_t i = 0; i < isr.size(); ++i) emu.mmu().write(static_cast<uint16_t>(0x8100 + i), isr[i]);
+    nr_write(emu, 0x22, 0x04);
+    nr_write(emu, 0xC0, 0x01);
+    nr_write(emu, 0xC5, 0x01);
+    nr_write(emu, 0x08, 0x08);
+    ctc_port(emu, 0, 0x87, 109);
+    run_from(emu, 0x8000, {0x3E, 0xD0, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFD});
+    return out_at;
 }
 
 // ── DRP: the dropped-write counters ─────────────────────────────────────
@@ -2853,6 +2928,236 @@ int main() {
               "(positive control: both engines were seen moving, and a real AY write between the runs makes them differ)",
               loaded && loaded2 && b.ok && !a.state.empty() && a.state == b.state && a.video == b.video &&
               saw_dma && saw_ctc && c.ok && c.state != b.state);
+    }
+
+
+    // ─────────────────── DSS: the DAC sample stream ─────────────────────
+    {
+        const auto v = stream_of(1000, 100000, 1792);
+        const DacStreamStats st = dac_stream_stats(v, v.back().cycle, 0);
+        const DacWriterStats& w = st.writers.empty() ? DacWriterStats{} : st.writers[0];
+        check("DSS-01", "DEBUGGER-MUSIC-SOUND-PLAN A2.7: 1000 samples every 1792 cycles from 100000: one Cpu writer 0x8010, channel A, rate 28e9/1792 = 15 625 000 mHz, every interval 1792, no jitter, no gap, 64.0 us",
+              st.writers.size() == 1 && w.source == EventSource::Cpu && w.pc == 0x8010 && w.channels == 0x01 &&
+              w.samples == 1000 && w.rate_millihz == 15625000u && w.interval_min == 1792 &&
+              w.interval_max == 1792 && w.interval_median == 1792 && w.interval_mean == 1792.0 &&
+              w.jitter == 0.0 && w.gaps == 0 && w.first_cycle == 100000 && w.last_cycle == 1890208 &&
+              near(w.interval_mean_us, 64.0, 1e-9));
+    }
+    {
+        std::vector<AudioLogEntry> v = stream_of(1000, 100000, 1792);
+        v.erase(v.begin() + 500);
+        const DacStreamStats st = dac_stream_stats(v, v.back().cycle, 0);
+        const DacWriterStats& w = st.writers.empty() ? DacWriterStats{} : st.writers[0];
+        check("DSS-02", "a skipped sample is one gap: 999 samples, one interval of 3584, median 1792, rate (998 x 28e9 + span/2) / span over span 1 790 208 = 15 609 359 mHz",
+              st.writers.size() == 1 && w.samples == 999 && w.gaps == 1 && w.interval_max == 3584 &&
+              w.interval_median == 1792 && w.rate_millihz == 15609359u);
+    }
+    {
+        // Intervals: 1000 x 10, 1500, 1000 x 10, 1501, 1000 x 10.
+        std::vector<uint64_t> c{0};
+        auto add = [&](int n, uint64_t iv) { for (int i = 0; i < n; ++i) c.push_back(c.back() + iv); };
+        add(10, 1000); add(1, 1500); add(10, 1000); add(1, 1501); add(10, 1000);
+        const auto v = at_cycles(c);
+        const DacStreamStats st = dac_stream_stats(v, v.back().cycle, 0);
+        check("DSS-03", "the gap threshold is strict: of one interval of 1500 and one of 1501 against a median of 1000, only 1501 is above 1.5 x the median",
+              st.writers.size() == 1 && st.writers[0].interval_median == 1000 && st.writers[0].gaps == 1);
+    }
+    {
+        std::vector<AudioLogEntry> v;
+        uint64_t seq = 1;
+        for (int i = 0; i < 200; ++i) {
+            v.push_back(dacw(seq++, 10000 + uint64_t(i) * 1792, 0, 0x001F, EventSource::Cpu, 0x8010));
+            if (i % 2 == 0) v.push_back(dacw(seq++, 10000 + uint64_t(i / 2) * 3584 + 100, 0, 0x001F, EventSource::Cpu, 0x8020));
+        }
+        std::stable_sort(v.begin(), v.end(), [](const AudioLogEntry& a, const AudioLogEntry& b) { return a.cycle < b.cycle; });
+        const DacStreamStats st = dac_stream_stats(v, 10000 + 200 * 1792, 0);
+        check("DSS-04", "two CPU writers are two rows, the one with more samples first: pc 0x8010 every 1792 (15 625 000 mHz) and pc 0x8020 every 3584 (7 812 500 mHz)",
+              st.writers.size() == 2 && st.writers[0].pc == 0x8010 && st.writers[1].pc == 0x8020 &&
+              st.writers[0].rate_millihz == 15625000u && st.writers[1].rate_millihz == 7812500u);
+    }
+    {
+        std::vector<AudioLogEntry> v;
+        const uint16_t pcs[3] = {0x8000, 0x8003, 0x8006};
+        for (int i = 0; i < 30; ++i)
+            v.push_back(dacw(uint64_t(i) + 1, 5000 + uint64_t(i) * 1760, 0, 0x00DF, EventSource::Dma, pcs[i % 3]));
+        v.push_back(dacw(100, 5000 + 30 * 1760, 0, 0x00DF, EventSource::Cpu, 0x8003));
+        const DacStreamStats st = dac_stream_stats(v, 5000 + 30 * 1760, 0);
+        const DacWriterStats* d = writer_of(st, EventSource::Dma);
+        const DacWriterStats* c = writer_of(st, EventSource::Cpu, 0x8003);
+        check("DSS-05", "a DMA or Copper entry's pc is the slot's, not the writer's: 30 DMA samples with three different pcs are ONE DMA writer (pc 0); a CPU entry at pc 0x8003 is its own writer",
+              st.writers.size() == 2 && d && d->samples == 30 && c && c->samples == 1);
+    }
+    {
+        std::vector<AudioLogEntry> v;
+        uint64_t seq = 1;
+        for (int i = 0; i < 10; ++i) {
+            const uint64_t cyc = 1000 + uint64_t(i) * 2000;
+            v.push_back(dacw(seq++, cyc, 0, 0x00DF));
+            v.push_back(dacw(seq++, cyc, 3, 0x00DF));
+            v.push_back(dacw(seq++, cyc + 500, 0, 0x002D, EventSource::Copper, 0x8000, AudioTarget::DacMirror));
+            v.push_back(dacw(seq++, cyc + 500, 3, 0x002D, EventSource::Copper, 0x8000, AudioTarget::DacMirror));
+        }
+        const DacStreamStats st = dac_stream_stats(v, 1000 + 10 * 2000, 0);
+        const DacWriterStats* c = writer_of(st, EventSource::Cpu, 0x8010);
+        const DacWriterStats* k = writer_of(st, EventSource::Copper);
+        check("DSS-06", "one port write is one sample: 10 CPU writes to 0xDF (channels A and D, two log entries each) and 10 Copper writes to NR 0x2D (DacMirror pairs) are 10 samples each, channels 0x09",
+              st.writers.size() == 2 && c && c->samples == 10 && c->channels == 0x09 &&
+              k && k->samples == 10 && k->channels == 0x09 && k->pc == 0);
+    }
+    {
+        std::vector<AudioLogEntry> v;
+        AudioLogEntry d = dacw(1, 1000, 0xFF, 0x001F); d.flags = jnext::dbg::AudioFlag::Dropped;
+        d.drop_reason = jnext::dbg::AudioDropReason::DacFamilyDisabled;
+        v.push_back(d);
+        AudioLogEntry dm = dacw(2, 2000, 0xFF, 0x002D, EventSource::Cpu, 0x8010, AudioTarget::DacMirror);
+        dm.flags = jnext::dbg::AudioFlag::Dropped; dm.drop_reason = jnext::dbg::AudioDropReason::DacMirrorDisabled;
+        v.push_back(dm);
+        v.push_back(dacw(3, 3000, 0, 0xBFFD, EventSource::Cpu, 0x8010, AudioTarget::AyRegister));
+        v.push_back(dacw(4, 4000, 0, 0xFFFD, EventSource::Cpu, 0x8010, AudioTarget::AyChipSelect));
+        v.push_back(dacw(5, 5000, 0, 0x00FE, EventSource::Cpu, 0x8010, AudioTarget::Beeper));
+        const DacStreamStats st = dac_stream_stats(v, 6000, 0);
+        check("DSS-07", "only applied DAC writes count: dropped DAC and mirror writes (chip 0xFF), AY register, AY chip-select and beeper entries give no writer",
+              st.writers.empty());
+    }
+    {
+        bool ok = true;
+        for (AudioMarker m : {AudioMarker::Reset, AudioMarker::Rewind}) {
+            std::vector<AudioLogEntry> v = stream_of(10, 1000, 1000);
+            v.push_back(marker_at(11, 11000, m));
+            const auto after = stream_of(5, 12000, 1000, 0x8010, 12);
+            v.insert(v.end(), after.begin(), after.end());
+            const DacStreamStats st = dac_stream_stats(v, 16000, 0);
+            ok = ok && st.writers.size() == 1 && st.writers[0].samples == 5 && st.writers[0].first_cycle == 12000;
+        }
+        check("DSS-08", "a marker ends the previous timeline: 10 samples, a Reset (or Rewind) marker, 5 samples give 5 samples starting at the first one after the marker",
+              ok);
+    }
+    {
+        const auto v = stream_of(20, 1000, 1000);
+        const DacStreamStats a = dac_stream_stats(v, 20000, 5000);
+        const DacStreamStats b = dac_stream_stats(v, 20000, 0);
+        check("DSS-09", "the window is (end - window, end]: samples at 1000..20000, end 20000, window 5000: start 15000, 5 samples (16000..20000, 15000 excluded); window 0: all 20",
+              a.window_start == 15000 && a.window_end == 20000 && a.writers.size() == 1 &&
+              a.writers[0].samples == 5 && a.writers[0].first_cycle == 16000 &&
+              b.writers.size() == 1 && b.writers[0].samples == 20);
+    }
+    {
+        // 7 intervals alternating 1790, 1794 (four of 1790, three of 1794): lower median sorted[3] = 1790.
+        std::vector<uint64_t> c{100000};
+        for (int i = 0; i < 7; ++i) c.push_back(c.back() + (i % 2 == 0 ? 1790u : 1794u));
+        const DacStreamStats a = dac_stream_stats(at_cycles(c), c.back(), 0);
+        const double m = (4 * 1790.0 + 3 * 1794.0) / 7.0;
+        const double sd = std::sqrt((4 * (1790.0 - m) * (1790.0 - m) + 3 * (1794.0 - m) * (1794.0 - m)) / 7.0);
+        std::vector<uint64_t> d{100000};
+        for (int i = 0; i < 6; ++i) d.push_back(d.back() + (i % 2 == 0 ? 1790u : 1794u));
+        const DacStreamStats b = dac_stream_stats(at_cycles(d), d.back(), 0);
+        const DacWriterStats& wa = a.writers.empty() ? DacWriterStats{} : a.writers[0];
+        const DacWriterStats& wb = b.writers.empty() ? DacWriterStats{} : b.writers[0];
+        check("DSS-10", "the median is the LOWER median and the jitter a POPULATION standard deviation: 7 intervals (1790 x4, 1794 x3): median 1790, mean 1791.714, sd 1.9795; 6 intervals (3 and 3): median 1790, mean 1792.0, sd 2.0",
+              wa.interval_min == 1790 && wa.interval_max == 1794 && wa.interval_median == 1790 &&
+              near(wa.interval_mean, m, 1e-9) && near(wa.jitter, sd, 1e-9) &&
+              wb.interval_median == 1790 && near(wb.interval_mean, 1792.0, 1e-9) && near(wb.jitter, 2.0, 1e-9));
+    }
+    {
+        const DacStreamStats one = dac_stream_stats(stream_of(1, 1000, 1), 1000, 0);
+        const DacStreamStats none = dac_stream_stats({}, 1000, 0);
+        const DacWriterStats& w = one.writers.empty() ? DacWriterStats{} : one.writers[0];
+        check("DSS-11", "fewer than two samples have no interval: one sample is one writer with rate 0 and every interval field 0; an empty log has no writer",
+              one.writers.size() == 1 && w.samples == 1 && w.rate_millihz == 0 && w.interval_min == 0 &&
+              w.interval_max == 0 && w.interval_median == 0 && w.interval_mean == 0.0 && w.jitter == 0.0 &&
+              w.gaps == 0 && none.writers.empty());
+    }
+    {
+        using jnext::dbg::PacingMatch;
+        std::array<CtcChannelState, jnext::dbg::CTC_CHANNEL_COUNT> ctc{};
+        ctc[0].running = true; ctc[0].zc_rate_millihz = 16055046;
+        ctc[1].running = true; ctc[1].zc_rate_millihz = 8000000;
+        DmaState dma; dma.prescaler = 55; dma.rate_millihz = 15909091;
+        DacWriterStats cpu; cpu.source = EventSource::Cpu; cpu.rate_millihz = 16055000;
+        const auto a = nearest_pacing(cpu, ctc, dma);
+        DacWriterStats dw; dw.source = EventSource::Dma; dw.rate_millihz = 15900000;
+        const auto b = nearest_pacing(dw, ctc, dma);
+        DmaState none = dma; none.prescaler = 0;
+        const auto c = nearest_pacing(dw, ctc, none);
+        DacWriterStats cop; cop.source = EventSource::Copper; cop.rate_millihz = 16055000;
+        const auto d = nearest_pacing(cop, ctc, dma);
+        std::array<CtcChannelState, jnext::dbg::CTC_CHANNEL_COUNT> idle{};
+        idle[0].zc_rate_millihz = 16055046;            // a rate but not running: not a candidate
+        const auto e = nearest_pacing(cpu, idle, dma);
+        std::array<CtcChannelState, jnext::dbg::CTC_CHANNEL_COUNT> tie{};
+        tie[1].running = true; tie[1].zc_rate_millihz = 1100;
+        tie[2].running = true; tie[2].zc_rate_millihz = 900;
+        tie[3].running = true; tie[3].zc_rate_millihz = 5000;
+        DacWriterStats mid; mid.source = EventSource::Cpu; mid.rate_millihz = 1000;
+        const auto f = nearest_pacing(mid, tie, dma);
+        check("DSS-12", "nearest_pacing: a CPU writer at 16 055 000 mHz is CTC 0 (rel_diff (16 055 000 - 16 055 046) / 16 055 046); a DMA writer is the DMA, or nothing with prescaler 0; a Copper writer, or a stopped channel, nothing; at equal distance the lower channel",
+              a && a->engine == 0 && a->rate_millihz == 16055046u &&
+              near(a->rel_diff, (16055000.0 - 16055046.0) / 16055046.0, 1e-12) &&
+              b && b->engine == 4 && b->rate_millihz == 15909091u && !c && !d && !e &&
+              f && f->engine == 1);
+    }
+    {
+        Emulator emu;
+        const uint16_t out_at = build_ctcdac(emu, false);
+        Debugger dbg(emu);
+        log_client(dbg, "dss13");
+        for (int i = 0; i < 20; ++i) emu.run_frame();
+        const auto entries = all_entries(dbg);
+        const DacStreamStats st = dac_stream_stats(entries, dbg.time().master_cycle, 0);
+        const DacWriterStats& w = st.writers.empty() ? DacWriterStats{} : st.writers[0];
+        const double span = double(w.last_cycle - w.first_cycle);
+        const auto ctc = dbg.ctc_state();
+        const auto pm = nearest_pacing(w, ctc, dbg.dma_state());
+        const double tol = 16055046.0 * 4.0 / span + 1.0;
+        check("DSS-13", "ACCEPTANCE: a CTC-paced player (28 MHz, TC 109, period P x TC = 1744 cycles) is ONE CPU writer at the ISR's OUT, channels A and D, >= 6000 samples; every interval within 1744 +- 4 (the acceptance delay d in 0..4, zxnext.vhd:3171-3181), no gap; its measured rate matches the CTC's 16 055 046 mHz within 4 cycles over the span, and the nearest engine is CTC 0",
+              st.writers.size() == 1 && w.source == EventSource::Cpu && w.pc == out_at && w.channels == 0x09 &&
+              w.samples >= 6000 &&
+              std::fabs(span - double(w.samples - 1) * 1744.0) <= 4.0 &&
+              w.interval_min >= 1740 && w.interval_max <= 1748 && w.gaps == 0 &&
+              ctc[0].zc_rate_millihz == 16055046u &&
+              std::fabs(double(w.rate_millihz) - double(ctc[0].zc_rate_millihz)) <= tol &&
+              pm && pm->engine == 0);
+    }
+    {
+        Emulator emu;
+        const uint16_t out_at = build_ctcdac(emu, true);
+        Debugger dbg(emu);
+        log_client(dbg, "dss14");
+        for (int i = 0; i < 20; ++i) emu.run_frame();
+        const auto entries = all_entries(dbg);
+        const DacStreamStats st = dac_stream_stats(entries, dbg.time().master_cycle, 0);
+        const DacWriterStats& w = st.writers.empty() ? DacWriterStats{} : st.writers[0];
+        std::vector<uint64_t> cyc;
+        for (const AudioLogEntry& e : entries)
+            if (e.marker == AudioMarker::None && e.target == AudioTarget::Dac && e.chip == 0 && e.pc == out_at)
+                cyc.push_back(e.cycle);
+        bool bands = cyc.size() > 2;
+        uint32_t above = 0;
+        for (size_t i = 1; i < cyc.size(); ++i) {
+            const uint64_t iv = cyc[i] - cyc[i - 1];
+            if (iv > 2616) { ++above; bands = bands && iv >= 3484 && iv <= 3492; }
+            else bands = bands && iv >= 1740 && iv <= 1748;
+        }
+        check("DSS-14", "a deliberately skipped sample shows as a gap: the same player with the OUT skipped when the tick wraps: gaps >= 1, every gap interval 2 x 1744 +- 4, every other 1744 +- 4, and the count of gaps equals the count of intervals above 1.5 x the period",
+              st.writers.size() == 1 && w.pc == out_at && w.gaps >= 1 && bands && w.gaps == above);
+    }
+    {
+        Emulator emu; fresh(emu);
+        nr_write(emu, 0x08, 0x08);
+        for (int i = 0; i < 256; ++i) emu.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i));
+        dma_program(emu, 0x9000, 0x00DF, 255, 55, true, true);
+        park(emu);
+        Debugger dbg(emu);
+        log_client(dbg, "dss15");
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        const auto entries = all_entries(dbg);
+        const DacStreamStats st = dac_stream_stats(entries, dbg.time().master_cycle, 0);
+        const DacWriterStats& w = st.writers.empty() ? DacWriterStats{} : st.writers[0];
+        const DmaState d = dbg.dma_state();
+        const auto pm = nearest_pacing(w, dbg.ctc_state(), d);
+        check("DSS-15", "dma.vhd:309,424,451 the DMA gate is a minimum spacing from the read: a burst to port 0x00DF at prescaler 55 is ONE DMA writer (channels A and D) whose every interval is >= 1760 cycles, so its rate is at most the nominal 15 909 091 mHz; the nearest engine is the DMA",
+              st.writers.size() == 1 && w.source == EventSource::Dma && w.channels == 0x09 && w.samples > 100 &&
+              w.interval_min >= 1760 && w.rate_millihz <= d.rate_millihz && pm && pm->engine == 4);
     }
 
     std::printf("\n=====================================\n");
