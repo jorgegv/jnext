@@ -647,6 +647,8 @@ void HeadlessApp::run() {
             if (!exit_countdown_.due()) continue;
         }
 
+        startup_stop_.poll();   // GH #548: as the Qt and SDL ticks do, before this tick's frames
+
         // Headless reset facility (env-gated, zero cost when unset): --headless
         // has no Reset button, so this exercises the Task 70 cold-boot paths for
         // tests. JNEXT_DELAYED_RESET_FRAMES=N, JNEXT_DELAYED_RESET_TYPE =

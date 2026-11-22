@@ -555,6 +555,9 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         return false;
     }
     if (!input_.poll()) return false;
+    // GH #548: a resume made between ticks (a window's Run) re-arms the startup stop BEFORE this
+    // tick's frames, so the first frame cannot pass the target.
+    startup_stop_.poll();
 
     // Apply pending inject when countdown reaches zero.
     if (inject_countdown_ == 0) {

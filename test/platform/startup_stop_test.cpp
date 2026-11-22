@@ -152,6 +152,7 @@ struct Rig {
     // Frames, as the loop owner runs them, with the per-tick poll, until the machine stops.
     void run(int frames = 6) {
         for (int i = 0; i < frames && !paused(); ++i) {
+            ss.poll();   // the loop owners poll before a tick's frames, too
             emu.run_frame();
             dbg->pump(jnext::dbg::PumpBudget{});
             ss.poll();

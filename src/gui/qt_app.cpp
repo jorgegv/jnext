@@ -711,6 +711,7 @@ void QtApp::on_frame_tick() {
 // ordering decisions here and no state: both moved into the sequencer.
 
 bool QtApp::TickEffects::pre_frames() {
+    app.startup_stop_.poll();   // GH #548: re-arm after a resume made between ticks, before this tick's frames
     QtApp& a = app;
 
     // Task 79 — Qt owns the event loop, so SDL never runs its own; drain the
