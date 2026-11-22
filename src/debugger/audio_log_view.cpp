@@ -311,8 +311,6 @@ void AudioLogView::refresh()
         if (v.empty() || v.front().seq != have) resync = true;
         else first = 1;
     }
-    for (size_t i = first; !resync && i < v.size(); ++i)
-        resync = v[i].marker != AudioMarker::None;
     if (resync) {
         auto all = dbg_->audio_log_entries(0);
         std::vector<AudioLogEntry> rows = all ? std::move(all.value) : std::vector<AudioLogEntry>{};

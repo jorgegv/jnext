@@ -6,9 +6,11 @@
 //
 // The view MIRRORS the backend's ring: `refresh()` appends the entries newer than
 // the last one it holds, and replaces every row when the ring no longer holds the
-// newest row it has (an overflow, a rebuild after the request was dropped) or when
-// a new entry is a marker (a rewind landing may have truncated the ring). There is
-// no second copy of the truncation rule here.
+// newest row it has (an overflow, a rebuild after the request was dropped, or a
+// rewind landing, which removes entries from the NEWEST end and so removes the
+// view's newest row first). The seq of that row is never reused, so "still there"
+// means "the same entry". There is no second copy of the truncation rule here, and
+// the rows are capped (set_row_cap) so the view stays bounded.
 //
 // Not a QTableWidget: the hex register table is the panel's only one.
 
