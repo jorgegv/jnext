@@ -1354,6 +1354,10 @@ void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
                               ? "fast" : "realtime",   // the mode it continues in
                           t.loader == "tap" ? static_cast<long>(t.tap.block)
                           : t.loader == "tzx" ? static_cast<long>(t.tzx.offset) : 0L);
+    // GH #550: the deck is back where it was, so the playing tape's last edge (for the
+    // ear_relax hold) and the MIC term follow from it.
+    derive_tape_edge_();
+    refresh_mic_final_();
     // The recording cancelled a pending switch to fast loading (rzx_suspend_tape_traps()).
     if (rzx_recorder_.is_recording() && converted.find("then fast loading") != std::string::npos)
         converted = "an RZX recording is running, so the deck stays in real time";

@@ -23,7 +23,11 @@ emulated machine's audio state.
 Complete mute remains available through
 **Settings > Preferences > Startup > Start muted** or `--silent`; muting also
 skips sound synthesis entirely, which speeds up runs that do not need audio.
-Tape loading still works while muted.
+Tape loading still works while muted. A tape loading in real time is heard
+through the beeper, at the level the Next gives it (a quarter of the beeper's
+own), and follows the beeper gain. As on the Next's tape input, a level that
+holds still for about a millisecond (the silence between blocks) fades back to
+the idle level instead of staying up.
 
 ## If the sound stutters or clicks
 
