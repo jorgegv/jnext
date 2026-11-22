@@ -690,6 +690,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
+| AIZ-14 | `build()` machine, the source tap requested through a client and dropped in the other run (GH #536), 50 frames | State bytes and framebuffer hash are equal: the tap and its ring are outside `describe_state()`. Run A's tap pushed more than 1000 samples |
 
 ### 8.3 `Debugger::audio_state()`
 
@@ -776,6 +777,35 @@ reason fails as well. Writes are `emu.port().out()` (source Debugger) unless the
 | DRP-30 | Drops; soft reset; state save and load; cold boot | The counters equal the original after each step             |
 | DRP-31 | Rewind on, a CPU loop of dropped OUTs, run 10 frames, pause, `step_back(1)` | The machine's cycle moves back and the count is unchanged (no counting in a replay) |
 | DRP-32 | Two drops of one reason                          | Count 2, the last port and value are the second write's     |
+
+### 8.5 Source tap and scopes (GH #536)
+
+`Debugger::set_audio_scope_enabled()` / `audio_scope_samples()` and `Mixer::integrate_span_tapped()`. Mixer-level
+rows use a standalone Mixer, TurboSound (YM), Dac and Beeper with no I2S wired (its term is `I2S_REST_LEVEL` 512) and a
+Bresenham threshold of 44100 x 635, so one output sample is exactly 635 master cycles. A sample is the mixer's
+`rounded_average_x4` of the source's hardware level over that period. Oracles: `audio_mixer.vhd:80-100`,
+`ym2149.vhd:157-162,467-536`, `soundrive.vhd:74-77,111-112`, `turbosound.vhd:184-337`.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| SCP-01 | `audio_source_scale()` for all 16 sources | AY {0,0,1020}, DAC {0,512,1020}, Beeper {0,0,4608}, Mix {0,6144,32764} |
+| SCP-02 | Distinct DC on every source (AY volumes 1-9, DAC 0x11..0x44, EAR and MIC), one sample; then the speaker-exclusive gate | AY 4 x {2,3,4,7,10,14,19,27,37}, DAC 4 x byte, Beeper 2560, MixL 5696, MixR 6892; gated: Beeper 0, MixL 3136, MixR 4332 |
+| SCP-03 | EAR high for 100 of 635 cycles | Beeper 323 (round of 322.52, not 322), MixL 6467, AY 0, DAC 512 |
+| SCP-04 | The sync rule: 100 cycles reach the mixer alone, the tapped span ends that sample, then one whole sample | The partial one is not pushed; written 1, Beeper 0, MixL = the mixer's 2nd sample + 6144 |
+| SCP-05 | Emulator with an AY0 tone (period 100, volume 15), tap on, 2 frames | Ay0A holds 0 and 1020, all within range, at most one in-between sample per edge; the other AY sources 0, DAC 512, Beeper 0 |
+| SCP-06 | The all-sources fixture at 0 dB, no mute | Left/Right - 6144 equal the mixer's own output, sample for sample |
+| SCP-07 | The same machine with every source muted and every host gain at -6 dB | The 16 traces are identical; the audible output differs (control) |
+| SCP-08 | An IM 2 HALT loop with sound, 8 frames, HALT batching on and off | Tap sequences identical; the batch ran only in the 'on' machine |
+| SCP-09 | A raster-poll loop with sound, 8 frames, the poll batch on and off | Identical; the poll batch ran only in the 'on' machine |
+| SCP-10 | Rewind on, tap on and off, `step_back(1)` | A replay mixes nothing and `written` does not move; samples again afterwards |
+| SCP-11 | Backend lifecycle | Off before a request; on after it with 16 equal vectors at 44100, first_sample 0; revision +1 per accepted set; refused after the drop; a re-request starts afresh; an unknown client is refused |
+| SCP-12 | Two clients and an observer | On while any live client asks; off after the last drops or detaches; an observer alone turns it on |
+| SCP-13 | Soft reset, in-place `init()`, hard reset, state load | The tap stays installed and keeps growing |
+| SCP-14 | `--silent` | The request is refused; the tap stays off and uninstalled |
+| SCP-15 | 12 frames (more than the ring holds) | 8192 samples; `first_sample = written - 8192`; the mix traces are the newest mixer outputs in order; a short count gives the newest; count 0 an empty Ok |
+| SCP-16 | `scope_trigger()` on a square, a flat block, a short block, a falling edge and a sample equal to the level | Latest rising edge with a whole window after it; free-run; start 0; free-run; the equal sample crosses |
+| SCP-17 | `scope_meter()` on a square, DC and a mixed block, rest 512 | Peak and RMS about the rest |
+| SCP-18 | A live Pi stream consumed, tap on and off | The audible output is bit-identical |
 
 ## Test Implementation Strategy
 

@@ -17,8 +17,10 @@ window looks like and how to drive it, see chapter 6 of the user guide,
 **The window's client** is attached exactly while the debugger window is open.
 Opening the window attaches it. What it then asks of the backend follows what is
 on show (`DebuggerManager::apply_data_needs()`): call tracking while the Call Stack or
-Variables panel is on show or a source Step Over or Step Out runs, and the live raster
-while the Video panel is. Each request is sent only when it changes, from
+Variables panel is on show or a source Step Over or Step Out runs, the live raster
+while the Video panel is, and the mixer source tap while the Audio panel is on show with its Scopes
+sub-tab current (`AudioPanel::scopes_on_show()`; the panel's `sub_tab_changed` reaches
+`panels_on_show_changed`, and the request is not made under `--silent`). Each request is sent only when it changes, from
 `DebuggerWindow::panels_on_show_changed`, which fires once per switch of a group's tab (the dock that became visible announces it),
 per close and reopen of a dock, and per change of floating.
 `DebuggerWindow::panel_on_show()` is the one answer: a panel is
@@ -153,7 +155,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `palette_priority()` (the Palettes `Pri` column), `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
 | Copper | `copper()` | — |
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
-| Audio | `audio_state()`, `ay_mode()` | `set_audio_mute_mask()`, `clear_audio_drops()`; the panel emits `show_in_disassembly_requested` for a CPU-written dropped-write row |
+| Audio | `audio_state()`, `ay_mode()`; the Scopes tab (`AudioScopeView`): `audio_scope_samples()` | `set_audio_mute_mask()`, `clear_audio_drops()`; the panel emits `show_in_disassembly_requested` for a CPU-written dropped-write row; the manager requests the source tap with `set_audio_scope_enabled()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 | Symbols | `symbols().symbols()` (the toolchain's labels and the user's), `shown_name()`, `source_page()`, `source_map().lookup()`, `state_revision()` | — |
@@ -221,6 +223,11 @@ exception to the running cadence: while the window is open, the Audio dock is on
 Chips sub-tab is the current one (`AudioPanel::chips_on_show()`), `refresh_panels()` calls
 `AudioPanel::refresh_live()` on every tick, so the decoded chips follow the music. It is a refresh of its own,
 counted by `take_audio_live_refresh_count()`, not a `refresh_window()` call, so no other panel's cadence moves.
+With the Scopes sub-tab current instead, the same place calls `AudioPanel::refresh_scopes()` (counted by
+`take_audio_scope_refresh_count()`): `AudioScopeView` fetches two 882-sample windows with
+`audio_scope_samples()`, finds the latest rising edge through the middle of the block's range
+(`scope_trigger()` in `src/debug/audio_math.h`, which free-runs when there is none and the lamp says `free`)
+and draws one window from it, with a peak and RMS meter per source (`scope_meter()`, `audio_source_scale()`).
 The stamp is:
 
 - the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and

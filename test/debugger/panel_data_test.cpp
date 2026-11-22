@@ -177,7 +177,7 @@ std::string write_source_files(Fixture& fx, const std::string& dir) {
 
 // The machine for the A/B row: LD HL,$9000 / loop: INC (HL) / JR loop. State moves every frame.
 // `audio_live`: the Audio panel on show, and every frame is a full QtApp tick (so the live refresh runs).
-std::vector<batch_ab::FrameHash> busy_run(bool window_open, bool audio_live = false) {
+std::vector<batch_ab::FrameHash> busy_run(bool window_open, bool audio_live = false, bool scopes = false) {
     std::vector<batch_ab::FrameHash> out;
     Fixture fx;
     if (!fx.ok) return out;
@@ -187,6 +187,11 @@ std::vector<batch_ab::FrameHash> busy_run(bool window_open, bool audio_live = fa
     fx.emu.cpu().set_registers(r);
     if (window_open) fx.enable();
     if (audio_live) fx.show(fx.dbg()->audio_panel());
+    if (scopes) {
+        // GH #536: the Scopes sub-tab current, so the tap is requested and refreshed every frame.
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(4);
+    }
     batch_ab::Scratch scratch;
     for (int f = 0; f < 50; ++f) {
         if (audio_live) fx.tick(); else fx.emu.run_frame();
@@ -503,6 +508,91 @@ int main(int argc, char** argv) {
         }
         check("QLAZY-16",
               "a busy program, 50 frames with the window closed and 50 with the Audio panel refreshing live every frame: identical state, video and audio hashes every frame",
+              same, detail);
+    }
+
+    // QLAZY-19..21 - the Audio panel's Scopes sub-tab (GH #536): the source tap is requested only while the
+    // window is open, the Audio dock is on show and Scopes is the current sub-tab; the live refresh follows.
+    {
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        const bool chips_off = !fx.backend->audio_scope_enabled();
+        if (tabs) tabs->setCurrentIndex(4);   // Scopes
+        QApplication::processEvents();
+        const bool scopes_on = fx.backend->audio_scope_enabled();
+        if (tabs) tabs->setCurrentIndex(0);   // Chips again, through sub_tab_changed
+        QApplication::processEvents();
+        const bool chips_again_off = !fx.backend->audio_scope_enabled();
+        if (tabs) tabs->setCurrentIndex(4);
+        QApplication::processEvents();
+        const bool back_on = fx.backend->audio_scope_enabled();
+        fx.show(fx.dbg()->nextreg_panel());   // the dock is tabbed away
+        const bool away_off = !fx.backend->audio_scope_enabled();
+        fx.show(fx.dbg()->audio_panel());
+        const bool shown_on = fx.backend->audio_scope_enabled();
+        fx.mgr->set_enabled(false);
+        const bool closed_off = !fx.backend->audio_scope_enabled();
+        check("QLAZY-19",
+              "Audio on show: the tap is off with Chips current, on with Scopes current, off again with Chips, off with the dock tabbed away, on when it is shown again, off with the window closed",
+              fx.ok && tabs && chips_off && scopes_on && chips_again_off && back_on && away_off && shown_on && closed_off,
+              b2s(chips_off) + b2s(scopes_on) + b2s(chips_again_off) + b2s(back_on) + b2s(away_off) + b2s(shown_on) + b2s(closed_off));
+    }
+    {
+        uint64_t scope_n = 0, chips_in_scope = 0, panels_scope = 0, panels_away = 0, scope_in_chips = 0;
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+            if (tabs) tabs->setCurrentIndex(4);
+            QApplication::processEvents();
+            fx.mgr->take_audio_scope_refresh_count();
+            fx.mgr->take_audio_live_refresh_count();
+            fx.mgr->take_panel_refresh_count();
+            for (int i = 0; i < 8; ++i) fx.tick();
+            scope_n = fx.mgr->take_audio_scope_refresh_count();
+            chips_in_scope = fx.mgr->take_audio_live_refresh_count();
+            panels_scope = fx.mgr->take_panel_refresh_count();
+        }
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->nextreg_panel());
+            fx.mgr->take_panel_refresh_count();
+            for (int i = 0; i < 8; ++i) fx.tick();
+            panels_away = fx.mgr->take_panel_refresh_count();
+        }
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            fx.mgr->take_audio_scope_refresh_count();
+            for (int i = 0; i < 8; ++i) fx.tick();
+            scope_in_chips = fx.mgr->take_audio_scope_refresh_count();
+        }
+        check("QLAZY-20",
+              "running with the Audio dock shown and Scopes current: 8 scope refreshes in 8 ticks, no Chips live refresh, and the other panels' refresh count equals the tabbed-away run; with Chips current: no scope refresh",
+              scope_n == 8 && chips_in_scope == 0 && panels_scope == panels_away && scope_in_chips == 0,
+              "scope=" + std::to_string(scope_n) + " chips=" + std::to_string(chips_in_scope) + " panels=" +
+                  std::to_string(panels_scope) + "/" + std::to_string(panels_away) + " scope_in_chips=" +
+                  std::to_string(scope_in_chips));
+    }
+    {
+        const auto closed = busy_run(false, false);
+        const auto scopes = busy_run(true, true, true);
+        bool same = closed.size() == 50 && scopes.size() == 50;
+        std::string detail;
+        for (size_t f = 0; same && f < closed.size(); ++f) {
+            if (closed[f].state != scopes[f].state || closed[f].video != scopes[f].video ||
+                closed[f].audio != scopes[f].audio) {
+                same = false;
+                detail = "frame " + std::to_string(f);
+            }
+        }
+        check("QLAZY-21",
+              "a busy program, 50 frames with the window closed and 50 with the Scopes sub-tab on show and refreshing every frame (the tap on): identical state, video and audio hashes every frame",
               same, detail);
     }
 

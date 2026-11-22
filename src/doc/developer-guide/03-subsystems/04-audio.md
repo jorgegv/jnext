@@ -184,6 +184,28 @@ sums: the hardware one (every active chip; what a snapshot or a rewind slot stor
 chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.
 
+**The source tap.** The debugger's Scopes view needs the level of each source before the mixer sums
+them, which the mixer does not keep. `AudioSourceTap` (`src/audio/audio_source_tap.h`, standard headers
+only) holds sixteen accumulators and a 8192-sample ring per source; the Debugger owns it, the Emulator
+holds a raw pointer (`set_audio_scope_tap()`), and it is not machine state: not saved, not reset, never
+read by the Z80. `Mixer::integrate_span_tapped()` is `integrate_span()`'s loop, chunk for chunk, with
+`tap_accumulate_()` beside the audible `accumulate_impl_()`: the sixteen terms are the hardware ones
+(`Dac::channel()`, `AyChip::output_a/b/c()`, `TurboSound::hw_pcm_left()` and the beeper's EAR, MIC and
+tape-EAR levels), computed beside `mix()` and never inside it, so no mute and no host gain reaches them.
+Each pushed sample is the mixer's own `rounded_average_x4` of a term over one output period, so the
+Left and Right traces equal the mixer's output plus its resting level exactly. The sync rule: a tap
+sample is pushed only when the tap saw the mixer's whole sample (compared by cycle count), which covers a
+tap enabled mid-sample, a reset, a state load and a switch between the tapped and untapped paths.
+
+Nothing may be added to the hot audio path when no tap is installed (a debugger feature that is unused
+costs nothing). A test per instruction slice was rejected, and so was a second per-slot accumulate
+entry point (a second caller of a hot function stopped the compiler inlining it, 1 to 7 % of every
+program). Instead the two places that tested `replay_mode_` before mixing, the device cluster and the
+HALT batch's replay, now test one byte, `Emulator::audio_divert_` (bit 0 a replay, bit 1 a tap
+installed): the same load, test and branch, so zero costs nothing extra, and a non-zero byte goes to
+`audio_divert_span_()`, which is cold and out of line and calls `integrate_span_tapped()` (a replay
+mixes nothing). `refresh_audio_divert_()` runs at every writer of `replay_mode_` and of the tap pointer.
+
 The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 `env_reset`, which reloads the level and also forces `env_ena` (`ym2149.vhd:340-342` and `ym2149.vhd:393-409`), so the first
 step comes with the write instead of one envelope period later. `AyChip::load_envelope()` applies the reload

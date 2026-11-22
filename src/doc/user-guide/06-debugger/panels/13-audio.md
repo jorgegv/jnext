@@ -9,7 +9,7 @@ is not part of a saved state or a rewind slot, so muting a chip to work out
 which one is making a noise does not change the program's behaviour.
 
 Below it are five tabs: **Chips**, **DAC & Beeper**, **Log**, **Tracker** and
-**Scopes**. Log, Tracker and Scopes are not available yet.
+**Scopes**. Log and Tracker are not available yet.
 
 ## Chips
 
@@ -97,5 +97,41 @@ Debugger, and stepping back or rewinding does not count the replayed writes agai
 Double-click a row written by the CPU to show the instruction in the Disassembly.
 
 The DAC & Beeper tab is refreshed at about 4 Hz with the rest of the window.
+
+## Scopes
+
+One oscilloscope trace and one level meter for each of sixteen sources, in this
+order: the three channels of each AY chip (AY0 A to AY2 C), the four DAC channels
+(DAC A to D), the Beeper, and the stereo mix (Left and Right). A trace shows the
+last 20 ms.
+
+What a trace shows is what the source produces, before everything the debugger
+and the host do to it:
+
+- an AY channel is the chip's own channel output, before the TurboSound routing
+  and the pan, so a chip that is not in the mix still shows what it is
+  generating (the Chips tab says whether it reaches the mix);
+- a DAC channel is the byte last written, drawn around its midpoint (`0x80` is
+  silence);
+- the Beeper is EAR, MIC and the tape EAR input, and is flat while the beeper is
+  excluded from the mix;
+- Left and Right are the hardware mix, the same sum as the sound output.
+
+Muting a source in the Sources strip or changing a gain does not change a trace:
+the scopes show the machine, not what you hear.
+
+The trace is edge-triggered: it starts at the latest rising crossing of the middle
+of the signal's range that leaves a whole window after it, so a steady tone stands
+still. The lamp beside the title reads `trig` while an edge was found and `free`
+when there was none (a silent or constant source, or a signal that does not rise
+through its middle), and the trace then simply shows the newest samples.
+
+The bar is the largest swing of the drawn window from the source's resting level,
+as a percentage of the most it can swing; beside it, `pk` is that swing and `rms`
+the root mean square, in the source's own units (0 to 255 for an AY or DAC channel).
+
+Samples are collected only while this tab is on show, and the scopes redraw on
+every frame while the machine runs. With `--silent` the emulator does not
+synthesise audio, and the tab says so instead of drawing traces.
 
 ---

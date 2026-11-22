@@ -101,6 +101,7 @@ void DebuggerManager::attach_backend() {
     // the window exists, and only while a panel on show needs them. INS-12: through the
     // backend a request is also re-applied across a cold boot (CTL-12 rule 2).
     call_stack_requested_ = false;
+    audio_scope_requested_ = false;
     raster_requested_ = false;
     set_panels_client();
 }
@@ -112,6 +113,14 @@ void DebuggerManager::apply_data_needs() {
     const bool want_cs = open && (w->panel_on_show(w->callstack_panel()) ||
                                   w->panel_on_show(w->variables_panel()) || source_step_in_flight_);
     const bool want_raster = open && w->panel_on_show(w->video_panel());
+    // GH #536 - the source tap runs only while the Audio panel is on show with its Scopes tab current,
+    // and only when the mixer runs at all (the backend refuses a request under --silent).
+    const bool want_scope = open && w->panel_on_show(w->audio_panel()) && w->audio_panel()->scopes_on_show() &&
+                            dbg_.audio_state().host.synthesis_on;
+    if (want_scope != audio_scope_requested_) {
+        audio_scope_requested_ = want_scope;
+        dbg_.set_audio_scope_enabled(client_, want_scope);
+    }
     if (want_cs != call_stack_requested_) {
         call_stack_requested_ = want_cs;
         dbg_.set_call_stack_enabled(client_, want_cs);
@@ -125,6 +134,7 @@ void DebuggerManager::apply_data_needs() {
 void DebuggerManager::detach_backend() {
     if (client_ == jnext::dbg::CLIENT_NONE) return;
     dbg_.set_call_stack_enabled(client_, false);
+    dbg_.set_audio_scope_enabled(client_, false);
     // SES-01 — removes this client's subscriptions (a Step Over or Run to Here
     // target still in flight goes with the window) and its live-raster request.
     // It resumes nothing here: set_enabled(false) has already resumed a paused
@@ -1146,6 +1156,10 @@ void DebuggerManager::refresh_panels() {
             if (debugger_window_->panel_on_show(ap) && ap->chips_on_show()) {
                 ap->refresh_live();
                 ++audio_live_refresh_count_;
+            } else if (debugger_window_->panel_on_show(ap) && ap->scopes_on_show()) {
+                // GH #536: the Scopes tab, live (the Chips branch above and its count are untouched).
+                ap->refresh_scopes();
+                ++audio_scope_refresh_count_;
             }
         }
         // Throttle refresh during running to ~4Hz.

@@ -25,8 +25,18 @@
 // zxnext.vhd:2744-2751,2963-2965,2974-2980,3024,3034-3041,3088-3094,5412-5414,
 // 6989,7046 and soundrive.vhd:72-101 (ports, enables, mirror, reset).
 //
+//   SCP-*  the mixer source tap (GH #536, INS-24): the sixteen sources' hardware levels, the
+//          sync rule, the ring and its reader, the divert byte and every route into the audio
+//          path. Oracles: audio_mixer.vhd:80-100, ym2149.vhd:157-162,467-536, soundrive.vhd:74-77,
+//          111-112 and turbosound.vhd:184-337; SCP-06's oracle is the mixer's own output (the tap
+//          is its hand-computed twin: SCP-02/03 pin the arithmetic against the VHDL).
+//
 // Run: ./build/test/audio_debug_test
 
+#include "audio/beeper.h"
+#include "audio/dac.h"
+#include "audio/mixer.h"
+#include "audio/pi_audio.h"
 #include "audio/turbosound.h"
 #include "audio/audio_mute.h"
 #include "core/emulator.h"
@@ -41,6 +51,7 @@
 #include "port/port_dispatch.h"
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -53,6 +64,7 @@
 #include "../row_id.h"
 
 using jnext::dbg::AudioDropCounter;
+using jnext::dbg::AudioSource;
 using jnext::dbg::AudioState;
 using jnext::dbg::EventSource;
 using jnext::dbg::ResetKind;
@@ -226,6 +238,101 @@ static bool invisible(F feature, int frames, bool& ran, void (*fixture)(Emulator
     ran = ran && b.ok && !a.state.empty();
     return a.state == b.state && a.video == b.video;
 }
+
+// ── SCP: the mixer source tap ───────────────────────────────────────────
+
+static void no_sample(void*) {}
+
+// A standalone mixer rig. One output sample is exactly 635 master cycles when the Bresenham
+// threshold is 44100 x 635, so a row's levels and cycles are hand-computable.
+struct MixRig {
+    static constexpr uint64_t THRESHOLD = 44100ull * 635;
+    Mixer mixer;
+    TurboSound ts;
+    Dac dac;
+    Beeper beeper;
+    AudioSourceTap tap;
+    uint64_t sa = 0;
+    MixRig() { ts.power_on(); ts.set_ay_mode(false); }   // YM (ym2149.vhd:531)
+    void span(uint64_t cycles) {
+        mixer.integrate_span_tapped(tap, beeper, ts, dac, cycles, sa, THRESHOLD, no_sample, nullptr);
+    }
+    int at(AudioSource s, uint64_t i) const {
+        return tap.ring[static_cast<size_t>(s) * AudioSourceTap::RING + i % AudioSourceTap::RING];
+    }
+};
+
+// One AY register of chip `chip` through the TurboSound command and data ports.
+static void ts_reg(TurboSound& ts, int chip, uint8_t reg, uint8_t val) {
+    static const uint8_t cmd[3] = {0xFF, 0xFE, 0xFD};
+    ts.reg_addr(cmd[chip]);
+    ts.reg_addr(reg);
+    ts.reg_write(val);
+}
+
+// Every stereo sample the mixer produced since the last drain, as separate L and R.
+struct Out { std::vector<int16_t> l, r; };
+static void drain(Emulator& emu, Out& o) {
+    int16_t buf[2 * 512];
+    for (;;) {
+        const int n = emu.mixer().read_samples(buf, 512);
+        if (n <= 0) break;
+        for (int i = 0; i < n; ++i) { o.l.push_back(buf[2 * i]); o.r.push_back(buf[2 * i + 1]); }
+    }
+}
+static Out run_frames(Emulator& emu, int frames) {
+    Out o;
+    drain(emu, o);
+    o.l.clear(); o.r.clear();
+    for (int i = 0; i < frames; ++i) { emu.run_frame(); drain(emu, o); }
+    return o;
+}
+
+static bool rings_equal(const AudioSourceTap& a, const AudioSourceTap& b) {
+    return a.written == b.written && a.ring == b.ring;
+}
+
+// The shared IM 2 program of the HALT-batch suites (test/core/halt_batch_fixtures.h): the interrupt
+// routine toggles the beeper, the main loop is EI; HALT. The vector table is 257 bytes of one value.
+static void install_im2_halt(Emulator& e) {
+    const uint16_t isr = 0xC1C1, main = 0xC000;
+    for (int i = 0; i < 257; ++i) e.mmu().write(static_cast<uint16_t>((0xFD << 8) + i), 0xC1);
+    const uint8_t code_isr[] = {0xF5, 0x3A, 0x00, 0xC2, 0xEE, 0x10, 0x32, 0x00, 0xC2, 0xD3, 0xFE,
+                                0x3A, 0x01, 0xC2, 0x3C, 0x32, 0x01, 0xC2, 0xF1, 0xFB, 0xED, 0x4D};
+    for (size_t i = 0; i < sizeof code_isr; ++i) e.mmu().write(static_cast<uint16_t>(isr + i), code_isr[i]);
+    const uint8_t code_main[] = {0x3E, 0xFD, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFD};
+    for (size_t i = 0; i < sizeof code_main; ++i) e.mmu().write(static_cast<uint16_t>(main + i), code_main[i]);
+    Z80Registers r = e.cpu().get_registers();
+    r.PC = main; r.SP = 0xBFF0;
+    e.cpu().set_registers(r);
+}
+
+// A Next with sound and a loop that waits for a raster line: AY0 and AY1 tones, the beeper
+// toggled by the interrupt routine, then either `EI; HALT` (poll == false) or the NR 0x1F poll
+// loop of test/core/raster_poll_fixtures.h (preselected_loop: select NR 0x1F, read it until it
+// shows line 100, count, wait for it to leave).
+static void build_batch(Emulator& emu, bool poll) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    nr_write(emu, 0x03, 0x01);
+    nr_write(emu, 0x08, 0x0A);
+    ay_select(emu, 0);
+    ay_write(emu, 7, 0x3E); ay_write(emu, 8, 0x0F); ay_write(emu, 0, 0x40);
+    ay_select(emu, 1);
+    ay_write(emu, 7, 0x3E); ay_write(emu, 8, 0x0C); ay_write(emu, 0, 0x55);
+    if (!poll) { install_im2_halt(emu); return; }
+    const uint8_t loop[] = {0x01, 0x3B, 0x24, 0x3E, 0x1F, 0xED, 0x79, 0x04,   // BC = 0x253B, NR 0x1F selected
+                            0xED, 0x78, 0xFE, 100, 0x20, 0xFA,                // L2: in a,(c); cp 100; jr nz,L2
+                            0x21, 0x10, 0xC2, 0x34,                           // count
+                            0xED, 0x78, 0xFE, 100, 0x28, 0xFA, 0x18, 0xEE};   // L3: wait to leave 100; jr L2
+    for (size_t i = 0; i < sizeof loop; ++i) emu.mmu().write(static_cast<uint16_t>(0xC000 + i), loop[i]);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0xC000; r.SP = 0xBFF0; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
 
 // True when `n` is valid, named `name` in octave `oct`, `cents` away (to 0.005).
 static bool is_note(const PsgNote& n, const char* name, int oct, double cents) {
@@ -1307,6 +1414,406 @@ int main() {
         for (int i = 0; i < 2; ++i) probe.run_frame();
         check("AIZ-10", "the dropped-write counters are outside describe_state(): clearing them in one run leaves the saved state and the video unchanged (a CPU dropping thousands of writes a frame; positive control: the counters do move)",
               ran && same && probe.audio_drops()[size_t(AR::DacFamilyDisabled)].count > 1000);
+    }
+
+
+    // ─────────────────── SCP: the mixer source tap (GH #536) ───────────────────
+
+    {
+        // audio_source_scale(): the one table the view's axes and meters read, in sample units (x4).
+        bool ok = true;
+        for (size_t i = 0; i < jnext::dbg::AUDIO_SOURCE_COUNT; ++i) {
+            const auto sc = jnext::dbg::audio_source_scale(static_cast<AudioSource>(i));
+            if (i <= 8)       ok = ok && sc.lo == 0 && sc.rest == 0 && sc.hi == 1020;       // 255 x 4: ym2149.vhd:157-162 max 0xFF
+            else if (i <= 12) ok = ok && sc.lo == 0 && sc.rest == 512 && sc.hi == 1020;     // 0x80 x 4 rest: soundrive.vhd:74-77
+            else if (i == 13) ok = ok && sc.lo == 0 && sc.rest == 0 && sc.hi == 4608;       // (512 + 128 + 512) x 4: audio_mixer.vhd:80-81 + tape EAR
+            else              ok = ok && sc.lo == 0 && sc.rest == 6144 && sc.hi == 32764;   // MIX_REST_LEVEL x 4; 8191 x 4: :99-100
+        }
+        check("SCP-01", "audio_source_scale: AY {0,0,1020}, DAC {0,512,1020}, Beeper {0,0,4608}, Mix {0,6144,32764} "
+              "(ym2149.vhd:157-162, soundrive.vhd:74-77, audio_mixer.vhd:80-81,99-100)",
+              ok && jnext::dbg::AUDIO_SOURCE_COUNT == 16 && Mixer::MIX_REST_LEVEL * 4 == 6144);
+    }
+    {
+        // Distinct DC on every source. TurboSound on, ABC, pans 11, no mono, YM. Chip c channel k holds
+        // fixed volume v = 3c + k + 1 (R7 = 0x3F: the gates are open, the output IS the volume level,
+        // ym2149.vhd:467-520), through YM table[2v + 1] (:487) = {2,3,4,7,10,14,19,27,37} (:157-162).
+        MixRig m;
+        m.ts.set_enabled(true);
+        static const int kLevel[9] = {2, 3, 4, 7, 10, 14, 19, 27, 37};
+        for (int c = 0; c < 3; ++c) {
+            ts_reg(m.ts, c, 7, 0x3F);
+            for (int k = 0; k < 3; ++k) ts_reg(m.ts, c, static_cast<uint8_t>(8 + k), static_cast<uint8_t>(3 * c + k + 1));
+        }
+        for (int i = 0; i < 20; ++i) m.ts.tick();
+        const uint8_t dacv[4] = {0x11, 0x22, 0x33, 0x44};
+        for (int k = 0; k < 4; ++k) m.dac.write_channel(k, dacv[k]);
+        m.beeper.set_ear(true); m.beeper.set_mic(true);
+        // Beeper 512 + 128 = 640 (audio_mixer.vhd:80-81). L = B + A and R = C + B per chip
+        // (turbosound.vhd ABC): AY L = (2+3) + (7+10) + (19+27) = 68, R = (4+3) + (14+10) + (37+27) = 95.
+        // DAC L = (0x11 + 0x22) << 2 = 204, R = (0x33 + 0x44) << 2 = 476 (soundrive.vhd:111-112).
+        // I2S rests at 512 (audio_mixer.vhd:89-90 with no source wired).
+        m.span(635);
+        bool ok = !m.ts.ay_mode() && m.tap.written == 1;
+        for (int i = 0; i < 9; ++i) ok = ok && m.at(static_cast<AudioSource>(i), 0) == 4 * kLevel[i];
+        for (int k = 0; k < 4; ++k) ok = ok && m.at(static_cast<AudioSource>(9 + k), 0) == 4 * dacv[k];
+        ok = ok && m.at(AudioSource::Beeper, 0) == 4 * 640;                     // 2560
+        ok = ok && m.at(AudioSource::MixLeft, 0) == 4 * (640 + 68 + 204 + 512);  // 5696
+        ok = ok && m.at(AudioSource::MixRight, 0) == 4 * (640 + 95 + 476 + 512); // 6892
+        // The speaker-exclusive gate (audio_mixer.vhd:80-81): the beeper terms go to 0.
+        m.mixer.set_exc_i(true);
+        m.span(635);
+        ok = ok && m.tap.written == 2 && m.at(AudioSource::Beeper, 1) == 0 &&
+             m.at(AudioSource::MixLeft, 1) == 4 * (68 + 204 + 512) &&           // 3136
+             m.at(AudioSource::MixRight, 1) == 4 * (95 + 476 + 512);            // 4332
+        check("SCP-02", "distinct DC on all 16 sources: AY 4 x table[2v+1], DAC 4 x byte, Beeper 2560, MixL 5696, MixR 6892; "
+              "exc_i gates the beeper (MixL 3136, MixR 4332) (ym2149.vhd:157-162,487; audio_mixer.vhd:80-100; turbosound.vhd; soundrive.vhd:111-112)", ok);
+    }
+    {
+        // EAR high for 100 cycles, low for 535, in one 635-cycle sample, nothing else sounding.
+        // Beeper = round(4 x 512 x 100 / 635) = round(322.52) = 323: truncation would give 322.
+        // MixL = (4 x (1536 x 635 + 512 x 100) + 317) / 635 = 6467 (rest 1536 = DAC 1024 + I2S 512).
+        MixRig m;
+        m.beeper.set_ear(true);
+        m.span(100);
+        m.beeper.set_ear(false);
+        m.span(535);
+        bool ok = m.tap.written == 1 && m.at(AudioSource::Beeper, 0) == 323 && m.at(AudioSource::MixLeft, 0) == 6467;
+        for (int i = 0; i < 9; ++i) ok = ok && m.at(static_cast<AudioSource>(i), 0) == 0;
+        for (int i = 9; i < 13; ++i) ok = ok && m.at(static_cast<AudioSource>(i), 0) == 512;
+        check("SCP-03", "EAR high for 100 of 635 cycles: Beeper = round(322.52) = 323 (not 322), MixL = 6467, every AY 0 and DAC 512 "
+              "(audio_mixer.vhd:80-81,99-100)", ok);
+    }
+    {
+        // The sync rule: 100 cycles reach the mixer alone (the tap was not there), then the tapped span ends
+        // that sample. The tap saw 535 of its 635 cycles, so it pushes nothing; the next whole sample is pushed.
+        MixRig m;
+        m.sa = 100ull * 44100;
+        m.mixer.accumulate(m.beeper, m.ts, m.dac, 100);
+        m.beeper.set_ear(true);
+        m.span(535);
+        const bool partial_dropped = m.tap.written == 0;
+        m.beeper.set_ear(false);
+        m.span(635);
+        int16_t out[2 * 4] = {};
+        const int n = m.mixer.read_samples(out, 4);
+        // The mixer's 2nd output sample is the all-rest one: 4 x 1536 - 6144 = 0, so MixL = 6144 + 0.
+        check("SCP-04", "sync rule: a sample the tap saw only 535 of 635 cycles of is not pushed; the next whole one is (written 1, Beeper 0, MixL = the mixer's 2nd sample + 6144)",
+              partial_dropped && n == 2 && m.tap.written == 1 && m.at(AudioSource::Beeper, 0) == 0 &&
+              m.at(AudioSource::MixLeft, 0) == out[2] + 6144 && out[0] != 0);
+    }
+    {
+        // Emulator: AY0 tone A (R7 0x3E, period 100, volume 15 = 255 through the YM table), the rest silent.
+        // The tone toggles every 100 x 8 PSG enables = 12800 master cycles = 20.16 samples, so a sample that
+        // straddles an edge averages the two levels: every value lies in [0, 1020], at most one sample per edge
+        // is in between, and the run holds both rails.
+        Emulator emu; fresh(emu);
+        nr_write(emu, 0x08, 0x02);
+        ay_select(emu, 0);
+        ay_write(emu, 7, 0x3E); ay_write(emu, 0, 100); ay_write(emu, 1, 0); ay_write(emu, 8, 15);
+        park(emu);
+        AudioSourceTap tap;
+        emu.set_audio_scope_tap(&tap);
+        for (int f = 0; f < 2; ++f) emu.run_frame();
+        size_t lo = 0, hi = 0, mid = 0, edges = 0;
+        bool prev_high = false, others_quiet = true;
+        const size_t n = static_cast<size_t>(tap.written);
+        for (size_t i = 0; i < n; ++i) {
+            const int v = tap.ring[i];
+            if (v == 0) ++lo; else if (v == 1020) ++hi; else ++mid;
+            const bool high = v >= 510;
+            if (i && high != prev_high) ++edges;
+            prev_high = high;
+            for (size_t src = 1; src < 9; ++src) others_quiet = others_quiet && tap.ring[src * AudioSourceTap::RING + i] == 0;
+            for (size_t src = 9; src < 13; ++src) others_quiet = others_quiet && tap.ring[src * AudioSourceTap::RING + i] == 512;
+            others_quiet = others_quiet && tap.ring[13 * AudioSourceTap::RING + i] == 0;
+        }
+        const bool in_range = std::all_of(tap.ring.begin(), tap.ring.begin() + static_cast<long>(n),
+                                          [](int16_t v) { return v >= 0 && v <= 1020; });
+        check("SCP-05", "an AY0 tone (period 100, volume 15): Ay0A holds both 0 and 1020 within [0,1020], at most one in-between sample per edge, "
+              "the other 8 AY sources 0, DAC 512, Beeper 0 (ym2149.vhd:306-325,467-536)",
+              n > 1500 && lo > 100 && hi > 100 && in_range && edges > 40 && mid <= edges + 1 && others_quiet);
+    }
+    {
+        // The tap's mix trace is the mixer's own output plus its resting level, at 0 dB with no mute.
+        Emulator emu; build(emu);
+        Out drained; drain(emu, drained);
+        AudioSourceTap tap;
+        emu.set_audio_scope_tap(&tap);
+        const Out m = run_frames(emu, 2);
+        const size_t t = static_cast<size_t>(tap.written), mm = m.l.size();
+        bool ok = t > 800 && (t == mm || t + 1 == mm);
+        for (size_t i = 0; ok && i < t; ++i) {
+            ok = ok && tap.ring[static_cast<size_t>(AudioSource::MixLeft) * AudioSourceTap::RING + i] - 6144 == m.l[i + mm - t] &&
+                       tap.ring[static_cast<size_t>(AudioSource::MixRight) * AudioSourceTap::RING + i] - 6144 == m.r[i + mm - t];
+        }
+        check("SCP-06", "the Left/Right traces equal the mixer's own output + 6144 for every sample (0 dB, no mute): the tap mirrors mix()", ok);
+    }
+    {
+        // D12: pre-mute and pre-gain. The same machine twice: B mutes everything and lowers every host gain.
+        Emulator a, b; build(a); build(b);
+        AudioSourceTap ta, tb;
+        a.set_audio_scope_tap(&ta); b.set_audio_scope_tap(&tb);
+        b.set_audio_mute_mask(AudioMute::ALL);
+        b.mixer().set_output_gain_db(-6.0f); b.mixer().set_beeper_gain_db(-6.0f);
+        b.mixer().set_dac_gain_db(-6.0f);
+        for (int c = 0; c < 3; ++c) b.mixer().set_ay_gain_db(c, -6.0f);
+        const Out oa = run_frames(a, 3), ob = run_frames(b, 3);
+        check("SCP-07", "the 16 traces are pre-mute and pre-gain: identical with every source muted and every host gain -6 dB; the audible output differs (control)",
+              ta.written > 1000 && rings_equal(ta, tb) && oa.l != ob.l && oa.r != ob.r);
+    }
+    {
+        // HALT batch: the tap sees the same samples with batching on and off, and the batch ran.
+        Emulator on, off; build_batch(on, false); build_batch(off, false);
+        off.set_cycle_batching_for_test(false, false, false);
+        AudioSourceTap ton, toff;
+        on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
+        for (int f = 0; f < 8; ++f) { on.run_frame(); off.run_frame(); }
+        check("SCP-08", "an IM 2 HALT loop with AY tones and a toggling beeper, 8 frames: the tap sequences are identical with HALT batching on and off, and the batch ran only in the 'on' machine",
+              ton.written > 5000 && rings_equal(ton, toff) && on.halt_repeats_batched_for_test() > 0 &&
+              off.halt_repeats_batched_for_test() == 0);
+    }
+    {
+        Emulator on, off; build_batch(on, true); build_batch(off, true);
+        off.set_cycle_batching_for_test(false, false, false);
+        AudioSourceTap ton, toff;
+        on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
+        for (int f = 0; f < 8; ++f) { on.run_frame(); off.run_frame(); }
+        check("SCP-09", "a raster-poll loop with AY tones, 8 frames: the tap sequences are identical with the poll batch on and off, and it ran only in the 'on' machine",
+              ton.written > 5000 && rings_equal(ton, toff) && on.poll_passes_batched_for_test() > 0 &&
+              off.poll_passes_batched_for_test() == 0);
+    }
+    {
+        // A rewind replay mixes nothing, tapped or not (audio_divert_ bit 0), and normal running resumes after it.
+        struct Rep { bool ok; uint64_t w0, w1, w2; };
+        auto run = [](bool tapped) {
+            Emulator emu; fresh(emu);
+            emu.set_rewind_enabled(true);
+            emu.resize_rewind_buffer(50);
+            nr_write(emu, 0x08, 0x02);
+            ay_select(emu, 0); ay_write(emu, 7, 0x3E); ay_write(emu, 0, 100); ay_write(emu, 8, 15);
+            park(emu);
+            Debugger dbg(emu);
+            const ClientId cid = dbg.attach(client("scp10")).value;
+            if (tapped) dbg.set_audio_scope_enabled(cid, true);
+            Out o;
+            for (int i = 0; i < 20; ++i) emu.run_frame();
+            dbg.pause(cid);
+            drain(emu, o);
+            const uint64_t w0 = tapped ? dbg.audio_scope_samples(0).value.first_sample : 0;
+            const int before = emu.mixer().available();
+            const Result r = dbg.step_back(cid, 1);
+            const uint64_t w1 = tapped ? dbg.audio_scope_samples(0).value.first_sample : 0;
+            const int after = emu.mixer().available();
+            dbg.resume(cid);
+            for (int i = 0; i < 2; ++i) emu.run_frame();
+            const uint64_t w2 = tapped ? dbg.audio_scope_samples(0).value.first_sample : 0;
+            const bool resumed = emu.mixer().available() > 1000;
+            return Rep{r == Result::Ok && before == 0 && after == 0 && resumed && (!tapped || (w1 == w0 && w2 > w1)), w0, w1, w2};
+        };
+        const Rep on = run(true), off = run(false);
+        check("SCP-10", "a step_back replay mixes nothing and the tap's written count does not move, with the tap on and off; both produce samples again after it",
+              on.ok && off.ok);
+    }
+    {
+        // Backend lifecycle.
+        Emulator emu; fresh(emu); park(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("scp11")).value;
+        const bool before = !dbg.audio_scope_enabled() && dbg.audio_scope_samples(1).status == Result::RefusedUnavailable &&
+                            emu.audio_scope_tap() == nullptr;
+        const uint64_t rev0 = dbg.state_revision();
+        const Result on_r = dbg.set_audio_scope_enabled(cid, true);
+        const bool rev_bumped = dbg.state_revision() == rev0 + 1;
+        const bool on_now = dbg.audio_scope_enabled() && emu.audio_scope_tap() != nullptr;
+        emu.run_frame();
+        const auto blk = dbg.audio_scope_samples(100000);
+        bool equal_len = blk.status == Result::Ok && blk.value.sample_rate == 44100 && blk.value.first_sample == 0 &&
+                         blk.value.samples[0].size() > 700;
+        for (const auto& v : blk.value.samples) equal_len = equal_len && v.size() == blk.value.samples[0].size();
+        dbg.set_audio_scope_enabled(cid, false);
+        const bool dropped = !dbg.audio_scope_enabled() && dbg.audio_scope_samples(1).status == Result::RefusedUnavailable &&
+                             emu.audio_scope_tap() == nullptr;
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.set_audio_scope_enabled(cid, true);
+        emu.run_frame();
+        const auto again = dbg.audio_scope_samples(100000);
+        const bool fresh_tap = again.status == Result::Ok && again.value.first_sample == 0 &&
+                               again.value.samples[0].size() < blk.value.samples[0].size() + 50;
+        const bool unknown = dbg.set_audio_scope_enabled(9999, true) == Result::RefusedUnavailable;
+        check("SCP-11", "lifecycle: off and null before a request; on after it (revision +1) with 16 equal-length vectors at 44100, first_sample 0; refused and null after the drop; a re-request starts a new tap; an unknown client is refused",
+              before && on_r == Result::Ok && rev_bumped && on_now && equal_len && dropped && fresh_tap && unknown);
+    }
+    {
+        // Any live client keeps it on, an observer counts, and the last drop turns it off.
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("scp12a")).value;
+        const ClientId b = dbg.attach(client("scp12b")).value;
+        dbg.set_audio_scope_enabled(a, true);
+        dbg.set_audio_scope_enabled(b, true);
+        dbg.set_audio_scope_enabled(a, false);
+        const bool after_a = dbg.audio_scope_enabled();
+        dbg.detach(b);
+        const bool after_b = dbg.audio_scope_enabled() || emu.audio_scope_tap() != nullptr;
+        jnext::dbg::ClientInfo oi = client("scp12o");
+        oi.observer = true;
+        const ClientId o = dbg.attach(oi).value;
+        dbg.set_audio_scope_enabled(o, true);
+        const bool with_observer = dbg.audio_scope_enabled() && emu.audio_scope_tap() != nullptr;
+        check("SCP-12", "A and B request, A drops: still on; B detaches: off; an observer alone requests: on",
+              after_a && !after_b && with_observer);
+    }
+    {
+        // Survives every reset kind, an in-place init and a state load.
+        auto grows = [](Emulator& emu, Debugger& dbg) {
+            const uint64_t w0 = dbg.audio_scope_samples(0).value.first_sample;
+            park(emu);
+            emu.run_frame();
+            return dbg.audio_scope_enabled() && emu.audio_scope_tap() != nullptr &&
+                   dbg.audio_scope_samples(0).value.first_sample > w0 + 500;
+        };
+        Emulator emu; fresh(emu); park(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("scp13")).value;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() { emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{}); return true; };
+        dbg.set_loop_driver(d);
+        dbg.set_audio_scope_enabled(cid, true);
+        emu.run_frame();
+        bool ok = true;
+        dbg.reset(cid, ResetKind::Soft);
+        ok = ok && grows(emu, dbg);
+        EmulatorConfig cfg = emu.config();
+        emu.init(cfg);
+        ok = ok && grows(emu, dbg);
+        dbg.reset(cid, ResetKind::Hard);
+        ok = ok && grows(emu, dbg);
+        const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        ok = ok && saved.status == Result::Ok &&
+             dbg.load_state_bytes(cid, saved.value.data(), saved.value.size()) == Result::Ok && grows(emu, dbg);
+        check("SCP-13", "the tap survives reset(Soft), an in-place init(), reset(Hard) (a cold boot) and load_state_bytes: still installed and growing", ok);
+    }
+    {
+        // --silent: the mixer does not run, so there is nothing to tap.
+        Emulator emu;
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
+        emu.init(cfg);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("scp14")).value;
+        const Result r = dbg.set_audio_scope_enabled(cid, true);
+        check("SCP-14", "under --silent the request is RefusedUnavailable, the tap stays off and uninstalled",
+              r == Result::RefusedUnavailable && !dbg.audio_scope_enabled() && emu.audio_scope_tap() == nullptr);
+    }
+    {
+        // The ring: 12 frames (> 8192 samples), every mixer output collected.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("scp15")).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        Out all, tmp;
+        drain(emu, tmp);
+        for (int f = 0; f < 12; ++f) { emu.run_frame(); drain(emu, all); }
+        const auto big = dbg.audio_scope_samples(10000);
+        const uint64_t written = dbg.audio_scope_samples(0).value.first_sample;
+        bool ok = big.status == Result::Ok && written > 8192 && big.value.samples[14].size() == 8192 &&
+                  big.value.first_sample == written - 8192 && all.l.size() >= 8192;
+        for (size_t i = 0; ok && i < 8192; ++i)
+            ok = big.value.samples[14][i] - 6144 == all.l[all.l.size() - 8192 + i] &&
+                 big.value.samples[15][i] - 6144 == all.r[all.r.size() - 8192 + i];
+        const auto five = dbg.audio_scope_samples(5);
+        ok = ok && five.status == Result::Ok && five.value.samples[14].size() == 5 &&
+             five.value.first_sample == written - 5;
+        for (size_t i = 0; ok && i < 5; ++i)
+            ok = five.value.samples[14][i] == big.value.samples[14][8192 - 5 + i];
+        const auto zero = dbg.audio_scope_samples(0);
+        ok = ok && zero.status == Result::Ok && zero.value.samples[0].empty() && zero.value.samples[15].empty();
+        check("SCP-15", "after 12 frames the ring holds 8192; first_sample = written - 8192; MixLeft/Right - 6144 are the newest 8192 mixer outputs in order; count 5 gives the newest 5; count 0 is an empty Ok", ok);
+    }
+    {
+        // scope_trigger. (a) a square of period 100 (0 for 50, 1000 for 50): edges at 50 + 100k.
+        std::vector<int16_t> sq(1764);
+        for (size_t i = 0; i < sq.size(); ++i) sq[i] = (i % 100) < 50 ? 0 : 1000;
+        const ScopeTrigger a = scope_trigger(sq.data(), sq.size(), 882);
+        std::vector<int16_t> flat(1764, 7);
+        const ScopeTrigger b = scope_trigger(flat.data(), flat.size(), 882);
+        std::vector<int16_t> shortb(500, 0);
+        for (size_t i = 250; i < 500; ++i) shortb[i] = 1000;
+        const ScopeTrigger c = scope_trigger(shortb.data(), shortb.size(), 882);
+        std::vector<int16_t> fall(1764);
+        for (size_t i = 0; i < fall.size(); ++i) fall[i] = i < 900 ? 1000 : 0;
+        const ScopeTrigger d = scope_trigger(fall.data(), fall.size(), 882);
+        // (e) min 0, max 1001: level (0 + 1001 + 1) / 2 = 501. The only edge in range goes 0 -> 501, a sample
+        // EQUAL to the level: it crosses (>=), start 400. (A `>` comparison would free-run at 882.)
+        std::vector<int16_t> eq(1764, 0);
+        for (size_t i = 400; i < 1764; ++i) eq[i] = 501;
+        eq[1763] = 1001;
+        const ScopeTrigger e = scope_trigger(eq.data(), eq.size(), 882);
+        check("SCP-16", "scope_trigger: square -> latest rising edge with a whole window after it (850, level 500); flat -> free-run 882; short block -> start 0; a falling edge alone -> free-run; a sample equal to the level crosses (>=)",
+              a.triggered && a.start == 850 && a.level == 500 && !b.triggered && b.start == 882 &&
+              !c.triggered && c.start == 0 && !d.triggered && d.start == 882 &&
+              e.triggered && e.start == 400 && e.level == 501);
+    }
+    {
+        // scope_meter, rest 512.
+        const int16_t sqw[] = {768, 256, 768, 256};
+        const ScopeMeter a = scope_meter(sqw, 4, 512);
+        const int16_t dc[] = {768, 768, 768, 768};
+        const ScopeMeter b = scope_meter(dc, 4, 512);
+        const int16_t cc[] = {512, 512, 1020, 0};
+        const ScopeMeter c = scope_meter(cc, 4, 512);
+        // (c): deviations 0, 0, 508, -512: peak 512, rms sqrt((508^2 + 512^2) / 4) = 360.627
+        check("SCP-17", "scope_meter around rest 512: a +-256 square peak 256 rms 256; DC 768 peak 256 rms 256; {512,512,1020,0} peak 512 rms 360.627",
+              a.peak == 256 && near(a.rms, 256.0, 1e-9) && b.peak == 256 && near(b.rms, 256.0, 1e-9) &&
+              c.peak == 512 && near(c.rms, 360.627, 0.001));
+    }
+    {
+        // The tapped path mixes and latches the Pi exactly as advance_audio(): two runs from one state.
+        auto run = [](bool tapped, PiAudio& pa, Out& out) {
+            Emulator emu;
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+            cfg.pi_audio = &pa;
+            emu.init(cfg);
+            nr_write(emu, 0x08, 0x0A);
+            nr_write(emu, 0xA2, 0xC0);   // I2S left and right enabled
+            ay_select(emu, 0); ay_write(emu, 7, 0x3E); ay_write(emu, 0, 100); ay_write(emu, 8, 15);
+            park(emu);
+            AudioSourceTap tap;
+            if (tapped) emu.set_audio_scope_tap(&tap);
+            out = run_frames(emu, 3);
+            return tap.written;
+        };
+        PiAudio pa1, pa2;
+        for (int i = 0; i < 12000; ++i) {
+            const int16_t v = static_cast<int16_t>(i * 3 - 18000);
+            pa1.push_for_test(v, static_cast<int16_t>(-v));
+            pa2.push_for_test(v, static_cast<int16_t>(-v));
+        }
+        Out on, off;
+        const uint64_t w = run(true, pa1, on);
+        run(false, pa2, off);
+        check("SCP-18", "the tapped path leaves the audible output bit-identical (same count, same values) with a live Pi stream consumed in both runs",
+              w > 1000 && on.l.size() > 1000 && on.l == off.l && on.r == off.r &&
+              pa1.available() < 12000 && pa1.available() == pa2.available());
+    }
+    {
+        // AIZ-14: the tap is invisible to the Z80.
+        bool ran = false;
+        uint64_t pushed = 0;
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("aiz14")).value;
+        emu.run_frame(); emu.run_frame();
+        const auto s0 = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        dbg.set_audio_scope_enabled(cid, true);
+        const Outcome a = run_and_save(emu, dbg, cid, 50);
+        pushed = dbg.audio_scope_samples(0).value.first_sample;
+        dbg.set_audio_scope_enabled(cid, false);
+        ran = s0.status == Result::Ok && a.ok &&
+              dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
+        const Outcome b = run_and_save(emu, dbg, cid, 50);
+        check("AIZ-14", "the source tap is outside describe_state() and the video: the same machine run with it on and off has the same saved state and framebuffer over 50 frames (the tap pushed samples)",
+              ran && b.ok && a.state == b.state && a.video == b.video && pushed > 1000);
     }
 
     std::printf("\n=====================================\n");

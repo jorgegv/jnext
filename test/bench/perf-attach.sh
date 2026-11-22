@@ -22,6 +22,8 @@
 #   U    this tree, nothing armed                    (the attach-on-enable GUI, window closed)
 #   P    this tree, --persistent-breakpoints only    (JNEXT_BENCH_WATCH=p)
 #   C    this tree, one client ATTACHED, nothing subscribed (JNEXT_BENCH_WATCH=c)
+#   S    this tree, one client attached and the mixer SOURCE TAP on (JNEXT_BENCH_WATCH=s, GH #536):
+#        S - C is the tap's cost with it on. B is the gate for a feature that is OFF: U vs B.
 #
 # P IS VOID ON THE TWO NEX WORKLOADS: the load reconstructs the machine and
 # init() re-latches --persistent-breakpoints from the config, so the fixture's
@@ -64,6 +66,7 @@ VBIN[B]="$BASE_BIN"; VENV[B]=""
 VBIN[U]="$NEW_BIN";  VENV[U]=""
 VBIN[P]="$NEW_BIN";  VENV[P]="JNEXT_BENCH_WATCH=p"
 VBIN[C]="$NEW_BIN";  VENV[C]="JNEXT_BENCH_WATCH=c"
+VBIN[S]="$NEW_BIN";  VENV[S]="JNEXT_BENCH_WATCH=s"
 
 one() {   # $1 variant  $2 machine  $3 frames  $4 load-or-empty
     local v=$1 m=$2 f=$3 l=$4
@@ -90,9 +93,9 @@ workload() {   # $1 name  $2 machine  $3 frames  $4 load
     local name=$1 m=$2 f=$3 l=$4
     declare -A ins
     local r v line
-    for v in B U P C; do ins[$v]=""; done
+    for v in B U P C S; do ins[$v]=""; done
     for (( r=1; r<=REPS; r++ )); do
-        for v in B U P C; do
+        for v in B U P C S; do
             line=$(one "$v" "$m" "$f" "$l")
             echo "  $name r$r $line"
             ins[$v]+="$(cut -d' ' -f2 <<< "$line") "
@@ -101,7 +104,7 @@ workload() {   # $1 name  $2 machine  $3 frames  $4 load
     local -a a; read -ra a <<< "${ins[U]}"
     local u; u=$(median "${a[@]}")
     echo "## $name (machine=$m frames=$f${l:+ load=$(basename "$l")})"
-    for v in B U P C; do
+    for v in B U P C S; do
         read -ra a <<< "${ins[$v]}"
         local md; md=$(median "${a[@]}")
         awk -v v="$v" -v md="$md" -v u="$u" \
@@ -114,4 +117,9 @@ workload boot-48k      48k  600 ""
 workload boot-nextzxos next 400 ""
 workload beast         next 400 "$NEX/beast.nex"
 workload copper-demo   next 400 "$NEX/copper_demo.nex"
+# GH #536: the HALT replay and the per-slot audio path, which the source tap's dispatch edits (bench.sh's
+# HALT-idle and DAC-paced workloads).
+BENCH_NEX="$PROJECT_DIR/test/bench/nex"
+workload halt-idle-35  next 400 "$BENCH_NEX/halt_idle_35.nex"
+workload ctc-dac-28    next 400 "$BENCH_NEX/ctc_dac_28.nex"
 echo "# load1_end=$(cut -d' ' -f1 /proc/loadavg)"

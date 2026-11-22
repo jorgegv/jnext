@@ -1,4 +1,5 @@
 #include "debugger/audio_panel.h"
+#include "debugger/audio_scope_view.h"
 #include "debug/audio_math.h"
 #include "debug/debugger.h"   // also AudioMute::* (via inspect.h)
 
@@ -128,8 +129,14 @@ void AudioPanel::create_ui() {
     tabs_->addTab(dac_scroll_, tr("DAC && Beeper"));
     tabs_->addTab(placeholder_tab(), tr("Log"));
     tabs_->addTab(placeholder_tab(), tr("Tracker"));
-    tabs_->addTab(placeholder_tab(), tr("Scopes"));
+    scope_view_ = new AudioScopeView(dbg_, tabs_);
+    tabs_->addTab(scope_view_, tr("Scopes"));
     layout->addWidget(tabs_, 1);
+    connect(tabs_, &QTabWidget::currentChanged, this, [this](int) {
+        // A tab that has just come on show draws at once (a paused machine has no tick to do it).
+        if (scopes_on_show()) scope_view_->refresh();
+        emit sub_tab_changed();
+    });
 }
 
 QWidget* AudioPanel::placeholder_tab() {
@@ -144,6 +151,14 @@ QWidget* AudioPanel::placeholder_tab() {
 
 bool AudioPanel::chips_on_show() const {
     return tabs_ && tabs_->currentWidget() == chips_scroll_;
+}
+
+bool AudioPanel::scopes_on_show() const {
+    return tabs_ && tabs_->currentWidget() == scope_view_;
+}
+
+void AudioPanel::refresh_scopes() {
+    if (scope_view_) scope_view_->refresh();
 }
 
 QWidget* AudioPanel::create_chips_tab() {
@@ -405,6 +420,7 @@ void AudioPanel::refresh() {
         tr("AY writes dropped: %1 (<a href=\"drops\">show</a>)").arg(ay_dropped));
 
     refresh_dac_(st);
+    if (scopes_on_show()) scope_view_->refresh();   // a paused machine's redraw (GH #536)
 }
 
 namespace {

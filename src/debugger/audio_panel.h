@@ -15,6 +15,8 @@
 
 #include "debug/events.h"   // jnext::dbg::ClientId
 
+class AudioScopeView;
+
 namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 
 /// Debugger panel showing the decoded AY chips and the audio source controls.
@@ -25,8 +27,9 @@ namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 /// envelope) from `Debugger::audio_state()`; its Hex toggle shows the raw
 /// 16 x 3 register table instead. DAC & Beeper shows the four DAC channels, the
 /// NR 0x84 port families, the beeper and Pi inputs, the host gains and mutes and
-/// the table of discarded writes. Log, Tracker and Scopes are placeholders until
-/// their features land.
+/// the table of discarded writes. Scopes shows an oscilloscope trace and a level
+/// meter for each of the sixteen mixer sources (AudioScopeView). Log and Tracker
+/// are placeholders until their features land.
 class AudioPanel : public QWidget {
     Q_OBJECT
 public:
@@ -50,10 +53,21 @@ public:
     /// True while the Chips tab is the current one: the only tab with live data.
     bool chips_on_show() const;
 
+    /// True while the Scopes tab is the current one (GH #536): the debugger window asks the
+    /// backend for the source tap only then.
+    bool scopes_on_show() const;
+
+    /// The Scopes view's per-frame refresh, run by the manager while the machine runs with this
+    /// panel on show and the Scopes tab current (refresh() does the same on a paused redraw).
+    void refresh_scopes();
+
     QSize sizeHint() const override { return QSize(400, 600); }
     QSize minimumSizeHint() const override { return QSize(350, 580); }
 
 signals:
+    /// The current sub-tab changed: what the window asks of the backend depends on it (GH #498).
+    void sub_tab_changed();
+
     /// A dropped-write row of CPU source was double-clicked: show the OUT or
     /// NEXTREG that was discarded in the Disassembly (the same signal the
     /// Symbols, CPU and Memory panels use).
@@ -78,6 +92,7 @@ private:
     QTabWidget* tabs_ = nullptr;
     QScrollArea* chips_scroll_ = nullptr;
     QScrollArea* dac_scroll_ = nullptr;
+    AudioScopeView* scope_view_ = nullptr;
 
     // The decoded widgets of one chip, found again by refresh().
     struct ChannelWidgets {
