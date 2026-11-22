@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4752,6 +4752,10 @@ filter itself is 64-bit.</p>
 <tr>
 <td><code>AUDIO_MUTE</code></td>
 <td>the host-side mute mask, the Audio panel's (bit 0 to 2: AY chips 0 to 2, bit 3: the DACs, bit 4: the beeper)</td>
+</tr>
+<tr>
+<td><code>AUDIO_CHANNEL_MUTE</code></td>
+<td>the host-side channel mute mask, the Audio panel's M and S buttons (bit 0 to 8: AY chip 0 channel A to chip 2 channel C, three bits per chip; bit 9 to 12: DAC channels A to D)</td>
 </tr>
 </tbody>
 </table>

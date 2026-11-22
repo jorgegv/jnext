@@ -9,6 +9,7 @@ matters mainly when you invoke CMake directly.
 | `ENABLE_DEBUGGER` | **ON** | Include the Qt debugger UI. It opens from the Qt main window, so it is only reachable when `ENABLE_QT_UI` is also on |
 | `ENABLE_TESTS` | ON | Build the unit-test binaries |
 | `USE_CCACHE` | ON | Use ccache as the compiler launcher when it is found; a no-op if it is not |
+| `JNEXT_CCACHE_SHARE` | ON | With ccache, make objects independent of the worktree path so worktrees share cache entries (OFF in the rpm and deb packaging) |
 | `JNEXT_ENABLE_LTO` | ON | LTO/IPO for Release builds. Flipped OFF in exactly one place — see below |
 | `JNEXT_FORCE_QT5` | OFF | Build the GUI and debugger against Qt 5 instead of Qt 6 (the legacy Windows legs only) |
 | `CYCLE_ACCURATE` | OFF | 28 MHz cycle-accurate mode |

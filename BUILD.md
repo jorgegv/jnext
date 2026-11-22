@@ -190,6 +190,7 @@ The `make` targets pass these for you; use them when invoking CMake directly.
 | `ENABLE_TESTS`    | ON      | Build the unit-test binaries                                                                                                         |
 | `JNEXT_WERROR`    | ON      | Treat compiler warnings as errors (`-Wall -Wextra -Werror`). Pass OFF when building with a compiler our CI does not use, as the packaging builds do |
 | `USE_CCACHE`      | ON      | Use ccache as the compiler launcher when it is found (no-op if it is not)                                                            |
+| `JNEXT_CCACHE_SHARE` | ON      | With ccache, make objects path-independent so worktrees share cache entries (OFF in the rpm and deb packaging) |
 | `CYCLE_ACCURATE`  | OFF     | 28 MHz cycle-accurate mode                                                                                                           |
 | `JNEXT_PGO`       | OFF     | Profile-guided optimisation stage: `GENERATE` (instrument) or `USE` (optimise with the profile in `JNEXT_PGO_DIR`). The make targets drive it |
 | `STATIC_BUILD`    | OFF     | Link statically (needs static SDL3/Qt6 builds)                                                                                       |

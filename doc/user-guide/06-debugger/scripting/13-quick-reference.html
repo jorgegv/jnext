@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4718,8 +4718,8 @@ end
 <td>the raster</td>
 </tr>
 <tr>
-<td><code>MACHINE AUDIO_MUTE</code></td>
-<td>0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the mute mask</td>
+<td><code>MACHINE AUDIO_MUTE AUDIO_CHANNEL_MUTE</code></td>
+<td>0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the source mute mask; the channel mute mask</td>
 </tr>
 <tr>
 <td><code>@name</code></td>
@@ -4786,7 +4786,7 @@ end
 </tr>
 <tr>
 <td><code>set TARGET = EXPR</code></td>
-<td>change the machine (logged <code>MUTATE</code>); TARGET is a register, a flag, <code>IFF1</code>, <code>IFF2</code>, <code>IM</code>, <code>mem[]</code>, <code>mem16[]</code>, <code>phys[]</code>, <code>nextreg[]</code> or <code>AUDIO_MUTE</code></td>
+<td>change the machine (logged <code>MUTATE</code>); TARGET is a register, a flag, <code>IFF1</code>, <code>IFF2</code>, <code>IM</code>, <code>mem[]</code>, <code>mem16[]</code>, <code>phys[]</code>, <code>nextreg[]</code>, <code>AUDIO_MUTE</code> or <code>AUDIO_CHANNEL_MUTE</code></td>
 </tr>
 <tr>
 <td><code>out PORT VALUE</code></td>
