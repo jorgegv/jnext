@@ -1,5 +1,6 @@
 #include "audio/audio_recorder.h"
 #include "audio/dac_trace_recorder.h"
+#include "debug/audio_log_stream.h"
 #include "core/cli_options.h"
 #include "core/log.h"
 #include "core/program_archive.h"
@@ -470,6 +471,7 @@ int main(int argc, char* argv[]) {
     std::string record_file;
     std::string wav_record_file;
     std::string dac_trace_file;
+    std::string audio_log_file;
     cli::AudioGainArgs audio_gain;
     std::string rzx_play_file;
     std::string rzx_record_file;
@@ -1248,6 +1250,9 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::DacTrace:
                 dac_trace_file = v[0];
+                break;
+            case cli::OptId::AudioLog:
+                audio_log_file = v[0];
                 break;
             case cli::OptId::AudioGainDb:
             case cli::OptId::AudioGainBeeperDb:
@@ -2598,11 +2603,14 @@ int main(int argc, char* argv[]) {
     // references to them; a reference captured by reference binds the object.)
     static AudioRecorder audio_recorder_static;
     static DacTraceRecorder dac_trace_recorder_static;
+    static jnext::dbg::AudioLogStream audio_log_static;
     AudioRecorder& audio_recorder = audio_recorder_static;
     DacTraceRecorder& dac_trace_recorder = dac_trace_recorder_static;
+    jnext::dbg::AudioLogStream& audio_log = audio_log_static;
 #else
     AudioRecorder audio_recorder;
     DacTraceRecorder dac_trace_recorder;
+    jnext::dbg::AudioLogStream audio_log;
 #endif
 
     // Helper lambda: configure and run any app object with the common interface.
@@ -3004,9 +3012,27 @@ int main(int argc, char* argv[]) {
                 dac_trace_recorder.capture(tstate, channel, value);
             };
         }
+        // GH #531: the write log's file is created BEFORE the machine starts, so an unwritable
+        // FILE is refused here, like the two recorders above.
+        if (!audio_log_file.empty()) {
+            std::string why;
+            if (!audio_log.open(audio_log_file, why)) {
+                fprintf(stderr, "--audio-log: %s\n", why.c_str());
+                audio_recorder.stop();
+                dac_trace_recorder.stop();
+                return 1;
+            }
+        }
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) {
+            audio_recorder.stop();
+            dac_trace_recorder.stop();
+            return 1;
+        }
+        // The stream asks the backend for the log and drains it at every pump; no frame has run yet.
+        if (!audio_log_file.empty() && !audio_log.attach(app.debugger())) {
+            Log::audio()->error("--audio-log: could not attach to the debugger");
             audio_recorder.stop();
             dac_trace_recorder.stop();
             return 1;
@@ -3342,6 +3368,14 @@ int main(int argc, char* argv[]) {
                 if (!trace_ok) {
                     Log::audio()->error("Failed to finalize DAC trace: {}",
                                         dac_trace_recorder.last_error());
+                }
+            }
+
+            if (!audio_log_file.empty()) {
+                std::string why;
+                if (!audio_log.finish(why)) {
+                    Log::audio()->error("--audio-log: {}", why);
+                    capture_ok = false;
                 }
             }
 

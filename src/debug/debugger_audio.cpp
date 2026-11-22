@@ -58,11 +58,14 @@ void Debugger::Impl::AudioLogSink::audio_record(const AudioLogEntry& in)
 void Debugger::Impl::AudioLogSink::audio_rewind_landing(const AudioLogEntry& m)
 {
     if (impl.audio_ring.empty()) return;
-    // What follows the landing is no longer this timeline: remove the entries newer than
-    // it, back to the previous marker (what precedes a marker belongs to another timeline).
+    // What follows the landing is no longer this timeline: remove the entries from it on, back
+    // to the previous marker (what precedes a marker belongs to another timeline). An entry's
+    // stamp is the START of the instruction slot that raised it, and a landing is the state
+    // BEFORE the instruction that starts at its cycle, so an entry AT the landing cycle was
+    // raised by an instruction the replay will run again: it goes too.
     while (impl.audio_count > 0) {
         const AudioLogEntry& n = impl.audio_at(impl.audio_count - 1);
-        if (n.marker != AudioMarker::None || n.cycle <= m.cycle) break;
+        if (n.marker != AudioMarker::None || n.cycle < m.cycle) break;
         --impl.audio_count;
     }
     // The landing's own marker is ALWAYS recorded, never coalesced into an earlier one:

@@ -498,13 +498,13 @@ static void step_to_a_write(Emulator& emu, Debugger& dbg) {
     for (int i = 0; i < 100000 && all_entries(dbg).size() == n0; ++i) emu.execute_single_instruction();
 }
 
-// A landing's result against the entries before it: those at or before the landing
+// A landing's result against the entries before it: those BEFORE the landing cycle
 // kept field for field, exactly one `Rewind` marker last, no `StateLoad`, and at
 // least one entry gone.
 static bool landing_ok(const std::vector<AudioLogEntry>& before, const std::vector<AudioLogEntry>& after,
                        uint64_t landing, bool& removed_some) {
     std::vector<AudioLogEntry> kept;
-    for (const AudioLogEntry& e : before) if (e.cycle <= landing) kept.push_back(e);
+    for (const AudioLogEntry& e : before) if (e.cycle < landing) kept.push_back(e);
     removed_some = kept.size() < before.size();
     if (after.size() != kept.size() + 1) return false;
     for (size_t i = 0; i < kept.size(); ++i)
@@ -1774,7 +1774,7 @@ int main() {
         if (!(ok && removed)) std::printf("    before %zu after %zu landing %llu removed %d r=%d newest-before-cycle %llu\n", before.size(), after.size(),
                                           static_cast<unsigned long long>(emu.clock().get()), int(removed), int(r),
                                           static_cast<unsigned long long>(before.back().cycle));
-        check("AWL-14", "a step back replays frames without logging: the entries at or before the landing are unchanged, the entries after it are gone, the newest is ONE Rewind marker at the landing cycle, and there is no StateLoad marker for the ring restore",
+        check("AWL-14", "a step back replays frames without logging: the entries before the landing cycle are unchanged, the entries from it on (an entry is stamped at the start of its instruction slot, which a landing re-runs) are gone, the newest is ONE Rewind marker at the landing cycle, and there is no StateLoad marker for the ring restore",
               r == Result::Ok && before.size() > 100 && ok && removed);
     }
     {
@@ -1789,7 +1789,7 @@ int main() {
         const auto after = all_entries(dbg);
         bool removed = false;
         const bool ok = landing_ok(before, after, emu.clock().get(), removed);
-        check("AWL-15", "rewind_to_frame(frame - 3), the no-replay landing: entries newer than the landing cycle removed, those before kept, one Rewind marker",
+        check("AWL-15", "rewind_to_frame(frame - 3), the no-replay landing: entries from the landing cycle on removed, those before kept, one Rewind marker",
               r == Result::Ok && ok && removed);
     }
     {

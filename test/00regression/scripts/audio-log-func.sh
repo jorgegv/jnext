@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# One functional test of the regression suite. Sourced by regression.sh (the
+# driver); also directly executable — the lib then self-initializes and
+# standalone_summary prints the totals.
+# shellcheck source=test/00regression/test-functions.inc
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
+
+
+# Audio write log (GH #531): an injected Z80N program writes the AY, the DAC and an
+# NR mirror; --audio-log streams the decoded writes to a CSV. The fixture's rows are
+# found by their PCs (everything that boots before it is not asserted). The program,
+# at 0x8000:
+#   8000 DI
+#   8001 NEXTREG 0x08,0x0A      TurboSound and the DAC on
+#   8005 LD BC,0xFFFD
+#   8008 LD A,0xFF              800A OUT (C),A   chip select AY0: logged
+#   800C LD A,7                 800E OUT (C),A   a plain register select: NOT logged
+#   8010 LD B,0xBF
+#   8012 LD A,0x38              8014 OUT (C),A   R7 write: logged
+#   8016 LD A,0x11              8018 OUT (0x1F),A
+#   801A LD A,0x22              801C OUT (0x1F),A
+#   801E NEXTREG 0x2D,0x33      the DAC mirror: channels A then D
+#   8022 JR $
+if want audio-log-func; then
+    begin_func audio-log-func
+    alog_bin="$TMP_DIR/audio_log.bin"
+    alog_csv="$TMP_DIR/audio_log.csv"
+    printf '\xF3\xED\x91\x08\x0A\x01\xFD\xFF\x3E\xFF\xED\x79\x3E\x07\xED\x79\x06\xBF\x3E\x38\xED\x79\x3E\x11\xD3\x1F\x3E\x22\xD3\x1F\xED\x91\x2D\x33\x18\xFE' > "$alog_bin"
+    u8='0x[0-9A-F]{2}'
+    num='[0-9]+'
+    head_re='^frame,line,hc,tstate,cycle,pc,source,target,chip,reg,value,prev,flags,reason,port$'
+    pre="^$num,$num,$num,$num,$num,"
+    ok=1
+    timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --inject "$alog_bin" --inject-org 8000 \
+        --inject-pc 8000 --audio-log "$alog_csv" \
+        --delayed-automatic-exit-frames 30 &>/dev/null || ok=0
+    [[ $ok == 1 && $(head -n 1 "$alog_csv" 2>/dev/null) =~ $head_re ]] || ok=0
+    sel_re="${pre}0x800A,cpu,ay_select,0,0,0xFF,$u8,0,none,0xFFFD\$"
+    r7_re="${pre}0x8014,cpu,ay,0,7,0x38,$u8,0,none,0xBFFD\$"
+    dac1_re="${pre}0x8018,cpu,dac,0,0,0x11,$u8,0,none,0x001F\$"
+    dac2_re="${pre}0x801C,cpu,dac,0,0,0x22,0x11,0,none,0x001F\$"
+    mir0_re="${pre}0x801E,cpu,dac_mirror,0,45,0x33,0x22,0,none,0x002D\$"
+    mir3_re="${pre}0x801E,cpu,dac_mirror,3,45,0x33,$u8,0,none,0x002D\$"
+    if [[ $ok == 1 ]]; then
+        for re in "$sel_re" "$r7_re" "$dac1_re" "$dac2_re" "$mir0_re" "$mir3_re"; do
+            [[ $(grep -cE "$re" "$alog_csv") == 1 ]] || ok=0
+        done
+        # The plain select's PC, 0x800E, appears in no row.
+        ! grep -q ',0x800E,' "$alog_csv" || ok=0
+        # The fixture's rows come in program order.
+        order=""
+        for re in "$sel_re" "$r7_re" "$dac1_re" "$dac2_re" "$mir0_re" "$mir3_re"; do
+            order+="$(grep -nE "$re" "$alog_csv" | cut -d: -f1) "
+        done
+        sorted="$(tr ' ' '\n' <<<"$order" | sed '/^$/d' | sort -n | tr '\n' ' ')"
+        [[ "$order" == "$sorted" ]] || ok=0
+    fi
+    # An unwritable FILE is refused before the machine starts.
+    bad_err="$TMP_DIR/audio_log_bad.err"
+    if timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --inject "$alog_bin" --inject-org 8000 \
+        --inject-pc 8000 --audio-log "$TMP_DIR/no-such-dir/x.csv" \
+        --delayed-automatic-exit-frames 30 &>"$bad_err"; then
+        ok=0
+    fi
+    grep -q -- '--audio-log' "$bad_err" || ok=0
+    if [[ $ok == 1 ]]; then
+        pass_row " (decoded AY, DAC and NR mirror writes streamed to CSV; plain select not logged; an unwritable FILE refused)"
+    else
+        fail_row " (missing or incorrect audio log rows, or the unwritable FILE was not refused)"
+    fi
+fi
+
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || standalone_summary

@@ -1094,6 +1094,18 @@ int main() {
               good && nums && bad.empty(), bad);
     }
 
+    // --- CLI-ALOG-01: --audio-log (GH #531) ------------------------------------------------------
+    {
+        const cli::Option* o = cli::find("--audio-log");
+        const char* page = o ? browser_page::option_refusal(o->id) : nullptr;
+        bool ascii = page != nullptr;
+        for (const char* c = page; c && *c; ++c) ascii = ascii && static_cast<unsigned char>(*c) < 0x80;
+        check("CLI-ALOG-01", "--audio-log is Documented with one value; the build table (cli::browser_refusal) accepts it, "
+                             "because the node build writes the host file; a browser page refuses it, in ASCII, saying \"browser page\"",
+              o && o->doc == cli::Doc::Documented && o->arity == 1 && o->id == cli::OptId::AudioLog &&
+                  !cli::browser_refusal(o->id) && page && std::strstr(page, "browser page") && ascii);
+    }
+
     // --- CLI-DCH-01..03: --debug-channel (GH #545), the browser page's debugger channel -----------
     {
         const cli::Option* o = cli::find("--debug-channel");

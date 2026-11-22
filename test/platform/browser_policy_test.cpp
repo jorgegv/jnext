@@ -334,13 +334,14 @@ int main()
         int refused = 0; bool exact = true;
         for (const auto& o : cli::OPTIONS) {
             const bool want = std::strcmp(o.name, "--headless") == 0 ||
-                              std::strcmp(o.name, "--rzx-record") == 0;
+                              std::strcmp(o.name, "--rzx-record") == 0 ||
+                              std::strcmp(o.name, "--audio-log") == 0;
             const bool got = browser_page::option_refusal(o.id) != nullptr;
             if (got) ++refused;
             if (got != want) exact = false;
         }
-        check("BRR-01", "option_refusal is non-null for exactly --headless --rzx-record",
-              exact && refused == 2, "refused=" + num(refused));
+        check("BRR-01", "option_refusal is non-null for exactly --headless --rzx-record --audio-log",
+              exact && refused == 3, "refused=" + num(refused));
     }
     // BRR-02: each refusal reason.
     {
@@ -353,7 +354,7 @@ int main()
             for (const char* c = why; *c; ++c) if (static_cast<unsigned char>(*c) >= 0x80) ok = false;
         }
         check("BRR-02", "each refusal reason is non-empty ASCII and says \"browser page\"",
-              ok && n == 2, "n=" + num(n));
+              ok && n == 3, "n=" + num(n));
     }
     // BRR-03: program_refusal.
     {
