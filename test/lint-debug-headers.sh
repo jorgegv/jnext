@@ -84,6 +84,14 @@ HEADERS=(
     debug/audio_math.h
 )
 
+# The published headers that include standard headers only (GH #529). They reach
+# no project header, `debug/result.h` included, so the control below that every
+# other published header reaches it does not apply; they are held to the stronger
+# rule instead: no project header at all.
+STD_ONLY_HEADERS=(
+    debug/audio_math.h
+)
+
 # Forbidden dependencies, as extended regexes matched against each path `-M`
 # prints. Each line says which layer it keeps out.
 FORBIDDEN=(
@@ -173,7 +181,23 @@ for header in "${HEADERS[@]}"; do
         failed=1
         continue
     fi
-    if ! grep -q -- '/debug/result\.h$' "$deps_file"; then
+    std_only=0
+    for s in "${STD_ONLY_HEADERS[@]}"; do [[ "$s" == "$header" ]] && std_only=1; done
+    if [[ "$std_only" -eq 1 ]]; then
+        # Every dependency other than itself must be a system header: a path that
+        # exists under the include root is a project header.
+        project_hits=""
+        while IFS= read -r dep; do
+            [[ "$dep" == "/$header" ]] && continue
+            [[ -f "$SRC_DIR$dep" ]] && project_hits+="      $dep"$'\n'
+        done < "$deps_file"
+        if [[ -n "$project_hits" ]]; then
+            echo "  $header is declared standard-headers-only but reaches project headers:" >&2
+            printf '%s' "$project_hits" >&2
+            failed=1
+            continue
+        fi
+    elif ! grep -q -- '/debug/result\.h$' "$deps_file"; then
         echo "  $header: does not reach debug/result.h, which every published" >&2
         echo "      header does — either the surface changed or -M produced nothing" >&2
         failed=1
