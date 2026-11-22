@@ -2275,11 +2275,7 @@ private:
     /// (it lands at most one output sample, about 635 master cycles, after the
     /// 32768-cycle hold; inside a HALT batch the clock is at the window end, as
     /// for the Pi edge stamps).
-    void refresh_mic_final_() {
-        uint64_t due = UINT64_MAX;
-        beeper_.set_mic_final(tape_out_level(&due));
-        mic_relax_due_ = due;
-    }
+    [[gnu::noinline]] void refresh_mic_final_();
 
     /// The tape block's per-instruction step for a PLAYING tape: one compare
     /// against `tape_mic_live_` (bit 1 = a tape has stepped, bit 0 = the level
@@ -2287,12 +2283,12 @@ private:
     /// level and refreshes `mic_final`.
     void tape_level_step_(bool lvl) {
         const uint8_t want = lvl ? 3u : 2u;
-        if (tape_mic_live_ != want) [[unlikely]] {
-            beeper_.set_tape_ear(lvl);
-            tape_mic_live_ = want;
-            refresh_mic_final_();
-        }
+        if (tape_mic_live_ != want) [[unlikely]] tape_level_event_(lvl, want);
     }
+    /// The cold half of tape_level_step_ and the stop of the tape, out of line
+    /// so the per-instruction function stays as small as it was.
+    [[gnu::noinline]] void tape_level_event_(bool lvl, uint8_t want);
+    [[gnu::noinline]] void tape_stopped_();
 
     /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read, the MIC
     /// output and the mixer's MIC term: the tape jack (`tape_playing`,

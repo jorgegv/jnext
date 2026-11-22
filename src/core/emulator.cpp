@@ -9656,6 +9656,30 @@ uint64_t Emulator::port_fe_write_time() const
     return io_request_edge();
 }
 
+void Emulator::refresh_mic_final_()
+{
+    uint64_t due = UINT64_MAX;
+    beeper_.set_mic_final(tape_out_level(&due));
+    mic_relax_due_ = due;
+}
+
+void Emulator::tape_level_event_(bool lvl, uint8_t want)
+{
+    beeper_.set_tape_ear(lvl);
+    tape_mic_live_ = want;
+    refresh_mic_final_();
+}
+
+void Emulator::tape_stopped_()
+{
+    // The tape just stopped: the raw level is 0 again and i_AUDIO_EAR is back
+    // to the relaxed state (issue 2 + MIC = 1 at tape level 0 goes 0 -> 1:
+    // zxnext.vhd:6503).
+    beeper_.set_tape_ear(false);
+    tape_mic_live_ = 0;
+    refresh_mic_final_();
+}
+
 bool Emulator::tape_out_level(uint64_t* relax_due) const
 {
     // The MIC jack carries beep_mic_final (zxnext.vhd:1638 o_AUDIO_MIC;
@@ -11984,15 +12008,10 @@ uint64_t Emulator::step_one_instruction()
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else if (tape_mic_live_) [[unlikely]] {
-            // The tape just stopped: the raw level is 0 again and i_AUDIO_EAR is
-            // back to the relaxed state (issue 2 + MIC = 1 at tape level 0 goes
-            // 0 -> 1: zxnext.vhd:6503). tape_mic_live_ is true whenever
-            // tape_ear_ may be set (tape_level_step_, load_state), so with no
-            // tape ever playing this per-instruction path is one test and no
-            // store.
-            beeper_.set_tape_ear(false);
-            tape_mic_live_ = 0;
-            refresh_mic_final_();
+            // tape_mic_live_ is nonzero whenever tape_ear_ may be set
+            // (tape_level_step_, load_state), so with no tape ever playing this
+            // per-instruction path is one test and no store.
+            tape_stopped_();
         }
     }
     clock_.tick(master_cycles);
