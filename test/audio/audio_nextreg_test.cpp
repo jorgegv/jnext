@@ -1459,7 +1459,8 @@ static void test_nr06_restore() {
     // NR 0x06 read returns it (:6488).
     {
         auto a = next_machine_550();
-        nr_write(*a, 0x06, 0x04);          // power-on is config mode: the latch is open
+        nr_write(*a, 0x03, 0x07);          // NR 0x03 bits 111 re-enter config mode: the latch opens
+        nr_write(*a, 0x06, 0x04);
         const uint8_t a_read = nr_read(*a, 0x06);
         const auto img = snapshot_of(*a);
         auto b = next_machine_550();
