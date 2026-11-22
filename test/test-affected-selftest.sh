@@ -20,6 +20,13 @@
 #   TAF-12  a suite with no linker map is selected on its archives' whole membership
 #   TAF-14  a depfile written with paths relative to the target's build directory (as ccache
 #           with a base_dir writes them) places a file like an absolute one
+#   TAF-15..30 review round 1: a build file is FULL; docs plus a row or a make target; the browser
+#           action; an undeclared row script is FULL; std::filesystem and the harness flag the
+#           platform runs; a file a suite reads through a compile-definition path, or under a
+#           definition directory, selects it (also a docs file, which leaves docs mode, and a file
+#           nothing else places, which is not UNMAPPED); the whole-root definition plus a literal
+#           mention; browser-only sources; in a git fixture: a gitlink is FULL, a conf line plans
+#           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS)
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
 #           when nothing names it
 # (The MISS line of run-unit-tests.sh is TAF-11's subject; its rows are HS-194d/e in
@@ -182,7 +189,96 @@ run src/a/z.h
 row TAF-14 $([[ $RC -eq 0 && "$(plan_suites)" == *s3_test* && "$(plan_suites)" != *s1_test* ]] && echo 1 || echo 0) \
     "a relative depfile path (ccache base_dir form) is resolved against the target's build dir (got: $(plan_suites))"
 
+# ---- review round 1 (GH #547): run-time edges (compile-definition paths), classes, git mode, recipe actions
+mkdir -p "$R"/{test/fixtures/dd,packaging,web,src/platform/web}
+echo 'doc b' >"$R/doc/b.md"; echo 'rt' >"$R/src/core/runtime.txt"; echo 'bl' >"$R/test/fixtures/dd/blob2.bin"
+echo '// h' >"$R/src/a/q.h"; echo 'x' >"$R/packaging/x.sh"; echo '<html>' >"$R/web/index.html"
+echo '// web' >"$R/src/platform/web/web_controller.cpp"
+echo 'int f() { return std::filesystem::exists("x"); }' >"$R/src/core/fs.cpp"
+echo '# cmake' >"$R/CMakeLists.txt"; echo '#!/bin/sh' >"$R/test/run-unit-tests.sh"
+echo 'echo row' >"$R/test/00regression/scripts/nosuch-func.sh"
+dep "$B/src/a/CMakeFiles/a.dir" x.cpp.o src/a/x.cpp src/a/x.h src/a/q.h
+defs() {  # defs <suite> <name=path>...: the CXX_DEFINES of the suite's flags.make (paths baked in, as CMake writes them)
+    local n=$1 line='CXX_DEFINES = -DNDEBUG'; shift
+    local kv; for kv in "$@"; do line="$line -D${kv%%=*}=\\\"${kv#*=}\\\""; done
+    printf '%s\n' "$line" >"$B/test/CMakeFiles/$n.dir/flags.make"
+}
+suite s5_test test/s5_test.cpp "" zz.cpp.o; defs s5_test "JNEXT_DOC=$R/doc/b.md" "JNEXT_RT=$R/src/core/runtime.txt"
+suite s6_test test/s6_test.cpp "" zz.cpp.o; defs s6_test "JNEXT_DIR=$R/test/fixtures/dd"
+suite s7_test test/s7_test.cpp "" zz.cpp.o; defs s7_test "JNEXT_SRC_DIR=$R"
+for n in s5 s6 s7; do echo "// $n" >"$R/test/${n}_test.cpp"; done
+echo 'void g() { read("src/a/q.h"); }' >>"$R/test/s7_test.cpp"; echo 'void h() { read("src/a/q.h"); }' >>"$R/test/s6_test.cpp"
+{ cat "$W/unit-tests.conf"; echo 's5_test 1'; echo 's6_test 1'; echo 's7_test 1'; } >"$W/unit-tests.conf.new"; mv "$W/unit-tests.conf.new" "$W/unit-tests.conf"
+
+run CMakeLists.txt
+row TAF-15 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *CMakeLists.txt* ]] && echo 1 || echo 0) \
+    "a build-file change (action full) makes the plan FULL, named (mode $(plan_get mode))"
+run doc/a.md test/00regression/scripts/foo-func.sh
+row TAF-16 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_get rows)" == foo-func && "$(plan_get docs)" == 1 ]] && echo 1 || echo 0) \
+    "a docs file plus a row script is a subset plan with that row and docs-check, not docs-only (mode $(plan_get mode), rows $(plan_get rows))"
+run doc/a.md packaging/x.sh
+row TAF-17 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_get makes)" == package-contract-test ]] && echo 1 || echo 0) \
+    "a docs file plus a packaging file plans package-contract-test (makes: $(plan_get makes), mode $(plan_get mode))"
+run web/index.html
+row TAF-18 $([[ $RC -eq 0 && "$OUT" == *"HEAVY: web/index.html"*"wasm-browser-test"* ]] && echo 1 || echo 0) \
+    "a web file reports the heavy browser run it needs"
+run test/00regression/scripts/nosuch-func.sh
+row TAF-20 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared row"* ]] && echo 1 || echo 0) \
+    "a row script that names no declared row makes the plan FULL, saying so (mode $(plan_get mode))"
+run src/core/fs.cpp
+row TAF-21 $([[ $RC -eq 0 && "$OUT" == *"unit-test-win NEEDED"*"std::filesystem"* ]] && echo 1 || echo 0) \
+    "std::filesystem in a changed file: unit-test-win needed, with the reason"
+run test/run-unit-tests.sh
+row TAF-22 $([[ $RC -eq 0 && "$OUT" == *"unit-test-sdl NEEDED"* && "$OUT" == *"unit-test-win NEEDED"* && "$OUT" == *"unit-test-wasm NEEDED"* ]] && echo 1 || echo 0) \
+    "a change to the unit harness needs unit-test-sdl, -win and -wasm"
+run src/core/runtime.txt
+row TAF-23 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s5_test* ]] && echo 1 || echo 0) \
+    "a file no depfile and no glob places, but a suite is given its path as a compile definition, selects that suite and is not UNMAPPED (mode $(plan_get mode), got $(plan_suites))"
+run test/fixtures/dd/blob2.bin
+row TAF-24 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s6_test* ]] && echo 1 || echo 0) \
+    "a file under a directory given to a suite as a compile definition selects that suite (got $(plan_suites))"
+run doc/b.md
+row TAF-25 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s5_test* && "$(plan_get docs)" == 1 ]] && echo 1 || echo 0) \
+    "a docs file a suite reads through a compile definition leaves docs mode: subset with that suite and docs-check (mode $(plan_get mode))"
+run src/a/q.h
+row TAF-26 $([[ $RC -eq 0 && "$(plan_suites)" == "s1_test,s3_test,s4_test,s7_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a compiled file is also selected for a suite given the whole source root that names its path in its sources, and not for a suite that is not; s4 has no map and takes the whole archive (got $(plan_suites))"
+run src/platform/web/web_controller.cpp
+row TAF-28 $([[ $RC -eq 0 && "$OUT" == *"HEAVY: src/platform/web/web_controller.cpp"* && "$OUT" == *"unit-test-wasm NEEDED"* && "$OUT" == *"unit-test-sdl not needed"* ]] && echo 1 || echo 0) \
+    "a source only the browser build compiles reports the heavy browser run and unit-test-wasm, not unit-test-sdl"
+
+# TAF-27 / TAF-19 / TAF-29: git mode, in the fixture as a repository
+G() { git -C "$R" -c user.name=t -c user.email=t@t "$@" >/dev/null 2>&1; }
+G init -q; G add -A; G commit -q -m base
+grun() {  # grun [base]: the planner in git mode against HEAD (or the given base)
+    OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --base "${1:-HEAD}" --smoke smoke_test --plan "$W/plan" 2>&1); RC=$?
+}
+G update-index --add --cacheinfo "160000,$(printf 'a%.0s' {1..40}),third_party/sub"
+G commit -q -m "bump the submodule"
+grun HEAD~1
+row TAF-27 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"submodule pointer"* && "$OUT" == *third_party/sub* ]] && echo 1 || echo 0) \
+    "a submodule pointer change (a gitlink) makes the plan FULL, named (mode $(plan_get mode))"
+G reset -q --hard HEAD~1
+printf 'bar-func quiet\n' >>"$R/test/00regression/functional_tests.conf"
+grun
+row TAF-19 $([[ $RC -eq 0 && "$(plan_get rows)" == bar-func && "$(plan_get mode)" == subset ]] && echo 1 || echo 0) \
+    "git mode: a line added to functional_tests.conf plans exactly the row it names (rows: $(plan_get rows), mode $(plan_get mode))"
+G checkout -q -- test/00regression/functional_tests.conf
+printf 'int w() { return 0; }\n' >"$R/src/core/net.cpp"
+grun
+row TAF-29 $([[ $RC -eq 0 && "$OUT" == *"unit-test-win NEEDED"*"src/core/net.cpp"* ]] && echo 1 || echo 0) \
+    "git mode: removing the last _WIN32 arm still reports unit-test-win needed (the removed lines count)"
+G checkout -q -- src/core/net.cpp
+
+# TAF-30: --explain-miss names a failing suite the plan would not have selected, and only that one
+printf 'src/a/y.cpp\n' >"$W/files"
+OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --explain-miss s1_test,s2_test 2>&1); RC=$?
+printf 'CMakeLists.txt\n' >"$W/files"
+OUT_FULL=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --explain-miss s1_test 2>&1)
+row TAF-30 $([[ $RC -eq 0 && "$OUT" == *"TEST-AFFECTED MISS: s1_test was not selected for src/a/y.cpp"* && "$OUT" != *"MISS: s2_test"* && "$OUT_FULL" != *MISS* ]] && echo 1 || echo 0) \
+    "--explain-miss: s1 (not pulled y) is named, s2 (selected) is not, and a FULL plan names nothing"
+
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 13 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 13"; exit 1; }
+[[ "$total" -eq 29 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 29"; exit 1; }
 [[ "$failed" -eq 0 ]]

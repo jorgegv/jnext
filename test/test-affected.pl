@@ -274,6 +274,7 @@ if ($o{files}) {
     refuse("no base: pass --base REF (no `main` or `origin/main` to take a merge-base with)") unless $base;
     my %s;
     $s{$_} = 1 for git('diff', '--name-only', '--no-renames', $base);
+    $s{$_} = 1 for git('diff', '--name-only', '--no-renames', $base, 'HEAD');   # a gitlink with no checkout shows only here
     $s{$_} = 1 for git('ls-files', '--others', '--exclude-standard');
     @changed = sort keys %s;
 }
@@ -384,11 +385,12 @@ for my $f (@changed) {
         next;
     }
     if ($any_mapped{$f}) { $notes{"$f is compiled into the application only (no unit suite reads it): regression rows are the gate's, run the ones it touches"} = 1; next }
-    my $act = classify($f);
-    if (!defined $act) { push @unmapped, $f; next }
+    my $actstr = classify($f);
+    if (!defined $actstr) { push @unmapped, $f unless %$edges; next }   # a suite that reads it places it
+    for my $act (split ' ', $actstr) {   # a rule may name several actions
     if    ($act eq 'docs')   { $docs = 1 }
     elsif ($act eq 'full')   { $full = 1; $full_why{$f} = 1 }
-    elsif ($act eq 'ci')     { $notes{"$f: CI only, nothing runs locally"} = 1 }
+    elsif ($act eq 'ci')     { $notes{"$f: CI itself runs it; the contract tests that read it are planned above"} = 1 }
     elsif ($act eq 'browser'){ $heavy{"$f: needs `make wasm-browser-test` (heavy, run by the author)"} = 1 }
     elsif ($act eq 'ignore') { }
     elsif ($act =~ /^make:(\S+)$/) { $makes{$1} = 1 }
@@ -418,6 +420,7 @@ for my $f (@changed) {
         $rows{$_} = 1 for keys %$rr;
     }
     else { refuse("$confile: unknown action '$act' (glob matched $f)") }
+    }
 }
 if (@unmapped) { $full = 1; $full_why{"$_ (UNMAPPED: in no depfile, matches no glob)"} = 1 for @unmapped }
 my $only_docs = $docs && !$full && !%suites && !%rows && !%makes;

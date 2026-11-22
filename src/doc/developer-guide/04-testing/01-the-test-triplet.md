@@ -145,26 +145,42 @@ suite's files are the union of the depfiles of its own objects and of the member
 change to a header or a source selects exactly the suites that read it. A suite with no map is taken
 with its archives' whole membership: more suites, never fewer.
 
-What a depfile cannot see (documents, regression row scripts and references, runtime fixtures, the
-harness, packaging, CMake files) is classified in `test/test-affected.conf`, one glob and one action
-per line, first match wins. A changed file that is in no depfile and matches no glob is UNMAPPED, and
-an unmapped file makes the plan FULL (`make unit-test`), named: a new kind of file is never skipped
-silently. `make test-affected-check`, part of `make unit-test`, fails while a tracked file is neither
-in a depfile nor classified, so the conf grows in the change that adds the file.
+A depfile cannot see what a suite reads as data at run time, so a second kind of edge is read from
+the same tree: the paths CMake bakes into a suite's compile definitions (`-DJNEXT_MAIN_SRC="..."`,
+fixture directories) in its `flags.make`. A changed file equal to such a path, or under it when it
+is a directory, selects the suite, whatever the file's class (a source, a document, a fixture, a
+regression reference); a document a suite reads therefore leaves docs-only mode. A suite given the
+whole source root (`JNEXT_SRC_DIR`) is selected for any changed file whose root-relative path its
+own sources name literally, and every suite is selected for a changed file that no object compiles
+and whose path its sources name. Comments do not count as a mention.
+
+What neither can see (documents, regression row scripts and references, the harness, packaging, CMake
+files, submodule pointers) is classified in `test/test-affected.conf`, one glob and one or more actions
+per line, first match wins. A changed file that is in no depfile, that no suite reads and that matches
+no glob is UNMAPPED, and an unmapped file makes the plan FULL (`make unit-test`), named: a new kind of
+file is never skipped silently. A changed submodule pointer is FULL too. `make test-affected-check`,
+part of `make unit-test`, fails while a tracked file is neither in a depfile nor classified, so the
+conf grows in the change that adds the file.
 
 The plan also prints which of `unit-test-sdl`, `unit-test-win` and `unit-test-wasm` the change
-needs, from the changed files' paths and content (`ENABLE_QT_UI`, `_WIN32`, `std::filesystem`,
-sockets, `__EMSCRIPTEN__`, CMake and harness files), with the reason. It prints and does not run
-them; they are heavy and the author runs the ones it names.
+needs, from the changed files' paths and content, lines the change removed included (`ENABLE_QT_UI`,
+`_WIN32`, `std::filesystem`, sockets, `__EMSCRIPTEN__`, CMake and harness files, the sources only the
+browser build compiles), with the reason. It prints and does not run them; they are heavy and the
+author runs the ones it names.
 
 `test/run-unit-tests.sh --only a,b,c` is the subset runner. Every manifest check still applies to the
 whole manifest, a name the manifest does not declare is a refusal, each selected suite's own count is
-still pinned, and the summary says `subset run: K of N suites -- not a gate`. Each `make test-affected`
-writes `build/test-affected.last` (base, head, files, suites); a suite that then fails in the full
-run of the same head without being in that selection prints `TEST-AFFECTED MISS`, so the map or the
-conf is fixed on the same branch. The planner's rows are `TAF-01..13` in
-`test/test-affected-selftest.sh` (`make test-affected-selftest`, part of `make unit-test`), on a
-hand-written fixture build tree.
+still pinned, and the summary says `subset run: K of N suites -- not a gate`. A suite that fails in
+the full run and that the planner would not have selected for the branch's diff against the merge base
+with `main` (`origin/main` when there is no local `main`) prints `TEST-AFFECTED MISS`, so the map or
+the conf is fixed on the same branch; with no such base the check is silent. The planner's rows are
+`TAF-01..10` and `TAF-12..30` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
+part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..g` in the harness
+self-test.
+
+What `make test-affected` does not do: it does not run the traceability check, so a new `check()`
+row leaves the committed matrix stale until the full `make unit-test`, and it does not run the
+platform suites or the regression rows other than the boot smoke row and the rows the diff names.
 
 ## What the triplet does not prove
 

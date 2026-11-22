@@ -813,19 +813,17 @@ fi
 # "Total: ... Failed: 0" is the exact line that gets copied into status reports.
 # A SKIP fails the run exactly as a FAIL does (owner, 2026-10-06): a row that was
 # not tested is not a pass, and nothing downstream distinguishes the two.
-# GH #547: a suite that FAILS in the full run but that the last `make test-affected` of THIS head
-# did not select is a missing edge in the map. Named, so the map or test/test-affected.conf is
-# fixed on the same branch (the record is $BUILD/test-affected.last, written by that run).
-LAST="$BUILD/test-affected.last"
-if (( ! SUBSET && ${#FAILED_SUITES[@]} )) && [[ -f "$LAST" ]]; then
-    last_head=$(sed -n 's/^head=//p' "$LAST"); last_mode=$(sed -n 's/^mode=//p' "$LAST")
-    last_suites=",$(sed -n 's/^suites=//p' "$LAST"),"; last_files=$(sed -n 's/^files=//p' "$LAST")
-    cur_head=$(git rev-parse HEAD 2>/dev/null || true)
-    if [[ "$last_mode" == subset && -n "$last_head" && "$last_head" == "$cur_head" ]]; then
-        for name in "${FAILED_SUITES[@]}"; do
-            [[ "$last_suites" == *",$name,"* ]] \
-                || printf "${BADGE_FAIL} TEST-AFFECTED MISS ${RESET} %s was not selected for %s\n" "$name" "$last_files"
-        done
+# GH #547: a suite that FAILS in the full run but that `make test-affected` would NOT have selected
+# for this branch's diff is a missing edge in the map. Stateless: the planner is asked now, with the
+# failing suites, against the merge base with main (silent when there is no main to compare with,
+# no build tree it can read, or no git). JNEXT_TEST_AFFECTED_TOOL replaces the planner (the self-test).
+TA_TOOL="${JNEXT_TEST_AFFECTED_TOOL:-test/test-affected.pl}"
+if (( ! SUBSET && ${#FAILED_SUITES[@]} )) && [[ -f "$TA_TOOL" ]]; then
+    ta_failed=$(IFS=,; printf '%s' "${FAILED_SUITES[*]}")
+    ta_out=$(timeout --kill-after=5s 120s perl "$TA_TOOL" --build "$BUILD" --manifest "$CONF" --explain-miss "$ta_failed" 2>/dev/null || true)
+    ta_miss=$(grep '^TEST-AFFECTED MISS' <<<"$ta_out" || true)
+    if [[ -n "$ta_miss" ]]; then
+        while IFS= read -r l; do printf "${BADGE_FAIL} TEST-AFFECTED MISS ${RESET} %s\n" "${l#TEST-AFFECTED MISS: }"; done <<<"$ta_miss"
     fi
 fi
 

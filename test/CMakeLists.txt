@@ -7,7 +7,7 @@ if(WIN32)
     add_link_options(-Wl,--stack,8388608)
 endif()
 
-# GH #547: `make test-affected` (tools/test-affected.pl) needs to know which object files each
+# GH #547: `make test-affected` (test/test-affected.pl) needs to know which object files each
 # suite's link really pulled out of the static archives (link.d only names the archive, and
 # most suites list libjnext_video.a). GNU ld's map has that list ("Archive member included"),
 # so each suite links with a map next to its executable. Native Linux trees with GNU ld

@@ -1323,7 +1323,7 @@ test-affected: $(UNIT_TEST_LINTS) unit-test-build sdcard-image
 	@# the change names. It PRINTS which of unit-test-sdl, -win and -wasm the change needs; it does
 	@# not run them. The full `make unit-test` runs once before landing. BASE=<ref> overrides main.
 	@plan=build/test-affected.plan; \
-	 perl test/test-affected.pl --smoke "$(SMOKE_SUITES_CSV)" --plan $$plan --last build/test-affected.last $(if $(BASE),--base $(BASE)) || exit $$?; \
+	 perl test/test-affected.pl --smoke "$(SMOKE_SUITES_CSV)" --plan $$plan $(if $(BASE),--base $(BASE)) || exit $$?; \
 	 mode=$$(sed -n 's/^mode=//p' $$plan); suites=$$(sed -n 's/^suites=//p' $$plan); \
 	 rows=$$(sed -n 's/^rows=//p' $$plan); makes=$$(sed -n 's/^makes=//p' $$plan); rc=0; \
 	 if [ "$$mode" = full ]; then \
