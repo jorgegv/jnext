@@ -691,8 +691,7 @@ const Z80Cpu* Z80Cpu::s_bound_ = nullptr;
 Z80Cpu::Z80Cpu(MemoryInterface& mem, IoInterface& io)
     : rt_(new Z80CoreRuntime), mem_(mem), io_(io)
 {
-    bind_();
-
+    // reset() below binds this CPU; the table init in between touches no per-CPU state.
     if (!s_tables_initialized) {
         fuse_z80_init_tables();
         s_tables_initialized = true;

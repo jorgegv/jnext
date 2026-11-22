@@ -127,7 +127,7 @@ target_include_directories(cpu_z80n_im2_regressions_test PRIVATE ${CMAKE_SOURCE_
 add_test(NAME cpu_z80n_im2_regressions_tests COMMAND cpu_z80n_im2_regressions_test)
 
 # GH #551 - two machines in one process each run as they do alone: the CPU core's
-# globals are bound to the Z80Cpu that runs (CRB-01..09).
+# globals are bound to the Z80Cpu that runs (CRB-01..11).
 add_executable(cpu_runtime_binding_test cpu/cpu_runtime_binding_test.cpp)
 target_link_libraries(cpu_runtime_binding_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video

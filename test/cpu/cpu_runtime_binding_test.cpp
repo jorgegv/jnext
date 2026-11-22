@@ -24,6 +24,8 @@
 //   CRB-07  re-init of a machine while another is the bound one (a different
 //           machine type): each equals solo
 //   CRB-08  a 48K machine and a Next with different raster geometry: each equals solo
+//   CRB-11  a setter called on a CPU that is not the bound one lands on that CPU
+//   CRB-10  the EI-grace stamp and iff2_read are each CPU's own
 //   CRB-09  the CPU-level batch accessors (repeat_halt, repeat_loop,
 //           capture_loop_state) act on their own CPU, not on the bound one
 
@@ -56,6 +58,7 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
         std::printf("  FAIL %s: %s", id, desc);
         if (!detail.empty()) std::printf(" [%s]", detail.c_str());
         std::printf("\n");
+        std::fflush(stdout);
     }
 }
 
@@ -292,10 +295,13 @@ int main() {
         const auto mine = reinterpret_cast<uintptr_t>(&host->contention());
         const bool no_dangle = after_destroy != dead;
         Out oh;
-        host->run_frame(); drain(*host, oh);
-        const auto after_frame = reinterpret_cast<uintptr_t>(z80_bound_contention_for_test());
-        frames(*host, oh, kFrames - 1);
-        snapshot(*host, oh);
+        uintptr_t after_frame = 0;
+        if (no_dangle) {   // never run a machine on a dangling runtime: the row fails by its pointer
+            host->run_frame(); drain(*host, oh);
+            after_frame = reinterpret_cast<uintptr_t>(z80_bound_contention_for_test());
+            frames(*host, oh, kFrames - 1);
+            snapshot(*host, oh);
+        }
         check("CRB-06",
               "a machine destroyed while it was the bound one leaves no pointer to its ContentionModel in "
               "the core (null or the host's), the host's own after one frame, and the host equals solo",
@@ -314,8 +320,8 @@ int main() {
         build_48k(*a);          // A starts as a 48K machine...
         build_poll(*b);         // ...B is built (and bound) after it...
         build_poll(*a);         // ...and A is re-init()ed as a Next while B was the bound one.
+        frames(*b, ob, kFrames); snapshot(*b, ob);   // B first: it must not run on A's re-init
         frames(*a, oa, kFrames); snapshot(*a, oa);
-        frames(*b, ob, kFrames); snapshot(*b, ob);
         check("CRB-07",
               "a machine re-init()ed as another machine type while a second one was the bound one, then both "
               "run: each equals the same machine run alone",
@@ -376,6 +382,68 @@ int main() {
                   tb == 4 + 4 + 12,
               "a: " + std::to_string(ta) + " -> " + std::to_string(a_after) + " R=" + std::to_string(r_a) +
                   " bc=" + std::to_string(ls.bc) + " sp=" + std::to_string(ls.sp) + " b: " + std::to_string(tb));
+    }
+
+    {   // CRB-10: the EI-grace stamp and the iff2_read flag are each CPU's own
+        struct Ram : MemoryInterface {
+            uint8_t m[65536] = {};
+            uint8_t read(uint16_t a) override { return m[a]; }
+            void write(uint16_t a, uint8_t v) override { m[a] = v; }
+        };
+        struct NullIo : IoInterface {
+            uint8_t in(uint16_t) override { return 0xFF; }
+            void out(uint16_t, uint8_t) override {}
+        };
+        auto ma = std::make_unique<Ram>(); auto mb = std::make_unique<Ram>();
+        NullIo ioa, iob;
+        Z80Cpu a(*ma, ioa);
+        Z80Cpu b(*mb, iob);
+        ma->m[0] = 0xFB;                                   // A: EI, then NOPs
+        mb->m[0] = 0x00; mb->m[1] = 0x00; mb->m[2] = 0xFB; // B: NOP NOP EI (its stamp differs from A's)
+        ma->m[0x38] = 0xED; ma->m[0x39] = 0x4D;            // IM 1 handler of A: RETI
+        Z80Registers ra{}; ra.PC = 0; ra.SP = 0xFF00; ra.IM = 1; a.set_registers(ra);
+        Z80Registers rb{}; rb.PC = 0; rb.SP = 0xFE00; rb.IM = 1; b.set_registers(rb);
+        a.execute();                                       // A: EI; the grace is pending at the next boundary
+        b.execute(); b.execute(); b.execute();             // B runs and stamps its own EI at a different T-state
+        a.request_interrupt(0xFF, 0, INT64_MAX);           // /INT is already low when A reaches the boundary
+        a.execute();                                       // the grace holds: the NOP runs, the /INT is not taken
+        const uint16_t pc = a.pc();
+        check("CRB-10",
+              "a CPU that executed EI keeps its EI grace across another CPU's execute() (and its own stamp, "
+              "not the other's): the boundary right after the EI does not take a pending /INT",
+              pc == 0x0002, "A.pc=" + std::to_string(pc) + " (0x0002 = grace held, 0x0038 = /INT taken)");
+    }
+
+    {   // CRB-11: a setter called on a CPU that is not the bound one lands on that CPU
+        struct Ram : MemoryInterface {
+            uint8_t read(uint16_t) override { return 0; }
+            void write(uint16_t, uint8_t) override {}
+        };
+        struct NullIo : IoInterface {
+            uint8_t in(uint16_t) override { return 0xFF; }
+            void out(uint16_t, uint8_t) override {}
+        };
+        Ram ma, mb;
+        NullIo ioa, iob;
+        ContentionModel cma, cmb;
+        Z80Cpu a(ma, ioa);
+        Z80Cpu b(mb, iob);                                  // B is the bound CPU
+        b.set_contention_runtime(&cmb, nullptr, MachineType::ZX48K);
+        b.set_frame_geometry(240, 240 * 300);
+        a.set_contention_runtime(&cma, nullptr, MachineType::ZXN_ISSUE2);   // A is not bound
+        a.set_frame_geometry(300, 300 * 100);
+        b.tstates_ref();                                    // B again
+        const int b_line = z80_get_tstates_per_line();
+        const bool b_cm = z80_bound_contention_for_test() == &cmb;
+        a.tstates_ref();                                    // A
+        const int a_line = z80_get_tstates_per_line();
+        const bool a_cm = z80_bound_contention_for_test() == &cma;
+        check("CRB-11",
+              "set_contention_runtime() and set_frame_geometry() of a CPU that is not the bound one set that "
+              "CPU's runtime and line length, and leave the bound CPU's own",
+              b_line == 240 && b_cm && a_line == 300 && a_cm,
+              "B line=" + std::to_string(b_line) + " B cm own=" + (b_cm ? "yes" : "NO") +
+                  " | A line=" + std::to_string(a_line) + " A cm own=" + (a_cm ? "yes" : "NO"));
     }
 
     std::printf("\nZ80Cpu runtime binding test results\n");
