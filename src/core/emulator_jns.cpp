@@ -521,7 +521,7 @@ void Emulator::stage_jns_exceptions_()
 {
     jns_monotonic_tstates_ = monotonic_tstates();
     {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
         const int64_t last   = cpu_.int_window_last_ts();
         jns_int_first_ts_ = cpu_.int_window_first_ts() - now_ts;
         jns_int_last_ts_  = (last == INT64_MAX) ? last : last - now_ts;
@@ -1129,11 +1129,11 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     // moves with it, which is what `rebase_interrupt_window` is for, and only
     // THEN is the saved /INT window put on the re-seeded counter.
     tstates_frame_base_ = jns_monotonic_tstates_;
-    cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
-    *fuse_z80_tstates_ptr() = 0;
+    cpu_.rebase_interrupt_window(static_cast<int64_t>(cpu_.tstates_ref()));
+    cpu_.tstates_ref() = 0;
     cpu_.apply_after_describe();   // EI grace and iff2_read, which only live in the FUSE struct
     {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
         const int64_t first  = jns_int_first_ts_ + now_ts;
         int64_t       last   = jns_int_last_ts_;
         if (last != INT64_MAX) last += now_ts;

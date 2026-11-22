@@ -126,6 +126,16 @@ target_link_libraries(cpu_z80n_im2_regressions_test PRIVATE
 target_include_directories(cpu_z80n_im2_regressions_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME cpu_z80n_im2_regressions_tests COMMAND cpu_z80n_im2_regressions_test)
 
+# GH #551 - two machines in one process each run as they do alone: the CPU core's
+# globals are bound to the Z80Cpu that runs (CRB-01..09).
+add_executable(cpu_runtime_binding_test cpu/cpu_runtime_binding_test.cpp)
+target_link_libraries(cpu_runtime_binding_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(cpu_runtime_binding_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME cpu_runtime_binding_tests COMMAND cpu_runtime_binding_test)
+
 # Rewind / backwards execution tests (standalone, no GoogleTest required)
 add_executable(rewind_test rewind/rewind_test.cpp)
 target_link_libraries(rewind_test PRIVATE
