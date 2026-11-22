@@ -1598,6 +1598,8 @@ int main() {
             Out o;
             for (int i = 0; i < 20; ++i) emu.run_frame();
             dbg.pause(cid);
+            // Well into the frame: the step back then replays thousands of instructions.
+            for (int i = 0; i < 3000; ++i) emu.execute_single_instruction();
             drain(emu, o);
             const uint64_t w0 = tapped ? dbg.audio_scope_samples(0).value.first_sample : 0;
             const int before = emu.mixer().available();
