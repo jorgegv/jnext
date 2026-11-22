@@ -543,7 +543,9 @@ VHDL ref: `audio_mixer.vhd` lines 92-107
 the mix only inside `mic_i = beep_mic_final` (`zxnext.vhd:6503, 6516`), at 128. Signed sample = (13-bit sum - 1536) x 4,
 so EAR alone = 2048 and the MIC term alone = 512; the beeper is mono (L == R). `i_AUDIO_EAR` is the jack through
 `ear_relax` (`zxnext_top_issue2.vhd:662-677`, `symmetric_relaxation.vhd:62,76,89-90`): a level with no edge for
-64 x 512 master cycles relaxes to `zxn_issue2_fe_mic`. Full-machine rows in `audio_nextreg_test`.
+64 x 512 master cycles relaxes to `zxn_issue2_fe_mic`. jnext applies that to the Pi's EAR route; a playing tape's level
+passes straight through (the relaxation of a playing tape is held back, see the GH #550 notes). Full-machine rows in
+`audio_nextreg_test`.
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
@@ -556,16 +558,11 @@ so EAR alone = 2048 and the MIC term alone = 512; the beeper is mono (L == R). `
 | MX-71  | A state load re-derives the MIC term              | save with port 0xFE = 0x08, load into a fresh machine: 512 |
 | MX-72  | A state load re-derives the exc gate (R1)         | NR 0x06 = 0x40 and NR 0x08 = 0x10 saved: the loaded machine has `beep_spkr_excl()` and mixes 0 |
 | MX-73  | The mixer's inputs are `ear_i` and `mic_i` only (bare Mixer) | raw tape alone adds 0; `mic_final` alone adds 512; `set_mic()` sets `mic_final` |
-| MX-74  | A held tape level relaxes in the mix              | TZX pure tone: edge 512, held < hold 512, held > hold 0, raw tape level still 1 (D6) |
-| MX-75  | The relaxation reaches the port 0xFE read          | bit 6 follows the held tape until the hold, then the issue-2 MIC level (D6) |
-| MX-76  | Issue 2 + MIC: a held tape 0 relaxes to the MIC level, the next edge restarts the hold | mix 0 -> 512, then next edges 512 / 0 (D6) |
-| MX-77  | The hold restarts at an edge of tape XOR `pi_fe_ear` | a Pi edge inside the tape's hold extends it (D6) |
 | MX-78  | A state load re-derives the NMI button enables (NR 0x06 bits 4:3) | restored and cleared directions (D9) |
 | MX-79  | A state load re-derives `nr_06_ps2_mode`           | the NR 0x06 read returns bit 2 as saved (D9) |
 | MX-80  | A state load re-derives the hotkey enables (NR 0x06 bits 7, 5) | F8 with bit 7 clear leaves the CPU speed alone (D9) |
 | MX-81  | A state load re-derives the exc gate in the other direction | snapshot with the gate open into a machine with it closed: mixes 2048 |
 | MX-82  | Replay mode holds the Pi's EAR term off, and the MIC term follows it | 512 / 0 / 512 |
-| MX-83  | A tape stopped and started again restarts the hold at its first edge | the restarted tape is heard at once (512), not relaxed (D6) |
 | MX-84  | A reset clears the mixer's MIC term with the port 0xFE MIC bit | MIC 1: 512; after a reset: 0 (`zxnext.vhd:3588-3594,6503`) |
 | MX-85  | A tape stopped at level 1 leaves the raw tape level 0 | one instruction after the eject: no stale EAR level |
 | MX-86  | A restore with no tape playing clears a saved raw tape level | one instruction after the load |

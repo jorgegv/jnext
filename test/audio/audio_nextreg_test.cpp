@@ -1092,11 +1092,6 @@ void step_to_clock(Emulator& emu, uint64_t t) {
     for (int i = 0; i < 400000 && emu.clock().get() < t; ++i) emu.execute_single_instruction();
 }
 
-// Wait for a real EDGE to `want`: first leave `want`, then enter it.
-bool step_to_edge(Emulator& emu, bool want, uint64_t* at) {
-    return step_to_level(emu, !want) && step_to_level(emu, want, at);
-}
-
 std::vector<uint8_t> snapshot_of(Emulator& emu) {
     StateWriter m;
     emu.save_state(m);
@@ -1361,60 +1356,6 @@ static void test_tape_mix() {
               fmt("excl=%d mix=%d (want 0 / 2048)", d->beep_spkr_excl() ? 1 : 0, v2));
     }
 
-    // D6 - ear_relax on a PLAYING tape: i_AUDIO_EAR is the jack through
-    // ear_relax, so a level with no edge for 64 x 512 master cycles relaxes to
-    // zxn_issue2_fe_mic, tape or not (zxnext_top_issue2.vhd:662-677). The tone
-    // pulses are 6000 T (48000 master cycles), longer than the hold.
-    {
-        auto e = next_machine_550();
-        nr_write(*e, 0x06, 0x00);
-        nr_write(*e, 0x08, 0x10);
-        idle_loop(*e);
-        e->port().out(0x00FE, 0x00);
-        const bool ok = start_tzx_tone(*e);
-        uint64_t t = 0;
-        const bool a = step_to_edge(*e, true, &t);
-        const int fresh_hi = mix_val(*e);
-        step_to_clock(*e, t + 4000 * 8 / 2);
-        const int held_early = mix_val(*e);
-        const uint8_t port_early = e->port().in(0x00FE);
-        step_to_clock(*e, t + kRelaxMaster + 1700);
-        const int held_late = mix_val(*e);
-        const uint8_t port_late = e->port().in(0x00FE);
-        check("MX-74", "a tape level held with no edge for 64 x 512 master cycles relaxes to the "
-              "issue-2 MIC level (0 here) in the mix [symmetric_relaxation.vhd:76,89-90; "
-              "zxnext_top_issue2.vhd:666-677]",
-              ok && a && e->beeper().tape_ear() && fresh_hi == 512 && held_early == 512 &&
-              held_late == 0,
-              fmt("edge=%d held<K=%d held>K=%d tape_ear=%d (want 512/512/0, tape 1)",
-                  fresh_hi, held_early, held_late, e->beeper().tape_ear() ? 1 : 0));
-        check("MX-75", "the same relaxation reaches the port 0xFE read: bit 6 follows the held tape "
-              "level until the hold, then the issue-2 MIC level [zxnext.vhd:3459; "
-              "symmetric_relaxation.vhd:89-90]",
-              ((port_early >> 6) & 1) == 1 && ((port_late >> 6) & 1) == 0,
-              fmt("port 0xFE early=0x%02X late=0x%02X (want bit6 1 / 0)", port_early, port_late));
-    }
-    {
-        // A tape that stops and starts again starts a new jack: its first edge
-        // restarts the hold (the previous session's edge stamp is gone).
-        auto e = next_machine_550();
-        nr_write(*e, 0x06, 0x00);
-        nr_write(*e, 0x08, 0x10);
-        idle_loop(*e);
-        e->port().out(0x00FE, 0x00);
-        const bool ok = start_tzx_tone(*e);
-        uint64_t t = 0;
-        const bool a = step_to_edge(*e, true, &t);
-        e->tzx_tape().eject();
-        step_to_clock(*e, t + kRelaxMaster + 1700);   // stopped, and long past any hold
-        const bool ok2 = start_tzx_tone(*e);
-        const bool b = step_to_level(*e, true);
-        const int restarted = mix_val(*e);
-        check("MX-83", "a tape stopped and started again: its first level edge restarts the "
-              "ear_relax hold, so the restarted tape is heard at once, not relaxed "
-              "[symmetric_relaxation.vhd:70-77,89-90]",
-              ok && a && ok2 && b && restarted == 512, fmt("restarted=%d (want 512)", restarted));
-    }
     {
         // The raw tape level is cleared when the tape stops (the tape block's stop
         // path), and a restore with no tape playing clears a saved level the same way.
@@ -1460,58 +1401,6 @@ static void test_tape_mix() {
         check("MX-84", "a reset clears the mixer's MIC term with the port 0xFE MIC bit "
               "[zxnext.vhd:3588-3594,6503]", before == 512 && after == 0,
               fmt("before=%d after reset=%d (want 512 / 0)", before, after));
-    }
-    {
-        // Issue 2 + MIC = 1: the relaxed level is 1. A held 0 reads 0 until the
-        // hold, 1 after; the next edge restarts the hold.
-        auto e = next_machine_550();
-        nr_write(*e, 0x06, 0x00);
-        nr_write(*e, 0x08, 0x11);
-        idle_loop(*e);
-        e->port().out(0x00FE, 0x08);
-        const bool ok = start_tzx_tone(*e);
-        uint64_t t = 0;
-        const bool a = step_to_edge(*e, false, &t);
-        const int fresh_lo = mix_val(*e);
-        step_to_clock(*e, t + kRelaxMaster + 1700);
-        const int relaxed = mix_val(*e);
-        uint64_t t2 = 0;
-        const bool b = step_to_level(*e, true, &t2);
-        const int hi = mix_val(*e);
-        const bool c = step_to_level(*e, false, &t2);
-        const int fresh_lo2 = mix_val(*e);
-        check("MX-76", "issue 2 + MIC: a held tape 0 relaxes to the MIC level (mix 0 -> 512), and "
-              "the next edge restarts the hold [symmetric_relaxation.vhd:62,76,89-90; "
-              "zxnext.vhd:1636,6503]",
-              ok && a && b && c && fresh_lo == 0 && relaxed == 512 && hi == 512 && fresh_lo2 == 0,
-              fmt("edge=%d relaxed=%d next-high=%d next-low=%d (want 0/512/512/0)",
-                  fresh_lo, relaxed, hi, fresh_lo2));
-    }
-    {
-        // A tape plus the Pi, issue 2 + MIC (relaxed level 1): the hold counts
-        // from the latest edge of EITHER source (sig = tape xor pi_fe_ear).
-        auto e = next_machine_550();
-        nr_write(*e, 0x06, 0x00);
-        nr_write(*e, 0x08, 0x11);
-        idle_loop(*e);
-        e->port().out(0x00FE, 0x08);
-        const bool ok = start_tzx_tone(*e, 12000);
-        uint64_t t = 0;
-        const bool a = step_to_edge(*e, true, &t);
-        step_to_clock(*e, t + 30000);
-        // A Pi edge inside the tape's hold: tape 1 xor pi 1 = sig 0.
-        e->i2s().set_sample(0x3FF, 0x3FF);
-        nr_write(*e, 0xA2, 0xC1);
-        const uint64_t tp = e->clock().get();
-        step_to_clock(*e, t + kRelaxMaster + 1700);      // past the tape's own hold
-        const int extended = mix_val(*e);
-        step_to_clock(*e, tp + kRelaxMaster + 1700);     // past the Pi edge's hold
-        const int relaxed = mix_val(*e);
-        check("MX-77", "the relaxation hold restarts at an edge of tape XOR pi_fe_ear: a Pi edge "
-              "inside the tape's hold extends it [zxnext_top_issue2.vhd:673; "
-              "symmetric_relaxation.vhd:70-77]",
-              ok && a && e->i2s().fe_ear() && extended == 0 && relaxed == 512,
-              fmt("extended=%d relaxed=%d (want 0 / 512)", extended, relaxed));
     }
 }
 
