@@ -309,7 +309,7 @@ struct LoopDriver {
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
 // ---------------------------------------------------------------------------
 // DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
-// `Result`" (`result.h`'s banner). These 56 read live machine state that always
+// `Result`" (`result.h`'s banner). These 58 read live machine state that always
 // exists, so they have no refusal case by construction and return their value
 // directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
 // `Expected<T>`, and moving one onto it is a claim that it cannot fail. The
@@ -323,11 +323,12 @@ struct LoopDriver {
 //                     at_frame_boundary, rewind_enabled, rewind_range
 //   registers/memory (6): registers, mmu_slots, paging_ports, rom_select,
 //                     nextreg_peek, nextreg_selected
-//   video/audio (19): raster, machine, time, time_epoch, sprites, pattern_ram,
+//   video/audio (21): raster, machine, time, time_epoch, sprites, pattern_ram,
 //                     sprite_clip, copper, framebuffer, palette,
 //                     palette_priority, active_ula_palette_bank,
 //                     ula_screen_regs, clip_window, turbosound_enabled,
-//                     ay_mode, stereo_mode, audio_mute_mask, audio_state
+//                     ay_mode, stereo_mode, audio_mute_mask, audio_state,
+//                     ctc_state, dma_state
 //   disasm/trace (10): disassemble, instruction_length, is_call_like,
 //                     memory_reader, operand_reader, call_stack, call_stack_enabled,
 //                     trace_enabled, coverage_enabled, coverage
@@ -665,6 +666,13 @@ public:
 
     /// INS-22 -- zero every dropped-write counter (GH #530). MUTATE-logged.
     Result clear_audio_drops(ClientId by);
+
+    /// INS-25 -- the CTC's four channels, with the computed ZC/TO rates (GH #537). A DIRECT VALUE: a
+    /// read, no port handler runs.
+    std::array<CtcChannelState, CTC_CHANNEL_COUNT> ctc_state() const;
+
+    /// INS-25 -- the DMA's pacing and transfer state (GH #537). A DIRECT VALUE.
+    DmaState dma_state() const;
 
     /// INS-11 — disassemble `n` instructions from `addr` over `peek(Cpu)`.
     /// `symbols` may be null; pass `&symbols()` for the backend's own table.

@@ -25,6 +25,15 @@
 // zxnext.vhd:2744-2751,2963-2965,2974-2980,3024,3034-3041,3088-3094,5412-5414,
 // 6989,7046 and soundrive.vhd:72-101 (ports, enables, mirror, reset).
 //
+//   ACT-*  Debugger::ctc_state() and dma_state() (GH #537, INS-25): the pacing engines' decoded
+//          registers and computed rates.
+//
+// ACT oracles: ctc_chan.vhd:117 (reset_soft), :132-170 (prescaler, counter, ZC/TO), :223 (trigger wait),
+// :263-285 (control bits, TC register) and zxnext.vhd:4581-4607 (four channels, the ring, NR 0xC5); dma.vhd:230-236
+// (reset values), :250-255 (timer per CPU clock), :287-361 (addresses, ports, counter), :424 (prescaler gate).
+// Rates are 28 MHz / (prescaler x TC) and 28 MHz / (32 x prescaler) in milli-hertz, rounded half up, written
+// in each row as literals computed by hand, never read from a run.
+//
 // Run: ./build/test/audio_debug_test
 
 #include "audio/turbosound.h"
@@ -54,6 +63,8 @@
 
 using jnext::dbg::AudioDropCounter;
 using jnext::dbg::AudioState;
+using jnext::dbg::CtcChannelState;
+using jnext::dbg::DmaState;
 using jnext::dbg::EventSource;
 using jnext::dbg::ResetKind;
 using jnext::dbg::AyChipMode;
@@ -233,6 +244,67 @@ static bool is_note(const PsgNote& n, const char* name, int oct, double cents) {
            near(n.cents, cents, 0.005);
 }
 
+
+// ── ACT: ctc_state() and dma_state() ────────────────────────────────────
+
+// CTC channel `ch`: a control word, then (when given) the time constant, through the real port
+// 0x183B + (ch << 8) (zxnext.vhd:3006).
+static void ctc_port(Emulator& emu, int ch, uint8_t control, int tc = -1) {
+    const uint16_t port = static_cast<uint16_t>(0x183B + (ch << 8));
+    emu.port().out(port, control);
+    if (tc >= 0) emu.port().out(port, static_cast<uint8_t>(tc));
+}
+
+static CtcChannelState ctc_of(Emulator& emu, int ch) {
+    Debugger dbg(emu);
+    return dbg.ctc_state()[static_cast<size_t>(ch)];
+}
+
+// A burst DMA block through port 0x6B (ZXN mode), as dma_test.cpp's program_burst_prescaled(): port A memory
+// increment at `a`, port B at `b` (an I/O port, fixed, when `b_io`; memory increment otherwise), R2 prescaler,
+// R5 auto-restart when `restart`, direction A->B unless `b_to_a`; LOAD and ENABLE.
+static void dma_program(Emulator& emu, uint16_t a, uint16_t b, uint16_t len, uint8_t presc, bool b_io,
+                        bool restart = false, bool b_to_a = false) {
+    auto w = [&](uint8_t v) { emu.port().out(0x6B, v); };
+    if (restart) w(0xA2);
+    w(b_to_a ? 0x79 : 0x7D);
+    w(a & 0xFF); w(a >> 8); w(len & 0xFF); w(len >> 8);
+    w(0x14);
+    w(b_io ? 0x68 : 0x50); w(0x21); w(presc);
+    w(0xCD); w(b & 0xFF); w(b >> 8);
+    w(0xCF); w(0x87);
+}
+
+// `n` bytes of a prescaled burst: one byte, then the gate waited out (tick_burst_wait(1) until it opens).
+static void dma_bytes(Emulator& emu, int n) {
+    for (int i = 0; i < n; ++i) {
+        emu.dma().execute_burst(1);
+        while (emu.dma().burst_wait_quiescent()) emu.dma().tick_burst_wait(1);
+    }
+}
+
+// Mem-to-mem burst, prescaler 55, at CPU speed `turbo`: the CPU clocks the gate stays closed after the
+// first byte (-1 when it was not 1760 master cycles away right after the byte), and the reported rate.
+static int gate_clocks(Emulator& emu, uint8_t turbo, uint32_t& rate) {
+    emu.dma().set_turbo(turbo);
+    dma_program(emu, 0x8000, 0x9000, 255, 55, false);
+    emu.dma().execute_burst(1);
+    if (emu.dma().cycles_to_prescaler_gate() != 1760) return -1;
+    int clocks = 0;
+    while (emu.dma().burst_wait_quiescent()) { emu.dma().tick_burst_wait(1); ++clocks; }
+    Debugger dbg(emu);
+    rate = dbg.dma_state().rate_millihz;
+    return clocks;
+}
+
+// AIZ-11: build() plus CTC ch0 timer P16 TC 109 (interrupt off) and an auto-restarting DMA burst to port
+// 0x00DF at prescaler 55, so both engines move every frame.
+static void build_pacing(Emulator& emu) {
+    build(emu);
+    ctc_port(emu, 0, 0x05, 109);
+    for (int i = 0; i < 256; ++i) emu.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i));
+    dma_program(emu, 0x9000, 0x00DF, 255, 55, true, true);
+}
 
 // ── DRP: the dropped-write counters ─────────────────────────────────────
 
@@ -1307,6 +1379,277 @@ int main() {
         for (int i = 0; i < 2; ++i) probe.run_frame();
         check("AIZ-10", "the dropped-write counters are outside describe_state(): clearing them in one run leaves the saved state and the video unchanged (a CPU dropping thousands of writes a frame; positive control: the counters do move)",
               ran && same && probe.audio_drops()[size_t(AR::DacFamilyDisabled)].count > 1000);
+    }
+
+
+    // ─────────────────── ACT: ctc_state() ───────────────────────────────
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 1);
+        emu.ctc().tick(1);
+        const CtcChannelState c = ctc_of(emu, 0);
+        check("ACT-01", "ctc_chan.vhd:146,150,282 timer, prescaler 16, TC 1: running, int off, 28 MHz / 16 = 1 750 000 000 mHz",
+              !c.counter_mode && c.prescaler == 16 && c.time_constant == 1 && c.running && !c.int_enabled &&
+              c.zc_rate_millihz == 1750000000u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 100); emu.ctc().tick(1);
+        check("ACT-02", "ctc_chan.vhd:132-170 timer P16 TC 100: 28 MHz / 1600 = 17 500 000 mHz",
+              ctc_of(emu, 0).zc_rate_millihz == 17500000u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 0); emu.ctc().tick(1);
+        const CtcChannelState c = ctc_of(emu, 0);
+        check("ACT-03", "ctc_chan.vhd:153 timer P16 TC 0 counts 256: 28 MHz / 4096 = 6 835 937.5 mHz, rounded half up to 6 835 938",
+              c.time_constant == 256 && c.zc_rate_millihz == 6835938u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x25, 1); emu.ctc().tick(1);
+        const CtcChannelState c = ctc_of(emu, 0);
+        check("ACT-04", "ctc_chan.vhd:146 control bit 5: prescaler 256, TC 1: 28 MHz / 256 = 109 375 000 mHz",
+              c.prescaler == 256 && c.zc_rate_millihz == 109375000u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x25, 100); emu.ctc().tick(1);
+        check("ACT-05", "ctc_chan.vhd:146 timer P256 TC 100: 28 MHz / 25600 = 1 093 750 mHz",
+              ctc_of(emu, 0).zc_rate_millihz == 1093750u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x25, 0); emu.ctc().tick(1);
+        check("ACT-06", "ctc_chan.vhd:146,153 timer P256 TC 0 (256): 28 MHz / 65536 = 427 246.09 mHz, rounded to 427 246",
+              ctc_of(emu, 0).zc_rate_millihz == 427246u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 100); ctc_port(emu, 1, 0x45, 10); emu.ctc().tick(1);
+        const CtcChannelState c = ctc_of(emu, 1);
+        check("ACT-07", "ctc_chan.vhd:150, zxnext.vhd:4598 counter ch1 TC 10 fed by timer ch0 (17 500 Hz): 1 750 000 mHz",
+              c.counter_mode && c.running && c.time_constant == 10 && c.zc_rate_millihz == 1750000u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 3, 0x25, 50); ctc_port(emu, 0, 0x45, 7); emu.ctc().tick(1);
+        check("ACT-08", "zxnext.vhd:4598 channel 0 is clocked by channel 3: ch3 P256 TC 50 (2187.5 Hz) / 7 = 312 500 mHz",
+              ctc_of(emu, 0).zc_rate_millihz == 312500u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 100); ctc_port(emu, 1, 0x45, 10); ctc_port(emu, 2, 0x45, 5); emu.ctc().tick(1);
+        check("ACT-09", "zxnext.vhd:4598 a chain of two counters behind a timer: 17 500 Hz / 10 / 5 = 350 000 mHz (one rounding)",
+              ctc_of(emu, 2).zc_rate_millihz == 350000u);
+    }
+    {
+        bool a, b = true, c, d;
+        {
+            Emulator emu; fresh(emu);
+            ctc_port(emu, 1, 0x45, 10); emu.ctc().tick(1);
+            const CtcChannelState s = ctc_of(emu, 1);
+            a = s.running && s.zc_rate_millihz == 0;
+        }
+        {
+            Emulator emu; fresh(emu);
+            for (int i = 0; i < 4; ++i) ctc_port(emu, i, 0x45, 10);
+            emu.ctc().tick(1);
+            Debugger dbg(emu);
+            for (const CtcChannelState& s : dbg.ctc_state()) b = b && s.running && s.zc_rate_millihz == 0;
+        }
+        {
+            Emulator emu; fresh(emu);
+            ctc_port(emu, 0, 0x0D, 10); emu.ctc().tick(5);
+            const CtcChannelState s = ctc_of(emu, 0);
+            c = !s.running && s.zc_rate_millihz == 0;
+        }
+        {
+            Emulator emu; fresh(emu);
+            Debugger dbg(emu);
+            d = true;
+            for (const CtcChannelState& s : dbg.ctc_state())
+                d = d && !s.running && s.time_constant == 256 && s.zc_rate_millihz == 0 && s.count == 0;
+        }
+        check("ACT-10", "ctc_chan.vhd:117,223,282 no ZC/TO: a counter behind a never-programmed channel, a ring of four counters, "
+              "a timer waiting for its trigger, a fresh machine (TC register 0 = 256)", a && b && c && d);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 100);
+        emu.ctc().tick(1);
+        const bool c100 = ctc_of(emu, 0).count == 100 && emu.ctc().read(0) == 100;
+        emu.ctc().tick(16);
+        const bool c99 = ctc_of(emu, 0).count == 99 && emu.ctc().read(0) == 99;
+        emu.ctc().tick(64);
+        const bool c95 = ctc_of(emu, 0).count == 95 && emu.ctc().read(0) == 95;
+        check("ACT-11", "ctc_chan.vhd:155-168 count is t_count (o_cpu_d): 100 after 1 edge, 99 after 17, 95 after 81, each equal to the port read",
+              c100 && c99 && c95);
+    }
+    {
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        ctc_port(emu, 0, 0x85, 5);
+        auto st = dbg.ctc_state();
+        const bool s1 = st[0].int_enabled && !st[1].int_enabled && emu.ctc().get_int_enable() == 0x01;
+        nr_write(emu, 0xC5, 0x02);
+        st = dbg.ctc_state();
+        const bool s2 = !st[0].int_enabled && st[1].int_enabled && emu.ctc().get_int_enable() == 0x02;
+        nr_write(emu, 0xC5, 0x00);
+        st = dbg.ctc_state();
+        bool s3 = emu.ctc().get_int_enable() == 0x00;
+        for (const CtcChannelState& c : st) s3 = s3 && !c.int_enabled;
+        check("ACT-12", "ctc_chan.vhd:263-276, zxnext.vhd:4592-4593 int_enabled is control bit 7, written alone by NR 0xC5, equal to get_int_enable()",
+              s1 && s2 && s3);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 100);
+        emu.ctc().tick(161);
+        ctc_port(emu, 0, 0x03);
+        const CtcChannelState c = ctc_of(emu, 0);
+        check("ACT-13", "ctc_chan.vhd:117,158-159 a soft reset stops the channel (no rate) and reloads the count from the TC register",
+              !c.running && c.zc_rate_millihz == 0 && c.count == 100);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 100);
+        emu.ctc().tick(5);
+        bool running = ctc_of(emu, 0).running;
+        ctc_port(emu, 0, 0x05);                       // control word, TC follows, no reset: S_RUN_TC
+        running = running && ctc_of(emu, 0).running;
+        ctc_port(emu, 0, 50);                         // the new TC
+        const CtcChannelState c = ctc_of(emu, 0);
+        check("ACT-14", "ctc_chan.vhd:228-239 a TC rewritten while running (S_RUN_TC) keeps the channel running: TC 50, 28 MHz / 800 = 35 000 000 mHz",
+              running && c.running && c.time_constant == 50 && c.zc_rate_millihz == 35000000u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 100);
+        std::vector<uint64_t> at;
+        emu.ctc().on_zc_to = [&](int ch) { if (ch == 0) at.push_back(emu.ctc().time()); };
+        emu.ctc().tick(4000);
+        const uint64_t period = at.size() >= 2 ? at[1] - at[0] : 0;
+        check("ACT-15", "ctc_chan.vhd:132-170 ZC/TO edges of a P16 TC 100 timer are P x TC = 1600 apart, so rate x 1600 = 28e9 mHz x edges",
+              period == 1600 && ctc_of(emu, 0).zc_rate_millihz * period == 28000000000ULL);
+    }
+
+    // ─────────────────── ACT: dma_state() ───────────────────────────────
+    {
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        const DmaState d = dbg.dma_state();
+        check("ACT-20", "dma.vhd:230-236 a fresh DMA: idle, mode 01, no prescaler (rate 0), counter 0, no I/O port",
+              !d.active && d.mode == 1 && d.prescaler == 0 && d.rate_millihz == 0 && d.counter == 0 &&
+              !d.src_io && !d.dst_io);
+    }
+    {
+        Emulator emu; fresh(emu);
+        uint32_t rate = 0;
+        const int clocks = gate_clocks(emu, 0, rate);
+        check("ACT-21", "dma.vhd:250-251,424 at 3.5 MHz the timer adds 8 per clock: the gate (32 x 55 = 1760) opens after 220 clocks; rate 28 MHz / 1760 = 15 909 091 mHz",
+              clocks == 220 && rate == 15909091u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        uint32_t rate = 0;
+        const int clocks = gate_clocks(emu, 1, rate);
+        check("ACT-22", "dma.vhd:252 at 7 MHz the timer adds 4 per clock: 440 clocks; the rate is the same 15 909 091 mHz",
+              clocks == 440 && rate == 15909091u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        uint32_t rate = 0;
+        const int clocks = gate_clocks(emu, 2, rate);
+        check("ACT-23", "dma.vhd:253 at 14 MHz the timer adds 2 per clock: 880 clocks; the rate is the same 15 909 091 mHz",
+              clocks == 880 && rate == 15909091u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        uint32_t rate = 0;
+        const int clocks = gate_clocks(emu, 3, rate);
+        check("ACT-24", "dma.vhd:254 at 28 MHz the timer adds 1 per clock: 1760 clocks; the rate is the same 15 909 091 mHz",
+              clocks == 1760 && rate == 15909091u);
+    }
+    {
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        emu.dma().set_turbo(3);
+        dma_program(emu, 0x8000, 0x00DF, 100, 55, true);
+        dma_bytes(emu, 3);
+        const DmaState d = dbg.dma_state();
+        check("ACT-25", "dma.vhd:287,290,346,351,361,381 burst A->B, port A memory 0x8000 increment, port B I/O 0x00DF fixed, after 3 bytes",
+              d.active && d.mode == 2 && d.prescaler == 55 && d.src == 0x8003 && d.dst == 0x00DF &&
+              d.length == 100 && d.counter == 3 && !d.src_io && d.dst_io);
+    }
+    {
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        emu.dma().set_turbo(3);
+        dma_program(emu, 0x8000, 0x00DF, 100, 55, true, false, true);
+        dma_bytes(emu, 3);
+        const DmaState d = dbg.dma_state();
+        check("ACT-26", "dma.vhd:287,290,346,351 direction B->A: the source is port B (I/O 0x00DF), the destination port A (0x8003)",
+              d.src == 0x00DF && d.dst == 0x8003 && d.src_io && !d.dst_io && d.counter == 3);
+    }
+    {
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        emu.dma().set_turbo(3);
+        dma_program(emu, 0x8000, 0x00DF, 100, 55, true);
+        for (int i = 0; i < 1000 && emu.dma().state() == Dma::State::TRANSFERRING; ++i) dma_bytes(emu, 1);
+        const DmaState d = dbg.dma_state();
+        check("ACT-27", "dma.vhd:361 the block run to its end: no longer active, counter = the block length 100",
+              !d.active && d.counter == 100);
+    }
+    {
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        dma_program(emu, 0x8000, 0x9000, 100, 1, false);
+        const uint32_t r1 = dbg.dma_state().rate_millihz;
+        dma_program(emu, 0x8000, 0x9000, 100, 255, false);
+        const uint32_t r255 = dbg.dma_state().rate_millihz;
+        check("ACT-28", "dma.vhd:424 prescaler 1: 28 MHz / 32 = 875 000 000 mHz; 255: 28e9 / 8160 = 3 431 372.5, rounded half up to 3 431 373",
+              r1 == 875000000u && r255 == 3431373u);
+    }
+
+    // ─────────────────── AIZ-11: the pacing queries are invisible ───────
+    {
+        Emulator emu; build_pacing(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("aiz11")).value;
+        emu.run_frame(); emu.run_frame();
+        const auto s0 = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        bool saw_dma = false, saw_ctc = false;
+        auto run = [&](bool query) {
+            for (int f = 0; f < 50; ++f) {
+                emu.run_frame();
+                if (!query) continue;
+                for (int i = 0; i < 20; ++i) {
+                    const DmaState d = dbg.dma_state();
+                    const auto c = dbg.ctc_state();
+                    saw_dma = saw_dma || d.active;
+                    saw_ctc = saw_ctc || c[0].running;
+                }
+            }
+            Outcome o;
+            const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+            o.ok = saved.status == Result::Ok;
+            if (o.ok) o.state = saved.value;
+            o.video = fb_hash(dbg);
+            return o;
+        };
+        const Outcome a = run(true);
+        const bool loaded = s0.status == Result::Ok && a.ok &&
+                            dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
+        const Outcome b = run(false);
+        const bool loaded2 = dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
+        emu.port().out(0x1F, 0x11);                  // a real guest write: the control run must differ
+        const Outcome c = run(false);
+        check("AIZ-11", "1000 ctc_state() + 1000 dma_state() calls (20 a frame) over 50 frames of a CTC timer and a DMA burst leave the saved state and the video unchanged "
+              "(positive control: both engines were seen moving, and a real DAC write between the runs makes them differ)",
+              loaded && loaded2 && b.ok && !a.state.empty() && a.state == b.state && a.video == b.video &&
+              saw_dma && saw_ctc && c.ok && c.state != b.state);
     }
 
     std::printf("\n=====================================\n");

@@ -170,6 +170,10 @@ public:
     bool end_events_armed() const { return end_events_armed_; }
     bool byte_events_armed() const { return byte_events_armed_; }
     bool events_armed() const { return start_events_armed_ || end_events_armed_; }
+    /// GH #537 (INS-25): the fields the debugger's dma_state() needs that have no accessor. Inline, const,
+    /// no data member: nothing in the core calls it.
+    struct DebugView { uint8_t prescaler = 0; bool port_a_io = false, port_b_io = false; };
+    DebugView debug_view() const { return {port_b_prescaler_, port_a_is_io_, port_b_is_io_}; }
     uint16_t    block_length() const { return block_len_; }
     bool        dir_a_to_b() const { return dir_a_to_b_; }
     AddrMode    src_addr_mode() const;
