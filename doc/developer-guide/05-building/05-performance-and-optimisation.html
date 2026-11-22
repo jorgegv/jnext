@@ -3563,7 +3563,7 @@ optimised tree is always a cold build: a warm <code>make gui-release</code> afte
 change costs the training plus about a minute of compiling and linking, and
 retraining with unchanged sources does not hit either. The instrumented tree is
 cached normally.</p>
-<p><strong>Worktrees share the cache.</strong> CMake hands the compiler absolute paths, and ccache hashes
+<p><strong>Worktrees share the cache</strong> (<code>JNEXT_CCACHE_SHARE</code>, ON; the rpm and deb recipes turn it OFF, because their debuginfo extraction expects the absolute build paths). CMake hands the compiler absolute paths, and ccache hashes
 them (and, with <code>-g</code>, the working directory), so two worktrees of one commit used to be two
 sets of cache entries and every new worktree compiled from nothing. The launcher
 <code>CMakeLists.txt</code> builds now sets <code>CCACHE_BASEDIR</code> to the source directory and
