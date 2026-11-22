@@ -231,12 +231,13 @@ find "$STAMPS" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null
 git -C "$MIRROR" remote get-url origin >/dev/null 2>&1 || git -C "$MIRROR" remote add origin "$RR_REPO_URL"
 git -C "$MIRROR" remote set-url origin "$RR_REPO_URL"
 say "fetching $RR_BRANCH from $RR_REPO_URL"
-if ! fetch_out=$(git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_BRANCH:refs/rr/$RR_BRANCH" 2>&1 </dev/null); then
+FETCH_T="${RR_FETCH_TIMEOUT:-120}s"   # a stalled network must not hold the setup lock (every lane waits on it)
+if ! fetch_out=$(timeout --kill-after=5s "$FETCH_T" git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_BRANCH:refs/rr/$RR_BRANCH" 2>&1 </dev/null); then
     echo "$fetch_out"
     if [[ "$fetch_out" == *"couldn't find remote ref"* ]]; then
         refuse "branch $RR_BRANCH is not on the remote repository: push it first"
     fi
-    fallback "git fetch failed"
+    fallback "git fetch failed (or timed out after $FETCH_T)"
 fi
 tip=$(git -C "$MIRROR" rev-parse "refs/rr/$RR_BRANCH") || fallback "no tip for $RR_BRANCH after fetch"
 if [[ -z "$RR_SHA" ]]; then
@@ -248,7 +249,7 @@ say "source: $RR_BRANCH @ $RR_SHA"
 # The run tree gets origin/main so a tool inside the run (test/test-affected.pl --explain-miss, GH #547)
 # can take a merge base. Best effort: no main on the remote, or a failed fetch, is not a failure of the run.
 base_main=""
-if git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/main:refs/rr/main" </dev/null >/dev/null 2>&1; then
+if timeout --kill-after=5s "$FETCH_T" git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/main:refs/rr/main" </dev/null >/dev/null 2>&1; then
     base_main=$(git -C "$MIRROR" rev-parse "refs/rr/main" 2>/dev/null || true)
 fi
 
@@ -256,7 +257,7 @@ fi
 # The dependency script comes from the commit under test, or from RR_DEPS_REF when one is given.
 deps_from="$RR_SHA"
 if [[ -n "${RR_DEPS_REF:-}" ]]; then
-    if ! fetch_out=$(git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_DEPS_REF:refs/rr/$RR_DEPS_REF" 2>&1 </dev/null); then
+    if ! fetch_out=$(timeout --kill-after=5s "$FETCH_T" git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/$RR_DEPS_REF:refs/rr/$RR_DEPS_REF" 2>&1 </dev/null); then
         echo "$fetch_out"
         fallback "cannot fetch --deps-ref $RR_DEPS_REF"
     fi
