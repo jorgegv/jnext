@@ -1067,13 +1067,13 @@ static void test_dac_tab(Emulator& emu) {
         const bool real = dac && dac->findChild<QTreeWidget*>("audio_drops") && dac->findChild<QLabel*>("dac_a_value") &&
                           !dac->findChild<QLabel*>("dac_a_value")->text().isEmpty();
         bool placeholders = tabs != nullptr;
-        for (int i = 3; tabs && i < 5; ++i) {
+        for (int i = 4; tabs && i < 5; ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
             placeholders = placeholders && found;
         }
-        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Tracker and Scopes still show 'Not available yet.'",
+        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Scopes still shows 'Not available yet.'",
               real && placeholders);
     }
     {
@@ -1444,7 +1444,7 @@ static void test_log_tab(Emulator& emu) {
         auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
         const auto tables = panel.findChildren<QTableWidget*>();
         bool placeholders = tabs != nullptr;
-        for (int i = 3; tabs && i < 5; ++i) {
+        for (int i = 4; tabs && i < 5; ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
@@ -1456,7 +1456,7 @@ static void test_log_tab(Emulator& emu) {
             only_log = only_log && (panel.log_on_show() == (i == 2));
         }
         QWidget* log_tab = tabs ? tabs->widget(2) : nullptr;
-        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; Tracker and Scopes still show 'Not available yet.'; log_on_show() is true only with Log current",
+        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; Scopes still shows 'Not available yet.'; log_on_show() is true only with Log current",
               log_tab && log_tab->findChild<QTableView*>("audio_log_table") && tables.size() == 1 &&
               tables[0]->objectName() != "audio_log_table" && placeholders && only_log);
     }
