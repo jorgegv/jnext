@@ -81,6 +81,27 @@ void test_tree_case_sensitive() {
     }
 }
 
+// SDFA-L01: the short READ branch of the copy loop, deterministically. A sysfs attribute stats (and seeks to the
+// end) at 4096 bytes but reads back only a few: the copy sees the source "become shorter" and must remove the
+// half-written file. It needs a Linux kernel's sysfs, hence this suite; /sys/devices/system/cpu/online exists
+// wherever the kernel exposes its CPUs, containers included. (A directory used to reach this branch on btrfs/ext4
+// and no longer does: add_file_to_image refuses it up front, SDFA-W30..W72.)
+void test_short_read() {
+    const fs::path img = g_scratch / "short-read.img";
+    std::string why, err;
+    if (!make_fixture(img, why)) {
+        std::printf("FATAL: cannot build fixture image (%s)\n", why.c_str());
+        std::exit(2);
+    }
+    std::vector<uint8_t> got;
+    const FileAddStatus st = sdcard::add_file_to_image(
+        img.string(), "/sys/devices/system/cpu/online", "/SHORT.BIN", false, err);
+    check("SDFA-L01", "a source that reads shorter than its reported size is refused and leaves no file on the card",
+          st == FileAddStatus::SourceUnreadable &&
+          err.find("became shorter") != std::string::npos &&
+          !extract_sd_rom(img.string(), "/SHORT.BIN", got), err);
+}
+
 }  // namespace
 
 int main() {
@@ -100,6 +121,7 @@ int main() {
     }
 
     test_tree_case_sensitive();
+    test_short_read();
 
     fs::remove_all(g_scratch, ec);
 

@@ -10,14 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-32. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-45. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=32
+EXPECTED_ROWS=45
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -87,9 +87,18 @@ EOF
 # driver stub: records its arguments and the two environment variables slot.sh must set, exits STUB_RC.
 cat > "$TMP/rr-stub" <<'EOF'
 #!/usr/bin/env bash
-{ echo "ARGS $*"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; } >> "$STATE/rr-calls"
+# --probe: record the host asked, say busy (75) for a host listed in STUB_BUSY_HOSTS, else free (0). Not an rr-calls entry.
+if [[ "${1:-}" == --probe ]]; then
+    echo "${JNEXT_REMOTE_RUN_HOST:-unset}" >> "$STATE/probe-calls"
+    # STUB_BUSY_FIRST=N: busy for the first N probes of the whole run, free after (a lane that frees up later)
+    [[ -z "${STUB_BUSY_FIRST:-}" || $(wc -l < "$STATE/probe-calls") -gt "$STUB_BUSY_FIRST" ]] || exit 75
+    [[ " ${STUB_BUSY_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
+    exit 0
+fi
+{ echo "ARGS $*"; echo "HOST=${JNEXT_REMOTE_RUN_HOST:-unset}"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; } >> "$STATE/rr-calls"
 echo "stub driver ran"
 [[ -z "${STUB_PAUSE:-}" ]] || : > "$STUB_PAUSE"
+[[ " ${STUB_RC75_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
 if [[ "${STUB_WAIT:-0}" == 1 ]]; then
     trap 'echo term > "$STATE/rr-term"; sleep 1; exit 5' TERM
     echo $$ >> "$STATE/helper-pids"
@@ -122,7 +131,7 @@ CLEANSLOTS=$TMP/slots
 
 set_load() { echo "$1 1.00 1.00 1/100 1" > "$TMP/loadavg"; }
 fresh() {   # fresh slot dir, low load, empty records
-    rm -rf "$CLEANSLOTS" "$STATE"/rr-calls "$STATE"/make-calls "$STATE"/git-calls "$TMP/rrlogs"
+    rm -rf "$CLEANSLOTS" "$STATE"/rr-calls "$STATE"/make-calls "$STATE"/git-calls "$STATE"/probe-calls "$TMP/rrlogs"
     mkdir -p "$CLEANSLOTS"; set_load 1.00
 }
 slot() { timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$@"; }
@@ -446,6 +455,130 @@ out=$(slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
 rm -f "$WT/.git/index"; git -C "$WT" reset -q
 row SLOT-31 "$([[ $rc -eq 0 && -z "$(rr_calls)" && "$out" == *"git status failed"* && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
     "a failing git status keeps the run here and says so, the driver is not called (rc=$rc)"
+
+# SLOT-33: two hosts, both with a free lane: the FIRST in the list gets the run, one probe, no fallback flag
+fresh
+JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-33 "$([[ $rc -eq 0 && "$(cat "$STATE/probe-calls")" == hostA && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 \
+    && "$(rr_calls)" == *"HOST=hostA"* && "$(rr_calls)" != *"--fallback-local"* && "$(adm)" == *" remote hostA waited="* ]] && echo 1 || echo 0)" \
+    "two hosts, both free: the first gets the run (probed once, no --fallback-local), the log names it (rc=$rc)"
+
+# SLOT-34: the first host is busy: the second gets the run, and being the last it carries --fallback-local
+fresh
+STUB_BUSY_HOSTS=hostA JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-34 "$([[ $rc -eq 0 && "$(tr '\n' ' ' < "$STATE/probe-calls")" == "hostA hostB " && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 \
+    && "$(rr_calls)" == *"HOST=hostB"* && "$(rr_calls)" == *"--fallback-local $WT"* ]] && echo 1 || echo 0)" \
+    "first host busy: probed A then B, the run goes to B with --fallback-local (rc=$rc)"
+
+# SLOT-35: every host busy: no driver call at all, the command runs here, and no remote admission is logged
+fresh
+STUB_BUSY_HOSTS="hostA hostB" JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-35 "$([[ $rc -eq 0 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" && "$(adm)" != *remote* && "$(adm)" == *" slot 1 "* ]] && echo 1 || echo 0)" \
+    "every host busy: both probed, no run sent, the command runs in a local slot (rc=$rc)"
+
+# SLOT-36: a host that answers 75 after its probe (a lane lost, no image): the next host is tried, nothing ran twice
+fresh
+STUB_RC75_HOSTS=hostA JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-36 "$([[ $rc -eq 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 2 && "$(grep '^HOST=' "$STATE/rr-calls" | tr '\n' ' ')" == "HOST=hostA HOST=hostB " \
+    && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "driver status 75 from host A moves the run to host B (rc=$rc)"
+
+# SLOT-37: a run that STARTED on host A and failed is never retried on host B: its status is slot.sh's
+fresh
+STUB_RC=1 JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-37 "$([[ $rc -eq 1 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"HOST=hostA"* && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "a failed run on host A exits 1 and is not tried on B or here (rc=$rc)"
+
+# SLOT-38: JNEXT_REMOTE_RUN_HOST alone is a one-host list (and loses to JNEXT_REMOTE_RUN_HOSTS when both are set);
+# a one-host list whose host is busy runs here with no driver call
+fresh
+slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1
+one=$(rr_calls)
+fresh
+JNEXT_REMOTE_RUN_HOSTS=hostC slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1
+both=$(rr_calls)
+fresh
+STUB_BUSY_HOSTS=fakehost slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-38 "$([[ "$one" == *"HOST=fakehost"* && "$one" == *"--fallback-local $WT"* && "$both" == *"HOST=hostC"* && "$both" != *"HOST=fakehost"* \
+    && $rc -eq 0 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "JNEXT_REMOTE_RUN_HOST is a one-host list, JNEXT_REMOTE_RUN_HOSTS wins, a busy single host runs the command here"
+
+# SLOT-39: every host busy at the first probe, one free on a LATER probe while both local slots are held: the run goes
+# to that host (not run here), without waiting for a local slot
+fresh
+hold 1; hold 2
+STUB_BUSY_FIRST=2 JNEXT_REMOTE_RUN_HOSTS="hostA hostB" JNEXT_SLOT_REPROBE=2 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+release_all
+row SLOT-39 "$([[ $rc -eq 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"HOST=hostA"* && ! -e "$STATE/make-calls" \
+    && "$(wc -l < "$STATE/probe-calls")" -ge 3 ]] && echo 1 || echo 0)" \
+    "all hosts busy at the first probe, a lane free on a later one: the run goes to the remote while both local slots are held (rc=$rc)"
+
+# SLOT-40: PAUSED set while host A answers 75: exit 75, host B is never probed for a run or called
+fresh
+STUB_RC75_HOSTS=hostA STUB_PAUSE=$CLEANSLOTS/PAUSED JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-40 "$([[ $rc -eq 75 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"HOST=hostA"* && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "PAUSED appearing as a host answers 75 stops the search: exit 75, no run on the next host (rc=$rc)"
+
+# SLOT-41: every host busy with an UNPUSHED commit: nothing is pushed (a push is only for a host that will take the run)
+fresh
+git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m unpushed
+: > "$STATE/git-calls"
+STUB_BUSY_HOSTS="hostA hostB" JNEXT_REMOTE_RUN_HOSTS="hostA hostB" JNEXT_SLOT_REPROBE=1000 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+pushes=$(grep -cE '(^| )push( |$)' "$STATE/git-calls")
+git -C "$WT" reset -q --hard origin/gh900-demo
+row SLOT-41 "$([[ $rc -eq 0 && "$pushes" -eq 0 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "every host busy, unpushed commit: no push, the run goes to a local slot (pushes=$pushes, rc=$rc)"
+
+# SLOT-42: PAUSED created while a long run waits with every host busy and every slot held (re-probing): exit 75
+fresh
+hold 1; hold 2
+( STUB_BUSY_HOSTS="hostA hostB" JNEXT_REMOTE_RUN_HOSTS="hostA hostB" JNEXT_SLOT_REPROBE=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; echo $? > "$TMP/rc42" ) & w42=$!
+sleep 1; : > "$CLEANSLOTS/PAUSED"
+wait "$w42"
+release_all
+p_after=$(wc -l < "$STATE/probe-calls"); sleep 0.6; p_later=$(wc -l < "$STATE/probe-calls")
+row SLOT-42 "$([[ "$(cat "$TMP/rc42")" == 75 && ! -e "$STATE/rr-calls" && ! -e "$STATE/make-calls" && "$p_after" -eq "$p_later" ]] && echo 1 || echo 0)" \
+    "PAUSED during the wait exits 75 with re-probing running, nothing is sent or started, probing stops"
+
+# SLOT-43: a rejected push ends the remote attempt for good: with both slots held and a re-probe on every poll the
+# push is tried exactly ONCE (not again every poll), the driver is never called, and the command then runs here
+fresh
+git clone -q "$TMP/origin.git" "$TMP/other43"
+git -C "$TMP/other43" -c user.name=t -c user.email=t@t checkout -q gh900-demo
+git -C "$TMP/other43" -c user.name=t -c user.email=t@t commit -q --allow-empty -m ahead43
+git -C "$TMP/other43" push -q origin gh900-demo
+git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m diverged43
+: > "$STATE/git-calls"
+hold 1; hold 2
+( JNEXT_SLOT_REPROBE=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; echo $? > "$TMP/rc43" ) & w43=$!
+sleep 1.5
+release_all
+wait "$w43"
+pushes=$(grep -cE '(^| )push( |$)' "$STATE/git-calls")
+git -C "$WT" fetch -q origin; git -C "$WT" reset -q --hard origin/gh900-demo
+row SLOT-43 "$([[ "$(cat "$TMP/rc43")" == 0 && "$pushes" -eq 1 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "a rejected push is tried once while the command waits (pushes=$pushes), the driver is not called, the command runs here"
+
+# SLOT-44: a refusal (driver exit 3) is final too: exactly one driver call over several re-probes, then the command runs here
+fresh
+hold 1; hold 2
+( STUB_RC=3 JNEXT_SLOT_REPROBE=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; echo $? > "$TMP/rc44" ) & w44=$!
+sleep 1.5
+release_all
+wait "$w44"
+row SLOT-44 "$([[ "$(cat "$TMP/rc44")" == 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "a driver refusal (exit 3) is not re-sent on later polls: one driver call, then the command runs here"
+
+# SLOT-45: a SHORT target whose local slot frees on a later poll runs here with no extra probe (the order is: try the
+# local slots, THEN re-probe every REPROBE-th failed poll)
+fresh
+hold 1; hold 2
+( STUB_BUSY_HOSTS=fakehost JNEXT_SLOT_REPROBE=3 slot make -C "$WT" regression-rows ROWS=a >/dev/null 2>&1; echo $? > "$TMP/rc45" ) & w45=$!
+sleep 0.5
+release_all
+wait "$w45"
+row SLOT-45 "$([[ "$(cat "$TMP/rc45")" == 0 && "$(wc -l < "$STATE/probe-calls")" -eq 1 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT regression-rows ROWS=a" ]] && echo 1 || echo 0)" \
+    "a short target whose slot frees after two failed polls runs here with exactly one probe (the first)"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and
