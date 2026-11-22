@@ -3340,7 +3340,7 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Audio</td>
-<td><code>ay_registers()</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code></td>
+<td><code>audio_state()</code>, <code>ay_mode()</code></td>
 <td><code>set_audio_mute_mask()</code></td>
 </tr>
 <tr>
@@ -3417,7 +3417,12 @@ redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REF
 redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1107</code>; <code>PausedStamp</code>,
 <code>debugger_manager.h:262</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
-everything, the Video tab's composited frame included, fifty times a second. The stamp is:</p>
+everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
+exception to the running cadence: while the window is open, the Audio dock is on show (<code>panel_on_show()</code>) and its
+Chips sub-tab is the current one (<code>AudioPanel::chips_on_show()</code>), <code>refresh_panels()</code> calls
+<code>AudioPanel::refresh_live()</code> on every tick, so the decoded chips follow the music. It is a refresh of its own,
+counted by <code>take_audio_live_refresh_count()</code>, not a <code>refresh_window()</code> call, so no other panel's cadence moves.
+The stamp is:</p>
 <ul>
 <li>the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and
   host actions make);</li>
