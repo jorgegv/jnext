@@ -116,7 +116,7 @@ constexpr uint16_t TARGET = 0x8003;
 // The machine, its backend, and the stop, declared in the order they are destroyed in reverse.
 struct Rig {
     // On the heap: an Emulator is large, and main() holds dozens of Rigs. Their stack slots add up under the
-    // MinGW build's 1 MB default stack (a stack overflow at startup on Windows).
+    // MinGW tests' 8 MB reserve (a stack overflow at startup on Windows).
     std::unique_ptr<Emulator> emu_owner = std::make_unique<Emulator>();
     Emulator&                 emu = *emu_owner;
     EmulatorConfig            cfg;
@@ -1052,6 +1052,32 @@ int main() {
                           "run there is no second stop at the next pass",
               reached && !r.paused() && !r.ss.active(),
               "reached=" + std::to_string(reached) + " paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()) + " " + log);
+    }
+
+    // DBGST-53: the step-off half of "reached": another client steps onto the stop point and runs at once, with no
+    // poll between (one pipelined pump). Nothing holds the machine any more, but the resume's step-off will skip our
+    // gate at that instruction: the poll that follows must still count the stop as reached (logged as such), with no
+    // second stop at the next pass, and the client detaches.
+    {
+        Rig r("8003");
+        r.start(1);
+        r.land(path("loop.nex"));
+        const ClientId other = r.dbg->attach(other_client("remote")).value;
+        r.dbg->pause(other);
+        r.dbg->step_into(other);
+        r.dbg->step_into(other);
+        r.dbg->step_into(other);   // 8000 -> 8003
+        r.dbg->run(other);         // no poll since the pause: ours is gone, the step-off is armed
+        const bool armed_off = !r.paused() && r.emu.debug_state().step_off_pending();
+        int lines = 0, reached = 0;
+        const std::string log = logged([&] { r.ss.poll(); r.run(4); });
+        for (size_t at = log.find("debugger: stopped at"); at != std::string::npos; at = log.find("debugger: stopped at", at + 1)) ++lines;
+        if (log.find("reached while another debugger held the machine") != std::string::npos) reached = 1;
+        check("DBGST-53", "another client stepping onto the stop point and running at once (no poll between): the stop is logged as reached, "
+                          "once, with no second stop at the next pass, and the client detaches",
+              armed_off && lines == 1 && reached == 1 && !r.paused() && !r.ss.active(),
+              "armed_off=" + std::to_string(armed_off) + " lines=" + std::to_string(lines) + " reached=" + std::to_string(reached) +
+                  " paused=" + std::to_string(r.paused()) + " active=" + std::to_string(r.ss.active()));
     }
 
     // DBGST-51: a --break-at landing while another client holds the machine paused leaves that pause alone (run_to would have

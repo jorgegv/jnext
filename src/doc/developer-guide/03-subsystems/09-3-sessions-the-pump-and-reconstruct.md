@@ -224,7 +224,7 @@ DeZog's `CMD_INIT` pauses a machine still loading its tape, and `pause()` remove
 none to see, and the resume notification is edge-detected per pump. It then subscribes them again,
 paused or running: `--break-at`'s target, which `resolve_target()` fixed at the first arm, or the tape's
 capture and every range already in `watches_`. Two cases are decided without waiting for a gate: a machine
-another client holds paused ON the stop point, or about to resume from it with the GH #221 step-off pending
+another client holds paused ON the stop point, or about to resume from it with the one-instruction step-off a resume arms pending (it skips the Execute gate of the instruction the CPU stands on)
 (`DebugState::step_off_pending()`), has reached the stop (`StartupStop::reached_here()`; logged as reached while
 another debugger held the machine), and a pause-type stop due while another client already holds the machine
 takes that pause instead of re-attributing it. Only a cold boot or reaching the stop ends it. One limit: instructions another
