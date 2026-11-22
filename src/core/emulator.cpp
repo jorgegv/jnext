@@ -5404,11 +5404,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // --- Audio port handlers ---
 
-    // AY register select — port 0xFFFD. VHDL zxnext.vhd:2963.
+    // AY register select - port 0xFFFD. VHDL zxnext.vhd:2963.
     // Decode: A15:14="11", A2=1, port_fd (A1:0="01") → mask 0xC007/0xC005.
-    // VHDL 3088: port_fffd_wr gated by NOT port_dffd — when port_dffd
+    // VHDL 3088: port_fffd_wr gated by NOT port_dffd - when port_dffd
     // also matches (e.g. 0xDFFD), the AY write is suppressed.
-    // VHDL 3084: port_fffd_rd does NOT gate on port_dffd — reads at
+    // VHDL 3084: port_fffd_rd does NOT gate on port_dffd - reads at
     // overlapping addresses still return AY data.
     // VHDL 2647: port_fffd decode includes port_ay_io_en = internal_port_enable(16)
     // = NR 0x84 bit 0. When disabled, the port does not decode and the read
