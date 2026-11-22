@@ -335,34 +335,6 @@ static void build_batch(Emulator& emu, bool poll) {
 }
 
 
-// DIAGNOSTIC (GH #536 SCP-09): poll-loop variants. 1: as build_batch (DI, TurboSound, AY0 + AY1, DAC); 2: AY0 only, NR 0x08
-// untouched; 3: the poll-batch suites' own shape (IM 2 + EI, the beeper-toggling handler, AY0 only).
-static void build_poll_variant(Emulator& emu, int v) {
-    if (v == 1) { build_batch(emu, true); return; }
-    EmulatorConfig cfg;
-    cfg.type = MachineType::ZXN_ISSUE2;
-    cfg.rewind_buffer_frames = 0;
-    emu.init(cfg);
-    nr_write(emu, 0x03, 0x01);
-    nr_write(emu, 0x07, 3);
-    ay_write(emu, 7, 0x3E); ay_write(emu, 8, 0x0F); ay_write(emu, 0, 0x40);
-    if (v == 3) install_im2_halt(emu);
-    const uint8_t pre[] = {0x3E, 0xFD, 0xED, 0x47, 0xED, 0x5E};   // ld a,0xFD; ld i,a; im 2
-    const uint8_t loop[] = {0x01, 0x3B, 0x24, 0x3E, 0x1F, 0xED, 0x79, 0x04,
-                            0xED, 0x78, 0xFE, 0xB4, 0x20, 0xFA,
-                            0x21, 0x10, 0xC2, 0x34,
-                            0xED, 0x78, 0xFE, 0xB4, 0x28, 0xFA, 0x18, 0xEE};
-    uint16_t at = 0xC000;
-    if (v == 3) for (uint8_t b : pre) emu.mmu().write(at++, b);
-    for (size_t i = 0; i < sizeof loop; ++i) {
-        if (v == 3 && i == 8) emu.mmu().write(at++, 0xFB);   // EI before the first read, as the suites do
-        emu.mmu().write(at++, loop[i]);
-    }
-    Z80Registers r = emu.cpu().get_registers();
-    r.PC = 0xC000; r.SP = 0xBFF0; r.IFF1 = 0; r.IFF2 = 0;
-    emu.cpu().set_registers(r);
-}
-
 // True when `n` is valid, named `name` in octave `oct`, `cents` away (to 0.005).
 static bool is_note(const PsgNote& n, const char* name, int oct, double cents) {
     return n.valid && std::strcmp(n.name, name) == 0 && n.octave == oct &&
@@ -1591,70 +1563,32 @@ int main() {
               ta.written > 1000 && rings_equal(ta, tb) && oa.l != ob.l && oa.r != ob.r);
     }
     {
-        // HALT batch: the tap sees the same samples with batching on and off, and the batch ran.
+        // HALT batch: the tap sees the same samples with batching on and off, and the batch ran. The machines run one
+        // after the other, as the batch suites' A/B rig runs them (batch_ab.h): not in lockstep.
         Emulator on, off; build_batch(on, false); build_batch(off, false);
-        off.set_cycle_batching_for_test(false, false, false);
-        AudioSourceTap ton, toff;
-        on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
-        for (int f = 0; f < 8; ++f) { on.run_frame(); off.run_frame(); }
-        check("SCP-08", "an IM 2 HALT loop with AY tones and a toggling beeper, 8 frames: the tap sequences are identical with HALT batching on and off, and the batch ran only in the 'on' machine",
-              ton.written > 5000 && rings_equal(ton, toff) && on.halt_repeats_batched_for_test() > 0 &&
-              off.halt_repeats_batched_for_test() == 0);
-    }
-    {
-        Emulator on, off; build_batch(on, true); build_batch(off, true);
+        on.set_cycle_batching_for_test(true, true, true);
         off.set_cycle_batching_for_test(false, false, false);
         AudioSourceTap ton, toff;
         on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
         Out mon, moff;
-        for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); off.run_frame(); drain(off, moff); }
-        {
-            // DIAGNOSTIC: which batching switch makes the mixer's output differ from the all-off machine?
-            const bool flags[6][3] = {{0,0,0},{0,0,1},{1,0,0},{0,1,0},{1,1,1},{0,0,0}};
-            std::vector<Out> outs(6);
-            for (int k = 0; k < 6; ++k) {
-                Emulator e; build_poll_variant(e, 2);
-                e.set_cycle_batching_for_test(flags[k][0], flags[k][1], flags[k][2]);
-                for (int f = 0; f < 8; ++f) { e.run_frame(); drain(e, outs[static_cast<size_t>(k)]); }
-                std::printf("  SCP-09 switches halt=%d copper=%d poll=%d: equal to all-off=%d, same as itself rerun(k=5)=%d poll_passes=%llu\n",
-                            flags[k][0], flags[k][1], flags[k][2],
-                            outs[static_cast<size_t>(k)].l == outs[0].l ? 1 : 0, outs[static_cast<size_t>(k)].l == outs[5].l ? 1 : 0,
-                            static_cast<unsigned long long>(e.poll_passes_batched_for_test()));
-            }
-        }
-        {
-            size_t mix_nd = 0, tap_vs_mixer_on = 0, tap_vs_mixer_off = 0;
-            const size_t t = static_cast<size_t>(ton.written);
-            for (size_t i = 0; i < mon.l.size() && i < moff.l.size(); ++i)
-                if (mon.l[i] != moff.l[i] || mon.r[i] != moff.r[i]) ++mix_nd;
-            for (size_t i = 0; i < t; ++i) {
-                const size_t k = static_cast<size_t>(AudioSource::MixLeft) * AudioSourceTap::RING + i;
-                if (ton.ring[k] - 6144 != mon.l[i + mon.l.size() - t]) ++tap_vs_mixer_on;
-                if (toff.ring[k] - 6144 != moff.l[i + moff.l.size() - t]) ++tap_vs_mixer_off;
-            }
-            std::printf("  SCP-09 mixer samples %zu/%zu differing %zu; tap-vs-mixer differing on=%zu off=%zu\n",
-                        mon.l.size(), moff.l.size(), mix_nd, tap_vs_mixer_on, tap_vs_mixer_off);
-        }
-        {
-            size_t nd = 0;
-            for (size_t src = 0; src < AudioSourceTap::SOURCES; ++src)
-                for (size_t i = 0; i < static_cast<size_t>(ton.written); ++i) {
-                    const size_t k = src * AudioSourceTap::RING + i;
-                    if (ton.ring[k] != toff.ring[k]) {
-                        if (nd++ < 8)
-                            std::printf("  SCP-09 diff src=%zu i=%zu on=%d off=%d\n", src, i, ton.ring[k], toff.ring[k]);
-                    }
-                }
-            std::printf("  SCP-09 differing samples: %zu\n", nd);
-        }
-        std::printf("  SCP-09 written=%llu/%llu equal=%d poll_on=%llu poll_off=%llu halt_on=%llu\n",
-                    static_cast<unsigned long long>(ton.written), static_cast<unsigned long long>(toff.written),
-                    rings_equal(ton, toff) ? 1 : 0, static_cast<unsigned long long>(on.poll_passes_batched_for_test()),
-                    static_cast<unsigned long long>(off.poll_passes_batched_for_test()),
-                    static_cast<unsigned long long>(on.halt_repeats_batched_for_test()));
+        for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); }
+        for (int f = 0; f < 8; ++f) { off.run_frame(); drain(off, moff); }
+        check("SCP-08", "an IM 2 HALT loop with AY tones and a toggling beeper, 8 frames: the tap sequences are identical with HALT batching on and off, the batch ran only in the 'on' machine, and the mix trace is each machine's own mixer output",
+              ton.written > 5000 && rings_equal(ton, toff) && on.halt_repeats_batched_for_test() > 0 &&
+              off.halt_repeats_batched_for_test() == 0 && mon.l == moff.l && mon.r == moff.r);
+    }
+    {
+        Emulator on, off; build_batch(on, true); build_batch(off, true);
+        on.set_cycle_batching_for_test(true, true, true);
+        off.set_cycle_batching_for_test(false, false, false);
+        AudioSourceTap ton, toff;
+        on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
+        Out mon, moff;
+        for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); }
+        for (int f = 0; f < 8; ++f) { off.run_frame(); drain(off, moff); }
         check("SCP-09", "a raster-poll loop with AY tones, 8 frames: the tap sequences are identical with the poll batch on and off, and it ran only in the 'on' machine",
               ton.written > 5000 && rings_equal(ton, toff) && on.poll_passes_batched_for_test() > 0 &&
-              off.poll_passes_batched_for_test() == 0);
+              off.poll_passes_batched_for_test() == 0 && mon.l == moff.l && mon.r == moff.r);
     }
     {
         // A rewind replay mixes nothing, tapped or not (audio_divert_ bit 0), and normal running resumes after it.
