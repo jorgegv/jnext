@@ -64,7 +64,7 @@ cd "$PROJECT_DIR"
 # --- This run's PRIVATE SD-image clone (GH #75) ---------------------------
 #
 # sd_rom_extractor_test reads a real 1 GB SD image. Until GH #75 it read the
-# machine-wide master at ~/.jnext/sdcard/ directly, which two sanctioned
+# machine-wide master at ~/.jnext/sdcard/test-suite/ directly, which two sanctioned
 # writers can mutate underneath it: any manual jnext run (the image is opened
 # read-write and guest CMD24 writes are flushed — GH #77), and regression.sh's
 # own sd_rederive repair, which takes a flock this harness does not observe.
@@ -133,7 +133,7 @@ trap 'unit_cleanup; exit 143' TERM
 SD_CLONE_MODE=none
 sd_clone_for_run() {
     if [[ -n "${JNEXT_TEST_SD_IMAGE:-}" ]]; then SD_CLONE_MODE=preset; return 0; fi
-    local sd_master="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
+    local sd_master="$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
     [[ -f "$sd_master" ]] || { SD_CLONE_MODE=absent; return 0; }
 
     UNIT_RUN_DIR="$HOME/.jnext/runs/unit-$$-$RANDOM"

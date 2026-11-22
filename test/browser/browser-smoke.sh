@@ -65,7 +65,7 @@ NODE=$(ls -d "$EMSDK"/node/*/bin/node)
 PW=$(bash "$ROOT/test/provision-playwright.sh" --print-path) || die "no provisioned Playwright (make playwright)"
 NATIVE="$ROOT/build/sdl-release/jnext"
 [[ -x "$NATIVE" ]] || die "$NATIVE is not built (make sdl-release): it is the oracle"
-DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb.img}"
+DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb.img}"
 [[ -f "$DIST" ]] || die "no distribution SD image at $DIST (make sdcard-image)"
 for t in python3 timeout mformat mcopy mmd sfdisk truncate; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
 

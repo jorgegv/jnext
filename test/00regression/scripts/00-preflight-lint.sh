@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group rows: the seven static preflight lints, always rows 1-7 of the suite.
+# Group rows: the eight static preflight lints, always rows 1-8 of the suite.
 # Sourced by regression.sh (the driver); also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
@@ -117,6 +117,20 @@ if bash "$PROJECT_DIR/test/lint-sed-inplace.sh"; then
     printf "  "; pass_row ": no test script uses a bare in-place sed or closes a sed block without ';'"
 else
     printf "  "; fail_row ": a test script runs a bare in-place sed or a sed block closed without ';', which BSD sed (macOS) rejects (see above)"
+fi
+echo ""
+
+# --- user-card lint (GH #555) ---
+# The suites boot their OWN card (~/.jnext/sdcard/test-suite), never the user's: the master
+# gate deletes and re-derives its card when the distribution or the recipe moves, and a user's
+# saved files must not go with it. A static grep keeps the user's card's path out of tests,
+# the SD-master tools, the Makefile and the workflows.
+echo -e "${BOLD}[lint-user-card] Scanning tests, tools and workflows for the user's SD card path...${RESET}"
+CURRENT_ROW=lint-user-card
+if bash "$PROJECT_DIR/test/lint-user-card.sh"; then
+    printf "  "; pass_row ": no test, tool or workflow names the user's SD card"
+else
+    printf "  "; fail_row ": a test, tool or workflow names the user's SD card, which the suites must never touch (see above)"
 fi
 echo ""
 

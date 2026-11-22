@@ -14,7 +14,7 @@ set -euo pipefail
 
 JNEXT=$1
 WORK=$2
-MASTER=${3:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}
+MASTER=${3:-$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RTC="2026-07-10T08:55:00"
 # BOOT_SHIFT: the card's boot delay in frames, the firmware's machine-type commit frame minus the

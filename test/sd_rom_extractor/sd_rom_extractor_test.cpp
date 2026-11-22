@@ -21,7 +21,7 @@
 //
 // Fixture: the canonical 1 GB NextZXOS image (MBR + FAT32-LBA, 8 KB
 // clusters) that jnext provisions for itself at
-// ~/.jnext/sdcard/cspect-next-1gb-fixed.img; JNEXT_TEST_SD_IMAGE overrides
+// ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img; JNEXT_TEST_SD_IMAGE overrides
 // it, and run-unit-tests.sh points it at a private per-run clone so a
 // concurrent writer cannot tear the read (GH #75/#77). The reference bytes
 // for SD-EXT-01/03/04/05 were captured offline via `mtools` so the test
@@ -44,6 +44,7 @@
 
 #include <unistd.h>   // mkstemp / write / close (POSIX)
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -80,11 +81,7 @@ void skip(const char* id, const char* reason) {
 // ensures exists) — not a roms/ fixture, which a fresh clone never has.
 // JNEXT_TEST_SD_IMAGE overrides it for out-of-tree runs.
 std::string canonical_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) {
-        return env;
-    }
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 bool file_exists(const std::string& path) {

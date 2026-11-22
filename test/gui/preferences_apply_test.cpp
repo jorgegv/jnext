@@ -91,6 +91,7 @@
 #include "gui/preferences_dialog.h"
 #include <spdlog/sinks/ostream_sink.h>
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -1046,10 +1047,7 @@ void test_quick_snapshot_host_actions()
     qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
     const QDir snaps(home.path() + QStringLiteral("/snapshots"));
 
-    const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
-    const std::string sd = env ? std::string(env)
-                               : std::string(std::getenv("HOME") ? std::getenv("HOME") : ".") +
-                                     "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    const std::string sd = test_sd_image_path();
     Fixture f(MachineType::ZX48K, -1, sd);
     f.win.set_unattended(true);
     auto find = [&f](const char* text) {

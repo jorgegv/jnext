@@ -28,7 +28,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/tools/make-minimal-card/make-minimal-card}"
-SRC="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}/sdcard/cspect-next-1gb.img"   # one variable to rename for another release; the seam lets a branch test a candidate card (sd-master-ensure.sh honours it too)
+SRC="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext/sdcard/test-suite}/sdcard/cspect-next-1gb.img"   # one variable to rename for another release; the seam lets a branch test a candidate card (sd-master-ensure.sh honours it too)
 PROV="$ROOT/src/core/sdcard_provisioner.cpp"
 EXPECTED_ROWS=25
 export MTOOLS_SKIP_CHECK=1

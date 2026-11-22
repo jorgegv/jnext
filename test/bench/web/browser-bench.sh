@@ -40,7 +40,7 @@ BUILD=$(cd "$BUILD" && pwd) || die "no build directory $BUILD"
 EMSDK=$(bash "$ROOT/test/provision-emsdk.sh" --print-path) || die "no provisioned emsdk (make emsdk)"
 NODE=$(ls -d "$EMSDK"/node/*/bin/node)
 PW=$(bash "$ROOT/test/provision-playwright.sh" --print-path) || die "no provisioned Playwright (make playwright)"
-DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb.img}"
+DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb.img}"
 [[ -f "$DIST" ]] || die "no distribution SD image at $DIST (make sdcard-image)"
 for t in python3 timeout taskset flock git; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
 CONFIGS=${CONFIGS:-chrome,chrome-x2,firefox}

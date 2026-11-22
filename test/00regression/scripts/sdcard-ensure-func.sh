@@ -24,17 +24,17 @@ if want sdcard-ensure-func; then
     WANT_DISTRO=$(sd_expected_distro) || WANT_DISTRO=""
     [[ -n "$WANT_RECIPE" && -n "$WANT_DISTRO" ]] || faults+=("sd_expected_recipe/distro could not read the provisioner")
 
-    rm -rf "$W"; H="$W/home"; mkdir -p "$W/bin" "$H/.jnext/sdcard"
+    rm -rf "$W"; H="$W/home"; mkdir -p "$W/bin" "$H/.jnext/sdcard/test-suite/sdcard"
     cat > "$W/bin/jnext-stub" <<STUB
 #!/usr/bin/env bash
 echo x >> "$W/calls"
-printf 'PRISTINE-IMAGE-CONTENT\n' > "$H/.jnext/sdcard/cspect-next-1gb-fixed.img"
-printf '%s\n' '$WANT_RECIPE' > "$H/.jnext/sdcard/cspect-next-1gb-fixed.img.recipe"
-printf '%s\n' '$WANT_DISTRO' > "$H/.jnext/sdcard/cspect-next-1gb-fixed.img.distro"
+printf 'PRISTINE-IMAGE-CONTENT\n' > "$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
+printf '%s\n' '$WANT_RECIPE' > "$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img.recipe"
+printf '%s\n' '$WANT_DISTRO' > "$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img.distro"
 exit 0
 STUB
     chmod +x "$W/bin/jnext-stub"
-    IMG="$H/.jnext/sdcard/cspect-next-1gb-fixed.img"
+    IMG="$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
 
     # run_tool <args...>: run the tool on the scratch HOME; echoes the stub's call count and leaves
     # the exit status in $W/rc (the function runs in a command substitution, so no variable survives).

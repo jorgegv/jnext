@@ -86,15 +86,11 @@ bool normalize_dest_path(const std::string& dest_path,
 
 /// Do `a` and `b` name the same image file?
 ///
-/// This exists for one caller — the warning jnext prints when
-/// `--sdcard-file-add` is about to write the DEFAULT, shared SD image — and it
-/// is a real question rather than a string comparison because that warning is
-/// the only thing standing between a user and clobbering the image every other
-/// run and the whole test suite boot from. `--sdcard ./card.img`, a symlink to
-/// it, `--sdcard a/../card.img`, or a case-different spelling on a
-/// case-insensitive volume all name the default image while comparing unequal
-/// as strings, and the warning would be silently skipped in exactly the
-/// situation it is for.
+/// A real question rather than a string comparison: `--sdcard ./card.img`, a
+/// symlink to it, `--sdcard a/../card.img`, or a case-different spelling on a
+/// case-insensitive volume all name the same image while comparing unequal as
+/// strings. Used where two SD slots must hold two different images (startup and
+/// a live card change).
 ///
 /// Answered by filesystem identity (device + inode) when both paths exist,
 /// which settles symlinks, hard links, relative spellings and case-folding at

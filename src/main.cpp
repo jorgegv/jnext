@@ -2280,26 +2280,6 @@ int main(int argc, char* argv[]) {
     // is not there yet — a card is needed either way).
     // ---------------------------------------------------------------------
     if (sdcard_file_add_count > 0) {
-        // Writing the DEFAULT image is not wrong, but it is shared: every
-        // other jnext session and the whole regression suite resolve from it.
-        // Said loudly, once, and never repaired behind the user's back — a
-        // silent 1 GB backup copy per invocation would be its own surprise.
-        // Not a string comparison: `--sdcard ./cspect-next-1gb-fixed.img`, a
-        // symlink to it, or a case-different spelling all name the default
-        // image, and a warning a relative path defeats is one that goes
-        // missing exactly when it matters.
-        // Not given when the copy goes into a writes file: the image is not written.
-        if (sdcard_writes_file.empty() &&
-            sdcard::same_image_file(sd_card_image,
-                                    sdcard::default_sdcard_image_path())) {
-            std::fprintf(stderr,
-                "warning: writing into the DEFAULT SD-card image\n"
-                "           %s\n"
-                "         Every jnext run that is given no --sdcard boots this image, and so\n"
-                "         does the test suite. Pass --sdcard FILE to write a private copy\n"
-                "         instead ('cp --reflink=auto' makes one instantly).\n",
-                sd_card_image.c_str());
-        }
         // A file or a directory (GH #292); no --sdcard-file-dest = the card
         // root under the source's own name.
         std::string add_err;

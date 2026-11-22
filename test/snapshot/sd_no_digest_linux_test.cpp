@@ -41,6 +41,7 @@
 
 #include "../row_id.h"
 #include "../test_portable.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -100,10 +101,7 @@ uint64_t rchar() {
 constexpr uint64_t kBound = 16ull * 1024 * 1024;
 
 std::string card_path() {
-    if (const char* e = std::getenv("JNEXT_TEST_SD_IMAGE")) return e;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") +
-           "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 struct LogTap {

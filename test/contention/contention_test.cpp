@@ -53,6 +53,7 @@
 #include <string>
 #include <vector>
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -5388,10 +5389,7 @@ static void test_overshoot_counter(void) {
         ovs5_cfg.type = MachineType::ZX48K;
         ovs5_cfg.rewind_buffer_frames = 0;
         {
-            const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
-            const char* home = std::getenv("HOME");
-            ovs5_cfg.sd_card_image = env ? env
-                : std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+            ovs5_cfg.sd_card_image = test_sd_image_path();
             ovs5_cfg.sd_card_readonly = true;
         }
         bool ok = emu.init(ovs5_cfg);

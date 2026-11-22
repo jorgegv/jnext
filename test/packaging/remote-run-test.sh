@@ -554,7 +554,7 @@ covering() {
     done < <(grep -oE -- '-v [^ ]+' <<<"$runline" | cut -d' ' -f2)
     echo "$best"
 }
-cov_master=$(covering /root/.jnext/sdcard/cspect-next-1gb-fixed.img)
+cov_master=$(covering /root/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img)
 cov_runs=$(covering /root/.jnext/runs/1-2-3/sdcard/cspect-next-1gb-fixed.img)
 row RRUN-26 "$([[ $m1 -eq 0 && -n "$cov_master" && "$cov_master" == "$cov_runs" && "$cov_master" == "$WORK/cache/jnext-home" \
     && "$(cat "$WORK/cache/jnext-home/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" == master && ! -e "$WORK/cache/sdcard" ]] && echo 1 || echo 0)" \

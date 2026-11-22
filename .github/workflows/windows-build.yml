@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-fedora45
+          key: sdcard-image-distro-26.11a-recipe3-ts-fedora45
       - name: make package-win
         if: ${{ inputs.qt6 }}
         run: make package-win

@@ -1,7 +1,7 @@
 // GH #496 - the issue's own scenario: the NextZXOS Guide viewer, batch off vs on, per frame.
 //
 // A cold boot on the SD image ($JNEXT_TEST_SD_IMAGE, the unit harness's per-run clone; standalone, the
-// master under ~/.jnext/sdcard, opened read-only), SPACE at the welcome page, G at the menu (the Guide
+// test master under ~/.jnext/sdcard/test-suite, opened read-only), SPACE at the welcome page, G at the menu (the Guide
 // viewer), and 200 frames in the viewer. There the machine waits for the raster line in a DI loop of
 // seven instructions that re-selects NR 0x1E every pass (about 97 % of the viewer's T-states): the poll
 // batch must engage in it, the picture, the audio and the whole state must agree with the unbatched
@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -38,9 +39,7 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 }
 
 std::string sd_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 // The script: SPACE at the welcome page, G at the menu it opens.

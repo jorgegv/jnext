@@ -40,7 +40,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #
 # Hence TWO mechanisms, doing different jobs:
 #
-#   1. THE HASH GATE (below) protects the MASTER at $HOME/.jnext/sdcard from
+#   1. THE HASH GATE (below) protects the MASTER at $HOME/.jnext/sdcard/test-suite from
 #      whatever happened between runs — an interactive session, a crash, a
 #      half-written file. It re-derives only on drift. The image is a derived
 #      artifact, not user content: jnext rebuilds it from the raw distribution
