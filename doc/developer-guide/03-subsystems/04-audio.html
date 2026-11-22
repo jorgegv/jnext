@@ -3190,6 +3190,20 @@ counters are host state: outside <code>describe_state()</code>, <code>init()</co
 carried over a cold boot by <code>emulator_cold_boot()</code> beside the mute mask, cleared
 only by <code>Debugger::clear_audio_drops()</code>, and not counted while a rewind replays
 frames. <code>Debugger::audio_state()</code> publishes them as <code>AudioState::drops</code>.</p>
+<p><strong>Pacing engines.</strong> <code>Debugger::ctc_state()</code> and <code>Debugger::dma_state()</code> (INS-25) report what paces a
+sample player: the CTC's four channels and the DMA's prescaler. Both read through a <code>DebugView</code> that
+is defined inline in <code>CtcChannel</code> and <code>Dma</code> (<code>ctc.h</code>, <code>dma.h</code>): no data member, so no layout change, and
+no core translation unit calls it, so no code is emitted in a hot path; an unused debugger pays nothing.
+The CTC rate is the ZC/TO rate: <code>MASTER_CLOCK_HZ / (prescaler x TC)</code> for a running timer (TC 0 counts
+256; <code>ctc_chan.vhd:132-170</code>), the source's rate divided by TC for a running counter. A counter's
+source is the previous channel, channel 0 being fed by channel 3 (<code>zxnext.vhd:4598</code>, <code>Ctc::handle_zc_to</code>
+arms <code>(channel + 1) &amp; 3</code>); <code>Debugger::ctc_state()</code> walks that chain back at most four hops, a stopped
+channel or a ring of counters ends it with no rate, and the division is rounded once, at the end, in
+milli-hertz. A channel is <code>running</code> only in S_RUN or S_RUN_TC, the states in which <code>t_count</code> counts. The
+DMA rate is the NOMINAL pacing rate <code>MASTER_CLOCK_HZ / (32 x prescaler)</code>, the same at every CPU speed (the
+DMA timer adds 8, 4, 2 or 1 per CPU clock at 3.5, 7, 14 and 28 MHz, one per master cycle, <code>dma.vhd:250-255</code>):
+the gate (<code>dma.vhd:424</code>) is a minimum spacing from the read, and the state machine's own cycles come
+on top, so a real stream is slower than the nominal rate.</p>
 <p><strong>Beeper</strong> — <code>src/audio/beeper.*</code>. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is
