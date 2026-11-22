@@ -39,7 +39,7 @@ trap 'rm -rf "$T"' EXIT
 
 SANDBOX="$T/sandbox"
 
-# The fourteen contract sub-tests (the fifteenth contract row, flatpak-manifest, is inline in
+# The fifteen contract sub-tests (the sixteenth contract row, flatpak-manifest, is inline in
 # packaging-test.sh and reads the sandbox's copy of the real manifest) `packaging-test.sh --contracts-only` invokes, by
 # script name. A new contract sub-test added there without a stub here fails
 # the green-path row loudly (the sandbox lacks its script, so its row goes
@@ -61,6 +61,7 @@ SUBTESTS=(
     remote-run-test.sh
     ci-gate-test.sh
     ci-cache-save-test.sh
+    slot-test.sh
 )
 
 # reset_sandbox — fresh sandbox holding the REAL script + all-green stubs
@@ -118,12 +119,12 @@ echo "===================================="
 echo ""
 
 # ---------------------------------------------------------------- green path
-# All twelve contract sub-tests and the flatpak-manifest row pass: exit 0, thirteen PASS rows counted, a summary,
+# All fifteen contract sub-tests and the flatpak-manifest row pass: exit 0, sixteen PASS rows counted, a summary,
 # and NO failure machinery — no FAIL row, no inline log dump.
 reset_sandbox
 out=$(run_contracts); rc=$?
-check "PS-01" "all sub-tests green: exit 0, Pass: 15, summary, no dump" 0 $rc "$out" \
-    "Pass: 15" "Fail: 0" "Skip: 0" "=== Results ===" \
+check "PS-01" "all sub-tests green: exit 0, Pass: 16, summary, no dump" 0 $rc "$out" \
+    "Pass: 16" "Fail: 0" "Skip: 0" "=== Results ===" \
     '!FAIL' '!---- end ----'
 
 # ------------------------------------------------ THE FAILING PATH (GH #80)
@@ -143,7 +144,7 @@ out=$(run_contracts); rc=$?
 check "PS-02" "a failing sub-test: FAIL row + its log INLINE + run continues" 1 $rc "$out" \
     "FAIL" "sync-version" "contract test failed" \
     "$MARKER" \
-    "Pass: 14" "Fail: 1" "=== Results ==="
+    "Pass: 15" "Fail: 1" "=== Results ==="
 
 # --------------------------------- final-newline normalisation in the dump
 # bad() pipes the tail through `awk 1` so a log whose last line has NO
@@ -168,7 +169,7 @@ fm=$(ls -1 "$SANDBOX"/packaging/flatpak/*.yml | head -1)
 printf '\n# sha256: REPLACE_WITH_REAL_SHA256\n' >> "$fm"
 out=$(run_contracts); rc=$?
 check "PS-04" "a placeholder sha256 in the Flatpak manifest FAILs the flatpak-manifest row" 1 $rc "$out" \
-    "FAIL" "flatpak-manifest" "placeholder sha256" "Pass: 14" "Fail: 1"
+    "FAIL" "flatpak-manifest" "placeholder sha256" "Pass: 15" "Fail: 1"
 
 # ------------------------- a sub-test that SKIPs and exits 0 is a SKIP row
 # sync-version-test.sh once printed SKIP lines and exited 0 (rpmspec absent);
@@ -181,7 +182,7 @@ stub verify-bundle-test.sh \
     "exit 0"
 out=$(run_contracts); rc=$?
 check "PS-05" "a sub-test that prints SKIP and exits 0: the row is a SKIP, named, and the run fails" 1 $rc "$out" \
-    "SKIP" "verify-bundle" "a row the sub-test did not run" "Pass: 14" "Skip: 1" "a SKIP is not a pass"
+    "SKIP" "verify-bundle" "a row the sub-test did not run" "Pass: 15" "Skip: 1" "a SKIP is not a pass"
 
 echo ""
 echo "====================================="

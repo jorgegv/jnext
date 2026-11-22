@@ -30,6 +30,8 @@ local slots.
 
 ## How
 
+In an autonomous run `slot.sh` (`.claude/skills/autonomous-run/slot.sh`) makes this choice itself and agents just call it (see that skill); what follows is the manual form.
+
 Choose the host by load before each heavy run (owner, 2026-11-21): this host free (slots free, load
 below `nproc`) → run here, it is faster; busy → the remote, with `--fallback-local`. An agent may push
 its own issue branch (never force, never `main`; owner, 2026-11-21, superseding D9's orchestrator-only
@@ -94,7 +96,7 @@ shell command as written), and the run stops at the first failure unless `--keep
 `--timeout SECS`, `--stream` (also print the log live), `--id`, `--log-dir`, `--conf`.
 
 Local builds still go through the local slot wrapper: `--fallback-local` runs the targets in the given
-directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`) when that is set.
+directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`) when that is set. The wrapper's environment carries `REMOTE_RUN_FALLBACK=1`, which `slot.sh` reads as "never overflow again".
 
 ## What it guarantees
 
