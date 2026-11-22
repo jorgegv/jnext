@@ -1720,6 +1720,41 @@ static void test_tape_mix() {
                   (long long)dy, (long long)cap_age, mix_young, mix_old));
     }
 
+    // MX-101 (D6, .jns): a `.jns` load runs load_state BEFORE the deck is reattached, so it is the
+    // reattach that rebuilds the last tape edge. A TAP played to 1000 T-states into the first
+    // pause is saved and loaded into a fresh machine: the restored edge age agrees with the saved
+    // one, the held level is still unrelaxed (mix 512) and the deck is playing.
+    {
+        auto a = next_machine_550();
+        nr_write(*a, 0x06, 0x00);
+        nr_write(*a, 0x08, 0x10);
+        idle_loop(*a);
+        a->port().out(0x00FE, 0x00);
+        const bool oka = start_tap2(*a);
+        a->tape().start_realtime_playback();
+        bool in_pause = false;
+        for (int i = 0; i < 4000000 && !in_pause; ++i) {
+            a->execute_single_instruction();
+            const auto ds = a->tape().deck_state();
+            in_pause = ds.phase == "pause" && ds.pulse_left <= 3500000u - 1000u;
+        }
+        const std::string jns = tape_tmp("mx101.jns");
+        const bool saved = a->save_jns_file(jns);
+        const int64_t age_a = static_cast<int64_t>(a->clock().get()) - static_cast<int64_t>(a->tape_edge_master());
+        auto b = next_machine_550();
+        const bool loaded = b->load_jns_file(jns, true);
+        const int64_t age_b = static_cast<int64_t>(b->clock().get()) - static_cast<int64_t>(b->tape_edge_master());
+        const int64_t d = age_a > age_b ? age_a - age_b : age_b - age_a;
+        const int mix_b = mix_val(*b);
+        check("MX-101", "a .jns load inside a tape's hold derives the tape edge when the deck is "
+              "reattached: the restored age matches the saved one (within 800 master cycles), the "
+              "held level is unrelaxed (mix 512) and the deck is playing "
+              "[symmetric_relaxation.vhd:62,76,89-90]",
+              oka && in_pause && saved && loaded && b->tape().is_playing() && d <= 800 && mix_b == 512,
+              fmt("pause=%d saved=%d loaded=%d playing=%d |age_a-age_b|=%lld mix=%d (want 1/1/1/1/<=800/512)",
+                  in_pause, saved, loaded, b->tape().is_playing(), (long long)d, mix_b));
+    }
+
     // MX-82 - a replay (rewind fast-forward, RZX) holds the Pi's EAR term off, so
     // beep_mic_final loses it when replay mode starts and gets it back when it ends.
     {

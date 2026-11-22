@@ -9677,8 +9677,11 @@ void Emulator::derive_tape_edge_()
 {
     // The ear_relax hold of a playing tape counts from its last edge, which
     // a restore does not carry: rebuild it from where the deck is (TAP exact for every
-    // phase, TZX exact in the pauses and 0 elsewhere, WAV by looking back along the
-    // recording), so a restored run relaxes exactly when the continuous one does.
+    // phase but the first pilot pulse of a tape started from idle, which has no edge; TZX
+    // exact in the pauses and 0 elsewhere, and a pause of 1 ms or less after a block
+    // ending high counts from the pause; WAV by looking back along the recording), so a
+    // restored run relaxes when the continuous one does. A `.jns` load calls this again
+    // after the deck is reattached (load_state runs before it).
     uint64_t age_t;
     if (tape_.is_playing())          age_t = tape_.ticks_since_edge();
     else if (tzx_tape_.is_playing()) age_t = tzx_tape_.ticks_since_edge(monotonic_tstates());

@@ -144,14 +144,19 @@ level changes (`tape_edge_master_`, stamped where the tape block sees the level
 move). A tape pause holds its last level for a second, so the relaxation is what
 a loader sees after the last pulse of a block. The stamp is not saved: after a
 restore (`load_state`, a `.jns` deck reattach) `derive_tape_edge_` rebuilds it
-from the deck's position. `TapLoader::ticks_since_edge` is exact for every phase
-(the pulse or pause length minus `pulse_left`); `WavLoader::ticks_since_edge`
+from the deck's position (a `.jns` load calls it again after the deck is
+reattached, as `load_state` runs before that). `TapLoader::ticks_since_edge` is exact for every phase
+(the pulse or pause length minus `pulse_left`) except the very first pilot pulse of
+a tape started from idle, which has no edge, so a restore inside it is approximate
+(it matters only on issue 2 with MIC set); `WavLoader::ticks_since_edge`
 looks back along the recording (to twice the hold, all the relaxation needs);
 `TzxLoader::ticks_since_edge` is exact in the pause (the 1 ms hold and the pause's
 remainder, lengths the player holds) and 0 in a pulse phase, because the ZOT
 player does not keep the length of the pulse it has just started: the level is
 then taken as freshly changed, which keeps it as the board has it until the
-relaxation time, at most one pulse late for a pulse longer than that.
+relaxation time, at most one pulse late for a pulse longer than that. A pause of 1 ms
+or less after a block that ends high forces the level low with no visible edge, so
+there the age counts from the pause.
 `Emulator::tape_out_level`
 is the one model of that signal (the MIC jack of a tape save reads the same
 value), and it is refreshed into the beeper at the events that change it: a port

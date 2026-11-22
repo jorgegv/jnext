@@ -584,6 +584,7 @@ deck is derived from its position, MX-93..100). Full-machine rows in `audio_next
 | MX-98  | A TZX restore in the pause's remainder            | derived edge equals the continuous one |
 | MX-99  | A TZX restore in a pulse phase                    | age 0 (documented rule): never earlier than the continuous edge, at most one pulse later |
 | MX-100 | A WAV restore finds the edge by looking back      | young (1000 T): mix 512; old (9000 T, look-back capped at 8192 T): mix 0 |
+| MX-101 | A `.jns` load inside a tape's hold re-derives the tape edge at the deck reattach | TAP played 1000 T into the first pause, saved, loaded into a fresh machine: age within 800 master cycles, mix 512, deck playing |
 
 ## 6. NextREG Configuration
 
