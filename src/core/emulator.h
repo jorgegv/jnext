@@ -116,6 +116,12 @@ public:
     Emulator();
     ~Emulator();
 
+    /// Finish every output file the run still holds open or unwritten: a TZX / WAV tape save
+    /// (its last block, the WAV header), the compositor trace, the CPU profile. Idempotent. The
+    /// destructor runs it; a browser page, whose loop never destroys the emulator (the app is
+    /// released at the end of main), calls it from its finish. GH #553.
+    void finish_outputs();
+
     // Non-copyable, non-movable (owns large state).
     Emulator(const Emulator&)            = delete;
     Emulator& operator=(const Emulator&) = delete;
@@ -2141,6 +2147,7 @@ private:
     /// `profiler_.active()` (an `if (!nullptr)` branch). When inactive,
     /// it's a single always-false predicted branch — zero cost.
     Profiler profiler_;
+    bool     profile_written_ = false;   // finish_outputs() wrote the profile already
 
     /// Logical frame counter — incremented each run_frame(); saved in snapshots.
     uint32_t frame_num_   = 0;

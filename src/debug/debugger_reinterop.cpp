@@ -141,6 +141,7 @@ Result write_directory(const std::string& dir, const std::vector<reexport::File>
             return refuse(Result::RefusedUnavailable, why,
                           "cannot write " + target.string() + ": " + ec.message());
         }
+        if (rep) rep->paths.push_back(target.string());
     }
 
     // A previous export's files this one did not write.
