@@ -104,15 +104,6 @@ public:
     /// same inlined body, so that tick() keeps its ONE caller (the device cluster, which the compiler
     /// inlines) and the two cannot be folded into one function with two callers.
     void tick_n(uint32_t count);
-    /// GH #536 - tick_n() for the HALT replay of a machine with the debugger's source tap installed: a
-    /// function of its own, so tick_n() keeps its ONE caller (a second caller of tick_n() makes the compiler
-    /// stop inlining it into the untapped replay), and `no_icf` so the link-time optimiser does not fold the
-    /// two identical bodies back into one.
-#if defined(__GNUC__) && !defined(__clang__)
-    [[gnu::noinline, gnu::cold, gnu::no_icf]] void tick_n_cold(uint32_t count);
-#else
-    [[gnu::noinline, gnu::cold]] void tick_n_cold(uint32_t count);
-#endif
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
     /// Gates ONLY this chip's contribution to the AUDIBLE 3-PSG sum
