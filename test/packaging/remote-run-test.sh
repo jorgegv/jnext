@@ -9,13 +9,15 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-37. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-38. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# shellcheck source=/dev/null
+source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=37
+EXPECTED_ROWS=38
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -56,6 +58,8 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/remote-run-test.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 export HOME=$TMP/home
 mkdir -p "$HOME" "$TMP/bin" "$TMP/state"
+# RRUN-38's run: the whole test again, started now so it overlaps the rest, under a polluted environment
+[[ -n "${SKILLTEST_INNER:-}" ]] || polluted_selfrun "${BASH_SOURCE[0]}" "$TMP/polluted"
 
 # ---- fakes ------------------------------------------------------------------
 # Fake podman: records every call; any call without --root/--runroot other than --version FAILS (and
@@ -724,5 +728,12 @@ env -u REMOTE_RUN_FALLBACK REMOTE_RUN_LOCAL_WRAP="$TMP/wrap2" timeout --kill-aft
 fb=$(grep fallback= "$FAKE_STATE/make-calls" | sort -u)
 row RRUN-37 "$([[ "$fb" == "fallback=1" && $(grep -c fallback= "$FAKE_STATE/make-calls") -eq 2 ]] && echo 1 || echo 0)" \
     "both fallback forms (make target, sh:) put REMOTE_RUN_FALLBACK=1 in the wrapper's environment"
+
+# RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
+# the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green
+# and never reaches either (GH #547 stage 4: it timed out at RRUN-21 and RRUN-33 through the real wrapper)
+if [[ -n "${SKILLTEST_INNER:-}" ]]; then pol=1; else polluted_check "$TMP/polluted"; pol=$POL; fi
+row RRUN-38 "$([[ $pol -eq 1 ]] && echo 1 || echo 0)" \
+    "a run under REMOTE_RUN_FALLBACK, REMOTE_RUN_LOCAL_WRAP, JNEXT_REMOTE_RUN_* in the environment is green and touches no real wrapper or ssh"
 
 finish
