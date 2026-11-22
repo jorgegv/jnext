@@ -10,6 +10,7 @@
 #include <QGridLayout>
 #include <QPalette>
 #include <QColor>
+#include <QStringList>
 
 // AY register names for row headers
 static const char* const kRegNames[16] = {
@@ -120,7 +121,11 @@ void AudioPanel::create_ui() {
     chips_scroll_->setFrameShape(QFrame::NoFrame);
     chips_scroll_->setWidget(create_chips_tab());
     tabs_->addTab(chips_scroll_, tr("Chips"));
-    tabs_->addTab(placeholder_tab(), tr("DAC && Beeper"));
+    dac_scroll_ = new QScrollArea(tabs_);
+    dac_scroll_->setWidgetResizable(true);
+    dac_scroll_->setFrameShape(QFrame::NoFrame);
+    dac_scroll_->setWidget(create_dac_tab());
+    tabs_->addTab(dac_scroll_, tr("DAC && Beeper"));
     tabs_->addTab(placeholder_tab(), tr("Log"));
     tabs_->addTab(placeholder_tab(), tr("Tracker"));
     tabs_->addTab(placeholder_tab(), tr("Scopes"));
@@ -158,10 +163,18 @@ QWidget* AudioPanel::create_chips_tab() {
     stereo_label_ = new QLabel(tr("Stereo: ABC"), info_box);
     psg_mode_label_ = new QLabel(tr("PSG mode: YM"), info_box);
     ay_ports_label_ = new QLabel(tr("AY ports: on"), info_box);
+    // The AY dropped-write total, with a link to the table (DAC & Beeper tab).
+    ay_drops_label_ = new QLabel(tr("AY writes dropped: 0 (<a href=\"drops\">show</a>)"), info_box);
+    ay_drops_label_->setObjectName("ay_drops");
+    ay_drops_label_->setTextFormat(Qt::RichText);
+    ay_drops_label_->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+    connect(ay_drops_label_, &QLabel::linkActivated, this, [this](const QString&) {
+        tabs_->setCurrentWidget(dac_scroll_);
+    });
 
     QFont info_font("Monospace", 9);
     info_font.setStyleHint(QFont::Monospace);
-    for (QLabel* l : {turbosound_label_, ay_ym_label_, stereo_label_, psg_mode_label_, ay_ports_label_}) {
+    for (QLabel* l : {turbosound_label_, ay_ym_label_, stereo_label_, psg_mode_label_, ay_ports_label_, ay_drops_label_}) {
         l->setFont(info_font);
         info_layout->addWidget(l);
     }
@@ -383,4 +396,246 @@ void AudioPanel::refresh() {
     static const char* const kPsgMode[4] = {"YM", "AY", "YM (ZXN-8950)", "held in reset"};
     psg_mode_label_->setText(tr("PSG mode: %1").arg(kPsgMode[st.psg_mode & 3]));
     ay_ports_label_->setText(tr("AY ports: %1").arg(st.ay_ports_enabled ? tr("on") : tr("off")));
+
+    uint64_t ay_dropped = 0;
+    for (size_t r = size_t(jnext::dbg::AudioDropReason::AyPortDisabled);
+         r <= size_t(jnext::dbg::AudioDropReason::AyAddressHigh); ++r)
+        ay_dropped += st.drops[r].count;
+    ay_drops_label_->setText(
+        tr("AY writes dropped: %1 (<a href=\"drops\">show</a>)").arg(ay_dropped));
+
+    refresh_dac_(st);
+}
+
+namespace {
+
+// The eight reasons, in AudioDropReason order from AyPortDisabled.
+const char* const kDropText[8] = {
+    "AY ports off (NR 0x84 bit 0)",
+    "AY held in reset (NR 0x06 = 11)",
+    "Chip select, TurboSound off",
+    "Ignored 0xFFFD value",
+    "Register address 16-31",
+    "DAC port family off (NR 0x84)",
+    "DAC off (NR 0x08 bit 3)",
+    "DAC mirror, DAC off (NR 0x08 bit 3)",
+};
+
+const char* source_text(jnext::dbg::EventSource s) {
+    switch (s) {
+        case jnext::dbg::EventSource::Cpu:      return "CPU";
+        case jnext::dbg::EventSource::Dma:      return "DMA";
+        case jnext::dbg::EventSource::Copper:   return "Copper";
+        case jnext::dbg::EventSource::Debugger: return "Debugger";
+        case jnext::dbg::EventSource::Any:      break;
+    }
+    return "-";
+}
+
+QLabel* plain_label(const QString& object_name, const QString& text, QWidget* parent) {
+    auto* l = new QLabel(text, parent);
+    l->setObjectName(object_name);
+    return l;
+}
+
+}  // namespace
+
+QWidget* AudioPanel::create_dac_tab() {
+    auto* page = new QWidget;
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(2, 2, 2, 2);
+    layout->setSpacing(4);
+
+    // --- DAC: the four channels (the raw byte, so silence 0x80 is mid-bar) ---
+    auto* dac_box = new QGroupBox(tr("DAC"), page);
+    auto* dac_grid = new QGridLayout(dac_box);
+    dac_grid->setContentsMargins(4, 4, 4, 4);
+    dac_enabled_ = mono_label("dac_enabled", tr("DAC: off"), dac_box);
+    dac_grid->addWidget(dac_enabled_, 0, 0, 1, 3);
+    static const char* const kDacName[4] = {"a", "b", "c", "d"};
+    for (int i = 0; i < 4; ++i) {
+        const QString pre = QString("dac_%1_").arg(kDacName[i]);
+        dac_grid->addWidget(mono_label(pre + "name", QString(QChar('A' + i)), dac_box), 1 + i, 0);
+        dac_value_[i] = mono_label(QString("dac_%1_value").arg(kDacName[i]), "0x80", dac_box);
+        dac_bar_[i] = new QProgressBar(dac_box);
+        dac_bar_[i]->setObjectName(QString("dac_%1_bar").arg(kDacName[i]));
+        dac_bar_[i]->setRange(0, 255);
+        dac_bar_[i]->setTextVisible(false);
+        dac_bar_[i]->setMaximumHeight(10);
+        dac_grid->addWidget(dac_value_[i], 1 + i, 1);
+        dac_grid->addWidget(dac_bar_[i], 1 + i, 2);
+    }
+    layout->addWidget(dac_box);
+    // slot: dac_channels (#533 Mute/Solo)
+
+    // --- Port families (NR 0x84) ---
+    auto* fam_box = new QGroupBox(tr("Port families (NR 0x84)"), page);
+    auto* fam_layout = new QVBoxLayout(fam_box);
+    fam_layout->setContentsMargins(4, 4, 4, 4);
+    fam_layout->setSpacing(2);
+    static const char* const kFamily[7] = {
+        "Soundrive 1: 1F 0F 4F 5F", "Soundrive 2: F1 F3 F9 FB", "Profi Covox: 3F 5F",
+        "Covox: 0F 4F", "Pentagon/ATM: FB", "GS Covox: B3", "Specdrum: DF"};
+    for (int n = 1; n <= 7; ++n) {
+        dac_family_[n] = mono_label(QString("dac_family_%1").arg(n), tr(kFamily[n - 1]), fam_box);
+        set_lit(dac_family_[n], false);
+        fam_layout->addWidget(dac_family_[n]);
+    }
+    layout->addWidget(fam_box);
+
+    // --- Beeper ---
+    auto* beep_box = new QGroupBox(tr("Beeper"), page);
+    auto* beep_layout = new QVBoxLayout(beep_box);
+    beep_layout->setContentsMargins(4, 4, 4, 4);
+    beep_layout->setSpacing(2);
+    beeper_ear_ = mono_label("beeper_ear", tr("EAR"), beep_box);
+    beeper_mic_ = mono_label("beeper_mic", tr("MIC"), beep_box);
+    beeper_tape_ear_ = mono_label("beeper_tape_ear", tr("Tape EAR"), beep_box);
+    auto* lamps = new QHBoxLayout;
+    for (QLabel* l : {beeper_ear_, beeper_mic_, beeper_tape_ear_}) {
+        set_lit(l, false);
+        lamps->addWidget(l);
+    }
+    lamps->addStretch(1);
+    beep_layout->addLayout(lamps);
+    speaker_enabled_ = mono_label("speaker_enabled", tr("Internal speaker: off"), beep_box);
+    beep_speaker_only_ = mono_label("beep_speaker_only", tr("Beep to speaker only: off"), beep_box);
+    beeper_excluded_ = mono_label("beeper_excluded", tr("EAR/MIC reach the mix: yes"), beep_box);
+    for (QLabel* l : {speaker_enabled_, beep_speaker_only_, beeper_excluded_}) beep_layout->addWidget(l);
+    layout->addWidget(beep_box);
+
+    // --- Pi I2S ---
+    auto* pi_box = new QGroupBox(tr("Pi I2S"), page);
+    auto* pi_layout = new QHBoxLayout(pi_box);
+    pi_layout->setContentsMargins(4, 4, 4, 4);
+    pi_left_ = mono_label("pi_left", tr("Left"), pi_box);
+    pi_right_ = mono_label("pi_right", tr("Right"), pi_box);
+    pi_ear_ = mono_label("pi_ear", tr("Pi to EAR: off"), pi_box);
+    set_lit(pi_left_, false);
+    set_lit(pi_right_, false);
+    for (QLabel* l : {pi_left_, pi_right_, pi_ear_}) pi_layout->addWidget(l);
+    pi_layout->addStretch(1);
+    layout->addWidget(pi_box);
+
+    // --- Host settings ---
+    auto* host_box = new QGroupBox(tr("Host"), page);
+    auto* host_grid = new QGridLayout(host_box);
+    host_grid->setContentsMargins(4, 4, 4, 4);
+    static const char* const kGainName[6] = {"Output", "AY #0", "AY #1", "AY #2", "DAC", "Beeper"};
+    static const char* const kGainObj[6] = {"gain_output", "gain_ay0", "gain_ay1", "gain_ay2", "gain_dac", "gain_beeper"};
+    for (int i = 0; i < 6; ++i) {
+        gain_[i] = mono_label(kGainObj[i], "+0.0 dB", host_box);
+        host_grid->addWidget(plain_label(QString("%1_name").arg(kGainObj[i]), tr(kGainName[i]), host_box), i / 3, (i % 3) * 2);
+        host_grid->addWidget(gain_[i], i / 3, (i % 3) * 2 + 1);
+    }
+    host_mutes_ = mono_label("host_mutes", tr("Muted: none"), host_box);
+    host_synthesis_ = mono_label("host_synthesis", tr("Synthesis: on"), host_box);
+    host_grid->addWidget(host_mutes_, 2, 0, 1, 6);
+    host_grid->addWidget(host_synthesis_, 3, 0, 1, 6);
+    layout->addWidget(host_box);
+
+    // --- Dropped writes: one fixed row per reason (a QTreeWidget: the hex table
+    //     is the panel's only QTableWidget) ---
+    auto* drops_box = new QGroupBox(tr("Dropped writes"), page);
+    auto* drops_layout = new QVBoxLayout(drops_box);
+    drops_layout->setContentsMargins(4, 4, 4, 4);
+    drops_tree_ = new QTreeWidget(drops_box);
+    drops_tree_->setObjectName("audio_drops");
+    drops_tree_->setRootIsDecorated(false);
+    drops_tree_->setColumnCount(7);
+    drops_tree_->setHeaderLabels({tr("Reason"), tr("Count"), tr("Port"), tr("Value"), tr("PC"), tr("Frame"), tr("Source")});
+    drops_tree_->setSelectionMode(QAbstractItemView::NoSelection);
+    drops_tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    drops_tree_->header()->setStretchLastSection(false);
+    drops_tree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    QFont mono("Monospace", 9);
+    mono.setStyleHint(QFont::Monospace);
+    drops_tree_->setFont(mono);
+    for (int i = 0; i < 8; ++i) {
+        auto* item = new QTreeWidgetItem(drops_tree_);
+        item->setText(0, tr(kDropText[i]));
+        item->setText(1, "0");
+        for (int col = 2; col < 7; ++col) item->setText(col, "-");
+        item->setData(0, Qt::UserRole, -1);
+    }
+    drops_tree_->setFixedHeight(9 * 22 + 8);
+    // A CPU-source row names the instruction that wrote: show it.
+    connect(drops_tree_, &QTreeWidget::itemDoubleClicked, this,
+            [this](QTreeWidgetItem* item, int) {
+        const int pc = item->data(0, Qt::UserRole).toInt();
+        if (pc >= 0) emit show_in_disassembly_requested(static_cast<uint16_t>(pc));
+    });
+    drops_layout->addWidget(drops_tree_);
+    auto* clear = new QPushButton(tr("Clear"), drops_box);
+    clear->setObjectName("audio_drops_clear");
+    connect(clear, &QPushButton::clicked, this, [this] {
+        if (!dbg_) return;
+        dbg_->clear_audio_drops(client_);
+        refresh();
+    });
+    drops_layout->addWidget(clear);
+    layout->addWidget(drops_box);
+    layout->addStretch(1);
+    return page;
+}
+
+void AudioPanel::refresh_dac_(const jnext::dbg::AudioState& st) {
+    dac_enabled_->setText(st.dac.enabled ? tr("DAC: on") : tr("DAC: off"));
+    for (int i = 0; i < 4; ++i) {
+        dac_value_[i]->setText(QString::asprintf("0x%02X", st.dac.channels[i]));
+        dac_bar_[i]->setValue(st.dac.channels[i]);
+    }
+    // Lamp n = bit n of NR 0x84. Pentagon/ATM (b5) works only while Soundrive 2
+    // (b2) is off: zxnext.vhd:2749.
+    for (int n = 1; n <= 7; ++n) {
+        bool lit = ((st.dac.port_families >> n) & 1) != 0;
+        if (n == 5) lit = lit && !((st.dac.port_families >> 2) & 1);
+        set_lit(dac_family_[n], lit);
+    }
+
+    set_lit(beeper_ear_, st.beeper.ear);
+    set_lit(beeper_mic_, st.beeper.mic);
+    set_lit(beeper_tape_ear_, st.beeper.tape_ear);
+    speaker_enabled_->setText(tr("Internal speaker: %1").arg(st.beeper.speaker_enabled ? tr("on") : tr("off")));
+    beep_speaker_only_->setText(tr("Beep to speaker only: %1").arg(st.beeper.beep_speaker_only ? tr("on") : tr("off")));
+    beeper_excluded_->setText(tr("EAR/MIC reach the mix: %1").arg(st.beeper.excluded ? tr("no") : tr("yes")));
+
+    set_lit(pi_left_, st.pi.left_enabled);
+    set_lit(pi_right_, st.pi.right_enabled);
+    pi_ear_->setText(tr("Pi to EAR: %1").arg(st.pi.to_ear ? tr("on") : tr("off")));
+
+    const float g[6] = {st.host.output_gain_db, st.host.ay_gain_db[0], st.host.ay_gain_db[1],
+                        st.host.ay_gain_db[2], st.host.dac_gain_db, st.host.beeper_gain_db};
+    for (int i = 0; i < 6; ++i) gain_[i]->setText(QString::asprintf("%+.1f dB", static_cast<double>(g[i])));
+    QStringList muted;
+    static const struct { uint8_t bit; const char* name; } kMute[5] = {
+        {AudioMute::AY0, "AY #0"}, {AudioMute::AY1, "AY #1"}, {AudioMute::AY2, "AY #2"},
+        {AudioMute::DAC, "DAC"}, {AudioMute::BEEPER, "Beeper"}};
+    for (const auto& m : kMute)
+        if (st.host.mute_mask & m.bit) muted << tr(m.name);
+    host_mutes_->setText(muted.isEmpty() ? tr("Muted: none") : tr("Muted: %1").arg(muted.join(", ")));
+    host_synthesis_->setText(st.host.synthesis_on ? tr("Synthesis: on") : tr("Synthesis: off (--silent)"));
+
+    for (int i = 0; i < 8; ++i) {
+        const auto reason = static_cast<jnext::dbg::AudioDropReason>(i + 1);
+        const jnext::dbg::AudioDropCounter& d = st.drops[static_cast<size_t>(reason)];
+        QTreeWidgetItem* item = drops_tree_->topLevelItem(i);
+        item->setText(1, QString::number(d.count));
+        if (d.count == 0) {
+            for (int col = 2; col < 7; ++col) item->setText(col, "-");
+            item->setData(0, Qt::UserRole, -1);
+            continue;
+        }
+        const bool cpu = d.last_source == jnext::dbg::EventSource::Cpu;
+        item->setText(2, reason == jnext::dbg::AudioDropReason::DacMirrorDisabled
+                             ? QString::asprintf("NR 0x%02X", d.last_port & 0xFF)
+                             : QString::asprintf("0x%04X", d.last_port));
+        item->setText(3, QString::asprintf("0x%02X", d.last_value));
+        // The slot's PC names the writer only for a CPU write (a DMA, Copper or
+        // debugger write is not made by that instruction).
+        item->setText(4, cpu ? QString::asprintf("0x%04X", d.last_pc) : QStringLiteral("-"));
+        item->setText(5, QString::number(d.last_frame));
+        item->setText(6, tr(source_text(d.last_source)));
+        item->setData(0, Qt::UserRole, cpu ? static_cast<int>(d.last_pc) : -1);
+    }
 }

@@ -16,14 +16,26 @@
 // (frequency = clock / (16 * period), m = 69 + 12 log2(f / 440)), never from
 // the code under test.
 //
+//   DRP-*  the dropped-write counters (GH #530): every discarded AY, DAC and
+//          NR 0x2C-0x2E write is counted under the first VHDL reason that
+//          applies (decode before gate), with its port, value, PC, frame and
+//          source. Read through Debugger::audio_state().drops.
+//
+// DRP oracles: turbosound.vhd:121,129-136,141 and ym2149.vhd:170,184,188 (AY),
+// zxnext.vhd:2744-2751,2963-2965,2974-2980,3024,3034-3041,3088-3094,5412-5414,
+// 6989,7046 and soundrive.vhd:72-101 (ports, enables, mirror, reset).
+//
 // Run: ./build/test/audio_debug_test
 
 #include "audio/turbosound.h"
+#include "audio/audio_mute.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
 #include "debug/audio_math.h"
 #include "debug/debugger.h"
+#include "debug/events.h"
+#include "platform/emulator_boot.h"
 #include "core/log.h"
 #include "port/nextreg.h"
 #include "port/port_dispatch.h"
@@ -33,12 +45,17 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
+#include <utility>
 #include <memory>
 #include <string>
 #include <vector>
 #include "../row_id.h"
 
+using jnext::dbg::AudioDropCounter;
 using jnext::dbg::AudioState;
+using jnext::dbg::EventSource;
+using jnext::dbg::ResetKind;
 using jnext::dbg::AyChipMode;
 using jnext::dbg::ClientId;
 using jnext::dbg::Debugger;
@@ -194,8 +211,8 @@ static Outcome run_and_save(Emulator& emu, Debugger& dbg, ClientId cid, int fram
 // with `feature(false)`. The state is loaded again before B, so the only
 // difference between the runs is what the feature does.
 template <class F>
-static bool invisible(F feature, int frames, bool& ran) {
-    Emulator emu; build(emu);
+static bool invisible(F feature, int frames, bool& ran, void (*fixture)(Emulator&) = build) {
+    Emulator emu; fixture(emu);
     Debugger dbg(emu);
     const ClientId cid = dbg.attach(client("aiz")).value;
     emu.run_frame(); emu.run_frame();
@@ -214,6 +231,126 @@ static bool invisible(F feature, int frames, bool& ran) {
 static bool is_note(const PsgNote& n, const char* name, int oct, double cents) {
     return n.valid && std::strcmp(n.name, name) == 0 && n.octave == oct &&
            near(n.cents, cents, 0.005);
+}
+
+
+// ── DRP: the dropped-write counters ─────────────────────────────────────
+
+using AR = jnext::dbg::AudioDropReason;
+
+// Every reason's count equals the expectation (a reason not listed must be 0),
+// so a write counted under the wrong reason fails as well as one not counted.
+static bool counts_are(const AudioState& st, std::initializer_list<std::pair<AR, uint64_t>> want) {
+    uint64_t e[jnext::dbg::AUDIO_DROP_REASON_COUNT] = {};
+    for (const auto& w : want) e[static_cast<size_t>(w.first)] = w.second;
+    for (size_t i = 0; i < jnext::dbg::AUDIO_DROP_REASON_COUNT; ++i)
+        if (st.drops[i].count != e[i]) return false;
+    return true;
+}
+
+static const AudioDropCounter& drop(const AudioState& st, AR r) {
+    return st.drops[static_cast<size_t>(r)];
+}
+
+// Machine code at `addr`, the CPU parked there with interrupts off.
+static void run_from(Emulator& emu, uint16_t addr, std::initializer_list<uint8_t> code) {
+    uint16_t a = addr;
+    for (uint8_t b : code) emu.mmu().write(a++, b);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = addr; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+// A DAC low-byte site: write `port` in the four (family, DAC) states and then with
+// each family bit alone. `fam` = the NR 0x84 bits that decode the port, `chans` =
+// the channels (bit n = channel n) a write reaches. The both-off state must count
+// as the FAMILY drop: decode before gate (zxnext.vhd:2974-2980, 3091-3094).
+static bool dac_site(uint16_t port, uint8_t fam, uint8_t chans) {
+    Emulator emu; fresh(emu); Debugger dbg(emu);
+    bool ok = true;
+    nr_write(emu, 0x84, static_cast<uint8_t>(0xFF & ~fam)); nr_write(emu, 0x08, 0x08);
+    const auto before = dbg.audio_state().dac.channels;
+    emu.port().out(port, 0x11);                                       // family off, DAC on
+    AudioState st = dbg.audio_state();
+    ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 1}}) && st.dac.channels == before;
+    nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x08, 0x00);
+    emu.port().out(port, 0x12);                                       // family on, DAC off
+    st = dbg.audio_state();
+    ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 1}, {AR::DacDisabled, 1}}) &&
+         st.dac.channels[0] == 0x80 && st.dac.channels[1] == 0x80 &&
+         st.dac.channels[2] == 0x80 && st.dac.channels[3] == 0x80;
+    nr_write(emu, 0x84, static_cast<uint8_t>(0xFF & ~fam));
+    emu.port().out(port, 0x13);                                       // both off
+    st = dbg.audio_state();
+    ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 2}, {AR::DacDisabled, 1}});
+    nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x08, 0x08);
+    emu.port().out(port, 0x14);                                       // both on
+    st = dbg.audio_state();
+    ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 2}, {AR::DacDisabled, 1}});
+    for (int c = 0; c < 4; ++c)
+        ok = ok && st.dac.channels[c] == (((chans >> c) & 1) ? 0x14 : 0x80);
+    for (int b = 1; b < 8; ++b) {                                      // each decoding bit alone
+        if (!((fam >> b) & 1)) continue;
+        nr_write(emu, 0x84, static_cast<uint8_t>(1 << b));
+        emu.port().out(port, 0x30);
+        st = dbg.audio_state();
+        ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 2}, {AR::DacDisabled, 1}});
+        for (int c = 0; c < 4; ++c)
+            if ((chans >> c) & 1) ok = ok && st.dac.channels[c] == 0x30;
+        emu.port().out(port, 0x14);
+    }
+    return ok;
+}
+
+// 0xF1 / 0xF9 (Soundrive 2): with b2 off the byte goes on to the paging decode
+// (zxnext.vhd:3024,3034-3041); with b2 on and the DAC off it is suppressed.
+static bool sd2_paging_site(uint16_t port, int channel) {
+    Emulator emu; fresh(emu); Debugger dbg(emu);
+    bool ok = true;
+    nr_write(emu, 0x84, 0xFB); nr_write(emu, 0x08, 0x08);
+    emu.port().out(port, 0x01);                                       // b2 off, DAC on
+    AudioState st = dbg.audio_state();
+    ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 1}}) && emu.mmu().port_7ffd() == 0x01;
+    nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x08, 0x00);
+    emu.port().out(port, 0x02);                                       // b2 on, DAC off
+    st = dbg.audio_state();
+    ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 1}, {AR::DacDisabled, 1}}) &&
+         emu.mmu().port_7ffd() == 0x01;
+    nr_write(emu, 0x08, 0x08);
+    emu.port().out(port, 0x04);                                       // both on
+    st = dbg.audio_state();
+    ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 1}, {AR::DacDisabled, 1}}) &&
+         st.dac.channels[channel] == 0x04 && emu.mmu().port_7ffd() == 0x01;
+    nr_write(emu, 0x84, 0x00); nr_write(emu, 0x08, 0x00);
+    emu.port().out(port, 0x08);                                       // both off: family first
+    st = dbg.audio_state();
+    ok = ok && counts_are(st, {{AR::DacFamilyDisabled, 2}, {AR::DacDisabled, 1}}) &&
+         emu.mmu().port_7ffd() == 0x08;
+    return ok;
+}
+
+// A parked CPU looping OUT (C),A to port 0x00B3 (GS Covox) with NR 0x84 bit 6
+// off: thousands of dropped writes a frame (AIZ-10, DRP-31).
+static void build_drops(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    nr_write(emu, 0x84, 0xBF);
+    nr_write(emu, 0x08, 0x08);
+    run_from(emu, 0x8000, {0xF3, 0x01, 0xB3, 0x00, 0xED, 0x79, 0x18, 0xFC});
+}
+
+// The Copper is programmed through NR 0x61/0x62/0x63 (as debugger_backend_test.cpp).
+static void copper_words(Emulator& emu, std::initializer_list<uint16_t> words) {
+    emu.nextreg().write(0x61, 0);
+    emu.nextreg().write(0x62, 0);
+    for (uint16_t w : words) {
+        emu.nextreg().write(0x63, static_cast<uint8_t>(w >> 8));
+        emu.nextreg().write(0x63, static_cast<uint8_t>(w & 0xFF));
+    }
+    emu.nextreg().write(0x61, 0);
+    emu.nextreg().write(0x62, 0x40);   // mode 01: run the program once
 }
 
 int main() {
@@ -683,6 +820,360 @@ int main() {
         check("ADS-30", "distinct bytes in all 16 registers of each chip (R14/R15 as outputs): chips[c].regs equals the bytes written and ay_registers(c)", ok);
     }
 
+
+    // ─────────────────── DRP: dropped-write counters ───────────────────
+
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x84, 0xFE);
+        emu.port().out(0xFFFD, 0x08);
+        AudioState a = dbg.audio_state();
+        const bool first = counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].address == 0;
+        nr_write(emu, 0x06, 0x03);
+        emu.port().out(0xFFFD, 0x08);
+        a = dbg.audio_state();
+        const bool second = counts_are(a, {{AR::AyPortDisabled, 2}});
+        nr_write(emu, 0x84, 0xFF); nr_write(emu, 0x06, 0x01);
+        emu.port().out(0xFFFD, 0x08);
+        a = dbg.audio_state();
+        check("DRP-01", "zxnext.vhd:2744,2963 0xFFFD with NR 0x84 bit 0 off counts AyPortDisabled; held in reset as well still counts AyPortDisabled (decode before reset); both released: applied",
+              first && second && counts_are(a, {{AR::AyPortDisabled, 2}}) && a.chips[0].address == 0x08);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        emu.port().out(0xFFFD, 0x08);
+        nr_write(emu, 0x84, 0xFE);
+        emu.port().out(0xBFFD, 0x0F);
+        AudioState a = dbg.audio_state();
+        const bool off = counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0;
+        nr_write(emu, 0x84, 0xFF);
+        emu.port().out(0xBFFD, 0x0F);
+        a = dbg.audio_state();
+        check("DRP-02", "zxnext.vhd:2964 0xBFFD with the AY ports off counts AyPortDisabled and leaves R8; with them on R8 = 0x0F and no count",
+              off && counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0x0F);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        emu.port().out(0xFFFD, 0x08);
+        nr_write(emu, 0x84, 0xFE);
+        emu.port().out(0xBFF5, 0x0F);
+        AudioState a = dbg.audio_state();
+        const bool off = counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0;
+        nr_write(emu, 0x84, 0xFF);
+        emu.port().out(0xBFF5, 0x0F);
+        a = dbg.audio_state();
+        check("DRP-03", "zxnext.vhd:2965 port 0xBFF5 (part of port_bffd) with the AY ports off counts AyPortDisabled; with them on R8 = 0x0F and no count",
+              off && counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0x0F && a.chips[0].address == 0x08);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x00);
+        nr_write(emu, 0x06, 0x03);
+        emu.port().out(0xFFFD, 0x08);
+        emu.port().out(0xFFFD, 0xFE);
+        AudioState a = dbg.audio_state();
+        const bool held = counts_are(a, {{AR::AyHeldInReset, 2}}) && a.chips[0].address == 0;
+        nr_write(emu, 0x06, 0x01);
+        emu.port().out(0xFFFD, 0x08);
+        a = dbg.audio_state();
+        check("DRP-04", "turbosound.vhd:121 ym2149.vhd:170 held in reset (NR 0x06 = 11): a select and a chip-select with TurboSound off both count AyHeldInReset (reset beats the pattern reason); released: applied",
+              held && counts_are(a, {{AR::AyHeldInReset, 2}}) && a.chips[0].address == 0x08);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        emu.port().out(0xFFFD, 0x15);
+        nr_write(emu, 0x06, 0x03);
+        emu.port().out(0xBFFD, 0x11);
+        AudioState a = dbg.audio_state();
+        const bool held = counts_are(a, {{AR::AyHeldInReset, 1}});
+        nr_write(emu, 0x06, 0x01);
+        emu.port().out(0xFFFD, 0x05);
+        emu.port().out(0xBFFD, 0x2A);
+        a = dbg.audio_state();
+        check("DRP-05", "ym2149.vhd:184 a 0xBFFD write while held in reset counts AyHeldInReset (not AyAddressHigh); released: R5 = 0x2A and no count",
+              held && counts_are(a, {{AR::AyHeldInReset, 1}}) && a.chips[0].regs[5] == 0x2A);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x00);
+        emu.port().out(0xFFFD, 0xFE);
+        AudioState a = dbg.audio_state();
+        const bool off = counts_are(a, {{AR::AyChipSelectTurboOff, 1}}) && a.active_chip == 0 && a.chips[1].pan == 3;
+        nr_write(emu, 0x08, 0x02);
+        emu.port().out(0xFFFD, 0xFE);
+        a = dbg.audio_state();
+        check("DRP-06", "turbosound.vhd:129-136 the chip-select command 0xFE with TurboSound off counts AyChipSelectTurboOff (chip 0 stays active); on: chip 1 active, pan 3, no count",
+              off && counts_are(a, {{AR::AyChipSelectTurboOff, 1}}) && a.active_chip == 1 && a.chips[1].pan == 3);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x00);
+        emu.port().out(0xFFFD, 0x40);
+        nr_write(emu, 0x08, 0x02);
+        emu.port().out(0xFFFD, 0x40);
+        emu.port().out(0xFFFD, 0x80);
+        nr_write(emu, 0x08, 0x00);
+        emu.port().out(0xFFFD, 0x98);
+        AudioState a = dbg.audio_state();
+        const bool ign = counts_are(a, {{AR::AySelectIgnored, 4}}) && a.chips[0].address == 0 && a.active_chip == 0;
+        emu.port().out(0xFFFD, 0x08);
+        a = dbg.audio_state();
+        check("DRP-07", "turbosound.vhd:141 0xFFFD values 0x40 (TurboSound off and on), 0x80 (on), 0x98 (off, d4:2 = 110) are not selects: AySelectIgnored 4, never ChipSelectTurboOff; 0x08 selects",
+              ign && counts_are(a, {{AR::AySelectIgnored, 4}}) && a.chips[0].address == 0x08);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        emu.port().out(0xFFFD, 0x15);
+        emu.port().out(0xBFFD, 0x11);
+        emu.port().out(0xBFF5, 0x22);
+        AudioState a = dbg.audio_state();
+        const bool high = counts_are(a, {{AR::AyAddressHigh, 2}}) && a.chips[0].regs[5] == 0;
+        emu.port().out(0xFFFD, 0x05);
+        emu.port().out(0xBFFD, 0x33);
+        a = dbg.audio_state();
+        check("DRP-08", "ym2149.vhd:188 data written while the register address is 16-31 (via 0xBFFD and 0xBFF5) counts AyAddressHigh twice and leaves R5; address 5: R5 = 0x33, no count",
+              high && counts_are(a, {{AR::AyAddressHigh, 2}}) && a.chips[0].regs[5] == 0x33);
+    }
+    check("DRP-09", "zxnext.vhd:2745,2977,3091 port 0x1F (A, family b1): family off, DAC off, both off (family wins), both on", dac_site(0x001F, 0x02, 0x1));
+    check("DRP-10", "zxnext.vhd:2748,2978 port 0x0F (B, family b1 or b4): drops only when both are off; each alone applies", dac_site(0x000F, 0x12, 0x2));
+    check("DRP-11", "zxnext.vhd:2748,2979 port 0x4F (C, family b1 or b4): drops only when both are off; each alone applies", dac_site(0x004F, 0x12, 0x4));
+    check("DRP-12", "zxnext.vhd:2747,2980 port 0x5F (D, family b1 or b3): drops only when both are off; each alone applies", dac_site(0x005F, 0x0A, 0x8));
+    check("DRP-13", "zxnext.vhd:2747,2977 port 0x3F (A, family b3): family off, DAC off, both off, both on", dac_site(0x003F, 0x08, 0x1));
+    check("DRP-14", "zxnext.vhd:3024,3034 port 0x7FF1 (A, b2): family off counts and the byte reaches port 0x7FFD; DAC off counts DacDisabled and 0x7FFD stays; both on writes A", sd2_paging_site(0x7FF1, 0));
+    check("DRP-15", "zxnext.vhd:2746,2978 port 0xF3 (B, family b2): family off, DAC off, both off, both on", dac_site(0x00F3, 0x04, 0x2));
+    check("DRP-16", "zxnext.vhd:3024,3034 port 0x7FF9 (C, b2): as DRP-14 for channel C", sd2_paging_site(0x7FF9, 2));
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        bool ok = true;
+        nr_write(emu, 0x84, 0xDB); nr_write(emu, 0x08, 0x08);
+        emu.port().out(0x00FB, 0x11);                                  // b2 = b5 = 0, DAC on
+        AudioState a = dbg.audio_state();
+        ok = ok && counts_are(a, {{AR::DacFamilyDisabled, 1}}) && a.dac.channels[0] == 0x80 && a.dac.channels[3] == 0x80;
+        nr_write(emu, 0x84, 0xFF & ~0x20);                             // b2 on, b5 off
+        emu.port().out(0x00FB, 0x12);
+        a = dbg.audio_state();
+        ok = ok && counts_are(a, {{AR::DacFamilyDisabled, 1}}) && a.dac.channels[3] == 0x12 && a.dac.channels[0] == 0x80;
+        nr_write(emu, 0x84, 0x20);                                     // b5 on, b2 off: A and D
+        emu.port().out(0x00FB, 0x13);
+        a = dbg.audio_state();
+        ok = ok && counts_are(a, {{AR::DacFamilyDisabled, 1}}) && a.dac.channels[3] == 0x13 && a.dac.channels[0] == 0x13;
+        nr_write(emu, 0x84, 0x00); nr_write(emu, 0x08, 0x00);          // neither decode, DAC off
+        emu.port().out(0x00FB, 0x14);
+        a = dbg.audio_state();
+        ok = ok && counts_are(a, {{AR::DacFamilyDisabled, 2}});
+        nr_write(emu, 0x84, 0x04);                                     // decoded, DAC off
+        emu.port().out(0x00FB, 0x15);
+        a = dbg.audio_state();
+        check("DRP-17", "zxnext.vhd:2749,2974,2977,2980 port 0xFB: neither decode counts the family (also with the DAC off); b2 reaches D, b5 without b2 reaches A and D; decoded with the DAC off counts DacDisabled",
+              ok && counts_are(a, {{AR::DacFamilyDisabled, 2}, {AR::DacDisabled, 1}}));
+    }
+    check("DRP-18", "zxnext.vhd:2750,2975 port 0xB3 (B and C, family b6): family off, DAC off, both off, both on", dac_site(0x00B3, 0x40, 0x6));
+    check("DRP-19", "zxnext.vhd:2751,2974 port 0xDF (A and D, family b7): family off, DAC off, both off, both on", dac_site(0x00DF, 0x80, 0x9));
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x00);
+        nr_write(emu, 0x2C, 0x44);
+        AudioState a = dbg.audio_state();
+        const bool off = counts_are(a, {{AR::DacMirrorDisabled, 1}}) && drop(a, AR::DacMirrorDisabled).last_port == 0x002C &&
+                         drop(a, AR::DacMirrorDisabled).last_value == 0x44 && a.dac.channels[1] == 0x80;
+        nr_write(emu, 0x08, 0x08);
+        nr_write(emu, 0x2C, 0x44);
+        a = dbg.audio_state();
+        check("DRP-20", "zxnext.vhd:5412,7046 soundrive.vhd:72-94 NR 0x2C with the DAC off counts DacMirrorDisabled (port 0x002C); on: B = 0x44, no count",
+              off && counts_are(a, {{AR::DacMirrorDisabled, 1}}) && a.dac.channels[1] == 0x44);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x00);
+        nr_write(emu, 0x2D, 0x44);
+        AudioState a = dbg.audio_state();
+        const bool off = counts_are(a, {{AR::DacMirrorDisabled, 1}}) && drop(a, AR::DacMirrorDisabled).last_port == 0x002D &&
+                         a.dac.channels[0] == 0x80 && a.dac.channels[3] == 0x80;
+        nr_write(emu, 0x08, 0x08);
+        nr_write(emu, 0x2D, 0x44);
+        a = dbg.audio_state();
+        check("DRP-21", "soundrive.vhd:85-89,98-101 NR 0x2D with the DAC off counts DacMirrorDisabled (port 0x002D); on: A and D = 0x44, no count",
+              off && counts_are(a, {{AR::DacMirrorDisabled, 1}}) && a.dac.channels[0] == 0x44 && a.dac.channels[3] == 0x44);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x00);
+        nr_write(emu, 0x2E, 0x44);
+        AudioState a = dbg.audio_state();
+        const bool off = counts_are(a, {{AR::DacMirrorDisabled, 1}}) && drop(a, AR::DacMirrorDisabled).last_port == 0x002E &&
+                         a.dac.channels[2] == 0x80;
+        nr_write(emu, 0x08, 0x08);
+        nr_write(emu, 0x2E, 0x44);
+        a = dbg.audio_state();
+        check("DRP-22", "soundrive.vhd:72-101 NR 0x2E with the DAC off counts DacMirrorDisabled (port 0x002E); on: C = 0x44, no count",
+              off && counts_are(a, {{AR::DacMirrorDisabled, 1}}) && a.dac.channels[2] == 0x44);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x84, 0xBF);
+        run_from(emu, 0x8000, {0x01, 0xB3, 0x12, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE});
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        const uint32_t frame = emu.frame_num();
+        emu.execute_single_instruction();
+        const AudioState a = dbg.audio_state();
+        const AudioDropCounter& c = drop(a, AR::DacFamilyDisabled);
+        check("DRP-23", "zxnext.vhd:2975,3091 a CPU OUT (C),A to 0x12B3 with b6 off: DacFamilyDisabled with the 16-bit port, the byte, the OUT's PC 0x8005, source Cpu and the stamper's frame tag",
+              counts_are(a, {{AR::DacFamilyDisabled, 1}}) && c.last_port == 0x12B3 && c.last_value == 0x55 &&
+              c.last_pc == 0x8005 && c.last_source == EventSource::Cpu && c.last_frame == (frame > 0 ? frame - 1 : 0));
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x00);
+        run_from(emu, 0x8000, {0xED, 0x91, 0x2D, 0x11, 0x18, 0xFE});
+        emu.execute_single_instruction();
+        const AudioState a = dbg.audio_state();
+        const AudioDropCounter& c = drop(a, AR::DacMirrorDisabled);
+        check("DRP-24", "zxnext.vhd:5413 a CPU NEXTREG 0x2D,0x11 with the DAC off: DacMirrorDisabled, port 0x002D, value 0x11, PC 0x8000, source Cpu",
+              counts_are(a, {{AR::DacMirrorDisabled, 1}}) && c.last_port == 0x002D && c.last_value == 0x11 &&
+              c.last_pc == 0x8000 && c.last_source == EventSource::Cpu);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x84, 0x7F);
+        park(emu);
+        emu.mmu().write(0xA000, 0x5A);
+        auto w = [&](uint8_t v) { emu.dma().write(v, false); };
+        w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00);   // R0: A -> B, A = 0xA000, one byte
+        w(0x14);                                       // R1: port A = memory, increment
+        w(0x28);                                       // R2: port B = I/O, fixed
+        w(0xAD); w(0xDF); w(0x00);                     // R4: port B = 0x00DF
+        w(0xCF); w(0x87);                              // R6: LOAD, ENABLE
+        emu.run_frame();
+        const AudioState a = dbg.audio_state();
+        const AudioDropCounter& c = drop(a, AR::DacFamilyDisabled);
+        check("DRP-25", "zxnext.vhd:2751,3094 a DMA byte to port 0x00DF with b7 off: DacFamilyDisabled, source Dma, port 0x00DF, the RAM byte",
+              counts_are(a, {{AR::DacFamilyDisabled, 1}}) && c.last_source == EventSource::Dma &&
+              c.last_port == 0x00DF && c.last_value == 0x5A);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x08, 0x00);
+        park(emu);
+        copper_words(emu, {static_cast<uint16_t>((0x2D << 8) | 0x66), static_cast<uint16_t>(0x8000u | 0x1FFu)});
+        emu.run_frame();
+        const AudioState a = dbg.audio_state();
+        const AudioDropCounter& c = drop(a, AR::DacMirrorDisabled);
+        check("DRP-26", "zxnext.vhd:5413 a Copper MOVE 0x2D,0x66 with the DAC off: DacMirrorDisabled, source Copper, value 0x66",
+              counts_are(a, {{AR::DacMirrorDisabled, 1}}) && c.last_source == EventSource::Copper &&
+              c.last_value == 0x66 && c.last_port == 0x002D);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("drp27")).value;
+        nr_write(emu, 0x84, 0xFE);
+        nr_write(emu, 0x08, 0x00);
+        const Result r1 = dbg.port_out(cid, 0xFFFD, 0x08);
+        const Result r2 = dbg.nextreg_write(cid, 0x2D, 0x77);
+        const AudioState a = dbg.audio_state();
+        check("DRP-27", "a debugger port_out and nextreg_write that are discarded count with source Debugger",
+              r1 == Result::Ok && r2 == Result::Ok &&
+              counts_are(a, {{AR::AyPortDisabled, 1}, {AR::DacMirrorDisabled, 1}}) &&
+              drop(a, AR::AyPortDisabled).last_source == EventSource::Debugger &&
+              drop(a, AR::DacMirrorDisabled).last_source == EventSource::Debugger &&
+              drop(a, AR::DacMirrorDisabled).last_value == 0x77);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        emu.port().out(0xFFFD, 0x08);
+        emu.port().out(0xDFFD, 0x01);
+        AudioState a = dbg.audio_state();
+        const bool on = counts_are(a, {}) && a.chips[0].address == 0x08 && emu.mmu().port_dffd_reg() == 0x01;
+        nr_write(emu, 0x84, 0xFE);
+        emu.port().out(0xDFFD, 0x02);
+        a = dbg.audio_state();
+        check("DRP-28", "zxnext.vhd:3088 0xDFFD (NR 0x82 b2 = 1) is the paging port, not an AY write: no counter moves with the AY ports on or off, the address is unchanged and the paging register takes the byte",
+              on && counts_are(a, {}) && a.chips[0].address == 0x08 && emu.mmu().port_dffd_reg() == 0x02);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("drp29")).value;
+        nr_write(emu, 0x84, 0xFE);
+        nr_write(emu, 0x08, 0x00);
+        emu.port().out(0xFFFD, 0x08);
+        emu.port().out(0x1F, 0x01);
+        nr_write(emu, 0x2E, 0x02);
+        const bool made = counts_are(dbg.audio_state(), {{AR::AyPortDisabled, 1}, {AR::DacFamilyDisabled, 1}, {AR::DacMirrorDisabled, 1}}) ;
+        const uint64_t rev = dbg.state_revision();
+        const Result r = dbg.clear_audio_drops(cid);
+        const AudioState a = dbg.audio_state();
+        bool zero = true;
+        for (const AudioDropCounter& c : a.drops)
+            zero = zero && c.count == 0 && c.last_port == 0 && c.last_value == 0 && c.last_pc == 0 &&
+                   c.last_frame == 0 && c.last_source == EventSource::Cpu;
+        check("DRP-29", "clear_audio_drops: Ok, every counter and its last_* fields back at the default, state_revision advanced (a MUTATE line)",
+              made && r == Result::Ok && zero && dbg.state_revision() > rev);
+    }
+    {
+        Emulator emu; fresh(emu);
+        auto dbg = std::make_unique<Debugger>(emu);
+        const ClientId cid = dbg->attach(client("drp30")).value;
+        nr_write(emu, 0x84, 0xBE);
+        nr_write(emu, 0x08, 0x08);
+        emu.port().out(0xFFFD, 0x08);
+        emu.port().out(0x12B3, 0x21);
+        nr_write(emu, 0x2C, 0x22);
+        emu.port().out(0x1F, 0x23);
+        emu.run_frame();
+        const auto want = dbg->audio_state().drops;
+        const bool made = counts_are(dbg->audio_state(), {{AR::AyPortDisabled, 1}, {AR::DacFamilyDisabled, 2}});
+        auto same = [&](const std::array<AudioDropCounter, jnext::dbg::AUDIO_DROP_REASON_COUNT>& d) {
+            for (size_t i = 0; i < d.size(); ++i)
+                if (d[i].count != want[i].count || d[i].last_port != want[i].last_port ||
+                    d[i].last_value != want[i].last_value || d[i].last_pc != want[i].last_pc ||
+                    d[i].last_frame != want[i].last_frame || d[i].last_source != want[i].last_source)
+                    return false;
+            return true;
+        };
+        const Result rr = dbg->reset(cid, ResetKind::Soft);
+        const bool after_reset = same(dbg->audio_state().drops);
+        const auto saved = dbg->save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        const Result lr = saved.status == Result::Ok
+            ? dbg->load_state_bytes(cid, saved.value.data(), saved.value.size()) : Result::RefusedCorrupt;
+        const bool after_load = same(dbg->audio_state().drops);
+        dbg.reset();
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+        emulator_cold_boot(emu, cfg);
+        Debugger fresh_dbg(emu);
+        const bool after_boot = same(fresh_dbg.audio_state().drops);
+        check("DRP-30", "the counters are host state: equal to the original after a soft reset, a state save and load, and a cold boot",
+              made && rr == Result::Ok && after_reset && lr == Result::Ok && after_load && after_boot);
+    }
+    {
+        Emulator emu; fresh(emu);
+        emu.set_rewind_enabled(true);
+        emu.resize_rewind_buffer(50);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("drp31")).value;
+        nr_write(emu, 0x84, 0xBF);
+        nr_write(emu, 0x08, 0x08);
+        run_from(emu, 0x8000, {0xF3, 0x01, 0xB3, 0x00, 0xED, 0x79, 0x18, 0xFC});
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        dbg.pause(cid);
+        dbg.step_into(cid);
+        const uint64_t n0 = dbg.audio_state().drops[size_t(AR::DacFamilyDisabled)].count;
+        const uint64_t c0 = emu.clock().get();
+        const Result r = dbg.step_back(cid, 1);
+        const uint64_t n1 = dbg.audio_state().drops[size_t(AR::DacFamilyDisabled)].count;
+        check("DRP-31", "a step back replays the frame's OUTs: the machine's cycle moves back and the count is unchanged (no counting in a replay)",
+              n0 > 1000 && r == Result::Ok && emu.clock().get() < c0 && n1 == n0);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        nr_write(emu, 0x84, 0xBF);
+        emu.port().out(0x00B3, 0x10);
+        emu.port().out(0x12B3, 0x20);
+        const AudioState a = dbg.audio_state();
+        const AudioDropCounter& c = drop(a, AR::DacFamilyDisabled);
+        check("DRP-32", "two drops of one reason: count 2, and the last port and value are the second write's",
+              counts_are(a, {{AR::DacFamilyDisabled, 2}}) && c.last_port == 0x12B3 && c.last_value == 0x20);
+    }
+
     // ─────────────────── AIZ: invisible to the Z80 ─────────────────────
 
     {
@@ -765,6 +1256,18 @@ int main() {
         const std::vector<uint8_t> blank = tail(fresh_ts);
         check("AIZ-06", "turbosound.vhd:118-138 a state saved right after reset_ay_only(), before any PSG tick, carries the same pcm_l/pcm_r as a fresh TurboSound's (and a sounding one does not)",
               sounding != blank && after == blank);
+    }
+
+
+    {
+        bool ran = false;
+        const bool same = invisible([](Emulator& e, bool on) {
+            if (on) e.clear_audio_drops();
+        }, 20, ran, build_drops);
+        Emulator probe; build_drops(probe);
+        for (int i = 0; i < 2; ++i) probe.run_frame();
+        check("AIZ-10", "the dropped-write counters are outside describe_state(): clearing them in one run leaves the saved state and the video unchanged (a CPU dropping thousands of writes a frame; positive control: the counters do move)",
+              ran && same && probe.audio_drops()[size_t(AR::DacFamilyDisabled)].count > 1000);
     }
 
     std::printf("\n=====================================\n");

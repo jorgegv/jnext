@@ -1722,6 +1722,9 @@ void DebuggerWindow::create_panels() {
         raise_panel(source_panel_);
     });
 
+    // GH #530 - a dropped CPU write in the Audio tab names the OUT that was discarded.
+    connect(audio_panel_, &AudioPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);
+
     // GH #366 - the Symbols tab asks for a place to be shown.
     connect(symbols_panel_, &SymbolsPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);
     connect(symbols_panel_, &SymbolsPanel::show_in_memory_requested, this, &DebuggerWindow::show_in_memory);
