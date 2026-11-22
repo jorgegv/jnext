@@ -1082,6 +1082,7 @@ my %NO_MATRIX_SECTION = (
     'frame_sequencer_test' => 'host frame sequencer (wall-clock run/present ordering)',
     'tick_stats_test'      => 'host tick accounting for the status bar',
     'speed_report_test'    => 'host speed-percentage reporting',
+    'output_files_test'    => 'GH #553 hook that reports the files a run writes to the browser page; host feature, no VHDL oracle',
     'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
     'emulator_boot_native_test' => 'host cold-boot of a live emulated ESP-01 (threaded; split out of emulator_boot_test, GH #460; no VHDL oracle)',
     'video_recorder_posix_test' => 'GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle',
