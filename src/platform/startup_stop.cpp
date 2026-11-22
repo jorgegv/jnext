@@ -204,7 +204,7 @@ void StartupStop::subscribe_tape() {
         (void)dbg_->subscribe(cid, all);
         return;
     }
-    const auto watch = [this, cid, delivered](jnext::dbg::Debugger& d, const Watch& w) {
+    const auto watch = [cid, delivered](jnext::dbg::Debugger& d, const Watch& w) {
         jnext::dbg::Subscription s;
         s.kind         = jnext::dbg::EventKind::Execute;
         s.filter.lo    = w.lo;
