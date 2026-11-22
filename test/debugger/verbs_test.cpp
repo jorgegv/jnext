@@ -6038,7 +6038,7 @@ void next_audio(Fixture& fx) {
 static void test_bp_audio() {
     set_group("QBA");
     using BM = BreakpointModel;
-    using jnext::dbg::AudioFlag;
+    namespace AudioFlag = jnext::dbg::AudioFlag;
     using jnext::dbg::AudioTarget;
     using jnext::dbg::audio_target_bit;
     using jnext::script::BpAudio;
