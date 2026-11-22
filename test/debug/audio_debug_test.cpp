@@ -56,6 +56,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <new>
 #include <initializer_list>
 #include <utility>
 #include <memory>
@@ -1581,49 +1582,38 @@ int main() {
               ton.written > 5000 && rings_equal(ton, toff) && on.halt_repeats_batched_for_test() > 0 &&
               off.halt_repeats_batched_for_test() == 0 && mon.l == moff.l && mon.r == moff.r);
     }
-    Out g_first;   // DIAGNOSTIC: an untapped batched machine run FIRST in the process
     {
-        Emulator e; build_batch(e, true);
-        for (int f = 0; f < 8; ++f) { e.run_frame(); drain(e, g_first); }
-    }
-    {
-        Emulator on, off; build_batch(on, true); build_batch(off, true);
-        on.set_cycle_batching_for_test(true, true, true);
-        off.set_cycle_batching_for_test(false, false, false);
-        AudioSourceTap ton, toff;
-        on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
-        Out mon, moff;
-        for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); }
-        for (int f = 0; f < 8; ++f) { off.run_frame(); drain(off, moff); }
-        {
-            // DIAGNOSTIC: the same fixture with no tap, run one after the other.
-            Out uo[2];
-            for (int k = 0; k < 2; ++k) {
-                Emulator e; build_batch(e, true);
-                e.set_cycle_batching_for_test(k == 0, k == 0, k == 0);
-                for (int f = 0; f < 8; ++f) { e.run_frame(); drain(e, uo[k]); }
-            }
-            {
-                size_t nd = 0;
-                for (size_t i = 0; i < mon.l.size() && i < uo[0].l.size(); ++i)
-                    if (mon.l[i] != uo[0].l[i] || mon.r[i] != uo[0].r[i]) {
-                        if (nd++ < 6) std::printf("  SCP-09 tapped-on vs untapped-on: sample %zu L %d vs %d R %d vs %d\n", i, mon.l[i], uo[0].l[i], mon.r[i], uo[0].r[i]);
-                    }
-                std::printf("  SCP-09 tapped-on vs untapped-on differing samples %zu of %zu\n", nd, mon.l.size());
-            }
-            std::printf("  SCP-09 first-in-process untapped vs later untapped-on equal=%d; vs tapped-on equal=%d\n",
-                        g_first.l == uo[0].l ? 1 : 0, g_first.l == mon.l ? 1 : 0);
-            std::printf("  SCP-09 UNTAPPED on/off mixer equal=%d; tapped-on vs untapped-on equal=%d; tapped-off vs untapped-off equal=%d\n",
-                        uo[0].l == uo[1].l ? 1 : 0, mon.l == uo[0].l ? 1 : 0, moff.l == uo[1].l ? 1 : 0);
-        }
-        std::printf("  SCP-09 written=%llu/%llu rings_equal=%d poll_on=%llu poll_off=%llu mixer_equal=%d (%zu/%zu samples)\n",
-                    static_cast<unsigned long long>(ton.written), static_cast<unsigned long long>(toff.written),
-                    rings_equal(ton, toff) ? 1 : 0, static_cast<unsigned long long>(on.poll_passes_batched_for_test()),
-                    static_cast<unsigned long long>(off.poll_passes_batched_for_test()), mon.l == moff.l && mon.r == moff.r ? 1 : 0,
-                    mon.l.size(), moff.l.size());
-        check("SCP-09", "a raster-poll loop with AY tones, 8 frames: the tap sequences are identical with the poll batch on and off, and it ran only in the 'on' machine",
-              ton.written > 5000 && rings_equal(ton, toff) && on.poll_passes_batched_for_test() > 0 &&
-              off.poll_passes_batched_for_test() == 0 && mon.l == moff.l && mon.r == moff.r);
+        // The poll-batch A/B, one machine at a time on the heap over a known fill: every machine of the matrix
+        // below starts from the same bytes, so nothing the constructor leaves unset can differ between them.
+        auto run = [](bool batch, bool tap, uint8_t fill, Out& out, AudioSourceTap& t, uint64_t& passes) {
+            void* mem = ::operator new(sizeof(Emulator));
+            std::memset(mem, fill, sizeof(Emulator));
+            Emulator* e = new (mem) Emulator;
+            build_batch(*e, true);
+            e->set_cycle_batching_for_test(batch, batch, batch);
+            if (tap) e->set_audio_scope_tap(&t);
+            for (int f = 0; f < 8; ++f) { e->run_frame(); drain(*e, out); }
+            passes = e->poll_passes_batched_for_test();
+            e->~Emulator();
+            ::operator delete(mem);
+        };
+        Out o[8]; AudioSourceTap t[8]; uint64_t pp[8];
+        run(true,  false, 0x00, o[0], t[0], pp[0]);
+        run(true,  false, 0xFF, o[1], t[1], pp[1]);
+        run(true,  false, 0xA5, o[2], t[2], pp[2]);
+        run(false, false, 0x00, o[3], t[3], pp[3]);
+        run(false, false, 0xFF, o[4], t[4], pp[4]);
+        run(true,  true,  0x00, o[5], t[5], pp[5]);
+        run(true,  true,  0xFF, o[6], t[6], pp[6]);
+        run(false, true,  0x00, o[7], t[7], pp[7]);
+        std::printf("  SCP-09 matrix (batch,tap,fill): on/00 on/FF=%d on/00 on/A5=%d off/00 off/FF=%d on/00 off/00=%d | "
+                    "tap on/00 vs untapped on/00=%d tap on/FF vs untapped on/FF=%d tap on/00 tap on/FF=%d tap on/00 vs tap off/00 mixers=%d rings=%d | passes %llu %llu %llu\n",
+                    o[0].l == o[1].l, o[0].l == o[2].l, o[3].l == o[4].l, o[0].l == o[3].l,
+                    o[5].l == o[0].l, o[6].l == o[1].l, o[5].l == o[6].l, o[5].l == o[7].l, rings_equal(t[5], t[7]),
+                    (unsigned long long)pp[0], (unsigned long long)pp[1], (unsigned long long)pp[5]);
+        check("SCP-09", "a raster-poll loop with AY tones, 8 frames, machines built over the same bytes: the tap sequences are identical with the poll batch on and off, the batch ran only in the 'on' machine, and the tap leaves the audible output unchanged",
+              t[5].written > 5000 && rings_equal(t[5], t[7]) && pp[5] > 0 && pp[7] == 0 && o[5].l == o[0].l && o[5].r == o[0].r &&
+              o[5].l == o[7].l);
     }
     {
         // A rewind replay mixes nothing, tapped or not (audio_divert_ bit 0), and normal running resumes after it.
