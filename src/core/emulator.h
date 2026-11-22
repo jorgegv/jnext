@@ -1672,6 +1672,9 @@ public:
     // Exposed here so audio_nextreg_test can observe the post-write state
     // without reaching into private fields.
 
+    /// The master cycle of the playing tape's last edge (test readout, GH #550).
+    uint64_t tape_edge_master() const { return tape_edge_master_; }
+
     /// NR 0x06 bit 6 — `nr_06_internal_speaker_beep` (VHDL zxnext.vhd:5163).
     bool nr_06_internal_speaker_beep() const { return nr_06_internal_speaker_beep_; }
 

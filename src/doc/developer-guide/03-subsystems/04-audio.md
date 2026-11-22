@@ -139,9 +139,20 @@ issue 3 keyboard setting), so a tape swings the mix by 128, a quarter of a
 beeper EAR step, and a tape XOR a set MIC bit is heard inverted. The EAR input
 itself is the jack through the board's `ear_relax`: a level held with no edge
 for 64 x 512 master cycles relaxes to the issue 2 MIC level. jnext applies that
-to the Pi's EAR route only; a playing tape's level passes straight through,
-because a `.jns` restore cannot know how long the deck had held its level (a
-tape pause holds it). `Emulator::tape_out_level`
+to both sources of the XOR: the Pi's comparator edges and the playing tape's own
+level changes (`tape_edge_master_`, stamped where the tape block sees the level
+move). A tape pause holds its last level for a second, so the relaxation is what
+a loader sees after the last pulse of a block. The stamp is not saved: after a
+restore (`load_state`, a `.jns` deck reattach) `derive_tape_edge_` rebuilds it
+from the deck's position. `TapLoader::ticks_since_edge` is exact for every phase
+(the pulse or pause length minus `pulse_left`); `WavLoader::ticks_since_edge`
+looks back along the recording (to twice the hold, all the relaxation needs);
+`TzxLoader::ticks_since_edge` is exact in the pause (the 1 ms hold and the pause's
+remainder, lengths the player holds) and 0 in a pulse phase, because the ZOT
+player does not keep the length of the pulse it has just started: the level is
+then taken as freshly changed, which keeps it as the board has it until the
+relaxation time, at most one pulse late for a pulse longer than that.
+`Emulator::tape_out_level`
 is the one model of that signal (the MIC jack of a tape save reads the same
 value), and it is refreshed into the beeper at the events that change it: a port
 0xFE write, an NR 0x08 or NR 0xA2 write, a state load, a replay-mode change, and a

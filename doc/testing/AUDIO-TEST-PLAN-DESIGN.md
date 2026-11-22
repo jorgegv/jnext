@@ -543,9 +543,8 @@ VHDL ref: `audio_mixer.vhd` lines 92-107
 the mix only inside `mic_i = beep_mic_final` (`zxnext.vhd:6503, 6516`), at 128. Signed sample = (13-bit sum - 1536) x 4,
 so EAR alone = 2048 and the MIC term alone = 512; the beeper is mono (L == R). `i_AUDIO_EAR` is the jack through
 `ear_relax` (`zxnext_top_issue2.vhd:662-677`, `symmetric_relaxation.vhd:62,76,89-90`): a level with no edge for
-64 x 512 master cycles relaxes to `zxn_issue2_fe_mic`. jnext applies that to the Pi's EAR route; a playing tape's level
-passes straight through (the relaxation of a playing tape is held back, see the GH #550 notes). Full-machine rows in
-`audio_nextreg_test`.
+64 x 512 master cycles relaxes to `zxn_issue2_fe_mic`. jnext applies that to the Pi's EAR route and to a playing tape (the last edge of a restored
+deck is derived from its position, MX-93..100). Full-machine rows in `audio_nextreg_test`.
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
@@ -572,6 +571,19 @@ passes straight through (the relaxation of a playing tape is held back, see the 
 | MX-90  | A state load re-derives the F3 hotkey enable (NR 0x06 bit 5) | F3 with the bit clear leaves NR 0x05 bit 2 alone (D9) |
 | MX-91  | A state load re-derives `nr_06_ps2_mode` the other way | saved 0 into a machine holding 1 (D9) |
 | MX-92  | In a HALT batch the Pi's `ear_relax` hold runs out at its time | the last samples of the frame are at rest (`pi_sample_thunk_`) |
+| MX-74  | A held tape level relaxes in the mix              | TZX pure tone: edge 512, held < hold 512, held > hold 0, raw tape level still 1 (D6) |
+| MX-75  | The relaxation reaches the port 0xFE read          | bit 6 follows the held tape until the hold, then the issue-2 MIC level (D6) |
+| MX-76  | Issue 2 + MIC: a held tape 0 relaxes to the MIC level, the next edge restarts the hold | mix 0 -> 512, then next edges 512 / 0 (D6) |
+| MX-77  | The hold restarts at an edge of tape XOR `pi_fe_ear` | a Pi edge inside the tape's hold extends it (D6) |
+| MX-83  | A tape stopped and started again restarts the hold at its first edge | the restarted tape is heard at once (512), not relaxed (D6) |
+| MX-93  | A TAP restore mid-pilot derives the tape edge     | 500 T into a 2168 T pulse: edge 500 T back |
+| MX-94  | A TAP restore mid-pause, before the relaxation    | 1000 T after the edge: age derived, mix 512 |
+| MX-95  | A TAP restore mid-pause, after the relaxation     | 8000 T after the edge: relaxed, mix 0 |
+| MX-96  | A TAP restore inside a data bit                   | a one bit (1710 T), 300 T left: age 1410 T |
+| MX-97  | A TZX restore in the pause's 1 ms hold            | derived edge equals the continuous one |
+| MX-98  | A TZX restore in the pause's remainder            | derived edge equals the continuous one |
+| MX-99  | A TZX restore in a pulse phase                    | age 0 (documented rule): never earlier than the continuous edge, at most one pulse later |
+| MX-100 | A WAV restore finds the edge by looking back      | young (1000 T): mix 512; old (9000 T, look-back capped at 8192 T): mix 0 |
 
 ## 6. NextREG Configuration
 
