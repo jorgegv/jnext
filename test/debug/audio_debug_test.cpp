@@ -923,12 +923,12 @@ int main() {
         emu.set_audio_mute_mask(AudioMute::BEEPER);     // the source setter, after the channel one
         mixer_sample(emu, l, r);
         const bool a = l == dac_expect(0xC0) && emu.mixer().mute_mask() == AudioMute::BEEPER &&
-                       emu.audio_mute_mask() == AudioMute::BEEPER && emu.mixer().dac_channel_mute() == 0x2;
+                       emu.audio_mute_mask() == AudioMute::BEEPER && emu.dac().channel_mute() == 0x2;
         emu.set_audio_mute_mask(AudioMute::NONE);
         mixer_sample(emu, l, r);
         check("ACM-20", "audio_mute.h composition: setting the source mask after the channel mask keeps the DAC channel mute, and clearing it leaves "
-              "the channel mute in force; mute_mask() never reports the channel flag",
-              a && emu.mixer().mute_mask() == AudioMute::NONE && emu.mixer().dac_channel_mute() == 0x2 &&
+              "the channel mute in force; the Mixer's mute_mask() is only the source mask",
+              a && emu.mixer().mute_mask() == AudioMute::NONE && emu.dac().channel_mute() == 0x2 &&
               l == dac_expect(0xC0) + 4 * 512);
     }
     {
@@ -936,9 +936,9 @@ int main() {
         Debugger dbg(emu);
         const ClientId cid = dbg.attach(client("acm21")).value;
         const Result res = dbg.set_audio_channel_mute_mask(cid, 0xFFFF);
-        check("ACM-21", "a mask with bits above 12 is stored masked to 0x1FFF; TurboSound gets the 9 AY bits, the Mixer the 4 DAC bits",
+        check("ACM-21", "a mask with bits above 12 is stored masked to 0x1FFF; TurboSound gets the 9 AY bits, the DAC the 4 DAC bits",
               res == Result::Ok && dbg.audio_channel_mute_mask() == 0x1FFF && emu.turbosound().channel_mute_mask() == 0x1FF &&
-              emu.mixer().dac_channel_mute() == 0xF && emu.audio_channel_mute_mask() == 0x1FFF);
+              emu.dac().channel_mute() == 0xF && emu.audio_channel_mute_mask() == 0x1FFF);
     }
     {
         const uint16_t mask = AudioChannelMute::ay_bit(2, 0) | AudioChannelMute::DAC_C;
@@ -949,7 +949,7 @@ int main() {
         emu.set_audio_channel_mute_mask(mask);
         const Result res = dbg.reset(cid, ResetKind::Soft);
         const bool soft = res == Result::Ok && emu.audio_channel_mute_mask() == mask &&
-            emu.turbosound().channel_mute_mask() == (mask & 0x1FF) && emu.mixer().dac_channel_mute() == 0x4;
+            emu.turbosound().channel_mute_mask() == (mask & 0x1FF) && emu.dac().channel_mute() == 0x4;
         program_channels(emu, 0x0A, 0, 0xFD);
         const bool soft_fx = ay_matches(emu, mask, m);
 
@@ -958,10 +958,10 @@ int main() {
         EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
         e2.init(cfg);
         const bool init = e2.audio_channel_mute_mask() == mask && e2.turbosound().channel_mute_mask() == (mask & 0x1FF) &&
-            e2.mixer().dac_channel_mute() == 0x4;
+            e2.dac().channel_mute() == 0x4;
         program_channels(e2, 0x0A, 0, 0xFD);
         const bool init_fx = ay_matches(e2, mask, m);
-        check("ACM-22", "a soft reset and an in-place init() leave the channel mask, its TurboSound and Mixer copies, and its audible effect (chip 2 A silent) unchanged",
+        check("ACM-22", "a soft reset and an in-place init() leave the channel mask, its TurboSound and DAC copies, and its audible effect (chip 2 A silent) unchanged",
               soft && soft_fx && init && init_fx);
     }
     {
@@ -971,7 +971,7 @@ int main() {
         emulator_cold_boot(emu, emu.config());
         check("ACM-23", "a hard reset (cold boot, which rebuilds the Emulator) keeps the channel mask and refans it to TurboSound and the Mixer",
               emu.audio_channel_mute_mask() == mask && emu.turbosound().channel_mute_mask() == AudioChannelMute::ay_bit(1, 2) &&
-              emu.mixer().dac_channel_mute() == 0x1);
+              emu.dac().channel_mute() == 0x1);
     }
     {
         Emulator emu; build(emu);
@@ -985,7 +985,29 @@ int main() {
             dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
         check("ACM-24", "a state saved with no mute and loaded with channels muted leaves the channel mask, and its two copies, as they were",
               loaded && emu.audio_channel_mute_mask() == mask && emu.turbosound().channel_mute_mask() == AudioChannelMute::ay_bit(0, 2) &&
-              emu.mixer().dac_channel_mute() == 0x8);
+              emu.dac().channel_mute() == 0x8);
+    }
+    {
+        // The DAC's audible copy follows its registers: a write while muted shows when unmuted, a state load
+        // refreshes it, and the registers themselves (channel(), the saved state) never see the mute.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("acm26")).value;
+        emu.run_frame(); emu.run_frame();
+        const auto s0 = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);   // A..D = 0x40 0x50 0x60 0x70
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_A);
+        emu.port().out(0x1F, 0x33);                         // A written while muted
+        const bool muted = emu.dac().channel(0) == 0x33 && emu.dac().pcm_left() == 0x80u + 0x50u;
+        emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);
+        const bool shown = emu.dac().pcm_left() == 0x33u + 0x50u;
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_A);
+        emu.port().out(0x0F, 0x22);                         // B (unmuted) moves away from the saved 0x50
+        const bool loaded = s0.status == Result::Ok &&
+            dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
+        check("ACM-26", "soundrive.vhd:74-77 the DAC's audible copy: a write while muted shows once unmuted, a state load refreshes it "
+              "(B back to 0x50, A still read as 0x80), and channel() keeps the register value",
+              muted && shown && loaded && emu.dac().channel(0) == 0x40 && emu.dac().pcm_left() == 0x80u + 0x50u &&
+              emu.dac().pcm_right() == 0x60u + 0x70u);
     }
     {
         Emulator emu; build_channels(emu);

@@ -149,30 +149,14 @@ public:
     /// muting is gated in TurboSound. Emulator::set_audio_mute_mask() owns the
     /// full 5-bit mask and fans it out to both. Not machine state — see
     /// audio/audio_mute.h.
-    void set_mute_mask(uint8_t m) {
-        mute_mask_ = (m & (AudioMute::DAC | AudioMute::BEEPER)) | (mute_mask_ & DAC_CHANNEL_MUTED);
-    }
-    uint8_t mute_mask() const { return mute_mask_ & (AudioMute::DAC | AudioMute::BEEPER); }
-
-    /// Debugger-only per-channel DAC mute (AudioChannelMute::DAC_A..D >> 9; bit k
-    /// = DAC channel k, A=0). A muted channel reads as its idle value 0x80
-    /// (soundrive.vhd:74-77) in the mix. Folded into mute_mask_ as an internal
-    /// flag so that mix() still tests ONE byte; the AY bits of the channel mask
-    /// are gated in TurboSound. Not machine state (audio/audio_mute.h).
-    void set_dac_channel_mute(uint8_t m) {
-        dac_channel_mute_ = m & 0x0F;
-        mute_mask_ = (mute_mask_ & ~DAC_CHANNEL_MUTED) | (dac_channel_mute_ ? DAC_CHANNEL_MUTED : 0);
-    }
-    uint8_t dac_channel_mute() const { return dac_channel_mute_; }
+    void set_mute_mask(uint8_t m) { mute_mask_ = m & (AudioMute::DAC | AudioMute::BEEPER); }
+    uint8_t mute_mask() const { return mute_mask_; }
 
 private:
     /// The VHDL 13-bit unsigned mix (audio_mixer.vhd:99-100) of the current
     /// source levels. Pure function of the sources — no state, no filtering.
     [[gnu::always_inline]] inline void mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
              int32_t& pcm_L, int32_t& pcm_R) const;
-
-    /// The DAC terms with the per-channel mute applied (cold, out of line: GH #533 bench).
-    void dac_channel_muted_terms(const Dac& dac, int32_t& dac_L, int32_t& dac_R) const;
 
     // Box-filter accumulator: sum of (13-bit mix x master cycles held), and the
     // total cycles, since the last emit_sample().
@@ -194,12 +178,8 @@ private:
     // VHDL audio_mixer.vhd:80-81 — when '1', ear/mic muxes feed (others=>'0').
     bool exc_i_{false};
 
-    // Debugger-only; NOT machine state (not reset, not serialised). Bits are
-    // AudioMute::DAC / BEEPER plus the internal DAC_CHANNEL_MUTED flag, which is
-    // set iff dac_channel_mute_ is non-zero (never visible through mute_mask()).
-    static constexpr uint8_t DAC_CHANNEL_MUTED = 0x80;
+    // Debugger-only; NOT machine state (not reset, not serialised).
     uint8_t mute_mask_{AudioMute::NONE};
-    uint8_t dac_channel_mute_{0};
 
     // Host output setting; not emulated machine state.
     float output_gain_db_{0.0f};

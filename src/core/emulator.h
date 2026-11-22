@@ -1061,7 +1061,7 @@ public:
     void set_audio_channel_mute_mask(uint16_t mask) {
         audio_channel_mute_mask_ = mask & AudioChannelMute::ALL;
         turbosound_.set_channel_mute_mask(audio_channel_mute_mask_ & AudioChannelMute::AY_ALL);
-        mixer_.set_dac_channel_mute(static_cast<uint8_t>(audio_channel_mute_mask_ >> 9));
+        dac_.set_channel_mute(static_cast<uint8_t>(audio_channel_mute_mask_ >> 9));
     }
     uint16_t audio_channel_mute_mask() const { return audio_channel_mute_mask_; }
 

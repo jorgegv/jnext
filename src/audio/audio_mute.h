@@ -52,7 +52,8 @@ enum : uint8_t {
 /// Soundrive DAC channels A-D are bits 9-12. A set bit makes the mix behave as
 /// if that channel's input were silent: 0 for an AY output (zeroed BEFORE the
 /// per-chip A/B/C mux, so ACB, mono and pan stay exact), 0x80 (the DAC idle
-/// value, soundrive.vhd:74-77) for a DAC channel. The hardware sum that is
+/// value, soundrive.vhd:74-77) for a DAC channel (Dac keeps an audible copy of its
+/// registers; the Mixer reads that, so its mix() is the same code muted or not). The hardware sum that is
 /// serialised never sees it. It composes with AudioMute: a channel is heard
 /// only if neither its chip/DAC/beeper bit nor its channel bit is set.
 namespace AudioChannelMute {

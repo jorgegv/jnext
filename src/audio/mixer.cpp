@@ -158,10 +158,6 @@ void Mixer::reset()
             // plus a chunk of lost headroom) instead of silence.
             dac_L = DAC_REST_LEVEL;
             dac_R = DAC_REST_LEVEL;
-        } else if (mute_mask_ & DAC_CHANNEL_MUTED) {
-            // Per-channel mute, out of line so mix() (inlined into the hot loop) keeps its
-            // size: a muted channel reads as its idle 0x80.
-            dac_channel_muted_terms(dac, dac_L, dac_R);
         }
     }
 
@@ -171,22 +167,6 @@ void Mixer::reset()
     const int32_t beeper_term = scale(ear + mic + tape_ear, beeper_gain_);
     pcm_L = beeper_term + ay_L + dac_L + i2s_L;
     pcm_R = beeper_term + ay_R + dac_R + i2s_R;
-}
-
-// Per-channel DAC mute (soundrive.vhd:74-77): a muted channel reads as its idle 0x80; A+B feed the
-// left sum, C+D the right (the same arithmetic as mix()'s unmuted DAC term).
-[[gnu::noinline, gnu::cold]] void Mixer::dac_channel_muted_terms(const Dac& dac, int32_t& dac_L, int32_t& dac_R) const
-{
-    auto lvl = [&](int k) -> int32_t {
-        return ((dac_channel_mute_ >> k) & 1) ? 0x80 : dac.channel(k);
-    };
-    auto term = [&](int32_t sum9) {
-        const int32_t x = (sum9 << 2) - DAC_REST_LEVEL;
-        return DAC_REST_LEVEL +
-            (dac_gain_ == 1.0f ? x : static_cast<int32_t>(std::lround(static_cast<float>(x) * dac_gain_)));
-    };
-    dac_L = term(lvl(0) + lvl(1));
-    dac_R = term(lvl(2) + lvl(3));
 }
 
 [[gnu::always_inline]] inline void Mixer::accumulate_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,

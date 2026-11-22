@@ -164,9 +164,10 @@ A second host mask, the 13-bit per-channel one (`AudioChannelMute`, set through
 `Emulator::set_audio_channel_mute_mask()`), follows the same rules and composes with the first. Its nine AY
 bits go to `TurboSound`, which zeroes the muted channel's input BEFORE the chip's A/B/C mux when it builds
 the audible pair, so ACB, mono and pan stay exact; the hardware pair never sees them. Its four DAC bits go
-to the `Mixer`, which folds them into its one mute byte as an internal flag: inside the existing mute
-branch, a muted DAC channel reads as its idle 0x80 instead of its register value, so an unmuted run still
-tests one byte per slice. The cold boot carries both masks.
+to the `Dac`, which keeps an audible copy of its four registers (a muted channel reads its idle 0x80),
+updated on each write and on a mute change; `pcm_left()` and `pcm_right()` sum that copy, so the Mixer's
+`mix()` is the same code muted or not, and the registers (what the debugger reads and a snapshot stores)
+never see the mute. A state load rebuilds the copy. The cold boot carries both masks.
 
 ## Getting samples to the host
 
