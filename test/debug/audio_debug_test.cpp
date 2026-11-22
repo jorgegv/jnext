@@ -1093,7 +1093,7 @@ int main() {
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);
         const ClientId cid = dbg.attach(client("drp29")).value;
-        nr_write(emu, 0x84, 0xFE);
+        nr_write(emu, 0x84, 0xFC);
         nr_write(emu, 0x08, 0x00);
         emu.port().out(0xFFFD, 0x08);
         emu.port().out(0x1F, 0x01);
@@ -1113,7 +1113,7 @@ int main() {
         Emulator emu; fresh(emu);
         auto dbg = std::make_unique<Debugger>(emu);
         const ClientId cid = dbg->attach(client("drp30")).value;
-        nr_write(emu, 0x84, 0xBE);
+        nr_write(emu, 0x84, 0xBC);
         nr_write(emu, 0x08, 0x08);
         emu.port().out(0xFFFD, 0x08);
         emu.port().out(0x12B3, 0x21);

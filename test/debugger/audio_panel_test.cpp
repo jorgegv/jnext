@@ -1089,7 +1089,7 @@ static void test_dac_tab(Emulator& emu) {
         AudioPanel panel(&dbg);
         auto* t = panel.findChild<QTreeWidget*>("audio_drops");
         auto* clear = panel.findChild<QPushButton*>("audio_drops_clear");
-        nr_write(emu, 0x84, 0xBE);
+        nr_write(emu, 0x84, 0xBC);
         nr_write(emu, 0x08, 0x00);
         emu.port().out(0xFFFD, 0x08);
         emu.port().out(0x1F, 0x01);
