@@ -31,7 +31,9 @@ DacStreamStats dac_stream_stats(const std::vector<AudioLogEntry>& entries, uint6
                                 uint64_t window_cycles) {
     DacStreamStats out;
     out.window_end = end_cycle;
-    out.window_start = (window_cycles != 0 && end_cycle > window_cycles) ? end_cycle - window_cycles : 0;
+    // (start, end]: a clock younger than the window has no start, so a write at cycle 0 still counts.
+    const bool bounded = window_cycles != 0 && end_cycle > window_cycles;
+    out.window_start = bounded ? end_cycle - window_cycles : 0;
 
     size_t from = 0;
     for (size_t i = 0; i < entries.size(); ++i)
@@ -44,7 +46,7 @@ DacStreamStats dac_stream_stats(const std::vector<AudioLogEntry>& entries, uint6
         if (e.target != AudioTarget::Dac && e.target != AudioTarget::DacMirror) continue;
         if (e.flags & AudioFlag::Dropped) continue;
         if (e.cycle > end_cycle) continue;
-        if (window_cycles != 0 && e.cycle <= out.window_start) continue;
+        if (bounded && e.cycle <= out.window_start) continue;
         const Key key{int(e.source), e.source == EventSource::Cpu ? e.pc : uint16_t(0)};
         Acc& a = writers[key];
         if (e.chip < 4) a.channels |= uint8_t(1u << e.chip);

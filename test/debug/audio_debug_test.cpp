@@ -3039,10 +3039,13 @@ int main() {
         const auto v = stream_of(20, 1000, 1000);
         const DacStreamStats a = dac_stream_stats(v, 20000, 5000);
         const DacStreamStats b = dac_stream_stats(v, 20000, 0);
-        check("DSS-09", "the window is (end - window, end]: samples at 1000..20000, end 20000, window 5000: start 15000, 5 samples (16000..20000, 15000 excluded); window 0: all 20",
+        // A clock younger than the window has no start: a write at cycle 0 counts (window 5000, end 4000).
+        const DacStreamStats young = dac_stream_stats(stream_of(5, 0, 1000), 4000, 5000);
+        check("DSS-09", "the window is (end - window, end]: samples at 1000..20000, end 20000, window 5000: start 15000, 5 samples (16000..20000, 15000 excluded); window 0: all 20; a clock younger than the window has no start, so samples at 0..4000 with end 4000 and window 5000 are all 5",
               a.window_start == 15000 && a.window_end == 20000 && a.writers.size() == 1 &&
               a.writers[0].samples == 5 && a.writers[0].first_cycle == 16000 &&
-              b.writers.size() == 1 && b.writers[0].samples == 20);
+              b.writers.size() == 1 && b.writers[0].samples == 20 &&
+              young.writers.size() == 1 && young.writers[0].samples == 5 && young.window_start == 0);
     }
     {
         // 7 intervals alternating 1790, 1794 (four of 1790, three of 1794): lower median sorted[3] = 1790.

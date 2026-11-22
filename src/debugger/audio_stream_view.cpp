@@ -165,10 +165,12 @@ void AudioStreamView::refresh() {
     for (size_t i = 0; i < cache_.size(); ++i)
         if (cache_[i].marker != AudioMarker::None) newest_marker = i;
     cache_.erase(cache_.begin(), cache_.begin() + std::ptrdiff_t(newest_marker));
-    const uint64_t start = end > window ? end - window : 0;
-    cache_.erase(std::remove_if(cache_.begin(), cache_.end(),
-                                [&](const AudioLogEntry& e) { return e.marker == AudioMarker::None && e.cycle <= start; }),
-                 cache_.end());
+    if (end > window) {                        // (end - window, end]; a younger clock keeps everything
+        const uint64_t start = end - window;
+        cache_.erase(std::remove_if(cache_.begin(), cache_.end(),
+                                    [&](const AudioLogEntry& e) { return e.marker == AudioMarker::None && e.cycle <= start; }),
+                     cache_.end());
+    }
 
     const DacStreamStats st = dac_stream_stats(cache_, end, window);
     stream_->clear();
