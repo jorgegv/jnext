@@ -6260,6 +6260,7 @@ static void test_bp_audio() {
             sub.kind = jnext::dbg::EventKind::AudioWrite;
             sub.filter.audio_targets = T_AY;
             sub.filter.regs = {8, 9, 10};
+            sub.filter.audio_flags_none = AudioFlag::Dropped;   // as the script's `ay_write` sets it: only the register range is foreign
             const auto other = other_client_sub(g.fx, g.model(), sub);
             const auto& rows = g.model().rows();
             check("QBA-12", desc,
