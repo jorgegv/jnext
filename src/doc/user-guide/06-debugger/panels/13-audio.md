@@ -9,7 +9,7 @@ is not part of a saved state or a rewind slot, so muting a chip to work out
 which one is making a noise does not change the program's behaviour.
 
 Below it are five tabs: **Chips**, **DAC & Beeper**, **Log**, **Tracker** and
-**Scopes**. Log, Tracker and Scopes are not available yet.
+**Scopes**. Tracker and Scopes are not available yet.
 
 ## Chips
 
@@ -97,5 +97,43 @@ Debugger, and stepping back or rewinding does not count the replayed writes agai
 Double-click a row written by the CPU to show the instruction in the Disassembly.
 
 The DAC & Beeper tab is refreshed at about 4 Hz with the rest of the window.
+
+## Log
+
+A table of the audio writes the program made, one row per write, newest last. The
+machine records them only while this tab is the one on show in an open debugger window
+(or while something else asks for the log, such as `--audio-log`); the rows you see
+start when you open the tab, and the log holds the newest 65536 writes. The tab is
+refreshed with the rest of the window when the machine is paused or stepped.
+
+The columns are the **Frame**, **Line**, **HC** and **T-state** the write happened at,
+the **PC** of the instruction (only for a write the CPU made), the **Source** (CPU, DMA,
+Copper or Debugger), the **Target** (AY register, AY select, DAC, DAC mirror or Beeper),
+the **Chip** (the AY chip 0 to 2, or the DAC channel A to D), the **Reg** (`R7` for an
+AY register, `NR 0x2D` for a DAC mirror write), the **Value** written, the **Prev** value
+it replaced and the **Flags**.
+
+What is recorded: AY register writes; the TurboSound chip-select and pan commands
+(written to port 0xFFFD) and any discarded 0xFFFD write; DAC channel writes, one row per
+channel a write reaches (port 0xB3 gives channels B and C); writes to NextREG 0x2C to
+0x2E, which mirror into the DAC; and a change of the beeper's EAR or MIC line. A plain
+AY register select, a border-only write to port 0xFE and a repeat of the same EAR and
+MIC levels are not recorded.
+
+The **Flags** cell reads `restart` for a write to AY register 13, which restarts the
+envelope even when the value does not change, and `dropped: ` with the reason (the same
+texts as the Dropped writes table above) for a write the hardware discarded; a dropped
+DAC write reached no channel, so its Chip is `-`.
+
+A **marker** row reports a break in the log: `reset` (the machine was reset), `state load`
+(a state was loaded) or `rewind` (the machine stepped back or rewound). Stepping back
+removes the rows from the point you landed on, so the log follows the timeline you are
+now on, and adds a `rewind` marker. Markers are shown under every filter.
+
+The filters narrow the rows: the Target, the AY chip, the AY register, the DAC channel
+and the Source; **Envelope restarts only**; and **Dropped only**. Double-click a row
+written by the CPU to show the instruction in the Disassembly. **Export CSV...** writes
+the whole log in the same format as the `--audio-log` option, described in the manual
+page.
 
 ---

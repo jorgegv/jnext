@@ -62,13 +62,13 @@ class AudioLogProxy : public QSortFilterProxyModel {
 public:
     explicit AudioLogProxy(QObject* parent = nullptr) : QSortFilterProxyModel(parent) {}
 
-    void set_target(int t)    { target_ = t; invalidateFilter(); }      ///< AudioTarget, or -1
-    void set_chip(int c)      { chip_ = c; invalidateFilter(); }        ///< AY chip 0-2 (AY targets), or -1
-    void set_reg(int r)       { reg_ = r; invalidateFilter(); }         ///< AY register 0-15, or -1
-    void set_dac(int d)       { dac_ = d; invalidateFilter(); }         ///< DAC channel 0-3 (Dac, DacMirror), or -1
-    void set_source(int s)    { source_ = s; invalidateFilter(); }      ///< EventSource, or -1
-    void set_restarts_only(bool b) { restarts_ = b; invalidateFilter(); }
-    void set_dropped_only(bool b)  { dropped_ = b; invalidateFilter(); }
+    void set_target(int t)    { target_ = t; invalidate(); }      ///< AudioTarget, or -1
+    void set_chip(int c)      { chip_ = c; invalidate(); }        ///< AY chip 0-2 (AY targets), or -1
+    void set_reg(int r)       { reg_ = r; invalidate(); }         ///< AY register 0-15, or -1
+    void set_dac(int d)       { dac_ = d; invalidate(); }         ///< DAC channel 0-3 (Dac, DacMirror), or -1
+    void set_source(int s)    { source_ = s; invalidate(); }      ///< EventSource, or -1
+    void set_restarts_only(bool b) { restarts_ = b; invalidate(); }
+    void set_dropped_only(bool b)  { dropped_ = b; invalidate(); }
 
 protected:
     bool filterAcceptsRow(int source_row, const QModelIndex& parent) const override;
