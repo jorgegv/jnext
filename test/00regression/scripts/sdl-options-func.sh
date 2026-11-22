@@ -56,6 +56,8 @@ if want sdl-options-func; then
             if [[ "$rc" != 0 || "$t0" -lt 0 || "$t1" -lt 0 ]]; then
                 so_faults+=("--speed $sp: rc=$rc, no pacing/exit lines")
             else
+                # the log stamps are time of day: a run that straddles local midnight (UTC on CI) wraps
+                (( t1 < t0 )) && t1=$(( t1 + 86400000 ))
                 so_ms_at[$sp]=$(( t1 - t0 ))
             fi
         done

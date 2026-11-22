@@ -124,6 +124,9 @@ jobs:
     # exports them via $GITHUB_ENV, which is the supported way.
     env:
       FPGA_CORE_REF: b047011d82bf3086f2b7db76451c6254506f5fe8   # CORE VERSION 3.02.03
+      # GH #547: one main run saves every leg's ccache (6.5 GB measured on 2026-11-21) against
+      # GitHub's 10 GB repository limit; the cap keeps a run's entries near 5 GB.
+      CCACHE_MAXSIZE: ${{ fromJSON('{"build-matrix":"1G","unit":"800M","unit-win":"300M","regression":"600M","regression-win":"500M","regression-wasm":"300M","unit-wasm":"300M","browser":"400M"}')[matrix.leg] || '300M' }}
     steps:
       # git first, BEFORE the checkout: a bare fedora:45 has no git, and
       # actions/checkout throws outright when `submodules` is requested
@@ -202,7 +205,8 @@ jobs:
       # is saved once per key, so a shared key would keep only whichever leg
       # finished first. A miss falls back to any leg's entry.
       - name: Cache ccache
-        uses: actions/cache@v5
+        id: cache1
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/ccache
           key: ccache-fedora45-${{ matrix.leg }}-${{ github.sha }}
@@ -219,7 +223,7 @@ jobs:
       - name: Cache NextZXOS SD-card image
         if: matrix.leg != 'build-matrix'
         id: sdcache
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
           # kDistroUrl in src/core/sdcard_provisioner.cpp is versioned
@@ -241,7 +245,8 @@ jobs:
       # bump changes it and a stale entry is never reused.
       - name: Cache Ghidra
         if: matrix.leg == 'regression'
-        uses: actions/cache@v5
+        id: cache2
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/jnext/tools/ghidra-12.2
           key: ghidra-12.2-2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67-fedora45
@@ -267,7 +272,8 @@ jobs:
       # reused (an entry without the provisioner's stamp is replaced anyway).
       - name: Cache the Emscripten SDK
         if: matrix.leg == 'regression-wasm' || matrix.leg == 'unit-wasm' || matrix.leg == 'browser'
-        uses: actions/cache@v5
+        id: cache3
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/jnext/tools/emsdk-6.0.13
           key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora45
@@ -277,7 +283,8 @@ jobs:
       # sha256, so a hit only skips the downloads. The key carries the pin prefixes.
       - name: Cache Playwright
         if: matrix.leg == 'browser'
-        uses: actions/cache@v5
+        id: cache4
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/jnext/tools/playwright-1.65.0
           key: playwright-1.65.0-315247c5-18352d22-fedora45
@@ -432,6 +439,45 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: ccache statistics
+        if: always()
+        run: LANG=C make ccache-stats
+
+      - name: Save ccache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/ccache
+          key: ccache-fedora45-${{ matrix.leg }}-${{ github.sha }}
+
+      - name: Save NextZXOS SD-card image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.sdcache.outputs.cache-hit != 'true' && (matrix.leg != 'build-matrix')
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-26.11a-recipe3-fedora45
+
+      - name: Save Ghidra
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache2.outputs.cache-hit != 'true' && (matrix.leg == 'regression')
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/jnext/tools/ghidra-12.2
+          key: ghidra-12.2-2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67-fedora45
+
+      - name: Save the Emscripten SDK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache3.outputs.cache-hit != 'true' && (matrix.leg == 'regression-wasm' || matrix.leg == 'unit-wasm' || matrix.leg == 'browser')
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/jnext/tools/emsdk-6.0.13
+          key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora45
+
+      - name: Save Playwright
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache4.outputs.cache-hit != 'true' && (matrix.leg == 'browser')
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/jnext/tools/playwright-1.65.0
+          key: playwright-1.65.0-315247c5-18352d22-fedora45
+
   # ── Qt5 compile guard (GH #108 Phase A) ─────────────────────────────────
   #
   # The Win7/8 legacy Windows packages build the SAME src/gui + src/debugger
@@ -467,7 +513,8 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Cache ccache
-        uses: actions/cache@v5
+        id: cache5
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/ccache
           key: ccache-qt5-fedora45-${{ github.sha }}
@@ -476,6 +523,17 @@ jobs:
 
       - name: make qt5-guard-build
         run: LANG=C make qt5-guard-build
+
+      - name: ccache statistics
+        if: always()
+        run: LANG=C make ccache-stats
+
+      - name: Save ccache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/ccache
+          key: ccache-qt5-fedora45-${{ github.sha }}
 
   # ── Packaging correctness (issue #61) ───────────────────────────────────
   #
@@ -543,7 +601,8 @@ jobs:
       # two jobs saving the same key collide (GitHub cache entries are
       # immutable). The compilations differ anyway — Release/no-tests here.
       - name: Cache ccache
-        uses: actions/cache@v5
+        id: cache6
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/ccache
           key: ccache-fedora45-package-${{ github.sha }}
@@ -556,7 +615,8 @@ jobs:
       # cache miss lets jnext's own provisioner download it (and this step then
       # saves it). The key's comment in ci.yml says when to bump it.
       - name: Cache NextZXOS SD-card image
-        uses: actions/cache@v5
+        id: cache7
+        uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
           key: sdcard-image-distro-26.11a-recipe3-fedora45
@@ -641,6 +701,24 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      - name: ccache statistics
+        if: always()
+        run: LANG=C make ccache-stats
+
+      - name: Save ccache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/ccache
+          key: ccache-fedora45-package-${{ github.sha }}
+
+      - name: Save NextZXOS SD-card image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache7.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-26.11a-recipe3-fedora45
+
   # macOS is the ONE platform the regular push path did not cover.
   #
   # Windows already is, and adding a second Windows job here would duplicate
@@ -690,7 +768,8 @@ jobs:
       # own provisioner download the image (and this step then saves it). Bump
       # the key together with ci.yml's.
       - name: Cache NextZXOS SD-card image
-        uses: actions/cache@v5
+        id: cache8
+        uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
           key: sdcard-image-distro-26.11a-recipe3-macos
@@ -709,6 +788,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Save NextZXOS SD-card image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache8.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-26.11a-recipe3-macos
 
   # GH #494. The Intel Mac package, and the SDL-only unit suites on x86_64, in ONE
   # job: GitHub caps a plan at 5 concurrent macOS jobs, shared by every run, so a
@@ -742,14 +828,30 @@ jobs:
           submodules: recursive
 
       - name: Install dependencies (MacPorts, binary archives only)
+        env:
+          MACPORTS_EXTRA_PORTS: ccache
         run: bash packaging/macos/install-macports.sh
       # The same key as `macos`: the image does not depend on the architecture.
       # On a miss pgo-train.sh provisions it itself, and this step then saves it.
       - name: Cache NextZXOS SD-card image
-        uses: actions/cache@v5
+        id: cache9
+        uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
           key: sdcard-image-distro-26.11a-recipe3-macos
+
+      # This job had no ccache: 34 to 52 min per run, all of it compiled cold (GH #547).
+      # CMake picks ccache up from PATH (/opt/local/bin, added by install-macports.sh).
+      - name: Cache ccache
+        id: ccachemi
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/.cache/ccache
+          key: ccache-macos-intel-${{ github.sha }}
+          restore-keys: |
+            ccache-macos-intel-
 
       - name: make package-macos (build, package, verify self-containment and minimum macOS)
         run: MACPORTS_PREFIX=/opt/local OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
@@ -775,6 +877,26 @@ jobs:
           name: jnext-macos-x64-unit-logs
           path: build/sdl-unit-test/test-logs
           if-no-files-found: ignore
+
+      - name: ccache statistics
+        if: always()
+        run: LANG=C make ccache-stats
+
+      - name: Save ccache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/.cache/ccache
+          key: ccache-macos-intel-${{ github.sha }}
+
+      - name: Save NextZXOS SD-card image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache9.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-26.11a-recipe3-macos
 
   # GH #214. The SDL-only unit suites on macOS. The `macos` job above builds and
   # packages but runs no suite, so a POSIX divergence in a suite or in the code it
@@ -803,13 +925,15 @@ jobs:
       # On a miss `make unit-test-sdl` provisions it itself (the `sdcard-image`
       # target), and this step then saves it.
       - name: Cache NextZXOS SD-card image
-        uses: actions/cache@v5
+        id: cache10
+        uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
           key: sdcard-image-distro-26.11a-recipe3-macos
 
       - name: Cache ccache
-        uses: actions/cache@v5
+        id: cache11
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/Library/Caches/ccache
@@ -828,6 +952,26 @@ jobs:
           name: jnext-macos-unit-logs
           path: build/sdl-unit-test/test-logs
           if-no-files-found: ignore
+
+      - name: Save NextZXOS SD-card image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache10.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-26.11a-recipe3-macos
+
+      - name: ccache statistics
+        if: always()
+        run: LANG=C make ccache-stats
+
+      - name: Save ccache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/.cache/ccache
+          key: ccache-macos-unit-${{ github.sha }}
 
   # GH #319. The regression suite on macOS: the screenshots and the functional
   # rows macOS can run (`os=` in test/00regression/functional_tests.conf; the
@@ -852,13 +996,15 @@ jobs:
       - name: Install python jsonschema
         run: python3 -m pip install --break-system-packages jsonschema pyyaml
       - name: Cache NextZXOS SD-card image
-        uses: actions/cache@v5
+        id: cache12
+        uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
           key: sdcard-image-distro-26.11a-recipe3-macos
 
       - name: Cache ccache
-        uses: actions/cache@v5
+        id: cache13
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/Library/Caches/ccache
@@ -879,6 +1025,26 @@ jobs:
             test/00regression/img/*-diff.png
             build/regression-artifacts
           if-no-files-found: ignore
+
+      - name: Save NextZXOS SD-card image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache12.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-26.11a-recipe3-macos
+
+      - name: ccache statistics
+        if: always()
+        run: LANG=C make ccache-stats
+
+      - name: Save ccache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/.cache/ccache
+          key: ccache-macos-regression-${{ github.sha }}
 
   # The flatpak bundle, actually BUILT on every push rather than skipped — and,
   # since it now goes through the shared definition, PERMISSION-GATED on every

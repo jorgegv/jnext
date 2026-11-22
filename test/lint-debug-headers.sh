@@ -48,7 +48,7 @@
 #     includes standard headers only, so it is listed in STD_ONLY_HEADERS and
 #     held to the stronger rule instead: it reaches no project header at all.
 #
-# It also asserts the published headers preprocess with `-Isrc` ALONE — no SDL, Qt,
+# It also asserts the published headers preprocess with `-Isrc` ALONE -- no SDL, Qt,
 # spdlog or third-party include path. That is a property worth having in its own
 # right: it is what lets a frontend include the facade without inheriting a
 # build configuration.
