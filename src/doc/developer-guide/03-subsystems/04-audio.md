@@ -144,9 +144,10 @@ because a `.jns` restore cannot know how long the deck had held its level (a
 tape pause holds it). `Emulator::tape_out_level`
 is the one model of that signal (the MIC jack of a tape save reads the same
 value), and it is refreshed into the beeper at the events that change it: a port
-0xFE write, an NR 0x08 or NR 0xA2 write, a state load, a `.jns` deck restore,
-and `Emulator::mic_stale_` at each output-sample boundary, which sees what has no
-event of its own: the raw tape level moving, a tape that stopped, and the Pi's
+0xFE write, an NR 0x08 or NR 0xA2 write, a state load, and
+`Emulator::mic_stale_` at each output-sample boundary, which sees what has no
+event of its own: the raw tape level moving, a tape that started or stopped,
+and the Pi's
 relaxation hold running out. So the tape reaches the MIC term at output-sample
 granularity (about 635 master cycles) and the per-instruction tape block pays
 nothing for it. A state load also re-derives the NR 0x06
