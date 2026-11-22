@@ -899,12 +899,13 @@ int main() {
         nr_write(emu, 0x06, 0x03);
         emu.port().out(0xBFFD, 0x11);
         AudioState a = dbg.audio_state();
-        const bool held = counts_are(a, {{AR::AyHeldInReset, 1}});
+        const bool held = counts_are(a, {{AR::AyHeldInReset, 1}}) &&
+                         drop(a, AR::AyHeldInReset).last_port == 0xBFFD && drop(a, AR::AyHeldInReset).last_value == 0x11;
         nr_write(emu, 0x06, 0x01);
         emu.port().out(0xFFFD, 0x05);
         emu.port().out(0xBFFD, 0x2A);
         a = dbg.audio_state();
-        check("DRP-05", "ym2149.vhd:184 a 0xBFFD write while held in reset counts AyHeldInReset (not AyAddressHigh); released: R5 = 0x2A and no count",
+        check("DRP-05", "ym2149.vhd:184 a 0xBFFD write while held in reset counts AyHeldInReset (not AyAddressHigh; port 0xBFFD, the byte); released: R5 = 0x2A and no count",
               held && counts_are(a, {{AR::AyHeldInReset, 1}}) && a.chips[0].regs[5] == 0x2A);
     }
     {
@@ -912,11 +913,12 @@ int main() {
         nr_write(emu, 0x08, 0x00);
         emu.port().out(0xFFFD, 0xFE);
         AudioState a = dbg.audio_state();
-        const bool off = counts_are(a, {{AR::AyChipSelectTurboOff, 1}}) && a.active_chip == 0 && a.chips[1].pan == 3;
+        const bool off = counts_are(a, {{AR::AyChipSelectTurboOff, 1}}) && a.active_chip == 0 && a.chips[1].pan == 3 &&
+                         drop(a, AR::AyChipSelectTurboOff).last_port == 0xFFFD && drop(a, AR::AyChipSelectTurboOff).last_value == 0xFE;
         nr_write(emu, 0x08, 0x02);
         emu.port().out(0xFFFD, 0xFE);
         a = dbg.audio_state();
-        check("DRP-06", "turbosound.vhd:129-136 the chip-select command 0xFE with TurboSound off counts AyChipSelectTurboOff (chip 0 stays active); on: chip 1 active, pan 3, no count",
+        check("DRP-06", "turbosound.vhd:129-136 the chip-select command 0xFE with TurboSound off counts AyChipSelectTurboOff (port 0xFFFD, the byte; chip 0 stays active); on: chip 1 active, pan 3, no count",
               off && counts_are(a, {{AR::AyChipSelectTurboOff, 1}}) && a.active_chip == 1 && a.chips[1].pan == 3);
     }
     {
