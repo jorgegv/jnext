@@ -3507,20 +3507,20 @@ static void audio_rows() {
             0x06, 0xFF, 0x3E, 0xFE, 0xED, 0x79, 0x3E, 0x11, 0xD3, 0x1F, 0xED, 0x91, 0x2D, 0x66, 0x3E, 0x10, 0xD3, 0xFE, 0x18, 0xFE};
         Rig g(prog, MachineType::ZXN_ISSUE2);
         next_rig(g);
-        const bool ok = g.load("on audio_write do log \"T ${TARGET} ${CHIP} ${REG} ${VALUE} ${PREV}\" end\n");
+        const bool ok = g.load("on audio_write do log \"AW ${TARGET} ${CHIP} ${REG} ${VALUE} ${PREV}\" end\n");
         g.frames(1);
-        check("EVT-AUW-01", "`on audio_write` over an AY R7 write, a chip command, a DAC write, a NextREG mirror and a beeper write logs exactly `T 0 0 7 56 63`, `T 1 1 0 254 0`, `T 2 0 0 17 128`, `T 3 0 45 102 17` (channel A held the DAC write), `T 3 3 45 102 128` and `T 4 0 0 16 0` (TARGET CHIP REG VALUE PREV)",
-              ok && g.sink.count("T ") == 6 && g.sink.count("T 0 0 7 56 63") == 1 && g.sink.count("T 1 1 0 254 0") == 1 &&
-                  g.sink.count("T 2 0 0 17 128") == 1 && g.sink.count("T 3 0 45 102 17") == 1 && g.sink.count("T 3 3 45 102 128") == 1 &&
-                  g.sink.count("T 4 0 0 16 0") == 1, g.sink.tail(7));
+        check("EVT-AUW-01", "`on audio_write` over an AY R7 write, a chip command, a DAC write, a NextREG mirror and a beeper write logs exactly `AW 0 0 7 56 63`, `AW 1 1 0 254 0`, `AW 2 0 0 17 128`, `AW 3 0 45 102 17` (channel A held the DAC write), `AW 3 3 45 102 128` and `AW 4 0 0 16 0` (TARGET CHIP REG VALUE PREV)",
+              ok && g.sink.count("AW ") == 6 && g.sink.count("AW 0 0 7 56 63") == 1 && g.sink.count("AW 1 1 0 254 0") == 1 &&
+                  g.sink.count("AW 2 0 0 17 128") == 1 && g.sink.count("AW 3 0 45 102 17") == 1 && g.sink.count("AW 3 3 45 102 128") == 1 &&
+                  g.sink.count("AW 4 0 0 16 0") == 1, g.sink.tail(7));
         struct Case { const char* rule; size_t lines; };
         const Case cases[] = {
-            {"on audio_write ay_select do log \"T\" end\n", 1},
-            {"on audio_write dac do log \"T\" end\n", 3},
-            {"on audio_write dac chip 3 do log \"T\" end\n", 1},
-            {"on audio_write ay_reg reg 7 do log \"T\" end\n", 1},
-            {"on audio_write ay_reg chip 1 do log \"T\" end\n", 0},
-            {"on audio_write ay_reg mask 0xF0 value 0x30 do log \"T\" end\n", 1},
+            {"on audio_write ay_select do log \"AW\" end\n", 1},
+            {"on audio_write dac do log \"AW\" end\n", 3},
+            {"on audio_write dac chip 3 do log \"AW\" end\n", 1},
+            {"on audio_write ay_reg reg 7 do log \"AW\" end\n", 1},
+            {"on audio_write ay_reg chip 1 do log \"AW\" end\n", 0},
+            {"on audio_write ay_reg mask 0xF0 value 0x30 do log \"AW\" end\n", 1},
         };
         std::string miss;
         for (const Case& c : cases) {
@@ -3528,7 +3528,7 @@ static void audio_rows() {
             next_rig(h);
             const bool okc = h.load(c.rule);
             h.frames(1);
-            if (!okc || h.sink.count("T") != c.lines) miss += std::string(c.rule) + " -> " + std::to_string(h.sink.count("T")) + " ";
+            if (!okc || h.sink.count("AW") != c.lines) miss += std::string(c.rule) + " -> " + std::to_string(h.sink.count("AW")) + " ";
         }
         check("EVT-AUW-02", "the target words and qualifiers filter: ay_select 1 line; dac 3 (DAC A, mirror A and D); dac chip 3 1; ay_reg reg 7 1; ay_reg chip 1 none; ay_reg mask 0xF0 value 0x30 1",
               miss.empty(), miss);

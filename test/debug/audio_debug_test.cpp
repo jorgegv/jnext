@@ -2616,7 +2616,6 @@ int main() {
         const auto ev = m.events();
         const bool one = ev.size() == 1;
         const DbgEvent e = one ? ev[0] : DbgEvent{};
-        if (!one || !e.pc) std::printf("    AEV-02: events=%zu paused=%d pc=%04X\n", ev.size(), m.paused(), m.stop_pc());
         const bool stop = m.paused() && m.stop_pc() == 0x800D && !m.cap.paused.empty() &&
                           m.cap.paused.back().matched.size() == 1 && m.cap.paused.back().matched[0].event_id == id;
         check("AEV-02", "AY chip 0 R7 sub, log OFF: the data write at 0x800B stops at 0x800D with matched = the id; the Event is AudioWrite/AyRegister, chip 0, reg 7, value 0x38, prev 0x3F, port 0xBFFD, source Cpu, pc 0x800B, flags 0, reason None; the plain select made no stop",
@@ -2679,12 +2678,9 @@ int main() {
         m.sub(s);
         m.go({0x3E, 0x11, 0xD3, 0x1F, 0x18, 0xFE});
         const auto ev = m.events();
-        if (ev.size() == 1)
-            std::printf("    AEV-08: paused=%d pc=%04X target=%d chip=%d port=%04X value=%02X prev=%02X\n", m.paused(), m.stop_pc(),
-                        int(ev[0].audio_target), ev[0].chip, ev[0].port, ev[0].value, ev[0].prev);
-        check("AEV-08", "a DAC sub: LD A,0x11; OUT (0x1F),A stops at 0x8004; Event target Dac, chip 0, port 0x001F, value 0x11, prev 0x80",
+        check("AEV-08", "a DAC sub: LD A,0x11; OUT (0x1F),A stops at 0x8004; Event target Dac, chip 0, port 0x111F (OUT (n),A puts A on the high address byte), value 0x11, prev 0x80",
               m.paused() && m.stop_pc() == 0x8004 && ev.size() == 1 && ev[0].audio_target == AT::Dac && ev[0].chip == 0 &&
-              ev[0].port == 0x001F && ev[0].value == 0x11 && ev[0].prev == 0x80);
+              ev[0].port == 0x111F && ev[0].value == 0x11 && ev[0].prev == 0x80);
     }
     {
         Aev m;

@@ -877,7 +877,7 @@ An `AudioWrite` event kind: a subscription on the decoded audio writes, filtered
 | AEV-05 | The same program, value/mask low nibble 8 | Stops at the 0x38 write |
 | AEV-06 | The same with the value 0x37 | No stop (near miss: value/mask) |
 | AEV-07 | Envelope-restart flag subscription; R13 = 8, R13 = 8 again, R12 = 8 | Two stops, one at each R13 OUT, the second with prev 0x08 (an unchanged value still restarts, `ym2149.vhd:188,210`); none at R12 |
-| AEV-08 | DAC subscription; `LD A,0x11; OUT (0x1F),A` | Stop at 0x8004; Event Dac, chip 0, port 0x001F, value 0x11, prev 0x80 |
+| AEV-08 | DAC subscription; `LD A,0x11; OUT (0x1F),A` | Stop at 0x8004; Event Dac, chip 0, port 0x111F (`OUT (n),A` puts A on the high address byte), value 0x11, prev 0x80 |
 | AEV-09 | The same subscription; `NEXTREG 0x2D,0x66` then `NOP` | Two events (chips 0 then 3, DacMirror, reg 0x2D, port 0x002D, pc 0x8000); the stop is one instruction late (0x8005), as NextRegWrite is (`soundrive.vhd:85-101`) |
 | AEV-10 | The same subscription; an AY data write, an EAR change on 0xFE, a 0xFFFD chip-select command | No stop (near miss: target) |
 | AEV-11 | Dropped-only subscription, NR 0x84 bit 6 off, `OUT (C),A` to 0x00B3 | Stop; Event Dac, chip 0xFF, flags Dropped, reason DacFamilyDisabled, port 0x00B3 (`zxnext.vhd:2974-2980`) |
