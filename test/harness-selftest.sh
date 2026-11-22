@@ -1559,13 +1559,15 @@ check "HS-185b" "SIGTERM likewise: exit 143, prompt, no child left (a TERM used 
 # The reader itself (HS-185c): a zombie reads as gone, a live process as running, a missing one as gone. The zombie is
 # made on purpose: a child that exits under a parent (an exec'd `sleep`) that never reaps it, as PID 1 of a CI container.
 ZB="$T/zombie"; rm -rf "$ZB"; mkdir -p "$ZB"
-# The child records its pid and exits only AFTER its parent has exec'd `sleep` (it polls the parent's /proc comm): a
+# The child records its pid and exits only AFTER its parent has exec'd `sleep` (it polls the parent's /proc comm, at most
+# 8 s, and holds none of the caller's pipes, so a parent that never execs cannot leave it behind): a
 # child that finished first is reaped by the parent bash before the exec and reads as gone, not as a zombie (a loaded
-# host does that; GH #547). The row then waits for the child to be in state Z before it reads anything.
-bash -c 'bash -c "until [[ \$(cat /proc/\$PPID/comm 2>/dev/null) == sleep ]]; do sleep 0.02; done; echo \$\$ > \"$1/z\"" & echo $$ > "$1/p"; exec sleep 8' _ "$ZB" &
+# host does that; GH #547). The row then waits for the child to be in state Z before it reads anything. A pid that was
+# never recorded reads `none`, which no kill -0 accepts (a 0 would signal the caller's own group and pass with no zombie).
+bash -c 'bash -c "for _ in \$(seq 1 400); do [[ \$(cat /proc/\$PPID/comm 2>/dev/null) == sleep ]] && break; sleep 0.02; done; echo \$\$ > \"$1/z\"" >/dev/null 2>&1 & echo $$ > "$1/p"; exec sleep 8' _ "$ZB" &
 zb_parent=$!
 for i in $(seq 1 100); do [[ -s "$ZB/z" && -s "$ZB/p" ]] && break; sleep 0.1; done
-zpid=$(cat "$ZB/z" 2>/dev/null || echo 0); lpid=$(cat "$ZB/p" 2>/dev/null || echo 0)
+zpid=$(cat "$ZB/z" 2>/dev/null || echo none); lpid=$(cat "$ZB/p" 2>/dev/null || echo 0)
 for i in $(seq 1 100); do
     zs=$(cat "/proc/$zpid/stat" 2>/dev/null) || zs=""; zs=${zs##*) }
     [[ "${zs%% *}" == Z ]] && break
