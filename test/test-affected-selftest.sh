@@ -18,6 +18,8 @@
 #   TAF-10  --check fails on a tracked file no depfile reads and no glob matches, and passes once
 #           the file is classified
 #   TAF-12  a suite with no linker map is selected on its archives' whole membership
+#   TAF-14  a depfile written with paths relative to the target's build directory (as ccache
+#           with a base_dir writes them) places a file like an absolute one
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
 #           when nothing names it
 # (The MISS line of run-unit-tests.sh is TAF-11's subject; its rows are HS-194d/e in
@@ -173,7 +175,14 @@ run test/fixtures/orphan.bin
 row TAF-13 $([[ $r1 == 1 && "$(plan_get mode)" == full && "$OUT" == *orphan.bin* ]] && echo 1 || echo 0) \
     "a fixture is selected by the suite naming its directory (ok=$r1); one nothing names is FULL (mode $(plan_get mode))"
 
+# TAF-14: the depfile of s3's object, rewritten relative (the fixture build dir is $B/test)
+echo '// z' >"$R/src/a/z.h"
+{ printf 'x: \\\n'; printf ' ../../src/test/s3_test.cpp \\\n ../../src/src/a/z.h\n'; } >"$B/test/CMakeFiles/s3_test.dir/s3_test.cpp.o.d"
+run src/a/z.h
+row TAF-14 $([[ $RC -eq 0 && "$(plan_suites)" == *s3_test* && "$(plan_suites)" != *s1_test* ]] && echo 1 || echo 0) \
+    "a relative depfile path (ccache base_dir form) is resolved against the target's build dir (got: $(plan_suites))"
+
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 12 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 12"; exit 1; }
+[[ "$total" -eq 13 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 13"; exit 1; }
 [[ "$failed" -eq 0 ]]

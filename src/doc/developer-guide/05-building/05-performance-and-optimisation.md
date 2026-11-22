@@ -342,6 +342,19 @@ change costs the training plus about a minute of compiling and linking, and
 retraining with unchanged sources does not hit either. The instrumented tree is
 cached normally.
 
+**Worktrees share the cache.** CMake hands the compiler absolute paths, and ccache hashes
+them (and, with `-g`, the working directory), so two worktrees of one commit used to be two
+sets of cache entries and every new worktree compiled from nothing. The launcher
+`CMakeLists.txt` builds now sets `CCACHE_BASEDIR` to the source directory and
+`CCACHE_NOHASHDIR=1` for each compile (so the setting does not depend on anyone's
+`ccache.conf`), and the compile options carry `-ffile-prefix-map=<source dir>=.`, so an
+object names no worktree in its debug info or in `__FILE__`. A second worktree of the same
+commit then builds `build/` almost entirely from the cache; what still misses are the
+objects compiled with a path in a `-D` definition (the fixture and source directories some
+tests take), which belong to their worktree. The price is in the debug info: sources are
+named relative to the tree root, so run `gdb` from the worktree's root directory, or
+`set substitute-path . <root>`.
+
 Give ccache room once per machine; the 5 GB default thrashes on this tree:
 
 ```console

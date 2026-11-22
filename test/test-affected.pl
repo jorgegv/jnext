@@ -129,7 +129,13 @@ sub obj_files {
     my $obj = shift;
     return $dep_cache{$obj} //= do {
         my %s;
-        for my $f (parse_depfile("$obj.d")) { my $r = rel($f); $s{$r} = 1 if defined $r }
+        # ccache with a base_dir writes the depfile's paths relative to the compile's working
+        # directory, which is the target's build directory (<bin>/CMakeFiles/<t>.dir/..).
+        my ($bin) = $obj =~ m{^(.*?)/CMakeFiles/};
+        for my $f (parse_depfile("$obj.d")) {
+            $f = "$bin/$f" if $f !~ m{^/} && defined $bin;
+            my $r = rel($f); $s{$r} = 1 if defined $r;
+        }
         \%s;
     };
 }
