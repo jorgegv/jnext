@@ -2056,6 +2056,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#audio-write-breakpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audio Write breakpoints
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#whose-breakpoints-the-gutters-show-and-change" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4512,8 +4523,8 @@
 <h1 id="breakpoints">Breakpoints<a class="headerlink" href="#breakpoints" title="Permanent link">&para;</a></h1>
 <p><img alt="Breakpoints panel" src="../../img/debugger-breakpoints.png" /></p>
 <p>Every breakpoint in one list, sorted by address: an <strong>On</strong> checkbox, the type
-(Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt or NMI), the address
-(empty for Interrupt and NMI, which have none) and — with a MAP file loaded — the symbol at
+(Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt, NMI or Audio Write), the address
+(empty for Interrupt and NMI, which have none; for Audio Write, what it watches) and — with a MAP file loaded — the symbol at
 that address, or with a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (<code>main.bas:120</code>); see
 <a href="../source-debugger/06-breakpoints-and-steps.html">Breakpoints on a source line</a>.
@@ -4535,6 +4546,30 @@ A breakpoint qualified with the memory its opcode comes from reads <code>$8005 P
 (<a href="../index.html#which-memory-an-address-is-in">which memory an address is in</a>); the <code>@14</code>
 of <code>$C000 @14</code> is another client's <em>page</em> qualifier (a DZRP or script breakpoint), which
 is a different thing.</p>
+<h2 id="audio-write-breakpoints">Audio Write breakpoints<a class="headerlink" href="#audio-write-breakpoints" title="Permanent link">&para;</a></h2>
+<p>The <strong>Audio Write</strong> type stops the machine on a write to the sound hardware. The dialog has:</p>
+<ul>
+<li><strong>Audio target</strong>: <em>AY register</em> (a write to an AY register), <em>AY chip select</em> (a TurboSound
+  chip-select command), <em>DAC</em> (the DAC ports and the NextREG 0x2C to 0x2E mirror of them) or
+  <em>Any</em> (every target, the beeper included).</li>
+<li><strong>AY chip / DAC channel</strong>: <em>Any</em>, the AY chip 0 to 2, or the DAC channel A to D. It is off for <em>Any</em>.</li>
+<li><strong>AY register</strong>: <em>Any</em> or R0 to R15, for the <em>AY register</em> target. R13 reads
+  <em>R13 (envelope restart)</em>: every applied write to it restarts the envelope, even one that does not
+  change the value.</li>
+<li><strong>Value</strong> and <strong>Value mask</strong> (hex, two digits): stop only on a written byte whose bits under the
+  mask equal the value. A mask needs a value, and the value cannot have bits outside the mask.</li>
+<li><strong>Dropped writes only</strong>: stop on the writes the machine discarded instead of the applied ones.
+  Unticked (the default), a write the machine discarded (the AY ports switched off, the chip held in
+  reset, a DAC that is off) does not stop, because it never reached the chip.</li>
+</ul>
+<p>The row reads, for example, <code>AY1 R13 restart</code>, <code>AY R7 value 0x38</code>, <code>AY select 2</code>, <code>DAC B dropped</code> or
+<code>Any audio</code>. The machine stops after the instruction that wrote, except for a write through the NextREG
+mirror by the CPU and a Copper write, which stop one instruction later. A breakpoint made by a script
+(<code>on ay_write reg 8..10</code>) that the dialog cannot express is listed read-only.</p>
+<p><strong>Save as Script</strong> writes an Audio Write breakpoint as <code>on ay_write ...</code> when it is an AY register
+write, and as <code>on audio_write ...</code> for every other target and for <em>Dropped writes only</em>; nothing is
+left out, and <code>jnext --script FILE</code> runs the file
+(<a href="../scripting/03-events.html#audio-ay_write-audio_write">events</a>).</p>
 <h2 id="whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change<a class="headerlink" href="#whose-breakpoints-the-gutters-show-and-change" title="Permanent link">&para;</a></h2>
 <p>Every breakpoint belongs to whoever set it. The debugger window is one owner; GDB
 (<code>z88dk-gdb</code>, a GDB-protocol client), ZRCP, DZRP (DeZog in VS Code) and a debugger script are

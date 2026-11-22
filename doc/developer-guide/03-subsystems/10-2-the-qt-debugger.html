@@ -3175,7 +3175,7 @@ the default (<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite
 <code>BreakpointModel</code> (<code>src/debugger/breakpoint_model.*</code>) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
 <code>Execute</code>, <code>Mem</code> and <code>Port</code> subscriptions (a <code>lo..hi</code> range on the first two, a port <code>mask</code>/<code>value</code>), and the
-addressless <code>IntAck</code> and <code>Nmi</code> ones (the Interrupt and NMI types), with <code>once = false</code>, and a condition when
+addressless <code>IntAck</code> and <code>Nmi</code> ones (the Interrupt and NMI types), and <code>AudioWrite</code> ones (the Audio Write type: a target, chip, register, value/mask and applied-or-dropped, as <code>BpAudio</code>), with <code>once = false</code>, and a condition when
 the dialog gave one. A
 breakpoint stops: action <code>Stop</code> and no handler. A <em>count-only</em> one is action <code>Continue</code>
 plus a handler of the model that counts. READ, WRITE and READ_WRITE are one <code>Mem</code> subscription with an
@@ -3189,6 +3189,14 @@ nothing.</p>
 and the port rule (<code>bp_port_mask_for()</code>): the model has no copy of either. Another
 client's <code>IntAck</code> or <code>Nmi</code> Stop subscription is a typed but read-only row, with an empty
 Address.</p>
+<p>An Audio Write breakpoint's dialog fields map one to one onto <code>EventFilter</code> fields (<code>audio_filter()</code> in
+<code>breakpoint_model.cpp</code>: the target to <code>audio_targets</code>, the chip, the register to <code>regs</code>, value and mask to
+<code>value_match</code>/<code>value_mask</code>, <em>dropped only</em> to <code>audio_flags_all</code> and the default to <code>audio_flags_none</code>), and
+<code>audio_of()</code> is its inverse: a subscription is the dialog's own row only when it is a filter the dialog can make
+(a script's <code>reg 8..10</code> is listed read-only). The row text is <code>bp_audio_text()</code>, one function for the panel and
+the codec's messages. The codec spells an applied AY register breakpoint as <code>on ay_write</code>, and every other audio
+breakpoint (AY chip select, DAC, Any, dropped-only) as <code>on audio_write</code> with its target word, so saving never
+refuses one.</p>
 <p><strong>Hit counts need no backend counter</strong> and follow the script engine's own split
 (<code>account_static_stops</code> / <code>run_rule</code>). A Stop breakpoint stays a static Stop with no
 handler (ZRCP's <code>other_breakpoint_at</code> and the step loops depend on that) and is counted

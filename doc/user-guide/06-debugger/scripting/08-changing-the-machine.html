@@ -4630,6 +4630,7 @@ changes is as repeatable as one that does not.</p>
 </tr>
 </tbody>
 </table>
+<p><code>ay[c, r]</code> is read-only: <code>set ay[0, 7] = 1</code> is an error when the script loads. Write an AY register with <code>out 0xFFFD</code> (select) and <code>out 0xBFFD</code> (data), as the program would.</p>
 <h3 id="set-cvarpath"><code>set cvar(PATH)</code><a class="headerlink" href="#set-cvarpath" title="Permanent link">&para;</a></h3>
 <p><code>set cvar(g_int) = 10</code> writes a C variable of frame 0, where the CPU is, with the path grammar of
 <a href="04-reading-the-machine.html#c-variables-cvar">reading</a>. The value is the language's 32-bit integer: a 4-byte variable

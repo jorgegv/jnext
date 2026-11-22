@@ -1261,10 +1261,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-fourteen-kinds-and-when-each-is-delivered" class="md-nav__link">
+  <a href="#the-fifteen-kinds-and-when-each-is-delivered" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The fourteen kinds, and when each is delivered
+        The fifteen kinds, and when each is delivered
       
     </span>
   </a>
@@ -3116,7 +3116,7 @@ subscription's filter, condition and handler.</em></p>
 <tbody>
 <tr>
 <td><code>kind</code></td>
-<td>one of the fourteen <code>EventKind</code>s (below)</td>
+<td>one of the fifteen <code>EventKind</code>s (below)</td>
 </tr>
 <tr>
 <td><code>filter</code></td>
@@ -3166,7 +3166,7 @@ suspended.</p>
 (<a href="09-4-execution-control-and-rewind.html">3.9.4</a>). An unarmed machine skips the
 boundary drain altogether. That is why a GUI breakpoint, owned by a non-arming
 observer client, fires only while something else arms the machine.</p>
-<h2 id="the-fourteen-kinds-and-when-each-is-delivered">The fourteen kinds, and when each is delivered<a class="headerlink" href="#the-fourteen-kinds-and-when-each-is-delivered" title="Permanent link">&para;</a></h2>
+<h2 id="the-fifteen-kinds-and-when-each-is-delivered">The fifteen kinds, and when each is delivered<a class="headerlink" href="#the-fifteen-kinds-and-when-each-is-delivered" title="Permanent link">&para;</a></h2>
 <p><code>Execute</code> is the only kind delivered <strong>before</strong> its instruction runs. The
 pre-instruction gate in <code>run_frame()</code> builds the event from PC and delivers it
 at once, which is what lets a handler write PC and redirect execution. Every
@@ -3204,6 +3204,18 @@ other kind is delivered at an instruction boundary:</p>
 <td><code>Dma::execute_burst()</code></td>
 <td>the boundary of the slot the burst ran in</td>
 <td>nothing</td>
+</tr>
+<tr>
+<td><code>AudioWrite</code>, CPU port write or DMA byte</td>
+<td>the audio tap's sink (<code>AudioLogSink::audio_record()</code>, in the backend)</td>
+<td>the raising instruction's boundary</td>
+<td>nothing</td>
+</tr>
+<tr>
+<td><code>AudioWrite</code>, CPU NextREG 0x2C-0x2E write, and a Copper MOVE</td>
+<td>the same sink</td>
+<td>the next boundary</td>
+<td>≤1 instruction</td>
 </tr>
 <tr>
 <td><code>NextRegWrite</code>, CPU writer</td>
@@ -3281,6 +3293,23 @@ start cycle. Two <code>Mem{Write}</code>s from one <code>LD (nn),HL</code> are i
 <code>cycle</code>. <code>Scanline</code> is exact, because the site hands the latch the line's own
 boundary cycle. Its <code>cvc</code> comes from the line number rather than from a cycle,
 because <code>cvc</code> steps at raw <code>hc == hc_ula_zero_raw_hc()</code> and not at raw <code>hc</code> 0.</p>
+<p><strong><code>AudioWrite</code> (GH #532) is latched in the backend, not the core.</strong> The audio write tap
+(<code>04-audio.md</code>) already hands every decoded write to <code>AudioLogSink::audio_record()</code>; its first
+statement latches an <code>AudioWrite</code> entry when a live subscription accepts the write
+(<code>Impl::latch_audio_write()</code>), BEFORE the log's own ring test, so the event does not depend on the
+log. It skips a marker and a write whose source is <code>Debugger</code> (a debugger write fires no event)
+and a machine that is not armed. The core holds no per-kind flag: the one <code>audio_tap_active_</code> bool
+it already tests at each site is published by <code>Impl::publish_audio_tap()</code> as "the log is requested
+OR a live <code>AudioWrite</code> subscription exists", from <code>gates_changed()</code> (where every table change ends)
+and <code>sync_audio_log()</code>. So a machine with no audio breakpoint and no log costs nothing more than
+before, and the scan of the live subscriptions (<code>EventTable::audio_would_match()</code>) runs only
+inside the cold sink. The match is one predicate, <code>audio_accepts()</code>, shared by that site check and
+the drain's <code>filter_matches()</code> (the target mask, the chip, the register set for the two targets
+that carry one, the value/mask pair, the flags that must be set and clear, the source).
+<code>subscribe()</code> refuses a filter that can never match (no valid target, a chip above 3, a value
+outside its mask, a flag required and forbidden, a register set with neither the AY register nor
+the mirror target). The latch packs <code>target</code>, <code>chip</code>, <code>flags</code> and <code>drop_reason</code> into the
+<code>LatchEntry</code> bytes <code>sub_kind</code>, <code>misc</code>, <code>misc2</code> and <code>misc3</code>, and <code>build_event()</code> unpacks them.</p>
 <h2 id="the-delivery">The delivery<a class="headerlink" href="#the-delivery" title="Permanent link">&para;</a></h2>
 <p><code>Debugger::Impl::drain_boundary()</code> (<code>debugger_events.cpp</code>) walks the ring in
 order. For each entry it builds an <code>Event</code> (<code>build_event()</code>), then for each

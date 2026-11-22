@@ -3155,7 +3155,7 @@ code departs from it. This page describes the code.</p>
 <tbody>
 <tr>
 <td><code>lexer.{h,cpp}</code></td>
-<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead; the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens; <code>cvar(PATH)</code> as one <code>CVar</code> token carrying the raw C path</td>
+<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead; the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>, <code>ay[</code>) as single tokens; <code>cvar(PATH)</code> as one <code>CVar</code> token carrying the raw C path</td>
 </tr>
 <tr>
 <td><code>parser.{h,cpp}</code>, <code>ast.h</code></td>
@@ -3211,6 +3211,14 @@ code departs from it. This page describes the code.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Audio events (GH #532).</strong> <code>on ay_write [chip] [reg] [mask value]</code> and <code>on audio_write [ay_reg | ay_select | dac]
+[chip] [reg] [mask value] [dropped]</code> are one <code>EventKind::AudioWrite</code> subscription: <code>subscriptions_for()</code> builds the
+target mask, the chip, the register set, the value/mask pair and the flags (<code>ay_write</code> is <code>audio_write ay_reg</code>;
+both are applied-only unless <code>dropped</code>, through <code>audio_flags_none</code>), and the parser enforces which qualifier
+needs which target. The payload is <code>TARGET CHIP REG VALUE PREV</code> (<code>P_TARGET</code>, <code>P_CHIP</code>; the other three are
+shared with <code>nextreg</code>). <code>ay[chip, reg]</code> is <code>ExprKind::Ay</code>, evaluated through <code>Debugger::ay_registers()</code>: the
+raw register latch, read-only (<code>parse_lvalue</code> refuses it), bounds-checked at run time. <code>ay_write</code>, <code>audio_write</code>,
+<code>chip</code>, <code>reg</code>, <code>ay_reg</code>, <code>ay_select</code>, <code>dac</code>, <code>dropped</code> and <code>ay</code> are reserved words.</p>
 <h2 id="from-text-to-a-checked-script">From text to a checked script<a class="headerlink" href="#from-text-to-a-checked-script" title="Permanent link">&para;</a></h2>
 <p><code>parse_script()</code> stops at the first syntax error and reports it as
 <code>line:column: message</code>. It also bounds nesting:</p>

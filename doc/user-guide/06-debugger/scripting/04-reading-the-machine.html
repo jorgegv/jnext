@@ -3168,6 +3168,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-ay-chips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The AY chips
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#time-and-the-raster" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4689,6 +4700,13 @@ same numbers as RAM pages 0 to 7. A <code>page 0x00</code> filter therefore matc
 code as well as RAM page 0: check <code>mmu[s] != 0xFF</code> if you need RAM only.</p>
 <h2 id="nextregs">NextREGs<a class="headerlink" href="#nextregs" title="Permanent link">&para;</a></h2>
 <p><code>nextreg[r]</code> reads NextREG <code>r</code> (0 to 0xFF), without its read side effects.</p>
+<h2 id="the-ay-chips">The AY chips<a class="headerlink" href="#the-ay-chips" title="Permanent link">&para;</a></h2>
+<p><code>ay[c, r]</code> reads register <code>r</code> (0 to 15) of AY chip <code>c</code> (0 to 2): the raw register latch, the
+value the Audio panel's register table shows. It has no side effect. A chip or register out of
+range is a run-time error. It is read-only: write a register with <code>out 0xFFFD</code> and <code>out 0xBFFD</code>.</p>
+<pre><code>on ay_write reg 7 when ay[0, 7] == 0x3F do log &quot;chip 0 mixer closed&quot; end
+</code></pre>
+<p>At an <code>ay_write</code> the write has already landed, so <code>ay[CHIP, REG] == VALUE</code>.</p>
 <h2 id="time-and-the-raster">Time and the raster<a class="headerlink" href="#time-and-the-raster" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
