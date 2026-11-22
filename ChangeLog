@@ -15,6 +15,7 @@
 - CI is the batch gate: a clean CI run on the commit is what gets pushed; caches are saved only from main
 - Worktrees share the compiler cache, so a second checkout of the same commit rebuilds in a fraction of the time
 - `make test-affected`: a branch round runs only the suites and rows its change reaches, plus a smoke set
+- Slow suites: a sector cache in the SD-image code cuts the card tests by up to 5x; the tape suite is split in two
 
 ### Contributors in this release
 - @janko-jj, @lordheavy
