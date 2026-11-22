@@ -1095,7 +1095,7 @@ int main() {
         for (const uint16_t mask : masks) {
             bool ran = false;
             const bool same = invisible([mask](Emulator& e, bool on) {
-                e.set_audio_channel_mute_mask(on ? mask : AudioChannelMute::NONE);
+                e.set_audio_channel_mute_mask(on ? mask : static_cast<uint16_t>(AudioChannelMute::NONE));
             }, 50, ran);
             if (!ran || !same) std::printf("    mask 0x%04X: ran=%d same=%d\n", mask, ran, same);
             all_ran = all_ran && ran;
