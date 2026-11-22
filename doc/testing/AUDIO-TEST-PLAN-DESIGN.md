@@ -294,6 +294,7 @@ VHDL ref: `ym2149.vhd` lines 332-465
 | AY-130 | RESET_H keeps the noise LFSR and the envelope     | Twin lockstep of noise and envelope outputs across a reset (`:286-300,338-462`) |
 | AY-131 | A reset between an R13 write and the next tick keeps the envelope load | Twin lockstep; the load is applied before `reg(13)` is cleared (`:180-207,340-341,393-401`) |
 | AY-132 | `power_on()` restores the declared initial values, keeps AY/YM | Lockstep with a fresh chip; `ctrl_aymode` is an input port (`:105-125`) |
+| AY-133 | The first envelope step comes with the R13 write (YM, shape 0, period 0x0100, channel A forced on) | One tick after the write the output is `volTableYm[30]` (0xE0), not 0xFF; the next change (0xC0) follows 2040 to 2048 ticks later, whatever the divider phase (`:340-342,344-349,393-409`) |
 
 ## 2. Turbosound Next (3x AY)
 
@@ -713,6 +714,10 @@ machine; PSG time by ticking TurboSound. Oracles as cited per row.
 | ADS-14 | NR 0x06 = 0x01, then 0x00                        | psg_mode 1, 0; never held                                   |
 | ADS-15 | NR 0x08 = 0x22, then 0x00                        | TurboSound on and ACB, then off and ABC (`:5739-5742`)      |
 | ADS-16 | Mid-ramp, then R13 = 0x08 and 0x0C, no tick      | Step 31 falling, then 0 rising: the pending reload (`ym2149.vhd:393-401`) |
+| ADS-17 | R11=2, R13=8, ticks counted from the write; samples all eight divider phases agree on | Level 28 falling after 40 ticks, 14 after 264, 30 after 520, 0 after 1000: the forced first step (`ym2149.vhd:340-342,393-409`) |
+| ADS-18 | The same with R13=10                             | 14 falling after 264, 1 rising after 520, 6 rising after 600, 31 holding after 1000 |
+| ADS-19 | The same with R13=13                             | 3 rising after 40, 13 rising after 200, 31 holding after 520 and 1000 |
+| ADS-20 | The same with R13=14                             | 17 rising after 264, 30 falling after 520, 25 falling after 600, 0 holding after 1000 |
 | ADS-31 | Shape 13, R11=2, 520 and 1000 ticks | 31 holding (`ym2149.vhd:422-443`) |
 | ADS-32 | Shapes 0 and 9, 1000 ticks | 0 holding |
 | ADS-33 | 40 ticks | Shapes 12 and 13 rising, shape 8 falling (motion only; the same with or without the forced first step) |
