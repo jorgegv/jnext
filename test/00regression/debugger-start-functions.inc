@@ -38,6 +38,49 @@ print("0x%04x" % pc)
 PY
 }
 
+DBGSTART_TAP="$PROJECT_DIR/test/fixtures/z88dk/v2.4/sccz80-tape/prog.tap"
+
+# dbgstart_tape_from_tap <tzx|wav> <out>: the z88dk fixture tape as a TZX 1.20 (standard 0x10 blocks,
+# pause 1000 ms, a trailing 0x30 text block) or as an 8-bit mono 44100 Hz WAV with the ROM's pulse
+# timings (pilot 2168 T, syncs 667/735, bits 855/1710), the row's own conversions.
+dbgstart_tape_from_tap() {
+    LANG=C python3 - "$1" "$DBGSTART_TAP" "$2" <<'PY'
+import struct, sys
+kind, tap, out = sys.argv[1:4]
+d = open(tap, "rb").read()
+blocks, off = [], 0
+while off < len(d):
+    n = d[off] | d[off + 1] << 8
+    blocks.append(d[off + 2:off + 2 + n])
+    off += 2 + n
+if kind == "tzx":
+    z = bytearray(b"ZXTape!\x1a\x01\x14")
+    for b in blocks:
+        z += bytes([0x10]) + struct.pack("<HH", 1000, len(b)) + b
+    z += bytes([0x30, 4]) + b"done"
+    open(out, "wb").write(bytes(z))
+else:
+    pcm, level = bytearray(), 0
+    def pulse(t):
+        global level
+        pcm.extend((0xE0 if level else 0x20) for _ in range(int(t / 79.365 + 0.5)))
+        level ^= 1
+    for b in blocks:
+        for _ in range(8063 if b[0] < 0x80 else 3223):
+            pulse(2168)
+        pulse(667); pulse(735)
+        for byte in b:
+            for bit in range(7, -1, -1):
+                t = 1710 if (byte >> bit) & 1 else 855
+                pulse(t); pulse(t)
+        pcm.extend([0x80] * 44144)
+        level = 0
+    w = b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, 44100, 44100, 1, 8)
+    w += b"data" + struct.pack("<I", len(pcm)) + bytes(pcm)
+    open(out, "wb").write(w)
+PY
+}
+
 # dbgstart_snapshot <file> [machine-args...] — a headless 48K run that saves a snapshot of
 # the machine after 30 frames (the format by the extension), for the snapshot rows to
 # start from. Returns jnext's status.
@@ -75,6 +118,13 @@ dbgstart_dzrp_attempt() {
         DBGSTART_MSG="no 'dzrp: listening on' line within 10 s: $(tail -n 3 "$log" | tr '\n' ' ')"
         return 1
     fi
+    # A tape runs for a while before its stop: the client attaches once the stop is logged (CMD_INIT
+    # pauses a RUNNING machine, which would cancel a stop still to come). Others are stopped at once.
+    for _ in $(seq 1 900); do
+        grep -aq "debugger: stopped at" "$log" && break
+        kill -0 "$DZRP_PID" 2>/dev/null || break
+        sleep 0.1
+    done
     if dzrp_peer startup "$pc"; then
         dzrp_stop
         if ! grep -aq "debugger: stopped at \$$hex (" "$log"; then

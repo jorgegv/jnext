@@ -21,7 +21,19 @@ instruction:
 | an **RZX** recording | the PC of the snapshot it starts from |
 | **`--inject`** | the PC the injected program is started at |
 | nothing | power-on, before the first instruction (PC 0) |
-| a tape (`.tap`, `.tzx`, `.wav`) | nowhere by default: give `--break-at` |
+| a tape (`.tap`, `.tzx`, `.wav`) | the first instruction fetched from memory the tape loaded, after its last block (see below) |
+
+A tape runs its loader first, so the stop is the program it starts: the first
+instruction fetched from memory **the tape loaded**, once its last block has
+loaded. A custom loader is itself loaded by the ROM, so with a turbo loader the stop
+is in the loader's code right after its last block. Fast load and real time,
+TAP, TZX and WAV all stop at the same place, and on the 128K and +3 the ROM's own
+paging routines in RAM are never the stop, because the tape did not load them. A
+tape that cannot carry code (a BASIC program, a SCREEN$) stops at the first
+instruction after its last block. Two limits: a BASIC program that runs code from a
+`REM` stops at the end of its last block, not in the `REM`; and a tape that loads
+code which never runs is never stopped (give it `--break-at`, which is armed before the
+first block).
 
 A NEX whose header entry is 0 is a load-only file: nothing is executed, the CPU
 is parked, and that is where it stops. A program that cannot be loaded stops

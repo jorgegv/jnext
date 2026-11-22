@@ -1134,8 +1134,13 @@ naming the option and the value, and exits with status 1.
     **SZX**, **JNS**) or an **RZX** recording, the PC it restores; for
     **\--inject**, the injected program's PC; with no file, power-on, before
     the first instruction (PC 0). It stops right after the program is loaded,
-    before it has run an instruction. A tape (**TAP**, **TZX**, **WAV**) has no default
-    stop yet: give it **\--break-at**. The stop is logged
+    before it has run an instruction. A tape (**TAP**, **TZX**, **WAV**) stops at the
+    first instruction fetched from memory the tape loaded, after its last block has
+    loaded (the program it started; in a **TAP** or **TZX**, in fast or real-time
+    mode alike); a tape that cannot carry code (BASIC and a SCREEN$ only) stops at
+    the first instruction after its last block. A BASIC program that runs code from
+    a REM stops at the end of its last block, not in the REM, and a tape that loads
+    code which never runs is never stopped (use **\--break-at**). The stop is logged
     (`debugger: stopped at $8000 (the NEX entry)`).
 
     In the Qt GUI the debugger window opens, paused. In **\--headless** and the

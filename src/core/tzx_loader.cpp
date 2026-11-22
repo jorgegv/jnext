@@ -38,7 +38,9 @@ TzxLoader::~TzxLoader() {
 }
 
 TzxLoader::TzxLoader(TzxLoader&& other) noexcept
-    : file_data_(std::move(other.file_data_))
+    : holds_code_(other.holds_code_)
+    , last_data_end_(other.last_data_end_)
+    , file_data_(std::move(other.file_data_))
     , player_(other.player_)
     , loaded_(other.loaded_)
     , fast_load_(other.fast_load_)
@@ -72,6 +74,8 @@ TzxLoader& TzxLoader::operator=(TzxLoader&& other) noexcept {
         fast_load_offset_ = other.fast_load_offset_;
         handover_pending_ = other.handover_pending_;
         is_tzx_ = other.is_tzx_;
+        holds_code_ = other.holds_code_;
+        last_data_end_ = other.last_data_end_;
 
         other.loaded_ = false;
 
