@@ -155,7 +155,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `palette_priority()` (the Palettes `Pri` column), `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
 | Copper | `copper()` | — |
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
-| Audio | `audio_state()`, `ay_mode()`; the Scopes tab (`AudioScopeView`): `audio_scope_samples()` | `set_audio_mute_mask()`, `clear_audio_drops()`; the panel emits `show_in_disassembly_requested` for a CPU-written dropped-write row; the manager requests the source tap with `set_audio_scope_enabled()` |
+| Audio | `audio_state()`, `ay_mode()`; the Scopes tab (`AudioScopeView`): `audio_scope_samples()` | `set_audio_mute_mask()`, `set_audio_channel_mute_mask()`, `clear_audio_drops()`; the panel emits `show_in_disassembly_requested` for a CPU-written dropped-write row; the manager requests the source tap with `set_audio_scope_enabled()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 | Symbols | `symbols().symbols()` (the toolchain's labels and the user's), `shown_name()`, `source_page()`, `source_map().lookup()`, `state_revision()` | — |

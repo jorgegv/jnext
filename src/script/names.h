@@ -42,7 +42,7 @@ bool is_builtin_name(const std::string& name);
 std::optional<int32_t> source_constant(const std::string& name);
 
 /// True iff a `set` may write this built-in (§2.1 `lvalue`): the 22
-/// registers, the 6 flags, IFF1, IFF2, IM and AUDIO_MUTE.
+/// registers, the 6 flags, IFF1, IFF2, IM, AUDIO_MUTE and AUDIO_CHANNEL_MUTE.
 bool is_assignable(Builtin b);
 
 /// The name as a script spells it (`P_ADDR` → "ADDR").

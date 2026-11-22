@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3446,8 +3446,13 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 </tr>
 <tr>
 <td>audio</td>
+<<<<<<< HEAD
 <td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code>, <code>audio_state()</code>; INS-24: <code>audio_scope_enabled()</code>, <code>audio_scope_samples(count)</code></td>
 <td><code>set_audio_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX), <code>clear_audio_drops(by)</code> (zeroes the dropped-write counters in <code>audio_state().drops</code>; host-side too); INS-24: <code>set_audio_scope_enabled(by, on)</code>, a per-client request like call tracking: the mixer source tap is on while any live client (an observer too) asks and the machine is not <code>--silent</code> (refused then), a tap taken off and on again starts afresh, and <code>audio_scope_samples()</code> returns the newest <code>min(count, 8192, collected)</code> samples of each of the sixteen sources (<code>AudioScopeBlock</code>), refused while off. The samples are the hardware levels before any mute or gain (the source tap, in the audio chapter)</td>
+=======
+<td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code>, <code>audio_channel_mute_mask()</code>, <code>audio_state()</code></td>
+<td><code>set_audio_mute_mask(by, m)</code>, <code>set_audio_channel_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX), <code>clear_audio_drops(by)</code> (zeroes the dropped-write counters in <code>audio_state().drops</code>; host-side too)</td>
+>>>>>>> epic224-music-sound
 </tr>
 <tr>
 <td>video</td>

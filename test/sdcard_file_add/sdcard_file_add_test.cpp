@@ -35,13 +35,12 @@
 //     would otherwise become an enormous unsigned one.
 //   * The f_write-error and short-write-after-the-pre-check paths. They cannot
 //     be provoked deterministically in a single-threaded test, and a racy test
-//     is worse than none. Their SIBLING — the short READ — is covered: a
-//     directory given as the source reaches it on any filesystem where a
-//     directory opens (btrfs, ext4), which is also why SDFA-W31 asserts the
-//     partial file was removed rather than that the image is unchanged. On
-//     tmpfs the same directory fails to open instead, and SDFA-W30 holds
-//     either way. That difference is the reason these two rows are separate
-//     from the missing-source pair: one assertion cannot be true on both.
+//     is worse than none. Their SIBLING — the short READ — is covered by
+//     SDFA-L01 in sdcard_file_add_linux_test (a sysfs attribute stats at
+//     4096 bytes and reads fewer). A directory given as the source no longer
+//     reaches it: add_file_to_image refuses any non-regular source up front
+//     (SDFA-W30, W31, W72), because a directory opens with a size of 0 on XFS
+//     and the copy then created an EMPTY file on the card.
 //   * Directory-slot exhaustion (f_mkdir / f_open FR_DENIED -> ImageFull),
 //     which needs a directory of 65536 entries to construct. (The same
 //     FR_DENIED from running out of CLUSTERS while a directory grows IS
@@ -313,18 +312,20 @@ void test_writes() {
     check("SDFA-W29", "...without modifying a single byte of the image",
           file_digest(img) == digest_before);
 
-    // A DIRECTORY as the source takes one of two routes depending on the
-    // filesystem the scratch area is on, and both are correct: on tmpfs the
-    // open fails outright, on btrfs/ext4 it opens, reports a size, and the
-    // first read comes back short. So the outcome is asserted, and then the
-    // thing that is true on BOTH routes — that no half-written file is left
-    // behind. (A digest comparison would be wrong here: on the second route
-    // the destination really is created and then unlinked, which moves bytes.)
+    // A DIRECTORY as the source is refused up front, before any open, so the
+    // outcome does not depend on the filesystem the scratch area is on (on
+    // XFS it opens with size 0 and used to create an empty file; on btrfs and
+    // ext4 it reported a size and failed on the first read; on tmpfs the open
+    // failed). The status, the refusal's own message and an untouched image are
+    // asserted; the short-read branch is exercised by SDFA-L01 instead.
     st = sdcard::add_file_to_image(img.string(), g_scratch.string(), "/X.BIN", false, err);
     check("SDFA-W30", "a directory given as the source is reported as such",
           st == FileAddStatus::SourceUnreadable, err);
     check("SDFA-W31", "...and leaves no partial file at the destination",
           !extract_sd_rom(img.string(), "/X.BIN", got));
+    check("SDFA-W72", "...refused up front as a directory, the image byte-identical, on every filesystem",
+          err.find("(it is a directory)") != std::string::npos &&
+          file_digest(img) == digest_before, err);
 
     // FAT32 stores a 32-bit size, so >= 4 GiB cannot be represented. The
     // source is sparse: it costs no disk and is never read.

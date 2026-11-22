@@ -394,7 +394,7 @@ Which space a view prints is a rule per view (design 10.3):
   its `@NN`, which is a different thing ([7.1](01-which-memory.md)).
 
 The instruction at the PC is read as the CPU will fetch it, not as a data read.
-`Debugger::memory_reader()` (`debugger_inspect.cpp:925`) takes the bytes of that one instruction
+`Debugger::memory_reader()` (`debugger_inspect.cpp:940`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
 other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:175`: `is_call_like()` at `:184` and `instruction_length()` at `:190`
@@ -458,7 +458,7 @@ subscribes one `Execute` per start, each with the `space` its place was compiled
 with `MapFormat::Z88dkOrSjasmplus` (`script_host.cpp:187`, [7.3](03-loaders.md)). Held scripts and the
 rest of the language are in [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md).
 
-`cvar(PATH)` is the one atom that reads a C variable: `eval_int()` (`evaluator.cpp:275`) calls
+`cvar(PATH)` is the one atom that reads a C variable: `eval_int()` (`evaluator.cpp:276`) calls
 `read_c_value(0, path)` (frame 0, where the CPU is) and `c_int32_scalar()` ([7.10](10-c-frames-and-values.md)) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
 attach, and every refusal is an `EvalError`, never a 0.

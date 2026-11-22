@@ -20,6 +20,7 @@ usage() {
 usage: remote-run.sh [options] <branch> <sha> <target>...
        remote-run.sh [options] --gate <branch> <sha>
        remote-run.sh [options] --warm
+       remote-run.sh [options] --probe
 
   <branch>   a branch already pushed to the project's repository
   <sha>      its full 40-hex tip; the run is refused if the remote sees another commit
@@ -27,6 +28,9 @@ usage: remote-run.sh [options] <branch> <sha> <target>...
              targets run one by one, in order, stopping at the first failure
 
 options:
+  --probe                exit 0 if the host is usable and a lane is free right now, 75 if it is busy,
+                         unreachable or refuses (preflight); starts nothing, one ssh round trip. A
+                         caller choosing among several hosts uses it instead of paying LANE_WAIT per busy host
   --warm                 build the image, provision the tool caches and the SD image, and
                          build once to fill ccache (the project's WARM_TARGETS, on its default
                          branch); a normal run refuses until this has run for the current deps
@@ -197,7 +201,7 @@ remote_cleanup() {
 
 # ---- main -------------------------------------------------------------------
 main() {
-    local warm=0 gate=0 stream=0 warm_ref="" fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
+    local warm=0 gate=0 probe=0 stream=0 warm_ref="" fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
     TIMEOUT="" DEPS_REF="" KEEP_GOING=0 LOCAL_SHELL=0 ID="" BRANCH="" SHA=""
     local -a pos=()
     while [[ $# -gt 0 ]]; do
@@ -205,6 +209,7 @@ main() {
             -h|--help) usage; exit 0 ;;
             --warm) warm=1 ;;
             --gate) gate=1 ;;
+            --probe) probe=1 ;;
             --keep-going) KEEP_GOING=1 ;;
             --stream) stream=1 ;;
             --local-shell) LOCAL_SHELL=1 ;;
@@ -223,9 +228,25 @@ main() {
     done
     load_conf
     [[ $warm -eq 0 || $gate -eq 0 ]] || die "--warm and --gate exclude each other"
+    [[ $probe -eq 0 || ( $warm -eq 0 && $gate -eq 0 && ${#pos[@]} -eq 0 ) ]] || die "--probe takes no other mode, branch, sha or target"
     [[ -z "$warm_ref" || $warm -eq 1 ]] || die "--ref is for --warm only"
     [[ -z "$DEPS_REF" || "$DEPS_REF" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] || die "bad --deps-ref '$DEPS_REF'"
 
+    if [[ $probe -eq 1 ]]; then
+        # One ssh round trip, nothing started: 0 = usable with a free lane now, 75 = busy, unreachable or refused.
+        local hostv=$HOST_ENV_VAR dirv=$DIR_ENV_VAR out rc=0
+        HOST=${!hostv:-}; DIR=${!dirv:-$DIR_DEFAULT}
+        ID=${ID:-probe-$$}; BRANCH=$DEFAULT_BRANCH; SHA=""; TIMEOUT=60; LANE_WAIT=0
+        if [[ $LOCAL_SHELL -eq 0 && -z "$HOST" ]]; then log_info "probe: $hostv is not set"; exit 75; fi
+        transport_cmd
+        PAYDIR=$(mktemp -d)
+        build_payload probe "" "$PAYDIR/payload"
+        out=$(timeout --kill-after=5s 60s "${TCMD[@]}" < "$PAYDIR/payload" 2>&1) || rc=$?
+        rm -rf "$PAYDIR"
+        log_info "probe ${HOST:-local}: rc=$rc $(sed -e 's/\x1b\[[0-9;]*m//g' <<<"$out" | grep -aE 'lane|fallback' | tail -n 1)"
+        [[ $rc -eq 0 ]] && exit 0
+        exit 75
+    fi
     if [[ $warm -eq 1 ]]; then
         [[ ${#pos[@]} -eq 0 ]] || die "--warm takes no branch, sha or target"
         BRANCH=${warm_ref:-$DEFAULT_BRANCH}

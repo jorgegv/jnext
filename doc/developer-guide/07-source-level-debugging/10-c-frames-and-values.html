@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3160,7 +3160,11 @@ section whose entry <strong>value</strong> is the greatest at or below the recor
 function that crosses a slot (<code>cross.c</code>, in the <code>*-cross</code> fixtures).</p>
 <h2 id="the-frames">The frames<a class="headerlink" href="#the-frames" title="Permanent link">&para;</a></h2>
 <p><code>Debugger::c_frames()</code> (<code>debugger_cframes.cpp:30</code>) returns the frames newest first. Frame 0 is where
+<<<<<<< HEAD
 the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.h:1276</code>) has its function (an index into
+=======
+the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.h:1272</code>) has its function (an index into
+>>>>>>> epic224-music-sound
 <code>variables()-&gt;functions()</code>, -1 for assembly), the <code>pc</code>, the source line and the base, with how it was found:</p>
 <ul>
 <li><strong>Tracked.</strong> With the tracker's frames (oldest first, <code>n</code> of them), frame <code>k</code> was entered by
@@ -3189,7 +3193,7 @@ any assembly routine a function calls before it allocates its locals, leaves tha
 always on. Its state is <strong>derived</strong> (<code>Impl::sync_call_stack()</code>, <code>debugger_session.cpp:129</code>), the one
 writer, from two things:</p>
 <ol>
-<li><strong>A client's own request.</strong> <code>Debugger::set_call_stack_enabled(by, on)</code> (<code>debugger_inspect.cpp:998</code>) sets
+<li><strong>A client's own request.</strong> <code>Debugger::set_call_stack_enabled(by, on)</code> (<code>debugger_inspect.cpp:1013</code>) sets
    the request on that client's row. The tracker is on while any live client asked. One client switching off
    no longer takes another's tracking away (the Qt debugger window closing used to empty a ZRCP session's
    extended stack), and a detach drops the request with the client. The Qt window's request is made

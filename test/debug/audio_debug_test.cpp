@@ -4,6 +4,9 @@
 //          frequencies, note and cents, the envelope shape glyph.
 //   ADS-*  Debugger::audio_state(), driven by real port and NextREG writes
 //          against the VHDL, and by the host settings for the host fields.
+//   ACM-*  the per-channel mute (AudioChannelMute: 9 AY bits, 4 DAC bits): each bit
+//          silences exactly its channel in the audible mix, against the VHDL
+//          formulas, and composes with the per-source mute.
 //   AIZ-*  the debugger's audio features are INVISIBLE to the Z80: the same
 //          machine run with a feature on and off has the same saved state and
 //          the same video (audio/audio_mute.h states the property; the
@@ -73,6 +76,7 @@ using jnext::dbg::AyChipMode;
 using jnext::dbg::ClientId;
 using jnext::dbg::Debugger;
 using jnext::dbg::EnvelopeMotion;
+using jnext::dbg::ResetKind;
 using jnext::dbg::Result;
 using jnext::dbg::SaveStateMode;
 using jnext::dbg::StereoMode;
@@ -239,6 +243,106 @@ static bool invisible(F feature, int frames, bool& ran, void (*fixture)(Emulator
     ran = ran && b.ok && !a.state.empty();
     return a.state == b.state && a.video == b.video;
 }
+
+// ── ACM: the per-channel mute ──────────────────────────────────────────
+
+struct MixCfg {
+    bool acb = false;
+    unsigned mono = 0;                // bit i = chip i mono (NR 0x09 bits 5-7)
+    unsigned pan[3] = {3, 3, 3};      // turbosound.vhd:129-136, bit 1 left, bit 0 right
+};
+
+// Three chips on nine distinct DC levels (volumes 1..9, R7 gates closed:
+// ym2149.vhd:467-520), through real ports. `chip2_cmd` is the TurboSound command
+// that selects chip 2 and sets its pan (turbosound.vhd:129-136).
+static void program_channels(Emulator& emu, uint8_t nr08, uint8_t nr09, uint8_t chip2_cmd) {
+    nr_write(emu, 0x08, nr08);
+    if (nr09) nr_write(emu, 0x09, nr09);
+    static const uint8_t cmd[3] = {0xFF, 0xFE, 0xFD};
+    for (int c = 0; c < 3; ++c) {
+        emu.port().out(0xFFFD, c == 2 ? chip2_cmd : cmd[c]);
+        ay_write(emu, 7, 0x3F);
+        for (int k = 0; k < 3; ++k) ay_write(emu, static_cast<uint8_t>(8 + k), static_cast<uint8_t>(1 + 3 * c + k));
+    }
+    emu.port().out(0x1F, 0x40); emu.port().out(0x0F, 0x50);
+    emu.port().out(0x4F, 0x60); emu.port().out(0x5F, 0x70);
+    emu.port().out(0xFE, 0x00);
+    ticks(emu, 8);
+}
+
+static void build_channels(Emulator& emu, uint8_t nr08 = 0x0A, uint8_t nr09 = 0x00, uint8_t chip2_cmd = 0xFD) {
+    fresh(emu);
+    program_channels(emu, nr08, nr09, chip2_cmd);
+}
+
+struct Pair { unsigned l, r; };
+
+// turbosound.vhd:186-199 with pan gating (:323-329): one chip's pair, with the
+// inputs in `silenced` (bit 0/1/2 = A/B/C) read as 0. Reads the chip's real
+// outputs (ym2149 O_AUDIO_*), which no mute touches; shares no code with TurboSound.
+static Pair expect_chip(Emulator& emu, int c, unsigned silenced, const MixCfg& m) {
+    const AyChip& ay = emu.turbosound().ay(c);
+    const unsigned a = (silenced & 1) ? 0 : ay.output_a();
+    const unsigned b = (silenced & 2) ? 0 : ay.output_b();
+    const unsigned cc = (silenced & 4) ? 0 : ay.output_c();
+    const bool mono = (m.mono >> c) & 1;
+    const unsigned l_mux = (m.acb || mono) ? cc : b;
+    const unsigned l_sum = l_mux + a;
+    const unsigned r_mux = mono ? l_sum : cc;
+    const unsigned r_sum = r_mux + b;
+    const unsigned l_fin = mono ? r_sum : l_sum;
+    return { (m.pan[c] & 2) ? l_fin : 0, (m.pan[c] & 1) ? r_sum : 0 };
+}
+
+// The audible AY mix equals the oracle's for the given channel mask and chip
+// mute (a muted chip contributes 0), per chip and summed (turbosound.vhd:334).
+static bool ay_matches(Emulator& emu, uint16_t mask, const MixCfg& m, unsigned chip_muted = 0) {
+    unsigned tl = 0, tr = 0;
+    bool ok = true;
+    for (int c = 0; c < 3; ++c) {
+        const unsigned sil = ((chip_muted >> c) & 1) ? 7u : ((mask >> (3 * c)) & 7u);
+        const Pair e = expect_chip(emu, c, sil, m);
+        uint16_t l = 0, r = 0;
+        emu.turbosound().chip_pcm(c, l, r);
+        if (l != e.l || r != e.r) {
+            ok = false;
+            std::printf("    chip %d: got %u,%u want %u,%u\n", c, l, r, e.l, e.r);
+        }
+        tl += e.l; tr += e.r;
+    }
+    if (emu.turbosound().pcm_left() != (tl & 0xFFF) || emu.turbosound().pcm_right() != (tr & 0xFFF)) {
+        ok = false;
+        std::printf("    sum: got %u,%u want %u,%u\n", emu.turbosound().pcm_left(), emu.turbosound().pcm_right(),
+                    tl & 0xFFF, tr & 0xFFF);
+    }
+    return ok;
+}
+
+static void tick1(Emulator& emu) { emu.turbosound().tick(); }
+
+// The DAC alone: AY at reset (volume 0), the DAC opened (NR 0x08 bit 3, NR 0x84 bit 1), channels A-D
+// 0x40/0x50/0x60/0x70, the beeper low.
+static void build_dac(Emulator& emu) {
+    fresh(emu);
+    nr_write(emu, 0x08, 0x08);
+    nr_write(emu, 0x84, 0xFF);
+    emu.port().out(0x1F, 0x40); emu.port().out(0x0F, 0x50);
+    emu.port().out(0x4F, 0x60); emu.port().out(0x5F, 0x70);
+    emu.port().out(0xFE, 0x00);
+}
+
+static void mixer_sample(Emulator& emu, int& L, int& R) {
+    int16_t sink[2];
+    while (emu.mixer().available() > 0) emu.mixer().read_samples(sink, 1);
+    emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
+    int16_t pair[2] = {0, 0};
+    emu.mixer().read_samples(pair, 1);
+    L = pair[0]; R = pair[1];
+}
+
+// audio_mixer.vhd:86,99 with the I2S idle 0x200 (MIX_REST_LEVEL 1536) and the x4 output scale:
+// sample = 4 * ((pair << 2) - 1024), a muted channel counting its idle 0x80 (soundrive.vhd:74-77).
+static int dac_expect(unsigned pair) { return 4 * (static_cast<int>(pair << 2) - 1024); }
 
 // ── SCP: the mixer source tap ───────────────────────────────────────────
 
@@ -946,6 +1050,245 @@ int main() {
         check("ADS-30", "distinct bytes in all 16 registers of each chip (R14/R15 as outputs): chips[c].regs equals the bytes written and ay_registers(c)", ok);
     }
 
+    // ─────────────────── ACM: the per-channel mute ─────────────────────
+
+    {
+        // One row per AY bit; each ID is a literal.
+        struct Bit { const char* id; int chip; int ch; };
+        static const Bit bits[9] = {
+            {"ACM-01", 0, 0}, {"ACM-02", 0, 1}, {"ACM-03", 0, 2},
+            {"ACM-04", 1, 0}, {"ACM-05", 1, 1}, {"ACM-06", 1, 2},
+            {"ACM-07", 2, 0}, {"ACM-08", 2, 1}, {"ACM-09", 2, 2},
+        };
+        for (const Bit& b : bits) {
+            Emulator emu; build_channels(emu);
+            const MixCfg m;
+            const uint16_t bit = AudioChannelMute::ay_bit(b.chip, b.ch);
+            const uint16_t l0 = emu.turbosound().pcm_left(), r0 = emu.turbosound().pcm_right();
+            const bool base = ay_matches(emu, 0, m);
+            emu.set_audio_channel_mute_mask(bit);
+            tick1(emu);
+            const bool muted = ay_matches(emu, bit, m);
+            const bool moved = emu.turbosound().pcm_left() != l0 || emu.turbosound().pcm_right() != r0;
+            emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);
+            tick1(emu);
+            const bool back = ay_matches(emu, 0, m) &&
+                emu.turbosound().pcm_left() == l0 && emu.turbosound().pcm_right() == r0;
+            check(b.id, "turbosound.vhd:186-199,334 muting one AY channel bit: pcm and all three chip pairs equal the "
+                  "oracle with only that input zeroed, differ from the unmuted mix, and clearing restores it",
+                  base && muted && moved && back);
+        }
+    }
+    {
+        // DAC bits: the muted side reads the channel at 0x80; the other side is unchanged.
+        struct D { const char* id; uint16_t bit; int want_l, want_r; };
+        static const D dacs[4] = {
+            {"ACM-10", AudioChannelMute::DAC_A, -768, -768},
+            {"ACM-11", AudioChannelMute::DAC_B, -1024, -768},
+            {"ACM-12", AudioChannelMute::DAC_C, -1792, -256},
+            {"ACM-13", AudioChannelMute::DAC_D, -1792, -512},
+        };
+        for (const D& d : dacs) {
+            Emulator emu; build_dac(emu);
+            int l0, r0, l1, r1, l2, r2;
+            mixer_sample(emu, l0, r0);
+            emu.set_audio_channel_mute_mask(d.bit);
+            mixer_sample(emu, l1, r1);
+            emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);
+            mixer_sample(emu, l2, r2);
+            check(d.id, "soundrive.vhd:74-77 audio_mixer.vhd:86,99 muting one DAC channel makes it read the idle 0x80 on its own side only; clearing restores it",
+                  l0 == dac_expect(0x90) && r0 == dac_expect(0xD0) && l1 == d.want_l && r1 == d.want_r &&
+                  l2 == l0 && r2 == r0);
+        }
+    }
+    {
+        Emulator emu; build_dac(emu);
+        emu.mixer().set_dac_gain_db(-6.0f);
+        const float g = std::pow(10.0f, -6.0f / 20.0f);
+        int l, r;
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_ALL);
+        mixer_sample(emu, l, r);
+        const bool all = l == 0 && r == 0;
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_A);
+        mixer_sample(emu, l, r);
+        const int want = 4 * static_cast<int>(std::lround(-192.0f * g));
+        check("ACM-14", "audio_mixer.vhd:86 with the DAC at -6 dB: all four muted is the rest level (0, 0); A alone gives each side the "
+              "scaled excursion of an 0xD0 pair (A muted: 0x80+0x50, unmuted C+D: 0x60+0x70)",
+              all && l == want && r == want && want != 0);
+    }
+    {
+        Emulator emu; build_channels(emu, 0x2A);
+        MixCfg m; m.acb = true;
+        const uint16_t mask = AudioChannelMute::ay_bit(0, 2);
+        emu.set_audio_channel_mute_mask(mask);
+        tick1(emu);
+        const Pair e = expect_chip(emu, 0, 4, m), u = expect_chip(emu, 0, 0, m);
+        check("ACM-15", "turbosound.vhd:186,189 ACB: muting chip 0 channel C removes it from BOTH sides (it feeds the left mux and the right mux)",
+              ay_matches(emu, mask, m) && e.l != u.l && e.r != u.r);
+    }
+    {
+        Emulator emu; build_channels(emu, 0x0A, 0x40);
+        MixCfg m; m.mono = 0x02;
+        const uint16_t mask = AudioChannelMute::ay_bit(1, 0);
+        emu.set_audio_channel_mute_mask(mask);
+        tick1(emu);
+        const Pair e = expect_chip(emu, 1, 1, m), u = expect_chip(emu, 1, 0, m);
+        check("ACM-16", "turbosound.vhd:186-192 chip 1 mono: muting channel A removes it from BOTH sides (mono sums A+C+B into each)",
+              ay_matches(emu, mask, m) && e.l != u.l && e.r != u.r && e.l == e.r);
+    }
+    {
+        Emulator emu; build_channels(emu, 0x0A, 0x00, 0xDD);
+        MixCfg m; m.pan[2] = 2;
+        const uint16_t mask = AudioChannelMute::ay_bit(2, 1);
+        emu.set_audio_channel_mute_mask(mask);
+        tick1(emu);
+        uint16_t l = 0, r = 0;
+        emu.turbosound().chip_pcm(2, l, r);
+        const Pair e = expect_chip(emu, 2, 2, m), u = expect_chip(emu, 2, 0, m);
+        check("ACM-17", "turbosound.vhd:323-329 chip 2 pan left only: muting channel B lowers its left, its right stays 0 (the pan gate is after the mux)",
+              ay_matches(emu, mask, m) && r == 0 && e.l < u.l && l == e.l);
+    }
+    {
+        Emulator emu; build_channels(emu);
+        const MixCfg m;
+        const uint16_t mask = AudioChannelMute::ay_bit(1, 0) | AudioChannelMute::ay_bit(0, 1);
+        emu.set_audio_mute_mask(AudioMute::AY1);
+        emu.set_audio_channel_mute_mask(mask);
+        tick1(emu);
+        const bool both = ay_matches(emu, mask, m, 2);
+        emu.set_audio_mute_mask(AudioMute::NONE);
+        tick1(emu);
+        const bool only_ch = ay_matches(emu, mask, m, 0);
+        check("ACM-18", "audio_mute.h composition: a muted chip is silent whatever its channel bits; unmuting it leaves its channel bit in force",
+              both && only_ch);
+    }
+    {
+        Emulator emu; build_dac(emu);
+        emu.port().out(0xFE, 0x10);                     // EAR high: +512 per side (audio_mixer.vhd:80)
+        int l, r;
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_B);
+        mixer_sample(emu, l, r);
+        const int control = l;                          // beeper audible, B at 0x80: 0xC0 pair + 512
+        emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);
+        emu.set_audio_mute_mask(AudioMute::BEEPER);     // the source setter first ...
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_B);   // ... then the channel one
+        mixer_sample(emu, l, r);
+        check("ACM-19", "audio_mute.h composition: the beeper muted, then DAC channel B muted: B is at 0x80 and the beeper is still silent",
+              control == dac_expect(0xC0) + 4 * 512 && l == dac_expect(0xC0) && r == dac_expect(0xD0));
+    }
+    {
+        Emulator emu; build_dac(emu);
+        emu.port().out(0xFE, 0x10);
+        int l, r;
+        emu.set_audio_mute_mask(AudioMute::BEEPER);
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_B);
+        emu.set_audio_mute_mask(AudioMute::BEEPER);     // the source setter, after the channel one
+        mixer_sample(emu, l, r);
+        const bool a = l == dac_expect(0xC0) && emu.mixer().mute_mask() == AudioMute::BEEPER &&
+                       emu.audio_mute_mask() == AudioMute::BEEPER && emu.dac().channel_mute() == 0x2;
+        emu.set_audio_mute_mask(AudioMute::NONE);
+        mixer_sample(emu, l, r);
+        check("ACM-20", "audio_mute.h composition: setting the source mask after the channel mask keeps the DAC channel mute, and clearing it leaves "
+              "the channel mute in force; the Mixer's mute_mask() is only the source mask",
+              a && emu.mixer().mute_mask() == AudioMute::NONE && emu.dac().channel_mute() == 0x2 &&
+              l == dac_expect(0xC0) + 4 * 512);
+    }
+    {
+        Emulator emu; build_channels(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("acm21")).value;
+        const Result res = dbg.set_audio_channel_mute_mask(cid, 0xFFFF);
+        check("ACM-21", "a mask with bits above 12 is stored masked to 0x1FFF; TurboSound gets the 9 AY bits, the DAC the 4 DAC bits",
+              res == Result::Ok && dbg.audio_channel_mute_mask() == 0x1FFF && emu.turbosound().channel_mute_mask() == 0x1FF &&
+              emu.dac().channel_mute() == 0xF && emu.audio_channel_mute_mask() == 0x1FFF);
+    }
+    {
+        const uint16_t mask = AudioChannelMute::ay_bit(2, 0) | AudioChannelMute::DAC_C;
+        const MixCfg m;
+        Emulator emu; build_channels(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("acm22")).value;
+        emu.set_audio_channel_mute_mask(mask);
+        const Result res = dbg.reset(cid, ResetKind::Soft);
+        const bool soft = res == Result::Ok && emu.audio_channel_mute_mask() == mask &&
+            emu.turbosound().channel_mute_mask() == (mask & 0x1FF) && emu.dac().channel_mute() == 0x4 &&
+            emu.dac().pcm_left() == 0x100 && emu.dac().pcm_right() == 0x100;   // reset DAC rests at 0x80 per channel, audible copy too
+        program_channels(emu, 0x0A, 0, 0xFD);
+        const bool soft_fx = ay_matches(emu, mask, m);
+
+        Emulator e2; build_channels(e2);
+        e2.set_audio_channel_mute_mask(mask);
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+        e2.init(cfg);
+        const bool init = e2.audio_channel_mute_mask() == mask && e2.turbosound().channel_mute_mask() == (mask & 0x1FF) &&
+            e2.dac().channel_mute() == 0x4 &&
+            e2.dac().pcm_left() == 0x100 && e2.dac().pcm_right() == 0x100;
+        program_channels(e2, 0x0A, 0, 0xFD);
+        const bool init_fx = ay_matches(e2, mask, m);
+        check("ACM-22", "a soft reset and an in-place init() leave the channel mask, its TurboSound and DAC copies, and its audible effect (chip 2 A silent) unchanged",
+              soft && soft_fx && init && init_fx);
+    }
+    {
+        const uint16_t mask = AudioChannelMute::ay_bit(1, 2) | AudioChannelMute::DAC_A;
+        Emulator emu; build_channels(emu);
+        emu.set_audio_channel_mute_mask(mask);
+        emulator_cold_boot(emu, emu.config());
+        check("ACM-23", "a hard reset (cold boot, which rebuilds the Emulator) keeps the channel mask and refans it to TurboSound and the Dac",
+              emu.audio_channel_mute_mask() == mask && emu.turbosound().channel_mute_mask() == AudioChannelMute::ay_bit(1, 2) &&
+              emu.dac().channel_mute() == 0x1);
+    }
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("acm24")).value;
+        emu.run_frame(); emu.run_frame();
+        const auto s0 = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        const uint16_t mask = AudioChannelMute::DAC_D | AudioChannelMute::ay_bit(0, 2);
+        emu.set_audio_channel_mute_mask(mask);
+        const bool loaded = s0.status == Result::Ok &&
+            dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
+        check("ACM-24", "a state saved with no mute and loaded with channels muted leaves the channel mask, and its two copies, as they were",
+              loaded && emu.audio_channel_mute_mask() == mask && emu.turbosound().channel_mute_mask() == AudioChannelMute::ay_bit(0, 2) &&
+              emu.dac().channel_mute() == 0x8);
+    }
+    {
+        // The DAC's audible copy follows its registers: a write while muted shows when unmuted, a state load
+        // refreshes it, and the registers themselves (channel(), the saved state) never see the mute.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("acm26")).value;
+        emu.run_frame(); emu.run_frame();
+        const auto s0 = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);   // A..D = 0x40 0x50 0x60 0x70
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_A);
+        emu.port().out(0x1F, 0x33);                         // A written while muted
+        const bool muted = emu.dac().channel(0) == 0x33 && emu.dac().pcm_left() == 0x80u + 0x50u;
+        emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);
+        const bool shown = emu.dac().pcm_left() == 0x33u + 0x50u;
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_A);
+        emu.port().out(0x0F, 0x22);                         // B (unmuted) moves away from the saved 0x50
+        const bool loaded = s0.status == Result::Ok &&
+            dbg.load_state_bytes(cid, s0.value.data(), s0.value.size()) == Result::Ok;
+        check("ACM-26", "soundrive.vhd:74-77 the DAC's audible copy: a write while muted shows once unmuted, a state load refreshes it "
+              "(B back to 0x50, A still read as 0x80), and channel() keeps the register value",
+              muted && shown && loaded && emu.dac().channel(0) == 0x40 && emu.dac().pcm_left() == 0x80u + 0x50u &&
+              emu.dac().pcm_right() == 0x60u + 0x70u);
+    }
+    {
+        Emulator emu; build_channels(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("acm25")).value;
+        dbg.set_audio_channel_mute_mask(cid, AudioChannelMute::ay_bit(0, 1));
+        dbg.set_audio_mute_mask(cid, AudioMute::AY2);
+        const AudioState st = dbg.audio_state();
+        bool muted_ok = true;
+        for (int c = 0; c < 3; ++c)
+            for (int k = 0; k < 3; ++k) {
+                const bool want = c == 2 || (c == 0 && k == 1);
+                muted_ok = muted_ok && st.chips[c].channels[k].muted == want;
+            }
+        check("ACM-25", "audio_state(): host.channel_mute_mask as set; a channel is muted when its channel bit or its chip's source bit is set",
+              st.host.channel_mute_mask == AudioChannelMute::ay_bit(0, 1) && st.host.mute_mask == AudioMute::AY2 && muted_ok);
+    }
 
     // ─────────────────── DRP: dropped-write counters ───────────────────
 
@@ -1406,7 +1749,24 @@ int main() {
               sounding != blank && after == blank);
     }
 
-
+    {
+        // Each of the 13 channel bits, and ALL, on versus off: 14 runs, each a pair of 50-frame runs.
+        bool all_ran = true, all_same = true;
+        std::vector<uint16_t> masks;
+        for (int i = 0; i < 13; ++i) masks.push_back(static_cast<uint16_t>(1u << i));
+        masks.push_back(AudioChannelMute::ALL);
+        for (const uint16_t mask : masks) {
+            bool ran = false;
+            const bool same = invisible([mask](Emulator& e, bool on) {
+                e.set_audio_channel_mute_mask(on ? mask : static_cast<uint16_t>(AudioChannelMute::NONE));
+            }, 50, ran);
+            if (!ran || !same) std::printf("    mask 0x%04X: ran=%d same=%d\n", mask, ran, same);
+            all_ran = all_ran && ran;
+            all_same = all_same && same;
+        }
+        check("AIZ-09", "audio_mute.h: each of the 13 channel mute bits and ALL, for 50 frames, leave the saved state and the video unchanged "
+              "(the hardware sums every channel: turbosound.vhd:186-334, soundrive.vhd:112-113)", all_ran && all_same);
+    }
     {
         bool ran = false;
         const bool same = invisible([](Emulator& e, bool on) {
@@ -1556,11 +1916,12 @@ int main() {
         AudioSourceTap ta, tb;
         a.set_audio_scope_tap(&ta); b.set_audio_scope_tap(&tb);
         b.set_audio_mute_mask(AudioMute::ALL);
+        b.set_audio_channel_mute_mask(AudioChannelMute::ALL);   // GH #533: the per-channel mute is pre-tap too
         b.mixer().set_output_gain_db(-6.0f); b.mixer().set_beeper_gain_db(-6.0f);
         b.mixer().set_dac_gain_db(-6.0f);
         for (int c = 0; c < 3; ++c) b.mixer().set_ay_gain_db(c, -6.0f);
         const Out oa = run_frames(a, 3), ob = run_frames(b, 3);
-        check("SCP-07", "the 16 traces are pre-mute and pre-gain: identical with every source muted and every host gain -6 dB; the audible output differs (control)",
+        check("SCP-07", "the 16 traces are pre-mute and pre-gain: identical with every source and every channel muted and every host gain -6 dB; the audible output differs (control)",
               ta.written > 1000 && rings_equal(ta, tb) && oa.l != ob.l && oa.r != ob.r);
     }
     {

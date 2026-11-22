@@ -48,7 +48,7 @@ end
 | `mmu[s] page[s] nextreg[r]` | MMU, NextREGs |
 | `FRAME CYCLE TFRAME` | time |
 | `RAW_HC RAW_VC HC_ULA VC_ULA CVC PHC` | the raster |
-| `MACHINE AUDIO_MUTE` | 0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the mute mask |
+| `MACHINE AUDIO_MUTE AUDIO_CHANNEL_MUTE` | 0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the source mute mask; the channel mute mask |
 | `@name` | a MAP symbol (`; addr` or `; const`); `@main.loop` for an sjasmplus label |
 | `NAME.FIELD`, `changed(NAME, GROUP)`, `depth(NAME)` | snapshots; GROUP is `regs`, `mmu`, `iff1` or `stack0` |
 
@@ -67,7 +67,7 @@ end
 | `press "K" [for N]`, `release "K"` | keys, at the next frame edge; the guest sees them from the following interrupt |
 | `joystick N BITS` | connector N (1 or 2), 12 bits, at the next frame edge |
 | `set VAR = EXPR` | a variable |
-| `set TARGET = EXPR` | change the machine (logged `MUTATE`); TARGET is a register, a flag, `IFF1`, `IFF2`, `IM`, `mem[]`, `mem16[]`, `phys[]`, `nextreg[]` or `AUDIO_MUTE` |
+| `set TARGET = EXPR` | change the machine (logged `MUTATE`); TARGET is a register, a flag, `IFF1`, `IFF2`, `IM`, `mem[]`, `mem16[]`, `phys[]`, `nextreg[]`, `AUDIO_MUTE` or `AUDIO_CHANNEL_MUTE` |
 | `out PORT VALUE` | change the machine (logged `MUTATE`) |
 | `if EXPR then … [else …] end` | |
 

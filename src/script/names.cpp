@@ -46,7 +46,8 @@ const NameRow LIVE[] = {
     {"RAW_HC", Builtin::RAW_HC}, {"RAW_VC", Builtin::RAW_VC},
     {"HC_ULA", Builtin::HC_ULA}, {"VC_ULA", Builtin::VC_ULA},
     {"CVC", Builtin::CVC},   {"PHC", Builtin::PHC},
-    {"AUDIO_MUTE", Builtin::AUDIO_MUTE}, {"MACHINE", Builtin::MACHINE},
+    {"AUDIO_MUTE", Builtin::AUDIO_MUTE}, {"AUDIO_CHANNEL_MUTE", Builtin::AUDIO_CHANNEL_MUTE},
+    {"MACHINE", Builtin::MACHINE},
 };
 
 const NameRow PAYLOAD[] = {
@@ -109,6 +110,7 @@ bool is_assignable(Builtin b) {
         case Builtin::HF: case Builtin::NF:
         case Builtin::IFF1: case Builtin::IFF2: case Builtin::IM:
         case Builtin::AUDIO_MUTE:
+        case Builtin::AUDIO_CHANNEL_MUTE:
             return true;
         default:
             return false;

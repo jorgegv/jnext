@@ -1057,6 +1057,16 @@ public:
     }
     uint8_t audio_mute_mask() const { return audio_mute_mask_; }
 
+    /// Debugger-only per-channel mute (AudioChannelMute bits: 9 AY, 4 DAC). Same
+    /// rules as the source mute above; composes with it. The AY bits go to
+    /// TurboSound, the DAC bits to the Dac (its audible copy).
+    void set_audio_channel_mute_mask(uint16_t mask) {
+        audio_channel_mute_mask_ = mask & AudioChannelMute::ALL;
+        turbosound_.set_channel_mute_mask(audio_channel_mute_mask_ & AudioChannelMute::AY_ALL);
+        dac_.set_channel_mute(static_cast<uint8_t>(audio_channel_mute_mask_ >> 9));
+    }
+    uint16_t audio_channel_mute_mask() const { return audio_channel_mute_mask_; }
+
     /// Discarded audio writes, one counter per reason (GH #530). Always on, host
     /// state only: not in describe_state(), not touched by init() or load_state(),
     /// cleared only by clear_audio_drops(), and carried over a cold boot with
@@ -2110,6 +2120,8 @@ private:
 
     // Debugger-only source mute; NOT machine state (not reset, not serialised).
     uint8_t         audio_mute_mask_ = AudioMute::NONE;
+    uint16_t        audio_channel_mute_mask_ = AudioChannelMute::NONE;
+
 
     // GH #530: discarded-audio-write counters. Host state, like the mask above:
     // outside describe_state(), init() and load_state(); see audio_drops().

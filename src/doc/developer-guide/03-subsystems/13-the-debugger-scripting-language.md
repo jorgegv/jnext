@@ -199,7 +199,7 @@ and `REASON`.
 | `on stop` rule bodies | `on_paused()` |
 
 Mutations (`set`, `out`) go through the debugger's write paths (`set_register`,
-`poke`, `nextreg_write`, `port_out`, `set_audio_mute_mask`). These raise no
+`poke`, `nextreg_write`, `port_out`, `set_audio_mute_mask`, `set_audio_channel_mute_mask`). These raise no
 events, and the backend logs each as a `MUTATE` line. With a rewind buffer
 active, the first mutation logs a warning.
 
