@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-38. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-43. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=38
+EXPECTED_ROWS=43
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -113,6 +113,7 @@ case "${1:-}" in
             [[ "$a" == *:/src ]] && { echo "${a%%:*}" > "$FAKE_STATE/srcdir"; src=${a%%:*}; }
             [[ "$a" == *:/rr:ro ]] && { cp "${a%%:*}/env.sh" "$FAKE_STATE/env.sh"; ctl=${a%%:*}; }
         done
+        [[ "${FAKE_REFS:-0}" != 1 ]] || git -C "$src" merge-base HEAD origin/main > "$FAKE_STATE/mergebase" 2>/dev/null
         if [[ "${FAKE_INNER:-0}" == 1 ]]; then
             RR_CTL=$ctl RR_SRC=$src bash "$ctl/inner.sh"
             exit $?
@@ -728,6 +729,58 @@ env -u REMOTE_RUN_FALLBACK REMOTE_RUN_LOCAL_WRAP="$TMP/wrap2" timeout --kill-aft
 fb=$(grep fallback= "$FAKE_STATE/make-calls" | sort -u)
 row RRUN-37 "$([[ "$fb" == "fallback=1" && $(grep -c fallback= "$FAKE_STATE/make-calls") -eq 2 ]] && echo 1 || echo 0)" \
     "both fallback forms (make target, sh:) put REMOTE_RUN_FALLBACK=1 in the wrapper's environment"
+
+# RRUN-39: the run tree carries origin/main (the mirror holds only refs/rr/*, a local clone copies only
+# refs/heads/*), so a tool in the run can take a merge base with main (test-affected --explain-miss, GH #547).
+# The branch under test is one commit AHEAD of main, so main, the run's head and a wrongly set base differ.
+MAIN_SHA=$(git -C "$REPO" rev-parse main)
+AHEAD_SHA=$(git -C "$REPO" -c user.name=t -c user.email=t@t commit-tree -p "$MAIN_SHA" -m ahead "$(git -C "$REPO" rev-parse "$MAIN_SHA^{tree}")")
+git -C "$REPO" branch ahead39 "$AHEAD_SHA"
+reset_state; rm -f "$FAKE_STATE/mergebase"
+FAKE_REFS=1 FAKE_RC=0 drive --id m39 ahead39 "$AHEAD_SHA" unit-test
+mb39=$(cat "$FAKE_STATE/mergebase" 2>/dev/null)
+row RRUN-39 "$([[ $RC -eq 0 && -n "$mb39" && "$mb39" == "$MAIN_SHA" && "$mb39" != "$AHEAD_SHA" ]] && echo 1 || echo 0)" \
+    "the run tree's merge-base HEAD origin/main is main ($mb39), not the run's own head ($AHEAD_SHA) (rc $RC)"
+
+# RRUN-40: the main fetch is best effort: against a remote with no main the run is green, not a fallback, not 75,
+# and the run tree has no origin/main
+NOMAIN=$TMP/origin-nomain.git
+git clone -q --bare "$REPO" "$NOMAIN"; git -C "$NOMAIN" symbolic-ref HEAD refs/heads/feature; git -C "$NOMAIN" branch -q -D main
+reset_state; rm -f "$FAKE_STATE/mergebase"
+REMOTE_RUN_REPO_URL="file://$NOMAIN" FAKE_REFS=1 FAKE_RC=0 drive --id nm40 feature "$SHA" unit-test
+row RRUN-40 "$([[ $RC -eq 0 && "$OUT" != *"fallback"* && -e "$FAKE_STATE/mergebase" && ! -s "$FAKE_STATE/mergebase" ]] && echo 1 || echo 0)" \
+    "a remote with no main: the run is green (rc $RC), no fallback, and the run tree has no origin/main"
+
+# RRUN-41 / RRUN-42: both fetches under the setup lock are time-bounded (RR_FETCH_TIMEOUT, default 120 s). A hanging
+# main fetch is best effort (green run, no origin/main); a hanging branch fetch is the existing failure path (75).
+mkdir -p "$TMP/hang"
+REALGIT=$(command -v git)
+cat > "$TMP/hang/git" <<EOF
+#!/usr/bin/env bash
+case "\$*" in *"refs/heads/\${HANG_REF:-none}:"*) exec sleep 300 ;; esac
+exec $REALGIT "\$@"
+EOF
+chmod +x "$TMP/hang/git"
+reset_state; rm -f "$FAKE_STATE/mergebase"
+t0=$SECONDS
+PATH="$TMP/hang:$PATH" HANG_REF=main RR_FETCH_TIMEOUT=2 FAKE_REFS=1 FAKE_RC=0 drive --id hm41 feature "$SHA" unit-test
+took41=$((SECONDS - t0))
+row RRUN-41 "$([[ $RC -eq 0 && $took41 -lt 60 && -e "$FAKE_STATE/mergebase" && ! -s "$FAKE_STATE/mergebase" ]] && echo 1 || echo 0)" \
+    "a hanging main fetch is cut at RR_FETCH_TIMEOUT: green run (rc $RC) in ${took41}s with no origin/main"
+reset_state
+t0=$SECONDS
+PATH="$TMP/hang:$PATH" HANG_REF=ahead39 RR_FETCH_TIMEOUT=2 FAKE_RC=0 drive --id hb42 ahead39 "$AHEAD_SHA" unit-test
+took42=$((SECONDS - t0))
+row RRUN-42 "$([[ $RC -eq 75 && $took42 -lt 60 && "$OUT" == *"timed out after 2s"* ]] && echo 1 || echo 0)" \
+    "a hanging branch fetch is cut at RR_FETCH_TIMEOUT and takes the fallback path (rc $RC, ${took42}s)"
+
+# RRUN-43: the --deps-ref fetch, also under the setup lock, is bounded too: a hang takes the existing 75 fallback
+reset_state
+t0=$SECONDS
+PATH="$TMP/hang:$PATH" HANG_REF=feature RR_FETCH_TIMEOUT=2 FAKE_RC=0 drive --id hd43 ahead39 "$AHEAD_SHA" unit-test --deps-ref feature
+took43=$((SECONDS - t0))
+row RRUN-43 "$([[ $RC -eq 75 && $took43 -lt 60 && "$OUT" == *"cannot fetch --deps-ref feature"* ]] && echo 1 || echo 0)" \
+    "a hanging --deps-ref fetch is cut at RR_FETCH_TIMEOUT and takes the fallback path (rc $RC, ${took43}s)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green
