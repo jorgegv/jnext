@@ -166,7 +166,8 @@ row WCORE-10 "--sdcard-download-confirm with no image fails at once (exit 1, 'do
 
 # WCORE-12: the joystick UART's pty and FIFO endpoints need a terminal and named pipes, which the
 # build lacks: refused at parse, before --version runs, and the FIFO form leaves no PATH.rx / PATH.tx
-# behind (without the refusal, emscripten's mkfifo made them as plain files).
+# behind (without the refusal, emscripten's mkfifo made them as plain files). Checked after a
+# start-up run too, the only one that reaches mkfifo.
 bad=""
 for spec in "--joy-uart-pty" "--joy-uart-fifo $SCRATCH/cable"; do
     flag=${spec%% *}
@@ -176,10 +177,17 @@ for spec in "--joy-uart-pty" "--joy-uart-fifo $SCRATCH/cable"; do
         bad+="$flag(rc=$RC err=[$ERR]) "
     fi
 done
+# The FIFO is created only at start-up (--version returns at parse, before it), so the absence
+# check needs a run that starts: no --version, a program to load, a frame-bounded exit.
+run_jnext --headless --no-sdcard --machine next --load "$ROOT/test/00regression/nex/blue.nex" \
+    --joy-uart-fifo "$SCRATCH/cable" --delayed-automatic-exit-frames 5
+if ! [[ $RC -eq 1 && "$ERR" == *"--joy-uart-fifo"* && "$ERR" == *"browser build"* ]]; then
+    bad+="startup(rc=$RC err=[$ERR]) "
+fi
 for f in "$SCRATCH/cable.rx" "$SCRATCH/cable.tx"; do
     [[ -e "$f" ]] && bad+="left-behind:${f##*/} "
 done
-row WCORE-12 "--joy-uart-pty and --joy-uart-fifo X exit 1 naming the flag and 'browser build' before --version runs, and leave no X.rx/X.tx behind" \
+row WCORE-12 "--joy-uart-pty and --joy-uart-fifo X exit 1 naming the flag and 'browser build' before --version runs, and leave no X.rx/X.tx behind, also in a run that starts (no --version)" \
     $([[ -z "$bad" ]] && echo 1 || echo 0) "$bad"
 
 RAW=$(stat -c %s "$WASM")
