@@ -494,6 +494,21 @@ int main() {
               cancelled && !r.paused(), "cancelled=" + std::to_string(cancelled) + " paused=" + std::to_string(r.paused()));
     }
 
+    // DBGST-21: a target that IS the PC the program starts at stops there at once (a resume
+    // steps off the instruction it is at, so a plain run-to would run straight past it).
+    {
+        Rig r("8000");
+        r.start(1);
+        bool ok = false;
+        const std::string log = logged([&] { ok = r.land(path("target.nex")); });
+        r.run(2);
+        check("DBGST-21", "--break-at 8000 on a NEX that starts at 0x8000 stops there right after the load, "
+                          "not past it, and the log names the --break-at",
+              ok && r.paused() && r.pc() == ENTRY && r.dbg->state().pause_reason.by == r.ss.client() &&
+                  log.find("debugger: stopped at $8000 (--break-at 8000)") != std::string::npos,
+              "paused=" + std::to_string(r.paused()) + " pc=" + hex(r.pc()) + " " + log);
+    }
+
     std::filesystem::remove_all(g_dir);
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

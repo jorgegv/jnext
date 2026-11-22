@@ -72,6 +72,7 @@ private:
         uint16_t addr = 0;
         jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
         bool source_line = false;
+        bool at_pc = false;   // the machine is already at the target: it is the stop
     };
 
     bool resolve_target(Target& t, std::string& why) const;

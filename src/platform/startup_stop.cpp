@@ -73,16 +73,27 @@ bool StartupStop::start(jnext::dbg::Debugger& dbg, Emulator& emu, const Emulator
 }
 
 bool StartupStop::resolve_target(Target& t, std::string& why) const {
+    // A resume steps off the instruction the machine is at, so a run-to whose target is the
+    // PC (`--break-at 8000` on a NEX that starts at 0x8000) would run straight past it. The
+    // machine IS at the target then, with the memory that supplies it: that is the stop.
+    const uint16_t pc = dbg_->state().pc;
+    const auto here = [&](const jnext::dbg::MemSpace& space, uint16_t addr) {
+        return addr == pc && (space == jnext::dbg::MemSpace::cpu() ||
+                              space == dbg_->mmu_slots()[pc >> 13].space);
+    };
     // The Breakpoints panel's parser, in the panel's order: a number or a symbol (a name
     // keeps the memory it was assembled for), then a source line.
     if (const auto r = dbg_->symbols().resolve_key(break_at_)) {
         t.addr  = r->addr;
         t.space = r->space ? *r->space : jnext::dbg::MemSpace::cpu();
+        t.at_pc = here(t.space, t.addr);
         return true;
     }
     const auto src = dbg_->source_map().resolve(break_at_);
     if (!src.starts.empty()) {
         t.source_line = true;
+        for (const auto& s : src.starts)
+            if (here(s.space, s.address)) t.at_pc = true;
         return true;
     }
     why = "--break-at " + break_at_ + ": not an address, a symbol or a source line" +
@@ -95,6 +106,13 @@ bool StartupStop::arm(const std::string& default_why, std::string& why) {
     if (!break_at_.empty() && last_ok_) {
         Target t;
         if (!resolve_target(t, why)) return false;
+        if (t.at_pc) {
+            (void)dbg_->pause(cid_);
+            phase_ = Phase::Stopped;
+            stop_cycle_ = dbg_->state().cycle;
+            log_stop(("--break-at " + break_at_).c_str());
+            return true;
+        }
         const jnext::dbg::Result r = t.source_line ? dbg_->run_to_source_line(cid_, break_at_)
                                                    : dbg_->run_to(cid_, t.addr, t.space);
         if (r != jnext::dbg::Result::Ok) {
