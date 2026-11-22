@@ -9,7 +9,8 @@
 # Oracle: that rule, read from the workflow file. No VHDL: this is tooling.
 #
 #   CICS-01  ci.yml holds no combined `actions/cache@` step (it would save on every ref)
-#   CICS-02  every `actions/cache/save` step's `if:` requires a push to refs/heads/main
+#   CICS-02  every `actions/cache/save` step's `if:` requires a push to refs/heads/main, and so does
+#            the flatpak-builder action's `save-cache` in flatpak-build.yml
 #   CICS-03  every `actions/cache/restore` has a save with the same key and path, and every save a restore
 #   CICS-04  the checker refuses fixtures: a combined cache, a save with no (or a wrong) condition, a
 #            restore with no save, a save with no restore, a workflow with no cache step at all
@@ -74,6 +75,11 @@ for pair in "CICS-01:plain:holds no combined actions/cache step" \
             "CICS-03:pair:every restore has a save of the same key and path, and back"; do
     id=${pair%%:*}; rest=${pair#*:}; rule=${rest%%:*}; text=${rest#*:}
     out=$(check "$WF" "$rule"); rc=$?
+    # the Flatpak job caches through its action, not actions/cache: its save toggle carries the same rule
+    if [[ $rc -eq 0 && "$id" == CICS-02 ]]; then
+        grep -qF "save-cache: \${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}" "${CI_CACHE_SAVE_FLATPAK:-$ROOT/.github/workflows/flatpak-build.yml}" \
+            || { rc=1; out="flatpak-build.yml: the flatpak-builder action's save-cache is not limited to a push to main"; }
+    fi
     if [[ $rc -eq 0 ]]; then row "$id" 1 "ci.yml $text"
     else row "$id" 0 "ci.yml: ${out:-checker exit $rc}"; fi
 done
