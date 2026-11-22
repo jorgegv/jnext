@@ -2275,10 +2275,12 @@ private:
     /// HALT batch the clock is at the window end, as for the Pi edge stamps).
     void refresh_mic_final_() { beeper_.set_mic_final(tape_out_level()); }
 
-    /// The tape block's per-instruction step for a PLAYING tape: store the raw
-    /// level, and refresh `mic_final` when the level changed or the tape has
-    /// just started.
-    void tape_level_step_(bool lvl) {
+    /// The tape block's per-instruction step for a PLAYING tape: note the
+    /// level for the relaxation (an edge of the jack restarts the hold), store
+    /// the raw level, and refresh `mic_final` when the level changed or the
+    /// tape has just started.
+    void tape_level_step_(bool lvl, uint64_t now) {
+        note_tape_level_(lvl, now);
         const bool changed = lvl != beeper_.tape_ear();
         beeper_.set_tape_ear(lvl);
         if (changed || !tape_mic_live_) {
@@ -2287,13 +2289,23 @@ private:
         }
     }
 
+    /// An edge of the playing tape's level at master cycle `now`: the
+    /// `ear_relax` hold counts from it. The first observation wins: the port
+    /// 0xFE read path and the end-of-instruction tape block both call it.
+    void note_tape_level_(bool lvl, uint64_t now) {
+        if (lvl != tape_seen_level_) {
+            tape_seen_level_ = lvl;
+            tape_edge_master_ = now;
+        }
+    }
 
     /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read, the MIC
     /// output and the mixer's MIC term: the tape jack (`tape_playing`,
     /// `tape_level`) and, while NR 0xA2 bit 0 sends the Pi's audio there,
-    /// `pi_fe_ear` XORed in through `ear_relax` (zxnext_top_issue2.vhd:
-    /// 663-677). A level held for the relaxation time with no tape playing
-    /// reads as the issue-2 MIC level.
+    /// `pi_fe_ear` XORed in, all through `ear_relax`
+    /// (zxnext_top_issue2.vhd:663-677). A level held for the relaxation time
+    /// with no edge of that XOR (a tape edge or a Pi edge) reads as the issue-2
+    /// MIC level.
     /// During a rewind replay or an RZX playback the Pi term is held off: it
     /// is host-timed, like the sample NR 0x2C/0x2E show.
     bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) const;
@@ -2302,6 +2314,11 @@ private:
     /// kept fresh at port 0xFE writes and output-sample boundaries). Derived,
     /// not serialised; cleared by init() and load_state().
     bool tape_mic_live_ = false;
+    /// The playing tape's level as last noted by `note_tape_level_`, and the
+    /// master cycle of its last edge (0 = none seen): the `ear_relax` hold of
+    /// a playing tape counts from it. Derived, not serialised.
+    bool     tape_seen_level_  = false;
+    uint64_t tape_edge_master_ = 0;
 
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.

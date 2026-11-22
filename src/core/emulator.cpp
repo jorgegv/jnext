@@ -387,6 +387,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     i2s_.reset();
     pi_ear_edge_master_ = 0;
     tape_mic_live_ = false;
+    tape_seen_level_ = false;
+    tape_edge_master_ = 0;
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
     mixer_.set_beeper_gain_db(cfg.audio_gain_beeper_db);
@@ -5143,6 +5145,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             } else {
                 playing = false;
             }
+            if (playing) note_tape_level_(tape_level != 0, io_request_edge());
             // With no tape playing: the issue-2 MIC→EAR feedback (VHDL
             // zxnext.vhd:1636, :3459), i_AUDIO_EAR steady-state = port_fe_mic
             // AND nr_08_keyboard_issue2; and NR 0xA2 bit 0's Pi term.
@@ -9681,22 +9684,30 @@ bool Emulator::audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) co
     const uint8_t a2 = i2s_.nr_a2_ctl();
     const bool pi_path = (a2 & 0xC0) != 0 && (a2 & 0x01) != 0 &&
                          !replay_mode_ && !rzx_player_.is_playing();
-    if (!pi_path) return tape_playing ? tape_level : issue2_mic;
+    // The jack idle and no Pi: the relaxed state, whatever the level was
+    // before the tape stopped (a stop is treated as relaxed at once; the
+    // board holds the last level up to 1.17 ms, with the issue-2 MIC bit
+    // the only difference).
+    if (!pi_path && !tape_playing) return issue2_mic;
     // ear_relax (zxnext_top_issue2.vhd:663-677): i_sig = ear_jack xor not
     // pi_fe_ear with INVERT = 1, so the output is ear_jack xor pi_fe_ear,
     // passed straight through on an edge; after COUNTER_SIZE = 6 (64) ticks
     // of CLK_28_MEMBRANE_EN with no edge it relaxes to zxn_issue2_fe_mic
-    // (symmetric_relaxation.vhd). The enable fires once per 512 master
-    // cycles (clk_28_div(8 downto 0) all ones, zxnext_top_issue2.vhd:1172-
-    // 1179), so the hold is 64 x 512 master cycles, give or take one enable
-    // with the free-running divider's phase. With no tape playing the jack
-    // is idle and the Pi's comparator is the only edge source; a playing
-    // tape keeps today's model, its own level passed through.
+    // (symmetric_relaxation.vhd:62,76,89-90). The enable fires once per 512
+    // master cycles (clk_28_div(8 downto 0) all ones, zxnext_top_issue2.vhd:
+    // 1172-1179), so the hold is 64 x 512 master cycles, give or take one
+    // enable with the free-running divider's phase.
+    //
+    // GH #550: it applies to a PLAYING tape as well, which is the same jack:
+    // a level held that long with no edge reads as the issue-2 MIC level
+    // (0 on issue 3). The hold counts from the latest edge of the XOR, i.e.
+    // of the tape (note_tape_level_) or of the Pi comparator.
     static constexpr uint64_t kEarRelaxMaster = 64 * 512;
-    const bool sig = (tape_playing && tape_level) != i2s_.fe_ear();
-    if (!tape_playing && now >= pi_ear_edge_master_ &&
-        now - pi_ear_edge_master_ >= kEarRelaxMaster)
-        return issue2_mic;
+    const bool sig = pi_path ? ((tape_playing && tape_level) != i2s_.fe_ear())
+                             : tape_level;
+    uint64_t edge = pi_path ? pi_ear_edge_master_ : 0;
+    if (tape_playing && tape_edge_master_ > edge) edge = tape_edge_master_;
+    if (now >= edge && now - edge >= kEarRelaxMaster) return issue2_mic;
     return sig;
 }
 
@@ -11955,8 +11966,9 @@ uint64_t Emulator::step_one_instruction()
                     ? tap_sync_ts_ : 0u;
             tape_.set_gap_hold(tape_gap_hold_(monotonic_tstates()));
             tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
-            // GH #550: the level and the mixer's MIC term (tape_level_step_).
-            tape_level_step_(tape_.tick_realtime(0) != 0);
+            // GH #550: the level, its relaxation edge and the mixer's MIC term
+            // (tape_level_step_).
+            tape_level_step_(tape_.tick_realtime(0) != 0, clock_.get() + master_cycles);
             // GH #89 — a playing tape is echoed to tape-out (zxnext.vhd:6503):
             // a TZX / WAV save samples it at the end of each instruction, and
             // only while a tape plays, so nothing is paid otherwise.
@@ -11969,11 +11981,13 @@ uint64_t Emulator::step_one_instruction()
             tzx_tape_.set_auto_policy(
                 tape_gap_hold_(monotonic_tstates()),
                 tape_auto_play_, config_.type == MachineType::ZX48K);
-            tape_level_step_(tzx_tape_.update(monotonic_tstates()) != 0);
+            tape_level_step_(tzx_tape_.update(monotonic_tstates()) != 0,
+                             clock_.get() + master_cycles);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else if (wav_tape_.is_playing()) {
-            tape_level_step_(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
+            tape_level_step_(wav_tape_.get_ear_bit(monotonic_tstates()) != 0,
+                             clock_.get() + master_cycles);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else {
@@ -11982,6 +11996,7 @@ uint64_t Emulator::step_one_instruction()
             // (issue 2 + MIC = 1 at tape level 0 goes 0 -> 1: zxnext.vhd:6503).
             if (tape_mic_live_) [[unlikely]] {
                 tape_mic_live_ = false;
+                tape_seen_level_ = false;
                 refresh_mic_final_();
             }
         }
@@ -15567,6 +15582,8 @@ bool Emulator::load_state(StateReader& r)
         emu_fnkeys_.set_nr_06_hotkey_enables((nr06 & 0x80) != 0, (nr06 & 0x20) != 0);
         mixer_.set_exc_i(beep_spkr_excl());
         tape_mic_live_ = false;
+        tape_seen_level_ = false;
+        tape_edge_master_ = 0;
         refresh_mic_final_();
     }
 
