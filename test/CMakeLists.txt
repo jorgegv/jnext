@@ -535,6 +535,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories(sdcard_file_add_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME sdcard_file_add_linux_tests COMMAND sdcard_file_add_linux_test)
 endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # The glue sector cache's failed-write rows need /dev/full and RLIMIT_FSIZE (GH #547 stage 5).
+    add_executable(fatfs_glue_linux_test fat32_image/fatfs_glue_linux_test.cpp)
+    target_link_libraries(fatfs_glue_linux_test PRIVATE jnext_core)
+    target_include_directories(fatfs_glue_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME fatfs_glue_linux_tests COMMAND fatfs_glue_linux_test)
+endif()
 
 # FAT32 image read/write + geometry test (Task 27)
 # Native reimplementation of the mtools-based SD-image FAT32 cluster fix.
@@ -902,6 +909,16 @@ target_link_libraries(tap_loader_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(tap_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tap_loader_tests COMMAND tap_loader_test)
+
+# TAPA-01..16 (automatic tape play/stop), moved out of tap_loader_test (GH #547
+# stage 5) so each process is shorter; helpers in core/tap_loader_common.h.
+add_executable(tap_loader_autoplay_test core/tap_loader_autoplay_test.cpp)
+target_link_libraries(tap_loader_autoplay_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(tap_loader_autoplay_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tap_loader_autoplay_tests COMMAND tap_loader_autoplay_test)
 
 # GH #392 - programs inside .zip archives: the interchange ZIP reader and the
 # program-archive layer. Fixtures are foreign-writer archives (test/fixtures/zip,
