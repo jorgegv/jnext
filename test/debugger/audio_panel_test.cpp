@@ -1402,7 +1402,7 @@ static void test_log_tab(Emulator& emu) {
         dbg.set_audio_log_enabled(cid, true);
         AudioPanel panel(&dbg);
         show_log_tab(panel);
-        cpu_program(emu, {0x3E, 0x33, 0xD3, 0x1F, 0x18, 0xFE});
+        cpu_program(emu, {0xF3, 0x18, 0xFE});   // parked while the DMA runs
         emu.mmu().write(0xA000, 0x5A);
         {
             auto w = [&](uint8_t v) { emu.dma().write(v, false); };
