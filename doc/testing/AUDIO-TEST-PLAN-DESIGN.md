@@ -863,6 +863,40 @@ timestamps against the event system's own. CPU rows run a guest program; a write
 | AWL-27 | 10 frames, a checkpoint, 5 frames, load the checkpoint (the clock goes back), `rewind_to_frame(frame - 3)` (before the checkpoint); run 3 frames on | No write from the landing cycle on survives, the abandoned run before the load included; the undone StateLoad marker is gone; one Rewind marker last; running on logs no write twice |
 | AWL-28 | The same with the landing exactly at the load point (`rewind_to_frame(frame + 1)` after the load, the snapshot taken at the save cycle) | The StateLoad marker at that cycle stays, just before the Rewind marker; no write from that cycle on survives |
 
+### 8.7 Frame grouping (`src/debug/audio_frames.h`)
+
+The audio write log grouped into one record per frame (GH #534): the helper behind the Audio panel's
+Tracker. Pure: hand-built entry lists, no machine. Oracles: the grouping rules of the issue (a counted
+write is an applied `AyRegister` entry, any non-marker entry of a later frame ends the open one, a marker
+forgets the timeline) and the AY register file, which keeps the whole written byte (`ym2149.vhd:190-205`),
+so a log entry's `prev` is the register's value at the start of the frame; the register meanings at
+`ym2149.vhd:283,306,334,469-471,483-487` and the R13 restart at `:207-210`.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AFG-01 | f10: R8 = 0x05 (prev 0), R8 = 0x0A; f11: R0 | The frame f11 completes: final R8 0x0A (last wins), before R8 0 (the first write's prev), every other final -1 |
+| AFG-02 | The same plus R0 = 0x10 once; a frame of single writes | double_mask is exactly bit 8; 0 for the single-write frame |
+| AFG-03 | f10: R14 = 0x55, R15 = 0xAA only | One frame: writes 2, written_mask 0xC000, no final or before slot set |
+| AFG-04 | Writes in f10, f13, f14 | empty_before 0, 2, 0 |
+| AFG-05 | f10 AY write; f11 DAC, DAC mirror, beeper and chip-select entries; f12 AY write | The DAC entry already completes f10; f11 has no frame; f12 empty_before 1 |
+| AFG-06 | f10: two Dropped AyRegister entries | No frame opens: flush returns nothing, open() null |
+| AFG-07 | f10: writes stamped (1,10,40), (5,20,1150), (9,4,2050); a one-write frame | first and last are the first and last write, writes 3; one write: first == last |
+| AFG-08 | f10: CPU writes at pc 0x8123, 0x8100, 0x8150, a DMA and a Debugger write; f11: DMA only | pc_min 0x8100, pc_max 0x8150, writes 5; f11 pc_min 0xFFFF, pc_max 0, writes 1 |
+| AFG-09 | f10 R7 = 0x38; a Reset marker; f12 R8 | The marker completes f10 and nothing stays open; f12 empty_before 0, before R7 unknown (-1) |
+| AFG-10 | f10: chip 1 R0 = 0x11, chip 2 R13 = 0x08 | written_mask {0, bit 0, bit 13}, each final on its chip, chip 0 untouched |
+| AFG-11 | f10 R7 = 0x38 (prev 0xFF); f11 R8 only | f10 changed(R7); f11 carries R7: before 0x38, no final, after 0x38, not changed |
+| AFG-12 | The same f11 | R9 never seen: before -1, after -1, not changed |
+| AFG-13 | f10 R8 = 0x05; f12 R8 = 0x09 (prev 0x07) | f12 before R8 is the prev 0x07, not the carried 0x05 |
+| AFG-14 | f10 R0 = 0xFC (prev 0xFC) | written_mask bit 0 set, not changed |
+| AFG-15 | f10: two writes | No frame returned, open() is f10 with writes 2; flush returns it and open() is null |
+| AFG-16 | f20 R7 write; f15 R8 write (no marker) | The f15 write returns f20; f15 has empty_before 0 and an unknown before R7 |
+| AFG-17 | f10: a Debugger-source R8 write | Counted (writes 1, final set), no pc range |
+| AFG-18 | A write, a StateLoad marker, a write, a Rewind marker (frame 8), a write at f9 | Each marker returns the open frame (writes 1 each, markers never counted); f9 empty_before 0 |
+
+The Tracker's own rows live in `debugger_audio_panel_test` (the grid cell for cell, the live grouping of
+real writes, the rewind double-click and why a row is greyed) and `debugger_panel_data_test` (what the
+window asks of the backend, and the landing on a frame).
+
 ## Test Implementation Strategy
 
 ### Phase 1: Unit Tests (Internal State)

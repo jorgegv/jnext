@@ -12,7 +12,7 @@ Each channel also has its own **M** (mute) and **S** (solo) buttons, described
 under [Mute and solo](#mute-and-solo) below.
 
 Below it are five tabs: **Chips**, **DAC & Beeper**, **Log**, **Tracker** and
-**Scopes**. Tracker and Scopes are not available yet.
+**Scopes**. Scopes is not available yet.
 
 ## Chips
 
@@ -142,6 +142,33 @@ and the Source; **Envelope restarts only**; and **Dropped only**. Double-click a
 written by the CPU to show the instruction in the Disassembly. **Export CSV...** writes
 the whole log in the same format as the `--audio-log` option, described in the manual
 page.
+
+## Tracker
+
+The AY tune one frame per row, newest last, the three chips side by side. Each chip has
+the columns **Env** (the envelope period, hex), **Sh** (the envelope shape) and, for
+channels A, B and C, **Note**, **V** (volume) and **N** (noise), in the order of a
+tracker such as Vortex Tracker. The **Frame** column is the frame the writes were made in,
+and **Mark** says `double` when a register was written twice in that frame.
+
+A cell is filled only when its register was written in that frame: the note when the tone
+period changed (`A-4`, `A#4`; `^^^` above the named range; `???` or `??` when the log has
+not yet seen one of the registers), the volume when its register was written (`E` for
+envelope volume), the noise period for a channel whose noise is on (`--` when it is off),
+the envelope when R11, R12 or R13 was written. An empty cell shows dots. A cell whose
+value changed is highlighted. A run of frames with no AY write is a single row, `empty`
+or `empty xN`; a break in the log (reset, state load, rewind) is a row of its own, as in
+the Log tab.
+
+The Tracker reads the same log as the Log tab: it is recorded only while one of them is on
+show, and the log holds the newest 65536 writes. The rows follow the machine at about
+4 Hz while it runs and the tab keeps at most 65536 rows.
+
+Double-click a row while the machine is paused to rewind to the start of that frame (this
+needs the rewind buffer; the tooltip of a row that cannot be reached says why: running,
+an RZX in progress, an empty buffer, a frame outside the buffer, or one from before a
+reset or a state load). After the jump the rows from that frame on are removed and a
+`rewind` row is added; they come back as the machine runs again.
 
 ## Mute and solo
 
