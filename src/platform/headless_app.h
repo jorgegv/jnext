@@ -180,8 +180,8 @@ private:
     // listener detach from the Debugger they were started on.
 #ifndef __EMSCRIPTEN__
     jnext::script::ScriptHost script_host_;
-    StartupStop               startup_stop_;   // GH #548: --debugger / --break-at (after debugger_)
 #endif
+    StartupStop               startup_stop_;   // GH #548: --debugger / --break-at (after debugger_)
 
     /// The cold boot itself (reconstruct + init, platform/emulator_boot.h) and
     /// the loop's pending-work reset — what `LoopDriver::cold_boot` runs for a
