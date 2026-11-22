@@ -3559,7 +3559,7 @@ a run override like <code>debugger.attached</code>).</p>
   its <code>@NN</code>, which is a different thing (<a href="01-which-memory.html">7.1</a>).</li>
 </ul>
 <p>The instruction at the PC is read as the CPU will fetch it, not as a data read.
-<code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:916</code>) takes the bytes of that one instruction
+<code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:931</code>) takes the bytes of that one instruction
 (at most four) from <code>Emulator::predict_instruction_bytes()</code> and every other address from
 <code>Mmu::peek()</code>; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
 other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:175</code>: <code>is_call_like()</code> at <code>:184</code> and <code>instruction_length()</code> at <code>:190</code>
@@ -3616,7 +3616,7 @@ subscribes one <code>Execute</code> per start, each with the <code>space</code> 
 (<code>space</code>, <code>script_engine.cpp:348</code>); an unknown line is a diagnostic that names the reason. <code>--map</code> loads symbols
 with <code>MapFormat::Z88dkOrSjasmplus</code> (<code>script_host.cpp:187</code>, <a href="03-loaders.html">7.3</a>). Held scripts and the
 rest of the language are in <a href="../03-subsystems/13-the-debugger-scripting-language.html">3.10.6</a>.</p>
-<p><code>cvar(PATH)</code> is the one atom that reads a C variable: <code>eval_int()</code> (<code>evaluator.cpp:275</code>) calls
+<p><code>cvar(PATH)</code> is the one atom that reads a C variable: <code>eval_int()</code> (<code>evaluator.cpp:276</code>) calls
 <code>read_c_value(0, path)</code> (frame 0, where the CPU is) and <code>c_int32_scalar()</code> (<a href="10-c-frames-and-values.html">7.10</a>) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
 attach, and every refusal is an <code>EvalError</code>, never a 0.
