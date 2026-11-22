@@ -481,6 +481,7 @@ static bool invisible_dbg(F feature, int frames, bool& ran, void (*fixture)(Emul
 // value to port 0x1F about 20 times a frame.
 static void build_counter(Emulator& emu) {
     fresh(emu);
+    nr_write(emu, 0x08, 0x08);   // the DAC on: the writes are APPLIED ones, which a replay must not log again
     emu.set_rewind_enabled(true);
     emu.resize_rewind_buffer(50);
     run_from(emu, 0x8000, {0xF3,                // DI

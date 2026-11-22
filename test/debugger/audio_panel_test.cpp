@@ -1538,6 +1538,33 @@ static void test_log_tab(Emulator& emu) {
               mirror && rec && off && log_rows(panel) == int(fresh.size()) && !fresh.empty() &&
               fresh.front().seq > entries.back().seq);
     }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-60", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap60", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_log_tab(panel);
+        auto* view = panel.findChild<AudioLogView*>();
+        if (view) view->set_row_cap(5);
+        nr_write(emu, 0x08, 0x08);
+        // 12 writes in three refreshes: the model is bounded to the cap and holds the NEWEST rows, and the
+        // incremental fetch keeps working across the trim (no gap, no spurious resync).
+        for (uint8_t v = 1; v <= 4; ++v) emu.port().out(0x1F, v);
+        panel.refresh();
+        for (uint8_t v = 5; v <= 9; ++v) emu.port().out(0x1F, v);
+        panel.refresh();
+        for (uint8_t v = 10; v <= 12; ++v) emu.port().out(0x1F, v);
+        panel.refresh();
+        bool newest = log_rows(panel) == 5;
+        for (int i = 0; newest && i < 5; ++i) newest = log_cell(panel, i, 9) == QString::asprintf("0x%02X", 8 + i);
+        // A marker resyncs from the whole ring: still capped.
+        dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+        panel.refresh();
+        const bool marker = log_rows(panel) <= 5 && marker_rows(panel) == 1;
+        check("DAP-60", "the Log view holds at most its row cap (5): after 12 writes over three refreshes it shows the newest five (values 8-12) in order, and a resync after a marker is capped too",
+              view && newest && marker);
+    }
 }
 
 int main(int argc, char** argv) {

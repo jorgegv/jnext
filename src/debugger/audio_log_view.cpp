@@ -156,6 +156,15 @@ void AudioLogModel::append(const std::vector<AudioLogEntry>& entries)
     endInsertRows();
 }
 
+void AudioLogModel::trim_front(size_t keep)
+{
+    if (entries_.size() <= keep) return;
+    const int n = int(entries_.size() - keep);
+    beginRemoveRows(QModelIndex(), 0, n - 1);
+    entries_.erase(entries_.begin(), entries_.begin() + n);
+    endRemoveRows();
+}
+
 // ---------------------------------------------------------------------------
 // The filter
 // ---------------------------------------------------------------------------
@@ -306,11 +315,16 @@ void AudioLogView::refresh()
         resync = v[i].marker != AudioMarker::None;
     if (resync) {
         auto all = dbg_->audio_log_entries(0);
-        model_->replace(all ? std::move(all.value) : std::vector<AudioLogEntry>{});
+        std::vector<AudioLogEntry> rows = all ? std::move(all.value) : std::vector<AudioLogEntry>{};
+        if (rows.size() > row_cap_) rows.erase(rows.begin(), rows.end() - std::ptrdiff_t(row_cap_));
+        model_->replace(std::move(rows));
         return;
     }
     if (first > 0) v.erase(v.begin());
     model_->append(v);
+    // The ring overwrites its oldest writes; the rows for them go too, so the view stays bounded
+    // however long the tab is open. The newest row (the resync key above) is never the one dropped.
+    model_->trim_front(row_cap_);
 }
 
 bool AudioLogView::export_to(const QString& path)

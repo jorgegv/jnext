@@ -48,6 +48,8 @@ public:
 
     void replace(std::vector<jnext::dbg::AudioLogEntry> entries);
     void append(const std::vector<jnext::dbg::AudioLogEntry>& entries);
+    /// Drop the oldest rows until at most `keep` remain.
+    void trim_front(size_t keep);
     const jnext::dbg::AudioLogEntry& entry(int row) const { return entries_[size_t(row)]; }
     /// The seq of the newest row, 0 when empty.
     uint64_t last_seq() const { return entries_.empty() ? 0 : entries_.back().seq; }
@@ -86,6 +88,11 @@ public:
     /// Bring the rows up to date with the backend's log (see the file header).
     void refresh();
 
+    /// The most rows the view holds (default: the log's own default size). The backend's
+    /// ring forgets its oldest writes, and so does the view, whatever the machine runs
+    /// for. The test seam; the oldest rows go first.
+    void set_row_cap(size_t rows) { row_cap_ = rows; }
+
     /// Write the backend's log as CSV to `path`. False when the log is off or the
     /// file cannot be written. The Export button's body, and the tests' seam.
     bool export_to(const QString& path);
@@ -105,4 +112,5 @@ private:
     QPushButton* export_ = nullptr;
     QComboBox *target_ = nullptr, *chip_ = nullptr, *reg_ = nullptr, *dac_ = nullptr, *source_ = nullptr;
     QCheckBox *restarts_ = nullptr, *dropped_ = nullptr;
+    size_t row_cap_ = jnext::dbg::AUDIO_LOG_DEFAULT_ENTRIES;
 };
