@@ -371,7 +371,7 @@ void AudioPanel::refresh() {
 
     // Stereo mode. VHDL zxnext.vhd:5177 — `nr_08_psg_stereo_mode` is a
     // SINGLE bit (NR 0x08 bit 5), not a 2-bit field; audio/turbosound.vhd:45
-    // — "0 = ABC, 1 = ACB for all psg". The backend's value mirrors that live
+    // -- "0 = ABC, 1 = ACB for all psg". The backend's value mirrors that live
     // signal. The previous code read bits 5:4 as a bogus 2-bit field (bit 4 is
     // nr_08_internal_speaker_en, VHDL zxnext.vhd:5178, unrelated to stereo)
     // against a 6-entry table that invented four stereo modes ZX Next

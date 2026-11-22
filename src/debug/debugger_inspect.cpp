@@ -827,7 +827,7 @@ Result Debugger::set_audio_mute_mask(ClientId by, uint8_t mask) {
     return Result::Ok;
 }
 
-// INS-22 — the decoded audio chain. Every source is a const accessor or a
+// INS-22 -- the decoded audio chain. Every source is a const accessor or a
 // peek: nothing here runs a NextREG read handler or a port read.
 AudioState Debugger::audio_state() const {
     Emulator& emu = impl_->emu;

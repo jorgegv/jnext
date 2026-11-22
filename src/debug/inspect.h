@@ -437,13 +437,13 @@ enum class StereoMode : uint8_t { Abc = 0, Acb = 1 };
 // the drift the reuse rule exists to prevent.
 
 // ---------------------------------------------------------------------------
-// INS-22 — audio_state(): the decoded audio chain
+// INS-22 -- audio_state(): the decoded audio chain
 // ---------------------------------------------------------------------------
 
-/// INS-22 — channels per AY/YM chip.
+/// INS-22 -- channels per AY/YM chip.
 constexpr size_t AY_CHANNELS_PER_CHIP = 3;
 
-/// INS-22 — Soundrive DAC channels (A, B, C, D).
+/// INS-22 -- Soundrive DAC channels (A, B, C, D).
 constexpr size_t DAC_CHANNEL_COUNT = 4;
 
 /// Where the envelope generator is heading (`ym2149.vhd:402-462`).
@@ -517,7 +517,7 @@ struct HostAudioState {
     bool    synthesis_on = false;   ///< the user setting: not `--silent`
 };
 
-/// INS-22 — `Debugger::audio_state()`. One consistent read of everything a
+/// INS-22 -- `Debugger::audio_state()`. One consistent read of everything a
 /// frontend decodes for the Audio panel; no side effects, no NextREG read
 /// handler runs.
 struct AudioState {

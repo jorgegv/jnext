@@ -21,6 +21,7 @@
 #include "audio/turbosound.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 #include "debug/audio_math.h"
 #include "debug/debugger.h"
 #include "core/log.h"
@@ -135,6 +136,29 @@ static void ticks(Emulator& emu, int n) {
     for (int i = 0; i < n; ++i) emu.turbosound().tick();
 }
 
+struct EnvSample { int tick; int step; EnvelopeMotion motion; };
+
+// The envelope of AY0 (period 2) after an R13 write of `shape`, read at each sample's tick count. A sample's
+// step of -1 asserts the motion only.
+static bool envelope_follows(uint8_t shape, std::initializer_list<EnvSample> samples) {
+    Emulator emu; fresh(emu); Debugger dbg(emu);
+    ay_write(emu, 11, 2); ay_write(emu, 12, 0); ay_write(emu, 13, shape);
+    bool ok = true;
+    int done = 0;
+    for (const EnvSample& sm : samples) {
+        ticks(emu, sm.tick - done);
+        done = sm.tick;
+        const AudioState st = dbg.audio_state();
+        const auto& e = st.chips[0].envelope;
+        if ((sm.step >= 0 && e.step != sm.step) || e.motion != sm.motion) {
+            ok = false;
+            std::printf("    shape %d tick %d: step %d motion %d (want %d, %d)\n", shape, sm.tick, e.step,
+                        static_cast<int>(e.motion), sm.step, static_cast<int>(sm.motion));
+        }
+    }
+    return ok;
+}
+
 static uint64_t fb_hash(const Debugger& dbg) {
     const auto fb = dbg.framebuffer();
     uint64_t h = 1469598103934665603ULL;
@@ -208,15 +232,15 @@ int main() {
         emu.run_frame(); emu.run_frame();
         const auto s0 = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
         // The control: a real read does log a line, so a count of zero means something.
-        ring->last_formatted();
-        emu.nextreg().read(0x07);
-        const size_t control = ring->last_formatted().size();
         const auto count_reads = [&] {
             size_t n = 0;
             for (const std::string& l : ring->last_formatted())
                 if (l.find("NextREG read") != std::string::npos) ++n;
             return n;
         };
+        const size_t control_before = count_reads();
+        emu.nextreg().read(0x07);
+        const bool control = count_reads() > control_before;
         const size_t before = count_reads();
         for (int i = 0; i < 20; ++i) emu.execute_single_instruction();
         for (int i = 0; i < 1000; ++i) (void)dbg.audio_state();
@@ -231,7 +255,7 @@ int main() {
         Log::nextreg()->sinks().pop_back();
         Log::nextreg()->set_level(level);
         check("AIZ-05", "1000 audio_state() calls between two instructions leave the saved state unchanged and run no NextREG read",
-              control >= 1 && before == after && loaded && x.ok && y.ok && x.state == y.state);
+              control && before == after && loaded && x.ok && y.ok && x.state == y.state);
     }
 
     std::printf("\n======================================================\n");
@@ -492,13 +516,26 @@ int main() {
         check("ADS-16", "ym2149.vhd:393-401 a pending R13 write reads as its reload: 0x08 -> 31 falling, 0x0C -> 0 rising (after 100 ticks mid-ramp)",
               a.step == 31 && a.motion == EnvelopeMotion::Falling && b.step == 0 && b.motion == EnvelopeMotion::Rising);
     }
+    // ADS-31..33: the RUNNING envelope view. Every sample is one the VHDL gives for all eight divider phases
+    // (28 MHz cycle model of ym2149.vhd:258-277,334-350,352-463, ENA every 16 clocks) and is the same whether or
+    // not the envelope takes the forced step after an R13 write, so these rows do not depend on that.
+    check("ADS-31", "ym2149.vhd:422-443 shape 13 (hold at the top) at envelope period 2: 31 holding after 520 ticks and after 1000",
+          envelope_follows(13, {{520, 31, EnvelopeMotion::Holding}, {1000, 31, EnvelopeMotion::Holding}}));
+    check("ADS-32", "ym2149.vhd:412-421,422-443 shapes 0 and 9 settle at the bottom: 0 holding after 1000 ticks",
+          envelope_follows(0, {{1000, 0, EnvelopeMotion::Holding}}) &&
+          envelope_follows(9, {{1000, 0, EnvelopeMotion::Holding}}));
+    check("ADS-33", "ym2149.vhd:393-401 mid-ramp direction after 40 ticks: shapes 12 and 13 rise, shape 8 falls (motion only)",
+          envelope_follows(12, {{40, -1, EnvelopeMotion::Rising}}) &&
+          envelope_follows(13, {{40, -1, EnvelopeMotion::Rising}}) &&
+          envelope_follows(8, {{40, -1, EnvelopeMotion::Falling}}));
+
     {
         // ym2149.vhd:476-537. The envelope level is found by ticking until the
         // chip reports step 28, so the row does not depend on how many ticks
         // the first step after an R13 write takes.
         const uint8_t want_ay = 0xD7, want_ym = 0xA1;   // table[28 >> 1], table[28]
         uint8_t got[2] = {0, 0};
-        uint8_t fixed_ay = 0, fixed_ym = 0, zero = 0xFF;
+        uint8_t fixed_ay = 0, fixed_ym = 0, zero_ay = 0xFF, zero_ym = 0xFF;
         bool gate = false;
         for (int pass = 0; pass < 2; ++pass) {
             Emulator emu; fresh(emu); Debugger dbg(emu);
@@ -506,7 +543,8 @@ int main() {
             ay_write(emu, 7, 0x3F);
             ay_write(emu, 8, 0x07);
             (pass == 0 ? fixed_ay : fixed_ym) = dbg.audio_state().chips[0].channels[0].amplitude;
-            if (pass == 0) { ay_write(emu, 8, 0x00); zero = dbg.audio_state().chips[0].channels[0].amplitude; }
+            ay_write(emu, 8, 0x00);
+            (pass == 0 ? zero_ay : zero_ym) = dbg.audio_state().chips[0].channels[0].amplitude;
             ay_write(emu, 11, 2); ay_write(emu, 12, 0); ay_write(emu, 13, 0x08);
             ay_write(emu, 8, 0x10);
             for (int i = 0; i < 4000 && dbg.audio_state().chips[0].envelope.step != 28; ++i) ticks(emu, 1);
@@ -523,8 +561,8 @@ int main() {
                 gate = e2.turbosound().ay(0).output_a() == 0 && d2.audio_state().chips[0].channels[0].amplitude == 0x22;
             }
         }
-        check("ADS-21", "ym2149.vhd:476-537 level through the AY table (R8=7: 0x22, 0: 0, envelope step 28: 0xD7) and the YM one (0x13, 0xA1), gate closed or open",
-              fixed_ay == 0x22 && fixed_ym == 0x13 && zero == 0 && got[0] == want_ay && got[1] == want_ym && gate);
+        check("ADS-21", "ym2149.vhd:476-537 level through the AY table (R8=7: 0x22, 0: 0, envelope step 28: 0xD7) and the YM one (0x13, 0: 0x00 not volTableYm[1], 0xA1), gate closed or open",
+              fixed_ay == 0x22 && fixed_ym == 0x13 && zero_ay == 0 && zero_ym == 0 && got[0] == want_ay && got[1] == want_ym && gate);
     }
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);
@@ -702,6 +740,31 @@ int main() {
         const uint16_t after = emu.turbosound().pcm_left();
         check("AIZ-04", "a state saved unmuted and loaded with AY1 muted: before any tick the audible sum is the loaded hardware sum, it saves back byte for byte, and one PSG tick later the audible sum is the unmuted one minus AY1's share",
               loaded && moved && same && pre == agg0 && c1l != 0 && static_cast<uint16_t>(unmuted - c1l) == after);
+    }
+
+    {
+        // reset_ay_only() clears the hardware sum together with the audible one (turbosound.vhd:118-138 resets the
+        // AY outputs): saved before any PSG tick, the state carries the same pcm_l/pcm_r as a fresh TurboSound's.
+        // The two 16-bit sums are the last four bytes of the TurboSound block image.
+        auto tail = [](TurboSound& t) {
+            StateWriter m;
+            t.save_state(m);
+            std::vector<uint8_t> img(m.position(), 0);
+            StateWriter w(img.data(), img.size());
+            t.save_state(w);
+            return std::vector<uint8_t>(img.end() - 4, img.end());
+        };
+        TurboSound fresh_ts, ts;
+        for (TurboSound* t : {&fresh_ts, &ts}) t->set_enabled(true);
+        ts.reg_addr(0x07); ts.reg_write(0x3F);
+        ts.reg_addr(0x08); ts.reg_write(0x0F);
+        ts.tick();
+        const std::vector<uint8_t> sounding = tail(ts);
+        ts.reset_ay_only();
+        const std::vector<uint8_t> after = tail(ts);
+        const std::vector<uint8_t> blank = tail(fresh_ts);
+        check("AIZ-06", "turbosound.vhd:118-138 a state saved right after reset_ay_only(), before any PSG tick, carries the same pcm_l/pcm_r as a fresh TurboSound's (and a sounding one does not)",
+              sounding != blank && after == blank);
     }
 
     std::printf("\n=====================================\n");

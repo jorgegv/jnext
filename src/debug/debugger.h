@@ -659,7 +659,7 @@ public:
     /// INS-10 / §4.2a — set it.
     Result set_audio_mute_mask(ClientId by, uint8_t mask);
 
-    /// INS-22 — the decoded audio chain, in one call. A DIRECT VALUE: it reads
+    /// INS-22 -- the decoded audio chain, in one call. A DIRECT VALUE: it reads
     /// live state that always exists and runs no read handler.
     AudioState audio_state() const;
 

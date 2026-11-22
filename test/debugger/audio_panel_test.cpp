@@ -850,6 +850,17 @@ static void test_decoded_view(Emulator& emu) {
         check("DAP-29", "chips_on_show() is true with the Chips sub-tab current and false with Log current",
               tabs && chips && !panel.chips_on_show());
     }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-30", "emulator init", false); return; }
+        ay_reg(emu, 11, 2); ay_reg(emu, 12, 0); ay_reg(emu, 13, 13);
+        for (int i = 0; i < 1000; ++i) emu.turbosound().tick();
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.refresh();
+        const QString s = txt(panel, "chip0_env_step");
+        check("DAP-30", "ym2149.vhd:422-443 shape 13 settles at the top: after 1000 ticks the envelope reads 31 holding",
+              s == "31 holding", s.toStdString());
+    }
 }
 
 int main(int argc, char** argv) {
@@ -871,7 +882,7 @@ int main(int argc, char** argv) {
     test_turbosound_label(emu);
     std::printf("  Group: DAP-TS         — done\n");
     test_decoded_view(emu);
-    std::printf("  Group: DAP-DEC        — done\n");
+    std::printf("  Group: DAP-DEC        -- done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

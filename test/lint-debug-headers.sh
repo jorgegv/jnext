@@ -44,9 +44,11 @@
 #
 #   * every published header must EXIST, so a rename cannot make this vacuous;
 #   * each one's dependency list must contain itself AND `src/debug/result.h`,
-#     which every one of them reaches.
+#     which each of the four original headers reaches. `audio_math.h` (GH #529)
+#     includes standard headers only, so it is listed in STD_ONLY_HEADERS and
+#     held to the stronger rule instead: it reaches no project header at all.
 #
-# It also asserts the four headers preprocess with `-Isrc` ALONE — no SDL, Qt,
+# It also asserts the published headers preprocess with `-Isrc` ALONE — no SDL, Qt,
 # spdlog or third-party include path. That is a property worth having in its own
 # right: it is what lets a frontend include the facade without inheriting a
 # build configuration.
@@ -221,8 +223,9 @@ fi
 
 cat >&2 <<'EOF'
 
-A published debug header reaches something it must not. The four headers
-src/debug/{debugger,events,inspect,result}.h are epic #276's whole API surface:
+A published debug header reaches something it must not. The headers
+src/debug/{debugger,events,inspect,result}.h (and the standard-only audio_math.h)
+are epic #276's whole API surface:
 a frontend includes them and must NOT thereby acquire the emulator core, the
 platform layer, a GUI toolkit, SDL, or the debug internals design §3.1 keeps
 unpublished.

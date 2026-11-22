@@ -687,6 +687,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-03 | Positive control: one extra `OUT 0xBFFD` in one run | State bytes differ (the comparison can fail)             |
 | AIZ-04 | Mute AY1, load a state saved unmuted             | Before any tick the audible sum is the loaded hardware sum; the state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
+| AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
 
 ### 8.3 `Debugger::audio_state()`
 
@@ -711,7 +712,10 @@ machine; PSG time by ticking TurboSound. Oracles as cited per row.
 | ADS-14 | NR 0x06 = 0x01, then 0x00                        | psg_mode 1, 0; never held                                   |
 | ADS-15 | NR 0x08 = 0x22, then 0x00                        | TurboSound on and ACB, then off and ABC (`:5739-5742`)      |
 | ADS-16 | Mid-ramp, then R13 = 0x08 and 0x0C, no tick      | Step 31 falling, then 0 rising: the pending reload (`ym2149.vhd:393-401`) |
-| ADS-21 | AY and YM curves; fixed volume 7, 0; envelope step 28; a gated channel | Levels 0x22/0x13, 0, 0xD7/0xA1; the gated channel still reports its level while its output is 0 (`:476-537`) |
+| ADS-31 | Shape 13, R11=2, 520 and 1000 ticks | 31 holding (`ym2149.vhd:422-443`) |
+| ADS-32 | Shapes 0 and 9, 1000 ticks | 0 holding |
+| ADS-33 | 40 ticks | Shapes 12 and 13 rising, shape 8 falling (motion only; the same with or without the forced first step) |
+| ADS-21 | AY and YM curves; fixed volume 7, 0 (also 0x00 in YM); envelope step 28; a gated channel | Levels 0x22/0x13, 0, 0xD7/0xA1; the gated channel still reports its level while its output is 0 (`:476-537`) |
 | ADS-22 | NR 0x08 bit 3, NR 0x84; ports 0x1F/0x0F/0x4F/0x5F | Channels 0x11, 0x22, 0x33, 0x44; enabled (`zxnext.vhd:2745,2967-2980`) |
 | ADS-23 | Then NR 0x08 bit 3 off                           | Disabled, all channels 0x80 (`soundrive.vhd:72-101`)        |
 | ADS-24 | NR 0x84 = 0xA5, 0xFE; expansion bus on, NR 0x88 = 0x0F | Port families 0xA4 and AY ports on; ports off; 0x0E and on (`zxnext.vhd:2708-2709,2744-2751`) |

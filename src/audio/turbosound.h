@@ -98,7 +98,7 @@ public:
     /// (pcm_left()/pcm_right(), chip_pcm()); the chip keeps ticking, its
     /// register file keeps reading back, and the hardware sum that save_state()
     /// serialises is computed without the mute. Not hardware, not machine state
-    /// — see audio/audio_mute.h. Deliberately not touched by reset() /
+    /// -- see audio/audio_mute.h. Deliberately not touched by reset() /
     /// reset_ay_only() / save_state() / load_state().
     void set_chip_mute_mask(uint8_t m) { chip_mute_mask_ = m & AudioMute::AY_ALL; mix_dirty_ = true; }
     uint8_t chip_mute_mask() const { return chip_mute_mask_; }
