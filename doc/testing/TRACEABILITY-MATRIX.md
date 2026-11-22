@@ -29,7 +29,7 @@ mentions them, so a test can no longer be absent from this document.
 | Tilemap                                    |   123 |  123 |    0 |    0 |       0 |          0 |
 | Copper                                     |   115 |  115 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   300 |  300 |    0 |    0 |       0 |          0 |
-| Audio                                      |   314 |  314 |    0 |    0 |       0 |          0 |
+| Audio                                      |   315 |  315 |    0 |    0 |       0 |          0 |
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   173 |  173 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6340 | 6340 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6341 | 6341 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6340**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5816**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17444**.
+Rows the sections above carry: **6341**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5817**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17445**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1991,7 +1991,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | SD-06 | nr_mono writes chA and chD | soundrive.vhd:83-85,101-103 | pass | test/audio/audio_test.cpp:3170 |
 | SD-07 | nr_left writes chB only | soundrive.vhd:89-91 | pass | test/audio/audio_test.cpp:3180 |
 | SD-08 | nr_right writes chC only | soundrive.vhd:95-97 | pass | test/audio/audio_test.cpp:3190 |
-| AUD-SD-19 | nr_08_dac_en 1->0 resets DAC channels to 0x80 silence [soundrive.vhd:69-78, zxnext.vhd:6436] | soundrive.vhd:69-78, zxnext.vhd:6436 | pass | test/audio/audio_nextreg_test.cpp:2033 |
+| AUD-SD-19 | nr_08_dac_en 1->0 resets DAC channels to 0x80 silence [soundrive.vhd:69-78, zxnext.vhd:6436] | soundrive.vhd:69-78, zxnext.vhd:6436 | pass | test/audio/audio_nextreg_test.cpp:2068 |
 | SD-10 | Soundrive mode 1 ports 0x1F/0x0F/0x4F/0x5F map to DAC channels A/B/C/D [zxnext.vhd:2429; emulator.cpp 0xFFFF/0x005F] | zxnext.vhd:2429 | pass | test/audio/audio_port_dispatch_test.cpp:163 |
 | SD-11 | Soundrive mode 2 ports 0xF1/0xF3/0xF9/0xFB map to DAC channels A/B/C/D [zxnext.vhd:2432; emulator.cpp:1291-1298] | zxnext.vhd:2432 | pass | test/audio/audio_port_dispatch_test.cpp:184 |
 | AUD-SD-12 | Profi Covox ports 0x3F(A) + 0x5F(D) reach DAC channels A/D [zxnext.vhd:2431/2661/2664; emulator.cpp 0xFFFF match] | zxnext.vhd:2431/2661/2664 | pass | test/audio/audio_port_dispatch_test.cpp:206 |
@@ -1999,7 +1999,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AUD-SD-14 | port 0xFB mono fan-out: single write updates ch A + ch D when NR 0x84 bit 5=1, bit 2=0 [zxnext.vhd:2433/2661/2664] | zxnext.vhd:2433/2661/2664 | pass | test/audio/audio_port_dispatch_test.cpp:259 |
 | AUD-SD-15 | port 0xB3 (GS Covox) mono fan-out updates ch B + ch C [zxnext.vhd:2659/2662-2663; emulator.cpp 0xFFFF/0x00B3] | zxnext.vhd:2659/2662-2663 | pass | test/audio/audio_port_dispatch_test.cpp:276 |
 | AUD-SD-16 | SpecDrum port 0xDF writes both DAC channels A+D [zxnext.vhd:2662; emulator.cpp:1304-1308] | zxnext.vhd:2662 | pass | test/audio/audio_port_dispatch_test.cpp:294 |
-| AUD-SD-17 | nr_08_dac_en gates Soundrive port writes [zxnext.vhd:5179, :6436] | zxnext.vhd:5179,6436 | pass | test/audio/audio_nextreg_test.cpp:1977 |
+| AUD-SD-17 | nr_08_dac_en gates Soundrive port writes [zxnext.vhd:5179, :6436] | zxnext.vhd:5179,6436 | pass | test/audio/audio_nextreg_test.cpp:2012 |
 | AUD-SD-18 | Mono-port aliasing: one write to 0xDF lands on both ch A and ch D simultaneously [zxnext.vhd port-decode fan] | zxnext.vhd | pass | test/audio/audio_port_dispatch_test.cpp:321 |
 | AUD-SD-20 | pcm_L = chA + chB | soundrive.vhd:112 | pass | test/audio/audio_test.cpp:3246 |
 | AUD-SD-21 | pcm_R = chC + chD | soundrive.vhd:113 | pass | test/audio/audio_test.cpp:3256 |
@@ -2073,22 +2073,22 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | MX-68 | Pi audio routed to EAR (NR 0xA2 = 0xC1) reaches the MIC term at 128; the I2S term stays at rest [zxnext.vhd:2358,2364-2373,6503; zxnext_top_issue2.vhd:673] | zxnext.vhd:2358,2364-2373,6503 | pass | test/audio/audio_nextreg_test.cpp:1328 |
 | MX-69 | while the Pi's EAR is routed and unrelaxed, port 0xFE MIC and NR 0x08 issue 2 both feed the MIC term [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1348 |
 | MX-70 | ear_relax: a Pi EAR level held 64 x 512 master cycles relaxes to the issue-2 MIC level [symmetric_relaxation.vhd:76,89-90; zxnext_top_issue2.vhd:666-675,1179] | symmetric_relaxation.vhd:76,89-90 | pass | test/audio/audio_nextreg_test.cpp:1369 |
-| MX-71 | a state load re-derives the MIC term [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1752 |
-| MX-72 | a state load re-derives the exc gate: NR 0x06 b6 and exc_i come back from the restored registers [zxnext.vhd:6504,6514; audio_mixer.vhd:80] | zxnext.vhd:6504,6514, audio_mixer.vhd:80 | pass | test/audio/audio_nextreg_test.cpp:1767 |
+| MX-71 | a state load re-derives the MIC term [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1787 |
+| MX-72 | a state load re-derives the exc gate: NR 0x06 b6 and exc_i come back from the restored registers [zxnext.vhd:6504,6514; audio_mixer.vhd:80] | zxnext.vhd:6504,6514, audio_mixer.vhd:80 | pass | test/audio/audio_nextreg_test.cpp:1802 |
 | MX-73 | the mixer has no tape input: the raw tape level alone adds 0, mic_final alone adds 128 (x4 = 512) without the MIC bit, and set_mic() makes mic_final the MIC bit | audio_mixer.vhd:35-37,64,81, zxnext.vhd:6503,6516 | pass | test/audio/audio_test.cpp:3787 |
-| MX-78 | a state load re-derives the NMI button enables from the restored NR 0x06 (bits 4:3) [zxnext.vhd:5726-5727,2399-2400] | zxnext.vhd:5726-5727,2399-2400 | pass | test/audio/audio_nextreg_test.cpp:1856 |
-| MX-79 | a state load re-derives nr_06_ps2_mode: the NR 0x06 read returns bit 2 as saved [zxnext.vhd:5728-5729,6488] | zxnext.vhd:5728-5729,6488 | pass | test/audio/audio_nextreg_test.cpp:1877 |
-| MX-80 | a state load re-derives the hotkey enables from the restored NR 0x06: F8 (bit 7 clear) leaves the CPU speed alone [zxnext.vhd:6347,5162] | zxnext.vhd:6347,5162 | pass | test/audio/audio_nextreg_test.cpp:1895 |
-| MX-81 | a state load re-derives the exc gate in the other direction too [zxnext.vhd:6504,6514; audio_mixer.vhd:80] | zxnext.vhd:6504,6514, audio_mixer.vhd:80 | pass | test/audio/audio_nextreg_test.cpp:1782 |
-| MX-82 | replay mode holds the Pi's EAR term off and the MIC term follows it in and out [zxnext.vhd:6503; Emulator::audio_ear_in] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1738 |
-| MX-84 | a reset clears the mixer's MIC term with the port 0xFE MIC bit [zxnext.vhd:3588-3594,6503] | zxnext.vhd:3588-3594,6503 | pass | test/audio/audio_nextreg_test.cpp:1830 |
-| MX-85 | a tape stopped at level 1 leaves the raw tape level 0 after one instruction (no stale EAR level) [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1800 |
-| MX-86 | a restore with no tape playing clears a saved raw tape level after one instruction [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1815 |
+| MX-78 | a state load re-derives the NMI button enables from the restored NR 0x06 (bits 4:3) [zxnext.vhd:5726-5727,2399-2400] | zxnext.vhd:5726-5727,2399-2400 | pass | test/audio/audio_nextreg_test.cpp:1891 |
+| MX-79 | a state load re-derives nr_06_ps2_mode: the NR 0x06 read returns bit 2 as saved [zxnext.vhd:5728-5729,6488] | zxnext.vhd:5728-5729,6488 | pass | test/audio/audio_nextreg_test.cpp:1912 |
+| MX-80 | a state load re-derives the hotkey enables from the restored NR 0x06: F8 (bit 7 clear) leaves the CPU speed alone [zxnext.vhd:6347,5162] | zxnext.vhd:6347,5162 | pass | test/audio/audio_nextreg_test.cpp:1930 |
+| MX-81 | a state load re-derives the exc gate in the other direction too [zxnext.vhd:6504,6514; audio_mixer.vhd:80] | zxnext.vhd:6504,6514, audio_mixer.vhd:80 | pass | test/audio/audio_nextreg_test.cpp:1817 |
+| MX-82 | replay mode holds the Pi's EAR term off and the MIC term follows it in and out [zxnext.vhd:6503; Emulator::audio_ear_in] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1773 |
+| MX-84 | a reset clears the mixer's MIC term with the port 0xFE MIC bit [zxnext.vhd:3588-3594,6503] | zxnext.vhd:3588-3594,6503 | pass | test/audio/audio_nextreg_test.cpp:1865 |
+| MX-85 | a tape stopped at level 1 leaves the raw tape level 0 after one instruction (no stale EAR level) [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1835 |
+| MX-86 | a restore with no tape playing clears a saved raw tape level after one instruction [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1850 |
 | MX-87 | a tape edge reaches the MIC term in the instruction that shows it, not at the next output-sample boundary [zxnext.vhd:6503,6516; audio_mixer.vhd:64,81] | zxnext.vhd:6503,6516, audio_mixer.vhd:64,81 | pass | test/audio/audio_nextreg_test.cpp:1395 |
 | MX-88 | an OUT 0xFE while a tape plays XORs the MIC bit into the MIC term at once [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1415 |
 | MX-89 | a restore while a tape plays re-derives the MIC term from the restored MIC bit and tape level [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:1436 |
-| MX-90 | a state load re-derives the F3 hotkey enable from the restored NR 0x06 bit 5: F3 (bit 5 clear) leaves NR 0x05 bit 2 alone, a power-on machine toggles it [zxnext.vhd:6342,5164] | zxnext.vhd:6342,5164 | pass | test/audio/audio_nextreg_test.cpp:1915 |
-| MX-91 | a state load re-derives nr_06_ps2_mode when the saved bit is 0 and the machine's is 1 [zxnext.vhd:5728-5729,6488] | zxnext.vhd:5728-5729,6488 | pass | test/audio/audio_nextreg_test.cpp:1933 |
+| MX-90 | a state load re-derives the F3 hotkey enable from the restored NR 0x06 bit 5: F3 (bit 5 clear) leaves NR 0x05 bit 2 alone, a power-on machine toggles it [zxnext.vhd:6342,5164] | zxnext.vhd:6342,5164 | pass | test/audio/audio_nextreg_test.cpp:1950 |
+| MX-91 | a state load re-derives nr_06_ps2_mode when the saved bit is 0 and the machine's is 1 [zxnext.vhd:5728-5729,6488] | zxnext.vhd:5728-5729,6488 | pass | test/audio/audio_nextreg_test.cpp:1968 |
 | MX-92 | inside a HALT batch the Pi's ear_relax hold runs out at its time: the samples past the hold are at rest [symmetric_relaxation.vhd:76,89-90; Emulator::pi_sample_thunk_] | symmetric_relaxation.vhd:76,89-90 | pass | test/audio/audio_nextreg_test.cpp:1474 |
 | MX-74 | a tape level held with no edge for 64 x 512 master cycles relaxes to the issue-2 MIC level (0 here) in the mix [symmetric_relaxation.vhd:76,89-90; zxnext_top_issue2.vhd:666-677] | symmetric_relaxation.vhd:76,89-90, zxnext_top_issue2.vhd:666-677 | pass | test/audio/audio_nextreg_test.cpp:1501 |
 | MX-75 | the same relaxation reaches the port 0xFE read: bit 6 follows the held tape level until the hold, then the issue-2 MIC level [zxnext.vhd:3459; symmetric_relaxation.vhd:89-90] | zxnext.vhd:3459, symmetric_relaxation.vhd:89-90 | pass | test/audio/audio_nextreg_test.cpp:1508 |
@@ -2103,21 +2103,22 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | MX-98 | a restore in the TZX pause's remainder derives the edge from the remaining pause length, equal to the continuous run's [symmetric_relaxation.vhd:62,76] | symmetric_relaxation.vhd:62,76 | pass | test/audio/audio_nextreg_test.cpp:1680 |
 | MX-99 | a restore in a TZX pulse phase takes the edge as just changed: derived age 0, never earlier than the continuous edge and at most one pulse later [symmetric_relaxation.vhd:62,76] | symmetric_relaxation.vhd:62,76 | pass | test/audio/audio_nextreg_test.cpp:1695 |
 | MX-100 | a WAV restore finds the edge by looking back along the recording: equal to the continuous edge, unrelaxed 1000 T after it (mix 512) and relaxed 9000 T after it (mix 0) [symmetric_relaxation.vhd:62,76,89-90] | symmetric_relaxation.vhd:62,76,89-90 | pass | test/audio/audio_nextreg_test.cpp:1715 |
+| MX-101 | a .jns load inside a tape's hold derives the tape edge when the deck is reattached: the restored age matches the saved one (within 800 master cycles), the held level is unrelaxed (mix 512) and the deck is playing [symmetric_relaxation.vhd:62,76,89-90] | symmetric_relaxation.vhd:62,76,89-90 | pass | test/audio/audio_nextreg_test.cpp:1749 |
 | AUD-NR-01 | NR 0x06 bits[1:0] handler forwards to TurboSound::ay_mode [zxnext.vhd:5170, :6389] | zxnext.vhd:5170,6389 | pass | test/audio/audio_nextreg_test.cpp:160 |
 | AUD-NR-02 | psg_mode=00 sinks to YM mode [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:172 |
 | AUD-NR-03 | psg_mode=01 sinks to AY mode [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:183 |
 | AUD-NR-04 | psg_mode=10 alias (bit 0 = 0 → YM) [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:196 |
 | AUD-NR-05 | audio_ay_reset = (nr_06_psg_mode="11") clears AY register file [zxnext.vhd:6379, :6387] | zxnext.vhd:6379,6387 | pass | test/audio/audio_nextreg_test.cpp:222 |
-| AUD-NR-07 | NR 0x06 psg_mode=11 holds the AY reset; leaving it accepts writes [zxnext.vhd:6379] | zxnext.vhd:6379,6387 | pass | test/audio/audio_nextreg_test.cpp:2132 |
-| AUD-NR-08 | the AY reset hold survives a soft reset [zxnext.vhd:1112,6379] | zxnext.vhd:1112 | pass | test/audio/audio_nextreg_test.cpp:2145 |
-| AUD-NR-09 | a state load restores the AY reset hold from NR 0x06 [zxnext.vhd:6379] | zxnext.vhd:6379 | pass | test/audio/audio_nextreg_test.cpp:2176 |
-| AUD-NR-35 | psg_mode=10 is not a hold: writes land at once, after a soft reset and after a state load [zxnext.vhd:6379] | zxnext.vhd:6379 | pass | test/audio/audio_nextreg_test.cpp:2235 |
-| AUD-NR-33 | power-on PSG mode is YM until NR 0x06 is written [zxnext.vhd:1112,6389] | zxnext.vhd:1112,6389 | pass | test/audio/audio_nextreg_test.cpp:2187 |
-| AUD-NR-34 | the NR 0x06 PSG mode survives a soft reset [zxnext.vhd:1112,6389] | zxnext.vhd:1112,6389 | pass | test/audio/audio_nextreg_test.cpp:2203 |
+| AUD-NR-07 | NR 0x06 psg_mode=11 holds the AY reset; leaving it accepts writes [zxnext.vhd:6379] | zxnext.vhd:6379,6387 | pass | test/audio/audio_nextreg_test.cpp:2167 |
+| AUD-NR-08 | the AY reset hold survives a soft reset [zxnext.vhd:1112,6379] | zxnext.vhd:1112 | pass | test/audio/audio_nextreg_test.cpp:2180 |
+| AUD-NR-09 | a state load restores the AY reset hold from NR 0x06 [zxnext.vhd:6379] | zxnext.vhd:6379 | pass | test/audio/audio_nextreg_test.cpp:2211 |
+| AUD-NR-35 | psg_mode=10 is not a hold: writes land at once, after a soft reset and after a state load [zxnext.vhd:6379] | zxnext.vhd:6379 | pass | test/audio/audio_nextreg_test.cpp:2270 |
+| AUD-NR-33 | power-on PSG mode is YM until NR 0x06 is written [zxnext.vhd:1112,6389] | zxnext.vhd:1112,6389 | pass | test/audio/audio_nextreg_test.cpp:2222 |
+| AUD-NR-34 | the NR 0x06 PSG mode survives a soft reset [zxnext.vhd:1112,6389] | zxnext.vhd:1112,6389 | pass | test/audio/audio_nextreg_test.cpp:2238 |
 | AUD-NR-06 | NR 0x06 bit 6 latches nr_06_internal_speaker_beep [zxnext.vhd:5163] | zxnext.vhd:5163 | pass | test/audio/audio_nextreg_test.cpp:237 |
-| AUD-NR-30 | a soft reset keeps every AY generator field and clears only addr, registers and outputs [ym2149.vhd:170-171,184-186,258-519,525-528] | ym2149.vhd:170-171,184-186,258-519,525-528 | pass | test/audio/audio_nextreg_test.cpp:2276 |
-| AUD-NR-31 | a soft reset keeps the PSG clock-enable phase [zxnext_top_issue2.vhd:1158-1177] | zxnext_top_issue2.vhd:1158-1177 | pass | test/audio/audio_nextreg_test.cpp:2292 |
-| AUD-NR-32 | init() without preserve_memory is power-on: generators and PSG phase at their initial values [zxnext_top_issue2.vhd:1195, ym2149.vhd:105-125] | zxnext_top_issue2.vhd:1195, ym2149.vhd:105-125 | pass | test/audio/audio_nextreg_test.cpp:2307 |
+| AUD-NR-30 | a soft reset keeps every AY generator field and clears only addr, registers and outputs [ym2149.vhd:170-171,184-186,258-519,525-528] | ym2149.vhd:170-171,184-186,258-519,525-528 | pass | test/audio/audio_nextreg_test.cpp:2311 |
+| AUD-NR-31 | a soft reset keeps the PSG clock-enable phase [zxnext_top_issue2.vhd:1158-1177] | zxnext_top_issue2.vhd:1158-1177 | pass | test/audio/audio_nextreg_test.cpp:2327 |
+| AUD-NR-32 | init() without preserve_memory is power-on: generators and PSG phase at their initial values [zxnext_top_issue2.vhd:1195, ym2149.vhd:105-125] | zxnext_top_issue2.vhd:1195, ym2149.vhd:105-125 | pass | test/audio/audio_nextreg_test.cpp:2342 |
 | AUD-NR-10 | NR 0x08 bit 5 → nr_08_psg_stereo_mode → TurboSound stereo [zxnext.vhd:5177, :6400] | zxnext.vhd:5177,6400 | pass | test/audio/audio_nextreg_test.cpp:269 |
 | AUD-NR-11 | NR 0x08 bit 4 latches nr_08_internal_speaker_en (default '1') [zxnext.vhd:5178, :1116, :5906] | zxnext.vhd:5178,1116,5906 | pass | test/audio/audio_nextreg_test.cpp:287 |
 | NR-12 | NR 0x08 bit 3 latches nr_08_dac_en [zxnext.vhd:5179] | zxnext.vhd:5179 | pass | test/audio/audio_nextreg_test.cpp:306 |
@@ -2138,7 +2139,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | IO-02 | OUT (0xBFFD),A writes selected AY register on active AY [zxnext.vhd:2648; emulator.cpp:1266-1274] | zxnext.vhd:2648 | pass | test/audio/audio_port_dispatch_test.cpp:448 |
 | IO-03 | port 0xBFF5 read returns AY_ID:selected_register [zxnext.vhd:2649/6395; emulator.cpp 0xC00F/0x8005] | zxnext.vhd:2649/6395 | pass | test/audio/audio_port_dispatch_test.cpp:467 |
 | IO-05 | BFFD read aliases FFFD on +3 timing (post-D3F-02 gate keys on machine_timing_p3); not on 128K timing [zxnext.vhd:2771; emulator.cpp 0xC007/0x8005 read] | zxnext.vhd:2771 | pass | test/audio/audio_port_dispatch_test.cpp:528 |
-| IO-10 | dac_hw_en gate holds for Mode-2 ports (0xF1/0xF3) [zxnext.vhd:2775-2778, :6436] | zxnext.vhd:2775-2778,6436 | pass | test/audio/audio_nextreg_test.cpp:2003 |
+| IO-10 | dac_hw_en gate holds for Mode-2 ports (0xF1/0xF3) [zxnext.vhd:2775-2778, :6436] | zxnext.vhd:2775-2778,6436 | pass | test/audio/audio_nextreg_test.cpp:2038 |
 | IO-11 | Ports 0x1F / 0xF1 / 0xDF all fan in to DAC ch A [zxnext.vhd port-decode alias; emulator.cpp:1281/1291/1304] | zxnext.vhd | pass | test/audio/audio_port_dispatch_test.cpp:565 |
 | IO-12 | OUT (0xF1),A writes DAC ch A only; AY data register untouched (address decode A2=0 excludes BFFD match) [zxnext.vhd:2777; emulator.cpp mask 0xC007 val 0x8005] | zxnext.vhd:2777 | pass | test/audio/audio_port_dispatch_test.cpp:603 |
 | IO-13 | NR 0x84 b1 gates Soundrive Mode 1 port 0x1F → ch A [zxnext.vhd:2429; emulator.cpp 0x00FF/0x001F b1 gate] | zxnext.vhd:2429 | pass | test/audio/audio_port_dispatch_test.cpp:659 |
