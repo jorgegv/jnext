@@ -1578,7 +1578,21 @@ int main() {
         off.set_cycle_batching_for_test(false, false, false);
         AudioSourceTap ton, toff;
         on.set_audio_scope_tap(&ton); off.set_audio_scope_tap(&toff);
-        for (int f = 0; f < 8; ++f) { on.run_frame(); off.run_frame(); }
+        Out mon, moff;
+        for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); off.run_frame(); drain(off, moff); }
+        {
+            size_t mix_nd = 0, tap_vs_mixer_on = 0, tap_vs_mixer_off = 0;
+            const size_t t = static_cast<size_t>(ton.written);
+            for (size_t i = 0; i < mon.l.size() && i < moff.l.size(); ++i)
+                if (mon.l[i] != moff.l[i] || mon.r[i] != moff.r[i]) ++mix_nd;
+            for (size_t i = 0; i < t; ++i) {
+                const size_t k = static_cast<size_t>(AudioSource::MixLeft) * AudioSourceTap::RING + i;
+                if (ton.ring[k] - 6144 != mon.l[i + mon.l.size() - t]) ++tap_vs_mixer_on;
+                if (toff.ring[k] - 6144 != moff.l[i + moff.l.size() - t]) ++tap_vs_mixer_off;
+            }
+            std::printf("  SCP-09 mixer samples %zu/%zu differing %zu; tap-vs-mixer differing on=%zu off=%zu\n",
+                        mon.l.size(), moff.l.size(), mix_nd, tap_vs_mixer_on, tap_vs_mixer_off);
+        }
         {
             size_t nd = 0;
             for (size_t src = 0; src < AudioSourceTap::SOURCES; ++src)
