@@ -3157,8 +3157,10 @@ window looks like and how to drive it, see chapter 6 of the user guide,
 <p><strong>The window's client</strong> is attached exactly while the debugger window is open.
 Opening the window attaches it. What it then asks of the backend follows what is
 on show (<code>DebuggerManager::apply_data_needs()</code>): call tracking while the Call Stack or
-Variables panel is on show or a source Step Over or Step Out runs, and the live raster
-while the Video panel is. Each request is sent only when it changes, from
+Variables panel is on show or a source Step Over or Step Out runs, the live raster
+while the Video panel is, and the mixer source tap while the Audio panel is on show with its Scopes
+sub-tab current (<code>AudioPanel::scopes_on_show()</code>; the panel's <code>sub_tab_changed</code> reaches
+<code>panels_on_show_changed</code>, and the request is not made under <code>--silent</code>). Each request is sent only when it changes, from
 <code>DebuggerWindow::panels_on_show_changed</code>, which fires once per switch of a group's tab (the dock that became visible announces it),
 per close and reopen of a dock, and per change of floating.
 <code>DebuggerWindow::panel_on_show()</code> is the one answer: a panel is
@@ -3340,8 +3342,8 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Audio</td>
-<td><code>audio_state()</code>, <code>ay_mode()</code></td>
-<td><code>set_audio_mute_mask()</code>, <code>clear_audio_drops()</code>; the panel emits <code>show_in_disassembly_requested</code> for a CPU-written dropped-write row</td>
+<td><code>audio_state()</code>, <code>ay_mode()</code>; the Scopes tab (<code>AudioScopeView</code>): <code>audio_scope_samples()</code></td>
+<td><code>set_audio_mute_mask()</code>, <code>clear_audio_drops()</code>; the panel emits <code>show_in_disassembly_requested</code> for a CPU-written dropped-write row; the manager requests the source tap with <code>set_audio_scope_enabled()</code></td>
 </tr>
 <tr>
 <td>Script</td>
@@ -3412,16 +3414,21 @@ bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</c
 moved; the greying of a paged label whose page is not what <code>source_page()</code> reports at its address is redone on every
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: <code>QSYML-*</code>.</p>
-<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1118</code>)
-redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:413</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1107</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:271</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1128</code>)
+redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:423</code>: ~4 Hz). Paused, it
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1117</code>; <code>PausedStamp</code>,
+<code>debugger_manager.h:279</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
 exception to the running cadence: while the window is open, the Audio dock is on show (<code>panel_on_show()</code>) and its
 Chips sub-tab is the current one (<code>AudioPanel::chips_on_show()</code>), <code>refresh_panels()</code> calls
 <code>AudioPanel::refresh_live()</code> on every tick, so the decoded chips follow the music. It is a refresh of its own,
 counted by <code>take_audio_live_refresh_count()</code>, not a <code>refresh_window()</code> call, so no other panel's cadence moves.
+With the Scopes sub-tab current instead, the same place calls <code>AudioPanel::refresh_scopes()</code> (counted by
+<code>take_audio_scope_refresh_count()</code>): <code>AudioScopeView</code> fetches two 882-sample windows with
+<code>audio_scope_samples()</code>, finds the latest rising edge through the middle of the block's range
+(<code>scope_trigger()</code> in <code>src/debug/audio_math.h</code>, which free-runs when there is none and the lamp says <code>free</code>)
+and draws one window from it, with a peak and RMS meter per source (<code>scope_meter()</code>, <code>audio_source_scale()</code>).
 The stamp is:</p>
 <ul>
 <li>the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and
@@ -3434,7 +3441,7 @@ The stamp is:</p>
   subscription verb (<code>subscribe</code>, <code>subscribe_source_line</code>, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
   breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;</li>
-<li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:178</code>), installed on <code>qApp</code>
+<li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:188</code>), installed on <code>qApp</code>
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse <em>movement</em> is not counted: hover
@@ -3442,7 +3449,7 @@ The stamp is:</p>
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
   loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:575</code>), so an edit on disk still shows.</li>
 </ul>
-<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1098</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
+<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1108</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <code>take_panel_refresh_count()</code> counts the
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,

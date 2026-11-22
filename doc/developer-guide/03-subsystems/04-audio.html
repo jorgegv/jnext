@@ -3249,6 +3249,26 @@ sums: the hardware one (every active chip; what a snapshot or a rewind slot stor
 <code>pcm_l</code> and <code>pcm_r</code>) and the audible one (<code>pcm_left()</code>, <code>pcm_right()</code>, <code>chip_pcm()</code>), which leaves out the
 chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.</p>
+<p><strong>The source tap.</strong> The debugger's Scopes view needs the level of each source before the mixer sums
+them, which the mixer does not keep. <code>AudioSourceTap</code> (<code>src/audio/audio_source_tap.h</code>, standard headers
+only) holds sixteen accumulators and a 8192-sample ring per source; the Debugger owns it, the Emulator
+holds a raw pointer (<code>set_audio_scope_tap()</code>), and it is not machine state: not saved, not reset, never
+read by the Z80. <code>Mixer::integrate_span_tapped()</code> is <code>integrate_span()</code>'s loop, chunk for chunk, with
+<code>tap_accumulate_()</code> beside the audible <code>accumulate_impl_()</code>: the sixteen terms are the hardware ones
+(<code>Dac::channel()</code>, <code>AyChip::output_a/b/c()</code>, <code>TurboSound::hw_pcm_left()</code> and the beeper's EAR, MIC and
+tape-EAR levels), computed beside <code>mix()</code> and never inside it, so no mute and no host gain reaches them.
+Each pushed sample is the mixer's own <code>rounded_average_x4</code> of a term over one output period, so the
+Left and Right traces equal the mixer's output plus its resting level exactly. The sync rule: a tap
+sample is pushed only when the tap saw the mixer's whole sample (compared by cycle count), which covers a
+tap enabled mid-sample, a reset, a state load and a switch between the tapped and untapped paths.</p>
+<p>Nothing may be added to the hot audio path when no tap is installed (a debugger feature that is unused
+costs nothing). A test per instruction slice was rejected, and so was a second per-slot accumulate
+entry point (a second caller of a hot function stopped the compiler inlining it, 1 to 7 % of every
+program). Instead the two places that tested <code>replay_mode_</code> before mixing, the device cluster and the
+HALT batch's replay, now test one byte, <code>Emulator::audio_divert_</code> (bit 0 a replay, bit 1 a tap
+installed): the same load, test and branch, so zero costs nothing extra, and a non-zero byte goes to
+<code>audio_divert_span_()</code>, which is cold and out of line and calls <code>integrate_span_tapped()</code> (a replay
+mixes nothing). <code>refresh_audio_divert_()</code> runs at every writer of <code>replay_mode_</code> and of the tap pointer.</p>
 <p>The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 <code>env_reset</code>, which reloads the level and also forces <code>env_ena</code> (<code>ym2149.vhd:340-342</code> and <code>ym2149.vhd:393-409</code>), so the first
 step comes with the write instead of one envelope period later. <code>AyChip::load_envelope()</code> applies the reload
