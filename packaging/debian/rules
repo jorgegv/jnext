@@ -4,4 +4,4 @@
 	dh $@ --buildsystem=cmake
 
 override_dh_auto_configure:
-	dh_auto_configure -- -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DJNEXT_WERROR=OFF
+	dh_auto_configure -- -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DJNEXT_WERROR=OFF -DJNEXT_CCACHE_SHARE=OFF

@@ -10,12 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-31. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-32. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# shellcheck source=/dev/null
+source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=31
+EXPECTED_ROWS=32
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -66,6 +68,8 @@ trap cleanup EXIT
 export HOME=$TMP/home
 mkdir -p "$HOME" "$TMP/bin" "$TMP/state"
 REALGIT=$(command -v git)
+# SLOT-32's run: the whole test again, started now so it overlaps the rest, under a polluted environment
+[[ -n "${SKILLTEST_INNER:-}" ]] || polluted_selfrun "${BASH_SOURCE[0]}" "$TMP/polluted"
 
 # ---- fakes ------------------------------------------------------------------
 # git shim: records its arguments, then runs the real git.
@@ -442,5 +446,12 @@ out=$(slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
 rm -f "$WT/.git/index"; git -C "$WT" reset -q
 row SLOT-31 "$([[ $rc -eq 0 && -z "$(rr_calls)" && "$out" == *"git status failed"* && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
     "a failing git status keeps the run here and says so, the driver is not called (rc=$rc)"
+
+# SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
+# driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and
+# never reaches either (GH #547 stage 4)
+if [[ -n "${SKILLTEST_INNER:-}" ]]; then pol=1; else polluted_check "$TMP/polluted"; pol=$POL; fi
+row SLOT-32 "$([[ $pol -eq 1 ]] && echo 1 || echo 0)" \
+    "a run under REMOTE_RUN_FALLBACK, REMOTE_RUN_LOCAL_WRAP, JNEXT_SLOT_*, JNEXT_REMOTE_RUN_* in the environment is green and touches no real wrapper or ssh"
 
 finish

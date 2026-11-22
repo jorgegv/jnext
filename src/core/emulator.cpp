@@ -5404,11 +5404,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // --- Audio port handlers ---
 
-    // AY register select — port 0xFFFD. VHDL zxnext.vhd:2647.
+    // AY register select - port 0xFFFD. VHDL zxnext.vhd:2963.
     // Decode: A15:14="11", A2=1, port_fd (A1:0="01") → mask 0xC007/0xC005.
-    // VHDL 2772: port_fffd_wr gated by NOT port_dffd — when port_dffd
+    // VHDL 3088: port_fffd_wr gated by NOT port_dffd - when port_dffd
     // also matches (e.g. 0xDFFD), the AY write is suppressed.
-    // VHDL 2771: port_fffd_rd does NOT gate on port_dffd — reads at
+    // VHDL 3084: port_fffd_rd does NOT gate on port_dffd - reads at
     // overlapping addresses still return AY data.
     // VHDL 2647: port_fffd decode includes port_ay_io_en = internal_port_enable(16)
     // = NR 0x84 bit 0. When disabled, the port does not decode and the read
@@ -5418,13 +5418,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
             return turbosound_.reg_read(false);
         },
-        [this](uint16_t, uint8_t val) {
-            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
+        [this](uint16_t port, uint8_t val) {
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) {  // gated off
+                note_audio_drop_(jnext::dbg::AudioDropReason::AyPortDisabled, port, val);
+                return;
+            }
             // VHDL 2773: NOT port_dffd gate is handled by exclusive dispatch —
             // the 0xDFFD handler (mask 0xF003, more specific than this
             // 0xC007) wins while NR 0x82 b2 = 1 and never declines; with b2 = 0
             // port_dffd is 0 and it declines, so the write lands here (GH #325).
-            turbosound_.reg_addr(val);
+            // That suppressed write is not a dropped one: the AY side never sees
+            // it and the paging register takes it (GH #530).
+            note_ay_status_(turbosound_.reg_addr(val), port, val);
         });
 
     // AY data write — port 0xBFFD. VHDL zxnext.vhd:2648.
@@ -5445,9 +5450,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0xFF;  // +3 alias only
             return turbosound_.reg_read(false);
         },
-        [this](uint16_t, uint8_t val) {
-            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
-            turbosound_.reg_write(val);
+        [this](uint16_t port, uint8_t val) {
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) {  // gated off
+                note_audio_drop_(jnext::dbg::AudioDropReason::AyPortDisabled, port, val);
+                return;
+            }
+            note_ay_status_(turbosound_.reg_write(val), port, val);
         });
 
     // AY register-query read — port 0xBFF5. VHDL zxnext.vhd:2649.
@@ -5468,9 +5476,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
             return turbosound_.reg_read(true);   // reg_mode = true
         },
-        [this](uint16_t, uint8_t val) {
-            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
-            turbosound_.reg_write(val);
+        [this](uint16_t port, uint8_t val) {
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) {  // gated off
+                note_audio_drop_(jnext::dbg::AudioDropReason::AyPortDisabled, port, val);
+                return;
+            }
+            note_ay_status_(turbosound_.reg_write(val), port, val);
         });
 
     // DAC ports — Soundrive Mode 1 (most common)
@@ -5486,23 +5497,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // their decode in VHDL is the OR of the two enables (port_dac_B /
     // port_dac_C fan-in at :2662-2663). Port 0x1F is SD1-only.
     port_.register_handler(0x00FF, 0x001F, nullptr,
-        [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
-            if ((effective_internal_port_enable(0x84) & 0x02) == 0) return;   // SD1 b1 gate
+        [this](uint16_t port, uint8_t val) {
+            if (!dac_gate_((effective_internal_port_enable(0x84) & 0x02) != 0, port, val)) return;   // SD1 b1 gate
             dac_.write_channel(0, val);
         });
     port_.register_handler(0x00FF, 0x000F, nullptr,
-        [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
+        [this](uint16_t port, uint8_t val) {
             // 0x0F: SD1 ch B (b1) OR Covox ch B (b4).
-            if ((effective_internal_port_enable(0x84) & 0x12) == 0) return;   // b1 | b4
+            if (!dac_gate_((effective_internal_port_enable(0x84) & 0x12) != 0, port, val)) return;   // b1 | b4
             dac_.write_channel(1, val);
         });
     port_.register_handler(0x00FF, 0x004F, nullptr,
-        [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
+        [this](uint16_t port, uint8_t val) {
             // 0x4F: SD1 ch C (b1) OR Covox ch C (b4).
-            if ((effective_internal_port_enable(0x84) & 0x12) == 0) return;   // b1 | b4
+            if (!dac_gate_((effective_internal_port_enable(0x84) & 0x12) != 0, port, val)) return;   // b1 | b4
             dac_.write_channel(2, val);
         });
 
@@ -5528,16 +5536,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // routes reads to the MF readback and writes to the DAC — both as VHDL
     // intends since both decodes are parallel in hardware.
     port_.register_handler(0x00FF, 0x003F, nullptr,
-        [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
-            if ((effective_internal_port_enable(0x84) & 0x08) == 0) return;   // Profi b3 gate
+        [this](uint16_t port, uint8_t val) {
+            if (!dac_gate_((effective_internal_port_enable(0x84) & 0x08) != 0, port, val)) return;   // Profi b3 gate
             dac_.write_channel(0, val);
         });
     port_.register_handler(0x00FF, 0x005F, nullptr,
-        [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
+        [this](uint16_t port, uint8_t val) {
             // 0x5F reachable via SD1 (b1) OR Profi (b3).
-            if ((effective_internal_port_enable(0x84) & 0x0A) == 0) return;   // b1 | b3
+            if (!dac_gate_((effective_internal_port_enable(0x84) & 0x0A) != 0, port, val)) return;   // b1 | b3
             dac_.write_channel(3, val);
         });
 
@@ -5581,34 +5587,40 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //     not exist — decline so dispatch falls through to the paging
     //     handler that also matches the address (vhd:2718-2725 fire again).
     port_.register_handler(0x00FF, 0x00F1, nullptr,
-        [this](uint16_t, uint8_t val) {
+        [this](uint16_t port, uint8_t val) {
             if ((effective_internal_port_enable(0x84) & 0x04) == 0) {   // SD2 b2 gate
+                note_audio_drop_(jnext::dbg::AudioDropReason::DacFamilyDisabled, port, val);
                 port_.decline_write();   // decode absent → FD paging may fire (G146)
                 return;
             }
-            if (!dac_enabled_) return;   // soundrive in reset; paging stays suppressed
+            if (!dac_enabled_) {   // soundrive in reset; paging stays suppressed
+                note_audio_drop_(jnext::dbg::AudioDropReason::DacDisabled, port, val);
+                return;
+            }
             dac_.write_channel(0, val);
         });
     port_.register_handler(0x00FF, 0x00F3, nullptr,
-        [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
-            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+        [this](uint16_t port, uint8_t val) {
+            if (!dac_gate_((effective_internal_port_enable(0x84) & 0x04) != 0, port, val)) return;   // SD2 b2 gate
             dac_.write_channel(1, val);
         });
     port_.register_handler(0x00FF, 0x00F9, nullptr,
-        [this](uint16_t, uint8_t val) {
+        [this](uint16_t port, uint8_t val) {
             // Same G146 conflict handling as the 0xF1 handler above
             // (port_f9_lsb term of zxnext.vhd:2708).
             if ((effective_internal_port_enable(0x84) & 0x04) == 0) {   // SD2 b2 gate
+                note_audio_drop_(jnext::dbg::AudioDropReason::DacFamilyDisabled, port, val);
                 port_.decline_write();   // decode absent → FD paging may fire (G146)
                 return;
             }
-            if (!dac_enabled_) return;   // soundrive in reset; paging stays suppressed
+            if (!dac_enabled_) {   // soundrive in reset; paging stays suppressed
+                note_audio_drop_(jnext::dbg::AudioDropReason::DacDisabled, port, val);
+                return;
+            }
             dac_.write_channel(2, val);
         });
     port_.register_handler(0x00FF, 0x00FB, nullptr,
-        [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
+        [this](uint16_t port, uint8_t val) {
             // VHDL zxnext.vhd:2664 — port_dac_D fires on 0xFB when either
             // SD2 mode (NR 0x84 bit 2) OR mono_AD_fb effective is set;
             // :2661 — port_dac_A fires on 0xFB only via mono_AD fan-out.
@@ -5618,8 +5630,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             const uint8_t nr84 = effective_internal_port_enable(0x84);
             const bool sd2_en  = (nr84 & 0x04) != 0;         // bit 2
             const bool mono_ad = (nr84 & 0x20) && !sd2_en;   // bit 5 AND NOT bit 2
-            if (sd2_en || mono_ad) dac_.write_channel(3, val);
-            if (mono_ad)           dac_.write_channel(0, val);
+            // Neither decode: not a DAC port at all, so a family drop, counted
+            // before the DAC-enable test like every other site.
+            if (!dac_gate_(sd2_en || mono_ad, port, val)) return;
+            dac_.write_channel(3, val);
+            if (mono_ad) dac_.write_channel(0, val);
         });
 
     // GS Covox mono fan-out — port 0xB3 writes both channels B and C.
@@ -5634,9 +5649,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // 0x12B3 would update GS Covox B/C on real hardware but not in jnext.
     // Fix: change to mask 0x00FF.
     port_.register_handler(0x00FF, 0x00B3, nullptr,
-        [this](uint16_t, uint8_t val) {
-            if (!dac_enabled_) return;
-            if ((effective_internal_port_enable(0x84) & 0x40) == 0) return;   // GS Covox b6
+        [this](uint16_t port, uint8_t val) {
+            if (!dac_gate_((effective_internal_port_enable(0x84) & 0x40) != 0, port, val)) return;   // GS Covox b6
             dac_.write_channel(1, val);
             dac_.write_channel(2, val);
         });
@@ -5669,13 +5683,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // the gated-off read used to return 0x00.)
     port_.register_handler(0x00FF, 0x00DF,
         [this](uint16_t) -> uint8_t { return port_df_read(); },
-        [this](uint16_t, uint8_t val) {
+        [this](uint16_t port, uint8_t val) {
             // VHDL zxnext.vhd:2435 — port_dac_mono_AD_df_io_en =
             // internal_port_enable(23) = NR 0x84 bit 7 (G114). When the
             // gate is clear the SpecDrum DAC port is not decoded and the
-            // write is silently dropped.
-            if (!dac_enabled_) return;
-            if ((effective_internal_port_enable(0x84) & 0x80) == 0) return;
+            // write is dropped (counted, GH #530).
+            if (!dac_gate_((effective_internal_port_enable(0x84) & 0x80) != 0, port, val)) return;
             dac_.write_channel(0, val);
             dac_.write_channel(3, val);
         });
@@ -6143,15 +6156,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (VHDL zxnext.vhd:6436) — when the DAC is off the internal channel
     // registers are held at 0x80 (silence). Mirror that behaviour here.
     nextreg_.set_write_handler(0x2C, [this](uint8_t v) -> uint8_t {
-        if (dac_enabled_) dac_.write_left(v);
+        if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002C, v); return v; }
+        dac_.write_left(v);
         return v;
     });
     nextreg_.set_write_handler(0x2D, [this](uint8_t v) -> uint8_t {
-        if (dac_enabled_) dac_.write_mono(v);
+        if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002D, v); return v; }
+        dac_.write_mono(v);
         return v;
     });
     nextreg_.set_write_handler(0x2E, [this](uint8_t v) -> uint8_t {
-        if (dac_enabled_) dac_.write_right(v);
+        if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002E, v); return v; }
+        dac_.write_right(v);
         return v;
     });
 
@@ -13445,6 +13461,35 @@ void Emulator::schedule_frame_events()
         frame_cycle_ + timing_.master_cycles_per_frame,
         EventType::VSYNC,
         [this]() { on_vsync(); });
+}
+
+void Emulator::note_audio_drop_(jnext::dbg::AudioDropReason r, uint16_t port, uint8_t value)
+{
+    // A rewind replays frames that already counted these writes (GH #530, D5).
+    if (replay_mode_) return;
+    jnext::dbg::AudioDropCounter& c = audio_drops_[size_t(r)];
+    c.count++;
+    c.last_port  = port;
+    c.last_value = value;
+    // A debugger write runs outside guest execution; a guest one carries the
+    // live source bracket the DMA and the Copper set around their port writes.
+    c.last_source = debug_state_.guest_access() ? nextreg_.write_source()
+                                                : jnext::dbg::EventSource::Debugger;
+    c.last_pc    = debug_slot_pc_;
+    // The event stamper's frame tag (frame_num_ is post-incremented at frame start).
+    c.last_frame = frame_num_ > 0 ? frame_num_ - 1u : 0u;
+}
+
+void Emulator::note_ay_status_cold_(AyPortStatus s, uint16_t port, uint8_t value)
+{
+    using R = jnext::dbg::AudioDropReason;
+    switch (s) {
+        case AyPortStatus::HeldInReset:        note_audio_drop_(R::AyHeldInReset, port, value); break;
+        case AyPortStatus::ChipSelectTurboOff: note_audio_drop_(R::AyChipSelectTurboOff, port, value); break;
+        case AyPortStatus::SelectIgnored:      note_audio_drop_(R::AySelectIgnored, port, value); break;
+        case AyPortStatus::AddressHigh:        note_audio_drop_(R::AyAddressHigh, port, value); break;
+        case AyPortStatus::Applied:            break;
+    }
 }
 
 uint8_t Emulator::effective_internal_port_enable(uint8_t reg) const

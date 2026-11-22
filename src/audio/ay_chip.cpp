@@ -83,9 +83,9 @@ void AyChip::select_register(uint8_t addr)
     addr_ = addr & 0x1F;
 }
 
-void AyChip::write_data(uint8_t val)
+bool AyChip::write_data(uint8_t val)
 {
-    if (addr_ & 0x10) return;  // Only registers 0-15 writable
+    if (addr_ & 0x10) return false;  // Only registers 0-15 writable (ym2149.vhd:188)
 
     reg_[addr_ & 0x0F] = val;
     dirty_ = true;
@@ -94,6 +94,7 @@ void AyChip::write_data(uint8_t val)
     if ((addr_ & 0x0F) == 0x0D) {
         env_reset_ = true;
     }
+    return true;
 }
 
 uint8_t AyChip::read_data(bool reg_mode) const

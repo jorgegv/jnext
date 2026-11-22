@@ -663,6 +663,9 @@ public:
     /// live state that always exists and runs no read handler.
     AudioState audio_state() const;
 
+    /// INS-22 -- zero every dropped-write counter (GH #530). MUTATE-logged.
+    Result clear_audio_drops(ClientId by);
+
     /// INS-11 — disassemble `n` instructions from `addr` over `peek(Cpu)`.
     /// `symbols` may be null; pass `&symbols()` for the backend's own table.
     std::vector<DisasmLine> disassemble(uint16_t addr, size_t n,

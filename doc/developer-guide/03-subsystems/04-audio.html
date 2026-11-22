@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3143,6 +3143,11 @@ the VHDL decodes them:</p>
 <td>b4</td>
 </tr>
 <tr>
+<td>0xFB</td>
+<td>A <strong>and</strong> D (Pentagon/ATM, mono)</td>
+<td>b5, effective only while b2 is off (<code>zxnext.vhd:2749</code>)</td>
+</tr>
+<tr>
 <td>0xB3</td>
 <td>B <strong>and</strong> C (GS Covox)</td>
 <td>b6</td>
@@ -3160,9 +3165,31 @@ the VHDL decodes them:</p>
 </tbody>
 </table>
 <p>Every write is additionally gated on NR 0x08 b3; with the DAC disabled the
-Soundrive module is held in reset. The mono ports writing <em>two</em> channels is real
+Soundrive module is held in reset. The family decode comes first: a port whose
+NR 0x84 family bit is off is not a DAC port at all, whatever NR 0x08 says. The mono ports writing <em>two</em> channels is real
 hardware behaviour and a routine source of confusion — a program that expects
 0xDF to be "channel D" gets A as well.</p>
+<p><strong>Dropped writes.</strong> Every audio write the machine discards is counted by the
+reason the VHDL gives for discarding it, so a debugger can say why a program is
+silent. <code>AudioDropReason</code> (<code>src/debug/events.h</code>) has eight reasons, and a write
+gets the first that applies: decode before gate, because an undecoded write is not
+a write to that device. The AY port gate (NR 0x84 b0) comes before the reset hold
+(NR 0x06 <code>psg_mode = 11</code>), which comes before the 0xFFFD value and the register
+address. The decision stays where it is made: <code>TurboSound::reg_addr()</code> and
+<code>reg_write()</code> return an <code>AyPortStatus</code>, and <code>AyChip::write_data()</code> returns false for
+an address of 16-31; <code>Emulator::note_ay_status_()</code> maps the status to a reason, and
+each DAC handler's gate goes through <code>Emulator::dac_gate_()</code>, family first, then the
+DAC enable. The 0xF1 and 0xF9 handlers count a closed Soundrive 2 family and then
+decline, so the byte still reaches the paging decode (<code>zxnext.vhd:3024</code>); the 0xFB
+handler counts its neither-decode case. The 0xDFFD write is not counted: its
+handler wins dispatch while NR 0x82 b2 is set, so the AY side never sees it.
+<code>Emulator::note_audio_drop_()</code> records the count and the last port, value, PC, frame
+tag and source; the source is <code>Debugger</code> outside guest execution, else the live
+write-source bracket the DMA and the Copper set around their port writes. The
+counters are host state: outside <code>describe_state()</code>, <code>init()</code> and <code>load_state()</code>,
+carried over a cold boot by <code>emulator_cold_boot()</code> beside the mute mask, cleared
+only by <code>Debugger::clear_audio_drops()</code>, and not counted while a rewind replays
+frames. <code>Debugger::audio_state()</code> publishes them as <code>AudioState::drops</code>.</p>
 <p><strong>Beeper</strong> — <code>src/audio/beeper.*</code>. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is

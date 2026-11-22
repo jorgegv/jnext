@@ -633,11 +633,11 @@ VHDL ref: `zxnext.vhd` lines 2775-2778
 | IO-10  | DAC writes require `dac_hw_en=1`                   | Gated by `nr_08_dac_en`                                    |
 | IO-11  | Multiple port mappings can map to same channel     | E.g., chA can be written by ports 0x1F, 0xF1, 0x3F, 0xFB, 0xDF |
 | IO-12  | Port FD conflict: F1 and F9 in mode 2             | `port_fd_conflict_wr` prevents AY false triggers           |
-| IO-13  | NR 0x84 b1 gates Soundrive Mode 2 ports (0xF1/F3/F9/FB)        | `port_dac_sd2_ABCD_f1f3f9fb_io_en <= internal_port_enable(18)`. skip — `emulator.cpp:1500-1567` honours only b0/b2/b5; b1/b3/b4/b6/b7 dropped (see G114) |
-| IO-14  | NR 0x84 b3 gates Profi Covox ports (0x3F chA / 0x5F chD)      | `port_dac_stereo_AD_3f5f_io_en <= internal_port_enable(19)`. skip — bit dropped (see G114) |
-| IO-15  | NR 0x84 b4 gates Covox ports (0x0F chB / 0x4F chC)            | `port_dac_stereo_BC_0f4f_io_en <= internal_port_enable(20)`. skip — bit dropped (see G114) |
-| IO-16  | NR 0x84 b6 gates GS Covox port (0xB3 chB+chC)                 | `port_dac_mono_BC_b3_io_en <= internal_port_enable(22)`. skip — bit dropped (see G114) |
-| IO-17  | NR 0x84 b7 gates SpecDrum port (0xDF chA+chD)                 | `port_dac_mono_AD_df_io_en <= internal_port_enable(23)`. skip — bit dropped (see G114) |
+| IO-13  | NR 0x84 b1 gates Soundrive Mode 1 port 0x1F (chA)             | `port_dac_sd1_ABCD_1f0f4f5f_io_en <= internal_port_enable(17)`. Implemented: `audio_port_dispatch_test.cpp` IO-13, the write is dropped with b1 clear and lands on chA with it set |
+| IO-14  | NR 0x84 b3 gates Profi Covox port 0x3F (chA)                  | `port_dac_stereo_AD_3f5f_io_en <= internal_port_enable(19)`. Implemented: IO-14 (0x3F is Profi-only; 0x5F is also reachable through b1) |
+| IO-15  | NR 0x84 b4 gates Covox ports (0x0F chB / 0x4F chC)            | `port_dac_stereo_BC_0f4f_io_en <= internal_port_enable(20)`. Implemented: IO-15, both writes dropped with b1 and b4 clear, both land with b4 alone |
+| IO-16  | NR 0x84 b6 gates GS Covox port (0xB3 chB+chC)                 | `port_dac_mono_BC_b3_io_en <= internal_port_enable(22)`. Implemented: IO-16 |
+| IO-17  | NR 0x84 b7 gates SpecDrum port (0xDF chA+chD)                 | `port_dac_mono_AD_df_io_en <= internal_port_enable(23)`. Implemented: IO-17 |
 
 ## 8. Debugger audio introspection
 
@@ -689,6 +689,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-04 | Mute AY1, load a state saved unmuted             | Before any tick the audible sum is the loaded hardware sum; the state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
+| AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 
 ### 8.3 `Debugger::audio_state()`
 
@@ -730,6 +731,51 @@ machine; PSG time by ticking TurboSound. Oracles as cited per row.
 | ADS-28 | Gains and mute masks set on the mixer            | Host fields equal; muted on the muted chip's channels only  |
 | ADS-29 | `--silent` and a default machine                 | Synthesis off / on                                          |
 | ADS-30 | Distinct bytes in all 16 registers of each chip  | `regs` equals the bytes written and `ay_registers(c)`       |
+
+### 8.4 Dropped writes
+
+Every discarded AY, DAC and NR 0x2C-0x2E write is counted under the first VHDL reason that applies
+(decode before gate), read through `Debugger::audio_state().drops`. Fixture: a bare Next (ZXN_ISSUE2).
+Oracles: `zxnext.vhd:2744-2751,2963-2965,2974-2980,3024,3034-3041,3088-3094,5412-5414,6989,7046`,
+`turbosound.vhd:121,129-136,141`, `ym2149.vhd:170,184,188`, `soundrive.vhd:72-101`, `nextreg.txt:816-823`.
+Applied = the register or channel took the byte and no counter moved; dropped = it did not and exactly
+one counter moved by 1. Every row asserts the whole `drops` array, so a write counted under the wrong
+reason fails as well. Writes are `emu.port().out()` (source Debugger) unless the row says otherwise.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| DRP-01 | 0xFFFD with NR 0x84 bit 0 off; then also NR 0x06 = 11; then both released | `AyPortDisabled` 1, address unchanged; port off AND held: `AyPortDisabled` 2 (decode first); released: applied (`zxnext.vhd:2744,2963`) |
+| DRP-02 | 0xBFFD with the AY ports off, then on            | `AyPortDisabled` 1, R8 unchanged; then R8 = 0x0F, no count (`:2964`) |
+| DRP-03 | The same through 0xBFF5                          | The same (`:2965`)                                          |
+| DRP-04 | NR 0x06 = 11: 0xFFFD = 0x08 and 0xFE (TurboSound off); released | `AyHeldInReset` 2 (reset beats the pattern reason); then applied (`turbosound.vhd:121`, `ym2149.vhd:170`) |
+| DRP-05 | Select 0x15, held in reset, 0xBFFD; released, select 5, 0xBFFD = 0x2A | `AyHeldInReset` 1 (not `AyAddressHigh`); then R5 = 0x2A (`ym2149.vhd:184`) |
+| DRP-06 | 0xFFFD = 0xFE with TurboSound off, then on       | `AyChipSelectTurboOff` 1, chip 0 stays active; then chip 1 active, pan 3, no count (`turbosound.vhd:129-136`) |
+| DRP-07 | 0xFFFD = 0x40 (TurboSound off and on), 0x80 (on), 0x98 (off); then 0x08 | `AySelectIgnored` 4, `AyChipSelectTurboOff` 0; address 0x08 at the end only (`turbosound.vhd:141`) |
+| DRP-08 | Select 0x15; 0xBFFD = 0x11, 0xBFF5 = 0x22; select 5, 0xBFFD = 0x33 | `AyAddressHigh` 2, R5 unchanged; then R5 = 0x33, no count (`ym2149.vhd:188`) |
+| DRP-09 | Port 0x1F (chA, b1): family off, DAC off, both off, both on | `DacFamilyDisabled`; `DacDisabled`; `DacFamilyDisabled` (precedence); applied (`zxnext.vhd:2745,2977,3091`) |
+| DRP-10 | Port 0x0F (chB, b1 or b4), plus each bit alone   | Drops only when both bits are off; each alone applies (`:2748,2978`) |
+| DRP-11 | Port 0x4F (chC, b1 or b4)                        | As DRP-10 (`:2979`)                                         |
+| DRP-12 | Port 0x5F (chD, b1 or b3)                        | Drops only when both bits are off (`:2747,2980`)            |
+| DRP-13 | Port 0x3F (chA, b3)                              | As DRP-09 (`:2747,2977`)                                    |
+| DRP-14 | Port 0x7FF1 (chA, b2): b2 off, DAC on; b2 on, DAC off; both on; both off | Family drop AND the byte reaches port 0x7FFD; `DacDisabled` and 0x7FFD unchanged; applied; family first (`:3024,3034`) |
+| DRP-15 | Port 0xF3 (chB, b2)                              | As DRP-09 (`:2746,2978`)                                    |
+| DRP-16 | Port 0x7FF9 (chC, b2)                            | As DRP-14 for channel C                                     |
+| DRP-17 | Port 0xFB: b2 = b5 = 0; b2; b5 without b2; neither decode with the DAC off; decoded, DAC off | Family drop; D only; A and D; family drop (not `DacDisabled`); `DacDisabled` (`:2749,2974,2977,2980`) |
+| DRP-18 | Port 0xB3 (chB and chC, b6)                      | As DRP-09, both channels set when applied (`:2750,2975`)    |
+| DRP-19 | Port 0xDF (chA and chD, b7)                      | As DRP-09, A and D set when applied (`:2751,2974`)          |
+| DRP-20 | NR 0x2C = 0x44 with NR 0x08 bit 3 off, then on   | `DacMirrorDisabled` 1, port 0x002C, B = 0x80; then B = 0x44 (`zxnext.vhd:5412,7046`, `soundrive.vhd:72-94`) |
+| DRP-21 | NR 0x2D, the same                                | Port 0x002D; then A = D = 0x44 (`soundrive.vhd:85-89,98-101`) |
+| DRP-22 | NR 0x2E, the same                                | Port 0x002E; then C = 0x44                                  |
+| DRP-23 | A CPU `OUT (C),A` to 0x12B3 with b6 off          | `DacFamilyDisabled` 1 with the 16-bit port, the byte, the OUT's PC, source Cpu and the stamper's frame tag |
+| DRP-24 | A CPU `NEXTREG 0x2D,0x11` with the DAC off       | `DacMirrorDisabled`, port 0x002D, PC of the NEXTREG, source Cpu (`zxnext.vhd:5413`) |
+| DRP-25 | A DMA byte to port 0x00DF with b7 off            | `DacFamilyDisabled`, source Dma, port 0x00DF, the RAM byte  |
+| DRP-26 | A Copper `MOVE 0x2D,0x66` with the DAC off       | `DacMirrorDisabled`, source Copper, value 0x66              |
+| DRP-27 | A debugger `port_out` and `nextreg_write` that are discarded | Source Debugger                                 |
+| DRP-28 | 0xDFFD (NR 0x82 b2 = 1) with the AY ports on, then off | No counter moves, the AY address is unchanged, the paging register takes the byte (`zxnext.vhd:3088`) |
+| DRP-29 | Drops under three reasons; `clear_audio_drops()` | Ok; every counter and `last_*` field at its default; `state_revision()` advanced |
+| DRP-30 | Drops; soft reset; state save and load; cold boot | The counters equal the original after each step             |
+| DRP-31 | Rewind on, a CPU loop of dropped OUTs, run 10 frames, pause, `step_back(1)` | The machine's cycle moves back and the count is unchanged (no counting in a replay) |
+| DRP-32 | Two drops of one reason                          | Count 2, the last port and value are the second write's     |
 
 ## Test Implementation Strategy
 
