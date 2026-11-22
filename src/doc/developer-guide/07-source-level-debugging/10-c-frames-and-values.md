@@ -45,7 +45,7 @@ function that crosses a slot (`cross.c`, in the `*-cross` fixtures).
 ## The frames
 
 `Debugger::c_frames()` (`debugger_cframes.cpp:30`) returns the frames newest first. Frame 0 is where
-the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1264`) has its function (an index into
+the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1281`) has its function (an index into
 `variables()->functions()`, -1 for assembly), the `pc`, the source line and the base, with how it was found:
 
 - **Tracked.** With the tracker's frames (oldest first, `n` of them), frame `k` was entered by
@@ -73,7 +73,7 @@ any assembly routine a function calls before it allocates its locals, leaves tha
 ## Who keeps the tracker running
 
 The tracker (`CallStack`, [7.5](05-breakpoints-steps-history.md)) costs per instruction, so it is not
-always on. Its state is **derived** (`Impl::sync_call_stack()`, `debugger_session.cpp:128`), the one
+always on. Its state is **derived** (`Impl::sync_call_stack()`, `debugger_session.cpp:129`), the one
 writer, from two things:
 
 1. **A client's own request.** `Debugger::set_call_stack_enabled(by, on)` (`debugger_inspect.cpp:998`) sets
