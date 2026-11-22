@@ -1461,14 +1461,20 @@ static void test_tape_mix() {
         const int n = e->mixer().available();
         std::vector<int16_t> buf(2 * static_cast<size_t>(n > 0 ? n : 1), 0);
         const int got = e->mixer().read_samples(buf.data(), n);
-        int nonzero_tail = 0, tail = got < 200 ? got : 200;
-        for (int i = got - tail; i < got; ++i)
-            if (buf[2 * i] != 0) ++nonzero_tail;
-        check("MX-92", "inside a HALT batch the Pi's ear_relax hold runs out at its time: the last "
-              "samples of the frame are at rest [symmetric_relaxation.vhd:76,89-90; "
-              "Emulator::pi_sample_thunk_]",
-              got > 400 && nonzero_tail == 0,
-              fmt("samples=%d non-zero among the last %d = %d (want 0)", got, tail, nonzero_tail));
+        // The hold (32768 master cycles) is about 52 output samples after the route: samples 0..40
+        // are the Pi's level (512), samples 70..200 are past the hold and must be at rest, also
+        // when the whole stretch was one HALT batch.
+        int early_hi = 0, late_nonzero = 0;
+        for (int i = 0; i < 40 && i < got; ++i)
+            if (buf[2 * i] == 512) ++early_hi;
+        for (int i = 70; i < 200 && i < got; ++i)
+            if (buf[2 * i] != 0) ++late_nonzero;
+        const uint64_t batched = e->halt_repeats_batched_for_test();
+        check("MX-92", "inside a HALT batch the Pi's ear_relax hold runs out at its time: the samples "
+              "past the hold are at rest [symmetric_relaxation.vhd:76,89-90; Emulator::pi_sample_thunk_]",
+              got > 400 && batched > 0 && early_hi >= 30 && late_nonzero == 0,
+              fmt("samples=%d batched=%llu early_512=%d late_nonzero=%d (want >400 / >0 / >=30 / 0)",
+                  got, (unsigned long long)batched, early_hi, late_nonzero));
     }
 
     // D6 - ear_relax on a PLAYING tape: i_AUDIO_EAR is the jack through
