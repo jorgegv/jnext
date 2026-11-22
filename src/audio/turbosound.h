@@ -126,6 +126,11 @@ public:
     void chip_pcm(int idx, uint16_t& left, uint16_t& right) const;
     bool chip_pcm_valid() const { return chip_pcm_valid_; }
 
+    /// The HARDWARE stereo sum of the three chips (before any debugger chip mute), as the
+    /// serialised pair: what the source tap reads (GH #536). Changes only on a PSG tick.
+    uint16_t hw_pcm_left() const { return hw_pcm_L_; }
+    uint16_t hw_pcm_right() const { return hw_pcm_R_; }
+
     /// Access individual AY chip (for debugging).
     const AyChip& ay(int idx) const { return ay_[idx]; }
 

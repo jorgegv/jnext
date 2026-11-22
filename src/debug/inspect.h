@@ -540,6 +540,50 @@ struct AudioState {
 };
 
 // ---------------------------------------------------------------------------
+// INS-24 -- the mixer source tap (GH #536)
+// ---------------------------------------------------------------------------
+
+/// The sixteen tapped sources, in the order of every `AudioScopeBlock`.
+/// AY chip c channel k is `Ay0A + 3c + k`; the DAC channels are the Soundrive's A-D.
+enum class AudioSource : uint8_t {
+    Ay0A = 0, Ay0B, Ay0C, Ay1A, Ay1B, Ay1C, Ay2A, Ay2B, Ay2C,
+    DacA, DacB, DacC, DacD, Beeper, MixLeft, MixRight, Count
+};
+constexpr size_t AUDIO_SOURCE_COUNT = size_t(AudioSource::Count);
+
+/// INS-24 -- `Debugger::audio_scope_samples()`. Each sample is the mixer's own
+/// `rounded_average_x4` (round to nearest) of the source's native level over one
+/// 44.1 kHz output-sample period, taken BEFORE every debugger mute and every host
+/// gain. The levels are the hardware terms of `audio_mixer.vhd:80-100`:
+///   AY     the ym2149 channel output, 0-255 (`ym2149.vhd:526-536`), before
+///          TurboSound routing and pan, so a chip outside the mix still shows;
+///   DAC    the Soundrive channel byte, 0x80 at rest (`soundrive.vhd:74-77`);
+///   Beeper EAR 512 + MIC 128 + tape EAR 512, all 0 while the speaker-exclusive gate holds;
+///   Mix    the 13-bit sum of `audio_mixer.vhd:99-100`: the beeper, the AY sum,
+///          the DAC pair << 2 and the I2S term (`MixLeft`/`MixRight`).
+/// So at 0 dB with no mute the mix traces equal the mixer's output plus
+/// `audio_source_scale(Mix*).rest`. The samples fit `int16_t` (the mix maxes at 8191 x 4).
+struct AudioScopeBlock {
+    uint32_t sample_rate = 0;                 ///< 44100
+    uint64_t first_sample = 0;                ///< index of samples[*][0] since the tap started
+    std::array<std::vector<int16_t>, AUDIO_SOURCE_COUNT> samples;  ///< equal lengths, oldest first
+};
+
+/// A source's range in sample units: its lowest and highest level and its resting level.
+struct AudioSourceScale { int16_t lo; int16_t rest; int16_t hi; };
+
+/// The one source of a scope view's axes and meters. AY: 0-255 x 4 (`ym2149.vhd:157-162`);
+/// DAC: 0x80 x 4 at rest (`soundrive.vhd:74-77`); Beeper: (512 + 128 + 512) x 4
+/// (`audio_mixer.vhd:80-81`); Mix: the resting 1536 x 4 (`Mixer::MIX_REST_LEVEL`) and 8191 x 4
+/// (`audio_mixer.vhd:99-100`).
+constexpr AudioSourceScale audio_source_scale(AudioSource s) {
+    if (s <= AudioSource::Ay2C) return {0, 0, 1020};
+    if (s <= AudioSource::DacD) return {0, 512, 1020};
+    if (s == AudioSource::Beeper) return {0, 0, 4608};
+    return {0, 6144, 32764};
+}
+
+// ---------------------------------------------------------------------------
 // INS-14 / INS-15 — layers, palettes
 // ---------------------------------------------------------------------------
 

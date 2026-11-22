@@ -7,6 +7,7 @@
 #include "audio/turbosound.h"
 #include "audio/dac.h"
 #include "audio/audio_mute.h"
+#include "audio/audio_source_tap.h"
 
 class I2s;
 
@@ -93,7 +94,19 @@ public:
     /// their one caller each (advance_audio(), inlined into the device cluster).
     void integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
                         uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx);
+    /// GH #536 - integrate_span() with the debugger's source tap fed alongside: the same walk, chunk
+    /// for chunk, and the audible mix is computed by the same inlined bodies, so the output is
+    /// bit-identical tapped or not. Out of line and cold: its callers (Emulator::audio_divert_span_())
+    /// run only while a tap is installed, so no hot function gains a caller. A tap sample is pushed only
+    /// when the tap saw the mixer's WHOLE output sample (a tap enabled mid-sample, a reset or a state
+    /// load leave a partial one, which is dropped), so every pushed sample covers exactly one output period.
+    void integrate_span_tapped(AudioSourceTap& tap, const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                               uint64_t cycles, uint64_t& sample_accum, uint64_t threshold,
+                               void (*on_sample)(void*), void* ctx);
 private:
+    /// GH #536 - add the sixteen hardware source levels of AudioSource (before every mute and gain) x `take`.
+    inline void tap_accumulate_(AudioSourceTap& tap, const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                                uint32_t take) const;
     [[gnu::always_inline]] inline void accumulate_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                                                         uint32_t master_cycles);
     [[gnu::always_inline]] inline void emit_sample_impl_();

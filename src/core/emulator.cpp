@@ -265,6 +265,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // re-executes must not end the replay, or the rest of it renders,
         // mixes audio, re-sends ESP traffic and pushes rewind snapshots.
         replay_mode_ = false;
+        refresh_audio_divert_();
         refresh_tape_capture_live();
     }
     boot_hold_frames_remaining_ = 0;  // G156
@@ -12333,8 +12334,11 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
         // Feed this instruction's span to the mixer, which INTEGRATES the source
         // levels across each output-sample interval rather than point-sampling
         // them. Suppressed in replay mode (fast-forward rewind path).
-        if (!replay_mode_) {
+        // GH #536: one byte tests both the replay and a debugger source tap (see audio_divert_).
+        if (__builtin_expect(audio_divert_ == 0, 1)) {
             advance_audio(master_cycles);
+        } else {
+            audio_divert_span_(master_cycles);
         }
     } else if (__builtin_expect(batch_silenced_, 0)) {
         // GH #452 - the window of a batched HALT: halt_batch_replay_() has run the PSG and the mixer
@@ -12392,9 +12396,11 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
             span += each;
             ++i;
         }
-        if (!replay_mode_)
+        if (__builtin_expect(audio_divert_ == 0, 1))
             mixer_.integrate_span(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
                                   &Emulator::pi_sample_thunk_, this);
+        else
+            audio_divert_span_(span);
     }
     audio_off_ = true;
     batch_silenced_ = true;
@@ -12535,6 +12541,17 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     slot(first);
     for (uint64_t k = 0; k < passes; ++k)
         for (unsigned j = 0; j < pn; ++j) slot(batch_pat_[j]);
+}
+
+void Emulator::audio_divert_span_(uint64_t master_cycles)
+{
+    // GH #536 - the audio path's cold arm: `audio_divert_` is non-zero. A replay mixes nothing (what
+    // `!replay_mode_` said before); otherwise a source tap is installed, and the span is mixed through
+    // Mixer::integrate_span_tapped(): advance_audio() for a whole span (integrate_span()'s own
+    // description), with the Pi latched through the same thunk, so the audible output is bit-identical.
+    if (replay_mode_ || !audio_scope_tap_) return;
+    mixer_.integrate_span_tapped(*audio_scope_tap_, beeper_, turbosound_, dac_, master_cycles, sample_accum_,
+                                 MASTER_CLOCK_HZ, &Emulator::pi_sample_thunk_, this);
 }
 
 void Emulator::pi_sample_thunk_(void* self)
@@ -15686,6 +15703,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     // replay_mode_ suppresses audio mixing and video rendering.
     // The debug state runs to the target cycle, then pauses automatically.
     replay_mode_ = true;
+    refresh_audio_divert_();
     refresh_tape_capture_live();
     int frames = 0;
     {
@@ -15707,6 +15725,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     }
 
     replay_mode_ = false;
+    refresh_audio_divert_();
     refresh_tape_capture_live();
 
     // Re-render the frame so the main window framebuffer reflects the rewound state.
