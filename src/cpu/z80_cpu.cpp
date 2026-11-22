@@ -115,10 +115,11 @@ static int              s_tstates_per_frame = 224 * 312;
 static int      s_line_ticks   = 224 * 2;   // hc_max + 1 (= per_line * 2)
 static int      s_frame_lines  = 312;       // vc_max + 1 (= per_frame / per_line)
 // Line memo for derive_hc_vc(): frame-relative T-state at the start of
-// the memoised line, and that line's index. Pure accelerator — every
-// path falls back to the exact division, so a stale memo can only cost
-// time, never change a result (rewind/replay/geometry-switch safe; the
-// geometry setters reset it anyway).
+// the memoised line, and that line's index. Pure accelerator within ONE
+// raster geometry: every path falls back to the exact division, so a stale memo
+// only costs time (rewind/replay safe). It is NOT valid across two grids: it is
+// safe because the geometry setters reset it and each Z80Cpu keeps its own copy
+// (swapped in bind_slow_()), so a CPU never sees another machine's base.
 static uint32_t s_line_base_ts = 0;      // master cycles (GH #305)
 static uint32_t s_line_index   = 0;
 // Master cycles per unit of the FUSE tstates counter (8 at 3.5 MHz ... 1 at

@@ -24,6 +24,9 @@
 //   CRB-07  re-init of a machine while another is the bound one (a different
 //           machine type): each equals solo
 //   CRB-08  a 48K machine and a Next with different raster geometry: each equals solo
+//   CRB-12..14  save_state, load_state and rebase_interrupt_window of an unbound CPU act on that CPU
+//   CRB-15,16  set_ula_counter_origins and set_tstate_divisor of an unbound CPU land on that CPU
+//   CRB-17,18  the T-state divisor and the line memo are each CPU's own across a swap
 //   CRB-11  a setter called on a CPU that is not the bound one lands on that CPU
 //   CRB-10  the EI-grace stamp and iff2_read are each CPU's own
 //   CRB-09  the CPU-level batch accessors (repeat_halt, repeat_loop,
@@ -33,6 +36,10 @@
 #include "core/emulator_config.h"
 #include "core/saveable.h"
 #include "cpu/z80_cpu.h"
+#include "memory/contention.h"
+#include "memory/mmu.h"
+#include "memory/ram.h"
+#include "memory/rom.h"
 #include "port/port_dispatch.h"
 #include "../row_id.h"
 
@@ -193,6 +200,60 @@ std::string diff(const Out& got, const Out& want) {
            " samples first diff " + z(ad) + "; state " + std::to_string(got.st.size()) + "/" +
            std::to_string(want.st.size()) + " bytes first diff " + z(sd);
 }
+
+// Bare-CPU rig for CRB-12..18: a 48K ContentionModel and Mmu (slot 2 = page 0x0A, contended),
+// and `LD A,(0x4000)` at 0x8000, run from a chosen T-state: the cycle count is a fingerprint of
+// the contention phase, hence of the geometry, origins, divisor and line memo in the core.
+struct RamM : MemoryInterface {
+    uint8_t m[65536] = {};
+    uint8_t read(uint16_t a) override { return m[a]; }
+    void write(uint16_t a, uint8_t v) override { m[a] = v; }
+};
+struct NullIo2 : IoInterface {
+    uint8_t in(uint16_t) override { return 0xFF; }
+    void out(uint16_t, uint8_t) override {}
+};
+
+std::vector<uint8_t> save_bytes(Z80Cpu& c) {
+    uint8_t buf[512];
+    StateWriter w(buf, sizeof(buf));
+    c.save_state(w);
+    return std::vector<uint8_t>(buf, buf + w.position());
+}
+
+struct Rig {
+    RamM mem;
+    NullIo2 io;
+    Ram ram;
+    Rom rom;
+    ContentionModel cm;
+    std::unique_ptr<Mmu> mmu;
+    std::unique_ptr<Z80Cpu> cpu;
+    Rig() {
+        cm.build(MachineType::ZX48K);
+        cm.set_cpu_speed(0);
+        cm.set_contention_disable(false);
+        mmu = std::make_unique<Mmu>(ram, rom);
+        mmu->reset(true);
+        mmu->set_page(2, 0x0A);
+        mem.m[0x8000] = 0x3A; mem.m[0x8001] = 0x00; mem.m[0x8002] = 0x40;
+        cpu = std::make_unique<Z80Cpu>(mem, io);
+        cpu->set_contention_runtime(&cm, mmu.get(), MachineType::ZX48K);
+    }
+    uint32_t one(uint32_t t) {
+        Z80Registers r = cpu->get_registers();
+        r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.halted = false;
+        cpu->set_registers(r);
+        cpu->tstates_ref() = t;
+        cpu->execute();
+        return cpu->tstates_ref() - t;
+    }
+    std::vector<uint32_t> sweep(uint32_t from, uint32_t n) {
+        std::vector<uint32_t> v;
+        for (uint32_t t = from; t < from + n; ++t) v.push_back(one(t));
+        return v;
+    }
+};
 
 }  // namespace
 
@@ -444,6 +505,107 @@ int main() {
               b_line == 240 && b_cm && a_line == 300 && a_cm,
               "B line=" + std::to_string(b_line) + " B cm own=" + (b_cm ? "yes" : "NO") +
                   " | A line=" + std::to_string(a_line) + " A cm own=" + (a_cm ? "yes" : "NO"));
+    }
+
+    const uint32_t T0 = 14336 + 100 * 224;   // display line ~100 of the 48K raster
+
+    {   // CRB-12
+        RamM ma, mb; NullIo2 ia, ib;
+        ma.m[0] = 0xFB;
+        Z80Cpu a(ma, ia);
+        Z80Cpu b(mb, ib);
+        Z80Registers ra{}; ra.SP = 0xFF00; ra.IM = 1; a.set_registers(ra);
+        Z80Registers rb{}; rb.SP = 0xFE00; b.set_registers(rb);
+        a.execute();
+        const auto s1 = save_bytes(a);          // A bound
+        b.execute(); b.execute(); b.execute();
+        const auto s2 = save_bytes(a);          // B bound
+        check("CRB-12", "save_state() of a CPU that is not the bound one equals its save while bound",
+              s1 == s2);
+    }
+
+    {   // CRB-13
+        RamM ma, mb, md; NullIo2 ia, ib, id;
+        ma.m[0] = 0xFB; ma.m[0x38] = 0xED; ma.m[0x39] = 0x4D;
+        Z80Cpu d(md, id);
+        Z80Registers rd{}; rd.PC = 1; rd.SP = 0xFF00; rd.IM = 1; rd.IFF1 = 1; rd.IFF2 = 1;
+        d.set_registers(rd);
+        const auto sd = save_bytes(d);          // PC=1, IFF1=1, no EI grace
+        Z80Cpu a(ma, ia);
+        Z80Cpu b(mb, ib);
+        Z80Registers ra{}; ra.SP = 0xFF00; ra.IM = 1; a.set_registers(ra);
+        a.execute();                            // A: EI, grace pending
+        b.execute();                            // B is bound
+        StateReader rr(sd.data(), sd.size());
+        a.load_state(rr);                       // A's grace must be cleared
+        a.request_interrupt(0xFF, 0, INT64_MAX);
+        a.execute();
+        check("CRB-13", "load_state() into a CPU that is not the bound one clears that CPU's EI grace "
+              "(/INT taken at 0x0038)", a.pc() == 0x0038, "A.pc=" + std::to_string(a.pc()));
+    }
+
+    {   // CRB-14
+        RamM ma, mb; NullIo2 ia, ib;
+        ma.m[0] = 0xFB; ma.m[0x38] = 0xED; ma.m[0x39] = 0x4D;
+        Z80Cpu a(ma, ia);
+        Z80Cpu b(mb, ib);
+        Z80Registers ra{}; ra.SP = 0xFF00; ra.IM = 1; a.set_registers(ra);
+        a.execute();                            // EI at T=0, stamp = 4
+        b.execute();                            // B is bound
+        a.rebase_interrupt_window(4);           // A's stamp must move with its counter
+        a.tstates_ref() -= 4;
+        a.request_interrupt(0xFF, 0, INT64_MAX);
+        a.execute();
+        check("CRB-14", "rebase_interrupt_window() of a CPU that is not the bound one moves that CPU's own "
+              "EI stamp (grace held, PC 0x0002)", a.pc() == 0x0002, "A.pc=" + std::to_string(a.pc()));
+    }
+
+    {   // CRB-15
+        std::vector<uint32_t> solo;
+        { Rig a; a.cpu->set_ula_counter_origins(120, 70); solo = a.sweep(T0, 64); }
+        Rig a; Rig b;                           // B is bound
+        a.cpu->set_ula_counter_origins(120, 70);
+        const auto got = a.sweep(T0, 64);
+        std::vector<uint32_t> dflt;
+        { Rig c; dflt = c.sweep(T0, 64); }
+        check("CRB-15", "set_ula_counter_origins() on a CPU that is not the bound one lands on that CPU "
+              "(the fixture differs from the default origins)", got == solo && solo != dflt);
+    }
+
+    {   // CRB-16
+        std::vector<uint32_t> solo;
+        { Rig a; a.cpu->set_tstate_divisor(4); solo = a.sweep(T0, 64); }
+        Rig a; Rig b;
+        a.cpu->set_tstate_divisor(4);
+        const auto got = a.sweep(T0, 64);
+        std::vector<uint32_t> dflt;
+        { Rig c; dflt = c.sweep(T0, 64); }
+        check("CRB-16", "set_tstate_divisor() on a CPU that is not the bound one lands on that CPU "
+              "(the fixture differs from the default divisor)", got == solo && solo != dflt);
+    }
+
+    {   // CRB-17
+        std::vector<uint32_t> solo;
+        { Rig a; a.cpu->set_tstate_divisor(4); solo = a.sweep(T0, 64); }
+        Rig a; Rig b;
+        a.cpu->set_tstate_divisor(4);
+        b.cpu->set_tstate_divisor(8);
+        std::vector<uint32_t> got;
+        for (uint32_t t = T0; t < T0 + 64; ++t) { got.push_back(a.one(t)); b.one(t); }
+        check("CRB-17", "each CPU keeps its own T-state divisor across a swap (A at 4, B at 8, alternating): "
+              "A equals A alone", got == solo);
+    }
+
+    {   // CRB-18
+        auto grid228 = [](Rig& g) { g.cpu->set_frame_geometry(228, 228 * 311); };
+        std::vector<uint32_t> solo;
+        const uint32_t TB = 101 * 224;          // A's line memo lands on its line 101
+        { Rig b; grid228(b); for (uint32_t k = 0; k < 400; ++k) solo.push_back(b.one(TB + k)); }
+        Rig a; Rig b; grid228(b);
+        std::vector<uint32_t> got;
+        for (uint32_t k = 0; k < 400; ++k) { a.one(TB + k); got.push_back(b.one(TB + k)); }
+        check("CRB-18", "each CPU keeps its own raster line memo across a swap (A on the 224 grid, B on the "
+              "228 grid, alternating): B equals B alone", got == solo);
     }
 
     std::printf("\nZ80Cpu runtime binding test results\n");

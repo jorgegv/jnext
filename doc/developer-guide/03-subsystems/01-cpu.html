@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.60</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.60</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3118,7 +3118,10 @@ owns a saved copy (<code>Z80CoreRuntime</code>), and every entry point that touc
 globals (<code>reset()</code>, <code>execute()</code>, the setters, <code>tstates_ref()</code>, the batch and
 state accessors) first calls <code>bind_()</code>. That is one pointer compare while a single machine
 runs; when another machine's CPU runs, it saves the bound one's state and loads its
-own. A <code>Z80Cpu</code> that is destroyed while bound unbinds and clears the pointers, so a
+own. The deliberate exceptions are <code>tstates_into_instruction()</code> and <code>io_clock_into_instruction()</code>
+(gated on <code>executing_</code>, which implies bound) and the two fetch readers <code>last_opcode()</code> and
+<code>last_m1_byte()</code>: the M1 fetch buffer is shared, valid until the next <code>execute()</code> of any <code>Z80Cpu</code>.
+A <code>Z80Cpu</code> that is destroyed while bound unbinds and clears the pointers, so a
 short-lived second machine (the warm-start recorder) leaves nothing dangling. The
 free <code>z80_set_*</code> functions and <code>fuse_z80_tstates_ptr()</code> act on whichever CPU is
 bound: only code that drives a single machine uses them. <code>Z80Cpu</code> copies the register file in and

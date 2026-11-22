@@ -228,8 +228,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     clock_.set_cpu_speed(cfg.cpu_speed);
     // GH #305 — publish the counter's unit for a HARD reset, where the
-    // counter is zeroed with the clock (the publisher is process-global, so a
-    // new machine must not inherit another's). A SOFT reset keeps the counter
+    // counter is zeroed with the clock (the divisor is this CPU's own, GH #551,
+    // so a new machine does not inherit another's). A SOFT reset keeps the counter
     // but may change the divisor (NR 0x07 back to 3.5 MHz, zxnext.vhd:5800):
     // it is rebased below, after cpu_.reset().
     cpu_.set_tstate_divisor(clock_.cpu_divisor());
@@ -9131,6 +9131,21 @@ void Emulator::set_magic_breakpoint(bool enabled)
         debug_latch_magic_(pc);
         return true;
     };
+}
+
+bool Emulator::tape_delivered()
+{
+    if (tape_.is_loaded()) return tape_.at_end();
+    if (tzx_tape_.is_loaded()) return tzx_tape_.data_delivered();
+    if (wav_tape_.is_loaded()) return wav_tape_.past_end(tape_sample_tstates());
+    return false;
+}
+
+bool Emulator::tape_holds_code() const
+{
+    if (tape_.is_loaded()) return tape_.holds_code_block();
+    if (tzx_tape_.is_loaded()) return tzx_tape_.holds_code_block();
+    return wav_tape_.is_loaded();
 }
 
 bool Emulator::load_tap(const std::string& path, bool fast_load)

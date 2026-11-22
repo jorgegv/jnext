@@ -42,7 +42,10 @@ owns a saved copy (`Z80CoreRuntime`), and every entry point that touches the
 globals (`reset()`, `execute()`, the setters, `tstates_ref()`, the batch and
 state accessors) first calls `bind_()`. That is one pointer compare while a single machine
 runs; when another machine's CPU runs, it saves the bound one's state and loads its
-own. A `Z80Cpu` that is destroyed while bound unbinds and clears the pointers, so a
+own. The deliberate exceptions are `tstates_into_instruction()` and `io_clock_into_instruction()`
+(gated on `executing_`, which implies bound) and the two fetch readers `last_opcode()` and
+`last_m1_byte()`: the M1 fetch buffer is shared, valid until the next `execute()` of any `Z80Cpu`.
+A `Z80Cpu` that is destroyed while bound unbinds and clears the pointers, so a
 short-lived second machine (the warm-start recorder) leaves nothing dangling. The
 free `z80_set_*` functions and `fuse_z80_tstates_ptr()` act on whichever CPU is
 bound: only code that drives a single machine uses them. `Z80Cpu` copies the register file in and

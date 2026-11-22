@@ -373,6 +373,9 @@ public:
 
     /// GH #452 - the first opcode byte the last execute() fetched at PC (valid when
     /// last_slot_kind() == Opcode). A HALT repeat is a slot whose opcode was 0x76.
+    /// The fetch buffer is shared by every Z80Cpu and is not swapped on a bind: this and
+    /// last_m1_byte() are valid only until the next execute() of ANY Z80Cpu, so read them
+    /// straight after this CPU's own execute().
     uint8_t last_opcode() const;
 
     /// GH #489 - the i-th M1 byte the last execute() fetched: 0 = the opcode, 1 = the byte after a

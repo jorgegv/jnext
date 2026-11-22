@@ -158,6 +158,10 @@ Once the suites have run, one fails when it:
   whose one huge function makes node compile gigabytes, and the label keeps that
   from reading as a slow test. `make wasm-function-size-check` refuses such a suite
   before any of them runs (see [5.1](../05-building/01-make-targets.md)).
+  A suite whose single process is well above the size of the existing shards is split
+  rather than given a longer bound: the rows move with their IDs unchanged and the pins
+  are recounted (`halt_batch_corpus_1..8`; `tap_loader_autoplay_test` holds the TAPA rows
+  that left `tap_loader_test`).
 
 `make unit-test` exits non-zero whenever a suite fails, and the harness prints
 an explicit `UNIT TESTS FAILED` banner so that the grand-total line — the one

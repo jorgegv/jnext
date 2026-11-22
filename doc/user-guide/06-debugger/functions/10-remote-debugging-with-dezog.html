@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.60</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.60</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2352,6 +2352,8 @@
       
         
       
+        
+      
     
     
     
@@ -2966,6 +2968,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -4545,6 +4575,9 @@ Next.</p>
 <p>The log confirms it:</p>
 <pre><code>[13:10:21.837] [debugger] [info] dzrp: listening on 127.0.0.1:11000
 </code></pre>
+<p><code>jnext --debugger mygame.nex</code> is the same with the machine already paused where the
+program starts, and DZRP on port 11000 unless you give another protocol port or
+<code>--dzrp-port</code> (see <a href="18-starting-from-the-command-line.html">Starting from the command line</a>).</p>
 <p><code>--dzrp-port 0</code> lets the system pick a free port and prints it in that same
 line, which is handy for scripts. The server is off unless you give the
 option, and it works in every frontend — the Qt window, the SDL build and
