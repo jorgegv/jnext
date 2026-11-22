@@ -11,10 +11,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # is whether it passes.
 if want rewind-func; then
     begin_func rewind-func
-    # 180 s is a hang guard, not a speed budget: rewind_test is CPU-bound, ~6 s
-    # on a quiet host, and took over 30 s (the old bound) under the parallel
-    # phase plus 12 busy loops on 12 CPUs (GH #295), which read as a FAIL.
-    rewind_out=$(timeout --foreground --kill-after=5s 180s "$REWIND_TEST" 2>/dev/null || true)
+    # 900 s is a hang guard, not a speed budget: rewind_test is CPU-bound, 26 s solo
+    # (370 rows, GH #547 stage 5), and measured on a 12-CPU host with N busy loops
+    # beside it: 106 s with 12 (load 9-16), 192 s with 24 (load 17-29) and 361 s
+    # with 48 (load 31-55). The old 180 s failed a healthy run at the second of
+    # those; 900 s is 2.5 times the worst measured, so only a hung binary hits it.
+    rewind_out=$(timeout --foreground --kill-after=5s 900s "$REWIND_TEST" 2>/dev/null || true)
     rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
     if [[ -n "$rewind_summary" ]]; then
         rewind_passed=$(echo "$rewind_summary" | grep -oP "\d+")
