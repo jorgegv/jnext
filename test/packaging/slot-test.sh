@@ -10,12 +10,12 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-18. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-30. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=18
+EXPECTED_ROWS=30
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -83,6 +83,11 @@ cat > "$TMP/rr-stub" <<'EOF'
 #!/usr/bin/env bash
 { echo "ARGS $*"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; } >> "$STATE/rr-calls"
 echo "stub driver ran"
+[[ -z "${STUB_PAUSE:-}" ]] || : > "$STUB_PAUSE"
+if [[ "${STUB_WAIT:-0}" == 1 ]]; then
+    trap 'echo term > "$STATE/rr-term"; sleep 1; exit 5' TERM
+    while :; do sleep 0.2; done
+fi
 exit "${STUB_RC:-0}"
 EOF
 chmod +x "$TMP/bin/git" "$TMP/bin/make" "$TMP/rr-stub"
@@ -131,8 +136,8 @@ out=$(slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
 rc_calls=$(rr_calls)
 row SLOT-02 "$([[ $rc -eq 0 && "$rc_calls" == *"ARGS --stream --fallback-local $WT --keep-going --id gh900-demo-"* \
     && "$rc_calls" == *"--log-dir $TMP/rrlogs gh900-demo $SHA unit-test"* && "$rc_calls" == *"NO_OVERFLOW=1"* \
-    && "$rc_calls" == *"WRAP=$SLOT --dir $CLEANSLOTS"* && "$(adm)" == *" remote "* && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
-    "long heavy run: the driver gets --fallback-local, branch, sha, target, NO_OVERFLOW=1 and this script as the local wrapper; nothing ran here (rc=$rc)"
+    && "$rc_calls" == *"WRAP=$SLOT --dir $CLEANSLOTS"* && "$(adm)" == *" remote "* && ! -e "$STATE/make-calls" ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
+    "long heavy run: the driver gets --fallback-local, branch, sha, target, NO_OVERFLOW=1 and this script as the local wrapper; nothing ran here, no push when origin is at HEAD (rc=$rc)"
 
 # SLOT-03: a short heavy command (regression-rows) with every slot held overflows; with a free slot it stays local
 fresh
@@ -285,5 +290,137 @@ sleep 0.5
 wait
 row SLOT-18 "$([[ -e "$TMP/second-after18" ]] && echo 1 || echo 0)" \
     "the slot stays locked until its command ends: the second command started only after the first finished"
+
+# SLOT-19: PAUSED stops an eligible long run BEFORE it is sent: exit 75, the driver is not called
+fresh
+: > "$CLEANSLOTS/PAUSED"
+slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-19 "$([[ $rc -eq 75 && ! -e "$STATE/rr-calls" && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "PAUSED with an eligible long run exits 75 and never calls the driver (rc=$rc)"
+
+# SLOT-20: PAUSED created while a command waits for a held slot: the retry refuses with 75
+fresh
+hold 1; hold 2
+( slot sh -c ": > $TMP/ran20" >/dev/null 2>&1; echo $? > "$TMP/rc20" ) & w20=$!
+sleep 1; : > "$CLEANSLOTS/PAUSED"
+release_all
+wait "$w20"
+row SLOT-20 "$([[ "$(cat "$TMP/rc20")" == 75 && ! -e "$TMP/ran20" ]] && echo 1 || echo 0)" \
+    "PAUSED appearing during the wait exits 75 and the command never starts"
+
+# SLOT-21: PAUSED set while the (fell-back) driver runs: its folded status 1 becomes 75
+fresh
+STUB_PAUSE=$CLEANSLOTS/PAUSED STUB_RC=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
+row SLOT-21 "$([[ $rc -eq 75 ]] && echo 1 || echo 0)" "a driver that exits 1 with PAUSED set makes slot.sh exit 75 (rc=$rc)"
+
+# SLOT-22: every LONG target goes remote with slots free; every SHORT target stays local with a slot free
+# and goes remote with every slot held
+fresh
+bad=""
+for t in unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm; do
+    rm -f "$STATE/rr-calls" "$STATE/make-calls"
+    slot env LANG=C make -C "$WT" "$t" >/dev/null 2>&1
+    [[ "$(rr_calls)" == *"gh900-demo $NEWSHA $t"* && ! -e "$STATE/make-calls" ]] || bad+=" long:$t"
+done
+for t in regression-rows test-affected; do
+    rm -f "$STATE/rr-calls" "$STATE/make-calls"
+    slot make -C "$WT" "$t" >/dev/null 2>&1
+    [[ -z "$(rr_calls)" && -e "$STATE/make-calls" ]] || bad+=" short-free:$t"
+    rm -f "$STATE/rr-calls" "$STATE/make-calls"
+    hold 1; hold 2
+    slot make -C "$WT" "$t" >/dev/null 2>&1
+    release_all
+    [[ "$(rr_calls)" == *"gh900-demo $NEWSHA $t"* && ! -e "$STATE/make-calls" ]] || bad+=" short-held:$t"
+done
+row SLOT-22 "$([[ -z "$bad" ]] && echo 1 || echo 0)" \
+    "all 8 long targets go remote, regression-rows and test-affected go local with a free slot and remote with none (bad:$bad)"
+
+# SLOT-23: a gate-* branch, a modified tracked file and a staged change are never sent
+fresh
+git -C "$WT" checkout -q -b gate-v1.3.49
+slot env LANG=C make -C "$WT" unit-test >"$TMP/o23a" 2>&1
+git -C "$WT" checkout -q gh900-demo; git -C "$WT" branch -q -D gate-v1.3.49
+echo one > "$WT/t.txt"; git -C "$WT" add t.txt
+git -C "$WT" -c user.name=t -c user.email=t@t commit -q -m tracked
+git -C "$WT" push -q origin gh900-demo
+NEWSHA=$(git -C "$WT" rev-parse HEAD)
+echo two > "$WT/t.txt"
+slot env LANG=C make -C "$WT" unit-test >"$TMP/o23b" 2>&1
+git -C "$WT" checkout -q -- t.txt
+echo three > "$WT/t.txt"; git -C "$WT" add t.txt
+slot env LANG=C make -C "$WT" unit-test >"$TMP/o23c" 2>&1
+git -C "$WT" reset -q --hard
+row SLOT-23 "$([[ -z "$(rr_calls)" && "$(grep -c '^make ' "$STATE/make-calls")" -eq 3 && "$(cat "$TMP/o23a")" == *"branch 'gate-v1.3.49' is not an issue branch"* \
+    && "$(cat "$TMP/o23b")" == *"uncommitted"* && "$(cat "$TMP/o23c")" == *"uncommitted"* ]] && echo 1 || echo 0)" \
+    "gate-v1.3.49, a modified tracked file and a staged change all run here with the reason"
+
+# SLOT-24: nice 19 for a local command
+fresh
+n=$(slot nice 2>/dev/null)
+row SLOT-24 "$([[ "$n" == 19 ]] && echo 1 || echo 0)" "a local command runs at nice 19 (got $n)"
+
+# SLOT-25: TERM to slot.sh reaches a local command, and the slot stays locked until that command is gone
+fresh
+cat > "$TMP/term-local.sh" <<'EOF'
+#!/usr/bin/env bash
+trap 'echo term > "$1"; sleep 1.5; echo done > "$2"; exit 0' TERM
+: > "$3"
+while :; do sleep 0.2; done
+EOF
+chmod +x "$TMP/term-local.sh"
+rm -f "$TMP/t25a" "$TMP/t25b" "$TMP/t25c"
+"$SLOT" --dir "$CLEANSLOTS" "$TMP/term-local.sh" "$TMP/t25a" "$TMP/t25b" "$TMP/t25c" >/dev/null 2>&1 & p25=$!
+for k in $(seq 1 50); do [[ -e "$TMP/t25c" ]] && break; sleep 0.1; done
+kill -TERM "$p25"; sleep 0.5
+held=0; flock -n "$CLEANSLOTS/slot1" true 2>/dev/null || held=1
+wait "$p25" 2>/dev/null
+row SLOT-25 "$([[ "$(cat "$TMP/t25a" 2>/dev/null)" == term && $held -eq 1 && "$(cat "$TMP/t25b" 2>/dev/null)" == done ]] && echo 1 || echo 0)" \
+    "TERM reaches the local command; the slot stays locked while it shuts down (held=$held)"
+
+# SLOT-26: TERM to slot.sh reaches the driver, and slot.sh returns the driver's own status, not 143
+fresh
+rm -f "$STATE/rr-term"
+STUB_WAIT=1 "$SLOT" --dir "$CLEANSLOTS" env LANG=C make -C "$WT" unit-test >/dev/null 2>&1 & p26=$!
+for k in $(seq 1 50); do [[ -e "$STATE/rr-calls" ]] && break; sleep 0.1; done
+sleep 0.3; kill -TERM "$p26"
+wait "$p26"; rc=$?
+row SLOT-26 "$([[ -e "$STATE/rr-term" && $rc -eq 5 ]] && echo 1 || echo 0)" \
+    "TERM reaches the driver and slot.sh waits for it, returning its status 5 (rc=$rc)"
+
+# SLOT-27: the admissions.log command is cut at 120 CHARACTERS, not 120 words
+fresh
+long=$(printf 'x%.0s' $(seq 1 200))
+slot true "$long" >/dev/null 2>&1
+line=$(cat "$CLEANSLOTS/admissions.log")
+cmdpart=${line#*load=* }
+row SLOT-27 "$([[ ${#cmdpart} -eq 120 && "$cmdpart" == "true x"* ]] && echo 1 || echo 0)" \
+    "a 205-character command is logged as exactly 120 characters (${#cmdpart})"
+
+# SLOT-28: the local half of a fallback is tagged in admissions.log
+fresh
+REMOTE_RUN_FALLBACK=1 slot true >/dev/null 2>&1
+row SLOT-28 "$([[ "$(adm)" =~ \ slot\ 1\ fallback\ waited= ]] && echo 1 || echo 0)" "a run inside a fallback logs 'slot 1 fallback'"
+
+# SLOT-29: a push that fails (origin ahead, not fast-forward) runs the command here, never forces, never calls the driver
+fresh
+git clone -q "$TMP/origin.git" "$TMP/other"
+git -C "$TMP/other" -c user.name=t -c user.email=t@t checkout -q gh900-demo
+git -C "$TMP/other" -c user.name=t -c user.email=t@t commit -q --allow-empty -m ahead
+git -C "$TMP/other" push -q origin gh900-demo
+git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m diverged
+: > "$STATE/git-calls"
+out=$(slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+pushes=$(grep -E '(^| )push( |$)' "$STATE/git-calls")
+git -C "$WT" fetch -q origin; git -C "$WT" reset -q --hard origin/gh900-demo
+row SLOT-29 "$([[ $rc -eq 0 && -z "$(rr_calls)" && "$pushes" == "-C $WT push origin gh900-demo" && "$pushes" != *force* \
+    && "$out" == *"push failed; running here"* && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "a rejected push runs the command here, once, without force and without calling the driver (rc=$rc)"
+
+# SLOT-30: a directory that is not a repository is never sent
+fresh
+mkdir -p "$TMP/not-a-repo"
+out=$(slot env LANG=C make -C "$TMP/not-a-repo" unit-test 2>&1); rc=$?
+row SLOT-30 "$([[ -z "$(rr_calls)" && "$out" == *"not sent to the remote"* ]] && echo 1 || echo 0)" \
+    "a directory that is not a repository is never sent (the reason names it)"
 
 finish

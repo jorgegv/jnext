@@ -14,8 +14,8 @@
 #   - A slot is an flock on <dir>/slot<i>, held for the whole command, which runs at nice 19; INT/TERM
 #     are forwarded; the exit status is the command's.
 #   - Admitted only while the 1-minute load is below the limit (default: nproc; --limit or
-#     JNEXT_SLOT_LOAD_LIMIT). The check is made AFTER the lock is taken, and each admission is serialised
-#     by the lock, so two waiters cannot both pass on the same load reading.
+#     JNEXT_SLOT_LOAD_LIMIT). The check is made AFTER the slot's lock is taken. The lock is per slot, so
+#     two waiters on two different slots can both pass on the same load reading (as before).
 #   - Slot count: <dir>/NSLOTS, an integer 1..8, read at every attempt; absent = 2; anything else is
 #     refused with exit 2. The autonomous-run skill writes 4 at the start of an unattended run (owner,
 #     2026-11-21) and 2 when the owner is at the machine.
@@ -40,9 +40,14 @@
 #   "REMOTE RUNS" authorizes an agent to push its own issue branch), then remote-run.sh --stream
 #   --fallback-local, with this script as REMOTE_RUN_LOCAL_WRAP. Both remote lanes busy past the
 #   driver's LANE_WAIT (30 s), the alias unreachable, ...: the driver runs the targets here through this
-#   script, with overflow switched off, so the run waits for a local slot and never loops. The exit
-#   status is the driver's (0 green, 1 not clean or failed, 124 timeout, 2 usage). Exit 3 (the push did
+#   script, with overflow switched off (no live output reaches the caller meanwhile: the driver writes a
+#   fallback run to its log only, so a long wait looks silent until the summary), so the run waits for a local slot and never loops. The exit
+#   status is the driver's, except 75 when <dir>/PAUSED appears meanwhile (0 green, 1 not clean or failed, 124 timeout, 2 usage). Exit 3 (the push did
 #   not land) ran nothing, so it is run locally instead; 75 never reaches here (the fallback took it).
+#
+# The remote host comes from the environment this script runs in: the run's wrapper must export
+# JNEXT_REMOTE_RUN_HOST=<ssh alias> and JNEXT_REMOTE_RUN_DIR=<remote work directory> (see the
+# autonomous-run skill), or every heavy command stays local and says why.
 #
 # Every admission appends one line to <dir>/admissions.log:
 #   <ISO time> <slot N | remote> waited=<s>s load=<1-min> <command, first 120 characters>
@@ -99,8 +104,10 @@ load1() { cut -d' ' -f1 "$LOADAVG"; }
 at_limit() { awk -v l="$LIMIT" '{exit !($1>=l)}' "$LOADAVG"; }
 
 admit_log() {   # <slot N | remote>
-    printf '%s %s waited=%ss load=%s %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$1" "$((SECONDS - T0))" "$(load1)" \
-        "${CMD[*]:0:120}" >> "$DIR/admissions.log"
+    local c="${CMD[*]}" tag=""
+    [[ -z "${JNEXT_SLOT_NO_OVERFLOW:-}${REMOTE_RUN_FALLBACK:-}" ]] || tag=" fallback"   # the local half of a remote run that fell back
+    printf '%s %s%s waited=%ss load=%s %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$1" "$tag" "$((SECONDS - T0))" "$(load1)" \
+        "${c:0:120}" >> "$DIR/admissions.log"
 }
 
 # try_local: one pass over the slots; on success sets GOT (slot number) and the open lock descriptor LOCKFD.
@@ -155,8 +162,9 @@ parse_overflow() {
         || { OV_REASON="detached HEAD (only an issue branch gh<N>-<slug> is sent)"; return; }
     [[ "$OV_BRANCH" =~ ^gh[0-9]+-[A-Za-z0-9._-]+$ ]] \
         || { OV_REASON="branch '$OV_BRANCH' is not an issue branch gh<N>-<slug>"; return; }
-    [[ -z "$(git -C "$OV_WT" status --porcelain 2>/dev/null)" ]] \
-        || { OV_REASON="the worktree has uncommitted or untracked files (the remote runs committed state)"; return; }
+    local st
+    st=$(git -C "$OV_WT" status --porcelain 2>/dev/null) || { OV_REASON="git status failed in '$OV_WT'"; return; }
+    [[ -z "$st" ]] || { OV_REASON="the worktree has uncommitted or untracked files (the remote runs committed state)"; return; }
     if [[ $spaced -eq 1 ]]; then
         local q="make" x
         for x in "${words[@]}"; do q+=" $(printf '%q' "$x")"; done
@@ -186,6 +194,7 @@ go_remote() {
     wait "$pid"; rc=$?
     while kill -0 "$pid" 2>/dev/null; do wait "$pid"; rc=$?; done
     trap - INT TERM
+    [[ $rc -eq 0 ]] || paused     # PAUSED set while the run waited: say 75, not the driver's folded 1
     if [[ $rc -eq 3 ]]; then echo "[slot.sh] the remote refused (the push did not land); running here" >&2; return 99; fi
     return "$rc"
 }
@@ -228,5 +237,6 @@ nice -n 19 "${CMD[@]}" {LOCKFD}>&- &
 pid=$!
 trap 'kill -TERM "$pid" 2>/dev/null' INT TERM
 wait "$pid"; rc=$?
+while kill -0 "$pid" 2>/dev/null; do wait "$pid"; rc=$?; done   # a TERM returns wait at once: keep the slot until the command is gone
 flock -u "$LOCKFD"; exec {LOCKFD}>&-
 exit "$rc"

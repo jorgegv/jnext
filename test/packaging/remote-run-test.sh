@@ -719,7 +719,7 @@ echo "fallback=${REMOTE_RUN_FALLBACK:-unset}" >> "$FAKE_STATE/make-calls"
 exec "$@"
 EOF
 chmod +x "$TMP/wrap2"
-REMOTE_RUN_LOCAL_WRAP="$TMP/wrap2" timeout --kill-after=5s 60s bash "$DRIVER" --log-dir "$TMP/logs" --id u37 \
+env -u REMOTE_RUN_FALLBACK REMOTE_RUN_LOCAL_WRAP="$TMP/wrap2" timeout --kill-after=5s 60s bash "$DRIVER" --log-dir "$TMP/logs" --id u37 \
     --fallback-local "$TMP/local" feature "$SHA" unit-test 'sh:true' >/dev/null 2>&1
 fb=$(grep fallback= "$FAKE_STATE/make-calls" | sort -u)
 row RRUN-37 "$([[ "$fb" == "fallback=1" && $(grep -c fallback= "$FAKE_STATE/make-calls") -eq 2 ]] && echo 1 || echo 0)" \
