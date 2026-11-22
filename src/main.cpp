@@ -3039,8 +3039,8 @@ int main(int argc, char* argv[]) {
         }
         // Every return below leaves this scope BEFORE the caller destroys the app and its Debugger,
         // so the stream is torn down (detached) while the Debugger is alive, on any exit path now or
-        // added later. A second finish() (the normal exit already ran one) does nothing. Not used by
-        // the browser build: a page refuses --audio-log, and its finish runs after this scope.
+        // added later. A second finish() (the normal exit already ran one) does nothing. The browser
+        // build dismisses it just before handing finish to the page's loop, which runs after this scope.
         struct AudioLogGuard {
             jnext::dbg::AudioLogStream* stream = nullptr;
             ~AudioLogGuard() { if (stream) { std::string why; stream->finish(why); } }
@@ -3400,6 +3400,7 @@ int main(int argc, char* argv[]) {
 
 #ifdef JNEXT_BROWSER
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, SdlApp>) {
+            audio_log_guard.stream = nullptr;   // the page's loop finalises the stream, after this scope
             browser_frontend::run(app, std::move(finish));
             return 0;
         }

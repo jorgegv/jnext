@@ -16,8 +16,6 @@ inline const char* option_refusal(cli::OptId id)
     case cli::OptId::RzxRecord:
         return "not available in a browser page (record from JavaScript: player.startRzxRecording(), "
                "player.stopRzxRecording())";
-    case cli::OptId::AudioLog:
-        return "not available in a browser page";
     default:
         return nullptr;
     }

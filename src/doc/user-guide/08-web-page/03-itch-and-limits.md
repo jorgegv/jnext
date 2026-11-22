@@ -37,14 +37,14 @@ Because of the `iframe`:
   same protocols to the page's own code or through a WebSocket bridge ([8.6](06-debugging-from-the-page.md)).
 - **Program formats.** Programs load as `.nex`, `.tap`, `.tzx` or `.wav` (a tape, in real
   time), recordings as `.rzx`, snapshots as `.jns`, `.sna`, `.szx` or `.z80`.
-- **Headless and command-line recording.** `--headless`, `--rzx-record` and `--audio-log` are
-  refused. A page records with `startRzxRecording()` and `stopRzxRecording()`.
+- **Headless and command-line recording.** `--headless` and `--rzx-record` are refused. A
+  page records with `startRzxRecording()` and `stopRzxRecording()`.
 - **WAV files.** A WAV is large and stays in the page's memory for the session. Give the
   `.tap` or `.tzx` of a game when there is one.
 - **Saves.** What the guest writes to the SD card is kept across reloads only when the
   page asks with `keepWrites` ([8.4](04-the-image-and-what-the-browser-keeps.md)). Without
   it the card lives in memory for the session.
-- **Files JNEXT writes** (screenshots, snapshots) live in memory in either case.
+- **Files JNEXT writes** (screenshots, snapshots, WAV and the audio write log) live in memory in either case.
   `saveSnapshot()` hands a snapshot to the page.
 - **Browser shortcuts.** Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own
   keys never reach the page.
