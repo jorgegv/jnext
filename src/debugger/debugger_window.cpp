@@ -1728,7 +1728,7 @@ void DebuggerWindow::create_panels() {
     // the shown one, so a sub-tab change re-derives what the Audio panel asks for (GH #498).
     connect(audio_panel_, &AudioPanel::sub_tab_changed, this, &DebuggerWindow::panels_on_show_changed);
     connect(audio_panel_, &AudioPanel::rewind_to_frame_requested, this, [this](uint32_t frame) {
-        (void)frame;
+        if (debugger_mgr_) debugger_mgr_->on_rewind_to_frame(frame);
     });
 
     // GH #366 - the Symbols tab asks for a place to be shown.
