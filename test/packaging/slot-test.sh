@@ -10,14 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-45. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-46. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=45
+EXPECTED_ROWS=46
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -76,6 +76,8 @@ REALGIT=$(command -v git)
 cat > "$TMP/bin/git" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >> "$TMP/state/git-calls"
+# STUB_PUSH_RACE=1: the push lands, then reports failure (the loser of a concurrent push of the same sha)
+if [[ -n "\${STUB_PUSH_RACE:-}" && " \$* " == *" push "* ]]; then "$REALGIT" "\$@"; exit 1; fi
 exec "$REALGIT" "\$@"
 EOF
 # make stub: records the call and exits MAKE_RC (default 0).
@@ -440,6 +442,15 @@ git -C "$WT" fetch -q origin; git -C "$WT" reset -q --hard origin/gh900-demo
 row SLOT-29 "$([[ $rc -eq 0 && -z "$(rr_calls)" && "$pushes" == "-C $WT push origin gh900-demo" && "$pushes" != *force* \
     && "$out" == *"push failed; running here"* && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
     "a rejected push runs the command here, once, without force and without calling the driver (rc=$rc)"
+
+# SLOT-46: a push reported as failed while origin is at HEAD (the loser of a concurrent slot.sh push of the same
+# sha, git: "incorrect old value provided") still counts: the driver is called with the sha, nothing runs here
+fresh
+git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m raced
+RACESHA=$(git -C "$WT" rev-parse HEAD)
+out=$(STUB_PUSH_RACE=1 slot env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+row SLOT-46 "$([[ $rc -eq 0 && "$out" != *"push failed"* && "$(rr_calls)" == *"gh900-demo $RACESHA unit-test"* && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "a push that fails while origin is at HEAD goes on to the driver, once (rc=$rc)"
 
 # SLOT-30: a directory that is not a repository is never sent
 fresh

@@ -210,7 +210,10 @@ go_remote() {
         if [[ $pushed -eq 0 ]]; then
             if [[ "$(git -C "$OV_WT" rev-parse --verify -q "refs/remotes/origin/$OV_BRANCH" 2>/dev/null)" != "$sha" ]]; then
                 echo "[slot.sh] pushing $OV_BRANCH to origin for the remote run" >&2
+                # A concurrent slot.sh on the same branch pushes the same sha: the loser is rejected
+                # ("incorrect old value") although origin is now at $sha, so a failed push counts when it is.
                 JNEXT_ALLOW_PUSH=1 git -C "$OV_WT" push origin "$OV_BRANCH" >&2 \
+                    || [[ "$(timeout --kill-after=5s 60s git -C "$OV_WT" ls-remote origin "refs/heads/$OV_BRANCH" 2>/dev/null | cut -f1)" == "$sha" ]] \
                     || { echo "[slot.sh] push failed; running here" >&2; return 98; }
             fi
             pushed=1
