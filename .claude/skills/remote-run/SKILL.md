@@ -15,6 +15,7 @@ specifics are in `project.conf`.
 | variable | meaning | default |
 |----------|---------|---------|
 | `JNEXT_REMOTE_RUN_HOST` | SSH alias (`~/.ssh/config` has host, port, user). Unset: remote runs are off, the driver exits 75 | none |
+| `JNEXT_REMOTE_RUN_HOSTS` | Several hosts: SSH aliases separated by spaces, in preference order. `slot.sh` and `pick-host.sh` read it (see "Several hosts"); the driver itself is one host per call and reads only `JNEXT_REMOTE_RUN_HOST`. Unset: the single `JNEXT_REMOTE_RUN_HOST` is a one-host list | none |
 | `JNEXT_REMOTE_RUN_DIR` | the ONE directory on the remote that holds everything remote-run writes: mirror clone, per-run checkouts, temp files, ccache, tool caches, the SD-image cache, podman's image storage and the lane locks. A leading `~/` is expanded on the remote | `~/remote-jnext-work` |
 
 Nothing is written on the remote outside that directory, except podman's own rootless runtime
@@ -97,6 +98,30 @@ shell command as written), and the run stops at the first failure unless `--keep
 
 Local builds still go through the local slot wrapper: `--fallback-local` runs the targets in the given
 directory, in front of `REMOTE_RUN_LOCAL_WRAP` (for example the run's `slot.sh`) when that is set. The wrapper's environment carries `REMOTE_RUN_FALLBACK=1`, which `slot.sh` reads as "never overflow again".
+
+## Several hosts (GH #547, owner 2026-11-22)
+
+The driver is ONE host per call. A caller with several hosts picks one and passes its alias in
+`JNEXT_REMOTE_RUN_HOST` for that call. Two helpers do the choosing, both over `remote-run.sh --probe`
+(one ssh round trip: exit 0 = usable and a lane is free right now, 75 = every lane busy, host unreachable or
+preflight refused; nothing is started; a busy host therefore costs a moment, never `LANE_WAIT`):
+
+- `slot.sh` (autonomous runs): tries the aliases of `JNEXT_REMOTE_RUN_HOSTS` in order, probe first; the run goes to
+  the first host with a free lane. A driver status 75 after a free probe (a lane lost in between, no image: nothing
+  ran) moves to the next host; a run that STARTED and failed is never retried elsewhere. Every host busy: a local slot.
+  The last host of the list carries `--fallback-local`, as with one host.
+- `pick-host.sh [--or-first]` (the batch gate and manual runs): prints the first host with a free lane; 75 when none;
+  `--or-first` prints the first host of the list instead, for a caller that will wait for a lane there:
+  `H=$(pick-host.sh --or-first) && JNEXT_REMOTE_RUN_HOST=$H remote-run.sh --gate <branch> <sha>`.
+
+Each host is a complete installation of its own: its own work directory, mirror, image, caches, SD master, lanes,
+locks and podman store. One `JNEXT_REMOTE_RUN_DIR` value serves every host (a leading `~/` is expanded by each host in
+its own home); a host that needs another path needs another call with its own value. The orphan sweep and the
+`rr-lane` label work on the host's own podman store, so a run never touches another host's containers. The
+per-lane memory cap is computed from each host's own `MemTotal` (80% divided by `LANES`, at most `CONTAINER_MEMORY`):
+a 24 GB host gets about 9.3 GB per lane against 10 GB on the 32 GB one, so `--warm` and the first real runs there
+must be read for `anon=` and `oom` lines. The SD image never leaves the host's own work directory. `--warm` is run
+once per host.
 
 ## What it guarantees
 
