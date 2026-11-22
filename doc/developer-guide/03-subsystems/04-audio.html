@@ -3264,11 +3264,17 @@ tap enabled mid-sample, a reset, a state load and a switch between the tapped an
 <p>Nothing may be added to the hot audio path when no tap is installed (a debugger feature that is unused
 costs nothing). A test per instruction slice was rejected, and so was a second per-slot accumulate
 entry point (a second caller of a hot function stopped the compiler inlining it, 1 to 7 % of every
-program). Instead the two places that tested <code>replay_mode_</code> before mixing, the device cluster and the
-HALT batch's replay, now test one byte, <code>Emulator::audio_divert_</code> (bit 0 a replay, bit 1 a tap
-installed): the same load, test and branch, so zero costs nothing extra, and a non-zero byte goes to
-<code>audio_divert_span_()</code>, which is cold and out of line and calls <code>integrate_span_tapped()</code> (a replay
-mixes nothing). <code>refresh_audio_divert_()</code> runs at every writer of <code>replay_mode_</code> and of the tap pointer.</p>
+program). Instead the device cluster's <code>replay_mode_</code> test became a test of one byte,
+<code>Emulator::audio_divert_</code> (bit 0 a replay, bit 1 a tap installed): the same load, test and branch, so
+zero costs nothing extra, and a non-zero byte goes to <code>audio_divert_span_()</code>, which is cold and out of
+line and calls <code>integrate_span_tapped()</code> (a replay mixes nothing). <code>refresh_audio_divert_()</code> runs at
+every writer of <code>replay_mode_</code> and of the tap pointer.</p>
+<p>The HALT and raster-poll batches do not feed the tap: a test in their replay loop cost one instruction
+per replayed segment (0.1 % of whole programs, measured), and a twin of the replay cost more elsewhere.
+While a tap is installed <code>batch_window_limit_()</code> refuses every window (it tests <code>audio_divert_</code>, which
+it already did for a rewind replay as <code>replay_mode_</code>), so those programs run slot by slot, the path the
+batches are held equivalent to, and the tap sees exactly the batch-off samples. Batching resumes when
+the tap is dropped.</p>
 <p>The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 <code>env_reset</code>, which reloads the level and also forces <code>env_ena</code> (<code>ym2149.vhd:340-342</code> and <code>ym2149.vhd:393-409</code>), so the first
 step comes with the write instead of one envelope period later. <code>AyChip::load_envelope()</code> applies the reload
