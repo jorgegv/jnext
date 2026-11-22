@@ -1461,13 +1461,14 @@ static void test_tape_mix() {
         const int n = e->mixer().available();
         std::vector<int16_t> buf(2 * static_cast<size_t>(n > 0 ? n : 1), 0);
         const int got = e->mixer().read_samples(buf.data(), n);
-        // The hold (32768 master cycles) is about 52 output samples after the route: samples 0..40
-        // are the Pi's level (512), samples 70..200 are past the hold and must be at rest, also
-        // when the whole stretch was one HALT batch.
+        // The hold (32768 master cycles) is about 52 output samples after the route: samples 1..40
+        // are the Pi's level (512), samples 54..200 are past the hold and must be at rest. Without
+        // the refresh in the batch's sample thunk the term only drops where the batch window ends,
+        // 5 samples late (measured: sample 55 instead of 50).
         int early_hi = 0, late_nonzero = 0;
-        for (int i = 0; i < 40 && i < got; ++i)
+        for (int i = 1; i < 40 && i < got; ++i)
             if (buf[2 * i] == 512) ++early_hi;
-        for (int i = 70; i < 200 && i < got; ++i)
+        for (int i = 54; i < 200 && i < got; ++i)
             if (buf[2 * i] != 0) ++late_nonzero;
         const uint64_t batched = e->halt_repeats_batched_for_test();
         check("MX-92", "inside a HALT batch the Pi's ear_relax hold runs out at its time: the samples "
