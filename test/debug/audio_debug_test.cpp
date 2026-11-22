@@ -703,6 +703,408 @@ static bool landing_ok(const std::vector<AudioLogEntry>& before, const std::vect
            markers_of(after, AudioMarker::Rewind) == 1 && markers_of(after, AudioMarker::StateLoad) == 0;
 }
 
+static void aev_rows() {
+    // ── AEV: the AudioWrite event kind (GH #532) ─────────────────────────
+    // Oracles: ym2149.vhd:188,210 (data gate, env_reset on every R13 write), turbosound.vhd:129,141,
+    // zxnext.vhd:3088,3091,5413, soundrive.vhd:85-101, and events.h's delivery contract (the raising
+    // boundary, one late for a CPU NextREG write and a Copper MOVE). Byte offsets are counted from the
+    // instruction lengths of the program, never read from the code under test.
+    {
+        Aev m;
+        auto refused = [&](const std::function<void(Subscription&)>& f) {
+            Subscription s = Aev::make();
+            f(s);
+            return m.dbg().subscribe(m.cid, s).status == Result::RefusedUnavailable;
+        };
+        const bool a = refused([](Subscription& s) { s.filter.audio_targets = 0x20; });
+        const bool b = refused([](Subscription& s) { s.filter.chip = 4; });
+        const bool c = refused([](Subscription& s) { s.filter.value_mask = 0x0F; s.filter.value_match = 0x10; });
+        const bool d = refused([](Subscription& s) { s.filter.audio_flags_all = s.filter.audio_flags_none = AudioFlag::Dropped; });
+        const bool e = refused([](Subscription& s) { s.filter.audio_targets = T_DAC; s.filter.regs = {7}; });
+        const auto ok = m.dbg().subscribe(m.cid, Aev::make());
+        if (!(a && b && c && d && e)) std::printf("    refused: targets %d chip %d value %d flags %d regs %d\n", a, b, c, d, e);
+        check("AEV-01", "subscribe refuses an AudioWrite filter that can never match (no valid target, chip 4, a value outside its mask, a flag both required and forbidden, a register set with only DAC targets) and accepts the default",
+              a && b && c && d && e && ok.status == Result::Ok);
+    }
+    {
+        Aev m;
+        ay_select(m.emu, 0); ay_write(m.emu, 7, 0x3F);
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.chip = 0; s.filter.regs = {7};
+        const auto id = m.sub(s);
+        m.go({AEV_R7_38});
+        const auto ev = m.events();
+        const bool one = ev.size() == 1;
+        const DbgEvent e = one ? ev[0] : DbgEvent{};
+        const bool stop = m.paused() && m.stop_pc() == 0x800D && !m.cap.paused.empty() &&
+                          m.cap.paused.back().matched.size() == 1 && m.cap.paused.back().matched[0].event_id == id;
+        check("AEV-02", "AY chip 0 R7 sub, log OFF: the data write at 0x800B stops at 0x800D with matched = the id; the Event is AudioWrite/AyRegister, chip 0, reg 7, value 0x38, prev 0x3F, port 0xBFFD, source Cpu, pc 0x800B, flags 0, reason None; the plain select made no stop",
+              one && stop && e.kind == EventKind::AudioWrite && e.audio_target == AT::AyRegister && e.chip == 0 && e.reg == 7 &&
+              e.value == 0x38 && e.prev == 0x3F && e.port == 0xBFFD && e.source == EventSource::Cpu && e.pc == 0x800B &&
+              e.audio_flags == 0 && e.drop_reason == AR::None && !m.dbg().audio_log_enabled());
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.chip = 1;
+        m.sub(s);
+        m.go({AEV_R7_38});
+        check("AEV-03", "near miss: a chip 1 sub does not stop on a chip 0 write", !m.paused() && m.events().empty());
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.chip = 0; s.filter.regs = {8};
+        m.sub(s);
+        m.go({AEV_R7_38});
+        check("AEV-04", "near miss: a register 8 sub does not stop on an R7 write", !m.paused() && m.events().empty());
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.value_mask = 0x0F; s.filter.value_match = 0x08;
+        m.sub(s);
+        m.go({AEV_R7_38});
+        check("AEV-05", "a value/mask sub (low nibble 8) stops on the 0x38 write", m.paused() && m.stop_pc() == 0x800D && m.events().size() == 1);
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.value_mask = 0x0F; s.filter.value_match = 0x08;
+        m.sub(s);
+        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x37, 0xED, 0x79, 0x18, 0xFE});
+        check("AEV-06", "near miss: the same value/mask sub does not stop on the 0x37 write", !m.paused() && m.events().empty());
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make();
+        s.filter.audio_flags_all = AudioFlag::EnvelopeRestart;
+        m.sub(s);
+        // select 13; R13 = 8 at 0x800B; R13 = 8 again at 0x800D; select 12; R12 = 8 at 0x8019.
+        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x0D, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x08, 0xED, 0x79, 0xED, 0x79,
+              0x06, 0xFF, 0x3E, 0x0C, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x08, 0xED, 0x79, 0x18, 0xFE});
+        const bool first = m.paused() && m.stop_pc() == 0x800D;
+        m.dbg().run(m.cid); m.emu.run_frame();
+        const bool second = m.paused() && m.stop_pc() == 0x800F;
+        m.dbg().run(m.cid); m.emu.run_frame();
+        const auto ev = m.events();
+        check("AEV-07", "ym2149.vhd:188,210 an envelope-restart sub: two stops, one at each R13 OUT (the second with prev 0x08, an unchanged value still restarts), none at the R12 write",
+              first && second && !m.paused() && ev.size() == 2 && ev[0].reg == 13 && ev[1].reg == 13 && ev[1].prev == 0x08 &&
+              ev[0].pc == 0x800B && ev[1].pc == 0x800D);
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_DAC | T_MIR);
+        m.sub(s);
+        m.go({0x3E, 0x11, 0xD3, 0x1F, 0x18, 0xFE});
+        const auto ev = m.events();
+        check("AEV-08", "a DAC sub: LD A,0x11; OUT (0x1F),A stops at 0x8004; Event target Dac, chip 0, port 0x111F (OUT (n),A puts A on the high address byte), value 0x11, prev 0x80",
+              m.paused() && m.stop_pc() == 0x8004 && ev.size() == 1 && ev[0].audio_target == AT::Dac && ev[0].chip == 0 &&
+              ev[0].port == 0x111F && ev[0].value == 0x11 && ev[0].prev == 0x80);
+    }
+    {
+        Aev m;
+        m.sub(Aev::make(T_DAC | T_MIR));
+        m.go({0xED, 0x91, 0x2D, 0x66, 0x00, 0x18, 0xFE});
+        const auto ev = m.events();
+        check("AEV-09", "a DAC|mirror sub: NEXTREG 0x2D,0x66 gives two events (chips 0 then 3, DacMirror, reg 0x2D, port 0x002D, pc 0x8000) and the stop is one instruction late (0x8005), as NextRegWrite is",
+              m.paused() && m.stop_pc() == 0x8005 && ev.size() == 2 && ev[0].chip == 0 && ev[1].chip == 3 &&
+              ev[0].audio_target == AT::DacMirror && ev[0].reg == 0x2D && ev[0].port == 0x002D && ev[0].pc == 0x8000);
+    }
+    {
+        Aev m;
+        m.sub(Aev::make(T_DAC | T_MIR));
+        // an AY data write, an EAR change on 0xFE, a 0xFFFD chip-select command
+        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x3E, 0x10, 0xD3, 0xFE,
+              0x01, 0xFD, 0xFF, 0x3E, 0xFE, 0xED, 0x79, 0x18, 0xFE});
+        check("AEV-10", "near miss: a DAC sub does not stop on an AY data write, an EAR change or a chip-select command", !m.paused() && m.events().empty());
+    }
+    {
+        Aev m;
+        nr_write(m.emu, 0x84, 0xBF);
+        Subscription s = Aev::make();
+        s.filter.audio_flags_all = AudioFlag::Dropped;
+        m.sub(s);
+        m.go({0x01, 0xB3, 0x00, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE});
+        const auto ev = m.events();
+        check("AEV-11", "zxnext.vhd:2974-2980 a dropped-only sub with NR 0x84 bit 6 off: OUT (C),A to 0x00B3 stops; Event Dac, chip 0xFF, flags Dropped, reason DacFamilyDisabled, port 0x00B3",
+              m.paused() && ev.size() == 1 && ev[0].audio_target == AT::Dac && ev[0].chip == 0xFF && ev[0].audio_flags == AudioFlag::Dropped &&
+              ev[0].drop_reason == AR::DacFamilyDisabled && ev[0].port == 0x00B3);
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make();
+        s.filter.audio_flags_all = AudioFlag::Dropped;
+        m.sub(s);
+        m.go({0x01, 0xB3, 0x00, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE});
+        check("AEV-12", "near miss: the same dropped-only sub with the 0xB3 decode on (the write applies) does not stop", !m.paused() && m.events().empty());
+    }
+    {
+        Aev m;
+        nr_write(m.emu, 0x06, 0x03);
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.regs = {7};
+        s.filter.audio_flags_none = AudioFlag::Dropped;
+        m.sub(s);
+        // select 7; write 0x12 while held in reset (dropped); NEXTREG 6,0 releases it; select 7; write 0x34
+        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x12, 0xED, 0x79,
+              0xED, 0x91, 0x06, 0x00, 0x06, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x34, 0xED, 0x79, 0x18, 0xFE});
+        const auto ev = m.events();
+        check("AEV-13", "zxnext.vhd:6989 an applied-only R7 sub: the write held in reset (AyHeldInReset) makes no stop; the applied write after the release makes exactly one",
+              m.paused() && ev.size() == 1 && ev[0].value == 0x34 && ev[0].audio_flags == 0);
+    }
+    {
+        Aev m;
+        m.sub(Aev::make(T_AYSEL));
+        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x3E, 0xFE, 0xED, 0x79, 0x18, 0xFE});
+        const auto ev = m.events();
+        check("AEV-14", "turbosound.vhd:129,141 a chip-select sub: the plain select 7 makes no stop, the command 0xFE one (chip 1, prev 0, value 0xFE, port 0xFFFD)",
+              m.paused() && ev.size() == 1 && ev[0].audio_target == AT::AyChipSelect && ev[0].chip == 1 && ev[0].prev == 0 &&
+              ev[0].value == 0xFE && ev[0].port == 0xFFFD);
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make();
+        s.filter.regs = {0};
+        m.sub(s);
+        m.go({0x3E, 0x11, 0xD3, 0x1F, 0x01, 0xFD, 0xFF, 0x3E, 0x00, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x22, 0xED, 0x79, 0x18, 0xFE});
+        const auto ev = m.events();
+        check("AEV-15", "a register set applies to AY register and NextREG mirror entries only: with targets ANY and regs {0}, a DAC write (reg 0) makes no stop and the AY R0 write one",
+              m.paused() && ev.size() == 1 && ev[0].audio_target == AT::AyRegister && ev[0].value == 0x22);
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_DAC);
+        s.filter.source = EventSource::Dma;
+        m.sub(s);
+        m.go({0x3E, 0x11, 0xD3, 0x1F, 0x18, 0xFE});
+        const bool cpu_quiet = !m.paused() && m.events().empty();
+        dma_byte_to_df(m.emu, 0x5A);
+        m.emu.run_frame();
+        const auto ev = m.events();
+        check("AEV-16", "a source-Dma sub: a CPU OUT 0x1F makes no stop; a DMA byte to 0x00DF stops with two events (chips 0 and 3) of source Dma",
+              cpu_quiet && m.paused() && ev.size() == 2 && ev[0].source == EventSource::Dma && ev[1].source == EventSource::Dma &&
+              ev[0].chip == 0 && ev[1].chip == 3 && ev[0].value == 0x5A);
+    }
+    {
+        Aev m;
+        m.sub(Aev::make(T_MIR));
+        park(m.emu);
+        copper_words(m.emu, {static_cast<uint16_t>((0x2D << 8) | 0x66), static_cast<uint16_t>(0x8000u | 0x1FFu)});
+        m.emu.run_frame();
+        const auto ev = m.events();
+        check("AEV-17", "a mirror sub: a Copper MOVE 0x2D,0x66 gives two events (chips 0 then 3, source Copper) and stops at the boundary after the instruction that ran it",
+              m.paused() && ev.size() == 2 && ev[0].source == EventSource::Copper && ev[1].source == EventSource::Copper &&
+              ev[0].chip == 0 && ev[1].chip == 3 && ev[0].value == 0x66 && m.stop_pc() == 0x8001);
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.regs = {7};
+        s.once = true;
+        const auto id = m.sub(s);
+        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x3E, 0x39, 0xED, 0x79, 0x18, 0xFE});
+        const bool stopped = m.paused() && m.stop_pc() == 0x800D;
+        bool spent = false;
+        for (const auto& si : m.dbg().subscriptions(false)) if (si.id == id) spent = !si.enabled;
+        m.dbg().run(m.cid); m.emu.run_frame();
+        check("AEV-18", "a `once` sub stops on the first R7 write, then reports enabled == false, and the second write passes", stopped && spent && !m.paused() && m.events().size() == 1);
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.regs = {7};
+        s.action = Action::Log;
+        m.sub(s);
+        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x3E, 0x39, 0xED, 0x79, 0x18, 0xFE});
+        size_t n = 0;
+        for (const std::string& l : m.cap.lines) n += l.find("EVENT audio_write") != std::string::npos;
+        check("AEV-19", "the same filter with the Log action: one SES-06 line per write, no pause", n == 2 && !m.paused());
+    }
+    {
+        Aev m;
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.regs = {7};
+        s.action = Action::Continue;
+        int n = 0;
+        DbgEvent first{};
+        s.handler = [&](const DbgEvent& e, Debugger&) { if (n++ == 0) first = e; return Action::Continue; };
+        m.sub(s);
+        m.go({AEV_R7_38});
+        check("AEV-20", "the same filter with Continue and a handler: called once per write with value 0x38, chip 0, no pause", n == 1 && first.value == 0x38 && first.chip == 0 && !m.paused());
+    }
+    {
+        Aev m;
+        const ClientId lc = log_client(m.dbg(), "aev21");
+        Subscription s = Aev::make();
+        s.action = Action::Continue;
+        m.sub(s);
+        m.dbg().port_out(lc, 0xFFFD, 7);
+        m.dbg().port_out(lc, 0xBFFD, 0x22);
+        const auto w = writes_only(m.dbg());
+        check("AEV-21", "a debugger write (port_out) is logged with source Debugger and fires no AudioWrite event (4.2a)",
+              w.size() == 1 && w[0].target == AT::AyRegister && w[0].source == EventSource::Debugger && m.events().empty());
+    }
+    {
+        Aev m;
+        m.emu.debug_state().event_table()->shrink_ring_for_test(1);
+        Subscription s = Aev::make(T_DAC);
+        s.action = Action::Continue;
+        std::vector<DbgEvent> got;
+        s.handler = [&](const DbgEvent& e, Debugger&) { got.push_back(e); return Action::Continue; };
+        m.sub(s);
+        m.go({0x3E, 0x11, 0xD3, 0xDF, 0x18, 0xFE});
+        check("AEV-22", "ring overflow: with a one-entry latch ring, OUT 0xDF (A and D) delivers one event (chip 0) with overflowed set and dropped == 1",
+              got.size() == 1 && got[0].chip == 0 && got[0].overflowed && got[0].dropped == 1);
+    }
+    {
+        // The event's stamps are the log's stamps, one function (emulator.h stamp_at_).
+        Aev m;
+        const ClientId lc = log_client(m.dbg(), "aev23");
+        Subscription s = Aev::make();
+        s.action = Action::Continue;
+        std::vector<DbgEvent> got;
+        s.handler = [&](const DbgEvent& e, Debugger&) { got.push_back(e); return Action::Continue; };
+        m.sub(s);
+        park(m.emu);
+        m.emu.run_frame(); m.emu.run_frame();
+        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE});
+        dma_byte_to_df(m.emu, 0x5A);
+        m.emu.run_frame();
+        const auto w = writes_only(m.dbg());
+        bool same = w.size() == got.size() && w.size() == 3;
+        for (size_t i = 0; same && i < w.size(); ++i)
+            same = got[i].cycle == w[i].cycle && got[i].frame == w[i].frame && got[i].vc == w[i].vc &&
+                   got[i].hc == w[i].hc && got[i].pc == w[i].pc;
+        (void)lc;
+        check("AEV-23", "log ON and a Continue sub on ANY after two frames: each event's cycle, frame, vc, hc and pc equal its log entry's (a CPU data write and a DMA byte, three entries)",
+              same && got[0].frame >= 2 && got[0].cycle != 0);
+    }
+    {
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("aev24")).value;
+        Subscription s = Aev::make(T_DAC);
+        s.action = Action::Continue;
+        int n = 0;
+        s.handler = [&n](const DbgEvent&, Debugger&) { ++n; return Action::Continue; };
+        const auto id = dbg.subscribe(cid, s).value;
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        dbg.pause(cid);
+        for (int i = 0; i < 3000; ++i) emu.execute_single_instruction();
+        const int n0 = n;
+        const uint64_t c0 = emu.clock().get();
+        const Result r = dbg.step_back(cid, 1);
+        const auto st = dbg.state();
+        check("AEV-24", "a step back replays the frame's DAC writes: the cycle moves back, the handler count does not move, and the landing is not a stop of the subscription",
+              n0 > 100 && r == Result::Ok && emu.clock().get() < c0 && n == n0 && st.pause_reason.id != id);
+    }
+    {
+        Aev m;
+        const bool t0 = m.emu.audio_tap_active();
+        const auto id = m.sub(Aev::make());
+        const bool t1 = m.emu.audio_tap_active();
+        m.dbg().set_enabled(m.cid, id, false);
+        const bool t2 = m.emu.audio_tap_active();
+        m.dbg().set_enabled(m.cid, id, true);
+        const bool t3 = m.emu.audio_tap_active();
+        m.dbg().set_master_enabled(false);
+        const bool t4 = m.emu.audio_tap_active();
+        m.dbg().set_master_enabled(true);
+        const bool t5 = m.emu.audio_tap_active();
+        m.dbg().unsubscribe(m.cid, id);
+        const bool t6 = m.emu.audio_tap_active();
+        check("AEV-25", "the tap is on exactly while a LIVE AudioWrite subscription exists: off, on (subscribed), off (disabled), on (re-enabled), off (master off), on (master on), off (unsubscribed)",
+              !t0 && t1 && !t2 && t3 && !t4 && t5 && !t6);
+    }
+    {
+        Aev m;
+        m.sub(Aev::make(T_DAC));
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+        m.dbg().on_cold_boot_begin();
+        emulator_cold_boot(m.emu, cfg);
+        m.dbg().on_cold_boot_done();
+        const bool live = m.emu.audio_tap_active();
+        nr_write(m.emu, 0x08, 0x08);
+        m.go({0x3E, 0x11, 0xD3, 0x1F, 0x18, 0xFE});
+        check("AEV-26", "a hard reset rebuilds the machine: the tap is on again on it and a CPU OUT 0x1F stops the AudioWrite subscription", live && m.paused() && m.events().size() == 1);
+    }
+    {
+        Aev m;
+        ay_select(m.emu, 0); ay_write(m.emu, 7, 0x3F);
+        Subscription s = Aev::make(T_AYREG);
+        s.filter.regs = {7};
+        m.sub(s);
+        m.go({AEV_R7_38});
+        const auto st = m.dbg().state();
+        check("AEV-27", "the AEV-02 stop names the port: matched[0].addr and the pause reason's addr are 0xBFFD",
+              m.paused() && !m.cap.paused.empty() && m.cap.paused.back().matched.size() == 1 &&
+              m.cap.paused.back().matched[0].addr == 0xBFFD && st.pause_reason.addr == 0xBFFD);
+    }
+    {
+        Aev m;
+        ay_select(m.emu, 0);
+        Subscription a = Aev::make(T_AYREG); a.filter.chip = 0;
+        Subscription b = Aev::make(T_AYREG); b.filter.chip = 1;
+        const auto ida = m.sub(a);
+        m.sub(b);
+        m.go({AEV_R7_38});
+        check("AEV-28", "two subs (chip 0 and chip 1) and a chip 0 write: matched holds exactly the chip 0 sub's id (the drain applies the filter, not just the site check)",
+              m.paused() && !m.cap.paused.empty() && m.cap.paused.back().matched.size() == 1 && m.cap.paused.back().matched[0].event_id == ida);
+    }
+    {
+        Aev m(0x02);   // TurboSound on, DAC off: the mirror write is a DacMirrorDisabled drop
+        m.sub(Aev::make());
+        park(m.emu);
+        copper_words(m.emu, {static_cast<uint16_t>((0x2D << 8) | 0x5A), static_cast<uint16_t>(0x8000u | 0x1FFu)});
+        m.emu.run_frame();
+        const auto ev = m.events();
+        const bool one = ev.size() == 1;
+        const DbgEvent e = one ? ev[0] : DbgEvent{};
+        check("AEV-29", "zxnext.vhd:5413 a Copper MOVE 0x2D,0x5A with the DAC off, sub ANY: one event; audio_target", one && e.audio_target == AT::DacMirror);
+        check("AEV-30", "the same delivery: port", one && e.port == 0x002D);
+        check("AEV-31", "the same delivery: reg", one && e.reg == 0x2D);
+        check("AEV-32", "the same delivery: value", one && e.value == 0x5A);
+        check("AEV-33", "the same delivery: source", one && e.source == EventSource::Copper);
+        check("AEV-34", "the same delivery: chip (a dropped mirror write reached no channel)", one && e.chip == 0xFF);
+        check("AEV-35", "the same delivery: audio_flags", one && e.audio_flags == AudioFlag::Dropped);
+        check("AEV-36", "the same delivery: drop_reason", one && e.drop_reason == AR::DacMirrorDisabled);
+    }
+    {
+        Aev m;
+        ay_select(m.emu, 2); ay_write(m.emu, 13, 0x04);
+        m.sub(Aev::make(T_AYREG));
+        m.go({0x01, 0xFD, 0xFF, AEV_AY(13, 0x0A), 0x18, 0xFE});
+        const auto ev = m.events();
+        const bool one = ev.size() == 1;
+        check("AEV-37", "a CPU R13 write on chip 2 (R13 preset 0x04, write 0x0A): prev 0x04, chip 2, flags EnvelopeRestart, reg 13 (with AEV-29..36 the four packed bytes carry pairwise distinct values in each fixture)",
+              one && ev[0].prev == 0x04 && ev[0].chip == 2 && ev[0].audio_flags == AudioFlag::EnvelopeRestart && ev[0].reg == 13 &&
+              ev[0].value == 0x0A);
+    }
+    {
+        bool ran = false;
+        unsigned seen = 0;
+        bool dropped_seen = false;
+        jnext::dbg::EventId sid = 0;
+        const bool same = invisible_dbg([&](Emulator&, Debugger& dbg, ClientId cid, bool on) {
+            if (on) {
+                Subscription s = Aev::make();
+                s.action = Action::Log;
+                s.handler = [&](const DbgEvent& e, Debugger&) {
+                    seen |= 1u << unsigned(e.audio_target);
+                    dropped_seen = dropped_seen || (e.audio_flags & AudioFlag::Dropped);
+                    return Action::Log;
+                };
+                sid = dbg.subscribe(cid, s).value;
+                return;
+            }
+            dbg.unsubscribe(cid, sid);
+        }, 50, ran, build_writer);
+        check("AIZ-08", "the AudioWrite event is invisible to the Z80: 50 frames of a CPU looping over every write site with an ANY sub on and off leave the saved state and the video unchanged (positive control: the on run delivered all five targets and a dropped write)",
+              ran && same && seen == 0x1F && dropped_seen);
+    }
+}
+
 int main() {
     {
         // Between two instructions of a frame, 1000 audio_state() calls change
@@ -2584,406 +2986,7 @@ int main() {
               ran && same && all5);
     }
 
-    // ── AEV: the AudioWrite event kind (GH #532) ─────────────────────────
-    // Oracles: ym2149.vhd:188,210 (data gate, env_reset on every R13 write), turbosound.vhd:129,141,
-    // zxnext.vhd:3088,3091,5413, soundrive.vhd:85-101, and events.h's delivery contract (the raising
-    // boundary, one late for a CPU NextREG write and a Copper MOVE). Byte offsets are counted from the
-    // instruction lengths of the program, never read from the code under test.
-    {
-        Aev m;
-        auto refused = [&](const std::function<void(Subscription&)>& f) {
-            Subscription s = Aev::make();
-            f(s);
-            return m.dbg().subscribe(m.cid, s).status == Result::RefusedUnavailable;
-        };
-        const bool a = refused([](Subscription& s) { s.filter.audio_targets = 0x20; });
-        const bool b = refused([](Subscription& s) { s.filter.chip = 4; });
-        const bool c = refused([](Subscription& s) { s.filter.value_mask = 0x0F; s.filter.value_match = 0x10; });
-        const bool d = refused([](Subscription& s) { s.filter.audio_flags_all = s.filter.audio_flags_none = AudioFlag::Dropped; });
-        const bool e = refused([](Subscription& s) { s.filter.audio_targets = T_DAC; s.filter.regs = {7}; });
-        const auto ok = m.dbg().subscribe(m.cid, Aev::make());
-        if (!(a && b && c && d && e)) std::printf("    refused: targets %d chip %d value %d flags %d regs %d\n", a, b, c, d, e);
-        check("AEV-01", "subscribe refuses an AudioWrite filter that can never match (no valid target, chip 4, a value outside its mask, a flag both required and forbidden, a register set with only DAC targets) and accepts the default",
-              a && b && c && d && e && ok.status == Result::Ok);
-    }
-    {
-        Aev m;
-        ay_select(m.emu, 0); ay_write(m.emu, 7, 0x3F);
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.chip = 0; s.filter.regs = {7};
-        const auto id = m.sub(s);
-        m.go({AEV_R7_38});
-        const auto ev = m.events();
-        const bool one = ev.size() == 1;
-        const DbgEvent e = one ? ev[0] : DbgEvent{};
-        const bool stop = m.paused() && m.stop_pc() == 0x800D && !m.cap.paused.empty() &&
-                          m.cap.paused.back().matched.size() == 1 && m.cap.paused.back().matched[0].event_id == id;
-        check("AEV-02", "AY chip 0 R7 sub, log OFF: the data write at 0x800B stops at 0x800D with matched = the id; the Event is AudioWrite/AyRegister, chip 0, reg 7, value 0x38, prev 0x3F, port 0xBFFD, source Cpu, pc 0x800B, flags 0, reason None; the plain select made no stop",
-              one && stop && e.kind == EventKind::AudioWrite && e.audio_target == AT::AyRegister && e.chip == 0 && e.reg == 7 &&
-              e.value == 0x38 && e.prev == 0x3F && e.port == 0xBFFD && e.source == EventSource::Cpu && e.pc == 0x800B &&
-              e.audio_flags == 0 && e.drop_reason == AR::None && !m.dbg().audio_log_enabled());
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.chip = 1;
-        m.sub(s);
-        m.go({AEV_R7_38});
-        check("AEV-03", "near miss: a chip 1 sub does not stop on a chip 0 write", !m.paused() && m.events().empty());
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.chip = 0; s.filter.regs = {8};
-        m.sub(s);
-        m.go({AEV_R7_38});
-        check("AEV-04", "near miss: a register 8 sub does not stop on an R7 write", !m.paused() && m.events().empty());
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.value_mask = 0x0F; s.filter.value_match = 0x08;
-        m.sub(s);
-        m.go({AEV_R7_38});
-        check("AEV-05", "a value/mask sub (low nibble 8) stops on the 0x38 write", m.paused() && m.stop_pc() == 0x800D && m.events().size() == 1);
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.value_mask = 0x0F; s.filter.value_match = 0x08;
-        m.sub(s);
-        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x37, 0xED, 0x79, 0x18, 0xFE});
-        check("AEV-06", "near miss: the same value/mask sub does not stop on the 0x37 write", !m.paused() && m.events().empty());
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make();
-        s.filter.audio_flags_all = AudioFlag::EnvelopeRestart;
-        m.sub(s);
-        // select 13; R13 = 8 at 0x800B; R13 = 8 again at 0x800D; select 12; R12 = 8 at 0x8019.
-        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x0D, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x08, 0xED, 0x79, 0xED, 0x79,
-              0x06, 0xFF, 0x3E, 0x0C, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x08, 0xED, 0x79, 0x18, 0xFE});
-        const bool first = m.paused() && m.stop_pc() == 0x800D;
-        m.dbg().run(m.cid); m.emu.run_frame();
-        const bool second = m.paused() && m.stop_pc() == 0x800F;
-        m.dbg().run(m.cid); m.emu.run_frame();
-        const auto ev = m.events();
-        check("AEV-07", "ym2149.vhd:188,210 an envelope-restart sub: two stops, one at each R13 OUT (the second with prev 0x08, an unchanged value still restarts), none at the R12 write",
-              first && second && !m.paused() && ev.size() == 2 && ev[0].reg == 13 && ev[1].reg == 13 && ev[1].prev == 0x08 &&
-              ev[0].pc == 0x800B && ev[1].pc == 0x800D);
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_DAC | T_MIR);
-        m.sub(s);
-        m.go({0x3E, 0x11, 0xD3, 0x1F, 0x18, 0xFE});
-        const auto ev = m.events();
-        check("AEV-08", "a DAC sub: LD A,0x11; OUT (0x1F),A stops at 0x8004; Event target Dac, chip 0, port 0x111F (OUT (n),A puts A on the high address byte), value 0x11, prev 0x80",
-              m.paused() && m.stop_pc() == 0x8004 && ev.size() == 1 && ev[0].audio_target == AT::Dac && ev[0].chip == 0 &&
-              ev[0].port == 0x111F && ev[0].value == 0x11 && ev[0].prev == 0x80);
-    }
-    {
-        Aev m;
-        m.sub(Aev::make(T_DAC | T_MIR));
-        m.go({0xED, 0x91, 0x2D, 0x66, 0x00, 0x18, 0xFE});
-        const auto ev = m.events();
-        check("AEV-09", "a DAC|mirror sub: NEXTREG 0x2D,0x66 gives two events (chips 0 then 3, DacMirror, reg 0x2D, port 0x002D, pc 0x8000) and the stop is one instruction late (0x8005), as NextRegWrite is",
-              m.paused() && m.stop_pc() == 0x8005 && ev.size() == 2 && ev[0].chip == 0 && ev[1].chip == 3 &&
-              ev[0].audio_target == AT::DacMirror && ev[0].reg == 0x2D && ev[0].port == 0x002D && ev[0].pc == 0x8000);
-    }
-    {
-        Aev m;
-        m.sub(Aev::make(T_DAC | T_MIR));
-        // an AY data write, an EAR change on 0xFE, a 0xFFFD chip-select command
-        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x3E, 0x10, 0xD3, 0xFE,
-              0x01, 0xFD, 0xFF, 0x3E, 0xFE, 0xED, 0x79, 0x18, 0xFE});
-        check("AEV-10", "near miss: a DAC sub does not stop on an AY data write, an EAR change or a chip-select command", !m.paused() && m.events().empty());
-    }
-    {
-        Aev m;
-        nr_write(m.emu, 0x84, 0xBF);
-        Subscription s = Aev::make();
-        s.filter.audio_flags_all = AudioFlag::Dropped;
-        m.sub(s);
-        m.go({0x01, 0xB3, 0x00, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE});
-        const auto ev = m.events();
-        check("AEV-11", "zxnext.vhd:2974-2980 a dropped-only sub with NR 0x84 bit 6 off: OUT (C),A to 0x00B3 stops; Event Dac, chip 0xFF, flags Dropped, reason DacFamilyDisabled, port 0x00B3",
-              m.paused() && ev.size() == 1 && ev[0].audio_target == AT::Dac && ev[0].chip == 0xFF && ev[0].audio_flags == AudioFlag::Dropped &&
-              ev[0].drop_reason == AR::DacFamilyDisabled && ev[0].port == 0x00B3);
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make();
-        s.filter.audio_flags_all = AudioFlag::Dropped;
-        m.sub(s);
-        m.go({0x01, 0xB3, 0x00, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE});
-        check("AEV-12", "near miss: the same dropped-only sub with the 0xB3 decode on (the write applies) does not stop", !m.paused() && m.events().empty());
-    }
-    {
-        Aev m;
-        nr_write(m.emu, 0x06, 0x03);
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.regs = {7};
-        s.filter.audio_flags_none = AudioFlag::Dropped;
-        m.sub(s);
-        // select 7; write 0x12 while held in reset (dropped); NEXTREG 6,0 releases it; select 7; write 0x34
-        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x12, 0xED, 0x79,
-              0xED, 0x91, 0x06, 0x00, 0x06, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x34, 0xED, 0x79, 0x18, 0xFE});
-        const auto ev = m.events();
-        check("AEV-13", "zxnext.vhd:6989 an applied-only R7 sub: the write held in reset (AyHeldInReset) makes no stop; the applied write after the release makes exactly one",
-              m.paused() && ev.size() == 1 && ev[0].value == 0x34 && ev[0].audio_flags == 0);
-    }
-    {
-        Aev m;
-        m.sub(Aev::make(T_AYSEL));
-        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x3E, 0xFE, 0xED, 0x79, 0x18, 0xFE});
-        const auto ev = m.events();
-        check("AEV-14", "turbosound.vhd:129,141 a chip-select sub: the plain select 7 makes no stop, the command 0xFE one (chip 1, prev 0, value 0xFE, port 0xFFFD)",
-              m.paused() && ev.size() == 1 && ev[0].audio_target == AT::AyChipSelect && ev[0].chip == 1 && ev[0].prev == 0 &&
-              ev[0].value == 0xFE && ev[0].port == 0xFFFD);
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make();
-        s.filter.regs = {0};
-        m.sub(s);
-        m.go({0x3E, 0x11, 0xD3, 0x1F, 0x01, 0xFD, 0xFF, 0x3E, 0x00, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x22, 0xED, 0x79, 0x18, 0xFE});
-        const auto ev = m.events();
-        check("AEV-15", "a register set applies to AY register and NextREG mirror entries only: with targets ANY and regs {0}, a DAC write (reg 0) makes no stop and the AY R0 write one",
-              m.paused() && ev.size() == 1 && ev[0].audio_target == AT::AyRegister && ev[0].value == 0x22);
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_DAC);
-        s.filter.source = EventSource::Dma;
-        m.sub(s);
-        m.go({0x3E, 0x11, 0xD3, 0x1F, 0x18, 0xFE});
-        const bool cpu_quiet = !m.paused() && m.events().empty();
-        dma_byte_to_df(m.emu, 0x5A);
-        m.emu.run_frame();
-        const auto ev = m.events();
-        check("AEV-16", "a source-Dma sub: a CPU OUT 0x1F makes no stop; a DMA byte to 0x00DF stops with two events (chips 0 and 3) of source Dma",
-              cpu_quiet && m.paused() && ev.size() == 2 && ev[0].source == EventSource::Dma && ev[1].source == EventSource::Dma &&
-              ev[0].chip == 0 && ev[1].chip == 3 && ev[0].value == 0x5A);
-    }
-    {
-        Aev m;
-        m.sub(Aev::make(T_MIR));
-        park(m.emu);
-        copper_words(m.emu, {static_cast<uint16_t>((0x2D << 8) | 0x66), static_cast<uint16_t>(0x8000u | 0x1FFu)});
-        m.emu.run_frame();
-        const auto ev = m.events();
-        check("AEV-17", "a mirror sub: a Copper MOVE 0x2D,0x66 gives two events (chips 0 then 3, source Copper) and stops at the boundary after the instruction that ran it",
-              m.paused() && ev.size() == 2 && ev[0].source == EventSource::Copper && ev[1].source == EventSource::Copper &&
-              ev[0].chip == 0 && ev[1].chip == 3 && ev[0].value == 0x66 && m.stop_pc() == 0x8001);
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.regs = {7};
-        s.once = true;
-        const auto id = m.sub(s);
-        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x3E, 0x39, 0xED, 0x79, 0x18, 0xFE});
-        const bool stopped = m.paused() && m.stop_pc() == 0x800D;
-        bool spent = false;
-        for (const auto& si : m.dbg().subscriptions(false)) if (si.id == id) spent = !si.enabled;
-        m.dbg().run(m.cid); m.emu.run_frame();
-        check("AEV-18", "a `once` sub stops on the first R7 write, then reports enabled == false, and the second write passes", stopped && spent && !m.paused() && m.events().size() == 1);
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.regs = {7};
-        s.action = Action::Log;
-        m.sub(s);
-        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x3E, 0x39, 0xED, 0x79, 0x18, 0xFE});
-        size_t n = 0;
-        for (const std::string& l : m.cap.lines) n += l.find("EVENT audio_write") != std::string::npos;
-        check("AEV-19", "the same filter with the Log action: one SES-06 line per write, no pause", n == 2 && !m.paused());
-    }
-    {
-        Aev m;
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.regs = {7};
-        s.action = Action::Continue;
-        int n = 0;
-        DbgEvent first{};
-        s.handler = [&](const DbgEvent& e, Debugger&) { if (n++ == 0) first = e; return Action::Continue; };
-        m.sub(s);
-        m.go({AEV_R7_38});
-        check("AEV-20", "the same filter with Continue and a handler: called once per write with value 0x38, chip 0, no pause", n == 1 && first.value == 0x38 && first.chip == 0 && !m.paused());
-    }
-    {
-        Aev m;
-        const ClientId lc = log_client(m.dbg(), "aev21");
-        Subscription s = Aev::make();
-        s.action = Action::Continue;
-        m.sub(s);
-        m.dbg().port_out(lc, 0xFFFD, 7);
-        m.dbg().port_out(lc, 0xBFFD, 0x22);
-        const auto w = writes_only(m.dbg());
-        check("AEV-21", "a debugger write (port_out) is logged with source Debugger and fires no AudioWrite event (4.2a)",
-              w.size() == 1 && w[0].target == AT::AyRegister && w[0].source == EventSource::Debugger && m.events().empty());
-    }
-    {
-        Aev m;
-        m.emu.debug_state().event_table()->shrink_ring_for_test(1);
-        Subscription s = Aev::make(T_DAC);
-        s.action = Action::Continue;
-        std::vector<DbgEvent> got;
-        s.handler = [&](const DbgEvent& e, Debugger&) { got.push_back(e); return Action::Continue; };
-        m.sub(s);
-        m.go({0x3E, 0x11, 0xD3, 0xDF, 0x18, 0xFE});
-        check("AEV-22", "ring overflow: with a one-entry latch ring, OUT 0xDF (A and D) delivers one event (chip 0) with overflowed set and dropped == 1",
-              got.size() == 1 && got[0].chip == 0 && got[0].overflowed && got[0].dropped == 1);
-    }
-    {
-        // The event's stamps are the log's stamps, one function (emulator.h stamp_at_).
-        Aev m;
-        const ClientId lc = log_client(m.dbg(), "aev23");
-        Subscription s = Aev::make();
-        s.action = Action::Continue;
-        std::vector<DbgEvent> got;
-        s.handler = [&](const DbgEvent& e, Debugger&) { got.push_back(e); return Action::Continue; };
-        m.sub(s);
-        park(m.emu);
-        m.emu.run_frame(); m.emu.run_frame();
-        m.go({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE});
-        dma_byte_to_df(m.emu, 0x5A);
-        m.emu.run_frame();
-        const auto w = writes_only(m.dbg());
-        bool same = w.size() == got.size() && w.size() == 3;
-        for (size_t i = 0; same && i < w.size(); ++i)
-            same = got[i].cycle == w[i].cycle && got[i].frame == w[i].frame && got[i].vc == w[i].vc &&
-                   got[i].hc == w[i].hc && got[i].pc == w[i].pc;
-        (void)lc;
-        check("AEV-23", "log ON and a Continue sub on ANY after two frames: each event's cycle, frame, vc, hc and pc equal its log entry's (a CPU data write and a DMA byte, three entries)",
-              same && got[0].frame >= 2 && got[0].cycle != 0);
-    }
-    {
-        Emulator emu; build_counter(emu);
-        Debugger dbg(emu);
-        const ClientId cid = dbg.attach(client("aev24")).value;
-        Subscription s = Aev::make(T_DAC);
-        s.action = Action::Continue;
-        int n = 0;
-        s.handler = [&n](const DbgEvent&, Debugger&) { ++n; return Action::Continue; };
-        const auto id = dbg.subscribe(cid, s).value;
-        for (int i = 0; i < 10; ++i) emu.run_frame();
-        dbg.pause(cid);
-        for (int i = 0; i < 3000; ++i) emu.execute_single_instruction();
-        const int n0 = n;
-        const uint64_t c0 = emu.clock().get();
-        const Result r = dbg.step_back(cid, 1);
-        const auto st = dbg.state();
-        check("AEV-24", "a step back replays the frame's DAC writes: the cycle moves back, the handler count does not move, and the landing is not a stop of the subscription",
-              n0 > 100 && r == Result::Ok && emu.clock().get() < c0 && n == n0 && st.pause_reason.id != id);
-    }
-    {
-        Aev m;
-        const bool t0 = m.emu.audio_tap_active();
-        const auto id = m.sub(Aev::make());
-        const bool t1 = m.emu.audio_tap_active();
-        m.dbg().set_enabled(m.cid, id, false);
-        const bool t2 = m.emu.audio_tap_active();
-        m.dbg().set_enabled(m.cid, id, true);
-        const bool t3 = m.emu.audio_tap_active();
-        m.dbg().set_master_enabled(false);
-        const bool t4 = m.emu.audio_tap_active();
-        m.dbg().set_master_enabled(true);
-        const bool t5 = m.emu.audio_tap_active();
-        m.dbg().unsubscribe(m.cid, id);
-        const bool t6 = m.emu.audio_tap_active();
-        check("AEV-25", "the tap is on exactly while a LIVE AudioWrite subscription exists: off, on (subscribed), off (disabled), on (re-enabled), off (master off), on (master on), off (unsubscribed)",
-              !t0 && t1 && !t2 && t3 && !t4 && t5 && !t6);
-    }
-    {
-        Aev m;
-        m.sub(Aev::make(T_DAC));
-        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
-        m.dbg().on_cold_boot_begin();
-        emulator_cold_boot(m.emu, cfg);
-        m.dbg().on_cold_boot_done();
-        const bool live = m.emu.audio_tap_active();
-        nr_write(m.emu, 0x08, 0x08);
-        m.go({0x3E, 0x11, 0xD3, 0x1F, 0x18, 0xFE});
-        check("AEV-26", "a hard reset rebuilds the machine: the tap is on again on it and a CPU OUT 0x1F stops the AudioWrite subscription", live && m.paused() && m.events().size() == 1);
-    }
-    {
-        Aev m;
-        ay_select(m.emu, 0); ay_write(m.emu, 7, 0x3F);
-        Subscription s = Aev::make(T_AYREG);
-        s.filter.regs = {7};
-        m.sub(s);
-        m.go({AEV_R7_38});
-        const auto st = m.dbg().state();
-        check("AEV-27", "the AEV-02 stop names the port: matched[0].addr and the pause reason's addr are 0xBFFD",
-              m.paused() && !m.cap.paused.empty() && m.cap.paused.back().matched.size() == 1 &&
-              m.cap.paused.back().matched[0].addr == 0xBFFD && st.pause_reason.addr == 0xBFFD);
-    }
-    {
-        Aev m;
-        ay_select(m.emu, 0);
-        Subscription a = Aev::make(T_AYREG); a.filter.chip = 0;
-        Subscription b = Aev::make(T_AYREG); b.filter.chip = 1;
-        const auto ida = m.sub(a);
-        m.sub(b);
-        m.go({AEV_R7_38});
-        check("AEV-28", "two subs (chip 0 and chip 1) and a chip 0 write: matched holds exactly the chip 0 sub's id (the drain applies the filter, not just the site check)",
-              m.paused() && !m.cap.paused.empty() && m.cap.paused.back().matched.size() == 1 && m.cap.paused.back().matched[0].event_id == ida);
-    }
-    {
-        Aev m(0x02);   // TurboSound on, DAC off: the mirror write is a DacMirrorDisabled drop
-        m.sub(Aev::make());
-        park(m.emu);
-        copper_words(m.emu, {static_cast<uint16_t>((0x2D << 8) | 0x5A), static_cast<uint16_t>(0x8000u | 0x1FFu)});
-        m.emu.run_frame();
-        const auto ev = m.events();
-        const bool one = ev.size() == 1;
-        const DbgEvent e = one ? ev[0] : DbgEvent{};
-        check("AEV-29", "zxnext.vhd:5413 a Copper MOVE 0x2D,0x5A with the DAC off, sub ANY: one event; audio_target", one && e.audio_target == AT::DacMirror);
-        check("AEV-30", "the same delivery: port", one && e.port == 0x002D);
-        check("AEV-31", "the same delivery: reg", one && e.reg == 0x2D);
-        check("AEV-32", "the same delivery: value", one && e.value == 0x5A);
-        check("AEV-33", "the same delivery: source", one && e.source == EventSource::Copper);
-        check("AEV-34", "the same delivery: chip (a dropped mirror write reached no channel)", one && e.chip == 0xFF);
-        check("AEV-35", "the same delivery: audio_flags", one && e.audio_flags == AudioFlag::Dropped);
-        check("AEV-36", "the same delivery: drop_reason", one && e.drop_reason == AR::DacMirrorDisabled);
-    }
-    {
-        Aev m;
-        ay_select(m.emu, 2); ay_write(m.emu, 13, 0x04);
-        m.sub(Aev::make(T_AYREG));
-        m.go({0x01, 0xFD, 0xFF, AEV_AY(13, 0x0A), 0x18, 0xFE});
-        const auto ev = m.events();
-        const bool one = ev.size() == 1;
-        check("AEV-37", "a CPU R13 write on chip 2 (R13 preset 0x04, write 0x0A): prev 0x04, chip 2, flags EnvelopeRestart, reg 13 (with AEV-29..36 the four packed bytes carry pairwise distinct values in each fixture)",
-              one && ev[0].prev == 0x04 && ev[0].chip == 2 && ev[0].audio_flags == AudioFlag::EnvelopeRestart && ev[0].reg == 13 &&
-              ev[0].value == 0x0A);
-    }
-    {
-        bool ran = false;
-        unsigned seen = 0;
-        bool dropped_seen = false;
-        jnext::dbg::EventId sid = 0;
-        const bool same = invisible_dbg([&](Emulator&, Debugger& dbg, ClientId cid, bool on) {
-            if (on) {
-                Subscription s = Aev::make();
-                s.action = Action::Log;
-                s.handler = [&](const DbgEvent& e, Debugger&) {
-                    seen |= 1u << unsigned(e.audio_target);
-                    dropped_seen = dropped_seen || (e.audio_flags & AudioFlag::Dropped);
-                    return Action::Log;
-                };
-                sid = dbg.subscribe(cid, s).value;
-                return;
-            }
-            dbg.unsubscribe(cid, sid);
-        }, 50, ran, build_writer);
-        check("AIZ-08", "the AudioWrite event is invisible to the Z80: 50 frames of a CPU looping over every write site with an ANY sub on and off leave the saved state and the video unchanged (positive control: the on run delivered all five targets and a dropped write)",
-              ran && same && seen == 0x1F && dropped_seen);
-    }
-
+    aev_rows();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

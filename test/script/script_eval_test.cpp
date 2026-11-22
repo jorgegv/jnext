@@ -1674,7 +1674,7 @@ static void ay_rows() {
                    r.errors[0].message.find(what) != std::string::npos;
         };
         check("EVAL-AYR-02", "ay[3, 0], ay[-1, 0] and ay[0, 16] are run-time errors whose messages name `ay[]` and the bad index",
-              names(a, "chip 3") && names(b, "chip -1") && names(c, "register 16"), dstr(a.errors) + dstr(b.errors) + dstr(c.errors));
+              names(a, "chip 3 is outside 0..2") && names(b, "chip -1 is outside 0..2") && names(c, "register 16 is outside 0..15"), dstr(a.errors) + dstr(b.errors) + dstr(c.errors));
     }
     {
         CompileOptions o;
