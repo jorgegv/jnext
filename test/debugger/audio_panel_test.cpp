@@ -42,6 +42,7 @@
 #include <QProgressBar>
 #include <QString>
 #include <QTabWidget>
+#include <QTabBar>
 #include <QTableWidget>
 #include <QToolButton>
 
@@ -912,7 +913,7 @@ static void test_channel_mute_solo(Emulator& emu) {
             else if (n.startsWith("chip") && n.endsWith("_solo")) ++chips_s;
             else if (n.startsWith("dac_") && n.endsWith("_mute")) ++dac_m;
             else if (n.startsWith("dac_") && n.endsWith("_solo")) ++dac_s;
-            else ++other;
+            else if (!qobject_cast<QTabBar*>(b->parent())) ++other;   // the tab bar's own scroll buttons are not ours
         }
         int boxes = 0;
         for (const char* t : {"AY #0", "AY #1", "AY #2", "DAC", "Beeper"}) if (source_box(panel, t)) ++boxes;
@@ -920,7 +921,9 @@ static void test_channel_mute_solo(Emulator& emu) {
               "(mask NONE); the Sources strip is still exactly its five checkboxes (plus Hex)",
               chips_m == 9 && chips_s == 9 && dac_m == 4 && dac_s == 4 && other == 0 && m_mask(panel) == 0 &&
                   s_mask(panel) == 0 && emu.audio_channel_mute_mask() == 0 && boxes == 5 &&
-                  panel.findChildren<QCheckBox*>().size() == 6);
+                  panel.findChildren<QCheckBox*>().size() == 6,
+              fmt("chips %d/%d dac %d/%d other %d m=%04X s=%04X boxes %d checkboxes %d", chips_m, chips_s, dac_m, dac_s,
+                  other, m_mask(panel), s_mask(panel), boxes, static_cast<int>(panel.findChildren<QCheckBox*>().size())));
     }
     {
         if (!build_next_emulator(emu)) { check("DAP-32", "emulator init", false); return; }
@@ -929,7 +932,9 @@ static void test_channel_mute_solo(Emulator& emu) {
         jnext::dbg::Debugger dbg(emu);
         AudioPanel panel(&dbg);
         const uint32_t before = ay_level(emu);
-        const uint32_t share = emu.turbosound().ay(2).output_a();   // A reaches the left side only (ABC)
+        // The chip is mono here (measured: the total is 6 x one level, not 4): mono sums A+B+C into
+        // BOTH sides (turbosound.vhd:186-192), so muting A removes its output twice.
+        const uint32_t share = 2u * emu.turbosound().ay(2).output_a();
         mbtn(panel, 6)->click();
         const uint16_t m1 = emu.audio_channel_mute_mask();
         const uint32_t muted = ay_level(emu);
@@ -937,7 +942,8 @@ static void test_channel_mute_solo(Emulator& emu) {
         const uint16_t m2 = emu.audio_channel_mute_mask();
         const uint32_t back = ay_level(emu);
         check("DAP-32", "clicking chip 2 A's M sets mask 0x0040 and the AY level drops by exactly that channel's output; clicking again clears it",
-              share != 0 && m1 == 0x0040 && muted == before - share && m2 == 0 && back == before);
+              share != 0 && m1 == 0x0040 && muted == before - share && m2 == 0 && back == before,
+              fmt("before=%u share=%u m1=%04X muted=%u m2=%04X back=%u", before, share, m1, muted, m2, back));
     }
     {
         if (!build_next_emulator(emu)) { check("DAP-33", "emulator init", false); return; }

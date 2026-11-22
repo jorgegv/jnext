@@ -26,6 +26,7 @@
 #include "script/check.h"
 #include "script/expr_compiler.h"
 #include "script/lexer.h"
+#include "script/names.h"
 #include "script/parser.h"
 
 #include "core/emulator.h"

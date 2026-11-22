@@ -4,6 +4,7 @@
 #include <QTableWidget>
 #include <QCheckBox>
 #include <QLabel>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QProgressBar>
 #include <QScrollArea>
