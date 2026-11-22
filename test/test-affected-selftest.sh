@@ -164,7 +164,7 @@ row TAF-10 $([[ $rc_bad -eq 1 && "$out_bad" == *"weird/thing.dat"* && $rc_ok -eq
 # TAF-12: s4 has no map: selected on liba's whole membership (a change to y.cpp reaches it)
 suite s4_test test/s4_test.cpp "" none
 echo '// s4' >"$R/test/s4_test.cpp"
-sed -i 's/^# expect: 4/# expect: 5/' "$W/unit-tests.conf"; echo 's4_test 1' >>"$W/unit-tests.conf"
+{ echo '# expect: 5'; grep -v '^# expect' "$W/unit-tests.conf"; echo 's4_test 1'; } >"$W/unit-tests.conf.new"; mv "$W/unit-tests.conf.new" "$W/unit-tests.conf"
 run src/a/y.cpp
 row TAF-12 $([[ $RC -eq 0 && "$(plan_suites)" == *s4_test* && "$(plan_suites)" == *s2_test* && "$(plan_suites)" != *s1_test* && "$OUT" == *"no linker map for: s4_test"* ]] && echo 1 || echo 0) \
     "a suite without a map is selected on the archive's whole membership and says so (got: $(plan_suites))"
