@@ -1135,6 +1135,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Tapes: two completely different mechanisms">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-last-block-has-loaded-for-the-debuggers-startup-stop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "The last block has loaded", for the debugger's startup stop
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3486,6 +3503,28 @@ the ID), so such a block is valid when its length fields fit the file.
 and ZOT (a local patch in <code>third_party/zot/tzx.c</code>) all skip these blocks by
 them, and <code>$19</code>, which ZOT cannot play either, the same way — the blocks after
 still load. <code>load()</code> warns about each skipped block that carried content.</p>
+<h3 id="the-last-block-has-loaded-for-the-debuggers-startup-stop">"The last block has loaded", for the debugger's startup stop<a class="headerlink" href="#the-last-block-has-loaded-for-the-debuggers-startup-stop" title="Permanent link">&para;</a></h3>
+<p><code>--debugger FILE</code> on a tape stops at the program the tape starts, so the deck has to say when
+its last block has been delivered. <code>Emulator::tape_delivered()</code> is that one predicate over the
+three decks, and it means the DATA of the last block, never the deck coming to rest: a real-time
+block ends with a pause of up to a second, and a loader jumps within milliseconds of the last
+byte. For a TAP it is <code>TapLoader::at_end()</code> in both modes (the trap serves a block and advances,
+and the player calls <code>next_block()</code> when the last bit completes, before its pause). For a TZX
+it is <code>TzxLoader::data_delivered()</code>: fast, no standard or turbo data block ahead of the fast
+cursor (<code>at_end()</code> is false while a trailing text block remains); real time, the ZOT player has
+parsed the last such block and is past its pilot, sync and data. For a WAV it is
+<code>WavLoader::past_end()</code>, the clock past the last signal edge (a WAV ends in silence).
+<code>holds_code_block()</code> (TAP and TZX, decided at load; a WAV always) says whether the tape can carry
+code at all: any data block that is not a Program or array header's data and not a SCREEN$ (type 3,
+start 16384, length 6912), or any non-standard TZX data block.</p>
+<p><code>StartupStop::arm_tape()</code> uses both. A tape that cannot carry code stops at the first instruction
+after delivery. Otherwise the stop is the first instruction fetched from memory the tape loaded:
+a transient <code>Execute</code> subscription at LD-BREAK (0x056B), where every LD-BYTES entry converges in
+both modes (condition: LOAD, Z set, the 48K ROM present), whose handler adds one transient <code>Execute</code>
+subscription per 8 K slot that <code>[IX, IX+DE)</code> covers, tied to the memory that supplies the slot then and
+conditioned on delivery. The ROM's own RAM routines on a 128K or +3 (paging stubs at 0x5B00) are never
+tape-loaded, so they never match. The limits are documented in the user guide: a BASIC program that
+runs code from a REM stops at its last block, and a tape that loads code that never runs is not stopped.</p>
 <h2 id="nex">NEX<a class="headerlink" href="#nex" title="Permanent link">&para;</a></h2>
 <p><code>.nex</code> is the Next's native program container, and the most involved loader
 here: four header versions, optional Layer 2 / LoRes / tilemode loading

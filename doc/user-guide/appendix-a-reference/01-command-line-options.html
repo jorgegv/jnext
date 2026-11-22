@@ -5673,8 +5673,14 @@ file: the CPU is parked, and that is where it stops); for a snapshot
 it restores; for <strong>--inject</strong>, the injected program’s PC; with no
 file, power-on, before the first instruction (PC 0). It stops right
 after the program is loaded, before it has run an instruction. A
-tape (<strong>TAP</strong>, <strong>TZX</strong>, <strong>WAV</strong>) has no default stop yet: give it
-<strong>--break-at</strong>. The stop is logged
+tape (<strong>TAP</strong>, <strong>TZX</strong>, <strong>WAV</strong>) stops at the first instruction
+fetched from memory the tape loaded, after its last block has loaded
+(the program it started; in a <strong>TAP</strong> or <strong>TZX</strong>, in fast or
+real-time mode alike); a tape that cannot carry code (BASIC and a
+SCREEN\$ only) stops at the first instruction after its last block.
+A BASIC program that runs code from a REM stops at the end of its
+last block, not in the REM, and a tape that loads code which never
+runs is never stopped (use <strong>--break-at</strong>). The stop is logged
 (<code>debugger: stopped at $8000 (the NEX entry)</code>).</p>
 <p>In the Qt GUI the debugger window opens, paused. In <strong>--headless</strong>
 and the SDL-only build there is no window, so the run waits for a
