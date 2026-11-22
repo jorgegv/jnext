@@ -46,11 +46,13 @@ void Debugger::Impl::AudioLogSink::audio_record(const AudioLogEntry& in)
 {
     if (impl.audio_ring.empty()) return;
     AudioLogEntry e = in;
-    // Consecutive Reset / StateLoad markers coalesce, keeping the first (a hard
-    // reset and the load inside it are one discontinuity).
-    if (e.marker != AudioMarker::None && impl.audio_count > 0 &&
-        impl.audio_at(impl.audio_count - 1).marker != AudioMarker::None)
-        return;
+    // The same marker twice at one cycle (two soft resets with no time between) is one row. A
+    // different kind, or the same kind at another cycle, is its own row: a reset right after a
+    // rewind landing must show as a reset.
+    if (e.marker != AudioMarker::None && impl.audio_count > 0) {
+        const AudioLogEntry& last = impl.audio_at(impl.audio_count - 1);
+        if (last.marker == e.marker && last.cycle == e.cycle) return;
+    }
     e.seq = impl.audio_next_seq++;
     impl.audio_push(e);
 }
@@ -58,19 +60,20 @@ void Debugger::Impl::AudioLogSink::audio_record(const AudioLogEntry& in)
 void Debugger::Impl::AudioLogSink::audio_rewind_landing(const AudioLogEntry& m)
 {
     if (impl.audio_ring.empty()) return;
-    // What follows the landing is no longer this timeline: remove the entries from it on, back
-    // to the previous marker (what precedes a marker belongs to another timeline). An entry's
-    // stamp is the START of the instruction slot that raised it, and a landing is the state
-    // BEFORE the instruction that starts at its cycle, so an entry AT the landing cycle was
-    // raised by an instruction the replay will run again: it goes too.
+    // What follows the landing is no longer this timeline: remove every entry from it on,
+    // markers included (a Rewind or Reset marker at or after the landing records something the
+    // landing has undone). An entry's stamp is the START of the instruction slot that raised
+    // it, and a landing is the state BEFORE the instruction that starts at its cycle, so an
+    // entry AT the landing cycle was raised by an instruction the replay will run again.
+    // Cycles are comparable across a soft reset and a rewind (the clock goes on); the one real
+    // clock jump is a StateLoad, so the walk stops there: what precedes it is another timeline.
     while (impl.audio_count > 0) {
         const AudioLogEntry& n = impl.audio_at(impl.audio_count - 1);
-        if (n.marker != AudioMarker::None || n.cycle < m.cycle) break;
+        if (n.marker == AudioMarker::StateLoad || n.cycle < m.cycle) break;
         --impl.audio_count;
     }
-    // The landing's own marker is ALWAYS recorded, never coalesced into an earlier one:
-    // a stream may have written the removed entries already, and the rows that follow
-    // them in the file are earlier in time, which only this marker says.
+    // The landing's own marker is ALWAYS recorded: a stream may have written the removed
+    // entries already, and the rows after them are earlier in time, which only it says.
     AudioLogEntry e = m;
     e.seq = impl.audio_next_seq++;
     impl.audio_push(e);

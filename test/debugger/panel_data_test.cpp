@@ -532,11 +532,19 @@ int main(int argc, char** argv) {
         fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
         QApplication::processEvents();
         const bool closed = !fx.backend->audio_log_enabled();
+        // Re-opened with Log current: the window asks again (the latch of the earlier request must not
+        // survive the close, or nothing would ask and the tab would read "Not recording").
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs2 = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs2) tabs2->setCurrentIndex(2);
+        QApplication::processEvents();
+        const bool reopened = tabs2 && fx.backend->audio_log_enabled();
         check("QLAZY-17",
-              "window open, Audio dock shown: the log is on with Log current and off with Chips current, off with the dock tabbed away, on when shown again, off with the window closed; ticks change nothing",
-              fx.ok && tabs && chips && log && once && chips_again && away && back && closed,
+              "window open, Audio dock shown: the log is on with Log current and off with Chips current, off with the dock tabbed away, on when shown again, off with the window closed, and on again when the window is re-opened with Log current; ticks change nothing",
+              fx.ok && tabs && chips && log && once && chips_again && away && back && closed && reopened,
               "chips=" + b2s(chips) + " log=" + b2s(log) + " once=" + b2s(once) + " chips_again=" + b2s(chips_again) +
-                  " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed));
+                  " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed) + " reopened=" + b2s(reopened));
     }
     {
         Fixture fx;

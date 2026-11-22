@@ -827,7 +827,7 @@ traceability matrix.
 ### 8.6 Audio write log
 
 Every decoded AY, DAC, NR 0x2C-0x2E and beeper write, logged through `Debugger::audio_log_entries()`
-(GH #531). Fixture: a bare Next (ZXN_ISSUE2). Oracles: `ym2149.vhd:186,188,207-210`,
+(GH #531). "The ring is allocated only while the log is on" (3 MB at the default size) has no row: no API shows the release, and adding one for a memory-only property is not worth it, so it is checked by review. Fixture: a bare Next (ZXN_ISSUE2). Oracles: `ym2149.vhd:186,188,207-210`,
 `turbosound.vhd:129-141`, `zxnext.vhd:2965,2974-2980,5412-5414`, `soundrive.vhd:85-101`; the
 timestamps against the event system's own. CPU rows run a guest program; a write from the test
 (`emu.port().out()`) is a Debugger-source write.
@@ -848,14 +848,17 @@ timestamps against the event system's own. CPU rows run a guest program; a write
 | AWL-12 | Two clients (one an observer) request; one drops; the other detaches | The log is an OR of the requests: on after the first drops, off after the detach; an observer alone turns it on |
 | AWL-13 | `audio_log_resize(4)`, 6 writes; resize(2); resize(0) and resize(MAX + 1) | The 4 newest, then the 2 newest; both bad sizes refused, content unchanged |
 | AWL-14 | Rewind on, a CPU loop writing 0x1F; 10 frames; `step_back(1)` | The replay logged nothing; entries before the landing cycle kept, those from it on removed (an entry is stamped at the start of its instruction slot, which the landing re-runs); one Rewind marker last; no StateLoad marker for the ring restore |
-| AWL-15 | The same machine, `rewind_to_frame(frame - 3)`   | The no-replay landing: the same truncation and one Rewind marker |
-| AWL-16 | Two soft resets; a state save and load; a hard reset; a CPU write | One Reset marker for the two resets; one StateLoad; one Reset for the hard reset; the write after it is logged (the sink was re-installed) |
+| AWL-15 | The same machine, `rewind_to_frame(frame - 3)`   | The no-replay landing: the same truncation and one Rewind marker. The walk crosses Rewind and Reset markers and stops only at a StateLoad marker, the one real clock jump (a state load does not clear the rewind ring); no row pins that stop, the other markers are crossed by AWL-23/24 |
+| AWL-16 | Two soft resets; a state save and load; a hard reset; a CPU write | One Reset marker for the two resets (the same marker at the same cycle is one row); one StateLoad; one Reset for the hard reset; the write after it is logged (the sink was re-installed) |
 | AWL-17 | `audio_log_clear()`; destroy the Debugger with the log on | Ok, the ring empty, state_revision advanced, the next seq follows; after the destructor no tap is installed and a frame runs |
 | AWL-18 | An AY write, a DAC fan-out, a dropped NR 0x2D, a soft reset, then `audio_log_export()` | The file's bytes equal a literal: the header and 5 LF lines (R7 resets to 0xFF, `ym2149.vhd:186`); export while off or to an unwritable path is refused |
 | AWL-19 | `cfg.silent` (synthesis off); a CPU OUT 0x1F      | Logged: the tap does not need the mixer |
 | AWL-20 | `AudioLogStream`, writes with a pump after each, `finish()` | True; the file is the header plus `audio_log_csv_append` of every entry in order; the stream's client is gone and the log off |
 | AWL-21 | A ring of 4 and 6 writes between two pumps; a step back removing undrained writes | `finish()` false saying 2 audio writes were overwritten; and true for the truncation, whose file holds the rewind marker row |
 | AWL-22 | `AudioLogStream::open` in a directory that does not exist | False, naming the path; `attach()` then refuses and the log stays off |
+| AWL-23 | The same machine: `rewind_to_frame(frame - 1)`, then `rewind_to_frame(frame - 3)`; run 3 frames on | No write from the second landing's cycle on survives and the first Rewind marker is gone (the clock is one clock, so the walk crosses it); one Rewind marker last; running on logs no write twice and the cycles increase strictly |
+| AWL-24 | 6 frames, soft reset (the clock is kept, `init()`), 3 frames, `rewind_to_frame(frame - 6)` (a landing before the reset) | Every write from the landing cycle on is removed together with the undone Reset marker; the writes before the landing are kept; one Rewind marker last |
+| AWL-25 | A landing, then a soft reset, then a second soft reset | The reset is its own Reset row after the Rewind row, at the same cycle; the second reset (same marker, same cycle) is the same row |
 
 ## Test Implementation Strategy
 

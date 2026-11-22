@@ -2178,24 +2178,89 @@ int main() {
         const auto after = all_entries(dbg);
         bool removed = false;
         const bool ok = landing_ok(before, after, emu.clock().get(), removed);
-        // A landing stops at the previous marker: what precedes it belongs to another timeline, whose
-        // cycles are not comparable. A soft reset, a few frames, then a landing at a cycle far below the
-        // pre-reset entries' cycles must keep every pre-reset entry.
-        const size_t pre = after.size();
-        const Result rr = dbg.reset(cid, ResetKind::Soft);
-        cpu_program_loop(emu);
-        for (int i = 0; i < 4; ++i) emu.run_frame();
+        check("AWL-15", "rewind_to_frame(frame - 3), the no-replay landing: entries from the landing cycle on removed, those before kept, one Rewind marker",
+              r == Result::Ok && ok && removed);
+    }
+    {
+        // Two landings, the second EARLIER than the first: the first Rewind marker and every write from the
+        // second landing on go, and running on does not log the abandoned future twice. The clock is one
+        // clock across both landings, so the walk crosses the first Rewind marker.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl23");
+        for (int i = 0; i < 10; ++i) emu.run_frame();
         dbg.pause(cid);
-        const uint32_t t2 = dbg.time().frame - 1;
-        const Result rf = dbg.rewind_to_frame(cid, t2);
-        const auto fin = all_entries(dbg);
-        size_t markers_before_tail = 0;
-        for (size_t i = 0; i < fin.size() && i < pre + 1; ++i) markers_before_tail += fin[i].marker != AudioMarker::None;
-        bool kept = fin.size() >= pre + 1 && rr == Result::Ok && rf == Result::Ok;
-        for (size_t i = 0; kept && i < pre; ++i) kept = fin[i].seq == after[i].seq && fin[i].cycle == after[i].cycle;
-        if (!kept) std::printf("    marker stop: pre %zu fin %zu rr=%d rf=%d\n", pre, fin.size(), int(rr), int(rf));
-        check("AWL-15", "rewind_to_frame(frame - 3), the no-replay landing: entries from the landing cycle on removed, those before kept, one Rewind marker; after a soft reset a second landing keeps every entry before the Reset marker (a landing stops at a marker)",
-              r == Result::Ok && ok && removed && kept && markers_before_tail >= 1);
+        const Result r1 = dbg.rewind_to_frame(cid, dbg.time().frame - 1);
+        const uint64_t l1 = emu.clock().get();
+        const Result r2 = dbg.rewind_to_frame(cid, dbg.time().frame - 3);
+        const uint64_t l2 = emu.clock().get();
+        const auto v = all_entries(dbg);
+        size_t stale = 0;
+        for (const AudioLogEntry& e : v) stale += e.marker == AudioMarker::None && e.cycle >= l2;
+        const bool one_marker = markers_of(v, AudioMarker::Rewind) == 1 && v.back().marker == AudioMarker::Rewind &&
+                                v.back().cycle == l2;
+        dbg.run(cid);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const auto w = writes_only(dbg);
+        size_t dup = 0, unordered = 0;
+        for (size_t i = 0; i + 1 < w.size(); ++i) {
+            dup += w[i].cycle == w[i + 1].cycle && w[i].value == w[i + 1].value;
+            unordered += w[i + 1].cycle <= w[i].cycle;
+        }
+        if (!(stale == 0 && one_marker && dup == 0 && unordered == 0))
+            std::printf("    r1=%d r2=%d l1=%llu l2=%llu stale=%zu one_marker=%d dup=%zu unordered=%zu\n", int(r1), int(r2),
+                        static_cast<unsigned long long>(l1), static_cast<unsigned long long>(l2), stale, int(one_marker), dup, unordered);
+        check("AWL-23", "two landings in a row, the second earlier: no write from the second landing's cycle on survives, the first Rewind marker is gone and one Rewind marker is last; after running 3 frames on, no write is logged twice and the cycles are strictly increasing",
+              r1 == Result::Ok && r2 == Result::Ok && l2 < l1 && stale == 0 && one_marker && dup == 0 && unordered == 0 &&
+              w.size() > 10);
+    }
+    {
+        // A landing EARLIER than a soft reset: a soft reset keeps the clock (emulator.cpp init(): clock_,
+        // frame_cycle_ and frame_num_ are not reset; GH #263 keeps the rewind ring), so the cycles on both
+        // sides of the Reset marker are comparable, and the landing undoes the reset.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl24");
+        for (int i = 0; i < 6; ++i) emu.run_frame();
+        const uint64_t before_reset = emu.clock().get();
+        dbg.reset(cid, ResetKind::Soft);
+        const uint64_t after_reset = emu.clock().get();
+        nr_write(emu, 0x08, 0x08);
+        cpu_program_loop(emu);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.pause(cid);
+        const auto pre = all_entries(dbg);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame - 6);
+        const uint64_t l = emu.clock().get();
+        const auto v = all_entries(dbg);
+        size_t stale = 0, kept = 0;
+        for (const AudioLogEntry& e : v) stale += e.marker == AudioMarker::None && e.cycle >= l;
+        for (const AudioLogEntry& e : pre) kept += e.marker == AudioMarker::None && e.cycle < l;
+        const bool shape = v.size() == kept + 1 && v.back().marker == AudioMarker::Rewind && v.back().cycle == l &&
+                           markers_of(v, AudioMarker::Reset) == 0;
+        if (!(stale == 0 && shape))
+            std::printf("    r=%d l=%llu stale=%zu kept=%zu entries=%zu resets=%zu\n", int(r), static_cast<unsigned long long>(l),
+                        stale, kept, v.size(), markers_of(v, AudioMarker::Reset));
+        check("AWL-24", "a soft reset keeps the clock; a landing earlier than it removes every write from the landing cycle on and the undone Reset marker, keeps the writes before the landing, and ends with one Rewind marker",
+              before_reset == after_reset && r == Result::Ok && l < after_reset && stale == 0 && kept > 10 && shape);
+    }
+    {
+        // A reset right after a landing is its own row, not folded into the Rewind marker: a reader must
+        // tell a reset from a rewind (the markers are typed for that). Same kind at the same cycle is one row.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl25");
+        for (int i = 0; i < 6; ++i) emu.run_frame();
+        dbg.pause(cid);
+        dbg.rewind_to_frame(cid, dbg.time().frame - 2);
+        dbg.reset(cid, ResetKind::Soft);
+        dbg.reset(cid, ResetKind::Soft);
+        const auto v = all_entries(dbg);
+        const size_t n = v.size();
+        check("AWL-25", "a soft reset right after a landing gets its own Reset row after the Rewind row, at the same cycle; a second soft reset at that cycle is the same row",
+              n >= 2 && v[n - 1].marker == AudioMarker::Reset && v[n - 2].marker == AudioMarker::Rewind &&
+              v[n - 1].cycle == v[n - 2].cycle && markers_of(v, AudioMarker::Reset) == 1 &&
+              markers_of(v, AudioMarker::Rewind) == 1);
     }
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);

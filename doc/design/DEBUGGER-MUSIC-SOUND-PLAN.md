@@ -447,12 +447,13 @@ Nothing in this epic may change what the guest sees:
   write to NR 0x2C-0x2E is stamped at commit, one instruction after the `NEXTREG`. A Copper
   write is stamped at its own cycle. The source column says which.
 - Writes made in rewind replay (`replay_mode_`) are not recorded. A rewind landing drops the
-  log entries from the landing cycle on (back to the previous marker) and appends a `Rewind`
-  marker; a reset and a state load append a marker too, consecutive Reset/StateLoad markers
-  coalescing into one (D9, amended by GH #531: an entry is stamped at the start of its
-  instruction slot and a landing re-runs the slot that starts at its cycle, so an entry AT the
-  landing cycle goes too; a `Rewind` marker is never coalesced, because a `--audio-log` stream
-  may have written the removed rows and the rows after them are earlier in time).
+  log entries from the landing cycle on, markers included (back to a `StateLoad` marker, the one
+  real clock jump), and appends a `Rewind` marker; a reset and a state load append a marker too, and
+  only the same marker twice at one cycle is one row (D9, amended by GH #531: an entry is stamped at
+  the start of its instruction slot and a landing re-runs the slot that starts at its cycle, so an
+  entry AT the landing cycle goes too; a soft reset and a rewind keep the clock, so the walk crosses
+  their markers; a `Rewind` marker is always recorded, because a `--audio-log` stream may have
+  written the removed rows and the rows after them are earlier in time).
 
 ### 4.4 The `debugger.h` bundle (decision 1)
 
@@ -1519,7 +1520,7 @@ No owner question is open. The owner answered both of the first draft's question
 | D6 | A 0xDFFD write is not a dropped AY write | it is the paging port's own address; counting it would flood the counter in every program that pages | count every `port_fffd`-pattern write that `not port_dffd` suppresses |
 | D7 | Drop precedence: decode before gate (family before DAC enable) | an undecoded write is not a write to that device in the VHDL (`port_dac_X` is the decode, `dac_hw_en` the gate) | jnext's current order (`dac_enabled_` tested first) |
 | D8 | Frames for the tracker, timing and `.psg` are the stamper's frames | the ULA interrupt is within one line of the wrap on every timing; events, scripts and the log then agree | grouping by interrupt instants (a second frame notion for one feature) |
-| D9 | No recording in rewind replay; a rewind removes the entries from the landing cycle on (back to the previous marker) and adds a `Rewind` marker, never coalesced; resets and loads add a marker, consecutive ones coalesced (amended by GH #531) | the log then describes the machine's actual timeline | recording replayed writes twice; clearing the log on every rewind |
+| D9 | No recording in rewind replay; a rewind removes the entries from the landing cycle on, markers included, stopping only at a `StateLoad` marker, and adds a `Rewind` marker; resets and loads add a marker, the same marker twice at one cycle being one row (amended by GH #531) | the log then describes the machine's actual timeline | recording replayed writes twice; clearing the log on every rewind |
 | D10 | Plain 0xFFFD register selects are not log entries; the selected register is folded into the next data write | a select makes no sound and doubles the entry count of every player | log every port write (the `io_write` event already offers that) |
 | D11 | The DSL accessor is `ay[c, r]` (owner-confirmed, 2026-11-18) | matches `phys[page, offset]` and the lexer's bracketed-stem rule | `ay[c][r]` with chained brackets (a grammar change for one accessor) |
 | D12 | The scope and stem taps are pre-mute and pre-gain | stems are for A/B against hardware and must not depend on listening aids; a muted channel's scope still shows what is muted | post-mute taps (a muted channel's stem goes silent) |

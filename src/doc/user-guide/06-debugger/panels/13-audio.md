@@ -133,8 +133,9 @@ DAC write reached no channel, so its Chip is `-`.
 
 A **marker** row reports a break in the log: `reset` (the machine was reset), `state load`
 (a state was loaded) or `rewind` (the machine stepped back or rewound). Stepping back
-removes the rows from the point you landed on, so the log follows the timeline you are
-now on, and adds a `rewind` marker. Markers are shown under every filter.
+removes the rows from the point you landed on, a reset or an earlier rewind marker among them,
+so the log follows the timeline you are now on, and adds a `rewind` marker. A reset you make
+right after a rewind has its own `reset` row. Markers are shown under every filter.
 
 The filters narrow the rows: the Target, the AY chip, the AY register, the DAC channel
 and the Source; **Envelope restarts only**; and **Dropped only**. Double-click a row

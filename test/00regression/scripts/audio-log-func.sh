@@ -66,8 +66,29 @@ if want audio-log-func; then
         ok=0
     fi
     grep -q -- '--audio-log' "$bad_err" || ok=0
+    # An early exit after the stream attached (a --load with an unsupported extension) tears the stream
+    # down while the Debugger is alive: a clean exit 1 with the error, not a crash (glibc fills freed
+    # memory with a pattern under MALLOC_PERTURB_, so a stale Debugger pointer faults at once).
+    early_err="$TMP_DIR/audio_log_early.err"
+    early_rc=0
+    env MALLOC_PERTURB_=165 timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --machine next \
+        "${SD_CARD_ARGS[@]}" --audio-log "$TMP_DIR/audio_log_early.csv" --load "$TMP_DIR/not-a-program.xyz" \
+        &>"$early_err" || early_rc=$?
+    [[ $early_rc == 1 ]] || ok=0
+    grep -q 'unsupported file extension' "$early_err" || ok=0
+    # A write error makes the run exit non-zero and say so. /dev/full exists on Linux (and under wine);
+    # macOS has none, where this one check has nothing to open.
+    if [[ -w /dev/full ]]; then
+        full_err="$TMP_DIR/audio_log_full.err"
+        full_rc=0
+        timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --machine next \
+            "${SD_CARD_ARGS[@]}" --inject "$alog_bin" --inject-org 8000 --inject-pc 8000 \
+            --audio-log /dev/full --delayed-automatic-exit-frames 30 &>"$full_err" || full_rc=$?
+        [[ $full_rc == 1 ]] || ok=0
+        grep -q 'write error on' "$full_err" || ok=0
+    fi
     if [[ $ok == 1 ]]; then
-        pass_row " (decoded AY, DAC and NR mirror writes streamed to CSV; plain select not logged; an unwritable FILE refused)"
+        pass_row " (decoded AY, DAC and NR mirror writes streamed to CSV; plain select not logged; an unwritable FILE refused; an early exit after attach is clean; a write error exits 1)"
     else
         fail_row " (missing or incorrect audio log rows, or the unwritable FILE was not refused)"
     fi

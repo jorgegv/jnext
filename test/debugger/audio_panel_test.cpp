@@ -1407,8 +1407,11 @@ static void ay_wr(Emulator& emu, uint8_t reg, uint8_t val) {
 }
 
 // A machine whose log holds a known mix, a soft reset marker first:
-//   marker | AY0 select | AY0 R7 | AY1 select | AY1 R7 | AY1 R8 | DAC A (0x1F) | DAC A+D (0xDF) |
-//   AY1 R13 (restart) | a dropped 0xB3 (b6 off)
+//   marker | AY0 select | AY0 R7 | AY1 select | AY1 R7 | AY1 R8 | DAC A (0x1F) | DAC B (0x0F) |
+//   DAC A+D (0xDF) | AY1 R13 (restart) | a dropped 0xB3 (b6 off)
+// The DAC B row (channel 1, reg 0) sits on the other side of every target condition of the chip, reg
+// and DAC filters: an AY chip 1 filter must not pick it, and a DAC channel A filter must not pick the
+// AY chip 0 rows.
 static void fill_mix(Emulator& emu, jnext::dbg::Debugger& dbg, jnext::dbg::ClientId cid) {
     dbg.reset(cid, jnext::dbg::ResetKind::Soft);
     nr_write(emu, 0x08, 0x0A);
@@ -1418,6 +1421,7 @@ static void fill_mix(Emulator& emu, jnext::dbg::Debugger& dbg, jnext::dbg::Clien
     ay_wr(emu, 7, 0x11);
     ay_wr(emu, 8, 0x05);
     emu.port().out(0x1F, 0x11);
+    emu.port().out(0x0F, 0x33);
     emu.port().out(0xDF, 0x22);
     ay_wr(emu, 13, 0x08);
     nr_write(emu, 0x84, 0xBF);
@@ -1509,10 +1513,10 @@ static void test_log_tab(Emulator& emu) {
         panel.refresh();
         const int all = log_rows(panel);
         set_combo(panel, "audio_log_target", int(jnext::dbg::AudioTarget::Dac));
-        const bool dac = only_rows(panel, 4, [&](int r) { return log_cell(panel, r, 6) == "DAC"; }) && marker_rows(panel) == 1;
+        const bool dac = only_rows(panel, 5, [&](int r) { return log_cell(panel, r, 6) == "DAC"; }) && marker_rows(panel) == 1;
         set_combo(panel, "audio_log_target", -1);
-        check("DAP-51", "the audio_log_target filter 'DAC' leaves only the 4 DAC rows plus the marker row; 'Any' restores every row",
-              all == 11 && dac && log_rows(panel) == all);
+        check("DAP-51", "the audio_log_target filter 'DAC' leaves only the 5 DAC rows plus the marker row; 'Any' restores every row",
+              all == 12 && dac && log_rows(panel) == all);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-52", "emulator init", false); return; }
@@ -1524,7 +1528,7 @@ static void test_log_tab(Emulator& emu) {
         fill_mix(emu, dbg, cid);
         panel.refresh();
         set_combo(panel, "audio_log_chip", 1);
-        check("DAP-52", "audio_log_chip = 1 (AY writes on chips 0 and 1) leaves chip 1's four AY rows (select, R7, R8, R13) plus the marker",
+        check("DAP-52", "audio_log_chip = 1 (AY writes on chips 0 and 1, and a DAC channel B write, chip 1) leaves chip 1's four AY rows (select, R7, R8, R13) plus the marker, not the DAC B row",
               only_rows(panel, 4, [&](int r) { return log_cell(panel, r, 7) == "1" && log_cell(panel, r, 6).startsWith("AY"); }) &&
               marker_rows(panel) == 1);
     }
@@ -1538,8 +1542,12 @@ static void test_log_tab(Emulator& emu) {
         fill_mix(emu, dbg, cid);
         panel.refresh();
         set_combo(panel, "audio_log_reg", 7);
-        check("DAP-53", "audio_log_reg = 7 leaves the two R7 rows plus the marker",
-              only_rows(panel, 2, [&](int r) { return log_cell(panel, r, 8) == "R7"; }) && marker_rows(panel) == 1);
+        const bool r7 = only_rows(panel, 2, [&](int r) { return log_cell(panel, r, 8) == "R7"; }) && marker_rows(panel) == 1;
+        // The DAC rows carry reg 0 underneath ("-"): a register-0 filter must not pick them.
+        set_combo(panel, "audio_log_reg", 0);
+        const bool r0 = only_rows(panel, 0, [&](int) { return false; }) && marker_rows(panel) == 1;
+        check("DAP-53", "audio_log_reg = 7 leaves the two R7 rows plus the marker; audio_log_reg = 0 leaves no write (no AY R0 write was made, and the DAC rows, whose reg is 0 underneath, are not AY register rows)",
+              r7 && r0);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-54", "emulator init", false); return; }
@@ -1551,9 +1559,14 @@ static void test_log_tab(Emulator& emu) {
         fill_mix(emu, dbg, cid);
         panel.refresh();
         set_combo(panel, "audio_log_dac", 3);
-        check("DAP-54", "audio_log_dac = D (after 0xDF and 0x1F writes) leaves the one channel-D row plus the marker",
-              only_rows(panel, 1, [&](int r) { return log_cell(panel, r, 7) == "D" && log_cell(panel, r, 6) == "DAC"; }) &&
-              marker_rows(panel) == 1);
+        const bool d = only_rows(panel, 1, [&](int r) { return log_cell(panel, r, 7) == "D" && log_cell(panel, r, 6) == "DAC"; }) &&
+                       marker_rows(panel) == 1;
+        // Channel A is also AY chip 0 (chip cell "0"): the AY rows of chip 0 must not be picked.
+        set_combo(panel, "audio_log_dac", 0);
+        const bool a = only_rows(panel, 2, [&](int r) { return log_cell(panel, r, 7) == "A" && log_cell(panel, r, 6) == "DAC"; }) &&
+                       marker_rows(panel) == 1;
+        check("DAP-54", "audio_log_dac = D leaves the one channel-D row plus the marker; audio_log_dac = A leaves the two channel-A rows (0x1F, 0xDF), not the AY chip 0 rows",
+              d && a);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-55", "emulator init", false); return; }
@@ -1652,8 +1665,8 @@ static void test_log_tab(Emulator& emu) {
         };
         const std::string sa = slurp(a), sb = slurp(b);
         std::remove(a.c_str()); std::remove(b.c_str());
-        check("DAP-58", "export_to(path) writes a file whose bytes equal Debugger::audio_log_export of the same log (the header and 11 rows)",
-              wrote && !sa.empty() && sa == sb && std::count(sa.begin(), sa.end(), '\n') == 12);
+        check("DAP-58", "export_to(path) writes a file whose bytes equal Debugger::audio_log_export of the same log (the header and 12 rows)",
+              wrote && !sa.empty() && sa == sb && std::count(sa.begin(), sa.end(), '\n') == 13);
     }
     {
         Emulator rw;

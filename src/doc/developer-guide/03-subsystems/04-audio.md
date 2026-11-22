@@ -139,7 +139,10 @@ value that is not the command returns `SelectIgnored`. An entry's timestamp come
 `Emulator::stamp_at_()`, the arithmetic the event latch stamper also uses, so the log
 agrees with the event system by construction; the stamp is the start of the instruction
 slot that raised the write, which is also why a rewind landing removes the entries at its
-own cycle. Markers come from `debug_after_machine_transition_()` (every reset and every
+own cycle. The landing removes everything from that cycle on, markers included: a soft reset and a
+rewind keep the clock, so their markers are crossed, and the walk stops only at a state-load marker,
+the one real clock jump. The `Rewind` marker is always recorded, and only the same marker twice at one
+cycle is one row, so a reset right after a rewind keeps its own row. Markers come from `debug_after_machine_transition_()` (every reset and every
 state load pass through it; a ring restore for a rewind is left out by
 `DebugState::restoring_from_rewind()`) and from the two rewind landings. A hard reset
 rebuilds the `Emulator`, so the backend installs the sink again in

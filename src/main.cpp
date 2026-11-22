@@ -3037,6 +3037,15 @@ int main(int argc, char* argv[]) {
             dac_trace_recorder.stop();
             return 1;
         }
+        // Every return below leaves this scope BEFORE the caller destroys the app and its Debugger,
+        // so the stream is torn down (detached) while the Debugger is alive, on any exit path now or
+        // added later. A second finish() (the normal exit already ran one) does nothing. Not used by
+        // the browser build: a page refuses --audio-log, and its finish runs after this scope.
+        struct AudioLogGuard {
+            jnext::dbg::AudioLogStream* stream = nullptr;
+            ~AudioLogGuard() { if (stream) { std::string why; stream->finish(why); } }
+        } audio_log_guard;
+        if (!audio_log_file.empty()) audio_log_guard.stream = &audio_log;
 
         // Task 66 — apply the saved GUI preferences that have no CLI
         // competitor (CPU speed, window scale, CRT filter, tape fast-load)
