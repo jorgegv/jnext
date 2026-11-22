@@ -53,7 +53,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD File Add (GH #269) |      165 |      165 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (POSIX-only rows) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (case-sensitive host) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| FAT32 Image           |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
+| FatFs glue cache (Linux) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
+| FAT32 Image           |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      183 |      183 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SHA-256 backends (GH #459) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Minimal NextZXOS card builder (GH #458) |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -244,6 +245,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17344**| **17344**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17350**| **17350**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
