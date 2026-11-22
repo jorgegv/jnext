@@ -949,7 +949,8 @@ int main() {
         emu.set_audio_channel_mute_mask(mask);
         const Result res = dbg.reset(cid, ResetKind::Soft);
         const bool soft = res == Result::Ok && emu.audio_channel_mute_mask() == mask &&
-            emu.turbosound().channel_mute_mask() == (mask & 0x1FF) && emu.dac().channel_mute() == 0x4;
+            emu.turbosound().channel_mute_mask() == (mask & 0x1FF) && emu.dac().channel_mute() == 0x4 &&
+            emu.dac().pcm_left() == 0x100 && emu.dac().pcm_right() == 0x100;   // reset DAC rests at 0x80 per channel, audible copy too
         program_channels(emu, 0x0A, 0, 0xFD);
         const bool soft_fx = ay_matches(emu, mask, m);
 
@@ -958,7 +959,8 @@ int main() {
         EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
         e2.init(cfg);
         const bool init = e2.audio_channel_mute_mask() == mask && e2.turbosound().channel_mute_mask() == (mask & 0x1FF) &&
-            e2.dac().channel_mute() == 0x4;
+            e2.dac().channel_mute() == 0x4 &&
+            e2.dac().pcm_left() == 0x100 && e2.dac().pcm_right() == 0x100;
         program_channels(e2, 0x0A, 0, 0xFD);
         const bool init_fx = ay_matches(e2, mask, m);
         check("ACM-22", "a soft reset and an in-place init() leave the channel mask, its TurboSound and DAC copies, and its audible effect (chip 2 A silent) unchanged",

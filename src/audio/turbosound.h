@@ -100,7 +100,11 @@ public:
     /// serialises is computed without the mute. Not hardware, not machine state
     /// -- see audio/audio_mute.h. Deliberately not touched by reset() /
     /// reset_ay_only() / save_state() / load_state().
-    void set_chip_mute_mask(uint8_t m) { chip_mute_mask_ = m & AudioMute::AY_ALL; mix_dirty_ = true; }
+    void set_chip_mute_mask(uint8_t m) {
+        chip_mute_mask_ = m & AudioMute::AY_ALL;
+        for (int i = 0; i < 3; ++i) chip_gate_[i] = ((chip_mute_mask_ >> i) & 1) ? 0 : 0xFFFF;
+        mix_dirty_ = true;
+    }
     uint8_t chip_mute_mask() const { return chip_mute_mask_; }
 
     /// Debugger-only per-channel mute (AudioChannelMute AY bits 0-8; bit 3*chip+channel).
@@ -175,12 +179,16 @@ private:
 
     // Debugger-only; NOT machine state (not reset, not serialised).
     uint8_t chip_mute_mask_ = AudioMute::NONE;
+    // chip_mute_mask_ as AND masks (0xFFFF audible, 0 muted), so the per-recompute loop gates a chip with
+    // one AND instead of a bit extraction and a select. Kept in step by set_chip_mute_mask() only.
+    uint16_t chip_gate_[3] = {0xFFFF, 0xFFFF, 0xFFFF};
     uint16_t channel_mute_mask_ = AudioChannelMute::NONE;
 
     int active_ay_index() const;
     // always_inline: the hardware call passes silenced == 0, which folds away, so the hot path is the
     // pre-mute one (GH #533 bench).
     [[gnu::always_inline]] inline void compute_chip_stereo(int idx, uint8_t silenced, uint16_t& left, uint16_t& right) const;
+    void compute_stereo_mix_channels_();
     [[gnu::always_inline]] inline void compute_stereo_mix();
     [[gnu::always_inline]] inline void tick_impl_();
 };

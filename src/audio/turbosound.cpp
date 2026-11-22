@@ -205,6 +205,37 @@ void TurboSound::tick_n(uint32_t count) { for (uint32_t i = 0; i < count; ++i) t
     right = (pan_[idx] & 0x01) ? right_sum : 0;
 }
 
+// The mix with debugger channel mutes in force: the hardware sum as ever, and the audible pair of a
+// chip with muted channels recomputed from silenced inputs (the mute never reaches the hardware sum).
+[[gnu::noinline, gnu::cold]] void TurboSound::compute_stereo_mix_channels_()
+{
+    uint16_t hw_L = 0, hw_R = 0;
+    uint16_t total_L = 0;
+    uint16_t total_R = 0;
+
+    for (int i = 0; i < 3; i++) {
+        uint16_t l, r;
+        compute_chip_stereo(i, 0, l, r);
+        hw_L += l;
+        hw_R += r;
+
+        const bool muted = (chip_mute_mask_ >> i) & 1;
+        const uint8_t silenced = (channel_mute_mask_ >> (3 * i)) & 7;
+        uint16_t al = l, ar = r;
+        if (!muted && silenced) compute_chip_stereo(i, silenced, al, ar);
+        chip_pcm_L_[i] = muted ? 0 : al;
+        chip_pcm_R_[i] = muted ? 0 : ar;
+        total_L += chip_pcm_L_[i];
+        total_R += chip_pcm_R_[i];
+    }
+
+    hw_pcm_L_ = hw_L & 0x0FFF;
+    hw_pcm_R_ = hw_R & 0x0FFF;
+    pcm_L_ = total_L & 0x0FFF;
+    pcm_R_ = total_R & 0x0FFF;
+    chip_pcm_valid_ = true;
+}
+
 inline void TurboSound::compute_stereo_mix()
 {
     // Per-chip stereo mixing (matches VHDL turbosound.vhd exactly)
@@ -223,43 +254,28 @@ inline void TurboSound::compute_stereo_mix()
     // host listening aid with no hardware analogue and must not reach the
     // saved state (audio/audio_mute.h).
 
+    // Debugger channel mutes in force: the same mix, out of line (cold). Every normal run
+    // takes the loop below, which is the pre-mute code.
+    if (__builtin_expect(channel_mute_mask_ != 0, 0)) {
+        compute_stereo_mix_channels_();
+        return;
+    }
+
     uint16_t hw_L = 0, hw_R = 0;
     uint16_t total_L = 0;
     uint16_t total_R = 0;
 
-    if (__builtin_expect(channel_mute_mask_ == 0, 1)) {
-        // No channel muted (every normal run): the pre-mute loop, unchanged.
-        for (int i = 0; i < 3; i++) {
-            uint16_t l, r;
-            compute_chip_stereo(i, 0, l, r);
-            hw_L += l;
-            hw_R += r;
+    for (int i = 0; i < 3; i++) {
+        uint16_t l, r;
+        compute_chip_stereo(i, 0, l, r);
+        hw_L += l;
+        hw_R += r;
 
-            const bool muted = (chip_mute_mask_ >> i) & 1;
-            chip_pcm_L_[i] = muted ? 0 : l;
-            chip_pcm_R_[i] = muted ? 0 : r;
-            total_L += chip_pcm_L_[i];
-            total_R += chip_pcm_R_[i];
-        }
-    } else {
-        for (int i = 0; i < 3; i++) {
-            uint16_t l, r;
-            compute_chip_stereo(i, 0, l, r);
-            hw_L += l;
-            hw_R += r;
-
-            // The audible pair: 0 for a muted chip; else, when the debugger muted
-            // channels of this chip, the same mix with those inputs zeroed (the
-            // mute never reaches the hardware sum above).
-            const bool muted = (chip_mute_mask_ >> i) & 1;
-            const uint8_t silenced = (channel_mute_mask_ >> (3 * i)) & 7;
-            uint16_t al = l, ar = r;
-            if (!muted && silenced) compute_chip_stereo(i, silenced, al, ar);
-            chip_pcm_L_[i] = muted ? 0 : al;
-            chip_pcm_R_[i] = muted ? 0 : ar;
-            total_L += chip_pcm_L_[i];
-            total_R += chip_pcm_R_[i];
-        }
+        const uint16_t gate = chip_gate_[i];
+        chip_pcm_L_[i] = l & gate;
+        chip_pcm_R_[i] = r & gate;
+        total_L += chip_pcm_L_[i];
+        total_R += chip_pcm_R_[i];
     }
 
     // Output: 12-bit (0-4095 max with all 3 PSGs at full volume)
