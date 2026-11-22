@@ -1581,6 +1581,11 @@ int main() {
               ton.written > 5000 && rings_equal(ton, toff) && on.halt_repeats_batched_for_test() > 0 &&
               off.halt_repeats_batched_for_test() == 0 && mon.l == moff.l && mon.r == moff.r);
     }
+    Out g_first;   // DIAGNOSTIC: an untapped batched machine run FIRST in the process
+    {
+        Emulator e; build_batch(e, true);
+        for (int f = 0; f < 8; ++f) { e.run_frame(); drain(e, g_first); }
+    }
     {
         Emulator on, off; build_batch(on, true); build_batch(off, true);
         on.set_cycle_batching_for_test(true, true, true);
@@ -1606,6 +1611,8 @@ int main() {
                     }
                 std::printf("  SCP-09 tapped-on vs untapped-on differing samples %zu of %zu\n", nd, mon.l.size());
             }
+            std::printf("  SCP-09 first-in-process untapped vs later untapped-on equal=%d; vs tapped-on equal=%d\n",
+                        g_first.l == uo[0].l ? 1 : 0, g_first.l == mon.l ? 1 : 0);
             std::printf("  SCP-09 UNTAPPED on/off mixer equal=%d; tapped-on vs untapped-on equal=%d; tapped-off vs untapped-off equal=%d\n",
                         uo[0].l == uo[1].l ? 1 : 0, mon.l == uo[0].l ? 1 : 0, moff.l == uo[1].l ? 1 : 0);
         }
