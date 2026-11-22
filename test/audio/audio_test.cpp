@@ -3759,6 +3759,40 @@ static void g_mixer() {
                   "VHDL audio_mixer.vhd:63-64,80-81",
                   shut, base, ear_only, mic_only, both));
     }
+    // MX-73 (GH #550) — the mixer's beeper-side inputs are ear_i and mic_i
+    // ONLY (audio_mixer.vhd:35-37, 63-64, 80-81, 99-100). There is no tape
+    // input: the raw tape level on its own contributes nothing; the MIC term
+    // is `mic_final` (beep_mic_final, zxnext.vhd:6503, 6516) at 128 (x4 = 512),
+    // independent of the port 0xFE MIC bit; and with no tape and no Pi,
+    // set_mic() makes mic_final the MIC bit (beep_mic_final = port_fe_mic).
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        auto sample = [&]() {
+            mx.generate_sample(bp, ts, dac);
+            int16_t s[2] = {0, 0};
+            mx.read_samples(s, 1);
+            return static_cast<int>(s[0]);
+        };
+        const int base = sample();
+        bp.set_tape_ear(true);
+        const int tape_only = sample();
+        bp.set_tape_ear(false);
+        bp.set_mic_final(true);
+        const int final_only = sample();
+        const bool mic_flag_untouched = !bp.mic();
+        bp.set_mic_final(false);
+        bp.set_mic(true);
+        const bool follows = bp.mic_final();
+        const int mic_bit = sample();
+        check("MX-73",
+              "the mixer has no tape input: the raw tape level alone adds 0, mic_final alone adds "
+              "128 (x4 = 512) without the MIC bit, and set_mic() makes mic_final the MIC bit",
+              tape_only == base && final_only - base == 128 * 4 && mic_flag_untouched &&
+              follows && mic_bit - base == 128 * 4,
+              fmt("base=%d tape=%d mic_final=%d mic_bit=%d follows=%d "
+                  "VHDL audio_mixer.vhd:35-37,64,81; zxnext.vhd:6503,6516",
+                  base, tape_only, final_only, mic_bit, follows ? 1 : 0));
+    }
     // RE-HOME: MX-22 — exc_i derivation (zxnext.vhd:6504). Re-homed to
     // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
 

@@ -386,6 +386,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     i2s_.reset();
     pi_ear_edge_master_ = 0;
+    tape_mic_live_ = false;
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
     mixer_.set_beeper_gain_db(cfg.audio_gain_beeper_db);
@@ -5156,6 +5157,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             renderer_.ula().set_border(val & 0x07);
             beeper_.set_ear((val >> 4) & 1);
             beeper_.set_mic((val >> 3) & 1);
+            // beep_mic_final = i_AUDIO_EAR xor ... xor port_fe_mic
+            // (zxnext.vhd:6503): set_mic() set the no-tape value; with a tape
+            // playing or the Pi routed the full formula decides.
+            if (tape_mic_live_ || i2s_.ear_routed()) refresh_mic_final_();
             // GH #89 — a TZX / WAV save samples tape-out where port_fe_mic
             // changes: at the write's bus request edge, the CLK_28 edge that
             // latches port_fe_reg (zxnext.vhd:3588-3594). One flag test when
@@ -6046,6 +6051,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // to beep_spkr_excl (VHDL zxnext.vhd:6504); audio_mixer.vhd:80-81
         // silences EAR/MIC when exc_i='1'.
         mixer_.set_exc_i(beep_spkr_excl());
+        // NR 0x08 b0 (keyboard issue 2) is an input of beep_mic_final
+        // (zxnext.vhd:6503) and of the relaxed EAR level (:1636).
+        refresh_mic_final_();
         return v;
     });
 
@@ -9650,7 +9658,9 @@ uint64_t Emulator::port_fe_write_time() const
 bool Emulator::tape_out_level() const
 {
     // The MIC jack carries beep_mic_final (zxnext.vhd:1638 o_AUDIO_MIC;
-    // zxnext_top_issue2.vhd:1402-1408 mic_port_o):
+    // zxnext_top_issue2.vhd:1402-1408 mic_port_o), and so does the mixer's
+    // mic_i (zxnext.vhd:6516): Emulator::refresh_mic_final_() feeds this value
+    // to the beeper, so the recorder and the mix cannot disagree:
     //   beep_mic_final = i_AUDIO_EAR xor (port_fe_mic and nr_08_keyboard_issue2)
     //                    xor port_fe_mic                       (zxnext.vhd:6503)
     // and (m and i2) xor m = m and not i2. i_AUDIO_EAR is the same model the
@@ -11945,7 +11955,8 @@ uint64_t Emulator::step_one_instruction()
                     ? tap_sync_ts_ : 0u;
             tape_.set_gap_hold(tape_gap_hold_(monotonic_tstates()));
             tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
-            beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
+            // GH #550: the level and the mixer's MIC term (tape_level_step_).
+            tape_level_step_(tape_.tick_realtime(0) != 0);
             // GH #89 — a playing tape is echoed to tape-out (zxnext.vhd:6503):
             // a TZX / WAV save samples it at the end of each instruction, and
             // only while a tape plays, so nothing is paid otherwise.
@@ -11958,15 +11969,21 @@ uint64_t Emulator::step_one_instruction()
             tzx_tape_.set_auto_policy(
                 tape_gap_hold_(monotonic_tstates()),
                 tape_auto_play_, config_.type == MachineType::ZX48K);
-            beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
+            tape_level_step_(tzx_tape_.update(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else if (wav_tape_.is_playing()) {
-            beeper_.set_tape_ear(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
+            tape_level_step_(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else {
             beeper_.set_tape_ear(false);
+            // The tape just stopped: i_AUDIO_EAR is back to the relaxed state
+            // (issue 2 + MIC = 1 at tape level 0 goes 0 -> 1: zxnext.vhd:6503).
+            if (tape_mic_live_) [[unlikely]] {
+                tape_mic_live_ = false;
+                refresh_mic_final_();
+            }
         }
     }
     clock_.tick(master_cycles);
@@ -12526,6 +12543,7 @@ void Emulator::pi_sample_thunk_(void* self)
     // The Pi's next sample is latched at each output-sample boundary (see advance_audio()).
     Emulator* const e = static_cast<Emulator*>(self);
     if (e->config_.pi_audio) e->feed_pi_audio();
+    if (e->tape_mic_live_ || e->i2s_.ear_routed()) [[unlikely]] e->refresh_mic_final_();
 }
 
 [[gnu::noinline]] void Emulator::halt_batch_end_()
@@ -13087,6 +13105,9 @@ void Emulator::advance_audio(uint64_t master_cycles)
             // for the mixer's own 44.1 kHz. Before or after emit_sample() is
             // the same: it only averages what was already accumulated.
             if (config_.pi_audio) feed_pi_audio();
+            // The ear_relax hold is a matter of time: beep_mic_final changes
+            // without an event while a level is held (see refresh_mic_final_).
+            if (tape_mic_live_ || i2s_.ear_routed()) [[unlikely]] refresh_mic_final_();
         }
     }
 }
@@ -15531,6 +15552,23 @@ bool Emulator::load_state(StateReader& r)
     // because the edge test compares frame N with frame N-1 and a restore is a
     // jump. Idempotent when nothing moved.
     sync_esp_association(/*force=*/true);
+
+    // GH #550 - derived state a load must re-derive, because the registers it
+    // comes from are restored (NextReg, nr_08_stored_low_) and it is not in
+    // the stream: the NR 0x06 shadows init() derives (speaker-exclusive gate
+    // and Mixer::exc_i, NMI button enables, PS/2 mode, hotkey enables), and
+    // beep_mic_final (the mixer's MIC term).
+    {
+        const uint8_t nr06 = nextreg_.cached(0x06);
+        nr_06_button_m1_nmi_en_      = (nr06 & 0x08) != 0;
+        nr_06_button_drive_nmi_en_   = (nr06 & 0x10) != 0;
+        nr_06_internal_speaker_beep_ = (nr06 & 0x40) != 0;
+        nr_06_ps2_mode_              = (nr06 & 0x04) != 0;
+        emu_fnkeys_.set_nr_06_hotkey_enables((nr06 & 0x80) != 0, (nr06 & 0x20) != 0);
+        mixer_.set_exc_i(beep_spkr_excl());
+        tape_mic_live_ = false;
+        refresh_mic_final_();
+    }
 
     // The reconciliation is `reconcile_on_exit`'s, at the top of this function —
     // NOT a call here. It used to be one, and a successful load was the only

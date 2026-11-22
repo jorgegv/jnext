@@ -1405,7 +1405,7 @@ public:
 
     /// True if replay_mode is active (suppresses audio/video during fast-forward).
     bool replay_mode() const { return replay_mode_; }
-    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); }
+    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); refresh_mic_final_(); }
 
     /// Task 27 C6 — frontend render hint. When the frontend knows nobody will
     /// consume the framebuffer produced by the NEXT run_frame() (the Qt GUI
@@ -2253,21 +2253,55 @@ private:
     /// save samples it here: nothing else samples where it changes.
     template <typename F> void with_pi_ear_tracking(F&& mutate) {
         const bool before = i2s_.fe_ear();
+        const bool routed_before = i2s_.ear_routed();
         mutate();
-        if (i2s_.fe_ear() != before) {
+        const bool edge = i2s_.fe_ear() != before;
+        if (edge) {
             pi_ear_edge_master_ = clock_.get();
             if (tape_capture_live_) tape_recorder_.sample(tape_out_level(), clock_.get());
         }
+        if (edge || i2s_.ear_routed() != routed_before) refresh_mic_final_();
     }
 
-    /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read and the
-    /// MIC output: the tape jack (`tape_playing`, `tape_level`) and, while NR
-    /// 0xA2 bit 0 sends the Pi's audio there, `pi_fe_ear` XORed in through
-    /// `ear_relax` (zxnext_top_issue2.vhd:663-677). A level held for the
-    /// relaxation time with no tape playing reads as the issue-2 MIC level.
+    /// Put `beep_mic_final` (the mixer's `mic_i`, zxnext.vhd:6503, 6516) into
+    /// the beeper. `tape_out_level()` is the ONE model of that signal (the MIC
+    /// jack carries it too), so the mixer reads the value the recorder reads.
+    /// Called where an input of that model changes: a port 0xFE write while a
+    /// tape plays or the Pi is routed, a tape level change, NR 0x08 and NR
+    /// 0xA2 writes, a state load, a replay-mode change, and, while a tape
+    /// plays or the Pi is routed, at each output-sample boundary, because the
+    /// `ear_relax` hold is a matter of time (it lands at most one output
+    /// sample, about 635 master cycles, after the 32768-cycle hold; inside a
+    /// HALT batch the clock is at the window end, as for the Pi edge stamps).
+    void refresh_mic_final_() { beeper_.set_mic_final(tape_out_level()); }
+
+    /// The tape block's per-instruction step for a PLAYING tape: store the raw
+    /// level, and refresh `mic_final` when the level changed or the tape has
+    /// just started.
+    void tape_level_step_(bool lvl) {
+        const bool changed = lvl != beeper_.tape_ear();
+        beeper_.set_tape_ear(lvl);
+        if (changed || !tape_mic_live_) {
+            tape_mic_live_ = true;
+            refresh_mic_final_();
+        }
+    }
+
+
+    /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read, the MIC
+    /// output and the mixer's MIC term: the tape jack (`tape_playing`,
+    /// `tape_level`) and, while NR 0xA2 bit 0 sends the Pi's audio there,
+    /// `pi_fe_ear` XORed in through `ear_relax` (zxnext_top_issue2.vhd:
+    /// 663-677). A level held for the relaxation time with no tape playing
+    /// reads as the issue-2 MIC level.
     /// During a rewind replay or an RZX playback the Pi term is held off: it
     /// is host-timed, like the sample NR 0x2C/0x2E show.
     bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) const;
+
+    /// True while the tape block last saw a tape playing (so `mic_final` is
+    /// kept fresh at port 0xFE writes and output-sample boundaries). Derived,
+    /// not serialised; cleared by init() and load_state().
+    bool tape_mic_live_ = false;
 
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.
