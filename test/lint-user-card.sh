@@ -16,6 +16,9 @@
 # Declared exceptions (path:fixed text), each a reason and not a glob:
 #   - this file (its own self-test fixtures are literal instances);
 #   - test/lint-hardcoded-paths.sh: a case of ITS table, a string it classifies and never opens;
+#   - test/harness-selftest.sh and test/00regression/scripts/sdcard-user-card-func.sh: the rows that
+#     PROVE the suites leave the user's card alone place a sentinel card at that path inside a
+#     scratch HOME (and the lint's own wiring rows feed it a dirty fixture);
 #   - test/sdcard_provisioner/sdcard_provisioner_test.cpp lines that build the path under g_tmpdir:
 #     the suite exercises the provisioner's default-path rule inside a throw-away HOME.
 #
@@ -37,6 +40,7 @@ TMPDIR_LINE='g_tmpdir[ ]*\+'
 is_excepted() {
     case "$1" in
         test/lint-user-card.sh|test/lint-hardcoded-paths.sh) return 0 ;;
+        test/harness-selftest.sh|test/00regression/scripts/sdcard-user-card-func.sh) return 0 ;;
         test/sdcard_provisioner/sdcard_provisioner_test.cpp) grep -qE "$TMPDIR_LINE" <<<"$2" && return 0 ;;
     esac
     return 1
