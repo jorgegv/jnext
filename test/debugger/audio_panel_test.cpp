@@ -1117,16 +1117,19 @@ static void test_dac_tab(Emulator& emu) {
         AudioPanel panel(&dbg);
         auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
         auto* link = panel.findChild<QLabel*>("ay_drops");
-        nr_write(emu, 0x84, 0xFE);
+        nr_write(emu, 0x84, 0xFC);          // AY ports off, Soundrive 1 off
         nr_write(emu, 0x08, 0x00);
         emu.port().out(0xFFFD, 0x08);
         emu.port().out(0xBFFD, 0x08);
-        emu.port().out(0x1F, 0x01);
+        emu.port().out(0x1F, 0x01);         // DAC family drop
+        nr_write(emu, 0x84, 0xFF);
+        emu.port().out(0x1F, 0x02);         // DAC off drop
+        nr_write(emu, 0x2D, 0x03);          // DAC mirror drop
         panel.refresh();
         const bool text = link && link->text().startsWith("AY writes dropped: 2");
         const bool on_chips = panel.chips_on_show();
         if (link) emit link->linkActivated("drops");
-        check("DAP-47", "two AY drops and one DAC drop: the Chips header reads 'AY writes dropped: 2'; its link makes DAC & Beeper the current sub-tab",
+        check("DAP-47", "two AY drops and three DAC drops: the Chips header reads 'AY writes dropped: 2'; its link makes DAC & Beeper the current sub-tab",
               text && on_chips && tabs && tabs->currentIndex() == 1 && !panel.chips_on_show());
     }
 }

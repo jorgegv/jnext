@@ -1011,6 +1011,8 @@ int main() {
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);
         nr_write(emu, 0x84, 0xBF);
+        park(emu);
+        emu.run_frame(); emu.run_frame();   // frame tag 1: a tag of frame_num_ itself (2) reads differently
         run_from(emu, 0x8000, {0x01, 0xB3, 0x12, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE});
         emu.execute_single_instruction();
         emu.execute_single_instruction();
@@ -1155,7 +1157,8 @@ int main() {
         run_from(emu, 0x8000, {0xF3, 0x01, 0xB3, 0x00, 0xED, 0x79, 0x18, 0xFC});
         for (int i = 0; i < 10; ++i) emu.run_frame();
         dbg.pause(cid);
-        dbg.step_into(cid);
+        // Well into the frame: the step back then replays thousands of the loop's OUTs.
+        for (int i = 0; i < 3000; ++i) emu.execute_single_instruction();
         const uint64_t n0 = dbg.audio_state().drops[size_t(AR::DacFamilyDisabled)].count;
         const uint64_t c0 = emu.clock().get();
         const Result r = dbg.step_back(cid, 1);
