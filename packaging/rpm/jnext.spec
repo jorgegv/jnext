@@ -51,7 +51,7 @@ running programs under CI.
 # libspdlog.so.1.x that the distro's spdlog does not provide. Link it statically.
 # (No percent sign in this comment: rpm expands macros even inside comments.)
 %undefine _cmake_shared_libs
-%cmake -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DJNEXT_WERROR=OFF
+%cmake -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DJNEXT_WERROR=OFF -DJNEXT_CCACHE_SHARE=OFF
 %cmake_build
 
 %install

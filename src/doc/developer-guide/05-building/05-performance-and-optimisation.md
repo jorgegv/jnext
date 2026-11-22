@@ -342,7 +342,7 @@ change costs the training plus about a minute of compiling and linking, and
 retraining with unchanged sources does not hit either. The instrumented tree is
 cached normally.
 
-**Worktrees share the cache.** CMake hands the compiler absolute paths, and ccache hashes
+**Worktrees share the cache** (`JNEXT_CCACHE_SHARE`, ON; the rpm and deb recipes turn it OFF, because their debuginfo extraction expects the absolute build paths). CMake hands the compiler absolute paths, and ccache hashes
 them (and, with `-g`, the working directory), so two worktrees of one commit used to be two
 sets of cache entries and every new worktree compiled from nothing. The launcher
 `CMakeLists.txt` builds now sets `CCACHE_BASEDIR` to the source directory and
