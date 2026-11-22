@@ -168,6 +168,20 @@ DMA timer adds 8, 4, 2 or 1 per CPU clock at 3.5, 7, 14 and 28 MHz, one per mast
 the gate (`dma.vhd:424`) is a minimum spacing from the read, and the state machine's own cycles come
 on top, so a real stream is slower than the nominal rate.
 
+**The sample stream.** `dac_stream_stats()` (`src/debug/dac_stream.h`, a published header with no core
+dependency) turns the audio log into one row per DAC writer: the measured rate, the interval minimum,
+mean, maximum and lower median, the population standard deviation and the gaps. Its rules are small and
+each is pinned by a row. An entry counts if it is an applied DAC or mirror write after the newest marker
+of the vector (a reset restarts the player, a rewind truncated the log) inside the window `(end - window,
+end]`; a clock younger than the window has no start. The log has one entry per DAC channel, so a write to
+0xDF, 0xB3, the mono 0xFB or NextREG 0x2D is two entries at one cycle: consecutive counted entries with
+equal cycle, source, PC and port are ONE sample. A CPU writer is keyed by its PC; DMA, Copper and debugger
+entries by source alone, because their PC is the slot's, not theirs. A gap is an interval strictly above
+1.5 times the lower median: one skipped sample is two periods, one period is one, so 1.5 sits between them
+whatever the interrupt acceptance jitter does to a single interval. `nearest_pacing()` pairs a CPU writer
+with the running CTC channel whose rate is nearest and a DMA writer with the DMA. The DMA's own spacing
+is at least the prescaler's (`dma.vhd`, the timer cleared at TRANSFERING_READ_1 and the gate at WAITING_CYCLES), so its measured rate is at most the nominal one.
+
 **Beeper** — `src/audio/beeper.*`. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is

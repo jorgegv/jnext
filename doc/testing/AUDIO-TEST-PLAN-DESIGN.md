@@ -901,6 +901,42 @@ edges later."
 | ACT-27 | ACT-25 run to the end of the block               | Not active, counter 100                                    |
 | ACT-28 | Prescaler 1, then 255                            | 875 000 000, then 3 431 373 (3 431 372.55 rounded)  |
 
+### 8.8 DAC sample stream (`src/debug/dac_stream.h`)
+
+`dac_stream_stats()` and `nearest_pacing()` (GH #537) over hand-built log entries (the first twelve rows) and over
+real machines (the last three). The rules are those of the header (a sample is one port write, a writer is (source,
+PC) for the CPU and the source alone otherwise, the median is the lower one, the jitter a population
+standard deviation, a gap an interval strictly above 1.5 x the median; the epic plan's 2x was replaced
+because one skipped sample is exactly 2 periods, so 2x would decide the epic's own acceptance by
+interrupt-acceptance jitter). The fixture of DSS-13 and DSS-14 is `demo/halt_bench/halt_bench.asm` CTCDAC, hand-placed
+at 28 MHz; its bound is derived: each OUT follows its interrupt by a fixed ISR path plus the acceptance delay
+d in 0..4 (the HALT M1 at 28 MHz, `zxnext.vhd:3171-3181`), so an interval is 1744 + d(k+1) - d(k).
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| DSS-01 | 1000 samples, chip A, every 1792 cycles from 100000 | One CPU writer: rate 15 625 000 mHz, every interval 1792, no jitter, no gap, 64.0 us |
+| DSS-02 | DSS-01 without sample 500                        | 999 samples, one gap (3584), median 1792, rate 15 609 359 mHz |
+| DSS-03 | Intervals 1000 except one of 1500 and one of 1501 | One gap: 1500 is not above 1.5 x the median, 1501 is        |
+| DSS-04 | Two PCs, every 1792 and every 3584, interleaved  | Two writers, the busier first, 15 625 000 and 7 812 500 mHz |
+| DSS-05 | DMA entries with three different PCs; one CPU entry at one of them | One DMA writer (PC 0) with every DMA sample; the CPU entry its own writer |
+| DSS-06 | 0xDF pairs (A and D at one cycle); Copper NR 0x2D mirror pairs | 10 samples each, channels 0x09 (a fan-out is one sample) |
+| DSS-07 | Dropped DAC and mirror writes, AY register and chip-select, beeper | No writer                                       |
+| DSS-08 | 10 samples, a Reset (or Rewind) marker, 5 samples | 5 samples, starting after the marker                       |
+| DSS-09 | Samples at 1000..20000, end 20000, window 5000; window 0; a young clock | Start 15000 and 5 samples ((start, end]); all 20; a window longer than the clock keeps cycle 0 |
+| DSS-10 | 7 intervals (1790 x4, 1794 x3); 6 intervals (3 and 3) | Lower median 1790, mean 1791.714, population sd 1.9795; mean 1792.0, sd 2.0 |
+| DSS-11 | One sample; an empty log                         | Rate 0 and every interval field 0; no writer               |
+| DSS-12 | Pacing matches: a CPU writer near CTC 0, a DMA writer, a Copper writer, a stopped channel, a tie | CTC 0 with its rel_diff; the DMA; none; none; the lower channel |
+| DSS-13 | The CTC player at 28 MHz (TC 109, 1744 cycles), 20 frames | One CPU writer at the OUT, channels A and D, >= 6000 samples, every interval 1744 +- 4, no gap, rate within the bound of the CTC's 16 055 046 mHz, nearest engine CTC 0 |
+| DSS-14 | The same with the OUT skipped when the tick wraps | Gaps >= 1, each of 2 x 1744 +- 4, the rest 1744 +- 4, gaps = intervals above 2616 |
+| DSS-15 | A DMA burst to port 0x00DF, prescaler 55, 10 frames | One DMA writer, every interval >= 1760 (`dma.vhd:309,424,451`), rate <= the nominal 15 909 091 mHz, nearest engine the DMA |
+
+The Qt rows (`debugger_audio_panel_test` DAP-76 to DAP-80, `debugger_panel_data_test` QLAZY-25 and QLAZY-26) drive the Pacing and
+Sample stream groups of DAC & Beeper against the same machines: DAP-76 the group's shape and the Pacing values
+(timer, counter, idle and a burst DMA), DAP-77 the CTC-paced player's one CPU row against the helper's own
+numbers, DAP-78 the DMA and Copper rows and the double-click (CPU row only), DAP-79 the data rules (no fetch
+off show, "Not recording", a reset marker, a ring overflow), DAP-80 the Gaps cell with the 1.5 x factor named;
+QLAZY-25 the log request while DAC & Beeper is on show, QLAZY-26 that Log and DAC & Beeper share the request.
+
 ## Test Implementation Strategy
 
 ### Phase 1: Unit Tests (Internal State)

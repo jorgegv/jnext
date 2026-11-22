@@ -3223,6 +3223,33 @@ state load pass through it; a ring restore for a rewind is left out by
 rebuilds the <code>Emulator</code>, so the backend installs the sink again in
 <code>reapply_after_machine_rebuild()</code>. The ring, the seq counter and the verbs live in the
 backend (<code>src/debug/debugger_audio.cpp</code>).</p>
+<p><strong>Pacing engines.</strong> <code>Debugger::ctc_state()</code> and <code>Debugger::dma_state()</code> (INS-25) report what paces a
+sample player: the CTC's four channels and the DMA's prescaler. Both read through a <code>DebugView</code> that
+is defined inline in <code>CtcChannel</code> and <code>Dma</code> (<code>ctc.h</code>, <code>dma.h</code>): no data member, so no layout change, and
+no core translation unit calls it, so no code is emitted in a hot path; an unused debugger pays nothing.
+The CTC rate is the ZC/TO rate: <code>MASTER_CLOCK_HZ / (prescaler x TC)</code> for a running timer (TC 0 counts
+256; <code>ctc_chan.vhd:132-170</code>), the source's rate divided by TC for a running counter. A counter's
+source is the previous channel, channel 0 being fed by channel 3 (<code>zxnext.vhd:4598</code>, <code>Ctc::handle_zc_to</code>
+arms <code>(channel + 1) &amp; 3</code>); <code>Debugger::ctc_state()</code> walks that chain back at most four hops, a stopped
+channel or a ring of counters ends it with no rate, and the division is rounded once, at the end, in
+milli-hertz. A channel is <code>running</code> only in S_RUN or S_RUN_TC, the states in which <code>t_count</code> counts. The
+DMA rate is the NOMINAL pacing rate <code>MASTER_CLOCK_HZ / (32 x prescaler)</code>, the same at every CPU speed (the
+DMA timer adds 8, 4, 2 or 1 per CPU clock at 3.5, 7, 14 and 28 MHz, one per master cycle, <code>dma.vhd:250-255</code>):
+the gate (<code>dma.vhd:424</code>) is a minimum spacing from the read, and the state machine's own cycles come
+on top, so a real stream is slower than the nominal rate.</p>
+<p><strong>The sample stream.</strong> <code>dac_stream_stats()</code> (<code>src/debug/dac_stream.h</code>, a published header with no core
+dependency) turns the audio log into one row per DAC writer: the measured rate, the interval minimum,
+mean, maximum and lower median, the population standard deviation and the gaps. Its rules are small and
+each is pinned by a row. An entry counts if it is an applied DAC or mirror write after the newest marker
+of the vector (a reset restarts the player, a rewind truncated the log) inside the window <code>(end - window,
+end]</code>; a clock younger than the window has no start. The log has one entry per DAC channel, so a write to
+0xDF, 0xB3, the mono 0xFB or NextREG 0x2D is two entries at one cycle: consecutive counted entries with
+equal cycle, source, PC and port are ONE sample. A CPU writer is keyed by its PC; DMA, Copper and debugger
+entries by source alone, because their PC is the slot's, not theirs. A gap is an interval strictly above
+1.5 times the lower median: one skipped sample is two periods, one period is one, so 1.5 sits between them
+whatever the interrupt acceptance jitter does to a single interval. <code>nearest_pacing()</code> pairs a CPU writer
+with the running CTC channel whose rate is nearest and a DMA writer with the DMA. The DMA's own spacing
+is at least the prescaler's (<code>dma.vhd</code>, the timer cleared at TRANSFERING_READ_1 and the gate at WAITING_CYCLES), so its measured rate is at most the nominal one.</p>
 <p><strong>Beeper</strong> — <code>src/audio/beeper.*</code>. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is

@@ -102,6 +102,33 @@ cleared only by **Clear**. Writes made from the debugger or a script count as
 Debugger, and stepping back or rewinding does not count the replayed writes again.
 Double-click a row written by the CPU to show the instruction in the Disassembly.
 
+**Pacing (CTC, DMA).** What sets the pace of a sample player: one row per CTC channel and one
+for the DMA. *Mode* is `timer` or, for a channel that counts another's pulses, `counter <- CTC n`
+(channel 0 counts channel 3). *Prescaler* is 16 or 256 (a timer only), *TC* the time constant
+(1 to 256, a written 0 counting 256), *Count* the down-counter now, *State* `running` or
+`stopped`, *Int* whether the channel may interrupt. *Rate* is how often the channel fires:
+28 MHz / (prescaler x TC) for a timer, the rate of the channel that clocks it divided by TC for
+a counter, `-` when it does not fire. The DMA row shows its mode (`byte`, `continuous`,
+`burst`), the prescaler (`-` for none), the bytes moved over the block length, the source and
+destination (`port 0x00DF` for an I/O port) and `active` or `idle`. Its rate is the prescaler's
+nominal rate, 28 MHz / (32 x prescaler); a real transfer is a little slower, because the DMA's
+own cycles come on top of the prescaler's wait.
+
+**Sample stream.** What the program really does to the DAC, measured over the last second:
+one row per writer. A CPU writer is one instruction, so a player that writes the DAC from
+several places shows several rows; DMA, Copper and debugger writes are one row each. A write to
+port 0xDF or NextREG 0x2D is one sample for two channels (*Channels* `A D`). *Rate* is the
+samples per second, *Min*, *Avg* and *Max* the time between samples and *Jitter* its spread
+(standard deviation), all in microseconds. *Gaps* counts the intervals longer than 1.5 times the
+median interval: a sample the player skipped. *Pacing* names the engine whose computed rate is
+nearest the measured one and how far off it is, for example `CTC 0: 16055.046 Hz (+0.000%)`; a
+player paced by a CTC channel matches that channel's rate to within the interrupt acceptance
+jitter. Double-click a CPU row to show the instruction in the Disassembly. The window label
+tells how much of the second the machine has run so far.
+
+While DAC & Beeper is on show the debugger records the audio writes, the same recording as the
+Log tab, so the rows start when you open the tab.
+
 The DAC & Beeper tab is refreshed at about 4 Hz with the rest of the window.
 
 ## Log
