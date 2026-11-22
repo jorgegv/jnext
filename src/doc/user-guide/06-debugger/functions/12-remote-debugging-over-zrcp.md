@@ -17,6 +17,9 @@ The log confirms it:
 [13:10:21.837] [debugger] [info] zrcp: listening on 127.0.0.1:10000
 ```
 
+`jnext --debugger --zrcp-port 10000 game.nex` also starts the program paused where it
+starts, serving only ZRCP (see [Starting from the command line](18-starting-from-the-command-line.md)).
+
 `10000` is ZEsarUX's own default, and the one DeZog expects. `--zrcp-port 0`
 lets the system pick a free port and prints it. The server is off unless you
 give the option, and it works in every frontend: the Qt window, the SDL build

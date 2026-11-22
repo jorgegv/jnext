@@ -16,6 +16,7 @@ survives a hard reset that rebuilds the machine under it.
 | `Gui` | the Qt debugger: one observer client for the life of the GUI, one arming client while the debugger window is open |
 | `Dzrp`, `Zrcp`, `GdbRsp` | each protocol server, one client per connected peer session |
 | `Script` | the script engine, the recorder, and `ScriptHost`'s observer listener |
+| `CommandLine` | the startup stop of `--debugger` and `--break-at` (below) |
 | `Test` | the test harnesses |
 
 Every verb that mutates or transitions takes the client's id, and every
@@ -167,7 +168,7 @@ owner sets it, never an adapter:
 | Loop owner | Policy |
 |---|---|
 | `QtApp` | `Pause`: pause and notify |
-| `SdlApp`, `HeadlessApp` | `ExitNonZero`: pause, log, push `on_exit_requested(3)` |
+| `SdlApp`, `HeadlessApp` | `ExitNonZero`: pause, log, push `on_exit_requested(3)`; `Pause` under `--debugger` |
 
 The SDL frontend has no pause path, and a headless run is a CI verdict.
 `ExitNonZero` becomes `Pause` while any service has a peer connected, so a
@@ -181,6 +182,55 @@ when the stop is a script's.
 
 An explicit `pause()` is a stop that drops the transient subscriptions, but it
 is not an `Action::Stop`, so it never requests an exit.
+
+Under `--debugger` the SDL and headless loop owners set `Pause`: the user asked
+for a session, so every stop waits for the remote instead of becoming an exit. A
+script's own `exit N` still exits; a script `stop` or failed `assert` pauses.
+
+## The startup stop (`--debugger`, `--break-at`)
+
+`StartupStop` (`src/platform/startup_stop.{h,cpp}`, toolkit-free) is how the
+command line starts a program paused. Each loop owner holds one, declared after
+its `debugger_`, and it is a `ClientKind::CommandLine` arming client. The loop
+owner calls it at four places: `start()` at the top of `run()`, once every
+pending load, inject and RZX replay is bound (it counts them); `program_landed()`
+as each of them lands, after the sidecar symbols and `--source-map`; `poll()`
+once per tick after the pump; `on_cold_boot()` from its boot routine.
+
+When the last program has landed the stop is armed: with no `--break-at`, a
+`pause()` by the client (the stop's reason says which: the NEX entry, the
+restored PC, the injected program, the failed load); with it, a one-shot
+`run_to()` resolved with the Breakpoints panel's chain (`SymbolTable::resolve_key`,
+then `SourceMap::resolve`), keeping the memory of a paged symbol through
+`run_to(by, addr, space)`. It is armed when the program lands rather than at
+power-on because a NEX or snapshot load rebuilds the machine and a sidecar
+symbol does not exist earlier. A name that resolves to nothing fails the landing,
+and the loop owner ends the run with exit 1 before the program has executed.
+
+A `--break-at` stop is a transient `Execute` subscription of the client (a Breakpoint stop of the
+command-line client, not a run-to), made by `subscribe()` alone and never by a run-control verb: `run_to()`
+resets the step mode, arms a step-off and overwrites the armed verb, and on a machine another client holds
+paused it would resume that pause. Every subscription carries a delivery handler that records the stop
+(`fired_`, PC, cycle) at the moment it is taken, so `poll()` does not infer it from a pause it may have missed.
+
+The stop is the client's own pause or transient subscription, so SES-01 keeps it
+from every other client: DeZog attaching or detaching does not resume it. The
+client detaches once the machine has run again after the stop (the next `poll()`
+sees it unpaused or its cycle changed), so its own detach resumes nothing, and it
+also detaches when its stop is cancelled by a cold boot. Another client's stop does NOT cancel it:
+DeZog's `CMD_INIT` pauses a machine still loading its tape, and `pause()` removes every client's transients
+(`apply_stop()`), ours included. `poll()` asks the subscriptions themselves (none of ours left in
+`subscriptions(true)`), not whether it saw a pause, because a pause and a resume inside one pump leave
+none to see, and the resume notification is edge-detected per pump. It then subscribes them again,
+paused or running: `--break-at`'s target, which `resolve_target()` fixed at the first arm, or the tape's
+capture and every range already in `watches_`. Two cases are decided without waiting for a gate: a machine
+another client holds paused ON the stop point, or about to resume from it with the one-instruction step-off a resume arms pending (it skips the Execute gate of the instruction the CPU stands on)
+(`DebugState::step_off_pending()`), has reached the stop (`StartupStop::reached_here()`; logged as reached while
+another debugger held the machine), and a pause-type stop due while another client already holds the machine
+takes that pause instead of re-attributing it. Only a cold boot or reaching the stop ends it. One limit: instructions another
+client steps through between its stop and our next `poll()` are not watched. A headless loop paused under `--debugger` waits on the servers with or
+without a peer (`DebugServers::headless_should_wait()`'s third parameter), so the
+wait for DeZog is a poll and not a spin.
 
 ## No verb that drives the machine runs inside a delivery
 
@@ -208,7 +258,7 @@ through `run()`'s body rather than the refused public verb.
 
 `HeadlessApp`, `SdlApp` and `QtApp` each, in `init()`:
 
-1. build one `Debugger` and set the stop policy;
+1. build one `Debugger` and set the stop policy (`Pause` for the SDL and headless loop owners when `--debugger` is given);
 2. register a `LoopDriver` with `set_loop_driver()`: `cold_boot` runs the loop
    owner's own boot sequence, and `load` its load dispatch. Both live in
    `src/platform/`, above the backend, so a closure is the only way the backend

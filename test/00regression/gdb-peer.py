@@ -150,6 +150,24 @@ def both(gdb_port, dzrp_port):
     return g
 
 
+def startup(port, expect_pc):
+    """GH #548: `--debugger --gdb-port` started the machine paused at the program's
+    start. `g` reads the PC (register 11, little endian) three times half a second
+    apart: it is the stop's, and it does not move."""
+    import time
+    want = int(expect_pc, 0)
+    g = Rsp(port)
+    pcs = []
+    for i in range(3):
+        if i:
+            time.sleep(0.5)
+        regs = g.cmd("g")
+        check(len(regs) == 56, "g answered %r" % regs)
+        pcs.append(int(regs[46:48] + regs[44:46], 16))
+    check(pcs == [want] * 3, "PCs %s, expected 0x%04X held" % (["0x%04X" % p for p in pcs], want))
+    g.s.close()
+
+
 def hold(port):
     """GH #428: interrupt a live machine, hold it paused for several seconds,
     poke memory once in the middle, resume. The `idle-check` scenario then
@@ -211,6 +229,9 @@ def main():
         elif len(sys.argv) >= 4 and sys.argv[1] == "both":
             both(int(sys.argv[2]), int(sys.argv[3]))
             print("PASS a GDB and a DZRP session live at once, each served; D left DZRP up")
+        elif len(sys.argv) >= 4 and sys.argv[1] == "startup":
+            startup(int(sys.argv[2]), sys.argv[3])
+            print("PASS attached to a machine paused at %s, held over 1 s" % sys.argv[3])
         elif len(sys.argv) >= 3 and sys.argv[1] == "hold":
             hold(int(sys.argv[2]))
             print("PASS interrupted, held, poked, resumed")

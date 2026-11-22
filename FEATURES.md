@@ -191,6 +191,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - **Memory coverage**: Debug > Coverage or `--coverage` records executed, read and written bytes for every physical memory
 - Coverage shown as Disassembly bars, Memory panel X | R | W underlines and Source tab tints
 - Magic debug port: configurable 16-bit port logs writes as hex/dec/ascii
+- **Start under the debugger**: `--debugger FILE` starts paused where the program starts (NEX entry, a snapshot's PC, power-on with no file), in the debugger window or, with `--headless` and the SDL build, waiting for DeZog on DZRP port 11000 (or only the `--gdb-port` / `--zrcp-port` given); `--break-at ADDR|SYMBOL|file:line` runs to an address once instead
 - **Remote debugging over DZRP (DeZog)**: `--dzrp-port N` in every frontend, loopback-only unless `--debug-listen-address` says otherwise
 - **Remote debugging with z88dk-gdb**: `--gdb-port N` serves the GDB Remote Serial Protocol in every frontend
 - **Debugger scripts (`.jds`)**: rules on execution, memory, ports, NextREG writes, frames, interrupts, Copper and DMA with logging, stop, assert and snapshot actions

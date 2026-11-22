@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.58</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.60</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.58</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.60</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1422,6 +1422,17 @@
     <span class="md-ellipsis">
       
         A session, end to end
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-debugger-in-each-frontend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --debugger in each frontend
       
     </span>
   </a>
@@ -3045,7 +3056,7 @@
 
 <h1 id="310-the-debugger-frontends">3.10 The debugger frontends<a class="headerlink" href="#310-the-debugger-frontends" title="Permanent link">&para;</a></h1>
 <p>A frontend turns something outside the backend — a Qt window, a socket peer, a
-script file — into calls on <code>jnext::dbg::Debugger</code>. Six of them ship:</p>
+script file — into calls on <code>jnext::dbg::Debugger</code>. Seven of them ship:</p>
 <table>
 <thead>
 <tr>
@@ -3092,9 +3103,15 @@ script file — into calls on <code>jnext::dbg::Debugger</code>. Six of them shi
 <td><code>--record-script FILE</code>, or the Qt Script menu</td>
 <td><code>Script</code></td>
 </tr>
+<tr>
+<td>the startup stop</td>
+<td><code>src/platform/startup_stop.*</code></td>
+<td><code>--debugger</code>, <code>--break-at</code></td>
+<td><code>CommandLine</code></td>
+</tr>
 </tbody>
 </table>
-<p>All six run in every frontend build that can host them: the three servers and
+<p>All seven run in every frontend build that can host them: the three servers and
 the scripting language need no toolkit, so they work in the Qt GUI, the SDL
 frontend and <code>--headless</code> alike. Each is one or more clients of the same
 backend, so any combination can run at once on one machine, and each sees the
@@ -3159,6 +3176,19 @@ side:</p>
 the backend's, not the server's: every client's write produces one. On <code>quit</code>
 the client detached, and because no other arming client was attached, its pause
 was released and the machine ran on until <code>--delayed-automatic-exit</code> ended it.</p>
+<h2 id="-debugger-in-each-frontend"><code>--debugger</code> in each frontend<a class="headerlink" href="#-debugger-in-each-frontend" title="Permanent link">&para;</a></h2>
+<p>The startup stop (<a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a>) is one object
+whatever the frontend; what differs is who shows the pause. In the Qt GUI the
+debugger manager already opens the window for any pause it did not make itself,
+so the stop needs no Qt code. The SDL and headless loop owners have no window: with
+<code>--debugger</code> they set <code>StopPolicy::Pause</code>, log what they wait on, and serve the
+protocol ports. <code>main.cpp</code> implies DZRP on <code>cli::kDebuggerDefaultDzrpPort</code> (11000)
+through <code>cli::debugger_implied_dzrp_port()</code> only when the run has no debugger window
+and no protocol port was given; a Qt build made without the debugger counts as having
+no window. The browser build refuses both flags. <code>StartupStop::poll()</code> runs once per tick after the pump in all three
+loop owners (the verbs of a protocol client or a script are issued in the pump, so no frame runs between them and
+that poll), and the Qt loop owner polls once more at the top of <code>pre_frames()</code>, because the debugger window's Pause
+and Run are slots that run between ticks.</p>
 <h2 id="the-capability-matrix">The capability matrix<a class="headerlink" href="#the-capability-matrix" title="Permanent link">&para;</a></h2>
 <p>What each frontend actually calls, read from its call sites on the facade. A
 mark means the frontend uses at least one verb of that row; "r" is a read, "w"

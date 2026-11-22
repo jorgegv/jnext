@@ -4,7 +4,7 @@
 #
 #   bash test/wasm-core-check.sh <build-dir>      e.g. build/wasm-core
 #
-# Rows WCORE-01..10 and WCORE-12, printed in the suite's uniform format; exits non-zero on any
+# Rows WCORE-01..12, printed in the suite's uniform format; exits non-zero on any
 # FAIL or SKIP. The oracle is the native binary's behaviour for the same command
 # where one exists (the CLI refusals, the log-file error), else the SDK's own
 # contract (no shared memory). `jnext` is the node build (NODERAWFS), so the size
@@ -14,7 +14,7 @@ set -uo pipefail
 
 export LC_ALL=C LANG=C
 
-EXPECTED_TOTAL=11
+EXPECTED_TOTAL=12
 
 BUILD=${1:?usage: wasm-core-check.sh <build-dir>}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -98,6 +98,20 @@ for spec in "--nextpi" "--esp" "--record x.mp4" "--zrcp-port 10000" "--dzrp-port
     fi
 done
 row WCORE-04 "each of 9 refused flags exits 1 naming the flag and 'browser build', before --version runs" \
+    $([[ -z "$bad" ]] && echo 1 || echo 0) "$bad"
+
+# WCORE-11 (GH #548): --debugger and --break-at start the program under the debugger, which needs
+# the debugger servers and the script host: refused, BEFORE --version, naming the flag.
+bad=""
+for spec in "--debugger" "--break-at 8000"; do
+    flag=${spec%% *}
+    # shellcheck disable=SC2086
+    run_jnext $spec --version
+    if ! [[ $RC -eq 1 && "$ERR" == *"$flag"* && "$ERR" == *"browser build"* && "$OUT" != jnext* ]]; then
+        bad+="$flag(rc=$RC err=[$ERR]) "
+    fi
+done
+row WCORE-11 "--debugger and --break-at exit 1 naming the flag and 'browser build', before --version runs" \
     $([[ -z "$bad" ]] && echo 1 || echo 0) "$bad"
 
 # WCORE-05: --set of a refused key.

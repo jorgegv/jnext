@@ -118,6 +118,7 @@ nav:
           - Memory coverage: 06-debugger/functions/15-memory-coverage.md
           - Your own labels and comments: 06-debugger/functions/16-user-labels-and-comments.md
           - Disassemblies in skoolkit and Ghidra: 06-debugger/functions/17-skoolkit-and-ghidra.md
+          - Starting from the command line: 06-debugger/functions/18-starting-from-the-command-line.md
       - Scripting:
           - 06-debugger/scripting/index.md
           - Your first script: 06-debugger/scripting/01-your-first-script.md

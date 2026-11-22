@@ -24,6 +24,9 @@ the memory that supplies it (shown as `$C000 P2E` for a RAM page): it fires only
 while that memory supplies the address, and the disassembly gutter shows it only then.
 The tags are explained in [banked code](07-banked-code.md).
 
+From the command line, `jnext --break-at main.bas:120 game.nex` runs to that line once and stops there, in the debugger window or for a remote debugger
+(see [Starting from the command line](../functions/18-starting-from-the-command-line.md)).
+
 **Breakpoints ▸ Add Execute Breakpoint…** takes `file:line` too. Symbols work
 in the other address fields: the other **Breakpoints ▸ Add …** dialogs,
 **Watches ▸ Add** (a watch added by name is labelled with it) and the Go to

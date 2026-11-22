@@ -521,10 +521,36 @@ int QtApp::run() {
     // No frame has run yet: the frame timer only fires inside exec().
     // The recording starts later, once the command-line load is in: see
     // emulator_start_rzx_record_when_loaded() in TickEffects::pre_frames().
-    if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
+    // GH #548: the command-line stop, now that every pending load / inject / replay is bound.
+    // The debugger window is the debugger when the build has one; otherwise the run waits
+    // for a remote debugger as the SDL one does.
+#ifdef ENABLE_DEBUGGER
+    constexpr bool kHasDebuggerWindow = true;
+#else
+    constexpr bool kHasDebuggerWindow = false;
+#endif
+    const auto stop_failed = [this](const std::string& why) {
+        Log::platform()->error("{}", why);
+        exit_code_ = 1;
+        if (main_window_) main_window_->set_unattended(true);
+        // Queued: quit() before exec() starts is lost, and run() has not started it.
+        QMetaObject::invokeMethod(qapp_, "quit", Qt::QueuedConnection);
+    };
+    {
+        const int coming = (load_countdown_ >= 0 ? 1 : 0) + (inject_countdown_ >= 0 ? 1 : 0) +
+                           (rzx_play_file_.empty() ? 0 : 1);
+        std::string why;
+        if (!startup_stop_.start(*debugger_, emulator_, config_, coming, kHasDebuggerWindow, why))
+            stop_failed(why);
+    }
+    const bool rzx_ok = emulator_start_rzx(emulator_, rzx_play_file_, "");
+    if (!rzx_ok)
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
     else if (main_window_ && !rzx_play_file_.empty())
         main_window_->startup_rzx_started(rzx_play_file_);   // GH #406: --load x.rzx joins Recent Files
+    if (std::string why; !rzx_play_file_.empty() &&
+                         !startup_stop_.program_landed(rzx_play_file_, rzx_ok, false, why))
+        stop_failed(why);
     loop_started_ = std::chrono::steady_clock::now();   // desktop_open::at_launch()
     return qapp_->exec();
 }
@@ -598,6 +624,7 @@ void QtApp::boot_machine(const std::string& load_file, bool allow_experimental_n
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
     ++cold_boots_;
+    startup_stop_.on_cold_boot();   // GH #548: a cold boot cancels a stop not yet taken
 
     // Issue #40 — the sequence itself lives in platform/emulator_boot.h and is
     // shared with SdlApp; this supplies only the Qt-specific steps. Placement-
@@ -684,6 +711,10 @@ void QtApp::on_frame_tick() {
 // ordering decisions here and no state: both moved into the sequencer.
 
 bool QtApp::TickEffects::pre_frames() {
+    // GH #548: the debugger window's Pause and Run are slots that run between ticks, so a stop and a resume
+    // can both fall before this tick's frames: the startup stop is checked (and put back) before them.
+    // SDL and headless issue every verb in the pump, which a poll already follows before any frame.
+    app.startup_stop_.poll();
     QtApp& a = app;
 
     // Task 79 — Qt owns the event loop, so SDL never runs its own; drain the
@@ -706,8 +737,16 @@ bool QtApp::TickEffects::pre_frames() {
 
     // Apply pending inject when countdown reaches zero.
     if (a.inject_countdown_ == 0) {
-        a.emulator_.inject_binary(a.inject_file_, a.inject_org_, a.inject_pc_);
+        const bool injected =
+            a.emulator_.inject_binary(a.inject_file_, a.inject_org_, a.inject_pc_);
         a.inject_countdown_ = -1;
+        if (std::string why; !a.startup_stop_.program_landed(a.inject_file_, injected, true, why)) {
+            Log::platform()->error("{}", why);
+            a.exit_code_ = 1;
+            if (a.main_window_) a.main_window_->set_unattended(true);
+            a.qapp_->quit();
+            return false;   // abandon the tick: not one frame of the program runs
+        }
     } else if (a.inject_countdown_ > 0) {
         --a.inject_countdown_;
     }
@@ -751,6 +790,15 @@ bool QtApp::TickEffects::pre_frames() {
                     a.exit_code_ = 1;
                 }
             }
+        }
+        // GH #548: the program is in, with its symbols: arm the startup stop.
+        if (std::string why; !a.startup_stop_.program_landed(a.load_file_, loaded, false, why)) {
+            Log::platform()->error("{}", why);
+            a.exit_code_ = 1;
+            if (a.main_window_) a.main_window_->set_unattended(true);
+            a.qapp_->quit();
+            a.load_countdown_ = -1;   // the load is done: the abandoned tick must not repeat it
+            return false;   // abandon the tick: not one frame of the program runs
         }
         a.config_.source_map_file.clear();
         // GH #346 - the scripts held back for the program's maps (the GUI keeps
@@ -903,6 +951,7 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // never block the tick (platform/debug_servers.h). Same call, same place.
     a.pump_hint_ = a.debugger_->pump(
         DebugServers::frame_loop_budget(a.debugger_->state().paused, a.pump_hint_));
+    a.startup_stop_.poll();   // GH #548
 
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the

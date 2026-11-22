@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.58</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.60</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.58</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.60</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2350,6 +2350,8 @@
       
         
       
+        
+      
     
     
     
@@ -2862,6 +2864,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -4553,6 +4583,8 @@ to mean the symbol (a z88dk C variable takes its C name: <code>counter</code>, n
 the memory that supplies it (shown as <code>$C000 P2E</code> for a RAM page): it fires only
 while that memory supplies the address, and the disassembly gutter shows it only then.
 The tags are explained in <a href="07-banked-code.html">banked code</a>.</p>
+<p>From the command line, <code>jnext --break-at main.bas:120 game.nex</code> runs to that line once and stops there, in the debugger window or for a remote debugger
+(see <a href="../functions/18-starting-from-the-command-line.html">Starting from the command line</a>).</p>
 <p><strong>Breakpoints ▸ Add Execute Breakpoint…</strong> takes <code>file:line</code> too. Symbols work
 in the other address fields: the other <strong>Breakpoints ▸ Add …</strong> dialogs,
 <strong>Watches ▸ Add</strong> (a watch added by name is labelled with it) and the Go to

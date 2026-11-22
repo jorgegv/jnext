@@ -283,6 +283,13 @@ struct EmulatorConfig {
     // window when a hit pauses the machine.
     bool persistent_breakpoints = false;
 
+    // GH #548 (--debugger, --break-at): start the program paused under the debugger, at
+    // the stop point of its format, or at `break_at` (an address, a symbol or a source
+    // line, as the Breakpoints panel reads one). A launch action like --load, not a
+    // setting the GUI holds, so no Preferences field.
+    bool        debugger_start = false;
+    std::string break_at;
+
     // GH #287 (--debug-listen-address): where the debugger protocol servers
     // (DZRP #12, ZRCP #280, GDB RSP #281) bind. LOOPBACK BY DEFAULT: none of
     // those protocols has any authentication, so exposing the debugger to the
