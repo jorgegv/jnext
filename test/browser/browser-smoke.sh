@@ -322,8 +322,8 @@ with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
 }
 
 # The files JNEXT writes (files.mjs BOUT-01..18, GH #553): the output options natively, the byte oracle of
-# every file the page lists. Three runs on clones of the card, under $O/outputs, NOT --silent (the WAV), in
-# the page's own mode (SdlApp, dummy drivers). a: the page's Mount A (every output option a page takes);
+# every file the page lists. Three runs on clones of the card, under $O/outputs, not --silent (--wav-record refuses it), in
+# the page's own mode (SdlApp, dummy drivers), a and c at --speed 99 (one frame in each tick: files.mjs says why). a: the page's Mount A (every output option a page takes);
 # b: Mount B (a DAC trace, a TAP save and a compositor trace whose frame never comes, 30 frames: the page
 # runs until stop()); c: the profile of Mount C, with the same TAP-save trap armed (it changes the CPU path).
 # dac.bin is the 23-byte program of dac-trace-func. Nothing here is a card: the runs only read the clone,
@@ -343,7 +343,7 @@ chain_outputs() {
         rm -rf "$cardc" "$cfg"
         [[ $rc -eq 0 ]] || { cat "$d/$name.log" >&2; die "oracle outputs $name failed (rc=$rc)"; }
     }
-    outrun a --machine 48k --inject "$tsd" --magic-port 0xBEEF --magic-port-mode line --rtc 2026-07-10T08:55:00 \
+    outrun a --speed 99 --machine 48k --inject "$tsd" --magic-port 0xBEEF --magic-port-mode line --rtc 2026-07-10T08:55:00 \
         --tape-save "$d/a/o.tzx" --wav-record "$d/a/o.wav" --profile --profile-output "$d/a/p.dat" \
         --compositor-trace "$d/a/c.csv" --compositor-trace-frame 50 \
         --delayed-screenshot "$d/a/s.png" --delayed-screenshot-frames 1400 \
@@ -352,7 +352,7 @@ chain_outputs() {
     outrun b --machine next --inject "$SCRATCH/outputs-dac.bin" --inject-org 8000 --inject-pc 8000 \
         --dac-trace "$d/b/d.csv" --wav-record "$d/b/live.wav" --tape-save "$d/b/n.tap" \
         --compositor-trace "$d/b/late.csv" --compositor-trace-frame 1000000 --delayed-automatic-exit-frames 30
-    outrun c --machine 48k --inject "$tsd" --magic-port 0xBEEF --magic-port-mode line --rtc 2026-07-10T08:55:00 \
+    outrun c --speed 99 --machine 48k --inject "$tsd" --magic-port 0xBEEF --magic-port-mode line --rtc 2026-07-10T08:55:00 \
         --tape-save "$d/c/x.tap" --profile --profile-output "$d/c/p.dat" --delayed-automatic-exit-frames 1500
     [[ -s "$d/a/o.tzx" && -s "$d/a/o.wav" && -s "$d/a/p.dat" && -s "$d/a/s.png" && -s "$d/a/br.zip" && -s "$d/a/j.log" && -s "$d/b/d.csv" && -s "$d/c/p.dat" ]] \
         || die "oracle outputs: a file is missing or empty"

@@ -156,7 +156,12 @@ const tsd = fs.readFileSync(path.join(ROOT, 'test/00regression/bin/tape_save_dem
 const dacBin = fs.readFileSync(path.join(SCRATCH, 'outputs-dac.bin'));
 
 // ---- Mount A: every output option a page takes, one run to the automatic exit ----------------
-const A_ARGS = ['--inject', '/tmp/tsd.bin', '--magic-port', '0xBEEF', '--magic-port-mode', 'line', '--rtc', '2026-07-10T08:55:00',
+// --speed 99 pins the page and the native run to the same emulated frames: at 100% the audio pacer runs 0,
+// 1 or 2 frames in a tick and the exit counts ticks, so the WAV, the profile and the RAM at the exit differ
+// from run to run, natively too (measured: the same native command gave 5.33 and 5.67 MB of WAV). Any
+// speed but 100% runs one frame in each tick (SdlApp::tick); below 100% every frame is also rendered, which
+// the compositor trace's frame 50 counts. --silent cannot be the pin: it refuses --wav-record.
+const A_ARGS = ['--speed', '99', '--inject', '/tmp/tape_save_demo.bin', '--magic-port', '0xBEEF', '--magic-port-mode', 'line', '--rtc', '2026-07-10T08:55:00',
   '--tape-save', '/tmp/o.tzx', '--wav-record', '/tmp/o.wav', '--profile', '--profile-output', '/tmp/p.dat',
   '--compositor-trace', '/tmp/c.csv', '--compositor-trace-frame', '50',
   '--delayed-screenshot', '/tmp/s.png', '--delayed-screenshot-frames', '1400',
@@ -168,7 +173,7 @@ const useA = () => mountA || (mountA = (async () => {
   await open(page, [{ machine: '48k', args: A_ARGS }]);
   const before = await list(page);
   const stateBefore = await stateOf(page);
-  await fsWrite(page, '/tmp/tsd.bin', tsd);
+  await fsWrite(page, '/tmp/tape_save_demo.bin', tsd);
   await fsMkdir(page, '/tmp/sk'); await fsMkdir(page, '/tmp/gh');
   await click(page);
   await waitExited(page);
@@ -413,11 +418,11 @@ row('BOUT-16', 'stop() before the click rejects "the machine is not running"; af
 // ---- Mount C: the guard -----------------------------------------------------------------------
 row('BOUT-17', 'the guard: after the exit listFiles() holds exactly /sdcard.dat; readFile() of the card (spelt with ..), /jnext/br.zip and /media/c.csv rejects as the player\'s own; the card really grew; /sdcard.dat equals the native profile', async () => {
   const page = await newPage();
-  await open(page, [{ machine: '48k', args: ['--inject', '/media/tsd.bin', '--magic-port', '0xBEEF', '--magic-port-mode', 'line',
+  await open(page, [{ machine: '48k', args: ['--speed', '99', '--inject', '/media/tape_save_demo.bin', '--magic-port', '0xBEEF', '--magic-port-mode', 'line',
     '--rtc', '2026-07-10T08:55:00', '--tape-save', '/tmp/../sdcard/image.img', '--bug-report', '/jnext/br.zip',
     '--compositor-trace', '/media/c.csv', '--compositor-trace-frame', '5', '--profile', '--profile-output', '/sdcard.dat',
     '--delayed-automatic-exit-frames', '1500'] }]);
-  await fsWrite(page, '/media/tsd.bin', tsd);
+  await fsWrite(page, '/media/tape_save_demo.bin', tsd);
   await click(page);
   await waitExited(page);
   const l = await list(page);
@@ -427,7 +432,7 @@ row('BOUT-17', 'the guard: after the exit listFiles() holds exactly /sdcard.dat;
   must(now > cardSize, `the card did not grow: ${now} vs ${cardSize}`);
   must(await page.evaluate(() => window.player0._module.FS.analyzePath('/jnext/br.zip').exists &&
                                   window.player0._module.FS.analyzePath('/media/c.csv').exists), 'br.zip or c.csv was not written');
-  for (const k of ['/sdcard/image.img', '/tmp/../sdcard/image.img', '/./sdcard/image.img', '/jnext/br.zip', '/media/c.csv', '/media/tsd.bin']) {
+  for (const k of ['/sdcard/image.img', '/tmp/../sdcard/image.img', '/./sdcard/image.img', '/jnext/br.zip', '/media/c.csv', '/media/tape_save_demo.bin']) {
     const m = await readF(page, k);
     must(typeof m === 'string' && REFUSED.own.test(m), `${k}: ${typeof m === 'string' ? m : 'resolved with ' + m.length + ' bytes'}`);
   }
