@@ -245,6 +245,12 @@ elif [[ "$tip" != "$RR_SHA" ]]; then
     refuse "$RR_BRANCH is at $tip on the remote repository, not at the expected $RR_SHA: the push did not land or the branch moved"
 fi
 say "source: $RR_BRANCH @ $RR_SHA"
+# The run tree gets origin/main so a tool inside the run (test/test-affected.pl --explain-miss, GH #547)
+# can take a merge base. Best effort: no main on the remote, or a failed fetch, is not a failure of the run.
+base_main=""
+if git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/main:refs/rr/main" </dev/null >/dev/null 2>&1; then
+    base_main=$(git -C "$MIRROR" rev-parse "refs/rr/main" 2>/dev/null || true)
+fi
 
 # ---- image ------------------------------------------------------------------
 # The dependency script comes from the commit under test, or from RR_DEPS_REF when one is given.
@@ -309,6 +315,7 @@ rm -rf "$run"; mkdir -p "$run" "$ctl" "$stamps"
 git clone -q --local --no-checkout "$MIRROR" "$run/src" 2>&1 </dev/null | grep -v "remote HEAD refers" || true
 exec 8>&-   # the setup lock is released: the rest is this run's own
 git -C "$run/src" checkout -q --detach "$RR_SHA" || fallback "cannot check out $RR_SHA"
+[[ -z "$base_main" ]] || git -C "$run/src" update-ref refs/remotes/origin/main "$base_main" 2>/dev/null || true
 git -C "$run/src" submodule update --init --recursive --depth 1 -q </dev/null \
     || git -C "$run/src" submodule update --init --recursive -q </dev/null \
     || fallback "submodule fetch failed"

@@ -26,7 +26,8 @@
 #           definition directory, selects it (also a docs file, which leaves docs mode, and a file
 #           nothing else places, which is not UNMAPPED); the whole-root definition plus a literal
 #           mention; browser-only sources; in a git fixture: a gitlink is FULL, a conf line plans
-#           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS)
+#           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS, also for a docs-only plan)
+#   TAF-31  Qt's QT_TESTCASE_* test-data define counts only for a suite that calls QFINDTESTDATA
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
 #           when nothing names it
 # (The MISS line of run-unit-tests.sh is TAF-11's subject; its rows are HS-194d/e in
@@ -209,6 +210,13 @@ suite s7_test test/s7_test.cpp "" zz.cpp.o; defs s7_test "JNEXT_SRC_DIR=$R"
 for n in s5 s6 s7; do echo "// $n" >"$R/test/${n}_test.cpp"; done
 echo 'void g() { read("src/a/q.h"); }' >>"$R/test/s7_test.cpp"; echo 'void h() { read("src/a/q.h"); }' >>"$R/test/s6_test.cpp"
 { cat "$W/unit-tests.conf"; echo 's5_test 1'; echo 's6_test 1'; echo 's7_test 1'; } >"$W/unit-tests.conf.new"; mv "$W/unit-tests.conf.new" "$W/unit-tests.conf"
+suite s8_test test/s8_test.cpp "" zz.cpp.o; defs s8_test "QT_TESTCASE_SOURCEDIR=$R/test"
+suite s9_test test/s9_test.cpp "" zz.cpp.o; defs s9_test "QT_TESTCASE_SOURCEDIR=$R/test"
+echo 'void a() { auto p = QFINDTESTDATA("x"); }' >"$R/test/s8_test.cpp"; echo '// s9' >"$R/test/s9_test.cpp"; echo d >"$R/test/other.dat"
+{ cat "$W/unit-tests.conf"; echo 's8_test 1'; echo 's9_test 1'; } >"$W/unit-tests.conf.new"; mv "$W/unit-tests.conf.new" "$W/unit-tests.conf"
+run test/other.dat
+row TAF-31 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s8_test* && "$(plan_suites)" != *s9_test* ]] && echo 1 || echo 0) \
+    "Qt's test-data root define selects a suite only when its sources call QFINDTESTDATA (got $(plan_suites))"
 
 run CMakeLists.txt
 row TAF-15 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *CMakeLists.txt* ]] && echo 1 || echo 0) \
@@ -275,10 +283,12 @@ printf 'src/a/y.cpp\n' >"$W/files"
 OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --explain-miss s1_test,s2_test 2>&1); RC=$?
 printf 'CMakeLists.txt\n' >"$W/files"
 OUT_FULL=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --explain-miss s1_test 2>&1)
-row TAF-30 $([[ $RC -eq 0 && "$OUT" == *"TEST-AFFECTED MISS: s1_test was not selected for src/a/y.cpp"* && "$OUT" != *"MISS: s2_test"* && "$OUT_FULL" != *MISS* ]] && echo 1 || echo 0) \
-    "--explain-miss: s1 (not pulled y) is named, s2 (selected) is not, and a FULL plan names nothing"
+printf 'doc/a.md\n' >"$W/files"
+OUT_DOCS=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --explain-miss s1_test 2>&1)
+row TAF-30 $([[ $RC -eq 0 && "$OUT" == *"TEST-AFFECTED MISS: s1_test was not selected for src/a/y.cpp"* && "$OUT" != *"MISS: s2_test"* && "$OUT_FULL" != *MISS* && "$OUT_DOCS" == *"plan: DOCS"* && "$OUT_DOCS" == *"MISS: s1_test was not selected for doc/a.md"* ]] && echo 1 || echo 0) \
+    "--explain-miss: s1 (not pulled y) is named, s2 (selected) is not, a FULL plan names nothing, a docs-only plan (no suite ran) names the failing suite"
 
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 29 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 29"; exit 1; }
+[[ "$total" -eq 30 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 30"; exit 1; }
 [[ "$failed" -eq 0 ]]

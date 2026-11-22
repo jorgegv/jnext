@@ -183,10 +183,12 @@ author runs the ones it names.
 whole manifest, a name the manifest does not declare is a refusal, each selected suite's own count is
 still pinned, and the summary says `subset run: K of N suites -- not a gate`. A suite that fails in
 the full run and that the planner would not have selected for the branch's diff against the merge base
-with `main` (`origin/main` when there is no local `main`) prints `TEST-AFFECTED MISS`, so the map or
-the conf is fixed on the same branch; with no such base the check is silent. The planner's rows are
-`TAF-01..10` and `TAF-12..30` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
-part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..g` in the harness
+with `main` (`origin/main` when there is no local `main`; the remote-run host's run tree is given one) prints
+`TEST-AFFECTED MISS`, so the map or the conf is fixed on the same branch; with no such base, or in a
+platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
+every suite that fails is a miss. The planner's rows are
+`TAF-01..10` and `TAF-12..31` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
+part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..j` in the harness
 self-test.
 
 What `make test-affected` does not do: it does not run the traceability check, so a new `check()`

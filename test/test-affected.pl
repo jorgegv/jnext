@@ -142,7 +142,7 @@ sub obj_files {
 }
 
 # per suite file sets
-my (%suite_files, %nomap, %suite_present, %suite_defs, %suite_rootdef);
+my (%suite_files, %nomap, %suite_present, %suite_defs, %suite_rootdef, %suite_text_cache);
 my %any_mapped;   # file -> 1 : read by some object in the tree
 for my $d (grep { m{/link\.d$} } @files) {
     my $tdir = dirname($d);
@@ -192,7 +192,8 @@ for my $d (grep { m{/link\.d$} } @files) {
             my $defs = $1;
             while ($defs =~ /-D(\w+)=\\?"([^"\\]*)\\?"/g) {
                 my ($name, $v) = ($1, $2);
-                next if $name =~ /^QT_TESTCASE_/;   # Qt's QFINDTESTDATA roots; nothing here calls it
+                # Qt's QFINDTESTDATA roots: skipped unless the suite's own sources call QFINDTESTDATA
+                next if $name =~ /^QT_TESTCASE_/ && suite_text($suite) !~ /QFINDTESTDATA|qFindTestData/;
 
                 next unless $v =~ m{^/};
                 $v = norm($v);
@@ -301,7 +302,6 @@ sub rows_declared {
 }
 my $declared_rows = rows_declared();
 
-my %suite_text_cache;
 sub suite_text {   # the sources of the suite's own objects plus its manifest arguments
     my $s = shift;
     return $suite_text_cache{$s} //= do {
@@ -502,7 +502,7 @@ if ($o{plan}) {
 # would not have selected (only meaningful when the plan is a subset; FULL would have run them).
 if (defined $o{'explain-miss'}) {
     my %sel = map { $_ => 1 } @sel;
-    if ($mode eq 'subset') {
+    if ($mode ne 'full') {   # a DOCS plan ran no suite at all: every failing suite is a miss
         for my $n (grep { length } split /,/, $o{'explain-miss'}) {
             print "TEST-AFFECTED MISS: $n was not selected for ", join(' ', @changed), "\n" unless $sel{$n};
         }

@@ -1333,22 +1333,7 @@ test-affected: $(UNIT_TEST_LINTS) unit-test-build sdcard-image
 	@# not run them. The full `make unit-test` runs once before landing. BASE=<ref> overrides main.
 	@plan=build/test-affected.plan; \
 	 perl test/test-affected.pl --smoke "$(SMOKE_SUITES_CSV)" --plan $$plan $(if $(BASE),--base $(BASE)) || exit $$?; \
-	 mode=$$(sed -n 's/^mode=//p' $$plan); suites=$$(sed -n 's/^suites=//p' $$plan); \
-	 rows=$$(sed -n 's/^rows=//p' $$plan); makes=$$(sed -n 's/^makes=//p' $$plan); rc=0; \
-	 if [ "$$mode" = full ]; then \
-	   printf "test-affected: FULL, running make unit-test\n"; $(MAKE) --no-print-directory unit-test || rc=1; \
-	 else \
-	   $(MAKE) --no-print-directory docs-check || rc=1; \
-	   if [ "$$mode" = subset ]; then \
-	     $(MAKE) --no-print-directory cli-check || rc=1; \
-	     bash test/run-unit-tests.sh --only "$$suites" build || rc=1; \
-	     JNEXT=$(CURDIR)/build/jnext bash test/00regression/regression.sh $(SMOKE_ROW) || rc=1; \
-	     for m in $$makes; do $(MAKE) --no-print-directory $$m || rc=1; done; \
-	     if [ -n "$$rows" ]; then $(MAKE) --no-print-directory regression-rows ROWS="$$rows" || rc=1; fi; \
-	   fi; \
-	 fi; \
-	 printf "test-affected: NOT A GATE. Run the platform suites named above, and the full make unit-test once before landing.\n"; \
-	 exit $$rc
+	 TA_MAKE="$(MAKE)" TA_JNEXT=$(CURDIR)/build/jnext SMOKE_ROW=$(SMOKE_ROW) bash test/test-affected-run.sh $$plan
 
 # Every tracked file is in a depfile of the build tree or classified in test/test-affected.conf (GH #547)
 test-affected-check: $(UNIT_TEST_BUILD_DEP)

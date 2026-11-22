@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-38. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-39. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=38
+EXPECTED_ROWS=39
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -113,6 +113,7 @@ case "${1:-}" in
             [[ "$a" == *:/src ]] && { echo "${a%%:*}" > "$FAKE_STATE/srcdir"; src=${a%%:*}; }
             [[ "$a" == *:/rr:ro ]] && { cp "${a%%:*}/env.sh" "$FAKE_STATE/env.sh"; ctl=${a%%:*}; }
         done
+        [[ "${FAKE_REFS:-0}" != 1 ]] || git -C "$src" merge-base HEAD origin/main > "$FAKE_STATE/mergebase" 2>/dev/null
         if [[ "${FAKE_INNER:-0}" == 1 ]]; then
             RR_CTL=$ctl RR_SRC=$src bash "$ctl/inner.sh"
             exit $?
@@ -728,6 +729,14 @@ env -u REMOTE_RUN_FALLBACK REMOTE_RUN_LOCAL_WRAP="$TMP/wrap2" timeout --kill-aft
 fb=$(grep fallback= "$FAKE_STATE/make-calls" | sort -u)
 row RRUN-37 "$([[ "$fb" == "fallback=1" && $(grep -c fallback= "$FAKE_STATE/make-calls") -eq 2 ]] && echo 1 || echo 0)" \
     "both fallback forms (make target, sh:) put REMOTE_RUN_FALLBACK=1 in the wrapper's environment"
+
+# RRUN-39: the run tree carries origin/main (the mirror holds only refs/rr/*, a local clone copies only
+# refs/heads/*), so a tool in the run can take a merge base with main (test-affected --explain-miss, GH #547)
+reset_state; rm -f "$FAKE_STATE/mergebase"
+FAKE_REFS=1 FAKE_RC=0 drive --id m39 feature "$SHA" unit-test
+mb39=$(cat "$FAKE_STATE/mergebase" 2>/dev/null)
+row RRUN-39 "$([[ $RC -eq 0 && -n "$mb39" && "$mb39" == "$(git -C "$REPO" rev-parse main)" ]] && echo 1 || echo 0)" \
+    "the run tree's origin/main is the remote's main: merge-base HEAD origin/main = $mb39 (rc $RC)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

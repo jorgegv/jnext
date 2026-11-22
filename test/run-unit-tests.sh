@@ -818,7 +818,8 @@ fi
 # failing suites, against the merge base with main (silent when there is no main to compare with,
 # no build tree it can read, or no git). JNEXT_TEST_AFFECTED_TOOL replaces the planner (the self-test).
 TA_TOOL="${JNEXT_TEST_AFFECTED_TOOL:-test/test-affected.pl}"
-if (( ! SUBSET && ${#FAILED_SUITES[@]} )) && [[ -f "$TA_TOOL" ]]; then
+# Only the Linux Qt tree: that is the tree `make test-affected` runs; the platform trees are run by name.
+if (( ! SUBSET && ${#FAILED_SUITES[@]} && HAS_QT )) && [[ "$TARGET_OS" == linux && -f "$TA_TOOL" ]]; then
     ta_failed=$(IFS=,; printf '%s' "${FAILED_SUITES[*]}")
     ta_out=$(timeout --kill-after=5s 120s perl "$TA_TOOL" --build "$BUILD" --manifest "$CONF" --explain-miss "$ta_failed" 2>/dev/null || true)
     ta_miss=$(grep '^TEST-AFFECTED MISS' <<<"$ta_out" || true)
