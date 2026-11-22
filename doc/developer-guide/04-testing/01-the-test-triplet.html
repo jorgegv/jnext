@@ -3072,7 +3072,7 @@ $ make regression
 <li><strong>Where it runs:</strong> on GitHub, as a CI run on the commit to be pushed. The
   maintainer puts that commit on <code>origin</code> as a temporary <code>gate-v&lt;version&gt;</code>
   branch and runs <code>bash test/ci-gate.sh dispatch gate-v&lt;version&gt; &lt;sha&gt;</code>, then
-  <code>wait &lt;run-id&gt;</code>, then <code>make ci-gate-check RUN=&lt;run-id&gt;</code>. The verdict is
+  <code>wait &lt;run-id&gt;</code>, then <code>make ci-gate-check RUN=&lt;run-id&gt; SHA=&lt;sha&gt;</code>; the sha is mandatory, so a run on any other commit is refused. The verdict is
   <code>CLEAN</code> only if the run and every job succeeded (a skipped or cancelled job is
   not clean) and no job of the last green <code>main</code> run is missing. The commit
   that was gated, not the local tip, is what is pushed to <code>main</code>. CI saves its

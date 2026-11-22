@@ -16,12 +16,18 @@
 #   CIG-06  dispatch refuses when origin/<branch> is another sha (exit 3, nothing started)
 #   CIG-07  dispatch picks the run on the given sha created after the dispatch, ignoring an older
 #           run and a newer run of another sha; gives up (exit 1) when none appears
-#   CIG-08  wait gives up at its bound (124, naming the run) and returns 0 once the run completes
+#   CIG-08  wait gives up at its bound (124, naming the run) even when a gh call hangs, and returns 0
+#           once the run completes
+#   CIG-09  a completed, successful pull_request run is not clean, naming the event
+#   CIG-10  a run still in progress is not clean, naming the status
+# The stub gh answers `run list` / `run view` / `workflow run` only for the exact flag sets the gate must
+# use (`--branch main --event push --status success`, `--event workflow_dispatch --branch <b>`, ...) and
+# exits 1 otherwise, so a dropped filter makes the gate fail instead of silently reading the wrong run.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 GATE=$ROOT/test/ci-gate.sh
-EXPECTED_ROWS=8
+EXPECTED_ROWS=10
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -46,7 +52,7 @@ missing=()
 for t in python3 timeout date; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
 if [[ ${#missing[@]} -gt 0 ]]; then
     echo "  missing tools: ${missing[*]}"
-    for i in 1 2 3 4 5 6 7 8; do row "CIG-0$i" 0 "not run: missing tools"; done
+    for i in 1 2 3 4 5 6 7 8 9 10; do row "CIG-$(printf %02d "$i")" 0 "not run: missing tools"; done
     total=$EXPECTED_ROWS; failed=$EXPECTED_ROWS; passed=0; ids_seen=" "; finish
 fi
 
@@ -60,20 +66,29 @@ cat > "$TMP/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 fx=$CI_GATE_FX
 echo "gh $*" >> "$fx/calls"
+a=" $* "
 case "$1 $2" in
-    "workflow run") exit 0 ;;
+    "workflow run")
+        [[ "$a" == *" workflow run ci.yml --ref "* ]] || exit 1; exit 0 ;;
     "run list")
-        case " $* " in
-            *" --branch main "*) cat "$fx/main-list.json" ;;
-            *) cat "$fx/dispatch-list.json" ;;
-        esac ;;
+        [[ "$a" == *" --workflow ci.yml "* ]] || exit 1
+        if [[ "$a" == *" --branch main "* ]]; then
+            [[ "$a" == *" --event push "* && "$a" == *" --status success "* ]] || exit 1
+            cat "$fx/main-list.json"
+        else
+            [[ "$a" == *" --event workflow_dispatch "* && "$a" == *" --branch "* ]] || exit 1
+            cat "$fx/dispatch-list.json"
+        fi ;;
     "run view")
         id=$3
-        if [[ " $* " == *" --json status "* ]]; then
+        [ ! -f "$fx/hang" ] || sleep 40
+        if [[ "$a" == *" --json status "* ]]; then
             n=$(cat "$fx/n-$id" 2>/dev/null || echo 0); echo $((n + 1)) > "$fx/n-$id"
             if [ "$n" -ge "$(cat "$fx/done-after-$id" 2>/dev/null || echo 999999)" ]; then s=completed; else s=in_progress; fi
             printf '{"status":"%s"}\n' "$s"
-        else cat "$fx/run-$id.json"; fi ;;
+        elif [[ "$a" == *" --json status,conclusion,headSha,headBranch,event,jobs "* || "$a" == *" --json jobs "* ]]; then
+            cat "$fx/run-$id.json"
+        else exit 1; fi ;;
     *) exit 1 ;;
 esac
 STUB
@@ -96,7 +111,7 @@ run_json() {
         jobs+="$sep{\"name\":\"${j%%:*}\",\"conclusion\":\"${j#*:}\",\"startedAt\":\"2026-11-21T10:00:00Z\",\"completedAt\":\"2026-11-21T10:30:30Z\"}"
         sep=","
     done
-    printf '{"status":"completed","conclusion":"%s","event":"%s","headSha":"%s","headBranch":"gate-v9","jobs":[%s]}\n' "$concl" "$ev" "$sha" "$jobs"
+    printf '{"status":"%s","conclusion":"%s","event":"%s","headSha":"%s","headBranch":"gate-v9","jobs":[%s]}\n' "${RUN_STATUS:-completed}" "$concl" "$ev" "$sha" "$jobs"
 }
 printf '[{"databaseId":500}]\n' > "$FX/main-list.json"
 run_json success push "$OTHER" "test (unit):success" "test (regression):success" "package:success" > "$FX/run-500.json"
@@ -164,6 +179,27 @@ ok8=0; [[ $RC -eq 124 && "$OUT" == *"run 20 not completed after 0 min"* ]] && ok
 echo 2 > "$FX/done-after-21"; rm -f "$FX/n-21"
 OUT=$(CI_GATE_POLL_SEC=1 timeout --foreground --kill-after=5s 30s bash "$GATE" wait 21 2>&1); RC=$?
 [[ $RC -eq 0 && "$OUT" == *"run 21 completed"* ]] || ok8=0
-row CIG-08 "$ok8" "wait gives up at its bound (exit 124, the run named) and returns 0 once the run is completed"
+# a gh call that hangs (stub sleeps 40 s) must not stretch the bound: the call is cut at CI_GATE_GH_SEC
+touch "$FX/hang"; echo 999999 > "$FX/done-after-22"; rm -f "$FX/n-22"
+t0=$SECONDS
+OUT=$(CI_GATE_POLL_SEC=1 CI_GATE_GH_SEC=2 timeout --foreground --kill-after=5s 30s bash "$GATE" wait --max-min 0 22 2>&1); RC=$?
+[[ $RC -eq 124 && "$OUT" == *"run 22 not completed after 0 min"* && $((SECONDS - t0)) -lt 15 ]] || ok8=0
+t0=$SECONDS
+OUT=$(CI_GATE_GH_SEC=2 timeout --foreground --kill-after=5s 30s bash "$GATE" verdict 22 2>&1); RC=$?
+[[ $RC -eq 75 && $((SECONDS - t0)) -lt 15 && "$OUT" != *"verdict: CLEAN"* ]] || ok8=0
+rm -f "$FX/hang"
+row CIG-08 "$ok8" "wait gives up at its bound (exit 124, the run named), also while a gh call hangs, and returns 0 once the run is completed"
+
+# CIG-09
+RUN_STATUS=completed run_json success pull_request "$SHA" "test (unit):success" "test (regression):success" "package:success" > "$FX/run-9.json"
+vrun --sha "$SHA" 9
+row CIG-09 "$([[ $RC -eq 1 && "$OUT" == *"run event is pull_request"* && "$OUT" != *"verdict: CLEAN"* ]] && echo 1 || echo 0)" \
+    "a completed, successful pull_request run on the right sha: not clean, the event named"
+
+# CIG-10
+RUN_STATUS=in_progress run_json success workflow_dispatch "$SHA" "test (unit):success" "test (regression):success" "package:success" > "$FX/run-10.json"
+vrun --sha "$SHA" 10
+row CIG-10 "$([[ $RC -eq 1 && "$OUT" == *"run status is in_progress"* && "$OUT" != *"verdict: CLEAN"* ]] && echo 1 || echo 0)" \
+    "a run still in progress whose jobs all read success: not clean, the status named"
 
 finish

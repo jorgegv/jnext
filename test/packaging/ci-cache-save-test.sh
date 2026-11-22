@@ -12,7 +12,9 @@
 #   CICS-02  every `actions/cache/save` step's `if:` requires a push to refs/heads/main, and so does
 #            the flatpak-builder action's `save-cache` in flatpak-build.yml
 #   CICS-03  every `actions/cache/restore` has a save with the same key and path, and every save a restore
-#   CICS-04  the checker refuses fixtures: a combined cache, a save with no (or a wrong) condition, a
+#   CICS-04  the checker refuses fixtures: the save condition is PARSED (top-level && conjuncts), so ||, a
+#            negation and a trailing || term are refused; a commented-out or `true` flatpak save-cache;
+#            a combined cache, a save with no (or a wrong) condition, a
 #            restore with no save, a save with no restore, a workflow with no cache step at all
 set -uo pipefail
 
@@ -41,6 +43,28 @@ import sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
 rule = sys.argv[2]
 MAIN = ("github.event_name == \x27push\x27", "github.ref == \x27refs/heads/main\x27")
+def conjuncts(c):
+    # strip ${{ }}, split on top-level && (parentheses and quotes respected)
+    c = str(c).strip()
+    if c.startswith("${{") and c.endswith("}}"): c = c[3:-2].strip()
+    parts, depth, q, cur, i = [], 0, None, "", 0
+    while i < len(c):
+        ch = c[i]
+        if q:
+            if ch == q: q = None
+        elif ch in "\x27\"": q = ch
+        elif ch == "(": depth += 1
+        elif ch == ")": depth -= 1
+        if not q and depth == 0 and c[i:i+2] == "&&":
+            parts.append(cur.strip()); cur = ""; i += 2; continue
+        cur += ch; i += 1
+    parts.append(cur.strip())
+    return parts
+def cond_ok(c):
+    # the two conjuncts must stand alone at the top level: an `||` or a negation would
+    # make them part of a larger conjunct and so absent from the list
+    parts = conjuncts(c)
+    return all(m in parts for m in MAIN)
 bad = []; restores = []; saves = []; n = 0
 for jn, j in (d.get("jobs") or {}).items():
     for st in j.get("steps") or []:
@@ -54,7 +78,16 @@ for jn, j in (d.get("jobs") or {}).items():
         elif u.startswith("actions/cache/save@"):
             saves.append((jn, str(w.get("key")), str(w.get("path")), ident))
             c = str(st.get("if", ""))
-            if rule == "cond" and not all(m in c for m in MAIN): bad.append("save without a main-push condition: " + ident)
+            if rule == "cond" and not cond_ok(c): bad.append("save without a main-push condition: " + ident)
+if rule == "flatpak":
+    n = 0
+    for jn, j in (d.get("jobs") or {}).items():
+        for st in j.get("steps") or []:
+            if str(st.get("uses", "")).startswith("flatpak/flatpak-github-actions/flatpak-builder"):
+                n += 1
+                if not cond_ok((st.get("with") or {}).get("save-cache", "")): bad.append("flatpak-builder step without a main-push save-cache: %s/%s" % (jn, st.get("name", st.get("uses"))))
+    if n == 0: sys.exit(2)
+    print("\n".join(bad)); sys.exit(1 if bad else 0)
 if n == 0: sys.exit(2)
 if rule == "pair":
     for r in restores:
@@ -75,10 +108,9 @@ for pair in "CICS-01:plain:holds no combined actions/cache step" \
             "CICS-03:pair:every restore has a save of the same key and path, and back"; do
     id=${pair%%:*}; rest=${pair#*:}; rule=${rest%%:*}; text=${rest#*:}
     out=$(check "$WF" "$rule"); rc=$?
-    # the Flatpak job caches through its action, not actions/cache: its save toggle carries the same rule
+    # the Flatpak job caches through its action, not actions/cache: its save-cache toggle carries the same rule
     if [[ $rc -eq 0 && "$id" == CICS-02 ]]; then
-        grep -qF "save-cache: \${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}" "${CI_CACHE_SAVE_FLATPAK:-$ROOT/.github/workflows/flatpak-build.yml}" \
-            || { rc=1; out="flatpak-build.yml: the flatpak-builder action's save-cache is not limited to a push to main"; }
+        out=$(check "${CI_CACHE_SAVE_FLATPAK:-$ROOT/.github/workflows/flatpak-build.yml}" flatpak); rc=$?
     fi
     if [[ $rc -eq 0 ]]; then row "$id" 1 "ci.yml $text"
     else row "$id" 0 "ci.yml: ${out:-checker exit $rc}"; fi
@@ -99,6 +131,19 @@ mk "$TMP/nosave.yml" "$R" ""
 mk "$TMP/norestore.yml" "" "$S"
 mk "$TMP/otherkey.yml" "$R" "${S/key: k/key: other}"
 printf 'jobs:\n  j:\n    steps:\n      - run: true\n' > "$TMP/none.yml"
+# conditions that merely CONTAIN both conjuncts: ||, a negation, a trailing || term, a PR alternative
+SAVE_IF() { printf '      - name: Save x\n        if: %s\n        uses: actions/cache/save@v5\n        with:\n          path: p\n          key: k\n' "$1"; }
+P="github.event_name == 'push'"; M="github.ref == 'refs/heads/main'"
+mk "$TMP/c-or.yml"  "$R" "$(SAVE_IF "$P || $M")"
+mk "$TMP/c-not.yml" "$R" "$(SAVE_IF "\${{ !($P && $M) }}")"
+mk "$TMP/c-tail.yml" "$R" "$(SAVE_IF "$P && $M || github.event_name == 'workflow_dispatch'")"
+mk "$TMP/c-pr.yml"  "$R" "$(SAVE_IF "$P && $M || github.event_name == 'pull_request' && steps.x.outputs.cache-hit != 'true'")"
+mk "$TMP/c-good.yml" "$R" "$(SAVE_IF "\${{ $P && $M && (matrix.leg == 'a' || matrix.leg == 'b') }}")"
+FB() { printf 'jobs:\n  j:\n    steps:\n      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6\n        with:\n          cache-key: k\n%s' "$1"; }
+FB "          save-cache: \${{ $P && $M }}"$'\n' > "$TMP/fb-ok.yml"
+FB "          # save-cache: \${{ $P && $M }}"$'\n' > "$TMP/fb-commented.yml"
+FB "          save-cache: true"$'\n' > "$TMP/fb-true.yml"
+FB "          save-cache: \${{ $P || $M }}"$'\n' > "$TMP/fb-or.yml"
 msg=""
 for r in plain cond pair; do check "$TMP/ok.yml" "$r" >/dev/null || msg+=" ok-refused-by-$r;"; done
 check "$TMP/combined.yml" plain >/dev/null && msg+=" combined-accepted;"
@@ -108,6 +153,11 @@ check "$TMP/nosave.yml" pair >/dev/null && msg+=" restore-without-save-accepted;
 check "$TMP/norestore.yml" pair >/dev/null && msg+=" save-without-restore-accepted;"
 check "$TMP/otherkey.yml" pair >/dev/null && msg+=" different-key-accepted;"
 check "$TMP/none.yml" cond >/dev/null; [[ $? -eq 2 ]] || msg+=" no-cache-steps-not-refused;"
+for f in c-or c-not c-tail c-pr; do check "$TMP/$f.yml" cond >/dev/null && msg+=" $f-condition-accepted;"; done
+check "$TMP/c-good.yml" cond >/dev/null || msg+=" good-compound-condition-refused;"
+check "$TMP/fb-ok.yml" flatpak >/dev/null || msg+=" good-flatpak-refused;"
+for f in fb-commented fb-true fb-or; do check "$TMP/$f.yml" flatpak >/dev/null && msg+=" $f-accepted;"; done
+check "$TMP/ok.yml" flatpak >/dev/null; [[ $? -eq 2 ]] || msg+=" no-flatpak-step-not-refused;"
 if [[ -z "$msg" ]]; then row CICS-04 1 "the checker accepts a good fixture and refuses each broken one"
 else row CICS-04 0 "$msg"; fi
 

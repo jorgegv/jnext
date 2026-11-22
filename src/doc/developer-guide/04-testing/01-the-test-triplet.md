@@ -22,7 +22,7 @@ The triplet is the core of the **batch gate**, which adds `make unit-test-sdl`,
 - **Where it runs:** on GitHub, as a CI run on the commit to be pushed. The
   maintainer puts that commit on `origin` as a temporary `gate-v<version>`
   branch and runs `bash test/ci-gate.sh dispatch gate-v<version> <sha>`, then
-  `wait <run-id>`, then `make ci-gate-check RUN=<run-id>`. The verdict is
+  `wait <run-id>`, then `make ci-gate-check RUN=<run-id> SHA=<sha>`; the sha is mandatory, so a run on any other commit is refused. The verdict is
   `CLEAN` only if the run and every job succeeded (a skipped or cancelled job is
   not clean) and no job of the last green `main` run is missing. The commit
   that was gated, not the local tip, is what is pushed to `main`. CI saves its

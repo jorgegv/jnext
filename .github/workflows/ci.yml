@@ -126,7 +126,7 @@ jobs:
       FPGA_CORE_REF: b047011d82bf3086f2b7db76451c6254506f5fe8   # CORE VERSION 3.02.03
       # GH #547: one main run saves every leg's ccache (6.5 GB measured on 2026-11-21) against
       # GitHub's 10 GB repository limit; the cap keeps a run's entries near 5 GB.
-      CCACHE_MAXSIZE: ${{ fromJSON('{"build-matrix":"1G","unit":"800M","unit-win":"300M","regression":"600M","regression-win":"500M","regression-wasm":"300M","unit-wasm":"300M","browser":"400M"}')[matrix.leg] }}
+      CCACHE_MAXSIZE: ${{ fromJSON('{"build-matrix":"1G","unit":"800M","unit-win":"300M","regression":"600M","regression-win":"500M","regression-wasm":"300M","unit-wasm":"300M","browser":"400M"}')[matrix.leg] || '300M' }}
     steps:
       # git first, BEFORE the checkout: a bare fedora:45 has no git, and
       # actions/checkout throws outright when `submodules` is requested

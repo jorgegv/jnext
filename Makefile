@@ -836,10 +836,10 @@ regression-stamp-check:
 ccache-stats:
 	@ccache -s 2>/dev/null || echo "ccache not installed"
 
-# Verdict of a CI gate run: make ci-gate-check RUN=<run-id> [SHA=<sha>] (CLEAN only if every job succeeded; GH #547)
+# Verdict of a CI gate run: make ci-gate-check RUN=<run-id> SHA=<sha>, the commit to be pushed (CLEAN only if every job succeeded; GH #547)
 ci-gate-check:
-	@test -n "$(RUN)" || { echo "usage: make ci-gate-check RUN=<run-id> [SHA=<sha>]"; exit 2; }
-	@bash test/ci-gate.sh verdict $(if $(SHA),--sha $(SHA)) $(RUN)
+	@test -n "$(RUN)" -a -n "$(SHA)" || { echo "usage: make ci-gate-check RUN=<run-id> SHA=<sha>  (SHA: the commit to be pushed; the run must be on it)"; exit 2; }
+	@bash test/ci-gate.sh verdict --sha $(SHA) $(RUN)
 
 # Find a green CI run on a commit with this tree's content key (read-only gh query; release step)
 regression-ci-check:

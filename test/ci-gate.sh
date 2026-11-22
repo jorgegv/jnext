@@ -16,7 +16,7 @@
 #
 # Exit status: 0 ok / CLEAN; 1 not clean, or no run appeared; 2 usage; 3 dispatch refused (origin/<branch> is
 # not <sha>); 75 GitHub unreachable; 124 wait ran out of time.
-# Environment: CI_GATE_POLL_SEC (wait poll interval, default 60), CI_GATE_APPEAR_SEC (dispatch wait for the
+# Environment: CI_GATE_GH_SEC (bound on every gh / git call, default 120; a timeout is a failed poll in wait and exit 75 elsewhere), CI_GATE_POLL_SEC (wait poll interval, default 60), CI_GATE_APPEAR_SEC (dispatch wait for the
 # run to appear, default 300), CI_GATE_SKEW_SEC (clock-skew allowance, default 120).
 # Needs gh, git and python3 (JSON). Never retries a job; `gh run rerun` is for suspected flakes only.
 set -euo pipefail
@@ -26,12 +26,14 @@ WORKFLOW=ci.yml
 POLL=${CI_GATE_POLL_SEC:-60}
 APPEAR=${CI_GATE_APPEAR_SEC:-300}
 SKEW=${CI_GATE_SKEW_SEC:-120}
+GH_SEC=${CI_GATE_GH_SEC:-120}
 
 die() { echo "ci-gate: $*" >&2; exit "${2:-1}"; }
 usage() { sed -n '3,/^# Needs gh/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 2; }
 
 # gh_json <args...>: gh output, or exit 75 when GitHub cannot be reached.
-gh_json() { gh "$@" 2>/dev/null || die "GitHub unreachable or refused: gh $*" 75; }
+gh_t() { timeout --kill-after=5s "${GH_SEC}s" gh "$@" 2>/dev/null; }
+gh_json() { gh_t "$@" || die "GitHub unreachable, timed out or refused: gh $*" 75; }
 
 # py <program> [args]: run python (isolated) on stdin; the program sees the parsed JSON as `d`.
 py() { local prog=$1; shift; python3 -I -c "import json,sys
@@ -44,10 +46,11 @@ cmd_dispatch() {
     [ "$#" -eq 2 ] || usage
     local branch=$1 sha=$2 remote start list id
     [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "<sha> must be 40 hex digits" 2
-    remote=$(git ls-remote origin "refs/heads/$branch" 2>/dev/null | cut -f1) || die "git ls-remote failed" 75
+    remote=$(timeout --kill-after=5s "${GH_SEC}s" git ls-remote origin "refs/heads/$branch" 2>/dev/null) || die "git ls-remote failed or timed out" 75
+    remote=$(cut -f1 <<<"$remote")
     [ "$remote" = "$sha" ] || die "refused: origin/$branch is '${remote:-absent}', not $sha (push the branch first)" 3
     start=$(now_iso "$SKEW")
-    gh workflow run "$WORKFLOW" --ref "$branch" >&2 || die "gh workflow run failed" 75
+    gh_t workflow run "$WORKFLOW" --ref "$branch" >&2 || die "gh workflow run failed" 75
     local waited=0 step=$POLL
     [ "$step" -le 10 ] || step=10
     while :; do
@@ -73,7 +76,7 @@ cmd_wait() {
     local id=$1 t0 elapsed status fails=0 next_beat=600
     t0=$(date +%s)
     while :; do
-        if status=$(gh run view "$id" --json status 2>/dev/null | py 'print(d["status"])' 2>/dev/null); then
+        if status=$(gh_t run view "$id" --json status | py 'print(d["status"])' 2>/dev/null); then
             fails=0
             [ "$status" != completed ] || { echo "run $id completed"; return 0; }
         else
