@@ -28,7 +28,8 @@
 #        never sent back: this is also how the driver's own fallback through this script ends);
 #     2. it is  [env LANG=C] make -C <worktree> <word>...  where every word is a heavy target or a
 #        make VAR=value; at least one target; no other make option, no other environment word;
-#     3. JNEXT_REMOTE_RUN_HOST is set;
+#     3. JNEXT_REMOTE_RUN_HOSTS (a space-separated list of ssh aliases, in preference order) or
+#        JNEXT_REMOTE_RUN_HOST (one alias) is set;
 #     4. the worktree's branch is an issue branch gh<N>-<slug> (never main, epic*, gate-*, detached);
 #     5. `git status --porcelain` there is empty, untracked files included: the remote runs only
 #        committed state, so an edit-and-test cycle (mutations!) always stays local.
@@ -37,20 +38,31 @@
 #   this one and does not load it; a heavy but short command (regression-rows, test-affected) is sent
 #   only when no local slot is admissible right now (all held, or the load is at the limit). Sending =
 #   push origin/<branch> if it is not at HEAD (`git push origin <branch>`, never forced; COMMON-RULES
-#   "REMOTE RUNS" authorizes an agent to push its own issue branch), then remote-run.sh --stream
-#   --fallback-local, with this script as REMOTE_RUN_LOCAL_WRAP. Both remote lanes busy past the
-#   driver's LANE_WAIT (30 s), the alias unreachable, ...: the driver runs the targets here through this
+#   "REMOTE RUNS" authorizes an agent to push its own issue branch), then remote-run.sh --stream.
+#   HOSTS (GH #547, owner 2026-11-22: several remote hosts): the aliases are tried in list order; a host
+#   is tried only when `remote-run.sh --probe` finds a free lane on it right now (one ssh round trip: a busy
+#   or unreachable host costs a moment, never the driver's 30 s LANE_WAIT), so a run goes to whichever
+#   host has a free lane and never queues while a lane anywhere is free. The driver is called with that
+#   host's alias in its environment (one host per call; the work directory name is the same on every host,
+#   each expands its own `~`). A driver status 75 (nothing ran: the host refused after the probe) moves to
+#   the next host; a run that started and failed is never retried elsewhere. Every host busy or unusable:
+#   the run waits for a local slot (live output), and WHILE it waits the hosts are probed again, quietly, every
+#   JNEXT_SLOT_REPROBE-th poll (default 3, so about a minute): a lane that frees up takes the run, and a lane
+#   anywhere is never ignored for the length of the local queue. PAUSED is checked before every poll and re-probe. The LAST host of the list is called with
+#   --fallback-local and this script as REMOTE_RUN_LOCAL_WRAP, so a lane lost between its probe and the
+#   run is taken over here as with one host: the driver runs the targets here through this
 #   script, with overflow switched off (no live output reaches the caller meanwhile: the driver writes a
 #   fallback run to its log only, so a long wait looks silent until the summary), so the run waits for a local slot and never loops. The exit
 #   status is the driver's, except 75 when <dir>/PAUSED appears meanwhile (0 green, 1 not clean or failed, 124 timeout, 2 usage). Exit 3 (the push did
 #   not land) ran nothing, so it is run locally instead; 75 never reaches here (the fallback took it).
 #
 # The remote host comes from the environment this script runs in: the run's wrapper must export
-# JNEXT_REMOTE_RUN_HOST=<ssh alias> and JNEXT_REMOTE_RUN_DIR=<remote work directory> (see the
+# JNEXT_REMOTE_RUN_HOSTS="<alias> <alias>" (or JNEXT_REMOTE_RUN_HOST=<alias>) and
+# JNEXT_REMOTE_RUN_DIR=<remote work directory> (see the
 # autonomous-run skill), or every heavy command stays local and says why.
 #
 # Every admission appends one line to <dir>/admissions.log:
-#   <ISO time> <slot N | remote> waited=<s>s load=<1-min> <command, first 120 characters>
+#   <ISO time> <slot N | remote <alias>> waited=<s>s load=<1-min> <command, first 120 characters>
 #
 # Test hooks (the contract, test/packaging/slot-test.sh): JNEXT_SLOT_LOADAVG (a file in /proc/loadavg
 # format), JNEXT_SLOT_REMOTE_RUN (the driver), JNEXT_SLOT_POLL (seconds between local attempts, default 20),
@@ -156,7 +168,8 @@ parse_overflow() {
         fi
     done
     [[ ${#targets[@]} -gt 0 ]] || { OV_REASON="no heavy target in the command"; return; }
-    [[ -n "${JNEXT_REMOTE_RUN_HOST:-}" ]] || { OV_REASON="JNEXT_REMOTE_RUN_HOST is not set"; return; }
+    HOSTS=(${JNEXT_REMOTE_RUN_HOSTS:-${JNEXT_REMOTE_RUN_HOST:-}})
+    [[ ${#HOSTS[@]} -gt 0 ]] || { OV_REASON="JNEXT_REMOTE_RUN_HOST is not set (nor JNEXT_REMOTE_RUN_HOSTS)"; return; }
     [[ -d "$OV_WT" ]] || { OV_REASON="'$OV_WT' is not a directory"; return; }
     OV_BRANCH=$(git -C "$OV_WT" symbolic-ref --short -q HEAD 2>/dev/null) \
         || { OV_REASON="detached HEAD (only an issue branch gh<N>-<slug> is sent)"; return; }
@@ -174,29 +187,51 @@ parse_overflow() {
     fi
 }
 
-# go_remote: push if needed, run the driver. Returns its status; 99 = nothing ran, run it here.
+# go_remote: try the remote hosts in order. Returns the driver's status; 99 = nothing ran, run it here.
+# A host is tried only when `remote-run.sh --probe` finds a free lane on it (one ssh round trip, so a busy or
+# unreachable host costs a moment, not the driver's 30 s LANE_WAIT). The LAST host of the list gets
+# --fallback-local (a lane taken between the probe and the run, or any other 75, runs the targets here through
+# this script, as with one host); an earlier host does not: its 75 (nothing ran) moves on to the next host.
+# Exit 3 (the push did not land: the same on every host) and any status of a run that started end the search.
+# go_remote [1]: with 1 (a re-probe from the wait loop) the probes print nothing. Returns 99 when no host took the
+# run (all busy or unusable: the caller keeps waiting and probes again later) and 98 when remote is out for good
+# (the push failed, the remote refused, the commit cannot be read).
 go_remote() {
-    local sha id rc pid
-    sha=$(git -C "$OV_WT" rev-parse HEAD) || return 99
-    if [[ "$(git -C "$OV_WT" rev-parse --verify -q "refs/remotes/origin/$OV_BRANCH" 2>/dev/null)" != "$sha" ]]; then
-        echo "[slot.sh] pushing $OV_BRANCH to origin for the remote run" >&2
-        JNEXT_ALLOW_PUSH=1 git -C "$OV_WT" push origin "$OV_BRANCH" >&2 \
-            || { echo "[slot.sh] push failed; running here" >&2; return 99; }
-    fi
+    local quiet=${1:-0} sha id rc pid h i n=${#HOSTS[@]} pushed=0 fb
+    sha=$(git -C "$OV_WT" rev-parse HEAD) || return 98
     id="${OV_BRANCH//\//-}-$(date +%H%M)-$$"
-    admit_log remote
-    echo "[slot.sh] sending to the remote host ($JNEXT_REMOTE_RUN_HOST), run id $id, log $LOGDIR/$id.log: ${OV_TARGETS[*]}" >&2
-    env JNEXT_SLOT_NO_OVERFLOW=1 REMOTE_RUN_LOCAL_WRAP="$SELF --dir $DIR" \
-        "$RR" --stream --fallback-local "$OV_WT" --keep-going --id "$id" --log-dir "$LOGDIR" \
-        "$OV_BRANCH" "$sha" "${OV_TARGETS[@]}" &
-    pid=$!
-    trap 'kill -TERM "$pid" 2>/dev/null' INT TERM
-    wait "$pid"; rc=$?
-    while kill -0 "$pid" 2>/dev/null; do wait "$pid"; rc=$?; done
-    trap - INT TERM
-    [[ $rc -eq 0 ]] || paused     # PAUSED set while the run waited: say 75, not the driver's folded 1
-    if [[ $rc -eq 3 ]]; then echo "[slot.sh] the remote refused (the push did not land); running here" >&2; return 99; fi
-    return "$rc"
+    for ((i = 0; i < n; i++)); do
+        h=${HOSTS[i]}
+        if [[ $quiet -eq 1 ]]; then
+            env JNEXT_REMOTE_RUN_HOST="$h" "$RR" --probe 2>/dev/null || continue
+        else
+            env JNEXT_REMOTE_RUN_HOST="$h" "$RR" --probe >&2 || { echo "[slot.sh] remote host $h: no free lane (or unusable)" >&2; continue; }
+        fi
+        if [[ $pushed -eq 0 ]]; then
+            if [[ "$(git -C "$OV_WT" rev-parse --verify -q "refs/remotes/origin/$OV_BRANCH" 2>/dev/null)" != "$sha" ]]; then
+                echo "[slot.sh] pushing $OV_BRANCH to origin for the remote run" >&2
+                JNEXT_ALLOW_PUSH=1 git -C "$OV_WT" push origin "$OV_BRANCH" >&2 \
+                    || { echo "[slot.sh] push failed; running here" >&2; return 98; }
+            fi
+            pushed=1
+        fi
+        fb=(); [[ $i -ne $((n - 1)) ]] || fb=(--fallback-local "$OV_WT")
+        admit_log "remote $h"
+        echo "[slot.sh] sending to the remote host ($h), run id $id, log $LOGDIR/$id.log: ${OV_TARGETS[*]}" >&2
+        env JNEXT_REMOTE_RUN_HOST="$h" JNEXT_SLOT_NO_OVERFLOW=1 REMOTE_RUN_LOCAL_WRAP="$SELF --dir $DIR" \
+            "$RR" --stream "${fb[@]}" --keep-going --id "$id" --log-dir "$LOGDIR" \
+            "$OV_BRANCH" "$sha" "${OV_TARGETS[@]}" &
+        pid=$!
+        trap 'kill -TERM "$pid" 2>/dev/null' INT TERM
+        wait "$pid"; rc=$?
+        while kill -0 "$pid" 2>/dev/null; do wait "$pid"; rc=$?; done
+        trap - INT TERM
+        [[ $rc -eq 0 ]] || paused     # PAUSED set while the run waited: say 75, not the driver's folded 1
+        if [[ $rc -eq 3 ]]; then echo "[slot.sh] the remote refused (the push did not land); running here" >&2; return 98; fi
+        if [[ $rc -eq 75 ]]; then echo "[slot.sh] remote host $h could not be used (nothing ran)" >&2; continue; fi
+        return "$rc"
+    done
+    return 99
 }
 
 parse_overflow
@@ -207,25 +242,39 @@ announce() {
     echo "[slot.sh] not sent to the remote: $OV_REASON" >&2
 }
 
-paused
-if [[ -z "$OV_REASON" && $OV_LONG -eq 1 ]]; then
-    go_remote; rc=$?
-    [[ $rc -eq 99 ]] || exit "$rc"
-    OV_REASON=SILENT
-fi
-[[ $OV_SHAPE -eq 0 || -z "$OV_REASON" ]] || announce
+# remote_try [quiet]: one pass over the hosts. A run that happened ends this script with its status; 99 = no host
+# had a lane (stay eligible, probe again), 98 = remote is out for good.
+can_remote=0; [[ -z "$OV_REASON" ]] && can_remote=1
+tried=0
+remote_try() {
+    local rc
+    tried=1
+    go_remote "${1:-0}"; rc=$?
+    case $rc in
+        99) ;;
+        98) can_remote=0 ;;
+        *)  exit "$rc" ;;
+    esac
+}
 
-first=1
+paused
+if [[ $can_remote -eq 1 && $OV_LONG -eq 1 ]]; then remote_try; fi
+[[ $OV_SHAPE -eq 0 || $can_remote -eq 1 || "$OV_REASON" == SILENT ]] || announce
+
+# The wait for a local slot also watches the remote hosts (owner, 2026-11-22: never queue here while a remote lane
+# could take the run): every REPROBE-th poll the hosts are probed again, quietly; a lane that freed up takes the run.
+REPROBE=${JNEXT_SLOT_REPROBE:-3}
+polls=0
 while :; do
     paused
     if try_local; then break; fi
-    if [[ $first -eq 1 ]]; then
-        first=0
-        announce
-        if [[ -z "$OV_REASON" ]]; then
-            go_remote; rc=$?
-            [[ $rc -eq 99 ]] || exit "$rc"
-            OV_REASON=SILENT
+    announce
+    if [[ $can_remote -eq 1 ]]; then
+        if [[ $tried -eq 0 ]]; then
+            remote_try
+        else
+            polls=$((polls + 1))
+            if (( polls % REPROBE == 0 )); then remote_try 1; fi
         fi
     fi
     sleep "$POLL"
