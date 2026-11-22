@@ -66,7 +66,8 @@
 #
 # Test hooks (the contract, test/packaging/slot-test.sh): JNEXT_SLOT_LOADAVG (a file in /proc/loadavg
 # format), JNEXT_SLOT_REMOTE_RUN (the driver), JNEXT_SLOT_POLL (seconds between local attempts, default 20),
-# JNEXT_SLOT_REMOTE_LOG_DIR (default ~/tmp/remote-run).
+# JNEXT_SLOT_REMOTE_LOG_DIR (default ~/tmp/remote-run), JNEXT_SLOT_GIT_SEC (bound on the branch push and the
+# ls-remote check after it, default 60).
 set -u
 
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
@@ -74,6 +75,7 @@ HERE=$(dirname "$SELF")
 RR=${JNEXT_SLOT_REMOTE_RUN:-$HERE/../remote-run/remote-run.sh}
 LOADAVG=${JNEXT_SLOT_LOADAVG:-/proc/loadavg}
 POLL=${JNEXT_SLOT_POLL:-20}
+GIT_SEC=${JNEXT_SLOT_GIT_SEC:-60}
 LOGDIR=${JNEXT_SLOT_REMOTE_LOG_DIR:-$HOME/tmp/remote-run}
 LIMIT=${JNEXT_SLOT_LOAD_LIMIT:-$(nproc 2>/dev/null || echo 12)}
 DIR=${JNEXT_SLOT_DIR:-}
@@ -210,7 +212,11 @@ go_remote() {
         if [[ $pushed -eq 0 ]]; then
             if [[ "$(git -C "$OV_WT" rev-parse --verify -q "refs/remotes/origin/$OV_BRANCH" 2>/dev/null)" != "$sha" ]]; then
                 echo "[slot.sh] pushing $OV_BRANCH to origin for the remote run" >&2
-                JNEXT_ALLOW_PUSH=1 git -C "$OV_WT" push origin "$OV_BRANCH" >&2 \
+                # A concurrent slot.sh on the same branch pushes the same sha: the loser is rejected
+                # ("incorrect old value") although origin is now at $sha, so a failed push counts when it is.
+                # Both network calls are bounded: a stalled one would hang this script and its waiting agent.
+                JNEXT_ALLOW_PUSH=1 timeout --kill-after=5s "${GIT_SEC}s" git -C "$OV_WT" push origin "$OV_BRANCH" >&2 \
+                    || [[ "$(timeout --kill-after=5s "${GIT_SEC}s" git -C "$OV_WT" ls-remote origin "refs/heads/$OV_BRANCH" 2>/dev/null | cut -f1)" == "$sha" ]] \
                     || { echo "[slot.sh] push failed; running here" >&2; return 98; }
             fi
             pushed=1

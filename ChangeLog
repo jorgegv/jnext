@@ -2,6 +2,9 @@
 
 ## Unreleased (2026-11-22)
 
+### Developer Features
+- `--debugger` and `--break-at`: a program loaded from the command line stops at its start (tape loads included) and waits for a debugger
+
 ### Bug Fixes
 - Browser: dot commands work, so the NextZXOS browser opens text files and NEX programs again
 
@@ -14,7 +17,7 @@
 - `make test-affected`: a branch round runs only the suites and rows its change reaches, plus a smoke set
 
 ### Contributors in this release
-- @janko-jj
+- @janko-jj, @lordheavy
 
 ## v1.3.47 (2026-11-21)
 

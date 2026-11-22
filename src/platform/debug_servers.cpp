@@ -119,8 +119,9 @@ PumpBudget DebugServers::frame_loop_budget(bool paused, const ServiceHint& last)
     return PumpBudget{};
 }
 
-bool DebugServers::headless_should_wait(bool paused, const ServiceHint& last) {
-    return paused && last.remote_attached;
+bool DebugServers::headless_should_wait(bool paused, const ServiceHint& last,
+                                        bool wait_without_remote) {
+    return paused && (last.remote_attached || wait_without_remote);
 }
 
 PumpBudget DebugServers::headless_wait_budget() {

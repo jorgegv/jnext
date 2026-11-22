@@ -13,6 +13,7 @@
 #include "platform/cli_delay.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
+#include "platform/startup_stop.h"
 #include "script/script_host.h"
 #include "input/gamepad_host.h"
 #include "platform/frame_sequencer.h"
@@ -208,6 +209,7 @@ private:
     // Declared AFTER debugger_ so it is destroyed FIRST: its engine and its
     // listener detach from the Debugger they were started on.
     jnext::script::ScriptHost script_host_;
+    StartupStop               startup_stop_;   // GH #548: --debugger / --break-at (after debugger_)
 
     // QApplication holds a reference to argc (and may write through it), so the
     // storage must outlive it — init()'s own parameters do not.

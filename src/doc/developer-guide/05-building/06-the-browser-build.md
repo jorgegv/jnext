@@ -11,7 +11,7 @@ The browser build is the SDL-only configuration (no Qt, no debugger GUI) compile
 by a pinned Emscripten SDK. One tree, `build/wasm-core`, links two modules:
 
 - `jnext` (`jnext.js` and `jnext.wasm`): the node build. `test/wasm-core-check.sh`
-  (WCORE-01 to WCORE-10) and `make regression-wasm` run it under node. The unit suites
+  (WCORE-01 to WCORE-11) and `make regression-wasm` run it under node. The unit suites
   are separate modules, built in `build/wasm-unit-test`.
 - `jnext_web` (`jnext-<version>.js` and `.wasm`): the build a page loads, with the
   example pages (`plain.html`, `itch-host.html`, `itch-game.html`, `widget.html`) and
