@@ -178,7 +178,9 @@ private:
     uint16_t channel_mute_mask_ = AudioChannelMute::NONE;
 
     int active_ay_index() const;
-    void compute_chip_stereo(int idx, uint8_t silenced, uint16_t& left, uint16_t& right) const;
+    // always_inline: the hardware call passes silenced == 0, which folds away, so the hot path is the
+    // pre-mute one (GH #533 bench).
+    [[gnu::always_inline]] inline void compute_chip_stereo(int idx, uint8_t silenced, uint16_t& left, uint16_t& right) const;
     [[gnu::always_inline]] inline void compute_stereo_mix();
     [[gnu::always_inline]] inline void tick_impl_();
 };
