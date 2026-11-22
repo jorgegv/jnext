@@ -26,7 +26,7 @@ namespace minimal_card {
 
 namespace {
 
-const char* const kBootSet[] = {"TBBLUE.FW", "MACHINES", "NEXTZXOS", "SYS", "LICENSE.md", "README.md"};
+const char* const kBootSet[] = {"TBBLUE.FW", "MACHINES", "NEXTZXOS", "SYS", "DOT", "LICENSE.md", "README.md"};
 constexpr uint64_t kFatCap    = 16ull << 20;   // the FAT copy
 constexpr uint64_t kRetainCap = 32ull << 20;   // the boot set's data and directories
 constexpr size_t   kOutStep   = 64 * 1024;     // inflate output step

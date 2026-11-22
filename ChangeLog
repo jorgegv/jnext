@@ -1,11 +1,17 @@
 # ChangeLog
 
-## Unreleased (2026-11-21)
+## Unreleased (2026-11-22)
+
+### Bug Fixes
+- Browser: dot commands work, so the NextZXOS browser opens text files and NEX programs again
 
 ### Internal JNEXT Development
 - Remote runs: two lanes on the remote host, so two heavy runs share it at once
 - Faster test cycle: unit-test prerequisites and browser specs run in parallel
 - Build slots: heavy runs overflow to the remote host when the local slots are busy
+
+### Contributors in this release
+- @janko-jj
 
 ## v1.3.47 (2026-11-21)
 

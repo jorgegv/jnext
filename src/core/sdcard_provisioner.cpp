@@ -47,8 +47,8 @@ const Pins kDistribution = {
     68971934ull,
     "0245d847da440155fb6f55d6cfadc64c0158118d7cea98066395d68f93fb3ab0",
     "e2b635a27703741ef20bfb4597f3a2dd46257af175fa44ddd8f0b9dba8408b23",
-    "d7393d7fdf500aa49b016ae75eabb424e8f3540c42fd1e4042e4b7089620ad99",
-    1,
+    "02d7a324c1c5ee7f8671c7fe82b61fdef6689863f8d5fc877f54135145048690",
+    2,
 };
 }  // namespace minimal_card
 
