@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.50</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.51</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.50</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.51</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3385,7 +3385,7 @@ flow, and the builder (<code>src/core/minimal_card.cpp</code>, the same code as 
 <code>card_builder_web.cpp</code> (<code>begin</code>, <code>feed</code>, <code>finish</code>, <code>error</code>, <code>inflated</code>, <code>distribution</code>, and <code>dirs</code>, which returns the canonical form of a page's <code>card.dirs</code> or the reason it is refused: the rules live in <code>minimal_card::canonical_dirs</code> only):
 - <em>Cache.</em> The key is <code>https://card.jnext.invalid/&lt;card sha256&gt;</code> (the <code>.invalid</code> host is
   never fetched) in Cache API <code>jnext-sdcard-v2</code>. The entry is stored gzipped (<code>packed()</code>,
-  a <code>CompressionStream</code>: about 1.1 MB for the 40 MiB card, mostly zeros). A hit is read
+  a <code>CompressionStream</code>: about 1.5 MB for the 40 MiB card, mostly zeros; measured with gzip -6, the page's own level may differ slightly). A hit is read
   through a <code>DecompressionStream</code> (<code>unpacked()</code>), whose CRC-32 and length check (gzip's
   trailer) is the integrity check: nothing is hashed again, because the key's digest was
   proved when the entry was written (<code>minimal_card.cpp</code> refuses a card whose SHA-256 is
