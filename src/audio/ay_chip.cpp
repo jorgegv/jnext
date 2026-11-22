@@ -70,6 +70,12 @@ void AyChip::load_envelope()
     }
     env_hold_ = false;
     env_reset_ = false;
+
+    // An env_reset pulse also sets env_ena (ym2149.vhd:340-342), so the shape
+    // process takes one step at the next ENA (:402-409): within one PSG tick of
+    // the R13 write the level is already 30 (attack 0) or 1 (attack 1), and the
+    // envelope runs one step ahead of a load that only sets the start level.
+    step_shape_();
 }
 
 void AyChip::select_register(uint8_t addr)
@@ -296,6 +302,11 @@ void AyChip::update_envelope()
 
     if (!env_ena_) return;
 
+    step_shape_();
+}
+
+void AyChip::step_shape_()
+{
     // Boundary detection — VHDL ym2149.vhd:361-366.
     //
     //   is_zero <= '1' when env_vol(4 downto 1) = "0000" else '0';

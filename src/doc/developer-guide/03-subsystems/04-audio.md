@@ -184,6 +184,11 @@ sums: the hardware one (every active chip; what a snapshot or a rewind slot stor
 chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.
 
+The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
+`env_reset`, which reloads the level and also forces `env_ena` (`ym2149.vhd:340-342` and `ym2149.vhd:393-409`), so the first
+step comes with the write instead of one envelope period later. `AyChip::load_envelope()` applies the reload
+and then runs `step_shape_()`, the half of `update_envelope()` that follows the period counter.
+
 A second host mask, the 13-bit per-channel one (`AudioChannelMute`, set through
 `Emulator::set_audio_channel_mute_mask()`), follows the same rules and composes with the first. Its nine AY
 bits go to `TurboSound`, which zeroes the muted channel's input BEFORE the chip's A/B/C mux when it builds

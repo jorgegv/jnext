@@ -757,6 +757,23 @@ int main() {
         check("ADS-16", "ym2149.vhd:393-401 a pending R13 write reads as its reload: 0x08 -> 31 falling, 0x0C -> 0 rising (after 100 ticks mid-ramp)",
               a.step == 31 && a.motion == EnvelopeMotion::Falling && b.step == 0 && b.motion == EnvelopeMotion::Rising);
     }
+    // ADS-17..20: the envelope after an R13 write. The ticks are counted from the write; every sample point is one the
+    // VHDL gives for ALL eight phases of the /8 divider (a 28 MHz cycle model of ym2149.vhd:258-277,334-350,352-463,
+    // ENA every 16 clocks), so the constant two-tick pipeline of the registered ena_div / env_ena, which jnext does not
+    // model, cannot reach them. Envelope period 2 (R11 = 2), at the PSG clock-enable rate.
+    check("ADS-17", "ym2149.vhd:340-342,393-409 shape 8 after an R13 write: the forced first step puts the level at 28 falling after 40 ticks, 14 after 264, 30 after 520, 0 after 1000",
+          envelope_follows(8, {{40, 28, EnvelopeMotion::Falling}, {264, 14, EnvelopeMotion::Falling},
+                               {520, 30, EnvelopeMotion::Falling}, {1000, 0, EnvelopeMotion::Falling}}));
+    check("ADS-18", "ym2149.vhd:340-342,393-409,444-461 shape 10 after an R13 write: 14 falling after 264 ticks, 1 rising after 520, 6 rising after 600, then holding at 31",
+          envelope_follows(10, {{264, 14, EnvelopeMotion::Falling}, {520, 1, EnvelopeMotion::Rising},
+                                {600, 6, EnvelopeMotion::Rising}, {1000, 31, EnvelopeMotion::Holding}}));
+    check("ADS-19", "ym2149.vhd:340-342,393-409,422-443 shape 13 after an R13 write: 3 rising after 40 ticks, 13 rising after 200, then holding at 31",
+          envelope_follows(13, {{40, 3, EnvelopeMotion::Rising}, {200, 13, EnvelopeMotion::Rising},
+                                {520, 31, EnvelopeMotion::Holding}, {1000, 31, EnvelopeMotion::Holding}}));
+    check("ADS-20", "ym2149.vhd:340-342,393-409,444-461 shape 14 after an R13 write: 17 rising after 264 ticks, 30 falling after 520, 25 falling after 600, then holding at 0",
+          envelope_follows(14, {{264, 17, EnvelopeMotion::Rising}, {520, 30, EnvelopeMotion::Falling},
+                                {600, 25, EnvelopeMotion::Falling}, {1000, 0, EnvelopeMotion::Holding}}));
+
     // ADS-31..33: the RUNNING envelope view. Every sample is one the VHDL gives for all eight divider phases
     // (28 MHz cycle model of ym2149.vhd:258-277,334-350,352-463, ENA every 16 clocks) and is the same whether or
     // not the envelope takes the forced step after an R13 write, so these rows do not depend on that.
