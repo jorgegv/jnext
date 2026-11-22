@@ -2632,6 +2632,31 @@ static void g_reset_scope() {
               ok, fmt("bad tick=%d ym2149_mode=%d VHDL ym2149.vhd:105-125", bad, p.is_ay_mode()));
     }
 
+    // AY-133 - ym2149.vhd:340-342,344-349,393-409: an R13 write pulses env_reset, which loads
+    // env_vol AND forces env_ena, so the shape process takes one step at the next ENA: one PSG
+    // tick after the write the level is already 30 (attack 0), not 31. The next step follows after
+    // one envelope period, 256 divider pulses of 8 ticks (period 0x0100), less the phase the write
+    // fell on: 2040 to 2048 ticks after the first (a cycle model of the VHDL, all eight phases).
+    {
+        bool ok = true;
+        std::string seen;
+        for (int pre = 0; pre < 8; ++pre) {
+            AyChip ay;
+            ay.set_ay_mode(false);
+            ay_w(ay, 7, 0x3F); ay_w(ay, 8, 0x10); ay_w(ay, 11, 0x00); ay_w(ay, 12, 0x01);
+            settle(ay, pre);
+            ay_w(ay, 13, 0x00);
+            ay.tick();
+            const uint8_t first = ay.output_a();
+            int n = 0;
+            while (n < 2100 && ay.output_a() == first) { ay.tick(); ++n; }
+            seen += fmt("%d:%02x>%02x@%d ", pre, first, ay.output_a(), n);
+            ok = ok && first == 0xE0 && ay.output_a() == 0xC0 && n >= 2040 && n <= 2048;
+        }
+        check("AY-133", "an R13 write takes the first envelope step with it: 0xE0 after one tick, 0xC0 one envelope period later",
+              ok, fmt("%s VHDL ym2149.vhd:340-342,344-349,393-409", seen.c_str()));
+    }
+
     // TS-62 - turbosound.vhd:162/217/272: RESET_H reaches every chip, none restarts a generator.
     {
         TurboSound ta, tb;
