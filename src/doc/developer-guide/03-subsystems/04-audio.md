@@ -160,6 +160,14 @@ sums: the hardware one (every active chip; what a snapshot or a rewind slot stor
 chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.
 
+A second host mask, the 13-bit per-channel one (`AudioChannelMute`, set through
+`Emulator::set_audio_channel_mute_mask()`), follows the same rules and composes with the first. Its nine AY
+bits go to `TurboSound`, which zeroes the muted channel's input BEFORE the chip's A/B/C mux when it builds
+the audible pair, so ACB, mono and pan stay exact; the hardware pair never sees them. Its four DAC bits go
+to the `Mixer`, which folds them into its one mute byte as an internal flag: inside the existing mute
+branch, a muted DAC channel reads as its idle 0x80 instead of its register value, so an unmuted run still
+tests one byte per slice. The cold boot carries both masks.
+
 ## Getting samples to the host
 
 `src/platform/sdl_audio.*` is the only place SDL audio appears. The device is

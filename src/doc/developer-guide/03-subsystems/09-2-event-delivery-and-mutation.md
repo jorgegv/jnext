@@ -247,8 +247,8 @@ frontend and to script handlers, under one contract.
 | `port_out` | dispatched like the guest's `OUT` |
 | `set_sprite_attr_raw`, `write_pattern_ram`, `set_palette`, `set_border` | through the engine's own setters, not as port traffic |
 
-`set_audio_mute_mask` is not in the table: the mute mask is host-side state, in
-neither a snapshot nor an RZX recording. It logs a `MUTATE` line like a write,
+`set_audio_mute_mask` and `set_audio_channel_mute_mask` are not in the table: the
+mute masks are host-side state, in neither a snapshot nor an RZX recording. It logs a `MUTATE` line like a write,
 but neither the RZX refusal nor the rewind wall below applies to it.
 
 **When a write lands.** Always at a delivery point, never inside a hot-path

@@ -54,7 +54,7 @@
 | INS-08 | `std::vector<SpriteInfo> sprites() const`, `Expected<std::array<uint8_t,5>> sprite_attr_raw(uint8_t) const`, `Result set_sprite_attr_raw(...)`, `ConstBytes pattern_ram() const`, `Result write_pattern_ram(...)`, `Expected<uint16_t> sprite_palette_rgb333(int bank, uint8_t index) const`, `ClipWindow sprite_clip() const`; `using SpriteInfo = SpriteEngine::SpriteInfo`, `SPRITE_COUNT`, `SPRITE_ATTR_BYTES`, `PATTERN_RAM_BYTES`, `struct ClipWindow` | debugger.h, inspect.h |
 | INS-09 | `CopperState copper() const`; `struct CopperState{pc, running, mode, program}` | debugger.h, inspect.h |
 | INS-10 | `Expected<std::array<uint8_t,16>> ay_registers(int chip) const`, `bool turbosound_enabled() const`, `AyChipMode ay_mode() const`, `StereoMode stereo_mode() const`, `uint8_t audio_mute_mask() const`, `Result set_audio_mute_mask(ClientId by, uint8_t)`; `AY_REGISTER_COUNT`, `AY_CHIP_COUNT`; the mask bits are `AudioMute::*` (`audio/audio_mute.h`), reused | debugger.h, inspect.h |
-| INS-22 | `AudioState audio_state() const`; `AudioState` and its parts (`AyChipState`, `AyChannelState`, `AyEnvelopeState`, `EnvelopeMotion`, `DacState`, `BeeperState`, `PiAudioState`, `HostAudioState`); `AY_CHANNELS_PER_CHIP`, `DAC_CHANNEL_COUNT` | debugger.h, inspect.h |
+| INS-22 | `AudioState audio_state() const`; `AudioState` and its parts (`AyChipState`, `AyChannelState`, `AyEnvelopeState`, `EnvelopeMotion`, `DacState`, `BeeperState`, `PiAudioState`, `HostAudioState`); `AY_CHANNELS_PER_CHIP`, `DAC_CHANNEL_COUNT`; `uint16_t audio_channel_mute_mask() const`, `Result set_audio_channel_mute_mask(ClientId by, uint16_t)` (GH #533; the mask bits are `AudioChannelMute::*`, `audio/audio_mute.h`, reused) | debugger.h, inspect.h |
 | INS-11 | `std::vector<DisasmLine> disassemble(uint16_t addr, size_t n, const SymbolTable*) const`, `int instruction_length(uint16_t) const`, `bool is_call_like(uint16_t) const`, `DisasmReadFn memory_reader() const` (drives the already-published `disasm_text::*` with no `Emulator*`) | debugger.h |
 | INS-12 | `const std::vector<CallFrame>& call_stack() const`, `bool call_stack_enabled() const`, `Result set_call_stack_enabled(bool)` (`CallFrame` reused from `debug/call_stack.h`) | debugger.h |
 | INS-13 | `bool trace_enabled() const`, `Result set_trace_enabled(bool)`, `Result trace_clear()`, `Result trace_resize(size_t)`, `Expected<std::vector<TraceEntry>> trace_entries() const`, `Result trace_export(const std::string&) const` (`TraceEntry` reused from `debug/trace.h`; B4 extends the struct) | debugger.h |
@@ -81,6 +81,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 | INS-05 `port_out` | `Debugger::port_out` |
 | INS-08 `set_sprite_attr_raw`, `write_pattern_ram` | `Debugger::set_sprite_attr_raw`, `Debugger::write_pattern_ram` |
 | INS-10 `set_audio_mute_mask` | `Debugger::set_audio_mute_mask` |
+| INS-22 `set_audio_channel_mute_mask` | `Debugger::set_audio_channel_mute_mask` |
 | INS-15 `set_palette` | `Debugger::set_palette` |
 | INS-18 `set_border` | `Debugger::set_border` |
 | "where a write lands" — `Page{}` bypasses overlays, `Cpu` honours them | `MemSpace::Kind` doc comments |

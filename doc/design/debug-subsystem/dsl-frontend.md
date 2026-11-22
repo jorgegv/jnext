@@ -183,7 +183,7 @@ action      ::= "log" [ "indent" expr ] string
 lvalue      ::= IDENT                              # a `var`
               | "mem[" expr "]" | "mem16[" expr "]" | "phys[" expr "," expr "]"
               | "nextreg[" expr "]"
-              | REG | FLAG | "IFF1" | "IFF2" | "IM" | "AUDIO_MUTE"
+              | REG | FLAG | "IFF1" | "IFF2" | "IM" | "AUDIO_MUTE" | "AUDIO_CHANNEL_MUTE"
                                                    # REG = A B C D E H L F I R AF BC DE HL IX IY SP PC AF2 BC2 DE2 HL2
                                                    # FLAG = CF ZF SF PF HF NF
 
@@ -281,6 +281,7 @@ destructive NextREG read handler; `NextReg::peek`, `nextreg.h:53-56`).
 | `RAW_HC RAW_VC HC_ULA VC_ULA CVC PHC` | the VHDL raster counters, exactly as `RasterState` names them | `raster_state.h:97-104` |
 | `@name` | address of MAP symbol; load error if absent (§6.5) | `SymbolTable::lookup_name`, `symbol_table.h:21` |
 | `AUDIO_MUTE` | host-side mute mask (the Audio panel's), readable and settable |
+| `AUDIO_CHANNEL_MUTE` | host-side 13-bit channel mute mask (the Audio panel's M and S buttons: AY bits 0-8, DAC A-D bits 9-12), readable and settable (GH #533) |
 | `MACHINE` | 0=48K 1=128K 2=+3 3=Pentagon 4=Next | backend (REQ-dsl-17: not in backend.md v1's CAP-INS-07/TIME-01) |
 
 Event payload, valid only inside the matching rule body:

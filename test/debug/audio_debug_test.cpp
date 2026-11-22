@@ -907,9 +907,11 @@ int main() {
         emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_B);
         mixer_sample(emu, l, r);
         const int control = l;                          // beeper audible, B at 0x80: 0xC0 pair + 512
-        emu.set_audio_mute_mask(AudioMute::BEEPER);
+        emu.set_audio_channel_mute_mask(AudioChannelMute::NONE);
+        emu.set_audio_mute_mask(AudioMute::BEEPER);     // the source setter first ...
+        emu.set_audio_channel_mute_mask(AudioChannelMute::DAC_B);   // ... then the channel one
         mixer_sample(emu, l, r);
-        check("ACM-19", "audio_mute.h composition: DAC channel B muted, then the beeper muted: the beeper is silent and B is still at 0x80",
+        check("ACM-19", "audio_mute.h composition: the beeper muted, then DAC channel B muted: B is at 0x80 and the beeper is still silent",
               control == dac_expect(0xC0) + 4 * 512 && l == dac_expect(0xC0) && r == dac_expect(0xD0));
     }
     {
