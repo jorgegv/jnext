@@ -4540,7 +4540,9 @@ Complete mute remains available through
 skips sound synthesis entirely, which speeds up runs that do not need audio.
 Tape loading still works while muted. A tape loading in real time is heard
 through the beeper, at the level the Next gives it (a quarter of the beeper's
-own), and follows the beeper gain.</p>
+own), and follows the beeper gain. As on the Next's tape input, a level that
+holds still for about a millisecond (the silence between blocks) fades back to
+the idle level instead of staying up.</p>
 <h2 id="if-the-sound-stutters-or-clicks">If the sound stutters or clicks<a class="headerlink" href="#if-the-sound-stutters-or-clicks" title="Permanent link">&para;</a></h2>
 <p>JNEXT paces itself against your sound card, so audio should stay clean
 indefinitely. Glitches almost always mean the <strong>host cannot keep up</strong>.</p>
