@@ -2263,6 +2263,86 @@ int main() {
               markers_of(v, AudioMarker::Rewind) == 1);
     }
     {
+        // The same marker kind at ANOTHER cycle is its own row (only the same marker at the same cycle is
+        // one): a soft reset, a frame with the CPU parked, a second soft reset.
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl26");
+        dbg.reset(cid, ResetKind::Soft);
+        park(emu);
+        emu.run_frame();
+        dbg.reset(cid, ResetKind::Soft);
+        const auto v = all_entries(dbg);
+        check("AWL-26", "a soft reset, one frame with the CPU parked, a second soft reset: two Reset rows, at two cycles (the same marker at ANOTHER cycle is its own row)",
+              v.size() == 2 && v[0].marker == AudioMarker::Reset && v[1].marker == AudioMarker::Reset &&
+              v[1].cycle > v[0].cycle);
+    }
+    {
+        // A state load does not clear the rewind ring, so "load my checkpoint, then step back past it" is
+        // ordinary: the ring's snapshots and the log's cycles are this session's own history on one clock.
+        // 10 frames, a checkpoint, 5 more frames, load the checkpoint (the clock goes back), then a landing
+        // BEFORE the checkpoint: the abandoned run between the landing and the checkpoint goes, with the
+        // undone StateLoad marker, and running on logs nothing twice.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl27");
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        const uint64_t saved_at = emu.clock().get();
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        const Result rl = dbg.load_state_bytes(cid, saved.value.data(), saved.value.size());
+        const uint64_t loaded_at = emu.clock().get();
+        dbg.pause(cid);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame - 3);
+        const uint64_t l = emu.clock().get();
+        const auto v = all_entries(dbg);
+        size_t stale = 0;
+        for (const AudioLogEntry& e : v) stale += e.marker == AudioMarker::None && e.cycle >= l;
+        const bool shape = markers_of(v, AudioMarker::StateLoad) == 0 && markers_of(v, AudioMarker::Rewind) == 1 &&
+                           v.back().marker == AudioMarker::Rewind && v.back().cycle == l;
+        dbg.run(cid);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const auto w = writes_only(dbg);
+        size_t dup = 0, unordered = 0;
+        for (size_t i = 0; i + 1 < w.size(); ++i) {
+            dup += w[i].cycle == w[i + 1].cycle && w[i].value == w[i + 1].value;
+            unordered += w[i + 1].cycle <= w[i].cycle;
+        }
+        if (!(stale == 0 && shape && dup == 0 && unordered == 0))
+            std::printf("    saved=%llu loaded=%llu r=%d l=%llu stale=%zu shape=%d dup=%zu unordered=%zu\n",
+                        static_cast<unsigned long long>(saved_at), static_cast<unsigned long long>(loaded_at), int(r),
+                        static_cast<unsigned long long>(l), stale, int(shape), dup, unordered);
+        check("AWL-27", "checkpoint, 5 more frames, load the checkpoint, then a landing before the checkpoint: no write from the landing cycle on survives (the abandoned run before the load included), the undone StateLoad marker is gone, one Rewind marker last; running 3 frames on logs no write twice",
+              saved.status == Result::Ok && rl == Result::Ok && loaded_at == saved_at && r == Result::Ok && l < loaded_at &&
+              stale == 0 && shape && dup == 0 && unordered == 0 && w.size() > 10);
+    }
+    {
+        // A landing exactly at the load point is the loaded state itself: its StateLoad marker stays (before
+        // the Rewind marker), the writes from that cycle on go.
+        Emulator emu; build_counter(emu);
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl28");
+        for (int i = 0; i < 6; ++i) emu.run_frame();
+        const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        const uint64_t saved_at = emu.clock().get();
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.load_state_bytes(cid, saved.value.data(), saved.value.size());
+        dbg.pause(cid);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame);
+        const uint64_t l = emu.clock().get();
+        const auto v = all_entries(dbg);
+        const size_t n = v.size();
+        size_t stale = 0;
+        for (const AudioLogEntry& e : v) stale += e.marker == AudioMarker::None && e.cycle >= l;
+        if (!(l == saved_at && n >= 2))
+            std::printf("    saved=%llu l=%llu entries=%zu r=%d\n", static_cast<unsigned long long>(saved_at),
+                        static_cast<unsigned long long>(l), n, int(r));
+        check("AWL-28", "a landing exactly at the load point (the loaded state itself): the StateLoad marker at that cycle stays, just before the Rewind marker, and no write from that cycle on survives",
+              r == Result::Ok && l == saved_at && n >= 2 && v[n - 1].marker == AudioMarker::Rewind &&
+              v[n - 2].marker == AudioMarker::StateLoad && v[n - 2].cycle == l && markers_of(v, AudioMarker::StateLoad) == 1 &&
+              stale == 0);
+    }
+    {
         Emulator emu; fresh(emu); Debugger dbg(emu);
         const ClientId cid = log_client(dbg, "awl16");
         dbg.reset(cid, ResetKind::Soft);

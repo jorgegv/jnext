@@ -61,17 +61,31 @@ void Debugger::Impl::AudioLogSink::audio_rewind_landing(const AudioLogEntry& m)
 {
     if (impl.audio_ring.empty()) return;
     // What follows the landing is no longer this timeline: remove every entry from it on,
-    // markers included (a Rewind or Reset marker at or after the landing records something the
-    // landing has undone). An entry's stamp is the START of the instruction slot that raised
-    // it, and a landing is the state BEFORE the instruction that starts at its cycle, so an
-    // entry AT the landing cycle was raised by an instruction the replay will run again.
-    // Cycles are comparable across a soft reset and a rewind (the clock goes on); the one real
-    // clock jump is a StateLoad, so the walk stops there: what precedes it is another timeline.
+    // markers included (a Rewind, Reset or StateLoad marker at or after the landing records
+    // something the landing has undone). An entry's stamp is the START of the instruction slot
+    // that raised it, and a landing is the state BEFORE the instruction that starts at its
+    // cycle, so an entry AT the landing cycle was raised by an instruction the replay will run
+    // again. The rewind ring is this session's own history on one clock: a soft reset, a
+    // rewind and a state load taken from it all keep that clock (a load of a checkpoint of this
+    // session puts the clock back to the checkpoint's cycle), so every marker is crossed.
+    // One exception: a StateLoad marker AT the landing cycle IS the landing state (the loaded
+    // machine and the snapshot at that cycle are the same machine), so it stays, in its place
+    // before the new Rewind marker.
+    // Limit: a state loaded from ANOTHER session carries a clock that cannot be ordered against
+    // this one. Cycles are compared as if it could, so the entries around such a load may be kept
+    // or removed by that order, which means nothing; the log is best-effort across it.
+    bool keep_load = false;
+    AudioLogEntry load_marker;
     while (impl.audio_count > 0) {
         const AudioLogEntry& n = impl.audio_at(impl.audio_count - 1);
-        if (n.marker == AudioMarker::StateLoad || n.cycle < m.cycle) break;
+        if (n.cycle < m.cycle) break;
+        if (n.marker == AudioMarker::StateLoad && n.cycle == m.cycle && !keep_load) {
+            keep_load = true;
+            load_marker = n;
+        }
         --impl.audio_count;
     }
+    if (keep_load) impl.audio_push(load_marker);
     // The landing's own marker is ALWAYS recorded: a stream may have written the removed
     // entries already, and the rows after them are earlier in time, which only it says.
     AudioLogEntry e = m;

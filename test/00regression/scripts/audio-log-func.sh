@@ -76,6 +76,11 @@ if want audio-log-func; then
         &>"$early_err" || early_rc=$?
     [[ $early_rc == 1 ]] || ok=0
     grep -q 'unsupported file extension' "$early_err" || ok=0
+    # The guard detaches the stream's client while the Debugger is alive, so the backend logs the detach on
+    # this path; with the guard not armed that call hits a freed Debugger, the line never appears and the
+    # crash handler's exit 1 hides it (a "signal 11" line is the other sign).
+    grep -q 'DETACH client' "$early_err" || ok=0
+    ! grep -q 'signal 11' "$early_err" || ok=0
     # A write error makes the run exit non-zero and say so. /dev/full exists on Linux (and under wine);
     # macOS has none, where this one check has nothing to open.
     if [[ -w /dev/full ]]; then
