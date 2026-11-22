@@ -1573,6 +1573,10 @@ int main() {
         Out mon, moff;
         for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); }
         for (int f = 0; f < 8; ++f) { off.run_frame(); drain(off, moff); }
+        std::printf("  SCP-08 written=%llu/%llu rings_equal=%d halt_on=%llu halt_off=%llu mixer_equal=%d\n",
+                    static_cast<unsigned long long>(ton.written), static_cast<unsigned long long>(toff.written),
+                    rings_equal(ton, toff) ? 1 : 0, static_cast<unsigned long long>(on.halt_repeats_batched_for_test()),
+                    static_cast<unsigned long long>(off.halt_repeats_batched_for_test()), mon.l == moff.l && mon.r == moff.r ? 1 : 0);
         check("SCP-08", "an IM 2 HALT loop with AY tones and a toggling beeper, 8 frames: the tap sequences are identical with HALT batching on and off, the batch ran only in the 'on' machine, and the mix trace is each machine's own mixer output",
               ton.written > 5000 && rings_equal(ton, toff) && on.halt_repeats_batched_for_test() > 0 &&
               off.halt_repeats_batched_for_test() == 0 && mon.l == moff.l && mon.r == moff.r);
@@ -1586,6 +1590,11 @@ int main() {
         Out mon, moff;
         for (int f = 0; f < 8; ++f) { on.run_frame(); drain(on, mon); }
         for (int f = 0; f < 8; ++f) { off.run_frame(); drain(off, moff); }
+        std::printf("  SCP-09 written=%llu/%llu rings_equal=%d poll_on=%llu poll_off=%llu mixer_equal=%d (%zu/%zu samples)\n",
+                    static_cast<unsigned long long>(ton.written), static_cast<unsigned long long>(toff.written),
+                    rings_equal(ton, toff) ? 1 : 0, static_cast<unsigned long long>(on.poll_passes_batched_for_test()),
+                    static_cast<unsigned long long>(off.poll_passes_batched_for_test()), mon.l == moff.l && mon.r == moff.r ? 1 : 0,
+                    mon.l.size(), moff.l.size());
         check("SCP-09", "a raster-poll loop with AY tones, 8 frames: the tap sequences are identical with the poll batch on and off, and it ran only in the 'on' machine",
               ton.written > 5000 && rings_equal(ton, toff) && on.poll_passes_batched_for_test() > 0 &&
               off.poll_passes_batched_for_test() == 0 && mon.l == moff.l && mon.r == moff.r);
