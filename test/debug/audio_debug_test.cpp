@@ -845,12 +845,19 @@ int main() {
         nr_write(emu, 0x84, 0xFE);
         emu.port().out(0xBFFD, 0x0F);
         AudioState a = dbg.audio_state();
-        const bool off = counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0;
-        nr_write(emu, 0x84, 0xFF);
+        const bool off = counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0 &&
+                         drop(a, AR::AyPortDisabled).last_port == 0xBFFD && drop(a, AR::AyPortDisabled).last_value == 0x0F;
+        nr_write(emu, 0x06, 0x03);          // port off AND held in reset: the port gate still wins
         emu.port().out(0xBFFD, 0x0F);
         a = dbg.audio_state();
-        check("DRP-02", "zxnext.vhd:2964 0xBFFD with the AY ports off counts AyPortDisabled and leaves R8; with them on R8 = 0x0F and no count",
-              off && counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0x0F);
+        const bool both = counts_are(a, {{AR::AyPortDisabled, 2}});
+        nr_write(emu, 0x06, 0x01);
+        nr_write(emu, 0x84, 0xFF);
+        emu.port().out(0xFFFD, 0x08);       // the reset hold cleared the address latch
+        emu.port().out(0xBFFD, 0x0F);
+        a = dbg.audio_state();
+        check("DRP-02", "zxnext.vhd:2964 0xBFFD with the AY ports off counts AyPortDisabled (port 0xBFFD, the byte) and leaves R8, also when held in reset (port gate first); with them on R8 = 0x0F and no count",
+              off && both && counts_are(a, {{AR::AyPortDisabled, 2}}) && a.chips[0].regs[8] == 0x0F);
     }
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);
@@ -858,12 +865,19 @@ int main() {
         nr_write(emu, 0x84, 0xFE);
         emu.port().out(0xBFF5, 0x0F);
         AudioState a = dbg.audio_state();
-        const bool off = counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0;
-        nr_write(emu, 0x84, 0xFF);
+        const bool off = counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0 &&
+                         drop(a, AR::AyPortDisabled).last_port == 0xBFF5 && drop(a, AR::AyPortDisabled).last_value == 0x0F;
+        nr_write(emu, 0x06, 0x03);          // port off AND held in reset: the port gate still wins
         emu.port().out(0xBFF5, 0x0F);
         a = dbg.audio_state();
-        check("DRP-03", "zxnext.vhd:2965 port 0xBFF5 (part of port_bffd) with the AY ports off counts AyPortDisabled; with them on R8 = 0x0F and no count",
-              off && counts_are(a, {{AR::AyPortDisabled, 1}}) && a.chips[0].regs[8] == 0x0F && a.chips[0].address == 0x08);
+        const bool both = counts_are(a, {{AR::AyPortDisabled, 2}});
+        nr_write(emu, 0x06, 0x01);
+        nr_write(emu, 0x84, 0xFF);
+        emu.port().out(0xFFFD, 0x08);       // the reset hold cleared the address latch
+        emu.port().out(0xBFF5, 0x0F);
+        a = dbg.audio_state();
+        check("DRP-03", "zxnext.vhd:2965 port 0xBFF5 (part of port_bffd) with the AY ports off counts AyPortDisabled (port 0xBFF5, the byte), also when held in reset; with them on R8 = 0x0F and no count",
+              off && both && counts_are(a, {{AR::AyPortDisabled, 2}}) && a.chips[0].regs[8] == 0x0F && a.chips[0].address == 0x08);
     }
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);
@@ -914,12 +928,14 @@ int main() {
         emu.port().out(0xFFFD, 0x80);
         nr_write(emu, 0x08, 0x00);
         emu.port().out(0xFFFD, 0x98);
+        emu.port().out(0xFFFD, 0x7C);       // d7 = 0, d4:2 = 111: not the select command
+        emu.port().out(0xFFFD, 0x8C);       // d7 = 1, d4:2 = 011: not the select command
         AudioState a = dbg.audio_state();
-        const bool ign = counts_are(a, {{AR::AySelectIgnored, 4}}) && a.chips[0].address == 0 && a.active_chip == 0;
+        const bool ign = counts_are(a, {{AR::AySelectIgnored, 6}}) && a.chips[0].address == 0 && a.active_chip == 0;
         emu.port().out(0xFFFD, 0x08);
         a = dbg.audio_state();
-        check("DRP-07", "turbosound.vhd:141 0xFFFD values 0x40 (TurboSound off and on), 0x80 (on), 0x98 (off, d4:2 = 110) are not selects: AySelectIgnored 4, never ChipSelectTurboOff; 0x08 selects",
-              ign && counts_are(a, {{AR::AySelectIgnored, 4}}) && a.chips[0].address == 0x08);
+        check("DRP-07", "turbosound.vhd:129,141 0xFFFD values 0x40 (TurboSound off and on), 0x80 (on), 0x98, 0x7C, 0x8C (off) are not selects: AySelectIgnored 6, never ChipSelectTurboOff; 0x08 selects",
+              ign && counts_are(a, {{AR::AySelectIgnored, 6}}) && a.chips[0].address == 0x08);
     }
     {
         Emulator emu; fresh(emu); Debugger dbg(emu);
@@ -927,7 +943,8 @@ int main() {
         emu.port().out(0xBFFD, 0x11);
         emu.port().out(0xBFF5, 0x22);
         AudioState a = dbg.audio_state();
-        const bool high = counts_are(a, {{AR::AyAddressHigh, 2}}) && a.chips[0].regs[5] == 0;
+        const bool high = counts_are(a, {{AR::AyAddressHigh, 2}}) && a.chips[0].regs[5] == 0 &&
+                          drop(a, AR::AyAddressHigh).last_port == 0xBFF5 && drop(a, AR::AyAddressHigh).last_value == 0x22;
         emu.port().out(0xFFFD, 0x05);
         emu.port().out(0xBFFD, 0x33);
         a = dbg.audio_state();

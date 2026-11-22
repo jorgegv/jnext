@@ -1043,6 +1043,15 @@ static void test_dac_tab(Emulator& emu) {
         const jnext::dbg::ClientId cid = dbg.attach(jnext::dbg::ClientInfo{"dap44", jnext::dbg::ClientKind::Test}).value;
         AudioPanel panel(&dbg);
         auto* t = panel.findChild<QTreeWidget*>("audio_drops");
+        // Two frames with the CPU parked (DI; JR $), so the frame tag is not 0.
+        {
+            const uint8_t prog[] = {0xF3, 0x18, 0xFE};
+            for (size_t i = 0; i < sizeof(prog); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.run_frame(); emu.run_frame();
+        }
         panel.refresh();
         bool fresh_ok = t && t->topLevelItemCount() == 8;
         for (int i = 0; fresh_ok && i < 8; ++i) {
@@ -1051,6 +1060,15 @@ static void test_dac_tab(Emulator& emu) {
         }
         nr_write(emu, 0x84, 0xBF);
         nr_write(emu, 0x08, 0x00);
+        // A DMA byte to port 0x00DF (b7 on, DAC off): a DacDisabled drop with source DMA.
+        emu.mmu().write(0xA000, 0x5A);
+        {
+            auto w = [&](uint8_t v) { emu.dma().write(v, false); };
+            w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00);
+            w(0x14); w(0x28); w(0xAD); w(0xDF); w(0x00);
+            w(0xCF); w(0x87);
+            emu.run_frame();
+        }
         dbg.port_out(cid, 0x12B3, 0x55);
         nr_write(emu, 0x2D, 0x66);
         panel.refresh();
@@ -1060,10 +1078,12 @@ static void test_dac_tab(Emulator& emu) {
                          tree_cell(t, 5, 6) == "Debugger";
         const bool mir = tree_cell(t, 7, 1) == "1" && tree_cell(t, 7, 2) == "NR 0x2D" && tree_cell(t, 7, 3) == "0x66" &&
                          tree_cell(t, 7, 4) == "-" && tree_cell(t, 7, 6) == "Debugger";
+        const bool dma = tree_cell(t, 6, 1) == "1" && tree_cell(t, 6, 2) == "0x00DF" && tree_cell(t, 6, 3) == "0x5A" &&
+                         tree_cell(t, 6, 4) == "-" && tree_cell(t, 6, 6) == "DMA" && tree_cell(t, 6, 5).toUInt() > 0;
         bool rest = true;
-        for (int i : {0, 1, 2, 3, 4, 6}) rest = rest && tree_cell(t, i, 1) == "0" && tree_cell(t, i, 2) == "-";
-        check("DAP-44", "the table has 8 rows in reason order with their texts; fresh: Count 0 and '-'; a debugger write to 0x12B3 with b6 off fills the family row (1, 0x12B3, 0x55, PC '-', frame, Debugger); an NR 0x2D drop shows 'NR 0x2D'",
-              fresh_ok && fam && mir && rest);
+        for (int i : {0, 1, 2, 3, 4}) rest = rest && tree_cell(t, i, 1) == "0" && tree_cell(t, i, 2) == "-";
+        check("DAP-44", "the table has 8 rows in reason order with their texts; fresh: Count 0 and '-'; a debugger write to 0x12B3 with b6 off fills the family row (1, 0x12B3, 0x55, PC '-', a nonzero frame, Debugger); an NR 0x2D drop shows 'NR 0x2D'; a DMA byte shows source DMA",
+              fresh_ok && fam && mir && dma && rest && frame > 0);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-45", "emulator init", false); return; }
@@ -1102,14 +1122,28 @@ static void test_dac_tab(Emulator& emu) {
         emu.port().out(0xFFFD, 0x08);
         emu.port().out(0x1F, 0x01);
         nr_write(emu, 0x2D, 0x02);
+        // The last family drop is a CPU one: OUT (C),A to 0x12B3 at PC 0x8005.
+        const uint8_t prog[] = {0x01, 0xB3, 0x12, 0x3E, 0x55, 0xED, 0x79, 0x18, 0xFE};
+        for (size_t i = 0; i < sizeof(prog); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        for (int i = 0; i < 3; ++i) emu.execute_single_instruction();
         panel.refresh();
-        const bool filled = tree_cell(t, 0, 1) == "1" && tree_cell(t, 5, 1) == "1" && tree_cell(t, 7, 1) == "1";
+        const bool filled = tree_cell(t, 0, 1) == "1" && tree_cell(t, 5, 1) == "2" && tree_cell(t, 7, 1) == "1" &&
+                            tree_cell(t, 5, 4) == "0x8005";
+        int emitted = 0;
+        QObject::connect(&panel, &AudioPanel::show_in_disassembly_requested, &panel, [&](uint16_t) { ++emitted; });
         if (clear) clear->click();
         bool zero = clear != nullptr;
         for (const auto& d : dbg.audio_state().drops) zero = zero && d.count == 0;
-        for (int i = 0; i < 8; ++i) zero = zero && tree_cell(t, i, 1) == "0";
-        check("DAP-46", "Clear zeroes every counter in the backend and the table shows every Count 0",
-              filled && zero);
+        for (int i = 0; i < 8; ++i) {
+            zero = zero && tree_cell(t, i, 1) == "0";
+            for (int col = 2; col < 7; ++col) zero = zero && tree_cell(t, i, col) == "-";
+        }
+        emit t->itemDoubleClicked(t->topLevelItem(5), 0);   // the former CPU row
+        check("DAP-46", "Clear zeroes every counter in the backend; the table shows every Count 0 and '-' in the port, value, PC, frame and source columns, and a double-click on the former CPU row emits nothing",
+              filled && zero && emitted == 0);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-47", "emulator init", false); return; }
@@ -1119,17 +1153,23 @@ static void test_dac_tab(Emulator& emu) {
         auto* link = panel.findChild<QLabel*>("ay_drops");
         nr_write(emu, 0x84, 0xFC);          // AY ports off, Soundrive 1 off
         nr_write(emu, 0x08, 0x00);
-        emu.port().out(0xFFFD, 0x08);
-        emu.port().out(0xBFFD, 0x08);
+        emu.port().out(0xFFFD, 0x08);       // AyPortDisabled
         emu.port().out(0x1F, 0x01);         // DAC family drop
         nr_write(emu, 0x84, 0xFF);
+        nr_write(emu, 0x06, 0x03);
+        emu.port().out(0xFFFD, 0x08);       // AyHeldInReset
+        nr_write(emu, 0x06, 0x01);
+        emu.port().out(0xFFFD, 0xFE);       // AyChipSelectTurboOff (TurboSound off)
+        emu.port().out(0xFFFD, 0x40);       // AySelectIgnored
+        emu.port().out(0xFFFD, 0x15);
+        emu.port().out(0xBFFD, 0x01);       // AyAddressHigh
         emu.port().out(0x1F, 0x02);         // DAC off drop
         nr_write(emu, 0x2D, 0x03);          // DAC mirror drop
         panel.refresh();
-        const bool text = link && link->text().startsWith("AY writes dropped: 2");
+        const bool text = link && link->text().startsWith("AY writes dropped: 5 ");
         const bool on_chips = panel.chips_on_show();
         if (link) emit link->linkActivated("drops");
-        check("DAP-47", "two AY drops and three DAC drops: the Chips header reads 'AY writes dropped: 2'; its link makes DAC & Beeper the current sub-tab",
+        check("DAP-47", "one drop under each of the five AY reasons and three DAC drops: the Chips header reads 'AY writes dropped: 5'; its link makes DAC & Beeper the current sub-tab",
               text && on_chips && tabs && tabs->currentIndex() == 1 && !panel.chips_on_show());
     }
 }
