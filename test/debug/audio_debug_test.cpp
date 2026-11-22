@@ -1440,7 +1440,7 @@ int main() {
     {
         Emulator emu; fresh(emu);
         ctc_port(emu, 0, 0x05, 100); ctc_port(emu, 1, 0x45, 10); ctc_port(emu, 2, 0x45, 5); emu.ctc().tick(1);
-        check("ACT-09", "zxnext.vhd:4598 a chain of two counters behind a timer: 17 500 Hz / 10 / 5 = 350 000 mHz (one rounding)",
+        check("ACT-09", "zxnext.vhd:4598 a chain of two counters behind a timer: 17 500 Hz / 10 / 5 = 350 000 mHz (every hop exact; ACT-16 pins the single rounding)",
               ctc_of(emu, 2).zc_rate_millihz == 350000u);
     }
     {
@@ -1534,6 +1534,13 @@ int main() {
               period == 1600 && ctc_of(emu, 0).zc_rate_millihz * period == 28000000000ULL);
     }
 
+    {
+        Emulator emu; fresh(emu);
+        ctc_port(emu, 0, 0x05, 0); ctc_port(emu, 1, 0x45, 4); emu.ctc().tick(1);
+        check("ACT-16", "zxnext.vhd:4598, ctc_chan.vhd:153 ch0 timer P16 TC 256 (6 835 937.5 mHz) feeding ch1 counter TC 4: 28e9 / (16 x 256 x 4) = 1 708 984.375, rounded once to 1 708 984 (a per-hop rounding gives 1 708 985)",
+              ctc_of(emu, 1).zc_rate_millihz == 1708984u);
+    }
+
     // ─────────────────── ACT: dma_state() ───────────────────────────────
     {
         Emulator emu; fresh(emu);
@@ -1609,7 +1616,7 @@ int main() {
         const uint32_t r1 = dbg.dma_state().rate_millihz;
         dma_program(emu, 0x8000, 0x9000, 100, 255, false);
         const uint32_t r255 = dbg.dma_state().rate_millihz;
-        check("ACT-28", "dma.vhd:424 prescaler 1: 28 MHz / 32 = 875 000 000 mHz; 255: 28e9 / 8160 = 3 431 372.5, rounded half up to 3 431 373",
+        check("ACT-28", "dma.vhd:424 prescaler 1: 28 MHz / 32 = 875 000 000 mHz; 255: 28e9 / 8160 = 3 431 372.55, rounded to 3 431 373",
               r1 == 875000000u && r255 == 3431373u);
     }
 

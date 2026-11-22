@@ -837,8 +837,6 @@ Result Debugger::clear_audio_drops(ClientId by) {
     return Result::Ok;
 }
 
-// INS-22 -- the decoded audio chain. Every source is a const accessor or a
-// peek: nothing here runs a NextREG read handler or a port read.
 // INS-25 -- the CTC's four channels. A read of the inline DebugViews: nothing here ticks, writes or
 // calls Ctc::read(). The ZC/TO rate walks the chain back at most four hops (zxnext.vhd:4598: channel n is
 // clocked by n-1, channel 0 by 3), dividing by each time constant; a timer ends the walk by contributing
@@ -899,6 +897,8 @@ DmaState Debugger::dma_state() const {
     return s;
 }
 
+// INS-22 -- the decoded audio chain. Every source is a const accessor or a
+// peek: nothing here runs a NextREG read handler or a port read.
 AudioState Debugger::audio_state() const {
     Emulator& emu = impl_->emu;
     const TurboSound& ts = emu.turbosound();

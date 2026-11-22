@@ -690,8 +690,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
-
-| AIZ-11 | A CTC timer (P16, TC 109) and an auto-restarting DMA burst to port 0x00DF (prescaler 55); 20 `ctc_state()` and 20 `dma_state()` calls after each of 50 frames in one run only | State bytes and framebuffer hash are equal. Both engines were seen moving; a real DAC write between the runs makes them differ |
+| AIZ-11 | A CTC timer (P16, TC 109) and an auto-restarting DMA burst to port 0x00DF (prescaler 55); 20 `ctc_state()` and 20 `dma_state()` calls after each of 50 frames in one run only | State bytes and framebuffer hash are equal. Both engines were seen moving; a real AY register write between the runs makes them differ |
 
 ### 8.3 `Debugger::audio_state()`
 
@@ -798,13 +797,14 @@ edges later."
 | ACT-06 | Ch0 timer P256, TC 0                             | 427 246                                                    |
 | ACT-07 | Ch0 timer P16 TC 100; ch1 counter TC 10          | Ch1 counter, running, 1 750 000 (`:150`, `zxnext.vhd:4598`) |
 | ACT-08 | Ch3 timer P256 TC 50; ch0 counter TC 7           | Ch0 312 500 (channel 0 is clocked by channel 3)            |
-| ACT-09 | Ch0 timer P16 TC 100; ch1 counter TC 10; ch2 counter TC 5 | Ch2 350 000 (one rounding, at the end)            |
+| ACT-09 | Ch0 timer P16 TC 100; ch1 counter TC 10; ch2 counter TC 5 | Ch2 350 000 (every hop divides exactly; ACT-16 pins the rounding) |
 | ACT-10 | A counter behind a never-programmed channel; a ring of four counters; a timer waiting for its trigger; a fresh machine | Rate 0 in each; running false for the last two; TC 256 and count 0 on a fresh machine (`:117,223,282`) |
 | ACT-11 | Ch0 timer P16 TC 100; 1, then 17, then 81 edges  | Count 100, 99, 95, each equal to the port read (`:155-168`) |
 | ACT-12 | Ch0 control 0x85; NR 0xC5 = 0x02; NR 0xC5 = 0x00 | Interrupt enable on ch0; then ch1 only; then none, each equal to `get_int_enable()` (`:263-276`, `zxnext.vhd:4592-4593`) |
 | ACT-13 | Ch0 timer running 161 edges, then control 0x03 (soft reset) | Not running, rate 0, count 100 (`:117,158-159`)  |
 | ACT-14 | Ch0 timer running; control 0x05 (TC follows), TC 50 | Running throughout, TC 50, 35 000 000 (`:228-239`)      |
 | ACT-15 | Ch0 timer P16 TC 100, 4000 edges, `on_zc_to` timestamps | Two ZC/TO edges 1600 apart; rate x 1600 = 28e9 (`:132-170`) |
+| ACT-16 | Ch0 timer P16 TC 0 (6 835 937.5 mHz); ch1 counter TC 4 | Ch1 1 708 984: 28e9 / (16 x 256 x 4) = 1 708 984.375 rounded once at the end (a per-hop rounding gives 1 708 985; mutation: round after each hop) |
 | ACT-20 | A fresh DMA                                      | Idle, mode 1, prescaler 0, rate 0, counter 0, no I/O port (`dma.vhd:230-236`) |
 | ACT-21 | CPU speed 3.5 MHz; a burst mem->mem, prescaler 55; the first byte, then clocks until the gate opens | Rate 15 909 091; 1760 master cycles to the gate right after the byte; it opens after 220 CPU clocks (+8 each, `:250-251,424`) |
 | ACT-22 | The same at 7 MHz                                | 15 909 091; 440 clocks (+4 each, `:252`)                   |
@@ -813,7 +813,7 @@ edges later."
 | ACT-25 | Burst A->B, port A memory 0x8000 increment, port B I/O 0x00DF fixed, length 100, prescaler 55; 3 bytes | Active, mode 2, prescaler 55, src 0x8003, dst 0x00DF, length 100, counter 3, src memory, dst I/O (`:287,290,346,351,361,381`) |
 | ACT-26 | The same with direction B->A                     | src 0x00DF (I/O), dst 0x8003 (memory)                      |
 | ACT-27 | ACT-25 run to the end of the block               | Not active, counter 100                                    |
-| ACT-28 | Prescaler 1, then 255                            | 875 000 000, then 3 431 373 (3 431 372.5 rounded half up)  |
+| ACT-28 | Prescaler 1, then 255                            | 875 000 000, then 3 431 373 (3 431 372.55 rounded)  |
 
 ## Test Implementation Strategy
 
