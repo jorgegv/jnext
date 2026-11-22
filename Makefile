@@ -59,9 +59,19 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 # that, and HS-102 needs the cite check in `make -n unit-test`, which a prerequisite that fails under the self-test's
 # scratch HOME (sdcard-image) would cut off before the recipe if docs-check were in it.
 UNIT_TEST_LINTS      := lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check wasm-function-size-selftest traceability-dup-check
-UNIT_TEST_CHECKS     := lint-user-docs-card-selftest docs-tree-same-selftest traceability-selftest cmake-guard-selftest
-UNIT_TEST_POST       := schema-check snapshot-zip-check minimal-image-test package-contract-test
+UNIT_TEST_CHECKS     := lint-user-docs-card-selftest docs-tree-same-selftest traceability-selftest cmake-guard-selftest test-affected-selftest
+UNIT_TEST_POST       := schema-check snapshot-zip-check minimal-image-test package-contract-test test-affected-check
 UNIT_TEST_CHECK_JOBS ?= 6
+# GH #547: the suites `make test-affected` always runs: the CPU, MMU/memory, ULA and NextREG
+# units and integrations, the boot test and both opcode suites. Each must be declared in
+# test/unit-tests.conf (test/test-affected.pl refuses a name that is not). SMOKE_ROW is the one
+# boot screenshot, run against build/jnext.
+SMOKE_SUITES         := fuse_z80_test z80n_test cpu_int_pulse_test cpu_z80n_im2_regressions_test mmu_test mmu_integration_test nextreg_test nextreg_integration_test ula_test ula_integration_test emulator_boot_test
+SMOKE_EMPTY          :=
+SMOKE_SPACE          := $(SMOKE_EMPTY) $(SMOKE_EMPTY)
+SMOKE_COMMA          := ,
+SMOKE_SUITES_CSV     := $(subst $(SMOKE_SPACE),$(SMOKE_COMMA),$(SMOKE_SUITES))
+SMOKE_ROW            := boot-48k
 # Empty in the sub-makes of the POST group and of traceability-check-run: the tree is already built there, and a
 # concurrent `cmake --build` of one tree from three sub-makes is exactly what the group must not start.
 UNIT_TEST_BUILD_DEP  ?= unit-test-build
@@ -220,7 +230,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check ci-gate-check ccache-stats fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check ci-gate-check ccache-stats fuse-pgo unit-test test-affected test-affected-check test-affected-selftest lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -747,7 +757,7 @@ pages-site-test:
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web package-web pages-site playwright sdl-release sdcard-image
-	@# BRW-01..34, WBI-PW-01..09, WEBAPI-01..34, WEBPKG-BR-01..07, WIDGET-01..17, WEBNMI-01..04 (the NMI button), PAGES-01..02 (the Pages demo site served alone), BDBG-01..30 (the debugger protocols served by a page, over the JS channel and over a WebSocket to the bridge), BCARD-01..47 (the card flow, the poster, the stored form of the card, card.dirs, the wording of the pick path's refusals and card source none), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..35, WBI-PW-01..09, WEBAPI-01..34, WEBPKG-BR-01..07, WIDGET-01..17, WEBNMI-01..04 (the NMI button), PAGES-01..02 (the Pages demo site served alone), BDBG-01..30 (the debugger protocols served by a page, over the JS channel and over a WebSocket to the bridge), BCARD-01..47 (the card flow, the poster, the stored form of the card, card.dirs, the wording of the pick path's refusals and card source none), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -1311,6 +1321,27 @@ traceability-selftest:
 	@# test/traceability-dup-ids.pl the same way (GH #243): it had no self-test
 	@# of its own, and shipped skipping every `?`-prefixed suite.
 	@perl test/traceability-citations-selftest.pl
+
+# Branch-round tests: only what the change reaches, plus the smoke set (GH #547; NOT a gate)
+test-affected: $(UNIT_TEST_LINTS) unit-test-build sdcard-image
+	@# The branch round (CLAUDE.md merge protocol, step 2): test/test-affected.pl reads the files
+	@# this branch changed against `main` and prints the plan, from the build tree's own depfiles
+	@# and linker maps. A change it cannot place (UNMAPPED) is FULL: `make unit-test`. Otherwise:
+	@# the selected suites and the smoke set through run-unit-tests.sh --only (every manifest check
+	@# still applies to the whole manifest), docs-check, cli-check, the smoke boot row, the rows
+	@# the change names. It PRINTS which of unit-test-sdl, -win and -wasm the change needs; it does
+	@# not run them. The full `make unit-test` runs once before landing. BASE=<ref> overrides main.
+	@plan=build/test-affected.plan; \
+	 perl test/test-affected.pl --smoke "$(SMOKE_SUITES_CSV)" --plan $$plan $(if $(BASE),--base $(BASE)) || exit $$?; \
+	 TA_MAKE="$(MAKE)" TA_JNEXT=$(CURDIR)/build/jnext SMOKE_ROW=$(SMOKE_ROW) bash test/test-affected-run.sh $$plan
+
+# Every tracked file is in a depfile of the build tree or classified in test/test-affected.conf (GH #547)
+test-affected-check: $(UNIT_TEST_BUILD_DEP)
+	@perl test/test-affected.pl --check
+
+# Self-test of test/test-affected.pl on fixture build trees (TAF rows, GH #547)
+test-affected-selftest:
+	@bash test/test-affected-selftest.sh
 
 # Self-test the build's configure-freshness guards: reconfigure skip + source globs
 cmake-guard-selftest:

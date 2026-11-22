@@ -689,6 +689,8 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-04 | Mute AY1, load a state saved unmuted             | Before any tick the audible sum is the loaded hardware sum; the state saves back byte for byte; one PSG tick later the audible sum is the unmuted sum minus AY1's share |
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
+| AIZ-07 | A parked CPU looping over every audio write site (chip select, R13, a plain DAC port, 0xDF, a NextREG mirror, 0xFE with EAR toggling, a dropped 0xB3); `set_audio_log_enabled()` on in one run, off in the other | State bytes and framebuffer hash are equal over 50 frames: the write log only reads. Positive control: the run with the log on holds entries of all five targets |
+| AIZ-09 | Each of the 13 channel mute bits, and ALL, for 50 frames, on versus off (14 runs) | State bytes and framebuffer hash are equal in every run (the hardware sums every channel: `turbosound.vhd:186-334`, `soundrive.vhd:112-113`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 | AIZ-11 | A CTC timer (P16, TC 109) and an auto-restarting DMA burst to port 0x00DF (prescaler 55); 20 `ctc_state()` and 20 `dma_state()` calls after each of 50 frames in one run only | State bytes and framebuffer hash are equal. Both engines were seen moving; a real AY register write between the runs makes them differ |
 
@@ -778,7 +780,91 @@ reason fails as well. Writes are `emu.port().out()` (source Debugger) unless the
 | DRP-31 | Rewind on, a CPU loop of dropped OUTs, run 10 frames, pause, `step_back(1)` | The machine's cycle moves back and the count is unchanged (no counting in a replay) |
 | DRP-32 | Two drops of one reason                          | Count 2, the last port and value are the second write's     |
 
-### 8.5 CTC and DMA pacing (INS-25)
+### 8.5 Per-channel mute (`AudioChannelMute`)
+
+Suite `audio_debug_test`, GH #533. The mute has no hardware analogue, so the oracle is the VHDL mix
+with the muted channel's INPUT read as silent: 0 for an AY output, 0x80 for a DAC channel. The AY
+fixture programs nine distinct DC levels (volumes 1-9, R7 = 0x3F; `ym2149.vhd:467-520`) through real
+ports. The test-local oracle `expect_chip()` is a copy of `turbosound.vhd:186-199` with the pan gates
+(`:323-329`) that reads the chips' own outputs and shares no code with TurboSound; the expected pcm is
+the sum over the chips (`:334`). The DAC fixture opens the DAC (NR 0x08 bit 3, NR 0x84) at 0x40/0x50/0x60/0x70
+with the AY silent; the expected sample is `4 * ((pair << 2) - 1024)` (`audio_mixer.vhd:86,99`, I2S idle
+0x200, so the mix rests at 1536) with a muted channel counting 0x80 (`soundrive.vhd:74-77`).
+
+| ID | Drive | Expected |
+|----|-------|----------|
+| ACM-01 | Mute chip 0 channel A (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-02 | Mute chip 0 channel B (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-03 | Mute chip 0 channel C (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-04 | Mute chip 1 channel A (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-05 | Mute chip 1 channel B (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-06 | Mute chip 1 channel C (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-07 | Mute chip 2 channel A (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-08 | Mute chip 2 channel B (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-09 | Mute chip 2 channel C (`ay_bit`): tick; then clear it, tick | Muted: `pcm_left/right` and all three `chip_pcm` pairs equal the oracle with only that input zeroed, and differ from the unmuted mix; cleared: the unmuted values (`turbosound.vhd:186-199,334`) |
+| ACM-10 | Mute DAC A: sample; then clear it, sample | The muted side reads that channel at 0x80 (-768 left, right -768); the other side is unchanged; clearing restores -1792 / -768 (`soundrive.vhd:74-77`, `audio_mixer.vhd:86,99`) |
+| ACM-11 | Mute DAC B: sample; then clear it, sample | The muted side reads that channel at 0x80 (-1024 left, right -768); the other side is unchanged; clearing restores -1792 / -768 (`soundrive.vhd:74-77`, `audio_mixer.vhd:86,99`) |
+| ACM-12 | Mute DAC C: sample; then clear it, sample | The muted side reads that channel at 0x80 (-1792 left, right -256); the other side is unchanged; clearing restores -1792 / -768 (`soundrive.vhd:74-77`, `audio_mixer.vhd:86,99`) |
+| ACM-13 | Mute DAC D: sample; then clear it, sample | The muted side reads that channel at 0x80 (-1792 left, right -512); the other side is unchanged; clearing restores -1792 / -768 (`soundrive.vhd:74-77`, `audio_mixer.vhd:86,99`) |
+| ACM-14 | DAC gain -6 dB: DAC_ALL, then DAC_A alone | All four muted: (0, 0); A alone: each side `4 * lround(-192 * g)` (an 0xD0 pair), so the muted arm scales like the unmuted one |
+| ACM-15 | ACB; mute chip 0 channel C | Removed from BOTH sides (`turbosound.vhd:186,189`) |
+| ACM-16 | Chip 1 mono (NR 0x09 bit 6); mute channel A | Removed from both sides, which are equal (`:186-192`) |
+| ACM-17 | Chip 2 pan left only; mute channel B | Left drops, right stays 0 (the pan gate follows the mux, `:323-329`) |
+| ACM-18 | `AUDIO_MUTE` = AY1 plus channel bits of chips 0 and 1; then `AUDIO_MUTE` = 0 | A muted chip is 0 whatever its channel bits; unmuting it leaves its channel bit in force |
+| ACM-19 | DAC B muted, EAR high; then the beeper muted | Beeper silent, B still at 0x80 |
+| ACM-20 | The beeper muted, DAC B muted, the source mask set again; then cleared | The Mixer's `mute_mask()` is the source mask only (BEEPER, then NONE) and `Dac::channel_mute()` stays 0x2 through both; B reads 0x80 throughout, the beeper returns when its mute is cleared |
+| ACM-21 | `set_audio_channel_mute_mask(0xFFFF)` | Stored 0x1FFF; TurboSound 0x1FF; DAC 0xF |
+| ACM-22 | Mask set; soft reset; separately an in-place `init()` | Mask, both copies and the audible effect unchanged |
+| ACM-23 | Mask set; `emulator_cold_boot()` | Mask and both copies (TurboSound, Dac) kept |
+| ACM-24 | Save with no mute; set a mask; load | The mask is unchanged |
+| ACM-25 | Channel mask plus `AUDIO_MUTE` = AY2 | `host.channel_mute_mask` as set; `muted` is its channel bit OR its chip's source bit |
+| ACM-26 | A written while muted, then unmuted; a state load while muted | The DAC's audible copy follows: the write shows once unmuted, the load refreshes it, `channel()` keeps the register value (`soundrive.vhd:74-77`) |
+
+The Qt side (`debugger_audio_panel_test` DAP-31..37, `debugger_panels_test` QATR-04), the backend
+(`debugger_backend_test` REV-47) and the script (`script_parse_test` PARSE-ACM-01 and EVAL-ACM-01,
+`script_events_test` SCRIPT-EV-MUT-ACM) rows are documented in their own suites' headers and in the
+traceability matrix.
+
+### 8.6 Audio write log
+
+Every decoded AY, DAC, NR 0x2C-0x2E and beeper write, logged through `Debugger::audio_log_entries()`
+(GH #531). "The ring is allocated only while the log is on" (3 MB at the default size) has no row: no API shows the release, and adding one for a memory-only property is not worth it, so it is checked by review. Fixture: a bare Next (ZXN_ISSUE2). Oracles: `ym2149.vhd:186,188,207-210`,
+`turbosound.vhd:129-141`, `zxnext.vhd:2965,2974-2980,5412-5414`, `soundrive.vhd:85-101`; the
+timestamps against the event system's own. CPU rows run a guest program; a write from the test
+(`emu.port().out()`) is a Debugger-source write.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AWL-01 | CPU: select R7, then write 0x38 through 0xBFFD, R7 preset 0x3F | One entry (the select is not logged): AyRegister, chip 0, reg 7, value 0x38, prev 0x3F, Cpu, the data OUT's PC, port 0xBFFD, flags 0 |
+| AWL-02 | The same data write through 0xBFF5               | The same with port 0xBFF5 (`zxnext.vhd:2965`)               |
+| AWL-03 | TurboSound on: 0xFFFD = 0xFE then 0xFD; off: 0xFFFD = 0xFF, then 0x05 | AyChipSelect (chip, prev) = (1, 0) then (2, 1); one Dropped AyChipSelectTurboOff; nothing for the plain select (`turbosound.vhd:129-141`) |
+| AWL-04 | R13 = 0x08 twice, R12 = 0x08, a data write with the address at 0x1D | Both R13 entries flagged EnvelopeRestart (the second with an unchanged value); R12 flags 0; one Dropped AyAddressHigh entry, no restart flag (`ym2149.vhd:188,207-210`) |
+| AWL-05 | Twelve DAC port cases, family and DAC on, channels preset | Per port the entries' chips, in order, are the decode's channels, each with its preset as prev and equal timestamps (`zxnext.vhd:2974-2980`) |
+| AWL-06 | CPU NEXTREG 0x2C, 0x2D, 0x2E                     | DacMirror entries: chip 1; chips 0 then 3; chip 2; the NEXTREG's PC; prev the channel before (`soundrive.vhd:85-101`) |
+| AWL-07 | OUT 0xFE: 0x00, 0x01, 0x10, 0x18, 0x18           | Beeper entries only for 0x10 (prev 0x00) and 0x18 (prev 0x10) |
+| AWL-08 | Dropped: 0xBFFD with NR 0x84 b0 off; 0xB3 with b6 off; NR 0x2D with the DAC off | Three Dropped entries with their target, chip (0xFF for the DAC ones), register and reason; each counter moved by 1 |
+| AWL-09 | A DMA byte to 0xDF; a Copper MOVE 0x2D; `port_out` 0x1F; a CPU OUT 0x1F | Sources Dma, Copper, Debugger, Cpu |
+| AWL-10 | A CPU OUT 0xBFFD, a DMA byte to 0xDF, a CPU NEXTREG 0x2D, a Copper MOVE 0x2D, after two frames | The entry's cycle, frame, vc, hc and pc equal the delivered event's; tstate_in_frame = vc * tstates_per_line + hc / 2 |
+| AWL-11 | No request; request; drop it; request again     | Nothing recorded and entries refused with no request; the ring is freed when the request goes; the seq is never reused |
+| AWL-12 | Two clients (one an observer) request; one drops; the other detaches | The log is an OR of the requests: on after the first drops, off after the detach; an observer alone turns it on |
+| AWL-13 | `audio_log_resize(4)`, 6 writes; resize(2); resize(0) and resize(MAX + 1) | The 4 newest, then the 2 newest; both bad sizes refused, content unchanged |
+| AWL-14 | Rewind on, a CPU loop writing 0x1F; 10 frames; `step_back(1)` | The replay logged nothing; entries before the landing cycle kept, those from it on removed (an entry is stamped at the start of its instruction slot, which the landing re-runs); one Rewind marker last; no StateLoad marker for the ring restore |
+| AWL-15 | The same machine, `rewind_to_frame(frame - 3)`   | The no-replay landing: the same truncation and one Rewind marker. The walk crosses every marker (Rewind, Reset and StateLoad): the rewind ring is this session's own history on one clock, and a state load does not clear it; AWL-23/24/27 pin the crossings, AWL-28 the one exception (a StateLoad marker at the landing cycle stays). A state loaded from another session has an unordered clock: a stated limit, best-effort, no row |
+| AWL-16 | Two soft resets; a state save and load; a hard reset; a CPU write | One Reset marker for the two resets (the same marker at the same cycle is one row); one StateLoad; one Reset for the hard reset; the write after it is logged (the sink was re-installed) |
+| AWL-17 | `audio_log_clear()`; destroy the Debugger with the log on | Ok, the ring empty, state_revision advanced, the next seq follows; after the destructor no tap is installed and a frame runs |
+| AWL-18 | An AY write, a DAC fan-out, a dropped NR 0x2D, a soft reset, then `audio_log_export()` | The file's bytes equal a literal: the header and 5 LF lines (R7 resets to 0xFF, `ym2149.vhd:186`); export while off or to an unwritable path is refused |
+| AWL-19 | `cfg.silent` (synthesis off); a CPU OUT 0x1F      | Logged: the tap does not need the mixer |
+| AWL-20 | `AudioLogStream`, writes with a pump after each, `finish()` | True; the file is the header plus `audio_log_csv_append` of every entry in order; the stream's client is gone and the log off |
+| AWL-21 | A ring of 4 and 6 writes between two pumps; a step back removing undrained writes | `finish()` false saying 2 audio writes were overwritten; and true for the truncation, whose file holds the rewind marker row |
+| AWL-22 | `AudioLogStream::open` in a directory that does not exist | False, naming the path; `attach()` then refuses and the log stays off |
+| AWL-23 | The same machine: `rewind_to_frame(frame - 1)`, then `rewind_to_frame(frame - 3)`; run 3 frames on | No write from the second landing's cycle on survives and the first Rewind marker is gone (the clock is one clock, so the walk crosses it); one Rewind marker last; running on logs no write twice and the cycles increase strictly |
+| AWL-24 | 6 frames, soft reset (the clock is kept, `init()`), 3 frames, `rewind_to_frame(frame - 6)` (a landing before the reset) | Every write from the landing cycle on is removed together with the undone Reset marker; the writes before the landing are kept; one Rewind marker last |
+| AWL-25 | A landing, then a soft reset, then a second soft reset | The reset is its own Reset row after the Rewind row, at the same cycle; the second reset (same marker, same cycle) is the same row |
+| AWL-26 | A soft reset, one frame with the CPU parked, a second soft reset | Two Reset rows at two cycles: only the same marker at the same cycle is one row |
+| AWL-27 | 10 frames, a checkpoint, 5 frames, load the checkpoint (the clock goes back), `rewind_to_frame(frame - 3)` (before the checkpoint); run 3 frames on | No write from the landing cycle on survives, the abandoned run before the load included; the undone StateLoad marker is gone; one Rewind marker last; running on logs no write twice |
+| AWL-28 | The same with the landing exactly at the load point (`rewind_to_frame(frame + 1)` after the load, the snapshot taken at the save cycle) | The StateLoad marker at that cycle stays, just before the Rewind marker; no write from that cycle on survives |
+
+### 8.7 CTC and DMA pacing (INS-25)
 
 `Debugger::ctc_state()` and `dma_state()` (GH #537), on a bare Next, with the CTC programmed through
 the real ports `0x183B + (n << 8)` and NR 0xC5, the DMA through port 0x6B. Oracles: `ctc_chan.vhd`

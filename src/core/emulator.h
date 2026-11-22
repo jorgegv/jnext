@@ -61,6 +61,7 @@ namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifes
 #include "audio/mixer.h"
 #include "debug/debug_state.h"
 #include "debug/events.h"
+#include "debug/audio_tap.h"
 #include "core/tap_loader.h"
 #include "core/tap_saver.h"
 #include "core/tape_recorder.h"
@@ -1057,6 +1058,16 @@ public:
     }
     uint8_t audio_mute_mask() const { return audio_mute_mask_; }
 
+    /// Debugger-only per-channel mute (AudioChannelMute bits: 9 AY, 4 DAC). Same
+    /// rules as the source mute above; composes with it. The AY bits go to
+    /// TurboSound, the DAC bits to the Dac (its audible copy).
+    void set_audio_channel_mute_mask(uint16_t mask) {
+        audio_channel_mute_mask_ = mask & AudioChannelMute::ALL;
+        turbosound_.set_channel_mute_mask(audio_channel_mute_mask_ & AudioChannelMute::AY_ALL);
+        dac_.set_channel_mute(static_cast<uint8_t>(audio_channel_mute_mask_ >> 9));
+    }
+    uint16_t audio_channel_mute_mask() const { return audio_channel_mute_mask_; }
+
     /// Discarded audio writes, one counter per reason (GH #530). Always on, host
     /// state only: not in describe_state(), not touched by init() or load_state(),
     /// cleared only by clear_audio_drops(), and carried over a cold boot with
@@ -1067,6 +1078,17 @@ public:
     void restore_audio_drops(
         const std::array<jnext::dbg::AudioDropCounter, jnext::dbg::AUDIO_DROP_REASON_COUNT>& d)
         { audio_drops_ = d; }
+
+    /// GH #531 -- the audio write tap. The Debugger installs one sink and turns it
+    /// on while any client asks for the write log; with it off the cost is one
+    /// test of `audio_tap_active_` at each audio write site. Host state, like
+    /// the drop counters: outside describe_state(), init() and load_state(). A
+    /// hard reset rebuilds the Emulator, so the Debugger re-installs it.
+    void set_audio_tap(jnext::dbg::AudioTapSink* sink, bool active) {
+        audio_tap_ = sink;
+        audio_tap_active_ = active && sink;
+    }
+    bool audio_tap_active() const { return audio_tap_active_; }
 
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
@@ -2104,6 +2126,8 @@ private:
 
     // Debugger-only source mute; NOT machine state (not reset, not serialised).
     uint8_t         audio_mute_mask_ = AudioMute::NONE;
+    uint16_t        audio_channel_mute_mask_ = AudioChannelMute::NONE;
+
 
     // GH #530: discarded-audio-write counters. Host state, like the mask above:
     // outside describe_state(), init() and load_state(); see audio_drops().
@@ -2131,6 +2155,62 @@ private:
             return false;
         }
         return true;
+    }
+
+    // GH #531 -- the audio write tap (see set_audio_tap()). The tap OBSERVES: the
+    // handlers read what they need before a write and record after it, and never
+    // write through the cold path, so the hot path's writes stay where they are.
+    // The cold bodies live in emulator_audio_tap.cpp.
+    jnext::dbg::AudioTapSink* audio_tap_ = nullptr;
+    bool audio_tap_active_ = false;
+    /// The source rule shared with note_audio_drop_(): a debugger write runs
+    /// outside guest execution, a guest one carries the DMA's or the Copper's bracket.
+    jnext::dbg::EventSource audio_write_source_() const {
+        return debug_state_.guest_access() ? nextreg_.write_source()
+                                           : jnext::dbg::EventSource::Debugger;
+    }
+    /// The event stamper's arithmetic, in one place (the latch stamper and the tap).
+    void stamp_at_(uint64_t cycle, uint32_t& frame, int16_t& vc, int16_t& hc) const {
+        // frame_num_ is post-incremented at begin_new_frame(): during frame K it reads K+1.
+        frame = frame_num_ > 0 ? frame_num_ - 1u : 0u;
+        const uint64_t elapsed = cycle - frame_cycle_;
+        vc = static_cast<int16_t>(elapsed / timing_.master_cycles_per_line);
+        hc = static_cast<int16_t>((elapsed % timing_.master_cycles_per_line) / 4);
+    }
+    [[gnu::cold]] [[gnu::noinline]] void tap_ay_data_(uint16_t port, uint8_t val, uint8_t prev,
+                                                      uint8_t chip, uint8_t addr);
+    [[gnu::cold]] [[gnu::noinline]] void tap_ay_select_(uint16_t port, uint8_t val, uint8_t prev_chip);
+    [[gnu::cold]] [[gnu::noinline]] void tap_dac_(int ch, uint8_t val, uint16_t port,
+                                                  jnext::dbg::AudioTarget t, uint8_t reg);
+    [[gnu::cold]] [[gnu::noinline]] void tap_beeper_(uint16_t port, uint8_t val);
+    [[gnu::cold]] [[gnu::noinline]] void tap_drop_(jnext::dbg::AudioDropReason r,
+                                                   uint16_t port, uint8_t val);
+    [[gnu::cold]] [[gnu::noinline]] void tap_marker_(jnext::dbg::AudioMarker m);
+    [[gnu::cold]] [[gnu::noinline]] void tap_rewind_landing_();
+    /// A fresh entry with the common header stamped from the live clock.
+    jnext::dbg::AudioLogEntry tap_entry_() const;
+    jnext::dbg::AudioLogEntry marker_entry_(jnext::dbg::AudioMarker m) const;
+    /// One DAC channel write, recorded first when the tap is on. A write past
+    /// dac_gate_() always applies, so recording before it is exact.
+    void dac_write_(int ch, uint8_t v, uint16_t port) {
+        if (__builtin_expect(audio_tap_active_, 0))
+            tap_dac_(ch, v, port, jnext::dbg::AudioTarget::Dac, 0);
+        dac_.write_channel(ch, v);
+    }
+    /// The AY data write of ports 0xBFFD and 0xBFF5. With the tap on it reads the
+    /// chip, address and register first, and records after the write when it applied.
+    void ay_data_write_(uint16_t port, uint8_t val) {
+        const bool tap = audio_tap_active_;
+        uint8_t chip = 0, addr = 0, prev = 0;
+        if (__builtin_expect(tap, 0)) {
+            chip = uint8_t(turbosound_.selected_index());
+            addr = turbosound_.ay(chip).address();
+            prev = addr < 16 ? turbosound_.ay(chip).read_register(addr) : 0;
+        }
+        const AyPortStatus st = turbosound_.reg_write(val);
+        note_ay_status_(st, port, val);
+        if (__builtin_expect(tap, 0) && st == AyPortStatus::Applied)
+            tap_ay_data_(port, val, prev, chip, addr);
     }
     DebugState      debug_state_;
     TraceLog        trace_log_;

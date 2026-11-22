@@ -161,6 +161,7 @@ int32_t read_builtin(const Expr& e, const EvalContext& ctx) {
         case Builtin::CVC:    return ctx.dbg.raster().cvc;
         case Builtin::PHC:    return ctx.dbg.raster().phc;
         case Builtin::AUDIO_MUTE: return ctx.dbg.audio_mute_mask();
+        case Builtin::AUDIO_CHANNEL_MUTE: return ctx.dbg.audio_channel_mute_mask();
         case Builtin::MACHINE:    return machine_code(ctx.dbg.machine().type);
         default: break;
     }

@@ -1,4 +1,4 @@
-// Browser smoke rows BRW-01..34 (make wasm-browser-test), run by browser-smoke.sh
+// Browser smoke rows BRW-01..35 (make wasm-browser-test), run by browser-smoke.sh
 // on the SDK's node. Each row prints PASS|FAIL <ID> <text>; the run ends with the
 // suite's `Total:` line and exits non-zero on any FAIL. Oracles are NATIVE runs
 // of the same arguments, made by browser-smoke.sh into $SMOKE_ORACLE (build/
@@ -402,6 +402,25 @@ row('BRW-24', 'the WAV recorder outlives main(): a complete RIFF file after the 
   const dataLen = w.readUInt32LE(dataAt + 4);
   must(w.toString('latin1', 0, 4) === 'RIFF' && riff === w.length - 8 && dataLen > 176400 && dataLen === w.length - dataAt - 8,
        `size ${w.length} riff ${riff} data ${dataLen}`);
+});
+
+row('BRW-35', '--audio-log in a page: after the automatic exit the CSV equals the native run\'s byte for byte (the stream is finalised by the page loop\'s teardown, like the WAV)', async () => {
+  const want = fs.readFileSync(orc('alog.csv'));
+  const header = 'frame,line,hc,tstate,cycle,pc,source,target,chip,reg,value,prev,flags,reason,port';
+  const page = await open({ args: ['--machine', 'next', '--sdcard', '/media/card.img', '--silent', '--rtc', '2026-07-10T08:55:00',
+                                   '--inject', '/media/alog.bin', '--inject-org', '8000', '--inject-pc', '8000',
+                                   '--audio-log', '/media/a.csv', '--delayed-automatic-exit-frames', '30'],
+                            files: [CARD, ['/scratch/alog.bin', '/media/alog.bin']], canvas: '640x512' });
+  await start(page);
+  const code = await waitExit(page);
+  must(code === 0, `exit ${code}`);
+  const got = await grab(page, '/media/a.csv');
+  const text = got.toString('latin1');
+  // The fixture's own rows (PCs 0x800A, 0x8014, 0x8018, 0x801C, 0x801E twice) must be there, so two empty files cannot match.
+  const have = [',0x800A,cpu,ay_select,', ',0x8014,cpu,ay,', ',0x8018,cpu,dac,', ',0x801C,cpu,dac,'].every((k) => text.includes(k)) &&
+               text.split(',0x801E,cpu,dac_mirror,').length === 3;
+  must(text.split('\n')[0] === header && have, `header or fixture rows missing: ${JSON.stringify(text.slice(0, 400))}`);
+  must(got.equals(want), `page CSV (${got.length} bytes) differs from the native run (${want.length} bytes)`);
 });
 
 row('BRW-25', 'F2 (window scale) leaves the canvas as the page sized it', async () => {

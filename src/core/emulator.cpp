@@ -5152,8 +5152,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             result = (result & ~0x40) | (bit6 << 6);
             return result;
         },
-        [this](uint16_t, uint8_t val) {
+        [this](uint16_t port, uint8_t val) {
             renderer_.ula().set_border(val & 0x07);
+            // GH #531: records an EAR or MIC change, before the beeper takes it.
+            if (__builtin_expect(audio_tap_active_, 0)) tap_beeper_(port, val);
             beeper_.set_ear((val >> 4) & 1);
             beeper_.set_mic((val >> 3) & 1);
             // GH #89 — a TZX / WAV save samples tape-out where port_fe_mic
@@ -5429,7 +5431,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // port_dffd is 0 and it declines, so the write lands here (GH #325).
             // That suppressed write is not a dropped one: the AY side never sees
             // it and the paging register takes it (GH #530).
-            note_ay_status_(turbosound_.reg_addr(val), port, val);
+            // GH #531: the chip selected before the write, for the log's `prev`.
+            const bool tap = audio_tap_active_;
+            const uint8_t prev_chip = __builtin_expect(tap, 0) ? uint8_t(turbosound_.selected_index()) : 0;
+            const AyPortStatus st = turbosound_.reg_addr(val);
+            note_ay_status_(st, port, val);
+            // Applied with d7 set is exactly the chip-select/pan command: a d7=1
+            // value that is not the command returns SelectIgnored (turbosound.vhd:129,141).
+            // A plain register select is never logged.
+            if (__builtin_expect(tap, 0) && st == AyPortStatus::Applied && (val & 0x80))
+                tap_ay_select_(port, val, prev_chip);
         });
 
     // AY data write — port 0xBFFD. VHDL zxnext.vhd:2648.
@@ -5455,7 +5466,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 note_audio_drop_(jnext::dbg::AudioDropReason::AyPortDisabled, port, val);
                 return;
             }
-            note_ay_status_(turbosound_.reg_write(val), port, val);
+            ay_data_write_(port, val);
         });
 
     // AY register-query read — port 0xBFF5. VHDL zxnext.vhd:2649.
@@ -5481,7 +5492,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 note_audio_drop_(jnext::dbg::AudioDropReason::AyPortDisabled, port, val);
                 return;
             }
-            note_ay_status_(turbosound_.reg_write(val), port, val);
+            ay_data_write_(port, val);
         });
 
     // DAC ports — Soundrive Mode 1 (most common)
@@ -5499,19 +5510,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x001F, nullptr,
         [this](uint16_t port, uint8_t val) {
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x02) != 0, port, val)) return;   // SD1 b1 gate
-            dac_.write_channel(0, val);
+            dac_write_(0, val, port);
         });
     port_.register_handler(0x00FF, 0x000F, nullptr,
         [this](uint16_t port, uint8_t val) {
             // 0x0F: SD1 ch B (b1) OR Covox ch B (b4).
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x12) != 0, port, val)) return;   // b1 | b4
-            dac_.write_channel(1, val);
+            dac_write_(1, val, port);
         });
     port_.register_handler(0x00FF, 0x004F, nullptr,
         [this](uint16_t port, uint8_t val) {
             // 0x4F: SD1 ch C (b1) OR Covox ch C (b4).
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x12) != 0, port, val)) return;   // b1 | b4
-            dac_.write_channel(2, val);
+            dac_write_(2, val, port);
         });
 
     // Soundrive Mode 1 channel D (port 0x5F) + Profi Covox channel A
@@ -5538,13 +5549,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x003F, nullptr,
         [this](uint16_t port, uint8_t val) {
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x08) != 0, port, val)) return;   // Profi b3 gate
-            dac_.write_channel(0, val);
+            dac_write_(0, val, port);
         });
     port_.register_handler(0x00FF, 0x005F, nullptr,
         [this](uint16_t port, uint8_t val) {
             // 0x5F reachable via SD1 (b1) OR Profi (b3).
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x0A) != 0, port, val)) return;   // b1 | b3
-            dac_.write_channel(3, val);
+            dac_write_(3, val, port);
         });
 
     // Soundrive Mode 2: 0xF1=A, 0xF3=B, 0xF9=C, 0xFB=D (vhd:2432).
@@ -5597,12 +5608,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 note_audio_drop_(jnext::dbg::AudioDropReason::DacDisabled, port, val);
                 return;
             }
-            dac_.write_channel(0, val);
+            dac_write_(0, val, port);
         });
     port_.register_handler(0x00FF, 0x00F3, nullptr,
         [this](uint16_t port, uint8_t val) {
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x04) != 0, port, val)) return;   // SD2 b2 gate
-            dac_.write_channel(1, val);
+            dac_write_(1, val, port);
         });
     port_.register_handler(0x00FF, 0x00F9, nullptr,
         [this](uint16_t port, uint8_t val) {
@@ -5617,7 +5628,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 note_audio_drop_(jnext::dbg::AudioDropReason::DacDisabled, port, val);
                 return;
             }
-            dac_.write_channel(2, val);
+            dac_write_(2, val, port);
         });
     port_.register_handler(0x00FF, 0x00FB, nullptr,
         [this](uint16_t port, uint8_t val) {
@@ -5633,8 +5644,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // Neither decode: not a DAC port at all, so a family drop, counted
             // before the DAC-enable test like every other site.
             if (!dac_gate_(sd2_en || mono_ad, port, val)) return;
-            dac_.write_channel(3, val);
-            if (mono_ad) dac_.write_channel(0, val);
+            dac_write_(3, val, port);
+            if (mono_ad) dac_write_(0, val, port);
         });
 
     // GS Covox mono fan-out — port 0xB3 writes both channels B and C.
@@ -5651,8 +5662,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x00B3, nullptr,
         [this](uint16_t port, uint8_t val) {
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x40) != 0, port, val)) return;   // GS Covox b6
-            dac_.write_channel(1, val);
-            dac_.write_channel(2, val);
+            dac_write_(1, val, port);
+            dac_write_(2, val, port);
         });
 
     // Specdrum: port 0xDF → channels A+D. VHDL zxnext.vhd:2674 routes
@@ -5689,8 +5700,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // gate is clear the SpecDrum DAC port is not decoded and the
             // write is dropped (counted, GH #530).
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x80) != 0, port, val)) return;
-            dac_.write_channel(0, val);
-            dac_.write_channel(3, val);
+            dac_write_(0, val, port);
+            dac_write_(3, val, port);
         });
 
     // --- Audio NextREG handlers ---
@@ -6157,16 +6168,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // registers are held at 0x80 (silence). Mirror that behaviour here.
     nextreg_.set_write_handler(0x2C, [this](uint8_t v) -> uint8_t {
         if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002C, v); return v; }
+        if (__builtin_expect(audio_tap_active_, 0)) tap_dac_(1, v, 0x002C, jnext::dbg::AudioTarget::DacMirror, 0x2C);
         dac_.write_left(v);
         return v;
     });
     nextreg_.set_write_handler(0x2D, [this](uint8_t v) -> uint8_t {
         if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002D, v); return v; }
+        if (__builtin_expect(audio_tap_active_, 0)) {
+            tap_dac_(0, v, 0x002D, jnext::dbg::AudioTarget::DacMirror, 0x2D);
+            tap_dac_(3, v, 0x002D, jnext::dbg::AudioTarget::DacMirror, 0x2D);
+        }
         dac_.write_mono(v);
         return v;
     });
     nextreg_.set_write_handler(0x2E, [this](uint8_t v) -> uint8_t {
         if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002E, v); return v; }
+        if (__builtin_expect(audio_tap_active_, 0)) tap_dac_(2, v, 0x002E, jnext::dbg::AudioTarget::DacMirror, 0x2E);
         dac_.write_right(v);
         return v;
     });
@@ -13473,11 +13490,12 @@ void Emulator::note_audio_drop_(jnext::dbg::AudioDropReason r, uint16_t port, ui
     c.last_value = value;
     // A debugger write runs outside guest execution; a guest one carries the
     // live source bracket the DMA and the Copper set around their port writes.
-    c.last_source = debug_state_.guest_access() ? nextreg_.write_source()
-                                                : jnext::dbg::EventSource::Debugger;
+    c.last_source = audio_write_source_();
     c.last_pc    = debug_slot_pc_;
     // The event stamper's frame tag (frame_num_ is post-incremented at frame start).
     c.last_frame = frame_num_ > 0 ? frame_num_ - 1u : 0u;
+    // GH #531: the log and the counter come from this one call, so they agree.
+    if (audio_tap_active_) tap_drop_(r, port, value);
 }
 
 void Emulator::note_ay_status_cold_(AyPortStatus s, uint16_t port, uint8_t value)
@@ -15716,6 +15734,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     Log::emulator()->debug("rewind_to_cycle: reached cycle {} after {} replay frames",
                             reached, frames);
     rewind_buffer_->unmark_from(reached);   // §4.2a: changes after the landing are undone
+    if (audio_tap_active_) tap_rewind_landing_();   // GH #531
     return reached;
 }
 
@@ -15834,6 +15853,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
     }
     restored_frame_start_ = true;   // GH #278: sits on a counted frame start
     rewind_buffer_->unmark_from(snap);   // §4.2a: changes after the landing are undone
+    if (audio_tap_active_) tap_rewind_landing_();   // GH #531
 
     // Re-render so the main window framebuffer reflects the restored state.
     render_framebuffer_now();
@@ -15939,22 +15959,16 @@ void Emulator::install_debug_latch_stamper_()
         // live clock". Everything below derives from that ONE value, so the
         // header cannot be internally inconsistent whichever a site chooses.
         e.cycle = at ? *at : clock_.get();
-        // F2's tag: frame_num_ is post-incremented at begin_new_frame(), so
-        // during frame K it reads K+1. Read the RAW counter and subtract, which
-        // is what frame_tag() does — never a derived value that clamps.
-        e.frame = frame_num_ > 0 ? frame_num_ - 1u : 0u;
         // The instruction the site belongs to. `cpu_.pc()` has already moved on
         // for a latch raised from inside cpu_.execute().
         e.pc = debug_slot_pc_;
-        // The RAW frame counters, the same arithmetic snapshot_raster() uses —
-        // from `e.cycle`, NOT from the live clock, or a site that supplied its own
-        // cycle would get a header half from one instant and half from another.
-        // Deliberately not paused_vc_/paused_hc_: those advance only while a
-        // debugger is attached and the per-instruction raster walk is running.
-        const uint64_t elapsed = e.cycle - frame_cycle_;
-        e.vc = static_cast<int16_t>(elapsed / timing_.master_cycles_per_line);
-        e.hc = static_cast<int16_t>(
-            (elapsed % timing_.master_cycles_per_line) / 4);
+        // F2's frame tag and the RAW raster counters, all from `e.cycle` and NOT from
+        // the live clock, or a site that supplied its own cycle would get a header half
+        // from one instant and half from another. The arithmetic is shared with the
+        // audio write tap (GH #531), so the two cannot disagree. Deliberately not
+        // paused_vc_/paused_hc_: those advance only while a debugger is attached and
+        // the per-instruction raster walk is running.
+        stamp_at_(e.cycle, e.frame, e.vc, e.hc);
     });
 }
 
@@ -16101,6 +16115,13 @@ void Emulator::debug_after_machine_transition_(bool discard_ring)
     // made. A ring restore puts its own recorded frames back after this
     // (RewindBuffer::restore_nearest()).
     call_stack_.clear();
+
+    // GH #531 -- a reset or a load is a discontinuity in the audio write log. A
+    // rewind's own ring restore lands through load_state() before the landing
+    // hook runs, and adds no marker here: the landing adds the one `Rewind` marker.
+    if (audio_tap_active_ && !debug_state_.restoring_from_rewind())
+        tap_marker_(discard_ring ? jnext::dbg::AudioMarker::StateLoad
+                                 : jnext::dbg::AudioMarker::Reset);
 
     jnext::dbg::EventTable* t = debug_state_.event_table();
     if (!t) return;

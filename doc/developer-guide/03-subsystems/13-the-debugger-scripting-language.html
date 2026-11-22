@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3380,7 +3380,7 @@ and <code>REASON</code>.</p>
 </tbody>
 </table>
 <p>Mutations (<code>set</code>, <code>out</code>) go through the debugger's write paths (<code>set_register</code>,
-<code>poke</code>, <code>nextreg_write</code>, <code>port_out</code>, <code>set_audio_mute_mask</code>). These raise no
+<code>poke</code>, <code>nextreg_write</code>, <code>port_out</code>, <code>set_audio_mute_mask</code>, <code>set_audio_channel_mute_mask</code>). These raise no
 events, and the backend logs each as a <code>MUTATE</code> line. With a rewind buffer
 active, the first mutation logs a warning.</p>
 <p>Every engine log line is stamped <code>[jds F:frame C:cycle]</code>.</p>

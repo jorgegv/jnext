@@ -512,7 +512,7 @@ private:
 
     ExprPtr parse_lvalue() {
         static const char* const WHAT =
-            "expected a variable, a register, a flag, IFF1, IFF2, IM, AUDIO_MUTE, "
+            "expected a variable, a register, a flag, IFF1, IFF2, IM, AUDIO_MUTE, AUDIO_CHANNEL_MUTE, "
             "mem[], mem16[], phys[], nextreg[] or cvar()";
         const Token& tk = cur();
         auto node = std::make_shared<Expr>();

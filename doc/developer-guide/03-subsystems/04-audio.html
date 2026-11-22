@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.54</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3190,20 +3190,39 @@ counters are host state: outside <code>describe_state()</code>, <code>init()</co
 carried over a cold boot by <code>emulator_cold_boot()</code> beside the mute mask, cleared
 only by <code>Debugger::clear_audio_drops()</code>, and not counted while a rewind replays
 frames. <code>Debugger::audio_state()</code> publishes them as <code>AudioState::drops</code>.</p>
-<p><strong>Pacing engines.</strong> <code>Debugger::ctc_state()</code> and <code>Debugger::dma_state()</code> (INS-25) report what paces a
-sample player: the CTC's four channels and the DMA's prescaler. Both read through a <code>DebugView</code> that
-is defined inline in <code>CtcChannel</code> and <code>Dma</code> (<code>ctc.h</code>, <code>dma.h</code>): no data member, so no layout change, and
-no core translation unit calls it, so no code is emitted in a hot path; an unused debugger pays nothing.
-The CTC rate is the ZC/TO rate: <code>MASTER_CLOCK_HZ / (prescaler x TC)</code> for a running timer (TC 0 counts
-256; <code>ctc_chan.vhd:132-170</code>), the source's rate divided by TC for a running counter. A counter's
-source is the previous channel, channel 0 being fed by channel 3 (<code>zxnext.vhd:4598</code>, <code>Ctc::handle_zc_to</code>
-arms <code>(channel + 1) &amp; 3</code>); <code>Debugger::ctc_state()</code> walks that chain back at most four hops, a stopped
-channel or a ring of counters ends it with no rate, and the division is rounded once, at the end, in
-milli-hertz. A channel is <code>running</code> only in S_RUN or S_RUN_TC, the states in which <code>t_count</code> counts. The
-DMA rate is the NOMINAL pacing rate <code>MASTER_CLOCK_HZ / (32 x prescaler)</code>, the same at every CPU speed (the
-DMA timer adds 8, 4, 2 or 1 per CPU clock at 3.5, 7, 14 and 28 MHz, one per master cycle, <code>dma.vhd:250-255</code>):
-the gate (<code>dma.vhd:424</code>) is a minimum spacing from the read, and the state machine's own cycles come
-on top, so a real stream is slower than the nominal rate.</p>
+<p><strong>The write tap.</strong> Every decoded audio write can also be logged, for the debugger's Log
+tab and <code>--audio-log</code>. <code>Emulator</code> holds one <code>AudioTapSink*</code> (<code>src/debug/audio_tap.h</code>,
+the core-to-backend seam, implemented by the debugger backend) and one bool,
+<code>audio_tap_active_</code>; the backend switches it on while any client asks for the log
+(<code>Emulator::set_audio_tap()</code>). The sites are the three AY handlers (0xFFFD, 0xBFFD and
+0xBFF5), the 14 DAC channel writes in the 11 DAC handlers (<code>Emulator::dac_write_()</code>
+wraps each), the three NextREG 0x2C-0x2E mirror handlers, the 0xFE handler and
+<code>note_audio_drop_()</code>, so the counter and the log come from one call. Each site tests
+the one bool and nothing else, and there is no test on the per-instruction path.
+Rule R1: the tap observes and never writes. A handler reads what the entry needs
+(the chip, the address, the previous byte) before its write and records after it,
+so the hot path's own writes stay where they are, and the log cannot drift from them.
+The cold bodies are in <code>src/core/emulator_audio_tap.cpp</code>, marked cold and out of line,
+so adding one cannot move inlining in <code>emulator.cpp</code>. They return at once while a rewind
+replays frames (<code>replay_mode_</code>). A plain register select is not logged; an applied
+0xFFFD write with bit 7 set is exactly the chip-select or pan command, because a bit-7
+value that is not the command returns <code>SelectIgnored</code>. An entry's timestamp comes from
+<code>Emulator::stamp_at_()</code>, the arithmetic the event latch stamper also uses, so the log
+agrees with the event system by construction; the stamp is the start of the instruction
+slot that raised the write, which is also why a rewind landing removes the entries at its
+own cycle. The landing removes everything from that cycle on, markers included: the rewind ring is this
+session's own history on one clock, and a soft reset, a rewind and a state load taken from it all keep that
+clock (loading a checkpoint of this session puts it back to the checkpoint's cycle), so every marker is
+crossed. A state-load marker AT the landing cycle is the landing state itself and stays, just before the
+new <code>Rewind</code> marker. A state loaded from another session has a clock that cannot be ordered against this
+one, so across such a load the cycle order, and the result, is best-effort. The <code>Rewind</code> marker is always
+recorded, and only the same marker twice at one cycle is one row, so a reset right after a rewind keeps its
+own row. Markers come from <code>debug_after_machine_transition_()</code> (every reset and every
+state load pass through it; a ring restore for a rewind is left out by
+<code>DebugState::restoring_from_rewind()</code>) and from the two rewind landings. A hard reset
+rebuilds the <code>Emulator</code>, so the backend installs the sink again in
+<code>reapply_after_machine_rebuild()</code>. The ring, the seq counter and the verbs live in the
+backend (<code>src/debug/debugger_audio.cpp</code>).</p>
 <p><strong>Beeper</strong> — <code>src/audio/beeper.*</code>. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is
@@ -3267,6 +3286,14 @@ tick rebuilds both. A state saved while a chip is muted is therefore byte-identi
 <code>env_reset</code>, which reloads the level and also forces <code>env_ena</code> (<code>ym2149.vhd:340-342</code> and <code>ym2149.vhd:393-409</code>), so the first
 step comes with the write instead of one envelope period later. <code>AyChip::load_envelope()</code> applies the reload
 and then runs <code>step_shape_()</code>, the half of <code>update_envelope()</code> that follows the period counter.</p>
+<p>A second host mask, the 13-bit per-channel one (<code>AudioChannelMute</code>, set through
+<code>Emulator::set_audio_channel_mute_mask()</code>), follows the same rules and composes with the first. Its nine AY
+bits go to <code>TurboSound</code>, which zeroes the muted channel's input BEFORE the chip's A/B/C mux when it builds
+the audible pair, so ACB, mono and pan stay exact; the hardware pair never sees them. Its four DAC bits go
+to the <code>Dac</code>, which keeps an audible copy of its four registers (a muted channel reads its idle 0x80),
+updated on each write and on a mute change; <code>pcm_left()</code> and <code>pcm_right()</code> sum that copy, so the Mixer's
+<code>mix()</code> is the same code muted or not, and the registers (what the debugger reads and a snapshot stores)
+never see the mute. A state load rebuilds the copy. The cold boot carries both masks.</p>
 <h2 id="getting-samples-to-the-host">Getting samples to the host<a class="headerlink" href="#getting-samples-to-the-host" title="Permanent link">&para;</a></h2>
 <p><code>src/platform/sdl_audio.*</code> is the only place SDL audio appears. The device is
 opened in <em>callback</em> mode: SDL's audio thread pulls samples from a
