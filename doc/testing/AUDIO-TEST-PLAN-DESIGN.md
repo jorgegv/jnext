@@ -1035,6 +1035,7 @@ The frame mapping (epic decision D3) is PSG-20 to PSG-24, 28 to 30.
 |--------|--------------------------------------------------|------------------------------------------------------------|
 | PSG-31 | Writer: blocks in f100, f100 and f90 (frames not above the last) | One `FF` each, no runaway: `H FF 00 01 FF 00 02 FF 00 03 FF` |
 | PSG-32 | Recorder: 100000 consecutive single-write frames | 16 + 3 x 100000 + 1 bytes, `FF 00 v` per frame, one trailing `FF` |
+| PSG-33 | As PSG-29, then a landing, 3 silent frames and R8 = 0x56 | The landing's marker keeps the numbering offset: the write 2 frame readings after the landing is 3 file frames after the last block, `... 08 09 FF FF FF 08 56 FF` |
 | PSG-14 | f100: R8 = 1 then R8 = 2                         | `H FF 08 02 FF` (last value wins; Fuse would write 01)     |
 | PSG-15 | f100: R13, R0, R7 in that order                  | `H FF 00 FE 07 38 0D 0E FF`                                |
 | PSG-16 | f100: R14, R15; f101: R0                         | `H FF FF 00 01 FF`                                         |

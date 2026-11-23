@@ -1568,6 +1568,41 @@ static void psg_rows() {
                           0xFF, 0x08, 0x55, 0xFF}));
     }
     {
+        // As PSG-29, then three silent frames after the landing and a write: the Rewind marker puts the new
+        // frames right after the last one seen (numbering offset 4), so the write, 3 frames after the landing,
+        // is (frame reading at the write - reading at the landing) + 1 file frames after the f9 block: the
+        // landing frame maps to the frame right after the f9 block. The readings are read from time(): the
+        // first run_frame() after a landing does not move the reading (as after init), so 3 frames move it by 2
+        // and the gap is 3 separators. With no marker the write (reading below the last one seen) would be
+        // rebased to the frame right after the f9 block: one separator.
+        Emulator emu; fresh(emu); park(emu);
+        emu.set_rewind_enabled(true);
+        emu.resize_rewind_buffer(50);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("psg33")).value;
+        emu.run_frame();
+        const std::string p = psg_tmp("v33");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        for (int i = 0; i < 10; ++i) { ay_write(emu, 8, i); emu.run_frame(); }
+        dbg.pause(cid);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame - 4);
+        const uint32_t landing = dbg.time().frame;
+        dbg.run(cid);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const uint32_t at_write = dbg.time().frame;
+        ay_write(emu, 8, 0x56);
+        dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Bytes a = psg_read(p);
+        psg_rm(p);
+        const Bytes want_tail = {0x08, 0x09, 0xFF, 0xFF, 0xFF, 0x08, 0x56, 0xFF};   // at_write - landing + 1 = 3 FF
+        if (a.size() < want_tail.size() || Bytes(a.end() - long(want_tail.size()), a.end()) != want_tail) {
+            std::printf("    PSG-33 got:"); for (uint8_t c : a) std::printf(" %02X", c); std::printf("\n");
+        }
+        check("PSG-33", "ten R8 frames, a rewind landing 4 frames back, 3 silent frames, R8=0x56: the landing's marker offsets the numbering, so the write (2 readings after the landing) is 3 file frames after the last block: ... 08 09 FF FF FF 08 56 FF",
+              r == Result::Ok && at_write - landing == 2 && a.size() >= want_tail.size() &&
+              Bytes(a.end() - long(want_tail.size()), a.end()) == want_tail);
+    }
+    {
         Emulator emu; fresh(emu);
         Debugger dbg(emu);
         const std::string p = psg_tmp("v30");
