@@ -29,6 +29,7 @@ private:
 
     std::FILE* file_ = nullptr;
     uint32_t sample_rate_ = 44100;
+    std::string path_;           // the file now open (reported to output_files)
     uint64_t data_bytes_ = 0;
     bool failed_ = false;
     std::string last_error_;

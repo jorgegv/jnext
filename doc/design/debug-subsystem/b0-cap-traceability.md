@@ -112,6 +112,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 | `Host` | `EventKind::Host`; `EventFilter::host_name`, `Event::host_name`, `MAX_HOST_EVENT_NAME`; raised by `Debugger::raise_host_event` |
 | `Copper{Move, Wait, Halt}` | `EventKind::Copper`, `enum class CopperEventKind`; `EventFilter::{lo, hi, regs, copper_kind}`; payload `Event::{reg, value, copper_pc, wait_vpos, wait_hpos_threshold, hc_ula, cvc}` |
 | `Dma{Start, Byte, End}` | `EventKind::Dma`, `enum class DmaEventKind`; `EventFilter::{lo, hi, dma_kind}`; payload `Event::{dma_src, dma_dst, dma_length, dma_bytes, dma_direction, dma_mode, dma_is_io_src, dma_is_io_dst, value, cycle}` |
+| `AudioWrite` (GH #532) | `EventKind::AudioWrite`, `enum class AudioTarget`, `AudioTargetMask`; `EventFilter::{audio_targets, chip, regs, value_mask, value_match, audio_flags_all, audio_flags_none, source}`; payload `Event::{audio_target, chip, reg, value, prev, port, source, audio_flags, drop_reason, pc}` |
 | `source ∈ {Cpu, Copper, Dma, Any}` (+ `Debugger`, filter-only `Any`) | `enum class EventSource` |
 | the common `{cycle, frame, vc, hc, pc, id, owner}` | `Event`'s first block |
 

@@ -553,6 +553,10 @@ public:
     /// Used for compositor-fidelity investigations (parallax.nex etc.).
     void set_compositor_trace(const std::string& path, int target_frame);
 
+    /// Close the trace file if it is open (a trace whose target frame never came). Idempotent.
+    /// A browser page's loop never exits through stdio's flush, so it calls this (GH #553).
+    void finish_compositor_trace();
+
 private:
     // Per-pixel compositor trace (set via set_compositor_trace; see CSV
     // dump in composite_scanline). Empty path = disabled, zero overhead.

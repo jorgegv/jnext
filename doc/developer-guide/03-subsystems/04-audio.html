@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3193,15 +3193,18 @@ frames. <code>Debugger::audio_state()</code> publishes them as <code>AudioState:
 <p><strong>The write tap.</strong> Every decoded audio write can also be logged, for the debugger's Log
 tab and <code>--audio-log</code>. <code>Emulator</code> holds one <code>AudioTapSink*</code> (<code>src/debug/audio_tap.h</code>,
 the core-to-backend seam, implemented by the debugger backend) and one bool,
-<code>audio_tap_active_</code>; the backend switches it on while any client asks for the log
-(<code>Emulator::set_audio_tap()</code>). The sites are the three AY handlers (0xFFFD, 0xBFFD and
+<code>audio_tap_active_</code>; the backend switches it on while any client asks for the log or a live <code>AudioWrite</code>
+subscription exists (<code>Emulator::set_audio_tap()</code>, called by <code>publish_audio_tap()</code>). The sites are the three AY handlers (0xFFFD, 0xBFFD and
 0xBFF5), the 14 DAC channel writes in the 11 DAC handlers (<code>Emulator::dac_write_()</code>
 wraps each), the three NextREG 0x2C-0x2E mirror handlers, the 0xFE handler and
 <code>note_audio_drop_()</code>, so the counter and the log come from one call. Each site tests
 the one bool and nothing else, and there is no test on the per-instruction path.
-Rule R1: the tap observes and never writes. A handler reads what the entry needs
-(the chip, the address, the previous byte) before its write and records after it,
-so the hot path's own writes stay where they are, and the log cannot drift from them.
+Rule R1: the tap observes and never writes. The sites differ in order: the AY handlers (0xFFFD, 0xBFFD, 0xBFF5) read
+what the entry needs (the chip, the address, the previous byte) before the write and record after it, while the DAC
+writes (<code>dac_write_()</code>), the NR 0x2C-0x2E mirrors and the 0xFE handler record BEFORE it (the previous value is
+still in place, and <code>tap_beeper_</code> must run before <code>beeper_.set_ear()</code>). Either way the hot path's own writes stay
+where they are, and the log cannot drift from them.
+The sink has two consumers, the log ring and the <code>AudioWrite</code> event latch (<code>09-2</code>), and the core knows of neither.
 The cold bodies are in <code>src/core/emulator_audio_tap.cpp</code>, marked cold and out of line,
 so adding one cannot move inlining in <code>emulator.cpp</code>. They return at once while a rewind
 replays frames (<code>replay_mode_</code>). A plain register select is not logged; an applied
@@ -3242,8 +3245,12 @@ in the emulation path changes for it: it reads what the write tap already record
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is
 deliberately tiny — three booleans, being EAR and MIC from port 0xFE bits 4 and
-3 plus a tape-EAR input from real-time tape playback. There is no accumulator
-and no filtering here, because that is the mixer's job.</p>
+3 plus a tape-EAR input from real-time tape playback, and one derived value,
+<code>mic_final</code>, the board's <code>beep_mic_final</code> (<code>zxnext.vhd:6503</code>), which is what
+the mixer's MIC term reads. <code>mic_final</code> is not in the saved state: the
+emulator refreshes it from <code>Emulator::tape_out_level</code> at the events that change
+it. There is no accumulator and no filtering here, because that is the mixer's
+job.</p>
 <p><strong>Pi I2S</strong> — <code>src/audio/i2s.*</code>. A Next can take digital audio in from a
 Raspberry Pi attached to its interface, and mix it with everything else. jnext
 models the destination, not the wire: a latched 10-bit sample pair plus the
@@ -3267,6 +3274,44 @@ runs.</p>
 EAR contributes 512, MIC 128, the AY pair is zero-extended, the DAC pair is
 shifted left by two, and the I2S pair is zero-extended. <code>Mixer::mix</code> is a pure
 function of the sources, holding no state of its own.</p>
+<p>The hardware mixer has no tape input. A tape playing in real time, and the Pi's
+audio when NR 0xA2 sends it to EAR, reach the mix only inside the MIC term:
+<code>beep_mic_final</code> is the board's EAR input XOR the port 0xFE MIC bit (on the
+issue 3 keyboard setting), so a tape swings the mix by 128, a quarter of a
+beeper EAR step, and a tape XOR a set MIC bit is heard inverted. The EAR input
+itself is the jack through the board's <code>ear_relax</code>: a level held with no edge
+for 64 x 512 master cycles relaxes to the issue 2 MIC level. jnext applies that
+to both sources of the XOR: the Pi's comparator edges and the playing tape's own
+level changes (<code>tape_edge_master_</code>, stamped where the tape block sees the level
+move). A tape pause holds its last level for a second, so the relaxation is what
+a loader sees after the last pulse of a block. The stamp is not saved: after a
+restore (<code>load_state</code>, a <code>.jns</code> deck reattach) <code>derive_tape_edge_</code> rebuilds it
+from the deck's position (a <code>.jns</code> load calls it again after the deck is
+reattached, as <code>load_state</code> runs before that). <code>TapLoader::ticks_since_edge</code> is exact for every phase
+(the pulse or pause length minus <code>pulse_left</code>) except the very first pilot pulse of
+a tape started from idle, which has no edge, so a restore inside it is approximate
+(it matters only on issue 2 with MIC set); <code>WavLoader::ticks_since_edge</code>
+looks back along the recording (to twice the hold, all the relaxation needs);
+<code>TzxLoader::ticks_since_edge</code> is exact in the pause (the 1 ms hold and the pause's
+remainder, lengths the player holds) and 0 in a pulse phase, because the ZOT
+player does not keep the length of the pulse it has just started: the level is
+then taken as freshly changed, which keeps it as the board has it until the
+relaxation time, at most one pulse late for a pulse longer than that. A pause of 1 ms
+or less after a block that ends high forces the level low with no visible edge, so
+there the age counts from the pause.
+<code>Emulator::tape_out_level</code>
+is the one model of that signal (the MIC jack of a tape save reads the same
+value), and it is refreshed into the beeper at the events that change it: a port
+0xFE write, an NR 0x08 or NR 0xA2 write, a state load, a replay-mode change, and a
+level change of a playing tape, in the instruction of the tape block that shows
+it (one compare per instruction while a tape plays, nothing when none does).
+<code>Emulator::mic_stale_</code> covers what has no event of its own, at each
+output-sample boundary: a tape that started or stopped, and the Pi's relaxation
+hold running out (also inside a HALT batch). A tape edge is exact to the
+instruction, as EAR is, because the mixer integrates the term across the sample.
+A state load also re-derives the NR 0x06
+shadows (speaker-exclusive gate, NMI button enables, PS/2 mode, hotkey enables)
+from the restored register.</p>
 <p>Two things around that sum are jnext's own rather than the hardware's, and both
 arrived as bug fixes:</p>
 <ul>
@@ -3297,6 +3342,9 @@ sums: the hardware one (every active chip; what a snapshot or a rewind slot stor
 <code>pcm_l</code> and <code>pcm_r</code>) and the audible one (<code>pcm_left()</code>, <code>pcm_right()</code>, <code>chip_pcm()</code>), which leaves out the
 chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.</p>
+<p>The beeper bit of the mask zeroes the mixer's <code>ear</code> and <code>mic</code> terms, and because a playing tape reaches the mix
+only through <code>mic_i</code> (above), it silences the tape and the Pi's audio routed to EAR as well; the Audio panel's Tape EAR lamp still shows the raw input
+(<code>BeeperState::tape_ear</code>), so a muted tape is visibly playing.</p>
 <p>The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 <code>env_reset</code>, which reloads the level and also forces <code>env_ena</code> (<code>ym2149.vhd:340-342</code> and <code>ym2149.vhd:393-409</code>), so the first
 step comes with the write instead of one envelope period later. <code>AyChip::load_envelope()</code> applies the reload

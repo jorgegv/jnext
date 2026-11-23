@@ -6,7 +6,8 @@
 // assertions; cli_options_test keeps the table, man page and parser rows. The row
 // descriptions are in the header of cli_options_test.cpp:
 //   CLI-ENV-01, CLI-BIN-01..04, CLI-TAP-01, CLI-JNS-05, CLI-NUM-05..07,
-//   CLI-SET-03..12, CLI-SET-14, CLI-COV-01, CLI-ANN-01, CLI-REX-01, CLI-REX-02, CLI-TKB-02.
+//   CLI-SET-03..12, CLI-SET-14, CLI-COV-01, CLI-ANN-01, CLI-REX-01, CLI-REX-02, CLI-TKB-02,
+//   CLI-DBG-07..08.
 // `make cli-check` runs both suites (CLI-BIN-04 checks the binary's --help against
 // the man page).
 
@@ -148,6 +149,10 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-TKB-02", "--touch-keyboard warns outside a browser page; a bad value exits non-zero",
                  "jnext binary not built at " + bin);
+            skip("CLI-DBG-07", "--break-at with no value or an empty one exits 1 naming the flag",
+                 "jnext binary not built at " + bin);
+            skip("CLI-DBG-08", "--debugger counts as a debugger server for --debug-listen-address; without it the flag is refused",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -198,6 +203,10 @@ int main() {
             skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-TKB-02", "--touch-keyboard warns outside a browser page; a bad value exits non-zero",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-DBG-07", "--break-at with no value or an empty one exits 1 naming the flag",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-DBG-08", "--debugger counts as a debugger server for --debug-listen-address; without it the flag is refused",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -871,6 +880,39 @@ int main() {
                       rc_ok == 0 && warns == 1 && rc_bad != 0 && names,
                       "rc_ok=" + std::to_string(rc_ok) + " warns=" + std::to_string(warns) + " rc_bad=" +
                           std::to_string(rc_bad) + " " + bad_err.substr(0, 200));
+            }
+
+            // CLI-DBG-07 / CLI-DBG-08 (GH #548): --break-at needs an address; --debugger, which
+            // opens DZRP by default, is a debugger server as far as --debug-listen-address goes.
+            {
+                const std::string base = "--headless --machine 48k" + sd_arg;
+                const int rc_none = run_split(base + " --break-at");
+                const std::string none_err = slurp(err_path);
+                const int rc_empty = run_split(base + " --break-at \"\"");
+                const std::string empty_err = slurp(err_path);
+                check("CLI-DBG-07", "--break-at with no value, and with an empty one, exits 1 naming the flag",
+                      (rc_none == 1 || rc_none == 256) && none_err.find("--break-at") != std::string::npos &&
+                          (rc_empty == 1 || rc_empty == 256) && empty_err.find("--break-at") != std::string::npos,
+                      "rc_none=" + std::to_string(rc_none) + " rc_empty=" + std::to_string(rc_empty) + " " +
+                          none_err.substr(0, 120) + " | " + empty_err.substr(0, 120));
+                const std::string refusal = "--debug-listen-address requires a debugger server port";
+                // The implied port is the fixed 11000, which a shared host may hold. The listen
+                // address is therefore one this host does not own (192.0.2.1, TEST-NET-1): the
+                // bind normally fails at once, after the option check (a host with ip_nonlocal_bind
+                // set binds it for a moment instead), and either way the log names the port the
+                // option implied: the row reads that, so it needs neither outcome.
+                run_split(base + " --debugger --debug-listen-address 192.0.2.1 --delayed-automatic-exit-frames 1");
+                const std::string with_err = slurp(err_path) + slurp(out_path);
+                const int rc_without = run_split(base + " --debug-listen-address 192.0.2.1 --delayed-automatic-exit-frames 1");
+                const std::string without_err = slurp(err_path);
+                check("CLI-DBG-08", "--debugger makes --debug-listen-address valid (the implied DZRP port counts); the same "
+                                    "without --debugger is refused with the existing message",
+                      with_err.find(refusal) == std::string::npos &&
+                          (with_err.find("--dzrp-port 11000") != std::string::npos ||
+                           with_err.find("dzrp: listening on 192.0.2.1:11000") != std::string::npos) &&
+                          rc_without != 0 &&
+                          without_err.find(refusal) != std::string::npos,
+                      "rc_without=" + std::to_string(rc_without) + " with: " + with_err.substr(0, 160));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

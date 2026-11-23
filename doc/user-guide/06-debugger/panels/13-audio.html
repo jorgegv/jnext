@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2250,6 +2250,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#stopping-on-an-audio-write" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stopping on an audio write
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2418,6 +2429,8 @@
       
         
           
+        
+      
         
       
         
@@ -2966,6 +2979,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -4587,7 +4628,9 @@ while Soundrive 2 is lit even if bit 5 is set.</p>
 <p><strong>Beeper.</strong> Lamps for EAR and MIC (port 0xFE bits 4 and 3) and for the tape EAR
 input, then whether the internal speaker is on (NextREG 0x08 bit 4), whether the
 beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC reach
-the mix: they do not when both of those are set.</p>
+the mix: they do not when both of those are set. A tape playing in real time reaches the
+mix through the same beeper path, so the Beeper box, and that exclusion,
+silence it too, as it does the Pi's audio when that is routed to EAR (NextREG 0xA2); the Tape EAR lamp keeps showing the input.</p>
 <p><strong>Pi I2S.</strong> Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).</p>
 <p><strong>DAC channels.</strong> Under the DAC values: an <strong>M</strong> and an <strong>S</strong> button per channel (see
@@ -4623,7 +4666,7 @@ Double-click a row written by the CPU to show the instruction in the Disassembly
 machine records them only while this tab is the one on show in an open debugger window
 (or while something else asks for the log, such as <code>--audio-log</code>); the rows you see
 start when you open the tab, and the log holds the newest 65536 writes. The tab is
-refreshed with the rest of the window when the machine is paused or stepped.</p>
+refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.</p>
 <p>The columns are the <strong>Frame</strong>, <strong>Line</strong>, <strong>HC</strong> and <strong>T-state</strong> the write happened at,
 the <strong>PC</strong> of the instruction (only for a write the CPU made), the <strong>Source</strong> (CPU, DMA,
 Copper or Debugger), the <strong>Target</strong> (AY register, AY select, DAC, DAC mirror or Beeper),
@@ -4698,6 +4741,10 @@ follow the live mutes, so a mute set by a script shows on them.</p>
 <p>A script reads and sets the channel mutes with <code>AUDIO_CHANNEL_MUTE</code>: bit 0 to 8
 are the AY channels (bit <code>3 * chip + channel</code>, channel A = 0), bit 9 to 12 are
 DAC A to D, and a set bit is a muted channel.</p>
+<h2 id="stopping-on-an-audio-write">Stopping on an audio write<a class="headerlink" href="#stopping-on-an-audio-write" title="Permanent link">&para;</a></h2>
+<p>To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an
+<strong>Audio Write</strong> breakpoint in the <a href="08-breakpoints.html#audio-write-breakpoints">Breakpoints panel</a>,
+or write a rule with <a href="../scripting/03-events.html#audio-ay_write-audio_write"><code>on ay_write</code> or <code>on audio_write</code></a>.</p>
 <hr />
 
 

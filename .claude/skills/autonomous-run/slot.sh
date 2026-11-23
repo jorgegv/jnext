@@ -20,6 +20,11 @@
 #     refused with exit 2. The autonomous-run skill writes 4 at the start of an unattended run (owner,
 #     2026-11-21) and 2 when the owner is at the machine.
 #
+# THREAD CAPS (owner, 2026-11-23, measured: see apply_thread_caps)
+#   A command admitted to a local slot runs with nproc/NSLOTS threads (at least 1): JOBS (as a make variable
+#   through MAKEFLAGS), JNEXT_UNIT_TEST_JOBS and JNEXT_TEST_JOBS, unless the caller set that one itself. One
+#   line at admission names the caps. Runs sent to the remote are untouched (the driver caps them there).
+#
 # OVERFLOW TO THE REMOTE (owner, 2026-11-21: host picked by load; long heavy runs go to the remote by
 # default; never wait on it)
 #   A command is ELIGIBLE when ALL of these hold (the first that fails is printed, once, and the
@@ -66,7 +71,8 @@
 #
 # Test hooks (the contract, test/packaging/slot-test.sh): JNEXT_SLOT_LOADAVG (a file in /proc/loadavg
 # format), JNEXT_SLOT_REMOTE_RUN (the driver), JNEXT_SLOT_POLL (seconds between local attempts, default 20),
-# JNEXT_SLOT_REMOTE_LOG_DIR (default ~/tmp/remote-run).
+# JNEXT_SLOT_REMOTE_LOG_DIR (default ~/tmp/remote-run), JNEXT_SLOT_GIT_SEC (bound on the branch push and the
+# ls-remote check after it, default 60), JNEXT_SLOT_CPUS (the CPU count the thread caps divide, default nproc).
 set -u
 
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
@@ -74,6 +80,7 @@ HERE=$(dirname "$SELF")
 RR=${JNEXT_SLOT_REMOTE_RUN:-$HERE/../remote-run/remote-run.sh}
 LOADAVG=${JNEXT_SLOT_LOADAVG:-/proc/loadavg}
 POLL=${JNEXT_SLOT_POLL:-20}
+GIT_SEC=${JNEXT_SLOT_GIT_SEC:-60}
 LOGDIR=${JNEXT_SLOT_REMOTE_LOG_DIR:-$HOME/tmp/remote-run}
 LIMIT=${JNEXT_SLOT_LOAD_LIMIT:-$(nproc 2>/dev/null || echo 12)}
 DIR=${JNEXT_SLOT_DIR:-}
@@ -210,7 +217,11 @@ go_remote() {
         if [[ $pushed -eq 0 ]]; then
             if [[ "$(git -C "$OV_WT" rev-parse --verify -q "refs/remotes/origin/$OV_BRANCH" 2>/dev/null)" != "$sha" ]]; then
                 echo "[slot.sh] pushing $OV_BRANCH to origin for the remote run" >&2
-                JNEXT_ALLOW_PUSH=1 git -C "$OV_WT" push origin "$OV_BRANCH" >&2 \
+                # A concurrent slot.sh on the same branch pushes the same sha: the loser is rejected
+                # ("incorrect old value") although origin is now at $sha, so a failed push counts when it is.
+                # Both network calls are bounded: a stalled one would hang this script and its waiting agent.
+                JNEXT_ALLOW_PUSH=1 timeout --kill-after=5s "${GIT_SEC}s" git -C "$OV_WT" push origin "$OV_BRANCH" >&2 \
+                    || [[ "$(timeout --kill-after=5s "${GIT_SEC}s" git -C "$OV_WT" ls-remote origin "refs/heads/$OV_BRANCH" 2>/dev/null | cut -f1)" == "$sha" ]] \
                     || { echo "[slot.sh] push failed; running here" >&2; return 98; }
             fi
             pushed=1
@@ -232,6 +243,55 @@ go_remote() {
         return "$rc"
     done
     return 99
+}
+
+# apply_thread_caps: a run admitted HERE gets nproc/NSLOTS threads (at least 1), always, whether or not the
+# other slots are busy (owner, 2026-11-23; measured on the 12-CPU host, `make unit-test` from an empty build/ with
+# a warm ccache: two concurrent runs took 617 s and 519 s at 12 threads each and 496 s and 491 s at 6 each; one
+# run alone 347 s at 12 and 343 s at 6, so the cap costs a lone run nothing; NSLOTS above 2 is an extrapolation, measured only at 1 and 2 slots: nproc/NSLOTS
+# keeps the total at nproc, and oversubscription is what cost the 12-thread pair). Three knobs, each one the variable
+# its consumer really reads:
+#   JOBS                  the Makefile assigns it with `:=`, so an ENVIRONMENT JOBS is ignored; it goes in as a
+#                         make command-line variable through MAKEFLAGS, whatever the command (make behind timeout, bash -c, env: a
+#                         non-make program ignores it; a `JOBS=` word after the make word wins over it, and the
+#                         argv stays as the caller wrote it);
+#   JNEXT_UNIT_TEST_JOBS  suites running at once in test/run-unit-tests.sh (the wasm and win targets set it
+#                         from JOBS themselves);
+#   JNEXT_TEST_JOBS       lanes of test/00regression/regression.sh.
+# A value the caller already set wins (JOBS: on the make command line, in MAKEFLAGS, or in the environment, where
+# its value is passed on to make); the log line says which. NOT capped, on purpose: JNEXT_TEST_QUIET_JOBS (the
+# quiet rows are real-time paced; more lanes is the trade CLAUDE.md rejects), UNIT_TEST_CHECK_JOBS (6, the cap
+# of light checks that was in force in the measurement above) and the remote driver's lower LTO/PGO link cap
+# (a memory cap of its 10 GB lanes: with 2+ slots nproc/NSLOTS is already that low here, and the host kept 39 GB free; with 1 slot a heavy target gets every CPU, as the lone run measured).
+# Remote runs never reach this: the driver sets its own caps on the remote host.
+apply_thread_caps() {
+    local cpus=${JNEXT_SLOT_CPUS:-$(nproc 2>/dev/null || echo 12)} cap w note="" jobs mf=${MAKEFLAGS:-}
+    [[ "$cpus" =~ ^[0-9]+$ ]] || cpus=12
+    cap=$((cpus / NSLOTS)); [[ $cap -ge 1 ]] || cap=1
+    # Where is make? The first word that is make or ends in /make (so `timeout .. make`, `/usr/bin/make`, `env -u X
+    # make` count; `bash -c 'make ..'` has no such word and is treated as "no make word"). A JOBS= word AFTER it is
+    # on make's command line (it beats MAKEFLAGS); one BEFORE it, or anywhere when there is no make word, is an
+    # environment word (`env JOBS=3 make`), which the Makefile ignores, so its value is handed on like an env JOBS.
+    local mi=-1 i=0 cmdjobs=0 prejobs=""
+    for w in "${CMD[@]}"; do
+        if [[ $mi -lt 0 && ( "$w" == make || "$w" == */make ) ]]; then mi=$i
+        elif [[ "$w" == JOBS=* ]]; then
+            if [[ $mi -ge 0 ]]; then cmdjobs=1; else prejobs=${w#JOBS=}; fi
+        fi
+        i=$((i + 1))
+    done
+    if [[ $cmdjobs -eq 1 ]]; then jobs="caller's command line"
+    elif [[ " $mf" == *" JOBS="* ]]; then jobs="caller's MAKEFLAGS"
+    elif [[ -n "$prejobs" ]]; then export MAKEFLAGS="$mf JOBS=$prejobs"; jobs="$prejobs (caller's env word)"
+    elif [[ -n "${JOBS:-}" ]]; then export MAKEFLAGS="$mf JOBS=$JOBS"; jobs="$JOBS (caller's environment)"
+    else export MAKEFLAGS="$mf JOBS=$cap"; jobs=$cap
+    fi
+    for w in JNEXT_UNIT_TEST_JOBS JNEXT_TEST_JOBS; do
+        if [[ -n "${!w:+x}" ]]; then note+=" $w=${!w} (caller's)"
+        else export "$w=$cap"; note+=" $w=$cap"
+        fi
+    done
+    echo "[slot.sh] thread caps (nproc $cpus / NSLOTS $NSLOTS = $cap): JOBS=$jobs$note" >&2
 }
 
 parse_overflow
@@ -282,6 +342,7 @@ done
 
 admit_log "slot $GOT"
 echo "[slot.sh] admitted to slot $GOT at load $(load1): ${CMD[*]}" >&2
+apply_thread_caps
 nice -n 19 "${CMD[@]}" {LOCKFD}>&- &
 pid=$!
 trap 'kill -TERM "$pid" 2>/dev/null' INT TERM

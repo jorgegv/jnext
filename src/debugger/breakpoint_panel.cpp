@@ -281,6 +281,7 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
     type_combo->addItem(tr("IO Write"));
     type_combo->addItem(tr("Interrupt"));
     type_combo->addItem(tr("NMI"));
+    type_combo->addItem(tr("Audio Write"));
     type_combo->setCurrentIndex(type_index);
     form->addRow(tr("Type:"), type_combo);
 
@@ -316,15 +317,90 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
         tr("IO Read/Write: 00-FF matches any port with that low byte\n"
            "(FE = the ULA); 0100 and up matches that exact port (243B)."), &dlg));
 
-    // Interrupt and NMI have no address: the field is off for them. A range is for memory types, a mask
-    // for the two IO types.
-    const auto sync_fields = [type_combo, addr_edit, to_edit, mask_edit] {
+    // GH #532 - the Audio Write fields: what to catch (a target, its chip or channel, an AY register, the
+    // written byte and a mask over it) and whether the write was applied or dropped.
+    using jnext::script::BpAudio;
+    auto* audio_target = new QComboBox(&dlg);
+    audio_target->setObjectName(QStringLiteral("bp_dialog_audio_target"));
+    audio_target->addItem(tr("AY register"), BpAudio::AyRegister);
+    audio_target->addItem(tr("AY chip select"), BpAudio::AyChipSelect);
+    audio_target->addItem(tr("DAC"), BpAudio::Dac);
+    audio_target->addItem(tr("Any"), BpAudio::Any);
+    audio_target->setCurrentIndex(target.audio.target);
+    form->addRow(tr("Audio target:"), audio_target);
+    auto* audio_chip = new QComboBox(&dlg);
+    audio_chip->setObjectName(QStringLiteral("bp_dialog_audio_chip"));
+    form->addRow(tr("AY chip / DAC channel:"), audio_chip);
+    auto* audio_reg = new QComboBox(&dlg);
+    audio_reg->setObjectName(QStringLiteral("bp_dialog_audio_reg"));
+    audio_reg->addItem(tr("Any"), -1);
+    for (int r = 0; r < 16; ++r)
+        audio_reg->addItem(r == 13 ? tr("R13 (envelope restart)") : QStringLiteral("R%1").arg(r), r);
+    audio_reg->setCurrentIndex(target.audio.reg ? *target.audio.reg + 1 : 0);
+    form->addRow(tr("AY register:"), audio_reg);
+    auto* audio_value = new QLineEdit(&dlg);
+    audio_value->setObjectName(QStringLiteral("bp_dialog_audio_value"));
+    audio_value->setPlaceholderText(tr("optional, hex 00-FF: empty = any value"));
+    if (target.audio.value) audio_value->setText(QString::asprintf("%02X", *target.audio.value));
+    form->addRow(tr("Value (optional):"), audio_value);
+    auto* audio_mask = new QLineEdit(&dlg);
+    audio_mask->setObjectName(QStringLiteral("bp_dialog_audio_mask"));
+    audio_mask->setPlaceholderText(tr("optional, hex 00-FF: empty = FF"));
+    if (target.audio.value && target.audio.mask != 0xFF) audio_mask->setText(QString::asprintf("%02X", target.audio.mask));
+    form->addRow(tr("Value mask (optional):"), audio_mask);
+    auto* audio_dropped = new QCheckBox(tr("Dropped writes only"), &dlg);
+    audio_dropped->setObjectName(QStringLiteral("bp_dialog_audio_dropped"));
+    audio_dropped->setChecked(target.audio.dropped_only);
+    form->addRow(QString(), audio_dropped);
+
+    // The chip list follows the target: the AY chips 0-2 or the DAC channels A-D; Any has none.
+    const auto sync_chips = [audio_target, audio_chip] {
+        const int want = audio_chip->currentData().isValid() ? audio_chip->currentData().toInt() : 0xFF;
+        const int tgt  = audio_target->currentData().toInt();
+        audio_chip->clear();
+        audio_chip->addItem(QObject::tr("Any"), 0xFF);
+        if (tgt == BpAudio::Dac) {
+            for (int c = 0; c < 4; ++c) audio_chip->addItem(QString(QChar('A' + c)), c);
+        } else if (tgt != BpAudio::Any) {
+            for (int c = 0; c < 3; ++c) audio_chip->addItem(QString::number(c), c);
+        }
+        const int at = audio_chip->findData(want);
+        audio_chip->setCurrentIndex(at < 0 ? 0 : at);
+    };
+    {
+        // Seed the chip from the edited row before the first sync reads it.
+        audio_chip->addItem(QString(), static_cast<int>(target.audio.chip));
+        audio_chip->setCurrentIndex(0);
+        sync_chips();
+    }
+
+    // Interrupt, NMI and Audio Write have no address: the field is off for them. A range is for memory
+    // types, a mask for the two IO types, the audio fields for Audio Write alone.
+    const auto sync_fields = [type_combo, addr_edit, to_edit, mask_edit, audio_target, audio_chip, audio_reg,
+                              audio_value, audio_mask, audio_dropped] {
         const int t = type_combo->currentIndex();
-        addr_edit->setEnabled(t != BreakpointModel::Interrupt && t != BreakpointModel::Nmi);
+        const bool audio = t == BreakpointModel::AudioWrite;
+        const int tgt = audio_target->currentData().toInt();
+        addr_edit->setEnabled(t != BreakpointModel::Interrupt && t != BreakpointModel::Nmi && !audio);
         to_edit->setEnabled(t <= BreakpointModel::ReadWrite);
         mask_edit->setEnabled(t == BreakpointModel::IoRead || t == BreakpointModel::IoWrite);
+        audio_target->setEnabled(audio);
+        // A dropped DAC write reached no channel (chip 0xFF): with Dropped ticked on the DAC target the channel
+        // can only be Any, so the combo is forced there and turned off.
+        const bool dac_dropped = tgt == BpAudio::Dac && audio_dropped->isChecked();
+        if (dac_dropped) audio_chip->setCurrentIndex(0);
+        audio_chip->setEnabled(audio && tgt != BpAudio::Any && !dac_dropped);
+        audio_reg->setEnabled(audio && tgt == BpAudio::AyRegister);
+        audio_value->setEnabled(audio);
+        audio_mask->setEnabled(audio);
+        audio_dropped->setEnabled(audio);
     };
     connect(type_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg, sync_fields);
+    connect(audio_dropped, &QCheckBox::toggled, &dlg, [sync_fields](bool) { sync_fields(); });
+    connect(audio_target, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg, [sync_chips, sync_fields] {
+        sync_chips();
+        sync_fields();
+    });
     sync_fields();
 
     auto* cond_edit = new QLineEdit(&dlg);
@@ -398,6 +474,45 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
             return QString();
         };
         BpTarget t;
+        if (type == BreakpointModel::AudioWrite) {
+            // The hex byte of a Value / Mask field: "" = none, else 1-2 digits (a `$` or `0x` prefix allowed).
+            const auto hex_byte = [](const QString& in, int& out) -> bool {
+                QString d = in.trimmed();
+                if (d.startsWith(QLatin1Char('$'))) d.remove(0, 1);
+                else if (d.startsWith(QLatin1String("0x"), Qt::CaseInsensitive)) d.remove(0, 2);
+                bool ok = false;
+                const uint v = d.toUInt(&ok, 16);
+                if (!ok || d.size() > 2 || v > 0xFF) return false;
+                out = static_cast<int>(v);
+                return true;
+            };
+            QString problem;
+            const QString vt = audio_value->text().trimmed(), mt = audio_mask->text().trimmed();
+            int v = 0, m = 0xFF;
+            BpAudio a;
+            if (!vt.isEmpty() && !hex_byte(vt, v)) problem = tr("The value is not a hex number from 00 to FF: %1").arg(vt);
+            else if (!mt.isEmpty() && !hex_byte(mt, m)) problem = tr("The mask is not a hex number from 00 to FF: %1").arg(mt);
+            else if (vt.isEmpty() && !mt.isEmpty()) problem = tr("A mask needs a value: fill in Value or clear the mask.");
+            else if (!vt.isEmpty() && (v & ~m)) problem = tr("The value has bits outside the mask: it can never match.");
+            if (problem.isEmpty()) {
+                a.target = static_cast<BpAudio::Target>(audio_target->currentData().toInt());
+                a.chip   = a.target == BpAudio::Any || (a.target == BpAudio::Dac && audio_dropped->isChecked()) ? 0xFF : static_cast<uint8_t>(audio_chip->currentData().toInt());
+                if (a.target == BpAudio::AyRegister && audio_reg->currentData().toInt() >= 0)
+                    a.reg = static_cast<uint8_t>(audio_reg->currentData().toInt());
+                if (!vt.isEmpty()) { a.value = static_cast<uint8_t>(v); a.mask = static_cast<uint8_t>(m); }
+                a.dropped_only = audio_dropped->isChecked();
+                problem = finish(t);
+            }
+            if (problem.isEmpty()) {
+                t.audio = a;
+                target = t;
+                type_index = type;
+                return true;
+            }
+            error->setText(problem);
+            error->show();
+            continue;
+        }
         if (type == BreakpointModel::Interrupt || type == BreakpointModel::Nmi) {
             const QString why = finish(t);
             if (why.isEmpty()) {
@@ -462,6 +577,7 @@ jnext::script::BpSpec BreakpointPanel::spec_of(int type_index, const BpTarget& t
     s.mask       = t.mask;
     s.condition  = t.condition.toStdString();
     s.count_only = t.count_only;
+    if (s.kind == jnext::script::BpSpec::AudioWrite) s.audio = t.audio;
     return s;
 }
 
@@ -496,6 +612,7 @@ void BreakpointPanel::on_edit()
     if (old.hi != old.addr) target.hi = old.hi;
     if (old.mask != jnext::script::bp_port_mask_for(old.addr)) target.mask = old.mask;
     target.condition = old.condition;
+    target.audio = old.audio;
 
     if (!show_bp_dialog(tr("Edit Breakpoint"), old.addr, old.space, type_index, target))
         return;

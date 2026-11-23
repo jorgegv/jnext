@@ -111,4 +111,5 @@ NextREG 0x02 reset) does not touch the cable at all, which is also what the
 hardware does.
 
 **It is POSIX-only.** Neither form exists on Windows; JNEXT says so and stops
-rather than starting a run with a cable that is not there.
+rather than starting a run with a cable that is not there. The browser build has no terminals or named pipes either, and refuses both
+forms at startup.

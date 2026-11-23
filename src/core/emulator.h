@@ -119,6 +119,12 @@ public:
     Emulator();
     ~Emulator();
 
+    /// Finish every output file the run still holds open or unwritten: a TZX / WAV tape save
+    /// (its last block, the WAV header), the compositor trace, the CPU profile. Idempotent. The
+    /// destructor runs it; a browser page, whose loop never destroys the emulator (the app is
+    /// released at the end of main), calls it from its finish. GH #553.
+    void finish_outputs();
+
     // Non-copyable, non-movable (owns large state).
     Emulator(const Emulator&)            = delete;
     Emulator& operator=(const Emulator&) = delete;
@@ -716,6 +722,14 @@ public:
     const TapePollDetector& tape_poll() const { return tape_poll_; }
 
     /// Access the tape loader (e.g. for UI tape controls).
+    /// GH #548: has the command-line tape delivered its last block (the data of the last
+    /// block played or served, not the deck's trailing pause)? One predicate over the three
+    /// decks and both modes; false with no tape. See TapLoader::at_end(),
+    /// TzxLoader::data_delivered(), WavLoader::past_end().
+    bool tape_delivered();
+    /// GH #548: can the attached tape carry machine code (holds_code_block of the deck)? A WAV
+    /// always can (it has no block structure to tell).
+    bool tape_holds_code() const;
     TapLoader& tape() { return tape_; }
     const TapLoader& tape() const { return tape_; }
 
@@ -738,8 +752,9 @@ public:
     /// True while either saver is armed.
     bool tape_save_active() const { return tap_saver_.active() || tape_recorder_.active(); }
     /// The tape-out (MIC jack) level, zxnext.vhd:6503 `beep_mic_final` — see
-    /// the definition.
-    bool tape_out_level() const;
+    /// the definition. `*relax_due`, when given, receives the master cycle at
+    /// which a held level relaxes (UINT64_MAX when none is pending).
+    bool tape_out_level(uint64_t* relax_due = nullptr) const;
     /// When a port 0xFE write lands: a CPU OUT's bus request edge, or a DMA
     /// transfer's place in its burst (see the definition).
     uint64_t port_fe_write_time() const;
@@ -1440,7 +1455,7 @@ public:
 
     /// True if replay_mode is active (suppresses audio/video during fast-forward).
     bool replay_mode() const { return replay_mode_; }
-    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); }
+    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); refresh_mic_final_(); }
 
     /// Task 27 C6 — frontend render hint. When the frontend knows nobody will
     /// consume the framebuffer produced by the NEXT run_frame() (the Qt GUI
@@ -1705,6 +1720,9 @@ public:
     // zxnext.vhd:5163, :5178-5182, :6436 store as standalone signals.
     // Exposed here so audio_nextreg_test can observe the post-write state
     // without reaching into private fields.
+
+    /// The master cycle of the playing tape's last edge (test readout, GH #550).
+    uint64_t tape_edge_master() const { return tape_edge_master_; }
 
     /// NR 0x06 bit 6 — `nr_06_internal_speaker_beep` (VHDL zxnext.vhd:5163).
     bool nr_06_internal_speaker_beep() const { return nr_06_internal_speaker_beep_; }
@@ -2254,6 +2272,7 @@ private:
     /// `profiler_.active()` (an `if (!nullptr)` branch). When inactive,
     /// it's a single always-false predicted branch — zero cost.
     Profiler profiler_;
+    bool     profile_written_ = false;   // finish_outputs() wrote the profile already
 
     /// Logical frame counter — incremented each run_frame(); saved in snapshots.
     uint32_t frame_num_   = 0;
@@ -2374,21 +2393,90 @@ private:
     /// save samples it here: nothing else samples where it changes.
     template <typename F> void with_pi_ear_tracking(F&& mutate) {
         const bool before = i2s_.fe_ear();
+        const bool routed_before = i2s_.ear_routed();
         mutate();
-        if (i2s_.fe_ear() != before) {
+        const bool edge = i2s_.fe_ear() != before;
+        if (edge) {
             pi_ear_edge_master_ = clock_.get();
             if (tape_capture_live_) tape_recorder_.sample(tape_out_level(), clock_.get());
         }
+        if (edge || i2s_.ear_routed() != routed_before) refresh_mic_final_();
     }
 
-    /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read and the
-    /// MIC output: the tape jack (`tape_playing`, `tape_level`) and, while NR
-    /// 0xA2 bit 0 sends the Pi's audio there, `pi_fe_ear` XORed in through
-    /// `ear_relax` (zxnext_top_issue2.vhd:663-677). A level held for the
-    /// relaxation time with no tape playing reads as the issue-2 MIC level.
+    /// Put `beep_mic_final` (the mixer's `mic_i`, zxnext.vhd:6503, 6516) into
+    /// the beeper. `tape_out_level()` is the ONE model of that signal (the MIC
+    /// jack carries it too), so the mixer reads the value the recorder reads.
+    /// Called where an input of that model changes: a port 0xFE write while a
+    /// tape plays or the Pi is routed, a tape level change, NR 0x08 and NR
+    /// 0xA2 writes, a state load, a replay-mode change, and, while a tape
+    /// plays or the Pi is routed, at the first output-sample boundary at or
+    /// after `mic_relax_due_`, because the `ear_relax` hold is a matter of time
+    /// (it lands at most one output sample, about 635 master cycles, after the
+    /// 32768-cycle hold; inside a HALT batch the clock is at the window end, as
+    /// for the Pi edge stamps).
+    [[gnu::noinline]] void refresh_mic_final_();
+
+    /// A PLAYING tape's level, from the tape block, once per instruction: store
+    /// it, and when it CHANGED refresh the MIC term at once (the board's MIC
+    /// term follows the tape continuously; the mixer integrates it across the
+    /// sample like EAR, so the edge must land in its own instruction). One
+    /// load, compare and branch per instruction while a tape plays, and the
+    /// no-tape path of the block is untouched.
+    void tape_level_(bool lvl) {
+        if (lvl != beeper_.tape_ear()) [[unlikely]] {
+            beeper_.set_tape_ear(lvl);
+            tape_edge_master_ = clock_.get();      // the ear_relax hold counts from here
+            refresh_mic_final_();
+        }
+    }
+
+    /// After a restore: the master cycle of the playing tape's last edge,
+    /// derived from the deck's position (TapLoader / TzxLoader / WavLoader
+    /// `ticks_since_edge`), since the stamp itself is not saved. A deck that
+    /// does not play leaves it alone.
+    void derive_tape_edge_();
+
+    /// The output-sample boundary's test, for what has no event of its own: a
+    /// tape that started or stopped playing (the stop clears the raw level in
+    /// the tape block, and a start at level 0 has no edge), and the `ear_relax`
+    /// hold of the Pi's level running out. A level CHANGE of a playing tape is
+    /// refreshed by tape_level_() in its own instruction, not here.
+    bool mic_stale_() const {
+        return beeper_.tape_ear() != mic_tape_level_ || clock_.get() >= mic_relax_due_ ||
+               mic_tape_live_ !=
+                   (tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing());
+    }
+
+    /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read, the MIC
+    /// output and the mixer's MIC term: the tape jack (`tape_playing`,
+    /// `tape_level`) and, while NR 0xA2 bit 0 sends the Pi's audio there,
+    /// `pi_fe_ear` XORed in through `ear_relax` (zxnext_top_issue2.vhd:
+    /// 663-677). A level held for the relaxation time with no edge (a tape
+    /// edge, or the Pi's comparator) reads as the issue-2 MIC level.
     /// During a rewind replay or an RZX playback the Pi term is held off: it
     /// is host-timed, like the sample NR 0x2C/0x2E show.
-    bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) const;
+    /// `*due`, when given, receives the master cycle at which a held level
+    /// relaxes (UINT64_MAX when nothing is pending).
+    bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now,
+                      uint64_t* due = nullptr) const;
+
+    /// Master cycle from which `beep_mic_final` changes with no other event
+    /// (the `ear_relax` hold of a held tape or Pi level running out), else
+    /// UINT64_MAX: the output-sample boundary refreshes only when the clock
+    /// reaches it. Derived, not serialised; set by refresh_mic_final_().
+    uint64_t mic_relax_due_ = UINT64_MAX;
+
+    /// Master cycle of the playing tape's last level change (0 = none): the
+    /// `ear_relax` hold of a playing tape counts from it (GH #550, zxnext_top_
+    /// issue2.vhd:662-677). Derived: tape_level_() stamps it, derive_tape_edge_()
+    /// rebuilds it from the deck after a restore; not serialised.
+    uint64_t tape_edge_master_ = 0;
+
+    /// The raw tape level and whether a tape was playing, as of the last
+    /// refresh_mic_final_(); mic_stale_() compares them with the live ones.
+    /// Derived, not serialised.
+    bool mic_tape_level_ = false;
+    bool mic_tape_live_  = false;
 
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.

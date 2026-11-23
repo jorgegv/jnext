@@ -17,6 +17,7 @@
 #include "debug/debugger.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
+#include "platform/startup_stop.h"
 #include "platform/pok_trainers.h"
 #ifndef __EMSCRIPTEN__
 #include "script/script_host.h"
@@ -197,6 +198,7 @@ private:
 #ifndef __EMSCRIPTEN__
     jnext::script::ScriptHost script_host_;
 #endif
+    StartupStop               startup_stop_;   // GH #548: --debugger / --break-at (after debugger_)
     /// The cold boot itself — what `LoopDriver::cold_boot` runs for a client's
     /// `reset(Hard)`, which brackets it with its own capture. cold_boot() is
     /// this plus the begin/done pair.

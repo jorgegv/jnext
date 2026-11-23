@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3481,7 +3481,7 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 </tr>
 </tbody>
 </table>
-<p>Three of these are worth understanding before using them.</p>
+<p>Four of these are worth understanding before using them.</p>
 <p><strong><code>peek(MemSpace::cpu())</code> is <code>Mmu::peek()</code>.</strong> <code>Mmu::read()</code> is the guest's
 read: it captures the byte into the +3 floating-bus latch on a contended access
 and raises the data-breakpoint latch on a READ watchpoint. <code>Mmu::peek()</code> wraps
@@ -3498,6 +3498,30 @@ lands on. A rewind lands on a frame start the ring has already counted;
 <code>run_to_frame()</code> takes its base from it.</p>
 <p><strong><code>raster()</code> and <code>time()</code> of a paused machine are snapshots taken at the
 query.</strong> While the machine runs they report the live beam from the clock.</p>
+<p><strong><code>audio_state()</code> decodes; <code>audio_log_entries()</code> records.</strong> <code>audio_state()</code> is a direct value: one
+consistent read of the whole audio chain (<code>AudioState</code>, <code>src/debug/inspect.h</code>), decoded from the chips'
+own latches with no NextREG read handler run. Per AY chip it carries the 16 raw registers, the address
+latch, pan, mono and whether the chip reaches the mix; per channel the 12-bit tone period, the R7 gates,
+the volume or envelope flag and an <code>amplitude</code>, the level the channel plays while its gate is open
+(through the AY or YM curve, so a level bar does not follow the square wave); per chip the noise period
+and the envelope (period, shape, the 5-bit step, its motion). Beside them are the DAC values, the
+NR 0x84 port families, the beeper, Pi I2S and host lines, and the dropped-write counters (<code>drops</code>, one
+per <code>AudioDropReason</code>, host state cleared only by <code>clear_audio_drops()</code>). The pitch arithmetic is not in
+the query: <code>src/debug/audio_math.h</code> (standard headers only, so published) turns a period and a clock
+into hertz, the nearest note with its cents (A4 = 440 Hz, sharps only) and the envelope's four-character
+glyph, and takes the clock from <code>AudioState::psg_clock_hz</code> (1.75 MHz on a Next), never a literal. A
+frontend decodes with it, so a GUI, a script and a test name the same note.</p>
+<p>The write log is the other half: the ring (<code>AUDIO_LOG_DEFAULT_ENTRIES</code> = 65536, <code>audio_log_resize()</code> up
+to 2^22) exists only while some live client asks (<code>set_audio_log_enabled()</code>; observers count; the
+effective state is <code>audio_log_enabled()</code>), and its <code>seq</code> is never reused in a run, so a client that
+fetches <code>audio_log_entries(since_seq)</code> can tell what it missed. Entries come from the core's write tap
+(3.4); reset, state-load and rewind enter as marker rows, and a rewind landing removes the rows from
+its own cycle on. <code>audio_log_export()</code>, the Qt Log tab's Export and the <code>--audio-log</code> stream
+(<code>AudioLogStream</code>, an observer and a <code>Service</code> whose <code>pump()</code> hook drains the ring into the file) all
+write through <code>src/debug/audio_log_csv.h</code>, so the three formats cannot differ. A frontend must call
+<code>set_audio_log_enabled(false)</code> when it stops looking: the tap costs the machine nothing while no one asks,
+and nothing else turns it off. Log, counters and both mute masks are host state: never in a snapshot or
+an RZX, and invisible to the Z80 (<code>audio_debug_test</code>, AIZ rows).</p>
 <p><code>render_layer()</code> (<code>src/debug/debugger_render.cpp</code>) draws one of the eight
 <code>Layer</code> views of the paused frame: composite, ULA primary and shadow, Layer 2
 active and shadow, sprites, tilemap, and the NR 0x4A background. It fills rows

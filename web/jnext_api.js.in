@@ -187,6 +187,9 @@
     var log = [];
     var logMark = 0;
     var exitWaiters = [];
+    var stopWaiters = [];        // stop(): resolve(exit code) once the machine has exited
+    var exitCode = null;         // the status the machine exited with (null until it has)
+    var outputs = [];            // the files the core wrote for an output option: { raw, key, complete }
     var waiters = [];            // { resolve, reject }: the next ready / error
     var volume = null;
     var startedSeen = false;
@@ -256,6 +259,9 @@
       debugShutdown();
       var wasDestroying = exitWaiters.length > 0;
       if (state !== 'destroyed') state = 'exited';
+      exitCode = code;
+      var sw = stopWaiters; stopWaiters = [];
+      sw.forEach(function (f) { f(code); });
       var w = exitWaiters; exitWaiters = [];
       w.forEach(function (f) { f(code); });
       if (wasDestroying) return;
@@ -454,6 +460,95 @@
         gone();
         return Promise.reject(fail('jnext: the RZX recording could not be read back: ' + (x && x.message ? x.message : String(x))));
       }
+    };
+    // ---- the files JNEXT writes: listFiles(), readFile(), stop() ----
+    // The core reports each file it writes for an output option (--wav-record, --tape-save,
+    // --profile-output, --delayed-screenshot, ...) to onFile(): the first time with complete false
+    // (the writer has it open), then true (finished for good), or only true for a file written at
+    // once. This layer knows no flag: it holds the paths and nothing else.
+    //
+    // OWN is the player's own locations, which no member ever lists or returns, whoever wrote them
+    // and whatever an output option was aimed at: /sdcard (the SD card, CARD_PATH of jnext-image.js,
+    // which is copyrighted NextZXOS), /jnext (JNEXT_CONFIG_DIR below: the warm-start recording, the
+    // card-writes records, settings) and /media (installFile() and copyProgram(): the programs, and
+    // the copies off the card). Every test is on the CANONICAL path of the page's own file system
+    // (`..`, `.`, a relative name and symlinks resolved), so a name spelt round the guard lands on it.
+    var OWN = ['/sdcard', '/jnext', '/media'];
+    function canon(p) {
+      try { return mod.FS.lookupPath(p, { follow: true }).path; } catch (e) { return p; }
+    }
+    function own(c) {
+      return OWN.some(function (r) { return c === r || c.indexOf(r + '/') === 0; });
+    }
+    function regularFile(c) {
+      try {
+        var st = mod.FS.stat(c);
+        return mod.FS.isFile(st.mode) ? st : null;
+      } catch (e) { return null; }
+    }
+    function onFile(path, complete) {
+      if (!mod) return;
+      var key = canon(path), e = null;
+      for (var i = 0; i < outputs.length; i++) if (outputs[i].key === key) { e = outputs[i]; break; }
+      if (!e) { e = { raw: path, key: key, complete: false }; outputs.push(e); }
+      e.complete = !!complete;
+    }
+    // The entry whose file, canonical now, is `c`.
+    function outputFor(c) {
+      for (var i = 0; i < outputs.length; i++) if (canon(outputs[i].raw) === c) return outputs[i];
+      return null;
+    }
+    // The files this player's machine wrote, in the order they were begun: [{path, size, complete}].
+    player.listFiles = function () {
+      live();
+      var out = [], seen = {};
+      outputs.forEach(function (e) {
+        var c = canon(e.raw);
+        if (own(c) || seen[c]) return;
+        var st = regularFile(c);
+        if (!st) return;
+        seen[c] = true;
+        out.push({ path: c, size: st.size, complete: e.complete });
+      });
+      return out;
+    };
+    // A copy of the bytes of a finished file listFiles() gave. A refusal is the caller's own error,
+    // not onError (as resetCard()); a failed read of a file that is there is onError's.
+    player.readFile = function (path) {
+      live();
+      if (typeof path !== 'string') {
+        return Promise.reject(new TypeError('jnext: readFile() takes a path that listFiles() gives'));
+      }
+      var c = canon(path);
+      if (own(c)) {
+        return Promise.reject(new Error('jnext: ' + path + " is one of the player's own files (the SD card and what " +
+                                        'the player keeps); readFile() never returns them'));
+      }
+      var e = outputFor(c);
+      if (!e || !regularFile(c)) {
+        return Promise.reject(new Error('jnext: ' + path + " is not a file this player's machine wrote"));
+      }
+      if (!e.complete) {
+        return Promise.reject(new Error('jnext: ' + path + ' is still being written (listFiles() says when it is ' +
+                                        'complete; stop() ends the machine)'));
+      }
+      try {
+        return Promise.resolve(mod.FS.readFile(c));
+      } catch (x) {
+        return Promise.reject(fail('jnext: ' + path + ' could not be read: ' + (x && x.message ? x.message : String(x))));
+      }
+    };
+    // End the machine and keep the player and its files: resolves with the exit status once the
+    // machine has exited, which is after every writer has finished its file. A stopped player cannot
+    // start again; stop() on one resolves with the same status.
+    player.stop = function () {
+      live();
+      if (state === 'exited' && exitCode !== null) return Promise.resolve(exitCode);
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      return new Promise(function (resolve) {
+        stopWaiters.push(resolve);
+        mod._jnext_web_quit();
+      });
     };
     player.setVolume = function (v) {
       live();
@@ -777,6 +872,7 @@
       jnextDebug: onDebug,
       jnextProgress: progress,
       jnextPersistCardWrites: persistCardWrites,
+      jnextFile: onFile,
       preRun: [function (m) {
         m.ENV.SDL_EMSCRIPTEN_CANVAS_SELECTOR = '#' + canvas.id;
         m.ENV.JNEXT_CONFIG_DIR = '/jnext';

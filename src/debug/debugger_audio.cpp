@@ -44,6 +44,9 @@ void Debugger::Impl::audio_push(const AudioLogEntry& e)
 
 void Debugger::Impl::AudioLogSink::audio_record(const AudioLogEntry& in)
 {
+    // GH #532: the AudioWrite latch comes BEFORE the ring test, so the event does not depend on the log.
+    if (in.marker == AudioMarker::None && impl.events.has_kind(EventKind::AudioWrite))
+        impl.latch_audio_write(in);
     if (impl.audio_ring.empty()) return;
     AudioLogEntry e = in;
     // The same marker twice at one cycle (two soft resets with no time between) is one row. A
@@ -109,7 +112,7 @@ void Debugger::Impl::sync_audio_log(bool force)
         audio_head = audio_count = 0;
     }
     audio_log_derived = asked;
-    emu.set_audio_tap(&audio_sink, asked);
+    publish_audio_tap();
     // After a machine rebuild the new machine is a discontinuity of its own.
     if (force && asked) {
         AudioLogEntry m;

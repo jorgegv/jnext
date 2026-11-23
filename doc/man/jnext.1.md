@@ -507,14 +507,14 @@ naming the option and the value, and exits with status 1.
     saved in a snapshot. Rewinding does not rewind the program on the other
     end of the cable, so a debugger session will not survive one.
 
-    POSIX only.
+    POSIX only. Refused in the browser build, which has no named pipes.
 
 **\--joy-uart-pty**
 :   As **\--joy-uart-fifo**, but allocate a pseudo-terminal instead and log the
     slave device path at startup. This is the form a serial client opens —
     DeZog's serial remote wants one serial device, not a pair of pipes — and it
     is put in raw mode so a binary protocol passes through untranslated. POSIX
-    only.
+    only. Refused in the browser build, which has no terminals.
 
 **\--nextpi**
 :   Start **NextPi** — the software that runs on the Raspberry Pi of the
@@ -1148,6 +1148,57 @@ naming the option and the value, and exits with status 1.
     accepted but has no effect in **\--headless**, in the SDL-only build and
     in builds without the debugger, since only the debugger can set a
     breakpoint.
+
+**\--debugger**
+:   Start the program under the debugger: the machine starts **paused**, where
+    the program starts, instead of running. The stop is, for a **NEX** file,
+    its entry point (a NEX whose entry is 0 is a load-only file: the CPU is
+    parked, and that is where it stops); for a snapshot (**SNA**, **Z80**,
+    **SZX**, **JNS**) or an **RZX** recording, the PC it restores; for
+    **\--inject**, the injected program's PC; with no file, power-on, before
+    the first instruction (PC 0). It stops right after the program is loaded,
+    before it has run an instruction. A tape (**TAP**, **TZX**, **WAV**) stops at the
+    first instruction fetched from memory the tape loaded, after its last block has
+    loaded (the program it started; in a **TAP** or **TZX**, in fast or real-time
+    mode alike); a tape that cannot carry code (BASIC and a SCREEN$ only) stops at
+    the first instruction after its last block. A BASIC program that runs code from
+    a REM stops at the end of its last block, not in the REM, and a tape that loads
+    code which never runs is never stopped (use **\--break-at**). A **WAV** has no block
+    structure to tell a code tape from a BASIC one, so it always takes the code rule: a
+    BASIC-only WAV is never stopped, and a recording with noise in its trailing silence
+    can stop late (the end of the tape is taken as the last signal edge). A trailing
+    pure-data or direct-recording TZX block counts as data in real time only (fast load
+    never plays it). The stop is logged
+    (`debugger: stopped at $8000 (the NEX entry)`).
+
+    In the Qt GUI the debugger window opens, paused. In **\--headless** and the
+    SDL-only build there is no window, so the run waits for a remote debugger
+    and serves DZRP on port 11000 (DeZog's `cspect` remote) unless a protocol
+    port is given: with **\--zrcp-port** or **\--gdb-port** only those are
+    served, and an explicit **\--dzrp-port** is used as it is. The same
+    applies to a Qt build made without the debugger. A paused headless run
+    waits for the debugger without using the CPU, and a debugger that attaches
+    finds the machine already paused. Stops in these two frontends pause and
+    wait for the remote instead of ending the run with exit code 3: under
+    **\--script**, a `stop` or a failed `assert` pauses, and a script's own
+    `exit` still exits. Not available in the browser.
+
+**\--break-at** *ADDR|SYMBOL*
+:   Implies **\--debugger**, and replaces its default stop: run to *ADDR*, stop
+    there once, and stay paused. It takes the forms the debugger's Breakpoints
+    panel takes for an Execute breakpoint: a hexadecimal address (`8000`,
+    `$8000` or `0x8000`; there is no decimal form, so `32768` is not an
+    address), a symbol of the program's own map or of **\--map**, `@symbol`
+    (always the symbol, even when its name reads as hex), or a source line
+    `file:line` of a loaded source map. A symbol or line keeps the memory it
+    was assembled for: it stops only while that memory supplies the code. The
+    stop is armed when the program is loaded, before it has run, so it also
+    catches code a tape runs while it loads. It fires once and never appears in
+    the Breakpoints panel. A value that is not an address, a symbol or a
+    source line is refused when the program is loaded, before it has run an
+    instruction, with exit code 1. Another client's pause before the stop does not cancel
+    it: DeZog attaching (which pauses the machine) while a tape loads, then continuing,
+    still ends at the stop. Not available in the browser.
 
 **\--dzrp-port** *PORT*
 :   Serve the DeZog Remote Protocol (DZRP) on TCP *PORT*, so DeZog - or any
@@ -3372,6 +3423,20 @@ the program is running again. `showKeyboard(on)` shows (`true`) or hides (`false
 on-screen keyboard, whatever **\--touch-keyboard** says; the page's call wins, before or after the
 start, and anything but a boolean throws. `keyboardVisible` tells whether it is shown.
 
+`listFiles()` returns the files JNEXT has written for an output option (**\--wav-record**, **\--dac-trace**,
+**\--tape-save**, **\--delayed-screenshot**, **\--compositor-trace**, **\--profile-output**, **\--export-skoolkit**,
+**\--export-ghidra**, **\--bug-report**, **\--log-file**), in the order JNEXT began them, as an array of
+`{path, size, complete}`: `path` is absolute, `size` the bytes now in the page's memory, `complete` true once
+JNEXT has finished the file for good. It is empty before the click. `readFile(path)` resolves to a copy of the
+bytes of a complete file listFiles() gives; it rejects (without `onError`) a path that is not a string (a
+`TypeError`), a path JNEXT did not write, a file that is not complete yet, and anything in the player's own
+locations. `stop()` ends the machine and keeps the player and its files: it resolves to the exit status once
+every file is finished, and a stopped player cannot start again. The player's own locations are `/sdcard` (the SD
+card), `/jnext` (what the player keeps) and `/media` (the programs it installs): neither member lists or returns a
+file there, whoever wrote it and however the name is spelt (`..`, a relative name or a link included). What an export the page asked for contains is the page author's choice, as on the desktop (a **\--export-skoolkit** of ROM space holds the ROM
+the machine ran), and offering it to visitors is the author's responsibility. After
+`destroy()` all three throw.
+
 `debugChannel(protocol)` returns the channel of the `debug` entry for `'dzrp'`, `'zrcp'` or `'gdb'` whose
 `transport` is `'channel'`; it throws for a protocol the page did not ask for and for one served over
 WebSocket. It can be fetched as soon as `mount()` resolves, but `open()` and `send()` throw until the
@@ -3423,10 +3488,11 @@ that says so: **\--nextpi**, **\--nextpi-dir**, **\--nextpi-release**,
 **\--esp-allow**, **\--esp-listen-address**, **\--esp-delayed-disassociate-frames**,
 **\--esp-delayed-associate-frames**, **\--esp-ip-address**,
 **\--esp-ip-address-after**, **\--record**, **\--dzrp-port**, **\--gdb-port**,
-**\--zrcp-port**, **\--debug-listen-address**, **\--script**, **\--script-key**,
+**\--zrcp-port**, **\--debug-listen-address**, **\--debugger**, **\--break-at**,
+**\--script**, **\--script-key**,
 **\--record-script**, **\--map**, **\--annotations**, **\--import-skoolkit**,
 **\--import-ghidra**, **\--sdcard2**, **\--sdcard2-readonly**, **\--sdcard2-writes**,
-**\--sdcard2-writes-reset**, **\--headless** (it would block the tab for ever)
+**\--sdcard2-writes-reset**, **\--joy-uart-pty**, **\--joy-uart-fifo**, **\--headless** (it would block the tab for ever)
 and **\--rzx-record** (a page records from JavaScript, see The player). The debugger protocols are served to the page instead: see the debug option under JavaScript options. The settings of the refused flags are refused
 when given as set entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
 `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`, `paths.sd_card2_path`.

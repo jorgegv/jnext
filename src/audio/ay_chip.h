@@ -91,7 +91,9 @@ public:
 
 private:
     void load_envelope();   // apply a pending env_reset_ (ym2149.vhd:340-342, 393-409)
-    void step_shape_();     // one envelope shape step: the half of update_envelope() after the period counter
+    // One envelope shape step: the half of update_envelope() after the period counter. always_inline: it runs on
+    // every envelope step of every chip (~218 k/s per chip), and left out of line it cost 0.4-0.6 % instructions.
+    [[gnu::always_inline]] inline void step_shape_();
 
     uint8_t id_;
     bool ay_mode_ = true;  // true=AY, false=YM

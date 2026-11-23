@@ -4,6 +4,7 @@
 #include "platform/web/web_controller.h"
 #include "core/emulator.h"
 #include "core/log.h"
+#include "core/output_files.h"
 #include "core/warm_start_cache.h"
 #include "peripheral/sd_write_journal.h"
 
@@ -151,7 +152,19 @@ EM_JS(void, jnext_web_persist_card_writes, (), {
     if (Module.jnextPersistCardWrites) Module.jnextPersistCardWrites();
 });
 
+// A file the run writes for an output option (core/output_files.h): tell the page. Module.jnextFile
+// is the page's list; a page that did not set it ignores the report. `complete` is 0 while the
+// writer still has the file open, 1 once it is finished for good.
+EM_JS(void, jnext_web_file, (const char* path, int complete), {
+    if (Module.jnextFile) Module.jnextFile(UTF8ToString(path), complete !== 0);
+});
+
 namespace browser_frontend {
+
+void install_output_sink()
+{
+    output_files::set_sink([](const char* path, bool complete) { jnext_web_file(path, complete ? 1 : 0); });
+}
 
 bool active() { return g_ctx.active; }
 

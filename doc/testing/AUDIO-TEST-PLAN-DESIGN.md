@@ -455,6 +455,9 @@ VHDL ref: `zxnext.vhd` lines 6503-6504
 | BP-11  | Issue 2 mode: MIC is XOR'd twice (cancels)       | When `nr_08_keyboard_issue2=1`: `EAR_in XOR mic XOR mic = EAR_in` |
 | BP-12  | Issue 3 mode: MIC contributes to beep            | When `nr_08_keyboard_issue2=0`: `EAR_in XOR 0 XOR mic = EAR_in XOR mic` |
 | BP-13  | Internal speaker exclusive mode                   | `beep_spkr_excl = nr_06_internal_speaker_beep AND nr_08_internal_speaker_en` |
+| MX-63  | Issue 3: the tape level is XORed with the port 0xFE MIC bit in the mix | NR 0x08 = 0x10, port 0xFE = 0x08, tape playing: tape 1 -> 0, tape 0 -> 512 (`zxnext.vhd:6503`: 1 xor 0 xor 1 = 0). Real mixer output of the full machine (GH #550) |
+| MX-64  | Issue 2: the MIC bit cancels while a tape plays   | NR 0x08 = 0x11, port 0xFE = 0x08, tape playing: tape 1 -> 512, tape 0 -> 0 (`t xor 1 xor 1 = t`) |
+| MX-65  | No tape: the MIC term is the MIC bit on both settings; after an eject it is the relaxed `issue2_mic` | issue 2 + MIC, tape level 0: 0; eject, two output samples later: 512; issue 3 no tape: MIC 1 -> 512, 0 -> 0 (`zxnext.vhd:6503, 1636`). The after-eject value is jnext's model, not the board's: on the board `ear_relax` holds the last tape level 64 x 512 master cycles before relaxing to `issue2_mic` (`symmetric_relaxation.vhd:76,89-90`), the held-back D6 class |
 
 ### 4.3 Port 0xFE Read
 
@@ -534,6 +537,55 @@ VHDL ref: `audio_mixer.vhd` lines 92-107
 | MX-21  | `exc_i=0`: EAR and MIC contribute normally        | The muxes at `audio_mixer.vhd:80-81` are COMBINATIONAL, so `exc_i` returning to `'0'` reopens them on the spot. Driven 1 → 0 on ONE Mixer, asserting EAR 512, MIC 128 and both 640 (×4 into int16). MX-01/MX-02 only see the power-on default and cannot tell a gate from a latch |
 | MX-22  | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4 | `beep_spkr_excl = nr_06_internal_speaker_beep AND nr_08_internal_speaker_en` |
 | MX-23  | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream)  | `pcm_L/R = ay_L/R + dac_L/R + i2s_L/R` only — `ear/mic = 0` regardless of `ear_i/mic_i`. skip — `mixer.cpp:28-29` sums EAR+MIC+AY+DAC+I2S unconditionally; Mixer never reads `Emulator::beep_spkr_excl()` (see G110) |
+
+### 5.4 Tape, Pi EAR and the MIC term (GH #550)
+
+`audio_mixer.vhd` has no tape input (`:35-37`): the tape (`i_AUDIO_EAR`) and the Pi's audio routed to EAR reach
+the mix only inside `mic_i = beep_mic_final` (`zxnext.vhd:6503, 6516`), at 128. Signed sample = (13-bit sum - 1536) x 4,
+so EAR alone = 2048 and the MIC term alone = 512; the beeper is mono (L == R). `i_AUDIO_EAR` is the jack through
+`ear_relax` (`zxnext_top_issue2.vhd:662-677`, `symmetric_relaxation.vhd:62,76,89-90`): a level with no edge for
+64 x 512 master cycles relaxes to `zxn_issue2_fe_mic`. jnext applies that to the Pi's EAR route and to a playing tape (the last edge of a restored
+deck is derived from its position, MX-93..100). Full-machine rows in `audio_nextreg_test`.
+
+| ID     | Test                                             | Verification                                               |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| MX-62  | The tape reaches the mix through the MIC term at 128, not as a term of its own | issue 3, port 0xFE = 0, tape 1 -> 512, tape 0 -> 0 (`audio_mixer.vhd:64,81,99`) |
+| MX-66  | EAR stays 512 and the tape adds 128 on top (4:1)  | port 0xFE = 0x10, tape 1 -> 2560, tape 0 -> 2048 |
+| MX-67  | `exc_i` silences the tape's term with EAR and MIC | NR 0x06 = 0x40, NR 0x08 = 0x10, port 0xFE = 0x18: 0 / 0 (`audio_mixer.vhd:80-81`) |
+| MX-68  | Pi audio routed to EAR reaches the MIC term; the I2S term stays at rest | `set_sample(0x3FF,0x3FF)`, NR 0xA2 = 0xC1: 512 (`zxnext.vhd:2358,2364-2373,6503`) |
+| MX-69  | While routed and unrelaxed, port 0xFE MIC and NR 0x08 issue 2 both feed the MIC term | MIC 1: 0 (`1 xor 0 xor 1`); issue 2: 512 (`1 xor 1 xor 1`) |
+| MX-70  | `ear_relax`: a Pi level held 64 x 512 master cycles relaxes to the issue-2 MIC level | +30000 cycles: 512; +34500: 0 (`symmetric_relaxation.vhd:76,89-90`) |
+| MX-71  | A state load re-derives the MIC term              | save with port 0xFE = 0x08, load into a fresh machine: 512 |
+| MX-72  | A state load re-derives the exc gate (R1)         | NR 0x06 = 0x40 and NR 0x08 = 0x10 saved: the loaded machine has `beep_spkr_excl()` and mixes 0 |
+| MX-73  | The mixer's inputs are `ear_i` and `mic_i` only (bare Mixer) | raw tape alone adds 0; `mic_final` alone adds 512; `set_mic()` sets `mic_final` |
+| MX-78  | A state load re-derives the NMI button enables (NR 0x06 bits 4:3) | restored and cleared directions (D9) |
+| MX-79  | A state load re-derives `nr_06_ps2_mode`           | the NR 0x06 read returns bit 2 as saved (D9) |
+| MX-80  | A state load re-derives the hotkey enables (NR 0x06 bits 7, 5) | F8 with bit 7 clear leaves the CPU speed alone (D9) |
+| MX-81  | A state load re-derives the exc gate in the other direction | snapshot with the gate open into a machine with it closed: mixes 2048 |
+| MX-82  | Replay mode holds the Pi's EAR term off, and the MIC term follows it | 512 / 0 / 512 |
+| MX-84  | A reset clears the mixer's MIC term with the port 0xFE MIC bit | MIC 1: 512; after a reset: 0 (`zxnext.vhd:3588-3594,6503`) |
+| MX-85  | A tape stopped at level 1 leaves the raw tape level 0 | one instruction after the eject: no stale EAR level |
+| MX-86  | A restore with no tape playing clears a saved raw tape level | one instruction after the load |
+| MX-87  | A tape edge reaches the MIC term in its own instruction | 8 edges: `mic_final` equals the raw level in the instruction that shows it (issue 3, MIC 0), not one output sample later |
+| MX-88  | An OUT 0xFE while a tape plays | tape 1: MIC 0 -> 512, MIC 1 -> 0, MIC 0 -> 512 (`zxnext.vhd:6503`) |
+| MX-89  | A restore while a tape plays re-derives the MIC term | saved 0, changed 512, restored 0 |
+| MX-90  | A state load re-derives the F3 hotkey enable (NR 0x06 bit 5) | F3 with the bit clear leaves NR 0x05 bit 2 alone (D9) |
+| MX-91  | A state load re-derives `nr_06_ps2_mode` the other way | saved 0 into a machine holding 1 (D9) |
+| MX-92  | In a HALT batch the Pi's `ear_relax` hold runs out at its time | the last samples of the frame are at rest (`pi_sample_thunk_`) |
+| MX-74  | A held tape level relaxes in the mix              | TZX pure tone: edge 512, held < hold 512, held > hold 0, raw tape level still 1 (D6) |
+| MX-75  | The relaxation reaches the port 0xFE read          | bit 6 follows the held tape until the hold, then the issue-2 MIC level (D6) |
+| MX-76  | Issue 2 + MIC: a held tape 0 relaxes to the MIC level, the next edge restarts the hold | mix 0 -> 512, then next edges 512 / 0 (D6) |
+| MX-77  | The hold restarts at an edge of tape XOR `pi_fe_ear` | a Pi edge inside the tape's hold extends it (D6) |
+| MX-83  | A tape stopped and started again restarts the hold at its first edge | the restarted tape is heard at once (512), not relaxed (D6) |
+| MX-93  | A TAP restore mid-pilot derives the tape edge     | 500 T into a 2168 T pulse: edge 500 T back |
+| MX-94  | A TAP restore mid-pause, before the relaxation    | 1000 T after the edge: age derived, mix 512 |
+| MX-95  | A TAP restore mid-pause, after the relaxation     | 8000 T after the edge: relaxed, mix 0 |
+| MX-96  | A TAP restore inside a data bit                   | a one bit (1710 T), 300 T left: age 1410 T |
+| MX-97  | A TZX restore in the pause's 1 ms hold            | derived edge equals the continuous one |
+| MX-98  | A TZX restore in the pause's remainder            | derived edge equals the continuous one |
+| MX-99  | A TZX restore in a pulse phase                    | age 0 (documented rule): never earlier than the continuous edge, at most one pulse later |
+| MX-100 | A WAV restore finds the edge by looking back      | young (1000 T): mix 512; old (9000 T, look-back capped at 8192 T): mix 0 |
+| MX-101 | A `.jns` load inside a tape's hold re-derives the tape edge at the deck reattach | TAP played 1000 T into the first pause, saved, loaded into a fresh machine: age within 800 master cycles, mix 512, deck playing |
 
 ## 6. NextREG Configuration
 
@@ -690,6 +742,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-05 | 1000 `audio_state()` calls between two instructions of a frame | The saved state equals the run without the calls; no NextREG read ran (the trace logs none; a control read does log) |
 | AIZ-06 | Sound, `reset_ay_only()`, save before any PSG tick | `pcm_l`/`pcm_r` equal a fresh TurboSound's; the sounding state differs (`turbosound.vhd:118-138`) |
 | AIZ-07 | A parked CPU looping over every audio write site (chip select, R13, a plain DAC port, 0xDF, a NextREG mirror, 0xFE with EAR toggling, a dropped 0xB3); `set_audio_log_enabled()` on in one run, off in the other | State bytes and framebuffer hash are equal over 50 frames: the write log only reads. Positive control: the run with the log on holds entries of all five targets |
+| AIZ-08 | A parked CPU looping over every audio write site (as AIZ-07); an AudioWrite subscription on ANY with a Log action on in one run, off in the other | State bytes and framebuffer hash are equal over 50 frames: the event only reads. Positive control: the run with it on delivered all five targets and a dropped write |
 | AIZ-09 | Each of the 13 channel mute bits, and ALL, for 50 frames, on versus off (14 runs) | State bytes and framebuffer hash are equal in every run (the hardware sums every channel: `turbosound.vhd:186-334`, `soundrive.vhd:112-113`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 
@@ -863,7 +916,54 @@ timestamps against the event system's own. CPU rows run a guest program; a write
 | AWL-27 | 10 frames, a checkpoint, 5 frames, load the checkpoint (the clock goes back), `rewind_to_frame(frame - 3)` (before the checkpoint); run 3 frames on | No write from the landing cycle on survives, the abandoned run before the load included; the undone StateLoad marker is gone; one Rewind marker last; running on logs no write twice |
 | AWL-28 | The same with the landing exactly at the load point (`rewind_to_frame(frame + 1)` after the load, the snapshot taken at the save cycle) | The StateLoad marker at that cycle stays, just before the Rewind marker; no write from that cycle on survives |
 
-### 8.7 Frame grouping (`src/debug/audio_frames.h`)
+### 8.7 Audio-write events (GH #532)
+
+An `AudioWrite` event kind: a subscription on the decoded audio writes, filtered by target, chip, register, value/mask, applied or dropped, and source. Oracles: `ym2149.vhd:188,210`, `turbosound.vhd:129,141`, `zxnext.vhd:2974-2980,3088,3091,5413,6989`, `soundrive.vhd:85-101`, and the event system's delivery contract (the raising boundary; one instruction late for a CPU NextREG write and a Copper MOVE). Suite: `audio_debug_test`. AIZ-08 is in 8.2.
+
+| ID | Drive | Expected |
+|----|-------|----------|
+| AEV-01 | Subscribe an AudioWrite filter with: no valid target (`0x20`); chip 4; a value outside its mask; a flag both required and forbidden; a register set with only DAC targets. Then the default filter | The five are `RefusedUnavailable`; the default is `Ok` |
+| AEV-02 | AY chip 0 R7 subscription (Stop), log off; `LD BC,0xFFFD; LD A,7; OUT (C),A; LD B,0xBF; LD A,0x38; OUT (C),A` with R7 preset 0x3F (the data OUT at 0x800B) | Paused at 0x800D with `matched` = the id; the Event: AudioWrite, AyRegister, chip 0, reg 7, value 0x38, prev 0x3F, port 0xBFFD, source Cpu, pc 0x800B, flags 0, reason None; the plain select made no stop (`ym2149.vhd:188`) |
+| AEV-03 | The same program, a chip 1 subscription | No stop (near miss: chip) |
+| AEV-04 | The same program, register 8 | No stop (near miss: register) |
+| AEV-05 | The same program, value/mask low nibble 8 | Stops at the 0x38 write |
+| AEV-06 | The same with the value 0x37 | No stop (near miss: value/mask) |
+| AEV-07 | Envelope-restart flag subscription; R13 = 8, R13 = 8 again, R12 = 8 | Two stops, one at each R13 OUT, the second with prev 0x08 (an unchanged value still restarts, `ym2149.vhd:188,210`); none at R12 |
+| AEV-08 | DAC subscription; `LD A,0x11; OUT (0x1F),A` | Stop at 0x8004; Event Dac, chip 0, port 0x111F (`OUT (n),A` puts A on the high address byte), value 0x11, prev 0x80 |
+| AEV-09 | The same subscription; `NEXTREG 0x2D,0x66` then `NOP` | Two events (chips 0 then 3, DacMirror, reg 0x2D, port 0x002D, pc 0x8000); the stop is one instruction late (0x8005), as NextRegWrite is (`soundrive.vhd:85-101`) |
+| AEV-10 | The same subscription; an AY data write, an EAR change on 0xFE, a 0xFFFD chip-select command | No stop (near miss: target) |
+| AEV-11 | Dropped-only subscription, NR 0x84 bit 6 off, `OUT (C),A` to 0x00B3 | Stop; Event Dac, chip 0xFF, flags Dropped, reason DacFamilyDisabled, port 0x00B3 (`zxnext.vhd:2974-2980`) |
+| AEV-12 | The same subscription with the 0xB3 decode on (the write applies) | No stop (near miss: not dropped) |
+| AEV-13 | Applied-only AY register subscription; NR 0x06 = 11 (held in reset), a write; NEXTREG 6,0, select 7, a write | No stop for the held write (AyHeldInReset, `zxnext.vhd:6989`); one stop for the applied one |
+| AEV-14 | AY chip-select subscription, TurboSound on; the plain select 7, then the command 0xFE | One stop, at the command: chip 1, prev 0, value 0xFE, port 0xFFFD (`turbosound.vhd:129,141`) |
+| AEV-15 | Targets ANY with regs {0}; OUT 0x1F (a Dac entry, reg 0); then an AY R0 write | No stop at the DAC write; one stop at R0 (a register set applies to the AY register and mirror targets only) |
+| AEV-16 | Source-Dma subscription; a CPU OUT 0x1F; then a DMA byte to 0x00DF | No stop for the CPU write; the DMA write stops, with source Dma and two events (chips 0 and 3) |
+| AEV-17 | Mirror subscription; a Copper MOVE 0x2D,0x66 | Two events, source Copper, chips 0 then 3, delivered at the boundary after the instruction during which the MOVE ran |
+| AEV-18 | R7 subscription with `once`; two R7 writes | One stop; the subscription then reports `enabled == false`; the second write passes |
+| AEV-19 | The same filter, Log action | One SES-06 line per write, no pause |
+| AEV-20 | The same filter, Continue with a counting handler | Called once per write with value 0x38 and chip 0; no pause |
+| AEV-21 | Log ON and subscription ANY; `port_out` 0xFFFD = 7 then 0xBFFD = 0x22 | The log holds one AyRegister entry with source Debugger and no AudioWrite event fired (a debugger write fires nothing) |
+| AEV-22 | A one-entry latch ring (`shrink_ring_for_test(1)`); DAC subscription; `OUT (0xDF),A` (A and D) | One event delivered, chip 0, `overflowed` and `dropped == 1` |
+| AEV-23 | Log ON, ANY subscription with a Continue handler, after two frames: a CPU OUT 0xBFFD and a DMA byte to 0x00DF | Each event's cycle, frame, vc, hc and pc equal its log entry's (one stamp function) |
+| AEV-24 | Rewind on, a loop writing 0x1F; DAC subscription with a counting handler; 10 frames; `step_back(1)` | The count did not move during the replay; the landing is not a stop of the subscription |
+| AEV-25 | `audio_tap_active()` before anything; subscribed; disabled; re-enabled; master off; master on; unsubscribed | false, true, false, true, false, true, false: the tap is on exactly while a live AudioWrite subscription exists |
+| AEV-26 | DAC subscription; hard reset (`on_cold_boot_begin`, `emulator_cold_boot`, `on_cold_boot_done`); a CPU OUT 0x1F | The tap is on again on the rebuilt machine and the OUT stops |
+| AEV-27 | The AEV-02 stop | `matched[0].addr` and the pause reason's addr are the port 0xBFFD |
+| AEV-28 | Two subscriptions (AY chip 0, AY chip 1); a chip 0 write | `matched` holds exactly the chip 0 id (the drain applies the filter) |
+| AEV-29 | A Copper MOVE 0x2D,0x5A with the DAC off, subscription ANY: `audio_target` | DacMirror (`zxnext.vhd:5413`) |
+| AEV-30 | The same delivery: `port` | 0x002D |
+| AEV-31 | The same delivery: `reg` | 0x2D |
+| AEV-32 | The same delivery: `value` | 0x5A |
+| AEV-33 | The same delivery: `source` | Copper |
+| AEV-34 | The same delivery: `chip` | 0xFF (a dropped mirror write reached no channel) |
+| AEV-35 | The same delivery: `audio_flags` | Dropped |
+| AEV-36 | The same delivery: `drop_reason` | DacMirrorDisabled |
+| AEV-37 | A CPU R13 write on chip 2 (R13 preset 0x04, write 0x0A) | prev 0x04, chip 2, flags EnvelopeRestart, reg 13; with AEV-29..36 the four packed bytes carry pairwise distinct values in each fixture, so a swap of any two kills a row |
+| AEV-38 | Subscriptions with Dropped required and a channel: DAC and DAC|mirror (chip 1), DAC (0), mirror (3); then chip Any, an AY register target with chip 1, an AY chip-select target with chip 2, ANY with chip 1 | The first three are `RefusedUnavailable` (a dropped DAC write has chip 0xFF); the other four are accepted |
+| AEV-39 | ANY subscription, log off; a soft reset and a state save and load, a frame after each | No AudioWrite event and no stop: the tap's Reset and StateLoad markers are not writes |
+| AEV-40 | Mirror subscription with regs {0x2D}; `NEXTREG 0x2C,0x11`, `NEXTREG 0x2D,0x66`, `NOP` | Stops one instruction after NR 0x2D only (0x8009); two events, chips 0 and 3, reg 0x2D; none for 0x2C (`soundrive.vhd:85-101`) |
+
+### 8.8 Frame grouping (`src/debug/audio_frames.h`)
 
 The audio write log grouped into one record per frame (GH #534): the helper behind the Audio panel's
 Tracker. Pure: hand-built entry lists, no machine. Oracles: the grouping rules of the issue (a counted
