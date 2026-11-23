@@ -120,6 +120,7 @@ BEGIN {
     M["sdcard_carry_test"]             = "SD card carry-over + rescue verbs (GH #555)"
     M["sdcard_upgrade_test"]           = "SD card upgrade flow (GH #555)"
     M["sdcard_backup_test"]            = "SD card backup, go back, menu state (GH #555)"
+    M["sdcard_menu_test"]              = "File menu: SD card set actions (GH #555)"
     M["startup_report_test"]           = "Start-up error box (GH #555)"
     M["sdcard_provisioner_test"]       = "SD Card Provisioner"
     M["sha256_test"]                   = "SHA-256 backends (GH #459)"

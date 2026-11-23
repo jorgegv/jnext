@@ -2154,6 +2154,13 @@ if(ENABLE_QT_UI)
     target_include_directories(no_sdcard_ui_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME no_sdcard_ui_tests COMMAND no_sdcard_ui_test)
 
+    # GH #555 S6 - File > Upgrade SD Card... / Go Back / Delete the Previous SD Card Backup: the actions, their enablement, the size label.
+    add_executable(sdcard_menu_test gui/sdcard_menu_test.cpp)
+    set_target_properties(sdcard_menu_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(sdcard_menu_test PRIVATE jnext_gui)
+    target_include_directories(sdcard_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_menu_tests COMMAND sdcard_menu_test)
+
     # GH #492 stage 2 - File > Save Bug Report...: the menu entry, the real file dialog, the report the Qt
     # frontend writes (settings file included).
     add_executable(bug_report_ui_test gui/bug_report_ui_test.cpp)

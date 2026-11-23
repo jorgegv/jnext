@@ -1042,6 +1042,7 @@ my %NO_MATRIX_SECTION = (
     'sdcard_swap_lock_test'  => 'the live SD card change takes and drops the image lock (GH #555): the design in the issue as oracle (host feature, no core counterpart)',
     'sdcard_upgrade_test'    => 'SD card upgrade flow (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart)',
     'sdcard_backup_test'     => 'SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart)',
+    'sdcard_menu_test'       => 'File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart)',
     'image_lock_any_test'    => 'SD card image lock rows every target runs, WebAssembly included (GH #555); same oracle (host feature, no core counterpart)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
     'minimal_card_test'       => 'the minimal NextZXOS card builder (GH #458): a synthetic MS-FAT32-spec distribution and a zlib zip built in the test, the card read back with ChaN FatFs (host SD-image tool, jnext-internal; the FPGA core has no counterpart)',

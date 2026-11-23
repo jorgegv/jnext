@@ -35,6 +35,11 @@
 #include "platform/window_title.h"      // GH #155 — the title names the version
 #include "gui/mac_cursor_warp.h"      // GH #303 (macOS only)
 #include "platform/speed_report.h"
+#include "core/sdcard_backup.h"
+#include "core/sdcard_provisioner.h"
+#include "core/sdcard_upgrade.h"
+#include "gui/sdcard_download_dialog.h"
+#include "peripheral/sd_write_journal.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "toolbar_icons/toolbar_icons.h"
 #include "debug/debugger.h"            // GH #278 WP6 — the Magic Breakpoint item (CTL-14)
@@ -44,6 +49,7 @@
 #include "qt/debug_keymap_qt.h"
 #endif
 #include <ctime>
+#include <filesystem>
 
 #include <QKeyEvent>
 #include <QFocusEvent>
@@ -427,6 +433,7 @@ void MainWindow::set_emulator(Emulator* emu) {
         if (eject_sd2_action_)  eject_sd2_action_->setEnabled(!no_card);
         if (sd_label_)         sd_label_->setVisible(no_card);
     }
+    refresh_card_set_actions();   // GH #555 S6: the card set's File actions follow the new machine
     // GH #381 - a rebuilt machine is a different program: what the POK session
     // recorded to undo its trainers belongs to the one that is gone. The dialog,
     // if open, shows what memory holds now.
@@ -947,6 +954,16 @@ void MainWindow::create_menus() {
     connect(insert_sd2_action_, &QAction::triggered, this, &MainWindow::on_insert_sd2);
     eject_sd2_action_ = file_menu->addAction(tr("Eject Second SD Card"));
     connect(eject_sd2_action_, &QAction::triggered, this, [this]() { handle_sd_card_path(QString(), 1); });
+    // GH #555 S6 - the card set: upgrade, go back to the previous card, delete the backup. No
+    // mnemonics (this popup has none to spare); enablement and the delete label follow menu_state().
+    upgrade_sd_action_ = file_menu->addAction(tr("Upgrade SD Card..."));
+    connect(upgrade_sd_action_, &QAction::triggered, this, &MainWindow::on_upgrade_sd);
+    go_back_sd_action_ = file_menu->addAction(tr("Go Back to the Previous SD Card"));
+    connect(go_back_sd_action_, &QAction::triggered, this, &MainWindow::on_go_back_sd);
+    delete_backup_action_ = file_menu->addAction(tr("Delete the Previous SD Card Backup..."));
+    connect(delete_backup_action_, &QAction::triggered, this, &MainWindow::on_delete_backup);
+    connect(file_menu, &QMenu::aboutToShow, this, &MainWindow::refresh_card_set_actions);
+    refresh_card_set_actions();
 
     file_menu->addSeparator();
 
@@ -2190,8 +2207,155 @@ void MainWindow::handle_sd_card_path(const QString& path, int slot) {
             .arg(QString::fromStdString(why)));
 }
 
+namespace {
+
+// The distribution jnext downloads now (the test seam's address wins, as in provision_sd_card).
+std::string current_distribution() {
+    const char* env_url = std::getenv("JNEXT_SDCARD_DISTRO_URL");
+    return sdcard::distribution_of_url((env_url && *env_url) ? std::string(env_url) : std::string(sdcard::kDistroUrl));
+}
+
+bool same_file(const std::string& a, const std::string& b) {
+    std::error_code ec;
+    return !a.empty() && !b.empty() && std::filesystem::equivalent(a, b, ec) && !ec;
+}
+
+}  // namespace
+
+void MainWindow::refresh_card_set_actions() {
+    if (!upgrade_sd_action_) return;
+    const std::string dir = sdcard::default_sdcard_dir();
+    const sdcard::backup::Status st = sdcard::backup::card_set_status(dir, current_distribution());
+    const bool slot0_default = emulator_ && !emulator_->config().no_sdcard &&
+                               same_file(emulator_->sd_card().image_path(), sdcard::default_sdcard_image_path());
+    const sdcard::backup::MenuState m = sdcard::backup::menu_state(st, slot0_default);
+    upgrade_sd_action_->setEnabled(m.upgrade_enabled);
+    go_back_sd_action_->setEnabled(m.go_back_enabled && emulator_ && !emulator_->config().no_sdcard);
+    delete_backup_action_->setEnabled(m.delete_enabled);
+    delete_backup_action_->setText(m.delete_enabled
+        ? tr("Delete the Previous SD Card Backup (%1)...").arg(QString::fromStdString(sdcard::backup::size_label(m.backup_bytes)))
+        : tr("Delete the Previous SD Card Backup..."));
+}
+
+void MainWindow::on_upgrade_sd() {
+    if (!emulator_ || card_op_ != CardOp::None) return;
+    const sdcard::backup::Status st = sdcard::backup::card_set_status(sdcard::default_sdcard_dir(), current_distribution());
+    QString text = tr("Your files are carried over to a new SD card, and your current card is kept as a backup. "
+                      "The machine restarts when it is done.");
+    if (!st.pristine)
+        text = tr("Your current card cannot be compared with the one it came from (%1), so its files cannot be carried "
+                  "over: a new card is made and your current card, with everything on it, is kept as a backup. "
+                  "The machine restarts when it is done.").arg(QString::fromStdString(st.pristine_why));
+    if (QMessageBox::question(this, tr("Upgrade SD Card"), text, QMessageBox::Ok | QMessageBox::Cancel,
+                              QMessageBox::Cancel) != QMessageBox::Ok)
+        return;
+    card_op_ = CardOp::Upgrade;
+    card_op_inserting_ = false;
+    handle_sd_card_path(QString());   // eject: run_card_op() continues when it is serviced
+}
+
+void MainWindow::on_go_back_sd() {
+    if (!emulator_ || card_op_ != CardOp::None) return;
+    if (QMessageBox::question(this, tr("Go Back to the Previous SD Card"),
+                              tr("The card in use becomes the backup and the previous card is used again, with its own "
+                                 "files. The machine restarts when it is done."),
+                              QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Ok)
+        return;
+    card_op_ = CardOp::GoBack;
+    card_op_inserting_ = false;
+    handle_sd_card_path(QString());
+}
+
+void MainWindow::on_delete_backup() {
+    const sdcard::backup::Status st = sdcard::backup::card_set_status(sdcard::default_sdcard_dir(), current_distribution());
+    if (!st.backup) return;
+    if (QMessageBox::question(this, tr("Delete the Previous SD Card Backup"),
+                              tr("Delete the previous SD card (%1)? This cannot be undone.")
+                                  .arg(QString::fromStdString(sdcard::backup::size_label(st.backup_bytes))),
+                              QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Ok)
+        return;
+    std::string err;
+    if (sdcard::backup::delete_backup(sdcard::default_sdcard_dir(), err) == sdcard::backup::Result::Failed)
+        QMessageBox::warning(this, tr("SD Card"), tr("The backup could not be deleted: %1.").arg(QString::fromStdString(err)));
+    refresh_card_set_actions();
+}
+
+// The card is out of the machine: do the work, put the card back, restart the machine.
+void MainWindow::run_card_op() {
+    const CardOp op = card_op_;
+    const std::string dir  = sdcard::default_sdcard_dir();
+    const std::string card = sdcard::default_sdcard_image_path();
+    auto fail = [this](const QString& why) {
+        card_op_ = CardOp::None;
+        QMessageBox::warning(this, tr("SD Card"), why);
+        // put the card back where it was, whatever happened
+        handle_sd_card_path(QString::fromStdString(sdcard::default_sdcard_image_path()));
+    };
+    if (!emulator_ || op == CardOp::None) { card_op_ = CardOp::None; return; }
+    // the writes file the session had over the card (registry), if any: it is carried by an upgrade
+    // and swapped by a go back
+    const auto journal = sd_write_journal::for_image(card);
+    const std::string session_file = journal ? journal->file() : std::string();
+    std::string err;
+    if (op == CardOp::Upgrade) {
+        const sdcard::backup::Status st = sdcard::backup::card_set_status(dir, current_distribution());
+        SdcardGuiProvisioner gui;
+        sdcard::ProvisionOptions o;
+        o.upgrade_mode = st.pristine ? sdcard::UpgradeMode::Yes : sdcard::UpgradeMode::Fresh;
+        o.download = sdcard::default_http_download;
+        o.confirm  = [&](const std::string& m) { return gui.confirm(m); };
+        o.progress = [&](uint64_t d, uint64_t t) { return gui.progress(d, t); };
+        o.busy     = [&](const std::string& p, const std::function<bool()>& w) { return gui.busy(p, w); };
+        o.sleep    = [&](unsigned ms, const std::string& n) { gui.retry_wait(ms, n); };
+        o.show_report = [&](const std::string& r) { gui.show_report(r); };
+        o.auto_confirm = true;
+        if (!session_file.empty()) o.overlays.push_back(session_file);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(o);
+        if (r.status != sdcard::ProvisionStatus::Ok) { fail(tr("The upgrade failed: %1").arg(QString::fromStdString(r.error))); return; }
+        if (!r.warning.empty()) gui.warn(r.warning);
+    } else {
+        if (sdcard::backup::go_back(dir, err) != sdcard::backup::Result::Ok) {
+            fail(tr("Going back failed: %1").arg(QString::fromStdString(err)));
+            return;
+        }
+    }
+    // the card file is another card now: bind the writes file the session will use over it. An upgrade
+    // rebuilt the session's file under the same name; a go back restored the other card's files.
+    sd_write_journal::forget_image(card);
+    std::string file = session_file;
+    if (op == CardOp::GoBack) {
+        const auto usable = sdcard::upgrade::usable_overlays(dir, card, {});
+        file = usable.empty() ? std::string() : usable.front();
+    }
+    std::error_code bec;
+    if (!file.empty() && std::filesystem::exists(file, bec)) {
+        sd_write_journal::Binding b;
+        b.bytes = std::filesystem::file_size(card, bec);
+        b.mtime = static_cast<int64_t>(std::filesystem::last_write_time(card, bec).time_since_epoch().count());
+        std::string why;
+        if (!sd_write_journal::bind(card, file, b, false, why))
+            Log::platform()->warn("SD card: cannot bind the writes file {} over the new card: {}", file, why);
+    }
+    card_op_inserting_ = true;
+    handle_sd_card_path(QString::fromStdString(card));
+}
+
 void MainWindow::sd_card_change_finished(const QString& image, const QString& error, int slot) {
     const bool second = slot == 1;
+    if (!second && card_op_ != CardOp::None) {
+        if (!error.isEmpty()) {
+            card_op_ = CardOp::None;                 // the eject or the insert was refused: nothing more to do
+        } else if (!card_op_inserting_ && image.isEmpty()) {
+            QTimer::singleShot(0, this, [this]() { run_card_op(); });   // outside the tick
+            return;
+        } else if (card_op_inserting_ && !image.isEmpty()) {
+            card_op_ = CardOp::None;
+            card_op_inserting_ = false;
+            QTimer::singleShot(0, this, [this]() { if (emulator_) emulator_->request_hard_reset(); });
+            statusBar()->showMessage(tr("SD card upgraded: the machine restarts"), 5000);
+            return;
+        }
+    }
     if (error.isEmpty()) {
         const QString msg = image.isEmpty()
             ? (second ? tr("Second SD card ejected") : tr("SD card ejected"))
