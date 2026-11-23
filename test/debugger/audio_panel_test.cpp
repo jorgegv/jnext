@@ -30,6 +30,8 @@
 // table's cells, its filters, the double-click, the CSV export and the mirror of the backend's ring.
 // Rows DAP-61..69 (GH #534) drive the Tracker sub-tab: the model's grid cell for cell, the live grouping
 // of real writes, the rewind double-click and why a row is greyed.
+// Rows DAP-88..92 (GH #538) drive the Record PSG... row of the Chips tab: its widgets, a recording through the panel and
+// one started elsewhere, a refused path, and the panel's bytes against the backend verb's.
 // Run: ./build/test/debugger_audio_panel_test
 
 #include "audio/audio_mute.h"
@@ -59,6 +61,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <unistd.h>
 #include <set>
 #include <cstdarg>
 #include <cstdint>
@@ -2178,6 +2181,137 @@ static void test_tracker_tab(Emulator& emu) {
     }
 }
 
+
+// ── DAP-88..92: the .psg recording row of the Chips tab (GH #538) ───────────────────────────────
+static std::string psg_tmp_path(const char* tag) {
+    return (std::filesystem::temp_directory_path() /
+            (std::string("jnext-dap-psg-") + tag + "-" + std::to_string(::getpid()) + ".psg")).string();
+}
+
+static std::string psg_slurp(const std::string& path) {
+    std::string out;
+    if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
+        char b[4096];
+        size_t n;
+        while ((n = std::fread(b, 1, sizeof b, f)) > 0) out.append(b, n);
+        std::fclose(f);
+    }
+    return out;
+}
+
+static void psg_cleanup(const std::string& p) {
+    std::remove(p.c_str());
+    for (const char* sfx : {"-ay1", "-ay2"}) {
+        std::string q = p;
+        q.insert(q.size() - 4, sfx);   // before ".psg"
+        std::remove(q.c_str());
+    }
+}
+
+static void test_psg_row(Emulator& emu) {
+    set_group("DAP-PSG");
+    const std::string hdr("PSG\x1A\0\0\0\0\0\0\0\0\0\0\0\0", 16);
+    {
+        if (!build_next_emulator(emu)) { check("DAP-88", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* rec = panel.findChild<QPushButton*>("audio_psg_record");
+        auto* stop = panel.findChild<QPushButton*>("audio_psg_stop");
+        auto* st = panel.findChild<QLabel*>("audio_psg_status");
+        bool reserved = false;
+        for (const QString& pfx : {QString("TurboSound:"), QString("Mode:"), QString("Stereo:"), QString("PSG mode:")})
+            for (QLabel* l : panel.findChildren<QLabel*>())
+                if ((l == st) && l->text().startsWith(pfx)) reserved = true;
+        for (QPushButton* b : {rec, stop})
+            for (const QString& pfx : {QString("TurboSound:"), QString("Mode:"), QString("Stereo:"), QString("PSG mode:")})
+                if (b && b->text().startsWith(pfx)) reserved = true;
+        check("DAP-88", "the Chips tab holds audio_psg_record ('Record PSG...'), audio_psg_stop ('Stop', disabled) and audio_psg_status ('Not recording PSG'); none of their texts starts with a reserved label prefix",
+              rec && stop && st && rec->text() == "Record PSG..." && rec->isEnabled() && stop->text() == "Stop" &&
+              !stop->isEnabled() && st->text() == "Not recording PSG" && !reserved);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-89", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        const std::string p = psg_tmp_path("g89");
+        const bool a = panel.start_psg_recording(QString::fromStdString(p));
+        panel.refresh();
+        auto* rec = panel.findChild<QPushButton*>("audio_psg_record");
+        auto* stop = panel.findChild<QPushButton*>("audio_psg_stop");
+        auto* st = panel.findChild<QLabel*>("audio_psg_status");
+        const bool during = dbg.psg_recording() && st->text() == "Recording PSG" &&
+                            st->toolTip() == QString::fromStdString(p) && !rec->isEnabled() && stop->isEnabled();
+        const bool b = panel.stop_psg_recording();
+        panel.refresh();
+        const bool after = !dbg.psg_recording() && st->text() == "Not recording PSG" && rec->isEnabled() &&
+                           !stop->isEnabled();
+        const std::string f = psg_slurp(p);
+        psg_cleanup(p);
+        check("DAP-89", "start_psg_recording: true, the backend records, the label reads 'Recording PSG' with the path as its tooltip, Record is disabled and Stop enabled; stop_psg_recording: true, the label 'Not recording PSG', the buttons back, and the file starts with the 16-byte .psg header",
+              a && during && b && after && f.size() >= 16 && f.compare(0, 16, hdr) == 0);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-90", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        const std::string p = psg_tmp_path("g90");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);   // as --psg-record does
+        panel.refresh();
+        auto* stop = panel.findChild<QPushButton*>("audio_psg_stop");
+        auto* st = panel.findChild<QLabel*>("audio_psg_status");
+        const bool seen = st->text() == "Recording PSG" && stop->isEnabled();
+        stop->click();
+        const bool stopped = !dbg.psg_recording() && st->text() == "Not recording PSG" && !stop->isEnabled();
+        psg_cleanup(p);
+        check("DAP-90", "a recording started through the backend (the command line's way) shows in the panel after refresh() ('Recording PSG', Stop enabled), and clicking Stop ends it",
+              seen && stopped);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-91", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        const QString bad = QString::fromStdString(
+            (std::filesystem::temp_directory_path() / "jnext-no-such-dir" / "x.psg").string());
+        const bool r = panel.start_psg_recording(bad);
+        panel.refresh();
+        auto* st = panel.findChild<QLabel*>("audio_psg_status");
+        check("DAP-91", "start_psg_recording on an uncreatable path: false, nothing records, and the label (still there after refresh()) starts 'Cannot write' and holds the path",
+              !r && !dbg.psg_recording() && st->text().startsWith("Cannot write") && st->text().contains(bad));
+    }
+    {
+        // Two identical machines with the same port writes over 3 frames: the panel's recording and the
+        // backend's own (what --psg-record starts) are the same bytes.
+        auto run = [&](bool through_panel, const std::string& path) {
+            Emulator m;
+            if (!build_next_emulator(m)) return false;
+            m.run_frame();
+            jnext::dbg::Debugger dbg(m);
+            AudioPanel panel(&dbg);
+            if (through_panel) panel.start_psg_recording(QString::fromStdString(path));
+            else dbg.psg_record_start(jnext::dbg::CLIENT_NONE, path);
+            nr_write(m, 0x08, 0x0A);
+            m.port().out(0xFFFD, 0xFE);
+            ay_wr(m, 0, 0x34); ay_wr(m, 7, 0x38);
+            m.run_frame();
+            m.port().out(0xFFFD, 0xFF);
+            ay_wr(m, 8, 0x0F); ay_wr(m, 13, 0x0E);
+            m.run_frame(); m.run_frame();
+            if (through_panel) panel.stop_psg_recording();
+            else dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+            return true;
+        };
+        const std::string pa = psg_tmp_path("g92a"), pb = psg_tmp_path("g92b");
+        const bool ok = run(true, pa) && run(false, pb);
+        const std::string a0 = psg_slurp(pa), b0 = psg_slurp(pb);
+        std::string a1 = pa, b1 = pb;
+        a1.insert(a1.size() - 4, "-ay1"); b1.insert(b1.size() - 4, "-ay1");
+        const std::string a1d = psg_slurp(a1), b1d = psg_slurp(b1);
+        psg_cleanup(pa); psg_cleanup(pb);
+        check("DAP-92", "the same port writes over 3 frames, recorded through the panel and through the backend verb on two identical machines, give byte-identical files for AY#0 and AY#1 (and AY#0's holds a register block)",
+              ok && a0 == b0 && a1d == b1d && a0.size() > 16 + 4 && a1d.size() > 16 + 4);
+    }
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -2207,6 +2341,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-LOG        -- done\n");
     test_tracker_tab(emu);
     std::printf("  Group: DAP-TRK        -- done\n");
+    test_psg_row(emu);
+    std::printf("  Group: DAP-PSG        -- done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

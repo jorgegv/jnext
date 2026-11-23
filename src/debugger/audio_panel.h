@@ -68,6 +68,14 @@ public:
     /// tab, so either one on show asks the backend to record it.
     bool tracker_on_show() const;
 
+    /// Start the .psg recording to `path` (the Record PSG... button's body, and the tests'
+    /// seam). False when the backend refuses (FILE cannot be created, or one already runs);
+    /// the status label then says so.
+    bool start_psg_recording(const QString& path);
+    /// Finish the recording, whoever started it. False on a write error, which the status
+    /// label then says; also false when nothing records.
+    bool stop_psg_recording();
+
     QSize sizeHint() const override { return QSize(400, 600); }
     QSize minimumSizeHint() const override { return QSize(350, 580); }
 
@@ -148,6 +156,15 @@ private:
     std::array<QToolButton*, 13> solo_btn_{};
     int      solo_ = -1;
     uint16_t pre_solo_mask_ = 0;
+
+    // The .psg recording row (top of the Chips tab). `psg_note_` is a refusal or a write error,
+    // shown until the next start; `psg_path_` the file this panel started (the status tooltip).
+    QPushButton* psg_record_ = nullptr;
+    QPushButton* psg_stop_ = nullptr;
+    QLabel* psg_status_ = nullptr;
+    QString psg_note_;
+    QString psg_path_;
+    void refresh_psg_();
 
     // Info labels
     QLabel* turbosound_label_ = nullptr;

@@ -259,6 +259,7 @@ real start and finish of the file:
 | `--export-skoolkit`, `--export-ghidra` | none | `run_export`, once for each path in `ReReport::paths` |
 | `--bug-report` | none | `write_bug_report_at_exit`, after the write |
 | `--audio-log` | `AudioLogStream::open`, after the `fopen` | `AudioLogStream::finish`, after the flush and close (also when it reports an error: what is on disk is final) |
+| `--psg-record` | `PsgRecorder::start` (FILE) and the first block of a chip (`-ay1`, `-ay2`) | `PsgRecorder::stop`, after the close of each file (also on a write error) |
 | `--log-file` | `main()`, where the sink is built | the page's finish, after flushing every logger |
 
 Not listed, by design: the SD-writes journal, the warm-start recording, quick snapshots, the API's own
