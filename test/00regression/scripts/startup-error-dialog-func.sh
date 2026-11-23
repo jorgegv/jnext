@@ -34,10 +34,13 @@ if want startup-error-dialog-func; then
         local -a se_env=()
         while [[ $1 != -- ]]; do se_env+=("$1"); shift; done
         shift
+        local se_bin=$1
+        shift
         mkdir -p "$se_dir/$name-cfg"
+        # --log-level comes first: an unknown option ends the parse loop before a later one is read.
         timeout --foreground --kill-after=5s 60s \
             env JNEXT_CONFIG_DIR="$se_dir/$name-cfg" "${se_env[@]}" \
-            "$@" --log-level platform=debug --log-file "$se_dir/$name.log" \
+            "$se_bin" --log-level platform=debug --log-file "$se_dir/$name.log" "$@" \
             </dev/null >"$se_dir/$name.out" 2>&1 || rc=$?
         tr -d '\r' <"$se_dir/$name.out" >"$se_dir/$name.out.lf"
         if [[ -f "$se_dir/$name.log" ]]; then tr -d '\r' <"$se_dir/$name.log" >"$se_dir/$name.log.lf"; else : >"$se_dir/$name.log.lf"; fi
