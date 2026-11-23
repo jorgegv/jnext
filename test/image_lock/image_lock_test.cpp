@@ -123,5 +123,26 @@ int main() {
         probe.reset(); other.reset();
         sdcard::sd_locks::release(0);
     }
+    {
+        // S2-2: a refused writes file changes nothing.
+        sdcard::sd_locks::set_enabled(true);
+        std::string why;
+        const std::string x = d + "/x2.img", y = d + "/y2.img", w = d + "/held.jsdw";
+        auto outside = ImageLock::acquire(w, ImageLock::Kind::Writes, why);
+        const bool hx = sdcard::sd_locks::hold(0, x, {}, why);
+        const bool refused = !sdcard::sd_locks::hold(0, x, w, why);     // the slot keeps X, the writes file is held elsewhere
+        std::string w2;
+        const bool x_kept = sdcard::sd_locks::holds(0, x) && !ImageLock::acquire(x, ImageLock::Kind::Image, w2).has_value();
+        check("SDLOCK-14", "a hold() whose writes file is held elsewhere is refused and the slot keeps the image it had (still locked)",
+              outside && hx && refused && x_kept && why.find(w) != std::string::npos, why);
+        sdcard::sd_locks::release(0);
+        std::string w3, w4;
+        const bool refused2 = !sdcard::sd_locks::hold(1, y, w, w3);     // an EMPTY slot: nothing may be left locked
+        auto probe = ImageLock::acquire(y, ImageLock::Kind::Image, w4);
+        check("SDLOCK-15", "a hold() on an empty slot whose writes file is held elsewhere is refused and leaves its image UNlocked (nothing newly taken stays)",
+              refused2 && !sdcard::sd_locks::holds(1, y) && probe.has_value(), w3 + w4);
+        probe.reset();
+        sdcard::sd_locks::set_enabled(false);
+    }
     return finish(d);
 }

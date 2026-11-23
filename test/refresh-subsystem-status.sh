@@ -116,6 +116,7 @@ BEGIN {
     M["image_lock_test"]               = "SD image lock (GH #555)"
     M["image_lock_posix_test"]         = "SD image lock (POSIX-only rows)"
     M["image_lock_any_test"]           = "SD image lock (every target)"
+    M["sdcard_swap_lock_test"]         = "SD live change lock wiring (GH #555)"
     M["sdcard_carry_test"]             = "SD card carry-over + rescue verbs (GH #555)"
     M["startup_report_test"]           = "Start-up error box (GH #555)"
     M["sdcard_provisioner_test"]       = "SD Card Provisioner"

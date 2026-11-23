@@ -195,13 +195,14 @@ std::mutex& mu() { static std::mutex m; return m; }
 bool g_enabled = false;   // guarded by mu()
 SlotLocks* slots() { static SlotLocks s[2]; return s; }
 
-// `want` kept from `have` when it is the same card, else taken now.
+// `path` kept from `have` when it is the same card (`carried` says so), else taken now.
 bool take(std::optional<ImageLock>& have, const std::string& path, ImageLock::Kind kind,
-          std::optional<ImageLock>& out, std::string& why)
+          std::optional<ImageLock>& out, bool& carried, std::string& why)
 {
     out.reset();
+    carried = false;
     if (path.empty()) return true;
-    if (have && have->key() == canonical_key(path)) { out = std::move(have); have.reset(); return true; }
+    if (have && have->key() == canonical_key(path)) { out = std::move(have); have.reset(); carried = true; return true; }
     out = ImageLock::acquire(path, kind, why);
     return out.has_value();
 }
@@ -221,10 +222,12 @@ bool hold(int slot, const std::string& image, const std::string& writes_file, st
     if (!g_enabled) return true;
     SlotLocks& s = slots()[slot];
     std::optional<ImageLock> img, wr;
-    if (!take(s.image, image, ImageLock::Kind::Image, img, why)) return false;
-    if (!take(s.writes, writes_file, ImageLock::Kind::Writes, wr, why)) {
-        // Give the image lock back to the slot (it may be the one it already held).
-        if (img && !s.image) s.image = std::move(img);
+    bool img_carried = false, wr_carried = false;
+    if (!take(s.image, image, ImageLock::Kind::Image, img, img_carried, why)) return false;   // nothing moved
+    if (!take(s.writes, writes_file, ImageLock::Kind::Writes, wr, wr_carried, why)) {
+        // A refusal changes nothing: an image lock carried out of the slot goes back to it, one taken
+        // just now is dropped (it was never the slot's).
+        if (img_carried) s.image = std::move(img);
         return false;
     }
     s.image  = std::move(img);    // the old locks, if not carried over, die here

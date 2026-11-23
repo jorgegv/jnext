@@ -8981,16 +8981,20 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
         return why;
     }
 
-    // GH #555 - one jnext per card image: the new image is locked before the switch (the slot's
-    // old locks are dropped by hold() once it succeeds; a card change has no SD-writes file, so
-    // the slot's writes lock goes with the old card). A card held by another jnext is refused
-    // with the current card untouched. An eject releases the slot.
+    // GH #555 - one jnext per card image: the new image is locked before the switch, together with
+    // the SD-writes file bound to it (a card swapped away from and back to gets its journal again
+    // from the registry, so its file is part of the card). hold() keeps what the slot already has
+    // for the same card and drops the rest once the new locks are taken. A card or writes file
+    // held by another jnext is refused, BEFORE anything is unmounted: the current card stays.
+    // An eject releases the slot.
     if (change.image.empty()) {
         sdcard::sd_locks::release(change.slot);
-    } else if (!sdcard::sd_locks::holds(change.slot, change.image) &&   // the same card again keeps its locks
-               !sdcard::sd_locks::hold(change.slot, change.image, {}, why)) {
-        Log::emulator()->error("SD card change refused: {}", why);
-        return why;
+    } else {
+        const auto bound = sd_write_journal::for_image(change.image);
+        if (!sdcard::sd_locks::hold(change.slot, change.image, bound ? bound->file() : std::string(), why)) {
+            Log::emulator()->error("SD card change refused: {}", why);
+            return why;
+        }
     }
 
     if (change.slot == 1) {

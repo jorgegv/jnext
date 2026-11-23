@@ -1188,6 +1188,17 @@ target_link_libraries(pok_trainers_test PRIVATE
 target_include_directories(pok_trainers_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME pok_trainers_tests COMMAND pok_trainers_test)
 
+# GH #555 - the live SD card change takes and drops the image lock (Emulator::change_sd_card).
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_swap_lock_test platform/sdcard_swap_lock_test.cpp)
+    target_link_libraries(sdcard_swap_lock_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(sdcard_swap_lock_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_swap_lock_tests COMMAND sdcard_swap_lock_test)
+endif()
+
 # GH #555 - fatal start-up errors in a message box (src/platform/startup_report.*): no machine, no Qt.
 add_executable(startup_report_test platform/startup_report_test.cpp)
 target_link_libraries(startup_report_test PRIVATE jnext_platform jnext_core spdlog::spdlog)

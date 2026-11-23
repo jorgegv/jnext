@@ -614,6 +614,14 @@ case "$SD_CLONE_MODE" in
     absent)       printf "  ${CYAN}sd-clone${RESET} skipped — no SD master to clone\n" ;;
 esac
 
+# A SUBSET run (--only) is not a gate and must not destroy a FULL run's summary and logs (GH #555
+# review): `make cli-check` and a regression row run one inside a tree whose full run's
+# build/test-summary.tsv and build/test-logs the traceability and dashboard checks still read. It
+# writes its own into the run's private directory, which goes with it.
+if [[ $SUBSET == 1 ]]; then
+    SUMMARY="$TMPDIR_RUN/test-summary.tsv"
+    LOG_DIR="$TMPDIR_RUN/test-logs"
+fi
 rm -f "$SUMMARY"
 rm -rf "$LOG_DIR"; mkdir -p "$LOG_DIR"
 
@@ -685,7 +693,7 @@ fail_row() {   # fail_row <name> <message>
         printf "      (no FAIL line; last output of the suite:)\n"
         tail -n 25 "$TMPDIR_RUN/$1.out" 2>/dev/null | sed -E 's/^/      | /' || true
     fi
-    printf "      full log: %s\n" "$LOG_DIR/$1.log"
+    if [[ $SUBSET == 1 ]]; then printf "      (a subset run keeps no logs)\n"; else printf "      full log: %s\n" "$LOG_DIR/$1.log"; fi
     suites_fail=$((suites_fail + 1))
     FAILED_SUITES+=("$1")
 }
@@ -782,7 +790,7 @@ for name in "${RUNNABLE[@]}"; do
         # to install or fix) but does not count as a pass and fails the run below.
         printf "  ${CYAN}%-34s${RESET} ${BADGE_SKIP} SKIP ${RESET}  %s%s\n" "$name" "$line" "$(suite_secs "$name")"
         grep -E '^\s*\[?SKIP' "$TMPDIR_RUN/$name.out" 2>/dev/null | head -5 | sed -E 's/^/      /' || true
-        printf "      full log: %s\n" "$LOG_DIR/$name.log"
+        if [[ $SUBSET == 1 ]]; then printf "      (a subset run keeps no logs)\n"; else printf "      full log: %s\n" "$LOG_DIR/$name.log"; fi
         suites_skip=$((suites_skip + 1))
     else
         printf "  ${CYAN}%-34s${RESET} ${BADGE_PASS} PASS ${RESET}  %s%s\n" "$name" "$line" "$(suite_secs "$name")"
