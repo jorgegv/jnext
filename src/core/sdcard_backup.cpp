@@ -140,8 +140,21 @@ bool step2(const Swap& s, std::string& err) {
         if (tab == std::string::npos) continue;
         const std::string tag = l.substr(0, tab), path = l.substr(tab + 1);
         if (fs::exists(prev / "overlays" / tag, ec)) {
+            // The swap has begun: a target that cannot be written now (a directory that vanished, a drive that
+            // is gone) must not stop it, or the set would stay half-swapped. The directory is made when it can be;
+            // when the file still cannot be restored its copy stays in the backup (the new previous/), and says where.
+            fs::create_directories(fs::path(path).parent_path(), ec);
+            ec.clear();
             fs::copy_file(prev / "overlays" / tag, path, fs::copy_options::overwrite_existing, ec);
-            if (ec) { err = "cannot restore '" + path + "': " + ec.message(); return false; }
+            if (ec) {
+                const fs::path keep = fs::path(work_dir(s.dir)) / "cur" / "overlays" / ("unrestored-" + tag);
+                std::error_code mec;
+                fs::create_directories(keep.parent_path(), mec);
+                fs::copy_file(prev / "overlays" / tag, keep, fs::copy_options::overwrite_existing, mec);
+                Log::emulator()->warn("sdcard: could not restore the writes file {} ({}); its copy is kept in {}",
+                                      path, ec.message(), (fs::path(upgrade::previous_dir(s.dir)) / "overlays" / ("unrestored-" + tag)).string());
+                continue;
+            }
         }
         list.push_back(path);
     }
@@ -154,7 +167,14 @@ bool step2(const Swap& s, std::string& err) {
 // 3. what is left of the old backup goes
 bool step3(const Swap& s, std::string& err) {
     std::error_code ec;
-    if (fs::exists(fs::path(work_dir(s.dir)) / "cur", ec)) fs::remove_all(upgrade::previous_dir(s.dir), ec);
+    const fs::path cur = fs::path(work_dir(s.dir)) / "cur";
+    if (fs::exists(cur, ec)) {
+        // the report of the last upgrade goes with the backup it describes: it stays with the set that is the backup now
+        const fs::path rep = fs::path(upgrade::previous_dir(s.dir)) / upgrade::kReportName;
+        if (fs::exists(rep, ec) && !fs::exists(cur / upgrade::kReportName, ec))
+            fs::copy_file(rep, cur / upgrade::kReportName, fs::copy_options::overwrite_existing, ec);
+        fs::remove_all(upgrade::previous_dir(s.dir), ec);
+    }
     if (ec) { err = "cannot remove the old backup: " + ec.message(); return false; }
     return true;
 }
@@ -236,6 +256,31 @@ Result go_back(const std::string& dir, std::string& err) {
     std::error_code ec;
     if (!fs::is_regular_file(prev / kFixedImageFileName, ec)) { err = "there is no previous SD card to go back to"; return Result::NoBackup; }
     if (fs::exists(work_dir(dir), ec)) { err = "an earlier go-back is unfinished: start jnext once to finish it"; return Result::Failed; }
+    // Every writes file the backup holds is restored to the path it came from. That is checked BEFORE anything
+    // moves: the directory is made when it is missing, and a path nothing can be written to refuses the whole
+    // go back with the set exactly as it was.
+    {
+        std::vector<std::string> incoming;
+        read_lines((prev / "overlays" / "LIST").string(), incoming);
+        for (const std::string& l : incoming) {
+            const size_t tab = l.find('\t');
+            if (tab == std::string::npos) continue;
+            const std::string path = l.substr(tab + 1);
+            std::error_code pec;
+            fs::create_directories(fs::path(path).parent_path(), pec);
+            const std::string probe = path + ".jnext-probe";
+            bool ok;
+            {
+                std::ofstream f(probe, std::ios::binary | std::ios::trunc);
+                ok = static_cast<bool>(f);
+            }
+            fs::remove(probe, pec);
+            if (!ok) {
+                err = "cannot restore the writes file '" + path + "' (its folder cannot be written to); nothing was changed";
+                return Result::Failed;
+            }
+        }
+    }
     Swap s;
     s.dir = dir;
     const std::string d = read_line(card + kDistroSuffix);
