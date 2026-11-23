@@ -149,6 +149,15 @@ int main(int argc, char** argv)
         bool ran_a_frame = false;
         std::string journal_file;                // the writes file registered for the default card at the end
     };
+    // Any box that is still up 40 ms after it appeared is one nobody answers (the confirm is clicked at 0 ms): it is
+    // counted and closed, so a defect that raises an unexpected warning fails a row instead of hanging the suite.
+    int unexpected_dialogs = 0;
+    QTimer watchdog;
+    watchdog.setInterval(40);
+    QObject::connect(&watchdog, &QTimer::timeout, [&] {
+        if (QWidget* m = QApplication::activeModalWidget()) { ++unexpected_dialogs; m->close(); }
+    });
+    watchdog.start();
     auto answer_ok = [] {
         QTimer::singleShot(0, [] {
             if (auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
@@ -219,7 +228,7 @@ int main(int argc, char** argv)
         live_run(f.win.go_back_sd_action(), f, L);
         const std::vector<std::string> want = {"tick1:eject", "work", "tick2:insert"};
         check("SDMENU-09", "go back, live: the card is ejected before the work, the work runs with the card out and no insert yet requested, the card is inserted after it, the writes file of the card that came back is bound to it, the machine is hard-reset and keeps running",
-              L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_requested && L.mounted_at_end && L.ran_a_frame &&
+              unexpected_dialogs == 0 && L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_requested && L.mounted_at_end && L.ran_a_frame &&
                   L.journal_file == ovfile && fs::exists(dir + "/previous/" + sdcard::kFixedImageFileName),
               [&] { std::string t; for (const auto& x : L.seq) t += x + " "; return t + "| journal=" + L.journal_file; }());
     }
@@ -240,7 +249,7 @@ int main(int argc, char** argv)
         live_run(f.win.upgrade_sd_action(), f, L);
         const std::vector<std::string> want = {"tick1:eject", "work", "tick2:insert"};
         check("SDMENU-10", "upgrade, live: the card is ejected before the work, the work runs with the card out and no insert requested yet, the card is inserted after it, the rebuilt writes file is bound to the new card, the machine is hard-reset and keeps running",
-              L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_requested && L.mounted_at_end && L.ran_a_frame &&
+              unexpected_dialogs == 0 && L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_requested && L.mounted_at_end && L.ran_a_frame &&
                   L.journal_file == ovfile && fs::file_size(card) == (1 << 16) + 4096,
               [&] { std::string t; for (const auto& x : L.seq) t += x + " "; return t + "| journal=" + L.journal_file; }());
     }

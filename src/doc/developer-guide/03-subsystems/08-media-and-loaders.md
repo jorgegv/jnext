@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:3357-3403`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:3385-3403`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -1614,7 +1614,17 @@ directory becomes `previous/`. `recover` finishes an interrupted swap at the sta
 `--sdcard-go-back` and `--sdcard-delete-backup` run it under the card's image lock and exit 0, 2 (no backup),
 3 (failed, nothing changed) or 4 (the card is in use). In the Qt window the actions eject slot 0 through the
 live card change, do their work outside the frame tick, re-bind the session's writes file over the new card,
-insert the card again and hard-reset the machine.
+insert the card again and hard-reset the machine. The machine is deliberately not paused: the card change is
+serviced on the frame tick, and a paused session does not tick, so a paused machine would never see the eject
+(it keeps running without the card between the eject and the insert, as it does after File > Eject).
+`sdcard_menu_test` drives this flow with the real actions, the real confirm boxes and the tick's service stepped
+by hand (SDMENU-09 to SDMENU-11).
+
+The default location's card is locked from the first moment of a start, before crash recovery, the offer or the
+upgrade run (`main.cpp` takes the card's lock and the command line's writes file); the listed overlays an upgrade
+would move are locked as well, and a set another jnext has open gets no offer and no upgrade. The overlay list is
+read from the writes files' headers only (`sd_write_journal::peek_file`): binding a file registers it as the
+card's write target and compacts it, which a start that merely makes an offer must not do.
 
 Two properties of FAT shaped the carry. A name that ends in a space or a dot cannot be addressed through FatFs
 (it drops those from a path): such an entry is listed as not carried and what is inside it is not entered
