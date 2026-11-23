@@ -40,10 +40,15 @@
 //          raising boundary (one instruction late for a CPU NextREG write and a Copper MOVE); AIZ-08 its invisibility.
 //          Oracles: ym2149.vhd:188,210, turbosound.vhd:129,141, zxnext.vhd:3088,3091,5413,6989, soundrive.vhd:85-101.
 //
+//   PSG-*, PSF-*  the .psg export (GH #538): the writer against Fuse 1.6.0's psg.c, the recorder's frame
+//          mapping, the backend verbs, and the program of psg_fixture.asm against the Fuse recording of it.
+//          AIZ-12 its invisibility.
+//
 // Run: ./build/test/audio_debug_test
 
 #include "audio/turbosound.h"
 #include "audio/audio_mute.h"
+#include "audio/psg_writer.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
@@ -54,12 +59,14 @@
 #include "debug/debugger.h"
 #include "debug/event_table.h"
 #include "debug/events.h"
+#include "debug/psg_recorder.h"
 #include "platform/emulator_boot.h"
 #include "core/log.h"
 #include "port/nextreg.h"
 #include "port/port_dispatch.h"
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <array>
 #include <chrono>
 #include <functional>
 #include <cmath>
@@ -1147,6 +1154,575 @@ static void aev_rows() {
         }, 50, ran, build_writer);
         check("AIZ-08", "the AudioWrite event is invisible to the Z80: 50 frames of a CPU looping over every write site with an ANY sub on and off leave the saved state and the video unchanged (positive control: the on run delivered all five targets and a dropped write)",
               ran && same && seen == 0x1F && dropped_seen);
+    }
+}
+
+// ── PSG / PSF: the .psg export (GH #538) ───────────────────────────────
+// Oracle: Fuse 1.6.0 psg.c (psg_start_recording, psg_frame, write_frame_separator, psg_stop_recording)
+// for the layout, and the committed psg_fixture.fuse.psg (recorded from the packaged Fuse 1.6.0 by
+// tools/fuse-psg-reference.sh) for PSF-01..03. Expected bytes are literals, derived from psg.c's rule:
+// with L the last frame that wrote a block (start frame - 1 at the start), a block at frame F is preceded
+// by separators for F - L frames and the end by separators for S + 1 - L frames, where a run of n
+// separator frames is "FE k" for every 4k <= n (k <= 255) and then one FF each. The one deliberate
+// difference from Fuse: the LAST value written to a register in a frame is kept (Fuse keeps the first).
+
+using Bytes = std::vector<uint8_t>;
+using jnext::audio::PsgWriter;
+using jnext::dbg::PsgRecorder;
+using jnext::dbg::AudioDropReason;
+
+// The 16 header bytes, then `rest`.
+static Bytes psg_h(std::initializer_list<int> rest) {
+    Bytes b = {0x50, 0x53, 0x47, 0x1A, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    for (int v : rest) b.push_back(uint8_t(v));
+    return b;
+}
+
+static Bytes psg_read(const std::string& path) {
+    const std::string s = slurp(path);
+    return Bytes(s.begin(), s.end());
+}
+
+static std::string psg_tmp(const char* tag) {
+    const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    return (std::filesystem::temp_directory_path() /
+            (std::string("jnext-psg-") + tag + "-" + std::to_string(stamp) + ".psg")).string();
+}
+
+static bool psg_exists(const std::string& path) { return std::filesystem::exists(path); }
+
+static void psg_rm(const std::string& path) {
+    for (int c = 0; c < 3; ++c) std::remove(PsgRecorder::chip_path(path, c).c_str());
+}
+
+// Writer rows: blocks are {frame, {{reg, value}...}}.
+struct PsgBlk { uint32_t frame; std::vector<std::pair<int, int>> regs; };
+
+static Bytes psg_write(uint32_t start, const std::vector<PsgBlk>& blocks, uint32_t stop, bool do_end = true) {
+    PsgWriter w;
+    w.begin(start);
+    for (const PsgBlk& b : blocks) {
+        uint16_t mask = 0;
+        std::array<uint8_t, 14> v{};
+        for (const auto& rv : b.regs) {
+            mask |= uint16_t(1u << rv.first);
+            if (rv.first < 14) v[size_t(rv.first)] = uint8_t(rv.second);
+        }
+        w.frame(b.frame, mask, v);
+    }
+    if (do_end) w.end(stop);
+    return w.take();
+}
+
+// Recorder rows: hand-built entries, chip files read back.
+static AudioLogEntry pe_ay(uint32_t frame, int chip, int reg, int val) {
+    AudioLogEntry e;
+    e.frame = frame; e.target = AudioTarget::AyRegister; e.chip = uint8_t(chip); e.reg = uint8_t(reg);
+    e.value = uint8_t(val);
+    return e;
+}
+static AudioLogEntry pe_other(uint32_t frame, AudioTarget t) {
+    AudioLogEntry e;
+    e.frame = frame; e.target = t;
+    return e;
+}
+static AudioLogEntry pe_marker(uint32_t frame, AudioMarker m) {
+    AudioLogEntry e;
+    e.frame = frame; e.marker = m;
+    return e;
+}
+
+struct PsgRun { bool started = false, stopped = false; Bytes f0, f1, f2; bool has1 = false, has2 = false; };
+
+static PsgRun psg_record(uint32_t start, const std::vector<AudioLogEntry>& es, uint32_t stop) {
+    PsgRun r;
+    const std::string path = psg_tmp("rec");
+    {
+        PsgRecorder rec;
+        std::string why;
+        r.started = rec.start(path, start, why);
+        for (const AudioLogEntry& e : es) rec.feed(e);
+        r.stopped = rec.stop(stop, why);
+    }
+    r.f0 = psg_read(path);
+    r.has1 = psg_exists(PsgRecorder::chip_path(path, 1));
+    r.has2 = psg_exists(PsgRecorder::chip_path(path, 2));
+    if (r.has1) r.f1 = psg_read(PsgRecorder::chip_path(path, 1));
+    if (r.has2) r.f2 = psg_read(PsgRecorder::chip_path(path, 2));
+    psg_rm(path);
+    return r;
+}
+
+// ── The normalisation (.psg parse, sentinel cut) ─────────────────────────
+// Parse: 16-byte header; then 0xFF is 1 frame, "0xFE n" is 4n frames, a byte below 0x10 is a register
+// followed by its value byte, anything else is an error. The sentinel is a block made of exactly one pair
+// (07, 3F) followed by separators totalling exactly 9 frames; exactly one must exist. The result is the raw
+// slice from the sentinel's first byte to the end of the last pair: what precedes the sentinel and the
+// trailing run are cut, every separator in between is compared as encoded.
+struct PsgTok { bool sep; uint64_t frames; size_t b, e; unsigned reg, val; };
+
+static bool psg_parse(const Bytes& f, std::vector<PsgTok>& t) {
+    if (f.size() < 16) return false;
+    for (size_t i = 16; i < f.size();) {
+        const uint8_t c = f[i];
+        if (c == 0xFF) { t.push_back({true, 1, i, i + 1, 0, 0}); i += 1; }
+        else if (c == 0xFE) {
+            if (i + 1 >= f.size()) return false;
+            t.push_back({true, uint64_t(f[i + 1]) * 4, i, i + 2, 0, 0}); i += 2;
+        } else if (c < 0x10) {
+            if (i + 1 >= f.size()) return false;
+            t.push_back({false, 0, i, i + 2, c, f[i + 1]}); i += 2;
+        } else return false;
+    }
+    return true;
+}
+
+static bool psg_normalise(const Bytes& f, Bytes& out) {
+    std::vector<PsgTok> t;
+    if (!psg_parse(f, t)) return false;
+    int found = -1, count = 0;
+    for (size_t i = 0; i < t.size(); ++i) {
+        if (t[i].sep || t[i].reg != 7 || t[i].val != 0x3F) continue;
+        if (i > 0 && !t[i - 1].sep) continue;                 // not alone: a pair before it
+        if (i + 1 >= t.size() || !t[i + 1].sep) continue;     // a pair after it, or the end
+        uint64_t frames = 0;
+        size_t j = i + 1;
+        for (; j < t.size() && t[j].sep; ++j) frames += t[j].frames;
+        if (frames != 9) continue;
+        found = int(i);
+        ++count;
+    }
+    if (count != 1) return false;
+    size_t last = t.size();
+    while (last > 0 && t[last - 1].sep) --last;
+    out.assign(f.begin() + long(t[size_t(found)].b), f.begin() + long(t[last - 1].e));
+    return true;
+}
+
+// The committed Fuse reference and the program that made it.
+static Bytes psg_fixture_file(const char* name) {
+    return psg_read(std::string(JNEXT_AUDIO_FIXTURE_DIR) + "/" + name);
+}
+
+// The Fuse file's normalised body length: N. Pinned here and in the psg-record-func row.
+static constexpr size_t PSG_FUSE_BODY_LEN = 0;   // replaced when the reference is recorded
+
+static void psg_rows() {
+    // ── PsgWriter ───────────────────────────────────────────────────────
+    {
+        const Bytes got = psg_write(100, {}, 0, false);
+        check("PSG-01", "psg.c psg_start_recording: begin(100) is exactly the 16-byte header 'PSG',0x1A and 12 zero bytes",
+              got == psg_h({}));
+    }
+    {
+        // f100: count=1 at the block, so one FF; end at 100: S+1-L = 1, one FF.
+        check("PSG-02", "psg.c psg_frame + psg_stop_recording: R8=0x0F in the start frame, end(100): H FF 08 0F FF",
+              psg_write(100, {{100, {{8, 0x0F}}}}, 100) == psg_h({0xFF, 0x08, 0x0F, 0xFF}));
+    }
+    {
+        // end at 101: S+1-L = 2 frames, two FF.
+        check("PSG-03", "psg.c psg_stop_recording: R8=0x01 in f100, end(101): trailing separators for 2 frames, H FF 08 01 FF FF",
+              psg_write(100, {{100, {{8, 0x01}}}}, 101) == psg_h({0xFF, 0x08, 0x01, 0xFF, 0xFF}));
+    }
+    {
+        // f100 then f103: 3 separator frames (count 3 at the block) = FF FF FF; end(103): 1.
+        check("PSG-04", "psg.c write_frame_separator: blocks in f100 and f103 are 3 frames apart: three FF between them, one trailing",
+              psg_write(100, {{100, {{0, 1}}}, {103, {{0, 2}}}}, 103) ==
+              psg_h({0xFF, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0x00, 0x02, 0xFF}));
+    }
+    {
+        // f100 then f104: 4 frames = FE 01.
+        check("PSG-05", "psg.c write_frame_separator: 4 frames apart is FE 01 (count >= 4), no FF",
+              psg_write(100, {{100, {{0, 1}}}, {104, {{0, 2}}}}, 104) ==
+              psg_h({0xFF, 0x00, 0x01, 0xFE, 0x01, 0x00, 0x02, 0xFF}));
+    }
+    {
+        // f100 then f107: 7 frames = FE 01 + 3 FF.
+        check("PSG-06", "psg.c write_frame_separator: 7 frames apart is FE 01 then FF FF FF (the 4n frames come off the count)",
+              psg_write(100, {{100, {{0, 1}}}, {107, {{0, 2}}}}, 107) ==
+              psg_h({0xFF, 0x00, 0x01, 0xFE, 0x01, 0xFF, 0xFF, 0xFF, 0x00, 0x02, 0xFF}));
+    }
+    {
+        // 1121 - 100 = 1021 frames: n = min(1021/4 = 255, 255) = 255 -> FE FF (1020 frames), 1 left -> FF.
+        check("PSG-07", "psg.c write_frame_separator: 1021 frames apart is FE FF (255 * 4 = 1020) then FF",
+              psg_write(100, {{100, {{0, 1}}}, {1121, {{0, 2}}}}, 1121) ==
+              psg_h({0xFF, 0x00, 0x01, 0xFE, 0xFF, 0xFF, 0x00, 0x02, 0xFF}));
+    }
+    {
+        // 2143 - 100 = 2043 = 1020 + 1020 + 3: FE FF, FE FF, FF FF FF (the clamp at 255 and the loop).
+        check("PSG-08", "psg.c write_frame_separator: 2043 frames apart is FE FF FE FF then three FF (the clamp at n = 255, then the loop)",
+              psg_write(100, {{100, {{0, 1}}}, {2143, {{0, 2}}}}, 2143) ==
+              psg_h({0xFF, 0x00, 0x01, 0xFE, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x02, 0xFF}));
+    }
+    {
+        // Nothing in the start frame f100, a block in f101: psg.c's count is 1 at the start, f100 ends empty
+        // (count 2), so the block in f101 is preceded by 2 separator frames (F - L = 101 - 99); end(101): 1.
+        check("PSG-09", "psg.c psg_frame: nothing written in the start frame, R0 in the next: the empty frame counts (count 2 at the block), H FF FF 00 01 FF",
+              psg_write(100, {{101, {{0, 1}}}}, 101) == psg_h({0xFF, 0xFF, 0x00, 0x01, 0xFF}));
+    }
+    {
+        // psg_stop_recording with count 1 -> psg_frame makes it 2: two FF.
+        check("PSG-10", "psg.c psg_stop_recording: a recording that wrote nothing, stopped in its start frame: H FF FF",
+              psg_write(100, {}, 100) == psg_h({0xFF, 0xFF}));
+    }
+    {
+        // End in f1119 with L = 99: S + 1 - L = 1021 frames = FE FF (1020) and FF.
+        check("PSG-11", "psg.c psg_stop_recording: nothing written, stopped in f1119: 1021 trailing frames, H FE FF FF",
+              psg_write(100, {}, 1119) == psg_h({0xFE, 0xFF, 0xFF}));
+    }
+    {
+        // Registers in order 0, 7, 13; raw values 0xFE, 0x3F, 0xFF are data, not separators.
+        check("PSG-12", "psg.c psg_frame: registers 0, 7, 13 written in the order 13, 0, 7 come out in register order with 0xFE/0xFF values raw: H FF 00 FE 07 3F 0D FF FF",
+              psg_write(100, {{100, {{13, 0xFF}, {0, 0xFE}, {7, 0x3F}}}}, 100) ==
+              psg_h({0xFF, 0x00, 0xFE, 0x07, 0x3F, 0x0D, 0xFF, 0xFF}));
+    }
+    {
+        PsgWriter w;
+        w.begin(100);
+        std::array<uint8_t, 14> z{};
+        w.frame(100, 0xC000, z);   // R14 and R15 only
+        std::array<uint8_t, 14> v{}; v[0] = 5;
+        w.frame(101, 0x0001, v);
+        w.end(101);
+        check("PSG-13", "psg.c psg_frame loops stop at register 14: a frame that wrote only R14 and R15 is an empty frame (count goes up): H FF FF 00 05 FF",
+              w.take() == psg_h({0xFF, 0xFF, 0x00, 0x05, 0xFF}));
+    }
+
+    // ── PsgRecorder, hand-built entries ─────────────────────────────────
+    {
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 8, 1), pe_ay(100, 0, 8, 2)}, 100);
+        check("PSG-14", "epic decision D4 (Fuse's psg_write_register keeps the FIRST value, jnext the LAST): R8=1 then R8=2 in one frame: H FF 08 02 FF",
+              r.started && r.stopped && r.f0 == psg_h({0xFF, 0x08, 0x02, 0xFF}));
+    }
+    {
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 13, 0x0E), pe_ay(100, 0, 0, 0xFE), pe_ay(100, 0, 7, 0x38)}, 100);
+        check("PSG-15", "psg.c psg_frame: R13, R0, R7 written in that order come out R0, R7, R13: H FF 00 FE 07 38 0D 0E FF",
+              r.f0 == psg_h({0xFF, 0x00, 0xFE, 0x07, 0x38, 0x0D, 0x0E, 0xFF}));
+    }
+    {
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 14, 0x55), pe_ay(100, 0, 15, 0xAA), pe_ay(101, 0, 0, 1)}, 101);
+        check("PSG-16", "psg.c psg_frame (loops stop at 14): R14 and R15 written in f100, R0 in f101: the f100 frame is empty, H FF FF 00 01 FF",
+              r.f0 == psg_h({0xFF, 0xFF, 0x00, 0x01, 0xFF}));
+    }
+    {
+        AudioLogEntry dropped = pe_ay(100, 0, 8, 7);
+        dropped.flags = AudioFlag::Dropped;
+        dropped.drop_reason = AudioDropReason::AyPortDisabled;
+        AudioLogEntry sel = pe_other(100, AudioTarget::AyChipSelect);
+        const PsgRun r = psg_record(100, {dropped, sel, pe_other(100, AudioTarget::Dac), pe_other(100, AudioTarget::DacMirror),
+                                          pe_other(100, AudioTarget::Beeper), pe_ay(102, 0, 0, 1)}, 102);
+        // Only f102 holds a counted write: L = 99, F - L = 3 (FF FF FF), end(102): 1.
+        check("PSG-17", "psg.c records AY registers only: a Dropped R8 write, a chip select, a DAC, a DAC mirror and a beeper entry in f100 write nothing; R0 in f102: H FF FF FF 00 01 FF",
+              r.f0 == psg_h({0xFF, 0xFF, 0xFF, 0x00, 0x01, 0xFF}));
+    }
+    {
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 0, 1), pe_ay(102, 1, 1, 2)}, 103);
+        // FILE: f100 block (FF), end(103): S+1-L = 4 = FE 01. FILE-ay1 begins at the start frame (L = 99):
+        // f102: 3 frames (FF FF FF), end(103): 103+1-102 = 2 (FF FF).
+        check("PSG-18", "epic decision D2: AY#0 in FILE (H FF 00 01 FE 01), AY#1 in FILE-ay1 begun at the recording's start frame (H FF FF FF 01 02 FF FF), no FILE-ay2",
+              r.f0 == psg_h({0xFF, 0x00, 0x01, 0xFE, 0x01}) && r.has1 && r.f1 == psg_h({0xFF, 0xFF, 0xFF, 0x01, 0x02, 0xFF, 0xFF}) &&
+              !r.has2);
+    }
+    {
+        const bool ok =
+            PsgRecorder::chip_path("d/tune.psg", 0) == "d/tune.psg" &&
+            PsgRecorder::chip_path("d/tune.psg", 1) == "d/tune-ay1.psg" &&
+            PsgRecorder::chip_path("tune", 1) == "tune-ay1" &&
+            PsgRecorder::chip_path("a.b/tune", 2) == "a.b/tune-ay2" &&
+            PsgRecorder::chip_path(".psg", 1) == ".psg-ay1" &&
+            PsgRecorder::chip_path("x.tar.psg", 1) == "x.tar-ay1.psg";
+        check("PSG-19", "chip_path: chip 0 is FILE; the -ayN goes before the last component's extension: d/tune.psg -> d/tune-ay1.psg, tune -> tune-ay1, a.b/tune -> a.b/tune-ay2, .psg -> .psg-ay1, x.tar.psg -> x.tar-ay1.psg",
+              ok);
+    }
+    {
+        // f100 R8=1; a DAC entry in f103 (time moves on); a Rewind marker (frame 50); f50 and f52 writes.
+        // seen = 103, so f50 maps to 104 (offset 54): blocks at 100, 104, 106; end(52) = 106.
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 8, 1), pe_other(103, AudioTarget::Dac), pe_marker(50, AudioMarker::Rewind),
+                                          pe_ay(50, 0, 8, 2), pe_ay(52, 0, 8, 3)}, 52);
+        check("PSG-20", "epic decision D3: after a Rewind marker at frame 50 the file continues right after the last frame seen (the DAC entry in f103): blocks at 100, 104, 106; H FF 08 01 FE 01 08 02 FF FF 08 03 FF",
+              r.f0 == psg_h({0xFF, 0x08, 0x01, 0xFE, 0x01, 0x08, 0x02, 0xFF, 0xFF, 0x08, 0x03, 0xFF}));
+    }
+    {
+        // A Reset marker at frame 105 is ahead of the last frame seen: the numbering is kept (offset 0), so the
+        // write in f107 is 7 frames after f100: FE 01 FF FF FF.
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 8, 1), pe_marker(105, AudioMarker::Reset), pe_ay(107, 0, 8, 2)}, 107);
+        check("PSG-21", "epic decision D3: a Reset marker whose numbering still moves forward keeps it: R8 in f100 and f107, 7 frames apart: H FF 08 01 FE 01 FF FF FF 08 02 FF",
+              r.f0 == psg_h({0xFF, 0x08, 0x01, 0xFE, 0x01, 0xFF, 0xFF, 0xFF, 0x08, 0x02, 0xFF}));
+    }
+    {
+        // A Reset marker at the same frame as the last write: the frame after the marker is a new file frame
+        // (offset 1), so the reset splits the frame into two blocks.
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 8, 1), pe_marker(100, AudioMarker::Reset), pe_ay(100, 0, 8, 2)}, 100);
+        check("PSG-22", "epic decision D3: a Reset marker in the same frame as the last write splits the frame in two: R8=1, reset, R8=2 in f100: H FF 08 01 FF 08 02 FF",
+              r.f0 == psg_h({0xFF, 0x08, 0x01, 0xFF, 0x08, 0x02, 0xFF}));
+    }
+    {
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 8, 1), pe_ay(90, 0, 8, 2)}, 90);
+        check("PSG-23", "epic decision D3: a frame number below the last one with no marker is a discontinuity: R8 in f100 then f90 continue right after: H FF 08 01 FF 08 02 FF",
+              r.f0 == psg_h({0xFF, 0x08, 0x01, 0xFF, 0x08, 0x02, 0xFF}));
+    }
+    {
+        const PsgRun r = psg_record(100, {pe_ay(100, 0, 8, 1), pe_marker(5000, AudioMarker::StateLoad), pe_ay(5000, 0, 8, 2)}, 5000);
+        check("PSG-24", "epic decision D3: a StateLoad marker continues right after the last frame seen whatever its frame number (5000): no 4900-frame gap: H FF 08 01 FF 08 02 FF",
+              r.f0 == psg_h({0xFF, 0x08, 0x01, 0xFF, 0x08, 0x02, 0xFF}));
+    }
+
+    // ── Debugger verbs and a real machine ───────────────────────────────
+    const std::string nodir = (std::filesystem::temp_directory_path() / "jnext-no-such-dir" / "x.psg").string();
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const std::string ok = psg_tmp("v25");
+        const Result bad = dbg.psg_record_start(jnext::dbg::CLIENT_NONE, nodir);
+        const bool not_rec = !dbg.psg_recording() && !psg_exists(nodir);
+        const Result s1 = dbg.psg_record_start(jnext::dbg::CLIENT_NONE, ok);
+        const bool rec = dbg.psg_recording();
+        const Result s2 = dbg.psg_record_start(jnext::dbg::CLIENT_NONE, ok);
+        const Result t1 = dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Result t2 = dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const bool done = !dbg.psg_recording();
+        psg_rm(ok);
+        check("PSG-25", "psg_record_start: an uncreatable path and a second start are RefusedUnavailable, a valid path Ok; psg_record_stop Ok then RefusedUnavailable; psg_recording follows",
+              bad == Result::RefusedUnavailable && not_rec && s1 == Result::Ok && rec && s2 == Result::RefusedUnavailable &&
+              t1 == Result::Ok && t2 == Result::RefusedUnavailable && done);
+    }
+    {
+        Emulator emu; fresh(emu); Debugger dbg(emu);
+        const std::string p = psg_tmp("v26");
+        const bool t0 = emu.audio_tap_active();
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        const bool t1 = emu.audio_tap_active();
+        dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const bool t2 = emu.audio_tap_active();
+        const ClientId cid = log_client(dbg, "psg26");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const bool t3 = emu.audio_tap_active();
+        dbg.set_audio_log_enabled(cid, false);
+        const bool t4 = emu.audio_tap_active();
+        psg_rm(p);
+        check("PSG-26", "the tap is on while a recording runs and the log is off, and off again after the stop; with the log on (a client asks) the stop leaves it on",
+              !t0 && t1 && !t2 && t3 && !t4);
+    }
+    {
+        Emulator emu; fresh(emu);
+        nr_write(emu, 0x08, 0x0A);   // TurboSound and the DAC on
+        Debugger dbg(emu);
+        emu.run_frame();   // the frame reading moves on from the second frame of a run, not the first
+        const std::string p = psg_tmp("v27");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        const uint32_t f0 = dbg.time().frame;
+        ay_select(emu, 0); ay_write(emu, 0, 0x10);
+        emu.run_frame();
+        const uint32_t f1 = dbg.time().frame;
+        ay_select(emu, 1); ay_write(emu, 8, 0x0A);
+        emu.port().out(0xFFFD, 3);                              // a plain register select: no entry
+        emu.port().out(0xFFFD, 0x1D); emu.port().out(0xBFFD, 0x77);   // register 29: the data write is dropped
+        emu.run_frame();
+        const uint32_t s = dbg.time().frame;
+        const Result st = dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Bytes a = psg_read(p), b = psg_read(PsgRecorder::chip_path(p, 1));
+        const bool two = psg_exists(PsgRecorder::chip_path(p, 2));
+        psg_rm(p);
+        // f1 = f0 + 1 and s = f0 + 2 (read above). FILE: L = f0 - 1, block R0=0x10 in f0 (FF), end S + 1 - f0 = 3.
+        // FILE-ay1 (begun at f0): block R8=0x0A in f1, F - L = 2 (FF FF), end S + 1 - f1 = 2 (FF FF).
+        check("PSG-27", "TurboSound on, log off, real port writes: AY#0 R0=0x10 and AY#1 R8=0x0A land in FILE and FILE-ay1 with the frames read from time(); a plain select and a dropped address-high write add nothing; no FILE-ay2",
+              st == Result::Ok && f1 == f0 + 1 && s == f0 + 2 &&
+              a == psg_h({0xFF, 0x00, 0x10, 0xFF, 0xFF, 0xFF}) && b == psg_h({0xFF, 0xFF, 0x08, 0x0A, 0xFF, 0xFF}) && !two);
+    }
+    {
+        Emulator emu; fresh(emu); park(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("psg28")).value;
+        const std::string p = psg_tmp("v28");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        ay_write(emu, 8, 1);
+        dbg.reset(cid, ResetKind::Soft);
+        ay_write(emu, 8, 2);
+        dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Bytes a = psg_read(p);
+        psg_rm(p);
+        check("PSG-28", "a soft reset between two R8 writes in one frame, log off: the Reset marker reaches the recorder, so the frame splits: H FF 08 01 FF 08 02 FF",
+              a == psg_h({0xFF, 0x08, 0x01, 0xFF, 0x08, 0x02, 0xFF}));
+    }
+    {
+        Emulator emu; fresh(emu); park(emu);
+        emu.set_rewind_enabled(true);
+        emu.resize_rewind_buffer(50);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("psg29")).value;
+        emu.run_frame();   // as in PSG-27: from here on every run_frame() moves the frame reading on
+        const std::string p = psg_tmp("v29");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        for (int i = 0; i < 10; ++i) { ay_write(emu, 8, i); emu.run_frame(); }
+        dbg.pause(cid);
+        const Result r = dbg.rewind_to_frame(cid, dbg.time().frame - 4);
+        ay_write(emu, 8, 0x55);
+        dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Bytes a = psg_read(p);
+        psg_rm(p);
+        check("PSG-29", "ten frames each writing R8 = its index, a rewind landing 4 frames back, one more write R8=0x55: the ten blocks stay (the future was played), then exactly one FF and 08 55, one trailing FF",
+              r == Result::Ok &&
+              a == psg_h({0xFF, 0x08, 0x00, 0xFF, 0x08, 0x01, 0xFF, 0x08, 0x02, 0xFF, 0x08, 0x03, 0xFF, 0x08, 0x04,
+                          0xFF, 0x08, 0x05, 0xFF, 0x08, 0x06, 0xFF, 0x08, 0x07, 0xFF, 0x08, 0x08, 0xFF, 0x08, 0x09,
+                          0xFF, 0x08, 0x55, 0xFF}));
+    }
+    {
+        Emulator emu; fresh(emu);
+        Debugger dbg(emu);
+        const std::string p = psg_tmp("v30");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        ay_write(emu, 8, 1);
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+        dbg.on_cold_boot_begin();
+        emulator_cold_boot(emu, cfg);
+        dbg.on_cold_boot_done();
+        ay_write(emu, 8, 2);
+        dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Bytes a = psg_read(p);
+        psg_rm(p);
+        // Both writes are in frame 0 of their machine; the rebuild's Reset marker splits them.
+        check("PSG-30", "a hard reset (the machine rebuilt) during a recording, log off: R8=1 in frame 0, the rebuild, R8=2 in the new frame 0: two blocks, H FF 08 01 FF 08 02 FF",
+              a == psg_h({0xFF, 0x08, 0x01, 0xFF, 0x08, 0x02, 0xFF}));
+    }
+
+    // ── PSF: against the Fuse recording ─────────────────────────────────
+    const Bytes fuse = psg_fixture_file("psg_fixture.fuse.psg");
+    {
+        // The program of psg_fixture.asm on a 128K machine, no ROM; the space key opens its gate.
+        Emulator emu;
+        EmulatorConfig cfg; cfg.type = MachineType::ZX128K; cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        const Bytes prog = psg_fixture_file("psg_fixture.bin");
+        for (size_t i = 0; i < prog.size(); ++i) emu.mmu().write(uint16_t(0x8000 + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xBFF0; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        Debugger dbg(emu);
+        const std::string p = psg_tmp("f01");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        emu.keyboard().set_key(SDL_SCANCODE_SPACE, true);
+        for (int i = 0; i < 1500; ++i) emu.run_frame();
+        const Result st = dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Bytes mine = psg_read(p);
+        const bool other = psg_exists(PsgRecorder::chip_path(p, 1)) || psg_exists(PsgRecorder::chip_path(p, 2));
+        psg_rm(p);
+        Bytes nm, nf;
+        const bool pm = psg_normalise(mine, nm), pf = psg_normalise(fuse, nf);
+        const bool hdr = mine.size() >= 16 && fuse.size() >= 16 && Bytes(mine.begin(), mine.begin() + 16) == Bytes(fuse.begin(), fuse.begin() + 16);
+        if (!(pm && pf && nm == nf))
+            std::printf("    mine %zu bytes (normalised %zu), fuse %zu bytes (normalised %zu), parse %d/%d\n",
+                        mine.size(), nm.size(), fuse.size(), nf.size(), int(pm), int(pf));
+        check("PSF-01", "psg_fixture.bin run in-process on a 128K machine for 1500 frames: the header and the body from the sentinel on equal the Fuse 1.6.0 recording of the same program, byte for byte (no AY#1/#2 file)",
+              st == Result::Ok && !other && hdr && pm && pf && nm == nf);
+    }
+    {
+        // Two hand-built files: same body after the sentinel, different before it and in the trailing run.
+        const Bytes sent = {0x07, 0x3F, 0xFE, 0x02, 0xFF};   // the sentinel and its 9 frames
+        auto mk = [&](Bytes pre, Bytes body, Bytes tail) {
+            Bytes f = psg_h({});
+            f.insert(f.end(), pre.begin(), pre.end());
+            f.insert(f.end(), sent.begin(), sent.end());
+            f.insert(f.end(), body.begin(), body.end());
+            f.insert(f.end(), tail.begin(), tail.end());
+            return f;
+        };
+        const Bytes body = {0x00, 0x11, 0xFF, 0xFF, 0x01, 0x22};
+        Bytes a, b, c, d;
+        const bool pa = psg_normalise(mk({}, body, {0xFF}), a);
+        const bool pb = psg_normalise(mk({0xFF, 0x05, 0x06, 0xFE, 0x03}, body, {0xFE, 0x09, 0xFF}), b);
+        Bytes body2 = body; body2[5] = 0x23;
+        const bool pc = psg_normalise(mk({}, body2, {0xFF}), c);
+        // A pair "00 FF" before the sentinel, then a real separator: the pair's 0xFF is a value, not a separator.
+        const bool pd = psg_normalise(mk({0x00, 0xFF, 0xFF}, body, {0xFF}), d);
+        const Bytes nosent = [&] { Bytes f = psg_h({0x00, 0x01, 0xFF}); return f; }();
+        Bytes e1, e2, e3;
+        Bytes twice = psg_h({});
+        twice.insert(twice.end(), sent.begin(), sent.end());
+        twice.insert(twice.end(), {0x00, 0x01, 0xFF});
+        twice.insert(twice.end(), sent.begin(), sent.end());
+        // (07,3F) followed by 8 frames (FE 02), and by 10 frames (FE 02 FF FF): not sentinels.
+        Bytes eight = psg_h({0x07, 0x3F, 0xFE, 0x02, 0x00, 0x01});
+        Bytes ten = psg_h({0x07, 0x3F, 0xFE, 0x02, 0xFF, 0xFF, 0x00, 0x01});
+        check("PSF-02", "normalise: equal after the sentinel whatever precedes it and trails it; a changed value after it differs; '00 FF' before it is a pair; no sentinel, two sentinels, and (07,3F) followed by 8 or 10 frames are errors",
+              pa && pb && a == b && pc && c != a && pd && d == a && !psg_normalise(nosent, e1) &&
+              !psg_normalise(twice, e2) && !psg_normalise(eight, e3) && !psg_normalise(ten, e3));
+    }
+    {
+        // Numbers from psg_fixture.asm's design, not from the file: the sentinel R7=3F then 8 empty frames;
+        // 300 song frames k = 0..299; gaps after k = 40, 80, 120, 160, 200, 250 of 1, 3, 4, 5, 9, 1100 empty
+        // frames; k = 100 writes R14 only (no block), k = 101 R15 and R0 (one pair), k = 0 all 14, k = 1 R0.
+        std::vector<PsgTok> t;
+        bool ok = psg_parse(fuse, t) && fuse.size() >= 16 && Bytes(fuse.begin(), fuse.begin() + 16) == psg_h({});
+        // Blocks: runs of pairs between separators. Collect the pair groups and the separator run after each.
+        struct Blk { std::vector<PsgTok> pairs; uint64_t sep_after = 0; };
+        std::vector<Blk> blocks;
+        std::vector<uint64_t> sep_before;   // separator frames before each block
+        uint64_t pending = 0;
+        for (const PsgTok& k : t) {
+            if (k.sep) { pending += k.frames; continue; }
+            if (blocks.empty() || pending > 0) { blocks.emplace_back(); sep_before.push_back(pending); pending = 0; }
+            blocks.back().pairs.push_back(k);
+        }
+        // The sentinel is the block whose single pair is (07, 3F) with 9 separator frames after it.
+        int si = -1;
+        for (size_t i = 0; i + 1 < blocks.size(); ++i)
+            if (blocks[i].pairs.size() == 1 && blocks[i].pairs[0].reg == 7 && blocks[i].pairs[0].val == 0x3F &&
+                sep_before[i + 1] == 9) si = int(i);
+        ok = ok && si >= 0;
+        size_t song = ok ? blocks.size() - size_t(si) - 1 : 0;
+        ok = ok && song == 299;   // 300 song frames, k = 100 has no block
+        // Separator run before each song block: song block j is frame k = j (j < 100) or j + 1 (j >= 100).
+        auto k_of = [](size_t j) { return j < 100 ? j : j + 1; };
+        bool seps = ok;
+        for (size_t j = 0; ok && j < song; ++j) {
+            const size_t k = k_of(j);
+            uint64_t want = 1;
+            if (j == 0) want = 9;
+            else if (k == 41) want = 2;
+            else if (k == 81) want = 4;
+            else if (k == 101) want = 2;
+            else if (k == 121) want = 5;
+            else if (k == 161) want = 6;
+            else if (k == 201) want = 10;
+            else if (k == 251) want = 1101;
+            const size_t bi = size_t(si) + 1 + j;
+            if (sep_before[bi] != want) seps = false;
+        }
+        bool shape = ok;
+        bool asc = ok, any_ff = false, any_fe = false, r13_repeat = false;
+        int prev13 = -1;
+        for (size_t j = 0; ok && j < song; ++j) {
+            const Blk& b = blocks[size_t(si) + 1 + j];
+            const size_t k = k_of(j);
+            if (k == 0 && b.pairs.size() != 14) shape = false;
+            if (k == 1 && b.pairs.size() != 1) shape = false;
+            if (k == 101 && (b.pairs.size() != 1 || b.pairs[0].reg != 0)) shape = false;
+            int last = -1;
+            for (const PsgTok& pr : b.pairs) {
+                if (int(pr.reg) <= last || pr.reg >= 14) asc = false;
+                last = int(pr.reg);
+                any_ff = any_ff || pr.val == 0xFF;
+                any_fe = any_fe || pr.val == 0xFE;
+                if (pr.reg == 13) { if (int(pr.val) == prev13) r13_repeat = true; prev13 = int(pr.val); }
+            }
+        }
+        Bytes nf;
+        const bool pf = psg_normalise(fuse, nf);
+        check("PSF-03", "the committed Fuse file alone: header, one sentinel, 299 song blocks after it, the separator runs 9, 1.., 2, 4, 2, 5, 6, 10, 1101 where the program's design puts them, block shapes of k = 0, 1, 101, registers ascending below 14, a 0xFF and a 0xFE value, a repeated R13, normalised length == the pinned N",
+              ok && seps && shape && asc && any_ff && any_fe && r13_repeat && pf && nf.size() == PSG_FUSE_BODY_LEN);
+    }
+    {
+        bool ran = false;
+        const std::string p = psg_tmp("a12");
+        Bytes rec;
+        const bool same = invisible_dbg([&](Emulator&, Debugger& dbg, ClientId, bool on) {
+            if (on) { dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p); return; }
+            dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+            rec = psg_read(p);
+        }, 50, ran, build_writer);
+        psg_rm(p);
+        check("AIZ-12", "the .psg recording is invisible to the Z80: 50 frames of a CPU looping over every write site with a recording on and off leave the saved state and the video unchanged (positive control: the recorded file holds a register block)",
+              ran && same && rec.size() > 16 + 4);
     }
 }
 
@@ -3284,6 +3860,7 @@ int main() {
 
 
     aev_rows();
+    psg_rows();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
