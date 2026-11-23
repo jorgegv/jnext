@@ -5005,8 +5005,22 @@ int main() {
         b.span(635);
         const bool leg2 = b.sink.f.size() == 1 && b.sink.f[0][S_AY0] == 0 && b.sink.f[0][S_AY0 + 1] == 0 &&
                           stem_sum(b.sink.f[0], 0) == b.sink.f[0][S_MIX] && stem_sum(b.sink.f[0], 1) == b.sink.f[0][S_MIX + 1];
+        // Leg 3: a channel mute set and cleared again leaves the latch working (the two share one divert test): the leg-1 sequence after set_channel_mute_mask(1), set_channel_mute_mask(0)
+        // still gives ay0 (32, 16).
+        StemRig c;
+        c.ts.set_enabled(true);
+        c.ts.set_channel_mute_mask(1);
+        c.ts.set_channel_mute_mask(0);
+        ts_reg(c.ts, 0, 7, 0x3F); ts_reg(c.ts, 0, 8, 15); ts_reg(c.ts, 0, 9, 15);
+        for (int i = 0; i < 20; ++i) c.ts.tick();
+        c.ts.reg_addr(0x9F);
+        c.span(10);
+        c.ts.tick();
+        c.span(625);
+        const bool leg3 = c.sink.f.size() == 1 && c.sink.f[0][S_AY0] == 32 && c.sink.f[0][S_AY0 + 1] == 16 &&
+                          stem_sum(c.sink.f[0], 0) == c.sink.f[0][S_MIX];
         check("STM-05", "the latch holds the hardware per-chip value of the recompute that made the sum: a pan write 10 cycles before its tick leaves ay0 (32, 16) (not 0), and the stems still sum to the mix; "
-              "a latch turned off, a hot-path change and a latch turned on again gives the estimate (0,0), not the stale latch (turbosound.vhd:323-335)", leg1 && leg2);
+              "a latch turned off, a hot-path change and a latch turned on again gives the estimate (0,0), not the stale latch; a channel mute set and cleared leaves the latch working (turbosound.vhd:323-335)", leg1 && leg2 && leg3);
     }
     {
         // STM-06: the post-load estimate. State Y: chip 1 at volume 15 on A and B and volume 0 on C (level 0, ym2149.vhd:483-484), pan 11:
