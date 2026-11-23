@@ -4797,8 +4797,10 @@ int main() {
         //   chip 2 ACB R = C + B = 37 + 27 = 64, L off -> (0, 256) (turbosound.vhd:186-192,323-330).
         // (b): TurboSound off with AY#0 selected: chips 1 and 2 are out of the mix (turbosound.vhd:197-202), (0, 0) in every sample, while
         //   the scope's pre-routing Ay1A in the same tap reads 4 x 7 = 28.
-        // (c): an Emulator with the issue-2 keyboard bit (NR 0x08 b0) and OUT 0xFE with MIC = 1, EAR = 0, no tape: beep_mic_final =
-        //   0 xor (1 and 1) xor 1 = 0 (zxnext.vhd:7113), so the beeper stem is 0 although the MIC bit is 1.
+        // (c): the beeper term is beep_mic_final, not the MIC bit (zxnext.vhd:7113,7126): with the MIC bit set and beep_mic_final low (a playing
+        //   tape's high level XOR the MIC bit) the beeper stem is 0, with it high 4 x 128 = 512. And on an Emulator with the issue-2 keyboard bit
+        //   (NR 0x08 b0), OUT 0xFE with MIC = 1, EAR = 0 and no tape, i_AUDIO_EAR is the issue-2 MIC level (ear_relax, zxnext.vhd:3599), so
+        //   beep_mic_final = 1 xor (1 and 1) xor 1 = 1 and the beeper stem is 512; the stems sum to the mix exactly.
         StemRig a;
         stem_dc_levels(a.ts);
         a.ts.set_stereo_mode(true);
@@ -4821,6 +4823,14 @@ int main() {
                           b.sink.f[0][S_AY2] == 0 && b.sink.f[0][S_AY2 + 1] == 0 && b.sink.f[0][S_AY0] == 20 &&
                           b.at(AudioSource::Ay1A, 0) == 28 &&
                           stem_sum(b.sink.f[0], 0) == b.sink.f[0][S_MIX] && stem_sum(b.sink.f[0], 1) == b.sink.f[0][S_MIX + 1];
+        StemRig c0;
+        c0.beeper.set_mic(true);
+        c0.beeper.set_mic_final(false);
+        c0.span(635);
+        c0.beeper.set_mic_final(true);
+        c0.span(635);
+        const bool c0_ok = c0.sink.f.size() == 2 && c0.sink.f[0][S_BEEP] == 0 && c0.sink.f[1][S_BEEP] == 512 &&
+                           stem_sum(c0.sink.f[0], 0) == c0.sink.f[0][S_MIX] && stem_sum(c0.sink.f[1], 0) == c0.sink.f[1][S_MIX];
         Emulator emu; fresh(emu);
         nr_write(emu, 0x08, 0x11);
         emu.port().out(0xFE, 0x08);
@@ -4829,11 +4839,11 @@ int main() {
         st.out = &StemSink::put; st.ctx = &sink; tap.stems = &st;
         emu.set_audio_scope_tap(&tap);
         for (int i = 0; i < 2; ++i) emu.run_frame();
-        bool c_ok = sink.f.size() > 800;
+        bool c_ok = c0_ok && sink.f.size() > 800;
         for (const auto& fr : sink.f)
-            c_ok = c_ok && fr[S_BEEP] == 0 && fr[S_BEEP + 1] == 0 && stem_sum(fr, 0) == fr[S_MIX] && stem_sum(fr, 1) == fr[S_MIX + 1];
+            c_ok = c_ok && fr[S_BEEP] == 512 && fr[S_BEEP + 1] == 512 && stem_sum(fr, 0) == fr[S_MIX] && stem_sum(fr, 1) == fr[S_MIX + 1];
         check("STM-02", "post-pan and post-mono: ACB with chip 0 mono, chip 1 pan 10, chip 2 pan 01 gives ay0 (36,36), ay1 (84,0), ay2 (0,256); a chip out of the mix is (0,0) while the scope's Ay1A reads 28; "
-              "MIC with the issue-2 keyboard bit and no tape leaves the beeper stem 0; the stems sum to the mix in all three (turbosound.vhd:186-202,323-335; zxnext.vhd:7113)",
+              "the beeper stem follows beep_mic_final, not the MIC bit (0 with it low, 512 with it high; 512 for MIC with the issue-2 keyboard bit and no tape); the stems sum to the mix in all (turbosound.vhd:186-202,323-335; zxnext.vhd:3599,7113)",
               a_ok && b_ok && c_ok);
     }
     {
@@ -4874,7 +4884,8 @@ int main() {
         // STM-05: the per-chip latch. Leg 1: chip 0 at volume 15 on A and B (YM 255 each, ym2149.vhd:157-162), pan 11, latch on, settled.
         // Then the pan command setting chip 0's pan to 00 (0x9F), NO tick, a 10-cycle slice, then a tick (the recompute) and the other 625
         // cycles. The hardware sum still held the old pan for those 10 cycles (turbosound.vhd:323-335): ay0 L = round(4 x 510 x 10 / 635)
-        // = round(32.13) = 32. Computed on the fly from the new pan it would be 0. Leg 2: the latch is turned off, chip 0's pan is cleared on the
+        // = round(32.13) = 32 and R = B + C = 255 + 0 (volume 0 is level 0, ym2149.vhd:483-484): round(4 x 255 x 10 / 635) = round(16.06) = 16.
+        // Computed on the fly from the new pan both would be 0. Leg 2: the latch is turned off, chip 0's pan is cleared on the
         // hot path, the latch is turned on again: the first sample's ay0 is (0, 0), the estimate from the inputs, not the stale loud latch.
         StemRig a;
         a.ts.set_enabled(true);
@@ -4884,7 +4895,7 @@ int main() {
         a.span(10);
         a.ts.tick();
         a.span(625);
-        const bool leg1 = a.sink.f.size() == 1 && a.sink.f[0][S_AY0] == 32 && a.sink.f[0][S_AY0 + 1] == 0 &&
+        const bool leg1 = a.sink.f.size() == 1 && a.sink.f[0][S_AY0] == 32 && a.sink.f[0][S_AY0 + 1] == 16 &&
                           stem_sum(a.sink.f[0], 0) == a.sink.f[0][S_MIX] && stem_sum(a.sink.f[0], 1) == a.sink.f[0][S_MIX + 1];
         StemRig b;
         b.ts.set_enabled(true);
@@ -4897,14 +4908,15 @@ int main() {
         b.span(635);
         const bool leg2 = b.sink.f.size() == 1 && b.sink.f[0][S_AY0] == 0 && b.sink.f[0][S_AY0 + 1] == 0 &&
                           stem_sum(b.sink.f[0], 0) == b.sink.f[0][S_MIX] && stem_sum(b.sink.f[0], 1) == b.sink.f[0][S_MIX + 1];
-        check("STM-05", "the latch holds the hardware per-chip value of the recompute that made the sum: a pan write 10 cycles before its tick leaves ay0 L = 32 (not 0), and the stems still sum to the mix; "
+        check("STM-05", "the latch holds the hardware per-chip value of the recompute that made the sum: a pan write 10 cycles before its tick leaves ay0 (32, 16) (not 0), and the stems still sum to the mix; "
               "a latch turned off, a hot-path change and a latch turned on again gives the estimate (0,0), not the stale latch (turbosound.vhd:323-335)", leg1 && leg2);
     }
     {
-        // STM-06: the post-load estimate. State Y: chip 1 at volume 15 on A and B, pan 11 (510 per side); chip 0 pan 00. Saved. Then chip 0
-        // at volume 8 on A and B (YM 27 each: L = 54) with pan 11 and chip 1 pan 00, settled with the latch valid. load_state(Y), then one whole
-        // sample before any tick: the stems are Y's own breakdown, ay1 (2040, 2040) and ay0 (0, 0), and sum to the mix (hw_pcm 510 per side,
-        // loaded from Y). The latched pre-load breakdown (chip 0 loud, chip 1 off) would sum to 54, not 510.
+        // STM-06: the post-load estimate. State Y: chip 1 at volume 15 on A and B and volume 0 on C (level 0, ym2149.vhd:483-484), pan 11:
+        // L = A + B = 510, R = C + B = 255; chip 0 pan 00. Saved. Then chip 0 at volume 8 on A and B (YM 27 each: L = 54) with pan 11 and chip 1
+        // pan 00, settled with the latch valid. load_state(Y), then one whole sample before any tick: the stems are Y's own breakdown,
+        // ay1 (4 x 510, 4 x 255) = (2040, 1020) and ay0 (0, 0), and sum to the mix (hw_pcm (510, 255), loaded from Y). The latched pre-load
+        // breakdown (chip 0 loud, chip 1 off) would sum to 54, not 510.
         StemRig m;
         m.ts.set_enabled(true);
         for (int c = 0; c < 2; ++c) { ts_reg(m.ts, c, 7, 0x3F); ts_reg(m.ts, c, 8, 15); ts_reg(m.ts, c, 9, 15); }
@@ -4925,8 +4937,8 @@ int main() {
         m.ts.hw_chip_pcm(0, l0, r0);
         m.ts.hw_chip_pcm(1, l1, r1);
         m.span(635);
-        const bool first = l0 == 0 && r0 == 0 && l1 == 510 && r1 == 510 && m.sink.f.size() == 1 &&
-                           m.sink.f[0][S_AY0] == 0 && m.sink.f[0][S_AY1] == 2040 && m.sink.f[0][S_AY1 + 1] == 2040 &&
+        const bool first = l0 == 0 && r0 == 0 && l1 == 510 && r1 == 255 && m.sink.f.size() == 1 &&
+                           m.sink.f[0][S_AY0] == 0 && m.sink.f[0][S_AY1] == 2040 && m.sink.f[0][S_AY1 + 1] == 1020 &&
                            stem_sum(m.sink.f[0], 0) == m.sink.f[0][S_MIX] && stem_sum(m.sink.f[0], 1) == m.sink.f[0][S_MIX + 1];
         m.ts.tick();
         m.span(635);
@@ -4937,7 +4949,7 @@ int main() {
         check("STM-06", "after a state load and before the first recompute the per-chip stems are the loaded state's own breakdown (ay1 2040, ay0 0), summing to the loaded mix; after the first recompute the latch is used", first && after);
     }
     {
-        // STM-07: arbitrary input on a whole machine. build() (all three chips, the DAC and the beeper sounding), a Pi ramp through I2S
+        // STM-07: arbitrary input on a whole machine. build() (all three chips, the DAC and a beeper toggled by the CPU), a Pi ramp through I2S
         // (NR 0xA2), the CPU at 28 MHz (NR 0x07 = 3, where an OUT is shorter than a PSG tick) and a TurboSound pan command on chip 0 every
         // frame. Stems on from the first sample of 20 frames. Each sample: |sum of the six source stems - mix| <= 3 (the seven roundings of
         // the mixer's own x4 average, each in [-1/2, 1/2): at most 3 after the integer sum; derived in the developer guide), and the mix
@@ -4948,6 +4960,10 @@ int main() {
             pa.push_for_test(v, static_cast<int16_t>(-v));
         }
         build_pi(emu, pa);
+        {   // A loop toggling EAR (OUT (0xFE),A with 0x10 and 0): the beeper changes many times inside every output sample, besides the AY square.
+            const uint8_t prog[] = {0x3E, 0x10, 0xD3, 0xFE, 0xAF, 0xD3, 0xFE, 0x18, 0xF7};
+            for (size_t i = 0; i < sizeof prog; ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        }
         AudioSourceTap tap; AudioStemTap st; StemSink sink;
         st.out = &StemSink::put; st.ctx = &sink; tap.stems = &st;
         Out o, tmp; drain(emu, tmp);
@@ -5206,7 +5222,7 @@ int main() {
         std::error_code ec;
         std::filesystem::remove_all(base, ec);
         check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a missing nested DIR is created",
-              silent_refused && bad_refused && entries == 2 && nested_ok);
+              silent_refused && bad_refused && entries == 1 && nested_ok);
     }
     {
         // AIZ-13: the stems are invisible to the Z80: the same machine run with a recording on and off has the same saved state and framebuffer
