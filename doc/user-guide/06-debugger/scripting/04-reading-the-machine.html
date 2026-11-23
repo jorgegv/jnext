@@ -4706,7 +4706,7 @@ of that register returns, which is what the Audio panel's register table shows. 
 range is a run-time error. It is read-only: write a register with <code>out 0xFFFD</code> and <code>out 0xBFFD</code>.</p>
 <pre><code>on ay_write reg 7 when ay[0, 7] == 0x3F do log &quot;chip 0 mixer closed&quot; end
 </code></pre>
-<p>A register reads back as the chip would answer a program, not as it was written: in AY mode (not YM) R1, R3, R5 and R13 keep only their low 4 bits and R6, R8, R9 and R10 their low 5, and R14 and R15 read 0xFF while their I/O port is an input (R7 bit 6 or 7 clear). At an <code>ay_write</code> the write has already landed, so for the other registers, and for a YM chip, <code>ay[CHIP, REG] == VALUE</code>.</p>
+<p>A register reads back as the chip would answer a program, not as it was written: in AY mode (not YM) R1, R3, R5 and R13 keep only their low 4 bits and R6, R8, R9 and R10 their low 5, and in either mode R14 and R15 read 0xFF while their I/O port is an input (R7 bit 6 or 7 clear). At an <code>ay_write</code> the write has already landed, so <code>ay[CHIP, REG] == VALUE</code> for every other register.</p>
 <h2 id="time-and-the-raster">Time and the raster<a class="headerlink" href="#time-and-the-raster" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

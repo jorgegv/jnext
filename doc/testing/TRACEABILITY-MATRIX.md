@@ -2290,7 +2290,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AEV-35 | the same delivery: audio_flags | — | pass | test/debug/audio_debug_test.cpp:1071 |
 | AEV-36 | the same delivery: drop_reason | — | pass | test/debug/audio_debug_test.cpp:1072 |
 | AEV-37 | a CPU R13 write on chip 2 (R13 preset 0x04, write 0x0A): prev 0x04, chip 2, flags EnvelopeRestart, reg 13 (with AEV-29..36 the four packed bytes carry pairwise distinct values in each fixture) | — | pass | test/debug/audio_debug_test.cpp:1081 |
-| AEV-38 | a DAC or mirror subscription with a channel and Dropped required is refused (a dropped write has chip 0xFF); the same with chip Any, an AY target with a chip, and ANY with a chip are accepted | — | pass | test/debug/audio_debug_test.cpp:1096 |
+| AEV-38 | a DAC or mirror subscription with a channel and Dropped required is refused (a dropped write has chip 0xFF); the same with chip Any, an AY register or chip-select target with a chip, and ANY with a chip are accepted | — | pass | test/debug/audio_debug_test.cpp:1096 |
 | AEV-39 | an ANY subscription (log off) across a soft reset and a snapshot load delivers no AudioWrite event: the tap's Reset and StateLoad markers are not writes | — | pass | test/debug/audio_debug_test.cpp:1111 |
 | AEV-40 | a mirror subscription with regs {0x2D} (soundrive.vhd:85-101) stops on NEXTREG 0x2D only, one instruction late (0x8009), never on 0x2C: two events, chips 0 and 3, reg 0x2D | soundrive.vhd:85-101 | pass | test/debug/audio_debug_test.cpp:1122 |
 | AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:711 |

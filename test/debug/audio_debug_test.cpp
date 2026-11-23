@@ -1092,9 +1092,9 @@ static void aev_rows() {
             return m.dbg().subscribe(m.cid, s).status == Result::RefusedUnavailable;
         };
         const bool a = refused(T_DAC | T_MIR, 1), b = refused(T_DAC, 0), c = refused(T_MIR, 3);
-        const bool ok1 = !refused(T_DAC | T_MIR, 0xFF), ok2 = !refused(T_AYREG, 1), ok3 = !refused(jnext::dbg::AUDIO_TARGETS_ANY, 1);
-        check("AEV-38", "a DAC or mirror subscription with a channel and Dropped required is refused (a dropped write has chip 0xFF); the same with chip Any, an AY target with a chip, and ANY with a chip are accepted",
-              a && b && c && ok1 && ok2 && ok3);
+        const bool ok1 = !refused(T_DAC | T_MIR, 0xFF), ok2 = !refused(T_AYREG, 1), ok3 = !refused(jnext::dbg::AUDIO_TARGETS_ANY, 1), ok4 = !refused(T_AYSEL, 2);
+        check("AEV-38", "a DAC or mirror subscription with a channel and Dropped required is refused (a dropped write has chip 0xFF); the same with chip Any, an AY register or chip-select target with a chip, and ANY with a chip are accepted",
+              a && b && c && ok1 && ok2 && ok3 && ok4);
     }
     {
         // The Reset / StateLoad markers the tap emits while a subscription keeps it on are not writes.

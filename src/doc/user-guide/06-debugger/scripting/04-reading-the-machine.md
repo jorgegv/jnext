@@ -62,7 +62,7 @@ range is a run-time error. It is read-only: write a register with `out 0xFFFD` a
 on ay_write reg 7 when ay[0, 7] == 0x3F do log "chip 0 mixer closed" end
 ```
 
-A register reads back as the chip would answer a program, not as it was written: in AY mode (not YM) R1, R3, R5 and R13 keep only their low 4 bits and R6, R8, R9 and R10 their low 5, and R14 and R15 read 0xFF while their I/O port is an input (R7 bit 6 or 7 clear). At an `ay_write` the write has already landed, so for the other registers, and for a YM chip, `ay[CHIP, REG] == VALUE`.
+A register reads back as the chip would answer a program, not as it was written: in AY mode (not YM) R1, R3, R5 and R13 keep only their low 4 bits and R6, R8, R9 and R10 their low 5, and in either mode R14 and R15 read 0xFF while their I/O port is an input (R7 bit 6 or 7 clear). At an `ay_write` the write has already landed, so `ay[CHIP, REG] == VALUE` for every other register.
 
 ## Time and the raster
 
