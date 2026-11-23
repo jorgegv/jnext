@@ -19,6 +19,7 @@ const char* tok_name(Tok t) {
         case Tok::Mem16L:   return "`mem16[`";
         case Tok::PhysL:    return "`phys[`";
         case Tok::NextRegL: return "`nextreg[`";
+        case Tok::AyL:      return "`ay[`";
         case Tok::MmuL:     return "`mmu[`";
         case Tok::PageL:    return "`page[`";
         case Tok::StackL:   return "`stack[`";
@@ -173,7 +174,7 @@ struct Lexer {
             {"phys", '[', Tok::PhysL},     {"nextreg", '[', Tok::NextRegL},
             {"mmu", '[', Tok::MmuL},       {"page", '[', Tok::PageL},
             {"stack", '[', Tok::StackL},   {"changed", '(', Tok::ChangedL},
-            {"depth", '(', Tok::DepthL},
+            {"depth", '(', Tok::DepthL},   {"ay", '[', Tok::AyL},
         };
         for (const Acc& a : acc) {
             if (word == a.name && cur() == a.open) {

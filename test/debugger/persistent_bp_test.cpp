@@ -27,6 +27,7 @@
 #include "debugger/breakpoint_model.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "platform/startup_stop.h"
 #include "put_on_show.h"
 
 #include <QApplication>
@@ -35,6 +36,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <string>
 #include "../row_id.h"
 
 namespace {
@@ -86,6 +88,24 @@ void build(Emulator& emu, bool persistent) {
 
 uint16_t pc(Emulator& emu) { return emu.cpu().get_registers().PC; }
 
+// GH #532 -- a Next with TurboSound and the DAC on, parked on an AY R7 write:
+// LD BC,0xFFFD; LD A,7; OUT (C),A; LD B,0xBF; LD A,0x38; OUT (C),A; JR $
+// (the data write is the OUT at 0x800B, so a stop lands on 0x800D, the JR $).
+void build_audio(Emulator& emu, bool persistent) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.persistent_breakpoints = persistent;
+    emu.init(cfg);
+    emu.nextreg().write(0x08, 0x0A);
+    emu.nextreg().write(0x84, 0xFF);
+    const uint8_t prog[] = {0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE};
+    for (size_t i = 0; i < sizeof(prog); ++i)
+        emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
 void run_until_paused(Emulator& emu, int max_frames = 4) {
     for (int i = 0; i < max_frames && !emu.debug_state().paused(); ++i)
         emu.run_frame();
@@ -102,14 +122,23 @@ struct Fixture {
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
 
-    explicit Fixture(bool persistent) {
-        build(emu, persistent);
+    explicit Fixture(bool persistent, bool audio = false) {
+        if (audio) build_audio(emu, persistent);
+        else       build(emu, persistent);
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // create + show window
         // GH #278 WP4c — the user's breakpoint, set as the GUI sets it: a backend
         // subscription of the GUI's observer client, which outlives the window.
-        mgr->breakpoints().add(BreakpointModel::Execute, BP_ADDR);
+        if (audio) {
+            // GH #532 -- an Audio Write breakpoint: AY register 7 of any chip.
+            jnext::script::BpSpec sp;
+            sp.kind = jnext::script::BpSpec::AudioWrite;
+            sp.audio.reg = 7;
+            mgr->breakpoints().add(sp);
+        } else {
+            mgr->breakpoints().add(BreakpointModel::Execute, BP_ADDR);
+        }
         mgr->set_enabled(false);                       // user closes it again
     }
 
@@ -460,6 +489,73 @@ int main(int argc, char** argv) {
         check("PBPUI-14", "a manager destroyed takes the GUI's breakpoint owner with "
               "it: no subscription is left in the surviving backend",
               owned && backend.subscriptions(true).empty() && !backend.armed());
+    }
+
+    // PBPUI-15 (GH #548) - the command line's startup stop (--debugger) is another client's
+    // pause as far as the window is concerned: with the window closed the next tick opens it
+    // (PBPUI-08's rule), the pause stays the command-line client's, and the window's Run
+    // resumes it and lets that client detach, its own detach resuming nothing.
+    {
+        Fixture fx(/*persistent=*/false);
+        EmulatorConfig cfg;
+        cfg.debugger_start = true;
+        StartupStop ss;                            // after the fixture: destroyed before the backend
+        std::string why;
+        const bool started = ss.start(*fx.backend, fx.emu, cfg, 0, /*has_window=*/true, why);
+        const bool shut_before = !fx.window_visible() && !fx.mgr->is_enabled();
+
+        fx.mgr->check_breakpoint_hit();
+
+        const jnext::dbg::RunState st = fx.backend->state();
+        const bool opened = fx.mgr->is_enabled() && fx.window_visible() && st.paused &&
+                            st.pause_reason.by == ss.client() && ss.active();
+        fx.mgr->on_run();
+        ss.poll();
+        check("PBPUI-15", "a startup stop (--debugger) with the window closed opens the debugger window, "
+              "paused by the command-line client; the window's Run resumes it and the client detaches",
+              started && shut_before && opened && !fx.backend->state().paused && !ss.active());
+    }
+
+    // PBPUI-16 (GH #548) - the debugger window's Pause and Run are slots that run between ticks: both can
+    // fall before a tick's frames. The Pause removes the startup stop's transient --break-at, and the
+    // poll that QtApp::pre_frames() makes first puts it back, so the machine still stops at the target
+    // (0x8003, before the fixture's own breakpoint at 0x8006) and the window is still the one showing it.
+    {
+        Fixture fx(/*persistent=*/false);
+        fx.mgr->set_enabled(true);
+        EmulatorConfig cfg;
+        cfg.debugger_start = true;
+        cfg.break_at       = "8003";
+        StartupStop ss;                            // after the fixture: destroyed before the backend
+        std::string why;
+        const bool started = ss.start(*fx.backend, fx.emu, cfg, 0, /*has_window=*/true, why);
+        fx.mgr->on_pause();
+        fx.mgr->on_run();                          // no poll between: one tick's worth of slots
+        ss.poll();                                 // what pre_frames() does first
+        run_until_paused(fx.emu);
+        ss.poll();
+        const jnext::dbg::RunState st = fx.backend->state();
+        check("PBPUI-16", "the window's Pause then Run between two ticks does not lose the startup --break-at: the machine still "
+              "stops at its target, a stop of the command-line client, and the window is still open",
+              started && st.paused && st.pc == 0x8003 && st.pause_reason.by == ss.client() && fx.mgr->is_enabled());
+    }
+
+    // PBPUI-17 -- an AUDIO WRITE breakpoint (GH #532) is persistent like the rest: with the flag and the window
+    // closed, the AY R7 write stops the machine (the tap's sink latches because the machine is armed).
+    {
+        Fixture fx(/*persistent=*/true, /*audio=*/true);
+        run_until_paused(fx.emu);
+        const bool stopped = fx.emu.debug_state().paused() && pc(fx.emu) == 0x800D;
+        check("PBPUI-17", "--persistent-breakpoints, window closed: a GUI Audio Write breakpoint {AY R7} stops on the write",
+              stopped && !fx.window_visible());
+    }
+
+    // PBPUI-18 -- the same without the flag: nothing is armed, the machine runs past it.
+    {
+        Fixture fx(/*persistent=*/false, /*audio=*/true);
+        run_until_paused(fx.emu);
+        check("PBPUI-18", "without the flag the same breakpoint never fires: unarmed, the machine runs past the write",
+              !fx.emu.debug_state().paused() && pc(fx.emu) == 0x800D && !fx.window_visible());
     }
 
     std::printf("\n=====================================\n");

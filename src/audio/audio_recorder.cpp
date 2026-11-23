@@ -1,4 +1,5 @@
 #include "audio/audio_recorder.h"
+#include "core/output_files.h"
 
 #include <algorithm>
 #include <array>
@@ -55,6 +56,8 @@ bool AudioRecorder::start(const std::string& path, uint32_t sample_rate)
         file_ = nullptr;
         return false;
     }
+    path_ = path;
+    output_files::begin(path_);
     return true;
 }
 
@@ -106,6 +109,7 @@ bool AudioRecorder::stop()
         set_error("failed to close WAV file");
     }
     file_ = nullptr;
+    output_files::end(path_);
     return !failed_;
 }
 

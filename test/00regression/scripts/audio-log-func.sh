@@ -81,9 +81,10 @@ if want audio-log-func; then
     # crash handler's exit 1 hides it (a "signal 11" line is the other sign).
     grep -q 'DETACH client' "$early_err" || ok=0
     ! grep -q 'signal 11' "$early_err" || ok=0
-    # A write error makes the run exit non-zero and say so. /dev/full exists on Linux (and under wine);
-    # macOS has none, where this one check has nothing to open.
-    if [[ -w /dev/full ]]; then
+    # A write error makes the run exit non-zero and say so. /dev/full exists on Linux; macOS has none, and
+    # Windows has no such device (under wine the host's /dev/full opens but takes the write: measured,
+    # exit 0 and no error), so the one check has nothing to fail on those and runs on Linux only.
+    if [[ "${JNEXT_TARGET_OS:-linux}" == linux && -w /dev/full ]]; then
         full_err="$TMP_DIR/audio_log_full.err"
         full_rc=0
         timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --machine next \

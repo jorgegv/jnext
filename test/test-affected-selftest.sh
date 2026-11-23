@@ -27,6 +27,7 @@
 #           nothing else places, which is not UNMAPPED); the whole-root definition plus a literal
 #           mention; browser-only sources; in a git fixture: a gitlink is FULL, a conf line plans
 #           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS, also for a docs-only plan)
+#   TAF-32  test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL
 #   TAF-31  Qt's QT_TESTCASE_* test-data define counts only for a suite that calls QFINDTESTDATA
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
 #           when nothing names it
@@ -288,7 +289,11 @@ OUT_DOCS=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf"
 row TAF-30 $([[ $RC -eq 0 && "$OUT" == *"TEST-AFFECTED MISS: s1_test was not selected for src/a/y.cpp"* && "$OUT" != *"MISS: s2_test"* && "$OUT_FULL" != *MISS* && "$OUT_DOCS" == *"plan: DOCS"* && "$OUT_DOCS" == *"MISS: s1_test was not selected for doc/a.md"* ]] && echo 1 || echo 0) \
     "--explain-miss: s1 (not pulled y) is named, s2 (selected) is not, a FULL plan names nothing, a docs-only plan (no suite ran) names the failing suite"
 
+run test/ci-gate.sh test/regression-package.sh
+row TAF-32 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_get makes)" == package-contract-test ]] && echo 1 || echo 0) \
+    "test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL (makes: $(plan_get makes), mode $(plan_get mode))"
+
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 30 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 30"; exit 1; }
+[[ "$total" -eq 31 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 31"; exit 1; }
 [[ "$failed" -eq 0 ]]

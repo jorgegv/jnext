@@ -3,8 +3,8 @@
 ![Breakpoints panel](../../img/debugger-breakpoints.png)
 
 Every breakpoint in one list, sorted by address: an **On** checkbox, the type
-(Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt or NMI), the address
-(empty for Interrupt and NMI, which have none) and — with a MAP file loaded — the symbol at
+(Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt, NMI or Audio Write), the address
+(empty for Interrupt and NMI, which have none; for Audio Write, what it watches) and — with a MAP file loaded — the symbol at
 that address, or with a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (`main.bas:120`); see
 [Breakpoints on a source line](../source-debugger/06-breakpoints-and-steps.md).
@@ -26,6 +26,33 @@ A breakpoint qualified with the memory its opcode comes from reads `$8005 P04` o
 ([which memory an address is in](../index.md#which-memory-an-address-is-in)); the `@14`
 of `$C000 @14` is another client's *page* qualifier (a DZRP or script breakpoint), which
 is a different thing.
+
+## Audio Write breakpoints
+
+The **Audio Write** type stops the machine on a write to the sound hardware. The dialog has:
+
+- **Audio target**: *AY register* (a write to an AY register), *AY chip select* (a TurboSound
+  chip-select command), *DAC* (the DAC ports and the NextREG 0x2C to 0x2E mirror of them) or
+  *Any* (every target, the beeper included).
+- **AY chip / DAC channel**: *Any*, the AY chip 0 to 2, or the DAC channel A to D. It is off for *Any*.
+- **AY register**: *Any* or R0 to R15, for the *AY register* target. R13 reads
+  *R13 (envelope restart)*: every applied write to it restarts the envelope, even one that does not
+  change the value.
+- **Value** and **Value mask** (hex, two digits): stop only on a written byte whose bits under the
+  mask equal the value. A mask needs a value, and the value cannot have bits outside the mask.
+- **Dropped writes only** (with the DAC target the channel is forced to *Any*: a discarded DAC write reached no channel): stop on the writes the machine discarded instead of the applied ones.
+  Unticked (the default), a write the machine discarded (the AY ports switched off, the chip held in
+  reset, a DAC that is off) does not stop, because it never reached the chip.
+
+The row reads, for example, `AY1 R13 restart`, `AY R7 value 0x38`, `AY select 2`, `DAC dropped` or
+`Any audio`. The machine stops after the instruction that wrote, except for a write through the NextREG
+mirror by the CPU and a Copper write, which stop one instruction later. A breakpoint made by a script
+(`on ay_write reg 8..10`) that the dialog cannot express is listed read-only.
+
+**Save as Script** writes an Audio Write breakpoint as `on ay_write ...` when it is an AY register
+write, and as `on audio_write ...` for every other target and for *Dropped writes only*; nothing is
+left out, and `jnext --script FILE` runs the file
+([events](../scripting/03-events.md#audio-ay_write-audio_write)).
 
 ## Whose breakpoints the gutters show and change
 

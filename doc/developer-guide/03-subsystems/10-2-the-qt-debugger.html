@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1492,6 +1492,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Panels">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-audio-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Audio panel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3175,7 +3192,7 @@ the default (<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite
 <code>BreakpointModel</code> (<code>src/debugger/breakpoint_model.*</code>) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
 <code>Execute</code>, <code>Mem</code> and <code>Port</code> subscriptions (a <code>lo..hi</code> range on the first two, a port <code>mask</code>/<code>value</code>), and the
-addressless <code>IntAck</code> and <code>Nmi</code> ones (the Interrupt and NMI types), with <code>once = false</code>, and a condition when
+addressless <code>IntAck</code> and <code>Nmi</code> ones (the Interrupt and NMI types), and <code>AudioWrite</code> ones (the Audio Write type: a target, chip, register, value/mask and applied-or-dropped, as <code>BpAudio</code>), with <code>once = false</code>, and a condition when
 the dialog gave one. A
 breakpoint stops: action <code>Stop</code> and no handler. A <em>count-only</em> one is action <code>Continue</code>
 plus a handler of the model that counts. READ, WRITE and READ_WRITE are one <code>Mem</code> subscription with an
@@ -3189,6 +3206,14 @@ nothing.</p>
 and the port rule (<code>bp_port_mask_for()</code>): the model has no copy of either. Another
 client's <code>IntAck</code> or <code>Nmi</code> Stop subscription is a typed but read-only row, with an empty
 Address.</p>
+<p>An Audio Write breakpoint's dialog fields map one to one onto <code>EventFilter</code> fields (<code>audio_filter()</code> in
+<code>breakpoint_model.cpp</code>: the target to <code>audio_targets</code>, the chip, the register to <code>regs</code>, value and mask to
+<code>value_match</code>/<code>value_mask</code>, <em>dropped only</em> to <code>audio_flags_all</code> and the default to <code>audio_flags_none</code>), and
+<code>audio_of()</code> is its inverse: a subscription is the dialog's own row only when it is a filter the dialog can make
+(a script's <code>reg 8..10</code> is listed read-only). The row text is <code>bp_audio_text()</code>, one function for the panel and
+the codec's messages. The codec spells an applied AY register breakpoint as <code>on ay_write</code>, and every other audio
+breakpoint (AY chip select, DAC, Any, dropped-only) as <code>on audio_write</code> with its target word, so saving never
+refuses one.</p>
 <p><strong>Hit counts need no backend counter</strong> and follow the script engine's own split
 (<code>account_static_stops</code> / <code>run_rule</code>). A Stop breakpoint stays a static Stop with no
 handler (ZRCP's <code>other_breakpoint_at</code> and the step loops depend on that) and is counted
@@ -3565,6 +3590,32 @@ constants in <code>src/debugger/</code>.</p>
 <code>AddressStyle</code> (Debug &gt; Physical Addresses) and hands it to each panel and to the <code>BreakpointModel</code>.
 Which space each view prints, and the columns that were added, are described in
 <a href="../07-source-level-debugging/07-frontends.html">7.7</a>.</p>
+<h3 id="the-audio-panel">The Audio panel<a class="headerlink" href="#the-audio-panel" title="Permanent link">&para;</a></h3>
+<p><code>AudioPanel</code> (<code>src/debugger/audio_panel.cpp</code>) is a Sources strip (the five source mute boxes) above a
+<code>QTabWidget</code>: Chips, DAC &amp; Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+not available yet. The panel owns no audio state: every number comes from one <code>Debugger::audio_state()</code> per
+refresh, and every note from <code>audio_math.h</code>, so the panel and a test read the same decode.</p>
+<ul>
+<li><strong>Chips</strong> draws the three chip blocks from <code>AudioState::chips</code>, the nine channel rows (period, note and
+  cents, T and N gates, volume or <code>Env</code>, a level bar from <code>AyChannelState::amplitude</code>) and the envelope line.
+  Its Hex box swaps the table for the raw <code>regs</code> of the three chips.</li>
+<li><strong>DAC &amp; Beeper</strong> shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the
+  dropped-write table, one fixed row per <code>AudioDropReason</code>; a CPU-sourced row double-clicks into the
+  Disassembly, and <strong>Clear</strong> calls <code>clear_audio_drops()</code>. <code>audio_drop_reason_text()</code> is shared with the Log
+  tab, so the two cannot word a reason differently.</li>
+<li><strong>Log</strong> is <code>AudioLogView</code>, a <code>QAbstractTableModel</code> mirroring the backend ring: <code>refresh()</code> appends the
+  entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
+  overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
+  <code>audio_log_export()</code>.</li>
+<li><strong>M and S</strong> per channel call <code>set_audio_channel_mute_mask()</code>. A solo is the mask "everything but that
+  channel": <code>channel_solo_clicked()</code> saves the mask it found (<code>pre_solo_mask_</code>) and un-solo restores it, a solo
+  moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
+  solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.</li>
+</ul>
+<p>What the panel asks of the backend follows the sub-tab on show. <code>DebuggerManager::apply_data_needs()</code> requests
+the write log only while the Audio panel is on show with Log current (<code>AudioPanel::log_on_show()</code>), and drops
+the request otherwise; the panel's <code>sub_tab_changed</code> signal makes the manager re-derive it. Chips is the one
+sub-tab with the per-frame refresh described under the running cadence above.</p>
 <h2 id="the-key-bindings-are-data">The key bindings are data<a class="headerlink" href="#the-key-bindings-are-data" title="Permanent link">&para;</a></h2>
 <p>No shortcut in the debugger window is written at its call site. The inventory is
 a table in <code>src/debug/debug_keymap.cpp</code> — each action with a config-file id, a

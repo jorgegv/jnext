@@ -80,15 +80,15 @@ plain structs of `src/debug/reexport.h`.
   the same address, as in the disassembly.
 - **The `.bin`.** `build()` writes it beside each control file with the `out.files` push
   (`out.files` at `skoolkit_ctl.cpp:266`; `file_name()` only names it), from the bytes the export read with
-  `peek()` (`debugger_reinterop.cpp:200`) now. skoolkit reads no NEX, so a Next
+  `peek()` (`debugger_reinterop.cpp:201`) now. skoolkit reads no NEX, so a Next
   page's control file is useless without them, and `sna2skool.py -o 0xWWWW WWWW-TAG.bin` finds exactly
   that `.ctl` by default pickup, which happens only when no `-c` is given.
 - **No map for what cannot be read.** The identity-only memories (boot ROM, Multiface, DivMMC ROM,
   alternate ROM, Layer 2, config, floating) are refused by `peek()`, so they have no instruction
   lengths and get no code/data map; the report says so with the note
-  `space_tag()` (`debugger_reinterop.cpp:208`)
+  `space_tag()` (`debugger_reinterop.cpp:209`)
   (SRCDBG-REX-07). With coverage off the report says that too, behind
-  `mem_coverage_enabled()` (`debugger_reinterop.cpp:184`).
+  `mem_coverage_enabled()` (`debugger_reinterop.cpp:185`).
 - **Unpaged labels** are also label-less keys of every window written that covers their address, added
   by the loop over `by_window` (`skoolkit_ctl.cpp:253`), so the same
   splits keep them from being dropped by sna2skool (SKCTL-08d).
@@ -110,18 +110,18 @@ plain structs of `src/debug/reexport.h`.
 
 All in `debugger_reinterop.cpp`. `gather_labels()` (`debugger_reinterop.cpp:75`)
 takes one entry per key of `symbols()` named by `lookup()`.
-`Debugger::export_skoolkit` (`debugger_reinterop.cpp:176`)
+`Debugger::export_skoolkit` (`debugger_reinterop.cpp:177`)
 adds the stores (`peek()` and `mem_coverage()`, a note for coverage it cannot read) and
-`Debugger::export_ghidra` (`debugger_reinterop.cpp:225`) the view.
+`Debugger::export_ghidra` (`debugger_reinterop.cpp:226`) the view.
 
 `write_directory()` (`debugger_reinterop.cpp:93`)
 checks every file in the way before writing (`Unsupported`), writes `<name>.part`
 (`part` (`debugger_reinterop.cpp:127`)) and renames it with
 `fs::rename` (`debugger_reinterop.cpp:137`). Then it removes a previous
 export's files that this one did not write: a `*.ctl` whose first line is `# jnext space `
-(`has_jnext_header()` (`debugger_reinterop.cpp:151`))
+(`has_jnext_header()` (`debugger_reinterop.cpp:152`))
 and the `.bin` of its `WWWW-TAG` stem (`is_ctl_stem()` (`debugger_reinterop.cpp:59`),
-applied at `is_ctl_stem()` (`debugger_reinterop.cpp:158`)), or the Ghidra names
+applied at `is_ctl_stem()` (`debugger_reinterop.cpp:159`)), or the Ghidra names
 (`is_ghidra_export_name()` (`debugger_reinterop.cpp:49`)). Anything else in
 the directory is never touched. A path that is a regular file
 (`refuse()` (`debugger_reinterop.cpp:98`)) or a directory that cannot be created
@@ -137,8 +137,8 @@ control).
 
 ### Import
 
-`Debugger::import_skoolkit` (`debugger_reinterop.cpp:254`) and
-`Debugger::import_ghidra` (`debugger_reinterop.cpp:300`) read ALL their
+`Debugger::import_skoolkit` (`debugger_reinterop.cpp:255`) and
+`Debugger::import_ghidra` (`debugger_reinterop.cpp:301`) read ALL their
 files into a scratch copy of `annotations()` and apply it with one `replace_annotations()`, so a refusal
 anywhere changes nothing and a success is one revision bump (SRCDBG-REX-12, -13). The readers are pure,
 in the writers' files:
@@ -171,13 +171,13 @@ in the writers' files:
 - **Which memory.** A control file's memory is its `# jnext space TAG` line (only before the first
   directive), else its name (`TAG.ctl`, `WWWW-TAG.ctl`), else none; none and `CPU` are untagged, and each
   untagged entry takes `source_page(addr)` when the file is read
-  through `source_page` (`debugger_reinterop.cpp:276`),
+  through `source_page` (`debugger_reinterop.cpp:277`),
   the identity the disassembly looks labels up with. A command-line import runs in
   `ScriptHost::start` (`script_host.cpp:171`), in
   `import_all()` (`script_host.cpp:218`), after `--annotations` and before
   `--load`, so an untagged file is placed by the mapping at start.
 - **Export carries comments.** `export_skoolkit()` passes `annotations().entries()` with a comment as
-  `Input::comments` from the loop over `annotations` (`debugger_reinterop.cpp:180`),
+  `Input::comments` from the loop over `annotations` (`debugger_reinterop.cpp:181`),
   and `symbols()` is the composed table, so a user label already shadows the toolchain's in both exports
   (SRCDBG-REX-14).
 
@@ -209,11 +209,11 @@ are unique in each submenu; `DACC-05` pins the new popups and mnemonics). The sl
 
 ## 4. The frontends
 
-`write_re_exports_at_exit()` (`re_export_at_exit.h:39`)
+`write_re_exports_at_exit()` (`re_export_at_exit.h:41`)
 is called from the three loop owners' `shutdown()`:
-`write_re_exports_at_exit()` (`headless_app.cpp:1092`),
-`write_re_exports_at_exit()` (`src/platform/sdl_app.cpp:913`) and
-`write_re_exports_at_exit()` (`qt_app.cpp:535`).
+`write_re_exports_at_exit()` (`headless_app.cpp:1134`),
+`write_re_exports_at_exit()` (`src/platform/sdl_app.cpp:953`) and
+`write_re_exports_at_exit()` (`qt_app.cpp:561`).
 A failure logs and sets the exit code to 1. `--export-skoolkit`, `--export-ghidra`, `--import-skoolkit`
 and `--import-ghidra` are in `src/core/cli_options.h`.
 

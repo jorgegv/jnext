@@ -67,7 +67,9 @@ while Soundrive 2 is lit even if bit 5 is set.
 **Beeper.** Lamps for EAR and MIC (port 0xFE bits 4 and 3) and for the tape EAR
 input, then whether the internal speaker is on (NextREG 0x08 bit 4), whether the
 beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC reach
-the mix: they do not when both of those are set.
+the mix: they do not when both of those are set. A tape playing in real time reaches the
+mix through the same beeper path, so the Beeper box, and that exclusion,
+silence it too, as it does the Pi's audio when that is routed to EAR (NextREG 0xA2); the Tape EAR lamp keeps showing the input.
 
 **Pi I2S.** Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).
@@ -138,7 +140,7 @@ A table of the audio writes the program made, one row per write, newest last. Th
 machine records them only while this tab is the one on show in an open debugger window
 (or while something else asks for the log, such as `--audio-log`); the rows you see
 start when you open the tab, and the log holds the newest 65536 writes. The tab is
-refreshed with the rest of the window when the machine is paused or stepped.
+refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.
 
 The columns are the **Frame**, **Line**, **HC** and **T-state** the write happened at,
 the **PC** of the instruction (only for a write the CPU made), the **Source** (CPU, DMA,
@@ -198,5 +200,11 @@ follow the live mutes, so a mute set by a script shows on them.
 A script reads and sets the channel mutes with `AUDIO_CHANNEL_MUTE`: bit 0 to 8
 are the AY channels (bit `3 * chip + channel`, channel A = 0), bit 9 to 12 are
 DAC A to D, and a set bit is a muted channel.
+
+## Stopping on an audio write
+
+To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an
+**Audio Write** breakpoint in the [Breakpoints panel](08-breakpoints.md#audio-write-breakpoints),
+or write a rule with [`on ay_write` or `on audio_write`](../scripting/03-events.md#audio-ay_write-audio_write).
 
 ---

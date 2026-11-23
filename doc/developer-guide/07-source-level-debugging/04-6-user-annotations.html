@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3128,8 +3128,8 @@ fills a third store, <code>UserAnnotations</code>, which sits beside the toolcha
 <code>SymbolTable</code> and wins over it when the two disagree.</p>
 <h2 id="1-the-producer">1. The producer<a class="headerlink" href="#1-the-producer" title="Permanent link">&para;</a></h2>
 <p>JNEXT. The Qt Map menu opens and saves it (section 10); <code>--annotations FILE</code>
-loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:1028</code> and copies
-it to the configuration at <code>src/main.cpp:2663</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
+loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:1059</code> and copies
+it to the configuration at <code>src/main.cpp:2706</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
 <code>src/script/script_host.cpp:201-215</code>), after <code>--map</code> and before the scripts, so a
 script's <code>@name</code> of the file resolves). <code>replace_annotations()</code> is the
 primitive an import builds on.</p>
@@ -3224,7 +3224,7 @@ so every consumer reads both layers with no code of its own.
 <code>names</code> is assigned in place, so the <code>const SymbolTable*</code> the Disassembly, Call Stack
 and Breakpoints panels hold (<code>set_symbol_table(&amp;dbg_.symbols())</code>) stays valid.</p>
 <p><code>recompose_names()</code> is called after every change of either layer: the toolchain writers
-(<code>recompose_names</code> at <code>src/debug/debugger.cpp:275</code> in load_map and <code>:289</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:409</code> the deferred-check drop, <code>:547</code> and <code>:554</code> the
+(<code>recompose_names</code> at <code>src/debug/debugger.cpp:274</code> in load_map and <code>:288</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:409</code> the deferred-check drop, <code>:547</code> and <code>:554</code> the
 hand SLD's labels, <code>:797</code> the program-load attach and its bind, <code>:961</code>
 drop_sidecars, <code>:1064</code> and <code>:1070</code> the ring landing) and every verb that changes a label
 (<code>recompose_names</code> at <code>src/debug/debugger_annotations.cpp:71</code> in set_user_label, <code>:80</code> in remove_user_label, <code>:116</code> in replace_annotations; <code>set_user_comment()</code> changes no name and does not). The attachment cache

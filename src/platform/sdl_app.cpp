@@ -26,6 +26,7 @@
 #include "platform/host_modifier.h"   // GH #403
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include "core/output_files.h"   // GH #553
 #include "debug/source_file.h"   // GH #344: program_loads_later
 #include <cmath>
 #include <ctime>
@@ -242,7 +243,10 @@ bool SdlApp::init(int /*argc*/, char* /*argv*/[]) {
     // all. (No `ExitRequested` listener yet — a listener needs an attached
     // client, which would arm every instruction; B4 report, M2 part 1, O5.)
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
-    debugger_->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+    // GH #548: --debugger asks for a session, so a stop waits for the remote instead of
+    // turning into an exit.
+    debugger_->set_stop_policy(config_.debugger_start ? jnext::dbg::StopPolicy::Pause
+                                                      : jnext::dbg::StopPolicy::ExitNonZero);
     apply_startup_coverage(*debugger_, config_);   // GH #388 --coverage
     jnext::dbg::LoopDriver driver;
     driver.cold_boot = [this]() {
@@ -384,6 +388,7 @@ void SdlApp::cold_boot(const std::string& load_file) {
 void SdlApp::boot_machine(const std::string& load_file) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
+    startup_stop_.on_cold_boot();   // GH #548: a cold boot cancels a stop not yet taken
 
     // Issue #40 — the sequence itself lives in platform/emulator_boot.h and is
     // shared with QtApp; this supplies only the SDL-specific steps. Placement-
@@ -489,8 +494,28 @@ void SdlApp::run() {
     // applied here in run() for the reason given at emulator_start_rzx().
     // The recording starts later, once the command-line load is in: see
     // emulator_start_rzx_record_when_loaded() in the loop.
-    if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
-        exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
+    // GH #548: the command-line stop, now that every pending load / inject / replay is bound.
+    {
+        const int coming = (load_countdown_ >= 0 ? 1 : 0) + (inject_countdown_ >= 0 ? 1 : 0) +
+                           (rzx_play_file_.empty() ? 0 : 1);
+        std::string why;
+        if (!startup_stop_.start(*debugger_, emulator_, config_, coming, false, why)) {
+            Log::platform()->error("{}", why);
+            exit_code_ = 1;
+            running_ = false;
+        }
+    }
+    {
+        const bool rzx_ok = emulator_start_rzx(emulator_, rzx_play_file_, "");
+        if (!rzx_ok) exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
+        std::string why;
+        if (!rzx_play_file_.empty() &&
+            !startup_stop_.program_landed(rzx_play_file_, rzx_ok, false, why)) {
+            Log::platform()->error("{}", why);
+            exit_code_ = 1;
+            running_ = false;
+        }
+    }
 
     bool more = running_;
     while (more) {
@@ -534,8 +559,14 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
 
     // Apply pending inject when countdown reaches zero.
     if (inject_countdown_ == 0) {
-        emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
+        const bool injected = emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
         inject_countdown_ = -1;  // done
+        if (std::string why; !startup_stop_.program_landed(inject_file_, injected, true, why)) {
+            Log::platform()->error("{}", why);
+            exit_code_ = 1;
+            running_ = false;
+            return false;
+        }
     } else if (inject_countdown_ > 0) {
         --inject_countdown_;
     }
@@ -594,6 +625,13 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
                     exit_code_ = 1;
                 }
             }
+        }
+        // GH #548: the program is in, with its symbols: arm the startup stop.
+        if (std::string why; !startup_stop_.program_landed(load_file_, loaded, false, why)) {
+            Log::platform()->error("{}", why);
+            exit_code_ = 1;
+            running_ = false;
+            return false;
         }
         config_.source_map_file.clear();
         // GH #346 - the scripts held back for the program's maps.
@@ -750,6 +788,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
     // block the tick (platform/debug_servers.h).
     pump_hint_ = debugger_->pump(
         DebugServers::frame_loop_budget(debugger_->state().paused, pump_hint_));
+    startup_stop_.poll();   // GH #548
 
     // GH #26 WP4 — a script's verdict (§6.3), as HeadlessApp: the SDL
     // frontend has no pause, so a script stop is an exit (3).
@@ -824,6 +863,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
             const bool ok = !screenshot_refused_ &&
                             debugger().flush_captures(jnext::dbg::CLIENT_NONE) ==
                                 jnext::dbg::Result::Ok;
+            if (ok) output_files::written(screenshot_file_);
             if (!ok) {
                 Log::platform()->error(
                     "--delayed-screenshot: FAILED to write '{}' (layers: {}); "

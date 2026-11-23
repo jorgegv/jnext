@@ -4,7 +4,7 @@
 #
 #   bash test/wasm-core-check.sh <build-dir>      e.g. build/wasm-core
 #
-# Rows WCORE-01..10, printed in the suite's uniform format; exits non-zero on any
+# Rows WCORE-01..12, printed in the suite's uniform format; exits non-zero on any
 # FAIL or SKIP. The oracle is the native binary's behaviour for the same command
 # where one exists (the CLI refusals, the log-file error), else the SDK's own
 # contract (no shared memory). `jnext` is the node build (NODERAWFS), so the size
@@ -14,7 +14,7 @@ set -uo pipefail
 
 export LC_ALL=C LANG=C
 
-EXPECTED_TOTAL=10
+EXPECTED_TOTAL=12
 
 BUILD=${1:?usage: wasm-core-check.sh <build-dir>}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -100,6 +100,20 @@ done
 row WCORE-04 "each of 9 refused flags exits 1 naming the flag and 'browser build', before --version runs" \
     $([[ -z "$bad" ]] && echo 1 || echo 0) "$bad"
 
+# WCORE-11 (GH #548): --debugger and --break-at start the program under the debugger, which needs
+# the debugger servers and the script host: refused, BEFORE --version, naming the flag.
+bad=""
+for spec in "--debugger" "--break-at 8000"; do
+    flag=${spec%% *}
+    # shellcheck disable=SC2086
+    run_jnext $spec --version
+    if ! [[ $RC -eq 1 && "$ERR" == *"$flag"* && "$ERR" == *"browser build"* && "$OUT" != jnext* ]]; then
+        bad+="$flag(rc=$RC err=[$ERR]) "
+    fi
+done
+row WCORE-11 "--debugger and --break-at exit 1 naming the flag and 'browser build', before --version runs" \
+    $([[ -z "$bad" ]] && echo 1 || echo 0) "$bad"
+
 # WCORE-05: --set of a refused key.
 bad=""
 for kv in "esp.enabled=true" "nextpi.enabled=true"; do
@@ -149,6 +163,32 @@ OUT=$(<"$SCRATCH/out"); ERR=$(<"$SCRATCH/err")
 ELAPSED_MS=$(( (T1 - T0) / 1000000 ))
 row WCORE-10 "--sdcard-download-confirm with no image fails at once (exit 1, 'downloads are not available in the browser build', no Retry line, under 2 s)" \
     $([[ $RC -eq 1 && "$ERR$OUT" == *"downloads are not available in the browser build"* && "$ERR$OUT" != *"Retry"* && $ELAPSED_MS -lt 2000 ]] && echo 1 || echo 0) "rc=$RC elapsed=${ELAPSED_MS}ms out=[$OUT] err=[$ERR]"
+
+# WCORE-12: the joystick UART's pty and FIFO endpoints need a terminal and named pipes, which the
+# build lacks: refused at parse, before --version runs, and the FIFO form leaves no PATH.rx / PATH.tx
+# behind (without the refusal, emscripten's mkfifo made them as plain files). Checked after a
+# start-up run too, the only one that reaches mkfifo.
+bad=""
+for spec in "--joy-uart-pty" "--joy-uart-fifo $SCRATCH/cable"; do
+    flag=${spec%% *}
+    # shellcheck disable=SC2086
+    run_jnext $spec --version
+    if ! [[ $RC -eq 1 && "$ERR" == *"$flag"* && "$ERR" == *"browser build"* && "$OUT" != jnext* ]]; then
+        bad+="$flag(rc=$RC err=[$ERR]) "
+    fi
+done
+# The FIFO is created only at start-up (--version returns at parse, before it), so the absence
+# check needs a run that starts: no --version, a program to load, a frame-bounded exit.
+run_jnext --headless --no-sdcard --machine next --load "$ROOT/test/00regression/nex/blue.nex" \
+    --joy-uart-fifo "$SCRATCH/cable" --delayed-automatic-exit-frames 5
+if ! [[ $RC -eq 1 && "$ERR" == *"--joy-uart-fifo"* && "$ERR" == *"browser build"* ]]; then
+    bad+="startup(rc=$RC err=[$ERR]) "
+fi
+for f in "$SCRATCH/cable.rx" "$SCRATCH/cable.tx"; do
+    [[ -e "$f" ]] && bad+="left-behind:${f##*/} "
+done
+row WCORE-12 "--joy-uart-pty and --joy-uart-fifo X exit 1 naming the flag and 'browser build' before --version runs, and leave no X.rx/X.tx behind, also in a run that starts (no --version)" \
+    $([[ -z "$bad" ]] && echo 1 || echo 0) "$bad"
 
 RAW=$(stat -c %s "$WASM")
 GZ=$(gzip -9 -c "$WASM" | wc -c)

@@ -79,8 +79,11 @@ public:
                                                     const jnext::dbg::ServiceHint& last);
 
     /// Headless: true when this tick must not run a frame but wait on the
-    /// servers instead (paused, with a remote attached).
-    static bool headless_should_wait(bool paused, const jnext::dbg::ServiceHint& last);
+    /// servers instead (paused, with a remote attached). `wait_without_remote`
+    /// (`--debugger`, GH #548): a paused run waits whether or not a client has
+    /// connected yet, so the wait for DeZog is not a spin.
+    static bool headless_should_wait(bool paused, const jnext::dbg::ServiceHint& last,
+                                     bool wait_without_remote = false);
 
     /// Headless: the waiting budget.
     static jnext::dbg::PumpBudget headless_wait_budget();

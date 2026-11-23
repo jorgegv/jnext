@@ -222,6 +222,28 @@ bool post_frames_syncs_pause_state() {
     return call != std::string::npos && last_endif != std::string::npos && call > last_endif;
 }
 
+// MWP-18 - a source check, as MWP-12 is (no suite can construct a QtApp). The debugger window's Pause and
+// Run are slots that run BETWEEN ticks, so a stop and a resume can both fall before a tick's frames:
+// QtApp::TickEffects::pre_frames() must poll the startup stop (which puts its subscriptions back) before
+// the tick runs its frames. The call must be in code, not a comment.
+bool pre_frames_polls_startup_stop() {
+    std::ifstream in(JNEXT_QT_APP_CPP);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    const std::string src = ss.str();
+    const size_t b = src.find("bool QtApp::TickEffects::pre_frames(");
+    if (b == std::string::npos) return false;
+    const size_t e = src.find("\n}\n", b);
+    if (e == std::string::npos) return false;
+    std::string code;
+    std::istringstream ls(src.substr(b, e - b));
+    for (std::string line; std::getline(ls, line);) {
+        const size_t c = line.find("//");
+        code += (c == std::string::npos ? line : line.substr(0, c)) + "\n";
+    }
+    return code.find("startup_stop_.poll();") != std::string::npos;
+}
+
 void test_pause() {
     // MWP-01 — one checkable QAction, Alt+U, in the Machine menu and on the
     // Main toolbar as the SAME object (one checkmark).
@@ -530,6 +552,10 @@ void test_pause() {
               std::string("after_press=") + (a ? "1" : "0") + " after_pause_repeats=" + (b ? "1" : "0") +
               " after_altu_repeats=" + (c ? "1" : "0") + " resumed=" + (d ? "1" : "0"));
     }
+
+    // MWP-18 - see pre_frames_polls_startup_stop().
+    check("MWP-18", "QtApp::TickEffects::pre_frames() polls the startup stop before the tick's frames (a window Pause and Run "
+                    "between two ticks)", pre_frames_polls_startup_stop());
 }
 
 }  // namespace

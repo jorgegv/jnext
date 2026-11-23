@@ -590,7 +590,30 @@ def sc_fixture(port):
                                                                               total)
 
 
+def sc_startup(port, expect_pc):
+    """GH #548: `--debugger --zrcp-port` started the machine paused at the program's
+    start. get-registers reads the PC three times half a second apart: it is the
+    stop's, and it does not move."""
+    want = int(expect_pc, 0)
+    z = Zrcp(port)
+    check(z.reply() == WELCOME, "the welcome is not ZEsarUX's, byte for byte")
+    pcs = []
+    for i in range(3):
+        if i:
+            time.sleep(0.5)
+        r = z.cmd("get-registers")
+        check(r.endswith(PROMPT) or r.endswith(PROMPT_STEP), "get-registers: no prompt: %r" % r[-80:])
+        line = r[:-len(PROMPT_STEP)] if r.endswith(PROMPT_STEP) else r[:-len(PROMPT)]
+        pcs.append(dezog_regs(line.rstrip(b"\n"))["PC="])
+    check(pcs == [want] * 3, "PCs %s, expected 0x%04X held" % (["0x%04X" % p for p in pcs], want))
+    z.s.sendall(b"quit\n")
+    z.goodbye()
+    z.close()
+    return "attached to a machine paused at 0x%04X, held over 1 s" % want
+
+
 SCENARIOS = {
+    "startup": sc_startup,
     "fixture": sc_fixture,
     "m1": sc_m1,
     "m3": sc_m3,

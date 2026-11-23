@@ -8152,6 +8152,66 @@ static void gh428_rev_rows() {
               dbg.state().pause_reason.addr == AFTER_CALL);
     }
     {
+        // GH #548 - run_to() takes the memory that must supply the fetch (the panel's
+        // qualifier, EventFilter::space, events.h). Learn which memory supplies AFTER_CALL
+        // from the machine itself, then ask for it, and for another page.
+        MemSpace seen = MemSpace::cpu();
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            attach_and_pause(emu);
+            Subscription probe;
+            probe.kind      = EventKind::Execute;
+            probe.filter.lo = probe.filter.hi = AFTER_CALL;
+            probe.transient = true;
+            probe.action    = Action::Continue;
+            probe.handler   = [&](const DbgEvent& ev, Debugger&) { seen = ev.space; return Action::Continue; };
+            dbg.subscribe(4, probe);
+            dbg.run_to(3, PARK);
+            run_until_paused(emu);
+        }
+        const bool is_page = seen.kind == MemSpace::Kind::Page;
+        bool stops_in_its_page = false, passes_other = false;
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            attach_and_pause(emu);
+            dbg.run_to(3, AFTER_CALL, seen);
+            run_until_paused(emu);
+            stops_in_its_page = dbg.state().paused && pc_of(emu) == AFTER_CALL &&
+                                dbg.state().pause_reason.kind == PauseReason::Kind::RunTo;
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            attach_and_pause(emu);
+            dbg.run_to(3, AFTER_CALL, MemSpace::page(static_cast<uint16_t>(seen.index + 1)));
+            run_until_paused(emu);
+            passes_other = !dbg.state().paused && emu.cpu().get_registers().PC != AFTER_CALL;
+        }
+        check("CTL-06-05", "GH #548: run_to(addr, space) stops at addr only while that memory supplies the "
+                           "fetch; the same address under another page runs through",
+              is_page && stops_in_its_page && passes_other,
+              "kind=" + std::to_string(static_cast<int>(seen.kind)) + " index=" + std::to_string(seen.index) +
+                  " stops=" + std::to_string(stops_in_its_page) + " passes=" + std::to_string(passes_other));
+    }
+    {
+        // GH #548 - the default memory is "any": run_to(addr) is as it was.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        dbg.run_to(3, AFTER_CALL, MemSpace::cpu());
+        run_until_paused(emu);
+        const bool explicit_any = dbg.state().paused && pc_of(emu) == AFTER_CALL;
+        Emulator emu2; build(emu2);
+        Debugger dbg2(emu2);
+        attach_and_pause(emu2);
+        dbg2.run_to(3, AFTER_CALL);
+        run_until_paused(emu2);
+        check("CTL-06-06", "GH #548: run_to(addr) with no memory stops at addr in any memory, as MemSpace::cpu() does",
+              explicit_any && dbg2.state().paused && pc_of(emu2) == AFTER_CALL);
+    }
+    {
         // GH #423 - a second run_to while the machine RUNS re-targets: the first
         // target (reached earlier) is dropped with the caller's other transients,
         // another client's transient is not.

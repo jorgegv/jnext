@@ -38,7 +38,9 @@ TzxLoader::~TzxLoader() {
 }
 
 TzxLoader::TzxLoader(TzxLoader&& other) noexcept
-    : file_data_(std::move(other.file_data_))
+    : holds_code_(other.holds_code_)
+    , last_data_end_(other.last_data_end_)
+    , file_data_(std::move(other.file_data_))
     , player_(other.player_)
     , loaded_(other.loaded_)
     , fast_load_(other.fast_load_)
@@ -72,6 +74,8 @@ TzxLoader& TzxLoader::operator=(TzxLoader&& other) noexcept {
         fast_load_offset_ = other.fast_load_offset_;
         handover_pending_ = other.handover_pending_;
         is_tzx_ = other.is_tzx_;
+        holds_code_ = other.holds_code_;
+        last_data_end_ = other.last_data_end_;
 
         other.loaded_ = false;
 
@@ -425,6 +429,7 @@ bool TzxLoader::load(const std::string& path) {
     loaded_ = true;
     sha256_ = digest;
     fast_load_offset_ = is_tzx_ ? 10 : 0;  // skip TZX header
+    scan_tape();   // GH #548
 
     // Extract filename for UI. (std::filesystem splits on the host's own
     // separators: a Windows path from `--load C:\...` or a native dialog has
@@ -444,6 +449,8 @@ void TzxLoader::eject() {
     file_data_.clear();
     loaded_ = false;
     fast_load_offset_ = 0;
+    holds_code_ = false;
+    last_data_end_ = 0;
     handover_pending_ = false;
     filename_.clear();
     path_.clear();
@@ -577,6 +584,7 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
         uint8_t id = data[fast_load_offset_];
         const uint8_t* b = data + fast_load_offset_ + 1;
         int remaining = len - fast_load_offset_ - 1;
+        if (id == 0x11 || id == 0x14 || id == 0x15 || id == 0x18 || id == 0x19) scan_exotic_ = true;
 
         switch (id) {
         case 0x10: {
@@ -609,12 +617,14 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
             if (remaining < 10) return nullptr;
             uint32_t dl = read_u24(b + 7);
             fast_load_offset_ += 1 + 10 + static_cast<int>(dl);
+            scan_exotic_end_ = fast_load_offset_;   // GH #548: a pure-data block is data too
             break;
         }
         case 0x15: {
             if (remaining < 8) return nullptr;
             uint32_t dl = read_u24(b + 5);
             fast_load_offset_ += 1 + 8 + static_cast<int>(dl);
+            scan_exotic_end_ = fast_load_offset_;   // GH #548: a direct recording is data too
             break;
         }
         case 0x20: fast_load_offset_ += 1 + 2; break;
@@ -679,6 +689,51 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
     return nullptr;
 }
 
+void TzxLoader::scan_tape() {
+    holds_code_ = false;
+    last_data_end_ = 0;
+    scan_exotic_ = false;
+    scan_exotic_end_ = 0;
+    const int save = fast_load_offset_;
+    fast_load_offset_ = is_tzx_ ? 10 : 0;
+    int prev_type = -1;
+    unsigned prev_len = 0, prev_start = 0;
+    int len = 0;
+    while (const uint8_t* b = next_data_block(len)) {
+        last_data_end_ = fast_load_offset_;
+        if (len == 19 && b[0] == 0x00) {   // a header: flag, type, name, length, params
+            prev_type  = b[1];
+            prev_len   = static_cast<unsigned>(b[12] | (b[13] << 8));
+            prev_start = static_cast<unsigned>(b[14] | (b[15] << 8));
+            continue;
+        }
+        const bool basic = prev_type >= 0 && prev_type <= 2;
+        const bool screen = prev_type == 3 && prev_start == 16384 && prev_len == 6912;
+        if (!basic && !screen) holds_code_ = true;
+        prev_type = -1;
+    }
+    if (scan_exotic_) holds_code_ = true;
+    // A trailing 0x14 / 0x15 block is data that plays after the last standard one: real-time
+    // delivery waits for it (fast load never serves it, so there it cannot).
+    if (scan_exotic_end_ > last_data_end_) last_data_end_ = scan_exotic_end_;
+    fast_load_offset_ = save;
+}
+
+bool TzxLoader::data_delivered() {
+    if (!loaded_) return false;
+    if (fast_load_) {
+        const int save = fast_load_offset_;
+        int len = 0;
+        const bool more = next_data_block(len) != nullptr;
+        fast_load_offset_ = save;
+        return !more;
+    }
+    const TZXPlayer* p = static_cast<const TZXPlayer*>(player_);
+    if (p->offset < last_data_end_) return false;
+    return p->phase != TZX_PHASE_PILOT && p->phase != TZX_PHASE_SYNC1 &&
+           p->phase != TZX_PHASE_SYNC2 && p->phase != TZX_PHASE_DATA;
+}
+
 bool TzxLoader::handle_ld_bytes_trap(Emulator& emu) {
     // The CPU stands at LD-BREAK (0x056B): the expected flag is in A',
     // LOAD/VERIFY in the carry of F'. The ROM's transfer, checksum and exit
@@ -716,6 +771,18 @@ bool TzxLoader::handle_ld_bytes_trap(Emulator& emu) {
 
 static const char* const kTzxPhaseNames[] = {
     "idle", "pilot", "sync1", "sync2", "data", "pause", "tone", "pulses", "direct", "pause2"};
+
+uint32_t TzxLoader::ticks_since_edge(uint64_t now) const {
+    const TZXPlayer* p = static_cast<const TZXPlayer*>(player_);
+    if (!loaded_ || !p->playing) return 0;
+    uint32_t len = 0;
+    if (p->phase == TZX_PHASE_PAUSE2)                              len = 3500;               // the 1 ms hold at the final level
+    else if (p->phase == TZX_PHASE_IDLE && p->gap_done)            len = p->pause_tstates;   // the pause's remainder
+    else return 0;
+    const int64_t left = static_cast<int64_t>(p->edge_clock) - static_cast<int64_t>(now);
+    if (left <= 0) return len;
+    return left >= static_cast<int64_t>(len) ? 0 : len - static_cast<uint32_t>(left);
+}
 
 TzxLoader::DeckState TzxLoader::deck_state(uint64_t now) const {
     const TZXPlayer* p = static_cast<const TZXPlayer*>(player_);

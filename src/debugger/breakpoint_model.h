@@ -64,7 +64,7 @@ class BreakpointModel : public QObject, private jnext::dbg::Listener {
     Q_OBJECT
 public:
     /// The Add dialog's types, in its combo order (the codec's `BpSpec::Kind`).
-    enum Type { Execute = 0, Read, Write, ReadWrite, IoRead, IoWrite, Interrupt, Nmi };
+    enum Type { Execute = 0, Read, Write, ReadWrite, IoRead, IoWrite, Interrupt, Nmi, AudioWrite };
 
     /// One LISTED subscription, whoever owns it (REQ-qt-13d).
     struct Row {
@@ -97,6 +97,8 @@ public:
         /// The subscription has a condition (any owner's): the Condition cell reads `(condition)` for
         /// another client's, whose text is not the GUI's to show.
         bool     conditional = false;
+        /// An own AudioWrite row's fields (GH #532); its Address column is `bp_audio_text`.
+        jnext::script::BpAudio audio;
         QString  type_text;     ///< the Type column
         QString  addr_text;     ///< the Address column
     };
@@ -237,6 +239,7 @@ private:
         uint16_t             hi;          ///< == addr for one address
         uint16_t             mask;        ///< the address rule's mask unless the port was given another
         std::string          condition;   ///< "" = none
+        jnext::script::BpAudio audio;     ///< AudioWrite only
     };
     const Member* find_own_(int type, uint16_t addr,
                             jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu(),

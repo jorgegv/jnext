@@ -56,7 +56,10 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     //     can stop here until a client subscribes, and that client is where the
     //     listener belongs. B4 report, milestone 2 part 1, O5.
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
-    debugger_->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+    // GH #548: --debugger asks for a session, so a stop waits for the remote instead of
+    // turning into an exit; every other run is a CI verdict.
+    debugger_->set_stop_policy(cfg.debugger_start ? jnext::dbg::StopPolicy::Pause
+                                                  : jnext::dbg::StopPolicy::ExitNonZero);
     apply_startup_coverage(*debugger_, config_);   // GH #388 --coverage
     jnext::dbg::LoopDriver driver;
     driver.cold_boot = [this]() {
@@ -122,6 +125,7 @@ void HeadlessApp::boot_machine(const std::string& load_file) {
                           load_file.empty() ? "(none)" : load_file.c_str());
     EmulatorConfig cfg = config_;
     cfg.load_file = load_file;
+    startup_stop_.on_cold_boot();   // GH #548: a cold boot cancels a stop not yet taken
     emulator_cold_boot(emulator_, cfg);
     config_.type = emulator_.config().type;   // a recording's machine stays
     inject_countdown_ = -1;
@@ -401,8 +405,28 @@ void HeadlessApp::run() {
     // here in run() for the reason given at emulator_start_rzx().
     // The recording starts later, once the command-line load is in: see
     // emulator_start_rzx_record_when_loaded() in the frame loop.
-    if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
-        exit_code_ = 1;   // same contract as a failed --load
+    // GH #548: the command-line stop, now that every pending load / inject / replay is bound.
+    {
+        const int coming = (load_countdown_ >= 0 ? 1 : 0) + (inject_countdown_ >= 0 ? 1 : 0) +
+                           (rzx_play_file_.empty() ? 0 : 1);
+        std::string why;
+        if (!startup_stop_.start(*debugger_, emulator_, config_, coming, false, why)) {
+            Log::platform()->error("{}", why);
+            exit_code_ = 1;
+            running_ = false;
+        }
+    }
+    {
+        const bool rzx_ok = emulator_start_rzx(emulator_, rzx_play_file_, "");
+        if (!rzx_ok) exit_code_ = 1;   // same contract as a failed --load
+        std::string why;
+        if (!rzx_play_file_.empty() &&
+            !startup_stop_.program_landed(rzx_play_file_, rzx_ok, false, why)) {
+            Log::platform()->error("{}", why);
+            exit_code_ = 1;
+            running_ = false;
+        }
+    }
 
     // --benchmark timing (Task 27 T1): the clock brackets exactly the
     // benchmark_frames_ run_frame() iterations below — headless already runs
@@ -603,9 +627,11 @@ void HeadlessApp::run() {
         // which count down paused or not), since a wait tick is not a frame.
         // When it comes due the tick falls through: run_frame() does nothing on
         // a paused machine, and the exit below fires as it always has.
-        if (DebugServers::headless_should_wait(debugger_->state().paused, pump_hint_)) {
+        if (DebugServers::headless_should_wait(debugger_->state().paused, pump_hint_,
+                                               config_.debugger_start)) {
             const auto wait_start = std::chrono::steady_clock::now();
             pump_hint_ = debugger_->pump(DebugServers::headless_wait_budget());
+            startup_stop_.poll();   // GH #548
             if (exit_countdown_.pending()) {
                 paused_wait_us += std::chrono::duration_cast<std::chrono::microseconds>(
                                       std::chrono::steady_clock::now() - wait_start)
@@ -644,8 +670,15 @@ void HeadlessApp::run() {
 
         // Apply pending inject.
         if (inject_countdown_ == 0) {
-            emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
+            const bool injected = emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
             inject_countdown_ = -1;
+            std::string why;
+            if (!startup_stop_.program_landed(inject_file_, injected, true, why)) {
+                Log::platform()->error("{}", why);
+                exit_code_ = 1;
+                running_ = false;
+                continue;
+            }
         } else if (inject_countdown_ > 0) {
             --inject_countdown_;
         }
@@ -682,6 +715,14 @@ void HeadlessApp::run() {
                         exit_code_ = 1;
                     }
                 }
+            }
+            // GH #548: the program is in, with its symbols: arm the startup stop.
+            if (std::string why;
+                !startup_stop_.program_landed(load_file_, ok, false, why)) {
+                Log::platform()->error("{}", why);
+                exit_code_ = 1;
+                running_ = false;
+                continue;
             }
             config_.source_map_file.clear();
             // GH #346 - the scripts held back for the program's maps.
@@ -904,6 +945,7 @@ void HeadlessApp::run() {
         // budget is the socket transport's to choose (package T). With no client
         // and no service it writes nothing and moves nothing (row HOST-02).
         pump_hint_ = debugger_->pump(jnext::dbg::PumpBudget{});
+        startup_stop_.poll();   // GH #548
 
         // GH #26 WP4 — a script's verdict (§6.3): `exit n`, a stop or failed
         // assert (3), a run-time error (1). The first code wins, and it never

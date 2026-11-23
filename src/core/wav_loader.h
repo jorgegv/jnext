@@ -40,6 +40,15 @@ public:
     /// Returns 0 if past end of data or not playing.
     uint8_t get_ear_bit(uint64_t current_tstates) const;
 
+    /// T-states since the EAR level last changed at `now`, looking back along
+    /// the recording (GH #550); `cap` when it has not changed within `cap`.
+    /// A WAV is random access, so nothing needs saving for it.
+    uint32_t ticks_since_edge(uint64_t now, uint32_t cap) const;
+
+    /// GH #548: playback has begun and the clock is past the last signal edge (the end of the
+    /// tape's last bit; trailing silence is not data).
+    bool past_end(uint64_t current_tstates) const;
+
     /// True if a file has been loaded.
     bool is_loaded() const { return loaded_; }
 
@@ -86,6 +95,7 @@ private:
     uint16_t bits_per_sample_ = 8;
     std::vector<uint8_t> raw_data_;  ///< Raw PCM sample data from the WAV file.
     uint32_t data_size_ = 0;
+    uint32_t last_edge_frame_ = 0;   ///< GH #548: the last frame whose EAR level differs from the one before it
 
     /// ZX Spectrum CPU clock in Hz (3.5 MHz).
     static constexpr uint32_t CPU_CLOCK_HZ = 3500000;

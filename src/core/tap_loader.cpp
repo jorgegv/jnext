@@ -149,6 +149,30 @@ void TapLoader::start_realtime_playback() {
                             current_block_, leader_pulses_);
 }
 
+uint32_t TapLoader::ticks_since_edge() const {
+    if (!playing_) return 0;
+    uint32_t total = 0;
+    switch (play_phase_) {
+    case PlayPhase::LEADER: total = PILOT_PULSE; break;
+    case PlayPhase::SYNC1:  total = SYNC1_PULSE; break;
+    case PlayPhase::SYNC2:  total = SYNC2_PULSE; break;
+    case PlayPhase::PAUSE:  total = PAUSE_TSTATES; break;
+    case PlayPhase::DATA: {
+        // The pulse in progress belongs to the current byte and bit.
+        const TapBlock* block = peek_block();
+        if (!block) return 0;
+        uint8_t byte;
+        if (play_byte_idx_ == 0)                        byte = block->flag;
+        else if (play_byte_idx_ <= block->data.size())  byte = block->data[play_byte_idx_ - 1];
+        else                                            byte = block->checksum;
+        total = ((byte >> play_bit_idx_) & 1) ? ONE_PULSE : ZERO_PULSE;
+        break;
+    }
+    default: return 0;
+    }
+    return phase_tstates_ >= total ? 0 : total - static_cast<uint32_t>(phase_tstates_);
+}
+
 uint8_t TapLoader::tick_realtime(uint64_t tstates) {
     if (!playing_) return ear_bit_;
 

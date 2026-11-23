@@ -7103,10 +7103,10 @@ static std::vector<std::string> tape_warnings(const jnext::JnsLoadReport& rep)
     return v;
 }
 
-// NOTE: every Emulator in the process shares ONE live FUSE T-state counter
-// (fuse_z80_tstates_ptr()), so two machines must never be run in turns: a
-// load into B zeroes the counter under A. The continuation rows therefore run
-// A to its end, capture it, drop it, and only then build and run B.
+// NOTE: each Emulator's CPU keeps its own T-state counter (GH #551: the core's
+// globals are bound to the CPU that runs), so a load into B no longer zeroes A's
+// counter. The continuation rows keep their earlier order: run A to its end,
+// capture it, drop it, and only then build and run B.
 struct Fin {
     Bytes st;
     uint64_t mono = 0;

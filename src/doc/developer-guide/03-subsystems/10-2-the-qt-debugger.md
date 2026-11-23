@@ -36,7 +36,7 @@ the default (`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
 `BreakpointModel` (`src/debugger/breakpoint_model.*`) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
 `Execute`, `Mem` and `Port` subscriptions (a `lo..hi` range on the first two, a port `mask`/`value`), and the
-addressless `IntAck` and `Nmi` ones (the Interrupt and NMI types), with `once = false`, and a condition when
+addressless `IntAck` and `Nmi` ones (the Interrupt and NMI types), and `AudioWrite` ones (the Audio Write type: a target, chip, register, value/mask and applied-or-dropped, as `BpAudio`), with `once = false`, and a condition when
 the dialog gave one. A
 breakpoint stops: action `Stop` and no handler. A *count-only* one is action `Continue`
 plus a handler of the model that counts. READ, WRITE and READ_WRITE are one `Mem` subscription with an
@@ -51,6 +51,15 @@ nothing.
 and the port rule (`bp_port_mask_for()`): the model has no copy of either. Another
 client's `IntAck` or `Nmi` Stop subscription is a typed but read-only row, with an empty
 Address.
+
+An Audio Write breakpoint's dialog fields map one to one onto `EventFilter` fields (`audio_filter()` in
+`breakpoint_model.cpp`: the target to `audio_targets`, the chip, the register to `regs`, value and mask to
+`value_match`/`value_mask`, *dropped only* to `audio_flags_all` and the default to `audio_flags_none`), and
+`audio_of()` is its inverse: a subscription is the dialog's own row only when it is a filter the dialog can make
+(a script's `reg 8..10` is listed read-only). The row text is `bp_audio_text()`, one function for the panel and
+the codec's messages. The codec spells an applied AY register breakpoint as `on ay_write`, and every other audio
+breakpoint (AY chip select, DAC, Any, dropped-only) as `on audio_write` with its target word, so saving never
+refuses one.
 
 **Hit counts need no backend counter** and follow the script engine's own split
 (`account_static_stops` / `run_rule`). A Stop breakpoint stays a static Stop with no
@@ -374,6 +383,34 @@ constants in `src/debugger/`.
 `AddressStyle` (Debug > Physical Addresses) and hands it to each panel and to the `BreakpointModel`.
 Which space each view prints, and the columns that were added, are described in
 [7.7](../07-source-level-debugging/07-frontends.md).
+
+### The Audio panel
+
+`AudioPanel` (`src/debugger/audio_panel.cpp`) is a Sources strip (the five source mute boxes) above a
+`QTabWidget`: Chips, DAC & Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+not available yet. The panel owns no audio state: every number comes from one `Debugger::audio_state()` per
+refresh, and every note from `audio_math.h`, so the panel and a test read the same decode.
+
+- **Chips** draws the three chip blocks from `AudioState::chips`, the nine channel rows (period, note and
+  cents, T and N gates, volume or `Env`, a level bar from `AyChannelState::amplitude`) and the envelope line.
+  Its Hex box swaps the table for the raw `regs` of the three chips.
+- **DAC & Beeper** shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the
+  dropped-write table, one fixed row per `AudioDropReason`; a CPU-sourced row double-clicks into the
+  Disassembly, and **Clear** calls `clear_audio_drops()`. `audio_drop_reason_text()` is shared with the Log
+  tab, so the two cannot word a reason differently.
+- **Log** is `AudioLogView`, a `QAbstractTableModel` mirroring the backend ring: `refresh()` appends the
+  entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
+  overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
+  `audio_log_export()`.
+- **M and S** per channel call `set_audio_channel_mute_mask()`. A solo is the mask "everything but that
+  channel": `channel_solo_clicked()` saves the mask it found (`pre_solo_mask_`) and un-solo restores it, a solo
+  moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
+  solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.
+
+What the panel asks of the backend follows the sub-tab on show. `DebuggerManager::apply_data_needs()` requests
+the write log only while the Audio panel is on show with Log current (`AudioPanel::log_on_show()`), and drops
+the request otherwise; the panel's `sub_tab_changed` signal makes the manager re-derive it. Chips is the one
+sub-tab with the per-frame refresh described under the running cadence above.
 
 ## The key bindings are data
 

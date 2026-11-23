@@ -50,6 +50,9 @@ Program formats `file` accepts:
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `saveSnapshot()` | Resolves to a `Uint8Array` holding a `.jns` snapshot of the running machine. |
 | `startRzxRecording()`, `stopRzxRecording()` | Record the machine and collect the `.rzx` file. |
+| `listFiles()` | The files JNEXT has written for an output option (a recording, a screenshot, a trace, an export), as an array of `{path, size, complete}`; see "Files JNEXT writes", below. Empty before the click. |
+| `readFile(path)` | Resolves to a `Uint8Array`: a copy of the bytes of a finished file `listFiles()` gives. |
+| `stop()` | End the machine and keep the player and its files. Resolves to the exit status once every file is finished (0 for a clean stop). A stopped player cannot start again. |
 | `resetCard()` | Forget the saves kept by `keepWrites` and restart the program. |
 | `showKeyboard(on)`, `keyboardVisible` | Show or hide the on-screen keyboard, and ask whether it is shown. |
 | `debugChannel(protocol)` | The channel of a `debug` entry whose transport is `'channel'`, with `open()`, `send()`, `close()`, `onData`, `onClose` and `isOpen` ([8.6](06-debugging-from-the-page.md)). |
@@ -144,6 +147,61 @@ a.click();
 A recording is refused on a ZX Spectrum Next, which is the default machine: give the
 player `machine: '48k'`, `'128k'`, `'plus3'` or `'pentagon'`.
 
+### Files JNEXT writes
+
+Some options make JNEXT write a file: a recording (`--wav-record`, `--dac-trace`, `--tape-save`), a
+screenshot (`--delayed-screenshot`), a trace or profile (`--compositor-trace`, `--profile` with
+`--profile-output`), an export (`--export-skoolkit`, `--export-ghidra`), a bug report
+(`--bug-report`), the audio write log (`--audio-log`) or the log (`--log-file`). A page gives them in `args`. The files live in the
+page's memory, and the page collects them with `listFiles()` and `readFile()`:
+
+```js
+const player = await jnext.mount(el, { machine: '48k', args: ['--wav-record', '/tmp/game.wav'] });
+// ... the visitor plays ...
+await player.stop();
+console.log(player.listFiles());   // [{ path: '/tmp/game.wav', size: 1234567, complete: true }]
+const bytes = await player.readFile('/tmp/game.wav');
+```
+
+- `listFiles()` lists the files in the order JNEXT began them. `path` is the absolute path, `size` is
+  the bytes in the page's memory now, and `complete` says that JNEXT has finished the file for good.
+  Each call gives a new array. A file the page itself put in the file system is not listed, and
+  neither is one that is gone.
+- `readFile(path)` takes a path `listFiles()` gives and resolves to a new `Uint8Array` each time. It
+  refuses a file that is not complete: its contents are not a whole file yet (a WAV's header holds
+  no length until the end).
+- When a file is complete:
+    - a screenshot, when it has been written;
+    - a compositor trace, after its frame, or at the end of the machine if the frame never came;
+    - everything else, at the end of the machine: `--delayed-automatic-exit-frames` ends it, and
+      so does `stop()`, which resolves only when every file is finished.
+- Where to write: any directory that exists, such as `/tmp`, or a bare name (it goes in `/`). Not
+  `/sdcard`, `/jnext` or `/media`: they are the player's own (the SD card, what the player keeps and
+  the programs it installs), and `listFiles()` and `readFile()` never give anything in them, whoever
+  wrote it and however the name is spelt (`..`, a relative name or a link to it included).
+- What the page can read is the card's opposite: the SD card image and the player's own files never come
+  out of `readFile()`. What an export holds is the page author's choice, as on the desktop: a
+  `--export-skoolkit` of ROM space holds the ROM the machine ran (a bug report, as on the desktop,
+  leaves the memory of a card session out: [5.12](../05-running-programs/12-bug-reports.md)). NextZXOS is SpecNext's
+  copyrighted software: what you offer to your visitors, an export of the machine's memory included, is your
+  responsibility, and JNEXT does not check it against anything.
+- A file the page offers for download is the usual four lines. This button saves the WAV above
+  (`player` is what `jnext.mount()` resolved to):
+
+```html
+<button id="save-wav">Save the recording</button>
+<script>
+  document.getElementById('save-wav').onclick = async () => {
+    await player.stop();
+    const bytes = await player.readFile('/tmp/game.wav');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([bytes]));
+    a.download = 'game.wav';
+    a.click();
+  };
+</script>
+```
+
 ### The CRT effect
 
 The desktop window's CRT effect ([5.3](../05-running-programs/03-display.md)) runs in
@@ -193,6 +251,22 @@ the visitor has clicked and the player has its SD card (until then it is undefin
 - `stopRzxRecording()` rejects if none is running.
 - `resetCard()` needs `keepWrites` (it rejects without it). It resolves when the program
   is in the machine again.
+- `listFiles()` returns `[]` before the click, and never lists the player's own locations (`/sdcard`,
+  `/jnext`, `/media`).
+- `readFile(path)` rejects, with nothing sent to `onError`, when:
+    - `path` is not a string (a `TypeError`: `jnext: readFile() takes a path that listFiles() gives`);
+    - the path is in the player's own locations (`jnext: <path> is one of the player's own files (the SD
+      card and what the player keeps); readFile() never returns them`);
+    - JNEXT did not write the path (`jnext: <path> is not a file this player's machine wrote`), or it is
+      gone;
+    - the file is not complete (`jnext: <path> is still being written (listFiles() says when it is
+      complete; stop() ends the machine)`).
+- `stop()` rejects while the machine is not running (`jnext: the machine is not running`: before the
+  click, or while it starts). It resolves with the exit status once the machine has exited, which is
+  after every file is finished; the overlay then says "Stopped", as for an automatic exit. After the
+  machine has exited, by `stop()` or by itself, `stop()` resolves with the same status again.
+- After `destroy()` the three throw `jnext: this player was destroyed`. The files go with the
+  player: collect them first.
 - `showKeyboard(on)`: the page's call wins over `touchKeyboard`, before or after the
   start. Anything but a boolean throws a `TypeError`.
 - `destroy()`: with `keepWrites` it first waits until the saves are stored.

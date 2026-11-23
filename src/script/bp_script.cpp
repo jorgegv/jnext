@@ -44,11 +44,52 @@ bool is_symbol_name(const std::string& n) {
 
 const char* bp_kind_name(BpSpec::Kind k) {
     static const char* const names[] = {"Execute", "Read", "Write", "Read/Write",
-                                        "IO Read", "IO Write", "Interrupt", "NMI"};
+                                        "IO Read", "IO Write", "Interrupt", "NMI", "Audio Write"};
     return k < sizeof names / sizeof *names ? names[k] : "?";
 }
 
 uint16_t bp_port_mask_for(uint16_t addr) { return addr <= 0x00FF ? 0x00FF : 0xFFFF; }
+
+bool operator==(const BpAudio& a, const BpAudio& b) {
+    return a.target == b.target && a.chip == b.chip && a.reg == b.reg && a.value == b.value &&
+           (!a.value || a.mask == b.mask) && a.dropped_only == b.dropped_only;
+}
+
+std::string bp_audio_text(const BpAudio& a) {
+    char b[48];
+    std::string s;
+    switch (a.target) {
+        case BpAudio::AyRegister:
+            s = "AY";
+            if (a.chip != 0xFF) s += std::to_string(a.chip);
+            break;
+        case BpAudio::AyChipSelect:
+            s = "AY select";
+            if (a.chip != 0xFF) s += " " + std::to_string(a.chip);
+            break;
+        case BpAudio::Dac:
+            s = "DAC";
+            if (a.chip < 4) s += std::string(" ") + "ABCD"[a.chip];
+            break;
+        case BpAudio::Any:
+            s = "Any audio";
+            break;
+    }
+    if (a.target == BpAudio::AyRegister && a.reg) {
+        s += " R" + std::to_string(*a.reg);
+        if (*a.reg == 13) s += " restart";
+    }
+    if (a.value) {
+        std::snprintf(b, sizeof b, " value 0x%02X", *a.value);
+        s += b;
+        if (a.mask != 0xFF) {
+            std::snprintf(b, sizeof b, " mask 0x%02X", a.mask);
+            s += b;
+        }
+    }
+    if (a.dropped_only) s += " dropped";
+    return s;
+}
 
 bool same_locations(std::vector<::SourceAddress> a, std::vector<::SourceAddress> b) {
     if (a.size() != b.size()) return false;
@@ -74,7 +115,33 @@ std::string one_line(const std::string& s) {
 
 // The rule body of a breakpoint spec ("on EVENT FILTER"), or "" with `why` set
 // when it has no faithful spelling.
+// `on ay_write` spells an applied AY register write; every other audio breakpoint is `on audio_write`
+// with its target word. Always spellable (GH #532): the target, chip, register, value and `dropped` are
+// the language's own qualifiers.
+std::string audio_event_for(const BpAudio& a) {
+    char b[48];
+    const bool general = a.target != BpAudio::AyRegister || a.dropped_only;
+    std::string o = general ? "on audio_write" : "on ay_write";
+    if (general) {
+        if (a.target == BpAudio::AyRegister)        o += " ay_reg";
+        else if (a.target == BpAudio::AyChipSelect) o += " ay_select";
+        else if (a.target == BpAudio::Dac)          o += " dac";
+    }
+    if (a.target != BpAudio::Any && a.chip != 0xFF) o += " chip " + std::to_string(a.chip);
+    if (a.target == BpAudio::AyRegister && a.reg) {
+        std::snprintf(b, sizeof b, " reg 0x%02X", *a.reg);
+        o += b;
+    }
+    if (a.value) {
+        std::snprintf(b, sizeof b, " mask 0x%02X value 0x%02X", a.mask, *a.value);
+        o += b;
+    }
+    if (a.dropped_only) o += " dropped";
+    return o;
+}
+
 std::string event_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& why) {
+    if (s.kind == BpSpec::AudioWrite) return audio_event_for(s.audio);
     const bool io = s.kind == BpSpec::IoRead || s.kind == BpSpec::IoWrite;
     const bool addressless = s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi;
     if (s.mask && !io) {
@@ -115,6 +182,7 @@ std::string event_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& wh
         case BpSpec::IoWrite:   return "on io_write " + hex_for(s);
         case BpSpec::Interrupt: return "on interrupt";
         case BpSpec::Nmi:       return "on nmi";
+        case BpSpec::AudioWrite: return audio_event_for(s.audio);   // handled above
         case BpSpec::Execute:   break;
     }
     if (!s.file_line.empty()) {
@@ -169,6 +237,7 @@ std::string rule_for(const BpSpec& s, const dbg::Debugger& dbg, std::string& why
 }
 
 std::string where_of(const BpSpec& s) {
+    if (s.kind == BpSpec::AudioWrite) return bp_audio_text(s.audio);
     if (!s.file_line.empty()) return one_line(s.file_line);
     return dbg::long_address(s.addr, s.space, dbg::AddressStyle::Friendly, false);
 }
@@ -189,6 +258,7 @@ PayloadScope bp_scope(BpSpec::Kind k) {
         case BpSpec::IoWrite:   ev.type = EventType::IoWrite; break;
         case BpSpec::Interrupt: ev.type = EventType::Interrupt; break;
         case BpSpec::Nmi:       ev.type = EventType::Nmi; break;
+        case BpSpec::AudioWrite: ev.type = EventType::AudioWrite; break;
     }
     return scope_of(ev);
 }
@@ -211,7 +281,7 @@ std::string bp_condition_problem(BpSpec::Kind kind, const std::string& text, con
     // The text must come back from the parser as itself: a `;`, `#` or `//` comment would swallow the
     // ` do stop end` that follows it in the file, and a stray `do` / `end` would end the rule early.
     static const char* const events[] = {"execute 0", "read 0", "write 0", "read_write 0", "io_read 0",
-                                         "io_write 0", "interrupt", "nmi"};
+                                         "io_write 0", "interrupt", "nmi", "audio_write"};
     const ParseResult pr = parse_script(std::string("on ") + events[kind] + " when " + body + " do stop end\n");
     if (!pr.ok() || pr.script.rules.size() != 1 || pr.script.rules[0].when_text != body ||
         pr.script.rules[0].body.size() != 1)
@@ -222,7 +292,8 @@ std::string bp_condition_problem(BpSpec::Kind kind, const std::string& text, con
 bool operator==(const BpSpec& a, const BpSpec& b) {
     return a.kind == b.kind && a.addr == b.addr && bp_effective_hi(a) == bp_effective_hi(b) &&
            bp_effective_mask(a) == bp_effective_mask(b) && a.condition == b.condition && a.space == b.space && a.file_line == b.file_line &&
-           a.enabled == b.enabled && a.count_only == b.count_only && same_locations(a.locations, b.locations);
+           a.enabled == b.enabled && a.count_only == b.count_only && same_locations(a.locations, b.locations) &&
+           (a.kind != BpSpec::AudioWrite || a.audio == b.audio);
 }
 
 BpScript bp_script_text(const std::vector<BpSpec>& specs, const dbg::Debugger& dbg) {
@@ -289,6 +360,8 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
             case EventType::IoWrite:   s.kind = BpSpec::IoWrite; break;
             case EventType::Interrupt: s.kind = BpSpec::Interrupt; break;
             case EventType::Nmi:       s.kind = BpSpec::Nmi; break;
+            case EventType::AyWrite:
+            case EventType::AudioWrite: s.kind = BpSpec::AudioWrite; break;
             default: fail(out, ev.pos, not_a_bp("another kind of event")); return out;
         }
         if (r.once)  { fail(out, r.pos, not_a_bp("`once`")); return out; }
@@ -307,6 +380,65 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
             s.condition = r.when_text;
         }
         if (s.kind == BpSpec::Interrupt || s.kind == BpSpec::Nmi) {
+            out.specs.push_back(std::move(s));
+            continue;
+        }
+        if (s.kind == BpSpec::AudioWrite) {
+            // A literal (or @symbol) in 0..max, or a refusal.
+            auto lit = [&](const ExprPtr& e, int max, const char* what) -> int {
+                if (e->kind != ExprKind::Int && e->kind != ExprKind::Symbol) {
+                    fail(out, e->pos, not_a_bp((std::string(what) + " is not a number or an @symbol").c_str()));
+                    return -1;
+                }
+                if (e->value < 0 || e->value > max) {
+                    fail(out, e->pos, std::string(what) + " must be in 0.." + std::to_string(max));
+                    return -1;
+                }
+                return e->value;
+            };
+            BpAudio& a = s.audio;
+            a.target = ev.audio == AudioWord::AyReg ? BpAudio::AyRegister
+                     : ev.audio == AudioWord::AySelect ? BpAudio::AyChipSelect
+                     : ev.audio == AudioWord::Dac ? BpAudio::Dac : BpAudio::Any;
+            a.dropped_only = ev.dropped;
+            if (ev.chip && ev.dropped && a.target == BpAudio::Dac) {
+                fail(out, ev.chip->pos, "a dropped DAC write reached no channel, so `dac chip N dropped` can never match: "
+                                        "write `dac dropped`");
+                return out;
+            }
+            if (ev.chip) {
+                const int c = lit(ev.chip, a.target == BpAudio::Dac ? 3 : 2, "the chip");
+                if (c < 0) return out;
+                a.chip = static_cast<uint8_t>(c);
+            }
+            if (ev.lo) {
+                const int r = lit(ev.lo, 15, "the register");
+                if (r < 0) return out;
+                if (ev.hi) {
+                    const int h = lit(ev.hi, 15, "the register");
+                    if (h < 0) return out;
+                    if (h != r) {
+                        fail(out, ev.hi->pos, not_a_bp("the filter is not one register"));
+                        return out;
+                    }
+                }
+                a.reg = static_cast<uint8_t>(r);
+            }
+            if (ev.mask) {
+                const int m = lit(ev.mask, 0xFF, "the mask");
+                if (m < 0) return out;
+                const int v = lit(ev.value, 0xFF, "the value");
+                if (v < 0) return out;
+                if (v & ~m) {
+                    fail(out, ev.value->pos, "the value has bits outside the mask: it can never match");
+                    return out;
+                }
+                // A zero mask matches every value: the same breakpoint as none.
+                if (m != 0) {
+                    a.value = static_cast<uint8_t>(v);
+                    a.mask  = static_cast<uint8_t>(m);
+                }
+            }
             out.specs.push_back(std::move(s));
             continue;
         }

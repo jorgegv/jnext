@@ -3,6 +3,7 @@
 #include "debug/audio_log_stream.h"
 #include "core/cli_options.h"
 #include "core/log.h"
+#include "core/output_files.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
 #include "peripheral/sd_write_journal.h"
@@ -91,6 +92,12 @@
 // The card extracted from a zipped --sdcard (about 40 MiB): removed when the run
 // ends, since the process scratch directory's destructor never runs under Emscripten.
 static std::string g_extracted_sd_card;
+#endif
+
+#ifdef JNEXT_BROWSER
+// The --log-file of a page's run: the page's finish flushes it and reports it complete
+// (GH #553). A file-scope string because that finish runs after main() has returned.
+static std::string g_page_log_file;
 #endif
 
 static void crash_handler(int sig) {
@@ -306,6 +313,12 @@ int main(int argc, char* argv[]) {
     signal(SIGABRT, crash_handler);
     signal(SIGFPE,  crash_handler);
 
+#ifdef JNEXT_BROWSER
+    // Tell the page which files the run writes for an output option (GH #553). Before the
+    // --log-file below, the first of them.
+    browser_frontend::install_output_sink();
+#endif
+
     // Where the log goes, and whether it is coloured (GH #235, GH #227).
     //
     // This runs BEFORE Log::init() and before the banner below, and that is the
@@ -325,6 +338,10 @@ int main(int argc, char* argv[]) {
             std::fprintf(stderr, "jnext: %s\n", r.error.c_str());
             return 1;
         }
+        if (policy.destination == log_sink_policy::Destination::File) output_files::begin(policy.path);
+#ifdef JNEXT_BROWSER
+        if (policy.destination == log_sink_policy::Destination::File) g_page_log_file = policy.path;
+#endif
     }
 
     // Initialize all loggers at default level (info).
@@ -403,6 +420,8 @@ int main(int argc, char* argv[]) {
     std::string tape_save_file;
     bool        magic_breakpoint = false;
     bool        persistent_breakpoints = false;
+    bool        debugger_start = false;   // GH #548: --debugger / --break-at
+    std::string break_at;                 // GH #548: --break-at ADDR|SYMBOL
     // GH #287 — the debugger protocol servers' bind address. Empty means "the
     // user did not say", which leaves EmulatorConfig's loopback default.
     std::string debug_listen_address;
@@ -972,6 +991,18 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::PersistentBreakpoints:
                 persistent_breakpoints = true;
+                break;
+            case cli::OptId::Debugger:
+                debugger_start = true;
+                break;
+            case cli::OptId::BreakAt:
+                // GH #548: implies --debugger. An empty value names nothing to stop at.
+                if (v[0][0] == '\0') {
+                    fprintf(stderr, "--break-at: ADDR|SYMBOL must not be empty.\n");
+                    return 1;
+                }
+                break_at = v[0];
+                debugger_start = true;
                 break;
             case cli::OptId::DzrpPort: {
                 // A port that silently became another one would be a server
@@ -2650,7 +2681,19 @@ int main(int argc, char* argv[]) {
         // could arrive from a config file is one the user cannot audit by
         // reading the command they ran.
         if (!debug_listen_address.empty()) cfg.debug_listen_address = debug_listen_address;
-        cfg.dzrp_port = dzrp_port;
+        // GH #548: --debugger waits for "a debugger" without naming one. A run with a debugger
+        // window (the Qt GUI) is its own; any other gets DZRP on the default port unless the
+        // user chose a protocol port. Before the --debug-listen-address check below, which
+        // asks for a server port.
+        bool debugger_has_window = false;
+#if defined(ENABLE_QT_UI) && defined(ENABLE_DEBUGGER)
+        debugger_has_window = !headless;
+#endif
+        cfg.debugger_start = debugger_start;
+        cfg.break_at = break_at;
+        cfg.dzrp_port = debugger_start
+            ? cli::debugger_implied_dzrp_port(debugger_has_window, dzrp_port, zrcp_port, gdb_port)
+            : dzrp_port;
         cfg.zrcp_port = zrcp_port;
         cfg.gdb_port = gdb_port;
         cfg.dzrp_channel = dzrp_channel;
@@ -3391,6 +3434,14 @@ int main(int argc, char* argv[]) {
             }
 
             app.shutdown();
+#ifdef JNEXT_BROWSER
+            // No destructor runs in a page and stdio is not flushed at its exit: finish the
+            // outputs the destructor would (TZX / WAV tape, compositor trace, profile) and flush
+            // the log, then tell the page they are complete (GH #553).
+            app.emulator().finish_outputs();
+            spdlog::apply_all([](std::shared_ptr<spdlog::logger> l) { l->flush(); });
+            output_files::end(g_page_log_file);
+#endif
             // shutdown() decides the status: a --delayed-screenshot that was
             // requested and never written exits non-zero, so a CI script cannot
             // mistake a missing PNG for success. A capture-finalize failure makes

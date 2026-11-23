@@ -387,6 +387,14 @@ struct Debugger::Impl {
     /// WITH — a change that forgets it leaves a subscription that can never fire.
     void gates_changed();
 
+    /// GH #532 -- the audio tap is on while the log is requested OR a live
+    /// `AudioWrite` subscription exists. Computed here, never per write.
+    void publish_audio_tap() {
+        emu.set_audio_tap(&audio_sink, audio_log_derived || events.has_kind(EventKind::AudioWrite));
+    }
+    /// Latch one decoded audio write for the live `AudioWrite` subscriptions.
+    void latch_audio_write(const AudioLogEntry& e);
+
     /// The boundary drain and the pre-instruction `Execute` gate — the two
     /// things the hot loop calls, through the `std::function`s `DebugState`
     /// holds. Both return true iff a `Stop` fired.

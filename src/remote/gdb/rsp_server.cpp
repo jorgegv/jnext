@@ -160,6 +160,7 @@ const char* kind_name(EventKind k) {
         case EventKind::Host:         return "host";
         case EventKind::Copper:       return "copper";
         case EventKind::Dma:          return "dma";
+        case EventKind::AudioWrite:   return "audio_write";
         case EventKind::Count:        break;
     }
     return "?";

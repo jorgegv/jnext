@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2350,6 +2350,8 @@
       
         
       
+        
+      
     
     
     
@@ -2862,6 +2864,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -4669,13 +4699,23 @@ end
 <td><code>SRC DST LEN DMA_MODE</code></td>
 </tr>
 <tr>
+<td><code>ay_write</code></td>
+<td><code>[chip C] [reg R[..S]] [mask M value V]</code></td>
+<td><code>CHIP REG VALUE PREV TARGET</code></td>
+</tr>
+<tr>
+<td><code>audio_write</code></td>
+<td><code>[ay_reg \| ay_select \| dac] [chip C] [reg R[..S]] [mask M value V] [dropped]</code></td>
+<td><code>CHIP REG VALUE PREV TARGET</code></td>
+</tr>
+<tr>
 <td><code>stop</code></td>
 <td>—</td>
 <td><code>REASON</code> (a string)</td>
 </tr>
 </tbody>
 </table>
-<p><code>SOURCE</code> is <code>CPU</code> (0), <code>DMA</code> (1) or <code>COPPER</code> (2).</p>
+<p><code>SOURCE</code> is <code>CPU</code> (0), <code>DMA</code> (1) or <code>COPPER</code> (2). <code>TARGET</code> is 0 AY register, 1 AY chip select, 2 DAC, 3 NextREG mirror, 4 beeper.</p>
 <h2 id="state">State<a class="headerlink" href="#state" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -4708,6 +4748,10 @@ end
 <tr>
 <td><code>mmu[s] page[s] nextreg[r]</code></td>
 <td>MMU, NextREGs</td>
+</tr>
+<tr>
+<td><code>ay[c, r]</code></td>
+<td>AY chip <code>c</code> (0..2) register <code>r</code> (0..15), read-only</td>
 </tr>
 <tr>
 <td><code>FRAME CYCLE TFRAME</code></td>
