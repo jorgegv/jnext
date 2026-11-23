@@ -10,14 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-60. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-62. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=60
+EXPECTED_ROWS=62
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -710,6 +710,27 @@ fresh
 out=$(env -u JOBS -u MAKEFLAGS -u JNEXT_UNIT_TEST_JOBS JNEXT_TEST_JOBS= JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" env LANG=C make -C "$WT" unit-test 2>&1)
 row SLOT-60 "$([[ "$(makeenv)" == *" T=6" && "$out" == *"JNEXT_TEST_JOBS=6"* && "$out" != *"JNEXT_TEST_JOBS= (caller"* ]] && echo 1 || echo 0)" \
     "an exported empty JNEXT_TEST_JOBS counts as unset and gets the cap"
+
+# SLOT-61: the caller's MAKEFLAGS=-k survives on the two other branches that write MAKEFLAGS: an env JOBS word and an
+# environment JOBS (a real make sees k and the caller's value)
+fresh
+echo 2 > "$CLEANSLOTS/NSLOTS"
+mkf() {   # <MAKEFLAGS value> <command...>: slot.sh with that caller MAKEFLAGS (and $MKF_ENV, e.g. JOBS=5), real make's PATH
+    local mf=$1; shift
+    env -u JOBS -u JNEXT_UNIT_TEST_JOBS -u JNEXT_TEST_JOBS MAKEFLAGS="$mf" JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 PATH="$REALPATH" ${MKF_ENV:-X_UNUSED=1} \
+        timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$@" 2>&1
+}
+o61a=$(mkf -k env JOBS=3 make -C "$RM")
+o61b=$(MKF_ENV=JOBS=5 mkf -k make -C "$RM")
+row SLOT-61 "$([[ "$o61a" == *"seen-JOBS=3"* && "$o61a" == *"flags=[k "* && "$o61b" == *"seen-JOBS=5"* && "$o61b" == *"flags=[k "* ]] && echo 1 || echo 0)" \
+    "with MAKEFLAGS=-k, an env JOBS=3 word and an environment JOBS=5 each reach a real make together with the k flag"
+
+# SLOT-62: two caller values: MAKEFLAGS JOBS=7 beats an env word JOBS=3 (as make itself would), and the log says so
+fresh
+echo 2 > "$CLEANSLOTS/NSLOTS"
+o62=$(mkf "JOBS=7" env JOBS=3 make -C "$RM")
+row SLOT-62 "$([[ "$o62" == *"seen-JOBS=7"* && "$o62" == *"JOBS=caller's MAKEFLAGS"* ]] && echo 1 || echo 0)" \
+    "MAKEFLAGS JOBS=7 plus env JOBS=3 make: make sees 7 and the log says the caller's MAKEFLAGS"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and
