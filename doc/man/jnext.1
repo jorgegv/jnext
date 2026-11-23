@@ -5029,13 +5029,20 @@ Command\-line usage error \(em \f[B]\-\-sdcard\-file\-dest\f[R] or
 \f[B]\-\-sdcard\-file\-force\f[R] without
 \f[B]\-\-sdcard\-file\-add\f[R], either of the first two given twice or
 with an empty value, or combined with \f[B]\-\-sdcard\-readonly\f[R] or
-\f[B]\-\-load\f[R].
+\f[B]\-\-load\f[R]; for the three commands above, a missing companion
+(\f[B]\-\-sdcard\-writes\-flatten\f[R] without
+\f[B]\-\-sdcard\-writes\f[R], \f[B]\-\-sdcard\-export\-base\f[R] without
+\f[B]\-\-sdcard\-export\-changes\f[R]), an empty value, a repeat, or two
+of the commands in one run.
 .TP
 2
-The host file is missing, unreadable, shrank while being copied, or is 4
-GiB or larger (which FAT32 cannot store); or, inside a directory, a
-device, FIFO or socket, an unreadable directory, a dangling symbolic
-link, or one that loops back.
+For \f[B]\-\-sdcard\-import\-changes\f[R]: the directory has no
+\f[CR]CHANGES.txt\f[R], it is not a valid changes list, or a listed file
+is missing or not the size its line says.
+Otherwise the host file is missing, unreadable, shrank while being
+copied, or is 4 GiB or larger (which FAT32 cannot store); or, inside a
+directory, a device, FIFO or socket, an unreadable directory, a dangling
+symbolic link, or one that loops back.
 .TP
 3
 The destination path is unusable: malformed or non\-ASCII, a name FAT

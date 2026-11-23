@@ -4039,13 +4039,19 @@ The file or directory was copied onto the card.
 Command-line usage error — **--sdcard-file-dest** or
 **--sdcard-file-force** without **--sdcard-file-add**, either of the
 first two given twice or with an empty value, or combined with
-**--sdcard-readonly** or **--load**.
+**--sdcard-readonly** or **--load**; for the three commands above, a
+missing companion (**--sdcard-writes-flatten** without
+**--sdcard-writes**, **--sdcard-export-base** without
+**--sdcard-export-changes**), an empty value, a repeat, or two of the
+commands in one run.
 
 2  
-The host file is missing, unreadable, shrank while being copied, or is 4
-GiB or larger (which FAT32 cannot store); or, inside a directory, a
-device, FIFO or socket, an unreadable directory, a dangling symbolic
-link, or one that loops back.
+For **--sdcard-import-changes**: the directory has no `CHANGES.txt`, it
+is not a valid changes list, or a listed file is missing or not the size
+its line says. Otherwise the host file is missing, unreadable, shrank
+while being copied, or is 4 GiB or larger (which FAT32 cannot store);
+or, inside a directory, a device, FIFO or socket, an unreadable
+directory, a dangling symbolic link, or one that loops back.
 
 3  
 The destination path is unusable: malformed or non-ASCII, a name FAT
