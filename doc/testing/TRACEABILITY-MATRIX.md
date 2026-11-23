@@ -33,7 +33,7 @@ mentions them, so a test can no longer be absent from this document.
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   173 |  173 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
-| CTC+Interrupts                             |   213 |  213 |    0 |    0 |       0 |          0 |
+| CTC+Interrupts                             |   215 |  215 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   268 |  268 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
@@ -62,7 +62,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |    15 |   15 |    0 |    0 |       0 |          0 |
-| Companion: ctc_interrupts_test             |    92 |   92 |    0 |    0 |       0 |          0 |
+| Companion: ctc_interrupts_test             |    93 |   93 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   379 |  379 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    64 |   64 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6543 | 6543 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6546 | 6546 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6543**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6015**. Rows the 243 suites declared in `test/unit-tests.conf` run live: **17829**.
+Rows the sections above carry: **6546**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6017**. Rows the 243 suites declared in `test/unit-tests.conf` run live: **17836**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 190 suites (11898 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 190 suites (11903 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -260,7 +260,7 @@ These 190 suites (11898 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_dialog_test` | 17 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 12 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
-| `preferences_apply_test` | 101 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 106 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 122 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 60 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 11 | debugger quit gating (host GUI lifecycle) |
@@ -2863,10 +2863,11 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | IM2C-18 | im2_control.vhd:243-247: ED 56 straight after a RETI sets IM 1 | im2_control.vhd:243-247 | pass | test/ctc/ctc_test.cpp:1273 |
 | IM2C-19 | im2_control.vhd:166, :193-198: RETI, CB 00, ED 4D: the CB path from S_0 returns to S_0 and the RETI is seen | im2_control.vhd:166,193-198 | pass | test/ctc/ctc_test.cpp:1285 |
 | IM2C-20 | im2_device.vhd:122-127, :141: a line handler EI;RETI right after the CTC's RETI frees the line device and the CTCs are acknowledged again | im2_device.vhd:122-127,141 | pass | test/ctc/ctc_test.cpp:1325 |
-| CTCI-556-01 | hw IM2, line handler `EI ; RETI`, CTC handlers `EI ; RETI`: the CTC count rises in every 10-frame window for 100 frames (the line device never sticks in S_ISR; im2_control.vhd:181-192, im2_device.vhd:122-127) | im2_control.vhd:181-192, im2_device.vhd:122-127 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3770 |
-| CTCI-556-02 | same with NR CC=03/CD=07 and a 1152-byte DMA to port 0x5B started in a loop: transfers keep completing in every window (the DMA is not held for ever by CTCs stuck in S_REQ; im2_device.vhd:151) | im2_device.vhd:151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3780 |
-| CTCI-556-03 | line handler `NOP ; EI ; RETI` (the ED is the 3rd fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3789 |
-| CTCI-556-04 | CTC0 request latched, then NR C5 bit 0 cleared before the acknowledge: still acknowledged exactly once, held the DMA until then, no further CTC0 interrupts (im2_peripheral.vhd:167-178, im2_device.vhd:148/:151) | im2_peripheral.vhd:167-178, im2_device.vhd:148 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3809 |
+| CTCI-556-01 | hw IM2, line handler `EI ; RETI`, CTC handlers `EI ; RETI`: the CTC count rises in every 10-frame window for 100 frames (the line device never sticks in S_ISR; im2_control.vhd:181-192, im2_device.vhd:122-127) | im2_control.vhd:181-192, im2_device.vhd:122-127 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3774 |
+| CTCI-556-02 | same with NR CC=03/CD=07 and a 1152-byte DMA to port 0x5B started in a loop: transfers keep completing in every window (the DMA is not held for ever by CTCs stuck in S_REQ; im2_device.vhd:151) | im2_device.vhd:151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3784 |
+| CTCI-556-03 | line handler `NOP ; EI ; RETI` (the ED is the 3rd fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3793 |
+| CTCI-556-05 | line handler is a bare RETI (ED 4D, the ED being the first fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3804 |
+| CTCI-556-04 | CTC0 request latched, then NR C5 bit 0 cleared before the acknowledge: still acknowledged exactly once, held the DMA until then, no further CTC0 interrupts (im2_peripheral.vhd:167-178, im2_device.vhd:148/:151) | im2_peripheral.vhd:167-178, im2_device.vhd:148 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3824 |
 | IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1030 |
 | IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1054 |
 | IM2D-01 | im2_device.vhd:106 S_0 → S_REQ on i_int_req=1 | im2_device.vhd:106 | pass | test/ctc/ctc_test.cpp:1344 |
@@ -2957,15 +2958,16 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:975 |
 | DMA-01 | peripherals.vhd:174-184 im2_dma_int OR-reduction across devices | peripherals.vhd:174-184 | pass | test/ctc/ctc_test.cpp:2789 |
 | DMA-02 | zxnext.vhd:2001-2010 im2_dma_delay latches on im2_dma_int | zxnext.vhd:2001-2010 | pass | test/ctc/ctc_test.cpp:2804 |
-| DMA-03 | zxnext.vhd:2007 im2_dma_delay self-holds while the decoder is in S_ED_T4 and is released by the end of the RETI | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2836 |
-| DMA-04 | zxnext.vhd:2007 NMI-activated DMA delay (nmi_activated AND nr_cc_dma_int_en_0_7) | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2871 |
-| DMA-05 | zxnext.vhd:2004-2005 reset clears im2_dma_delay latch | zxnext.vhd:2004-2005 | pass | test/ctc/ctc_test.cpp:2891 |
-| DMA-06 | zxnext.vhd:1957-1958 per-device dma_int_en fan-out via mask | zxnext.vhd:1957-1958 | pass | test/ctc/ctc_test.cpp:2913 |
-| UNQ-01 | zxnext.vhd:1946-1947 NR 0x20 b7 unqualified LINE int (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2931 |
-| UNQ-02 | zxnext.vhd:1946-1947 NR 0x20 b0 unqualified CTC0 (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2947 |
-| UNQ-03 | zxnext.vhd:1946-1947 NR 0x20 b6 unqualified ULA (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2963 |
-| UNQ-04 | im2_peripheral.vhd:172 int_unq bypasses i_int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2993 |
-| UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:3008 |
+| DMA-03b | same through ED 45: the latch is released by the end of the RETN (im2_control.vhd:186-192, :238) | im2_control.vhd:186-192,238 | pass | test/ctc/ctc_test.cpp:2844 |
+| DMA-03 | zxnext.vhd:2007 im2_dma_delay self-holds while the decoder is in S_ED_T4 (source already gone) and is released by the end of the RETI | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2837 |
+| DMA-04 | zxnext.vhd:2007 NMI-activated DMA delay (nmi_activated AND nr_cc_dma_int_en_0_7) | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2878 |
+| DMA-05 | zxnext.vhd:2004-2005 reset clears im2_dma_delay latch | zxnext.vhd:2004-2005 | pass | test/ctc/ctc_test.cpp:2898 |
+| DMA-06 | zxnext.vhd:1957-1958 per-device dma_int_en fan-out via mask | zxnext.vhd:1957-1958 | pass | test/ctc/ctc_test.cpp:2920 |
+| UNQ-01 | zxnext.vhd:1946-1947 NR 0x20 b7 unqualified LINE int (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2938 |
+| UNQ-02 | zxnext.vhd:1946-1947 NR 0x20 b0 unqualified CTC0 (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2954 |
+| UNQ-03 | zxnext.vhd:1946-1947 NR 0x20 b6 unqualified ULA (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2970 |
+| UNQ-04 | im2_peripheral.vhd:172 int_unq bypasses i_int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:3000 |
+| UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:3015 |
 | CTC-JOY-01 | in NR 0x0B iomode "01" each CTC channel-3 ZC/TO toggles joy_iomode_pin7, and a channel-0 ZC/TO does not [zxnext.vhd:3518-3524, :4088] | zxnext.vhd:3522 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2715 |
 | CTC-JOY-02 | the pin-7 toggle is conditioned on (nr_0b_joy_iomode_0='1' OR joy_iomode_pin7='0'): with NR 0x0B bit 0 clear a ZC/TO moves pin7 only from '0' to '1' and never back [zxnext.vhd:3519-3524] | zxnext.vhd:3519-3520 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2756 |
 | SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1453 |
@@ -6471,10 +6473,11 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3594 |
 | CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3625 |
 | CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3663 |
-| CTCI-556-01 | hw IM2, line handler `EI ; RETI`, CTC handlers `EI ; RETI`: the CTC count rises in every 10-frame window for 100 frames (the line device never sticks in S_ISR; im2_control.vhd:181-192, im2_device.vhd:122-127) | im2_control.vhd:181-192, im2_device.vhd:122-127 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3770 |
-| CTCI-556-02 | same with NR CC=03/CD=07 and a 1152-byte DMA to port 0x5B started in a loop: transfers keep completing in every window (the DMA is not held for ever by CTCs stuck in S_REQ; im2_device.vhd:151) | im2_device.vhd:151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3780 |
-| CTCI-556-03 | line handler `NOP ; EI ; RETI` (the ED is the 3rd fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3789 |
-| CTCI-556-04 | CTC0 request latched, then NR C5 bit 0 cleared before the acknowledge: still acknowledged exactly once, held the DMA until then, no further CTC0 interrupts (im2_peripheral.vhd:167-178, im2_device.vhd:148/:151) | im2_peripheral.vhd:167-178, im2_device.vhd:148/151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3809 |
+| CTCI-556-01 | hw IM2, line handler `EI ; RETI`, CTC handlers `EI ; RETI`: the CTC count rises in every 10-frame window for 100 frames (the line device never sticks in S_ISR; im2_control.vhd:181-192, im2_device.vhd:122-127) | im2_control.vhd:181-192, im2_device.vhd:122-127 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3774 |
+| CTCI-556-02 | same with NR CC=03/CD=07 and a 1152-byte DMA to port 0x5B started in a loop: transfers keep completing in every window (the DMA is not held for ever by CTCs stuck in S_REQ; im2_device.vhd:151) | im2_device.vhd:151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3784 |
+| CTCI-556-03 | line handler `NOP ; EI ; RETI` (the ED is the 3rd fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3793 |
+| CTCI-556-05 | line handler is a bare RETI (ED 4D, the ED being the first fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3804 |
+| CTCI-556-04 | CTC0 request latched, then NR C5 bit 0 cleared before the acknowledge: still acknowledged exactly once, held the DMA until then, no further CTC0 interrupts (im2_peripheral.vhd:167-178, im2_device.vhd:148/:151) | im2_peripheral.vhd:167-178, im2_device.vhd:148/151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3824 |
 
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 
