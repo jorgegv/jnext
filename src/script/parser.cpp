@@ -119,6 +119,7 @@ private:
             case Tok::MemL: case Tok::Mem16L: case Tok::PhysL: case Tok::NextRegL:
             case Tok::MmuL: case Tok::PageL: case Tok::StackL: case Tok::ChangedL:
             case Tok::DepthL: case Tok::CVar: case Tok::Minus: case Tok::Tilde:
+            case Tok::AyL:
                 return true;
             case Tok::Ident:
                 return !is_reserved_word(cur().text) || cur().text == "not" ||
@@ -264,6 +265,10 @@ private:
             ev.type = EventType::NextReg;
             take();
             parse_range(ev.lo, ev.hi);
+        } else if (w == "ay_write" || w == "audio_write") {
+            ev.type = w == "ay_write" ? EventType::AyWrite : EventType::AudioWrite;
+            take();
+            parse_audio_spec(ev);
         } else if (w == "frame") {
             ev.type = EventType::Frame;
             take();
@@ -329,6 +334,43 @@ private:
             fail(cur().pos, "unknown event `" + w + "`");
         }
         return ev;
+    }
+
+    // audio_spec ::= [ "ay_reg" | "ay_select" | "dac" ]            (audio_write only; `ay_write` is ay_reg)
+    //                 [ "chip" expr ] [ "reg" expr [ ".." expr ] ]
+    //                 [ "mask" expr "value" expr ] [ "dropped" ]     (`dropped`: audio_write only)
+    // The qualifiers take this fixed order and each is optional. `reg` belongs to the AY register
+    // target alone, and `chip` needs a target (the three have different chips).
+    void parse_audio_spec(EventSpec& ev) {
+        const bool general = ev.type == EventType::AudioWrite;
+        ev.audio = general ? AudioWord::Any : AudioWord::AyReg;
+        if (general) {
+            if (is_kw("ay_reg"))         { take(); ev.audio = AudioWord::AyReg; }
+            else if (is_kw("ay_select")) { take(); ev.audio = AudioWord::AySelect; }
+            else if (is_kw("dac"))       { take(); ev.audio = AudioWord::Dac; }
+        }
+        if (is_kw("chip")) {
+            if (ev.audio == AudioWord::Any)
+                fail(cur().pos, "`chip` needs a target before it: `ay_reg`, `ay_select` or `dac`");
+            take();
+            ev.chip = parse_expr();
+        }
+        if (is_kw("reg")) {
+            if (ev.audio != AudioWord::AyReg)
+                fail(cur().pos, "`reg` belongs to the `ay_reg` target");
+            take();
+            parse_range(ev.lo, ev.hi);
+        }
+        if (is_kw("mask")) {
+            take();
+            ev.mask = parse_expr();
+            expect_kw("value", "after the value mask");
+            ev.value = parse_expr();
+        }
+        if (general && is_kw("dropped")) {
+            take();
+            ev.dropped = true;
+        }
     }
 
     /// A string that ends in `:` and digits is a quoted source line; any other
@@ -512,7 +554,7 @@ private:
 
     ExprPtr parse_lvalue() {
         static const char* const WHAT =
-            "expected a variable, a register, a flag, IFF1, IFF2, IM, AUDIO_MUTE, "
+            "expected a variable, a register, a flag, IFF1, IFF2, IM, AUDIO_MUTE, AUDIO_CHANNEL_MUTE, "
             "mem[], mem16[], phys[], nextreg[] or cvar()";
         const Token& tk = cur();
         auto node = std::make_shared<Expr>();
@@ -563,6 +605,8 @@ private:
                 expect(Tok::RBracket, "to close `phys[`");
                 return sealed(std::move(node));
             }
+            case Tok::AyL:
+                fail(tk.pos, "`ay[]` cannot be assigned (it is read-only; write a register with `out 0xFFFD` and `out 0xBFFD`): " + std::string(WHAT));
             default:
                 fail(tk.pos, describe(tk) + " cannot be assigned: " + WHAT);
         }
@@ -785,6 +829,17 @@ private:
                 expect(Tok::Comma, "between the page and the offset");
                 e->b = parse_expr();
                 expect(Tok::RBracket, "to close `phys[`");
+                return sealed(std::move(e));
+            }
+            case Tok::AyL: {
+                take();
+                auto e  = std::make_shared<Expr>();
+                e->kind = ExprKind::Ay;
+                e->pos  = p;
+                e->a    = parse_expr();
+                expect(Tok::Comma, "between the chip and the register");
+                e->b = parse_expr();
+                expect(Tok::RBracket, "to close `ay[`");
                 return sealed(std::move(e));
             }
             case Tok::ChangedL: {

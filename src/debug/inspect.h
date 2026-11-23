@@ -430,11 +430,116 @@ enum class AyChipMode : uint8_t { Ym = 0, Ay = 1 };
 enum class StereoMode : uint8_t { Abc = 0, Acb = 1 };
 
 // INS-10 — the `audio_mute_mask` bits are `AudioMute::{AY0, AY1, AY2, DAC,
-// BEEPER, AY_ALL, ALL, NONE}` (`audio/audio_mute.h`), REUSED rather than
+// BEEPER, AY_ALL, ALL, NONE}` and the `audio_channel_mute_mask` bits are
+// `AudioChannelMute::*` (`audio/audio_mute.h`), REUSED rather than
 // redefined: that header already documents why the mask has no hardware
 // analogue, why it must stay invisible to the Z80, and why it is excluded from
 // save_state() and reset(). A second copy of the bit assignment here is exactly
 // the drift the reuse rule exists to prevent.
+
+// ---------------------------------------------------------------------------
+// INS-22 -- audio_state(): the decoded audio chain
+// ---------------------------------------------------------------------------
+
+/// INS-22 -- channels per AY/YM chip.
+constexpr size_t AY_CHANNELS_PER_CHIP = 3;
+
+/// INS-22 -- Soundrive DAC channels (A, B, C, D).
+constexpr size_t DAC_CHANNEL_COUNT = 4;
+
+/// Where the envelope generator is heading (`ym2149.vhd:402-462`).
+enum class EnvelopeMotion : uint8_t { Falling = 0, Rising, Holding };
+
+/// One AY channel, decoded from R0-R10 (`ym2149.vhd:302-304,467-537`).
+struct AyChannelState {
+    uint16_t tone_period = 0;       ///< 12 bits: R(2k+1) bits 3:0 and R(2k)
+    bool     tone_enabled = false;  ///< R7 bit k is 0
+    bool     noise_enabled = false; ///< R7 bit k+3 is 0
+    uint8_t  volume = 0;            ///< R(8+k) bits 3:0
+    bool     uses_envelope = false; ///< R(8+k) bit 4
+    /// The level the channel plays when its tone/noise gate is open (0-255), for
+    /// the chip's current AY or YM curve: the volume or the envelope step
+    /// through the table, without the gate, so it does not follow the square
+    /// wave. Not `output_a/b/c()`.
+    uint8_t  amplitude = 0;
+    bool     muted = false;         ///< its `AudioChannelMute` bit or its chip's `AudioMute` bit
+};
+
+struct AyEnvelopeState {
+    uint16_t period = 0;            ///< R12 << 8 | R11
+    uint8_t  shape = 0;             ///< R13 bits 3:0
+    uint8_t  step = 0;              ///< the 5-bit envelope level (0-31)
+    EnvelopeMotion motion = EnvelopeMotion::Falling;
+};
+
+struct AyChipState {
+    std::array<uint8_t, AY_REGISTER_COUNT> regs{};   ///< the raw latches, as `ay_registers()`
+    uint8_t  address = 0;           ///< the 5-bit register address latch
+    uint8_t  pan = 0;               ///< {left_en, right_en} (`turbosound.vhd:129-136`)
+    bool     mono = false;          ///< NR 0x09 bit 5+chip
+    bool     reaches_mix = false;   ///< the chip is the selected one, or TurboSound is on
+    std::array<AyChannelState, AY_CHANNELS_PER_CHIP> channels{};
+    uint8_t  noise_period = 0;      ///< R6 bits 4:0
+    AyEnvelopeState envelope;
+};
+
+/// The Soundrive DAC (`soundrive.vhd`, `zxnext.vhd:2744-2751,2967-2980`).
+struct DacState {
+    std::array<uint8_t, DAC_CHANNEL_COUNT> channels{};
+    bool    enabled = false;        ///< NR 0x08 bit 3
+    /// The effective internal port enables (NR 0x84, expansion bus applied)
+    /// that open DAC port families: bits 7:1, bit 0 (the AY ports) cleared.
+    uint8_t port_families = 0;
+};
+
+struct BeeperState {
+    bool ear = false;               ///< port 0xFE bit 4
+    bool mic = false;               ///< port 0xFE bit 3
+    bool tape_ear = false;          ///< the tape EAR input
+    bool speaker_enabled = false;   ///< NR 0x08 bit 4
+    bool beep_speaker_only = false; ///< NR 0x06 bit 6
+    bool excluded = false;          ///< `beep_spkr_excl`: both of the above (`zxnext.vhd:7114`)
+};
+
+/// The Raspberry Pi I2S input (NR 0xA2).
+struct PiAudioState {
+    bool left_enabled = false;      ///< NR 0xA2 bit 7
+    bool right_enabled = false;     ///< NR 0xA2 bit 6
+    bool to_ear = false;            ///< routed to EAR
+};
+
+/// Host settings: not machine state, never in a snapshot.
+struct HostAudioState {
+    float   output_gain_db = 0.0f;
+    float   beeper_gain_db = 0.0f;
+    float   dac_gain_db = 0.0f;
+    std::array<float, AY_CHIP_COUNT> ay_gain_db{};
+    uint8_t mute_mask = 0;          ///< `AudioMute::*`
+    uint16_t channel_mute_mask = 0; ///< `AudioChannelMute::*`
+    bool    synthesis_on = false;   ///< the user setting: not `--silent`
+};
+
+/// INS-22 -- `Debugger::audio_state()`. One consistent read of everything a
+/// frontend decodes for the Audio panel; no side effects, no NextREG read
+/// handler runs.
+struct AudioState {
+    uint32_t psg_clock_hz = 0;      ///< the PSG clock-enable rate (master clock / 16)
+    std::array<AyChipState, AY_CHIP_COUNT> chips{};
+    uint8_t  active_chip = 0;       ///< the chip ports 0xFFFD/0xBFFD reach
+    bool     turbosound = false;
+    uint8_t  psg_mode = 0;          ///< NR 0x06 bits 1:0 (00 YM, 01 AY, 10 ZXN-8950, 11 held in reset)
+    bool     held_in_reset = false;
+    bool     ay_ports_enabled = false;
+    StereoMode stereo = StereoMode::Abc;
+    DacState dac;
+    BeeperState beeper;
+    PiAudioState pi;
+    HostAudioState host;
+    /// Discarded writes, indexed by `AudioDropReason` ([None] unused). Host
+    /// state: always counting, survives resets and loads, never in a snapshot
+    /// (GH #530). Cleared by `Debugger::clear_audio_drops()` only.
+    std::array<AudioDropCounter, AUDIO_DROP_REASON_COUNT> drops{};
+};
 
 // ---------------------------------------------------------------------------
 // INS-14 / INS-15 — layers, palettes

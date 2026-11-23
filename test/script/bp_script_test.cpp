@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -421,6 +422,8 @@ static std::vector<Expect> expected_subs(const std::vector<BpSpec>& specs) {
                                s.addr, s.kind == BpSpec::IoRead ? Access::Read : Access::Write, s.enabled,
                                !s.condition.empty()});
                 break;
+            case BpSpec::AudioWrite:   // checked by BPJ-47, not through this table
+                break;
             case BpSpec::Interrupt:
             case BpSpec::Nmi:
                 out.push_back({s.kind == BpSpec::Interrupt ? EventKind::IntAck : EventKind::Nmi, 0, 0, MemSpace::cpu(), 0, 0,
@@ -796,6 +799,159 @@ static void engine_interrupt_rows() {
     }
 }
 
+// ---- Audio Write (GH #532) ---------------------------------------------------
+// An audio breakpoint is `on ay_write ...` when it is an applied AY register write, and `on audio_write
+// [ay_reg|ay_select|dac] ...` for every other target and for dropped-only: the codec never refuses one.
+
+static BpSpec audio(BpAudio::Target t, uint8_t chip = 0xFF, std::optional<uint8_t> reg = {},
+                    std::optional<uint8_t> value = {}, uint8_t mask = 0xFF, bool dropped = false) {
+    BpSpec s;
+    s.kind = BpSpec::AudioWrite;
+    s.audio.target = t;
+    s.audio.chip = chip;
+    s.audio.reg = reg;
+    s.audio.value = value;
+    s.audio.mask = mask;
+    s.audio.dropped_only = dropped;
+    return s;
+}
+
+static void audio_rows(Fix& f) {
+    const Debugger& d = *f.dbg;
+    {
+        BpSpec a = audio(BpAudio::AyRegister, 1, 13, 0x08, 0x0F);
+        BpSpec b = a;  b.count_only = true;
+        BpSpec c = a;  c.enabled = false;
+        const BpScript o = bp_script_text({a, b, c}, d);
+        const std::string want = kHeader +
+            "bp1: on ay_write chip 1 reg 0x0D mask 0x0F value 0x08 do stop end\n"
+            "bp2: on ay_write chip 1 reg 0x0D mask 0x0F value 0x08 do end\n"
+            "disabled bp3: on ay_write chip 1 reg 0x0D mask 0x0F value 0x08 do stop end\n";
+        const BpRead r = bp_specs_from_script(o.text, d);
+        check("BPJ-40", "an AY register breakpoint {chip 1, R13, value 0x08, mask 0x0F} is `on ay_write chip 1 reg 0x0D mask 0x0F value 0x08`; count-only gives `do end`, disabled the `disabled ` prefix; all three read back equal",
+              o.text == want && o.refused.empty() && r.ok() && r.specs.size() == 3 && r.specs[0] == a && r.specs[1] == b && r.specs[2] == c,
+              o.text + dstr(r.errors));
+    }
+    {
+        const BpSpec a = audio(BpAudio::AyRegister);
+        const BpScript o = bp_script_text({a}, d);
+        const BpRead r = bp_specs_from_script(o.text, d);
+        check("BPJ-41", "an AY register breakpoint with any chip, any register and no value is `on ay_write do stop end` and reads back equal",
+              o.text == kHeader + "bp1: on ay_write do stop end\n" && r.ok() && r.specs.size() == 1 && r.specs[0] == a, o.text + dstr(r.errors));
+    }
+    {
+        const std::vector<BpSpec> in = {
+            audio(BpAudio::AyChipSelect, 2),
+            audio(BpAudio::AyChipSelect, 0xFF, {}, 0xFE, 0xFF),
+            audio(BpAudio::Dac, 0xFF, {}, {}, 0xFF, true),
+            audio(BpAudio::Dac, 0xFF, {}, 0x80, 0xC0),
+            audio(BpAudio::Any),
+            audio(BpAudio::Any, 0xFF, {}, {}, 0xFF, true),
+            audio(BpAudio::AyRegister, 1, 7, {}, 0xFF, true),
+            audio(BpAudio::AyRegister, 0xFF, 13, 0x0A, 0xFF, true),
+        };
+        const BpScript o = bp_script_text(in, d);
+        const std::string want = kHeader +
+            "bp1: on audio_write ay_select chip 2 do stop end\n"
+            "bp2: on audio_write ay_select mask 0xFF value 0xFE do stop end\n"
+            "bp3: on audio_write dac dropped do stop end\n"
+            "bp4: on audio_write dac mask 0xC0 value 0x80 do stop end\n"
+            "bp5: on audio_write do stop end\n"
+            "bp6: on audio_write dropped do stop end\n"
+            "bp7: on audio_write ay_reg chip 1 reg 0x07 dropped do stop end\n"
+            "bp8: on audio_write ay_reg reg 0x0D mask 0xFF value 0x0A dropped do stop end\n";
+        const BpRead r = bp_specs_from_script(o.text, d);
+        bool same = r.ok() && r.specs.size() == in.size();
+        for (size_t i = 0; same && i < in.size(); ++i) same = r.specs[i] == in[i];
+        check("BPJ-42", "every other audio target is saved (AY chip select, DAC, Any, and dropped-only AY register), none refused: the eight `on audio_write` rules, each reading back equal",
+              o.text == want && o.refused.empty() && same, o.text + dstr(r.errors));
+    }
+    {
+        const BpRead a = bp_specs_from_script("on ay_write reg 8..10 do stop end\n", d);
+        const BpRead b = bp_specs_from_script("on ay_write once do stop end\n", d);
+        const BpRead c = bp_specs_from_script("on ay_write chip 0 do stop end\non audio_write dac chip 1+1 do stop end\n", d);
+        const BpRead e = bp_specs_from_script("on audio_write ay_reg reg 5..5 mask 0x0F value 0x03 do stop end\n", d);
+        check("BPJ-43", "loading refuses, all or nothing: a register range (`not one register`), `once`, and a non-literal chip (rule 1 is fine, rule 2 fails and no spec survives); `reg 5..5` is one register and loads",
+              !a.ok() && a.specs.empty() && a.errors[0].message.find("not one register") != std::string::npos &&
+                  !b.ok() && b.specs.empty() && b.errors[0].message.find("`once`") != std::string::npos &&
+                  !c.ok() && c.specs.empty() && c.errors[0].message.find("not a number") != std::string::npos &&
+                  e.ok() && e.specs.size() == 1 && e.specs[0].audio.reg == 5 && e.specs[0].audio.value == 3 && e.specs[0].audio.mask == 0x0F,
+              dstr(a.errors) + dstr(b.errors) + dstr(c.errors) + dstr(e.errors));
+    }
+    {
+        check("BPJ-44", "bp_condition_problem(AudioWrite, ...): `CHIP == 1 and ay[1, 7] == 0x38` is fine, `PORT == 1` names the payload it lacks",
+              bp_condition_problem(BpSpec::AudioWrite, "CHIP == 1 and ay[1, 7] == 0x38", d).empty() &&
+                  bp_condition_problem(BpSpec::AudioWrite, "TARGET == 1 and VALUE == 0xFE", d).empty() &&
+                  bp_condition_problem(BpSpec::AudioWrite, "PORT == 1", d).find("PORT") != std::string::npos);
+    }
+    {
+        BpSpec w = audio(BpAudio::Dac, 3, {}, 0x10, 0xF0);
+        w.condition = "VALUE != PREV";
+        const BpScript o = bp_script_text({w}, d);
+        const BpRead r = bp_specs_from_script(o.text, d);
+        check("BPJ-45", "an audio breakpoint with a condition is `... when VALUE != PREV do stop end` and reads back equal, condition included",
+              o.text == kHeader + "bp1: on audio_write dac chip 3 mask 0xF0 value 0x10 when VALUE != PREV do stop end\n" &&
+                  r.ok() && r.specs.size() == 1 && r.specs[0] == w, o.text + dstr(r.errors));
+    }
+    {
+        BpSpec x = audio(BpAudio::AyRegister, 2, 8);
+        BpSpec y = x;
+        y.audio.reg = 9;
+        BpSpec z = audio(BpAudio::Dac, 1, {}, 0x01, 0xFF);
+        BpSpec zz = z;
+        zz.audio.mask = 0x0F;   // mask matters only with a value: this one differs
+        BpSpec n1 = audio(BpAudio::AyRegister);
+        BpSpec n2 = n1;
+        n2.audio.mask = 0x0F;   // no value: the mask is not part of the breakpoint
+        check("BPJ-46", "BpSpec equality for an audio breakpoint compares target, chip, register, value (and mask with it) and dropped-only",
+              x == x && !(x == y) && z == z && !(z == zz) && n1 == n2 && !(audio(BpAudio::Dac, 1) == audio(BpAudio::Dac, 2)) &&
+                  !(audio(BpAudio::Any) == audio(BpAudio::Any, 0xFF, {}, {}, 0xFF, true)) &&
+                  bp_audio_text(audio(BpAudio::AyRegister, 1, 13).audio) == "AY1 R13 restart");
+    }
+}
+
+static void audio_dropped_dac_row(Fix& f) {
+    const Debugger& d = *f.dbg;
+    const BpRead a = bp_specs_from_script("on audio_write dac chip 2 dropped do stop end\n", d);
+    const BpRead b = bp_specs_from_script("on audio_write dac dropped do stop end\n", d);
+    const BpRead c = bp_specs_from_script("on audio_write ay_select chip 2 dropped do stop end\n", d);
+    check("BPJ-48", "loading `dac chip N dropped` is refused with the reason (a dropped DAC write has no channel), all or nothing; `dac dropped` and `ay_select chip 2 dropped` load",
+          !a.ok() && a.specs.empty() && a.errors[0].message.find("write `dac dropped`") != std::string::npos &&
+              b.ok() && b.specs.size() == 1 && b.specs[0].audio.chip == 0xFF && b.specs[0].audio.dropped_only &&
+              c.ok() && c.specs.size() == 1 && c.specs[0].audio.chip == 2,
+          dstr(a.errors) + dstr(b.errors) + dstr(c.errors));
+}
+
+// BPJ-47: the ENGINE as the foreign reader of the audio spellings.
+static void engine_audio_rows() {
+    Fix g;
+    const std::vector<BpSpec> in = {
+        audio(BpAudio::AyRegister, 1, 13, 0x08, 0x0F), audio(BpAudio::AyChipSelect, 2), audio(BpAudio::Dac, 0xFF, {}, {}, 0xFF, true),
+        audio(BpAudio::Any), audio(BpAudio::AyRegister, 0xFF, 7, {}, 0xFF, true)};
+    const BpScript o = bp_script_text(in, *g.dbg);
+    ScriptEngine eng(*g.dbg);
+    const LoadResult lr = eng.load(o.text, "audio.jds");
+    const auto subs = engine_subs(*g.dbg, eng);
+    using namespace jnext::dbg;
+    std::string miss;
+    if (subs.size() != 5) miss = "count " + std::to_string(subs.size());
+    else {
+        const auto& s0 = subs[0].filter; const auto& s1 = subs[1].filter; const auto& s2 = subs[2].filter;
+        const auto& s3 = subs[3].filter; const auto& s4 = subs[4].filter;
+        if (!(s0.audio_targets == audio_target_bit(AudioTarget::AyRegister) && s0.chip == 1 && s0.regs == EventFilter::RegSet{13} &&
+              s0.value_mask == 0x0F && s0.value_match == 0x08 && s0.audio_flags_none == AudioFlag::Dropped && s0.audio_flags_all == 0)) miss += " #0";
+        if (!(s1.audio_targets == audio_target_bit(AudioTarget::AyChipSelect) && s1.chip == 2 && s1.regs.empty())) miss += " #1";
+        if (!(s2.audio_targets == (audio_target_bit(AudioTarget::Dac) | audio_target_bit(AudioTarget::DacMirror)) && s2.chip == 0xFF &&
+              s2.audio_flags_all == AudioFlag::Dropped && s2.audio_flags_none == 0)) miss += " #2";
+        if (!(s3.audio_targets == AUDIO_TARGETS_ANY && s3.chip == 0xFF && s3.audio_flags_none == AudioFlag::Dropped)) miss += " #3";
+        if (!(s4.audio_targets == audio_target_bit(AudioTarget::AyRegister) && s4.regs == EventFilter::RegSet{7} &&
+              s4.audio_flags_all == AudioFlag::Dropped)) miss += " #4";
+        for (const auto& si : subs) if (si.kind != EventKind::AudioWrite) miss += " kind";
+    }
+    check("BPJ-47", "the saved text of every audio target loads in a ScriptEngine with no error or warning and registers AudioWrite subscriptions with the filters the codec meant (target mask, chip, register, value/mask, applied-only or dropped-only)",
+          lr.ok() && lr.warnings.empty() && miss.empty(), dstr(lr.errors) + dstr(lr.warnings) + miss + o.text);
+}
+
 // BPJ-36: the ENGINE as the foreign reader of the ranges, masks and conditions.
 static void engine_s3_rows() {
     Fix g;
@@ -831,7 +987,10 @@ int main() {
         save_count_rows(f);
         save_s3_rows(f);
         save_s3_more_rows();
+        audio_rows(f);
+        audio_dropped_dac_row(f);
     }
+    engine_audio_rows();
     engine_rows();
     engine_interrupt_rows();
     engine_s3_rows();

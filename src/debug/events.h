@@ -133,6 +133,16 @@ enum class EventKind : uint8_t {
     /// `NextRegWrite` and `Copper`. (B2 grouped it with those two; measured
     /// wrong.) A slot is DMA *or* CPU, never both.
     Dma,
+    /// An audio write the tap decoded (GH #532): an AY register or chip-select
+    /// write, a DAC write or NextREG mirror, a beeper write, applied or dropped;
+    /// see `AudioTarget` and `AudioLogEntry` for the per-target payload. Latched
+    /// by the backend's tap sink (the tap is on while a live subscription of this
+    /// kind exists) and filtered by `EventTable::audio_would_match`. Delivered at
+    /// the raising instruction's boundary for a CPU port write or a DMA write;
+    /// **<=1 instruction late** for a CPU NR 0x2C-0x2E write (it commits after the
+    /// drain, as `NextRegWrite` does) and for a Copper MOVE. `pc` names the
+    /// writer. Never raised by a debugger write (4.2a) and never in rewind replay.
+    AudioWrite,
 
     /// NOT A KIND — the count, and it must stay last.
     ///
@@ -207,6 +217,87 @@ enum class NmiButton : uint8_t {
 /// event at all (§4.2a); it exists so the NR write hook can name its caller.
 /// `Any` is a filter value only.
 enum class EventSource : uint8_t { Cpu = 0, Copper, Dma, Debugger, Any };
+
+/// Why an audio write was discarded (GH #530; DEBUGGER-MUSIC-SOUND-PLAN.md §3.5).
+/// Each reason is one VHDL term. A write gets the FIRST reason that applies, in
+/// this order: decode comes before the gate, because an undecoded write is not a
+/// write to that device at all.
+///   AyPortDisabled        NR 0x84 bit 0 off: port_fffd/port_bffd do not decode
+///                         (zxnext.vhd:2744,2963-2964)
+///   AyHeldInReset         NR 0x06 psg_mode = 11: audio_ay_reset (zxnext.vhd:6989,
+///                         turbosound.vhd:121, ym2149.vhd:170,184)
+///   AyChipSelectTurboOff  select/pan command with TurboSound off (turbosound.vhd:129)
+///   AySelectIgnored       a 0xFFFD value that is neither a register select nor a
+///                         select/pan command (turbosound.vhd:141)
+///   AyAddressHigh         data written while the register address is 16-31
+///                         (ym2149.vhd:188)
+///   DacFamilyDisabled     the port's family bit in NR 0x84 is off: no port_dac_X
+///                         decode (zxnext.vhd:2745-2751,2974-2980)
+///   DacDisabled           NR 0x08 bit 3 off: port_dac_X_wr and soundrive reset
+///                         (zxnext.vhd:2776,3091-3094,7046)
+///   DacMirrorDisabled     NR 0x2C/0x2D/0x2E write with the DAC off
+///                         (zxnext.vhd:5412-5414,7046; soundrive.vhd:72-101)
+/// `None` is the unused slot 0 of a per-reason array.
+enum class AudioDropReason : uint8_t {
+    None = 0, AyPortDisabled, AyHeldInReset, AyChipSelectTurboOff, AySelectIgnored,
+    AyAddressHigh, DacFamilyDisabled, DacDisabled, DacMirrorDisabled, Count };
+constexpr size_t AUDIO_DROP_REASON_COUNT = size_t(AudioDropReason::Count);
+
+/// One reason's always-on counter: host state, never in a snapshot (GH #530).
+struct AudioDropCounter {
+    uint64_t    count = 0;
+    uint16_t    last_port = 0;    ///< the 16-bit port; 0x002C-0x002E for a NR mirror
+    uint8_t     last_value = 0;
+    uint16_t    last_pc = 0;      ///< the slot's instruction (debug_slot_pc); meaningful for Cpu
+    uint32_t    last_frame = 0;   ///< the event stamper's frame tag
+    EventSource last_source = EventSource::Cpu;
+};
+
+/// What an audio write reached, or would have reached when `Dropped`. GH #531
+/// (INS-23). The columns of `AudioLogEntry` mean, per target:
+///   target       chip              reg                value  prev               port
+///   AyRegister   active chip 0-2   latched address    byte   register before    0xBFFD / 0xBFF5
+///                                  (5 bits)                  (0 for 16-31)
+///   AyChipSelect chip selected     0                  byte   chip before        0xFFFD
+///                after the write
+///   Dac          channel 0-3       0                  byte   channel before     the 16-bit port
+///   DacMirror    channel 0-3       0x2C-0x2E          byte   channel before     0x002C-0x002E
+///   Beeper       0                 0                  byte   EAR<<4 | MIC<<3    the 16-bit port
+///                                                            before
+/// A dropped DAC or mirror write reached no channel: `chip` is 0xFF.
+enum class AudioTarget : uint8_t { AyRegister = 0, AyChipSelect, Dac, DacMirror, Beeper, Count };
+/// A set of `AudioTarget`s, one bit per target (GH #532).
+using AudioTargetMask = uint8_t;
+constexpr AudioTargetMask audio_target_bit(AudioTarget t) {
+    return AudioTargetMask(1u << uint8_t(t));
+}
+constexpr AudioTargetMask AUDIO_TARGETS_ANY = 0xFF;
+namespace AudioFlag {
+    /// An APPLIED write to AY R13, whether or not the value changed
+    /// (ym2149.vhd:188,207-210).
+    constexpr uint8_t EnvelopeRestart = 0x01;
+    /// `drop_reason != None`: the write was discarded.
+    constexpr uint8_t Dropped = 0x02;
+}
+/// A discontinuity in the log: the machine was reset, a state was loaded, or a
+/// rewind landed (earlier cycles may follow it).
+enum class AudioMarker : uint8_t { None = 0, Reset, StateLoad, Rewind };
+struct AudioLogEntry {
+    uint64_t seq = 0;                 ///< assigned by the log; never reused in a run
+    uint64_t cycle = 0;               ///< master cycles, the event stamper's clock
+    uint32_t frame = 0;               ///< the event stamper's frame tag
+    int16_t  vc = 0, hc = 0;          ///< raw raster counters at `cycle`
+    uint32_t tstate_in_frame = 0;     ///< `vc * tstates_per_line + hc / 2`
+    uint16_t pc = 0;                  ///< the slot's instruction (meaningful for Cpu)
+    EventSource source = EventSource::Cpu;
+    AudioTarget target = AudioTarget::AyRegister;
+    uint8_t chip = 0, reg = 0, value = 0, prev = 0, flags = 0;
+    AudioDropReason drop_reason = AudioDropReason::None;
+    uint16_t port = 0;
+    AudioMarker marker = AudioMarker::None;   ///< != None: only the timestamp fields mean anything
+};
+constexpr size_t AUDIO_LOG_DEFAULT_ENTRIES = 65536;
+constexpr size_t AUDIO_LOG_MAX_ENTRIES = size_t(1) << 22;
 
 /// CAP-EVT — memory / port access direction. Used BOTH as a single value in a
 /// payload and as a mask in a subscription (§4.3 "`access` ⊆ {Read, Write}").
@@ -336,6 +427,16 @@ struct Event {
     /// which is the same write seen from the Copper side.
     uint8_t reg = 0;
 
+    // ── AudioWrite (GH #532) ─────────────────────────────────────────────
+    // `port`, `value`, `prev`, `reg` and `source` carry the `AudioTarget` table's
+    // meanings (above `AudioTarget`).
+
+    AudioTarget     audio_target = AudioTarget::AyRegister;
+    /// AY chip 0-2 | DAC channel 0-3 | 0xFF: a dropped DAC/mirror write.
+    uint8_t         chip = 0;
+    uint8_t         audio_flags = 0;   ///< `AudioFlag` bits
+    AudioDropReason drop_reason = AudioDropReason::None;
+
     // ── Reset / IntAck / Nmi ─────────────────────────────────────────────
 
     /// `Reset`: which kind.
@@ -464,6 +565,15 @@ struct EventFilter {
     /// `NextRegWrite`, and `Copper` as its NR-set filter: the register numbers
     /// to match. Empty = every register.
     RegSet regs;
+
+    /// `AudioWrite` (GH #532): `regs` matches only an `AyRegister` or `DacMirror`
+    /// entry (the two targets that carry a register); `source` is reused.
+    AudioTargetMask audio_targets = AUDIO_TARGETS_ANY;
+    uint8_t         chip = 0xFF;            ///< 0xFF = any
+    uint8_t         value_mask = 0x00;      ///< (value & value_mask) == value_match; 0/0 = any
+    uint8_t         value_match = 0x00;
+    uint8_t         audio_flags_all = 0;    ///< every listed `AudioFlag` bit must be SET
+    uint8_t         audio_flags_none = 0;   ///< every listed `AudioFlag` bit must be CLEAR
 
     /// `Mem`, `Port`, `NextRegWrite`: restrict to one originator. `Any` = no
     /// restriction.

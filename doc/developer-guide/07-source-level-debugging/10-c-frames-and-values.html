@@ -3160,7 +3160,7 @@ section whose entry <strong>value</strong> is the greatest at or below the recor
 function that crosses a slot (<code>cross.c</code>, in the <code>*-cross</code> fixtures).</p>
 <h2 id="the-frames">The frames<a class="headerlink" href="#the-frames" title="Permanent link">&para;</a></h2>
 <p><code>Debugger::c_frames()</code> (<code>debugger_cframes.cpp:30</code>) returns the frames newest first. Frame 0 is where
-the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.h:1262</code>) has its function (an index into
+the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.h:1293</code>) has its function (an index into
 <code>variables()-&gt;functions()</code>, -1 for assembly), the <code>pc</code>, the source line and the base, with how it was found:</p>
 <ul>
 <li><strong>Tracked.</strong> With the tracker's frames (oldest first, <code>n</code> of them), frame <code>k</code> was entered by
@@ -3186,10 +3186,10 @@ at or above the floor. "Outer frames are always allocated" is wrong: a stop insi
 any assembly routine a function calls before it allocates its locals, leaves that function's locals unallocated.</p>
 <h2 id="who-keeps-the-tracker-running">Who keeps the tracker running<a class="headerlink" href="#who-keeps-the-tracker-running" title="Permanent link">&para;</a></h2>
 <p>The tracker (<code>CallStack</code>, <a href="05-breakpoints-steps-history.html">7.5</a>) costs per instruction, so it is not
-always on. Its state is <strong>derived</strong> (<code>Impl::sync_call_stack()</code>, <code>debugger_session.cpp:128</code>), the one
+always on. Its state is <strong>derived</strong> (<code>Impl::sync_call_stack()</code>, <code>debugger_session.cpp:129</code>), the one
 writer, from two things:</p>
 <ol>
-<li><strong>A client's own request.</strong> <code>Debugger::set_call_stack_enabled(by, on)</code> (<code>debugger_inspect.cpp:913</code>) sets
+<li><strong>A client's own request.</strong> <code>Debugger::set_call_stack_enabled(by, on)</code> (<code>debugger_inspect.cpp:1013</code>) sets
    the request on that client's row. The tracker is on while any live client asked. One client switching off
    no longer takes another's tracking away (the Qt debugger window closing used to empty a ZRCP session's
    extended stack), and a detach drops the request with the client. The Qt window's request is made
@@ -3556,7 +3556,7 @@ bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:
 <p><strong>F1, found while planning:</strong> the reader ignored a bitfield's sign. <code>c_format_value()</code> and <code>c_integer_value()</code> returned the unsigned field for
 <code>SB&lt;s&gt;$&lt;w&gt;:S</code>, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so <code>CVW-10</code>
 uses a synthetic record.</p>
-<p>The frontends: GDB <code>monitor set var [FRAME] PATH = VALUE</code> (<code>monitor_set_var()</code>, <code>rsp_server.cpp:1215</code>), and ZRCP <code>set-register CVAR(path)=value</code>
+<p>The frontends: GDB <code>monitor set var [FRAME] PATH = VALUE</code> (<code>monitor_set_var()</code>, <code>rsp_server.cpp:1216</code>), and ZRCP <code>set-register CVAR(path)=value</code>
 (<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1190</code>). A ZRCP command table cannot gain a command (its census pins ZEsarUX's), so it is the
 <code>CVAR(</code> branch of the one assignment verb, in frame 0, with ZEsarUX's own failure text.</p>
 <h2 id="fixtures-and-rows">Fixtures and rows<a class="headerlink" href="#fixtures-and-rows" title="Permanent link">&para;</a></h2>

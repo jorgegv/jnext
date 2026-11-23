@@ -1,4 +1,4 @@
-// Browser rows BOUT-01..18 and 20 (19 is reserved for --audio-log): the files JNEXT writes, listed and fetched by the page
+// Browser rows BOUT-01..20: the files JNEXT writes, listed and fetched by the page
 // (player.listFiles(), readFile(), stop(); GH #553). Run by browser-smoke.sh on the SDK's node.
 //
 // Oracles: the native runs of browser-smoke.sh's chain_outputs (the same arguments with the output
@@ -506,6 +506,30 @@ row('BOUT-18', 'the guide\'s download button, run verbatim: the click gives a do
   must(sameBytes(got, want), 'download vs readFile(): ' + differ(got, want));
   must(got.length > 44 && got.toString('latin1', 0, 4) === 'RIFF' && got.toString('latin1', 8, 12) === 'WAVE' &&
        got.readUInt32LE(4) === got.length - 8 && got.readUInt32LE(40) === got.length - 44, `RIFF: length ${got.length}`);
+});
+
+// ---- Mount L: the audio write log (BOUT-19) -------------------------------------------------------
+// The program is the audio-log-func fixture (browser-smoke.sh's chain_alog writes the same bytes to SCRATCH/alog.bin and
+// runs it natively): it writes the AY, the DAC and an NR mirror once, then spins, so the CSV holds the same rows
+// however long the page runs. The oracle is that native run's alog.csv.
+row('BOUT-19', '--audio-log: listed complete false while the page runs (and refused as still being written); after stop() complete, with readFile() equal to the native run\'s CSV byte for byte', async () => {
+  const want = fs.readFileSync(path.join(ORACLE, 'alog.csv'));
+  const page = await newPage();
+  await open(page, [{ machine: 'next', args: ['--silent', '--rtc', '2026-07-10T08:55:00', '--inject', '/tmp/alog.bin', '--inject-org', '8000',
+                                              '--inject-pc', '8000', '--audio-log', '/tmp/a.csv'] }]);
+  await fsWrite(page, '/tmp/alog.bin', fs.readFileSync(path.join(SCRATCH, 'alog.bin')));
+  await click(page);
+  await waitFrame(page, 0, 100);
+  const running = byFile(await list(page), '/tmp/a.csv');
+  must(running && running.complete === false, 'while running: ' + JSON.stringify(running));
+  const busy = await readF(page, '/tmp/a.csv');
+  must(typeof busy === 'string' && REFUSED.busy.test(busy), 'read while running: ' + (typeof busy === 'string' ? busy : 'resolved with ' + busy.length + ' bytes'));
+  must((await page.evaluate(() => window.player0.stop())) === 0, 'stop() did not resolve 0');
+  const done = byFile(await list(page), '/tmp/a.csv');
+  must(done && done.complete === true, 'after stop(): ' + JSON.stringify(done));
+  const got = await readF(page, '/tmp/a.csv');
+  must(Buffer.isBuffer(got) && got.toString('latin1').includes(',0x801E,cpu,dac_mirror,'), 'the CSV lacks the fixture rows: ' + (Buffer.isBuffer(got) ? got.length + ' bytes' : got));
+  must(sameBytes(got, want), 'a.csv vs native: ' + differ(got, want));
 });
 
 // ---- Mount Z: a hard reset re-opens finished files (BOUT-20) --------------------------------------

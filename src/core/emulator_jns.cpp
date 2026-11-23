@@ -1178,6 +1178,10 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     // to avoid — one which no gate would catch, because the copy would be
     // wrong only in the cases nobody tested.
     //
+    // Dac's audible copy (`aud_`, the registers with the debugger's channel mute applied) is
+    // one of those re-derivations: it is in no stream, and `Dac::load_state()` rebuilds it, so a
+    // `.jns` load shows a muted DAC channel as muted only because of this round trip.
+    //
     // So: serialise the just-restored machine and load it straight back. The
     // round trip is a no-op on every field (`RW-RT-03`/`RW-RT-04` pin that
     // save->load->save is byte-identical) and runs every re-derivation in its

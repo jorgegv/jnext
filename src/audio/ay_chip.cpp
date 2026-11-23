@@ -70,6 +70,12 @@ void AyChip::load_envelope()
     }
     env_hold_ = false;
     env_reset_ = false;
+
+    // An env_reset pulse also sets env_ena (ym2149.vhd:340-342), so the shape
+    // process takes one step at the next ENA (:402-409): within one PSG tick of
+    // the R13 write the level is already 30 (attack 0) or 1 (attack 1), and the
+    // envelope runs one step ahead of a load that only sets the start level.
+    step_shape_();
 }
 
 void AyChip::select_register(uint8_t addr)
@@ -77,9 +83,9 @@ void AyChip::select_register(uint8_t addr)
     addr_ = addr & 0x1F;
 }
 
-void AyChip::write_data(uint8_t val)
+bool AyChip::write_data(uint8_t val)
 {
-    if (addr_ & 0x10) return;  // Only registers 0-15 writable
+    if (addr_ & 0x10) return false;  // Only registers 0-15 writable (ym2149.vhd:188)
 
     reg_[addr_ & 0x0F] = val;
     dirty_ = true;
@@ -88,6 +94,7 @@ void AyChip::write_data(uint8_t val)
     if ((addr_ & 0x0F) == 0x0D) {
         env_reset_ = true;
     }
+    return true;
 }
 
 uint8_t AyChip::read_data(bool reg_mode) const
@@ -295,6 +302,11 @@ void AyChip::update_envelope()
 
     if (!env_ena_) return;
 
+    step_shape_();
+}
+
+inline void AyChip::step_shape_()
+{
     // Boundary detection — VHDL ym2149.vhd:361-366.
     //
     //   is_zero <= '1' when env_vol(4 downto 1) = "0000" else '0';
@@ -381,6 +393,34 @@ void AyChip::update_envelope()
         }
     }
     // else: C=1, Alt=0, Hold=0: shapes 8, 12 (\\\\, ////) — continuous, no hold
+}
+
+AyChip::DebugView AyChip::debug_view() const
+{
+    DebugView v;
+    if (env_reset_) {
+        // ym2149.vhd:393-401, the reload of the pending R13 write.
+        const bool attack = (reg_[13] & 0x04) != 0;
+        v.env_step = attack ? 0 : 31;
+        v.env_inc = attack;
+        v.env_hold = false;
+    } else {
+        v.env_step = env_vol_ & 0x1F;
+        v.env_inc = env_inc_;
+        v.env_hold = env_hold_;
+    }
+    for (int i = 0; i < 3; i++) {
+        const uint8_t vol_reg = reg_[8 + i];
+        uint8_t idx;
+        if (vol_reg & 0x10) {
+            idx = v.env_step;
+        } else {
+            const uint8_t fixed = vol_reg & 0x0F;
+            idx = fixed == 0 ? 0 : static_cast<uint8_t>((fixed << 1) | 1);
+        }
+        v.amplitude[i] = ay_mode_ ? vol_table_ay_[idx >> 1] : vol_table_ym_[idx];
+    }
+    return v;
 }
 
 void AyChip::update_output()

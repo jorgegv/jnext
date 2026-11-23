@@ -87,7 +87,7 @@ it.
 
 #### Sub-issue 5: solo and mute per channel (scope item 5)
 
-- [ ] **A1.12** Per-channel mute and solo: the 13-bit host mask in TurboSound and the Mixer, backend verbs, `AUDIO_CHANNEL_MUTE` in the DSL, Solo and Mute controls
+- [ ] **A1.12** Per-channel mute and solo: the 13-bit host mask in TurboSound and the Dac, backend verbs, `AUDIO_CHANNEL_MUTE` in the DSL, Solo and Mute controls
 
 #### Epic-level task before the Phase 1 merge into `main`
 
@@ -447,8 +447,15 @@ Nothing in this epic may change what the guest sees:
   write to NR 0x2C-0x2E is stamped at commit, one instruction after the `NEXTREG`. A Copper
   write is stamped at its own cycle. The source column says which.
 - Writes made in rewind replay (`replay_mode_`) are not recorded. A rewind landing drops the
-  log entries newer than the landing frame and appends a marker entry; a reset and a state load
-  append a marker too (D9).
+  log entries from the landing cycle on, markers included (a state load of this session keeps the
+  clock, so its marker is crossed too, except one AT the landing cycle, which is the landing state
+  and stays; a state loaded from another session has an unordered clock, a stated limit), and appends a
+  `Rewind` marker; a reset and a state load append a marker too, and
+  only the same marker twice at one cycle is one row (D9, amended by GH #531: an entry is stamped at
+  the start of its instruction slot and a landing re-runs the slot that starts at its cycle, so an
+  entry AT the landing cycle goes too; a soft reset and a rewind keep the clock, so the walk crosses
+  their markers; a `Rewind` marker is always recorded, because a `--audio-log` stream may have
+  written the removed rows and the rows after them are earlier in time).
 
 ### 4.4 The `debugger.h` bundle (decision 1)
 
@@ -625,7 +632,7 @@ struct AudioLogEntry {
     uint8_t         chip = 0, reg = 0, value = 0, prev = 0, flags = 0;
     AudioDropReason drop_reason = AudioDropReason::None;
     uint16_t        port = 0;
-    bool            marker = false;   // reset / state load / rewind landing; other fields zero
+    AudioMarker     marker = AudioMarker::None;   // Reset / StateLoad / Rewind (GH #531); other fields zero
 };
 constexpr size_t AUDIO_LOG_DEFAULT_ENTRIES = 65536;
 constexpr size_t AUDIO_LOG_MAX_ENTRIES = size_t(1) << 22;
@@ -928,7 +935,7 @@ placeholder that points at unfinished work except the Tracker and Scopes sub-tab
   plain selects not logged; beeper logged on change only; ring overflow keeps the newest and
   `seq` stays monotonic; nothing recorded with no request, and recording again after a
   re-request; two clients, one drops its request, recording continues; replay mode records
-  nothing; a rewind landing truncates and adds a marker; CSV bytes for a three-entry log against
+  nothing; a rewind landing truncates from its cycle on and adds a Rewind marker; CSV bytes for a three-entry log against
   a hand-written expected file. `AIZ-07`: log on vs off. Regression row `audio-log-func`
   (headless, `--audio-log` over an AY+DAC fixture, CSV header and a known first data row,
   exit 0). `make cli-check` green.
@@ -1039,22 +1046,23 @@ placeholder that points at unfinished work except the Tracker and Scopes sub-tab
 - **Design.** `Emulator::set_audio_channel_mute_mask(uint16_t)` fans out to
   `TurboSound::set_channel_mute_mask(bits 0-8)`: the audible copy of A1.2 zeroes the muted
   channels' `a/b/c` inputs before the per-chip stereo math, so ACB, mono and pan stay right.
-  It also goes to `Mixer::set_dac_channel_mute(bits 9-12)`, where a muted DAC channel is
-  replaced by 0x80 in the audible DAC sum (its silence is the midpoint, as for `AudioMute::DAC`,
-  `mixer.cpp:149-162`). The DAC channel test shares the existing per-slice branch: the Mixer
-  folds both masks into the one byte `mix()` already tests (`mute_mask_ != AudioMute::NONE`,
-  `mixer.cpp:143`, gaining a bit that means "a DAC channel is muted"), so an unmuted run still
-  pays exactly one branch. Today `set_mute_mask()` overwrites the whole byte, so each of the two
-  setters (`set_mute_mask()` and the new `set_dac_channel_mute()`) must keep the other's bits,
-  and `mute_mask()` must strip the internal bit so that it still returns only `AudioMute`
-  bits. The mask is not machine state: not reset, not serialised. The
+  It also goes to `Dac::set_channel_mute(bits 9-12)` (as built): `Dac` keeps an audible copy
+  `aud_[4]` of its registers in which a muted channel reads 0x80 (its silence is the midpoint, as
+  for `AudioMute::DAC`), updated on each write, on a mute change, on `reset()` and on `load_state()`;
+  `pcm_left()/pcm_right()` sum that copy, the registers `ch_` (what `channel()` returns and what is
+  serialised) never see the mute, and `Mixer::mix()` is unchanged, so an unmuted run runs the same
+  code as before (measured, perf-attach: +0.00% instructions). A `.jns` load rebuilds the copy through
+  its `load_state` round trip. TurboSound's muted mix is an out-of-line cold function behind one
+  test, and its chip mute became AND gates so that test costs nothing net. The mask is not machine
+  state: not reset, not serialised. The
   backend verbs are as in §4.4, with a MUTATE log line. In the DSL, `AUDIO_CHANNEL_MUTE` is a
   live name, readable and assignable (`set AUDIO_CHANNEL_MUTE = 0x1FE`), mirroring `AUDIO_MUTE`
   (`names.cpp` `LIVE[]`, `script_engine.cpp:794-796`). GUI: a Mute and a Solo button per channel row
   in Chips and per DAC channel in DAC & Beeper. Solo is GUI-only (decision 4): it sets the mask
   to everything except that channel and remembers the previous mask to restore on un-solo.
   `AudioChannelMute` is defined in `audio_mute.h`.
-- **Files.** `src/audio/turbosound.{h,cpp}`, `mixer.{h,cpp}`, `audio_mute.h`,
+- **Files.** `src/audio/turbosound.{h,cpp}`, `dac.{h,cpp}`, `audio_mute.h`, `emulator_jns.cpp` (a comment),
+  `src/platform/emulator_boot.h` (the cold boot carries the mask),
   `src/core/emulator.h`, `src/debug/debugger_inspect.cpp`, `debugger.h`, `debug_types_check.cpp`,
   `src/script/names.{h,cpp}`, `script_engine.cpp`, the scripting pages `04-reading-the-machine.md`,
   `08-changing-the-machine.md` and `13-quick-reference.md`, `src/debugger/audio_panel.cpp`.
@@ -1514,7 +1522,7 @@ No owner question is open. The owner answered both of the first draft's question
 | D6 | A 0xDFFD write is not a dropped AY write | it is the paging port's own address; counting it would flood the counter in every program that pages | count every `port_fffd`-pattern write that `not port_dffd` suppresses |
 | D7 | Drop precedence: decode before gate (family before DAC enable) | an undecoded write is not a write to that device in the VHDL (`port_dac_X` is the decode, `dac_hw_en` the gate) | jnext's current order (`dac_enabled_` tested first) |
 | D8 | Frames for the tracker, timing and `.psg` are the stamper's frames | the ULA interrupt is within one line of the wrap on every timing; events, scripts and the log then agree | grouping by interrupt instants (a second frame notion for one feature) |
-| D9 | No recording in rewind replay; a rewind truncates newer entries and adds a marker; resets and loads add a marker | the log then describes the machine's actual timeline | recording replayed writes twice; clearing the log on every rewind |
+| D9 | No recording in rewind replay; a rewind removes the entries from the landing cycle on, markers included (a `StateLoad` marker at the landing cycle stays; a load from another session has an unordered clock, a stated limit), and adds a `Rewind` marker; resets and loads add a marker, the same marker twice at one cycle being one row (amended by GH #531) | the log then describes the machine's actual timeline | recording replayed writes twice; clearing the log on every rewind |
 | D10 | Plain 0xFFFD register selects are not log entries; the selected register is folded into the next data write | a select makes no sound and doubles the entry count of every player | log every port write (the `io_write` event already offers that) |
 | D11 | The DSL accessor is `ay[c, r]` (owner-confirmed, 2026-11-18) | matches `phys[page, offset]` and the lexer's bracketed-stem rule | `ay[c][r]` with chained brackets (a grammar change for one accessor) |
 | D12 | The scope and stem taps are pre-mute and pre-gain | stems are for A/B against hardware and must not depend on listening aids; a muted channel's scope still shows what is muted | post-mute taps (a muted channel's stem goes silent) |

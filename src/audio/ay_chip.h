@@ -31,8 +31,10 @@ public:
     /// Select a register (0-15). addr bits 4:0 are used.
     void select_register(uint8_t addr);
 
-    /// Write to the currently selected register.
-    void write_data(uint8_t val);
+    /// Write to the currently selected register. Returns false when the write is
+    /// discarded because the register address is 16-31 (ym2149.vhd:188 writes only
+    /// when `addr(4) = '0'`), true when a register took it (GH #530).
+    bool write_data(uint8_t val);
 
     /// Read the currently selected register.
     /// @param reg_mode  If true, returns AY_ID & selected register number
@@ -41,6 +43,10 @@ public:
 
     /// Get the currently selected register number.
     uint8_t selected_register() const { return addr_ & 0x0F; }
+
+    /// The whole 5-bit address latch (ym2149.vhd:173). Bit 4 set makes every
+    /// data write vanish (:188), which selected_register() hides.
+    uint8_t address() const { return addr_ & 0x1F; }
 
     /// Read a specific register value (for debugger introspection).
     uint8_t read_register(uint8_t reg) const { return reg_[reg & 0x0F]; }
@@ -67,8 +73,27 @@ public:
     uint8_t output_b() const { return out_b_; }
     uint8_t output_c() const { return out_c_; }
 
+    /// Debugger view of the generators (const, no side effects). `env_*` is what
+    /// the VHDL holds: with an R13 write still pending (env_reset_) that is the
+    /// reload, 31 falling for attack 0 and 0 rising for attack 1, which the
+    /// VHDL loads on the next 28 MHz clock (ym2149.vhd:393-401) while jnext
+    /// defers it to the next PSG tick. `amplitude[k]` is the level channel k
+    /// plays when its tone/noise gate is open, through the AY or YM table
+    /// (update_output() without the `mixed[]` gate), so a panel's level bar does
+    /// not flicker with the square wave.
+    struct DebugView {
+        uint8_t env_step = 0;
+        bool env_inc = false;
+        bool env_hold = false;
+        std::array<uint8_t, 3> amplitude{};
+    };
+    DebugView debug_view() const;
+
 private:
-    void load_envelope();   // apply a pending env_reset_ (ym2149.vhd:340-341, 393-401)
+    void load_envelope();   // apply a pending env_reset_ (ym2149.vhd:340-342, 393-409)
+    // One envelope shape step: the half of update_envelope() after the period counter. always_inline: it runs on
+    // every envelope step of every chip (~218 k/s per chip), and left out of line it cost 0.4-0.6 % instructions.
+    [[gnu::always_inline]] inline void step_shape_();
 
     uint8_t id_;
     bool ay_mode_ = true;  // true=AY, false=YM

@@ -26,7 +26,7 @@ A `Subscription` (`events.h`) is:
 
 | Field | Meaning |
 |---|---|
-| `kind` | one of the fourteen `EventKind`s (below) |
+| `kind` | one of the fifteen `EventKind`s (below) |
 | `filter` | an `EventFilter`: the cheap, hot-path-testable half — an address or Copper-PC range, an optional legacy page qualifier, a fetch-identity qualifier (`space`), a page set, a port mask and value, a NextREG set, a source, a frame, a scanline, a cycle, a reset kind, a sub-kind, a host-event name |
 | `access` | for `Mem` and `Port`, which directions to watch |
 | `condition` | optional `Condition`, `bool(const Event&, const Debugger&)`: a predicate the subscriber compiled. It may read the whole inspection surface and nothing else |
@@ -53,7 +53,7 @@ A live subscription is **delivered only while the machine is armed**
 boundary drain altogether. That is why a GUI breakpoint, owned by a non-arming
 observer client, fires only while something else arms the machine.
 
-## The fourteen kinds, and when each is delivered
+## The fifteen kinds, and when each is delivered
 
 `Execute` is the only kind delivered **before** its instruction runs. The
 pre-instruction gate in `run_frame()` builds the event from PC and delivers it
@@ -66,6 +66,8 @@ other kind is delivered at an instruction boundary:
 | `Mem` | one of the eight `Mmu` read/write sites | the raising instruction's own boundary | nothing |
 | `Port` | `PortDispatch`, after the dispatch, so a read carries the value the guest got | same | nothing |
 | `Dma` (`Start`, `Byte`, `End`) | `Dma::execute_burst()` | the boundary of the slot the burst ran in | nothing |
+| `AudioWrite`, CPU port write or DMA byte | the audio tap's sink (`AudioLogSink::audio_record()`, in the backend) | the raising instruction's boundary | nothing |
+| `AudioWrite`, CPU NextREG 0x2C-0x2E write, and a Copper MOVE | the same sink | the next boundary | ≤1 instruction |
 | `NextRegWrite`, CPU writer | `NextReg::write` | the next boundary | ≤1 instruction |
 | `NextRegWrite`, Copper writer, and `Copper` (`Move`, `Wait`, `Halt`) | `Copper::execute()` | the next boundary | ≤1 instruction |
 | `Scanline` | `on_scanline`, with the line's own boundary cycle | the next boundary | ≤1 instruction |
@@ -99,6 +101,25 @@ start cycle. Two `Mem{Write}`s from one `LD (nn),HL` are indistinguishable by
 `cycle`. `Scanline` is exact, because the site hands the latch the line's own
 boundary cycle. Its `cvc` comes from the line number rather than from a cycle,
 because `cvc` steps at raw `hc == hc_ula_zero_raw_hc()` and not at raw `hc` 0.
+
+
+**`AudioWrite` is latched in the backend, not the core.** The audio write tap
+(`04-audio.md`) already hands every decoded write to `AudioLogSink::audio_record()`; its first
+statement latches an `AudioWrite` entry when a live subscription accepts the write
+(`Impl::latch_audio_write()`), BEFORE the log's own ring test, so the event does not depend on the
+log. It skips a marker and a write whose source is `Debugger` (a debugger write fires no event)
+and a machine that is not armed. The core holds no per-kind flag: the one `audio_tap_active_` bool
+it already tests at each site is published by `Impl::publish_audio_tap()` as "the log is requested
+OR a live `AudioWrite` subscription exists", from `gates_changed()` (where every table change ends)
+and `sync_audio_log()`. So a machine with no audio breakpoint and no log costs nothing more than
+before, and the scan of the live subscriptions (`EventTable::audio_would_match()`) runs only
+inside the cold sink. The match is one predicate, `audio_accepts()`, shared by that site check and
+the drain's `filter_matches()` (the target mask, the chip, the register set for the two targets
+that carry one, the value/mask pair, the flags that must be set and clear, the source).
+`subscribe()` refuses a filter that can never match (no valid target, a chip above 3, a value
+outside its mask, a flag required and forbidden, a register set with neither the AY register nor
+the mirror target). The latch packs `target`, `chip`, `flags` and `drop_reason` into the
+`LatchEntry` bytes `sub_kind`, `misc`, `misc2` and `misc3`, and `build_event()` unpacks them.
 
 ## The delivery
 
@@ -247,8 +268,8 @@ frontend and to script handlers, under one contract.
 | `port_out` | dispatched like the guest's `OUT` |
 | `set_sprite_attr_raw`, `write_pattern_ram`, `set_palette`, `set_border` | through the engine's own setters, not as port traffic |
 
-`set_audio_mute_mask` is not in the table: the mute mask is host-side state, in
-neither a snapshot nor an RZX recording. It logs a `MUTATE` line like a write,
+`set_audio_mute_mask`, `set_audio_channel_mute_mask` and `clear_audio_drops` are not in the table: the mute masks and
+the dropped-write counters are host-side state, in neither a snapshot nor an RZX recording. Each logs a `MUTATE` line like a write,
 but neither the RZX refusal nor the rewind wall below applies to it.
 
 **When a write lands.** Always at a delivery point, never inside a hot-path

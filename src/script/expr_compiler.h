@@ -18,7 +18,7 @@
 // THE LANGUAGE is §2.1's `expr`: integers (32-bit signed, wrapping), `true` /
 // `false`, `CPU` / `DMA` / `COPPER`, the upper-case state names of §2.3
 // (registers, flags, IFF1/IFF2/IM/HALTED, FRAME/CYCLE/TFRAME, the VHDL raster
-// counters, AUDIO_MUTE, MACHINE), `mem[a]`, `mem16[a]`, `phys[page, off]`,
+// counters, AUDIO_MUTE, AUDIO_CHANNEL_MUTE, MACHINE), `mem[a]`, `mem16[a]`, `phys[page, off]`,
 // `nextreg[r]`, `mmu[s]`, `page[s]`, `stack[n]`, `cvar(path)` (a C variable of
 // frame 0 as an int32; GH #436), `@symbol`, and the payload names of the scope's
 // event kind. Operators, low to high: `or`; `and`;
@@ -48,7 +48,7 @@
 //
 // READS ARE SIDE-EFFECT FREE. Every name reads through the `Debugger`'s const
 // inspection surface (`registers()`, `peek()`, `nextreg_peek()`,
-// `mmu_slots()`, `raster()`, `time()`, `machine()`, `audio_mute_mask()`), which
+// `mmu_slots()`, `raster()`, `time()`, `machine()`, `audio_mute_mask()`, `audio_channel_mute_mask()`, `ay_registers()`), which
 // is non-perturbing by contract — a read here fires no watchpoint and no
 // destructive NextREG read handler.
 // ---------------------------------------------------------------------------

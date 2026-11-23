@@ -35,9 +35,22 @@ public:
     using WriteCallback = std::function<void(int, uint8_t)>;
     void set_write_callback(WriteCallback callback) { write_callback_ = std::move(callback); }
 
-    /// Get 9-bit stereo output (A+B for left, C+D for right).
-    uint16_t pcm_left() const  { return static_cast<uint16_t>(ch_[0]) + ch_[1]; }
-    uint16_t pcm_right() const { return static_cast<uint16_t>(ch_[2]) + ch_[3]; }
+    /// One channel's byte (0=A, 1=B, 2=C, 3=D), for the debugger.
+    uint8_t channel(int ch) const { return ch_[ch & 3]; }
+
+    /// Get 9-bit stereo output (A+B for left, C+D for right): the AUDIBLE sum, i.e.
+    /// the channel registers with the debugger's channel mute applied (a muted
+    /// channel reads its idle 0x80, soundrive.vhd:74-77). Only the mixer reads it.
+    uint16_t pcm_left() const  { return static_cast<uint16_t>(aud_[0]) + aud_[1]; }
+    uint16_t pcm_right() const { return static_cast<uint16_t>(aud_[2]) + aud_[3]; }
+
+    /// Debugger-only per-channel mute (bit k = channel k, A=0; AudioChannelMute::DAC_A..D >> 9).
+    /// It changes only the audible copy `aud_`, kept up to date on each write and on a
+    /// mute change, so the mixer's read costs the same muted or not. The registers
+    /// (`ch_`: what channel() returns and what describe_state() serialises) never see
+    /// it; not machine state: reset() and load_state() leave it alone (audio/audio_mute.h).
+    void set_channel_mute(uint8_t m) { channel_mute_ = m & 0x0F; refresh_audible_(); }
+    uint8_t channel_mute() const { return channel_mute_; }
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
@@ -49,5 +62,10 @@ public:
 
 private:
     uint8_t ch_[4];  // A, B, C, D
+    uint8_t aud_[4]; // the audible copy of ch_ (muted channels read 0x80); not serialised
+    uint8_t channel_mute_ = 0;  // debugger-only; NOT machine state (not reset, not serialised)
+    void refresh_audible_() {
+        for (int k = 0; k < 4; ++k) aud_[k] = ((channel_mute_ >> k) & 1) ? 0x80 : ch_[k];
+    }
     WriteCallback write_callback_;
 };

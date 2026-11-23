@@ -26,7 +26,7 @@
 //
 // EVERY READ IS SIDE-EFFECT FREE: the machine is read only through the const
 // `Debugger` inspection surface (`registers()`, `peek()`, `nextreg_peek()`,
-// `mmu_slots()`, `raster()`, `time()`, `machine()`, `audio_mute_mask()`).
+// `mmu_slots()`, `raster()`, `time()`, `machine()`, `audio_mute_mask()`, `audio_channel_mute_mask()`, `ay_registers()`).
 //
 // A run-time failure (§6.5) throws `EvalError` with the failing node's
 // position, and never leaves this library through a predicate: `compile_expr`'s

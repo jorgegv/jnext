@@ -7,6 +7,16 @@
 namespace jnext { namespace save { class StateDesc; } }
 #include "audio/audio_mute.h"
 
+/// What an AY port write did, for the debugger's dropped-write counters (GH #530).
+/// Each non-Applied value is one VHDL term that makes the write a no-op.
+enum class AyPortStatus : uint8_t {
+    Applied = 0,
+    HeldInReset,          ///< audio_ay_reset: turbosound.vhd:121, ym2149.vhd:170,184
+    ChipSelectTurboOff,   ///< select/pan command needs turbosound_en_i: turbosound.vhd:129
+    SelectIgnored,        ///< psg_addr needs d(7:5)="000": turbosound.vhd:141
+    AddressHigh,          ///< register address 16-31: ym2149.vhd:188
+};
+
 /// TurboSound Next: 3× YM2149/AY-3-8910 with stereo panning.
 ///
 /// Manages three independent AY chips, with per-chip stereo/mono mode
@@ -77,10 +87,12 @@ public:
     /// Port 0xFFFD write: register select or AY/panning control.
     /// When bits 7:5 = "000", selects a register on the active AY.
     /// When bit 7 = 1 and bits 4:2 = "111", changes active AY and panning.
-    void reg_addr(uint8_t data);
+    /// Returns what the write did (GH #530); the value may be ignored.
+    AyPortStatus reg_addr(uint8_t data);
 
     /// Port 0xBFFD write: write data to selected register on active AY.
-    void reg_write(uint8_t data);
+    /// Returns what the write did (GH #530); the value may be ignored.
+    AyPortStatus reg_write(uint8_t data);
 
     /// Port 0xBFFD read: read from selected register on active AY.
     uint8_t reg_read(bool reg_mode = false) const;
@@ -94,15 +106,29 @@ public:
     void tick_n(uint32_t count);
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
-    /// Gates ONLY this chip's contribution to the 3-PSG sum in
-    /// compute_stereo_mix(); the chip keeps ticking and its register file
-    /// keeps reading back. Not hardware, not machine state — see
-    /// audio/audio_mute.h. Deliberately not touched by reset() /
+    /// Gates ONLY this chip's contribution to the AUDIBLE 3-PSG sum
+    /// (pcm_left()/pcm_right(), chip_pcm()); the chip keeps ticking, its
+    /// register file keeps reading back, and the hardware sum that save_state()
+    /// serialises is computed without the mute. Not hardware, not machine state
+    /// -- see audio/audio_mute.h. Deliberately not touched by reset() /
     /// reset_ay_only() / save_state() / load_state().
-    void set_chip_mute_mask(uint8_t m) { chip_mute_mask_ = m & AudioMute::AY_ALL; mix_dirty_ = true; }
+    void set_chip_mute_mask(uint8_t m) {
+        chip_mute_mask_ = m & AudioMute::AY_ALL;
+        for (int i = 0; i < 3; ++i) chip_gate_[i] = ((chip_mute_mask_ >> i) & 1) ? 0 : 0xFFFF;
+        mix_dirty_ = true;
+    }
     uint8_t chip_mute_mask() const { return chip_mute_mask_; }
 
-    /// Get mixed stereo output (12-bit per channel).
+    /// Debugger-only per-channel mute (AudioChannelMute AY bits 0-8; bit 3*chip+channel).
+    /// A set bit zeroes that channel's output BEFORE the chip's A/B/C mux, so ACB,
+    /// mono and pan stay exact; like the chip mute it gates only the AUDIBLE sum,
+    /// never the hardware one, and is not touched by reset() / save_state() /
+    /// load_state() (audio/audio_mute.h).
+    void set_channel_mute_mask(uint16_t m) { channel_mute_mask_ = m & AudioChannelMute::AY_ALL; mix_dirty_ = true; }
+    uint16_t channel_mute_mask() const { return channel_mute_mask_; }
+
+    /// Get the audible mixed stereo output (12-bit per channel): the hardware sum
+    /// less the chips the debugger muted.
     uint16_t pcm_left() const { return pcm_L_; }
     uint16_t pcm_right() const { return pcm_R_; }
 
@@ -114,6 +140,11 @@ public:
 
     /// Access individual AY chip (for debugging).
     const AyChip& ay(int idx) const { return ay_[idx]; }
+
+    /// Index (0-2) of the chip ay_select_ names, and one chip's pan bits
+    /// ({left_en, right_en}, turbosound.vhd:129-136). Debugger views.
+    int selected_index() const { return active_ay_index(); }
+    uint8_t pan(int idx) const { return pan_[idx]; }
 
     /// The chip a classic AY program reaches through ports 0xFFFD/0xBFFD:
     /// the one ay_select_ names (AY#0 unless TurboSound moved it).
@@ -139,14 +170,20 @@ private:
     bool stereo_mode_ = false;    // false=ABC, true=ACB
     uint8_t mono_mode_ = 0;      // Per-chip mono flags
 
+    // The audible sum (chips muted by chip_mute_mask_ excluded) and the hardware
+    // sum (every active chip, no mute). Only the hardware pair is machine state:
+    // describe_state() serialises it, so a debugger mute never reaches a saved
+    // state, a rewind slot or the Z80 (audio/audio_mute.h).
     uint16_t pcm_L_ = 0;
     uint16_t pcm_R_ = 0;
+    uint16_t hw_pcm_L_ = 0;
+    uint16_t hw_pcm_R_ = 0;
     std::array<uint16_t, 3> chip_pcm_L_{};
     std::array<uint16_t, 3> chip_pcm_R_{};
     bool chip_pcm_valid_ = true;
 
     // GH #440. The mix is a pure function of the chips' outputs, ay_select_,
-    // pan_, enabled_, stereo_mode_, mono_mode_ and chip_mute_mask_
+    // pan_, enabled_, stereo_mode_, mono_mode_, chip_mute_mask_ and channel_mute_mask_
     // (turbosound.vhd:184-337), so tick() recomputes it only when a chip's
     // output changed or this flag is set by a writer of any other input
     // (the setters, reg_addr, reset, reset_ay_only, load_state).
@@ -154,9 +191,16 @@ private:
 
     // Debugger-only; NOT machine state (not reset, not serialised).
     uint8_t chip_mute_mask_ = AudioMute::NONE;
+    // chip_mute_mask_ as AND masks (0xFFFF audible, 0 muted), so the per-recompute loop gates a chip with
+    // one AND instead of a bit extraction and a select. Kept in step by set_chip_mute_mask() only.
+    uint16_t chip_gate_[3] = {0xFFFF, 0xFFFF, 0xFFFF};
+    uint16_t channel_mute_mask_ = AudioChannelMute::NONE;
 
     int active_ay_index() const;
-    void compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const;
+    // always_inline: the hardware call passes silenced == 0, which folds away, so the hot path is the
+    // pre-mute one (GH #533 bench).
+    [[gnu::always_inline]] inline void compute_chip_stereo(int idx, uint8_t silenced, uint16_t& left, uint16_t& right) const;
+    void compute_stereo_mix_channels_();
     [[gnu::always_inline]] inline void compute_stereo_mix();
     [[gnu::always_inline]] inline void tick_impl_();
 };

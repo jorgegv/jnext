@@ -173,7 +173,7 @@ memory go through it ([7.7](07-frontends.md)).
   `memory_text.h:20`).
 
 The instruction at the PC is a special read. `Debugger::memory_reader()`
-(`debugger_inspect.cpp:840`) returns the bytes the CPU *will fetch* for that one instruction
+(`debugger_inspect.cpp:940`) returns the bytes the CPU *will fetch* for that one instruction
 (`Emulator::predict_instruction_bytes()`, at most four) and `Mmu::peek()` for everything else,
 because at a DivMMC instant entry the M1 itself maps DivMMC. That is the prediction half of this
 page applied to the bytes instead of the identity.

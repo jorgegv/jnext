@@ -109,6 +109,8 @@ int32_t read_builtin(const Expr& e, const EvalContext& ctx) {
             case Builtin::P_PC:       return ev.pc;
             case Builtin::P_HC_ULA:   return ev.hc_ula;
             case Builtin::P_CVC:      return ev.cvc;
+            case Builtin::P_CHIP:     return ev.chip;
+            case Builtin::P_TARGET:   return static_cast<int32_t>(ev.audio_target);
             default: break;
         }
         fail(e, "internal: unbound payload name `" + e.text + "`");
@@ -161,6 +163,7 @@ int32_t read_builtin(const Expr& e, const EvalContext& ctx) {
         case Builtin::CVC:    return ctx.dbg.raster().cvc;
         case Builtin::PHC:    return ctx.dbg.raster().phc;
         case Builtin::AUDIO_MUTE: return ctx.dbg.audio_mute_mask();
+        case Builtin::AUDIO_CHANNEL_MUTE: return ctx.dbg.audio_channel_mute_mask();
         case Builtin::MACHINE:    return machine_code(ctx.dbg.machine().type);
         default: break;
     }
@@ -311,6 +314,16 @@ int32_t eval_int(const Expr& e, const EvalContext& ctx) {
             const int32_t r = eval_int(*e.a, ctx);
             if (r < 0 || r > 0xFF) fail(e, "`nextreg[]` register " + hex(r) + " is outside 0..0xFF");
             return ctx.dbg.nextreg_peek(static_cast<uint8_t>(r));
+        }
+        case ExprKind::Ay: {
+            const int32_t c = eval_int(*e.a, ctx);
+            const int32_t r = eval_int(*e.b, ctx);
+            if (c < 0 || c > 2) fail(e, "`ay[]` chip " + std::to_string(c) + " is outside 0..2");
+            if (r < 0 || r > 15) fail(e, "`ay[]` register " + std::to_string(r) + " is outside 0..15");
+            // The CPU read-back (AyChip::read_register), as the register table shows it; a read has no side effect.
+            const auto regs = ctx.dbg.ay_registers(c);
+            if (!regs) fail(e, "`ay[]` chip " + std::to_string(c) + " cannot be read");
+            return regs.value[static_cast<size_t>(r)];
         }
         case ExprKind::Mmu:
         case ExprKind::Page: {

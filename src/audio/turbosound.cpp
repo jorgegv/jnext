@@ -87,6 +87,8 @@ void TurboSound::reset_ay_only()
     pan_.fill(0x03);  // Both L and R enabled for all chips
     pcm_L_ = 0;
     pcm_R_ = 0;
+    hw_pcm_L_ = 0;
+    hw_pcm_R_ = 0;
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = true;
@@ -108,12 +110,12 @@ int TurboSound::active_ay_index() const
     }
 }
 
-void TurboSound::reg_addr(uint8_t data)
+AyPortStatus TurboSound::reg_addr(uint8_t data)
 {
     // Held in reset (NR 0x06 psg_mode = 11, zxnext.vhd:6379): the select/pan command
     // (turbosound.vhd:121, reset branch first) and the register select
     // (ym2149.vhd:170) are both ignored.
-    if (reset_held_) return;
+    if (reset_held_) return AyPortStatus::HeldInReset;
     // Check for AY select / panning command:
     // VHDL: turbosound_en_i = '1' AND psg_reg_addr_i = '1'
     //       AND psg_d_i(7) = '1' AND psg_d_i(4:2) = "111"
@@ -136,19 +138,25 @@ void TurboSound::reg_addr(uint8_t data)
                 ay_select_ = 3;
                 break;
         }
-        return;
+        return AyPortStatus::Applied;
     }
 
     // Normal register select: bits 7:5 must be "000"
     if ((data & 0xE0) == 0) {
         ay_[active_ay_index()].select_register(data);
+        return AyPortStatus::Applied;
     }
+    // Ignored. The enabled select/pan case returned above, so a d7=1, d(4:2)=111
+    // pattern reaching here means TurboSound is off (turbosound.vhd:129).
+    return ((data & 0x80) && ((data >> 2) & 0x07) == 0x07)
+        ? AyPortStatus::ChipSelectTurboOff : AyPortStatus::SelectIgnored;
 }
 
-void TurboSound::reg_write(uint8_t data)
+AyPortStatus TurboSound::reg_write(uint8_t data)
 {
-    if (reset_held_) return;   // ym2149.vhd:184, reset branch before busctrl_we
-    ay_[active_ay_index()].write_data(data);
+    if (reset_held_) return AyPortStatus::HeldInReset;   // ym2149.vhd:184, reset branch before busctrl_we
+    return ay_[active_ay_index()].write_data(data)
+        ? AyPortStatus::Applied : AyPortStatus::AddressHigh;
 }
 
 uint8_t TurboSound::reg_read(bool reg_mode) const
@@ -176,6 +184,64 @@ uint8_t TurboSound::reg_read(bool reg_mode) const
 void TurboSound::tick() { tick_impl_(); }
 void TurboSound::tick_n(uint32_t count) { for (uint32_t i = 0; i < count; ++i) tick_impl_(); }
 
+// `silenced`: bit 0/1/2 = the channel A/B/C input read as 0 (debugger channel
+// mute); 0 gives the hardware value.
+[[gnu::always_inline]] inline void TurboSound::compute_chip_stereo(int idx, uint8_t silenced, uint16_t& left, uint16_t& right) const
+{
+    left = right = 0;
+
+    const bool active =
+        idx == 0 ? (ay_select_ == 3 || enabled_) :
+        idx == 1 ? (ay_select_ == 2 || enabled_) :
+                   (ay_select_ == 1 || enabled_);
+    if (!active) return;
+
+    const uint16_t a = (silenced & 1) ? 0 : ay_[idx].output_a();
+    const uint16_t b = (silenced & 2) ? 0 : ay_[idx].output_b();
+    const uint16_t c = (silenced & 4) ? 0 : ay_[idx].output_c();
+    const bool mono = (mono_mode_ >> idx) & 1;
+
+    const uint16_t left_mux = (stereo_mode_ || mono) ? c : b;
+    const uint16_t left_sum = left_mux + a;
+    const uint16_t right_mux = mono ? left_sum : c;
+    const uint16_t right_sum = right_mux + b;
+    const uint16_t left_final = mono ? right_sum : left_sum;
+
+    left = (pan_[idx] & 0x02) ? left_final : 0;
+    right = (pan_[idx] & 0x01) ? right_sum : 0;
+}
+
+// The mix with debugger channel mutes in force: the hardware sum as ever, and the audible pair of a
+// chip with muted channels recomputed from silenced inputs (the mute never reaches the hardware sum).
+[[gnu::noinline, gnu::cold]] void TurboSound::compute_stereo_mix_channels_()
+{
+    uint16_t hw_L = 0, hw_R = 0;
+    uint16_t total_L = 0;
+    uint16_t total_R = 0;
+
+    for (int i = 0; i < 3; i++) {
+        uint16_t l, r;
+        compute_chip_stereo(i, 0, l, r);
+        hw_L += l;
+        hw_R += r;
+
+        const bool muted = (chip_mute_mask_ >> i) & 1;
+        const uint8_t silenced = (channel_mute_mask_ >> (3 * i)) & 7;
+        uint16_t al = l, ar = r;
+        if (!muted && silenced) compute_chip_stereo(i, silenced, al, ar);
+        chip_pcm_L_[i] = muted ? 0 : al;
+        chip_pcm_R_[i] = muted ? 0 : ar;
+        total_L += chip_pcm_L_[i];
+        total_R += chip_pcm_R_[i];
+    }
+
+    hw_pcm_L_ = hw_L & 0x0FFF;
+    hw_pcm_R_ = hw_R & 0x0FFF;
+    pcm_L_ = total_L & 0x0FFF;
+    pcm_R_ = total_R & 0x0FFF;
+    chip_pcm_valid_ = true;
+}
+
 inline void TurboSound::compute_stereo_mix()
 {
     // Per-chip stereo mixing (matches VHDL turbosound.vhd exactly)
@@ -188,18 +254,39 @@ inline void TurboSound::compute_stereo_mix()
     //
     // Then panning gates L and R independently.
     // Final: sum all 3 PSGs for 12-bit output.
+    //
+    // Two sums: the hardware one (every active chip; the machine state) and the
+    // audible one, which leaves out the chips the debugger muted. The mute is a
+    // host listening aid with no hardware analogue and must not reach the
+    // saved state (audio/audio_mute.h).
 
+    // Debugger channel mutes in force: the same mix, out of line (cold). Every normal run
+    // takes the loop below, which is the pre-mute code.
+    if (__builtin_expect(channel_mute_mask_ != 0, 0)) {
+        compute_stereo_mix_channels_();
+        return;
+    }
+
+    uint16_t hw_L = 0, hw_R = 0;
     uint16_t total_L = 0;
     uint16_t total_R = 0;
 
     for (int i = 0; i < 3; i++) {
-        compute_chip_stereo(i, chip_pcm_L_[i], chip_pcm_R_[i]);
+        uint16_t l, r;
+        compute_chip_stereo(i, 0, l, r);
+        hw_L += l;
+        hw_R += r;
 
+        const uint16_t gate = chip_gate_[i];
+        chip_pcm_L_[i] = l & gate;
+        chip_pcm_R_[i] = r & gate;
         total_L += chip_pcm_L_[i];
         total_R += chip_pcm_R_[i];
     }
 
     // Output: 12-bit (0-4095 max with all 3 PSGs at full volume)
+    hw_pcm_L_ = hw_L & 0x0FFF;
+    hw_pcm_R_ = hw_R & 0x0FFF;
     pcm_L_ = total_L & 0x0FFF;
     pcm_R_ = total_R & 0x0FFF;
     chip_pcm_valid_ = true;
@@ -213,31 +300,6 @@ void TurboSound::chip_pcm(int idx, uint16_t& left, uint16_t& right) const
     right = chip_pcm_R_[idx];
 }
 
-void TurboSound::compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const
-{
-    left = right = 0;
-
-    const bool active =
-        idx == 0 ? (ay_select_ == 3 || enabled_) :
-        idx == 1 ? (ay_select_ == 2 || enabled_) :
-                   (ay_select_ == 1 || enabled_);
-    if (!active || ((chip_mute_mask_ >> idx) & 1)) return;
-
-    const uint16_t a = ay_[idx].output_a();
-    const uint16_t b = ay_[idx].output_b();
-    const uint16_t c = ay_[idx].output_c();
-    const bool mono = (mono_mode_ >> idx) & 1;
-
-    const uint16_t left_mux = (stereo_mode_ || mono) ? c : b;
-    const uint16_t left_sum = left_mux + a;
-    const uint16_t right_mux = mono ? left_sum : c;
-    const uint16_t right_sum = right_mux + b;
-    const uint16_t left_final = mono ? right_sum : left_sum;
-
-    left = (pan_[idx] & 0x02) ? left_final : 0;
-    right = (pan_[idx] & 0x01) ? right_sum : 0;
-}
-
 // GH #27 S5 — the ONE field list (design §9.2): three chips, then the
 // selector, pans and mixer scalars. §9.4's loop-collapse class.
 void TurboSound::describe_state(jnext::save::StateDesc& d)
@@ -248,8 +310,10 @@ void TurboSound::describe_state(jnext::save::StateDesc& d)
     d.boolean("enabled", enabled_);
     d.boolean("stereo_mode", stereo_mode_);
     d.u8("mono_mode", mono_mode_);
-    d.u16("pcm_l", pcm_L_);
-    d.u16("pcm_r", pcm_R_);
+    // The HARDWARE aggregate under the keys it always had: the audible pair
+    // (pcm_L_/pcm_R_) depends on the debugger's mute and is not machine state.
+    d.u16("pcm_l", hw_pcm_L_);
+    d.u16("pcm_r", hw_pcm_R_);
 }
 
 void TurboSound::save_state(StateWriter& w) const
@@ -268,6 +332,10 @@ void TurboSound::load_state(StateReader& r)
     // pcm_L_/pcm_R_. The mixer falls back to the serialised aggregate until
     // the next PSG tick. Kept OUTSIDE the declaration deliberately: this is a
     // reset of derived state (§9.5(7)), not a field.
+    // The audible aggregate starts as the loaded hardware one, and the first PSG
+    // tick (mix_dirty_) rebuilds both with the current mute.
+    pcm_L_ = hw_pcm_L_;
+    pcm_R_ = hw_pcm_R_;
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = false;

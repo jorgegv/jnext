@@ -26,6 +26,7 @@
 #include "script/check.h"
 #include "script/expr_compiler.h"
 #include "script/lexer.h"
+#include "script/names.h"
 #include "script/parser.h"
 
 #include "core/emulator.h"
@@ -821,6 +822,65 @@ static void event_rows() {
                   is_int(ev0(b)->lo, 0x50) && is_int(ev0(b)->hi, 0x57));
     }
     {
+        // GH #532: `on ay_write [chip C] [reg R[..R]] [mask M value V]`, the qualifiers in this order.
+        const ParseResult a = P("on ay_write do end");
+        const ParseResult b = P("on ay_write chip 1 do end");
+        const ParseResult c = P("on ay_write reg 13 do end");
+        const ParseResult c2 = P("on ay_write reg 8..10 do end");
+        const ParseResult d = P("on ay_write mask 0x0F value 0x08 do end");
+        const ParseResult f = P("on ay_write chip 2 reg 7 mask 0xFF value 0x38 once when PREV != VALUE do end");
+        check("PARSE-AYW-01", "`on ay_write do end` parses: AyWrite with no chip, register, mask or value",
+              ev0(a) && ev0(a)->type == SEvt::AyWrite && !ev0(a)->chip && !ev0(a)->lo && !ev0(a)->mask && !ev0(a)->value &&
+                  ev0(a)->audio == AudioWord::AyReg && !ev0(a)->dropped);
+        check("PARSE-AYW-02", "`on ay_write chip 1 do end`: the chip is the literal 1", ev0(b) && is_int(ev0(b)->chip, 1));
+        check("PARSE-AYW-03", "`reg 13` gives lo 13 and no hi; `reg 8..10` gives lo 8, hi 10",
+              ev0(c) && is_int(ev0(c)->lo, 13) && !ev0(c)->hi && ev0(c2) && is_int(ev0(c2)->lo, 8) && is_int(ev0(c2)->hi, 10));
+        check("PARSE-AYW-04", "`mask 0x0F value 0x08` fills mask and value", ev0(d) && is_int(ev0(d)->mask, 0x0F) && is_int(ev0(d)->value, 0x08));
+        check("PARSE-AYW-05", "`on ay_write chip 2 reg 7 mask 0xFF value 0x38 once when PREV != VALUE do end`: everything in place, `once` and `when` included",
+              f.ok() && ev0(f) && is_int(ev0(f)->chip, 2) && is_int(ev0(f)->lo, 7) && is_int(ev0(f)->mask, 0xFF) && is_int(ev0(f)->value, 0x38) &&
+                  f.script.rules[0].once && f.script.rules[0].when);
+        check("PERR-AYW-01", "`on ay_write reg 1 chip 0 do end`: the qualifiers have a fixed order, the error is at `chip`",
+              err_at(P("on ay_write reg 1 chip 0 do end").error, 1, 19, "`do`"), dstr(P("on ay_write reg 1 chip 0 do end").error));
+        check("PERR-AYW-02", "`on ay_write mask 0x0F do end`: an error after the value mask expecting `value`",
+              err_at(P("on ay_write mask 0x0F do end").error, 1, 23, "after the value mask"), dstr(P("on ay_write mask 0x0F do end").error));
+        // `on audio_write [ay_reg | ay_select | dac] [chip C] [reg R[..R]] [mask M value V] [dropped]`
+        const ParseResult g = P("on audio_write do end");
+        const ParseResult h = P("on audio_write dac chip 3 do end");
+        const ParseResult i = P("on audio_write ay_select chip 2 do end");
+        const ParseResult j = P("on audio_write ay_reg chip 1 reg 13 mask 0x0F value 0x08 dropped do end");
+        const ParseResult k = P("on audio_write dropped do end");
+        check("PARSE-AUW-01", "`on audio_write do end`: AudioWrite, target Any, no qualifiers, not dropped",
+              ev0(g) && ev0(g)->type == SEvt::AudioWrite && ev0(g)->audio == AudioWord::Any && !ev0(g)->chip && !ev0(g)->lo && !ev0(g)->dropped);
+        check("PARSE-AUW-02", "the target words: `dac chip 3` and `ay_select chip 2`",
+              ev0(h) && ev0(h)->audio == AudioWord::Dac && is_int(ev0(h)->chip, 3) && ev0(i) && ev0(i)->audio == AudioWord::AySelect &&
+                  is_int(ev0(i)->chip, 2));
+        check("PARSE-AUW-03", "`ay_reg chip 1 reg 13 mask 0x0F value 0x08 dropped`: every qualifier in place",
+              ev0(j) && ev0(j)->audio == AudioWord::AyReg && is_int(ev0(j)->chip, 1) && is_int(ev0(j)->lo, 13) &&
+                  is_int(ev0(j)->mask, 0x0F) && is_int(ev0(j)->value, 0x08) && ev0(j)->dropped);
+        check("PARSE-AUW-04", "`on audio_write dropped do end`: dropped with the target Any", ev0(k) && ev0(k)->dropped && ev0(k)->audio == AudioWord::Any);
+        check("PERR-AUW-01", "`chip` needs a target: `on audio_write chip 1 do end` is an error at `chip`",
+              err_at(P("on audio_write chip 1 do end").error, 1, 16, "needs a target"), dstr(P("on audio_write chip 1 do end").error));
+        check("PERR-AUW-02", "`reg` belongs to `ay_reg`: refused after `dac`, `ay_select` and with no target",
+              err_at(P("on audio_write dac reg 1 do end").error, 1, 20, "`ay_reg` target") &&
+                  err_at(P("on audio_write ay_select reg 1 do end").error, 1, 26, "`ay_reg` target") &&
+                  err_at(P("on audio_write reg 1 do end").error, 1, 16, "`ay_reg` target"));
+        check("PERR-AUW-03", "`dropped` comes last, and `ay_write` has none: `dropped mask ...` and `on ay_write dropped` are errors",
+              err_at(P("on audio_write dropped mask 1 value 1 do end").error, 1, 24, "`do`") &&
+                  err_at(P("on ay_write dropped do end").error, 1, 13, "`do`"));
+    }
+    {
+        // `ay[chip, reg]`: read-only
+        const ExprPtr e = var_init("var x = ay[1, 13]");
+        check("PARSE-AYR-01", "`ay[1, 13]` parses ExprKind::Ay with a = 1 and b = 13", is_kind(e, ExprKind::Ay) && is_int(e->a, 1) && is_int(e->b, 13));
+        check("PERR-AYR-01", "`set ay[0, 7] = 1`: cannot be assigned, at the accessor",
+              err_at(body_err("set ay[0, 7] = 1"), 1, 17, "cannot be assigned"), dstr(body_err("set ay[0, 7] = 1")));
+        check("PERR-AYR-02", "`ay[1]`: an error between the chip and the register",
+              [] {
+                  const auto d = P("var x = ay[1]").error;
+                  return d && d->message.find("between the chip and the register") != std::string::npos;
+              }(), dstr(P("var x = ay[1]").error));
+    }
+    {
         const ParseResult a = P("on frame do end");
         const ParseResult b = P("on frame 300 do end");
         check("PARSE-EV-FRAME", "`on frame` (every frame) and `on frame N`",
@@ -1112,6 +1172,14 @@ static void lvalue_rows() {
               bad.empty(), bad);
     }
     {
+        const auto b = body_of("set AUDIO_CHANNEL_MUTE = 0x1FE");
+        const auto lb = live_builtin("AUDIO_CHANNEL_MUTE");
+        check("PARSE-ACM-01", "AUDIO_CHANNEL_MUTE parses as a set target, is a live built-in, is assignable and is not a payload name",
+              b.size() == 1 && is_kind(b[0].target, ExprKind::Name) && b[0].target->text == "AUDIO_CHANNEL_MUTE" &&
+                  lb.has_value() && *lb == Builtin::AUDIO_CHANNEL_MUTE && is_assignable(*lb) &&
+                  !payload_builtin("AUDIO_CHANNEL_MUTE").has_value() && is_builtin_name("AUDIO_CHANNEL_MUTE"));
+    }
+    {
         static const char* const NAMES[] = {"HALTED", "FRAME", "CYCLE", "TFRAME", "RAW_HC",
                                             "CVC", "MACHINE", "ADDR", "VALUE", "PC2"};
         std::string bad;
@@ -1253,6 +1321,8 @@ static void expr_rows() {
             "screenshot", "save_snapshot", "compare_scr", "press", "for", "release", "joystick",
             "set", "out", "if", "then", "else", "and", "or", "not", "true", "false", "mem",
             "mem16", "phys", "mmu", "stack", "changed", "depth",
+            // GH #532: ay_write, audio_write, their qualifiers and target words, and the `ay[` stem
+            "ay_write", "audio_write", "chip", "reg", "ay_reg", "ay_select", "dac", "dropped", "ay",
         };
         std::string bad;
         for (const char* w : WORDS)
@@ -1364,6 +1434,7 @@ static void eval_semantic_rows() {
 static const char* const PAYLOAD_ONLY[] = {
     "ADDR", "VALUE", "PREV", "PAGE", "PORT", "REG", "SOURCE", "KEY", "REASON",
     "CPC", "WAIT_V", "WAIT_H", "SRC", "DST", "LEN", "DMA_MODE", "IO_SRC", "IO_DST",
+    "CHIP", "TARGET",
 };
 
 static void build(Emulator& emu, MachineType type) {
@@ -1524,6 +1595,18 @@ static void eval_state_rows(Emulator& emu) {
         check("EVAL-AUDIO", "AUDIO_MUTE reads the host mute mask", set && E_is("AUDIO_MUTE", 0x16),
               E_str("AUDIO_MUTE"));
         if (cid) g_dbg->detach(cid.value);
+    }
+    {
+        auto cid = g_dbg->attach(jnext::dbg::ClientInfo{"script_parse_test", jnext::dbg::ClientKind::Test});
+        const bool set = cid && g_dbg->set_audio_mute_mask(cid.value, 0x16) == jnext::dbg::Result::Ok &&
+                         g_dbg->set_audio_channel_mute_mask(cid.value, 0x1234) == jnext::dbg::Result::Ok;
+        check("EVAL-ACM-01", "AUDIO_CHANNEL_MUTE reads the channel mute mask, AUDIO_MUTE still reads its own, and a breakpoint "
+              "condition over it compiles and holds",
+              set && E_is("AUDIO_CHANNEL_MUTE", 0x1234) && E_is("AUDIO_MUTE", 0x16) &&
+                  compiles("AUDIO_CHANNEL_MUTE & 0x0200", PayloadScope::none()) &&
+                  C("AUDIO_CHANNEL_MUTE & 0x0200", PayloadScope::none(), DbgEvent{}).value_or(false),
+              E_str("AUDIO_CHANNEL_MUTE"));
+        if (cid) { g_dbg->set_audio_channel_mute_mask(cid.value, 0); g_dbg->detach(cid.value); }
     }
 
     {
@@ -1739,6 +1822,8 @@ static void payload_rows() {
         {"PAY-NEXTREG", "nextreg: REG VALUE PREV SOURCE", PayloadScope(EventKind::NextRegWrite),
          {"REG", "VALUE", "PREV", "SOURCE"}},
         {"PAY-HOST", "hostkey: KEY", PayloadScope(EventKind::Host), {"KEY"}},
+        {"PAY-AYW", "ay_write / audio_write: TARGET CHIP REG VALUE PREV (+PC) and nothing else", PayloadScope(EventKind::AudioWrite),
+         {"TARGET", "CHIP", "REG", "VALUE", "PREV"}},
         {"PAY-COPPER-BARE", "a bare Copper scope: CPC (HC_ULA/CVC shadow, see PAYV)",
          PayloadScope(EventKind::Copper), {"CPC"}},
         {"PAY-COPPER-MOVE", "copper move: CPC REG VALUE", PayloadScope::copper_sub(CopperEventKind::Move),
@@ -1813,6 +1898,18 @@ static void payload_value_rows() {
               copper && dma && cpu);
         check("PAYV-NEXTREG", "a NextREG write's REG VALUE PREV",
               T("REG == 0x51 and VALUE == 0x23 and PREV == 0x0A", s, ev));
+    }
+    {
+        DbgEvent ev;
+        ev.kind         = EventKind::AudioWrite;
+        ev.audio_target = jnext::dbg::AudioTarget::AyChipSelect;
+        ev.chip         = 2;
+        ev.reg          = 13;
+        ev.value        = 0x0A;
+        ev.prev         = 0x04;
+        const PayloadScope s(EventKind::AudioWrite);
+        check("PAYV-AYW-01", "an AudioWrite's CHIP REG VALUE PREV TARGET read 2, 13, 10, 4 and 1 (all distinct, so a swap shows)",
+              T("CHIP == 2 and REG == 13 and VALUE == 10 and PREV == 4 and TARGET == 1", s, ev) && !T("CHIP == 13", s, ev));
     }
     {
         DbgEvent ev;

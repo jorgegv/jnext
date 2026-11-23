@@ -3155,7 +3155,7 @@ code departs from it. This page describes the code.</p>
 <tbody>
 <tr>
 <td><code>lexer.{h,cpp}</code></td>
-<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead; the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens; <code>cvar(PATH)</code> as one <code>CVar</code> token carrying the raw C path</td>
+<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead; the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>, <code>ay[</code>) as single tokens; <code>cvar(PATH)</code> as one <code>CVar</code> token carrying the raw C path</td>
 </tr>
 <tr>
 <td><code>parser.{h,cpp}</code>, <code>ast.h</code></td>
@@ -3211,6 +3211,16 @@ code departs from it. This page describes the code.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Audio events.</strong> <code>on ay_write [chip] [reg] [mask value]</code> and <code>on audio_write [ay_reg | ay_select | dac]
+[chip] [reg] [mask value] [dropped]</code> are one <code>EventKind::AudioWrite</code> subscription: <code>subscriptions_for()</code> builds the
+target mask, the chip, the register set, the value/mask pair and the flags (<code>ay_write</code> is <code>audio_write ay_reg</code>;
+both are applied-only unless <code>dropped</code>, through <code>audio_flags_none</code>), and the parser enforces which qualifier
+needs which target. The payload is <code>TARGET CHIP REG VALUE PREV</code> (<code>P_TARGET</code>, <code>P_CHIP</code>; the other three are
+shared with <code>nextreg</code>). <code>ay[chip, reg]</code> is <code>ExprKind::Ay</code>, evaluated through <code>Debugger::ay_registers()</code>, which is
+<code>AyChip::read_register()</code>: the value a CPU read of the register returns (the Audio panel's table shows the same), not the
+raw latch (AY mode masks R1/R3/R5/R13 to 4 bits and R6/R8/R9/R10 to 5, and R14/R15 read 0xFF while their port is in input
+mode). It is read-only (<code>parse_lvalue</code> refuses it), bounds-checked at run time. <code>ay_write</code>, <code>audio_write</code>,
+<code>chip</code>, <code>reg</code>, <code>ay_reg</code>, <code>ay_select</code>, <code>dac</code>, <code>dropped</code> and <code>ay</code> are reserved words.</p>
 <h2 id="from-text-to-a-checked-script">From text to a checked script<a class="headerlink" href="#from-text-to-a-checked-script" title="Permanent link">&para;</a></h2>
 <p><code>parse_script()</code> stops at the first syntax error and reports it as
 <code>line:column: message</code>. It also bounds nesting:</p>
@@ -3248,7 +3258,7 @@ The <code>-debug</code> records of a map (names starting <code>__C_LINE_</code>,
 <code>__CDBINFO__</code>) are not symbols: the loader drops them (rows SYM-14 to SYM-18).</p>
 <p><strong><code>cvar(PATH)</code></strong> (<a href="../07-source-level-debugging/07-frontends.html">7.7</a>) is the atom that reads a C variable of frame 0, as
 an int32. Its path is not the DSL's grammar (<code>-&gt;</code>, <code>::</code>, <code>*</code>, <code>$1F</code>, a file name with a <code>.</code>), so <code>lex_ident()</code> takes <code>cvar</code> directly
-followed by <code>(</code> as one <code>Tok::CVar</code> and <code>lex_cvar()</code> (<code>lexer.cpp:195</code>) captures the raw text to the first <code>)</code> on the line, trimmed;
+followed by <code>(</code> as one <code>Tok::CVar</code> and <code>lex_cvar()</code> (<code>lexer.cpp:196</code>) captures the raw text to the first <code>)</code> on the line, trimmed;
 a <code>(</code>, a <code>"</code>, a missing <code>)</code> and an empty path are lexical errors, and <code>cvar</code> is a reserved word (<code>RESERVED</code> in <code>names.cpp</code>, as <code>depth</code> and <code>changed</code> are), so <code>var cvar</code> is refused at load. The word was
 not free before: <code>dump_mem</code> and <code>out</code> take two expressions side by side, so <code>dump_mem cvar(4)</code> with a <code>var cvar</code> was two operands; it
 now fails to load, loudly, rather than meaning something else. Inside a <code>${...}</code> interpolation a <code>::</code> is not the format separator. <code>parse_primary()</code> makes an
@@ -3380,7 +3390,7 @@ and <code>REASON</code>.</p>
 </tbody>
 </table>
 <p>Mutations (<code>set</code>, <code>out</code>) go through the debugger's write paths (<code>set_register</code>,
-<code>poke</code>, <code>nextreg_write</code>, <code>port_out</code>, <code>set_audio_mute_mask</code>). These raise no
+<code>poke</code>, <code>nextreg_write</code>, <code>port_out</code>, <code>set_audio_mute_mask</code>, <code>set_audio_channel_mute_mask</code>). These raise no
 events, and the backend logs each as a <code>MUTATE</code> line. With a rewind buffer
 active, the first mutation logs a warning.</p>
 <p>Every engine log line is stamped <code>[jds F:frame C:cycle]</code>.</p>
