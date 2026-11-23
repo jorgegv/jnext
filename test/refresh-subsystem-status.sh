@@ -192,6 +192,7 @@ BEGIN {
     M["pok_trainers_test"]             = "POK trainers (.pok, GH #381)"
     M["startup_stop_test"]             = "Startup stop (--debugger, --break-at, GH #548)"
     M["cpu_runtime_binding_test"]      = "CPU runtime binding (GH #551)"
+    M["output_files_test"]             = "Output files hook (GH #553)"
     M["pok_dialog_test"]               = "POK Trainers GUI dialog (GH #381)"
     M["sdcard_dialog_test"]            = "SD-card/NextPi download dialog (GH #358)"
     M["sdcard_upgrade_box_test"]       = "SDL upgrade offer box (GH #476)"

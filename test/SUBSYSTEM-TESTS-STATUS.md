@@ -107,7 +107,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Fast Boot (GH #499, #544) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Frame-tick sequencer (wiring) |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
-| output_files_test     |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "output_files_test" to the label map in refresh-subsystem-status.sh. |
+| Output files hook (GH #553) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host key minimum-hold latch |      182 |      182 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SdlApp tick (frame loop) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
