@@ -28,6 +28,8 @@
 // the offscreen QPA platform (same idiom as debugger_video_panel_test).
 // Rows DAP-48..59 (GH #531) drive the Log sub-tab: real guest, DMA and debugger writes, then the
 // table's cells, its filters, the double-click, the CSV export and the mirror of the backend's ring.
+// Rows DAP-61..69 (GH #534) drive the Tracker sub-tab: the model's grid cell for cell, the live grouping
+// of real writes, the rewind double-click and why a row is greyed.
 // Run: ./build/test/debugger_audio_panel_test
 
 #include "audio/audio_mute.h"
@@ -39,6 +41,7 @@
 #include "debugger/audio_log_view.h"
 #include "debugger/audio_panel.h"
 #include "debugger/audio_stream_view.h"
+#include "debugger/audio_tracker_view.h"
 #include "platform/emulator_boot.h"
 
 #include <QApplication>
@@ -58,6 +61,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <set>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -1065,13 +1069,13 @@ static void test_dac_tab(Emulator& emu) {
         const bool real = dac && dac->findChild<QTreeWidget*>("audio_drops") && dac->findChild<QLabel*>("dac_a_value") &&
                           !dac->findChild<QLabel*>("dac_a_value")->text().isEmpty();
         bool placeholders = tabs != nullptr;
-        for (int i = 3; tabs && i < 5; ++i) {
+        for (int i = 4; tabs && i < 5; ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
             placeholders = placeholders && found;
         }
-        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Tracker and Scopes still show 'Not available yet.'",
+        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Scopes still shows 'Not available yet.'",
               real && placeholders);
     }
     {
@@ -1442,7 +1446,7 @@ static void test_log_tab(Emulator& emu) {
         auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
         const auto tables = panel.findChildren<QTableWidget*>();
         bool placeholders = tabs != nullptr;
-        for (int i = 3; tabs && i < 5; ++i) {
+        for (int i = 4; tabs && i < 5; ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
@@ -1454,7 +1458,7 @@ static void test_log_tab(Emulator& emu) {
             only_log = only_log && (panel.log_on_show() == (i == 2));
         }
         QWidget* log_tab = tabs ? tabs->widget(2) : nullptr;
-        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; Tracker and Scopes still show 'Not available yet.'; log_on_show() is true only with Log current",
+        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; Scopes still shows 'Not available yet.'; log_on_show() is true only with Log current",
               log_tab && log_tab->findChild<QTableView*>("audio_log_table") && tables.size() == 1 &&
               tables[0]->objectName() != "audio_log_table" && placeholders && only_log);
     }
@@ -1981,6 +1985,437 @@ static void test_stream_view(Emulator& emu) {
         check("DAP-80", "the CTC-paced player with the OUT skipped when its tick wraps (DSS-14): the CPU row's Gaps cell equals dac_stream_stats(...).writers[0].gaps and is at least 1; audio_stream_window names the 1.5 x factor",
               ok && window && window->text().contains("1.5 x the median"),
               fmt("gaps_cell=%s", tree_cell(stream, 0, 8).toStdString().c_str()));
+
+// ── DAP-TRK: the Tracker sub-tab (GH #534) ─────────────────────────────
+//
+// Oracles: the grouping rules of AFG-* (audio_debug_test), the meaningful bits of the AY registers
+// (ym2149.vhd: R1/R3/R5 3:0 at :306, R6 4:0 at :283, R7 bits 3-5 noise enable, active low, at :469-471,
+// R8-R10 bit 4 envelope / 3:0 level at :483-487, R12:R11 at :334, every R13 write restarts at :207-210),
+// the note names from the equal-tempered table at the PSG clock (f = 1750000 / (16 * TP): TP 252 = 434.0 Hz
+// = A4, TP 428 = 255.5 Hz = C4, TP 239 = 457.7 Hz = A#4, TP 5 = 21875 Hz, above MIDI 127), and the
+// window's own greying rule for the rewind (RZX and an empty ring refuse, then the range).
+
+static QTableView* trk_table(AudioPanel& panel) { return panel.findChild<QTableView*>("audio_tracker_table"); }
+
+static int trk_rows(AudioPanel& panel) {
+    QTableView* t = trk_table(panel);
+    return t ? t->model()->rowCount() : -1;
+}
+
+static QString trk_cell(AudioPanel& panel, int row, int col) {
+    QTableView* t = trk_table(panel);
+    return t && row < t->model()->rowCount() ? t->model()->index(row, col).data().toString()
+                                             : QStringLiteral("<none>");
+}
+
+static std::string trk_dump(AudioPanel& panel) {
+    std::string d;
+    for (int r = 0; r < trk_rows(panel); ++r)
+        d += "[" + trk_cell(panel, r, 0).toStdString() + "|" + trk_cell(panel, r, 1).toStdString() + "]";
+    return d;
+}
+
+static void show_tracker_tab(AudioPanel& panel) {
+    if (auto* tabs = panel.findChild<QTabWidget*>("audio_tabs")) tabs->setCurrentIndex(3);
+}
+
+// A machine with the rewind ring on (50 frames), the mutes and drop counters at their defaults.
+static bool build_rewind_machine(Emulator& rw) {
+    EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+    if (!rw.init(cfg)) return false;
+    rw.set_audio_mute_mask(AudioMute::NONE);
+    rw.clear_audio_drops();
+    rw.set_rewind_enabled(true);
+    rw.resize_rewind_buffer(50);
+    return true;
+}
+
+static jnext::dbg::AudioLogEntry tw(uint64_t& seq, uint32_t frame, unsigned chip, unsigned reg, unsigned value, unsigned prev) {
+    jnext::dbg::AudioLogEntry e;
+    e.seq = ++seq; e.frame = frame; e.chip = uint8_t(chip); e.reg = uint8_t(reg);
+    e.value = uint8_t(value); e.prev = uint8_t(prev); e.pc = 0x8000;
+    return e;
+}
+
+static jnext::dbg::AudioLogEntry tmark(uint64_t& seq, uint32_t frame, jnext::dbg::AudioMarker m) {
+    jnext::dbg::AudioLogEntry e;
+    e.seq = ++seq; e.frame = frame; e.marker = m;
+    return e;
+}
+
+static void test_tracker_tab(Emulator& emu) {
+    set_group("DAP-TRK");
+    using jnext::dbg::ClientInfo;
+    using jnext::dbg::ClientKind;
+    using jnext::dbg::AudioLogEntry;
+
+    {
+        // The stream, then the grid cell for cell. Derivations:
+        //  row 0 (f100): R0 = 0xFC, R1 = 0 give TP 252 = A4 (A-4); chip 1 channel B TP 0x1AC = 428 = C4; R9 = 0x1F
+        //    has bit 4 = envelope (E); R7 = 0x30: noise A on (bit 3 clear) with R6 = 0x0A, B and C off (bits 4, 5
+        //    set); A's N is highlighted (enable changed from 0xFF, and R6 changed), B/C are not (enable unchanged).
+        //  row 1: f101 holds only a DAC entry (not a write) and f102 nothing: the empty run is ONE row, 2 frames.
+        //  row 2 (f103): R0 rewritten with its own value is no note; R8 written twice (0x0F -> 0x0E -> 0x0D) is
+        //    `double` with before 0x0F, after 0x0D; R12:R11 = 0x0064; R13 = 0x0E from 0 is a change.
+        //  row 3 (f104): R13 rewritten with the same shape is shown (a restart) but not highlighted, and so is R9 written
+        //    with its own value 0 (B V `0`, not highlighted); R7 0x30 -> 0x38 turns noise A off (`--`, highlighted).
+        //  row 4: the Reset marker. Row 5 (f106): R1 is unknown after the marker: TP is `???`.
+        uint64_t seq = 0;
+        std::vector<AudioLogEntry> in;
+        in.push_back(tw(seq, 100, 0, 0, 0xFC, 0x00)); in.push_back(tw(seq, 100, 0, 1, 0x00, 0x00));
+        in.push_back(tw(seq, 100, 0, 7, 0x30, 0xFF)); in.push_back(tw(seq, 100, 0, 6, 0x0A, 0x00));
+        in.push_back(tw(seq, 100, 0, 8, 0x0F, 0x00)); in.push_back(tw(seq, 100, 1, 2, 0xAC, 0x00));
+        in.push_back(tw(seq, 100, 1, 3, 0x01, 0x00)); in.push_back(tw(seq, 100, 1, 9, 0x1F, 0x00));
+        { AudioLogEntry d; d.seq = ++seq; d.frame = 101; d.target = jnext::dbg::AudioTarget::Dac; d.value = 0x80; in.push_back(d); }
+        in.push_back(tw(seq, 103, 0, 8, 0x0E, 0x0F)); in.push_back(tw(seq, 103, 0, 8, 0x0D, 0x0E));
+        in.push_back(tw(seq, 103, 0, 0, 0xFC, 0xFC)); in.push_back(tw(seq, 103, 0, 11, 0x64, 0x00));
+        in.push_back(tw(seq, 103, 0, 12, 0x00, 0x00)); in.push_back(tw(seq, 103, 0, 13, 0x0E, 0x00));
+        in.push_back(tw(seq, 104, 0, 13, 0x0E, 0x0E)); in.push_back(tw(seq, 104, 0, 9, 0x00, 0x00));
+        in.push_back(tw(seq, 104, 0, 7, 0x38, 0x30));
+        in.push_back(tmark(seq, 104, jnext::dbg::AudioMarker::Reset));
+        in.push_back(tw(seq, 106, 0, 0, 0x05, 0x00)); in.push_back(tw(seq, 106, 0, 8, 0x0C, 0x00));
+
+        using Chip = std::vector<std::string>;
+        const Chip U = {"....", ".", "---", ".", "..", "---", ".", "..", "---", ".", ".."};
+        auto row = [&](std::string frame, std::string mark, Chip c0, Chip c1, Chip c2) {
+            std::vector<std::string> r = {frame, mark};
+            for (const Chip* c : {&c0, &c1, &c2}) r.insert(r.end(), c->begin(), c->end());
+            return r;
+        };
+        const std::vector<std::vector<std::string>> want = {
+            row("100", "", {"....", ".", "A-4", "F", "0A", "---", ".", "--", "---", ".", "--"},
+                           {"....", ".", "---", ".", "..", "C-4", "E", "..", "---", ".", ".."}, U),
+            row("101-102", "empty x2", U, U, U),
+            row("103", "double", {"0064", "E", "---", "D", "..", "---", ".", "..", "---", ".", ".."}, U, U),
+            row("104", "", {"....", "E", "---", ".", "--", "---", "0", "--", "---", ".", "--"}, U, U),
+            std::vector<std::string>{"", "reset"} /* + 33 empty cells below */,
+            row("106", "", {"....", ".", "???", "C", "..", "---", ".", "..", "---", ".", ".."}, U, U),
+        };
+        const std::set<std::pair<int, int>> hot = {{0, 4}, {0, 5}, {0, 6}, {0, 18}, {0, 19}, {2, 2}, {2, 3}, {2, 5},
+                                                   {3, 6}, {5, 4}, {5, 5}};
+        AudioTrackerModel model;
+        model.set_clock(1750000);
+        model.set_entries(in);
+        bool grid = model.rowCount() == 6 && model.columnCount() == 35;
+        bool marks = grid;
+        std::string first_bad;
+        for (int r = 0; grid && r < 6; ++r) {
+            for (int c = 0; c < 35; ++c) {
+                const std::string got = model.index(r, c).data().toString().toStdString();
+                const std::string exp = c < int(want[size_t(r)].size()) ? want[size_t(r)][size_t(c)] : std::string();
+                const bool is_hot = hot.count({r, c}) != 0;
+                const bool changed = model.index(r, c).data(AudioTrackerModel::ChangedRole).toBool();
+                const bool brush = model.index(r, c).data(Qt::BackgroundRole).isValid();
+                if (got != exp && first_bad.empty()) first_bad = "cell " + std::to_string(r) + "," + std::to_string(c) + " got '" + got + "' want '" + exp + "'";
+                grid = grid && got == exp;
+                if (changed != is_hot || brush != is_hot) {
+                    marks = false;
+                    if (first_bad.empty()) first_bad = "highlight at " + std::to_string(r) + "," + std::to_string(c);
+                }
+            }
+        }
+        check("DAP-61", "AudioTrackerModel::set_entries over the 6-row stream (frame, empty run of 2, double frame, frame, reset marker, open frame after the marker): all 6 x 35 cells equal the hand-written grid, and ChangedRole and BackgroundRole are set on exactly the 11 changed cells",
+              grid && marks, first_bad);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-62", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        QWidget* tab = tabs ? tabs->widget(3) : nullptr;
+        QTableView* t = trk_table(panel);
+        const auto tables = panel.findChildren<QTableWidget*>();
+        std::vector<QString> want = {"Frame", "Mark"};
+        for (int c = 0; c < 3; ++c) {
+            want.push_back(QString("%1 Env").arg(c));
+            want.push_back(QString("%1 Sh").arg(c));
+            for (const char* ch : {"A", "B", "C"})
+                for (const char* k : {"Note", "V", "N"}) want.push_back(QString("%1%2 %3").arg(c).arg(ch).arg(k));
+        }
+        bool headers = t && t->model()->columnCount() == int(want.size());
+        for (int i = 0; headers && i < int(want.size()); ++i)
+            headers = t->model()->headerData(i, Qt::Horizontal).toString() == want[size_t(i)];
+        bool only_tracker = tabs != nullptr;
+        for (int i = 0; tabs && i < tabs->count(); ++i) {
+            tabs->setCurrentIndex(i);
+            only_tracker = only_tracker && (panel.tracker_on_show() == (i == 3));
+        }
+        bool scopes = false;
+        if (tabs) for (QLabel* l : tabs->widget(4)->findChildren<QLabel*>()) scopes = scopes || l->text() == "Not available yet.";
+        QLabel* st = panel.findChild<QLabel*>("audio_tracker_status");
+        check("DAP-62", "tab 3 holds audio_tracker_table, a QTableView with the 35 headers in order (Frame, Mark, then per chip Env, Sh and A, B, C of Note, V, N); the hex table is still the panel's only QTableWidget; tracker_on_show() is true only with Tracker current; Scopes still shows 'Not available yet.'; the status label exists",
+              tab && t && tab->findChild<QTableView*>("audio_tracker_table") && headers && tables.size() == 1 &&
+              tables[0]->objectName() != "audio_tracker_table" && only_tracker && scopes && st && !st->text().isEmpty());
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-63", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap63", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        cpu_program(emu, {0x18, 0xFE});                 // JR $
+        emu.run_frame();                                // a frame boundary: the writes below are stamped by it
+        const uint32_t f1 = dbg.time().frame;
+        ay_wr(emu, 0, 0xFC); ay_wr(emu, 1, 0x00); ay_wr(emu, 8, 0x0F);
+        emu.run_frame();
+        const uint32_t f2 = dbg.time().frame;
+        emu.run_frame();
+        const uint32_t f3 = dbg.time().frame;
+        ay_wr(emu, 8, 0x0A);
+        panel.refresh();
+        const bool rows = trk_rows(panel) == 3;
+        const bool frames = rows && f2 == f1 + 1 && f3 == f2 + 1 &&
+                            trk_cell(panel, 0, 0) == QString::number(f1) && trk_cell(panel, 1, 0) == QString::number(f2) &&
+                            trk_cell(panel, 1, 1) == "empty" && trk_cell(panel, 2, 0) == QString::number(f3);
+        const bool cells = rows && trk_cell(panel, 0, 4) == "A-4" && trk_cell(panel, 0, 5) == "F" && trk_cell(panel, 2, 5) == "A";
+        dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+        panel.refresh();
+        const int n = trk_rows(panel);
+        const bool marker = n > 0 && trk_cell(panel, n - 1, 1) == "reset" && trk_cell(panel, n - 1, 0).isEmpty();
+        check("DAP-63", "a CPU parked on JR $ and three frames of real AY writes (frame 1: R0=0xFC R1=0 R8=0x0F; frame 2 none; frame 3: R8=0x0A): the Tracker shows [frame row, 'empty' row, frame row] whose Frame cells are the debugger's own consecutive time().frame values; frame 1's 0A Note is A-4 and V F, frame 3's V is A; a soft reset then adds a 'reset' marker row last",
+              rows && frames && cells && marker,
+              "rows=" + trk_dump(panel) + " f1=" + std::to_string(f1) + " f2=" + std::to_string(f2) + " f3=" + std::to_string(f3));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-64", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap64", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        cpu_program(emu, {0x18, 0xFE});
+        emu.run_frame();                                // a frame boundary: the writes below are stamped by it
+        ay_wr(emu, 8, 0x01);
+        panel.refresh();
+        const int after1 = trk_rows(panel);
+        ay_wr(emu, 9, 0x02);                            // the same frame
+        panel.refresh();
+        const int after2 = trk_rows(panel);
+        const bool replaced = trk_cell(panel, 0, 8) == "2" && trk_cell(panel, 0, 5) == "1";
+        std::vector<QString> row0;
+        for (int c = 0; c < 35; ++c) row0.push_back(trk_cell(panel, 0, c));
+        emu.run_frame();
+        ay_wr(emu, 8, 0x03);
+        panel.refresh();
+        bool unchanged = true;
+        for (int c = 0; c < 35; ++c) unchanged = unchanged && trk_cell(panel, 0, c) == row0[size_t(c)];
+        check("DAP-64", "writes in the frame being shown replace its row instead of adding one: R8 then R9 in one frame is 1 row, then 1 row with 0B V = 2; a write in the next frame makes 2 rows and row 0 is unchanged",
+              after1 == 1 && after2 == 1 && replaced && trk_rows(panel) == 2 && unchanged && trk_cell(panel, 1, 5) == "3",
+              "after1=" + std::to_string(after1) + " after2=" + std::to_string(after2) + " replaced=" + std::to_string(replaced) +
+              " unchanged=" + std::to_string(unchanged) + " rows=" + trk_dump(panel));
+    }
+    {
+        Emulator rw;
+        if (!build_rewind_machine(rw)) { check("DAP-65", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(rw);
+        const auto cid = dbg.attach(ClientInfo{"dap65", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        cpu_program(rw, {0x18, 0xFE});
+        rw.run_frame();
+        for (int f = 0; f < 8; ++f) { ay_wr(rw, 8, uint8_t(f + 1)); rw.run_frame(); }
+        rw.debug_state().pause();
+        std::vector<uint32_t> asked;
+        QObject::connect(&panel, &AudioPanel::rewind_to_frame_requested, [&asked](uint32_t f) { asked.push_back(f); });
+        panel.refresh();
+        QTableView* t = trk_table(panel);
+        const jnext::dbg::RewindRange range = dbg.rewind_range();
+        const int inside = 3;
+        const QModelIndex ix = t->model()->index(inside, 0);
+        const uint32_t fr = trk_cell(panel, inside, 0).toUInt();
+        const bool in_range = trk_rows(panel) == 8 && fr >= range.oldest_frame && fr <= range.newest_frame;
+        const bool rewindable = ix.data(AudioTrackerModel::RewindableRole).toBool() &&
+                                ix.data(Qt::ToolTipRole).toString() == QString("Double-click to rewind to the start of frame %1").arg(fr) &&
+                                ix.data(AudioTrackerModel::RewindFrameRole).toUInt() == fr;
+        emit t->doubleClicked(ix);
+        const bool once = asked.size() == 1 && asked[0] == fr;
+        // An empty run emits its FIRST frame: two frames without writes, then a write.
+        rw.debug_state().resume();
+        rw.run_frame(); rw.run_frame(); rw.run_frame(); ay_wr(rw, 8, 0x0E);
+        rw.debug_state().pause();
+        panel.refresh();
+        int empty_row = -1;
+        for (int r = 0; r < trk_rows(panel); ++r) if (trk_cell(panel, r, 1).startsWith("empty")) empty_row = r;
+        bool empty_ok = empty_row >= 0;
+        if (empty_ok) {
+            const QModelIndex ei = t->model()->index(empty_row, 0);
+            const uint32_t first = trk_cell(panel, empty_row, 0).section('-', 0, 0).toUInt();
+            asked.clear();
+            emit t->doubleClicked(ei);
+            empty_ok = ei.data(AudioTrackerModel::RewindableRole).toBool() == (first >= dbg.rewind_range().oldest_frame) &&
+                       (!ei.data(AudioTrackerModel::RewindableRole).toBool() || (asked.size() == 1 && asked[0] == first));
+        }
+        // A row older than the ring: a 3-frame ring that 4 more frames of writes have rolled past row 0
+        // (a resize empties the ring, so the frames are run after it); greyed, reason, nothing emitted.
+        rw.resize_rewind_buffer(3);
+        rw.debug_state().resume();
+        for (int f = 0; f < 4; ++f) { ay_wr(rw, 8, uint8_t(f + 0x20)); rw.run_frame(); }
+        rw.debug_state().pause();
+        panel.refresh();
+        const QModelIndex old = t->model()->index(0, 0);
+        const jnext::dbg::RewindRange small = dbg.rewind_range();
+        const uint32_t ofr = trk_cell(panel, 0, 0).toUInt();
+        asked.clear();
+        emit t->doubleClicked(old);
+        const QBrush fg = old.data(Qt::ForegroundRole).value<QBrush>();
+        const bool outside = ofr < small.oldest_frame && !old.data(AudioTrackerModel::RewindableRole).toBool() &&
+                             fg.color() == QGuiApplication::palette().color(QPalette::Disabled, QPalette::WindowText) &&
+                             old.data(Qt::ToolTipRole).toString() ==
+                                 QString("Frame %1 is outside the rewind buffer (frames %2 to %3)").arg(ofr).arg(small.oldest_frame).arg(small.newest_frame) &&
+                             asked.empty();
+        // A marker row emits nothing.
+        dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+        panel.refresh();
+        const int last = trk_rows(panel) - 1;
+        asked.clear();
+        emit t->doubleClicked(t->model()->index(last, 0));
+        const bool marker = trk_cell(panel, last, 1) == "reset" && asked.empty() &&
+                            !t->model()->index(last, 0).data(AudioTrackerModel::RewindableRole).toBool();
+        check("DAP-65", "paused with a rewind ring: a row inside [oldest_frame, newest_frame] is rewindable with the 'Double-click to rewind' tooltip and a double-click emits rewind_to_frame_requested(its frame) once; an empty-run row emits its first frame (when that is in the ring); a row older than the ring (a 3-frame ring rolled past it) is greyed with the 'outside the rewind buffer' tooltip and emits nothing; a marker row emits nothing",
+              in_range && rewindable && once && empty_ok && outside && marker,
+              "in_range=" + std::to_string(in_range) + " rewindable=" + std::to_string(rewindable) + " once=" + std::to_string(once) +
+              " empty=" + std::to_string(empty_ok) + " outside=" + std::to_string(outside) + " marker=" + std::to_string(marker) +
+              " fr=" + std::to_string(fr) + " range=" + std::to_string(range.oldest_frame) + "-" + std::to_string(range.newest_frame) +
+              " small=" + std::to_string(small.oldest_frame) + "-" + std::to_string(small.newest_frame) + " ofr=" + std::to_string(ofr) +
+              " rows=" + trk_dump(panel));
+    }
+    {
+        Emulator rw;
+        if (!build_rewind_machine(rw)) { check("DAP-66", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(rw);
+        const auto cid = dbg.attach(ClientInfo{"dap66", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        cpu_program(rw, {0x18, 0xFE});
+        rw.run_frame();
+        for (int f = 0; f < 6; ++f) { ay_wr(rw, 8, uint8_t(f + 1)); rw.run_frame(); }
+        QTableView* t = trk_table(panel);
+        std::vector<uint32_t> asked;
+        QObject::connect(&panel, &AudioPanel::rewind_to_frame_requested, [&asked](uint32_t f) { asked.push_back(f); });
+        auto tip = [&](int row) { return t->model()->index(row, 0).data(Qt::ToolTipRole).toString(); };
+        auto can = [&](int row) { return t->model()->index(row, 0).data(AudioTrackerModel::RewindableRole).toBool(); };
+        panel.refresh();                                                       // running
+        bool running = trk_rows(panel) == 6;
+        for (int r = 0; r < trk_rows(panel); ++r)
+            running = running && !can(r) && tip(r) == "Pause the machine to rewind to a frame";
+        asked.clear();
+        emit t->doubleClicked(t->model()->index(2, 0));
+        running = running && asked.empty();
+        // A change of the rewind snapshot repaints the rows (dataChanged over them, with the greying roles);
+        // a refresh that changes nothing emits nothing.
+        int changed_signals = 0;
+        bool covers = true, has_fg = true;
+        auto conn = QObject::connect(t->model(), &QAbstractItemModel::dataChanged,
+                                     [&](const QModelIndex& a, const QModelIndex& b, const QList<int>& roles) {
+                                         ++changed_signals;
+                                         covers = covers && a.row() == 0 && b.row() == t->model()->rowCount() - 1;
+                                         has_fg = has_fg && roles.contains(Qt::ForegroundRole);
+                                     });
+        rw.debug_state().pause();
+        panel.refresh();
+        const bool emitted = changed_signals == 1 && covers && has_fg;
+        changed_signals = 0;
+        panel.refresh();
+        const bool quiet = changed_signals == 0;
+        QObject::disconnect(conn);
+        rw.rzx_player().start(RzxRecording{});
+        panel.refresh();
+        const bool rzx = !can(2) && tip(2) == "Rewind is not available while an RZX is recording or playing";
+        rw.rzx_player().stop();
+        panel.refresh();
+        const bool back = can(2);                                              // the control: rewindable again
+        rw.resize_rewind_buffer(0);
+        panel.refresh();
+        const bool empty = !can(2) && tip(2) == "The rewind buffer is empty";
+        rw.resize_rewind_buffer(50);
+        rw.debug_state().resume();
+        dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+        for (int f = 0; f < 3; ++f) { ay_wr(rw, 8, uint8_t(f + 10)); rw.run_frame(); }
+        rw.debug_state().pause();
+        panel.refresh();
+        int reset_row = -1;
+        for (int r = 0; r < trk_rows(panel); ++r) if (trk_cell(panel, r, 1) == "reset") reset_row = r;
+        bool stale = reset_row > 0 && reset_row + 1 < trk_rows(panel);
+        for (int r = 0; stale && r < reset_row; ++r)
+            stale = !can(r) && tip(r) == "This frame is from before a reset or a state load";
+        const jnext::dbg::RewindRange rr = dbg.rewind_range();
+        bool after_ok = stale;
+        for (int r = reset_row + 1; after_ok && r < trk_rows(panel); ++r) {
+            const uint32_t f = trk_cell(panel, r, 0).toUInt();
+            after_ok = can(r) == (f >= rr.oldest_frame && f <= rr.newest_frame);
+        }
+        bool some_after = false;
+        for (int r = reset_row + 1; r < trk_rows(panel) && reset_row > 0; ++r) some_after = some_after || can(r);
+        check("DAP-66", "why a row is not rewindable, in order: running -> 'Pause the machine to rewind to a frame' (and a double-click emits nothing); paused with an RZX playing -> the RZX text, and rewindable again once it stops; ring freed -> 'The rewind buffer is empty'; rows before a reset marker -> 'This frame is from before a reset or a state load' while rows after it follow the ring range (at least one rewindable); pausing repaints the rows (one dataChanged over all of them with the ForegroundRole) and a refresh that changes nothing emits none",
+              running && emitted && quiet && rzx && back && empty && stale && after_ok && some_after,
+              "running=" + std::to_string(running) + " (" + trk_dump(panel) + ") rzx=" + std::to_string(rzx) + " back=" + std::to_string(back) + " empty=" + std::to_string(empty) +
+              " stale=" + std::to_string(stale) + " after_ok=" + std::to_string(after_ok) + " some_after=" + std::to_string(some_after));
+    }
+    {
+        // kMaxRows + 10 frames of one write each: the model keeps the newest kMaxRows rows.
+        uint64_t seq = 0;
+        std::vector<AudioLogEntry> in;
+        const int n = AudioTrackerModel::kMaxRows + 10;
+        for (int f = 0; f < n; ++f) in.push_back(tw(seq, 1000 + uint32_t(f), 0, 8, uint32_t(f & 0x0F), 0));
+        AudioTrackerModel model;
+        model.set_entries(in);
+        const bool reset_cap = model.rowCount() == AudioTrackerModel::kMaxRows &&
+                               model.index(0, 0).data().toString() == QString::number(1010) &&
+                               model.index(model.rowCount() - 1, 0).data().toString() == QString::number(1000 + n - 1);
+        // The same through append_entries (the 4 Hz path): the oldest go, the newest stay.
+        AudioTrackerModel m2;
+        m2.append_entries(in);
+        const bool append_cap = m2.rowCount() == AudioTrackerModel::kMaxRows &&
+                                m2.index(0, 0).data().toString() == QString::number(1010) &&
+                                m2.index(m2.rowCount() - 1, 0).data().toString() == QString::number(1000 + n - 1);
+        check("DAP-67", "one counted write in each of kMaxRows + 10 consecutive frames: the model holds exactly kMaxRows rows, row 0 is the 11th frame and the last row the newest, by set_entries and by append_entries",
+              reset_cap && append_cap);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-68", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap68", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);                          // Chips is current
+        cpu_program(emu, {0x18, 0xFE});
+        emu.run_frame();                                // a frame boundary: the writes below are stamped by it
+        ay_wr(emu, 8, 0x01);
+        emu.run_frame();
+        ay_wr(emu, 8, 0x02);
+        panel.refresh();
+        const int while_chips = trk_rows(panel);
+        show_tracker_tab(panel);
+        panel.refresh();
+        const bool filled = trk_rows(panel) == 2;
+        dbg.set_audio_log_enabled(cid, false);           // the log goes off: the rows go with it
+        panel.refresh();
+        QLabel* st = panel.findChild<QLabel*>("audio_tracker_status");
+        const bool off = trk_rows(panel) == 0 && st && st->text() == "Not recording";
+        check("DAP-68", "writes over 2 frames with the Chips tab current: refresh() leaves the Tracker model empty (the grouping did not run); with Tracker current the same refresh() fills it; with the log then switched off a refresh() empties it again and the status reads 'Not recording'",
+              while_chips == 0 && filled && off,
+              "while_chips=" + std::to_string(while_chips) + " rows=" + trk_dump(panel));
+    }
+    {
+        // Notes and unknowns: one frame, chip 0.
+        uint64_t seq = 0;
+        std::vector<AudioLogEntry> in = {
+            tw(seq, 50, 0, 0, 0x05, 0x00), tw(seq, 50, 0, 1, 0x00, 0x00),     // TP 5: 21875 Hz, above the named range
+            tw(seq, 50, 0, 2, 0xEF, 0x00), tw(seq, 50, 0, 3, 0x00, 0x00),     // TP 239: A#4
+            tw(seq, 50, 0, 11, 0x20, 0x00),                                    // R12 never written
+            tw(seq, 50, 0, 7, 0x37, 0xFF),                                     // noise A on, B and C off; R6 never written
+            tw(seq, 50, 0, 10, 0x1F, 0x00),
+        };
+        AudioTrackerModel model;
+        model.set_clock(1750000);
+        model.set_entries(in);
+        auto cell = [&](int c) { return model.rowCount() == 1 ? model.index(0, c).data().toString() : QString("<none>"); };
+        check("DAP-69", "one frame: TP 5 (21875 Hz) is '^^^' (above MIDI 127), TP 239 is 'A#4', R11 written with R12 never seen shows four question marks, noise A on with R6 unknown shows two, noise B off is '--', R10 = 0x1F is 'E' and its noise (off) '--'",
+              cell(4) == "^^^" && cell(7) == "A#4" && cell(2) == "\?\?\?\?" && cell(6) == "\?\?" && cell(9) == "--" &&
+              cell(11) == "E" && cell(12) == "--",
+              cell(4).toStdString() + "," + cell(7).toStdString() + "," + cell(2).toStdString() + "," + cell(6).toStdString() + "," + cell(9).toStdString() + "," + cell(11).toStdString() + "," + cell(12).toStdString());
     }
 }
 
@@ -2013,6 +2448,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-LOG        -- done\n");
     test_stream_view(emu);
     std::printf("  Group: DAP-STREAM     -- done\n");
+    test_tracker_tab(emu);
+    std::printf("  Group: DAP-TRK        -- done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

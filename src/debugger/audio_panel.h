@@ -22,6 +22,7 @@ namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 
 class AudioLogView;
 class AudioStreamView;
+class AudioTrackerView;
 
 /// Debugger panel showing the decoded AY chips and the audio source controls.
 ///
@@ -36,7 +37,8 @@ class AudioStreamView;
 /// over the last second, from the audio write log; see AudioStreamView). Each of the 13
 /// channels (9 AY, 4 DAC) has an M (mute) and an S (solo) button, which act on
 /// `AUDIO_CHANNEL_MUTE` only. Log lists the decoded audio writes (see
-/// AudioLogView). Tracker and Scopes are placeholders until their features land.
+/// AudioLogView). Tracker shows the AY tune one frame per row (AudioTrackerView). Scopes is a
+/// placeholder until its feature lands.
 class AudioPanel : public QWidget {
     Q_OBJECT
 public:
@@ -68,6 +70,9 @@ public:
     /// True while the DAC & Beeper tab is the current one: it also asks the backend to record the write
     /// log (the Sample stream group reads it), and its Pacing and Sample stream groups are live.
     bool dac_on_show() const;
+    /// True while the Tracker tab is the current one: it reads the same write log as the Log
+    /// tab, so either one on show asks the backend to record it.
+    bool tracker_on_show() const;
 
     QSize sizeHint() const override { return QSize(400, 600); }
     QSize minimumSizeHint() const override { return QSize(350, 580); }
@@ -81,6 +86,9 @@ signals:
     /// NEXTREG that was discarded in the Disassembly (the same signal the
     /// Symbols, CPU and Memory panels use).
     void show_in_disassembly_requested(uint16_t addr);
+
+    /// A Tracker row was double-clicked: rewind to the start of that frame.
+    void rewind_to_frame_requested(uint32_t frame);
 
 private:
     void create_ui();
@@ -117,6 +125,7 @@ private:
     QScrollArea* dac_scroll_ = nullptr;
     AudioLogView* log_view_ = nullptr;
     AudioStreamView* stream_view_ = nullptr;   // the Pacing and Sample stream groups of DAC & Beeper
+    AudioTrackerView* tracker_view_ = nullptr;
 
     // The decoded widgets of one chip, found again by refresh().
     struct ChannelWidgets {

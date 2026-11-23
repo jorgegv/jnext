@@ -162,7 +162,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `palette_priority()` (the Palettes `Pri` column), `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
 | Copper | `copper()` | — |
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
-| Audio | `audio_state()`, `ctc_state()`, `dma_state()`, `ay_mode()`, `audio_log_entries()`, `audio_log_enabled()`, `audio_log_export()` | `set_audio_mute_mask()`, `set_audio_channel_mute_mask()`, `clear_audio_drops()`, `set_audio_log_enabled()` (from `DebuggerManager::apply_data_needs()`, only while the Log or the DAC & Beeper sub-tab is on show: `AudioPanel::log_on_show()` and `dac_on_show()`, one request bit so the ring survives a switch between them, re-run on `AudioPanel::sub_tab_changed()`); DAC & Beeper's Pacing and Sample stream groups are `AudioStreamView`, which fetches the log incrementally (it asks from the newest seq it holds and starts over when the ring no longer holds it, the rule of `AudioLogView`), keeps the markers and the DAC entries of the last second and calls `dac_stream_stats()`; the panel emits `show_in_disassembly_requested` for a CPU-written dropped-write row and a CPU-written Log row |
+| Audio | `audio_state()`, `ctc_state()`, `dma_state()`, `ay_mode()`, `audio_log_entries()`, `audio_log_enabled()`, `audio_log_export()` | `set_audio_mute_mask()`, `set_audio_channel_mute_mask()`, `clear_audio_drops()`, `set_audio_log_enabled()` (from `DebuggerManager::apply_data_needs()`, only while the Log, Tracker or DAC & Beeper sub-tab is on show: `AudioPanel::log_on_show()`, `tracker_on_show()` or `dac_on_show()`, one request bit so the ring survives a switch between them, re-run on `AudioPanel::sub_tab_changed()`); DAC & Beeper's Pacing and Sample stream groups are `AudioStreamView`, which fetches the log incrementally (it asks from the newest seq it holds and starts over when the ring no longer holds it, the rule of `AudioLogView`), keeps the markers and the DAC entries of the last second and calls `dac_stream_stats()`; the panel emits `show_in_disassembly_requested` for a CPU-written dropped-write row and a CPU-written Log row, and `rewind_to_frame_requested` for a double-click on a rewindable Tracker row, which the window connects to `DebuggerManager::on_rewind_to_frame()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 | Symbols | `symbols().symbols()` (the toolchain's labels and the user's), `shown_name()`, `source_page()`, `source_map().lookup()`, `state_revision()` | — |
@@ -387,7 +387,7 @@ Which space each view prints, and the columns that were added, are described in
 ### The Audio panel
 
 `AudioPanel` (`src/debugger/audio_panel.cpp`) is a Sources strip (the five source mute boxes) above a
-`QTabWidget`: Chips, DAC & Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+`QTabWidget`: Chips, DAC & Beeper, Log, Tracker and Scopes. Only Scopes is a placeholder: it says it is
 not available yet. The panel owns no audio state: every number comes from one `Debugger::audio_state()` per
 refresh, and every note from `audio_math.h`, so the panel and a test read the same decode.
 
@@ -397,18 +397,23 @@ refresh, and every note from `audio_math.h`, so the panel and a test read the sa
 - **DAC & Beeper** shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the
   dropped-write table, one fixed row per `AudioDropReason`; a CPU-sourced row double-clicks into the
   Disassembly, and **Clear** calls `clear_audio_drops()`. `audio_drop_reason_text()` is shared with the Log
-  tab, so the two cannot word a reason differently.
+  tab, so the two cannot word a reason differently. Its Pacing group lists the CTC channels and the DMA with
+  their computed rates (`ctc_state()`, `dma_state()`), and its Sample stream group is `AudioStreamView`, which
+  fetches the log incrementally like Log and calls `dac_stream_stats()` ([3.4](04-audio.md), The sample stream).
 - **Log** is `AudioLogView`, a `QAbstractTableModel` mirroring the backend ring: `refresh()` appends the
   entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
   overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
   `audio_log_export()`.
+- **Tracker** is `AudioTrackerView`: it groups the log with `AudioFrameAccumulator` and mirrors it through
+  `fetch_audio_log()`, as Log does ([3.4](04-audio.md), Frame grouping and the tracker).
 - **M and S** per channel call `set_audio_channel_mute_mask()`. A solo is the mask "everything but that
   channel": `channel_solo_clicked()` saves the mask it found (`pre_solo_mask_`) and un-solo restores it, a solo
   moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
   solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.
 
 What the panel asks of the backend follows the sub-tab on show. `DebuggerManager::apply_data_needs()` requests
-the write log only while the Audio panel is on show with Log current (`AudioPanel::log_on_show()`), and drops
+the write log only while the Audio panel is on show with Log, Tracker or DAC & Beeper current (`AudioPanel::log_on_show()`, `tracker_on_show()`,
+`dac_on_show()`: one request bit, so a switch between them keeps the ring), and drops
 the request otherwise; the panel's `sub_tab_changed` signal makes the manager re-derive it. Chips is the one
 sub-tab with the per-frame refresh described under the running cadence above.
 

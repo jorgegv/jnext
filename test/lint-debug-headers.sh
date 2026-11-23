@@ -87,6 +87,7 @@ HEADERS=(
     debug/audio_log_csv.h
     debug/audio_log_stream.h
     debug/dac_stream.h
+    debug/audio_frames.h
 )
 
 # The published headers that include standard headers only (GH #529). They reach

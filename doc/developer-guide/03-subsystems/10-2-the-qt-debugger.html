@@ -3366,7 +3366,7 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 <tr>
 <td>Audio</td>
 <td><code>audio_state()</code>, <code>ctc_state()</code>, <code>dma_state()</code>, <code>ay_mode()</code>, <code>audio_log_entries()</code>, <code>audio_log_enabled()</code>, <code>audio_log_export()</code></td>
-<td><code>set_audio_mute_mask()</code>, <code>set_audio_channel_mute_mask()</code>, <code>clear_audio_drops()</code>, <code>set_audio_log_enabled()</code> (from <code>DebuggerManager::apply_data_needs()</code>, only while the Log or the DAC &amp; Beeper sub-tab is on show: <code>AudioPanel::log_on_show()</code> and <code>dac_on_show()</code>, one request bit so the ring survives a switch between them, re-run on <code>AudioPanel::sub_tab_changed()</code>); DAC &amp; Beeper's Pacing and Sample stream groups are <code>AudioStreamView</code>, which fetches the log incrementally (it asks from the newest seq it holds and starts over when the ring no longer holds it, the rule of <code>AudioLogView</code>), keeps the markers and the DAC entries of the last second and calls <code>dac_stream_stats()</code>; the panel emits <code>show_in_disassembly_requested</code> for a CPU-written dropped-write row and a CPU-written Log row</td>
+<td><code>set_audio_mute_mask()</code>, <code>set_audio_channel_mute_mask()</code>, <code>clear_audio_drops()</code>, <code>set_audio_log_enabled()</code> (from <code>DebuggerManager::apply_data_needs()</code>, only while the Log, Tracker or DAC &amp; Beeper sub-tab is on show: <code>AudioPanel::log_on_show()</code>, <code>tracker_on_show()</code> or <code>dac_on_show()</code>, one request bit so the ring survives a switch between them, re-run on <code>AudioPanel::sub_tab_changed()</code>); DAC &amp; Beeper's Pacing and Sample stream groups are <code>AudioStreamView</code>, which fetches the log incrementally (it asks from the newest seq it holds and starts over when the ring no longer holds it, the rule of <code>AudioLogView</code>), keeps the markers and the DAC entries of the last second and calls <code>dac_stream_stats()</code>; the panel emits <code>show_in_disassembly_requested</code> for a CPU-written dropped-write row and a CPU-written Log row, and <code>rewind_to_frame_requested</code> for a double-click on a rewindable Tracker row, which the window connects to <code>DebuggerManager::on_rewind_to_frame()</code></td>
 </tr>
 <tr>
 <td>Script</td>
@@ -3592,7 +3592,7 @@ Which space each view prints, and the columns that were added, are described in
 <a href="../07-source-level-debugging/07-frontends.html">7.7</a>.</p>
 <h3 id="the-audio-panel">The Audio panel<a class="headerlink" href="#the-audio-panel" title="Permanent link">&para;</a></h3>
 <p><code>AudioPanel</code> (<code>src/debugger/audio_panel.cpp</code>) is a Sources strip (the five source mute boxes) above a
-<code>QTabWidget</code>: Chips, DAC &amp; Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+<code>QTabWidget</code>: Chips, DAC &amp; Beeper, Log, Tracker and Scopes. Only Scopes is a placeholder: it says it is
 not available yet. The panel owns no audio state: every number comes from one <code>Debugger::audio_state()</code> per
 refresh, and every note from <code>audio_math.h</code>, so the panel and a test read the same decode.</p>
 <ul>
@@ -3602,18 +3602,23 @@ refresh, and every note from <code>audio_math.h</code>, so the panel and a test 
 <li><strong>DAC &amp; Beeper</strong> shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the
   dropped-write table, one fixed row per <code>AudioDropReason</code>; a CPU-sourced row double-clicks into the
   Disassembly, and <strong>Clear</strong> calls <code>clear_audio_drops()</code>. <code>audio_drop_reason_text()</code> is shared with the Log
-  tab, so the two cannot word a reason differently.</li>
+  tab, so the two cannot word a reason differently. Its Pacing group lists the CTC channels and the DMA with
+  their computed rates (<code>ctc_state()</code>, <code>dma_state()</code>), and its Sample stream group is <code>AudioStreamView</code>, which
+  fetches the log incrementally like Log and calls <code>dac_stream_stats()</code> (<a href="04-audio.html">3.4</a>, The sample stream).</li>
 <li><strong>Log</strong> is <code>AudioLogView</code>, a <code>QAbstractTableModel</code> mirroring the backend ring: <code>refresh()</code> appends the
   entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
   overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
   <code>audio_log_export()</code>.</li>
+<li><strong>Tracker</strong> is <code>AudioTrackerView</code>: it groups the log with <code>AudioFrameAccumulator</code> and mirrors it through
+  <code>fetch_audio_log()</code>, as Log does (<a href="04-audio.html">3.4</a>, Frame grouping and the tracker).</li>
 <li><strong>M and S</strong> per channel call <code>set_audio_channel_mute_mask()</code>. A solo is the mask "everything but that
   channel": <code>channel_solo_clicked()</code> saves the mask it found (<code>pre_solo_mask_</code>) and un-solo restores it, a solo
   moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
   solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.</li>
 </ul>
 <p>What the panel asks of the backend follows the sub-tab on show. <code>DebuggerManager::apply_data_needs()</code> requests
-the write log only while the Audio panel is on show with Log current (<code>AudioPanel::log_on_show()</code>), and drops
+the write log only while the Audio panel is on show with Log, Tracker or DAC &amp; Beeper current (<code>AudioPanel::log_on_show()</code>, <code>tracker_on_show()</code>,
+<code>dac_on_show()</code>: one request bit, so a switch between them keeps the ring), and drops
 the request otherwise; the panel's <code>sub_tab_changed</code> signal makes the manager re-derive it. Chips is the one
 sub-tab with the per-frame refresh described under the running cadence above.</p>
 <h2 id="the-key-bindings-are-data">The key bindings are data<a class="headerlink" href="#the-key-bindings-are-data" title="Permanent link">&para;</a></h2>

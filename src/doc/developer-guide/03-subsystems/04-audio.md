@@ -185,6 +185,22 @@ whatever the interrupt acceptance jitter does to a single interval. `nearest_pac
 with the running CTC channel whose rate is nearest and a DMA writer with the DMA. The DMA's own spacing
 is at least the prescaler's (`dma.vhd`, the timer cleared at TRANSFERING_READ_1 and the gate at WAITING_CYCLES), so its measured rate is at most the nominal one.
 
+**Frame grouping and the tracker.** `src/debug/audio_frames.h` is a pure, published helper that
+groups the log's entries, oldest first, into one `AudioFrame` per frame that holds counted AY
+writes (`AudioFrameAccumulator::feed()`). A counted write is an applied `AyRegister` entry (no
+`Dropped` flag, chip 0-2, register 0-15); any other non-marker entry only proves the open frame
+ended. A frame keeps the last value written to each of R0-R13, the value at its start (`before`:
+the `prev` of the frame's first write to the register, which is exact because the AY stores the whole
+written byte; for a register not written in the frame, the value carried from the previous frame, or
+unknown after a marker), a mask of the registers written and of those
+written twice, the first and last raster stamps and the PC range of the CPU's writes, and the number
+of empty frames before it. A marker, or a frame number that goes backwards, completes the open frame
+and forgets the timeline. The Audio panel's Tracker (`src/debugger/audio_tracker_view.*`) is its
+consumer. The Tracker mirrors the log by the Log
+view's own rule, one function (`fetch_audio_log()`: append the entries after the newest one held, or
+resync when that entry is gone) and groups only what is new, keeping at most `kMaxRows` rows. Nothing
+in the emulation path changes for it: it reads what the write tap already records.
+
 **Beeper** — `src/audio/beeper.*`. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is
