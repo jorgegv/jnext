@@ -72,6 +72,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "log_capture.h"
 #include "core/nex_loader.h"
 #include "core/saveable.h"
 #include "platform/emulator_boot.h"   // emulator_load_routes_to_nex (GH #228)
@@ -89,6 +90,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -1889,6 +1891,94 @@ void test_bank5_clear() {
 
 } // namespace
 
+// GH #556 — the first four header bytes. The NEXLOAD that NextZXOS ships (v18,
+// header check at 0x20E4-0x2106; source ancestor tbblue nexload.asm:289-291)
+// reads 512 bytes and gates on the version digits alone; it never looks at the
+// "Next" magic, so a file it runs must load here (owner D-M1). The version gate
+// stays the only header check.
+void test_nex_magic() {
+    set_group("NEXMAG");
+
+    auto put_magic = [](const std::string& path, const char* four) {
+        std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
+        f.seekp(0);
+        f.write(four, 4);
+    };
+    auto capture = [](const std::function<void()>& body) { return capture_emulator_log(body); };
+
+    {   // NEXMAG-01
+        const std::string path = fixture_path("mag_upper");
+        const bool built = write_nex_bank_fixture(path, 0x9123, 0xFE00, 0, 3, 3, {});
+        put_magic(path, "NEXT");
+        NexLoader loader;
+        const bool ok = built && loader.load(path);
+        check("NEXMAG-01",
+              "a V1.2 header whose first bytes are \"NEXT\" loads, PC and SP as written (NEXLOAD v18 0x20E4-0x2106 never reads them)",
+              ok && loader.header().pc == 0x9123 && loader.header().sp == 0xFE00,
+              fmt("built=%d ok=%d", built, ok));
+        std::error_code ec; std::filesystem::remove(path, ec);
+    }
+    {   // NEXMAG-02
+        const std::string path = fixture_path("mag_zero");
+        const bool built = write_nex_bank_fixture(path, 0x8000, 0xFF00, 0, 3, 3, {});
+        const char zero4[4] = {0, 0, 0, 0};
+        put_magic(path, zero4);
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        Emulator emu;
+        bool ok = false;
+        const std::string log = capture([&] { ok = built && emu.init(cfg) && emu.load_nex(path); });
+        // Bank 3 (8K pages 6/7) holds the payload; the loader maps it at 0xC000.
+        const bool bytes = ok && emu.mmu().peek(0xC000) == payload_byte(0) &&
+                           emu.mmu().peek(0xC001) == payload_byte(1);
+        const bool warned = log.find("not 'Next'") != std::string::npos &&
+                            log.find("00 00 00 00") != std::string::npos;
+        check("NEXMAG-02",
+              "magic 00 00 00 00 with a V1.2 header and one bank loads, the bank bytes are in RAM, and a warning names the magic",
+              ok && bytes && warned,
+              fmt("built=%d ok=%d bytes=%d warned=%d", built, ok, bytes, warned));
+        std::error_code ec; std::filesystem::remove(path, ec);
+    }
+    {   // NEXMAG-03
+        const std::string path = fixture_path("mag_v99");
+        const bool built = write_nex_bank_fixture(path, 0x8000, 0xFF00, 0, 3, 3, {}, 0, "V9.9");
+        put_magic(path, "XXXX");
+        NexLoader loader;
+        bool ok = true;
+        const std::string log = capture([&] { ok = loader.load(path); });
+        check("NEXMAG-03",
+              "magic XXXX with version V9.9 is refused by the version gate, and the message names the version, not the magic",
+              built && !ok && log.find("V9.9") != std::string::npos &&
+                  log.find("invalid magic") == std::string::npos,
+              fmt("built=%d ok=%d", built, ok));
+        std::error_code ec; std::filesystem::remove(path, ec);
+    }
+    {   // NEXMAG-04
+        const std::string path = fixture_path("mag_probe13");
+        const bool built = write_nex_bank_fixture(path, 0x8000, 0xFF00, 0, 3, 3, {}, 0, "V1.3");
+        put_magic(path, "NEXT");
+        uint8_t bcd = 0; char ver[5] = {0};
+        const bool probed = built && NexLoader::probe_version(path, bcd, ver);
+        check("NEXMAG-04",
+              "probe_version on a 512-byte+ \"NEXTV1.3\" file is true with bcd 0x13, so the V1.3 opt-in prompt is still offered",
+              probed && bcd == 0x13 && std::strcmp(ver, "V1.3") == 0,
+              fmt("built=%d probed=%d bcd=0x%02X", built, probed, bcd));
+        std::error_code ec; std::filesystem::remove(path, ec);
+    }
+    {   // NEXMAG-05
+        const std::string path = fixture_path("mag_short");
+        { std::ofstream f(path, std::ios::binary | std::ios::trunc);
+          std::string h = "NextV1.2"; h.resize(100, '\0'); f.write(h.data(), 100); }
+        uint8_t bcd = 0; char ver[5] = {0};
+        const bool probed = NexLoader::probe_version(path, bcd, ver);
+        check("NEXMAG-05",
+              "probe_version on a 100-byte \"NextV1.2\" file is false: shorter than the 512-byte header load() needs",
+              !probed, fmt("probed=%d", probed));
+        std::error_code ec; std::filesystem::remove(path, ec);
+    }
+}
+
 int main() {
     std::printf("NEX loader screen-ingest tests (issue #68)\n\n");
 
@@ -2914,6 +3004,7 @@ int main() {
 
     // GH #228 — the experimental-V1.3 entry-point gate.
     test_v13_gate();
+    test_nex_magic();
 
     // GH #454 - what apply() clears in bank 5, and the border.
     test_bank5_clear();

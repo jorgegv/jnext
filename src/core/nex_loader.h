@@ -265,11 +265,12 @@ public:
     bool is_v13() const { return std::memcmp(header_.version, "V1.3", 4) == 0; }
 
     /// GH #228 — pre-load version query for the user-facing entry points.
-    /// Reads only the 8-byte "Next"+version prologue of `path`. Returns true
-    /// and fills `version_bcd` (BCD-packed as nex_version_bcd() does) and
-    /// `version_str` (the raw 4 header chars, NUL-terminated) when the file
-    /// starts with the "Next" magic. Returns false when the file cannot be
-    /// read or is not a NEX file at all — callers then fall through to the
+    /// Reads the version prologue of `path`. Returns true and fills
+    /// `version_bcd` (BCD-packed as nex_version_bcd() does) and `version_str`
+    /// (the raw 4 header chars, NUL-terminated) when the file holds a whole
+    /// 512-byte header. The "Next" magic is not checked, as in the NEXLOAD
+    /// NextZXOS ships (GH #556). Returns false when the file cannot be read
+    /// or is shorter than a header — callers then fall through to the
     /// full load(), whose own error names the real problem, so a probe
     /// failure is never a reason to refuse here.
     static bool probe_version(const std::string& path, uint8_t& version_bcd,

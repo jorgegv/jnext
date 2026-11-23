@@ -352,14 +352,17 @@ static bool compute_nex_crc32c(std::ifstream& f, uint64_t file_size, uint32_t& o
 bool NexLoader::probe_version(const std::string& path, uint8_t& version_bcd,
                               char version_str[5])
 {
-    // GH #228 — see the header doc-comment. Deliberately reads ONLY the
-    // 8-byte prologue: this runs before the user has opted into anything,
-    // so it must not depend on the rest of the header being sane.
+    // GH #228 — see the header doc-comment. Reads the version prologue only,
+    // but applies the one check load() applies: the file must hold a whole
+    // 512-byte header. The "Next" bytes are NOT checked (GH #556): the NEXLOAD
+    // that NextZXOS ships reads 512 bytes and gates on the version digits alone
+    // (v18, 0x20E4-0x2106; nexload.asm:289-291), so a file it runs must not be
+    // refused here either.
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
-    char prologue[8];
-    f.read(prologue, 8);
-    if (!f || std::memcmp(prologue, "Next", 4) != 0) return false;
+    char prologue[512];
+    f.read(prologue, sizeof(prologue));
+    if (!f) return false;
     std::memcpy(version_str, prologue + 4, 4);
     version_str[4] = '\0';
     version_bcd = nex_version_bcd(prologue + 4);
@@ -396,10 +399,14 @@ bool NexLoader::load(const std::string& path)
     f.seekg(0);
     f.read(reinterpret_cast<char*>(raw), 512);
 
-    // Validate magic
+    // The first four bytes are not validated (GH #556): the NEXLOAD that
+    // NextZXOS ships (v18, header check at 0x20E4-0x2106; source ancestor
+    // nexload.asm:289-291) never reads them, it gates on the version digits
+    // alone, and a file it runs must run here. Say so, but go on.
     if (std::memcmp(raw, "Next", 4) != 0) {
-        Log::emulator()->error("NEX: invalid magic in '{}' (expected 'Next')", path);
-        return false;
+        Log::emulator()->warn("NEX: '{}' starts with {:02X} {:02X} {:02X} {:02X}, not 'Next'; "
+                              "NextZXOS's .nexload does not check those bytes either, loading on",
+                              path, raw[0], raw[1], raw[2], raw[3]);
     }
 
     // Parse header fields

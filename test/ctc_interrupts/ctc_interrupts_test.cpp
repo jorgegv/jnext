@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <memory>
 #include <string>
 #include <vector>
 #include "../row_id.h"
@@ -3669,6 +3670,150 @@ static void test_gh265_ctc_ports() {
     }
 }
 
+
+// ══════════════════════════════════════════════════════════════════════
+// GH #556 — a hardware-IM2 line handler that is just `EI ; RETI` right after a
+// CTC handler's RETI. im2_control.vhd:181-192 ends the RETI decode inside the
+// RETI itself, so every ED 4D is seen; the old per-fetch model dropped the next
+// three fetches and left the line device in S_ISR, blocking the CTCs and, with
+// NR CC/CD set, the DMA behind them (im2_device.vhd:122-127, :136-145, :151).
+//
+// The Z80 code is assembled from /tmp-free sources kept in the plan (sjasmplus):
+//   C000 idle     EI ; L: INC BC ; JR L
+//   C010 main_dma EI ; loop { DMA 1152 B $F500 -> port $5B ; wait end of block ;
+//                              (C0F4)++ }
+//   C100 line     EI ; RETI                C108 line  NOP ; EI ; RETI
+//   C110 ctc      PUSH HL ; (C0F2)++ ; POP HL ; EI ; RETI
+//   C1F0 trap     LD A,$EE ; LD (C0F0),A ; JR $
+// ══════════════════════════════════════════════════════════════════════
+
+static const uint8_t kP556Idle[]  = { 0xFB,0x03,0x18,0xFD };
+static const uint8_t kP556Dma[]   = {
+    0xFB,0x01,0x3B,0x30,0xAF,0xED,0x79,0x21,0x36,0xC0,0x06,0x10,0x0E,0x6B,0xED,0xB3,
+    0x01,0x6B,0x00,0x3E,0xBF,0xED,0x79,0xED,0x78,0xCB,0x6F,0x20,0xF3,0x2A,0xF4,0xC0,
+    0x23,0x22,0xF4,0xC0,0x18,0xDB,0x83,0x7D,0x00,0xF5,0x80,0x04,0x54,0x02,0x68,0x02,
+    0xAD,0x5B,0x00,0x82,0xCF,0x87 };
+static const uint8_t kP556Stub[]  = { 0xFB,0xED,0x4D };
+static const uint8_t kP556Nop[]   = { 0x00,0xFB,0xED,0x4D };
+static const uint8_t kP556Ctc[]   = { 0xE5,0x2A,0xF2,0xC0,0x23,0x22,0xF2,0xC0,0xE1,0xFB,0xED,0x4D };
+static const uint8_t kP556Trap[]  = { 0x3E,0xEE,0x32,0xF0,0xC0,0x18,0xFE };
+
+static void p556_put(Emulator& emu, uint16_t at, const uint8_t* b, size_t n) {
+    for (size_t i = 0; i < n; ++i) emu.mmu().write(static_cast<uint16_t>(at + i), b[i]);
+}
+static uint16_t p556_rd16(Emulator& emu, uint16_t at) {
+    return static_cast<uint16_t>(emu.mmu().read(at) | (emu.mmu().read(static_cast<uint16_t>(at + 1)) << 8));
+}
+
+// Hardware IM2, line @192 + CTC0-2 at TC 112/112/76 (prescale 16) as in the report's
+// bundles; `line_isr` is the vector-0 handler, `entry` the main program.
+static void p556_setup(Emulator& emu, uint16_t line_isr, uint16_t entry,
+                       uint8_t cc, uint8_t cd, uint8_t c5 = 0x07, bool ei = true) {
+    fresh(emu);
+    p556_put(emu, 0xC000, kP556Idle, sizeof(kP556Idle));
+    p556_put(emu, 0xC010, kP556Dma,  sizeof(kP556Dma));
+    p556_put(emu, 0xC100, kP556Stub, sizeof(kP556Stub));
+    p556_put(emu, 0xC108, kP556Nop,  sizeof(kP556Nop));
+    static const uint8_t kDiSpin[] = { 0xF3,0x18,0xFE };   // C008: DI ; JR $
+    p556_put(emu, 0xC008, kDiSpin, sizeof(kDiSpin));
+    p556_put(emu, 0xC110, kP556Ctc,  sizeof(kP556Ctc));
+    p556_put(emu, 0xC1F0, kP556Trap, sizeof(kP556Trap));
+    for (int i = 0; i < 16; ++i) { emu.mmu().write(0xC200 + 2 * i, 0xF0); emu.mmu().write(0xC201 + 2 * i, 0xC1); }
+    emu.mmu().write(0xC200, line_isr & 0xFF); emu.mmu().write(0xC201, line_isr >> 8);
+    for (int v : {6, 8, 10}) { emu.mmu().write(0xC200 + v, 0x10); emu.mmu().write(0xC201 + v, 0xC1); }
+    for (uint16_t a = 0xC0F0; a < 0xC0F8; ++a) emu.mmu().write(a, 0);
+    nr_write(emu, 0x03, 0x01);   // leave configuration mode: the CPU runs user code
+    nr_write(emu, 0xC0, 0x09);
+    nr_write(emu, 0x22, 0x06); nr_write(emu, 0x23, 192);
+    nr_write(emu, 0xC4, 0x02); nr_write(emu, 0xC5, c5); nr_write(emu, 0xC6, 0x00);
+    nr_write(emu, 0xCC, cc);   nr_write(emu, 0xCD, cd); nr_write(emu, 0xCE, 0x00);
+    nr_write(emu, 0xC8, 0xFF); nr_write(emu, 0xC9, 0xFF); nr_write(emu, 0xCA, 0xFF);
+    emu.port().out(0x183B, 0x85); emu.port().out(0x183B, 112);
+    emu.port().out(0x193B, 0x85); emu.port().out(0x193B, 112);
+    emu.port().out(0x1A3B, 0x85); emu.port().out(0x1A3B, 76);
+    // The IM2 fabric's own decoder learns IM 2 from the ED 5E it sees (the CPU's
+    // register is set directly below, so feed the decoder the same bytes).
+    emu.im2().on_m1_cycle(0x0000, 0xED);
+    emu.im2().on_m1_cycle(0x0001, 0x5E);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = entry; regs.SP = 0xFF00; regs.I = 0xC2; regs.IM = 2;
+    regs.IFF1 = ei ? 1 : 0; regs.IFF2 = ei ? 1 : 0;
+    emu.cpu().set_registers(regs);
+}
+
+// Ten 10-frame windows: true when `probe()` strictly increases across every window.
+template <class F>
+static bool p556_rises(Emulator& emu, F probe, std::string& detail, int windows = 10, int frames = 10) {
+    bool ok = true;
+    uint32_t prev = probe() & 0xFFFF;
+    for (int w = 0; w < windows; ++w) {
+        for (int f = 0; f < frames; ++f) emu.run_frame();
+        const uint32_t now = probe() & 0xFFFF;   // 16-bit counters wrap
+        if (now == prev) { ok = false; detail += " w" + std::to_string(w) + "=" + std::to_string(prev) + "->" + std::to_string(now); }
+        prev = now;
+    }
+    return ok;
+}
+
+static void test_gh556_hang(Emulator& /*shared*/) {
+    set_group("GH556-IM2-hang");
+
+    {   auto emu_p = std::make_unique<Emulator>(); Emulator& emu = *emu_p;   // CTCI-556-01
+        p556_setup(emu, 0xC100, 0xC000, 0x00, 0x00);
+        emu.cpu().reset_request_interrupt_count();
+        std::string d;
+        const bool ctc_rises  = p556_rises(emu, [&] { return (uint32_t)p556_rd16(emu, 0xC0F2); }, d);
+        const uint32_t ints   = emu.cpu().request_interrupt_count();
+        const bool no_trap    = emu.mmu().read(0xC0F0) == 0;
+        const bool line_free  = emu.im2().state(Im2Controller::DevIdx::LINE) != Im2Controller::DevState::S_ISR
+                             || emu.im2().state(Im2Controller::DevIdx::CTC0) != Im2Controller::DevState::S_REQ;
+        check("CTCI-556-01",
+              "hw IM2, line handler `EI ; RETI`, CTC handlers `EI ; RETI`: the CTC count rises in every 10-frame window for 100 frames (the line device never sticks in S_ISR; im2_control.vhd:181-192, im2_device.vhd:122-127)",
+              ctc_rises && ints > 100 && no_trap && line_free,
+              d + " ints=" + std::to_string(ints) + " trap=" + std::to_string(!no_trap));
+    }
+    {   auto emu_p = std::make_unique<Emulator>(); Emulator& emu = *emu_p;   // CTCI-556-02
+        p556_setup(emu, 0xC100, 0xC010, 0x03, 0x07);
+        std::string d;
+        const bool dma_rises = p556_rises(emu, [&] { return (uint32_t)p556_rd16(emu, 0xC0F4); }, d, 5, 60);
+        const bool ctc_ok    = p556_rd16(emu, 0xC0F2) > 100;
+        check("CTCI-556-02",
+              "same with NR CC=03/CD=07 and a 1152-byte DMA to port 0x5B started in a loop: transfers keep completing in every window (the DMA is not held for ever by CTCs stuck in S_REQ; im2_device.vhd:151)",
+              dma_rises && ctc_ok && emu.mmu().read(0xC0F0) == 0,
+              d + " ctc=" + std::to_string(p556_rd16(emu, 0xC0F2)));
+    }
+    {   auto emu_p = std::make_unique<Emulator>(); Emulator& emu = *emu_p;   // CTCI-556-03
+        p556_setup(emu, 0xC108, 0xC000, 0x00, 0x00);
+        std::string d;
+        const bool ctc_rises = p556_rises(emu, [&] { return (uint32_t)p556_rd16(emu, 0xC0F2); }, d);
+        check("CTCI-556-03",
+              "line handler `NOP ; EI ; RETI` (the ED is the 3rd fetch after the CTC handler's RETI): still serviced for 100 frames",
+              ctc_rises && emu.mmu().read(0xC0F0) == 0, d);
+    }
+    {   auto emu_p = std::make_unique<Emulator>(); Emulator& emu = *emu_p;   // CTCI-556-04: VHDL semantics, already true before the fix.
+        p556_setup(emu, 0xC100, 0xC008, 0x00, 0x01, 0x01, /*ei=*/false);
+        emu.port().out(0x193B, 0x03); emu.port().out(0x1A3B, 0x03);   // CTC1/2 stopped: CTC0 alone
+        for (int f = 0; f < 3; ++f) emu.run_frame();     // DI: CTC0 latches S_REQ
+        const bool latched = emu.im2().state(Im2Controller::DevIdx::CTC0) == Im2Controller::DevState::S_REQ;
+        nr_write(emu, 0xC5, 0x00);                        // int_en cleared AFTER the latch
+        emu.im2().tick(1);
+        const bool delaying = emu.im2().dma_delay();      // the request still delays the DMA
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1; regs.IFF2 = 1; regs.PC = 0xC000;   // idle loop: EI ; INC BC ; JR
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        const uint16_t n1 = p556_rd16(emu, 0xC0F2);
+        for (int f = 0; f < 5; ++f) emu.run_frame();
+        const uint16_t n = p556_rd16(emu, 0xC0F2);
+        const bool released = !emu.im2().dma_delay();
+        check("CTCI-556-04",
+              "CTC0 request latched, then NR C5 bit 0 cleared before the acknowledge: still acknowledged exactly once, held the DMA until then, no further CTC0 interrupts (im2_peripheral.vhd:167-178, im2_device.vhd:148/:151)",
+              latched && delaying && n == 1 && released,
+              "latched=" + std::to_string(latched) + " delaying=" + std::to_string(delaying) +
+              " n1=" + std::to_string(n1) + " n=" + std::to_string(n) + " released=" + std::to_string(released));
+    }
+}
+
 int main() {
     std::printf("CTC + Interrupt Controller Integration Tests\n");
     std::printf("===============================================\n\n");
@@ -3709,6 +3854,9 @@ int main() {
 
     test_gh201_plan_rows(emu);
     std::printf("  Group: GH201 — done\n");
+
+    test_gh556_hang(emu);
+    std::printf("  Group: GH556-IM2-hang — done\n");
 
     test_gh265_int_timing();
     std::printf("  Group: GH265-INT — done\n");
