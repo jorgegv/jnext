@@ -369,6 +369,21 @@ bool NexLoader::probe_version(const std::string& path, uint8_t& version_bcd,
     return true;
 }
 
+NexLoader::PreBoot NexLoader::preboot_check(const std::string& path, bool nex_extension,
+                                            uint8_t& version_bcd, char version_str[5])
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return PreBoot::NotNex;
+    char head[512];
+    f.read(head, sizeof(head));
+    if (!f) return PreBoot::NotNex;                       // shorter than a header
+    if (!nex_extension && std::memcmp(head, "Next", 4) != 0) return PreBoot::NotNex;
+    std::memcpy(version_str, head + 4, 4);
+    version_str[4] = '\0';
+    version_bcd = nex_version_bcd(head + 4);
+    return version_bcd > kNexLoaderVersionBcd ? PreBoot::TooNew : PreBoot::Ok;
+}
+
 bool NexLoader::load(const std::string& path)
 {
     loaded_ = false;

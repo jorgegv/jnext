@@ -271,6 +271,7 @@ Tests based on `im2_control.vhd` state machine.
 | CTCI-556-01 | Hardware IM2, line handler `EI : RETI`, CTC handlers `EI : RETI`: the CTC count rises in every 10-frame window for 100 frames | companion `test/ctc_interrupts/ctc_interrupts_test.cpp`, real Z80 code; the reporter's lock-up (GH #556) |
 | CTCI-556-02 | Same with NR CC=03/CD=07 and a 1152-byte DMA to port 0x5B in a loop: transfers keep completing | `im2_device.vhd:151`; the DMA held for ever by CTCs stuck in S_REQ (GH #556) |
 | CTCI-556-03 | Line handler `NOP : EI : RETI` (ED is the 3rd fetch after a RETI): still serviced | pins the exact window the fix removes (GH #556) |
+| CTCI-556-05 | Line handler is a bare `RETI` (the ED is the first fetch after the CTC handler's RETI): still serviced for 100 frames | companion `test/ctc_interrupts/ctc_interrupts_test.cpp`; kills a dropped fetch in the machine (GH #556, review round 3) |
 | CTCI-556-04 | CTC0 request latched, then NR C5 bit 0 cleared before the acknowledge: still acknowledged once, delayed the DMA until then, no further CTC0 interrupts | `im2_peripheral.vhd:167-178`, `im2_device.vhd:148`, `:151` (VHDL semantics, unchanged by the fix) |
 | IM2C-G87-01 | RETI (ED 4D) seen by Im2Controller via real Z80Cpu M1 stream | skip — Z80Cpu::on_m1_cycle fires once per execute() with FIRST byte only; ED 2nd byte unobserved (see G87) |
 | IM2C-G87-02 | RETN (ED 45) seen by Im2Controller via real Z80Cpu M1 stream | skip — same per-byte-M1-hook prerequisite as IM2C-G87-01 (see G87) |
@@ -422,7 +423,8 @@ Tests based on DMA interrupt wiring in zxnext.vhd.
 |----|------|----------|
 | DMA-01 | im2_dma_int set when any peripheral has dma_int=1 | OR of all peripheral dma_int signals |
 | DMA-02 | im2_dma_delay latched on im2_dma_int | Delay starts on DMA interrupt |
-| DMA-03 | im2_dma_delay held by dma_delay signal while in S_ED_T4, released by the end of the RETI | `zxnext.vhd:2007` self-hold; the hold ends inside the RETI (`im2_control.vhd:181-192`, `:238`) (GH #556, owner-approved: was "still held after the RETI's tick") |
+| DMA-03b | Same through ED 45: the latch (set by an NMI source gone before the ED) is released by the end of the RETN | `im2_control.vhd:186-192`, `:238` (GH #556, review round 3) |
+| DMA-03 | im2_dma_delay held by dma_delay signal while in S_ED_T4 (the source gone before the ED fetch), released by the end of the RETI | `zxnext.vhd:2007` self-hold; the hold ends inside the RETI (`im2_control.vhd:181-192`, `:238`) (GH #556, owner-approved: was "still held after the RETI's tick") |
 | DMA-04 | NMI also triggers DMA delay when nr_cc_dma_int_en_0_7=1 | nmi_activated AND dma_int_en_0_7 |
 | DMA-05 | DMA delay cleared on reset | im2_dma_delay = 0 after reset |
 | DMA-06 | Per-peripheral DMA int enable via NextREGs 0xCC-0xCE | Each source independently controllable |

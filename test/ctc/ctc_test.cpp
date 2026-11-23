@@ -2806,37 +2806,44 @@ void section15_dma_int() {
               fmt("dma_delay=%d", im2.dma_delay()));
     }
 
-    // DMA-03 — zxnext.vhd:2007: self-hold term is
+    // DMA-03 / DMA-03b — zxnext.vhd:2007: self-hold term is
     //   im2_dma_delay AND dma_delay
-    // Where dma_delay comes from im2_control's decode window (:238). Once
-    // latched, the delay is held while the decoder is in S_ED_T4 (between the ED
-    // and the next fetch); the RETI's S_ED4D_T4/S_SRL_T1/T2 follow on consecutive
-    // clocks inside the RETI (:181-192), so by the end of the RETI the hold is gone
-    // and the latch is just dma_int | nmi. GH #556 (owner D-H1/D-H2): this row used
-    // to expect the latch still held after the RETI's tick.
-    {
+    // Where dma_delay comes from im2_control's decode window (:238). The latch is set by
+    // a source that is GONE before the ED is fetched (an NMI with NR 0xCC bit 7, then
+    // nmi_activated cleared), so only the self-hold can keep it: it holds while the
+    // decoder is in S_ED_T4 (between the ED and the next fetch). The RETI's S_ED4D_T4 /
+    // S_SRL_T1/T2 and the RETN's S_ED45_T4 follow on consecutive clocks inside the
+    // instruction (:181-192), so by the end of it the hold is gone and the latch is just
+    // dma_int | nmi. GH #556 (owner D-H1/D-H2): DMA-03 used to expect the latch still held
+    // after the RETI's tick; DMA-03b is the RETN twin (review round 3).
+    auto self_hold = [&](uint8_t second, bool& latched, bool& held_in_ed, bool& after) {
         fresh(im2);
         im2.set_mode(true);
-        uint16_t mask = 1u << static_cast<int>(Dev::CTC0);
-        im2.set_dma_int_en_mask(mask);
-        im2.set_int_en(Dev::CTC0, true);
-        im2.raise_req(Dev::CTC0);
+        im2.set_nr_cc_dma_int_en_0_7(true);            // NR 0xCC bit 7
+        im2.set_nmi_activated(true);
         im2.tick(1);
-        bool latched = im2.dma_delay();
-        // Remove the DMA int source but open the decode window.
-        im2.clear_req(Dev::CTC0);
-        (void)im2.ack_vector();  // CTC0 → S_ACK (state != S_0 still)
-        im2.tick(1);             // S_ACK → S_ISR
-        im2.on_m1_cycle(0x0000, 0xED);  // S_ED_T4: dma_delay high
+        latched = im2.dma_delay();
+        im2.set_nmi_activated(false);                   // the source is gone before the ED fetch
+        im2.on_m1_cycle(0x0000, 0xED);                  // S_ED_T4: dma_delay high
         im2.tick(1);
-        const bool held_in_ed = im2.dma_delay();
-        im2.on_m1_cycle(0x0001, 0x4D);  // reti_seen in S_ED4D_T4
-        im2.tick(1);  // im2_isr_serviced → CTC0 → S_0; the SRL states end inside
-                      // the RETI, so no hold remains at the instruction boundary.
-        check("DMA-03", latched && held_in_ed && !im2.dma_delay(),
-              "zxnext.vhd:2007 im2_dma_delay self-holds while the decoder is in S_ED_T4 and is released by the end of the RETI",
-              fmt("latched_initial=%d held_in_ed=%d after_reti=%d",
-                  latched, held_in_ed, im2.dma_delay()));
+        held_in_ed = im2.dma_delay();                   // only the self-hold can explain this
+        im2.on_m1_cycle(0x0001, second);                // 4D (RETI) or 45 (RETN)
+        im2.tick(1);
+        after = im2.dma_delay();
+    };
+    {
+        bool latched = false, held = false, after = true;
+        self_hold(0x4D, latched, held, after);
+        check("DMA-03", latched && held && !after,
+              "zxnext.vhd:2007 im2_dma_delay self-holds while the decoder is in S_ED_T4 (source already gone) and is released by the end of the RETI",
+              fmt("latched_initial=%d held_in_ed=%d after_reti=%d", latched, held, after));
+    }
+    {
+        bool latched = false, held = false, after = true;
+        self_hold(0x45, latched, held, after);
+        check("DMA-03b", latched && held && !after,
+              "same through ED 45: the latch is released by the end of the RETN (im2_control.vhd:186-192, :238)",
+              fmt("latched_initial=%d held_in_ed=%d after_retn=%d", latched, held, after));
     }
 
     // DMA-04 — zxnext.vhd:2007 second OR term:
