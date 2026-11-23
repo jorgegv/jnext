@@ -69,7 +69,7 @@ input, then whether the internal speaker is on (NextREG 0x08 bit 4), whether the
 beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC reach
 the mix: they do not when both of those are set. A tape playing in real time reaches the
 mix through the same beeper path, so the Beeper box, and that exclusion,
-silence it too, while the Tape EAR lamp keeps showing the input.
+silence it too, as it does the Pi's audio when that is routed to EAR (NextREG 0xA2); the Tape EAR lamp keeps showing the input.
 
 **Pi I2S.** Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).
@@ -112,7 +112,7 @@ A table of the audio writes the program made, one row per write, newest last. Th
 machine records them only while this tab is the one on show in an open debugger window
 (or while something else asks for the log, such as `--audio-log`); the rows you see
 start when you open the tab, and the log holds the newest 65536 writes. The tab is
-refreshed with the rest of the window when the machine is paused or stepped.
+refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.
 
 The columns are the **Frame**, **Line**, **HC** and **T-state** the write happened at,
 the **PC** of the instruction (only for a write the CPU made), the **Source** (CPU, DMA,

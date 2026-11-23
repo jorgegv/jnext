@@ -2688,6 +2688,51 @@ int main() {
               r == Result::Ok && before.size() > 100 && ok && removed);
     }
     {
+        // The replay guards of the tap (`replay_mode_ ||` in tap_ay_data_, tap_ay_select_ and tap_beeper_): a
+        // replayed window holding an AY data write, a TurboSound chip select, an EAR change and a DAC write must
+        // not log any of them again. Per iteration: select chip 0 (0xFFFD = 0xFF), data write (0xBFFD), EAR from
+        // the counter's bit 0 (OUT 0xFE), DAC write (0x1F); then a delay.
+        Emulator emu; fresh(emu);
+        nr_write(emu, 0x08, 0x0A);   // TurboSound and the DAC on: every write is an APPLIED one
+        emu.set_rewind_enabled(true);
+        emu.resize_rewind_buffer(50);
+        run_from(emu, 0x8000, {0xF3,                    // DI
+                               0x01, 0xFD, 0xFF,        // LD BC,0xFFFD
+                               0x3E, 0xFF,              // LD A,0xFF
+                               0xED, 0x79,              // OUT (C),A    chip select AY0
+                               0x06, 0xBF,              // LD B,0xBF
+                               0x14,                    // INC D
+                               0xED, 0x51,              // OUT (C),D    AY register write (port 0xBFFD)
+                               0x7A,                    // LD A,D
+                               0x07, 0x07, 0x07, 0x07,  // RLCA x4: D bit 0 -> bit 4 (EAR)
+                               0xE6, 0x10,              // AND 0x10
+                               0xD3, 0xFE,              // OUT (0xFE),A  EAR toggles every iteration
+                               0x7A,                    // LD A,D
+                               0xD3, 0x1F,              // OUT (0x1F),A  DAC
+                               0x06, 0xFF,              // LD B,0xFF
+                               0x10, 0xFE,              // DJNZ $
+                               0x18, 0xE2});            // JR 0x8001
+        Debugger dbg(emu);
+        const ClientId cid = log_client(dbg, "awl29");
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        dbg.pause(cid);
+        step_to_a_write(emu, dbg);
+        const auto before = all_entries(dbg);
+        size_t ay = 0, sel = 0, bp = 0, dac = 0;
+        for (const AudioLogEntry& e : before) {
+            ay  += e.marker == AudioMarker::None && e.target == AudioTarget::AyRegister;
+            sel += e.marker == AudioMarker::None && e.target == AudioTarget::AyChipSelect;
+            bp  += e.marker == AudioMarker::None && e.target == AudioTarget::Beeper;
+            dac += e.marker == AudioMarker::None && e.target == AudioTarget::Dac;
+        }
+        const Result r = dbg.step_back(cid, 1);
+        const auto after = all_entries(dbg);
+        bool removed = false;
+        const bool ok = landing_ok(before, after, emu.clock().get(), removed);
+        check("AWL-29", "a step back over a window of AY data writes, chip selects, EAR changes and DAC writes (the log holds all four kinds first) logs none of them again: the entries before the landing are unchanged, the later ones gone, one Rewind marker last",
+              r == Result::Ok && ay > 20 && sel > 20 && bp > 20 && dac > 20 && ok && removed);
+    }
+    {
         Emulator emu; build_counter(emu);
         Debugger dbg(emu);
         const ClientId cid = log_client(dbg, "awl15");

@@ -305,7 +305,7 @@ void AyChip::update_envelope()
     step_shape_();
 }
 
-void AyChip::step_shape_()
+inline void AyChip::step_shape_()
 {
     // Boundary detection — VHDL ym2149.vhd:361-366.
     //

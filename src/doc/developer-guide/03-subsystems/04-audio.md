@@ -128,9 +128,11 @@ subscription exists (`Emulator::set_audio_tap()`, called by `publish_audio_tap()
 wraps each), the three NextREG 0x2C-0x2E mirror handlers, the 0xFE handler and
 `note_audio_drop_()`, so the counter and the log come from one call. Each site tests
 the one bool and nothing else, and there is no test on the per-instruction path.
-Rule R1: the tap observes and never writes. A handler reads what the entry needs
-(the chip, the address, the previous byte) before its write and records after it,
-so the hot path's own writes stay where they are, and the log cannot drift from them.
+Rule R1: the tap observes and never writes. The sites differ in order: the AY handlers (0xFFFD, 0xBFFD, 0xBFF5) read
+what the entry needs (the chip, the address, the previous byte) before the write and record after it, while the DAC
+writes (`dac_write_()`), the NR 0x2C-0x2E mirrors and the 0xFE handler record BEFORE it (the previous value is
+still in place, and `tap_beeper_` must run before `beeper_.set_ear()`). Either way the hot path's own writes stay
+where they are, and the log cannot drift from them.
 The sink has two consumers, the log ring and the `AudioWrite` event latch (`09-2`), and the core knows of neither.
 The cold bodies are in `src/core/emulator_audio_tap.cpp`, marked cold and out of line,
 so adding one cannot move inlining in `emulator.cpp`. They return at once while a rewind
@@ -263,7 +265,7 @@ chips the mask mutes. A load sets the audible pair equal to the loaded hardware 
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.
 
 The beeper bit of the mask zeroes the mixer's `ear` and `mic` terms, and because a playing tape reaches the mix
-only through `mic_i` (above), it silences the tape as well; the Audio panel's Tape EAR lamp still shows the raw input
+only through `mic_i` (above), it silences the tape and the Pi's audio routed to EAR as well; the Audio panel's Tape EAR lamp still shows the raw input
 (`BeeperState::tape_ear`), so a muted tape is visibly playing.
 
 The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses

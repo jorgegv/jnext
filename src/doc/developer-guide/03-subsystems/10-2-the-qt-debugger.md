@@ -410,7 +410,7 @@ refresh, and every note from `audio_math.h`, so the panel and a test read the sa
 What the panel asks of the backend follows the sub-tab on show. `DebuggerManager::apply_data_needs()` requests
 the write log only while the Audio panel is on show with Log current (`AudioPanel::log_on_show()`), and drops
 the request otherwise; the panel's `sub_tab_changed` signal makes the manager re-derive it. Chips is the one
-sub-tab with the per-frame refresh described under the running cadence below.
+sub-tab with the per-frame refresh described under the running cadence above.
 
 ## The key bindings are data
 
