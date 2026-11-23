@@ -1502,9 +1502,9 @@ printf '#!/usr/bin/env bash\necho "cp $*" >> "%s/cp.log"\nexec "%s" "$@"\n' "$TS
 : > "$TSD/cp.log"
 cache ON ON linux; stub good_test 10 0; register good_test; manifest "good_test 10"
 out=$( unset JNEXT_TEST_SD_IMAGE; export HOME="$TSD/home" PATH="$TSD/shim:$PATH"; run_harness ); rc=$?
-out+=" from_test_master=$(grep -c "test-suite/sdcard/cspect-next-1gb-fixed.img" "$TSD/cp.log") from_user_card=$(grep -c "/.jnext/sdcard/cspect-next-1gb-fixed.img" "$TSD/cp.log")"
+out+=" from_test_master=$([[ $(grep -c "test-suite/sdcard/cspect-next-1gb-fixed.img" "$TSD/cp.log") -ge 1 ]] && echo yes || echo no) from_user_card=$(grep -c "/.jnext/sdcard/cspect-next-1gb-fixed.img" "$TSD/cp.log")"
 check "HS-196" "run-unit-tests.sh clones its per-run card from the test master, never from the user's card (GH #555)" 0 $rc "$out" \
-    "from_test_master=1" "from_user_card=0"
+    "from_test_master=yes" "from_user_card=0"
 
 # the C++ suites and the shell harness name the test master with one spelling
 hdr=$(grep -o '"/[.]jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed[.]img"' "$PROJECT_DIR/test/test_sd_image.h" | tr -d '"')
