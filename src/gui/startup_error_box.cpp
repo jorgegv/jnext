@@ -21,8 +21,10 @@ void show_startup_error(const std::string& title, const std::string& text)
         return;
     }
 #endif
-    static std::unique_ptr<QApplication> temp_app;
-    if (QApplication::instance() == nullptr && !temp_app) {
+    // Local, not static: it must be gone before main() returns, or Qt is torn down after the other
+    // statics (the loggers) and the process dies at exit.
+    std::unique_ptr<QApplication> temp_app;
+    if (QApplication::instance() == nullptr) {
         static int argc = 1;
         static char arg0[] = "jnext";
         static char* argv[] = {arg0, nullptr};
@@ -31,6 +33,7 @@ void show_startup_error(const std::string& title, const std::string& text)
     }
     if (QGuiApplication::platformName() == QLatin1String("offscreen")) {
         Log::platform()->debug("dialog not shown on the offscreen platform: {}: {}", title, text);
+        Log::platform()->flush();
         return;
     }
     QMessageBox box(QMessageBox::Critical, QString::fromStdString(title),
