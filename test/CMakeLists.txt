@@ -2767,6 +2767,14 @@ add_executable(sdfile_tool sdfile/sdfile_tool.cpp)
 target_link_libraries(sdfile_tool PRIVATE jnext_core)
 target_include_directories(sdfile_tool PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# distro_variant - test-support BINARY (GH #555): makes the "next release" of a distribution image at
+# run time for the real-content upgrade row (sdcard-upgrade-real-func). Not an add_test().
+if(NOT EMSCRIPTEN)
+    add_executable(distro_variant tools/distro_variant.cpp)
+    target_link_libraries(distro_variant PRIVATE jnext_core)
+    target_include_directories(distro_variant PRIVATE ${CMAKE_SOURCE_DIR}/src)
+endif()
+
 # row_id_fork_probe — test-support BINARY, deliberately NOT an add_test(): a
 # stand-in suite the harness self-test (HS-62) runs through the unit harness to
 # prove test/row_id.h keeps every row a fork()ing suite reports.
