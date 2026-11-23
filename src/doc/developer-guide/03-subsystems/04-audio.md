@@ -264,6 +264,10 @@ sums: the hardware one (every active chip; what a snapshot or a rewind slot stor
 chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.
 
+The beeper bit of the mask zeroes the mixer's `ear` and `mic` terms, and because a playing tape reaches the mix
+only through `mic_i` (above), it silences the tape and the Pi's audio routed to EAR as well; the Audio panel's Tape EAR lamp still shows the raw input
+(`BeeperState::tape_ear`), so a muted tape is visibly playing.
+
 **The source tap.** The debugger's Scopes view needs the level of each source before the mixer sums
 them, which the mixer does not keep. `AudioSourceTap` (`src/audio/audio_source_tap.h`, standard headers
 only) holds sixteen accumulators and a 8192-sample ring per source; the Debugger owns it, the Emulator
@@ -272,7 +276,7 @@ read by the Z80. `Mixer::integrate_span_tapped()` is `integrate_span()`'s loop, 
 `tap_accumulate_()` beside the audible `accumulate_impl_()`: the sixteen terms are the hardware ones
 (`Dac::channel()`, `AyChip::output_a/b/c()`, `TurboSound::hw_pcm_left()` and the beeper's EAR and `mic_final()` levels: the
 playing tape and the Pi's audio routed to EAR have no term of their own, they arrive inside `beep_mic_final`
-(GH #550), so they show in the Beeper source as its MIC 128), computed beside `mix()` and never inside it, so no mute and no host gain reaches them.
+(v1.3.62), so they show in the Beeper source as its MIC 128), computed beside `mix()` and never inside it, so no mute and no host gain reaches them.
 Each pushed sample is the mixer's own `rounded_average_x4` of a term over one output period, so the
 Left and Right traces equal the mixer's output plus its resting level exactly. The sync rule: a tap
 sample is pushed only when the tap saw the mixer's whole sample (compared by cycle count), which covers a
@@ -293,9 +297,6 @@ While a tap is installed `batch_window_limit_()` refuses every window (it tests 
 it already did for a rewind replay as `replay_mode_`), so those programs run slot by slot, the path the
 batches are held equivalent to, and the tap sees exactly the batch-off samples. Batching resumes when
 the tap is dropped.
-The beeper bit of the mask zeroes the mixer's `ear` and `mic` terms, and because a playing tape reaches the mix
-only through `mic_i` (above), it silences the tape and the Pi's audio routed to EAR as well; the Audio panel's Tape EAR lamp still shows the raw input
-(`BeeperState::tape_ear`), so a muted tape is visibly playing.
 
 The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 `env_reset`, which reloads the level and also forces `env_ena` (`ym2149.vhd:340-342` and `ym2149.vhd:393-409`), so the first
