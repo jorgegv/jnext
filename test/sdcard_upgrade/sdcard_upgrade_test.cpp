@@ -628,8 +628,8 @@ int main() {
     {
         install_old();
         (void)sdcard::provision_sd_card(opts_with(nullptr, sdcard::UpgradeMode::Yes));   // first upgrade: backup of 24.11
-        // now the "current" distribution moves on: a card of 99.99 and an offer of 99.98
-        const std::string url2 = "http://127.0.0.1:1/sn-emulator-99.98.zip";
+        // now the "current" distribution moves on (a NEWER release, as a card of a newer one would not be offered): a card of 99.99 and an offer of 99.100
+        const std::string url2 = "http://127.0.0.1:1/sn-emulator-99.100.zip";
         jtp::set_env("JNEXT_SDCARD_DISTRO_URL", url2.c_str());
         Spy sp;
         sdcard::ProvisionOptions o = opts_with(&sp);
