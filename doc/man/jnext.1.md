@@ -1860,8 +1860,8 @@ boot.
 Three commands, like **\--sdcard-file-add** terminal commands that start no emulation, get
 your files off a card or into one:
 
-    jnext --sdcard card.img --sdcard-writes dev.jsdw --sdcard-writes-flatten flat.img
-    jnext --sdcard card.img --sdcard-export-base original.img --sdcard-export-changes ~/my-files
+    jnext --sdcard CARD --sdcard-writes dev.jsdw --sdcard-writes-flatten flat.img
+    jnext --sdcard CARD --sdcard-export-base ORIGINAL --sdcard-export-changes ~/my-files
     jnext --sdcard new.img --sdcard-import-changes ~/my-files
 
 **\--sdcard-writes-flatten** makes one plain image from a card and its writes
