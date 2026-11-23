@@ -12,6 +12,9 @@
 - `--debugger` and `--break-at`: a program loaded from the command line stops at its start (tape loads included) and waits for a debugger
 
 ### Bug Fixes
+- Hardware IM2 interrupts no longer lock up after a RETI is followed at once by a short interrupt routine (The Way of the Exploding Fist: no sprites, menu hang)
+- `--load` and File > Open accept NEX files NextZXOS loads although their first bytes are not "Next"
+- SD cards formatted FAT16 or without a partition table now work for the 48K, 128K and +3 machines and snapshots
 - AY envelope takes its first step on the R13 write, as the hardware does
 - Two emulated machines in one process no longer share CPU timing state (28 MHz waits, warm-start recorder)
 - Tape loading sound plays at the hardware level, mixed through the beeper EAR/MIC term as the FPGA does
