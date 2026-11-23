@@ -36,9 +36,12 @@ bool StemRecorder::start(const std::string& dir, std::string& why)
         const std::string path = (fs::path(dir) / NAMES[i]).string();
         if (!rec_[i].start(path)) {
             why = rec_[i].last_error().empty() ? "cannot create '" + path + "'" : rec_[i].last_error();
+            // Close and remove the files this call made; a name that is not a regular file (a directory in the
+            // way, which is why the open failed) is never touched.
             for (size_t j = 0; j <= i; ++j) {
                 rec_[j].stop();
-                fs::remove(fs::path(dir) / NAMES[j], ec);
+                const fs::path made = fs::path(dir) / NAMES[j];
+                if (fs::is_regular_file(made, ec)) fs::remove(made, ec);
             }
             return false;
         }

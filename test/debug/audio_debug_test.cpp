@@ -5215,14 +5215,21 @@ int main() {
                                  !dbg.stems_recording() && emu.audio_scope_tap() == nullptr;
         size_t entries = 0;
         for (const auto& e : std::filesystem::directory_iterator(base)) { (void)e; ++entries; }
+        // A directory named like the last file: the six before it are made, then the open fails, and the six are taken back; the directory in the way stays.
+        const std::string half = (std::filesystem::path(base) / "half").string();
+        std::filesystem::create_directories(std::filesystem::path(half) / "mix.wav");
+        const bool half_refused = dbg.stems_record_start(cid, half) == Result::RefusedUnavailable && !dbg.stems_recording() &&
+                                  emu.audio_scope_tap() == nullptr && !std::filesystem::exists(std::filesystem::path(half) / "ay0.wav") &&
+                                  !std::filesystem::exists(std::filesystem::path(half) / "beeper.wav") &&
+                                  std::filesystem::is_directory(std::filesystem::path(half) / "mix.wav");
         const std::string nested = (std::filesystem::path(base) / "a" / "b").string();
         const bool nested_ok = dbg.stems_record_start(cid, nested) == Result::Ok && dbg.stems_recording() &&
                                std::filesystem::exists(std::filesystem::path(nested) / "mix.wav");
         dbg.stems_record_stop(cid);
         std::error_code ec;
         std::filesystem::remove_all(base, ec);
-        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a missing nested DIR is created",
-              silent_refused && bad_refused && entries == 1 && nested_ok);
+        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a failed open of the last file takes back the six before it and spares a directory in the way; a missing nested DIR is created",
+              silent_refused && bad_refused && half_refused && entries == 1 && nested_ok);
     }
     {
         // AIZ-13: the stems are invisible to the Z80: the same machine run with a recording on and off has the same saved state and framebuffer
