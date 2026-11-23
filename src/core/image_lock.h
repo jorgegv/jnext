@@ -55,6 +55,11 @@ private:
 /// The locks of this process, by card slot (0 = first card, 1 = second): the image and its
 /// SD-writes file. Startup takes them in main(); a live card change moves them with the card.
 namespace sd_locks {
+/// Locking is OFF until a frontend turns it on (main() does, once, before it takes its cards):
+/// the Emulator class is also built many times in one process by the unit suites and rebuilt by a
+/// cold boot, and a process-wide registry must not refuse a card to a second Emulator of the same
+/// process. While off, hold() succeeds without locking anything and holds() is false.
+void set_enabled(bool on);
 /// Take `image` (and `writes_file` when not empty) for `slot`, then drop what the slot held before.
 /// A path the slot already holds is kept, not taken twice. False and `why` on a refusal, with the
 /// slot's previous locks untouched. An empty `image` just releases the slot.

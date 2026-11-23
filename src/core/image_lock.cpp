@@ -192,6 +192,7 @@ struct SlotLocks {
     std::optional<ImageLock> writes;
 };
 std::mutex& mu() { static std::mutex m; return m; }
+bool g_enabled = false;   // guarded by mu()
 SlotLocks* slots() { static SlotLocks s[2]; return s; }
 
 // `want` kept from `have` when it is the same card, else taken now.
@@ -206,10 +207,18 @@ bool take(std::optional<ImageLock>& have, const std::string& path, ImageLock::Ki
 }
 }  // namespace
 
+void set_enabled(bool on)
+{
+    std::lock_guard<std::mutex> g(mu());
+    g_enabled = on;
+    if (!on) { slots()[0].image.reset(); slots()[0].writes.reset(); slots()[1].image.reset(); slots()[1].writes.reset(); }
+}
+
 bool hold(int slot, const std::string& image, const std::string& writes_file, std::string& why)
 {
     if (slot < 0 || slot > 1) { why = "no such SD card slot"; return false; }
     std::lock_guard<std::mutex> g(mu());
+    if (!g_enabled) return true;
     SlotLocks& s = slots()[slot];
     std::optional<ImageLock> img, wr;
     if (!take(s.image, image, ImageLock::Kind::Image, img, why)) return false;

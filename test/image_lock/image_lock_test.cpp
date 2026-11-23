@@ -110,6 +110,7 @@ int main() {
         const std::string a_img = d + "/a.img", b_img = d + "/b.img";
         // sd_locks takes its lock files under the default state dir: point it at the scratch dir.
         // (The state dir is $JNEXT_CONFIG_DIR, set by the harness for this suite.)
+        sdcard::sd_locks::set_enabled(true);
         bool ok1 = sdcard::sd_locks::hold(0, a_img, {}, why);
         auto other = ImageLock::acquire(b_img, ImageLock::Kind::Image, why);   // default lock dir, as hold() uses
         bool refused = !sdcard::sd_locks::hold(0, b_img, {}, why);

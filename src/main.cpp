@@ -2235,6 +2235,7 @@ int main(int argc, char* argv[]) {
     // GH #555 - one jnext per card image: the image (and its --sdcard-writes FILE) is locked for
     // the life of the process, before anything reads or writes it. --sdcard-file-add writes the
     // image, so a locked one is its "image unusable" (exit 5).
+    sdcard::sd_locks::set_enabled(true);
     {
         std::string lock_why;
         if (!sd_card_image.empty() &&

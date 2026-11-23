@@ -25,6 +25,15 @@ int main() {
               a && a->held() && !a->key().empty(), why);
     }
     {
+        // Off by default: a process that builds several Emulators must not be refused its own cards.
+        const std::string held_img = d + "/held.img";
+        auto outside = ImageLock::acquire(held_img, ImageLock::Kind::Image, why, locks);
+        std::string off_why;
+        const bool off1 = sdcard::sd_locks::hold(1, held_img, {}, off_why);
+        check("SDLOCK-13", "while locking is not enabled hold() succeeds even on a card another holder has, and keeps nothing",
+              off1 && !sdcard::sd_locks::holds(1, held_img), off_why);
+        outside.reset();
+        sdcard::sd_locks::set_enabled(true);
         const std::string a_img = d + "/slot-a.img", b_img = d + "/slot-b.img";
         const bool h1 = sdcard::sd_locks::hold(1, a_img, {}, why);
         const bool h2 = sdcard::sd_locks::hold(1, a_img, {}, why);   // the same card again: kept, not taken twice
@@ -37,6 +46,7 @@ int main() {
         sdcard::sd_locks::release(1);
         check("SDLOCK-12", "release() drops the slot's locks",
               !sdcard::sd_locks::holds(1, b_img) && ImageLock::acquire(b_img, ImageLock::Kind::Image, why).has_value(), why);
+        sdcard::sd_locks::set_enabled(false);
     }
     return finish(d);
 }
