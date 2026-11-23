@@ -13,7 +13,7 @@ namespace sdcard {
 /// the answer is Keep and the reason is logged, so a session never replaces a card
 /// the user was not asked about.
 UpgradeChoice sdl_offer_upgrade(const std::string& from, const std::string& to,
-                                const std::string& message);
+                                const std::string& message, bool files_carry_over = true);
 
 /// The button ids of that box and the choice each means, once, for the box and its test.
 UpgradeChoice upgrade_choice_for_button(int button_id);
@@ -21,6 +21,8 @@ constexpr int kUpgradeButtonReplace = 1, kUpgradeButtonKeep = 2, kUpgradeButtonN
 /// The labels, in both frontends. "Upgrade" keeps the user's files; closing the box or Escape is
 /// "Not now".
 constexpr const char* kUpgradeLabelReplace = "Upgrade (keep my files)";
+/// Instead of the above when the files cannot be carried over (no original image to compare with).
+constexpr const char* kUpgradeLabelFresh   = "Fresh start (keep my card as a backup)";
 constexpr const char* kUpgradeLabelNever   = "Keep my card (don't ask again)";
 constexpr const char* kUpgradeLabelKeep    = "Not now";
 

@@ -60,7 +60,8 @@ bool SdcardGuiProvisioner::confirm(const std::string& message) {
 }
 
 SdcardGuiProvisioner::UpgradeBox SdcardGuiProvisioner::upgrade_box(const std::string& to,
-                                                                   const std::string& message) {
+                                                                   const std::string& message,
+                                                                   bool files_carry_over) {
     UpgradeBox u;
     u.box = std::make_unique<QMessageBox>();
     u.box->setWindowTitle(QString::fromStdString(sdcard::distribution_title(to) + " is available"));
@@ -68,7 +69,7 @@ SdcardGuiProvisioner::UpgradeBox SdcardGuiProvisioner::upgrade_box(const std::st
     u.box->setText(QStringLiteral("<b>%1</b>").arg(
         QString::fromStdString(sdcard::distribution_title(to) + " is available").toHtmlEscaped()));
     u.box->setInformativeText(QString::fromStdString(message));
-    u.replace = u.box->addButton(QObject::tr(sdcard::kUpgradeLabelReplace), QMessageBox::AcceptRole);
+    u.replace = u.box->addButton(QObject::tr(files_carry_over ? sdcard::kUpgradeLabelReplace : sdcard::kUpgradeLabelFresh), QMessageBox::AcceptRole);
     u.never   = u.box->addButton(QObject::tr(sdcard::kUpgradeLabelNever), QMessageBox::ActionRole);
     u.keep    = u.box->addButton(QObject::tr(sdcard::kUpgradeLabelKeep), QMessageBox::RejectRole);
     u.box->setDefaultButton(qobject_cast<QPushButton*>(u.keep));
@@ -103,9 +104,9 @@ void SdcardGuiProvisioner::show_report(const std::string& report) {
 }
 
 sdcard::UpgradeChoice SdcardGuiProvisioner::offer_upgrade(const std::string&, const std::string& to,
-                                                          const std::string& message) {
+                                                          const std::string& message, bool files_carry_over) {
     ensure_app();
-    UpgradeBox u = upgrade_box(to, message);
+    UpgradeBox u = upgrade_box(to, message, files_carry_over);
     u.box->exec();
     return upgrade_answer(u, u.box->clickedButton());
 }

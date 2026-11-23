@@ -1,5 +1,6 @@
 #include "core/sdcard_upgrade.h"
 
+#include "core/fat32_image.h"
 #include "core/log.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
@@ -85,6 +86,16 @@ std::shared_ptr<sd_write_journal::Journal> open_overlay(const std::string& image
     return nullptr;
 }
 
+// Does the writes file belong to `image`? Reads the file's header only: nothing is bound, registered or
+// rewritten (a bind compacts a file with superseded records, and registers it as the card's write target).
+bool overlay_belongs(const std::string& image, const std::string& file) {
+    const sd_write_journal::FileInfo fi = sd_write_journal::peek_file(file);
+    if (!fi.is_journal) return false;
+    sd_write_journal::Binding b;
+    if (!identity(image, fi.binding.by_digest(), b)) return false;
+    return sd_write_journal::binding_matches(fi.binding, b);
+}
+
 void remove_quiet(const std::string& p) { std::error_code ec; fs::remove(p, ec); }
 
 }  // namespace
@@ -108,8 +119,7 @@ std::vector<std::string> usable_overlays(const std::string& dir, const std::stri
     for (const std::string& f : listed) {
         std::error_code ec;
         if (!fs::is_regular_file(f, ec)) continue;               // gone: pruned
-        std::string why;
-        if (!open_overlay(card, f, why)) continue;                // bound to another image: pruned
+        if (!overlay_belongs(card, f)) continue;                  // bound to another image: pruned
         keep.push_back(f);
         add(f);
     }
@@ -131,10 +141,31 @@ bool file_belongs_to_backup(const std::string& dir, const std::string& file) {
     const std::string prev = previous_dir(dir) + "/" + kFixedImageFileName;
     std::error_code ec;
     if (!fs::is_regular_file(prev, ec) || !fs::is_regular_file(file, ec)) return false;
-    std::string why;
-    const bool ok = open_overlay(prev, file, why) != nullptr;
-    sd_write_journal::forget_image(prev);
-    return ok;
+    return overlay_belongs(prev, file);
+}
+
+std::string overlay_problem(const std::string& card, const std::vector<std::string>& files) {
+    uint32_t lba = 0;
+    const bool have_lba = fat32_find_partition(card, lba);
+    for (const std::string& f : files) {
+        std::error_code ec;
+        if (!fs::is_regular_file(f, ec)) continue;   // not made yet: nothing to carry
+        const sd_write_journal::FileInfo fi = sd_write_journal::peek_file(f);
+        if (!fi.is_journal) return "the writes file " + f + " is not a jnext writes file";
+        if (!overlay_belongs(card, f)) return "the writes file " + f + " was made for another card";
+        for (const uint32_t sec : fi.sectors)
+            if (sec == 0 || (have_lba && sec == lba))
+                return "the writes file " + f + " rewrites the partition table or the boot sector";
+    }
+    return {};
+}
+
+std::string backup_distribution(const std::string& dir) {
+    std::ifstream f(previous_dir(dir) + "/" + kFixedImageFileName + kDistroSuffix);
+    std::string l;
+    if (f) std::getline(f, l);
+    while (!l.empty() && (l.back() == '\r' || l.back() == ' ')) l.pop_back();
+    return l.empty() ? std::string(kLegacyDistribution) : l;
 }
 
 uint64_t space_needed(const std::string& card, uint64_t zip_bytes, const std::vector<std::string>& overlays) {

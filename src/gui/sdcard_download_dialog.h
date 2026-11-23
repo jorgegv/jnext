@@ -47,7 +47,7 @@ public:
     // Escape means). Upgrade is Replace, "don't ask again" is KeepDontAskAgain, anything
     // else Keep.
     sdcard::UpgradeChoice offer_upgrade(const std::string& from, const std::string& to,
-                                        const std::string& message);
+                                        const std::string& message, bool files_carry_over = true);
     // The box offer_upgrade() runs, not yet shown, with its buttons handed back for the
     // caller (the tests) to read.
     struct UpgradeBox {
@@ -56,7 +56,7 @@ public:
         class QAbstractButton*       never    = nullptr;
         class QAbstractButton*       keep     = nullptr;
     };
-    static UpgradeBox upgrade_box(const std::string& to, const std::string& message);
+    static UpgradeBox upgrade_box(const std::string& to, const std::string& message, bool files_carry_over = true);
     // The answer for the button the user pressed (nullptr = the box was closed).
     static sdcard::UpgradeChoice upgrade_answer(const UpgradeBox& b, const class QAbstractButton* pressed);
     // The report of a finished upgrade (what was carried over, what the new NextZXOS replaced):

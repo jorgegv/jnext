@@ -5,6 +5,7 @@
 #include "core/sdcard_carry.h"
 #include "core/sdcard_upgrade.h"
 #include "core/sdcard_backup.h"
+#include "core/image_lock.h"
 
 #include <zlib.h>
 
@@ -1058,6 +1059,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     bool upgrade_accepted = false;
     bool carry_files = true;    // an accepted upgrade carries the user's files over (false: a fresh start)
     std::vector<std::string> overlays;
+    std::vector<ImageLock> held_locks;   // listed overlays another jnext must not take while the upgrade runs
     std::string kept_note;   // a failed upgrade that left the old card in use
     auto use_existing = [&]() {
         r.status = ProvisionStatus::Ok;
@@ -1079,8 +1081,30 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             if (opts.upgrade_mode == UpgradeMode::Ask) std::remove(declined.c_str());
             const std::string new_title = distribution_title(current_dist);
             const std::string old_title = distribution_title(have);
+            // The overlays the upgrade would rebuild: the command line's and the listed ones that bind to the
+            // card (read from their headers: nothing is bound or rewritten). Another jnext holding one of
+            // them, or the card, means no offer and no upgrade: its files are not ours to move.
+            overlays = upgrade::usable_overlays(dir, fixed, opts.overlays);
+            std::vector<ImageLock> overlay_locks;
+            for (const std::string& o : overlays) {
+                if (std::find(opts.overlays.begin(), opts.overlays.end(), o) != opts.overlays.end()) continue;   // main holds it
+                std::string lwhy;
+                auto lk = ImageLock::acquire(o, ImageLock::Kind::Writes, lwhy);
+                if (!lk) {
+                    Log::emulator()->info("sdcard: {} is available; this card is {}; not upgraded now: {}", new_title, old_title, lwhy);
+                    return use_existing();
+                }
+                overlay_locks.push_back(std::move(*lk));
+            }
+            held_locks = std::move(overlay_locks);
             std::string base_why;
-            const bool base_ok = carry::pristine_base_ok(fixed, base_why);
+            bool base_ok = carry::pristine_base_ok(fixed, base_why);
+            if (base_ok) {
+                std::vector<std::string> all = overlays;
+                for (const std::string& o : opts.overlays) if (std::find(all.begin(), all.end(), o) == all.end()) all.push_back(o);
+                const std::string op = upgrade::overlay_problem(fixed, all);
+                if (!op.empty()) { base_ok = false; base_why = op; }
+            }
             switch (opts.upgrade_mode) {
             case UpgradeMode::Never:
                 if (!write_text_line(declined, current_dist))
@@ -1097,6 +1121,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                     r.status = ProvisionStatus::Failed;
                     r.error  = "the files on this card cannot be carried over (" + base_why +
                                "); --sdcard-upgrade fresh starts a new card and keeps this one as the backup";
+                    r.refused = true;
                     return r;
                 }
                 upgrade_accepted = true;
@@ -1109,10 +1134,16 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             case UpgradeMode::Ask:
                 if (ieq(read_text_line(declined), current_dist)) return use_existing();
                 if (!opts.upgrade) {
-                    Log::emulator()->info(
-                        "sdcard: {} is available; this card is {}. Run jnext --sdcard-upgrade yes to "
-                        "upgrade it (your files are kept, and the old card is kept as a backup).",
-                        new_title, old_title);
+                    if (base_ok)
+                        Log::emulator()->info(
+                            "sdcard: {} is available; this card is {}. Run jnext --sdcard-upgrade yes to "
+                            "upgrade it (your files are kept, and the old card is kept as a backup).",
+                            new_title, old_title);
+                    else
+                        Log::emulator()->info(
+                            "sdcard: {} is available; this card is {}. Your files cannot be carried over ({}); "
+                            "jnext --sdcard-upgrade fresh makes a new card and keeps this one as the backup.",
+                            new_title, old_title, base_why);
                     return use_existing();
                 }
                 {
@@ -1122,9 +1153,8 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                         std::snprintf(t, sizeof t, "%.1f GB", static_cast<double>(b) / (1024.0 * 1024.0 * 1024.0));
                         return std::string(t);
                     };
-                    const std::vector<std::string> ov0 = upgrade::usable_overlays(dir, fixed, opts.overlays);
                     const uint64_t need = upgrade::space_needed(
-                        fixed, distro_is_pinned ? minimal_card::kDistribution.zip_size : 0, ov0);
+                        fixed, distro_is_pinned ? minimal_card::kDistribution.zip_size : 0, overlays);
                     std::error_code bec;
                     const bool backup_exists = std::filesystem::exists(upgrade::previous_dir(dir), bec);
                     std::string msg =
@@ -1145,9 +1175,10 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                            gb(need) + " of free disk space is needed while the upgrade runs.";
                     if (backup_exists)
                         msg += "\n\nThe backup of an earlier upgrade is replaced by this one.";
-                    msg += "\n\nKeep my card goes on using " + old_title + " and nothing is changed; you can "
-                           "upgrade later with jnext --sdcard-upgrade yes.";
-                    switch (opts.upgrade(have, current_dist, msg)) {
+                    msg += std::string("\n\nNot now goes on using ") + old_title + " and nothing is changed (it asks again next "
+                           "time); Keep my card (don't ask again) does the same and stops this offer for " + new_title +
+                           ". You can upgrade later with jnext --sdcard-upgrade " + (base_ok ? "yes" : "fresh") + ".";
+                    switch (opts.upgrade(have, current_dist, msg, base_ok)) {
                     case UpgradeChoice::Replace:
                         upgrade_accepted = true;
                         carry_files = base_ok;
@@ -1164,7 +1195,6 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                 break;
             }
             replacing = true;
-            overlays = upgrade::usable_overlays(dir, fixed, opts.overlays);
         }
     }
     const bool upgrading = replacing && upgrade_accepted;

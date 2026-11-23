@@ -310,10 +310,13 @@ sdcard::DownloadFn failing_dl = [](const std::string&, const std::string&, const
 struct Spy {
     int calls = 0;
     std::string msg;
+    bool carries = true;
     sdcard::UpgradeChoice answer = sdcard::UpgradeChoice::Replace;
 };
 sdcard::UpgradeFn spy_fn(Spy& sp) {
-    return [&sp](const std::string&, const std::string&, const std::string& m) { ++sp.calls; sp.msg = m; return sp.answer; };
+    return [&sp](const std::string&, const std::string&, const std::string& m, bool carries) {
+        ++sp.calls; sp.msg = m; sp.carries = carries; return sp.answer;
+    };
 }
 
 sdcard::ProvisionOptions opts_with(Spy* sp, sdcard::UpgradeMode mode = sdcard::UpgradeMode::Default) {

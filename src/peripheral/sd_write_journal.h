@@ -115,6 +115,18 @@ private:
 bool bind(const std::string& image_path, const std::string& file,
           const Binding& binding, bool reset, std::string& why);
 
+/// What a writes file says about itself, read WITHOUT binding, registering or rewriting it (a bind
+/// compacts a file that has superseded records). `is_journal` is false for a file that is not a jnext
+/// writes file (or is unreadable); `sectors` lists the sectors its records write.
+struct FileInfo {
+    bool                  is_journal = false;
+    Binding               binding;
+    std::vector<uint32_t> sectors;
+};
+FileInfo peek_file(const std::string& file);
+/// Whether a journal bound to `journal` belongs to the image identified by `image` (size, then mtime or digest).
+bool binding_matches(const Binding& journal, const Binding& image);
+
 /// The journal bound to `image_path`, or null.
 std::shared_ptr<Journal> for_image(const std::string& image_path);
 

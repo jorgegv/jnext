@@ -213,8 +213,11 @@ enum class UpgradeChoice {
 // user saved on it. Closing or cancelling the offer is Keep. May be empty (a terminal
 // or scripted run): jnext then never asks, keeps the card and logs one line saying
 // how to upgrade (--sdcard-upgrade yes).
+// `files_carry_over` says which offer it is: true = the files on the card will be carried over (the
+// affirmative button reads "Upgrade (keep my files)"), false = they cannot be (no original image to
+// compare with: the affirmative button reads "Fresh start (keep my card as a backup)").
 using UpgradeFn = std::function<UpgradeChoice(const std::string& from, const std::string& to,
-                                              const std::string& message)>;
+                                              const std::string& message, bool files_carry_over)>;
 // --sdcard-upgrade: what to do about a default card of an older distribution.
 //   Default  honour a "do not ask again" for this distribution; else ask (UpgradeFn),
 //            or, with no UpgradeFn, keep and log the one line
@@ -578,6 +581,9 @@ struct ProvisionResult {
     std::string     warning;
     // The report of a successful upgrade that carried files over (empty otherwise).
     std::string     report;
+    // A refusal of what was asked (--sdcard-upgrade yes with files that cannot be carried over): the card
+    // is there and untouched, so the frontends print the reason and nothing about a missing card.
+    bool            refused = false;
 };
 
 // Resolve (and if needed download+patch) the SD image path per the policy

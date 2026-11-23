@@ -295,7 +295,9 @@ static bool bind_card_writes(const char* flag, const char* label, const std::str
     std::string why;
     if (!sd_write_journal::bind(image, file, binding, reset, why)) {
         if (!reset && sdcard::upgrade::file_belongs_to_backup(sdcard::default_sdcard_dir(), file))
-            why += " It holds writes for your previous SD card (kept as a backup): go back to it "
+            why += " It holds writes for your previous SD card (" +
+                   sdcard::distribution_title(sdcard::upgrade::backup_distribution(sdcard::default_sdcard_dir())) +
+                   ", kept as a backup): go back to it "
                    "(--sdcard-go-back), or discard the writes with " + std::string(flag) + "-reset.";
         startup_report::report("%s: %s\n", flag, why.c_str());
         return false;
@@ -2210,6 +2212,13 @@ static int run_main(int argc, char* argv[]) {
             return 4;
         }
         std::string berr;
+        {
+            std::string unote;
+            if (!sdcard::upgrade::recover(sd_dir, unote, berr)) {
+                startup_report::report("error: an interrupted upgrade could not be finished: %s\n", berr.c_str());
+                return 3;
+            }
+        }
         if (!sdcard::backup::recover(sd_dir, berr)) {
             startup_report::report("error: an interrupted go-back could not be finished: %s\n", berr.c_str());
             return 3;
@@ -2273,8 +2282,8 @@ static int run_main(int argc, char* argv[]) {
             opts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
                 return gui_prov.busy(p, w);
             };
-            opts.upgrade  = [&](const std::string& f, const std::string& t, const std::string& m) {
-                return gui_prov.offer_upgrade(f, t, m);
+            opts.upgrade  = [&](const std::string& f, const std::string& t, const std::string& m, bool carries) {
+                return gui_prov.offer_upgrade(f, t, m, carries);
             };
             opts.sleep    = [&](unsigned ms, const std::string& n) { gui_prov.retry_wait(ms, n); };
             opts.show_report = [&](const std::string& rep) { gui_prov.show_report(rep); };
@@ -2295,7 +2304,27 @@ static int run_main(int argc, char* argv[]) {
         }
 #endif
 #endif   // __EMSCRIPTEN__
+        // GH #555 - the default location's card set is guarded by the card's lock from the first moment:
+        // crash recovery, the offer and the upgrade (which moves the card and its overlays) all run under
+        // it, so a card another jnext has open gets no offer and no upgrade, only the lock message.
+        if (sd_card_image.empty()) {
+            sdcard::sd_locks::set_enabled(true);
+            std::string early_why;
+            if (!sdcard::sd_locks::hold(0, sdcard::default_sdcard_image_path(), sdcard_writes_file, early_why)) {
+                Log::emulator()->error("SD card refused: {}", early_why);
+                startup_report::report("error: %s\n", early_why.c_str());
+                return (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
+                        sdcard_import_count > 0)
+                    ? static_cast<int>(sdcard::FileAddStatus::ImageUnusable) : 1;
+            }
+        }
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
+        if (res.status == sdcard::ProvisionStatus::Failed && res.refused) {
+            // a refusal of what was asked, with the card there and untouched: the reason, not "no card"
+            Log::emulator()->error("SD-card image: {}", res.error);
+            startup_report::report("error: %s\n", res.error.c_str());
+            return 1;
+        }
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
             if (!res.warning.empty()) {

@@ -2281,7 +2281,7 @@ void test_upgrade_rows() {
     };
     struct Spy { int calls = 0; std::string from, to, msg; sdcard::UpgradeChoice answer = sdcard::UpgradeChoice::Keep; };
     auto spy_fn = [](Spy& sp) {
-        return sdcard::UpgradeFn([&sp](const std::string& f, const std::string& t, const std::string& m) {
+        return sdcard::UpgradeFn([&sp](const std::string& f, const std::string& t, const std::string& m, bool) {
             ++sp.calls; sp.from = f; sp.to = t; sp.msg = m; return sp.answer; });
     };
 

@@ -51,6 +51,14 @@ void register_overlay(const std::string& dir, const std::string& file);
 /// mtime, or digest)? Used to explain a refusal: the file is for the card you upgraded away from.
 bool file_belongs_to_backup(const std::string& dir, const std::string& file);
 
+/// Why an overlay cannot be carried, "" when every existing one can: it is not a writes file, it was made
+/// for another card, or it rewrites the partition table or the boot sector (a card with such a file is not
+/// the card jnext made). Reads the files' headers only.
+std::string overlay_problem(const std::string& card, const std::vector<std::string>& files);
+
+/// The distribution (zip name) of the card in previous/ (24.11 without a sidecar).
+std::string backup_distribution(const std::string& dir);
+
 /// The free space the whole upgrade needs under `dir`: the zip, the new raw, the new card, the
 /// old card as made, plus the overlays (a bound over-estimate: three images and the zip).
 uint64_t space_needed(const std::string& card, uint64_t zip_bytes, const std::vector<std::string>& overlays);

@@ -30,10 +30,10 @@ void say_kept(const std::string& from, const std::string& to, const std::string&
 }  // namespace
 
 UpgradeChoice sdl_offer_upgrade(const std::string& from, const std::string& to,
-                                const std::string& message) {
+                                const std::string& message, bool files_carry_over) {
     const std::string title = distribution_title(to) + " is available";
     SDL_MessageBoxButtonData buttons[3] = {
-        { 0, kUpgradeButtonReplace, kUpgradeLabelReplace },
+        { 0, kUpgradeButtonReplace, files_carry_over ? kUpgradeLabelReplace : kUpgradeLabelFresh },
         { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
           kUpgradeButtonKeep, kUpgradeLabelKeep },
         { 0, kUpgradeButtonNever, kUpgradeLabelNever },
