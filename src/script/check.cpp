@@ -48,6 +48,9 @@ bool payload_legal(Builtin p, const PayloadScope& s) {
                    p == Builtin::P_SOURCE;
         case EventKind::Host:
             return p == Builtin::P_KEY;
+        case EventKind::AudioWrite:
+            return p == Builtin::P_TARGET || p == Builtin::P_CHIP || p == Builtin::P_REG ||
+                   p == Builtin::P_VALUE || p == Builtin::P_PREV;
         case EventKind::Copper:
             if (p == Builtin::P_CPC || p == Builtin::P_HC_ULA || p == Builtin::P_CVC) return true;
             if (p == Builtin::P_REG || p == Builtin::P_VALUE)
@@ -99,6 +102,7 @@ std::string PayloadScope::describe() const {
         case EventKind::Nmi:          return "an `nmi` event";
         case EventKind::Magic:        return "a magic-breakpoint event";
         case EventKind::Host:         return "a `hostkey` event";
+        case EventKind::AudioWrite:   return "an `ay_write` or `audio_write` event";
         case EventKind::Copper:
             if (!copper) return "a `copper` event";
             return *copper == CopperEventKind::Move ? "a `copper move` event"
@@ -131,6 +135,8 @@ PayloadScope scope_of(const EventSpec& ev) {
         case EventType::Reset:     return PayloadScope(EventKind::Reset);
         case EventType::HostKey:   return PayloadScope(EventKind::Host);
         case EventType::Stop:      return PayloadScope::script_stop();
+        case EventType::AyWrite:
+        case EventType::AudioWrite: return PayloadScope(EventKind::AudioWrite);
         case EventType::Copper:
             return PayloadScope::copper_sub(ev.copper == CopperSub::Move ? CopperEventKind::Move
                                             : ev.copper == CopperSub::Wait ? CopperEventKind::Wait
@@ -294,6 +300,10 @@ struct Binder {
             case ExprKind::Mmu: case ExprKind::Page: case ExprKind::Stack:
                 need_int(*e.a, walk(*e.a), "an index");
                 return ValueType::Int;
+            case ExprKind::Ay:
+                need_int(*e.a, walk(*e.a), "an `ay[]` chip");
+                need_int(*e.b, walk(*e.b), "an `ay[]` register");
+                return ValueType::Int;
             case ExprKind::Phys:
                 need_int(*e.a, walk(*e.a), "a `phys[]` page");
                 need_int(*e.b, walk(*e.b), "a `phys[]` offset");
@@ -426,6 +436,7 @@ struct ScriptChecker {
             bind(ev.page_hi, none);
             bind(ev.mask, none);
             bind(ev.value, none);
+            bind(ev.chip, none);
             bind(ev.at_lo, none);
             bind(ev.at_hi, none);
             const PayloadScope scope = scope_of(ev);

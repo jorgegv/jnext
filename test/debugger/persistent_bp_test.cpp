@@ -86,6 +86,24 @@ void build(Emulator& emu, bool persistent) {
 
 uint16_t pc(Emulator& emu) { return emu.cpu().get_registers().PC; }
 
+// GH #532 -- a Next with TurboSound and the DAC on, parked on an AY R7 write:
+// LD BC,0xFFFD; LD A,7; OUT (C),A; LD B,0xBF; LD A,0x38; OUT (C),A; JR $
+// (the data write is the OUT at 0x800B, so a stop lands on 0x800D, the JR $).
+void build_audio(Emulator& emu, bool persistent) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.persistent_breakpoints = persistent;
+    emu.init(cfg);
+    emu.nextreg().write(0x08, 0x0A);
+    emu.nextreg().write(0x84, 0xFF);
+    const uint8_t prog[] = {0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE};
+    for (size_t i = 0; i < sizeof(prog); ++i)
+        emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
 void run_until_paused(Emulator& emu, int max_frames = 4) {
     for (int i = 0; i < max_frames && !emu.debug_state().paused(); ++i)
         emu.run_frame();
@@ -102,14 +120,23 @@ struct Fixture {
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
 
-    explicit Fixture(bool persistent) {
-        build(emu, persistent);
+    explicit Fixture(bool persistent, bool audio = false) {
+        if (audio) build_audio(emu, persistent);
+        else       build(emu, persistent);
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // create + show window
         // GH #278 WP4c — the user's breakpoint, set as the GUI sets it: a backend
         // subscription of the GUI's observer client, which outlives the window.
-        mgr->breakpoints().add(BreakpointModel::Execute, BP_ADDR);
+        if (audio) {
+            // GH #532 -- an Audio Write breakpoint: AY register 7 of any chip.
+            jnext::script::BpSpec sp;
+            sp.kind = jnext::script::BpSpec::AudioWrite;
+            sp.audio.reg = 7;
+            mgr->breakpoints().add(sp);
+        } else {
+            mgr->breakpoints().add(BreakpointModel::Execute, BP_ADDR);
+        }
         mgr->set_enabled(false);                       // user closes it again
     }
 
@@ -460,6 +487,24 @@ int main(int argc, char** argv) {
         check("PBPUI-14", "a manager destroyed takes the GUI's breakpoint owner with "
               "it: no subscription is left in the surviving backend",
               owned && backend.subscriptions(true).empty() && !backend.armed());
+    }
+
+    // PBPUI-15 -- an AUDIO WRITE breakpoint (GH #532) is persistent like the rest: with the flag and the window
+    // closed, the AY R7 write stops the machine (the tap's sink latches because the machine is armed).
+    {
+        Fixture fx(/*persistent=*/true, /*audio=*/true);
+        run_until_paused(fx.emu);
+        const bool stopped = fx.emu.debug_state().paused() && pc(fx.emu) == 0x800D;
+        check("PBPUI-15", "--persistent-breakpoints, window closed: a GUI Audio Write breakpoint {AY R7} stops on the write",
+              stopped && !fx.window_visible());
+    }
+
+    // PBPUI-16 -- the same without the flag: nothing is armed, the machine runs past it.
+    {
+        Fixture fx(/*persistent=*/false, /*audio=*/true);
+        run_until_paused(fx.emu);
+        check("PBPUI-16", "without the flag the same breakpoint never fires: unarmed, the machine runs past the write",
+              !fx.emu.debug_state().paused() && pc(fx.emu) == 0x800D && !fx.window_visible());
     }
 
     std::printf("\n=====================================\n");

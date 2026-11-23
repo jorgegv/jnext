@@ -2239,6 +2239,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#stopping-on-an-audio-write" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stopping on an audio write
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4664,6 +4675,10 @@ follow the live mutes, so a mute set by a script shows on them.</p>
 <p>A script reads and sets the channel mutes with <code>AUDIO_CHANNEL_MUTE</code>: bit 0 to 8
 are the AY channels (bit <code>3 * chip + channel</code>, channel A = 0), bit 9 to 12 are
 DAC A to D, and a set bit is a muted channel.</p>
+<h2 id="stopping-on-an-audio-write">Stopping on an audio write<a class="headerlink" href="#stopping-on-an-audio-write" title="Permanent link">&para;</a></h2>
+<p>To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an
+<strong>Audio Write</strong> breakpoint in the <a href="08-breakpoints.html#audio-write-breakpoints">Breakpoints panel</a>,
+or write a rule with <a href="../scripting/03-events.html#audio-ay_write-audio_write"><code>on ay_write</code> or <code>on audio_write</code></a>.</p>
 <hr />
 
 

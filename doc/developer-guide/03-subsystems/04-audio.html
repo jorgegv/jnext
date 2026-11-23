@@ -3193,8 +3193,8 @@ frames. <code>Debugger::audio_state()</code> publishes them as <code>AudioState:
 <p><strong>The write tap.</strong> Every decoded audio write can also be logged, for the debugger's Log
 tab and <code>--audio-log</code>. <code>Emulator</code> holds one <code>AudioTapSink*</code> (<code>src/debug/audio_tap.h</code>,
 the core-to-backend seam, implemented by the debugger backend) and one bool,
-<code>audio_tap_active_</code>; the backend switches it on while any client asks for the log
-(<code>Emulator::set_audio_tap()</code>). The sites are the three AY handlers (0xFFFD, 0xBFFD and
+<code>audio_tap_active_</code>; the backend switches it on while any client asks for the log or a live <code>AudioWrite</code>
+subscription exists (<code>Emulator::set_audio_tap()</code>, called by <code>publish_audio_tap()</code>). The sites are the three AY handlers (0xFFFD, 0xBFFD and
 0xBFF5), the 14 DAC channel writes in the 11 DAC handlers (<code>Emulator::dac_write_()</code>
 wraps each), the three NextREG 0x2C-0x2E mirror handlers, the 0xFE handler and
 <code>note_audio_drop_()</code>, so the counter and the log come from one call. Each site tests
@@ -3202,6 +3202,7 @@ the one bool and nothing else, and there is no test on the per-instruction path.
 Rule R1: the tap observes and never writes. A handler reads what the entry needs
 (the chip, the address, the previous byte) before its write and records after it,
 so the hot path's own writes stay where they are, and the log cannot drift from them.
+The sink has two consumers, the log ring and the <code>AudioWrite</code> event latch (<code>09-2</code>), and the core knows of neither.
 The cold bodies are in <code>src/core/emulator_audio_tap.cpp</code>, marked cold and out of line,
 so adding one cannot move inlining in <code>emulator.cpp</code>. They return at once while a rewind
 replays frames (<code>replay_mode_</code>). A plain register select is not logged; an applied

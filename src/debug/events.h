@@ -133,6 +133,16 @@ enum class EventKind : uint8_t {
     /// `NextRegWrite` and `Copper`. (B2 grouped it with those two; measured
     /// wrong.) A slot is DMA *or* CPU, never both.
     Dma,
+    /// An audio write the tap decoded (GH #532): an AY register or chip-select
+    /// write, a DAC write or NextREG mirror, a beeper write, applied or dropped;
+    /// see `AudioTarget` and `AudioLogEntry` for the per-target payload. Latched
+    /// by the backend's tap sink (the tap is on while a live subscription of this
+    /// kind exists) and filtered by `EventTable::audio_would_match`. Delivered at
+    /// the raising instruction's boundary for a CPU port write or a DMA write;
+    /// **<=1 instruction late** for a CPU NR 0x2C-0x2E write (it commits after the
+    /// drain, as `NextRegWrite` does) and for a Copper MOVE. `pc` names the
+    /// writer. Never raised by a debugger write (4.2a) and never in rewind replay.
+    AudioWrite,
 
     /// NOT A KIND — the count, and it must stay last.
     ///
@@ -256,6 +266,12 @@ struct AudioDropCounter {
 ///                                                            before
 /// A dropped DAC or mirror write reached no channel: `chip` is 0xFF.
 enum class AudioTarget : uint8_t { AyRegister = 0, AyChipSelect, Dac, DacMirror, Beeper, Count };
+/// A set of `AudioTarget`s, one bit per target (GH #532).
+using AudioTargetMask = uint8_t;
+constexpr AudioTargetMask audio_target_bit(AudioTarget t) {
+    return AudioTargetMask(1u << uint8_t(t));
+}
+constexpr AudioTargetMask AUDIO_TARGETS_ANY = 0xFF;
 namespace AudioFlag {
     /// An APPLIED write to AY R13, whether or not the value changed
     /// (ym2149.vhd:188,207-210).
@@ -411,6 +427,16 @@ struct Event {
     /// which is the same write seen from the Copper side.
     uint8_t reg = 0;
 
+    // ── AudioWrite (GH #532) ─────────────────────────────────────────────
+    // `port`, `value`, `prev`, `reg` and `source` carry the `AudioTarget` table's
+    // meanings (above `AudioTarget`).
+
+    AudioTarget     audio_target = AudioTarget::AyRegister;
+    /// AY chip 0-2 | DAC channel 0-3 | 0xFF: a dropped DAC/mirror write.
+    uint8_t         chip = 0;
+    uint8_t         audio_flags = 0;   ///< `AudioFlag` bits
+    AudioDropReason drop_reason = AudioDropReason::None;
+
     // ── Reset / IntAck / Nmi ─────────────────────────────────────────────
 
     /// `Reset`: which kind.
@@ -539,6 +565,15 @@ struct EventFilter {
     /// `NextRegWrite`, and `Copper` as its NR-set filter: the register numbers
     /// to match. Empty = every register.
     RegSet regs;
+
+    /// `AudioWrite` (GH #532): `regs` matches only an `AyRegister` or `DacMirror`
+    /// entry (the two targets that carry a register); `source` is reused.
+    AudioTargetMask audio_targets = AUDIO_TARGETS_ANY;
+    uint8_t         chip = 0xFF;            ///< 0xFF = any
+    uint8_t         value_mask = 0x00;      ///< (value & value_mask) == value_match; 0/0 = any
+    uint8_t         value_match = 0x00;
+    uint8_t         audio_flags_all = 0;    ///< every listed `AudioFlag` bit must be SET
+    uint8_t         audio_flags_none = 0;   ///< every listed `AudioFlag` bit must be CLEAR
 
     /// `Mem`, `Port`, `NextRegWrite`: restrict to one originator. `Any` = no
     /// restriction.

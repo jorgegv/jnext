@@ -71,6 +71,8 @@ private:
         std::optional<uint16_t> hi;
         std::optional<uint16_t> mask;
         QString condition;
+        /// GH #532 - Audio Write only: in: the row being edited; out: the dialog's fields.
+        jnext::script::BpAudio audio;
     };
     static jnext::script::BpSpec spec_of(int type_index, const BpTarget& t);
     /// `addr` / `space` seed the text; `target.count_only` seeds the checkbox.
@@ -95,7 +97,7 @@ private:
     bool updating_ = false;
 
     // The rows as last listed (BreakpointModel::Row: type is the Add dialog's
-    // index 0..7: Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt, NMI or -1
+    // index 0..8: Execute, Read, Write, Read/Write, IO Read, IO Write, Interrupt, NMI, Audio Write or -1
     // for a subscription it cannot express; `enabled` is the row's own flag,
     // not the master; `own` marks this GUI's editable rows).
     std::vector<BreakpointModel::Row> entries_;

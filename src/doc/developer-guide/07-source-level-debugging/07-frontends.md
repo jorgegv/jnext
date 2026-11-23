@@ -403,20 +403,20 @@ read through it) and ZRCP `cpu-step-over`
 
 ## GDB, ZRCP, DZRP, scripts
 
-**GDB RSP** (`src/remote/gdb/rsp_server.cpp`). `monitor src [ADDR]` (`monitor_src()`, `:1063`) prints
+**GDB RSP** (`src/remote/gdb/rsp_server.cpp`). `monitor src [ADDR]` (`monitor_src()`, `:1064`) prints
 `$8CB8 main.c:19 P04` or `$8CB8 unmapped P28`: `source_location()` and the tag of
-`source_page(addr)`. `monitor sym` (`monitor_sym()`, `rsp_server.cpp:1026`) prints the tag of the memory the lookup
-used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `rsp_server.cpp:923`) prints each slot's `now` tag and,
+`source_page(addr)`. `monitor sym` (`monitor_sym()`, `rsp_server.cpp:1027`) prints the tag of the memory the lookup
+used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `rsp_server.cpp:924`) prints each slot's `now` tag and,
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
 The C variables are three more verbs over the facade of [7.10](10-c-frames-and-values.md), read-only; the write
-is a fourth, `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1215`), over `write_c_value()`: `OK` and the value read back, or
+is a fourth, `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1216`), over `write_c_value()`: `OK` and the value read back, or
 `refused: <why>` and `E01`.
-`monitor_locals()` (`rsp_server.cpp:1107`) prints the header of frame N (`frame 0: main at main.c:21, fp $FF51 (prologue)`, from
+`monitor_locals()` (`rsp_server.cpp:1108`) prints the header of frame N (`frame 0: main at main.c:21, fp $FF51 (prologue)`, from
 `c_frames()`), then one `(type) name = value` line per `c_locals()` row, and a `[note]` line under a row that has notes.
-`monitor_globals()` (`rsp_server.cpp:1156`) prints one line per `c_globals()` row named by its `name_path` (the typed path, never an internal handle), so a name pastes into
-`print`, and marks `(ambiguous path)` the entries whose path names more than one static (`print` refuses those), with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1179`) takes the raw rest of
+`monitor_globals()` (`rsp_server.cpp:1157`) prints one line per `c_globals()` row named by its `name_path` (the typed path, never an internal handle), so a name pastes into
+`print`, and marks `(ambiguous path)` the entries whose path names more than one static (`print` refuses those), with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1180`) takes the raw rest of
 the line, not the split words, because a C path may hold spaces (`p -> y`); a leading decimal word is the frame (a C path cannot
 start with a digit). A refusal (no C variables, an unknown name, no such frame) is text and `OK`, as `monitor src` does; a
 wrong argument is `E01`. They exist for any RSP client and for what `z88dk-gdb` gets wrong on its own: it resolves a file
@@ -458,7 +458,7 @@ subscribes one `Execute` per start, each with the `space` its place was compiled
 with `MapFormat::Z88dkOrSjasmplus` (`script_host.cpp:187`, [7.3](03-loaders.md)). Held scripts and the
 rest of the language are in [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md).
 
-`cvar(PATH)` is the one atom that reads a C variable: `eval_int()` (`evaluator.cpp:276`) calls
+`cvar(PATH)` is the one atom that reads a C variable: `eval_int()` (`evaluator.cpp:278`) calls
 `read_c_value(0, path)` (frame 0, where the CPU is) and `c_int32_scalar()` ([7.10](10-c-frames-and-values.md)) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
 attach, and every refusal is an `EvalError`, never a 0.
