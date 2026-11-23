@@ -1985,6 +1985,8 @@ static void test_stream_view(Emulator& emu) {
         check("DAP-80", "the CTC-paced player with the OUT skipped when its tick wraps (DSS-14): the CPU row's Gaps cell equals dac_stream_stats(...).writers[0].gaps and is at least 1; audio_stream_window names the 1.5 x factor",
               ok && window && window->text().contains("1.5 x the median"),
               fmt("gaps_cell=%s", tree_cell(stream, 0, 8).toStdString().c_str()));
+    }
+}
 
 // ── DAP-TRK: the Tracker sub-tab (GH #534) ─────────────────────────────
 //
