@@ -266,9 +266,9 @@ inline void TurboSound::compute_stereo_mix()
     // host listening aid with no hardware analogue and must not reach the
     // saved state (audio/audio_mute.h).
 
-    // Debugger channel mutes in force, or the stems' per-chip latch on (mix_divert_): the same mix, out of line (cold). Every normal run
+    // Debugger channel mutes in force, or the stems' per-chip latch on (LATCH_BIT of the same mask): the same mix, out of line (cold). Every normal run
     // takes the loop below, which is the pre-mute code.
-    if (__builtin_expect(mix_divert_ != 0, 0)) {
+    if (__builtin_expect(channel_mute_mask_ != 0, 0)) {
         compute_stereo_mix_channels_();
         return;
     }

@@ -125,11 +125,10 @@ public:
     /// never the hardware one, and is not touched by reset() / save_state() /
     /// load_state() (audio/audio_mute.h).
     void set_channel_mute_mask(uint16_t m) {
-        channel_mute_mask_ = m & AudioChannelMute::AY_ALL;
-        refresh_mix_divert_();
+        channel_mute_mask_ = static_cast<uint16_t>((m & AudioChannelMute::AY_ALL) | (channel_mute_mask_ & LATCH_BIT));
         mix_dirty_ = true;
     }
-    uint16_t channel_mute_mask() const { return channel_mute_mask_; }
+    uint16_t channel_mute_mask() const { return channel_mute_mask_ & AudioChannelMute::AY_ALL; }
 
     /// Debugger stems (GH #539): while on, every mix recompute also latches each chip's HARDWARE
     /// post-pan value (the psgN_L/R_pan registers, turbosound.vhd:323-330), on the cold path. Not
@@ -137,7 +136,7 @@ public:
     void set_hw_chip_latch(bool on) {
         hw_chip_latch_ = on;
         hw_chip_valid_ = false;
-        refresh_mix_divert_();
+        channel_mute_mask_ = static_cast<uint16_t>(on ? (channel_mute_mask_ | LATCH_BIT) : (channel_mute_mask_ & ~LATCH_BIT));
     }
     bool hw_chip_latch() const { return hw_chip_latch_; }
     /// One chip's hardware post-pan contribution to hw_pcm_left()/hw_pcm_right(): the latched value,
@@ -225,10 +224,10 @@ private:
     std::array<uint16_t, 3> hw_chip_R_{};
     bool hw_chip_valid_ = true;
     bool hw_chip_latch_ = false;
-    // Non-zero when the cold recompute is wanted: bit 0 a channel mute is set, bit 1 the latch is on.
-    // compute_stereo_mix() tests this one byte where it tested channel_mute_mask_ != 0 (no new hot test).
-    uint8_t mix_divert_ = 0;
-    void refresh_mix_divert_() { mix_divert_ = static_cast<uint8_t>((channel_mute_mask_ != 0 ? 1 : 0) | (hw_chip_latch_ ? 2 : 0)); }
+    // The cold recompute is wanted when a channel mute is set OR the latch is on. The latch is bit 15 of
+    // channel_mute_mask_ (the mute bits are 0-8), so the hot test in compute_stereo_mix() stays the single
+    // `channel_mute_mask_ != 0` it always was: a separate byte tested there measured +0.1 to +0.3 % instructions.
+    static constexpr uint16_t LATCH_BIT = 0x8000;
 
     int active_ay_index() const;
     // always_inline: the hardware call passes silenced == 0, which folds away, so the hot path is the

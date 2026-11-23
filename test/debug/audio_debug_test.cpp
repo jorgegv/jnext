@@ -5105,7 +5105,7 @@ int main() {
         // STM-09: the latch never changes what is heard. A standalone TurboSound driven through a fixed sequence of register, pan and volume
         // writes with a tick and an 11-cycle slice between them, per channel mute (none, and AY0 channel A) x latch (off, on): the audible pair,
         // the hardware pair and each chip's audible pair after every write, and the mixer's output, are identical with the latch on and off.
-        // That covers both TurboSound paths (the hot loop and the cold one) and both bits of mix_divert_.
+        // That covers both TurboSound paths (the hot loop and the cold one) and the latch bit sharing the mute mask's divert test.
         struct Obs { std::vector<uint16_t> v; Out out; };
         auto drive = [](bool latch, uint16_t mute, Obs& o) {
             MixRig m;

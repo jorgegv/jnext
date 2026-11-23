@@ -382,8 +382,9 @@ is r_M - (r_1 + ... + r_6), an integer in (-3.5, 3.5): at most 3 counts. It is z
 disagrees with the latched sum between a pan, select, mono, ACB or enable write and the next PSG tick (up to 16 master
 cycles; at 28 MHz an `OUT` is shorter than that). So `set_hw_chip_latch(true)` makes the cold
 recompute (`compute_stereo_mix_channels_()`) store each chip's hardware pair beside the sum. The test that
-sends the recompute out of line is the one byte `mix_divert_` (bit 0 a channel mute, bit 1 the latch), which
-replaced the `channel_mute_mask_ != 0` test of the same position: no instruction was added to the hot loop.
+sends the recompute out of line is the existing `channel_mute_mask_ != 0`: the latch is bit 15 of that mask
+(the mute bits are 0-8; `channel_mute_mask()` masks it off), so the hot loop is unchanged. A separate `mix_divert_`
+byte in that test was tried first and measured +0.1 to +0.3 % retired instructions on every workload.
 Before the first latched recompute (just after the latch is switched on, or after a state load) `hw_chip_pcm()`
 computes the pair from the current inputs, which is exact unless an input change is pending, and that can
 only be for one PSG tick. The latch is not machine state: not serialised, and `reset()` only re-validates it.
