@@ -122,6 +122,7 @@ enum class OptId {
     MagicPortMode,
     Record,
     WavRecord,
+    WavRecordStems,
     DacTrace,
     AudioLog,
     AudioGainDb,
@@ -696,6 +697,10 @@ inline constexpr Option OPTIONS[] = {
       "FILE",
       "Record mixed stereo audio to a 44.1 kHz PCM WAV;\n"
       "works headless and does not require ffmpeg" },
+    { "--wav-record-stems", 1, Doc::Documented, OptId::WavRecordStems,
+      "DIR",
+      "Record per-source WAV stems in DIR (ay0-2, dac, beeper, pi, mix),\n"
+      "before host gain and mutes; they sum to mix.wav" },
     { "--dac-trace", 1, Doc::Documented, OptId::DacTrace,
       "FILE",
       "Record timestamped physical DAC writes to CSV" },

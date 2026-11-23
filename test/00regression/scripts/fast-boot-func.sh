@@ -173,6 +173,7 @@ if want fast-boot-func; then
         fb_case pok     "$fb_sdl" "$fb_sched" --delayed-pok-frames 100000 "$fb_dir/t.pok" --pok-trainers 1
         fb_case record  "$JNEXT" "$fb_rec"   --record "$fb_dir/f.mp4"
         fb_case wavrec  "$JNEXT" "$fb_rec"   --wav-record "$fb_dir/f.wav"
+        fb_case stems   "$JNEXT" "$fb_rec"   --wav-record-stems "$fb_dir/stems"
         fb_case rzxrec  "$JNEXT" "$fb_rec"   --rzx-record "$fb_dir/f.rzx"
         fb_case dac     "$JNEXT" "$fb_rec"   --dac-trace "$fb_dir/f.csv"
         fb_case recscr  "$JNEXT" "$fb_rec"   --record-script "$fb_dir/f.jds"
