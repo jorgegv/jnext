@@ -1727,6 +1727,34 @@ static void psg_rows() {
               at_reset == f0 + 100 && a == psg_h({0xFF, 0x08, 0x01, 0xFE, 0x19, 0xFF, 0x08, 0x02, 0xFF}));
     }
 
+    {
+        // As PSG-36 with a state load instead of a hard reset: the load of bytes saved before the recording.
+        // R8 = 1 in f0, 100 silent frames, the load, R8 = 2: the StateLoad rebase is seen + 1 - M with seen raised
+        // to the frame current at the load, so 101 frames separate the blocks: FE 19 FF.
+        Emulator emu; fresh(emu); park(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("psg37")).value;
+        emu.run_frame();
+        const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        const std::string p = psg_tmp("v37");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        const uint32_t f0 = dbg.time().frame;
+        ay_write(emu, 8, 1);
+        for (int i = 0; i < 100; ++i) emu.run_frame();
+        const uint32_t at_load = dbg.time().frame;
+        const Result ld = dbg.load_state_bytes(cid, saved.value.data(), saved.value.size());
+        ay_write(emu, 8, 2);
+        dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Bytes a = psg_read(p);
+        psg_rm(p);
+        if (a != psg_h({0xFF, 0x08, 0x01, 0xFE, 0x19, 0xFF, 0x08, 0x02, 0xFF})) {
+            std::printf("    PSG-37 got:"); for (uint8_t c : a) std::printf(" %02X", c); std::printf("\n");
+        }
+        check("PSG-37", "R8=1, 100 silent frames, a Debugger::load_state_bytes of an earlier state, R8=2: the load keeps the elapsed time, 101 frames between the blocks: H FF 08 01 FE 19 FF 08 02 FF",
+              saved.status == Result::Ok && ld == Result::Ok && at_load == f0 + 100 &&
+              a == psg_h({0xFF, 0x08, 0x01, 0xFE, 0x19, 0xFF, 0x08, 0x02, 0xFF}));
+    }
+
     // ── PSF: against the Fuse recording ─────────────────────────────────
     const Bytes fuse = psg_fixture_file("psg_fixture.fuse.psg");
     {

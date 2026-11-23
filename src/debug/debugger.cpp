@@ -546,6 +546,8 @@ Result Debugger::load_state_bytes(ClientId by, const uint8_t* data, size_t n) {
         impl_->emu.rzx_player().is_playing())
         return Result::RefusedRzx;
 
+    // GH #538: a .psg recording keeps the silent frames that played before the load.
+    if (impl_->psg) impl_->psg->note_time(frame_tag(impl_->emu));
     StateReader r(data, n);
     const bool ok_load = impl_->emu.load_state(r);
     impl_->log_mutate_range(by, "state", ok_load ? "loaded" : "load FAILED (machine corrupt)");

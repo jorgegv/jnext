@@ -1056,6 +1056,7 @@ The frame mapping (epic decision D3) is PSG-20 to PSG-24, 28 to 30.
 | PSG-34 | A Debugger destroyed mid-recording: AY#0 R0 and AY#1 R8 in f0, a DAC write 3 frames later | Both files finish up to the last frame seen: FILE `H FF 00 10 FE 01`, FILE-ay1 `H FF 08 0A FE 01` |
 | PSG-35 | `FILE-ay1` exists as a directory; AY#1 blocks follow, the directory is removed after the first | `psg_record_stop` RefusedUnavailable; FILE complete (`H FF 00 10 FF FF FF`); AY#1 opened once, the file is never created |
 | PSG-36 | R8 = 1, 100 silent frames, a hard reset, R8 = 2 | Elapsed time kept: `H FF 08 01 FE 19 FF 08 02 FF` |
+| PSG-37 | R8 = 1, 100 silent frames, `load_state_bytes` of an earlier state, R8 = 2 | Elapsed time kept: `H FF 08 01 FE 19 FF 08 02 FF` |
 
 The Fuse rows run the program of `psg_fixture.asm` (a gate on a key, a sentinel frame writing R7 = 0x3F, 8 empty frames,
 300 frames of descending-order register sets with gaps of 1, 3, 4, 5, 9 and 1100 frames, an R14-only frame and an
