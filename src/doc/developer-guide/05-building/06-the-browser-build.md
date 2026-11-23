@@ -274,6 +274,9 @@ made again at each call; the `r + '/'` boundary keeps `/sdcard.dat` ordinary. Bo
 /sdcard/image.img` makes the card a file "jnext wrote", which the allow-list alone would return; a deny-list alone would
 return the output of every future writer that keeps firmware-derived state. A new writer left off the list is
 then a missing file, which its option's row finds, and never a leak (BOUT-17).
+The guard keeps the card image and the player's own files in. It does not filter what an export the page asked for
+contains: a `--export-skoolkit` of ROM space writes the ROM the machine ran, exactly as on the desktop (owner decision), and
+BOUT-08 compares it with the native run.
 
 *`finish_outputs`.* No destructor runs in a page: the app is released at the end of `main()` and the module
 links with `-sEXIT_RUNTIME=0`, and `emscripten_force_exit` does not flush stdio. `Emulator::~Emulator` used to

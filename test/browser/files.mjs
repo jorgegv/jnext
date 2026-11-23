@@ -6,9 +6,11 @@
 // (WAV, TZX, ZIP, PNG read by foreign readers), and the contract of src/doc/user-guide/08-web-page/
 // 02-options-and-the-player.md. The page's players get the card from a real http server on
 // 127.0.0.1 and the card is copyrighted: it lives in the scratch directory and the page only;
-// tracing, video and HAR are never enabled. Nothing a row reads from the page is a card byte: the
-// guard rows prove readFile() refuses the card, and read it only through the test seam
-// (player._module.FS) to compare its SIZE.
+// tracing, video and HAR are never enabled. The card image itself is never read by a row: the
+// guard rows prove readFile() refuses it, and read it only through the test seam
+// (player._module.FS) to compare its SIZE. What an export a mount asks for contains is that mount's
+// choice, as on the desktop: BOUT-08 compares a SkoolKit export of a 48K run, ROM space included,
+// with the native one.
 import { Harness, waitFor, sleep } from './harness.mjs';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
