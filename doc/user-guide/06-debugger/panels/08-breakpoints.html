@@ -4558,11 +4558,11 @@ is a different thing.</p>
   change the value.</li>
 <li><strong>Value</strong> and <strong>Value mask</strong> (hex, two digits): stop only on a written byte whose bits under the
   mask equal the value. A mask needs a value, and the value cannot have bits outside the mask.</li>
-<li><strong>Dropped writes only</strong>: stop on the writes the machine discarded instead of the applied ones.
+<li><strong>Dropped writes only</strong> (with the DAC target the channel is forced to <em>Any</em>: a discarded DAC write reached no channel): stop on the writes the machine discarded instead of the applied ones.
   Unticked (the default), a write the machine discarded (the AY ports switched off, the chip held in
   reset, a DAC that is off) does not stop, because it never reached the chip.</li>
 </ul>
-<p>The row reads, for example, <code>AY1 R13 restart</code>, <code>AY R7 value 0x38</code>, <code>AY select 2</code>, <code>DAC B dropped</code> or
+<p>The row reads, for example, <code>AY1 R13 restart</code>, <code>AY R7 value 0x38</code>, <code>AY select 2</code>, <code>DAC dropped</code> or
 <code>Any audio</code>. The machine stops after the instruction that wrote, except for a write through the NextREG
 mirror by the CPU and a Copper write, which stop one instruction later. A breakpoint made by a script
 (<code>on ay_write reg 8..10</code>) that the dialog cannot express is listed read-only.</p>

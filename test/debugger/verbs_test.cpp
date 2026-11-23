@@ -6307,6 +6307,22 @@ static void test_bp_audio() {
                   fmt("disabled=%d any=%d reenabled=%d n=%zu", disabled, any, reenabled, f.size()));
         }
     }
+    {   // QBA-17
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "the model makes a DAC + Dropped breakpoint given a channel with chip 0xFF (the backend would refuse a channel there): one own subscription";
+        if (!g.fx.ok) { check("QBA-17", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            BpSpec sp;
+            sp.kind = BpSpec::AudioWrite;
+            sp.audio.target = BpAudio::Dac;
+            sp.audio.chip = 1;
+            sp.audio.dropped_only = true;
+            g.model().add(sp);
+            const auto f = own_audio_filters(g.fx, g.model());
+            check("QBA-17", desc, f.size() == 1 && f[0].chip == 0xFF && f[0].audio_flags_all == AudioFlag::Dropped);
+        }
+    }
     {   // QBA-13
         BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
         const char* desc = "Edit seeds the dialog from the row (type 8, target, chip, register, value, mask, dropped) and an unchanged OK keeps the same breakpoint";

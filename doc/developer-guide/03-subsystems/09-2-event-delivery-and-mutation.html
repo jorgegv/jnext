@@ -3293,7 +3293,7 @@ start cycle. Two <code>Mem{Write}</code>s from one <code>LD (nn),HL</code> are i
 <code>cycle</code>. <code>Scanline</code> is exact, because the site hands the latch the line's own
 boundary cycle. Its <code>cvc</code> comes from the line number rather than from a cycle,
 because <code>cvc</code> steps at raw <code>hc == hc_ula_zero_raw_hc()</code> and not at raw <code>hc</code> 0.</p>
-<p><strong><code>AudioWrite</code> (GH #532) is latched in the backend, not the core.</strong> The audio write tap
+<p><strong><code>AudioWrite</code> is latched in the backend, not the core.</strong> The audio write tap
 (<code>04-audio.md</code>) already hands every decoded write to <code>AudioLogSink::audio_record()</code>; its first
 statement latches an <code>AudioWrite</code> entry when a live subscription accepts the write
 (<code>Impl::latch_audio_write()</code>), BEFORE the log's own ring test, so the event does not depend on the
