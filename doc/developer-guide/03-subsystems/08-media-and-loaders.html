@@ -4535,11 +4535,15 @@ it, and <code>QtApp</code> calls <code>set_emulator()</code> after every machine
 Power Reset, a guest NR 0x02 reset and a machine-type change.</p>
 <p><strong>File &gt; Load.</strong> <code>handle_load_path()</code> sends a <code>.pok</code> to <code>open_pok_file()</code> before
 any cold boot. The same function now also refuses, before the cold boot, a file
-that would route to the NEX loader (a <code>.nex</code>, or an extension nothing owns) but
-has no <code>Next</code> prologue (<code>NexLoader::probe_version()</code>), which <code>NexLoader::load()</code>
-would refuse anyway: before, the session was reset and then the load failed. The
-reason follows the case: a <code>.nex</code> is "not a NEX file" and nothing more, and only
-an extension nothing owns is told the list of formats and where a <code>.pok</code> goes.</p>
+that would route to the NEX loader (a <code>.nex</code>, or an extension nothing owns) and
+that <code>NexLoader::load()</code> would refuse anyway (<code>NexLoader::preboot_check()</code>): before,
+the session was reset and then the load failed. That is a file without a complete
+512-byte header, or one whose version is above what the loader takes (V1.3). The
+first four bytes are not checked for a <code>.nex</code>, because the NEXLOAD that NextZXOS
+ships never reads them; a file with an extension nothing owns must still start
+with <code>Next</code>, since nothing on the Next would run NEXLOAD on it. The reason follows
+the case: a <code>.nex</code> is "not a NEX file" (or names its too-new version), and only an
+extension nothing owns is told the list of formats and where a <code>.pok</code> goes.</p>
 <p>The suites: <code>pok_trainers_test</code> (POK-01..25 and POK-60 the parser, the list and
 <code>load_pok_file</code>, POK-30..57 and POK-61..64 the session and the command-line
 request, each bank-to-page row citing <code>zxnext.vhd</code> or the other emulators'
