@@ -12,8 +12,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # logs a debug line instead (the SD download failure's existing precedent), which is what this
 # row reads: "dialog not shown on the offscreen platform: jnext could not start: <the reason>".
 #
-#   qt, sdl  an unknown option and an SD image that cannot be opened: exit 1, the box line carries
-#            the first line jnext printed on stderr (the usage error) or the logged refusal.
+#   qt, sdl  an unknown option and a refused option combination (--sdcard-upgrade with --sdcard): exit 1,
+#            the box line carries the first line jnext printed on stderr. The SDL build with no card
+#            and no answer to the download question fails the same way (the reason, "download declined").
 #   none     --headless, an unattended run (--delayed-automatic-exit) and a terminal command
 #            (--sdcard-file-add) show no box: a script never blocks on one.
 # Oracle: the issue (errors in a dialog, "warnings only when about to exit") and its plan.
@@ -50,7 +51,7 @@ if want startup-error-dialog-func; then
     se_box_has() {
         local line
         line=$(grep -F -- "$se_box" "$se_dir/$1.log.lf" | head -n 1 || true)
-        [[ -n "$line" ]] || { se_fails+=("$1: no box line in the log"); return 0; }
+        [[ -n "$line" ]] || { se_fails+=("$1: no box line in the log; stderr: $(head -c 200 "$se_dir/$1.out.lf" | tr '\n' ' ') | log: $(tail -n 3 "$se_dir/$1.log.lf" | cut -c1-200 | tr '\n' ' ')"); return 0; }
         [[ "$line" == *"$2"* ]] || se_fails+=("$1: the box line does not carry '$2': $line")
     }
     se_no_box() {
@@ -74,11 +75,20 @@ if want startup-error-dialog-func; then
         [[ "$rc" == 1 ]] || se_fails+=("$fe_name-opt: exit $rc, want 1")
         se_stderr_has "$fe_name-opt" "Unknown option"
         se_box_has "$fe_name-opt" "Unknown option"
-        # an SD image that cannot be opened (the reason reaches the box through the logger tap or stderr)
-        rc=$(se_run "$fe_name-sd" "$fe_env" SDL_AUDIODRIVER=dummy -- "$fe_bin" --sdcard "$se_dir/no-such-card.img")
-        [[ "$rc" != 0 ]] || se_fails+=("$fe_name-sd: exit 0, want a failure")
-        se_box_has "$fe_name-sd" "no-such-card.img"
+        # a refused option combination (past the parse loop: a validation, not a usage error)
+        printf junk > "$se_dir/junk.img"
+        rc=$(se_run "$fe_name-sd" "$fe_env" SDL_AUDIODRIVER=dummy -- "$fe_bin" --sdcard-upgrade yes --sdcard "$se_dir/junk.img")
+        [[ "$rc" == 1 ]] || se_fails+=("$fe_name-sd: exit $rc, want 1")
+        se_box_has "$fe_name-sd" "--sdcard-upgrade cannot be used with --sdcard"
     done
+
+    # the SDL build with no card at all and a question nobody answers (stdin closed): a failure the
+    # logger/stderr carry, not a parse error
+    if [[ -x "${JNEXT_SDL:-}" ]]; then
+        rc=$(se_run sdl-nocard SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy -- "$JNEXT_SDL")
+        [[ "$rc" == 1 ]] || se_fails+=("sdl-nocard: exit $rc, want 1")
+        se_box_has sdl-nocard "download declined"
+    fi
 
     # headless, unattended, terminal command: no box, for the same errors
     rc=$(se_run headless "QT_QPA_PLATFORM=offscreen" SDL_AUDIODRIVER=dummy -- "$JNEXT" --headless --bogus-option)
@@ -92,7 +102,7 @@ if want startup-error-dialog-func; then
     se_no_box fileadd
 
     if [[ ${#se_fails[@]} -eq 0 ]]; then
-        pass_row " (an unknown option and an unopenable SD image raise the start-up box with the reason on Qt and SDL; headless, unattended and --sdcard-file-add raise none; stderr keeps the message)"
+        pass_row " (an unknown option and a refused option combination raise the start-up box with the reason on Qt and SDL; headless, unattended and --sdcard-file-add raise none; stderr keeps the message)"
     else
         fail_row " (${#se_fails[@]} fault(s) in the start-up error box)"
         printf '      %s\n' "${se_fails[@]}"

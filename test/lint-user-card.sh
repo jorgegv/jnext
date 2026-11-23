@@ -18,7 +18,8 @@
 #   - test/lint-hardcoded-paths.sh: a case of ITS table, a string it classifies and never opens;
 #   - test/harness-selftest.sh: only the lines rooted at its scratch fixtures ($TSD, $PG2, $MC2: the sentinel homes of
 #     HS-195/196, and $ULC_FIX, the dirty fixture of HS-198b) and its comments;
-#   - test/00regression/scripts/sdcard-user-card-func.sh: only the lines rooted at its scratch home ($H/);
+#   - test/00regression/scripts/sdcard-user-card-func.sh and sdcard-no-default-card-func.sh: only the lines rooted at
+#     their scratch home ($H/);
 #   - test/sdcard_provisioner/sdcard_provisioner_test.cpp lines that build the path under g_tmpdir:
 #     the suite exercises the provisioner's default-path rule inside a throw-away HOME.
 #
@@ -44,7 +45,7 @@ is_excepted() {
     case "$1" in
         test/lint-user-card.sh|test/lint-hardcoded-paths.sh) return 0 ;;
         test/harness-selftest.sh) grep -qE '\$TSD|\$ULC_FIX|\$PG2|\$MC2|^[[:space:]]*#' <<<"$2" && return 0 ;;
-        test/00regression/scripts/sdcard-user-card-func.sh) grep -qE '\$H/' <<<"$2" && return 0 ;;
+        test/00regression/scripts/sdcard-user-card-func.sh|test/00regression/scripts/sdcard-no-default-card-func.sh) grep -qE '\$H/' <<<"$2" && return 0 ;;
         test/sdcard_provisioner/sdcard_provisioner_test.cpp) grep -qE "$TMPDIR_LINE" <<<"$2" && return 0 ;;
     esac
     return 1

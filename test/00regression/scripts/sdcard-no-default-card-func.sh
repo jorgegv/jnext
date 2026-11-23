@@ -42,7 +42,9 @@ if want sdcard-no-default-card-func; then
             local line
             line=$(grep -E 'Total: +[0-9]+ +Passed: +[0-9]+ +Failed: +[0-9]+' "$W/$label.log" | tail -n 1 || true)
             if [[ $rc -ne 0 || ! "$line" =~ Failed:\ +0([^0-9]|$) || "$line" =~ Total:\ +0\  ]]; then
-                faults+=("$label: exit $rc, '${line:-no Total line}' (the suite fell back to a card that is not there?)")
+                local why
+                why=$({ grep -h 'FAIL' "$W/$label.log" || true; } | head -n 3 | cut -c1-300 | tr '\n' ' ')
+                faults+=("$label: exit $rc, '${line:-no Total line}': $why")
             fi
         }
         # A: a hand run, with a sentinel user card present
@@ -57,10 +59,11 @@ if want sdcard-no-default-card-func; then
         [[ ! -e "$UC" ]] || faults+=("C: a user card appeared at $UC")
     fi
     # the cli-check recipe keeps its entry point
-    if ! sed -n '/^cli-check:/,/^[a-z][a-z-]*:/p' "$PROJECT_DIR/Makefile" | grep -qF 'run-unit-tests.sh --only cli_options_test,cli_options_native_test'; then
+    recipe=$(sed -n '/^cli-check:/,/^[a-z][a-z-]*:/p' "$PROJECT_DIR/Makefile")
+    if ! grep -qF 'run-unit-tests.sh --only cli_options_test,cli_options_native_test' <<<"$recipe"; then
         faults+=("the cli-check recipe no longer runs the CLI suites through test/run-unit-tests.sh --only")
     fi
-    if sed -n '/^cli-check:/,/^[a-z][a-z-]*:/p' "$PROJECT_DIR/Makefile" | grep -qE '^\s*@?\./build/test/cli_options_native_test'; then
+    if grep -qE '^\s*@?\./build/test/cli_options_native_test' <<<"$recipe"; then
         faults+=("the cli-check recipe runs cli_options_native_test bare")
     fi
 
