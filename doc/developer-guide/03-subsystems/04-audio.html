@@ -3399,6 +3399,46 @@ While a tap is installed <code>batch_window_limit_()</code> refuses every window
 it already did for a rewind replay as <code>replay_mode_</code>), so those programs run slot by slot, the path the
 batches are held equivalent to, and the tap sees exactly the batch-off samples. Batching resumes when
 the tap is dropped.</p>
+<p><strong>The WAV stems.</strong> The same tap carries seven more terms while a stem recording runs
+(<code>AudioStemTap</code>, hung on <code>AudioSourceTap::stems</code>): each AY chip's left and right, the DAC's, the beeper,
+the Pi's and the mix, in the mixer's 13-bit levels times master cycles, accumulated in
+<code>tap_accumulate_()</code> only when the pointer is set. They are the hardware terms of <code>audio_mixer.vhd</code>
+(<code>pcm = ear + mic + ay + dac + i2s</code>, one unsaturated register), so every one is before the debugger mutes
+and the host gains: <code>TurboSound::hw_chip_pcm()</code>, <code>Dac::channel()</code> (not the audible copy), the beeper's <code>exc_i</code>-gated
+EAR and <code>mic_final()</code>, <code>pi_audio_L/R()</code> (or its rest level), and the mix. At each output-sample boundary
+a frame is pushed, one value per stem and channel, each the mixer's own x4 round-to-nearest average less
+the source's rest level (AY 0, DAC 4096, beeper 0, Pi 2048; the four add up to the mixer's <code>MIX_REST_LEVEL * 4</code> of
+6144, so the AC coupling splits exactly), so the mix stem equals <code>--wav-record</code> at 0 dB. The stems have
+their own sample counter and the same whole-sample rule as the scope.</p>
+<p><em>Where the sum is taken, and its bound.</em> The identity is on the hardware 13-bit mix, time-averaged by
+the mixer's box filter and scaled by four; everything after it (output gain, per-source gains, mutes,
+the int16 clamp) is host-side and absent from the stems. Nothing in between saturates or filters
+(the VHDL sum is at most 5998 of 8191, the AY sum never wraps). Each file is one rounding of an exact
+average x_i = 4 acc_i / cycles, and the mix is one rounding of their sum M. With round(x) = floor(x + 1/2)
+the error r = x - round(x) is in [-1/2, 1/2), so the sum of the six source files minus the mix file
+is r_M - (r_1 + ... + r_6), an integer in (-3.5, 3.5): at most 3 counts. It is zero when every
+4 acc_i is a multiple of the cycle count, which holds whenever each term is constant over the sample.</p>
+<p><em>The per-chip latch.</em> A chip's stem must be the <code>psgN_L/R_pan</code> register whose sum the mixer heard
+(<code>turbosound.vhd:323-335</code>), but <code>TurboSound</code> keeps only the sum, and recomputing a chip's value on the fly
+disagrees with the latched sum between a pan, select, mono, ACB or enable write and the next PSG tick (up to 16 master
+cycles; at 28 MHz an <code>OUT</code> is shorter than that). So <code>set_hw_chip_latch(true)</code> makes the cold
+recompute (<code>compute_stereo_mix_channels_()</code>) store each chip's hardware pair beside the sum. The test that
+sends the recompute out of line is the one byte <code>mix_divert_</code> (bit 0 a channel mute, bit 1 the latch), which
+replaced the <code>channel_mute_mask_ != 0</code> test of the same position: no instruction was added to the hot loop.
+Before the first latched recompute (just after the latch is switched on, or after a state load) <code>hw_chip_pcm()</code>
+computes the pair from the current inputs, which is exact unless an input change is pending, and that can
+only be for one PSG tick. The latch is not machine state: not serialised, and <code>reset()</code> only re-validates it.</p>
+<p><em>Alignment.</em> A frame is pushed for every sample the mixer emits, from the first sample that starts after the
+recording starts. <code>Emulator::init()</code> discards the mixer's partial sample, so it also calls
+<code>AudioSourceTap::clear_partial()</code>, and so does every <code>set_audio_scope_tap()</code> (which also switches the latch
+to match <code>stems</code>): otherwise the next sample would not be whole for one of the two and one stem frame would be
+lost per reset. A cold boot builds a new <code>Emulator</code> whose tap is installed by the backend's
+reconstruct re-application, before its first frame. Stem recording installs the tap, so it refuses the HALT and
+raster-poll batches like a scope does.</p>
+<p><code>StemRecorder</code> (<code>src/debug/stem_recorder.*</code>, internal to the backend) owns the <code>AudioStemTap</code> and seven
+<code>AudioRecorder</code>s; the <code>Debugger</code> holds it as a recording, not a client request (<code>stems_record_start()</code> and
+<code>stems_record_stop()</code>, INS-24), so tabs and windows do not end it and <code>--wav-record-stems</code> reaches the
+same path through <code>app.debugger()</code>.</p>
 <p>The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 <code>env_reset</code>, which reloads the level and also forces <code>env_ena</code> (<code>ym2149.vhd:340-342</code> and <code>ym2149.vhd:393-409</code>), so the first
 step comes with the write instead of one envelope period later. <code>AyChip::load_envelope()</code> applies the reload

@@ -4634,6 +4634,14 @@ non-zero without emulating anything, rather than running a session you would
 find out afterwards had never been recorded.</p>
 <p>To capture only the audio, <code>--wav-record FILE</code> writes a standard WAV. It needs
 neither ffmpeg nor a sound card, so it works in automated runs.</p>
+<p>To capture each sound source on its own, <code>--wav-record-stems DIR</code> writes seven WAV
+files into the directory (created if needed): <code>ay0.wav</code>, <code>ay1.wav</code> and <code>ay2.wav</code>
+for the three AY chips, <code>dac.wav</code>, <code>beeper.wav</code>, <code>pi.wav</code> and <code>mix.wav</code>. They are
+taken before the host's volume settings and before any mute, and the six source
+files add up to <code>mix.wav</code> (exactly while every source holds steady within an output
+sample, otherwise within 3 counts per sample). It works headless, continues through
+cold boots like <code>--wav-record</code>, and cannot be combined with <code>--silent</code>. The
+debugger's Audio panel records the same files from its Scopes tab.</p>
 <p>Leaving JNEXT with a recording still running finishes the file rather than
 abandoning it — <strong>File &gt; Quit</strong>, Alt+Q and closing the window all stop and
 finalise it.</p>

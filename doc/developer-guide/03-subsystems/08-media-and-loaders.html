@@ -3269,7 +3269,7 @@ the guest's own driver talks to. Both are called out below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-(the <code>ext</code> chain, <code>src/main.cpp:3181-3239</code>), and again in the GUI's file dialogs and in the headless
+(the <code>ext</code> chain, <code>src/main.cpp:3204-3262</code>), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -4647,6 +4647,11 @@ with <code>test/zip_fixture.h</code>), <code>load_error_test</code> ZIPG-01..09 
 <td>WAV of the mixer</td>
 <td><code>--wav-record</code></td>
 <td><code>src/audio/audio_recorder.*</code></td>
+</tr>
+<tr>
+<td>WAV stems, one per source</td>
+<td><code>--wav-record-stems</code>, the Audio panel's Scopes tab</td>
+<td><code>src/debug/stem_recorder.*</code>, <code>src/audio/audio_recorder.*</code></td>
 </tr>
 <tr>
 <td>DAC activity CSV</td>
