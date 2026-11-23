@@ -11,6 +11,7 @@
 #include "core/image_lock.h"
 #include "core/sdcard_file_add.h"
 #include "core/sdcard_carry.h"
+#include "core/sdcard_upgrade.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
@@ -292,8 +293,15 @@ static bool bind_card_writes(const char* flag, const char* label, const std::str
     }
     std::string why;
     if (!sd_write_journal::bind(image, file, binding, reset, why)) {
+        if (!reset && sdcard::upgrade::file_belongs_to_backup(sdcard::default_sdcard_dir(), file))
+            why += " It holds writes for your previous SD card (kept as a backup): go back to it "
+                   "(--sdcard-go-back), or discard the writes with " + std::string(flag) + "-reset.";
         startup_report::report("%s: %s\n", flag, why.c_str());
         return false;
+    }
+    if (std::strncmp(flag, "--sdcard2", 9) != 0 && image == sdcard::default_sdcard_image_path()) {
+        std::error_code aec;
+        sdcard::upgrade::register_overlay(sdcard::default_sdcard_dir(), std::filesystem::absolute(file, aec).string());
     }
     Log::emulator()->info("{} writes are kept in {}; the image is not written", label, file);
     return true;
@@ -830,8 +838,9 @@ static int run_main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SdcardUpgrade:
                 if (std::strcmp(v[0], "ask") != 0 && std::strcmp(v[0], "yes") != 0 &&
-                    std::strcmp(v[0], "no") != 0 && std::strcmp(v[0], "never") != 0) {
-                    startup_report::report("--sdcard-upgrade: '%s' is not ask, yes, no or never.\n", v[0]);
+                    std::strcmp(v[0], "no") != 0 && std::strcmp(v[0], "never") != 0 &&
+                    std::strcmp(v[0], "fresh") != 0) {
+                    startup_report::report("--sdcard-upgrade: '%s' is not ask, yes, fresh, no or never.\n", v[0]);
                     return 1;
                 }
                 sdcard_upgrade_arg = v[0];
@@ -2164,6 +2173,11 @@ static int run_main(int argc, char* argv[]) {
         else if (sdcard_upgrade_arg == "yes")   opts.upgrade_mode = sdcard::UpgradeMode::Yes;
         else if (sdcard_upgrade_arg == "no")    opts.upgrade_mode = sdcard::UpgradeMode::No;
         else if (sdcard_upgrade_arg == "never") opts.upgrade_mode = sdcard::UpgradeMode::Never;
+        else if (sdcard_upgrade_arg == "fresh") opts.upgrade_mode = sdcard::UpgradeMode::Fresh;
+        if (!sdcard_writes_file.empty()) {
+            std::error_code aec;
+            opts.overlays.push_back(std::filesystem::absolute(sdcard_writes_file, aec).string());
+        }
         opts.auto_confirm    = sdcard_download_confirm;
         opts.force_download  = sdcard_download_force;
         opts.download        = sdcard::default_http_download;
@@ -2199,6 +2213,7 @@ static int run_main(int argc, char* argv[]) {
                 return gui_prov.offer_upgrade(f, t, m);
             };
             opts.sleep    = [&](unsigned ms, const std::string& n) { gui_prov.retry_wait(ms, n); };
+            opts.show_report = [&](const std::string& rep) { gui_prov.show_report(rep); };
         } else {
             opts.confirm  = sdcard::cli_confirm;
             opts.progress = sdcard::make_cli_progress();
@@ -2210,7 +2225,10 @@ static int run_main(int argc, char* argv[]) {
         opts.busy     = sdcard::cli_busy;
         // The SDL window frontend asks with a message box; --headless and the terminal
         // command --sdcard-file-add never ask (they log how to upgrade).
-        if (!headless && sdcard_file_add_count == 0) opts.upgrade = sdcard::sdl_offer_upgrade;
+        if (!headless && sdcard_file_add_count == 0) {
+            opts.upgrade = sdcard::sdl_offer_upgrade;
+            opts.show_report = sdcard::sdl_show_report;
+        }
 #endif
 #endif   // __EMSCRIPTEN__
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);

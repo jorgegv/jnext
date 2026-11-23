@@ -537,11 +537,7 @@ FileAddStatus apply_carry(Tree& src, const std::vector<Entry>& items, Volume& ds
     return FileAddStatus::Ok;
 }
 
-bool verify_carry(Tree& result, Tree& n_as_made, Tree& src, const std::vector<Entry>& carried,
-                  std::string& err) {
-    std::set<std::string> carried_keys;
-    for (const Entry& e : carried) carried_keys.insert(path_key(e.path));
-    // Every carried path is in the result and equals its source.
+bool verify_carried_equal(Tree& result, Tree& src, const std::vector<Entry>& carried, std::string& err) {
     for (const Entry& e : carried) {
         const Entry* r = result.find(path_key(e.path));
         const Entry* s = src.find(path_key(e.path));
@@ -550,16 +546,29 @@ bool verify_carry(Tree& result, Tree& n_as_made, Tree& src, const std::vector<En
         if (!same_entry(result, *r, src, *s, same, err)) return false;
         if (!same) { err = "carried path '" + e.path + "' differs from its source after the carry-over"; return false; }
     }
-    // Nothing else moved.
+    return true;
+}
+
+bool verify_nothing_else_moved(Tree& result, Tree& n_as_made, const std::vector<Entry>& carried, std::string& err) {
+    std::set<std::string> carried_keys;
+    for (const Entry& e : carried) carried_keys.insert(path_key(e.path));
     std::vector<Change> ch;
     if (!compute_changes(result, n_as_made, ch, err)) return false;
     for (const Change& c : ch) {
         if (c.kind == Kind::Deleted || !carried_keys.count(path_key(c.entry.path))) {
-            err = "'" + c.entry.path + "' differs from the new card as made, and was not carried";
+            err = "'" + c.entry.path + "' " +
+                  (c.kind == Kind::Deleted ? "is missing from" : c.kind == Kind::Added ? "was added to" : "differs from") +
+                  " the new card as made, and was not carried";
             return false;
         }
     }
     return true;
+}
+
+bool verify_carry(Tree& result, Tree& n_as_made, Tree& src, const std::vector<Entry>& carried,
+                  std::string& err) {
+    return verify_carried_equal(result, src, carried, err) &&
+           verify_nothing_else_moved(result, n_as_made, carried, err);
 }
 
 bool copy_kept_file(const sd_write_journal::Journal& from, sd_write_journal::Journal& to) {

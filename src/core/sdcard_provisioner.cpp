@@ -2,6 +2,8 @@
 #include "core/fat32_image.h"
 #include "core/log.h"
 #include "core/minimal_card.h"
+#include "core/sdcard_carry.h"
+#include "core/sdcard_upgrade.h"
 
 #include <zlib.h>
 
@@ -15,6 +17,7 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <sys/types.h>
@@ -1008,6 +1011,17 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     const std::string raw   = default_sdcard_raw_image_path();   // pristine
     const std::string fixed = default_sdcard_image_path();       // patched
 
+    // GH #555: an interrupted upgrade is finished (SWITCHING present) or its scratch removed.
+    {
+        std::string note, rerr;
+        if (!upgrade::recover(dir, note, rerr)) {
+            r.status = ProvisionStatus::Failed;
+            r.error  = "an interrupted SD card upgrade could not be finished: " + rerr +
+                       " (the old set is in " + upgrade::previous_dir(dir) + ".new)";
+            return r;
+        }
+    }
+
     // Distro URL: $JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl when set
     // and non-empty. A TEST SEAM in the same spirit as $JNEXT_CONFIG_DIR
     // above (GH #108 Phase B): it lets a harness point the REAL download
@@ -1036,6 +1050,8 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // user's card exactly as it was.
     bool replacing = false;
     bool upgrade_accepted = false;
+    bool carry_files = true;    // an accepted upgrade carries the user's files over (false: a fresh start)
+    std::vector<std::string> overlays;
     std::string kept_note;   // a failed upgrade that left the old card in use
     auto use_existing = [&]() {
         r.status = ProvisionStatus::Ok;
@@ -1051,12 +1067,14 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             const std::string have = dist_of(fixed_distro);
             if (ieq(have, current_dist)) return use_existing();
 
-            // The card is of an older (or other) distribution than the one jnext
-            // downloads now. It holds the user's own files, so it is never replaced
-            // without their yes, and Keep always goes on with it.
+            // The card is of an older (or other) distribution than the one jnext downloads now.
+            // It holds the user's own files: an upgrade carries them over and keeps the old card
+            // as a backup, and nothing happens without their yes.
             if (opts.upgrade_mode == UpgradeMode::Ask) std::remove(declined.c_str());
             const std::string new_title = distribution_title(current_dist);
             const std::string old_title = distribution_title(have);
+            std::string base_why;
+            const bool base_ok = carry::pristine_base_ok(fixed, base_why);
             switch (opts.upgrade_mode) {
             case UpgradeMode::Never:
                 if (!write_text_line(declined, current_dist))
@@ -1069,7 +1087,17 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                                       new_title, old_title);
                 return use_existing();
             case UpgradeMode::Yes:
+                if (!base_ok) {
+                    r.status = ProvisionStatus::Failed;
+                    r.error  = "the files on this card cannot be carried over (" + base_why +
+                               "); --sdcard-upgrade fresh starts a new card and keeps this one as the backup";
+                    return r;
+                }
                 upgrade_accepted = true;
+                break;
+            case UpgradeMode::Fresh:
+                upgrade_accepted = true;
+                carry_files = false;
                 break;
             case UpgradeMode::Default:
             case UpgradeMode::Ask:
@@ -1077,19 +1105,46 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                 if (!opts.upgrade) {
                     Log::emulator()->info(
                         "sdcard: {} is available; this card is {}. Run jnext --sdcard-upgrade yes to "
-                        "replace it (everything saved on the card is lost).", new_title, old_title);
+                        "upgrade it (your files are kept, and the old card is kept as a backup).",
+                        new_title, old_title);
                     return use_existing();
                 }
                 {
-                    const std::string msg =
-                        new_title + " is available. The SD card image jnext uses is " + old_title + ".\n\n"
-                        "Replacing it downloads " + new_title + " and DELETES everything you saved on the "
-                        "current card: your programs, files and NextZXOS settings are lost.\n\n"
-                        "Keep my card goes on using " + old_title + ", and nothing is changed; you can "
-                        "upgrade later with jnext --sdcard-upgrade yes.";
+                    const bool distro_is_pinned = distro_url == kDistroUrl;
+                    auto gb = [](uint64_t b) {
+                        char t[32];
+                        std::snprintf(t, sizeof t, "%.1f GB", static_cast<double>(b) / (1024.0 * 1024.0 * 1024.0));
+                        return std::string(t);
+                    };
+                    const std::vector<std::string> ov0 = upgrade::usable_overlays(dir, fixed, opts.overlays);
+                    const uint64_t need = upgrade::space_needed(
+                        fixed, distro_is_pinned ? minimal_card::kDistribution.zip_size : 0, ov0);
+                    std::error_code bec;
+                    const bool backup_exists = std::filesystem::exists(upgrade::previous_dir(dir), bec);
+                    std::string msg =
+                        new_title + " is available. The SD card image jnext uses is " + old_title + ".\n\n";
+                    msg += base_ok
+                        ? "Upgrading downloads " + new_title + (distro_is_pinned
+                              ? " (" + std::to_string(minimal_card::kDistribution.zip_size / 1000000) + " MB)"
+                              : std::string()) +
+                          " and carries the files you saved over to the new card; the files NextZXOS "
+                          "itself changed are replaced by the new version, and you get a list of both.\n\n"
+                        : "Your current card cannot be compared with the one it came from (" + base_why +
+                          "), so the files on it cannot be carried over. Starting fresh downloads " + new_title +
+                          (distro_is_pinned ? " (" + std::to_string(minimal_card::kDistribution.zip_size / 1000000) + " MB)"
+                                            : std::string()) +
+                          " and makes a new card; your files stay on the old one, which is kept.\n\n";
+                    msg += "Your current card is kept as a backup (" + gb(std::filesystem::exists(fixed, bec) ? std::filesystem::file_size(fixed, bec) : 0) +
+                           " of disk); you can go back to it or delete it from the File menu. About " +
+                           gb(need) + " of free disk space is needed while the upgrade runs.";
+                    if (backup_exists)
+                        msg += "\n\nThe backup of an earlier upgrade is replaced by this one.";
+                    msg += "\n\nKeep my card goes on using " + old_title + " and nothing is changed; you can "
+                           "upgrade later with jnext --sdcard-upgrade yes.";
                     switch (opts.upgrade(have, current_dist, msg)) {
                     case UpgradeChoice::Replace:
                         upgrade_accepted = true;
+                        carry_files = base_ok;
                         break;
                     case UpgradeChoice::KeepDontAskAgain:
                         if (!write_text_line(declined, current_dist))
@@ -1103,8 +1158,11 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                 break;
             }
             replacing = true;
+            overlays = upgrade::usable_overlays(dir, fixed, opts.overlays);
         }
     }
+    const bool upgrading = replacing && upgrade_accepted;
+    const std::string work = upgrade::work_dir(dir);
 
     std::string err;
     const std::string raw_sha_path = raw + ".sha256";
@@ -1117,7 +1175,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // full download cycle; a raw of another distribution is never re-derived into a
     // card that says it is this one.
     bool raw_trusted = false;
-    if (!opts.force_download && regular_file_exists(raw)) {
+    if (!opts.force_download && !upgrading && regular_file_exists(raw)) {
         const std::string stored = read_stored_sha256(raw_sha_path);
         if (stored.empty()) {
             Log::emulator()->warn(
@@ -1143,8 +1201,8 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
     // The raw lands in "<raw>.new" when it replaces an existing one; the old raw (and the
     // old card) stay until the new card is complete.
-    const std::string raw_new   = raw + ".new";
-    const std::string fixed_new = fixed + ".new";
+    const std::string raw_new   = upgrading ? work + "/raw.new"  : raw + ".new";
+    const std::string fixed_new = upgrading ? work + "/card.new" : fixed + ".new";
     const std::string raw_out   = replacing ? raw_new : raw;
     const std::string fixed_out = replacing ? fixed_new : fixed;
     bool raw_downloaded = false;
@@ -1154,7 +1212,10 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // reports that and goes on with the old card (Ok + a note); --sdcard-download-force
     // was asked to recover a card, so it fails.
     auto fail = [&](const std::string& why) {
-        if (replacing) {
+        if (upgrading) {
+            std::error_code rec;
+            if (!std::getenv("JNEXT_DEBUG_KEEP_WORK")) std::filesystem::remove_all(work, rec);
+        } else if (replacing) {
             std::remove(raw_new.c_str());
             std::remove(fixed_new.c_str());
         }
@@ -1209,6 +1270,31 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             r.status = ProvisionStatus::Failed;
             r.error  = "cannot create directory " + dir;
             return r;
+        }
+
+        if (upgrading) {
+            // The disk must hold the zip, the new raw and card, the old card as made and the
+            // overlays; refused before anything is downloaded.
+            const std::vector<std::string>& ovs = carry_files ? overlays : std::vector<std::string>();
+            const uint64_t need = upgrade::space_needed(
+                fixed, distro_url == kDistroUrl ? minimal_card::kDistribution.zip_size : 0, ovs);
+            std::error_code sec;
+            const uint64_t have_free = opts.free_space ? opts.free_space(dir)
+                                                       : static_cast<uint64_t>(std::filesystem::space(dir, sec).available);
+            if (!opts.free_space && sec) {
+                Log::emulator()->warn("sdcard: cannot read the free disk space of {}: {}", dir, sec.message());
+            } else if (have_free < need) {
+                auto gbs = [](uint64_t b) {
+                    char t[32];
+                    std::snprintf(t, sizeof t, "%.1f GB", static_cast<double>(b) / (1024.0 * 1024.0 * 1024.0));
+                    return std::string(t);
+                };
+                return fail("not enough free disk space for the upgrade: " + gbs(need) + " are needed in " + dir +
+                            " and " + gbs(have_free) + " are free");
+            }
+            std::error_code mec;
+            std::filesystem::remove_all(work, mec);
+            if (!make_dirs(work)) return fail("cannot create directory " + work);
         }
 
         // A failed fetch names the address, the reason in plain words and what
@@ -1303,6 +1389,44 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     if (!fixed_ok) {
         std::remove(fixed_out.c_str()); // never leave a truncated / half-patched image
         return fail(err);               // do_fix() already prefixed the failing step
+    }
+
+    // GH #555: an upgrade carries the user's files over, verifies the result and switches the
+    // whole set (the old one becomes the backup in previous/). Any failure before the switch
+    // leaves the old set exactly as it was.
+    if (upgrading) {
+        upgrade::Plan plan;
+        plan.dir = dir; plan.card = fixed; plan.raw = raw;
+        plan.new_card = fixed_new; plan.new_raw = raw_new;
+        plan.new_distro = current_dist; plan.new_raw_sha = raw_digest; plan.new_recipe = kFixedImageRecipe;
+        plan.carry = carry_files;
+        if (carry_files) plan.overlays = overlays;
+        else plan.overlays = overlays;   // a fresh start sets them aside (previous/overlays)
+        carry::Report rep;
+        std::string cerr_;
+        auto do_carry = [&]() { return upgrade::carry_over(plan, rep, cerr_); };
+        const bool carried_ok = opts.busy ? opts.busy("Carrying your files over", do_carry) : do_carry();
+        if (!carried_ok) return fail("carrying your files over failed, so nothing was changed: " + cerr_);
+        const std::string report_text = carry_files ? rep.text() : std::string();
+        std::string serr;
+        if (!upgrade::switch_set(plan, report_text, serr)) {
+            // From the first switch step on the only way is forward: the next start finishes it.
+            r.status = ProvisionStatus::Failed;
+            r.error  = "the SD card upgrade was interrupted (" + serr + "); the next start finishes it";
+            return r;
+        }
+        Log::emulator()->info("sdcard: upgraded to {}; the previous card is in {}", distribution_title(current_dist),
+                              upgrade::previous_dir(dir));
+        if (!report_text.empty()) {
+            std::istringstream is(report_text);
+            std::string line;
+            while (std::getline(is, line)) Log::emulator()->info("sdcard: upgrade report: {}", line);
+            r.report = report_text;
+            if (opts.show_report) opts.show_report(report_text);
+        }
+        r.status = ProvisionStatus::Ok;
+        r.path   = fixed;
+        return r;
     }
 
     // The new card is complete. A replacement moves it (and the new raw) over the old ones

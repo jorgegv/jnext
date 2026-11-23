@@ -222,7 +222,9 @@ using UpgradeFn = std::function<UpgradeChoice(const std::string& from, const std
 //   Yes      replace the card without asking
 //   No       keep the card for this run, no question, nothing recorded
 //   Never    keep the card and record "do not ask again" for this distribution
-enum class UpgradeMode { Default, Ask, Yes, No, Never };
+//   Fresh    upgrade without carrying anything over: a new card, the old set kept in previous/
+//   (Yes carries the user's files over and is refused when the card has no pristine base.)
+enum class UpgradeMode { Default, Ask, Yes, No, Never, Fresh };
 
 // Busy-operation seam: run the slow post-download work (`work` — the raw→fixed
 // copy plus the multi-second FAT32 patch) while giving the user feedback under
@@ -540,6 +542,14 @@ struct ProvisionOptions {
     BusyFn      busy;               // optional; wraps the copy+patch step
     UpgradeFn   upgrade;            // the offer of a newer distribution; empty = never ask
     UpgradeMode upgrade_mode = UpgradeMode::Default;   // --sdcard-upgrade
+    // GH #555: the --sdcard-writes FILEs of this run (absolute). An upgrade rebuilds them over the
+    // new card, together with every file in <sdcard dir>/overlays.list that still binds to the card.
+    std::vector<std::string> overlays;
+    // Free bytes under a directory; defaults to std::filesystem::space. A test seam.
+    std::function<uint64_t(const std::string& dir)> free_space;
+    // Called once with the upgrade report (the carried / replaced / not carried lists) after a
+    // successful upgrade that carried files over. The frontends show it in a box.
+    std::function<void(const std::string& report)> show_report;
 
     // GH #271 — diagnosability seam. Path whose EXISTENCE means "this process
     // runs inside a Flatpak sandbox"; /.flatpak-info is the conventional
@@ -566,6 +576,8 @@ struct ProvisionResult {
     // Not empty when status is Ok but something the user asked for did not happen: an
     // accepted upgrade that failed and left the old card in use. The frontends show it.
     std::string     warning;
+    // The report of a successful upgrade that carried files over (empty otherwise).
+    std::string     report;
 };
 
 // Resolve (and if needed download+patch) the SD image path per the policy

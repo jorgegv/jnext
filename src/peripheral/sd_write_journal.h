@@ -122,6 +122,9 @@ std::shared_ptr<Journal> for_image(const std::string& image_path);
 using PersistHook = void (*)();
 void set_persist_hook(PersistHook hook);
 
+/// Drop the registration of `image_path` (nothing else; the writes file is left alone).
+void forget_image(const std::string& image_path);
+
 /// Drop every registration and the hook.
 void forget_all_for_test();
 

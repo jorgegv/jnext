@@ -334,6 +334,11 @@ void set_persist_hook(PersistHook hook) {
     g_hook = hook;
 }
 
+void forget_image(const std::string& image_path) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_registry.erase(key_of(image_path));
+}
+
 void forget_all_for_test() {
     std::lock_guard<std::mutex> lk(g_mu);
     g_registry.clear();

@@ -150,6 +150,11 @@ FileAddStatus apply_carry(Tree& src, const std::vector<Entry>& items, Volume& ds
 bool verify_carry(Tree& result, Tree& n_as_made, Tree& src, const std::vector<Entry>& carried,
                   std::string& err);
 
+/// The two halves of verify_carry, for a caller that has only two drives to give: every carried
+/// path of `result` equals its source in `src`; and `result` differs from `n_as_made` at nothing
+/// but the carried paths. Two distinct trees each time (one object read twice shares a cursor).
+bool verify_carried_equal(Tree& result, Tree& src, const std::vector<Entry>& carried, std::string& err);
+bool verify_nothing_else_moved(Tree& result, Tree& n_as_made, const std::vector<Entry>& carried, std::string& err);
 /// Copy the esxDOS stand-in's kept-file record from one journal to another, verbatim.
 bool copy_kept_file(const sd_write_journal::Journal& from, sd_write_journal::Journal& to);
 
