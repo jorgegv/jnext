@@ -3698,7 +3698,10 @@ stopped player cannot start again. The player’s own locations are
 `/sdcard` (the SD card), `/jnext` (what the player keeps) and `/media`
 (the programs it installs): neither member lists or returns a file
 there, whoever wrote it and however the name is spelt (`..`, a relative
-name or a link included). After `destroy()` all three throw.
+name or a link included). What an export the page asked for contains is
+the page author’s choice, as on the desktop (a **--export-skoolkit** of
+ROM space holds the ROM the machine ran), and offering it to visitors is
+the author’s responsibility. After `destroy()` all three throw.
 
 `debugChannel(protocol)` returns the channel of the `debug` entry for
 `'dzrp'`, `'zrcp'` or `'gdb'` whose `transport` is `'channel'`; it

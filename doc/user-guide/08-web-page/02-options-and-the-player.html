@@ -4976,6 +4976,12 @@ const bytes = await player.readFile('/tmp/game.wav');
   <code>/sdcard</code>, <code>/jnext</code> or <code>/media</code>: they are the player's own (the SD card, what the player keeps and
   the programs it installs), and <code>listFiles()</code> and <code>readFile()</code> never give anything in them, whoever
   wrote it and however the name is spelt (<code>..</code>, a relative name or a link to it included).</li>
+<li>What the page can read is the card's opposite: the SD card image and the player's own files never come
+  out of <code>readFile()</code>. What an export holds is the page author's choice, as on the desktop: a
+  <code>--export-skoolkit</code> of ROM space holds the ROM the machine ran (a bug report, as on the desktop,
+  leaves the memory of a card session out: <a href="../05-running-programs/12-bug-reports.html">5.12</a>). NextZXOS is SpecNext's
+  copyrighted software: what you offer to your visitors, an export of the machine's memory included, is your
+  responsibility, and JNEXT does not check it against anything.</li>
 <li>A file the page offers for download is the usual four lines. This button saves the WAV above
   (<code>player</code> is what <code>jnext.mount()</code> resolved to):</li>
 </ul>

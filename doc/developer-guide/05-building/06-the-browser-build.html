@@ -3435,7 +3435,10 @@ made again at each call; the <code>r + '/'</code> boundary keeps <code>/sdcard.d
 <code>--tape-save</code> to a name that is not <code>.tzx</code> or <code>.wav</code> appends TAP blocks to an existing file, so <code>--tape-save
 /sdcard/image.img</code> makes the card a file "jnext wrote", which the allow-list alone would return; a deny-list alone would
 return the output of every future writer that keeps firmware-derived state. A new writer left off the list is
-then a missing file, which its option's row finds, and never a leak (BOUT-17).</p>
+then a missing file, which its option's row finds, and never a leak (BOUT-17).
+The guard keeps the card image and the player's own files in. It does not filter what an export the page asked for
+contains: a <code>--export-skoolkit</code> of ROM space writes the ROM the machine ran, exactly as on the desktop (owner decision), and
+BOUT-08 compares it with the native run.</p>
 <p><em><code>finish_outputs</code>.</em> No destructor runs in a page: the app is released at the end of <code>main()</code> and the module
 links with <code>-sEXIT_RUNTIME=0</code>, and <code>emscripten_force_exit</code> does not flush stdio. <code>Emulator::~Emulator</code> used to
 be the only place a TZX/WAV tape save was closed (its last block, the WAV header) and the CPU profile was
