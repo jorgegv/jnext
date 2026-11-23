@@ -215,7 +215,7 @@ These 192 suites (11748 live rows) have no VHDL-derived plan row to map, so they
 | `source_debug_posix_test` | 11 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
 | `debugger_backend_test` | 1604 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `startup_stop_test` | 48 | the --debugger / --break-at startup stop (host side): its stop points are the file formats' own entry PCs and the Breakpoints panel's address rules |
-| `startup_report_test` | 7 | start-up error box policy (GH #555): stderr bytes kept, when a box shows, its text; the design in the issue as oracle (host UI policy, no core counterpart) |
+| `startup_report_test` | 8 | start-up error box policy (GH #555): stderr bytes kept, when a box shows, its text; the design in the issue as oracle (host UI policy, no core counterpart) |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |

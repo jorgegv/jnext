@@ -853,6 +853,54 @@ int main() {
               all && lenient, e);
     }
 
+    {
+        // SDEXP-08 / 09: the default card, compared with the card AS MADE (rebuilt from the raw).
+        Fat32Tree raw;
+        raw.root.push_back(dnode("MACHINES", {dnode("NEXT", {fnode("zx81.rom", std::string(16384, 'Z')), fnode("48.rom", "rom48")})}));
+        raw.root.push_back(dnode("DOCS", {fnode("readme.txt", "docs")}));
+        const std::string dd = tmp("dflt");
+        fs::create_directories(dd);
+        const std::string raw_img = (fs::path(dd) / sdcard::kImageFileName).string();
+        const std::string card = (fs::path(dd) / sdcard::kFixedImageFileName).string();
+        const bool made = make_card(raw_img, raw, 1228800, 8192);
+        const std::string rawsha = sdcard::sha256_file(raw_img);
+        const std::string zx_sha = sdcard::sha256_hex(Bytes(16384, 'Z'));
+        { std::ofstream(raw_img + ".sha256") << rawsha << "  " << sdcard::kImageFileName << "\n"; }
+        bool ok = made && copy_card(raw_img, card) && sdcard::patch_image_for_recipe(card, 3, rawsha, err, zx_sha);
+        { std::ofstream(card + sdcard::kFixedImageRecipeSuffix) << "3\n"; }
+        std::string why;
+        const bool pristine = ok && carry::pristine_base_ok(card, why);
+        add(card, "/MINE.TXT", "mine");
+        carry::ExportRequest req;
+        req.image = card;
+        req.is_default_card = true;
+        req.dir = tmp("exp8");
+        carry::ExportReport rep;
+        std::string e8;
+        const FileAddStatus st = carry::export_changes(req, rep, e8);
+        check("SDEXP-08", "the default card with its original image on disk is compared against the card AS MADE (rebuilt with its recipe): only the user's added file is exported, jnext's own config.ini and the re-clustered tree are not changes, and no scratch is left",
+              ok && pristine && st == FileAddStatus::Ok && rep.base == "as-made" && rep.added == 1 && rep.changed == 0 && rep.removed == 0 &&
+                  fs::exists(fs::path(req.dir) / "MINE.TXT") && !fs::exists(fs::path(dd) / "upgrade-work"),
+              why + " | " + e8 + " base=" + rep.base + " a=" + std::to_string(rep.added) + " c=" + std::to_string(rep.changed));
+        // a raw that does not match its sidecar: not pristine, so the export refuses naming the reason
+        { std::ofstream(raw_img + ".sha256") << std::string(64, '0') << "  " << sdcard::kImageFileName << "\n"; }
+        std::string why2, e9;
+        const bool pristine2 = carry::pristine_base_ok(card, why2);
+        carry::ExportRequest req2 = req;
+        req2.dir = tmp("exp9");
+        carry::ExportReport rep2;
+        const FileAddStatus st2 = carry::export_changes(req2, rep2, e9);
+        // and a missing raw
+        fs::remove(raw_img);
+        std::string why3;
+        const bool pristine3 = carry::pristine_base_ok(card, why3);
+        check("SDEXP-09", "a default card whose original image does not match its .sha256 (or is gone) has no pristine base: the export refuses, naming why, and DIR is not created",
+              !pristine2 && why2.find("does not match its .sha256") != std::string::npos && st2 == FileAddStatus::DestInvalid &&
+                  e9.find("nothing to compare against") != std::string::npos && e9.find("does not match its .sha256") != std::string::npos &&
+                  !fs::exists(req2.dir) && !pristine3 && why3.find("is missing") != std::string::npos,
+              why2 + " | " + e9 + " | " + why3);
+    }
+
     // =================== SDIMP: import ===================================================
     auto export_for_import = [&](const std::string& card, const std::string& base, const std::string& dir) {
         carry::ExportRequest req;

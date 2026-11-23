@@ -182,6 +182,25 @@ int main() {
               c1.windowed == win && !c2.unattended && c2.windowed == win);
     }
 
+    {
+        // the rescue verbs are terminal commands too (GH #555 S4): no window, so never a box
+        bool all_terminal = true;
+        for (const char* verb : {"--sdcard-writes-flatten", "--sdcard-export-changes", "--sdcard-import-changes"}) {
+            auto a = argv_of({verb, "X"});
+            all_terminal = all_terminal && !classify(static_cast<int>(a.size()), a.data()).windowed;
+        }
+        auto base = argv_of({"--sdcard-export-base", "B"});
+        // --sdcard-export-base alone starts nothing special: it is not a command of its own
+        const bool base_alone_windowed = classify(static_cast<int>(base.size()), base.data()).windowed ==
+#ifdef __EMSCRIPTEN__
+            false;
+#else
+            true;
+#endif
+        check("STARTERR-08", "classify(): --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are terminal commands (not windowed), like --sdcard-file-add",
+              all_terminal && base_alone_windowed);
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;
 }
