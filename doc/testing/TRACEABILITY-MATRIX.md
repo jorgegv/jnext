@@ -29,7 +29,7 @@ mentions them, so a test can no longer be absent from this document.
 | Tilemap                                    |   123 |  123 |    0 |    0 |       0 |          0 |
 | Copper                                     |   115 |  115 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   300 |  300 |    0 |    0 |       0 |          0 |
-| Audio                                      |   462 |  462 |    0 |    0 |       0 |          0 |
+| Audio                                      |   463 |  463 |    0 |    0 |       0 |          0 |
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   173 |  173 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6488 | 6488 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6489 | 6489 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6488**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5964**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17586**.
+Rows the sections above carry: **6489**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5965**. Rows the 238 suites declared in `test/unit-tests.conf` run live: **17587**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -2286,13 +2286,13 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | DSS-06 | one port write is one sample: 10 CPU writes to 0xDF (channels A and D, two log entries each) and 10 Copper writes to NR 0x2D (DacMirror pairs) are 10 samples each, channels 0x09 | — | pass | test/debug/audio_debug_test.cpp:3006 |
 | DSS-07 | only applied DAC writes count: dropped DAC and mirror writes (chip 0xFF), AY register, AY chip-select and beeper entries give no writer | — | pass | test/debug/audio_debug_test.cpp:3022 |
 | DSS-08 | a marker ends the previous timeline: 10 samples, a Reset (or Rewind) marker, 5 samples give 5 samples starting at the first one after the marker | — | pass | test/debug/audio_debug_test.cpp:3035 |
-| DSS-09 | the window is (end - window, end]: samples at 1000..20000, end 20000, window 5000: start 15000, 5 samples (16000..20000, 15000 excluded); window 0: all 20; a clock younger than the window has no start, so samples at 0..4000 with end 4000 and window 5000 are all 5 | — | pass | test/debug/audio_debug_test.cpp:3044 |
-| DSS-10 | the median is the LOWER median and the jitter a POPULATION standard deviation: 7 intervals (1790 x4, 1794 x3): median 1790, mean 1791.714, sd 1.9795; 6 intervals (3 and 3): median 1790, mean 1792.0, sd 2.0 | — | pass | test/debug/audio_debug_test.cpp:3062 |
-| DSS-11 | fewer than two samples have no interval: one sample is one writer with rate 0 and every interval field 0; an empty log has no writer | — | pass | test/debug/audio_debug_test.cpp:3071 |
-| DSS-12 | nearest_pacing: a CPU writer at 16 055 000 mHz is CTC 0 (rel_diff (16 055 000 - 16 055 046) / 16 055 046); a DMA writer is the DMA, or nothing with prescaler 0; a Copper writer, or a stopped channel, nothing; at equal distance the lower channel | — | pass | test/debug/audio_debug_test.cpp:3099 |
-| DSS-13 | ACCEPTANCE: a CTC-paced player (28 MHz, TC 109, period P x TC = 1744 cycles) is ONE CPU writer at the ISR's OUT, channels A and D, >= 6000 samples; every interval within 1744 +- 4 (the acceptance delay d in 0..4, zxnext.vhd:3171-3181), no gap; its measured rate matches the CTC's 16 055 046 mHz within 4 cycles over the span, and the nearest engine is CTC 0 | zxnext.vhd:3171-3181 | pass | test/debug/audio_debug_test.cpp:3118 |
-| DSS-14 | a deliberately skipped sample shows as a gap: the same player with the OUT skipped when the tick wraps: gaps >= 1, every gap interval 2 x 1744 +- 4, every other 1744 +- 4, and the count of gaps equals the count of intervals above 1.5 x the period | — | pass | test/debug/audio_debug_test.cpp:3147 |
-| DSS-15 | dma.vhd:309,424,451 the DMA gate is a minimum spacing from the read: a burst to port 0x00DF at prescaler 55 is ONE DMA writer (channels A and D) whose every interval is >= 1760 cycles, so its rate is at most the nominal 15 909 091 mHz; the nearest engine is the DMA | dma.vhd:309,424,451 | pass | test/debug/audio_debug_test.cpp:3164 |
+| DSS-09 | the window is (end - window, end]: samples at 1000..20000, end 20000, window 5000: start 15000, 5 samples (16000..20000, 15000 excluded); window 0: all 20; a clock strictly younger than the window has no start (samples at 0..4000, end 4000, window 5000: all 5); an entry after the end is not counted (end 3000: 3 of 5); at end == window the window is (0, end] (samples at 0..4000, end 5000, window 5000: 4, cycle 0 outside) | — | pass | test/debug/audio_debug_test.cpp:3048 |
+| DSS-10 | the median is the LOWER median and the jitter a POPULATION standard deviation: 7 intervals (1790 x4, 1794 x3): median 1790, mean 1791.714, sd 1.9795; 6 intervals (3 and 3): median 1790, mean 1792.0, sd 2.0 | — | pass | test/debug/audio_debug_test.cpp:3069 |
+| DSS-11 | fewer than two samples have no interval: one sample is one writer with rate 0 and every interval field 0; an empty log has no writer | — | pass | test/debug/audio_debug_test.cpp:3078 |
+| DSS-12 | nearest_pacing: a CPU writer at 16 055 000 mHz is CTC 0 (rel_diff (16 055 000 - 16 055 046) / 16 055 046); a DMA writer is the DMA, or nothing with prescaler 0; a Copper writer, or a stopped channel, nothing; at equal distance the lower channel | — | pass | test/debug/audio_debug_test.cpp:3123 |
+| DSS-13 | ACCEPTANCE: a CTC-paced player (28 MHz, TC 109, period P x TC = 1744 cycles) is ONE CPU writer at the ISR's OUT, channels A and D, >= 6000 samples; every interval within 1744 +- 4 (the acceptance delay d in 0..4, zxnext.vhd:3171-3181), no gap; its measured rate matches the CTC's 16 055 046 mHz within 4 cycles over the span, and the nearest engine is CTC 0 | zxnext.vhd:3171-3181 | pass | test/debug/audio_debug_test.cpp:3142 |
+| DSS-14 | a deliberately skipped sample shows as a gap: the same player with the OUT skipped when the tick wraps: gaps >= 1, every gap interval 2 x 1744 +- 4, every other 1744 +- 4, and the count of gaps equals the count of intervals above 1.5 x the period | — | pass | test/debug/audio_debug_test.cpp:3171 |
+| DSS-15 | dma.vhd:309,424,451 the DMA gate is a minimum spacing from the read: a burst to port 0x00DF at prescaler 55 is ONE DMA writer (channels A and D) whose every interval is >= 1760 cycles, so its rate is at most the nominal 15 909 091 mHz; the nearest engine is the DMA | dma.vhd:309,424,451 | pass | test/debug/audio_debug_test.cpp:3188 |
 | AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:711 |
 | AY-50b | tone period 1 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:715 |
 | AY-61a | noise period 0 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:811 |
@@ -2303,6 +2303,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AY-63b | a single shared noise drives all three channel mixers (A == B == C on every tick, with the stream actually moving) | ym2149.vhd:302,470-472 | pass | test/audio/audio_test.cpp:913 |
 | AY-101a | env period 0 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1360 |
 | AY-101b | env period 1 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1364 |
+| DSS-16 | a sample is one (cycle, source, pc, port): two ports written at one cycle by one instruction are two samples (channels A and B); a CPU and a DMA entry at one cycle, pc and port are two writers with one sample each; no writer is left without a sample | — | pass | test/debug/audio_debug_test.cpp:3096 |
 | MX-BL-01 | emit_sample = time-weighted average of the interval | — | pass | test/audio/audio_test.cpp:3834 |
 | MX-BL-02 | a supersonic beeper averages out instead of aliasing | — | pass | test/audio/audio_test.cpp:3865 |
 | MX-BL-03 | emit with nothing accumulated produces no sample | — | pass | test/audio/audio_test.cpp:3878 |
