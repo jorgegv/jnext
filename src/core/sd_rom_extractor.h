@@ -18,9 +18,10 @@
 /// guest (runtime block I/O).
 ///
 /// The reader implements a focused read-only FAT32-LBA parser:
-///   - MBR with FAT32-LBA partition (type 0x0B / 0x0C)
+///   - FAT12/16/32, partitioned (any non-zero MBR type over a FAT boot
+///     record, or type 0x0B / 0x0C) or partition-less, as the firmware mounts
 ///   - 8.3 short-name lookup (case-insensitive on input)
-///   - FAT32 cluster-chain traversal up to 0x0FFFFFF8 EOC
+///   - FAT12/16/32 cluster-chain traversal up to each width's EOC
 ///   - File data accumulation up to declared file size
 ///
 /// Long file name (LFN) entries (attribute 0x0F) are skipped during
@@ -30,15 +31,15 @@
 /// (e.g. enNxtmmc.rom ↔ ENNXTMMC.ROM).
 ///
 /// Not supported (out of scope for Wave 0.2):
-///   - FAT12 / FAT16 / exFAT
+///   - exFAT
 ///   - Writes
 ///   - LFN-only files (none on TBBlue images)
 ///   - GPT-partitioned images (TBBlue distribution is MBR-only)
 ///
-/// Extract a single named file from the FAT32 partition of a Next SD image.
+/// Extract a single named file from the FAT volume of a Next SD image.
 ///
-/// `sd_image_path` points at a raw .img file containing an MBR + FAT32 LBA
-/// partition (the standard TBBlue distribution format).
+/// `sd_image_path` points at a raw .img file containing a FAT volume (MBR
+/// partitioned, e.g. the standard TBBlue FAT32-LBA layout, or partition-less).
 ///
 /// `sd_path` is a forward-slash-separated path inside the FAT32 filesystem,
 /// case-insensitive. A leading '/' is optional. Examples:
@@ -49,7 +50,7 @@
 /// On success: returns true, fills `out` with the file bytes (resized
 /// exactly to the file's stored size), and `bytes_read_out` (if non-null)
 /// is set to the same size.
-/// On failure (file not found, image not a FAT32 partition, malformed FAT,
+/// On failure (file not found, image not a FAT volume, malformed FAT,
 /// I/O error, etc.): returns false, leaves `out` empty, logs the reason
 /// via Log::emulator()->error().
 bool extract_sd_rom(const std::string& sd_image_path,
@@ -94,22 +95,22 @@ struct SdImageIdentity {
     /// physical card, which is the cries-wolf failure §11.1 exists to avoid.
     std::string mbr_partition_table_sha256;
 
-    /// `BS_VolID`, BPB offset 0x43, 4 bytes little-endian, rendered as exactly
+    /// `BS_VolID`, BPB offset 0x43 (0x27 on a FAT12/16 volume), 4 bytes little-endian, rendered as exactly
     /// 8 lower-case hex digits. The genuinely stable identifier, and what the
     /// Tier-1 refusal rests on.
     ///
     /// EMPTY when the boot sector carries no extended signature
-    /// (`BS_BootSig` != 0x29 at offset 0x42): the field is then not defined by
+    /// (`BS_BootSig` != 0x29 at offset 0x42, 0x26 on FAT12/16): the field is then not defined by
     /// the FAT specification and whatever sits there is not a volume serial.
     /// An empty serial makes `jns::SdIdentity::populated()` false, and the
     /// reader refuses rather than treating two absences as one card — the
     /// behaviour `JNSI-13` already pins.
     std::string fat32_volume_id;
 
-    /// LBA of the FAT32 partition's first sector, from the MBR partition table.
+    /// LBA of the FAT volume's first sector (0 for a partition-less card).
     uint32_t partition_lba = 0;
 
-    /// `BS_VolLab`, BPB offset 0x47, 11 bytes, space-padded — INFORMATIONAL
+    /// `BS_VolLab`, BPB offset 0x47 (0x2B on FAT12/16), 11 bytes, space-padded — INFORMATIONAL
     /// ONLY, NEVER COMPARED (design §11.3). It is a STALE COPY: the
     /// authoritative FAT32 volume label is the root-directory entry carrying
     /// ATTR_VOLUME_ID, which this file's own FAT walk explicitly skips. The

@@ -35,6 +35,7 @@
 //                  see JNSI-P31.
 //   JNSI-P32, P35 the canonical 1 GB image: Tier 1 populated and the producer
 //                  clean (P33, P34 retired by GH #396)
+//   JNSI-P36..P39  FAT16 cards, with and without a partition table (GH #556)
 //
 // `--verdict SNAP_IMG CUR_IMG [--force]` is the same code
 // path as a driver for `snapshot-sdcard-mismatch-func`: it exits non-zero on a
@@ -178,6 +179,49 @@ bool make_image(const std::string& path, uint8_t part_type = 0x0C,
     const uint64_t bytes =
         static_cast<uint64_t>(kPartLba + kTotalSectors) * 512;
     f.seekp(static_cast<std::streamoff>(bytes - 1));
+    const char z = 0;
+    f.write(&z, 1);
+    return f.good();
+}
+
+// A hand-built FAT16 card (GH #556): `part_type` >= 0 gives an MBR whose entry
+// 0 (that type) starts at kPartLba; -1 gives a partition-less card with the boot
+// record at sector 0. Layout legal for the firmware's FatFs: 20000 sectors,
+// 4 sectors/cluster, 1 reserved, 2 FATs of 20 sectors, 512 root entries (32
+// sectors): 4981 clusters, so FAT16 (ff.c:3140-3146). Extended fields sit at
+// 0x26/0x27/0x2B (ff.c:408-424).
+bool make_fat16_image(const std::string& path, int part_type,
+                      uint8_t boot_sig = 0x29, uint32_t volid = kVolIdValue,
+                      const char* vollab = "NEXT       ") {
+    const uint32_t lba = part_type >= 0 ? kPartLba : 0;
+    std::vector<uint8_t> img(static_cast<size_t>(lba + 1) * 512, 0);
+    if (part_type >= 0) {
+        for (size_t i = 0; i < 0x1BE; ++i) img[i] = static_cast<uint8_t>(i * 7 + 3);
+        uint8_t* pe = img.data() + 0x1BE;
+        pe[4] = static_cast<uint8_t>(part_type);
+        wr32(pe + 8, lba);
+        wr32(pe + 12, 20000);
+        img[510] = 0x55; img[511] = 0xAA;
+    }
+    uint8_t* bpb = img.data() + static_cast<size_t>(lba) * 512;
+    bpb[0] = 0xEB; bpb[1] = 0x3C; bpb[2] = 0x90;
+    std::memcpy(bpb + 3, "MSDOS5.0", 8);
+    wr16(bpb + 11, 512);
+    bpb[13] = 4;
+    wr16(bpb + 14, 1);
+    bpb[16] = 2;
+    wr16(bpb + 17, 512);
+    wr16(bpb + 19, 20000);
+    wr16(bpb + 22, 20);
+    bpb[0x26] = boot_sig;
+    wr32(bpb + 0x27, volid);
+    std::memcpy(bpb + 0x2B, vollab, 11);
+    std::memcpy(bpb + 0x36, "FAT16   ", 8);
+    bpb[510] = 0x55; bpb[511] = 0xAA;
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(img.data()), static_cast<std::streamsize>(img.size()));
+    f.seekp(static_cast<std::streamoff>(static_cast<uint64_t>(lba + 20000) * 512 - 1));
     const char z = 0;
     f.write(&z, 1);
     return f.good();
@@ -619,13 +663,18 @@ int main(int argc, char** argv) {
         const std::string m = tmp_path("notfat32");
         SdImageIdentity id;
         std::string w;
-        const bool prepared = make_image(m, 0x83);   // Linux, not FAT32-LBA
+        // GH #556 (owner decision D1, 2026-11-23): the firmware's FatFs mounts a
+        // volume whatever the MBR type byte says, as long as a FAT boot record
+        // is there (ff.c:3050, :3062), so a type-0x83 entry over a valid FAT
+        // boot record IS a volume. This row used to expect a refusal.
+        const bool prepared = make_image(m, 0x83);   // Linux type, FAT boot record
         const bool ok = prepared && read_sd_image_identity(m, id, w);
         check("JNSI-P17",
-              "an image with no FAT32-LBA partition refuses, and the message "
-              "says so",
-              prepared && !ok &&
-                  w.find("no FAT32-LBA partition") != std::string::npos,
+              "a type-0x83 MBR entry over a valid FAT boot record is a volume, "
+              "as the firmware mounts it: identity present, partition_lba is "
+              "that entry",
+              prepared && ok && id.partition_lba == kPartLba &&
+                  id.fat32_volume_id == "1a2b3c4d",
               w);
     }
     {
@@ -901,6 +950,77 @@ int main(int argc, char** argv) {
               "and reports no defect (there is no Tier 2 to fill, GH #396)",
               ok && info.present && info.identity.populated() && w.empty(),
               det("ok=%d why='%s'", ok, w.c_str()));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // JNSI-P36..P39 — FAT12/16 cards and partition-less cards (GH #556)
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // The firmware's FatFs mounts FAT16, and a card with no partition table
+    // (ff.c:3043, :3050); identity reads BS_VolID/BS_VolLab/BS_BootSig at
+    // 0x27/0x2B/0x26 on FAT12/16 (ff.c:408-424). Fixtures are hand-built.
+    {
+        const std::string m = tmp_path("fat16-type06");
+        SdImageIdentity id;
+        std::string w;
+        const bool prepared = make_fat16_image(m, 0x06);
+        const bool ok = prepared && read_sd_image_identity(m, id, w);
+        check("JNSI-P36",
+              "a FAT16 card (MBR type 0x06) has an identity: BS_VolID from "
+              "0x27, BS_VolLab from 0x2B, partition_lba is the entry's LBA",
+              ok && id.fat32_volume_id == "1a2b3c4d" &&
+                  id.fat32_bs_vollab == "NEXT       " &&
+                  id.partition_lba == kPartLba,
+              det("ok=%d volid='%s' lab='%s' lba=%u '%s'", ok,
+                  id.fat32_volume_id.c_str(), id.fat32_bs_vollab.c_str(),
+                  id.partition_lba, w.c_str()));
+    }
+    {
+        const std::string m = tmp_path("fat16-sfd");
+        SdImageIdentity id;
+        std::string w;
+        const bool prepared = make_fat16_image(m, -1);
+        const bool ok = prepared && read_sd_image_identity(m, id, w);
+        check("JNSI-P37",
+              "a FAT16 card with no partition table has an identity with "
+              "partition_lba 0 (the boot record is sector 0)",
+              ok && id.partition_lba == 0 && id.fat32_volume_id == "1a2b3c4d" &&
+                  id.image_bytes != 0,
+              det("ok=%d lba=%u volid='%s' '%s'", ok, id.partition_lba,
+                  id.fat32_volume_id.c_str(), w.c_str()));
+    }
+    {
+        const std::string m = tmp_path("fat16-nobootsig");
+        SdImageIdentity id;
+        std::string w;
+        const bool prepared = make_fat16_image(m, 0x06, 0x00);
+        const bool ok = prepared && read_sd_image_identity(m, id, w);
+        check("JNSI-P38",
+              "a FAT16 boot record with BS_BootSig (0x26) != 0x29 leaves the "
+              "serial and the label EMPTY, as FAT32 does (P13)",
+              ok && id.fat32_volume_id.empty() && id.fat32_bs_vollab.empty(),
+              det("ok=%d volid='%s' '%s'", ok, id.fat32_volume_id.c_str(),
+                  w.c_str()));
+    }
+    {
+        const std::string a = tmp_path("fat16-a");
+        const std::string b = tmp_path("fat16-b");
+        Verdict same, diff;
+        std::string w1, w2;
+        const bool prepared = make_fat16_image(a, 0x06) &&
+                              make_fat16_image(b, 0x06, 0x29, 0x99887766u);
+        const bool ran_same = prepared && run_verdict(a, a, false, same, w1);
+        const bool ran_diff = prepared && run_verdict(a, b, false, diff, w2);
+        check("JNSI-P39",
+              "a snapshot of a FAT16 card restores silently against the same "
+              "card and is refused against one with a different BS_VolID, "
+              "naming both serials",
+              ran_same && same.ok && same.warnings.empty() &&
+                  ran_diff && !diff.ok &&
+                  diff.refusal.find("1a2b3c4d") != std::string::npos &&
+                  diff.refusal.find("99887766") != std::string::npos,
+              det("same=%d/%d diff=%d/%d '%s'", ran_same, same.ok, ran_diff,
+                  diff.ok, diff.refusal.c_str()));
     }
 
     cleanup_scratch();

@@ -7386,6 +7386,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             } else {
                 Log::emulator()->warn("could not install DivMMC ROM from SD '{}'", divmmc_sd_path);
             }
+        } else if (cfg.type == MachineType::ZXN_ISSUE2) {
+            // The Next firmware (tbblue.fw boot.c load_roms) loads the DivMMC
+            // and Multiface ROMs itself, through its own FAT reader.
+            Log::emulator()->info("host copy of DivMMC ROM '{}' not read from SD image '{}'; the Next firmware loads it itself",
+                                  divmmc_sd_path, cfg.sd_card_image);
         } else {
             Log::emulator()->warn("could not extract DivMMC ROM from SD image '{}' (path '{}') - DivMMC disabled",
                                   cfg.sd_card_image, divmmc_sd_path);
@@ -7413,6 +7418,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             } else {
                 Log::emulator()->warn("could not install Multiface ROM from SD '{}'", mf_sd_path);
             }
+        } else if (cfg.type == MachineType::ZXN_ISSUE2) {
+            Log::emulator()->info("host copy of Multiface ROM '{}' not read from SD image '{}'; the Next firmware loads it itself",
+                                  mf_sd_path, cfg.sd_card_image);
         } else {
             Log::emulator()->warn("Multiface ROM not found on SD image '{}' (path '{}') - Multiface ROM unavailable",
                                   cfg.sd_card_image, mf_sd_path);
@@ -7448,6 +7456,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // egg: it requires AltROM to be loaded BEFORE the first
         // wrapper-mediated AltROM trampoline call at $007B, which
         // happens within the first ~250 ms of supervisor execution).
+        // [GH #556 measured otherwise: with and without this host copy the
+        // AltROM pages are byte-identical after boot, NextZXOS writes them
+        // itself, so the host copy is a pre-seed and not a requirement.]
         //
         // Therefore jnext models the FPGA-flash-pre-baked AltROM by
         // extracting enAltZX.rom from the SD on hard reset only.
@@ -7473,8 +7484,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 Log::emulator()->info("AltROM loaded from SD '{}' ({} bytes -> SRAM pages 0x0C..0x0F)",
                                       alt_sd_path, off);
             } else {
-                Log::emulator()->warn("AltROM not found on SD image '{}' (path '{}') - AltROM unavailable (NextZXOS will likely crash on first AltROM trampoline)",
-                                      cfg.sd_card_image, alt_sd_path);
+                // Measured (GH #556): NextZXOS writes the AltROM pages itself
+                // (NR 0x8C), so a missing host copy is harmless on the Next.
+                Log::emulator()->info("host copy of AltROM '{}' not read from SD image '{}'; NextZXOS loads the AltROM pages itself",
+                                      alt_sd_path, cfg.sd_card_image);
             }
         }
     }
