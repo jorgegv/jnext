@@ -67,7 +67,9 @@ while Soundrive 2 is lit even if bit 5 is set.
 **Beeper.** Lamps for EAR and MIC (port 0xFE bits 4 and 3) and for the tape EAR
 input, then whether the internal speaker is on (NextREG 0x08 bit 4), whether the
 beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC reach
-the mix: they do not when both of those are set.
+the mix: they do not when both of those are set. A tape playing in real time reaches the
+mix through the same beeper path, so the Beeper box, and that exclusion,
+silence it too, while the Tape EAR lamp keeps showing the input.
 
 **Pi I2S.** Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).

@@ -8,6 +8,9 @@ setting up:
   three of them (TurboSound) on the Next, with stereo panning.
 - **DAC** — 8-bit sample playback (Specdrum, Soundrive and Covox compatible).
 
+To see what the chips are playing, which write caused a sound, or why a channel
+is silent, use the debugger's [Audio panel](../06-debugger/panels/13-audio.md).
+
 Which of these a program can actually use is up to the program and the machine
 it was written for. Stereo separation and channel balance are likewise set by
 the software, not by you — they are properties of the emulated hardware.

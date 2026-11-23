@@ -1493,6 +1493,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Panels">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-audio-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Audio panel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3573,6 +3590,32 @@ constants in <code>src/debugger/</code>.</p>
 <code>AddressStyle</code> (Debug &gt; Physical Addresses) and hands it to each panel and to the <code>BreakpointModel</code>.
 Which space each view prints, and the columns that were added, are described in
 <a href="../07-source-level-debugging/07-frontends.html">7.7</a>.</p>
+<h3 id="the-audio-panel">The Audio panel<a class="headerlink" href="#the-audio-panel" title="Permanent link">&para;</a></h3>
+<p><code>AudioPanel</code> (<code>src/debugger/audio_panel.cpp</code>) is a Sources strip (the five source mute boxes) above a
+<code>QTabWidget</code>: Chips, DAC &amp; Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+not available yet. The panel owns no audio state: every number comes from one <code>Debugger::audio_state()</code> per
+refresh, and every note from <code>audio_math.h</code>, so the panel and a test read the same decode.</p>
+<ul>
+<li><strong>Chips</strong> draws the three chip blocks from <code>AudioState::chips</code>, the nine channel rows (period, note and
+  cents, T and N gates, volume or <code>Env</code>, a level bar from <code>AyChannelState::amplitude</code>) and the envelope line.
+  Its Hex box swaps the table for the raw <code>regs</code> of the three chips.</li>
+<li><strong>DAC &amp; Beeper</strong> shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the
+  dropped-write table, one fixed row per <code>AudioDropReason</code>; a CPU-sourced row double-clicks into the
+  Disassembly, and <strong>Clear</strong> calls <code>clear_audio_drops()</code>. <code>audio_drop_reason_text()</code> is shared with the Log
+  tab, so the two cannot word a reason differently.</li>
+<li><strong>Log</strong> is <code>AudioLogView</code>, a <code>QAbstractTableModel</code> mirroring the backend ring: <code>refresh()</code> appends the
+  entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
+  overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
+  <code>audio_log_export()</code>.</li>
+<li><strong>M and S</strong> per channel call <code>set_audio_channel_mute_mask()</code>. A solo is the mask "everything but that
+  channel": <code>channel_solo_clicked()</code> saves the mask it found (<code>pre_solo_mask_</code>) and un-solo restores it, a solo
+  moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
+  solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.</li>
+</ul>
+<p>What the panel asks of the backend follows the sub-tab on show. <code>DebuggerManager::apply_data_needs()</code> requests
+the write log only while the Audio panel is on show with Log current (<code>AudioPanel::log_on_show()</code>), and drops
+the request otherwise; the panel's <code>sub_tab_changed</code> signal makes the manager re-derive it. Chips is the one
+sub-tab with the per-frame refresh described under the running cadence below.</p>
 <h2 id="the-key-bindings-are-data">The key bindings are data<a class="headerlink" href="#the-key-bindings-are-data" title="Permanent link">&para;</a></h2>
 <p>No shortcut in the debugger window is written at its call site. The inventory is
 a table in <code>src/debug/debug_keymap.cpp</code> — each action with a config-file id, a

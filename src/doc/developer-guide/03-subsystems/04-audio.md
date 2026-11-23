@@ -262,6 +262,10 @@ sums: the hardware one (every active chip; what a snapshot or a rewind slot stor
 chips the mask mutes. A load sets the audible pair equal to the loaded hardware pair, and the first PSG
 tick rebuilds both. A state saved while a chip is muted is therefore byte-identical to one saved unmuted.
 
+The beeper bit of the mask zeroes the mixer's `ear` and `mic` terms, and because a playing tape reaches the mix
+only through `mic_i` (above), it silences the tape as well; the Audio panel's Tape EAR lamp still shows the raw input
+(`BeeperState::tape_ear`), so a muted tape is visibly playing.
+
 The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 `env_reset`, which reloads the level and also forces `env_ena` (`ym2149.vhd:340-342` and `ym2149.vhd:393-409`), so the first
 step comes with the write instead of one envelope period later. `AyChip::load_envelope()` applies the reload

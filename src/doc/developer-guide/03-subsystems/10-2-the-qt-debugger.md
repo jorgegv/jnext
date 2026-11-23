@@ -384,6 +384,34 @@ constants in `src/debugger/`.
 Which space each view prints, and the columns that were added, are described in
 [7.7](../07-source-level-debugging/07-frontends.md).
 
+### The Audio panel
+
+`AudioPanel` (`src/debugger/audio_panel.cpp`) is a Sources strip (the five source mute boxes) above a
+`QTabWidget`: Chips, DAC & Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+not available yet. The panel owns no audio state: every number comes from one `Debugger::audio_state()` per
+refresh, and every note from `audio_math.h`, so the panel and a test read the same decode.
+
+- **Chips** draws the three chip blocks from `AudioState::chips`, the nine channel rows (period, note and
+  cents, T and N gates, volume or `Env`, a level bar from `AyChannelState::amplitude`) and the envelope line.
+  Its Hex box swaps the table for the raw `regs` of the three chips.
+- **DAC & Beeper** shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the
+  dropped-write table, one fixed row per `AudioDropReason`; a CPU-sourced row double-clicks into the
+  Disassembly, and **Clear** calls `clear_audio_drops()`. `audio_drop_reason_text()` is shared with the Log
+  tab, so the two cannot word a reason differently.
+- **Log** is `AudioLogView`, a `QAbstractTableModel` mirroring the backend ring: `refresh()` appends the
+  entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
+  overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
+  `audio_log_export()`.
+- **M and S** per channel call `set_audio_channel_mute_mask()`. A solo is the mask "everything but that
+  channel": `channel_solo_clicked()` saves the mask it found (`pre_solo_mask_`) and un-solo restores it, a solo
+  moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
+  solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.
+
+What the panel asks of the backend follows the sub-tab on show. `DebuggerManager::apply_data_needs()` requests
+the write log only while the Audio panel is on show with Log current (`AudioPanel::log_on_show()`), and drops
+the request otherwise; the panel's `sub_tab_changed` signal makes the manager re-derive it. Chips is the one
+sub-tab with the per-frame refresh described under the running cadence below.
+
 ## The key bindings are data
 
 No shortcut in the debugger window is written at its call site. The inventory is
