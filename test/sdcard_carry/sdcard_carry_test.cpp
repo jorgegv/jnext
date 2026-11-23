@@ -22,6 +22,7 @@
 #include "core/sha256.h"
 #include "peripheral/sd_write_journal.h"
 #include "../row_id.h"
+#include "../scratch_dir.h"
 
 extern "C" {
 #include "third_party/fatfs/ff.h"
@@ -308,8 +309,7 @@ std::unique_ptr<carry::Tree> mem_tree(const std::string& card) {
 }  // namespace
 
 int main() {
-    g_dir = fs::temp_directory_path() / ("jnext-carry-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(g_dir);
+    g_dir = make_scratch_dir("jnext-carry");
     std::string err;
 
     // =================== SDCMP: walking and comparing =====================================

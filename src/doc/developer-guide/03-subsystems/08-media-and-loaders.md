@@ -1595,9 +1595,9 @@ rebuild, and each overlay against the card) are carried onto the new card, and t
 before anything of the old set is touched. The overlays carried are the command line's `--sdcard-writes` FILEs
 plus the files listed in `overlays.list` that still bind to the card; each is rebuilt as `FILE.new`, bound to
 the new card's final size and mtime. Without a pristine base `--sdcard-upgrade yes` is refused and `fresh`
-starts a new card with nothing carried. The switch is five idempotent steps journalled by marker files
-(`SWITCHING`, `sN.done`): the old set moves into `previous.new/`, the new raw and card take its place with their
-sidecars, each `FILE.new` replaces its FILE, `previous.new/` replaces `previous/`, the report goes into
+starts a new card with nothing carried. The switch is six idempotent steps journalled by marker files
+(`SWITCHING`, `sN.done`): the old set moves into `previous.new/`, the new raw takes its place with its sidecars
+(a card is never in place without the raw it was made from), then the new card, each `FILE.new` replaces its FILE, `previous.new/` replaces `previous/`, the report goes into
 `previous/upgrade-report.txt` and `upgrade-work/` is removed. A failure before the first step removes the work
 directory and leaves the old set in use (an accepted upgrade then reports a warning); from the first step on the
 only way is forward, and the next start finishes it (`upgrade::recover`). `--sdcard-download-force`, which was

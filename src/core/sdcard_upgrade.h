@@ -69,7 +69,7 @@ bool switch_set(const Plan& plan, const std::string& report_text, std::string& e
 /// done (empty when nothing). True unless a roll-forward itself failed.
 bool recover(const std::string& dir, std::string& note, std::string& err);
 
-/// Test seam: when set, the named switch step (1..5) fails with an error, once, as a crash would
+/// Test seam: when set, the named switch step (1..6) fails with an error, once, as a crash would
 /// stop it. 0 = off.
 extern int g_fail_switch_step_for_test;
 

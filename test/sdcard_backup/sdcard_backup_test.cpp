@@ -20,6 +20,7 @@
 #include "core/sha256.h"
 #include "peripheral/sd_write_journal.h"
 #include "../row_id.h"
+#include "../scratch_dir.h"
 #include "../test_portable.h"
 
 #include <zlib.h>
@@ -199,8 +200,7 @@ bool has(const std::string& hay, const std::string& needle) { return hay.find(ne
 
 int main() {
     using namespace sdcard::backup;
-    g_dir = fs::temp_directory_path() / ("jnext-backup-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(g_dir);
+    g_dir = make_scratch_dir("jnext-backup");
     g_cfg = (g_dir / "cfg").string();
     jtp::set_env("JNEXT_CONFIG_DIR", g_cfg.c_str());
     jtp::make_dir(g_cfg.c_str());

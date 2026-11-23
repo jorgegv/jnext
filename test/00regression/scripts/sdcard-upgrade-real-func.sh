@@ -117,8 +117,10 @@ PY
                 cmp -s "$ur_dir/a.out" "$ur_dir/b.out" || ur_faults+=("3: the guest's $p differs on the new card")
                 ur_checked=$((ur_checked + 1))
             done <<<"$ur_delta"
-            LANG=C mtype -i "$ur_card@@$ur_off" ::README.md 2>/dev/null | grep -qx "variant release" || ur_faults+=("3: README.md is not the variant's")
-            LANG=C mtype -i "$ur_card@@$ur_off" ::VARIANT-ADDED.TXT 2>/dev/null | grep -qx "added by the variant release" || ur_faults+=("3: the variant's added file is missing")
+            ur_t=$(LANG=C mtype -i "$ur_card@@$ur_off" ::README.md 2>/dev/null || true)
+            [[ "$ur_t" == "variant release" ]] || ur_faults+=("3: README.md is not the variant's")
+            ur_t=$(LANG=C mtype -i "$ur_card@@$ur_off" ::VARIANT-ADDED.TXT 2>/dev/null || true)
+            [[ "$ur_t" == "added by the variant release" ]] || ur_faults+=("3: the variant's added file is missing")
             ! LANG=C mdir -i "$ur_card@@$ur_off" ::CONTRIBUTING.md &>/dev/null || ur_faults+=("3: the file the variant removed is still on the new card")
             # 4: the new card boots like the old one
             ur_boot=$(LANG=C JNEXT_CONFIG_DIR="$ur_dir/cfg" timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \

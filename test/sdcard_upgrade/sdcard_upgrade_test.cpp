@@ -18,6 +18,7 @@
 #include "core/sha256.h"
 #include "peripheral/sd_write_journal.h"
 #include "../row_id.h"
+#include "../scratch_dir.h"
 #include "../test_portable.h"
 
 #include <zlib.h>
@@ -344,8 +345,7 @@ bool has(const std::string& hay, const std::string& needle) { return hay.find(ne
 }  // namespace
 
 int main() {
-    g_dir = fs::temp_directory_path() / ("jnext-upgrade-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(g_dir);
+    g_dir = make_scratch_dir("jnext-upgrade");
     if (!build_world()) {
         check("SDUPG-00", "the fixtures (an old card made by the recipe, a new distribution's zip) are built", false, w.err);
         std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
@@ -431,19 +431,23 @@ int main() {
                   !exists(prev("")) && get_text(bogus) == "this is not a writes file",
               r.warning + r.error);
     }
-    // ---- SDUPG-06B..F / 11: a switch interrupted at each step rolls forward at the next start ------
-    for (int step = 1; step <= 5; ++step) {
+    // ---- SDUPG-06B..G / 11: a switch interrupted at each step rolls forward at the next start ------
+    for (int step = 1; step <= 6; ++step) {
         install_old();
         sdcard::upgrade::g_fail_switch_step_for_test = step;
         const auto r1 = sdcard::provision_sd_card(opts_with(nullptr, sdcard::UpgradeMode::Yes));
         const bool interrupted = r1.status == sdcard::ProvisionStatus::Failed && has(r1.error, "interrupted");
+        // the state where it stopped: before step 3 the new raw is in place and the card is not (a card is
+        // never in place without the raw it was made from)
+        bool mid_ok = true;
+        if (step == 3) mid_ok = exists(w.raw) && get_text(w.raw_distro) == kNew + "\n" && !exists(w.fixed);
         const auto r2 = sdcard::provision_sd_card(opts_with(nullptr, sdcard::UpgradeMode::No));   // the next start
         const auto nf = foreign(w.fixed);
-        const bool ok = interrupted && r2.status == sdcard::ProvisionStatus::Ok && new_set_in_place() &&
+        const bool ok = interrupted && mid_ok && r2.status == sdcard::ProvisionStatus::Ok && new_set_in_place() &&
                         text(nf, "/GAMES/MINE.NEX") == "NEX!" && get_text(prev(std::string(sdcard::kFixedImageFileName) + sdcard::kDistroSuffix)) == kOld + "\n";
-        const char* id = step == 1 ? "SDUPG-06B" : step == 2 ? "SDUPG-06C" : step == 3 ? "SDUPG-06D" : step == 4 ? "SDUPG-06E" : "SDUPG-06F";
-        check(id, "a switch interrupted at this step (1..5 = 06B..06F) is finished by the next start: the full new set is in place and the old one in previous/",
-              ok, "step " + std::to_string(step) + " r1=" + r1.error + " r2=" + r2.error);
+        const char* id = step == 1 ? "SDUPG-06B" : step == 2 ? "SDUPG-06C" : step == 3 ? "SDUPG-06D" : step == 4 ? "SDUPG-06E" : step == 5 ? "SDUPG-06F" : "SDUPG-06G";
+        check(id, "a switch interrupted at this step (1..6 = 06B..06G) is finished by the next start: the full new set is in place and the old one in previous/; stopped before step 3 the new raw is in place and the card is not",
+              ok, "step " + std::to_string(step) + " mid=" + std::to_string(mid_ok) + " r1=" + r1.error + " r2=" + r2.error);
     }
     {
         install_old();

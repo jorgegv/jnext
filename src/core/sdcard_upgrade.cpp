@@ -393,24 +393,32 @@ bool step1(const Switch& s, std::string& err) {
     return true;
 }
 
-// 2. the new raw and card into place, with their sidecars
+// 2. the new raw into place, with its sidecars: a card is never in place without the raw it was made from
 bool step2(const Switch& s, std::string& err) {
     const fs::path work = work_dir(s.dir);
     std::error_code ec;
     if (fs::exists(work / "raw.new", ec) && !move_file(work / "raw.new", raw_of(s.dir), err)) return false;
-    if (fs::exists(work / "card.new", ec) && !move_file(work / "card.new", card_of(s.dir), err)) return false;
-    const std::string card = card_of(s.dir), raw = raw_of(s.dir);
+    const std::string raw = raw_of(s.dir);
     if (!s.raw_sha.empty() && !write_lines(raw + ".sha256", {s.raw_sha + "  " + kImageFileName})) { err = "cannot write the raw's .sha256"; return false; }
-    if (!write_lines(raw + kDistroSuffix, {s.distro}) || !write_lines(card + kDistroSuffix, {s.distro}) ||
-        !write_lines(card + kFixedImageRecipeSuffix, {std::to_string(s.recipe)})) {
+    if (!write_lines(raw + kDistroSuffix, {s.distro})) { err = "cannot write the raw's .distro"; return false; }
+    return true;
+}
+
+// 3. the new card into place, with its sidecars
+bool step3(const Switch& s, std::string& err) {
+    const fs::path work = work_dir(s.dir);
+    std::error_code ec;
+    if (fs::exists(work / "card.new", ec) && !move_file(work / "card.new", card_of(s.dir), err)) return false;
+    const std::string card = card_of(s.dir);
+    if (!write_lines(card + kDistroSuffix, {s.distro}) || !write_lines(card + kFixedImageRecipeSuffix, {std::to_string(s.recipe)})) {
         err = "cannot write the new card's sidecars";
         return false;
     }
     return true;
 }
 
-// 3. the overlays: each "<FILE>.new" over FILE (a fresh start sets them aside instead)
-bool step3(const Switch& s, std::string& err) {
+// 4. the overlays: each "<FILE>.new" over FILE (a fresh start sets them aside instead)
+bool step4(const Switch& s, std::string& err) {
     std::error_code ec;
     for (const std::string& o : s.overlays) {
         if (s.carry) {
@@ -426,8 +434,8 @@ bool step3(const Switch& s, std::string& err) {
     return true;
 }
 
-// 4. any old previous/ goes, previous.new/ takes its name
-bool step4(const Switch& s, std::string& err) {
+// 5. any old previous/ goes, previous.new/ takes its name
+bool step5(const Switch& s, std::string& err) {
     std::error_code ec;
     const fs::path prev = previous_dir(s.dir), pn = fs::path(s.dir) / "previous.new";
     if (fs::exists(pn, ec)) {
@@ -437,8 +445,8 @@ bool step4(const Switch& s, std::string& err) {
     return true;
 }
 
-// 5. the report beside the backup, the work directory gone
-bool step5(const Switch& s, std::string& err) {
+// 6. the report beside the backup, the work directory gone
+bool step6(const Switch& s, std::string& err) {
     std::error_code ec;
     const fs::path rep = fs::path(work_dir(s.dir)) / "report.txt";
     if (fs::exists(rep, ec)) {
@@ -452,12 +460,12 @@ bool step5(const Switch& s, std::string& err) {
 
 bool run_steps(const Switch& s, std::string& err) {
     using StepFn = bool (*)(const Switch&, std::string&);
-    const StepFn steps[5] = {step1, step2, step3, step4, step5};
-    for (int k = 1; k <= 5; ++k) {
-        if (k < 5 && done(s.dir, k)) continue;
+    const StepFn steps[6] = {step1, step2, step3, step4, step5, step6};
+    for (int k = 1; k <= 6; ++k) {
+        if (k < 6 && done(s.dir, k)) continue;
         if (injected(k, err)) return false;
         if (!steps[k - 1](s, err)) return false;
-        if (k < 5) mark(s.dir, k);
+        if (k < 6) mark(s.dir, k);
     }
     return true;
 }
