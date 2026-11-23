@@ -29,7 +29,7 @@ mentions them, so a test can no longer be absent from this document.
 | Tilemap                                    |   123 |  123 |    0 |    0 |       0 |          0 |
 | Copper                                     |   115 |  115 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   300 |  300 |    0 |    0 |       0 |          0 |
-| Audio                                      |   521 |  521 |    0 |    0 |       0 |          0 |
+| Audio                                      |   527 |  527 |    0 |    0 |       0 |          0 |
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   173 |  173 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6547 | 6547 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6553 | 6553 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6547**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6023**. Rows the 243 suites declared in `test/unit-tests.conf` run live: **17818**.
+Rows the sections above carry: **6553**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6029**. Rows the 243 suites declared in `test/unit-tests.conf` run live: **17831**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 190 suites (11879 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 190 suites (11886 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -262,7 +262,7 @@ These 190 suites (11879 live rows) have no VHDL-derived plan row to map, so they
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
 | `preferences_apply_test` | 101 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 122 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
-| `debugger_audio_panel_test` | 69 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
+| `debugger_audio_panel_test` | 76 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 11 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 18 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
 | `debugger_halt_batch_test` | 4 | debugger window open vs the HALT batch (host GUI lifecycle, GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
@@ -2338,24 +2338,30 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AEV-38 | a DAC or mirror subscription with a channel and Dropped required is refused (a dropped write has chip 0xFF); the same with chip Any, an AY register or chip-select target with a chip, and ANY with a chip are accepted | — | pass | test/debug/audio_debug_test.cpp:1100 |
 | AEV-39 | an ANY subscription (log off) across a soft reset and a snapshot load delivers no AudioWrite event: the tap's Reset and StateLoad markers are not writes | — | pass | test/debug/audio_debug_test.cpp:1115 |
 | AEV-40 | a mirror subscription with regs {0x2D} (soundrive.vhd:85-101) stops on NEXTREG 0x2D only, one instruction late (0x8009), never on 0x2C: two events, chips 0 and 3, reg 0x2D | soundrive.vhd:85-101 | pass | test/debug/audio_debug_test.cpp:1126 |
-| AFG-01 | f10 writes R8=0x05 (prev 0) then R8=0x0A; the f11 write completes f10: last write wins (final 0x0A), before is the first write's prev (0), no other register has a final value | — | pass | test/debug/audio_debug_test.cpp:3119 |
-| AFG-02 | R8 written twice sets exactly bit 8 of double_mask (R0 written once: no bit 0); a frame of single writes has double_mask 0 | — | pass | test/debug/audio_debug_test.cpp:3128 |
-| AFG-03 | R14 and R15 writes only: one frame, writes == 2, written_mask 0xC000, no final_value or before slot set | — | pass | test/debug/audio_debug_test.cpp:3137 |
-| AFG-04 | writes in f10, f13, f14: f10 empty_before 0 (the first frame), f13 2 (f11 and f12 had none), f14 0 | — | pass | test/debug/audio_debug_test.cpp:3143 |
-| AFG-05 | f10 AY write, then DAC, mirror, beeper and chip-select entries in f11, then an AY write in f12: the DAC entry already completes f10, f11 has no frame, f12 empty_before 1, nothing else counted | — | pass | test/debug/audio_debug_test.cpp:3158 |
-| AFG-06 | two dropped AyRegister entries in f10: no frame opens, flush returns nothing, open() is null | — | pass | test/debug/audio_debug_test.cpp:3167 |
-| AFG-07 | three writes stamped (1,10,40), (5,20,1150), (9,4,2050): first is the first, last the last, writes 3; a one-write frame has first == last | — | pass | test/debug/audio_debug_test.cpp:3176 |
-| AFG-08 | f10: CPU writes at pc 0x8123, 0x8100, 0x8150 plus a DMA and a Debugger write: pc_min 0x8100, pc_max 0x8150, writes 5; f11 with a DMA write only: pc_min 0xFFFF, pc_max 0, writes 1 | — | pass | test/debug/audio_debug_test.cpp:3188 |
-| AFG-09 | a Reset marker completes f10 and forgets the timeline: nothing open after it; the f12 write has empty_before 0 and an unknown before[R7] | — | pass | test/debug/audio_debug_test.cpp:3202 |
-| AFG-10 | chip 1 R0=0x11 and chip 2 R13=0x08 in f10: written_mask {0, bit 0, bit 13}, each final_value on its own chip, chip 0 untouched | — | pass | test/debug/audio_debug_test.cpp:3208 |
-| AFG-11 | R7=0x38 (prev 0xFF) in f10, only R8 in f11: f10 changed(0,7); f11 carries R7: before 0x38, no final value, after 0x38, not changed | — | pass | test/debug/audio_debug_test.cpp:3216 |
-| AFG-12 | a register never seen (R9) is unknown in f11: before -1, after -1, not changed | — | pass | test/debug/audio_debug_test.cpp:3223 |
-| AFG-13 | R8 written in f10 (0x05) and again in f12 with prev 0x07: f12's before is the write's prev 0x07, not the carried 0x05 | — | pass | test/debug/audio_debug_test.cpp:3229 |
-| AFG-14 | R0 rewritten with the same value: written_mask bit 0 set, not changed | — | pass | test/debug/audio_debug_test.cpp:3235 |
-| AFG-15 | two writes in f10: no frame returned, open() is f10 with writes 2; flush returns it and open() is then null | — | pass | test/debug/audio_debug_test.cpp:3246 |
-| AFG-16 | a frame number going backwards without a marker (f20 then f15): the f15 write returns f20; f15 is its own frame with empty_before 0 and an unknown before[R7]; the same when nothing is open (f20 write, f21 DAC entry, f15 write): f15 empty_before 0 (no underflow), before[R7] unknown | — | pass | test/debug/audio_debug_test.cpp:3255 |
-| AFG-17 | a Debugger-source R8 write: counted (writes 1, final value set) but with no pc range (pc_min 0xFFFF, pc_max 0) | — | pass | test/debug/audio_debug_test.cpp:3264 |
-| AFG-18 | a write, a StateLoad marker, a write, a Rewind marker (frame 8), a write at f9: each marker returns the open frame (f10, f11, one write each, markers never counted); f9 comes from flush with empty_before 0 | — | pass | test/debug/audio_debug_test.cpp:3280 |
+| AFG-01 | f10 writes R8=0x05 (prev 0) then R8=0x0A; the f11 write completes f10: last write wins (final 0x0A), before is the first write's prev (0), no other register has a final value | — | pass | test/debug/audio_debug_test.cpp:3122 |
+| AFG-02 | R8 written twice sets exactly bit 8 of double_mask (R0 written once: no bit 0); a frame of single writes has double_mask 0 | — | pass | test/debug/audio_debug_test.cpp:3131 |
+| AFG-03 | R14 and R15 writes only: one frame, writes == 2, written_mask 0xC000, no final_value or before slot set | — | pass | test/debug/audio_debug_test.cpp:3140 |
+| AFG-04 | writes in f10, f13, f14: f10 empty_before 0 (the first frame), f13 2 (f11 and f12 had none), f14 0 | — | pass | test/debug/audio_debug_test.cpp:3146 |
+| AFG-05 | f10 AY write, then DAC, mirror, beeper and chip-select entries in f11, then an AY write in f12: the DAC entry already completes f10, f11 has no frame, f12 empty_before 1, nothing else counted | — | pass | test/debug/audio_debug_test.cpp:3161 |
+| AFG-06 | two dropped AyRegister entries in f10: no frame opens, flush returns nothing, open() is null | — | pass | test/debug/audio_debug_test.cpp:3170 |
+| AFG-07 | three writes stamped (1,10,40), (5,20,1150), (9,4,2050): first is the first, last the last, writes 3; a one-write frame has first == last | — | pass | test/debug/audio_debug_test.cpp:3179 |
+| AFG-08 | f10: CPU writes at pc 0x8123, 0x8100, 0x8150 plus a DMA and a Debugger write: pc_min 0x8100, pc_max 0x8150, writes 5; f11 with a DMA write only: pc_min 0xFFFF, pc_max 0, writes 1 | — | pass | test/debug/audio_debug_test.cpp:3191 |
+| AFG-09 | a Reset marker completes f10 and forgets the timeline: nothing open after it; the f12 write has empty_before 0 and an unknown before[R7] | — | pass | test/debug/audio_debug_test.cpp:3205 |
+| AFG-10 | chip 1 R0=0x11 and chip 2 R13=0x08 in f10: written_mask {0, bit 0, bit 13}, each final_value on its own chip, chip 0 untouched | — | pass | test/debug/audio_debug_test.cpp:3211 |
+| AFG-11 | R7=0x38 (prev 0xFF) in f10, only R8 in f11: f10 changed(0,7); f11 carries R7: before 0x38, no final value, after 0x38, not changed | — | pass | test/debug/audio_debug_test.cpp:3219 |
+| AFG-12 | a register never seen (R9) is unknown in f11: before -1, after -1, not changed | — | pass | test/debug/audio_debug_test.cpp:3226 |
+| AFG-13 | R8 written in f10 (0x05) and again in f12 with prev 0x07: f12's before is the write's prev 0x07, not the carried 0x05 | — | pass | test/debug/audio_debug_test.cpp:3232 |
+| AFG-14 | R0 rewritten with the same value: written_mask bit 0 set, not changed | — | pass | test/debug/audio_debug_test.cpp:3238 |
+| AFG-15 | two writes in f10: no frame returned, open() is f10 with writes 2; flush returns it and open() is then null | — | pass | test/debug/audio_debug_test.cpp:3249 |
+| AFG-16 | a frame number going backwards without a marker (f20 then f15): the f15 write returns f20; f15 is its own frame with empty_before 0 and an unknown before[R7]; the same when nothing is open (f20 write, f21 DAC entry, f15 write): f15 empty_before 0 (no underflow), before[R7] unknown | — | pass | test/debug/audio_debug_test.cpp:3258 |
+| AFG-17 | a Debugger-source R8 write: counted (writes 1, final value set) but with no pc range (pc_min 0xFFFF, pc_max 0) | — | pass | test/debug/audio_debug_test.cpp:3267 |
+| AFG-18 | a write, a StateLoad marker, a write, a Rewind marker (frame 8), a write at f9: each marker returns the open frame (f10, f11, one write each, markers never counted); f9 comes from flush with empty_before 0 | — | pass | test/debug/audio_debug_test.cpp:3283 |
+| AFG-19 | frames 200,201,202,204 (204 empty_before 1), window 50: frames 4, window 200-204, empty 1; first line 1/4.5/15, first T-state 300/1126.5/3600, last line 1/5.0/15, last T-state 304/1246.0/3640, writes 1/2.0/3, PC 0x9300-0x9320 (the frame with no CPU write adds nothing) | — | pass | test/debug/audio_debug_test.cpp:3309 |
+| AFG-20 | ten consecutive frames 100-109, first line = f - 100: window 3 covers 107-109 (frames 3, empty 0, first line 7/8.0/9); window 10 covers 100-109 (frames 10); window 11 is clamped to the oldest frame (window_first 100, frames 10, empty 0) | — | pass | test/debug/audio_debug_test.cpp:3324 |
+| AFG-21 | empty frame numbers: f100,f101,f104 (empty_before 2) window 10 is 100-104 with 3 frames and 2 empty; f120 (empty_before 25),f121: window 50 starts at 95 (the oldest frame minus its empty_before) with 25 empty, window 10 starts at 112 with 8 empty (not the 25 before the window) | — | pass | test/debug/audio_debug_test.cpp:3336 |
+| AFG-22 | PC ranges 0x8100-0x8150, 0x8000-0x8120, none (0xFFFF-0) and an inverted pair (0x9000-0x8FFF, min > max): neither adds anything, the union is 0x8000-0x8150; three frames with no CPU write leave pc_min 0xFFFF, pc_max 0 | — | pass | test/debug/audio_debug_test.cpp:3348 |
+| AFG-23 | frames 50, 51, then 10, 11 (a timeline break at 10), window 100: only 10 and 11 count (frames 2, window 10-11, first line 2/2.5/3); 50 and 51 are ignored | — | pass | test/debug/audio_debug_test.cpp:3355 |
+| AFG-24 | edge cases: no frames, and window 0, give the default (frames 0, every field 0); f3 alone with window 50 saturates the nominal start at 0 and starts at 3 (empty 0); f7 alone with window 1 has min == avg == max on every range and window 7-7 | — | pass | test/debug/audio_debug_test.cpp:3367 |
 | AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:711 |
 | AY-50b | tone period 1 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:715 |
 | AY-61a | noise period 0 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:811 |
