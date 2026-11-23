@@ -70,6 +70,7 @@ public:
     /// True while the DAC & Beeper tab is the current one: it also asks the backend to record the write
     /// log (the Sample stream group reads it), and its Pacing and Sample stream groups are live.
     bool dac_on_show() const;
+
     /// True while the Tracker tab is the current one: it reads the same write log as the Log
     /// tab, so either one on show asks the backend to record it.
     bool tracker_on_show() const;

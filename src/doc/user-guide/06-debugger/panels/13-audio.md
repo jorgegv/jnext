@@ -137,8 +137,8 @@ The DAC & Beeper tab is refreshed at about 4 Hz with the rest of the window.
 ## Log
 
 A table of the audio writes the program made, one row per write, newest last. The
-machine records them only while this tab is the one on show in an open debugger window
-(or while something else asks for the log, such as `--audio-log`); the rows you see
+machine records them only while this tab, Tracker or DAC & Beeper is the one on show in an open
+debugger window (or while something else asks for the log, such as `--audio-log`); the rows you see
 start when you open the tab, and the log holds the newest 65536 writes. The tab is
 refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.
 
@@ -191,7 +191,7 @@ value changed is highlighted. A run of frames with no AY write is a single row, 
 or `empty xN`; a break in the log (reset, state load, rewind) is a row of its own, as in
 the Log tab.
 
-The Tracker reads the same log as the Log tab: it is recorded only while one of them is on
+The Tracker reads the same log as the Log tab: it is recorded only while Log, Tracker or DAC & Beeper is on
 show, and the log holds the newest 65536 writes. The rows follow the machine at about
 4 Hz while it runs and the tab keeps at most 65536 rows.
 
