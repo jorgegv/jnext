@@ -557,7 +557,12 @@ bool verify_carried_equal(Tree& result, Tree& src, const std::vector<Entry>& car
         if (!r || !s) { err = "carried path '" + e.path + "' is missing after the carry-over"; return false; }
         bool same = false;
         if (!same_entry(result, *r, src, *s, same, err)) return false;
-        if (!same) { err = "carried path '" + e.path + "' differs from its source after the carry-over"; return false; }
+        if (!same) {
+            std::string why = r->dir != s->dir ? "type" : (r->attr ^ s->attr) & kUserAttrMask ? "attributes " + std::to_string(r->attr & kUserAttrMask) + " vs " + std::to_string(s->attr & kUserAttrMask)
+                              : r->size != s->size ? "size " + std::to_string(r->size) + " vs " + std::to_string(s->size) : "content";
+            err = "carried path '" + e.path + "' differs from its source after the carry-over (" + why + ")";
+            return false;
+        }
     }
     return true;
 }
