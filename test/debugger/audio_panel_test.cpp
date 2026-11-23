@@ -2523,10 +2523,12 @@ static void test_timing_strip(Emulator& emu) {
                          tlabel(panel, "audio_timing_writes") == "Writes per frame: -" && tlabel(panel, "audio_timing_frame").isEmpty() &&
                          panel.findChild<AudioJitterPlot*>("audio_timing_plot")->dots().empty() &&
                          tlabel(panel, "audio_timing_plot_range").isEmpty();
-        check("DAP-87", "(a) f10, f11, a Reset marker, f30, f31, open f32: 'Last 50 frames: 30 to 31, 2 with AY writes, 0 without' (a reset starts afresh); (b) f20, f21, a Rewind marker, f22, open f23: 'Last 50 frames: 20 to 22, 3 with AY writes, 0 without' (a landing does not split); (c) a real log with frames of writes shows 2 frames, a details line and dots, and after the log goes off the strip reads 'No AY writes in the last 50 frames', dashes, no details, no dots, no range",
+        panel.findChild<QSpinBox*>("audio_timing_window")->setValue(1);
+        const bool off1 = tlabel(panel, "audio_timing_span") == "No AY writes in the last 1 frame";
+        check("DAP-87", "(a) f10, f11, a Reset marker, f30, f31, open f32: 'Last 50 frames: 30 to 31, 2 with AY writes, 0 without' (a reset starts afresh); (b) f20, f21, a Rewind marker, f22, open f23: 'Last 50 frames: 20 to 22, 3 with AY writes, 0 without' (a landing does not split); (c) a real log with frames of writes shows 2 frames, a details line and dots, and after the log goes off the strip reads 'No AY writes in the last 50 frames', dashes, no details, no dots, no range, and with the window set to 1 'No AY writes in the last 1 frame'",
               a == "Last 50 frames: 30 to 31, 2 with AY writes, 0 without" &&
-              b == "Last 50 frames: 20 to 22, 3 with AY writes, 0 without" && live && off,
-              a.toStdString() + " | " + b.toStdString() + " live=" + std::to_string(live) + " off=" + std::to_string(off) +
+              b == "Last 50 frames: 20 to 22, 3 with AY writes, 0 without" && live && off && off1,
+              a.toStdString() + " | " + b.toStdString() + " live=" + std::to_string(live) + " off=" + std::to_string(off) + " off1=" + std::to_string(off1) +
               " span=" + tlabel(panel, "audio_timing_span").toStdString());
     }
 }
