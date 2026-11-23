@@ -33,6 +33,9 @@
 //          Oracles: ym2149.vhd:188,207-210, turbosound.vhd:129-141, zxnext.vhd:2965,2974-2980,5412-5414,
 //          soundrive.vhd:85-101; the timestamps against the event system's own (DebugState's stamper).
 //
+//   AFG-*  the log grouped by frame (GH #534, src/debug/audio_frames.h): the counting and frame-advance rules,
+//          before/after values from the entries' prev, markers, pc and raster stamps. Pure: hand-built entries.
+//
 //   AEV-*  the AudioWrite event kind (GH #532): a subscription on the decoded audio writes, delivered at the
 //          raising boundary (one instruction late for a CPU NextREG write and a Copper MOVE); AIZ-08 its invisibility.
 //          Oracles: ym2149.vhd:188,210, turbosound.vhd:129,141, zxnext.vhd:3088,3091,5413,6989, soundrive.vhd:85-101.
@@ -44,6 +47,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "debug/audio_frames.h"
 #include "debug/audio_log_csv.h"
 #include "debug/audio_log_stream.h"
 #include "debug/audio_math.h"
@@ -3071,6 +3075,213 @@ int main() {
         check("AIZ-07", "the write log is invisible to the Z80: 50 frames of a CPU looping over every write site with the log on and off leave the saved state and the video unchanged (positive control: the log of the run that had it on holds entries of all five targets)",
               ran && same && all5);
     }
+
+    // ── AFG: the log grouped by frame (GH #534, src/debug/audio_frames.h) ──
+    {
+        using jnext::dbg::AudioFrame;
+        using jnext::dbg::AudioFrameAccumulator;
+        using jnext::dbg::AudioMarker;
+        using jnext::dbg::AudioTarget;
+        using jnext::dbg::AudioDropReason;
+
+        // A counted AY register write; chip 0, a CPU at 0x8000, stamp 0 unless said.
+        auto ayw = [](uint32_t frame, unsigned chip, unsigned reg, unsigned value, unsigned prev,
+                      EventSource src = EventSource::Cpu, unsigned pc = 0x8000,
+                      int vc = 0, int hc = 0, unsigned ts = 0) {
+            AudioLogEntry e;
+            e.frame = frame; e.chip = uint8_t(chip); e.reg = uint8_t(reg); e.value = uint8_t(value);
+            e.prev = uint8_t(prev); e.source = src; e.pc = uint16_t(pc);
+            e.vc = int16_t(vc); e.hc = int16_t(hc); e.tstate_in_frame = ts;
+            return e;
+        };
+        auto other = [](uint32_t frame, AudioTarget t) {
+            AudioLogEntry e; e.frame = frame; e.target = t; return e;
+        };
+        auto marker = [](uint32_t frame, AudioMarker m) {
+            AudioLogEntry e; e.frame = frame; e.marker = m; return e;
+        };
+        // Feed `in` and collect the frames returned, flushing at the end when asked.
+        auto run = [](AudioFrameAccumulator& acc, const std::vector<AudioLogEntry>& in, bool flush) {
+            std::vector<AudioFrame> out;
+            for (const AudioLogEntry& e : in) if (auto f = acc.feed(e)) out.push_back(*f);
+            if (flush) if (auto f = acc.flush()) out.push_back(*f);
+            return out;
+        };
+        auto all_unwritten = [](const AudioFrame& f, size_t chip, int skip) {
+            for (size_t r = 0; r < jnext::dbg::AUDIO_FRAME_REGS; ++r)
+                if (int(r) != skip && f.final_value[chip][r] != -1) return false;
+            return true;
+        };
+
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 8, 0x05, 0x00), ayw(10, 0, 8, 0x0A, 0x05), ayw(11, 0, 0, 1, 0)}, false);
+            check("AFG-01", "f10 writes R8=0x05 (prev 0) then R8=0x0A; the f11 write completes f10: last write wins (final 0x0A), before is the first write's prev (0), no other register has a final value",
+                  out.size() == 1 && out[0].frame == 10 && out[0].final_value[0][8] == 0x0A &&
+                  out[0].before[0][8] == 0x00 && all_unwritten(out[0], 0, 8));
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 8, 0x05, 0x00), ayw(10, 0, 8, 0x0A, 0x05), ayw(10, 0, 0, 0x10, 0x00)}, true);
+            AudioFrameAccumulator acc2;
+            auto out2 = run(acc2, {ayw(10, 0, 8, 0x05, 0x00), ayw(10, 0, 0, 0x10, 0x00)}, true);
+            check("AFG-02", "R8 written twice sets exactly bit 8 of double_mask (R0 written once: no bit 0); a frame of single writes has double_mask 0",
+                  out.size() == 1 && out[0].double_mask[0] == (1u << 8) && out2.size() == 1 && out2[0].double_mask[0] == 0);
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 14, 0x55, 0), ayw(10, 0, 15, 0xAA, 0)}, true);
+            bool none = out.size() == 1;
+            if (none) for (size_t r = 0; r < jnext::dbg::AUDIO_FRAME_REGS; ++r)
+                none = none && out[0].final_value[0][r] == -1 && out[0].before[0][r] == -1;
+            check("AFG-03", "R14 and R15 writes only: one frame, writes == 2, written_mask 0xC000, no final_value or before slot set",
+                  none && out[0].writes == 2 && out[0].written_mask[0] == 0xC000);
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 8, 1, 0), ayw(13, 0, 8, 2, 1), ayw(14, 0, 8, 3, 2)}, true);
+            check("AFG-04", "writes in f10, f13, f14: f10 empty_before 0 (the first frame), f13 2 (f11 and f12 had none), f14 0",
+                  out.size() == 3 && out[0].empty_before == 0 && out[1].empty_before == 2 && out[2].empty_before == 0);
+        }
+        {
+            AudioFrameAccumulator acc;
+            std::vector<AudioFrame> out;
+            auto push = [&](const AudioLogEntry& e) { if (auto f = acc.feed(e)) out.push_back(*f); };
+            push(ayw(10, 0, 8, 1, 0));
+            push(other(11, AudioTarget::Dac));
+            const bool dac_advanced = out.size() == 1 && out[0].frame == 10;
+            push(other(11, AudioTarget::DacMirror));
+            push(other(11, AudioTarget::Beeper));
+            push(other(11, AudioTarget::AyChipSelect));
+            push(ayw(12, 0, 8, 2, 1));
+            if (auto f = acc.flush()) out.push_back(*f);
+            check("AFG-05", "f10 AY write, then DAC, mirror, beeper and chip-select entries in f11, then an AY write in f12: the DAC entry already completes f10, f11 has no frame, f12 empty_before 1, nothing else counted",
+                  dac_advanced && out.size() == 2 && out[1].frame == 12 && out[1].empty_before == 1 && out[1].writes == 1);
+        }
+        {
+            AudioFrameAccumulator acc;
+            AudioLogEntry a = ayw(10, 0, 0x1D, 1, 0); a.flags = AudioFlag::Dropped; a.drop_reason = AudioDropReason::AyAddressHigh;
+            AudioLogEntry b = ayw(10, 0, 7, 1, 0);    b.flags = AudioFlag::Dropped; b.drop_reason = AudioDropReason::AyPortDisabled;
+            auto out = run(acc, {a, b}, false);
+            const bool open_null = acc.open() == nullptr;
+            check("AFG-06", "two dropped AyRegister entries in f10: no frame opens, flush returns nothing, open() is null",
+                  out.empty() && open_null && !acc.flush().has_value());
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 8, 1, 0, EventSource::Cpu, 0x8000, 1, 10, 40),
+                                 ayw(10, 0, 9, 1, 0, EventSource::Cpu, 0x8000, 5, 20, 1150),
+                                 ayw(10, 0, 10, 1, 0, EventSource::Cpu, 0x8000, 9, 4, 2050),
+                                 ayw(11, 0, 8, 1, 1, EventSource::Cpu, 0x8000, 2, 3, 77)}, true);
+            check("AFG-07", "three writes stamped (1,10,40), (5,20,1150), (9,4,2050): first is the first, last the last, writes 3; a one-write frame has first == last",
+                  out.size() == 2 && out[0].first.vc == 1 && out[0].first.hc == 10 && out[0].first.tstate == 40 &&
+                  out[0].last.vc == 9 && out[0].last.hc == 4 && out[0].last.tstate == 2050 && out[0].writes == 3 &&
+                  out[1].writes == 1 && out[1].first.tstate == 77 && out[1].last.tstate == 77 &&
+                  out[1].first.vc == out[1].last.vc && out[1].first.hc == out[1].last.hc);
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 8, 1, 0, EventSource::Cpu, 0x8123), ayw(10, 0, 8, 1, 1, EventSource::Cpu, 0x8100),
+                                 ayw(10, 0, 8, 1, 1, EventSource::Cpu, 0x8150), ayw(10, 0, 8, 1, 1, EventSource::Dma, 0),
+                                 ayw(10, 0, 8, 1, 1, EventSource::Debugger, 0xFFFF),
+                                 ayw(11, 0, 8, 1, 1, EventSource::Dma, 0x4000)}, true);
+            check("AFG-08", "f10: CPU writes at pc 0x8123, 0x8100, 0x8150 plus a DMA and a Debugger write: pc_min 0x8100, pc_max 0x8150, writes 5; f11 with a DMA write only: pc_min 0xFFFF, pc_max 0, writes 1",
+                  out.size() == 2 && out[0].pc_min == 0x8100 && out[0].pc_max == 0x8150 && out[0].writes == 5 &&
+                  out[1].pc_min == 0xFFFF && out[1].pc_max == 0 && out[1].writes == 1);
+        }
+        {
+            AudioFrameAccumulator acc;
+            std::vector<AudioFrame> out;
+            auto push = [&](const AudioLogEntry& e) { if (auto f = acc.feed(e)) out.push_back(*f); };
+            push(ayw(10, 0, 7, 0x38, 0xFF));
+            push(marker(10, AudioMarker::Reset));
+            const bool flushed = out.size() == 1 && out[0].frame == 10;
+            const bool closed = acc.open() == nullptr && !acc.flush().has_value();
+            push(ayw(12, 0, 8, 1, 0));
+            auto f = acc.flush();
+            check("AFG-09", "a Reset marker completes f10 and forgets the timeline: nothing open after it; the f12 write has empty_before 0 and an unknown before[R7]",
+                  flushed && closed && f && f->frame == 12 && f->empty_before == 0 && f->before[0][7] == -1);
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 1, 0, 0x11, 0), ayw(10, 2, 13, 0x08, 0)}, true);
+            check("AFG-10", "chip 1 R0=0x11 and chip 2 R13=0x08 in f10: written_mask {0, bit 0, bit 13}, each final_value on its own chip, chip 0 untouched",
+                  out.size() == 1 && out[0].written_mask[0] == 0 && out[0].written_mask[1] == (1u << 0) &&
+                  out[0].written_mask[2] == (1u << 13) && out[0].final_value[1][0] == 0x11 &&
+                  out[0].final_value[2][13] == 0x08 && all_unwritten(out[0], 0, -1));
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 7, 0x38, 0xFF), ayw(11, 0, 8, 0x0F, 0x00)}, true);
+            check("AFG-11", "R7=0x38 (prev 0xFF) in f10, only R8 in f11: f10 changed(0,7); f11 carries R7: before 0x38, no final value, after 0x38, not changed",
+                  out.size() == 2 && out[0].changed(0, 7) && out[1].before[0][7] == 0x38 &&
+                  out[1].final_value[0][7] == -1 && out[1].after(0, 7) == 0x38 && !out[1].changed(0, 7));
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 7, 0x38, 0xFF), ayw(11, 0, 8, 0x0F, 0x00)}, true);
+            check("AFG-12", "a register never seen (R9) is unknown in f11: before -1, after -1, not changed",
+                  out.size() == 2 && out[1].before[0][9] == -1 && out[1].after(0, 9) == -1 && !out[1].changed(0, 9));
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 8, 0x05, 0x00), ayw(12, 0, 8, 0x09, 0x07)}, true);
+            check("AFG-13", "R8 written in f10 (0x05) and again in f12 with prev 0x07: f12's before is the write's prev 0x07, not the carried 0x05",
+                  out.size() == 2 && out[1].before[0][8] == 0x07 && out[1].final_value[0][8] == 0x09);
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 0, 0xFC, 0xFC)}, true);
+            check("AFG-14", "R0 rewritten with the same value: written_mask bit 0 set, not changed",
+                  out.size() == 1 && (out[0].written_mask[0] & 1) && !out[0].changed(0, 0));
+        }
+        {
+            AudioFrameAccumulator acc;
+            std::vector<AudioFrame> returned;
+            for (const AudioLogEntry& e : {ayw(10, 0, 8, 1, 0), ayw(10, 0, 9, 2, 0)})
+                if (auto f = acc.feed(e)) returned.push_back(*f);
+            const AudioFrame* o = acc.open();
+            const bool open_ok = o && o->frame == 10 && o->writes == 2;
+            auto f = acc.flush();
+            check("AFG-15", "two writes in f10: no frame returned, open() is f10 with writes 2; flush returns it and open() is then null",
+                  returned.empty() && open_ok && f && f->frame == 10 && f->writes == 2 && acc.open() == nullptr);
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(20, 0, 7, 0x38, 0xFF), ayw(15, 0, 8, 1, 0)}, true);
+            // The same with no frame open: f21's DAC entry completes f20, then f15 goes backwards.
+            AudioFrameAccumulator acc2;
+            auto out2 = run(acc2, {ayw(20, 0, 7, 0x38, 0xFF), other(21, AudioTarget::Dac), ayw(15, 0, 8, 1, 0)}, true);
+            check("AFG-16", "a frame number going backwards without a marker (f20 then f15): the f15 write returns f20; f15 is its own frame with empty_before 0 and an unknown before[R7]; the same when nothing is open (f20 write, f21 DAC entry, f15 write): f15 empty_before 0 (no underflow), before[R7] unknown",
+                  out.size() == 2 && out[0].frame == 20 && out[1].frame == 15 && out[1].empty_before == 0 &&
+                  out[1].before[0][7] == -1 &&
+                  out2.size() == 2 && out2[0].frame == 20 && out2[1].frame == 15 && out2[1].empty_before == 0 &&
+                  out2[1].before[0][7] == -1);
+        }
+        {
+            AudioFrameAccumulator acc;
+            auto out = run(acc, {ayw(10, 0, 8, 1, 0, EventSource::Debugger, 0x1234)}, true);
+            check("AFG-17", "a Debugger-source R8 write: counted (writes 1, final value set) but with no pc range (pc_min 0xFFFF, pc_max 0)",
+                  out.size() == 1 && out[0].writes == 1 && out[0].final_value[0][8] == 1 &&
+                  out[0].pc_min == 0xFFFF && out[0].pc_max == 0);
+        }
+        {
+            AudioFrameAccumulator acc;
+            std::vector<AudioFrame> out;
+            auto push = [&](const AudioLogEntry& e) { if (auto f = acc.feed(e)) out.push_back(*f); };
+            push(ayw(10, 0, 8, 1, 0));
+            push(marker(10, AudioMarker::StateLoad));
+            const bool a = out.size() == 1 && out[0].frame == 10;
+            push(ayw(11, 0, 8, 2, 1));
+            push(marker(8, AudioMarker::Rewind));
+            const bool b = out.size() == 2 && out[1].frame == 11;
+            push(ayw(9, 0, 8, 3, 0));
+            auto f = acc.flush();
+            check("AFG-18", "a write, a StateLoad marker, a write, a Rewind marker (frame 8), a write at f9: each marker returns the open frame (f10, f11, one write each, markers never counted); f9 comes from flush with empty_before 0",
+                  a && b && out[0].writes == 1 && out[1].writes == 1 && f && f->frame == 9 && f->empty_before == 0);
+        }
+    }
+
 
     aev_rows();
 

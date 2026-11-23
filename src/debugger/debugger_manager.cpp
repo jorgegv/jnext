@@ -113,9 +113,10 @@ void DebuggerManager::apply_data_needs() {
     const bool want_cs = open && (w->panel_on_show(w->callstack_panel()) ||
                                   w->panel_on_show(w->variables_panel()) || source_step_in_flight_);
     const bool want_raster = open && w->panel_on_show(w->video_panel());
-    // GH #531: the audio write log is recorded only while the Audio panel's Log tab is the one on show.
+    // GH #531: the audio write log is recorded only while the Audio panel's Log tab is the one on show;
+    // GH #534: or its Tracker tab, which groups the same log (so a Log/Tracker switch changes nothing).
     const bool want_log = open && w->audio_panel() && w->panel_on_show(w->audio_panel()) &&
-                          w->audio_panel()->log_on_show();
+                          (w->audio_panel()->log_on_show() || w->audio_panel()->tracker_on_show());
     if (want_cs != call_stack_requested_) {
         call_stack_requested_ = want_cs;
         dbg_.set_call_stack_enabled(client_, want_cs);
