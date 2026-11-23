@@ -491,6 +491,7 @@ int main(int argc, char* argv[]) {
     std::string wav_record_file;
     std::string dac_trace_file;
     std::string audio_log_file;
+    std::string psg_record_file;
     cli::AudioGainArgs audio_gain;
     std::string rzx_play_file;
     std::string rzx_record_file;
@@ -1284,6 +1285,9 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::AudioLog:
                 audio_log_file = v[0];
+                break;
+            case cli::OptId::PsgRecord:
+                psg_record_file = v[0];
                 break;
             case cli::OptId::AudioGainDb:
             case cli::OptId::AudioGainBeeperDb:
@@ -3090,6 +3094,16 @@ int main(int argc, char* argv[]) {
         } audio_log_guard;
         if (!audio_log_file.empty()) audio_log_guard.stream = &audio_log;
 
+        // GH #538: the .psg recording starts here too, before any frame runs. A FILE that cannot
+        // be created is refused like the other capture files (the machine is not left running).
+        if (!psg_record_file.empty() &&
+            app.debugger().psg_record_start(jnext::dbg::CLIENT_NONE, psg_record_file) != jnext::dbg::Result::Ok) {
+            fprintf(stderr, "--psg-record: cannot write '%s'\n", psg_record_file.c_str());
+            audio_recorder.stop();
+            dac_trace_recorder.stop();
+            return 1;
+        }
+
         // Task 66 — apply the saved GUI preferences that have no CLI
         // competitor (CPU speed, window scale, CRT filter, tape fast-load)
         // now that the main window exists. Machine type/silent were already
@@ -3383,7 +3397,8 @@ int main(int argc, char* argv[]) {
         // page's loop, after main() has returned.
         // `audio_log_wanted` by value like `record_file`: the browser frontend runs this after main()
         // returned, when main()'s own locals (audio_log_file) are gone.
-        auto finish = [&, record_file, audio_log_wanted = !audio_log_file.empty()]() -> int {
+        auto finish = [&, record_file, audio_log_wanted = !audio_log_file.empty(),
+                       psg_record_wanted = !psg_record_file.empty(), psg_record_file]() -> int {
             // Capture requests are part of the CLI contract: if one cannot start
             // or finalize, an otherwise-clean run must not report success.
             bool capture_ok = true;
@@ -3431,6 +3446,16 @@ int main(int argc, char* argv[]) {
                     Log::audio()->error("--audio-log: {}", why);
                     capture_ok = false;
                 }
+            }
+
+            // GH #538: a recording the GUI started is finished here too (same call, same verdict).
+            if (app.debugger().psg_recording() &&
+                app.debugger().psg_record_stop(jnext::dbg::CLIENT_NONE) != jnext::dbg::Result::Ok) {
+                if (psg_record_wanted)
+                    Log::audio()->error("--psg-record: write error on '{}' or its -ay1/-ay2 files", psg_record_file);
+                else
+                    Log::audio()->error("PSG recording: write error");
+                capture_ok = false;
             }
 
             app.shutdown();

@@ -29,6 +29,7 @@
 #include "debug/debugger.h"
 #include "debug/event_table.h"
 #include "debug/mem_coverage.h"
+#include "debug/psg_recorder.h"
 #include "debug/resume_guard.h"
 #include "debug/symbol_table.h"
 #include "debug/user_annotations.h"
@@ -388,9 +389,11 @@ struct Debugger::Impl {
     void gates_changed();
 
     /// GH #532 -- the audio tap is on while the log is requested OR a live
-    /// `AudioWrite` subscription exists. Computed here, never per write.
+    /// `AudioWrite` subscription exists; GH #538 adds a running .psg recording.
+    /// Computed here, never per write.
     void publish_audio_tap() {
-        emu.set_audio_tap(&audio_sink, audio_log_derived || events.has_kind(EventKind::AudioWrite));
+        emu.set_audio_tap(&audio_sink, audio_log_derived || events.has_kind(EventKind::AudioWrite) ||
+                                           psg != nullptr);
     }
     /// Latch one decoded audio write for the live `AudioWrite` subscriptions.
     void latch_audio_write(const AudioLogEntry& e);
@@ -551,6 +554,9 @@ struct Debugger::Impl {
     size_t   audio_capacity = AUDIO_LOG_DEFAULT_ENTRIES;   ///< for the next allocation
     uint64_t audio_next_seq = 1;
     bool     audio_log_derived = false;
+    /// GH #538 -- the running .psg recording (INS-24), the tap's third consumer; null when
+    /// none. Fed by `audio_sink` BEFORE the ring test, so it needs no log.
+    std::unique_ptr<PsgRecorder> psg;
     AudioLogEntry&       audio_at(size_t i);     ///< the i-th oldest
     const AudioLogEntry& audio_at(size_t i) const;
     void audio_push(const AudioLogEntry& e);

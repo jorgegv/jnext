@@ -47,6 +47,9 @@ void Debugger::Impl::AudioLogSink::audio_record(const AudioLogEntry& in)
     // GH #532: the AudioWrite latch comes BEFORE the ring test, so the event does not depend on the log.
     if (in.marker == AudioMarker::None && impl.events.has_kind(EventKind::AudioWrite))
         impl.latch_audio_write(in);
+    // GH #538: the .psg recorder is fed before the ring test too, markers included. The ring's
+    // marker dedup below does not apply to it (a repeated marker rebases to the same place).
+    if (impl.psg) impl.psg->feed(in);
     if (impl.audio_ring.empty()) return;
     AudioLogEntry e = in;
     // The same marker twice at one cycle (two soft resets with no time between) is one row. A
@@ -62,6 +65,9 @@ void Debugger::Impl::AudioLogSink::audio_record(const AudioLogEntry& in)
 
 void Debugger::Impl::AudioLogSink::audio_rewind_landing(const AudioLogEntry& m)
 {
+    // GH #538: what the abandoned future wrote was played and recorded already, and stays in
+    // the file; the landing marker continues it right after the last frame seen.
+    if (impl.psg) impl.psg->feed(m);
     if (impl.audio_ring.empty()) return;
     // What follows the landing is no longer this timeline: remove every entry from it on,
     // markers included (a Rewind, Reset or StateLoad marker at or after the landing records
@@ -113,8 +119,9 @@ void Debugger::Impl::sync_audio_log(bool force)
     }
     audio_log_derived = asked;
     publish_audio_tap();
-    // After a machine rebuild the new machine is a discontinuity of its own.
-    if (force && asked) {
+    // After a machine rebuild the new machine is a discontinuity of its own (the .psg
+    // recorder needs the marker as much as the log does).
+    if (force && (asked || psg)) {
         AudioLogEntry m;
         m.cycle = emu.clock().get();
         m.marker = AudioMarker::Reset;
@@ -125,6 +132,36 @@ void Debugger::Impl::sync_audio_log(bool force)
 // ---------------------------------------------------------------------------
 // The verbs
 // ---------------------------------------------------------------------------
+
+// GH #538 -- INS-24, the .psg recording.
+Result Debugger::psg_record_start(ClientId by, const std::string& path)
+{
+    (void)by;   // attribution only
+    Impl& im = *impl_;
+    if (im.psg) return Result::RefusedUnavailable;
+    auto r = std::make_unique<PsgRecorder>();
+    std::string why;
+    if (!r->start(path, time().frame, why)) return Result::RefusedUnavailable;
+    im.psg = std::move(r);
+    im.publish_audio_tap();
+    im.bump_revision();
+    return Result::Ok;
+}
+
+Result Debugger::psg_record_stop(ClientId by)
+{
+    (void)by;
+    Impl& im = *impl_;
+    if (!im.psg) return Result::RefusedUnavailable;
+    std::string why;
+    const bool ok = im.psg->stop(time().frame, why);
+    im.psg.reset();
+    im.publish_audio_tap();
+    im.bump_revision();
+    return ok ? Result::Ok : Result::RefusedUnavailable;
+}
+
+bool Debugger::psg_recording() const { return impl_->psg != nullptr; }
 
 Result Debugger::set_audio_log_enabled(ClientId by, bool enabled)
 {
