@@ -1123,7 +1123,6 @@ int main() {
               soft_gone && reload_gone && reload2 && spi_idle(*e) == idle);
     }
     {   // XNEX-58: the whole game-style flow, as Z80 code
-        const auto prog = hroot / "stream.nex";
         auto e = host_emu("host0.nex");
         std::vector<uint8_t> code;
         std::vector<std::size_t> fails;
@@ -1179,7 +1178,84 @@ int main() {
               ok ? "marker=" + std::to_string(e->mmu().read(0x9000)) +
                    " err=" + std::to_string(e->mmu().read(0x9001)) +
                    " b512=" + std::to_string(e->mmu().read(0x9004)) : "setup");
-        (void)prog;
+    }
+
+    {   // XNEX-59 (review 1, N3)
+        auto e = host_emu("host1.nex");
+        Z80Registers rr{};
+        const uint8_t idle = e ? spi_idle(*e) : 0xAA;
+        const uint32_t a = e ? map_first(*e, "data/t.bin") : 0;
+        const bool live = a != 0 && h_start(*e, a, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
+                          pin(*e) == tbyte(0);
+        const bool ended = live && h_end(*e, rr) && !carry(rr);
+        check("XNEX-59", "extended NEX plus host directory: DISK_STRMEND while a HOST stream runs "
+              "falls through the bridge's case: Fc=0, and port $EB is the SPI path again "
+              "(API p.40)", ended && spi_idle(*e) == idle);
+    }
+    {   // XNEX-60 (review 1, N5)
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const uint8_t idle = e ? spi_idle(*e) : 0xAA;
+        const uint32_t a = e ? map_first(*e, "data/s.bin") : 0;   // region 0
+        const uint32_t b = e ? map_first(*e, "data/t.bin") : 0;   // region 1
+        const bool sa = a != 0 && b != 0 && h_start(*e, a, 0x82, rr) && !carry(rr) &&
+                        pin(*e) == 0xFE && pin(*e) == sbyte(0);
+        // no DISK_STRMEND between: starting the second ends the first (one card)
+        const bool sb = sa && h_start(*e, b, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
+                        pin(*e) == tbyte(0) && pin(*e) == tbyte(1);
+        const bool ended = sb && h_end(*e, rr) && !carry(rr);
+        check("XNEX-60", "a host stream started while another host stream runs replaces it "
+              "(region 1's bytes, not region 0's), and one DISK_STRMEND leaves port $EB on the "
+              "SPI path (stream.asm:174-200, :281-289; one CMD18 on a real card)",
+              ended && spi_idle(*e) == idle);
+    }
+    {   // XNEX-61 (review 1, N11/N34)
+        const auto many = hroot / "many";
+        std::filesystem::create_directories(many, ec);
+        constexpr int kFiles = 225;
+        for (int i = 0; i < kFiles; ++i) {
+            char nm[16];
+            std::snprintf(nm, sizeof nm, "f%03d.bin", i);
+            std::ofstream(many / nm, std::ios::binary).put('x');
+        }
+        auto e = host_emu("host0.nex");
+        auto name_of = [](int i) {
+            char nm[32];
+            std::snprintf(nm, sizeof nm, "many/f%03d.bin", i);
+            return std::string(nm);
+        };
+        bool ok = static_cast<bool>(e);
+        int bad = -1;
+        for (int i = 0; ok && i < 224; ++i) {
+            const uint32_t a = map_first(*e, name_of(i).c_str());
+            const uint32_t want = HostFileStreams::kFirstBlock +
+                                  static_cast<uint32_t>(i) * HostFileStreams::kRegionBlocks;
+            // closing frees the handle slot; the region stays
+            if (a != want || !h_close(*e, 4)) { ok = false; bad = i; }
+        }
+        Z80Registers rr{};
+        const int h = ok ? h_open(*e, name_of(224).c_str()) : -1;
+        const bool full = h >= 0 && h_map(*e, h, 0x9500, 1, rr) && carry(rr) && reg_a(rr) == 0x0C;
+        const bool closed = full && h_close(*e, h);
+        const uint32_t again = closed ? map_first(*e, name_of(7).c_str()) : 0;
+        check("XNEX-61", "224 distinct files map (regions 0..223 at 0x90000000 + i*0x00800000); the "
+              "225th gets Fc=1, A=$0C (esx_enfile) instead of wrapping onto real card "
+              "addresses; an already-mapped file still maps when the table is full",
+              ok && full && again == HostFileStreams::kFirstBlock +
+                                         7u * HostFileStreams::kRegionBlocks,
+              "bad=" + std::to_string(bad) + " full=" + std::to_string(full));
+    }
+    {   // XNEX-62 (review 1, N33)
+        auto e = std::make_unique<Emulator>();
+        EmulatorConfig bc = cfg;
+        bc.esxdos_stub = false;   // the bridge alone: no host directory
+        bc.load_file = (hroot / "host1.nex").string();
+        const bool ok = e->init(bc) && e->load_nex(bc.load_file);
+        Z80Registers rr{};
+        const bool bad = ok && h_map(*e, 0x04, 0x9500, 1, rr) && carry(rr) && reg_a(rr) == 0x0D;
+        check("XNEX-62", "bridge NEX with no host directory: DISK_FILEMAP of a handle in $04..$0B "
+              "is still the bridge's own esx_ebadf (Fc=1, A=$0D), not the catch-all", bad,
+              "A=" + std::to_string(reg_a(rr)));
     }
 
     Log::emulator()->sinks().pop_back();
