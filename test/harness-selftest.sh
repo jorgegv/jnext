@@ -4981,6 +4981,7 @@ out=$(DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 run_harness); rc=$?
 out+=$'\n'"$(cat "$DISPLAY_PROBE_OUT" 2>/dev/null)"
 check "HS-200a" "a unit suite runs with DISPLAY and WAYLAND_DISPLAY unset even when the caller has a desktop" 0 $rc "$out" "D=unset W=unset"
 unset DISPLAY_PROBE_OUT
+stub good_test 10 0; register good_test failing_test   # the state the next rows (HS-194f) were written against
 ul=$(grep -nE '^unset DISPLAY WAYLAND_DISPLAY$' "$reg" | head -n 1 | cut -d: -f1)
 sl=$(grep -nE '^source .*test-functions\.inc|^\. .*test-functions\.inc' "$reg" | head -n 1 | cut -d: -f1)
 ru=$(grep -cE '^unset DISPLAY WAYLAND_DISPLAY$' "$PROJECT_DIR/test/run-unit-tests.sh")
