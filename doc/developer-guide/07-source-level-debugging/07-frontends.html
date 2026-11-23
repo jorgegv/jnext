@@ -3275,7 +3275,7 @@ of its parents; then the search directories; tried suffix-major, the longest tra
 the normalised name first, then the directories in order; a leading <code>..</code> is dropped.
 <code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:350</code>) takes the
 configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3285</code>, fed by
-<code>apply_startup_config()</code>, <code>:3046</code>: the saved list with the command line's <code>--source-dir</code> or
+<code>apply_startup_config()</code>, <code>:3056</code>: the saved list with the command line's <code>--source-dir</code> or
 <code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:460</code>)
 adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:362</code>). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
