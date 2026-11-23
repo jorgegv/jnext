@@ -285,6 +285,14 @@ public:
         return {};
     }
 
+    /// Add a sink every logger also writes to (GH #555: the start-up error box keeps the warn and
+    /// error lines emitted before the loop starts). Survives a later apply_sink_policy().
+    static void add_tap(std::shared_ptr<spdlog::sinks::sink> tap) {
+        taps().push_back(tap);
+        if (auto d = std::dynamic_pointer_cast<spdlog::sinks::dist_sink_mt>(current_sink()))
+            d->add_sink(std::move(tap));
+    }
+
     /// Lines the bug report's log tail keeps (GH #492).
     static constexpr size_t TAIL_LINES = 500;
 
@@ -321,6 +329,11 @@ private:
         return sink;
     }
 
+    static std::vector<std::shared_ptr<spdlog::sinks::sink>>& taps() {
+        static std::vector<std::shared_ptr<spdlog::sinks::sink>> t;
+        return t;
+    }
+
     /// The process-wide ring behind tail(): info level and above only.
     static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt>& tail_ring() {
         static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> ring = [] {
@@ -339,6 +352,7 @@ private:
         auto dist = std::make_shared<spdlog::sinks::dist_sink_mt>();
         dist->add_sink(std::move(destination));
         dist->add_sink(tail_ring());
+        for (const auto& t : taps()) dist->add_sink(t);
         dist->set_pattern(PATTERN);
         return dist;
     }

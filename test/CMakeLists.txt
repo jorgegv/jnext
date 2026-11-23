@@ -1181,6 +1181,12 @@ target_link_libraries(pok_trainers_test PRIVATE
 target_include_directories(pok_trainers_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME pok_trainers_tests COMMAND pok_trainers_test)
 
+# GH #555 - fatal start-up errors in a message box (src/platform/startup_report.*): no machine, no Qt.
+add_executable(startup_report_test platform/startup_report_test.cpp)
+target_link_libraries(startup_report_test PRIVATE jnext_platform jnext_core spdlog::spdlog)
+target_include_directories(startup_report_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME startup_report_tests COMMAND startup_report_test)
+
 # GH #548 - the --debugger / --break-at startup stop (src/platform/startup_stop.*): a real
 # Emulator and Debugger, no Qt and no SD image, built like pok_trainers_test.
 add_executable(startup_stop_test platform/startup_stop_test.cpp)

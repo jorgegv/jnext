@@ -1037,6 +1037,7 @@ my %NO_MATRIX_SECTION = (
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'image_lock_test'         => 'SD card image lock (GH #555): one jnext per card; the design in the issue as oracle (host feature, no core counterpart)',
     'image_lock_posix_test'  => 'SD card image lock, symlink and hard-link rows (POSIX, GH #555); same oracle (host feature, no core counterpart)',
+    'startup_report_test'    => 'start-up error box policy (GH #555): stderr bytes kept, when a box shows, its text; the design in the issue as oracle (host UI policy, no core counterpart)',
     'image_lock_any_test'    => 'SD card image lock rows every target runs, WebAssembly included (GH #555); same oracle (host feature, no core counterpart)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
     'minimal_card_test'       => 'the minimal NextZXOS card builder (GH #458): a synthetic MS-FAT32-spec distribution and a zlib zip built in the test, the card read back with ChaN FatFs (host SD-image tool, jnext-internal; the FPGA core has no counterpart)',

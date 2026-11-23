@@ -116,6 +116,7 @@ BEGIN {
     M["image_lock_test"]               = "SD image lock (GH #555)"
     M["image_lock_posix_test"]         = "SD image lock (POSIX-only rows)"
     M["image_lock_any_test"]           = "SD image lock (every target)"
+    M["startup_report_test"]           = "Start-up error box (GH #555)"
     M["sdcard_provisioner_test"]       = "SD Card Provisioner"
     M["sha256_test"]                   = "SHA-256 backends (GH #459)"
     M["minimal_card_test"]             = "Minimal NextZXOS card builder (GH #458)"

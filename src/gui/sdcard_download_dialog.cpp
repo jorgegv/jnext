@@ -1,4 +1,5 @@
 #include "gui/sdcard_download_dialog.h"
+#include "platform/startup_report.h"
 #include "gui/desktop_color_scheme.h"
 #include "core/log.h"
 
@@ -112,6 +113,7 @@ std::unique_ptr<QMessageBox> SdcardGuiProvisioner::warning_box(const std::string
 
 void SdcardGuiProvisioner::warn(const std::string& message) {
     ensure_app();
+    startup_report::note_dialog_shown();   // GH #555: the start-up error box must not stack on this one
     // On the offscreen platform nobody can see a dialog, let alone dismiss
     // one, and a modal warning would hold startup forever. The callers log
     // the same message before warning, so it is not lost; the debug line says
