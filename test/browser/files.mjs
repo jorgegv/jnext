@@ -1,4 +1,4 @@
-// Browser rows BOUT-01..18: the files JNEXT writes, listed and fetched by the page
+// Browser rows BOUT-01..18 and 20 (19 is reserved for --audio-log): the files JNEXT writes, listed and fetched by the page
 // (player.listFiles(), readFile(), stop(); GH #553). Run by browser-smoke.sh on the SDK's node.
 //
 // Oracles: the native runs of browser-smoke.sh's chain_outputs (the same arguments with the output
@@ -267,8 +267,8 @@ row('BOUT-07', '--delayed-screenshot: readFile()\'s PNG is the file system\'s by
   must(px === 0, px + ' pixels differ; bytes equal: ' + sameBytes(b, n));
 });
 
-async function dirRow(a, sub, tag) {
-  const nt = tree(path.join(OUT, 'a', sub));
+async function dirRow(a, sub, tag, nat = 'a') {
+  const nt = tree(path.join(OUT, nat, sub));
   const pageNames = a.files.map((e) => e.path).filter((p) => p.startsWith(`/tmp/${sub}/`)).map((p) => p.slice(`/tmp/${sub}/`.length)).sort();
   const want = [...nt.keys()].sort();
   must(JSON.stringify(pageNames) === JSON.stringify(want), `${tag}: listed ${JSON.stringify(pageNames)} native ${JSON.stringify(want)}`);
@@ -283,10 +283,25 @@ row('BOUT-08', '--export-skoolkit: the same file names as the native run and eve
   const n = await dirRow(a, 'sk', 'sk');
   must(n > 0, 'no skoolkit file');
 });
-row('BOUT-09', '--export-ghidra: the same file names and count as the native run (measured: 0 files, the program has no labels) and every file byte-equal', async () => {
-  const a = await useA();
-  const n = await dirRow(a, 'gh', 'gh');
-  must(n === tree(path.join(OUT, 'a', 'gh')).size, 'count ' + n);
+// ---- Mount G: a NEX with its z88dk map beside it, so the Ghidra export has labels (BOUT-09) -------
+// Mount A's program has no labels and --export-ghidra writes 0 files for it, natively too. The sidecar
+// <stem>.map beside the NEX is found by the core on the page's file system as it is natively.
+let mountG = null;
+const useG = () => mountG || (mountG = (async () => {
+  const page = await newPage();
+  await open(page, [{ machine: 'next', args: ['--speed', '99', '--load', '/tmp/magic_bp_demo.nex', '--export-ghidra', '/tmp/gh',
+    '--delayed-automatic-exit-frames', '300'] }]);
+  const nex = path.join(ROOT, 'test/00regression/nex');
+  await fsWrite(page, '/tmp/magic_bp_demo.nex', fs.readFileSync(path.join(nex, 'magic_bp_demo.nex')));
+  await fsWrite(page, '/tmp/magic_bp_demo.map', fs.readFileSync(path.join(nex, 'magic_bp_demo.map')));
+  await click(page);
+  await waitExited(page);
+  return { page, files: await list(page) };
+})());
+row('BOUT-09', '--export-ghidra of a NEX with its map beside it: the same 3 files as the native run (CPU, P04 and the view) and every file byte-equal', async () => {
+  const g = await useG();
+  const n = await dirRow(g, 'gh', 'gh', 'd');
+  must(n === 3, 'the native run wrote ' + n + ' files, expected 3 (CPU, P04, view)');
 });
 
 // The members of a zip by a FOREIGN reader (CPython's zipfile): name -> sha256 of the content.
@@ -489,6 +504,29 @@ row('BOUT-18', 'the guide\'s download button, run verbatim: the click gives a do
   must(sameBytes(got, want), 'download vs readFile(): ' + differ(got, want));
   must(got.length > 44 && got.toString('latin1', 0, 4) === 'RIFF' && got.toString('latin1', 8, 12) === 'WAVE' &&
        got.readUInt32LE(4) === got.length - 8 && got.readUInt32LE(40) === got.length - 44, `RIFF: length ${got.length}`);
+});
+
+// ---- Mount Z: a hard reset re-opens finished files (BOUT-20) --------------------------------------
+row('BOUT-20', 'a hard reset re-opens the finished compositor trace: listed complete false and refused as still being written, then complete again', async () => {
+  const page = await newPage();
+  await open(page, [{ machine: '48k', args: ['--tape-save', '/tmp/z.tzx', '--compositor-trace', '/tmp/z.csv', '--compositor-trace-frame', '300'] }]);
+  await click(page);
+  await waitFrame(page, 0, 400);
+  const before = await list(page);
+  const zc = byFile(before, '/tmp/z.csv');
+  must(zc && zc.complete === true, 'before the reset ' + JSON.stringify(before));
+  // ~Emulator finishes the files and init() opens them again: ~Emulator + placement new in a hard reset
+  await page.evaluate(() => window.player0.reset('hard'));
+  const after = await list(page);
+  const za = byFile(after, '/tmp/z.csv');
+  must(za && za.complete === false, 'after the reset ' + JSON.stringify(after));
+  const rd = await readF(page, '/tmp/z.csv');
+  must(typeof rd === 'string' && REFUSED.busy.test(rd), 'read after the reset: ' + (typeof rd === 'string' ? rd : 'resolved with ' + rd.length + ' bytes'));
+  const f0 = await page.evaluate(() => window.player0._module._jnext_web_frame());
+  await waitFrame(page, 0, f0 + 400);
+  const late = byFile(await list(page), '/tmp/z.csv');
+  must(late && late.complete === true, 'later ' + JSON.stringify(late));
+  must((await page.evaluate(() => window.player0.stop())) === 0, 'stop() did not resolve 0');
 });
 
 // ---- run -------------------------------------------------------------------------------------

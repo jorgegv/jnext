@@ -6,7 +6,7 @@
 #
 # Specs default to `smoke.mjs:34` (rows BRW-01..34, this directory) and `image.mjs:9`
 # (rows WBI-PW-01..09, the SD-card image and the warm start in the browser) and `api.mjs:34`
-# (rows WEBAPI-01..34, the JavaScript API: jnext.mount and its controller) and `files.mjs:18` (rows BOUT-01..18: the files JNEXT writes, listed and fetched by the page, against native runs) and `package.mjs:7`
+# (rows WEBAPI-01..34, the JavaScript API: jnext.mount and its controller) and `files.mjs:19` (rows BOUT-01..18 and 20: the files JNEXT writes, listed and fetched by the page, against native runs) and `package.mjs:7`
 # (rows WEBPKG-BR-01..07: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
 # boots the example page), `card.mjs:42` (rows BCARD-01..21, 26..43 and 45..47: the card flow of the page, the poster, card.dirs and card source none), `card-errors.mjs:5` (rows BCARD-22..25 and 44: how the pick path words a refusal, no browser), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
@@ -50,7 +50,7 @@ export LC_ALL=C LANG=C
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
 # Longest first (the specs run in parallel, so the order is the schedule): wall times of the CI run 44897420688.
-SPECS=("crt.mjs:13" "api.mjs:34" "files.mjs:18" "smoke.mjs:34" "writes.mjs:17" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
+SPECS=("crt.mjs:13" "api.mjs:34" "files.mjs:19" "smoke.mjs:34" "writes.mjs:17" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -321,8 +321,8 @@ with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("game/data.txt", b"0123456789ABCDEF")' "$SCRATCH/hostfs.nex" "$SCRATCH/hostfs-data.zip" || die "cannot zip the esxdos probe"
 }
 
-# The files JNEXT writes (files.mjs BOUT-01..18, GH #553): the output options natively, the byte oracle of
-# every file the page lists. Three runs on clones of the card, under $O/outputs, not --silent (--wav-record refuses it), in
+# The files JNEXT writes (files.mjs BOUT-01..18 and 20, GH #553): the output options natively, the byte oracle of
+# every file the page lists. Four runs on clones of the card, under $O/outputs, not --silent (--wav-record refuses it), in
 # the page's own mode (SdlApp, dummy drivers), a and c at --speed 99 (one frame in each tick: files.mjs says why). a: the page's Mount A (every output option a page takes);
 # b: Mount B (a DAC trace, a TAP save and a compositor trace whose frame never comes, 30 frames: the page
 # runs until stop()); c: the profile of Mount C, with the same TAP-save trap armed (it changes the CPU path).
@@ -330,7 +330,7 @@ with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
 # which is deleted.
 chain_outputs() {
     local d="$O/outputs"
-    mkdir -p "$d/a/sk" "$d/a/gh" "$d/b" "$d/c"
+    mkdir -p "$d/a/sk" "$d/a/gh" "$d/b" "$d/c" "$d/d/gh"
     printf '\xF3\xED\x91\x08\x08\x3E\x11\xD3\x1F\x3E\x22\xD3\x0F\x3E\x33\xD3\x4F\x3E\x44\xD3\x5F\x18\xFE' >"$SCRATCH/outputs-dac.bin"
     local tsd="$ROOT/test/00regression/bin/tape_save_demo.bin"
     local cardc="$O/outputs.card" cfg="$O/outputs.cfg" rc
@@ -354,7 +354,10 @@ chain_outputs() {
         --compositor-trace "$d/b/late.csv" --compositor-trace-frame 1000000 --delayed-automatic-exit-frames 30
     outrun c --speed 99 --machine 48k --inject "$tsd" --magic-port 0xBEEF --magic-port-mode line --rtc 2026-07-10T08:55:00 \
         --tape-save "$d/c/x.tap" --profile --profile-output "$d/c/p.dat" --delayed-automatic-exit-frames 1500
-    [[ -s "$d/a/o.tzx" && -s "$d/a/o.wav" && -s "$d/a/p.dat" && -s "$d/a/s.png" && -s "$d/a/br.zip" && -s "$d/a/j.log" && -s "$d/b/d.csv" && -s "$d/c/p.dat" ]] \
+    # d: Mount G of files.mjs (BOUT-09): a NEX with its z88dk map beside it, so the Ghidra export has labels to write.
+    outrun d --speed 99 --machine next --load "$ROOT/test/00regression/nex/magic_bp_demo.nex" \
+        --export-ghidra "$d/d/gh" --delayed-automatic-exit-frames 300
+    [[ -s "$d/a/o.tzx" && -n "$(ls -A "$d/d/gh")" && -s "$d/a/o.wav" && -s "$d/a/p.dat" && -s "$d/a/s.png" && -s "$d/a/br.zip" && -s "$d/a/j.log" && -s "$d/b/d.csv" && -s "$d/c/p.dat" ]] \
         || die "oracle outputs: a file is missing or empty"
 }
 
