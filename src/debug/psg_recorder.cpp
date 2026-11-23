@@ -47,6 +47,7 @@ bool PsgRecorder::start(const std::string& path, uint32_t start_frame, std::stri
     seen_ = static_cast<int64_t>(start_frame) - 1;
     last_.reset();
     io_error_ = false;
+    chip_failed_.fill(false);
     recording_ = true;
     output_files::begin(path_);   // a page lists the file, incomplete, until stop()
     write_out(0);
@@ -67,11 +68,12 @@ void PsgRecorder::emit(const AudioFrame& f)
     for (int c = 0; c < static_cast<int>(AY_CHIP_COUNT); ++c) {
         const uint16_t mask = f.written_mask[c] & 0x3FFF;
         if (mask == 0) continue;
+        if (chip_failed_[c]) continue;   // one open attempt only: this chip's blocks are dropped
         if (!file_[c]) {
             // AY#1 and AY#2 begin at this chip's first block, yet their writer starts at the
             // recording's start frame, so the files stay frame-aligned.
             file_[c] = std::fopen(chip_path(path_, c).c_str(), "wb");
-            if (!file_[c]) { io_error_ = true; continue; }
+            if (!file_[c]) { io_error_ = true; chip_failed_[c] = true; continue; }
             writer_[c].begin(start_frame_);
             output_files::begin(chip_path(path_, c));
         }
@@ -100,6 +102,11 @@ void PsgRecorder::feed(const AudioLogEntry& e)
     last_ = e.frame;
     // 3. Every non-marker entry (DAC, beeper and select entries too) moves time on.
     if (!marker) seen_ = std::max(seen_, static_cast<int64_t>(e.frame) + off_);
+}
+
+void PsgRecorder::note_time(uint32_t frame)
+{
+    if (recording_) seen_ = std::max(seen_, static_cast<int64_t>(frame) + off_);
 }
 
 bool PsgRecorder::finish(int64_t stop_file_frame, std::string& why)

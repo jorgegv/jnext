@@ -1378,15 +1378,19 @@ static void psg_rows() {
               psg_h({0xFF, 0x00, 0xFE, 0x07, 0x3F, 0x0D, 0xFF, 0xFF}));
     }
     {
+        // R14 and R15 only in f102, inside a gap of 4 frames: an empty frame, so f100 and f104 are 4 frames
+        // apart (FE 01). A writer that counted the R14/R15 frame as a block would write FF FF FF FF there.
         PsgWriter w;
         w.begin(100);
         std::array<uint8_t, 14> z{};
-        w.frame(100, 0xC000, z);   // R14 and R15 only
-        std::array<uint8_t, 14> v{}; v[0] = 5;
-        w.frame(101, 0x0001, v);
-        w.end(101);
-        check("PSG-13", "psg.c psg_frame loops stop at register 14: a frame that wrote only R14 and R15 is an empty frame (count goes up): H FF FF 00 05 FF",
-              w.take() == psg_h({0xFF, 0xFF, 0x00, 0x05, 0xFF}));
+        std::array<uint8_t, 14> v1{}, v2{};
+        v1[0] = 1; v2[0] = 2;
+        w.frame(100, 0x0001, v1);
+        w.frame(102, 0xC000, z);   // R14 and R15 only
+        w.frame(104, 0x0001, v2);
+        w.end(104);
+        check("PSG-13", "psg.c psg_frame loops stop at register 14: R0 in f100, R14 and R15 only in f102, R0 in f104: the f102 frame is empty, the blocks are 4 frames apart: H FF 00 01 FE 01 00 02 FF",
+              w.take() == psg_h({0xFF, 0x00, 0x01, 0xFE, 0x01, 0x00, 0x02, 0xFF}));
     }
 
     // ── PsgRecorder, hand-built entries ─────────────────────────────────
@@ -1640,6 +1644,87 @@ static void psg_rows() {
             shape = shape && r.f0[16 + 3 * k] == 0xFF && r.f0[16 + 3 * k + 1] == 0x00 && r.f0[16 + 3 * k + 2] == (k & 0xFF);
         check("PSG-32", "100000 consecutive single-write frames fed to the recorder: the file is 16 + 3 * 100000 + 1 bytes (FF 00 v per frame, one trailing FF), spot-checked at frames 0, 1, 255, 256 and 99999",
               r.started && r.stopped && shape);
+    }
+
+    {
+        // A Debugger destroyed mid-recording (main()'s early returns after --psg-record started): the
+        // recorder's destructor finishes the files up to the last frame seen. Blocks on AY#0 and AY#1 in f0,
+        // then 3 frames and a DAC write in f0+3 (an entry that moves time on): both files end with the
+        // trailing separators for S + 1 - f0 = 4 frames, FE 01.
+        const std::string p = psg_tmp("v34");
+        uint32_t f0 = 0, f3 = 0;
+        {
+            Emulator emu; fresh(emu);
+            nr_write(emu, 0x08, 0x0A);   // TurboSound and the DAC on
+            auto dbg = std::make_unique<Debugger>(emu);
+            emu.run_frame();
+            dbg->psg_record_start(jnext::dbg::CLIENT_NONE, p);
+            f0 = dbg->time().frame;
+            ay_select(emu, 0); ay_write(emu, 0, 0x10);
+            ay_select(emu, 1); ay_write(emu, 8, 0x0A);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            f3 = dbg->time().frame;
+            emu.port().out(0x1F, 0x40);
+            dbg.reset();   // mid-recording
+        }
+        const Bytes a = psg_read(p), b = psg_read(PsgRecorder::chip_path(p, 1));
+        psg_rm(p);
+        check("PSG-34", "a Debugger destroyed mid-recording finishes both files up to the last frame seen: AY#0 R0 and AY#1 R8 in f0, a DAC write 3 frames later: FILE H FF 00 10 FE 01, FILE-ay1 H FF 08 0A FE 01",
+              f3 == f0 + 3 && a == psg_h({0xFF, 0x00, 0x10, 0xFE, 0x01}) && b == psg_h({0xFF, 0x08, 0x0A, 0xFE, 0x01}));
+    }
+    {
+        // FILE-ay1.psg exists as a directory: the chip file cannot be created. That is tried once and flags an I/O
+        // error that psg_record_stop reports; AY#1's blocks are dropped from then on (no retry per block: the
+        // directory is removed after the first failure and a later AY#1 block must not create the file); FILE is
+        // complete and valid.
+        const std::string p = psg_tmp("v35");
+        const std::string ay1 = PsgRecorder::chip_path(p, 1);
+        std::filesystem::create_directory(ay1);
+        Emulator emu; fresh(emu);
+        nr_write(emu, 0x08, 0x0A);
+        Debugger dbg(emu);
+        emu.run_frame();
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        const uint32_t f0 = dbg.time().frame;
+        ay_select(emu, 0); ay_write(emu, 0, 0x10);
+        ay_select(emu, 1); ay_write(emu, 8, 0x0A);
+        emu.run_frame();
+        ay_write(emu, 8, 0x0B);              // f0 + 1: completes f0, the one open attempt fails
+        std::filesystem::remove(ay1);        // an open would now succeed
+        emu.run_frame();
+        ay_write(emu, 8, 0x0C);              // f0 + 2: completes f0 + 1, must not retry
+        const uint32_t s = dbg.time().frame;
+        const Result st = dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const bool made = psg_exists(ay1);
+        const Bytes a = psg_read(p);
+        psg_rm(p);
+        // FILE: R0 in f0 (FF), end S + 1 - f0 = 3 (FF FF FF).
+        check("PSG-35", "FILE-ay1 is a directory: psg_record_stop is RefusedUnavailable, FILE is complete (H FF 00 10 FF FF FF), and AY#1 is opened once, not per block: the file is not created after the directory is removed",
+              s == f0 + 2 && st == Result::RefusedUnavailable && !made && a == psg_h({0xFF, 0x00, 0x10, 0xFF, 0xFF, 0xFF}));
+    }
+    {
+        // Silent frames, then a hard reset, then a write: the recording keeps elapsed time across the reset, as
+        // Fuse does. R8 = 1 in f0, 100 frames with no audio write, the rebuild (frame 0 again), R8 = 2: the new
+        // frame 0 is the frame after the one current at the reset, 101 frames after f0: FE 19 (100) FF (1).
+        Emulator emu; fresh(emu); park(emu);
+        Debugger dbg(emu);
+        emu.run_frame();
+        const std::string p = psg_tmp("v36");
+        dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p);
+        const uint32_t f0 = dbg.time().frame;
+        ay_write(emu, 8, 1);
+        for (int i = 0; i < 100; ++i) emu.run_frame();
+        const uint32_t at_reset = dbg.time().frame;
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+        dbg.on_cold_boot_begin();
+        emulator_cold_boot(emu, cfg);
+        dbg.on_cold_boot_done();
+        ay_write(emu, 8, 2);
+        dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
+        const Bytes a = psg_read(p);
+        psg_rm(p);
+        check("PSG-36", "R8=1, 100 silent frames, a hard reset, R8=2 in the new frame 0: the file keeps the elapsed time, 101 frames between the blocks: H FF 08 01 FE 19 FF 08 02 FF",
+              at_reset == f0 + 100 && a == psg_h({0xFF, 0x08, 0x01, 0xFE, 0x19, 0xFF, 0x08, 0x02, 0xFF}));
     }
 
     // ── PSF: against the Fuse recording ─────────────────────────────────

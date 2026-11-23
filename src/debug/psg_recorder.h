@@ -37,6 +37,11 @@ public:
     /// One tapped entry, markers included, oldest first.
     void feed(const AudioLogEntry& e);
 
+    /// The machine is about to be rebuilt (a hard reset): `frame` is the stamper frame current at that
+    /// moment. The new machine's frame 0 then maps after it, so the silent frames that played before the
+    /// reset stay in the file, as Fuse keeps counting frames through a reset.
+    void note_time(uint32_t frame);
+
     /// Complete the open frame, write every created file's trailing separators and close.
     /// False on any I/O error; the files are closed either way. `stop_frame` is the
     /// stamper frame current at the stop.
@@ -51,6 +56,7 @@ private:
 
     bool recording_ = false;
     bool io_error_ = false;
+    std::array<bool, AY_CHIP_COUNT> chip_failed_{};   ///< a chip file that could not be created: tried once, its blocks dropped
     std::string path_;
     uint32_t start_frame_ = 0;
     std::array<std::FILE*, AY_CHIP_COUNT> file_{};

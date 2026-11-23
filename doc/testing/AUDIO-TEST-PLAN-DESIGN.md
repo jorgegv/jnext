@@ -1026,16 +1026,13 @@ The writer rows drive `PsgWriter` directly (`begin(100)` unless said).
 | PSG-10 | `end(100)`, no block                             | `H FF FF`                                                  |
 | PSG-11 | `end(1119)`, no block (1021 frames)              | `H FE FF FF`                                               |
 | PSG-12 | R13 = 0xFF, R0 = 0xFE, R7 = 0x3F in one frame    | `H FF 00 FE 07 3F 0D FF FF`: register order, 0xFE/0xFF values raw |
-| PSG-13 | A frame writing only R14 and R15, then R0 in f101 | `H FF FF 00 05 FF`: R14/R15 only is an empty frame         |
+| PSG-13 | R0 in f100, R14 and R15 only in f102, R0 in f104 | `H FF 00 01 FE 01 00 02 FF`: R14/R15 only is an empty frame (4 frames apart) |
 
 The recorder rows feed `PsgRecorder` hand-built `AudioLogEntry` lists (chip 0, CPU source unless said, `start(path, 100)`).
 The frame mapping (epic decision D3) is PSG-20 to PSG-24, 28 to 30.
 
 | ID     | Drive                                            | Expected                                                   |
 |--------|--------------------------------------------------|------------------------------------------------------------|
-| PSG-31 | Writer: blocks in f100, f100 and f90 (frames not above the last) | One `FF` each, no runaway: `H FF 00 01 FF 00 02 FF 00 03 FF` |
-| PSG-32 | Recorder: 100000 consecutive single-write frames | 16 + 3 x 100000 + 1 bytes, `FF 00 v` per frame, one trailing `FF` |
-| PSG-33 | As PSG-29, then a landing, 3 silent frames and R8 = 0x56 | The landing's marker keeps the numbering offset: the write 2 frame readings after the landing is 3 file frames after the last block, `... 08 09 FF FF FF 08 56 FF` |
 | PSG-14 | f100: R8 = 1 then R8 = 2                         | `H FF 08 02 FF` (last value wins; Fuse would write 01)     |
 | PSG-15 | f100: R13, R0, R7 in that order                  | `H FF 00 FE 07 38 0D 0E FF`                                |
 | PSG-16 | f100: R14, R15; f101: R0                         | `H FF FF 00 01 FF`                                         |
@@ -1053,6 +1050,12 @@ The frame mapping (epic decision D3) is PSG-20 to PSG-24, 28 to 30.
 | PSG-28 | Log off; R8, a soft reset, R8 in one frame       | `H FF 08 01 FF 08 02 FF`: the marker reached the recorder  |
 | PSG-29 | Ten frames each writing R8 = its index, a rewind landing 4 frames back, R8 = 0x55 | The ten blocks stay, then one `FF 08 55`, one trailing `FF` |
 | PSG-30 | R8, a hard reset (machine rebuilt), R8 in the new frame 0, log off | `H FF 08 01 FF 08 02 FF`: the rebuild's Reset marker splits them |
+| PSG-31 | Writer: blocks in f100, f100 and f90 (frames not above the last) | One `FF` each, no runaway: `H FF 00 01 FF 00 02 FF 00 03 FF` |
+| PSG-32 | Recorder: 100000 consecutive single-write frames | 16 + 3 x 100000 + 1 bytes, `FF 00 v` per frame, one trailing `FF` |
+| PSG-33 | As PSG-29, then a landing, 3 silent frames and R8 = 0x56 | The landing's marker keeps the numbering offset: the write 2 frame readings after the landing is 3 file frames after the last block, `... 08 09 FF FF FF 08 56 FF` |
+| PSG-34 | A Debugger destroyed mid-recording: AY#0 R0 and AY#1 R8 in f0, a DAC write 3 frames later | Both files finish up to the last frame seen: FILE `H FF 00 10 FE 01`, FILE-ay1 `H FF 08 0A FE 01` |
+| PSG-35 | `FILE-ay1` exists as a directory; AY#1 blocks follow, the directory is removed after the first | `psg_record_stop` RefusedUnavailable; FILE complete (`H FF 00 10 FF FF FF`); AY#1 opened once, the file is never created |
+| PSG-36 | R8 = 1, 100 silent frames, a hard reset, R8 = 2 | Elapsed time kept: `H FF 08 01 FE 19 FF 08 02 FF` |
 
 The Fuse rows run the program of `psg_fixture.asm` (a gate on a key, a sentinel frame writing R7 = 0x3F, 8 empty frames,
 300 frames of descending-order register sets with gaps of 1, 3, 4, 5, 9 and 1100 frames, an R14-only frame and an

@@ -67,10 +67,12 @@ like any other capture.
   step if you play them together.
 - **Last write wins.** When a program writes the same register more than once in a
   frame, the file keeps the last value. Fuse keeps the first.
-- **Resets, rewinds and state loads** never take the file back in time: the
-  recording carries on from the last frame it saw. A rewind while recording keeps
-  what was already written and carries on after it (the frames a rewind replays
-  are not recorded again), and a reset splits the frame it happens in.
+- **Resets, rewinds and state loads** never take the file back in time. A soft or hard
+  reset keeps the time that passed: the silent frames before it stay in the file, and the
+  reset splits the frame it happens in. A rewind keeps what was already written and
+  carries on after it (the frames a rewind replays are not recorded again). A state load
+  carries on right after the last frame that wrote anything, so silent frames just
+  before a state load are not kept.
 - The recording does not depend on the Log tab: it works with the log off, and
   stopping the log does not stop it. Like the mute buttons it is invisible to the
   program being debugged and is not part of a saved state.

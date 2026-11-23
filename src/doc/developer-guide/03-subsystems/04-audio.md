@@ -179,6 +179,13 @@ entry's. At one, `off = max(off, seen + 1 - M)` with M the new frame number, exc
 numbering still moves forward, keeps the numbering and a reset in the frame of the last write splits it, and anything
 that would go back continues right after the last frame seen. The frame the accumulator returns at a discontinuity is
 written with the mapping in force before it. The writes of a rewound future were played and stay in the file.
+A hard reset keeps elapsed time: `Impl::prepare_rebuild()` (every rebuild path: `reset_hard()`, `load()` and the guest's
+`on_cold_boot_begin()`) calls `PsgRecorder::note_time(frame_tag(emu))` before the machine is destroyed, which raises `seen` to the
+frame current at the reset, so the new frame 0 maps after it. A state load passes through `Emulator::load_state()` from several
+callers, not one `Debugger` entry point, so it cannot be told in advance: it continues at `seen + 1`, and silent frames
+just before it are not kept (the manuals say so). A chip file that cannot be created is tried once (`chip_failed_`): it flags the
+I/O error `stop()` reports and that chip's blocks are dropped. The destructor finishes the files up to `seen`, which
+`main()`'s early returns after `--psg-record` started rely on.
 
 *Differences from Fuse*, both kept out of the fixture. `psg_write_register()` keeps the FIRST value written to a register
 in a frame and jnext keeps the last (the tap's value is the raw byte the guest wrote, as Fuse's is). Fuse keeps 4 bits of a

@@ -106,6 +106,8 @@ Result Debugger::Impl::refuse_inside_delivery(const char* verb) const {
 
 Debugger::Impl::PreBoot Debugger::Impl::prepare_rebuild() {
     sync_notifications();
+    // GH #538: a recording keeps the silent frames that played before the rebuild.
+    if (psg) psg->note_time(frame_tag(emu));
     return capture_pre_boot();
 }
 
