@@ -2293,6 +2293,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | DSS-13 | ACCEPTANCE: a CTC-paced player (28 MHz, TC 109, period P x TC = 1744 cycles) is ONE CPU writer at the ISR's OUT, channels A and D, >= 6000 samples; every interval within 1744 +- 4 (the acceptance delay d in 0..4, zxnext.vhd:3171-3181), no gap; its measured rate matches the CTC's 16 055 046 mHz within 4 cycles over the span, and the nearest engine is CTC 0 | zxnext.vhd:3171-3181 | pass | test/debug/audio_debug_test.cpp:3142 |
 | DSS-14 | a deliberately skipped sample shows as a gap: the same player with the OUT skipped when the tick wraps: gaps >= 1, every gap interval 2 x 1744 +- 4, every other 1744 +- 4, and the count of gaps equals the count of intervals above 1.5 x the period | — | pass | test/debug/audio_debug_test.cpp:3171 |
 | DSS-15 | dma.vhd:309,424,451 the DMA gate is a minimum spacing from the read: a burst to port 0x00DF at prescaler 55 is ONE DMA writer (channels A and D) whose every interval is >= 1760 cycles, so its rate is at most the nominal 15 909 091 mHz; the nearest engine is the DMA | dma.vhd:309,424,451 | pass | test/debug/audio_debug_test.cpp:3188 |
+| DSS-16 | a sample is one (cycle, source, pc, port): two ports written at one cycle by one instruction are two samples (channels A and B); a CPU and a DMA entry at one cycle, pc and port are two writers with one sample each; no writer is left without a sample | — | pass | test/debug/audio_debug_test.cpp:3096 |
 | AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:711 |
 | AY-50b | tone period 1 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:715 |
 | AY-61a | noise period 0 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:811 |
@@ -2303,7 +2304,6 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AY-63b | a single shared noise drives all three channel mixers (A == B == C on every tick, with the stream actually moving) | ym2149.vhd:302,470-472 | pass | test/audio/audio_test.cpp:913 |
 | AY-101a | env period 0 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1360 |
 | AY-101b | env period 1 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1364 |
-| DSS-16 | a sample is one (cycle, source, pc, port): two ports written at one cycle by one instruction are two samples (channels A and B); a CPU and a DMA entry at one cycle, pc and port are two writers with one sample each; no writer is left without a sample | — | pass | test/debug/audio_debug_test.cpp:3096 |
 | MX-BL-01 | emit_sample = time-weighted average of the interval | — | pass | test/audio/audio_test.cpp:3834 |
 | MX-BL-02 | a supersonic beeper averages out instead of aliasing | — | pass | test/audio/audio_test.cpp:3865 |
 | MX-BL-03 | emit with nothing accumulated produces no sample | — | pass | test/audio/audio_test.cpp:3878 |
