@@ -52,7 +52,10 @@ if want sdcard-lock-func; then
     # 1. the same card: refused, with the documented message (the pid is the holder's, digits)
     hold h1 --sdcard "$BASE/a.img"
     h1=$HOLD_PID
-    try same 1 --headless --machine 48k --sdcard "$BASE/a.img" --delayed-automatic-exit 5
+    try same 1 --headless --machine 48k --sdcard "$BASE/a.img" --delayed-automatic-exit 5 --log-file "$W/same.jlog"
+    # the refusal is in the log too, not only on stderr (GH #555 review S2-3b)
+    grep -qF "SD card refused: $(msg_image "$BASE/a.img")" "$W/same.jlog" 2>/dev/null \
+        || faults+=("same: the refusal is not in the log file: $({ grep -h 'refused' "$W/same.jlog" 2>/dev/null || true; } | head -c 300)")
     grep -qF "$(msg_image "$BASE/a.img")" "$W/same.log" || faults+=("same: the refusal does not name the image: $(head -c 300 "$W/same.log")")
     grep -qE "\(process $h1\); give each jnext its own card \(--sdcard FILE\)" "$W/same.log" \
         || faults+=("same: the refusal does not name the holder's pid $h1 and the advice")
@@ -77,6 +80,11 @@ if want sdcard-lock-func; then
         --delayed-sdcard-insert-frames 5 "$BASE/a.img" --delayed-automatic-exit-frames 40
     grep -qF "SD card change refused: $(msg_image "$BASE/a.img")" "$W/insert.log" \
         || faults+=("insert: the live insert of a held card was not refused with the lock message: $({ grep -h 'refused\|in use' "$W/insert.log" || true; } | head -c 300)")
+    # 6b. the same card as the SECOND slot at startup: refused, logged as the second card's
+    try second 1 --headless --machine 48k --rewind-buffer-size 0 --sdcard "$BASE/q.img" --sdcard2 "$BASE/a.img" \
+        --delayed-automatic-exit 5 --log-file "$W/second.jlog"
+    grep -qF "second SD card refused: $(msg_image "$BASE/a.img")" "$W/second.jlog" 2>/dev/null \
+        || faults+=("second: the slot-1 refusal is not in the log file: $({ grep -h 'refused' "$W/second.jlog" 2>/dev/null || true; } | head -c 300)")
     stop_holder "$h1"
 
     # 3. the overlay FILE is locked on its own: another card, the same writes file

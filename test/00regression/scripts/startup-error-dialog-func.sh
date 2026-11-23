@@ -101,6 +101,14 @@ if want startup-error-dialog-func; then
     [[ "$rc" != 0 ]] || se_fails+=("fileadd: exit 0, want a failure")
     se_no_box fileadd
 
+    # the Qt SD download failure has a dialog of its own: exactly that one, the start-up box must not
+    # stack a second on it (GH #555 review S3-1: startup_report::note_dialog_shown)
+    rc=$(se_run qt-dl QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy JNEXT_SDCARD_DISTRO_URL=file:///nonexistent/x.zip -- "$JNEXT" --sdcard-download-confirm)
+    [[ "$rc" == 1 ]] || se_fails+=("qt-dl: exit $rc, want 1")
+    dl_n=$(grep -cF 'dialog not shown on the offscreen platform' "$se_dir/qt-dl.log.lf" || true)
+    dl_box=$(grep -cF -- "$se_box" "$se_dir/qt-dl.log.lf" || true)
+    [[ "$dl_n" == 1 && "$dl_box" == 0 ]] || se_fails+=("qt-dl: $dl_n dialog line(s) and $dl_box start-up box line(s), want 1 and 0 (the box stacked on the download dialog)")
+
     # stderr a TERMINAL (a pty): the box is shown all the same (owner, 2026-11-23)
     mkdir -p "$se_dir/tty-cfg"
     rc=0
