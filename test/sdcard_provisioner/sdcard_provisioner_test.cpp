@@ -2339,9 +2339,10 @@ void test_upgrade_rows() {
         clean();
     }
     {
+        const std::string older_dist = "sn-emulator-23.01.zip\n";   // a parsable older distribution (owner-approved fixture baseline change, GH #555)
         // 06a: a failing download after "Replace": the old card and its raw are byte-identical, the run goes on
         // with it and says so (Ok + a warning)
-        user_card_only(); write_file(raw, {'o', 'l', 'd', 'r', 'a', 'w'}); write_file(fixed_distro, {'o', 'l', 'd', '\n'});
+        user_card_only(); write_file(raw, {'o', 'l', 'd', 'r', 'a', 'w'}); write_file(fixed_distro, std::vector<uint8_t>(older_dist.begin(), older_dist.end()));
         downloads = 0;
         Spy sp; sp.answer = sdcard::UpgradeChoice::Replace;
         sdcard::ProvisionOptions o; o.download = failing_dl; o.upgrade = spy_fn(sp);
@@ -2351,10 +2352,10 @@ void test_upgrade_rows() {
               r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && read_file(fixed) == user_card &&
               read_file(raw) == std::vector<uint8_t>{'o', 'l', 'd', 'r', 'a', 'w'} &&
               !r.warning.empty() && r.warning.find("stays in use") != std::string::npos &&
-              slurp_text(fixed_distro) == "old\n" && !file_exists(fixed + ".new") && !file_exists(raw + ".new"),
+              slurp_text(fixed_distro) == older_dist && !file_exists(fixed + ".new") && !file_exists(raw + ".new"),
               r.warning);
         // 06b: a download that works but a raw the patch cannot read: the same
-        user_card_only(); write_file(fixed_distro, {'o', 'l', 'd', '\n'});
+        user_card_only(); write_file(fixed_distro, std::vector<uint8_t>(older_dist.begin(), older_dist.end()));
         downloads = 0;
         sdcard::ProvisionOptions o2; o2.download = junk_zip_dl; o2.upgrade = spy_fn(sp);
         auto r2 = sdcard::provision_sd_card(o2);
