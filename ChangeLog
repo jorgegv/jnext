@@ -22,7 +22,7 @@
 - Debugger backend gains `audio_state()`, the audio write log and the `AudioWrite` event, in a new core suite (`audio_debug_test`)
 - Remote runs: two lanes on the remote host, so two heavy runs share it at once
 - Faster test cycle: unit-test prerequisites and browser specs run in parallel
-- Build slots: heavy runs overflow to any free remote host (several hosts, re-checked while queued) when the local slots are busy
+- Build slots: heavy runs go to a free remote host first (several hosts, re-checked while queued) and run locally only when every remote lane is busy
 - CI is the batch gate: a clean CI run on the commit is what gets pushed; caches are saved only from main
 - Worktrees share the compiler cache, so a second checkout of the same commit rebuilds in a fraction of the time
 - `make test-affected`: a branch round runs only the suites and rows its change reaches, plus a smoke set
