@@ -619,6 +619,28 @@ int main() {
         sd_write_journal::forget_all_for_test();
     }
     {
+        // SDCARRY-12: a carry that passes the space precheck and fails MID-WRITE (the second entry's
+        // source is gone) is rolled back: nothing it had created is on the new card.
+        const std::string d = tmp("Roll");
+        copy_card(fx.n, d);
+        auto src = vol(1, fx.c);
+        const carry::Entry* real = src->find(carry::path_key("/GAMES/mine.nex"));
+        carry::Entry ghost;
+        ghost.path = "/ZZGHOST.BIN";
+        ghost.size = 10;
+        FileAddStatus st = FileAddStatus::Ok;
+        std::string err;
+        if (real) {
+            auto dst = vol(0, d, nullptr, false);
+            st = carry::apply_carry(*src, {*real, ghost}, *dst, err);
+        }
+        const auto after = foreign(d);
+        check("SDCARRY-12", "a carry that fails mid-write is rolled back: the status is an error, the message says so, and the file it had already written is not on the new card",
+              real && st != FileAddStatus::Ok && err.find("rolled back") != std::string::npos &&
+                  after.find(up("/GAMES/mine.nex")) == after.end(),
+              err);
+    }
+    {
         // SDCARRY-10: verify catches a planted mismatch.
         auto srcmem = mem_tree(fx.c);
         bool good = false, bad = false;
@@ -800,6 +822,37 @@ int main() {
         const FileAddStatus st = carry::export_changes(req, rep, err);
         check("SDEXP-05", "--sdcard-export-base with an UNDER-clustered base (the geometry FatFs refuses) is read by the lenient reader, and the export lists exactly the card's differences from it",
               fatfs_refuses && st == FileAddStatus::Ok && rep.added == 1 && rep.changed == 1 && rep.removed == 0 && rep.dirs == 0, fe + " | " + err);
+    }
+    {
+        // SDEXP-10: the export's CHANGES.txt carries the plan's comment lines, the made-on stamp in the
+        // plan's form, and the importer ignores comments.
+        const std::string img = tmp("ucard10");
+        copy_card(fx.a, img);
+        add(img, "/NEW10.TXT", "new");
+        carry::ExportRequest req;
+        req.image = img;
+        req.base_image = fx.a;
+        req.dir = tmp("exp10");
+        carry::ExportReport rep;
+        std::string err10;
+        const FileAddStatus st = carry::export_changes(req, rep, err10);
+        std::ifstream in(fs::path(req.dir) / "CHANGES.txt", std::ios::binary);
+        const std::string txt((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const size_t at = txt.find("# made: ");
+        bool shape = at != std::string::npos && txt.size() >= at + 8 + 19;
+        if (shape) {
+            const std::string t = txt.substr(at + 8, 19);   // YYYY-MM-DD HH:MM:SS
+            for (size_t i = 0; i < 19; ++i) {
+                const bool sep = (i == 4 || i == 7) ? t[i] == '-' : i == 10 ? t[i] == ' ' : (i == 13 || i == 16) ? t[i] == ':' : (t[i] >= '0' && t[i] <= '9');
+                shape = shape && sep;
+            }
+        }
+        std::vector<carry::ChangeLine> back;
+        std::string pe;
+        check("SDEXP-10", "CHANGES.txt carries '# made: YYYY-MM-DD HH:MM:SS' after the card and base comments, and the parser still reads the file (comments ignored)",
+              st == FileAddStatus::Ok && shape && txt.find("# card: ") != std::string::npos && txt.find("# base: ") != std::string::npos &&
+                  carry::parse_changes(txt, back, pe),
+              err10 + pe);
     }
     {
         // SDEXP-06: the format, byte for byte; deterministic; every kind and attribute combination.

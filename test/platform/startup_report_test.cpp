@@ -202,14 +202,21 @@ int main() {
     }
 
     {
-        // A run whose stderr is a terminal reads the error there: never windowed, so never a box
-        // (a blocking box in front of a shell or a test run). Not a terminal: unchanged.
+        // Owner decision (2026-11-23): the box is shown every time in a windowed, attended run, also when
+        // stderr is a terminal. The decision has no terminal input at all: a plain command line is
+        // windowed and a failed one shows the box, whatever stderr is; --headless and the terminal
+        // verbs stay without one.
         auto a = argv_of({"--machine", "48k"});
-        const auto tty = classify(static_cast<int>(a.size()), a.data(), true);
-        const auto notty = classify(static_cast<int>(a.size()), a.data(), false);
-        const auto dflt = classify(static_cast<int>(a.size()), a.data());
-        check("STARTERR-09", "classify(): a run whose stderr is a terminal is not windowed (no box), one whose stderr is not a terminal keeps the plain-command-line answer, and the default is 'not a terminal'",
-              !tty.windowed && notty.windowed == dflt.windowed && !tty.unattended);
+        auto h = argv_of({"--headless", "--machine", "48k"});
+        const auto p = classify(static_cast<int>(a.size()), a.data());
+        const auto hl = classify(static_cast<int>(h.size()), h.data());
+#ifdef __EMSCRIPTEN__
+        const bool plain_shows = false;
+#else
+        const bool plain_shows = true;
+#endif
+        check("STARTERR-09", "a failed run on a plain command line shows the box whatever stderr is (a terminal included: the decision takes no terminal input); --headless does not",
+              should_show(1, p.windowed, p.unattended, false) == plain_shows && !should_show(1, hl.windowed, hl.unattended, false));
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

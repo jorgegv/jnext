@@ -999,6 +999,18 @@ FileAddStatus export_changes(const ExportRequest& req, ExportReport& rep, std::s
     if (req.journal) comments.push_back("writes: " + req.journal->file());
     comments.push_back("base: " + rep.base);
     {
+        char when[32];
+        const std::time_t now = std::time(nullptr);
+        std::tm tmv{};
+#ifdef _WIN32
+        localtime_s(&tmv, &now);
+#else
+        localtime_r(&now, &tmv);
+#endif
+        std::strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S", &tmv);
+        comments.push_back(std::string("made: ") + when);
+    }
+    {
         std::ofstream ct(fs::path(req.dir) / "CHANGES.txt", std::ios::binary | std::ios::trunc);
         ct << format_changes(lines, comments);
         ct.flush();

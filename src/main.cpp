@@ -9,9 +9,6 @@
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
 #include "core/image_lock.h"
-#ifndef _WIN32
-#include <unistd.h>   // isatty (GH #555: no start-up box when stderr is a terminal)
-#endif
 #include "core/sdcard_file_add.h"
 #include "core/sdcard_carry.h"
 #include "core/sdcard_provisioner.h"
@@ -308,12 +305,7 @@ static int run_main(int argc, char* argv[]);   // GH #555: the whole program, be
 // ends with a failure before its loop started, the reason (kept by startup_report) goes into the
 // frontend's own message box too, because a desktop launch has no terminal to show stderr in.
 int main(int argc, char* argv[]) {
-#ifdef _WIN32
-    const bool stderr_tty = false;   // a Windows launch from a console is attached later, by run_main
-#else
-    const bool stderr_tty = isatty(STDERR_FILENO) != 0;
-#endif
-    const startup_report::Launch launch = startup_report::classify(argc, argv, stderr_tty);
+    const startup_report::Launch launch = startup_report::classify(argc, argv);
     const int rc = run_main(argc, argv);
     if (startup_report::should_show(rc, launch.windowed, launch.unattended,
                                     startup_report::running() || startup_report::dialog_shown())) {

@@ -101,8 +101,20 @@ if want startup-error-dialog-func; then
     [[ "$rc" != 0 ]] || se_fails+=("fileadd: exit 0, want a failure")
     se_no_box fileadd
 
+    # stderr a TERMINAL (a pty): the box is shown all the same (owner, 2026-11-23)
+    mkdir -p "$se_dir/tty-cfg"
+    rc=0
+    timeout --foreground --kill-after=5s 60s \
+        env JNEXT_CONFIG_DIR="$se_dir/tty-cfg" QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
+        python3 -I -c 'import os, pty, sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))' \
+        "$JNEXT" --log-level platform=debug --log-file "$se_dir/tty.log" --bogus-option \
+        </dev/null >"$se_dir/tty.out" 2>&1 || rc=$?
+    if [[ -f "$se_dir/tty.log" ]]; then tr -d '\r' <"$se_dir/tty.log" >"$se_dir/tty.log.lf"; else : >"$se_dir/tty.log.lf"; fi
+    [[ "$rc" == 1 ]] || se_fails+=("tty: exit $rc, want 1")
+    se_box_has tty "Unknown option"
+
     if [[ ${#se_fails[@]} -eq 0 ]]; then
-        pass_row " (an unknown option and a refused option combination raise the start-up box with the reason on Qt and SDL; headless, unattended and --sdcard-file-add raise none; stderr keeps the message)"
+        pass_row " (an unknown option and a refused option combination raise the start-up box with the reason on Qt and SDL; also with stderr on a terminal; headless, unattended and --sdcard-file-add raise none; stderr keeps the message)"
     else
         fail_row " (${#se_fails[@]} fault(s) in the start-up error box)"
         printf '      %s\n' "${se_fails[@]}"
