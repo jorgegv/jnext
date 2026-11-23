@@ -2204,6 +2204,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Chips">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recording-a-psg" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recording a .psg
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -4612,6 +4629,33 @@ with the square wave. Every write to register 13 restarts the envelope, so the
 step shown right after one is the start of the new shape.</p>
 <p>The <strong>Hex</strong> box swaps the decoded view for the raw table: all 16 registers of
 the three chips side by side, named.</p>
+<h3 id="recording-a-psg">Recording a .psg<a class="headerlink" href="#recording-a-psg" title="Permanent link">&para;</a></h3>
+<p>The row at the top of the Chips tab records what the program writes to the AY chips
+as <code>.psg</code> files. <strong>Record PSG...</strong> asks for a file name and starts; the label beside
+the buttons reads <strong>Recording PSG</strong> (with the file name as its tooltip) until <strong>Stop</strong>
+ends it. From the command line the same recording is <code>--psg-record FILE</code>, and the
+two give the same bytes. A recording that is running when JNEXT exits is finished
+like any other capture.</p>
+<ul>
+<li>The file holds the layout Fuse writes for its AY log: a header, then for each
+  frame in which the program wrote any of the registers R0 to R13 the register and
+  value pairs in register order, with a separator for every frame in between. R14
+  and R15 (the I/O ports) are not recorded.</li>
+<li><strong>One file per chip.</strong> The first chip's file is the name you gave. The second
+  and third chips go to the same name with <code>-ay1</code> or <code>-ay2</code> before the extension
+  (<code>tune.psg</code> gives <code>tune-ay1.psg</code>), and a file is created only if that chip is
+  written. The files are aligned to the start of the recording, so they stay in
+  step if you play them together.</li>
+<li><strong>Last write wins.</strong> When a program writes the same register more than once in a
+  frame, the file keeps the last value. Fuse keeps the first.</li>
+<li><strong>Resets, rewinds and state loads</strong> never take the file back in time: the
+  recording carries on from the last frame it saw. A rewind while recording keeps
+  what was already written and carries on after it (the frames a rewind replays
+  are not recorded again), and a reset splits the frame it happens in.</li>
+<li>The recording does not depend on the Log tab: it works with the log off, and
+  stopping the log does not stop it. Like the mute buttons it is invisible to the
+  program being debugged and is not part of a saved state.</li>
+</ul>
 <p>The Chips tab is refreshed every frame while the Audio panel is visible and
 Chips is the current tab; with another tab current, or the panel hidden behind
 another one, the panel is refreshed at about 4 Hz with the rest of the window.</p>

@@ -3422,6 +3422,11 @@ real start and finish of the file:</p>
 <td><code>AudioLogStream::finish</code>, after the flush and close (also when it reports an error: what is on disk is final)</td>
 </tr>
 <tr>
+<td><code>--psg-record</code></td>
+<td><code>PsgRecorder::start</code> (FILE) and the first block of a chip (<code>-ay1</code>, <code>-ay2</code>)</td>
+<td><code>PsgRecorder::stop</code>, after the close of each file (also on a write error)</td>
+</tr>
+<tr>
 <td><code>--log-file</code></td>
 <td><code>main()</code>, where the sink is built</td>
 <td>the page's finish, after flushing every logger</td>
