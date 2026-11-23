@@ -4755,8 +4755,7 @@ with the reason.</p>
 <p>Two JNEXTs on one card would each cache what the other changes. The second one is refused:</p>
 <pre><code>the SD card image /home/me/.jnext/sdcard/cspect-next-1gb-fixed.img is in use by another jnext (process 4242); give each jnext its own card (--sdcard FILE)
 </code></pre>
-<p>To run two, give each its own copy (<code>cp --reflink=auto card.img card2.img</code>, then
-<code>--sdcard card2.img</code>). The same goes for a writes file. A hard link to a card counts as a
+<p>To run two, give each its own card image with <code>--sdcard FILE</code>. The same goes for a writes file. A hard link to a card counts as a
 separate card.</p>
 <h2 id="an-older-jnext-and-a-newer-card">An older JNEXT and a newer card<a class="headerlink" href="#an-older-jnext-and-a-newer-card" title="Permanent link">&para;</a></h2>
 <p>A JNEXT never changes a card of a newer NextZXOS than its own. It says so in the log, and in a

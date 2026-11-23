@@ -96,8 +96,7 @@ Two JNEXTs on one card would each cache what the other changes. The second one i
 the SD card image /home/me/.jnext/sdcard/cspect-next-1gb-fixed.img is in use by another jnext (process 4242); give each jnext its own card (--sdcard FILE)
 ```
 
-To run two, give each its own copy (`cp --reflink=auto card.img card2.img`, then
-`--sdcard card2.img`). The same goes for a writes file. A hard link to a card counts as a
+To run two, give each its own card image with `--sdcard FILE`. The same goes for a writes file. A hard link to a card counts as a
 separate card.
 
 ## An older JNEXT and a newer card
