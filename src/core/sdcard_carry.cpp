@@ -400,6 +400,14 @@ void decide(const std::vector<Change>& user, const std::vector<Change>& dist, co
                 .push_back(what + u.entry.path);
             continue;
         }
+        // The new card holds this very path with the other type (a file where the user made a
+        // directory, a directory where the user made a file) and the distribution left it alone: the
+        // distribution wins, the entry is listed, and so are its children (their parent is then a file
+        // on the new card, or the entry's own type cannot replace a directory).
+        if (const Entry* self = n.find(key); self && self->dir != u.entry.dir) {
+            report.overridden.push_back(what + u.entry.path);
+            continue;
+        }
         // A path through something the new card made a FILE cannot hold this entry.
         bool blocked = false;
         for (std::string p = parent_of(u.entry.path); !p.empty(); p = parent_of(p)) {
@@ -551,7 +559,11 @@ bool verify_carried_equal(Tree& result, Tree& src, const std::vector<Entry>& car
 
 bool verify_nothing_else_moved(Tree& result, Tree& n_as_made, const std::vector<Entry>& carried, std::string& err) {
     std::set<std::string> carried_keys;
-    for (const Entry& e : carried) carried_keys.insert(path_key(e.path));
+    for (const Entry& e : carried) {
+        carried_keys.insert(path_key(e.path));
+        // the parent directories apply_carry made for it are part of the carry
+        for (std::string p = parent_of(e.path); !p.empty(); p = parent_of(p)) carried_keys.insert(path_key(p));
+    }
     std::vector<Change> ch;
     if (!compute_changes(result, n_as_made, ch, err)) return false;
     for (const Change& c : ch) {
@@ -911,11 +923,7 @@ FileAddStatus export_changes(const ExportRequest& req, ExportReport& rep, std::s
         if (!tmp_base.empty()) { fs::remove(tmp_base, ec); }
         if (made_upgrade_dir) fs::remove(upgrade_dir, ec);   // only an empty directory goes
     };
-    if (!req.base_image.empty()) {
-        base = open_tree_lenient(req.base_image, err);
-        if (!base) return FileAddStatus::DestInvalid;
-        rep.base = "--sdcard-export-base " + req.base_image;
-    } else if (req.is_default_card && pristine_base_ok(req.image, why)) {
+    if (req.is_default_card && pristine_base_ok(req.image, why)) {
         made_upgrade_dir = !fs::exists(upgrade_dir, ec);
         fs::create_directories(upgrade_dir, ec);
         tmp_base = (fs::path(upgrade_dir) / "export-base.img").string();
@@ -926,6 +934,10 @@ FileAddStatus export_changes(const ExportRequest& req, ExportReport& rep, std::s
         base = Volume::open(1, tmp_base, nullptr, true, verr);
         if (!base) { err = verr; cleanup(); return FileAddStatus::DestInvalid; }
         rep.base = "as-made";
+    } else if (!req.base_image.empty()) {
+        base = open_tree_lenient(req.base_image, err);
+        if (!base) return FileAddStatus::DestInvalid;
+        rep.base = "--sdcard-export-base " + req.base_image;
     } else if (req.journal) {
         base = Volume::open(1, req.image, nullptr, true, err);
         if (!base) return FileAddStatus::ImageUnusable;
@@ -983,6 +995,13 @@ FileAddStatus export_changes(const ExportRequest& req, ExportReport& rep, std::s
             host += (host.empty() ? "" : "/") + h;
             if (e == std::string::npos) break;
             s = e + 1;
+        }
+        // The list itself is DIR/CHANGES.txt (on a host that folds case, any case of the name): a card
+        // file of that name at the root is written under an escaped name, never over the list.
+        if (host.find('/') == std::string::npos && host.size() == 11) {
+            std::string up = host;
+            for (char& ch : up) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+            if (up == "CHANGES.TXT") { host = "%43" + host.substr(1); escaped = true; }
         }
         if (escaped) rep.escaped.push_back(host);
         l.host_path = host;

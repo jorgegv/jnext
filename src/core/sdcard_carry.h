@@ -88,6 +88,8 @@ private:
 
 /// `image` as a Tree: through FatFs, and when FatFs refuses it (a raw distribution image is
 /// under-clustered) through the lenient hand-rolled reader, which holds the file contents in memory.
+/// NOTE: it always mounts on drive 1: a Volume still open on drive 1 is silently re-attached and
+/// loses its mount, so open the others on drive 0 or close the drive-1 one first.
 std::unique_ptr<Tree> open_tree_lenient(const std::string& image, std::string& err);
 
 // ---------------------------------------------------------------------------
@@ -139,9 +141,11 @@ struct CarryStats { unsigned files = 0, dirs = 0; uint64_t bytes = 0; };
 
 /// Write `items` (entries of `src`) into `dst`: parent directories made as needed, file bytes,
 /// the R/H/S bits and the date and time of the source. The free space is checked first, and a copy
-/// that cannot fit fails with `dst` untouched (byte-identical, an image or a journal). A failure in
-/// the middle removes what this call created. `dst` is a writable Volume, on an image or through a
-/// journal. Never unlinks anything that existed.
+/// that does not fit by the data clusters it needs fails with `dst` untouched (byte-identical, an
+/// image or a journal); the precheck does not count directory-entry growth, so ImageFull can still
+/// come mid-write, and then what this call created is removed but the image is not byte-identical.
+/// `dst` is a writable Volume, on an image or through a journal. It unlinks only what this call
+/// created, and a file it was replacing whose write failed (its old bytes were already truncated).
 FileAddStatus apply_carry(Tree& src, const std::vector<Entry>& items, Volume& dst,
                           std::string& err, CarryStats* stats = nullptr);
 

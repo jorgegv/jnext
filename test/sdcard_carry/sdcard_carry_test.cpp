@@ -248,9 +248,11 @@ Fixture make_fixture() {
     add(f.c, "/MACHINES/NEXT/config.ini", "cfg-user", true);
     add(f.c, "/SYS/resaved.sys", "x", true);   // the same bytes written again
     Edit e(f.c);
+    e.utime("/GAMES/mine.nex", 0x5A21, 0x6000);   // a date no FatFs default could produce (M24)
     e.chmod("/SYS/attr.sys", AM_HID, AM_HID);
     e.unlink("/NEXTZXOS/keep.txt");
     e.mkdir("/MYDIR");
+    e.chmod("/MYDIR", AM_HID, AM_HID);            // a hidden user directory (M34)
     return f;
 }
 
@@ -497,7 +499,7 @@ int main() {
         const bool date = mine && src && mine->wdate == src->fdate && mine->wtime == src->ftime;
         check("SDCARRY-01", "added and changed files are on the new card with their bytes, R/H/S attributes and timestamp; added directories are made; long and 8.3 names are exact",
               res.st == FileAddStatus::Ok && mine && text(mine) == "NEX!" && date && hid && (hid->attr & 2) && same && text(same) == "x2" &&
-                  lng && text(lng) == "long" && mydir && mydir->dir && seen("/readme.txt"),
+                  lng && text(lng) == "long" && mydir && mydir->dir && (mydir->attr & 2) && seen("/readme.txt"),
               res.err + " mine=" + text(mine) + " same=" + text(same));
     }
     {
@@ -639,6 +641,85 @@ int main() {
               real && st != FileAddStatus::Ok && err.find("rolled back") != std::string::npos &&
                   after.find(up("/GAMES/mine.nex")) == after.end(),
               err);
+    }
+    {
+        // SDCARRY-13/14/15 (review of S4): type conflicts, children under a file, parents the carry creates.
+        Fat32Tree ta;
+        ta.root.push_back(fnode("T", "t-file"));
+        ta.root.push_back(dnode("D", {fnode("f.txt", "f")}));
+        ta.root.push_back(fnode("KEEP.TXT", "k"));
+        ta.root.push_back(dnode("X", {fnode("x.txt", "x")}));
+        ta.root.push_back(dnode("OLD", {fnode("x.txt", "x")}));
+        Fat32Tree tn;   // the new card: T and D as before, X replaced by a FILE, OLD removed
+        tn.root.push_back(fnode("T", "t-file"));
+        tn.root.push_back(dnode("D", {fnode("f.txt", "f")}));
+        tn.root.push_back(fnode("KEEP.TXT", "k"));
+        tn.root.push_back(fnode("X", "now-a-file"));
+        const std::string ca = tmp("TA"), cn = tmp("TN"), cc = tmp("TC");
+        make_card(ca, ta);
+        make_card(cn, tn);
+        copy_card(ca, cc);
+        {
+            Edit e(cc);
+            e.unlink("/T");           e.mkdir("/T");  e.put("/T/child.txt", "tc");     // file -> directory
+            e.unlink("/D/f.txt");     e.unlink("/D"); e.put("/D", "d-is-a-file");      // directory -> file
+            e.put("/MINE.TXT", "mine");
+            e.put("/X/mine.txt", "under-a-file");                                      // N holds /X as a file
+            e.put("/OLD/mine.txt", "in-a-removed-dir");                                // the distribution removed /OLD
+        }
+        std::vector<carry::Change> user, dist;
+        std::vector<carry::Entry> items;
+        carry::Report rep;
+        std::string e13;
+        {
+            auto vc = vol(0, cc);
+            auto va = vol(1, ca);
+            carry::compute_changes(*vc, *va, user, e13);
+        }
+        {
+            std::vector<std::string> keys;
+            for (const auto& u : user) keys.push_back(carry::path_key(u.entry.path));
+            std::sort(keys.begin(), keys.end());
+            auto vn = vol(0, cn);
+            auto va = vol(1, ca);
+            carry::changes_at(*vn, *va, keys, dist, e13);
+            carry::decide(user, dist, *vn, items, rep);
+        }
+        const std::string np = tmp("TNprime");
+        copy_card(cn, np);
+        FileAddStatus st = FileAddStatus::ImageUnusable;
+        {
+            auto src = vol(1, cc);
+            auto dst = vol(0, np, nullptr, false);
+            if (src && dst) st = carry::apply_carry(*src, items, *dst, e13);
+        }
+        const auto f = foreign(np);
+        auto listed = [&](const std::string& p) {
+            for (const auto& o : rep.overridden) if (o.find(p) != std::string::npos) return true;
+            return false;
+        };
+        check("SDCARRY-13", "a type change the user made and the distribution left alone (file to directory, directory to file) does not abort the carry: the distribution's type wins, both are listed, the children are listed, and the rest is carried",
+              st == FileAddStatus::Ok && text(f.count("/T") ? &f.at("/T") : nullptr) == "t-file" && !f.count("/T/CHILD.TXT") &&
+                  f.count("/D") && f.at("/D").dir && !f.count("/MINE-D") && listed("/T") && listed("/D") && listed("/T/child.txt") &&
+                  f.count("/MINE.TXT") && text(&f.at("/MINE.TXT")) == "mine",
+              e13);
+        check("SDCARRY-14", "a user file under a path the new card holds as a FILE is listed, not carried (and does not abort the carry)",
+              st == FileAddStatus::Ok && listed("/X/mine.txt") && !f.count("/X/MINE.TXT") && f.count("/X") && !f.at("/X").dir, e13);
+        // F2: the directory the distribution removed is re-made for the user's file, and verify says so
+        bool verified = false;
+        std::string v13;
+        {
+            auto r = vol(0, np);
+            auto n = vol(1, cn);
+            verified = r && n && carry::verify_nothing_else_moved(*r, *n, items, v13);
+        }
+        {
+            auto r = vol(0, np);
+            auto s2 = vol(1, cc);
+            verified = verified && r && s2 && carry::verify_carried_equal(*r, *s2, items, v13);
+        }
+        check("SDCARRY-15", "a user file in a directory the distribution removed is carried (its parent directory is made) and verify accepts it: the parents the carry makes count as carried",
+              st == FileAddStatus::Ok && f.count("/OLD/MINE.TXT") && text(&f.at("/OLD/MINE.TXT")) == "in-a-removed-dir" && verified, v13);
     }
     {
         // SDCARRY-10: verify catches a planted mismatch.
@@ -935,6 +1016,50 @@ int main() {
               ok && pristine && st == FileAddStatus::Ok && rep.base == "as-made" && rep.added == 1 && rep.changed == 0 && rep.removed == 0 &&
                   fs::exists(fs::path(req.dir) / "MINE.TXT") && !fs::exists(fs::path(dd) / "upgrade-work"),
               why + " | " + e8 + " base=" + rep.base + " a=" + std::to_string(rep.added) + " c=" + std::to_string(rep.changed));
+        // the order when BOTH are available: the card as made comes before --sdcard-export-base
+        {
+            carry::ExportRequest rq = req;
+            rq.base_image = raw_img;
+            rq.dir = tmp("exp8b");
+            carry::ExportReport rr;
+            std::string eo;
+            const FileAddStatus so = carry::export_changes(rq, rr, eo);
+            check("SDEXP-12", "with the card as made AND --sdcard-export-base both available the card as made is the basis (jnext's own files are not exported as changes)",
+                  so == FileAddStatus::Ok && rr.base == "as-made" && rr.added == 1, eo + " base=" + rr.base);
+        }
+        // the .distro of the card and of the raw must agree (M27)
+        {
+            { std::ofstream(card + sdcard::kDistroSuffix) << "sn-emulator-99.99.zip\n"; }
+            std::string wd;
+            const bool pd = carry::pristine_base_ok(card, wd);
+            std::remove((card + sdcard::kDistroSuffix).c_str());
+            check("SDEXP-13", "a card whose .distro is not its original image's has no pristine base, naming both distributions",
+                  !pd && wd.find("was not made from the original image") != std::string::npos && wd.find("99.99") != std::string::npos, wd);
+        }
+        // a re-formatted card (another volume serial) has no pristine base (M26)
+        {
+            const std::string c2 = tmp("reformatted");
+            copy_card(card, c2);
+            std::ofstream(c2 + sdcard::kFixedImageRecipeSuffix) << "3\n";
+            {
+                std::fstream f(c2, std::ios::in | std::ios::out | std::ios::binary);
+                f.seekp(static_cast<std::streamoff>(static_cast<uint64_t>(kLba) * 512 + 0x43));
+                const char z[4] = {1, 2, 3, 4};
+                f.write(z, 4);
+            }
+            // pristine_base_ok looks for the raw beside the card: put the pair in one directory
+            const std::string d2 = tmp("dflt2");
+            fs::create_directories(d2);
+            fs::copy_file(raw_img, fs::path(d2) / sdcard::kImageFileName, fs::copy_options::overwrite_existing);
+            fs::copy_file(raw_img + ".sha256", fs::path(d2) / (std::string(sdcard::kImageFileName) + ".sha256"), fs::copy_options::overwrite_existing);
+            const std::string cc2 = (fs::path(d2) / sdcard::kFixedImageFileName).string();
+            fs::rename(c2, cc2);
+            fs::rename(c2 + sdcard::kFixedImageRecipeSuffix, cc2 + sdcard::kFixedImageRecipeSuffix);
+            std::string ws;
+            const bool ps = carry::pristine_base_ok(cc2, ws);
+            check("SDEXP-14", "a card whose volume serial is not the one its original image gives (re-formatted) has no pristine base",
+                  !ps && ws.find("volume serial") != std::string::npos, ws);
+        }
         // a raw that does not match its sidecar: not pristine, so the export refuses naming the reason
         { std::ofstream(raw_img + ".sha256") << std::string(64, '0') << "  " << sdcard::kImageFileName << "\n"; }
         std::string why2, e9;
@@ -1034,6 +1159,50 @@ int main() {
         check("SDIMP-03", "an existing file is REPLACED and a new one written; the report names each as replaced or written, with the counts",
               st == FileAddStatus::Ok && rep.written == std::vector<std::string>{"/NEWFILE.TXT"} && rep.replaced == std::vector<std::string>{"/SYS/same.sys"} &&
                   text(&f.at("/SYS/SAME.SYS")) == "SAME-2" && text(&f.at("/NEWFILE.TXT")) == "new", err);
+    }
+    {
+        // SDEXP-11: a card file named like the list itself is exported under an escaped name and imported back
+        const std::string src = tmp("ct-src");
+        copy_card(fx.a, src);
+        add(src, "/CHANGES.txt", "release notes");
+        add(src, "/changes.txt2", "other");
+        add(src, "/OTHER.TXT", "o");
+        const std::string dir = tmp("ct-exp");
+        const bool exported = export_for_import(src, fx.a, dir);
+        const std::string dst = tmp("ct-dst");
+        copy_card(fx.a, dst);
+        carry::ImportReport rep;
+        std::string ei;
+        const FileAddStatus st = carry::import_changes(dst, dir, rep, ei);
+        const auto f = foreign(dst);
+        check("SDEXP-11", "a card file named CHANGES.txt (any case) at the root survives the export (it is written under an escaped name, never over the list) and imports back with its bytes",
+              exported && st == FileAddStatus::Ok && f.count("/CHANGES.TXT") && text(&f.at("/CHANGES.TXT")) == "release notes" &&
+                  f.count("/OTHER.TXT"), ei);
+        // the lower-case spelling too (on its own card, since FAT folds the two into one name)
+        const std::string src2 = tmp("ct2-src");
+        copy_card(fx.a, src2);
+        add(src2, "/changes.txt", "lower case notes");
+        const std::string dir2 = tmp("ct2-exp");
+        const bool exported2 = export_for_import(src2, fx.a, dir2);
+        const std::string dst2 = tmp("ct2-dst");
+        copy_card(fx.a, dst2);
+        std::string ei2;
+        const FileAddStatus st2 = carry::import_changes(dst2, dir2, rep, ei2);
+        const auto f2 = foreign(dst2);
+        check("SDEXP-15", "the same for the lower-case name /changes.txt",
+              exported2 && st2 == FileAddStatus::Ok && f2.count("/CHANGES.TXT") && text(&f2.at("/CHANGES.TXT")) == "lower case notes", ei2);
+    }
+    {
+        // SDIMP-11: D lines carry attributes: a hidden / system / read-only directory is restored (M12b)
+        const std::string card = tmp("imp11");
+        copy_card(fx.a, card);
+        const std::string d = make_dir("D\tH\t0\t/HDIR\t-\nD\tRS\t0\t/RSDIR\t-\nD\t-\t0\t/PLAIN\t-\n", {});
+        carry::ImportReport rep;
+        const FileAddStatus st = carry::import_changes(card, d, rep, err);
+        const auto f = foreign(card);
+        check("SDIMP-11", "attributes of directories are restored: a D line with H, RS and - gives exactly those bits on the directory",
+              st == FileAddStatus::Ok && f.count("/HDIR") && (f.at("/HDIR").attr & 7) == 2 && f.count("/RSDIR") && (f.at("/RSDIR").attr & 7) == 5 &&
+                  f.count("/PLAIN") && (f.at("/PLAIN").attr & 7) == 0, err);
     }
     {
         const std::string card = tmp("imp4");
