@@ -30,6 +30,9 @@
 // table's cells, its filters, the double-click, the CSV export and the mirror of the backend's ring.
 // Rows DAP-61..69 (GH #534) drive the Tracker sub-tab: the model's grid cell for cell, the live grouping
 // of real writes, the rewind double-click and why a row is greyed.
+// Rows DAP-81..87 (GH #535) drive the player timing strip under the Tracker: its objects, its statistics
+// against the core helper and against hand-grouped log stamps of a real IM2 player, the per-row details,
+// the dot plot, the window box and the reset / rewind / log-off paths.
 // Rows DAP-88..92 (GH #538) drive the Record PSG... row of the Chips tab: its widgets, a recording through the panel and
 // one started elsewhere, a refused path, and the panel's bytes against the backend verb's.
 // Run: ./build/test/debugger_audio_panel_test
@@ -38,17 +41,24 @@
 #include "audio/mixer.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/audio_frames.h"
 #include "debug/debugger.h"
+#include "debug/dac_stream.h"
 #include "debugger/audio_log_view.h"
 #include "debugger/audio_panel.h"
+#include "debugger/audio_scope_view.h"
+#include "debugger/audio_stream_view.h"
 #include "debugger/audio_tracker_view.h"
+#include "debug/audio_math.h"
 #include "platform/emulator_boot.h"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QLabel>
+#include <QImage>
 #include <QProgressBar>
+#include <QSpinBox>
 #include <QString>
 #include <QTabWidget>
 #include <QPushButton>
@@ -1069,15 +1079,15 @@ static void test_dac_tab(Emulator& emu) {
         QWidget* dac = tabs ? tabs->widget(1) : nullptr;
         const bool real = dac && dac->findChild<QTreeWidget*>("audio_drops") && dac->findChild<QLabel*>("dac_a_value") &&
                           !dac->findChild<QLabel*>("dac_a_value")->text().isEmpty();
-        bool placeholders = tabs != nullptr;
-        for (int i = 4; tabs && i < 5; ++i) {
+        bool all_real = tabs != nullptr;
+        for (int i = 0; tabs && i < tabs->count(); ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
-            placeholders = placeholders && found;
+            all_real = all_real && !found;
         }
-        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Scopes still shows 'Not available yet.'",
-              real && placeholders);
+        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values; no Audio sub-tab is a placeholder (none shows 'Not available yet.')",
+              real && all_real && tabs->count() == 5);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-39", "emulator init", false); return; }
@@ -1446,12 +1456,12 @@ static void test_log_tab(Emulator& emu) {
         AudioPanel panel(&dbg);
         auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
         const auto tables = panel.findChildren<QTableWidget*>();
-        bool placeholders = tabs != nullptr;
-        for (int i = 4; tabs && i < 5; ++i) {
+        bool all_real = tabs != nullptr;
+        for (int i = 0; tabs && i < tabs->count(); ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
-            placeholders = placeholders && found;
+            all_real = all_real && !found;
         }
         bool only_log = tabs != nullptr;
         for (int i = 0; tabs && i < tabs->count(); ++i) {
@@ -1459,9 +1469,9 @@ static void test_log_tab(Emulator& emu) {
             only_log = only_log && (panel.log_on_show() == (i == 2));
         }
         QWidget* log_tab = tabs ? tabs->widget(2) : nullptr;
-        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; Scopes still shows 'Not available yet.'; log_on_show() is true only with Log current",
+        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; no Audio sub-tab is a placeholder; log_on_show() is true only with Log current",
               log_tab && log_tab->findChild<QTableView*>("audio_log_table") && tables.size() == 1 &&
-              tables[0]->objectName() != "audio_log_table" && placeholders && only_log);
+              tables[0]->objectName() != "audio_log_table" && all_real && only_log);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-49", "emulator init", false); return; }
@@ -1748,6 +1758,247 @@ static void test_log_tab(Emulator& emu) {
     }
 }
 
+
+// ── DAP-STREAM: the Pacing and Sample stream groups of DAC & Beeper (GH #537) ──
+//
+// Oracles: the CTC rates are 28 MHz / (prescaler x TC) (ctc_chan.vhd:132-170), the DMA's 28 MHz / (32 x
+// prescaler) (dma.vhd:424), the stream rows the dac_stream_stats() of the same log entries (DSS-* in
+// audio_debug_test pin the helper). The DSS-13 program (halt_bench.asm CTCDAC) is hand-placed here too.
+
+static void ctc_wr(Emulator& emu, int ch, uint8_t control, int tc = -1) {
+    const uint16_t port = static_cast<uint16_t>(0x183B + (ch << 8));
+    emu.port().out(port, control);
+    if (tc >= 0) emu.port().out(port, static_cast<uint8_t>(tc));
+}
+
+// A burst from memory 0x9000 to port 0x00DF at prescaler 55, auto-restarting, through port 0x6B.
+static void dma_to_dac(Emulator& emu) {
+    for (int i = 0; i < 256; ++i) emu.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i));
+    const uint8_t prog[] = {0xA2, 0x7D, 0x00, 0x90, 0xFF, 0x00, 0x14, 0x68, 0x21, 55, 0xCD, 0xDF, 0x00, 0xCF, 0x87};
+    for (uint8_t b : prog) emu.port().out(0x6B, b);
+}
+
+// The CTC-paced DAC player at 28 MHz (see build_ctcdac in audio_debug_test.cpp); returns the OUT's address.
+static uint16_t ctc_dac_player(Emulator& emu, bool skip_wrap) {
+    nr_write(emu, 0x07, 0x03);
+    for (int i = 0; i <= 256; ++i) emu.mmu().write(static_cast<uint16_t>(0xD000 + i), 0xD1);
+    emu.mmu().write(0xD1D1, 0xC3); emu.mmu().write(0xD1D2, 0x00); emu.mmu().write(0xD1D3, 0x81);
+    std::vector<uint8_t> isr = {0xF5, 0xC5, 0x3A, 0x00, 0x82, 0x3C, 0x32, 0x00, 0x82};
+    if (skip_wrap) { isr.push_back(0x28); isr.push_back(0x02); }
+    const uint16_t out_at = static_cast<uint16_t>(0x8100 + isr.size());
+    for (uint8_t b : {0xD3, 0xDF, 0xC1, 0xF1, 0xFB, 0xED, 0x4D}) isr.push_back(b);
+    for (size_t i = 0; i < isr.size(); ++i) emu.mmu().write(static_cast<uint16_t>(0x8100 + i), isr[i]);
+    nr_write(emu, 0x22, 0x04);
+    nr_write(emu, 0xC0, 0x01);
+    nr_write(emu, 0xC5, 0x01);
+    nr_write(emu, 0x08, 0x08);
+    ctc_wr(emu, 0, 0x87, 109);
+    cpu_program(emu, {0x3E, 0xD0, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFD});
+    return out_at;
+}
+
+static void show_dac_tab(AudioPanel& panel) {
+    if (auto* tabs = panel.findChild<QTabWidget*>("audio_tabs")) tabs->setCurrentIndex(1);
+}
+
+static QTreeWidget* tree_of(AudioPanel& panel, const char* name) { return panel.findChild<QTreeWidget*>(name); }
+
+static void test_stream_view(Emulator& emu) {
+    set_group("DAP-STREAM");
+    using jnext::dbg::ClientInfo;
+    using jnext::dbg::ClientKind;
+
+    {
+        if (!build_dac_machine(emu)) { check("DAP-76", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        QWidget* dac = tabs ? tabs->widget(1) : nullptr;
+        auto* pacing = dac ? dac->findChild<QTreeWidget*>("audio_pacing") : nullptr;
+        auto* stream = dac ? dac->findChild<QTreeWidget*>("audio_stream") : nullptr;
+        const bool shape = pacing && stream && pacing->topLevelItemCount() == 5 && pacing->columnCount() == 8 &&
+                           pacing->headerItem()->text(0) == "Engine" && pacing->headerItem()->text(7) == "Rate" &&
+                           pacing->topLevelItem(0)->text(0) == "CTC 0" && pacing->topLevelItem(3)->text(0) == "CTC 3" &&
+                           pacing->topLevelItem(4)->text(0) == "DMA" && stream->columnCount() == 10 &&
+                           stream->headerItem()->text(0) == "Writer" && stream->headerItem()->text(9) == "Pacing" &&
+                           dac->findChild<QLabel*>("audio_stream_status") && dac->findChild<QLabel*>("audio_stream_window");
+        const auto tables = panel.findChildren<QTableWidget*>();
+        bool only_dac = tabs != nullptr && tabs->count() == 5;
+        for (int i = 0; tabs && i < tabs->count(); ++i) {
+            tabs->setCurrentIndex(i);
+            only_dac = only_dac && (panel.dac_on_show() == (i == 1));
+        }
+        // The pacing values: CTC 0 a timer with its interrupt on, CTC 1 a counter behind it, CTC 2 never
+        // programmed, the DMA a burst at prescaler 55 that has moved one byte.
+        ctc_wr(emu, 0, 0x85, 109);
+        ctc_wr(emu, 1, 0x45, 2);
+        emu.ctc().tick(1);
+        dma_to_dac(emu);
+        emu.dma().execute_burst(1);
+        show_dac_tab(panel);
+        panel.refresh();
+        const bool ch0 = tree_cell(pacing, 0, 1) == "timer" && tree_cell(pacing, 0, 2) == "16" &&
+                         tree_cell(pacing, 0, 3) == "109" && tree_cell(pacing, 0, 5) == "running" &&
+                         tree_cell(pacing, 0, 6) == "on" && tree_cell(pacing, 0, 7) == "16055.046 Hz";
+        const bool ch1 = tree_cell(pacing, 1, 1) == "counter <- CTC 0" && tree_cell(pacing, 1, 2) == "-" &&
+                         tree_cell(pacing, 1, 3) == "2" && tree_cell(pacing, 1, 7) == "8027.523 Hz";
+        const bool ch2 = tree_cell(pacing, 2, 5) == "stopped" && tree_cell(pacing, 2, 7) == "-";
+        const bool dma = tree_cell(pacing, 4, 1) == "burst" && tree_cell(pacing, 4, 2) == "55" &&
+                         tree_cell(pacing, 4, 3) == "1/255" && tree_cell(pacing, 4, 4) == "0x9001 -> port 0x00DF" &&
+                         tree_cell(pacing, 4, 5) == "active" && tree_cell(pacing, 4, 7) == "15909.091 Hz";
+        check("DAP-76", "DAC & Beeper holds audio_pacing (5 rows CTC 0..3 and DMA, 8 columns), audio_stream, audio_stream_status and audio_stream_window; the hex table is still the only QTableWidget; dac_on_show() is true only with DAC & Beeper current; with ch0 a timer (P16, TC 109, interrupt on), ch1 a counter (TC 2), ch2 idle and a burst DMA at prescaler 55 the Pacing rows read timer/16/109/running/on/16055.046 Hz, counter <- CTC 0/-/2/8027.523 Hz, stopped/-, burst/55/1/255/0x9001 -> port 0x00DF/active/15909.091 Hz",
+              shape && tables.size() == 1 && only_dac && ch0 && ch1 && ch2 && dma,
+              fmt("shape=%d only_dac=%d ch0=%d ch1=%d ch2=%d dma=%d", shape, only_dac, ch0, ch1, ch2, dma));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-77", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap77", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        const uint16_t out_at = ctc_dac_player(emu, false);
+        AudioPanel panel(&dbg);
+        show_dac_tab(panel);
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        panel.refresh();
+        const auto entries = dbg.audio_log_entries(0).value;
+        const auto st = jnext::dbg::dac_stream_stats(entries, dbg.time().master_cycle, jnext::dbg::dac_stream_window_cycles());
+        auto* stream = tree_of(panel, "audio_stream");
+        const bool one = stream && stream->topLevelItemCount() == 1 && st.writers.size() == 1;
+        const QString want_rate = st.writers.empty() ? QString() : QString::number(st.writers[0].rate_millihz / 1000.0, 'f', 3);
+        // "covered": min(window, end - the oldest writer's first sample) / window, from the same entries.
+        const uint64_t win = jnext::dbg::dac_stream_window_cycles();
+        const uint64_t end_c = dbg.time().master_cycle;
+        const double covered = st.writers.empty() ? 0.0 : double(std::min(win, end_c - st.writers[0].first_cycle)) / double(win);
+        auto* wlabel = panel.findChild<QLabel*>("audio_stream_window");
+        const bool covered_ok = covered > 0.0 && wlabel && wlabel->text().contains(QString("covered %1 s").arg(covered, 0, 'f', 3));
+        check("DAP-77", "the CTC-paced player (DSS-13) for 10 frames: one audio_stream row, Writer 'CPU 0x....' (the ISR's OUT), Channels 'A D', Rate the %.3f of dac_stream_stats over the same entries and end cycle, Gaps 0, Pacing beginning 'CTC 0: 16055.046 Hz (', and the window label's 'covered N s' equal to min(1 s, end - the first sample) / 1 s",
+              one && tree_cell(stream, 0, 0) == QString("CPU 0x%1").arg(out_at, 4, 16, QChar('0')).toUpper().replace("0X", "0x") &&
+              tree_cell(stream, 0, 1) == "A D" && tree_cell(stream, 0, 3) == want_rate &&
+              tree_cell(stream, 0, 8) == "0" && tree_cell(stream, 0, 9).startsWith("CTC 0: 16055.046 Hz (") && covered_ok,
+              fmt("row=%s rate=%s pacing=%s", tree_cell(stream, 0, 0).toStdString().c_str(),
+                  tree_cell(stream, 0, 3).toStdString().c_str(), tree_cell(stream, 0, 9).toStdString().c_str()));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-78", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap78", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        nr_write(emu, 0x08, 0x08);
+        dma_to_dac(emu);
+        // Copper: MOVE NR 0x2D,0x66 then HALT, run once (mode 01).
+        emu.nextreg().write(0x61, 0); emu.nextreg().write(0x62, 0);
+        for (uint16_t w : {uint16_t((0x2D << 8) | 0x66), uint16_t(0x8000u | 0x1FFu)}) {
+            emu.nextreg().write(0x63, uint8_t(w >> 8)); emu.nextreg().write(0x63, uint8_t(w & 0xFF));
+        }
+        emu.nextreg().write(0x61, 0); emu.nextreg().write(0x62, 0x40);
+        cpu_program(emu, {0xF3, 0x18, 0xFE});
+        AudioPanel panel(&dbg);
+        show_dac_tab(panel);
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        panel.refresh();
+        auto* stream = tree_of(panel, "audio_stream");
+        int dma_row = -1, cop_row = -1;
+        for (int i = 0; stream && i < stream->topLevelItemCount(); ++i) {
+            if (tree_cell(stream, i, 0) == "DMA") dma_row = i;
+            if (tree_cell(stream, i, 0) == "Copper") cop_row = i;
+        }
+        int clicks = 0;
+        QObject::connect(&panel, &AudioPanel::show_in_disassembly_requested, [&](uint16_t) { ++clicks; });
+        if (stream && dma_row >= 0) emit stream->itemDoubleClicked(stream->topLevelItem(dma_row), 0);
+        if (stream && cop_row >= 0) emit stream->itemDoubleClicked(stream->topLevelItem(cop_row), 0);
+        const bool silent = clicks == 0;
+        // A CPU row emits its PC once: the DAP-77 player.
+        if (!build_dac_machine(emu)) { check("DAP-78", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg2(emu);
+        const auto cid2 = dbg2.attach(ClientInfo{"dap78b", ClientKind::Test}).value;
+        dbg2.set_audio_log_enabled(cid2, true);
+        const uint16_t out_at = ctc_dac_player(emu, false);
+        AudioPanel panel2(&dbg2);
+        show_dac_tab(panel2);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        panel2.refresh();
+        uint32_t seen_pc = 0; int fired = 0;
+        QObject::connect(&panel2, &AudioPanel::show_in_disassembly_requested, [&](uint16_t pc) { seen_pc = pc; ++fired; });
+        auto* stream2 = tree_of(panel2, "audio_stream");
+        if (stream2 && stream2->topLevelItemCount() > 0) emit stream2->itemDoubleClicked(stream2->topLevelItem(0), 0);
+        check("DAP-78", "a DMA burst to 0x00DF and a Copper MOVE 0x2D: a 'DMA' row whose Pacing begins 'DMA: 15909.0' (the DMA's nominal rate is a little above the measured one) and a 'Copper' row whose Pacing is '-'; double-clicking either emits nothing, and double-clicking the CPU row of the CTC-paced player emits show_in_disassembly_requested(the OUT's PC) once",
+              dma_row >= 0 && cop_row >= 0 && tree_cell(stream, dma_row, 9).startsWith("DMA: 15909.091 Hz (") &&
+              tree_cell(stream, cop_row, 9) == "-" && silent && fired == 1 && seen_pc == out_at,
+              fmt("dma_row=%d cop_row=%d dma_pacing=%s fired=%d", dma_row, cop_row,
+                  tree_cell(stream, dma_row, 9).toStdString().c_str(), fired));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-79", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap79", ClientKind::Test}).value;
+        nr_write(emu, 0x08, 0x08);
+        cpu_program(emu, {0xF3, 0x18, 0xFE});
+        // A DAC write between two instructions of the parked CPU: each one at its own cycle (writes at one
+        // cycle from one source and port are ONE sample).
+        auto dac_writes = [&](int n) { for (int i = 0; i < n; ++i) { emu.port().out(0xDF, uint8_t(i)); emu.execute_single_instruction(); } };
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        auto* stream = tree_of(panel, "audio_stream");
+        auto* status = panel.findChild<QLabel*>("audio_stream_status");
+        // Chips current: writes and refreshes leave the stream as it was (no fetch while not on show).
+        dac_writes(20);
+        panel.refresh();
+        const bool idle_off_show = stream && stream->topLevelItemCount() == 0;
+        show_dac_tab(panel);
+        panel.refresh();
+        const bool filled = stream && stream->topLevelItemCount() == 1 && tree_cell(stream, 0, 2) == "20" &&
+                            status && status->text() == "Recording";
+        // The request dropped: "Not recording" and an empty tree.
+        dbg.set_audio_log_enabled(cid, false);
+        panel.refresh();
+        const bool dropped = status && status->text() == "Not recording" && stream && stream->topLevelItemCount() == 0;
+        // Recording again, then a soft reset mid-stream: the next refresh's Samples restart.
+        dbg.set_audio_log_enabled(cid, true);
+        dac_writes(20);
+        panel.refresh();
+        const uint32_t before = stream && stream->topLevelItemCount() ? tree_cell(stream, 0, 2).toUInt() : 0;
+        dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+        nr_write(emu, 0x08, 0x08);
+        cpu_program(emu, {0xF3, 0x18, 0xFE});
+        dac_writes(5);
+        panel.refresh();
+        const uint32_t after = stream && stream->topLevelItemCount() ? tree_cell(stream, 0, 2).toUInt() : 0;
+        const bool marker = before == 20 && after == 5;
+        // A ring that overflows between two refreshes: a stale cache would show the idle stretch before the
+        // new writes as a gap; the view starts over instead and shows none.
+        dbg.audio_log_resize(4);
+        panel.refresh();
+        for (int i = 0; i < 30; ++i) emu.execute_single_instruction();
+        dac_writes(40);
+        panel.refresh();
+        const bool overflow = stream && stream->topLevelItemCount() == 1 && tree_cell(stream, 0, 8) == "0" &&
+                              tree_cell(stream, 0, 2).toUInt() <= 4;
+        check("DAP-79", "the view follows its data rules: with Chips current nothing is fetched (20 writes leave the stream empty); DAC & Beeper current shows one writer with 20 samples and 'Recording'; with the request dropped it reads 'Not recording' and the tree is empty; after a soft reset mid-stream the samples restart (20 -> 5); after the ring (resized to 4) overflowed between two refreshes no gap is shown",
+              idle_off_show && filled && dropped && marker && overflow,
+              fmt("idle=%d filled=%d dropped=%d marker=%d(%u->%u) overflow=%d", idle_off_show, filled, dropped, marker, before, after, overflow));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-80", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap80", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        ctc_dac_player(emu, true);
+        AudioPanel panel(&dbg);
+        show_dac_tab(panel);
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        panel.refresh();
+        const auto entries = dbg.audio_log_entries(0).value;
+        const auto st = jnext::dbg::dac_stream_stats(entries, dbg.time().master_cycle, jnext::dbg::dac_stream_window_cycles());
+        auto* stream = tree_of(panel, "audio_stream");
+        auto* window = panel.findChild<QLabel*>("audio_stream_window");
+        const bool ok = stream && stream->topLevelItemCount() == 1 && !st.writers.empty() && st.writers[0].gaps >= 1 &&
+                        tree_cell(stream, 0, 8) == QString::number(st.writers[0].gaps);
+        check("DAP-80", "the CTC-paced player with the OUT skipped when its tick wraps (DSS-14): the CPU row's Gaps cell equals dac_stream_stats(...).writers[0].gaps and is at least 1; audio_stream_window names the 1.5 x factor",
+              ok && window && window->text().contains("1.5 x the median"),
+              fmt("gaps_cell=%s", tree_cell(stream, 0, 8).toStdString().c_str()));
+    }
+}
+
 // ── DAP-TRK: the Tracker sub-tab (GH #534) ─────────────────────────────
 //
 // Oracles: the grouping rules of AFG-* (audio_debug_test), the meaningful bits of the AY registers
@@ -1902,12 +2153,12 @@ static void test_tracker_tab(Emulator& emu) {
             tabs->setCurrentIndex(i);
             only_tracker = only_tracker && (panel.tracker_on_show() == (i == 3));
         }
-        bool scopes = false;
-        if (tabs) for (QLabel* l : tabs->widget(4)->findChildren<QLabel*>()) scopes = scopes || l->text() == "Not available yet.";
+        bool no_placeholder = tabs != nullptr;
+        if (tabs) for (QLabel* l : tabs->widget(4)->findChildren<QLabel*>()) no_placeholder = no_placeholder && l->text() != "Not available yet.";
         QLabel* st = panel.findChild<QLabel*>("audio_tracker_status");
-        check("DAP-62", "tab 3 holds audio_tracker_table, a QTableView with the 35 headers in order (Frame, Mark, then per chip Env, Sh and A, B, C of Note, V, N); the hex table is still the panel's only QTableWidget; tracker_on_show() is true only with Tracker current; Scopes still shows 'Not available yet.'; the status label exists",
+        check("DAP-62", "tab 3 holds audio_tracker_table, a QTableView with the 35 headers in order (Frame, Mark, then per chip Env, Sh and A, B, C of Note, V, N); the hex table is still the panel's only QTableWidget; tracker_on_show() is true only with Tracker current; Scopes is no placeholder; the status label exists",
               tab && t && tab->findChild<QTableView*>("audio_tracker_table") && headers && tables.size() == 1 &&
-              tables[0]->objectName() != "audio_tracker_table" && only_tracker && scopes && st && !st->text().isEmpty());
+              tables[0]->objectName() != "audio_tracker_table" && only_tracker && no_placeholder && st && !st->text().isEmpty());
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-63", "emulator init", false); return; }
@@ -2181,6 +2432,507 @@ static void test_tracker_tab(Emulator& emu) {
     }
 }
 
+// ── GH #535: the player timing strip ────────────────────────────────────
+
+static jnext::dbg::AudioLogEntry tt(uint64_t& seq, uint32_t frame, unsigned reg, int vc, uint32_t tstate, uint16_t pc,
+                                    jnext::dbg::EventSource src = jnext::dbg::EventSource::Cpu) {
+    jnext::dbg::AudioLogEntry e = tw(seq, frame, 0, reg, 1, 0);
+    e.vc = int16_t(vc); e.hc = 0; e.tstate_in_frame = tstate; e.pc = pc; e.source = src;
+    return e;
+}
+
+// Stream T: f200 R8 (1,300,0x9300) R9 (1,340,0x9310); f201 R8 (1,302) R9 (2,460) R10 (3,700,0x9320); f202 R8
+// (15,3600) R9 (15,3640); f203 nothing; f204 R8 (1,304) by DMA; f205 R8 (1,300) left open.
+static std::vector<jnext::dbg::AudioLogEntry> stream_t() {
+    uint64_t seq = 0;
+    return {tt(seq, 200, 8, 1, 300, 0x9300), tt(seq, 200, 9, 1, 340, 0x9310),
+            tt(seq, 201, 8, 1, 302, 0x9300), tt(seq, 201, 9, 2, 460, 0x9310), tt(seq, 201, 10, 3, 700, 0x9320),
+            tt(seq, 202, 8, 15, 3600, 0x9300), tt(seq, 202, 9, 15, 3640, 0x9310),
+            tt(seq, 204, 8, 1, 304, 0x0000, jnext::dbg::EventSource::Dma),
+            tt(seq, 205, 8, 1, 300, 0x9300)};
+}
+
+static QString tlabel(AudioPanel& panel, const char* name) {
+    auto* l = panel.findChild<QLabel*>(name);
+    return l ? l->text() : QStringLiteral("<none>");
+}
+
+static bool same_range(const jnext::dbg::AudioTimingRange& a, const jnext::dbg::AudioTimingRange& b) {
+    return a.min == b.min && a.max == b.max && a.avg == b.avg;
+}
+
+static bool same_stats(const jnext::dbg::AudioTimingStats& a, const jnext::dbg::AudioTimingStats& b) {
+    return a.window_first == b.window_first && a.window_last == b.window_last && a.frames == b.frames &&
+           a.empty == b.empty && same_range(a.first_line, b.first_line) && same_range(a.first_tstate, b.first_tstate) &&
+           same_range(a.last_line, b.last_line) && same_range(a.last_tstate, b.last_tstate) &&
+           same_range(a.writes, b.writes) && a.pc_min == b.pc_min && a.pc_max == b.pc_max;
+}
+
+// A Next with an IM2 player whose interrupt routine writes AY R8 and R9 once a frame (opcodes: UM0080).
+//   main 0x8000: DI; LD A,0x90; LD I,A; IM 2; EI; loop: HALT; JR loop       (a 257-byte table of 0x92 at 0x9000)
+//   ISR 0x9292: PUSH AF; PUSH BC; LD A,(0x9400); INC A; LD (0x9400),A
+//               CP 4; JR Z,exit        the 4th interrupt writes nothing: a missed frame
+//               CP 8; JR NZ,go         the 8th interrupt is late
+//               LD B,255; dly: DJNZ dly
+//         go:   LD BC,0xFFFD; LD A,8; OUT (C),A; LD B,0xBF; OUT (C),A      data write 1 (R8) at 0x92B0
+//               LD B,0xFF; LD A,9; OUT (C),A; LD B,0xBF; OUT (C),A         data write 2 (R9) at 0x92BA
+//         exit: POP BC; POP AF; EI; RETI
+// The late path against the steady one: JR NZ not taken 7 instead of taken 12, LD B,255 7, DJNZ 254 x 13 + 8 =
+// 3310: 7 - 12 + 7 + 3310 = 3312 T. The steady prefix up to the first data OUT is PUSH 11 + 11, LD A,(nn) 13,
+// INC 4, LD (nn),A 13, CP 7, JR Z not taken 7, CP 7, JR NZ taken 12, LD BC 10, LD A,n 7, OUT 12, LD B,n 7 = 121 T.
+static bool build_player_machine(Emulator& emu) {
+    EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+    if (!emu.init(cfg)) return false;
+    emu.set_audio_mute_mask(AudioMute::NONE);
+    emu.clear_audio_drops();
+    for (int i = 0; i < 257; ++i) emu.mmu().write(uint16_t(0x9000 + i), 0x92);
+    auto poke = [&](uint16_t a, std::initializer_list<uint8_t> b) { for (uint8_t v : b) emu.mmu().write(a++, v); };
+    poke(0x9292, {0xF5, 0xC5,                                  // PUSH AF; PUSH BC
+                  0x3A, 0x00, 0x94, 0x3C, 0x32, 0x00, 0x94,    // LD A,(9400); INC A; LD (9400),A
+                  0xFE, 0x04, 0x28, 0x1D,                      // CP 4; JR Z,exit (0x92BC)
+                  0xFE, 0x08, 0x20, 0x04,                      // CP 8; JR NZ,go (0x92A7)
+                  0x06, 0xFF, 0x10, 0xFE,                      // LD B,255; DJNZ $
+                  0x01, 0xFD, 0xFF, 0x3E, 0x08, 0xED, 0x79,    // go: LD BC,FFFD; LD A,8; OUT (C),A
+                  0x06, 0xBF, 0xED, 0x79,                      // LD B,BF; OUT (C),A    (0x92B0)
+                  0x06, 0xFF, 0x3E, 0x09, 0xED, 0x79,          // LD B,FF; LD A,9; OUT (C),A
+                  0x06, 0xBF, 0xED, 0x79,                      // LD B,BF; OUT (C),A    (0x92BA)
+                  0xC1, 0xF1, 0xFB, 0xED, 0x4D});              // exit: POP BC; POP AF; EI; RETI
+    poke(0x9400, {0x00});
+    poke(0x8000, {0xF3, 0x3E, 0x90, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFD});
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+    return true;
+}
+
+static void test_timing_strip(Emulator& emu) {
+    set_group("DAP-TIM");
+    using jnext::dbg::ClientInfo;
+    using jnext::dbg::ClientKind;
+    using jnext::dbg::AudioLogEntry;
+
+    {
+        if (!build_dac_machine(emu)) { check("DAP-81", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        QWidget* tab = tabs ? tabs->widget(3) : nullptr;
+        auto in_tab = [&](auto* type_tag, const char* name) {
+            using T = std::remove_pointer_t<decltype(type_tag)>;
+            return tab && tab->findChild<T*>(name) != nullptr;
+        };
+        const bool objs = in_tab((QSpinBox*)nullptr, "audio_timing_window") && in_tab((QLabel*)nullptr, "audio_timing_span") &&
+                          in_tab((QLabel*)nullptr, "audio_timing_first") && in_tab((QLabel*)nullptr, "audio_timing_last") &&
+                          in_tab((QLabel*)nullptr, "audio_timing_writes") && in_tab((QLabel*)nullptr, "audio_timing_frame") &&
+                          in_tab((AudioJitterPlot*)nullptr, "audio_timing_plot") &&
+                          in_tab((QLabel*)nullptr, "audio_timing_plot_range") && in_tab((QLabel*)nullptr, "audio_timing_note");
+        auto* spin = panel.findChild<QSpinBox*>("audio_timing_window");
+        const bool spin_ok = spin && spin->minimum() == 1 && spin->maximum() == 1000 && spin->value() == 50 &&
+                             spin->suffix() == " frames";
+        const bool note = tlabel(panel, "audio_timing_note") == "Exact routine cost: the CPU panel's T-states since the last stop, or --profile.";
+        bool no_na = tab != nullptr, no_prefix = tab != nullptr;
+        if (tab) for (QLabel* l : tab->findChildren<QLabel*>()) {
+            no_na = no_na && l->text() != "Not available yet.";
+            for (const char* pre : {"TurboSound:", "Mode:", "Stereo:", "PSG mode:"})
+                no_prefix = no_prefix && !l->text().startsWith(pre);
+        }
+        QTableView* t = trk_table(panel);
+        check("DAP-81", "tab 3 holds the timing strip objects audio_timing_window (a QSpinBox, 1-1000, value 50, suffix ' frames'), the labels span, first, last, writes, frame, plot_range and note, and the audio_timing_plot AudioJitterPlot; the note text is exact; the panel still holds one QTableWidget (the hex table), the tracker table still has 35 columns, no label of tab 3 reads 'Not available yet.' or starts with a label prefix the other rows search for",
+              objs && spin_ok && note && no_na && no_prefix && panel.findChildren<QTableWidget*>().size() == 1 &&
+              t && t->model()->columnCount() == 35);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-82", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        view->model()->set_entries(stream_t());
+        view->update_timing();
+        const auto want = jnext::dbg::audio_timing_stats(view->model()->timing_frames(50), 50);
+        check("DAP-82", "Stream T (frames 200, 201, 202, 204 completed, 205 open; 203 empty), window 50: span 'Last 50 frames: 200 to 204, 4 with AY writes, 1 without'; first 'line 1 / 4.5 / 15, T-state 300 / 1126.5 / 3600'; last 'line 1 / 5.0 / 15, T-state 304 / 1246.0 / 3640'; writes '1 / 2.0 / 3 ...; PC 0x9300-0x9320'; and the strip's statistics equal audio_timing_stats() over the model's own frames, field by field",
+              tlabel(panel, "audio_timing_span") == "Last 50 frames: 200 to 204, 4 with AY writes, 1 without" &&
+              tlabel(panel, "audio_timing_first") == "First write: line 1 / 4.5 / 15, T-state 300 / 1126.5 / 3600 (min / avg / max)" &&
+              tlabel(panel, "audio_timing_last") == "Last write: line 1 / 5.0 / 15, T-state 304 / 1246.0 / 3640 (min / avg / max)" &&
+              tlabel(panel, "audio_timing_writes") == "Writes per frame: 1 / 2.0 / 3 (min / avg / max); PC 0x9300-0x9320" &&
+              view->timing_stats().frames == 4 && same_stats(view->timing_stats(), want),
+              tlabel(panel, "audio_timing_span").toStdString() + " | " + tlabel(panel, "audio_timing_writes").toStdString());
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-83", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        view->model()->set_entries(stream_t());
+        view->update_timing();
+        const QString none = tlabel(panel, "audio_timing_frame");
+        QTableView* t = trk_table(panel);
+        auto pick = [&](int row) { t->setCurrentIndex(t->model()->index(row, 0)); return tlabel(panel, "audio_timing_frame"); };
+        const QString f202 = pick(2), empty = pick(3), f204 = pick(4);
+        uint64_t seq = 0;
+        view->model()->set_entries({tt(seq, 10, 8, 1, 5, 0x8000), tmark(seq, 10, jnext::dbg::AudioMarker::Reset), tt(seq, 11, 8, 1, 5, 0x8000)});
+        const QString marker = pick(1);
+        seq = 0;
+        view->model()->set_entries({tt(seq, 10, 8, 1, 5, 0x8000), tt(seq, 13, 8, 1, 5, 0x8000), tt(seq, 14, 8, 1, 5, 0x8000)});
+        const QString run2 = pick(1);                    // the empty run of f11 and f12
+        check("DAP-83", "Stream T: with no current row the details are the last row's (the open frame 205); on f202's row 'Frame 202: first write line 15, T-state 3600; last write line 15, T-state 3640; writes 2; PC 0x9300-0x9310'; on the empty run 'Frame 203: no AY write'; on f204 (a DMA write) 'PC none (no CPU write)'; on a reset marker row the text is empty; on an empty run of two frames (writes in f10 and f13) 'Frames 11-12: no AY write'",
+              none == "Frame 205: first write line 1, T-state 300; last write line 1, T-state 300; writes 1; PC 0x9300" &&
+              f202 == "Frame 202: first write line 15, T-state 3600; last write line 15, T-state 3640; writes 2; PC 0x9300-0x9310" &&
+              empty == "Frame 203: no AY write" &&
+              f204 == "Frame 204: first write line 1, T-state 304; last write line 1, T-state 304; writes 1; PC none (no CPU write)" &&
+              marker.isEmpty() && run2 == "Frames 11-12: no AY write",
+              none.toStdString() + " | " + f202.toStdString() + " | " + empty.toStdString() + " | " + f204.toStdString() + " | " + marker.toStdString() + " | " + run2.toStdString());
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-84", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        auto* spin = panel.findChild<QSpinBox*>("audio_timing_window");
+        auto* plot = panel.findChild<AudioJitterPlot*>("audio_timing_plot");
+        view->model()->set_entries(stream_t());
+        spin->setValue(6);
+        plot->setFixedSize(240, 60);       // fixed: a grab() lays the parent out again
+        const auto dots = plot->dots();
+        const QImage img = plot->grab().toImage();
+        const QColor hi = plot->palette().color(QPalette::Highlight);
+        struct W { uint32_t frame; int line, x, y; };
+        const W want[] = {{200, 1, 60, 2}, {201, 1, 100, 2}, {202, 15, 140, 58}, {204, 1, 220, 2}};
+        bool exact = dots.size() == 4;
+        bool painted = img.width() == 240 && img.height() == 60;
+        for (size_t i = 0; exact && i < 4; ++i) {
+            exact = dots[i].frame == want[i].frame && dots[i].line == want[i].line &&
+                    dots[i].at == QPoint(want[i].x, want[i].y);
+            painted = painted && img.pixelColor(want[i].x, want[i].y) == hi;
+        }
+        bool gap = img.width() == 240;
+        for (int y = 0; gap && y < 60; ++y) gap = img.pixelColor(180, y) != hi;
+        const bool range6 = plot->range_lo() == 1 && plot->range_hi() == 15 &&
+                            tlabel(panel, "audio_timing_plot_range") == "Dots: first write per frame, line 1 at the top to 15 at the bottom";
+        spin->setValue(2);
+        const auto d2 = plot->dots();
+        const bool two = d2.size() == 1 && d2[0].frame == 204 && d2[0].at.y() == 3 && plot->range_lo() == 1 &&
+                         plot->range_hi() == 9 &&
+                         tlabel(panel, "audio_timing_plot_range") == "Dots: first write per frame, line 1 at the top to 9 at the bottom";
+        check("DAP-84", "Stream T, window 6, plot 240 x 60: the dots are exactly f200 line 1 at (60,2), f201 line 1 at (100,2), f202 line 15 at (140,58), f204 line 1 at (220,2) (none for the empty 203 or the open 205); range 1 to 15 and its label; the rendered image has the Highlight colour at each dot centre and no Highlight pixel in column 180 (frame 203); window 2: one dot (f204) at y 3 with the 9-line minimum span, label 'line 1 at the top to 9 at the bottom'",
+              exact && painted && gap && range6 && two,
+              "dots=" + std::to_string(dots.size()) + " exact=" + std::to_string(exact) + " painted=" + std::to_string(painted) +
+              " gap=" + std::to_string(gap) + " img=" + std::to_string(img.width()) + "x" + std::to_string(img.height()) +
+              " plot=" + std::to_string(plot->width()) + "x" + std::to_string(plot->height()) + " range6=" + std::to_string(range6) + " two=" + std::to_string(two));
+    }
+    {
+        Emulator pm;
+        if (!build_player_machine(pm)) { check("DAP-85", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(pm);
+        const auto cid = dbg.attach(ClientInfo{"dap85", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        const bool timing = dbg.machine().lines == 311 && dbg.machine().tstates_per_line == 228;   // zxula_timing.vhd:196,204
+        for (int i = 0; i < 40 && pm.mmu().read(0x9400) < 12; ++i) pm.run_frame();
+        pm.run_frame();                                  // the 12th interrupt's frame is now completed
+        panel.refresh();
+
+        // The log's own stamps, grouped by hand: counted AY entries by frame, the newest (open) frame dropped.
+        struct HF { uint32_t frame; int vc1; uint32_t t1; int vc2; uint32_t t2; unsigned n; uint16_t pcmin, pcmax; };
+        std::vector<HF> hand;
+        const auto log = dbg.audio_log_entries(0);
+        if (log) for (const AudioLogEntry& e : log.value) {
+            if (e.marker != jnext::dbg::AudioMarker::None || e.target != jnext::dbg::AudioTarget::AyRegister ||
+                (e.flags & jnext::dbg::AudioFlag::Dropped) || e.chip >= 3 || e.reg >= 16) continue;
+            if (hand.empty() || hand.back().frame != e.frame)
+                hand.push_back({e.frame, e.vc, e.tstate_in_frame, e.vc, e.tstate_in_frame, 0, 0xFFFF, 0});
+            HF& h = hand.back();
+            h.vc2 = e.vc; h.t2 = e.tstate_in_frame; ++h.n;
+            h.pcmin = std::min(h.pcmin, e.pc); h.pcmax = std::max(h.pcmax, e.pc);
+        }
+        if (!hand.empty()) hand.pop_back();              // the open frame
+        const size_t nf = hand.size();
+        bool steady_line = nf >= 10;
+        uint32_t smin = UINT32_MAX, smax = 0, late_t = 0, late_frame = 0;
+        if (nf >= 10) {
+            // The frame of the 8th interrupt is the 8th counted one after the missed 4th: ISR k is the k-th
+            // frame number of the run; the late one has the largest first T-state.
+            for (const HF& h : hand) if (h.t1 > late_t) { late_t = h.t1; late_frame = h.frame; }
+            for (const HF& h : hand) {
+                if (h.frame == late_frame) continue;
+                steady_line = steady_line && h.vc1 == 1;
+                smin = std::min(smin, h.t1); smax = std::max(smax, h.t1);
+            }
+        }
+        const bool steady_spread = steady_line && smax - smin <= 3;
+        const bool late_ok = nf >= 10 && late_t >= smin + 3309 && late_t <= smin + 3315;
+        const uint32_t span_first = nf ? hand.front().frame : 0, span_last = nf ? hand.back().frame : 0;
+        const uint32_t empties = nf ? (span_last - span_first + 1) - uint32_t(nf) : 99;
+        uint32_t gap_frame = 0;
+        for (size_t i = 1; i < nf; ++i) if (hand[i].frame != hand[i - 1].frame + 1) gap_frame = hand[i - 1].frame + 1;
+        const bool one_gap = nf == 11 && empties == 1 && gap_frame > span_first && gap_frame < span_last;
+
+        // The strip against numbers computed from those stamps.
+        auto triple = [&](auto get) {
+            double sum = 0; uint32_t lo = UINT32_MAX, hi = 0;
+            for (const HF& h : hand) { const uint32_t v = get(h); sum += v; lo = std::min(lo, v); hi = std::max(hi, v); }
+            return QString("%1 / %2 / %3").arg(lo).arg(QString::number(nf ? sum / double(nf) : 0, 'f', 1)).arg(hi);
+        };
+        const QString first = "First write: line " + triple([](const HF& h) { return uint32_t(h.vc1); }) + ", T-state " +
+                              triple([](const HF& h) { return h.t1; }) + " (min / avg / max)";
+        const QString last = "Last write: line " + triple([](const HF& h) { return uint32_t(h.vc2); }) + ", T-state " +
+                             triple([](const HF& h) { return h.t2; }) + " (min / avg / max)";
+        // Two data OUTs per interrupt: 0x92B0 and 0x92BA (the layout in the comment above).
+        const QString writes = "Writes per frame: " + triple([](const HF& h) { return h.n; }) + " (min / avg / max); PC 0x92B0-0x92BA";
+        const QString span = QString("Last 50 frames: %1 to %2, %3 with AY writes, %4 without").arg(span_first).arg(span_last).arg(nf).arg(empties);
+        const bool labels = tlabel(panel, "audio_timing_first") == first && tlabel(panel, "audio_timing_last") == last &&
+                            tlabel(panel, "audio_timing_writes") == writes && tlabel(panel, "audio_timing_span") == span;
+
+        // The plot: the late frame's dot is the lowest, every steady dot is level, none at the skipped frame.
+        auto* plot = panel.findChild<AudioJitterPlot*>("audio_timing_plot");
+        plot->setFixedSize(400, 64);
+        const auto dots = plot->dots();
+        bool level = dots.size() == nf && nf >= 10, late_lowest = false, no_gap_dot = true;
+        int steady_y = -1;
+        for (const auto& d : dots) {
+            if (d.frame == gap_frame) no_gap_dot = false;
+            if (d.frame == late_frame) continue;
+            if (steady_y < 0) steady_y = d.at.y();
+            level = level && d.at.y() == steady_y;
+        }
+        for (const auto& d : dots) if (d.frame == late_frame) late_lowest = d.at.y() > steady_y;
+        check("DAP-85", "a real IM2 player (interrupt routine writes R8 and R9 once a frame; the 4th interrupt writes nothing, the 8th is delayed by a 3312 T loop): the machine runs 311 lines of 228 T (zxula_timing.vhd:196,204); the log's stamps grouped by hand give 11 frames with writes and exactly one empty frame number inside the span; every steady frame's first write is on line 1 (c_int_v, zxula_timing.vhd:199) with first T-states within 3 T of each other; the late frame's first T-state is 3309 to 3315 above the steady minimum; the span, first, last and writes labels equal the texts built from those hand numbers (PC 0x92B0-0x92BA); the late dot is strictly the lowest, the steady dots level, and the skipped frame has none",
+              timing && bool(log) && steady_spread && late_ok && one_gap && labels && level && late_lowest && no_gap_dot,
+              "timing=" + std::to_string(timing) + " nf=" + std::to_string(nf) + " steady_line=" + std::to_string(steady_line) +
+              " spread=" + std::to_string(smax - smin) + " late_t=" + std::to_string(late_t) + " smin=" + std::to_string(smin) +
+              " gaps=" + std::to_string(empties) + " labels=" + std::to_string(labels) + " span=" + tlabel(panel, "audio_timing_span").toStdString() +
+              " first=" + tlabel(panel, "audio_timing_first").toStdString() + " dots=" + std::to_string(dots.size()) +
+              " level=" + std::to_string(level) + " late_lowest=" + std::to_string(late_lowest));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-86", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        auto* spin = panel.findChild<QSpinBox*>("audio_timing_window");
+        view->model()->set_entries(stream_t());
+        view->update_timing();
+        spin->setValue(2);                               // no refresh() and no update_timing() from here on
+        const QString span2 = tlabel(panel, "audio_timing_span"), first2 = tlabel(panel, "audio_timing_first"),
+                      writes2 = tlabel(panel, "audio_timing_writes");
+        spin->setValue(3);                               // frames below the window; f202 sits exactly on its first number
+        const QString span3 = tlabel(panel, "audio_timing_span"), first3 = tlabel(panel, "audio_timing_first"),
+                      writes3 = tlabel(panel, "audio_timing_writes");
+        spin->setValue(1);
+        const QString span1 = tlabel(panel, "audio_timing_span");
+        check("DAP-86", "Stream T: setting the window box to 2 updates the strip at once (span 'Last 2 frames: 203 to 204, 1 with AY writes, 1 without', first and writes of f204 alone, PC none); with window 3 (f200 and f201 below it, f202 exactly on its first number) 'Last 3 frames: 202 to 204, 2 with AY writes, 1 without' and the first and writes lines include f202; to 1 it reads 'Last 1 frame: 204 to 204, 1 with AY writes, 0 without'",
+              span2 == "Last 2 frames: 203 to 204, 1 with AY writes, 1 without" &&
+              first2 == "First write: line 1 / 1.0 / 1, T-state 304 / 304.0 / 304 (min / avg / max)" &&
+              writes2 == "Writes per frame: 1 / 1.0 / 1 (min / avg / max); PC none (no CPU write)" &&
+              span3 == "Last 3 frames: 202 to 204, 2 with AY writes, 1 without" &&
+              first3 == "First write: line 1 / 8.0 / 15, T-state 304 / 1952.0 / 3600 (min / avg / max)" &&
+              writes3 == "Writes per frame: 1 / 1.5 / 2 (min / avg / max); PC 0x9300-0x9310" &&
+              span1 == "Last 1 frame: 204 to 204, 1 with AY writes, 0 without",
+              span2.toStdString() + " | " + first2.toStdString() + " | " + writes2.toStdString() + " | " + span3.toStdString() + " | " + first3.toStdString() + " | " + writes3.toStdString() + " | " + span1.toStdString());
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-87", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap87", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        uint64_t seq = 0;
+        using jnext::dbg::AudioMarker;
+        view->model()->set_entries({tt(seq, 10, 8, 1, 5, 0x8000), tt(seq, 11, 8, 1, 5, 0x8000), tmark(seq, 11, AudioMarker::Reset),
+                                    tt(seq, 30, 8, 1, 5, 0x8000), tt(seq, 31, 8, 1, 5, 0x8000), tt(seq, 32, 8, 1, 5, 0x8000)});
+        view->update_timing();
+        const QString a = tlabel(panel, "audio_timing_span");
+        seq = 0;
+        view->model()->set_entries({tt(seq, 20, 8, 1, 5, 0x8000), tt(seq, 21, 8, 1, 5, 0x8000), tmark(seq, 22, AudioMarker::Rewind),
+                                    tt(seq, 22, 8, 1, 5, 0x8000), tt(seq, 23, 8, 1, 5, 0x8000)});
+        view->update_timing();
+        const QString b = tlabel(panel, "audio_timing_span");
+
+        cpu_program(emu, {0x18, 0xFE});
+        emu.run_frame();
+        ay_wr(emu, 8, 0x01);
+        emu.run_frame();
+        ay_wr(emu, 8, 0x02);
+        emu.run_frame();
+        ay_wr(emu, 8, 0x03);
+        panel.refresh();
+        const bool live = view->timing_stats().frames == 2 && tlabel(panel, "audio_timing_frame").startsWith("Frame ") &&
+                          !panel.findChild<AudioJitterPlot*>("audio_timing_plot")->dots().empty();
+        dbg.set_audio_log_enabled(cid, false);
+        view->refresh();
+        const bool off = tlabel(panel, "audio_timing_span") == "No AY writes in the last 50 frames" &&
+                         tlabel(panel, "audio_timing_first") == "First write: -" && tlabel(panel, "audio_timing_last") == "Last write: -" &&
+                         tlabel(panel, "audio_timing_writes") == "Writes per frame: -" && tlabel(panel, "audio_timing_frame").isEmpty() &&
+                         panel.findChild<AudioJitterPlot*>("audio_timing_plot")->dots().empty() &&
+                         tlabel(panel, "audio_timing_plot_range").isEmpty();
+        panel.findChild<QSpinBox*>("audio_timing_window")->setValue(1);
+        const bool off1 = tlabel(panel, "audio_timing_span") == "No AY writes in the last 1 frame";
+        check("DAP-87", "(a) f10, f11, a Reset marker, f30, f31, open f32: 'Last 50 frames: 30 to 31, 2 with AY writes, 0 without' (a reset starts afresh); (b) f20, f21, a Rewind marker, f22, open f23: 'Last 50 frames: 20 to 22, 3 with AY writes, 0 without' (a landing does not split); (c) a real log with frames of writes shows 2 frames, a details line and dots, and after the log goes off the strip reads 'No AY writes in the last 50 frames', dashes, no details, no dots, no range, and with the window set to 1 'No AY writes in the last 1 frame'",
+              a == "Last 50 frames: 30 to 31, 2 with AY writes, 0 without" &&
+              b == "Last 50 frames: 20 to 22, 3 with AY writes, 0 without" && live && off && off1,
+              a.toStdString() + " | " + b.toStdString() + " live=" + std::to_string(live) + " off=" + std::to_string(off) + " off1=" + std::to_string(off1) +
+              " span=" + tlabel(panel, "audio_timing_span").toStdString());
+    }
+}
+
+// ── DAP-SCP: the Scopes sub-tab (GH #536) ───────────────────────────────
+
+// DI; JR $ at 0x8000: frames run with the CPU parked and only the audio chain moving.
+static void park_cpu(Emulator& emu) {
+    const uint8_t prog[] = {0xF3, 0x18, 0xFE};
+    for (size_t i = 0; i < sizeof(prog); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+// TurboSound and the DAC on; AY1 a square on channel A (tone period 100, volume 12) with the tone and
+// noise gates open on B and C; AY0 channel A a fixed volume 15 (R7 0x3F: the output IS the level,
+// ym2149.vhd:467-520).
+static void scope_machine(Emulator& emu) {
+    nr_write(emu, 0x08, 0x0A);
+    emu.port().out(0xFFFD, 0xFF);
+    ay_reg(emu, 7, 0x3F); ay_reg(emu, 8, 0x0F);
+    emu.port().out(0xFFFD, 0xFE);
+    ay_reg(emu, 0, 100); ay_reg(emu, 1, 0); ay_reg(emu, 7, 0x3E); ay_reg(emu, 8, 0x0C);
+    park_cpu(emu);
+}
+
+static void test_scopes(Emulator& emu) {
+    set_group("DAP-SCP");
+    static const char* const kTitle[16] = {"AY0 A", "AY0 B", "AY0 C", "AY1 A", "AY1 B", "AY1 C", "AY2 A", "AY2 B",
+                                           "AY2 C", "DAC A", "DAC B", "DAC C", "DAC D", "Beeper", "Left", "Right"};
+    {
+        if (!build_next_emulator(emu)) { check("DAP-70", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        bool ok = tabs && view && tabs->widget(4) == view && tabs->count() == 5;
+        for (int i = 0; ok && i < 16; ++i) {
+            QWidget* tr = panel.findChild<QWidget*>(QString("scope_trace_%1").arg(i));
+            QLabel* title = panel.findChild<QLabel*>(QString("scope_title_%1").arg(i));
+            ok = ok && tr && title && title->text() == kTitle[i] &&
+                 tr->property("title").toString() == kTitle[i] &&
+                 panel.findChild<QProgressBar*>(QString("scope_meter_%1").arg(i)) != nullptr;
+        }
+        const bool off_before = !panel.scopes_on_show();
+        if (tabs) tabs->setCurrentIndex(4);
+        const bool on = panel.scopes_on_show() && !panel.chips_on_show();
+        if (tabs) tabs->setCurrentIndex(0);
+        QStringList names;
+        for (int i = 0; tabs && i < tabs->count(); ++i) names << tabs->tabText(i).replace("&&", "&");
+        check("DAP-70", "Scopes is tab 4 and holds audio_scope_view with 16 titled scope_trace_<i> in AudioSource order and 16 scope_meter_<i> bars; scopes_on_show() is true only while it is current; the tab order is unchanged",
+              ok && off_before && on && !panel.scopes_on_show() &&
+              names == QStringList({"Chips", "DAC & Beeper", "Log", "Tracker", "Scopes"}));
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-71", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap71", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        tabs->setCurrentIndex(4);
+        constexpr int AY1A = 3;
+        bool ok = view != nullptr;
+        uint64_t first[2] = {0, 0};
+        for (int round = 0; ok && round < 2; ++round) {
+            for (int f = 0; f < 3; ++f) emu.run_frame();
+            panel.refresh();
+            const auto blk = dbg.audio_scope_samples(2 * AudioScopeView::WINDOW);
+            const std::vector<int16_t>& v = blk.value.samples[AY1A];
+            const ScopeTrigger t = scope_trigger(v.data(), v.size(), AudioScopeView::WINDOW);
+            const auto& st = view->trace(AY1A);
+            const auto& sh = view->shown(AY1A);
+            ok = ok && blk.status == jnext::dbg::Result::Ok && st.triggered && t.triggered && st.start == t.start &&
+                 st.start > 0 && v[st.start - 1] < t.level && v[st.start] >= t.level &&
+                 sh.size() == AudioScopeView::WINDOW && sh[0] == v[st.start];
+            for (size_t i = 0; ok && i < 15; ++i) ok = ok && sh[i] >= t.level;
+            first[round] = st.first_sample;
+        }
+        check("DAP-71", "an AY1 A square (period 100): both refreshes are triggered on the latest rising edge (the sample before it is below the level, the first 15 shown are at or above it), and the second block is new data",
+              ok && first[1] > first[0]);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-72", "emulator init", false); return; }
+        scope_machine(emu);
+        emu.port().out(0x1F, 0xC0);
+        emu.port().out(0xFE, 0x10);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap72", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        tabs->setCurrentIndex(4);
+        for (int f = 0; f < 3; ++f) emu.run_frame();
+        panel.refresh();
+        auto* dac = panel.findChild<QProgressBar*>("scope_meter_9");
+        auto* ay = panel.findChild<QProgressBar*>("scope_meter_0");
+        auto* beeper = panel.findChild<QProgressBar*>("scope_meter_13");
+        auto* dac_text = panel.findChild<QLabel*>("scope_meter_text_9");
+        // DAC A 0xC0 x 4 = 768 against rest 512: peak 256 of 512 = 50, native 64. AY0 A 255 x 4 = 1020 of 1020 = 100.
+        // Beeper EAR 512 x 4 = 2048 of (512 + 128) x 4 = 2560 (audio_mixer.vhd:80-81) = 80.
+        check("DAP-72", "DAC A = 0xC0: meter 50, text 'pk 64'; AY0 A volume 15: meter 100; EAR high: Beeper meter 80",
+              view && dac && ay && beeper && dac_text && dac->value() == 50 && ay->value() == 100 && beeper->value() == 80 &&
+              dac_text->text().startsWith("pk 64 "),
+              dac_text ? dac_text->text().toStdString() : std::string("<none>"));
+    }
+    {
+        Emulator silent;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
+        silent.init(cfg);
+        jnext::dbg::Debugger dbg(silent);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        tabs->setCurrentIndex(4);
+        panel.refresh();
+        auto* off = panel.findChild<QLabel*>("audio_scope_off");
+        check("DAP-73", "under --silent the Scopes tab shows audio_scope_off with its text and the backend tap stays off",
+              off && !off->isHidden() && off->text().contains("--silent") && !dbg.audio_scope_enabled());
+    }
+    {
+        // The refresh on a tab change: the tap is already held by another client and the machine is paused, so no tick will draw
+        // the view; switching to Scopes must draw it at once.
+        if (!build_next_emulator(emu)) { check("DAP-75", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap75", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        for (int f = 0; f < 3; ++f) emu.run_frame();
+        AudioPanel panel(&dbg);
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        const bool empty_before = view && view->shown(3).empty();
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        check("DAP-75", "switching to the Scopes sub-tab with the tap already held and the machine paused draws the view at once (no tick, no refresh call)",
+              view && empty_before && view->shown(3).size() == AudioScopeView::WINDOW && view->trace(3).triggered);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-74", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap74", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        for (int f = 0; f < 3; ++f) emu.run_frame();
+        panel.refresh();
+        auto* quiet = panel.findChild<QLabel*>("scope_trig_2");   // AY0 C: silent
+        auto* square = panel.findChild<QLabel*>("scope_trig_3");  // AY1 A: the square
+        check("DAP-74", "the lamp of a silent channel (AY0 C) reads 'free' and the square's (AY1 A) reads 'trig'",
+              quiet && square && quiet->text() == "free" && square->text() == "trig");
+    }
+}
 
 // ── DAP-88..92: the .psg recording row of the Chips tab (GH #538) ───────────────────────────────
 static std::string psg_tmp_path(const char* tag) {
@@ -2339,8 +3091,14 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-DAC        -- done\n");
     test_log_tab(emu);
     std::printf("  Group: DAP-LOG        -- done\n");
+    test_scopes(emu);
+    std::printf("  Group: DAP-SCP        -- done\n");
+    test_stream_view(emu);
+    std::printf("  Group: DAP-STREAM     -- done\n");
     test_tracker_tab(emu);
     std::printf("  Group: DAP-TRK        -- done\n");
+    test_timing_strip(emu);
+    std::printf("  Group: DAP-TIM        -- done\n");
     test_psg_row(emu);
     std::printf("  Group: DAP-PSG        -- done\n");
 

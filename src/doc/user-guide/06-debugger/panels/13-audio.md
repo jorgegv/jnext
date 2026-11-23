@@ -12,7 +12,7 @@ Each channel also has its own **M** (mute) and **S** (solo) buttons, described
 under [Mute and solo](#mute-and-solo) below.
 
 Below it are five tabs: **Chips**, **DAC & Beeper**, **Log**, **Tracker** and
-**Scopes**. Scopes is not available yet.
+**Scopes**.
 
 ## Chips
 
@@ -132,13 +132,41 @@ cleared only by **Clear**. Writes made from the debugger or a script count as
 Debugger, and stepping back or rewinding does not count the replayed writes again.
 Double-click a row written by the CPU to show the instruction in the Disassembly.
 
+**Pacing (CTC, DMA).** What sets the pace of a sample player: one row per CTC channel and one
+for the DMA. *Mode* is `timer` or, for a channel that counts another's pulses, `counter <- CTC n`
+(channel 0 counts channel 3). *Prescaler* is 16 or 256 (a timer only), *TC* the time constant
+(1 to 256, a written 0 counting 256), *Count* the down-counter now, *State* `running` or
+`stopped`, *Int* whether the channel may interrupt. *Rate* is how often the channel fires:
+28 MHz / (prescaler x TC) for a timer, the rate of the channel that clocks it divided by TC for
+a counter, `-` when it does not fire. The DMA row shows its mode (`byte`, `continuous`,
+`burst`), the prescaler (`-` for none), the bytes moved over the block length, the source and
+destination (`port 0x00DF` for an I/O port) and `active` or `idle`. Its rate is the prescaler's
+nominal rate, 28 MHz / (32 x prescaler); a real transfer is a little slower, because the DMA's
+own cycles come on top of the prescaler's wait.
+
+**Sample stream.** What the program really does to the DAC, measured over the last second:
+one row per writer. A CPU writer is one instruction, so a player that writes the DAC from
+several places shows several rows; DMA, Copper and debugger writes are one row each. A write to
+port 0xDF or NextREG 0x2D is one sample for two channels (*Channels* `A D`). *Rate* is the
+samples per second, *Min*, *Avg* and *Max* the time between samples and *Jitter* its spread
+(standard deviation), all in microseconds. *Gaps* counts the intervals longer than 1.5 times the
+median interval: a sample the player skipped. *Pacing* names the engine whose computed rate is
+nearest the measured one and how far off it is, for example `CTC 0: 16055.046 Hz (+0.000%)`; a
+player paced by a CTC channel matches that channel's rate to within the interrupt acceptance
+jitter. Double-click a CPU row to show the instruction in the Disassembly. The window label
+shows how much of the second holds samples: the time from the oldest writer's first
+sample to now, up to one second.
+
+While DAC & Beeper is on show the debugger records the audio writes, the same recording as the
+Log tab, so the rows start when you open the tab.
+
 The DAC & Beeper tab is refreshed at about 4 Hz with the rest of the window.
 
 ## Log
 
 A table of the audio writes the program made, one row per write, newest last. The
-machine records them only while this tab is the one on show in an open debugger window
-(or while something else asks for the log, such as `--audio-log`); the rows you see
+machine records them only while this tab, Tracker or DAC & Beeper is the one on show in an open
+debugger window (or while something else asks for the log, such as `--audio-log`); the rows you see
 start when you open the tab, and the log holds the newest 65536 writes. The tab is
 refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.
 
@@ -191,7 +219,7 @@ value changed is highlighted. A run of frames with no AY write is a single row, 
 or `empty xN`; a break in the log (reset, state load, rewind) is a row of its own, as in
 the Log tab.
 
-The Tracker reads the same log as the Log tab: it is recorded only while one of them is on
+The Tracker reads the same log as the Log tab: it is recorded only while Log, Tracker or DAC & Beeper is on
 show, and the log holds the newest 65536 writes. The rows follow the machine at about
 4 Hz while it runs and the tab keeps at most 65536 rows.
 
@@ -200,6 +228,41 @@ needs the rewind buffer; the tooltip of a row that cannot be reached says why: r
 an RZX in progress, an empty buffer, a frame outside the buffer, or one from before a
 reset or a state load). After the jump the rows from that frame on are removed and a
 `rewind` row is added; they come back as the machine runs again.
+
+### Player timing
+
+Under the table, the strip shows where in the frame the AY player writes, which is what a
+music routine's cost looks like from outside: a player that runs from the frame interrupt
+writes at about the same place every frame, and a frame that writes later than the others is
+a frame the routine ran late. The numbers are over the last **Window** frames (1 to 1000,
+50 at first; the box is a view control and is not saved):
+
+- the span line says which frames the window covers, how many of them have AY writes and how
+  many have none (a frame the player missed);
+- **First write** and **Last write** give the line and the T-state, counted from the start of
+  the frame, of the first and last AY write of each frame, as min / avg / max;
+- **Writes per frame** gives the number of AY register writes as min / avg / max, and the range
+  of addresses the CPU wrote from (writes by DMA or by the debugger have no address).
+
+Lines count from the start of the frame, so the frame interrupt itself is on line 1 with the
+Next's default timing at 50 Hz (line 0 at 60 Hz, line 0 with 48K timing, the last line with Pentagon timing): a player
+that starts at the interrupt writes on line 1 or just after it. A steady player that waits for
+the interrupt with `HALT` can still vary by up to 3 T-states, because the CPU accepts the
+interrupt at the end of the `HALT` instruction.
+
+The line below the numbers describes the selected table row (the last row when none is
+selected): the same first and last write, the count and the PC range of that one frame, or
+`no AY write` for a run of empty frames.
+
+The plot has one dot per frame, at the line of the frame's first AY write, scaled to the
+window's own lines (the earliest at the top, a range of at least 9 lines; its two ends are
+printed under the plot). A gap is a frame with no AY write. Level dots are a steady player; a
+dot that drops is a late frame.
+
+Only AY register writes are timed, and the frame the machine is still in is not counted. A
+reset or a state load starts the window afresh; a rewind does not. The strip shows when a
+routine runs, not what it costs: for the exact cost of a routine read the T-states counter of
+the [CPU panel](01-cpu-registers.md) between two stops, or run with `--profile`.
 
 ## Mute and solo
 
@@ -228,6 +291,43 @@ follow the live mutes, so a mute set by a script shows on them.
 A script reads and sets the channel mutes with `AUDIO_CHANNEL_MUTE`: bit 0 to 8
 are the AY channels (bit `3 * chip + channel`, channel A = 0), bit 9 to 12 are
 DAC A to D, and a set bit is a muted channel.
+
+## Scopes
+
+One oscilloscope trace and one level meter for each of sixteen sources, in this
+order: the three channels of each AY chip (AY0 A to AY2 C), the four DAC channels
+(DAC A to D), the Beeper, and the stereo mix (Left and Right). A trace shows the
+last 20 ms.
+
+What a trace shows is what the source produces, before everything the debugger
+and the host do to it:
+
+- an AY channel is the chip's own channel output, before the TurboSound routing
+  and the pan, so a chip that is not in the mix still shows what it is
+  generating (the Chips tab says whether it reaches the mix);
+- a DAC channel is the byte last written, drawn around its midpoint (`0x80` is
+  silence);
+- the Beeper is EAR and MIC, and is flat while the beeper is excluded from the mix;
+  a tape that is playing (and the Pi's audio when it is routed to EAR) reaches the mix
+  only through the MIC term, as on the hardware, so it shows here as the MIC step;
+- Left and Right are the hardware mix, the same sum as the sound output.
+
+Muting a source in the Sources strip or changing a gain does not change a trace:
+the scopes show the machine, not what you hear.
+
+The trace is edge-triggered: it starts at the latest rising crossing of the middle
+of the signal's range that leaves a whole window after it, so a steady tone stands
+still. The lamp beside the title reads `trig` while an edge was found and `free`
+when there was none (a silent or constant source, or a signal that does not rise
+through its middle), and the trace then simply shows the newest samples.
+
+The bar is the largest swing of the drawn window from the source's resting level,
+as a percentage of the most it can swing; beside it, `pk` is that swing and `rms`
+the root mean square, in the source's own units (0 to 255 for an AY or DAC channel).
+
+Samples are collected only while this tab is on show, and the scopes redraw on
+every frame while the machine runs. While it is collecting, programs that sit in HALT or poll the raster run without the emulator's idle shortcuts. At 28 MHz such programs can need five to eight times the host CPU while Scopes is on show (about twice at 3.5 MHz), so a slow host may not keep real time; it ends when you leave the tab. With `--silent` the emulator does not
+synthesise audio, and the tab says so instead of drawing traces.
 
 ## Stopping on an audio write
 

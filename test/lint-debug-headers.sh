@@ -86,6 +86,7 @@ HEADERS=(
     debug/audio_math.h
     debug/audio_log_csv.h
     debug/audio_log_stream.h
+    debug/dac_stream.h
     debug/audio_frames.h
 )
 
