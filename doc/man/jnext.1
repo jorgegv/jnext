@@ -4586,6 +4586,36 @@ option, and resolves when the program is running again.
 after the start, and anything but a boolean throws.
 \f[CR]keyboardVisible\f[R] tells whether it is shown.
 .PP
+\f[CR]listFiles()\f[R] returns the files JNEXT has written for an output
+option (\f[B]\-\-wav\-record\f[R], \f[B]\-\-dac\-trace\f[R],
+\f[B]\-\-tape\-save\f[R], \f[B]\-\-delayed\-screenshot\f[R],
+\f[B]\-\-compositor\-trace\f[R], \f[B]\-\-profile\-output\f[R],
+\f[B]\-\-export\-skoolkit\f[R], \f[B]\-\-export\-ghidra\f[R],
+\f[B]\-\-bug\-report\f[R], \f[B]\-\-log\-file\f[R]), in the order JNEXT
+began them, as an array of \f[CR]{path, size, complete}\f[R]:
+\f[CR]path\f[R] is absolute, \f[CR]size\f[R] the bytes now in the
+page\(cqs memory, \f[CR]complete\f[R] true once JNEXT has finished the
+file for good.
+It is empty before the click.
+\f[CR]readFile(path)\f[R] resolves to a copy of the bytes of a complete
+file listFiles() gives; it rejects (without \f[CR]onError\f[R]) a path
+that is not a string (a \f[CR]TypeError\f[R]), a path JNEXT did not
+write, a file that is not complete yet, and anything in the player\(cqs
+own locations.
+\f[CR]stop()\f[R] ends the machine and keeps the player and its files:
+it resolves to the exit status once every file is finished, and a
+stopped player cannot start again.
+The player\(cqs own locations are \f[CR]/sdcard\f[R] (the SD card),
+\f[CR]/jnext\f[R] (what the player keeps) and \f[CR]/media\f[R] (the
+programs it installs): neither member lists or returns a file there,
+whoever wrote it and however the name is spelt (\f[CR]..\f[R], a
+relative name or a link included).
+What an export the page asked for contains is the page author\(cqs
+choice, as on the desktop (a \f[B]\-\-export\-skoolkit\f[R] of ROM space
+holds the ROM the machine ran), and offering it to visitors is the
+author\(cqs responsibility.
+After \f[CR]destroy()\f[R] all three throw.
+.PP
 \f[CR]debugChannel(protocol)\f[R] returns the channel of the
 \f[CR]debug\f[R] entry for \f[CR]\(aqdzrp\(aq\f[R],
 \f[CR]\(aqzrcp\(aq\f[R] or \f[CR]\(aqgdb\(aq\f[R] whose

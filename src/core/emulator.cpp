@@ -1,4 +1,5 @@
 #include "core/emulator.h"
+#include "core/output_files.h"
 #include <atomic>
 #include "debug/ram_page.h"
 #include "debug/event_table.h"
@@ -84,8 +85,9 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
 // ---------------------------------------------------------------------------
 Emulator::~Emulator()
 {
-    // GH #89 — finish a TZX / WAV save (its last block, the WAV header).
-    tape_recorder_.close(clock_.get());
+    // GH #89 — finish a TZX / WAV save (its last block, the WAV header); Task 21 — flush the CPU
+    // profile histogram. Both are finish_outputs() now (GH #553: a page calls it too).
+    finish_outputs();
 
     // G46(b) EOD-30i+29: JNEXT_TRACE_DUMP_AT_EXIT=/path/to/file
     //   If set, export the full trace-log ring buffer to a text file at
@@ -103,11 +105,24 @@ Emulator::~Emulator()
                                  " (enable with JNEXT_TRACE_FORCE_ENABLE=1)\n");
         }
     }
+}
 
-    // Task 21 — flush the CPU profile histogram if active. Path comes
-    // from EmulatorConfig::profile_output_path; defaults to "profile.dat".
-    if (profiler_.active()) {
-        profiler_.write_to_file(config_.profile_output_path);
+void Emulator::finish_outputs()
+{
+    // GH #89: a TZX / WAV save's last block and WAV header are written at close. The path is the
+    // one the trap was armed with (TapSaver::arm_for_recorder), also for a TAP save.
+    const std::string tape_path = tap_saver_.output_path();
+    tape_recorder_.close(clock_.get());
+    output_files::end(tape_path);   // a TAP save too: its blocks are all in, whole
+
+    // A compositor trace whose frame never came is closed here (GH #553).
+    renderer_.finish_compositor_trace();
+
+    // Task 21: the CPU profile. Path from EmulatorConfig::profile_output_path (default "profile.dat").
+    if (profiler_.active() && !profile_written_) {
+        profile_written_ = true;
+        if (profiler_.write_to_file(config_.profile_output_path))
+            output_files::written(config_.profile_output_path);
     }
 }
 
@@ -9627,14 +9642,17 @@ bool Emulator::start_tape_save(const std::string& path)
         ok = tape_recorder_.open(path, why);
         if (ok) {
             tap_saver_.arm_for_recorder(path);   // arms the trap; blocks go to the recorder
+            output_files::begin(path);
             Log::emulator()->info("Tape SAVE: recording tape-out and SAVEd blocks to '{}'", path);
         }
         else
             Log::emulator()->error("Tape SAVE: cannot save to '{}': {}", path, why);
     } else {
         ok = tap_saver_.set_output(path);
-        if (ok)
+        if (ok) {
+            output_files::begin(path);
             Log::emulator()->info("Tape SAVE: appending SAVEd blocks to '{}'", path);
+        }
         else
             Log::emulator()->error("Tape SAVE: cannot open '{}' for append - SAVE trap disabled",
                                    path);
@@ -9646,12 +9664,14 @@ bool Emulator::start_tape_save(const std::string& path)
 
 void Emulator::stop_tape_save()
 {
+    const std::string saved_path = tap_saver_.output_path();   // the TAP file, or the recorder's (arm_for_recorder)
     if (tape_recorder_.active()) {
         const std::string path = tape_recorder_.path();
         tape_recorder_.close(clock_.get());
         Log::emulator()->info("Tape SAVE: finished '{}'", path);
     }
     tap_saver_.close();
+    output_files::end(saved_path);
     config_.tape_save_file.clear();
     refresh_tape_capture_live();
 }

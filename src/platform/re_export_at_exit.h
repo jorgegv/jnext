@@ -8,6 +8,7 @@
 
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include "core/output_files.h"
 #include "debug/debugger.h"
 
 #include <string>
@@ -26,6 +27,7 @@ bool run_export(const char* flag, const std::string& dir, Fn export_fn) {
                                why.empty() ? jnext::dbg::result_name(r) : why.c_str());
         return false;
     }
+    for (const std::string& p : rep.paths) output_files::written(p);
     Log::platform()->info("{} {}: {} files, {} labels, {} comments", flag, dir, rep.files,
                           rep.labels, rep.comments);
     for (const std::string& n : rep.notes) Log::platform()->warn("{} {}: {}", flag, dir, n);

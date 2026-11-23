@@ -1,4 +1,5 @@
 #include "audio/dac_trace_recorder.h"
+#include "core/output_files.h"
 
 #include <cerrno>
 #include <cstring>
@@ -30,6 +31,8 @@ bool DacTraceRecorder::start(const std::string& path)
         file_ = nullptr;
         return false;
     }
+    path_ = path;
+    output_files::begin(path_);
     return true;
 }
 
@@ -54,6 +57,7 @@ bool DacTraceRecorder::stop()
         set_error("failed to close DAC trace");
     }
     file_ = nullptr;
+    output_files::end(path_);
     return !failed_;
 }
 

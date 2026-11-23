@@ -212,6 +212,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `.wav` tapes load in a page (in real time, as from a cassette).
 - Snapshots load in a page (`.jns`, `.sna`, `.szx`, `.z80`, on the machine they were saved on), and `player.saveSnapshot()` returns a `.jns` of the running machine for the page to download.
 - `.rzx` recordings play in a page, and a page records one from JavaScript (`player.startRzxRecording()` / `stopRzxRecording()` return the file for download).
+- A page can list and collect the files JNEXT writes (recordings, screenshots, traces, exports) with `player.listFiles()`, `player.readFile()` and `player.stop()`; the SD card image and the player's own files are never readable through them, and what an export the page asked for contains is the page's choice (a SkoolKit export of ROM space holds the ROM the machine ran, as on the desktop).
 - A page serves the DZRP, ZRCP and GDB debugger protocols to a debugger (`debug` option, `data-debug-protocol`, `--debug-channel`): over a JavaScript channel (`player.debugChannel()`) or a WebSocket to `jnext-debug-bridge.mjs`, a node script in the web zip that gives DeZog or `z88dk-gdb` an ordinary TCP port.
 
 ## CLI

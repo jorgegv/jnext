@@ -275,6 +275,7 @@ struct ReReport {
     size_t labels = 0;
     size_t comments = 0;
     std::vector<std::string> notes;
+    std::vector<std::string> paths;   // the files an export put in place, as written (GH #553: output_files)
 };
 
 /// The frontend sequences the backend cannot reach (SES-07).

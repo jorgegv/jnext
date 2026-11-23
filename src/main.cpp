@@ -2,6 +2,7 @@
 #include "audio/dac_trace_recorder.h"
 #include "core/cli_options.h"
 #include "core/log.h"
+#include "core/output_files.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
 #include "peripheral/sd_write_journal.h"
@@ -90,6 +91,12 @@
 // The card extracted from a zipped --sdcard (about 40 MiB): removed when the run
 // ends, since the process scratch directory's destructor never runs under Emscripten.
 static std::string g_extracted_sd_card;
+#endif
+
+#ifdef JNEXT_BROWSER
+// The --log-file of a page's run: the page's finish flushes it and reports it complete
+// (GH #553). A file-scope string because that finish runs after main() has returned.
+static std::string g_page_log_file;
 #endif
 
 static void crash_handler(int sig) {
@@ -305,6 +312,12 @@ int main(int argc, char* argv[]) {
     signal(SIGABRT, crash_handler);
     signal(SIGFPE,  crash_handler);
 
+#ifdef JNEXT_BROWSER
+    // Tell the page which files the run writes for an output option (GH #553). Before the
+    // --log-file below, the first of them.
+    browser_frontend::install_output_sink();
+#endif
+
     // Where the log goes, and whether it is coloured (GH #235, GH #227).
     //
     // This runs BEFORE Log::init() and before the banner below, and that is the
@@ -324,6 +337,10 @@ int main(int argc, char* argv[]) {
             std::fprintf(stderr, "jnext: %s\n", r.error.c_str());
             return 1;
         }
+        if (policy.destination == log_sink_policy::Destination::File) output_files::begin(policy.path);
+#ifdef JNEXT_BROWSER
+        if (policy.destination == log_sink_policy::Destination::File) g_page_log_file = policy.path;
+#endif
     }
 
     // Initialize all loggers at default level (info).
@@ -3372,6 +3389,14 @@ int main(int argc, char* argv[]) {
             }
 
             app.shutdown();
+#ifdef JNEXT_BROWSER
+            // No destructor runs in a page and stdio is not flushed at its exit: finish the
+            // outputs the destructor would (TZX / WAV tape, compositor trace, profile) and flush
+            // the log, then tell the page they are complete (GH #553).
+            app.emulator().finish_outputs();
+            spdlog::apply_all([](std::shared_ptr<spdlog::logger> l) { l->flush(); });
+            output_files::end(g_page_log_file);
+#endif
             // shutdown() decides the status: a --delayed-screenshot that was
             // requested and never written exits non-zero, so a CI script cannot
             // mistake a missing PNG for success. A capture-finalize failure makes
