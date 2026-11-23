@@ -37,8 +37,10 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
+#include "debug/dac_stream.h"
 #include "debugger/audio_log_view.h"
 #include "debugger/audio_panel.h"
+#include "debugger/audio_stream_view.h"
 #include "debugger/audio_tracker_view.h"
 #include "platform/emulator_boot.h"
 
@@ -1745,6 +1747,247 @@ static void test_log_tab(Emulator& emu) {
     }
 }
 
+
+// ── DAP-STREAM: the Pacing and Sample stream groups of DAC & Beeper (GH #537) ──
+//
+// Oracles: the CTC rates are 28 MHz / (prescaler x TC) (ctc_chan.vhd:132-170), the DMA's 28 MHz / (32 x
+// prescaler) (dma.vhd:424), the stream rows the dac_stream_stats() of the same log entries (DSS-* in
+// audio_debug_test pin the helper). The DSS-13 program (halt_bench.asm CTCDAC) is hand-placed here too.
+
+static void ctc_wr(Emulator& emu, int ch, uint8_t control, int tc = -1) {
+    const uint16_t port = static_cast<uint16_t>(0x183B + (ch << 8));
+    emu.port().out(port, control);
+    if (tc >= 0) emu.port().out(port, static_cast<uint8_t>(tc));
+}
+
+// A burst from memory 0x9000 to port 0x00DF at prescaler 55, auto-restarting, through port 0x6B.
+static void dma_to_dac(Emulator& emu) {
+    for (int i = 0; i < 256; ++i) emu.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i));
+    const uint8_t prog[] = {0xA2, 0x7D, 0x00, 0x90, 0xFF, 0x00, 0x14, 0x68, 0x21, 55, 0xCD, 0xDF, 0x00, 0xCF, 0x87};
+    for (uint8_t b : prog) emu.port().out(0x6B, b);
+}
+
+// The CTC-paced DAC player at 28 MHz (see build_ctcdac in audio_debug_test.cpp); returns the OUT's address.
+static uint16_t ctc_dac_player(Emulator& emu, bool skip_wrap) {
+    nr_write(emu, 0x07, 0x03);
+    for (int i = 0; i <= 256; ++i) emu.mmu().write(static_cast<uint16_t>(0xD000 + i), 0xD1);
+    emu.mmu().write(0xD1D1, 0xC3); emu.mmu().write(0xD1D2, 0x00); emu.mmu().write(0xD1D3, 0x81);
+    std::vector<uint8_t> isr = {0xF5, 0xC5, 0x3A, 0x00, 0x82, 0x3C, 0x32, 0x00, 0x82};
+    if (skip_wrap) { isr.push_back(0x28); isr.push_back(0x02); }
+    const uint16_t out_at = static_cast<uint16_t>(0x8100 + isr.size());
+    for (uint8_t b : {0xD3, 0xDF, 0xC1, 0xF1, 0xFB, 0xED, 0x4D}) isr.push_back(b);
+    for (size_t i = 0; i < isr.size(); ++i) emu.mmu().write(static_cast<uint16_t>(0x8100 + i), isr[i]);
+    nr_write(emu, 0x22, 0x04);
+    nr_write(emu, 0xC0, 0x01);
+    nr_write(emu, 0xC5, 0x01);
+    nr_write(emu, 0x08, 0x08);
+    ctc_wr(emu, 0, 0x87, 109);
+    cpu_program(emu, {0x3E, 0xD0, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFD});
+    return out_at;
+}
+
+static void show_dac_tab(AudioPanel& panel) {
+    if (auto* tabs = panel.findChild<QTabWidget*>("audio_tabs")) tabs->setCurrentIndex(1);
+}
+
+static QTreeWidget* tree_of(AudioPanel& panel, const char* name) { return panel.findChild<QTreeWidget*>(name); }
+
+static void test_stream_view(Emulator& emu) {
+    set_group("DAP-STREAM");
+    using jnext::dbg::ClientInfo;
+    using jnext::dbg::ClientKind;
+
+    {
+        if (!build_dac_machine(emu)) { check("DAP-76", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        QWidget* dac = tabs ? tabs->widget(1) : nullptr;
+        auto* pacing = dac ? dac->findChild<QTreeWidget*>("audio_pacing") : nullptr;
+        auto* stream = dac ? dac->findChild<QTreeWidget*>("audio_stream") : nullptr;
+        const bool shape = pacing && stream && pacing->topLevelItemCount() == 5 && pacing->columnCount() == 8 &&
+                           pacing->headerItem()->text(0) == "Engine" && pacing->headerItem()->text(7) == "Rate" &&
+                           pacing->topLevelItem(0)->text(0) == "CTC 0" && pacing->topLevelItem(3)->text(0) == "CTC 3" &&
+                           pacing->topLevelItem(4)->text(0) == "DMA" && stream->columnCount() == 10 &&
+                           stream->headerItem()->text(0) == "Writer" && stream->headerItem()->text(9) == "Pacing" &&
+                           dac->findChild<QLabel*>("audio_stream_status") && dac->findChild<QLabel*>("audio_stream_window");
+        const auto tables = panel.findChildren<QTableWidget*>();
+        bool only_dac = tabs != nullptr && tabs->count() == 5;
+        for (int i = 0; tabs && i < tabs->count(); ++i) {
+            tabs->setCurrentIndex(i);
+            only_dac = only_dac && (panel.dac_on_show() == (i == 1));
+        }
+        // The pacing values: CTC 0 a timer with its interrupt on, CTC 1 a counter behind it, CTC 2 never
+        // programmed, the DMA a burst at prescaler 55 that has moved one byte.
+        ctc_wr(emu, 0, 0x85, 109);
+        ctc_wr(emu, 1, 0x45, 2);
+        emu.ctc().tick(1);
+        dma_to_dac(emu);
+        emu.dma().execute_burst(1);
+        show_dac_tab(panel);
+        panel.refresh();
+        const bool ch0 = tree_cell(pacing, 0, 1) == "timer" && tree_cell(pacing, 0, 2) == "16" &&
+                         tree_cell(pacing, 0, 3) == "109" && tree_cell(pacing, 0, 5) == "running" &&
+                         tree_cell(pacing, 0, 6) == "on" && tree_cell(pacing, 0, 7) == "16055.046 Hz";
+        const bool ch1 = tree_cell(pacing, 1, 1) == "counter <- CTC 0" && tree_cell(pacing, 1, 2) == "-" &&
+                         tree_cell(pacing, 1, 3) == "2" && tree_cell(pacing, 1, 7) == "8027.523 Hz";
+        const bool ch2 = tree_cell(pacing, 2, 5) == "stopped" && tree_cell(pacing, 2, 7) == "-";
+        const bool dma = tree_cell(pacing, 4, 1) == "burst" && tree_cell(pacing, 4, 2) == "55" &&
+                         tree_cell(pacing, 4, 3) == "1/255" && tree_cell(pacing, 4, 4) == "0x9001 -> port 0x00DF" &&
+                         tree_cell(pacing, 4, 5) == "active" && tree_cell(pacing, 4, 7) == "15909.091 Hz";
+        check("DAP-76", "DAC & Beeper holds audio_pacing (5 rows CTC 0..3 and DMA, 8 columns), audio_stream, audio_stream_status and audio_stream_window; the hex table is still the only QTableWidget; dac_on_show() is true only with DAC & Beeper current; with ch0 a timer (P16, TC 109, interrupt on), ch1 a counter (TC 2), ch2 idle and a burst DMA at prescaler 55 the Pacing rows read timer/16/109/running/on/16055.046 Hz, counter <- CTC 0/-/2/8027.523 Hz, stopped/-, burst/55/1/255/0x9001 -> port 0x00DF/active/15909.091 Hz",
+              shape && tables.size() == 1 && only_dac && ch0 && ch1 && ch2 && dma,
+              fmt("shape=%d only_dac=%d ch0=%d ch1=%d ch2=%d dma=%d", shape, only_dac, ch0, ch1, ch2, dma));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-77", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap77", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        const uint16_t out_at = ctc_dac_player(emu, false);
+        AudioPanel panel(&dbg);
+        show_dac_tab(panel);
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        panel.refresh();
+        const auto entries = dbg.audio_log_entries(0).value;
+        const auto st = jnext::dbg::dac_stream_stats(entries, dbg.time().master_cycle, jnext::dbg::dac_stream_window_cycles());
+        auto* stream = tree_of(panel, "audio_stream");
+        const bool one = stream && stream->topLevelItemCount() == 1 && st.writers.size() == 1;
+        const QString want_rate = st.writers.empty() ? QString() : QString::number(st.writers[0].rate_millihz / 1000.0, 'f', 3);
+        // "covered": min(window, end - the oldest writer's first sample) / window, from the same entries.
+        const uint64_t win = jnext::dbg::dac_stream_window_cycles();
+        const uint64_t end_c = dbg.time().master_cycle;
+        const double covered = st.writers.empty() ? 0.0 : double(std::min(win, end_c - st.writers[0].first_cycle)) / double(win);
+        auto* wlabel = panel.findChild<QLabel*>("audio_stream_window");
+        const bool covered_ok = covered > 0.0 && wlabel && wlabel->text().contains(QString("covered %1 s").arg(covered, 0, 'f', 3));
+        check("DAP-77", "the CTC-paced player (DSS-13) for 10 frames: one audio_stream row, Writer 'CPU 0x....' (the ISR's OUT), Channels 'A D', Rate the %.3f of dac_stream_stats over the same entries and end cycle, Gaps 0, Pacing beginning 'CTC 0: 16055.046 Hz (', and the window label's 'covered N s' equal to min(1 s, end - the first sample) / 1 s",
+              one && tree_cell(stream, 0, 0) == QString("CPU 0x%1").arg(out_at, 4, 16, QChar('0')).toUpper().replace("0X", "0x") &&
+              tree_cell(stream, 0, 1) == "A D" && tree_cell(stream, 0, 3) == want_rate &&
+              tree_cell(stream, 0, 8) == "0" && tree_cell(stream, 0, 9).startsWith("CTC 0: 16055.046 Hz (") && covered_ok,
+              fmt("row=%s rate=%s pacing=%s", tree_cell(stream, 0, 0).toStdString().c_str(),
+                  tree_cell(stream, 0, 3).toStdString().c_str(), tree_cell(stream, 0, 9).toStdString().c_str()));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-78", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap78", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        nr_write(emu, 0x08, 0x08);
+        dma_to_dac(emu);
+        // Copper: MOVE NR 0x2D,0x66 then HALT, run once (mode 01).
+        emu.nextreg().write(0x61, 0); emu.nextreg().write(0x62, 0);
+        for (uint16_t w : {uint16_t((0x2D << 8) | 0x66), uint16_t(0x8000u | 0x1FFu)}) {
+            emu.nextreg().write(0x63, uint8_t(w >> 8)); emu.nextreg().write(0x63, uint8_t(w & 0xFF));
+        }
+        emu.nextreg().write(0x61, 0); emu.nextreg().write(0x62, 0x40);
+        cpu_program(emu, {0xF3, 0x18, 0xFE});
+        AudioPanel panel(&dbg);
+        show_dac_tab(panel);
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        panel.refresh();
+        auto* stream = tree_of(panel, "audio_stream");
+        int dma_row = -1, cop_row = -1;
+        for (int i = 0; stream && i < stream->topLevelItemCount(); ++i) {
+            if (tree_cell(stream, i, 0) == "DMA") dma_row = i;
+            if (tree_cell(stream, i, 0) == "Copper") cop_row = i;
+        }
+        int clicks = 0;
+        QObject::connect(&panel, &AudioPanel::show_in_disassembly_requested, [&](uint16_t) { ++clicks; });
+        if (stream && dma_row >= 0) emit stream->itemDoubleClicked(stream->topLevelItem(dma_row), 0);
+        if (stream && cop_row >= 0) emit stream->itemDoubleClicked(stream->topLevelItem(cop_row), 0);
+        const bool silent = clicks == 0;
+        // A CPU row emits its PC once: the DAP-77 player.
+        if (!build_dac_machine(emu)) { check("DAP-78", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg2(emu);
+        const auto cid2 = dbg2.attach(ClientInfo{"dap78b", ClientKind::Test}).value;
+        dbg2.set_audio_log_enabled(cid2, true);
+        const uint16_t out_at = ctc_dac_player(emu, false);
+        AudioPanel panel2(&dbg2);
+        show_dac_tab(panel2);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        panel2.refresh();
+        uint32_t seen_pc = 0; int fired = 0;
+        QObject::connect(&panel2, &AudioPanel::show_in_disassembly_requested, [&](uint16_t pc) { seen_pc = pc; ++fired; });
+        auto* stream2 = tree_of(panel2, "audio_stream");
+        if (stream2 && stream2->topLevelItemCount() > 0) emit stream2->itemDoubleClicked(stream2->topLevelItem(0), 0);
+        check("DAP-78", "a DMA burst to 0x00DF and a Copper MOVE 0x2D: a 'DMA' row whose Pacing begins 'DMA: 15909.0' (the DMA's nominal rate is a little above the measured one) and a 'Copper' row whose Pacing is '-'; double-clicking either emits nothing, and double-clicking the CPU row of the CTC-paced player emits show_in_disassembly_requested(the OUT's PC) once",
+              dma_row >= 0 && cop_row >= 0 && tree_cell(stream, dma_row, 9).startsWith("DMA: 15909.091 Hz (") &&
+              tree_cell(stream, cop_row, 9) == "-" && silent && fired == 1 && seen_pc == out_at,
+              fmt("dma_row=%d cop_row=%d dma_pacing=%s fired=%d", dma_row, cop_row,
+                  tree_cell(stream, dma_row, 9).toStdString().c_str(), fired));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-79", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap79", ClientKind::Test}).value;
+        nr_write(emu, 0x08, 0x08);
+        cpu_program(emu, {0xF3, 0x18, 0xFE});
+        // A DAC write between two instructions of the parked CPU: each one at its own cycle (writes at one
+        // cycle from one source and port are ONE sample).
+        auto dac_writes = [&](int n) { for (int i = 0; i < n; ++i) { emu.port().out(0xDF, uint8_t(i)); emu.execute_single_instruction(); } };
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        auto* stream = tree_of(panel, "audio_stream");
+        auto* status = panel.findChild<QLabel*>("audio_stream_status");
+        // Chips current: writes and refreshes leave the stream as it was (no fetch while not on show).
+        dac_writes(20);
+        panel.refresh();
+        const bool idle_off_show = stream && stream->topLevelItemCount() == 0;
+        show_dac_tab(panel);
+        panel.refresh();
+        const bool filled = stream && stream->topLevelItemCount() == 1 && tree_cell(stream, 0, 2) == "20" &&
+                            status && status->text() == "Recording";
+        // The request dropped: "Not recording" and an empty tree.
+        dbg.set_audio_log_enabled(cid, false);
+        panel.refresh();
+        const bool dropped = status && status->text() == "Not recording" && stream && stream->topLevelItemCount() == 0;
+        // Recording again, then a soft reset mid-stream: the next refresh's Samples restart.
+        dbg.set_audio_log_enabled(cid, true);
+        dac_writes(20);
+        panel.refresh();
+        const uint32_t before = stream && stream->topLevelItemCount() ? tree_cell(stream, 0, 2).toUInt() : 0;
+        dbg.reset(cid, jnext::dbg::ResetKind::Soft);
+        nr_write(emu, 0x08, 0x08);
+        cpu_program(emu, {0xF3, 0x18, 0xFE});
+        dac_writes(5);
+        panel.refresh();
+        const uint32_t after = stream && stream->topLevelItemCount() ? tree_cell(stream, 0, 2).toUInt() : 0;
+        const bool marker = before == 20 && after == 5;
+        // A ring that overflows between two refreshes: a stale cache would show the idle stretch before the
+        // new writes as a gap; the view starts over instead and shows none.
+        dbg.audio_log_resize(4);
+        panel.refresh();
+        for (int i = 0; i < 30; ++i) emu.execute_single_instruction();
+        dac_writes(40);
+        panel.refresh();
+        const bool overflow = stream && stream->topLevelItemCount() == 1 && tree_cell(stream, 0, 8) == "0" &&
+                              tree_cell(stream, 0, 2).toUInt() <= 4;
+        check("DAP-79", "the view follows its data rules: with Chips current nothing is fetched (20 writes leave the stream empty); DAC & Beeper current shows one writer with 20 samples and 'Recording'; with the request dropped it reads 'Not recording' and the tree is empty; after a soft reset mid-stream the samples restart (20 -> 5); after the ring (resized to 4) overflowed between two refreshes no gap is shown",
+              idle_off_show && filled && dropped && marker && overflow,
+              fmt("idle=%d filled=%d dropped=%d marker=%d(%u->%u) overflow=%d", idle_off_show, filled, dropped, marker, before, after, overflow));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-80", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap80", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        ctc_dac_player(emu, true);
+        AudioPanel panel(&dbg);
+        show_dac_tab(panel);
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        panel.refresh();
+        const auto entries = dbg.audio_log_entries(0).value;
+        const auto st = jnext::dbg::dac_stream_stats(entries, dbg.time().master_cycle, jnext::dbg::dac_stream_window_cycles());
+        auto* stream = tree_of(panel, "audio_stream");
+        auto* window = panel.findChild<QLabel*>("audio_stream_window");
+        const bool ok = stream && stream->topLevelItemCount() == 1 && !st.writers.empty() && st.writers[0].gaps >= 1 &&
+                        tree_cell(stream, 0, 8) == QString::number(st.writers[0].gaps);
+        check("DAP-80", "the CTC-paced player with the OUT skipped when its tick wraps (DSS-14): the CPU row's Gaps cell equals dac_stream_stats(...).writers[0].gaps and is at least 1; audio_stream_window names the 1.5 x factor",
+              ok && window && window->text().contains("1.5 x the median"),
+              fmt("gaps_cell=%s", tree_cell(stream, 0, 8).toStdString().c_str()));
+    }
+}
+
 // ── DAP-TRK: the Tracker sub-tab (GH #534) ─────────────────────────────
 //
 // Oracles: the grouping rules of AFG-* (audio_debug_test), the meaningful bits of the AY registers
@@ -2205,6 +2448,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-DAC        -- done\n");
     test_log_tab(emu);
     std::printf("  Group: DAP-LOG        -- done\n");
+    test_stream_view(emu);
+    std::printf("  Group: DAP-STREAM     -- done\n");
     test_tracker_tab(emu);
     std::printf("  Group: DAP-TRK        -- done\n");
 

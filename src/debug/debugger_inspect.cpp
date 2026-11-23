@@ -47,6 +47,8 @@
 #include "debug/raster_state.h"
 #include "debug/rewind_buffer.h"
 #include "debug/trace.h"
+#include "peripheral/ctc.h"
+#include "peripheral/dma.h"
 #include "video/palette.h"
 #include "video/renderer.h"
 
@@ -845,6 +847,66 @@ Result Debugger::clear_audio_drops(ClientId by) {
     impl_->emu.clear_audio_drops();
     impl_->log_mutate(by, "audio drop counters", total, 0);
     return Result::Ok;
+}
+
+// INS-25 -- the CTC's four channels. A read of the inline DebugViews: nothing here ticks, writes or
+// calls Ctc::read(). The ZC/TO rate walks the chain back at most four hops (zxnext.vhd:4598: channel n is
+// clocked by n-1, channel 0 by 3), dividing by each time constant; a timer ends the walk by contributing
+// its prescaler. One rounding, at the end.
+std::array<CtcChannelState, CTC_CHANNEL_COUNT> Debugger::ctc_state() const {
+    const Ctc& ctc = impl_->emu.ctc();
+    std::array<CtcChannel::DebugView, CTC_CHANNEL_COUNT> v;
+    for (size_t c = 0; c < CTC_CHANNEL_COUNT; ++c) v[c] = ctc.channel(static_cast<int>(c)).debug_view();
+
+    std::array<CtcChannelState, CTC_CHANNEL_COUNT> out{};
+    for (size_t c = 0; c < CTC_CHANNEL_COUNT; ++c) {
+        CtcChannelState& s = out[c];
+        const unsigned tc = v[c].time_constant ? v[c].time_constant : 256u;
+        s.counter_mode = v[c].counter_mode;
+        s.prescaler = v[c].prescale_256 ? 256 : 16;
+        s.time_constant = static_cast<uint16_t>(tc);
+        s.count = v[c].count;
+        s.running = v[c].running;
+        s.int_enabled = v[c].int_enabled;
+
+        uint64_t div = 1;
+        size_t at = c;
+        bool source = false;
+        for (int hop = 0; hop < static_cast<int>(CTC_CHANNEL_COUNT); ++hop) {
+            if (!v[at].running) break;
+            div *= v[at].time_constant ? v[at].time_constant : 256u;
+            if (!v[at].counter_mode) {
+                div *= v[at].prescale_256 ? 256u : 16u;
+                source = true;
+                break;
+            }
+            at = (at + CTC_CHANNEL_COUNT - 1) % CTC_CHANNEL_COUNT;
+        }
+        if (source) s.zc_rate_millihz = static_cast<uint32_t>((MASTER_CLOCK_HZ * 1000ULL + div / 2) / div);
+    }
+    return out;
+}
+
+// INS-25 -- the DMA's pacing and transfer state.
+DmaState Debugger::dma_state() const {
+    const Dma& dma = impl_->emu.dma();
+    const Dma::DebugView v = dma.debug_view();
+    DmaState s;
+    s.active = dma.state() == Dma::State::TRANSFERRING;
+    s.mode = static_cast<uint8_t>(dma.transfer_mode());
+    s.prescaler = v.prescaler;
+    if (v.prescaler) {
+        const uint64_t d = 32ULL * v.prescaler;
+        s.rate_millihz = static_cast<uint32_t>((MASTER_CLOCK_HZ * 1000ULL + d / 2) / d);
+    }
+    s.src = dma.src_addr();
+    s.dst = dma.dst_addr();
+    s.length = dma.block_length();
+    s.counter = dma.counter();
+    const bool a_to_b = dma.dir_a_to_b();
+    s.src_io = a_to_b ? v.port_a_io : v.port_b_io;
+    s.dst_io = a_to_b ? v.port_b_io : v.port_a_io;
+    return s;
 }
 
 // INS-22 -- the decoded audio chain. Every source is a const accessor or a

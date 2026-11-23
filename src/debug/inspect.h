@@ -542,6 +542,41 @@ struct AudioState {
 };
 
 // ---------------------------------------------------------------------------
+// INS-25 -- ctc_state() and dma_state(): the pacing engines (GH #537)
+// ---------------------------------------------------------------------------
+
+/// INS-25 -- the CTC's channels (zxnext.vhd:4581 NUM_CTC => 4).
+constexpr size_t CTC_CHANNEL_COUNT = 4;
+
+/// INS-25 -- one CTC channel as `Debugger::ctc_state()` reports it.
+struct CtcChannelState {
+    bool     counter_mode = false;   ///< control bit 6: counts the previous channel's ZC/TO (channel 0: channel 3)
+    uint16_t prescaler = 16;         ///< 16 or 256, control bit 5 (timer mode only)
+    uint16_t time_constant = 256;    ///< 1-256 (a written 0 counts 256)
+    uint8_t  count = 0;              ///< the down-counter, as a port read returns it
+    bool     running = false;        ///< S_RUN / S_RUN_TC: counting, ZC/TO can fire
+    bool     int_enabled = false;    ///< control bit 7, also written by NR 0xC5
+    /// ZC/TO rate in milli-hertz, rounded to nearest: 28 MHz / (prescaler x TC) for a running timer; the
+    /// source's rate / TC for a running counter. 0 = no ZC/TO (stopped, or a counter whose chain reaches a
+    /// stopped channel or loops back on itself), or slower than 0.5 mHz.
+    uint32_t zc_rate_millihz = 0;
+};
+
+/// INS-25 -- `Debugger::dma_state()`.
+struct DmaState {
+    bool     active = false;         ///< a transfer is in progress (dma_seq_s /= IDLE)
+    uint8_t  mode = 1;               ///< R4 bits 6:5 raw: 00 byte, 01 continuous (reset), 10 burst
+    uint8_t  prescaler = 0;          ///< R2 port B prescaler; 0 = no pacing
+    /// The NOMINAL pacing rate in milli-hertz, 28 MHz / (32 x prescaler) = 875 kHz / prescaler at every CPU
+    /// speed; 0 when prescaler is 0. A real stream is slower by the transfer's own cycles.
+    uint32_t rate_millihz = 0;
+    uint16_t src = 0, dst = 0;       ///< the current source and destination addresses
+    uint16_t length = 0;             ///< R0 block length
+    uint16_t counter = 0;            ///< bytes transferred (dma_counter_s)
+    bool     src_io = false, dst_io = false;   ///< the source / destination is an I/O port
+};
+
+// ---------------------------------------------------------------------------
 // INS-14 / INS-15 — layers, palettes
 // ---------------------------------------------------------------------------
 

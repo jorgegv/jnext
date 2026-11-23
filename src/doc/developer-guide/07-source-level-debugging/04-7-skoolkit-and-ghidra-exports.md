@@ -188,12 +188,12 @@ The Qt debugger offers the four verbs in its Map menu, after the annotation entr
 `export_menu` (`debugger_window.cpp:1113`), each with
 `&skoolkit Control Files...` and `&Ghidra Symbols...` (`I` and `E` are free in the Map popup, `S` and `G`
 are unique in each submenu; `DACC-05` pins the new popups and mnemonics). The slots are
-`on_import_skoolkit` (`debugger_manager.cpp:999`),
-`on_import_ghidra` (`debugger_manager.cpp:1000`),
-`on_export_skoolkit` (`debugger_manager.cpp:1001`) and
-`on_export_ghidra` (`debugger_manager.cpp:1002`), which share
-`import_re_files` (`debugger_manager.cpp:959`) and
-`export_re_files` (`debugger_manager.cpp:982`):
+`on_import_skoolkit` (`debugger_manager.cpp:1001`),
+`on_import_ghidra` (`debugger_manager.cpp:1002`),
+`on_export_skoolkit` (`debugger_manager.cpp:1003`) and
+`on_export_ghidra` (`debugger_manager.cpp:1004`), which share
+`import_re_files` (`debugger_manager.cpp:961`) and
+`export_re_files` (`debugger_manager.cpp:984`):
 
 - **Import** asks for one or more files with `QFileDialog::getOpenFileNames` (`*.ctl` or `*.txt`), calls
   the backend verb once with all of them, and shows the report (counts, then each note) in an

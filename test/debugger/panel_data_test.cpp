@@ -603,6 +603,56 @@ int main(int argc, char** argv) {
               "chips=" + b2s(chips) + " log=" + b2s(log) + " once=" + b2s(once) + " chips_again=" + b2s(chips_again) +
                   " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed) + " reopened=" + b2s(reopened));
     }
+    // QLAZY-25 / 26 - the DAC & Beeper sub-tab also needs the write log (GH #537): its Sample stream is
+    // computed from it. Same request bit as Log, so the ring survives a switch between the two.
+    {
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        const bool chips = !fx.backend->audio_log_enabled();   // Chips is the current sub-tab
+        if (tabs) tabs->setCurrentIndex(1);                    // DAC & Beeper
+        QApplication::processEvents();
+        const bool dac = fx.backend->audio_log_enabled();
+        const uint64_t rev = fx.backend->state_revision();
+        for (int i = 0; i < 4; ++i) fx.tick();
+        const bool once = fx.backend->state_revision() == rev && fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(0);                    // Chips again
+        QApplication::processEvents();
+        const bool chips_again = !fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(1);
+        fx.show(fx.dbg()->nextreg_panel());                    // the Audio dock tabbed away behind it
+        const bool away = !fx.backend->audio_log_enabled();
+        fx.show(fx.dbg()->audio_panel());
+        const bool back = fx.backend->audio_log_enabled();
+        fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        QApplication::processEvents();
+        const bool closed = !fx.backend->audio_log_enabled();
+        check("QLAZY-25",
+              "window open, Audio dock shown: the log is on with DAC & Beeper current and off with Chips current, off with the dock tabbed away, on when shown again, off with the window closed; ticks change nothing",
+              fx.ok && tabs && chips && dac && once && chips_again && away && back && closed,
+              "chips=" + b2s(chips) + " dac=" + b2s(dac) + " once=" + b2s(once) + " chips_again=" + b2s(chips_again) +
+                  " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(2);                    // Log
+        QApplication::processEvents();
+        fx.emu.port().out(0x1F, 0x55);                         // a DAC write: an entry (dropped or applied)
+        fx.emu.port().out(0xFE, 0x10);                         // and a beeper one
+        const auto first = fx.backend->audio_log_entries(0);
+        const size_t before = first ? first.value.size() : 0;
+        if (tabs) tabs->setCurrentIndex(1);                    // DAC & Beeper: the same request bit
+        QApplication::processEvents();
+        const auto after = fx.backend->audio_log_entries(0);
+        check("QLAZY-26",
+              "Log current, entries recorded, then DAC & Beeper current: the log stays on and the entries recorded before the switch are still in audio_log_entries(0) (one request bit, the ring is not freed)",
+              fx.ok && tabs && before >= 2 && fx.backend->audio_log_enabled() && bool(after) && after.value.size() >= before,
+              "before=" + std::to_string(before) + " after=" + std::to_string(after ? after.value.size() : 0));
+    }
     {
         Fixture fx;
         const auto other = fx.backend->attach(jnext::dbg::ClientInfo{"other", jnext::dbg::ClientKind::Test}).value;
