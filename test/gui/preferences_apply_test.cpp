@@ -1269,6 +1269,7 @@ void test_snapshot_load_refusal()
     }
     {
         // A .nex whose version is above what JNEXT loads: refused up front, naming the version.
+        // The bytes that count are 5 and 7 ('>' and 'e' of "<html>Ver": bcd 0xE5), not the "9.9" text.
         loaded.clear();
         const QString p = write("big600.nex", pad("<html>Ver 9.9 not a NEX</html>"));
         f.win.handle_load_path(p);

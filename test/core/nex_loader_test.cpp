@@ -1977,6 +1977,60 @@ void test_nex_magic() {
               !probed, fmt("probed=%d", probed));
         std::error_code ec; std::filesystem::remove(path, ec);
     }
+
+    // NEXMAG-06..10: NexLoader::preboot_check called directly (the GUI's and the CLI's pre-boot
+    // seam), on 600-byte-plus fixtures: its contract is what NexLoader::load() refuses, so the
+    // version boundary (V1.3 loads, V1.4 does not) and the two magic rules are each pinned.
+    using PB = NexLoader::PreBoot;
+    auto pre = [&](const char* tag, const char* magic, const char* ver, bool nex_ext,
+                   uint8_t& bcd, size_t cut = 0) {
+        const std::string path = fixture_path(tag);
+        bool built = write_nex_bank_fixture(path, 0x8000, 0xFF00, 0, 3, 3, {}, 0, ver);
+        if (built) put_magic(path, magic);
+        if (built && cut) std::filesystem::resize_file(path, cut);
+        char v[5] = {0};
+        bcd = 0xFF;
+        const PB r = built ? NexLoader::preboot_check(path, nex_ext, bcd, v) : PB::NotNex;
+        std::error_code ec; std::filesystem::remove(path, ec);
+        return r;
+    };
+    {
+        uint8_t b1 = 0, b2 = 0;
+        const PB a1 = pre("pb_v13_nex", "Next", "V1.3", true, b1);
+        const PB a2 = pre("pb_v13_oth", "Next", "V1.3", false, b2);
+        check("NEXMAG-06",
+              "preboot_check on a 600-byte+ NextV1.3 file is Ok with bcd 0x13, for a .nex and for an unowned extension (V1.3 is what load() takes; the opt-in path stays reachable)",
+              a1 == PB::Ok && a2 == PB::Ok && b1 == 0x13 && b2 == 0x13,
+              fmt("a1=%d a2=%d b1=0x%02X b2=0x%02X", (int)a1, (int)a2, b1, b2));
+    }
+    {
+        uint8_t b = 0;
+        const PB r = pre("pb_v14", "Next", "V1.4", true, b);
+        check("NEXMAG-07",
+              "preboot_check on a NextV1.4 file is TooNew with bcd 0x14 (above what load() takes)",
+              r == PB::TooNew && b == 0x14, fmt("r=%d b=0x%02X", (int)r, b));
+    }
+    {
+        uint8_t b = 0;
+        const PB r = pre("pb_511", "Next", "V1.2", true, b, 511);
+        check("NEXMAG-08",
+              "preboot_check on a 511-byte file is NotNex (shorter than the 512-byte header load() needs)",
+              r == PB::NotNex, fmt("r=%d", (int)r));
+    }
+    {
+        uint8_t b = 0;
+        const PB r = pre("pb_unowned", "XXXX", "V1.2", false, b);
+        check("NEXMAG-09",
+              "preboot_check for an extension nothing owns without the Next bytes is NotNex, whatever the version field says",
+              r == PB::NotNex, fmt("r=%d", (int)r));
+    }
+    {
+        uint8_t b = 0;
+        const PB r = pre("pb_nex_nomagic", "XXXX", "V1.2", true, b);
+        check("NEXMAG-10",
+              "preboot_check for a .nex without the Next bytes is Ok with bcd 0x12 (the NEXLOAD NextZXOS ships never reads them)",
+              r == PB::Ok && b == 0x12, fmt("r=%d b=0x%02X", (int)r, b));
+    }
 }
 
 int main() {
