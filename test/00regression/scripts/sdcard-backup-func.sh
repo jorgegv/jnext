@@ -108,7 +108,7 @@ PY
             bk_has "$bk_card" /MINE.TXT || bk_faults+=("3: the user's file is not on the 99.99 card")
             # 5a: another jnext holds the card: both verbs exit 4, nothing changes
             LANG=C JNEXT_CONFIG_DIR="$bk_dir/cfg" JNEXT_SDCARD_DISTRO_URL="file://$bk_dir/sn-emulator-99.99.zip" \
-                "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" --delayed-automatic-exit 90 </dev/null > "$bk_dir/holder.out" 2>&1 &
+                "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" --delayed-automatic-exit 900 </dev/null > "$bk_dir/holder.out" 2>&1 &
             bk_holder=$!
             bk_up=0
             for bk_i in $(seq 600); do   # up to 3 minutes: the holder boots slowly on a loaded host
@@ -129,6 +129,9 @@ PY
             [[ $rc == 1 ]] && grep -qF "is in use by another jnext" "$bk_dir/lockedup.txt" || bk_faults+=("5: --sdcard-upgrade yes on a held card exited $rc without the lock message")
             [[ "$bk_before" == "$bk_after" ]] || bk_faults+=("5: --sdcard-upgrade yes on a held card changed the set or its scratch")
             rm -rf "$bk_dir/cfg/sdcard/upgrade-work"
+            # the holder must have lived through every held-card check above (headless runs at full speed, and it
+            # only stops when killed here): a dead one means those checks tested nothing, a fault of the row itself
+            kill -0 "$bk_holder" 2>/dev/null || bk_faults+=("harness: the holding jnext exited before the held-card checks finished; their results mean nothing")
             kill "$bk_holder" 2>/dev/null || true
             wait "$bk_holder" 2>/dev/null || true
             [[ "$bk_l1" == 4 && "$bk_l2" == 4 ]] || bk_faults+=("5: with the card in use the verbs exited $bk_l1 and $bk_l2, not 4 and 4")

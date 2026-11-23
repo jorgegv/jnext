@@ -3174,6 +3174,14 @@ A failed download is reported with the address it was fetching, a reason in plai
 words and what happens next: in a dialog in the Qt GUI (a NextPi failure too, also
 with <code>--nextpi</code>, which then exits) and on stderr and in the log otherwise. A fetch that
 is slow or stalls says so the same way: a dialog, or lines on stderr and in the log.</p>
+<p>The order inside that step matters. <code>main()</code> wraps <code>run_main()</code> and, when a windowed run fails
+before its loop starts, shows the reason in a start-up box. For the default card, <code>run_main</code> takes the
+card's lock before provisioning begins (a card named with <code>--sdcard</code> is the user's own and is not
+locked this early). Provisioning then first finishes what a crash left half done, an upgrade or a
+go back, before it looks at the card. Next comes the version comparison: a card of a newer NextZXOS
+than this jnext knows is used as it is, with a notice once per version, and never offered an upgrade;
+only an older card reaches the upgrade offer. <a href="../03-subsystems/08-1-the-sd-card-set.html">3.8.1</a>
+describes each stage.</p>
 <h2 id="choosing-a-frontend">Choosing a frontend<a class="headerlink" href="#choosing-a-frontend" title="Permanent link">&para;</a></h2>
 <p>The choice comes down to a single runtime condition wrapped around a single
 compile-time arm:</p>

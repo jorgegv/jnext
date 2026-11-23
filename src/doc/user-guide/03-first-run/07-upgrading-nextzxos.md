@@ -133,3 +133,14 @@ Moving to a new NextZXOS by hand is an export and an import ([3.3](03-using-your
 | `It holds writes for your previous SD card (NextZXOS X, kept as a backup): go back to it (--sdcard-go-back), or discard the writes with --sdcard-writes-reset.` | That writes file belongs to the card you upgraded away from. |
 | `this SD card is NextZXOS X, newer than this jnext's NextZXOS Y; it is used as it is` | Nothing to do; update JNEXT when you can. |
 | `there is no previous SD card to go back to` | No backup exists (exit 2). |
+| `there is no previous SD card backup to delete` | `--sdcard-delete-backup` found no backup (exit 2). Nothing to do. |
+| `cannot delete ...` | The backup could not be removed; the reason follows (exit 3). Close whatever holds the files and try again. |
+| `an earlier go-back is unfinished: start jnext once to finish it` | A go back was interrupted. Start JNEXT normally once; it finishes the switch (exit 3). |
+| `cannot restore the writes file '...' (its folder cannot be written to); nothing was changed` | The backup holds a writes file whose folder cannot be written to, so the go back refused with everything as it was (exit 3). Make the folder writable and try again. |
+| `sdcard: could not restore the writes file ... its copy is kept in ...` | In the log. The folder became unwritable during the go back; the copy is in `previous/overlays` under the name shown. Copy it where you want it. |
+| `Your files cannot be carried over (...); jnext --sdcard-upgrade fresh makes a new card and keeps this one as the backup.` | In the log, when a newer NextZXOS is available and the card cannot be compared with its original. Use `--sdcard-upgrade fresh`, or restore the original image. |
+| `nothing to compare against: this card was not made by jnext ...` | `--sdcard-export-changes` has no original to compare with (exit 3). Give the image the card was made from with `--sdcard-export-base FILE`, or the writes file with `--sdcard-writes FILE`. |
+| `'...' already exists; give a new file name` | `--sdcard-writes-flatten` will not overwrite a file (exit 3). Name a new file. |
+| `'...' is not empty; export into a new or empty directory` | `--sdcard-export-changes` will not mix with other files (exit 3). Use a new or empty directory. |
+| `... is not a directory made by --sdcard-export-changes (no CHANGES.txt)` | `--sdcard-import-changes` needs the folder an export made (exit 2). Point it at that folder. |
+| `... is not a jnext changes list (expected '...')` | The `CHANGES.txt` is not one JNEXT wrote (exit 2). Use the file an export made, unedited. |

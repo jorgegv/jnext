@@ -89,6 +89,15 @@ words and what happens next: in a dialog in the Qt GUI (a NextPi failure too, al
 with `--nextpi`, which then exits) and on stderr and in the log otherwise. A fetch that
 is slow or stalls says so the same way: a dialog, or lines on stderr and in the log.
 
+The order inside that step matters. `main()` wraps `run_main()` and, when a windowed run fails
+before its loop starts, shows the reason in a start-up box. For the default card, `run_main` takes the
+card's lock before provisioning begins (a card named with `--sdcard` is the user's own and is not
+locked this early). Provisioning then first finishes what a crash left half done, an upgrade or a
+go back, before it looks at the card. Next comes the version comparison: a card of a newer NextZXOS
+than this jnext knows is used as it is, with a notice once per version, and never offered an upgrade;
+only an older card reaches the upgrade offer. [3.8.1](../03-subsystems/08-1-the-sd-card-set.md)
+describes each stage.
+
 ## Choosing a frontend
 
 The choice comes down to a single runtime condition wrapped around a single
