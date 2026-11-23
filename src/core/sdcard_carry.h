@@ -165,6 +165,8 @@ bool pristine_base_ok(const std::string& card_image, std::string& why);
 
 /// Rebuild the card as made into `out_image`: a sparse copy of the card's raw, then the card's
 /// recipe. `raw` and `card_image` are the default location's pair.
+/// NOTE: the rebuild formats through FatFs drive 0 (patch_image_fat32), so no Volume may be open
+/// on drive 0 while it runs, and any open one loses its mount.
 bool rebuild_as_made(const std::string& raw, const std::string& card_image,
                      const std::string& out_image, std::string& err);
 

@@ -28,7 +28,7 @@ namespace {
 
 constexpr size_t kChunk = 64 * 1024;
 
-const char* fr_text(FRESULT r) {
+std::string fr_text(FRESULT r) {
     switch (r) {
     case FR_OK: return "ok";
     case FR_DISK_ERR: return "disk error";
@@ -40,7 +40,7 @@ const char* fr_text(FRESULT r) {
     case FR_EXIST: return "already exists";
     case FR_WRITE_PROTECTED: return "write protected";
     case FR_NO_FILESYSTEM: return "no FAT filesystem";
-    default: return "FatFs error";
+    default: return "FatFs error " + std::to_string(static_cast<int>(r));
     }
 }
 
@@ -890,8 +890,7 @@ FileAddStatus export_changes(const ExportRequest& req, ExportReport& rep, std::s
         }
     }
     std::string why;
-    auto view = Volume::open(0, req.image, req.journal, true, err);
-    if (!view) return FileAddStatus::ImageUnusable;
+    std::unique_ptr<Volume> view;   // opened AFTER the base: rebuilding the as-made card formats on drive 0
 
     // ---- the base ----------------------------------------------------------------------
     std::unique_ptr<Tree> base;
@@ -929,6 +928,8 @@ FileAddStatus export_changes(const ExportRequest& req, ExportReport& rep, std::s
         return FileAddStatus::DestInvalid;
     }
 
+    view = Volume::open(0, req.image, req.journal, true, err);
+    if (!view) { cleanup(); return FileAddStatus::ImageUnusable; }
     std::vector<Change> changes;
     if (!compute_changes(*view, *base, changes, err)) { cleanup(); return FileAddStatus::DestInvalid; }
 

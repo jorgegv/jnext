@@ -856,7 +856,8 @@ int main() {
     {
         // SDEXP-08 / 09: the default card, compared with the card AS MADE (rebuilt from the raw).
         Fat32Tree raw;
-        raw.root.push_back(dnode("MACHINES", {dnode("NEXT", {fnode("zx81.rom", std::string(16384, 'Z')), fnode("48.rom", "rom48")})}));
+        // zx81.rom is not the known 16 KB file here: neither recipe step touches it
+        raw.root.push_back(dnode("MACHINES", {dnode("NEXT", {fnode("zx81.rom", std::string(100, 'Z')), fnode("48.rom", "rom48")})}));
         raw.root.push_back(dnode("DOCS", {fnode("readme.txt", "docs")}));
         const std::string dd = tmp("dflt");
         fs::create_directories(dd);
@@ -864,9 +865,8 @@ int main() {
         const std::string card = (fs::path(dd) / sdcard::kFixedImageFileName).string();
         const bool made = make_card(raw_img, raw, 1228800, 8192);
         const std::string rawsha = sdcard::sha256_file(raw_img);
-        const std::string zx_sha = sdcard::sha256_hex(Bytes(16384, 'Z'));
         { std::ofstream(raw_img + ".sha256") << rawsha << "  " << sdcard::kImageFileName << "\n"; }
-        bool ok = made && copy_card(raw_img, card) && sdcard::patch_image_for_recipe(card, 3, rawsha, err, zx_sha);
+        bool ok = made && copy_card(raw_img, card) && sdcard::patch_image_for_recipe(card, 3, rawsha, err);
         { std::ofstream(card + sdcard::kFixedImageRecipeSuffix) << "3\n"; }
         std::string why;
         const bool pristine = ok && carry::pristine_base_ok(card, why);
