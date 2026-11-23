@@ -2,7 +2,9 @@
 #include "debug/audio_math.h"
 #include "debug/debugger.h"
 
+#include <QFileDialog>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QPainter>
 #include <QPalette>
 #include <QVBoxLayout>
@@ -77,6 +79,28 @@ AudioScopeView::AudioScopeView(jnext::dbg::Debugger* dbg, QWidget* parent)
     off_label_->hide();
     outer->addWidget(off_label_);
 
+    // GH #539: the stems row, above the traces; hidden with them under --silent.
+    stems_row_ = new QWidget(page);
+    stems_row_->setObjectName("audio_stems_row");
+    auto* srow = new QHBoxLayout(stems_row_);
+    srow->setContentsMargins(0, 0, 0, 0);
+    stems_record_ = new QPushButton(tr("Record stems..."), stems_row_);
+    stems_record_->setObjectName("audio_stems_record");
+    stems_stop_ = new QPushButton(tr("Stop"), stems_row_);
+    stems_stop_->setObjectName("audio_stems_stop");
+    stems_status_ = new QLabel(tr("Not recording stems"), stems_row_);
+    stems_status_->setObjectName("audio_stems_status");
+    stems_stop_->setEnabled(false);
+    srow->addWidget(stems_record_);
+    srow->addWidget(stems_stop_);
+    srow->addWidget(stems_status_, 1);
+    outer->addWidget(stems_row_);
+    connect(stems_record_, &QPushButton::clicked, this, [this] {
+        const QString dir = QFileDialog::getExistingDirectory(this, tr("Record stems"));
+        if (!dir.isEmpty()) start_stems_recording(dir);
+    });
+    connect(stems_stop_, &QPushButton::clicked, this, [this] { stop_stems_recording(); });
+
     grid_ = new QWidget(page);
     auto* grid = new QGridLayout(grid_);
     grid->setContentsMargins(0, 0, 0, 0);
@@ -129,13 +153,51 @@ AudioScopeView::AudioScopeView(jnext::dbg::Debugger* dbg, QWidget* parent)
     setWidget(page);
 }
 
+bool AudioScopeView::start_stems_recording(const QString& dir) {
+    if (!dbg_) return false;
+    const auto r = dbg_->stems_record_start(jnext::dbg::CLIENT_NONE, dir.toStdString());
+    if (r != jnext::dbg::Result::Ok) {
+        stems_dir_.clear();
+        stems_failure_ = tr("Cannot write %1").arg(dir);
+        refresh_stems_row_();
+        return false;
+    }
+    stems_dir_ = dir;
+    stems_failure_.clear();
+    refresh_stems_row_();
+    return true;
+}
+
+bool AudioScopeView::stop_stems_recording() {
+    if (!dbg_) return false;
+    const QString dir = stems_dir_;
+    const auto r = dbg_->stems_record_stop(jnext::dbg::CLIENT_NONE);
+    stems_dir_.clear();
+    stems_failure_ = r == jnext::dbg::Result::Ok ? QString()
+                                                 : tr("Write error in %1").arg(dir.isEmpty() ? tr("the stems directory") : dir);
+    refresh_stems_row_();
+    return r == jnext::dbg::Result::Ok;
+}
+
+void AudioScopeView::refresh_stems_row_() {
+    const bool on = dbg_ && dbg_->stems_recording();
+    stems_record_->setEnabled(!on);
+    stems_stop_->setEnabled(on);
+    stems_status_->setToolTip(on ? stems_dir_ : QString());
+    if (on) stems_status_->setText(tr("Recording stems"));
+    else    stems_status_->setText(stems_failure_.isEmpty() ? tr("Not recording stems") : stems_failure_);
+}
+
 void AudioScopeView::refresh() {
     if (!dbg_) return;
     // The mixer does not run under --silent: say so, and do not look for data.
     const bool synthesis = dbg_->audio_state().host.synthesis_on;
     off_label_->setVisible(!synthesis);
+    stems_row_->setVisible(synthesis);
     grid_->setVisible(synthesis);
     if (!synthesis) return;
+    if (dbg_->stems_recording()) stems_failure_.clear();
+    refresh_stems_row_();
 
     const auto r = dbg_->audio_scope_samples(2 * WINDOW);
     if (!r) return;   // not requested yet: the manager asks once the tab is on show
