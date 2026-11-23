@@ -550,6 +550,10 @@ struct ProvisionOptions {
     std::vector<std::string> overlays;
     // Free bytes under a directory; defaults to std::filesystem::space. A test seam.
     std::function<uint64_t(const std::string& dir)> free_space;
+    // GH #555 S7: told, once per card distribution, that the default card is NEWER than this jnext's
+    // distribution (or of a newer recipe, or of a name that cannot be placed): it is used as it is. The
+    // GUI frontends show it in a box; empty = the log line only.
+    std::function<void(const std::string& message)> notice;
     // Called once with the upgrade report (the carried / replaced / not carried lists) after a
     // successful upgrade that carried files over. The frontends show it in a box.
     std::function<void(const std::string& report)> show_report;

@@ -1075,6 +1075,27 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             const std::string have = dist_of(fixed_distro);
             if (ieq(have, current_dist)) return use_existing();
 
+            // A card of a NEWER distribution (or a newer recipe, or a name that cannot be placed in the order):
+            // an older jnext never touches it and offers nothing. It is used as it is; a GUI is told once per
+            // card distribution (remembered in "<card>.newer-seen").
+            {
+                const int rel = backup::compare_distributions(have, current_dist);
+                const std::string rec = read_text_line(fixed + kFixedImageRecipeSuffix);
+                const int card_recipe = rec.empty() ? 1 : std::atoi(rec.c_str());
+                if (rel == 1 || rel == 2 || card_recipe > kFixedImageRecipe) {
+                    const std::string msg = "This SD card is " + distribution_title(have) + ", newer than this jnext's " +
+                                            distribution_title(current_dist) + "; it is used as it is.";
+                    Log::emulator()->warn("sdcard: this SD card is {}, newer than this jnext's {}; it is used as it is",
+                                          distribution_title(have), distribution_title(current_dist));
+                    const std::string seen = fixed + ".newer-seen";
+                    if (opts.notice && !ieq(read_text_line(seen), have)) {
+                        opts.notice(msg);
+                        write_text_line(seen, have);
+                    }
+                    return use_existing();
+                }
+            }
+
             // The card is of an older (or other) distribution than the one jnext downloads now.
             // It holds the user's own files: an upgrade carries them over and keeps the old card
             // as a backup, and nothing happens without their yes.

@@ -269,6 +269,86 @@ int main() {
               "step " + std::to_string(step) + " " + err);
     }
 
+    // ---- SDBAK-08..10: a restore target that is missing or unwritable ---------------------------------------------
+    // The set as a whole, to prove "nothing changed".
+    auto whole = [&] {
+        std::string t;
+        for (const auto& e : fs::recursive_directory_iterator(g_dir_sd)) {
+            if (!e.is_regular_file()) continue;
+            std::error_code ec;
+            t += e.path().string() + ":" + std::to_string(digest(e.path().string())) + ";";
+        }
+        return t;
+    };
+    auto retarget = [&](const std::string& target) {   // the backup's writes file is to be restored to `target`
+        std::ofstream(g_dir_sd + "/previous/overlays/LIST") << "0-old.jsdw\t" << target << "\n";
+    };
+    {
+        // 08A: the directory is gone: the verb creates it and restores the file
+        Pair p = make_pair();
+        const std::string gone = (g_dir / "vanished-project").string() + "/dev.jsdw";
+        std::error_code ec; fs::remove_all(fs::path(gone).parent_path(), ec);
+        retarget(gone);
+        const Result r = go_back(g_dir_sd, err);
+        check("SDBAK-08A", "go back creates the missing directory of a writes file it restores, and restores the file with its bytes",
+              r == Result::Ok && fs::exists(gone) && digest(gone) == p.ovb_digest && !fs::exists(g_dir_sd + "/go-back-work"), err);
+        // 08B: the same through recovery: the directory is removed again after the swap was stopped before step 2
+        Pair q = make_pair();
+        retarget(gone);
+        fs::remove_all(fs::path(gone).parent_path(), ec);
+        g_fail_step_for_test = 2;
+        const Result r1 = go_back(g_dir_sd, err);
+        fs::remove_all(fs::path(gone).parent_path(), ec);
+        const bool rec = recover(g_dir_sd, err);
+        check("SDBAK-08B", "recovery creates a restore directory that vanished after step 1 and restores the file",
+              r1 == Result::Failed && rec && fs::exists(gone) && digest(gone) == q.ovb_digest && fs::exists(prev(sdcard::kFixedImageFileName)), err);
+        fs::remove_all(fs::path(gone).parent_path(), ec);
+    }
+    {
+        // 09A: a restore target nothing can be written to (its parent is a FILE): refused before anything moves
+        Pair p = make_pair();
+        const std::string blocker = (g_dir / "blocker-file").string();
+        { std::ofstream(blocker) << "i am a file"; }
+        retarget(blocker + "/dev.jsdw");
+        const std::string before = whole();
+        std::string e9;
+        const Result r = go_back(g_dir_sd, e9);
+        check("SDBAK-09A", "go back refuses, with nothing changed, when a writes file cannot be restored to its path: the set is byte-identical and no scratch is left",
+              r == Result::Failed && whole() == before && !fs::exists(g_dir_sd + "/go-back-work") && e9.find("dev.jsdw") != std::string::npos, e9);
+        (void)p;
+    }
+    {
+        // 09B: the target was fine when the swap began and is not when it is finished: recovery finishes, keeps the
+        // copy in the backup and says where
+        Pair p = make_pair();
+        const std::string dirx = (g_dir / "later-blocked").string();
+        std::error_code ec; fs::remove_all(dirx, ec);
+        fs::create_directories(dirx, ec);
+        retarget(dirx + "/dev.jsdw");
+        g_fail_step_for_test = 2;
+        const Result r1 = go_back(g_dir_sd, err);
+        fs::remove_all(dirx, ec);
+        { std::ofstream(dirx) << "now a file"; }   // the directory became a file
+        const bool rec = recover(g_dir_sd, err);
+        bool kept = false;
+        for (const auto& e : fs::directory_iterator(g_dir_sd + "/previous/overlays", ec))
+            if (e.path().filename().string().find("unrestored") != std::string::npos && digest(e.path().string()) == p.ovb_digest) kept = true;
+        check("SDBAK-09B", "recovery finishes a swap whose restore target became unwritable: the old set is current, and the writes file's copy is kept in the backup under an 'unrestored' name",
+              r1 == Result::Failed && rec && fs::exists(prev(sdcard::kFixedImageFileName)) && !fs::exists(g_dir_sd + "/go-back-work") && kept, err);
+        fs::remove(dirx, ec);
+    }
+    {
+        // 10: an unfinished earlier go back is not run over
+        Pair p = make_pair();
+        std::error_code ec; fs::create_directories(g_dir_sd + "/go-back-work", ec);
+        const std::string before = whole();
+        std::string e10;
+        const Result r = go_back(g_dir_sd, e10);
+        check("SDBAK-10", "a go back refuses to start while an earlier one is unfinished (go-back-work/ exists): nothing changes and the message says so",
+              r == Result::Failed && whole() == before && e10.find("unfinished") != std::string::npos, e10);
+        (void)p;
+    }
+
     // ---- SDBAK-07: distributions order ------------------------------------------------------------------------
     check("SDBAK-07", "distributions compare by version: 24.11 < 26.11 < 26.11a < 26.12; equal names are equal; a name with no version is unknown",
           compare_distributions("sn-emulator-24.11.zip", "sn-emulator-26.11.zip") == -1 &&

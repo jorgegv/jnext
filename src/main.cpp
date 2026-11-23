@@ -2204,9 +2204,9 @@ static int run_main(int argc, char* argv[]) {
         const std::string sd_dir  = sdcard::default_sdcard_dir();
         const std::string sd_card = sdcard::default_sdcard_image_path();
         sdcard::sd_locks::set_enabled(true);
-        std::error_code lec;
         std::string lock_why;
-        if (std::filesystem::exists(sd_card, lec) && !sdcard::sd_locks::hold(0, sd_card, "", lock_why)) {
+        // the lock is on the PATH, not on the file: mid-switch of another process the card is absent for a moment
+        if (!sdcard::sd_locks::hold(0, sd_card, "", lock_why)) {
             Log::emulator()->error("SD card refused: {}", lock_why);
             startup_report::report("error: %s\n", lock_why.c_str());
             return 4;
@@ -2287,6 +2287,7 @@ static int run_main(int argc, char* argv[]) {
             };
             opts.sleep    = [&](unsigned ms, const std::string& n) { gui_prov.retry_wait(ms, n); };
             opts.show_report = [&](const std::string& rep) { gui_prov.show_report(rep); };
+            opts.notice   = [&](const std::string& m) { gui_prov.warn(m); };
         } else {
             opts.confirm  = sdcard::cli_confirm;
             opts.progress = sdcard::make_cli_progress();
@@ -2301,6 +2302,7 @@ static int run_main(int argc, char* argv[]) {
         if (!headless && sdcard_file_add_count == 0) {
             opts.upgrade = sdcard::sdl_offer_upgrade;
             opts.show_report = sdcard::sdl_show_report;
+            opts.notice = sdcard::sdl_show_notice;
         }
 #endif
 #endif   // __EMSCRIPTEN__

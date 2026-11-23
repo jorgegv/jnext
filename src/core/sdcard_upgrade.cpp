@@ -137,6 +137,11 @@ void register_overlay(const std::string& dir, const std::string& file) {
     write_lines(dir + "/" + kOverlayList, lines);
 }
 
+bool file_binds_to_card(const std::string& card, const std::string& file) {
+    std::error_code ec;
+    return fs::is_regular_file(card, ec) && fs::is_regular_file(file, ec) && overlay_belongs(card, file);
+}
+
 bool file_belongs_to_backup(const std::string& dir, const std::string& file) {
     const std::string prev = previous_dir(dir) + "/" + kFixedImageFileName;
     std::error_code ec;

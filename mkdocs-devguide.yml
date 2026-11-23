@@ -71,6 +71,7 @@ nav:
       - 3.6 Peripherals: 03-subsystems/06-peripherals.md
       - 3.7 Input: 03-subsystems/07-input.md
       - 3.8 Media and loaders: 03-subsystems/08-media-and-loaders.md
+      - 3.8.1 The SD card set: 03-subsystems/08-1-the-sd-card-set.md
       # The debug subsystem and its frontends. The frontend pages keep the file
       # names (and so the URLs) they had as pages 3.10-3.13; only their numbers
       # in the nav changed.

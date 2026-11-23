@@ -78,4 +78,9 @@ void sdl_show_report(const std::string& report) {
                               SDL_GetError(), path);
 }
 
+void sdl_show_notice(const std::string& message) {
+    if (!SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "SD card", message.c_str(), nullptr))
+        Log::emulator()->warn("sdcard: the notice box could not be shown ({}): {}", SDL_GetError(), message);
+}
+
 }  // namespace sdcard

@@ -29,5 +29,7 @@ constexpr const char* kUpgradeLabelKeep    = "Not now";
 /// The report box of a finished upgrade, SDL: the first 20 lines and where the full list is.
 std::string report_box_text(const std::string& report, const std::string& report_path);
 void sdl_show_report(const std::string& report);
+/// A one-button notice box (SDL): the card in use is newer than this jnext.
+void sdl_show_notice(const std::string& message);
 
 }  // namespace sdcard

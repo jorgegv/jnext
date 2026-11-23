@@ -21,7 +21,7 @@
     t.loaded = true;
     const list = JSON.parse(q.get('players') || '[{}]');
     list.forEach((opts, i) => {
-      const rec = { player: null, progress: [], ready: 0, errors: [], mountError: null, order: [], settled: false };
+      const rec = { player: null, progress: [], ready: 0, errors: [], notices: [], mountError: null, order: [], settled: false };
       t.players[i] = rec;
       const o = Object.assign({}, opts);
       if (o.width === undefined) o.width = 320;
@@ -34,6 +34,7 @@
           rec.applied = m ? m._jnext_web_load_applied() : -1;
         };
         o.onError = (m) => rec.errors.push(m);
+        o.onNotice = (code, m) => rec.notices.push([code, m]);
       }
       if (opts.__fn) o[opts.__fn] = () => {};   // an unknown function-valued option
       delete o.__raw; delete o.__fn;

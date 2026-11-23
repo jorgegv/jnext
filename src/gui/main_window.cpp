@@ -2325,11 +2325,13 @@ void MainWindow::run_card_op() {
     // the card file is another card now: bind the writes file the session will use over it. An upgrade
     // rebuilt the session's file under the same name; a go back restored the other card's files.
     sd_write_journal::forget_image(card);
+    // Only the session's own writes file is bound again: an upgrade rebuilt it under the same name; after a
+    // go back it is bound only when it is the one that belongs to the card that came back (its old copy,
+    // restored at the same path). Otherwise the card is mounted plain: a session never starts writing into
+    // a file it did not have.
     std::string file = session_file;
-    if (op == CardOp::GoBack) {
-        const auto usable = sdcard::upgrade::usable_overlays(dir, card, {});
-        file = usable.empty() ? std::string() : usable.front();
-    }
+    if (op == CardOp::GoBack && !(file.empty() ? false : sdcard::upgrade::file_binds_to_card(card, file)))
+        file.clear();
     std::error_code bec;
     if (!file.empty() && std::filesystem::exists(file, bec)) {
         sd_write_journal::Binding b;
@@ -2354,8 +2356,10 @@ void MainWindow::sd_card_change_finished(const QString& image, const QString& er
         } else if (card_op_inserting_ && !image.isEmpty()) {
             card_op_ = CardOp::None;
             card_op_inserting_ = false;
-            QTimer::singleShot(0, this, [this]() { if (emulator_) emulator_->request_hard_reset(); });
-            statusBar()->showMessage(tr("SD card upgraded: the machine restarts"), 5000);
+            // The reset is requested here, in the tick that serviced the insert: QtApp polls the hard-reset
+            // request right after this call, so the machine is reset before any frame runs on the new card.
+            if (emulator_) emulator_->request_hard_reset();
+            statusBar()->showMessage(tr("SD card changed: the machine restarts"), 5000);
             return;
         }
     }

@@ -58,5 +58,11 @@ image yourself, note that JNEXT enforces the FAT32 specification as strictly as
 the real firmware does, and will refuse a card the real machine would also
 refuse.
 
+**JNEXT does not start from an icon, and nothing appears.** A start-up error (an unknown
+option, an SD card another JNEXT has open, a refused combination) is shown in a window, with
+the same text it prints on a terminal, every time JNEXT is started with a window. A run with
+`--headless`, with `--delayed-automatic-exit` or with an SD card command such as `--sdcard-file-add`
+never shows one: its error is on standard error.
+
 Anything else: [1.4, *Getting help and reporting bugs*](../01-introduction/04-getting-help-and-reporting-bugs.md),
 and <https://github.com/jorgegv/jnext/issues>.

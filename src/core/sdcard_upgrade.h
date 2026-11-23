@@ -51,6 +51,9 @@ void register_overlay(const std::string& dir, const std::string& file);
 /// mtime, or digest)? Used to explain a refusal: the file is for the card you upgraded away from.
 bool file_belongs_to_backup(const std::string& dir, const std::string& file);
 
+/// Does the writes file `file` belong to `card` (its header's size and mtime or digest)? Nothing is bound.
+bool file_binds_to_card(const std::string& card, const std::string& file);
+
 /// Why an overlay cannot be carried, "" when every existing one can: it is not a writes file, it was made
 /// for another card, or it rewrites the partition table or the boot sector (a card with such a file is not
 /// the card jnext made). Reads the files' headers only.
