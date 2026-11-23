@@ -4619,7 +4619,7 @@ input, then whether the internal speaker is on (NextREG 0x08 bit 4), whether the
 beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC reach
 the mix: they do not when both of those are set. A tape playing in real time reaches the
 mix through the same beeper path, so the Beeper box, and that exclusion,
-silence it too, while the Tape EAR lamp keeps showing the input.</p>
+silence it too, as it does the Pi's audio when that is routed to EAR (NextREG 0xA2); the Tape EAR lamp keeps showing the input.</p>
 <p><strong>Pi I2S.</strong> Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).</p>
 <p><strong>DAC channels.</strong> Under the DAC values: an <strong>M</strong> and an <strong>S</strong> button per channel (see
@@ -4655,7 +4655,7 @@ Double-click a row written by the CPU to show the instruction in the Disassembly
 machine records them only while this tab is the one on show in an open debugger window
 (or while something else asks for the log, such as <code>--audio-log</code>); the rows you see
 start when you open the tab, and the log holds the newest 65536 writes. The tab is
-refreshed with the rest of the window when the machine is paused or stepped.</p>
+refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.</p>
 <p>The columns are the <strong>Frame</strong>, <strong>Line</strong>, <strong>HC</strong> and <strong>T-state</strong> the write happened at,
 the <strong>PC</strong> of the instruction (only for a write the CPU made), the <strong>Source</strong> (CPU, DMA,
 Copper or Debugger), the <strong>Target</strong> (AY register, AY select, DAC, DAC mirror or Beeper),

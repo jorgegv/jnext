@@ -3615,7 +3615,7 @@ refresh, and every note from <code>audio_math.h</code>, so the panel and a test 
 <p>What the panel asks of the backend follows the sub-tab on show. <code>DebuggerManager::apply_data_needs()</code> requests
 the write log only while the Audio panel is on show with Log current (<code>AudioPanel::log_on_show()</code>), and drops
 the request otherwise; the panel's <code>sub_tab_changed</code> signal makes the manager re-derive it. Chips is the one
-sub-tab with the per-frame refresh described under the running cadence below.</p>
+sub-tab with the per-frame refresh described under the running cadence above.</p>
 <h2 id="the-key-bindings-are-data">The key bindings are data<a class="headerlink" href="#the-key-bindings-are-data" title="Permanent link">&para;</a></h2>
 <p>No shortcut in the debugger window is written at its call site. The inventory is
 a table in <code>src/debug/debug_keymap.cpp</code> — each action with a config-file id, a
