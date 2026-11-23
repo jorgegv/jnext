@@ -2077,6 +2077,9 @@ SD\-card image at the canonical TBBlue paths under
 the Pentagon\(cqs), \f[CR]plus3.rom\f[R], \f[CR]enNxtmmc.rom\f[R],
 \f[CR]enNextMf.rom\f[R], \f[CR]enAltZX.rom\f[R]).
 That is the whole list of files jnext reads from the card itself.
+It reads them from a FAT12, FAT16 or FAT32 card, with a partition table
+or without one, and finds the volume the way the Next firmware does
+(\f[B]\-\-sdcard\-file\-add\f[R] still needs a FAT32 card).
 .IP \(bu 2
 \f[B]NextZXOS is not one of them.\f[R] It is loaded by the firmware, not
 by jnext: the machine boots \f[CR]/TBBLUE.FW\f[R] from the card through

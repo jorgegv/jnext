@@ -1335,11 +1335,15 @@ Power Reset, a guest NR 0x02 reset and a machine-type change.
 
 **File > Load.** `handle_load_path()` sends a `.pok` to `open_pok_file()` before
 any cold boot. The same function now also refuses, before the cold boot, a file
-that would route to the NEX loader (a `.nex`, or an extension nothing owns) but
-has no `Next` prologue (`NexLoader::probe_version()`), which `NexLoader::load()`
-would refuse anyway: before, the session was reset and then the load failed. The
-reason follows the case: a `.nex` is "not a NEX file" and nothing more, and only
-an extension nothing owns is told the list of formats and where a `.pok` goes.
+that would route to the NEX loader (a `.nex`, or an extension nothing owns) and
+that `NexLoader::load()` would refuse anyway (`NexLoader::preboot_check()`): before,
+the session was reset and then the load failed. That is a file without a complete
+512-byte header, or one whose version is above what the loader takes (V1.3). The
+first four bytes are not checked for a `.nex`, because the NEXLOAD that NextZXOS
+ships never reads them; a file with an extension nothing owns must still start
+with `Next`, since nothing on the Next would run NEXLOAD on it. The reason follows
+the case: a `.nex` is "not a NEX file" (or names its too-new version), and only an
+extension nothing owns is told the list of formats and where a `.pok` goes.
 
 The suites: `pok_trainers_test` (POK-01..25 and POK-60 the parser, the list and
 `load_pok_file`, POK-30..57 and POK-61..64 the session and the command-line
@@ -1541,14 +1545,30 @@ jnext talks to the same `.img` file in two entirely different ways, at two
 different times, for two different consumers. The split looks redundant until
 you notice that the two consumers want opposite things.
 
-**`src/core/sd_rom_extractor.*` is a host-side FAT32 reader.** Before the
+**`src/core/sd_rom_extractor.*` is a host-side FAT reader.** Before the
 machine can start, jnext needs the ROM images that on real hardware live as
 files on the card, and there is no guest yet to ask for them — so the emulator
 opens the `.img` *as a filesystem* and pulls them out by path:
 `/MACHINES/NEXT/48.rom`, `128.rom`, `plus3.rom`, `enNxtmmc.rom`,
-`enNextMf.rom` and `enAltZX.rom`. It is read-only,
-handles MBR + FAT32-LBA only, and does short-name lookup only, which is all
-that job needs.
+`enNextMf.rom` and `enAltZX.rom`. It is read-only
+and does short-name lookup only, which is all that job needs.
+
+It finds the volume by the firmware's FatFs rules (`find_volume`/`check_fs`,
+`ff.c`): a FAT boot record in sector 0 is the volume itself (a card with no
+partition table, LBA 0); otherwise the four MBR entries are tried in order,
+skipping a type byte or LBA of 0, and the first whose sector is a FAT boot
+record wins, whatever its type byte. One leniency is kept from before: an entry
+of type `0x0B`/`0x0C` is taken without the boot-record test. FAT12, FAT16 and
+FAT32 are read: FAT32 layout when `BPB_FATSz16` is 0 (no cluster-count
+reclassification, so under-clustered images still read), else FAT12/16 with the
+sub-type by cluster count (at most 0xFF5 is FAT12, at most 0xFFF5 FAT16; more is
+refused). The FAT12/16 root directory is a fixed run of sectors bounded by
+`RootEntCnt`, not a cluster chain. The card identity of a snapshot or bug report
+reads `BS_VolID`/`BS_VolLab` at 0x27/0x2B (FAT12/16) or 0x43/0x47 (FAT32); a
+partition-less card has `partition_lba` 0. On the Next machine the firmware
+loads the DivMMC and Multiface ROMs itself and NextZXOS the Alt ROM pages, so a
+failed host read there is logged at info level only. The writers
+(`--sdcard-file-add`, the provisioner) stay FAT32-only.
 
 **`src/peripheral/sd_card.cpp` is emulated hardware.** Once the machine is
 running, the guest wants a card, not a filesystem: NextZXOS carries its own

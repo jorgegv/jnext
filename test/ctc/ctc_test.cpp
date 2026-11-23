@@ -1139,9 +1139,11 @@ void section7_im2_control() {
               "no pulses or reti_decode expected along a DDFD chain");
     }
 
-    // IM2C-08 — im2_control.vhd:238: o_dma_delay high across all RETI
-    // decode states: S_ED_T4, S_ED4D_T4, S_ED45_T4, S_SRL_T1, S_SRL_T2.
-    // Track across an ED 4D sequence.
+    // IM2C-08 — im2_control.vhd:238: o_dma_delay is high in S_ED_T4 (from the ED
+    // fetch to the next fetch) and S_ED4D_T4 (the RETI itself). S_SRL_T1/T2 follow
+    // on the next two CPU CLOCKS (:181-192, state process :160-207 has no ifetch
+    // term), so they end inside the RETI: the next opcode fetch sees S_0, low.
+    // GH #556 (owner D-H1): this row used to expect two more HIGH fetches.
     {
         fresh(im2);
         bool ok = true;
@@ -1151,33 +1153,28 @@ void section7_im2_control() {
         im2.on_m1_cycle(0x0001, 0x4D);
         ok = ok && im2.dma_delay_control();  // S_ED4D_T4
         im2.on_m1_cycle(0x0002, 0x00);
-        ok = ok && im2.dma_delay_control();  // S_SRL_T1 (next-state = SRL_T2)
-        im2.on_m1_cycle(0x0003, 0x00);
-        ok = ok && im2.dma_delay_control();  // S_SRL_T2
-        im2.on_m1_cycle(0x0004, 0x00);
-        ok = ok && !im2.dma_delay_control(); // back to S_0
+        ok = ok && !im2.dma_delay_control(); // SRL states are over inside the RETI: S_0
         check("IM2C-08", ok,
-              "im2_control.vhd:238 o_dma_delay covers S_ED_T4 / S_ED4D_T4 / S_SRL_T1/T2",
+              "im2_control.vhd:238 o_dma_delay high at ED and ED 4D, low at the next fetch (SRL states end inside the RETI)",
               "dma_delay_control sequence mismatch");
     }
 
-    // IM2C-09 — im2_control.vhd:186-192: the SRL_T1/T2 pair adds 2 "ticks"
-    // (two on_m1_cycle calls) of dma_delay_control after ED 4D / ED 45.
-    // From S_ED45_T4 → S_SRL_T1 → S_SRL_T2 → S_0.
+    // IM2C-09 — im2_control.vhd:186-192: after ED 45 the SRL_T1/T2 pair runs on
+    // consecutive clocks inside the RETN, so no fetch sees dma_delay high after the
+    // RETN's own. GH #556 (owner D-H1): was "3 delay cycles counted in M1 calls".
     {
         fresh(im2);
         im2.on_m1_cycle(0x0000, 0xED);
-        im2.on_m1_cycle(0x0001, 0x45);  // now S_ED45_T4 (dma_delay high)
+        im2.on_m1_cycle(0x0001, 0x45);  // S_ED45_T4 (dma_delay high)
         int delay_cycles = 0;
         if (im2.dma_delay_control()) ++delay_cycles;
-        im2.on_m1_cycle(0x0002, 0x00);  // S_SRL_T1 (dma_delay high)
+        im2.on_m1_cycle(0x0002, 0x00);  // S_0 (dma_delay low)
         if (im2.dma_delay_control()) ++delay_cycles;
-        im2.on_m1_cycle(0x0003, 0x00);  // S_SRL_T2 (dma_delay high)
+        im2.on_m1_cycle(0x0003, 0x00);
         if (im2.dma_delay_control()) ++delay_cycles;
-        im2.on_m1_cycle(0x0004, 0x00);  // S_0 (dma_delay low)
-        check("IM2C-09", delay_cycles == 3 && !im2.dma_delay_control(),
-              "im2_control.vhd:186-192 SRL_T1/T2 extend dma_delay beyond RETN",
-              fmt("extra delay cycles=%d (expected 3)", delay_cycles));
+        check("IM2C-09", delay_cycles == 1 && !im2.dma_delay_control(),
+              "im2_control.vhd:186-192 SRL_T1/T2 end inside the RETN: dma_delay high only at ED 45",
+              fmt("delay fetches=%d (expected 1)", delay_cycles));
     }
 
     // IM2C-10 — im2_control.vhd:218-227: ED 46 decodes IM 0 (bit4=0).
@@ -1229,6 +1226,106 @@ void section7_im2_control() {
         check("IM2C-14", im2.im_mode() == 0,
               "im2_control.vhd:222 im_mode defaults to 00 on reset",
               fmt("im_mode=%u after reset", im2.im_mode()));
+    }
+
+    // IM2C-15..19 (GH #556): the RETI/RETN's S_ED4D_T4/S_ED45_T4 -> S_SRL_T1 ->
+    // S_SRL_T2 -> S_0 steps are plain clock transitions (im2_control.vhd:181-192,
+    // state process :160-207, no ifetch term) that end inside the RETI/RETN, so the
+    // very next opcode fetch is decoded from S_0 and none is dropped.
+    {
+        fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x4D);
+        im2.on_m1_cycle(0x0002, 0xED);   // the very next fetch
+        check("IM2C-15", im2.reti_decode_active(),
+              "im2_control.vhd:181-192, :161-170, :232: after ED 4D the next fetch ED enters S_ED_T4 (reti_decode)",
+              "reti_decode not set by an ED fetched right after a RETI");
+    }
+    {
+        fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x4D);
+        im2.on_m1_cycle(0x0002, 0xFB);
+        const bool p1 = im2.reti_seen_this_cycle();
+        im2.on_m1_cycle(0x0003, 0xED);
+        const bool p2 = im2.reti_seen_this_cycle();
+        im2.on_m1_cycle(0x0004, 0x4D);
+        check("IM2C-16", !p1 && !p2 && im2.reti_seen_this_cycle(),
+              "im2_control.vhd:233: RETI, then FB, ED, 4D: reti_seen pulses on the 4D (an EI;RETI handler right after a RETI)",
+              fmt("p_fb=%d p_ed=%d p_4d=%d", p1, p2, im2.reti_seen_this_cycle()));
+    }
+    {
+        fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x45);   // RETN
+        im2.on_m1_cycle(0x0002, 0xED);
+        im2.on_m1_cycle(0x0003, 0x4D);
+        check("IM2C-17", im2.reti_seen_this_cycle(),
+              "im2_control.vhd:190-192: RETN (ED 45), then ED 4D: reti_seen pulses on the 4D",
+              "RETI right after a RETN not seen");
+    }
+    {
+        fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x4D);
+        im2.on_m1_cycle(0x0002, 0xED);
+        im2.on_m1_cycle(0x0003, 0x56);   // IM 1
+        check("IM2C-18", im2.im_mode() == 1,
+              "im2_control.vhd:243-247: ED 56 straight after a RETI sets IM 1",
+              fmt("im_mode=%u", im2.im_mode()));
+    }
+    {
+        fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x4D);
+        im2.on_m1_cycle(0x0002, 0xCB);
+        im2.on_m1_cycle(0x0003, 0x00);   // RLC B
+        im2.on_m1_cycle(0x0004, 0xED);
+        im2.on_m1_cycle(0x0005, 0x4D);
+        check("IM2C-19", im2.reti_seen_this_cycle(),
+              "im2_control.vhd:166, :193-198: RETI, CB 00, ED 4D: the CB path from S_0 returns to S_0 and the RETI is seen",
+              "RETI after CB 00 following a RETI not seen");
+    }
+
+    // IM2C-20 — device level: the line device must leave S_ISR on a RETI that
+    // follows within the old three-fetch window (im2_device.vhd:122-127), and the
+    // CTCs behind it are then served again (:136-145, :141).
+    {
+        fresh(im2);
+        im2.set_mode(true);
+        im2.set_int_en(Dev::CTC0, true);
+        im2.set_int_en(Dev::LINE, true);
+        im2.raise_req(Dev::CTC0);
+        im2.tick(1);                         // CTC0 S_REQ
+        (void)im2.ack_vector();              // CTC0 S_ACK
+        im2.clear_req(Dev::CTC0);
+        im2.tick(1);                         // CTC0 S_ISR
+        im2.raise_req(Dev::LINE);
+        im2.tick(1);                         // LINE S_REQ behind the CTC0 in service
+        im2.on_m1_cycle(0x0100, 0xED);
+        im2.on_m1_cycle(0x0101, 0x4D);       // the CTC handler's RETI
+        im2.tick(1);                         // CTC0 -> S_0 (LINE passes IEI during decode)
+        const bool ctc0_done = im2.state(Dev::CTC0) == DevState::S_0;
+        im2.on_m1_cycle(0x01FF, 0x00);       // the interrupt's M1: the RETI pulse is gone
+        (void)im2.ack_vector();              // LINE S_ACK
+        im2.clear_req(Dev::LINE);
+        im2.tick(1);                         // LINE S_ISR
+        const bool line_isr = im2.state(Dev::LINE) == DevState::S_ISR;
+        im2.on_m1_cycle(0x0200, 0xFB);       // the line handler: EI ; RETI
+        im2.on_m1_cycle(0x0201, 0xED);
+        im2.on_m1_cycle(0x0202, 0x4D);
+        im2.tick(1);
+        const bool line_done = im2.state(Dev::LINE) == DevState::S_0;
+        im2.on_m1_cycle(0x0203, 0x00);
+        im2.set_int_en(Dev::CTC1, true);
+        im2.raise_req(Dev::CTC1);
+        im2.tick(1);
+        (void)im2.ack_vector();
+        const bool ctc1_acked = im2.state(Dev::CTC1) == DevState::S_ACK;
+        check("IM2C-20", ctc0_done && line_isr && line_done && ctc1_acked,
+              "im2_device.vhd:122-127, :141: a line handler EI;RETI right after the CTC's RETI frees the line device and the CTCs are acknowledged again",
+              fmt("ctc0_done=%d line_isr=%d line_done=%d ctc1_acked=%d",
+                  ctc0_done, line_isr, line_done, ctc1_acked));
     }
 }
 
@@ -2709,33 +2806,44 @@ void section15_dma_int() {
               fmt("dma_delay=%d", im2.dma_delay()));
     }
 
-    // DMA-03 — zxnext.vhd:2007: self-hold term is
+    // DMA-03 / DMA-03b — zxnext.vhd:2007: self-hold term is
     //   im2_dma_delay AND dma_delay
-    // Where dma_delay comes from im2_control's reti_decode SRL window.
-    // Once latched, the delay is held as long as the decoder is in one of
-    // the RETI/SRL states.
-    {
+    // Where dma_delay comes from im2_control's decode window (:238). The latch is set by
+    // a source that is GONE before the ED is fetched (an NMI with NR 0xCC bit 7, then
+    // nmi_activated cleared), so only the self-hold can keep it: it holds while the
+    // decoder is in S_ED_T4 (between the ED and the next fetch). The RETI's S_ED4D_T4 /
+    // S_SRL_T1/T2 and the RETN's S_ED45_T4 follow on consecutive clocks inside the
+    // instruction (:181-192), so by the end of it the hold is gone and the latch is just
+    // dma_int | nmi. GH #556 (owner D-H1/D-H2): DMA-03 used to expect the latch still held
+    // after the RETI's tick; DMA-03b is the RETN twin (review round 3).
+    auto self_hold = [&](uint8_t second, bool& latched, bool& held_in_ed, bool& after) {
         fresh(im2);
         im2.set_mode(true);
-        uint16_t mask = 1u << static_cast<int>(Dev::CTC0);
-        im2.set_dma_int_en_mask(mask);
-        im2.set_int_en(Dev::CTC0, true);
-        im2.raise_req(Dev::CTC0);
+        im2.set_nr_cc_dma_int_en_0_7(true);            // NR 0xCC bit 7
+        im2.set_nmi_activated(true);
         im2.tick(1);
-        bool latched = im2.dma_delay();
-        // Remove the DMA int source but open the SRL window via RETI decode.
-        im2.clear_req(Dev::CTC0);
-        (void)im2.ack_vector();  // CTC0 → S_ACK (state != S_0 still)
-        im2.tick(1);             // S_ACK → S_ISR
-        im2.on_m1_cycle(0x0000, 0xED);  // open decode window
-        im2.on_m1_cycle(0x0001, 0x4D);  // reti_seen in S_ED4D_T4
-        im2.tick(1);  // im2_isr_serviced → CTC0 → S_0; but decoder is now
-                      // in S_SRL_T1 (dma_delay_control=1) this tick, so the
-                      // self-hold keeps dma_delay latched.
-        check("DMA-03", latched && im2.dma_delay(),
-              "zxnext.vhd:2007 im2_dma_delay self-holds during RETI SRL window",
-              fmt("latched_initial=%d still_held=%d",
-                  latched, im2.dma_delay()));
+        latched = im2.dma_delay();
+        im2.set_nmi_activated(false);                   // the source is gone before the ED fetch
+        im2.on_m1_cycle(0x0000, 0xED);                  // S_ED_T4: dma_delay high
+        im2.tick(1);
+        held_in_ed = im2.dma_delay();                   // only the self-hold can explain this
+        im2.on_m1_cycle(0x0001, second);                // 4D (RETI) or 45 (RETN)
+        im2.tick(1);
+        after = im2.dma_delay();
+    };
+    {
+        bool latched = false, held = false, after = true;
+        self_hold(0x4D, latched, held, after);
+        check("DMA-03", latched && held && !after,
+              "zxnext.vhd:2007 im2_dma_delay self-holds while the decoder is in S_ED_T4 (source already gone) and is released by the end of the RETI",
+              fmt("latched_initial=%d held_in_ed=%d after_reti=%d", latched, held, after));
+    }
+    {
+        bool latched = false, held = false, after = true;
+        self_hold(0x45, latched, held, after);
+        check("DMA-03b", latched && held && !after,
+              "same through ED 45: the latch is released by the end of the RETN (im2_control.vhd:186-192, :238)",
+              fmt("latched_initial=%d held_in_ed=%d after_retn=%d", latched, held, after));
     }
 
     // DMA-04 — zxnext.vhd:2007 second OR term:

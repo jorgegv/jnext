@@ -512,7 +512,7 @@ endif()
 # ~/.jnext/sdcard/cspect-next-1gb-fixed.img, overridable via
 # JNEXT_TEST_SD_IMAGE — which run-unit-tests.sh sets to a private per-run
 # clone (GH #75). Nothing under roms/ is involved.
-add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp)
+add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp core/log_capture.cpp)
 target_link_libraries(sd_rom_extractor_test PRIVATE jnext_core)
 target_include_directories(sd_rom_extractor_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sd_rom_extractor_tests
@@ -878,7 +878,7 @@ endif()
 # NexLoader::load() + apply() against a real Emulator, so it pins the
 # actual LoRes / HiRes / HiColour / ULA call sites in nex_loader.cpp and
 # not a helper in isolation — hence the full subsystem link line.
-add_executable(nex_loader_test core/nex_loader_test.cpp)
+add_executable(nex_loader_test core/nex_loader_test.cpp core/log_capture.cpp)
 target_link_libraries(nex_loader_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
