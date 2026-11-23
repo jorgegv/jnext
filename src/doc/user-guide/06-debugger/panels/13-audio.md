@@ -189,7 +189,7 @@ a frame the routine ran late. The numbers are over the last **Window** frames (1
   of addresses the CPU wrote from (writes by DMA or by the debugger have no address).
 
 Lines count from the start of the frame, so the frame interrupt itself is on line 1 with the
-Next's default timing (line 0 with 48K timing, the last line with Pentagon timing): a player
+Next's default timing at 50 Hz (line 0 at 60 Hz, line 0 with 48K timing, the last line with Pentagon timing): a player
 that starts at the interrupt writes on line 1 or just after it. A steady player that waits for
 the interrupt with `HALT` can still vary by up to 3 T-states, because the CPU accepts the
 interrupt at the end of the `HALT` instruction.

@@ -3352,7 +3352,10 @@ int main() {
             const std::vector<AudioFrame> v = {tf(50, 300, 1, 300, 1, 1, 0, 0), tf(51, 300, 1, 300, 1, 1, 0, 0),
                                                tf(10, 2, 1, 2, 1, 1, 0, 0), tf(11, 3, 1, 3, 1, 1, 0, 0)};
             const AudioTimingStats s = audio_timing_stats(ptrs(v), 100);
-            check("AFG-23", "frames 50, 51, then 10, 11 (a timeline break at 10), window 100: only 10 and 11 count (frames 2, window 10-11, first line 2/2.5/3); 50 and 51 are ignored",
+            const std::vector<AudioFrame> eq = {tf(10, 5, 1, 5, 1, 1, 0, 0), tf(10, 7, 1, 7, 1, 1, 0, 0)};
+            const AudioTimingStats e = audio_timing_stats(ptrs(eq), 50);
+            check("AFG-23", "frames 50, 51, then 10, 11 (a timeline break at 10), window 100: only 10 and 11 count (frames 2, window 10-11, first line 2/2.5/3); 50 and 51 are ignored; two frames both numbered 10 are a break too (only the second counts: frames 1, window 10-10, empty 0, first line 7)",
+                  e.frames == 1 && e.window_first == 10 && e.window_last == 10 && e.empty == 0 && e.first_line.min == 7 &&
                   s.frames == 2 && s.window_first == 10 && s.window_last == 11 && s.empty == 0 &&
                   s.first_line.min == 2 && near(s.first_line.avg, 2.5) && s.first_line.max == 3);
         }

@@ -569,8 +569,8 @@ void AudioTrackerView::update_timing()
     const jnext::dbg::AudioTimingStats& s = timing_;
 
     if (s.frames > 0) {
-        span_->setText(tr("Last %1 frames: %2 to %3, %4 with AY writes, %5 without")
-                           .arg(n).arg(s.window_first).arg(s.window_last).arg(s.frames).arg(s.empty));
+        span_->setText(tr("Last %1 %6: %2 to %3, %4 with AY writes, %5 without")
+                           .arg(n).arg(s.window_first).arg(s.window_last).arg(s.frames).arg(s.empty).arg(n == 1 ? tr("frame") : tr("frames")));
         first_->setText(QStringLiteral("First write: line %1, T-state %2 (min / avg / max)")
                             .arg(triple(s.first_line), triple(s.first_tstate)));
         last_->setText(QStringLiteral("Last write: line %1, T-state %2 (min / avg / max)")
@@ -578,7 +578,7 @@ void AudioTrackerView::update_timing()
         writes_->setText(QStringLiteral("Writes per frame: %1 (min / avg / max); PC %2")
                              .arg(triple(s.writes), pc_range(s.pc_min, s.pc_max)));
     } else {
-        span_->setText(tr("No AY writes in the last %1 frames").arg(n));
+        span_->setText(tr("No AY writes in the last %1 %2").arg(n).arg(n == 1 ? tr("frame") : tr("frames")));
         first_->setText(QStringLiteral("First write: -"));
         last_->setText(QStringLiteral("Last write: -"));
         writes_->setText(QStringLiteral("Writes per frame: -"));

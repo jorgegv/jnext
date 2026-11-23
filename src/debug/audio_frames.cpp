@@ -135,9 +135,9 @@ AudioTimingStats audio_timing_stats(const std::vector<const AudioFrame*>& frames
         }
         r.avg = sum / double(st.frames);
     };
-    fold(st.first_line,   [](const AudioFrame& f) { return uint32_t(std::max<int>(0, f.first.vc)); });
+    fold(st.first_line,   [](const AudioFrame& f) { return uint32_t(f.first.vc); });
     fold(st.first_tstate, [](const AudioFrame& f) { return f.first.tstate; });
-    fold(st.last_line,    [](const AudioFrame& f) { return uint32_t(std::max<int>(0, f.last.vc)); });
+    fold(st.last_line,    [](const AudioFrame& f) { return uint32_t(f.last.vc); });
     fold(st.last_tstate,  [](const AudioFrame& f) { return f.last.tstate; });
     fold(st.writes,       [](const AudioFrame& f) { return f.writes; });
     for (size_t i = begin; i < frames.size(); ++i) {

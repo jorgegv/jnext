@@ -2325,13 +2325,16 @@ static void test_timing_strip(Emulator& emu) {
         uint64_t seq = 0;
         view->model()->set_entries({tt(seq, 10, 8, 1, 5, 0x8000), tmark(seq, 10, jnext::dbg::AudioMarker::Reset), tt(seq, 11, 8, 1, 5, 0x8000)});
         const QString marker = pick(1);
-        check("DAP-83", "Stream T: with no current row the details are the last row's (the open frame 205); on f202's row 'Frame 202: first write line 15, T-state 3600; last write line 15, T-state 3640; writes 2; PC 0x9300-0x9310'; on the empty run 'Frame 203: no AY write'; on f204 (a DMA write) 'PC none (no CPU write)'; on a reset marker row the text is empty",
+        seq = 0;
+        view->model()->set_entries({tt(seq, 10, 8, 1, 5, 0x8000), tt(seq, 13, 8, 1, 5, 0x8000), tt(seq, 14, 8, 1, 5, 0x8000)});
+        const QString run2 = pick(1);                    // the empty run of f11 and f12
+        check("DAP-83", "Stream T: with no current row the details are the last row's (the open frame 205); on f202's row 'Frame 202: first write line 15, T-state 3600; last write line 15, T-state 3640; writes 2; PC 0x9300-0x9310'; on the empty run 'Frame 203: no AY write'; on f204 (a DMA write) 'PC none (no CPU write)'; on a reset marker row the text is empty; on an empty run of two frames (writes in f10 and f13) 'Frames 11-12: no AY write'",
               none == "Frame 205: first write line 1, T-state 300; last write line 1, T-state 300; writes 1; PC 0x9300" &&
               f202 == "Frame 202: first write line 15, T-state 3600; last write line 15, T-state 3640; writes 2; PC 0x9300-0x9310" &&
               empty == "Frame 203: no AY write" &&
               f204 == "Frame 204: first write line 1, T-state 304; last write line 1, T-state 304; writes 1; PC none (no CPU write)" &&
-              marker.isEmpty(),
-              none.toStdString() + " | " + f202.toStdString() + " | " + empty.toStdString() + " | " + f204.toStdString() + " | " + marker.toStdString());
+              marker.isEmpty() && run2 == "Frames 11-12: no AY write",
+              none.toStdString() + " | " + f202.toStdString() + " | " + empty.toStdString() + " | " + f204.toStdString() + " | " + marker.toStdString() + " | " + run2.toStdString());
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-84", "emulator init", false); return; }
@@ -2468,14 +2471,20 @@ static void test_timing_strip(Emulator& emu) {
         spin->setValue(2);                               // no refresh() and no update_timing() from here on
         const QString span2 = tlabel(panel, "audio_timing_span"), first2 = tlabel(panel, "audio_timing_first"),
                       writes2 = tlabel(panel, "audio_timing_writes");
+        spin->setValue(3);                               // frames below the window; f202 sits exactly on its first number
+        const QString span3 = tlabel(panel, "audio_timing_span"), first3 = tlabel(panel, "audio_timing_first"),
+                      writes3 = tlabel(panel, "audio_timing_writes");
         spin->setValue(1);
         const QString span1 = tlabel(panel, "audio_timing_span");
-        check("DAP-86", "Stream T: setting the window box to 2 updates the strip at once (span 'Last 2 frames: 203 to 204, 1 with AY writes, 1 without', first and writes of f204 alone, PC none); to 1 it reads 'Last 1 frames: 204 to 204, 1 with AY writes, 0 without'",
+        check("DAP-86", "Stream T: setting the window box to 2 updates the strip at once (span 'Last 2 frames: 203 to 204, 1 with AY writes, 1 without', first and writes of f204 alone, PC none); with window 3 (f200 and f201 below it, f202 exactly on its first number) 'Last 3 frames: 202 to 204, 2 with AY writes, 1 without' and the first and writes lines include f202; to 1 it reads 'Last 1 frame: 204 to 204, 1 with AY writes, 0 without'",
               span2 == "Last 2 frames: 203 to 204, 1 with AY writes, 1 without" &&
               first2 == "First write: line 1 / 1.0 / 1, T-state 304 / 304.0 / 304 (min / avg / max)" &&
               writes2 == "Writes per frame: 1 / 1.0 / 1 (min / avg / max); PC none (no CPU write)" &&
-              span1 == "Last 1 frames: 204 to 204, 1 with AY writes, 0 without",
-              span2.toStdString() + " | " + first2.toStdString() + " | " + writes2.toStdString() + " | " + span1.toStdString());
+              span3 == "Last 3 frames: 202 to 204, 2 with AY writes, 1 without" &&
+              first3 == "First write: line 1 / 8.0 / 15, T-state 304 / 1952.0 / 3600 (min / avg / max)" &&
+              writes3 == "Writes per frame: 1 / 1.5 / 2 (min / avg / max); PC 0x9300-0x9310" &&
+              span1 == "Last 1 frame: 204 to 204, 1 with AY writes, 0 without",
+              span2.toStdString() + " | " + first2.toStdString() + " | " + writes2.toStdString() + " | " + span3.toStdString() + " | " + first3.toStdString() + " | " + writes3.toStdString() + " | " + span1.toStdString());
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-87", "emulator init", false); return; }
