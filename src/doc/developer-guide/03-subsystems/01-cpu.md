@@ -263,7 +263,7 @@ to get wrong: `S_ED4D_T4`/`S_ED45_T4` → `S_SRL_T1` → `S_SRL_T2` → `S_0` ar
 not fetch-driven (`im2_control.vhd:181-192`; only `S_0`, `S_ED_T4`, `S_CB_T4` and
 `S_DDFD_T4` wait for an opcode fetch). Those three clocks pass inside the RETI/RETN's own
 stack-pop cycles, so the decoder is back in `S_0` before the next opcode fetch and no fetch
-is ever dropped; `o_dma_delay` (`:238`) therefore ends with the RETI itself, and
+is ever dropped; `o_dma_delay` (`im2_control.vhd:238`) therefore ends with the RETI itself, and
 `tick()` drops the DMA-delay hold at the end of the RETI/RETN instruction. A model that
 steps the SRL states once per fetch ignores an `ED 4D` among the next three fetches, so a
 short interrupt routine entered right after a RETI (`EI : RETI`) never clears its device:
