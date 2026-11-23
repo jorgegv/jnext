@@ -217,6 +217,11 @@ bool make_fat16_image(const std::string& path, int part_type,
     wr32(bpb + 0x27, volid);
     std::memcpy(bpb + 0x2B, vollab, 11);
     std::memcpy(bpb + 0x36, "FAT16   ", 8);
+    // Decoys at the FAT32 offsets (inside FAT16 boot code): a reader that looks
+    // there finds a signed, plausible serial that is NOT this volume's.
+    bpb[0x42] = 0x29;
+    wr32(bpb + 0x43, 0xDEADBEEFu);
+    std::memcpy(bpb + 0x47, "WRONGLABEL!", 11);
     bpb[510] = 0x55; bpb[511] = 0xAA;
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
     if (!f) return false;
