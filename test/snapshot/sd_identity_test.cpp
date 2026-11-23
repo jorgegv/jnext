@@ -678,7 +678,7 @@ int main(int argc, char** argv) {
         std::string w1, w2;
         const bool prepared = copy_image(base_img, m);
         const bool good = prepared && read_sd_image_identity(m, before, w1);
-        const bool broke = prepared && poke(m, 0x1BE + 4, 0x83);  // not FAT32
+        const bool broke = prepared && poke(m, 0x1BE + 4, 0x00);  // type 0: no volume
         after.image_bytes = 0xDEAD;      // pre-dirtied: a function that never
         after.mbr_partition_table_sha256  = "stale";     // touches `out` must not pass either
         const bool refused = broke && !read_sd_image_identity(m, after, w2);
