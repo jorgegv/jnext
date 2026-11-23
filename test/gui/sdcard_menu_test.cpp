@@ -145,6 +145,8 @@ int main(int argc, char** argv)
         bool ejected_at_work = false;            // the card was out of the machine when the work ran
         bool insert_pending_at_work = false;     // the insert had already been requested when the work ran
         bool reset_requested = false;
+        bool reset_same_tick = false;            // requested in the tick that serviced the insert (QtApp polls it right after)
+        int  dialogs = 0;                        // boxes nobody answered (the warning of a failure)
         bool mounted_at_end = false;
         bool ran_a_frame = false;
         std::string journal_file;                // the writes file registered for the default card at the end
@@ -171,6 +173,7 @@ int main(int argc, char** argv)
             if (auto sd = emulator_service_sd_card_change(f.emu, frontend_cfg, cfg_set)) {
                 L.seq.push_back(std::string(what) + (sd->change.image.empty() ? ":eject" : ":insert"));
                 f.win.sd_card_change_finished(QString::fromStdString(sd->change.image), QString::fromStdString(sd->error), sd->change.slot);
+                if (!sd->change.image.empty() && sd->error.empty()) L.reset_same_tick = f.emu.take_hard_reset_request();
             }
             QCoreApplication::processEvents();
         };
@@ -181,16 +184,18 @@ int main(int argc, char** argv)
             L.insert_pending_at_work = pending.has_value();
             if (pending) f.emu.request_sd_card_change(*pending);
         };
+        const int dialogs_before = unexpected_dialogs;
         answer_ok();
         act->trigger();                // confirm, then the eject request
         service("tick1");              // the eject is serviced; the work is queued outside the tick
         QCoreApplication::processEvents();   // the work runs and asks for the insert
         service("tick2");              // the insert is serviced; the reset is queued
         QCoreApplication::processEvents();
-        L.reset_requested = f.emu.take_hard_reset_request();
+        L.reset_requested = L.reset_same_tick || f.emu.take_hard_reset_request();
         L.mounted_at_end = !f.emu.sd_card().image_path().empty();
         f.emu.run_frame();
         L.ran_a_frame = true;
+        L.dialogs = unexpected_dialogs - dialogs_before;
         const auto j = sd_write_journal::for_image(sdcard::default_sdcard_image_path());
         L.journal_file = j ? j->file() : std::string();
     };
@@ -227,9 +232,9 @@ int main(int argc, char** argv)
         Live L;
         live_run(f.win.go_back_sd_action(), f, L);
         const std::vector<std::string> want = {"tick1:eject", "work", "tick2:insert"};
-        check("SDMENU-09", "go back, live: the card is ejected before the work, the work runs with the card out and no insert yet requested, the card is inserted after it, the writes file of the card that came back is bound to it, the machine is hard-reset and keeps running",
-              unexpected_dialogs == 0 && L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_requested && L.mounted_at_end && L.ran_a_frame &&
-                  L.journal_file == ovfile && fs::exists(dir + "/previous/" + sdcard::kFixedImageFileName),
+        check("SDMENU-09", "go back, live, a plain session: the card is ejected before the work, the work runs with the card out and no insert yet requested, the card is inserted after it, the hard reset is requested in the tick that serviced the insert, and NO writes file is bound (the session had none, the restored card has a listed one)",
+              L.dialogs == 0 && L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_same_tick && L.mounted_at_end && L.ran_a_frame &&
+                  L.journal_file.empty() && fs::exists(dir + "/previous/" + sdcard::kFixedImageFileName),
               [&] { std::string t; for (const auto& x : L.seq) t += x + " "; return t + "| journal=" + L.journal_file; }());
     }
     {
@@ -249,9 +254,57 @@ int main(int argc, char** argv)
         live_run(f.win.upgrade_sd_action(), f, L);
         const std::vector<std::string> want = {"tick1:eject", "work", "tick2:insert"};
         check("SDMENU-10", "upgrade, live: the card is ejected before the work, the work runs with the card out and no insert requested yet, the card is inserted after it, the rebuilt writes file is bound to the new card, the machine is hard-reset and keeps running",
-              unexpected_dialogs == 0 && L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_requested && L.mounted_at_end && L.ran_a_frame &&
+              L.dialogs == 0 && L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_same_tick && L.mounted_at_end && L.ran_a_frame &&
                   L.journal_file == ovfile && fs::file_size(card) == (1 << 16) + 4096,
               [&] { std::string t; for (const auto& x : L.seq) t += x + " "; return t + "| journal=" + L.journal_file; }());
+    }
+    {
+        // go back, a session WITH its own writes file: it is restored to its path, belongs to the card that came back, and is bound
+        reset_set();
+        const std::string prev_card = dir + "/previous/" + sdcard::kFixedImageFileName;
+        put(prev_card, 1 << 16);
+        make_journal(card, ovfile);   // the session's file over the current card ...
+        {   // ... bound in the registry, and listed
+            sd_write_journal::Binding b; std::error_code ec; b.bytes = fs::file_size(card, ec);
+            b.mtime = static_cast<int64_t>(fs::last_write_time(card, ec).time_since_epoch().count());
+            std::string why; sd_write_journal::bind(card, ovfile, b, false, why);
+            sdcard::upgrade::register_overlay(dir, ovfile);
+        }
+        make_journal(prev_card, dir + "/previous/overlays/0-session.jsdw");   // the backup's copy, for the card that comes back
+        { std::ofstream(dir + "/previous/overlays/LIST") << "0-session.jsdw\t" << ovfile << "\n"; }
+        Fixture f(card);
+        Live L;
+        live_run(f.win.go_back_sd_action(), f, L);
+        check("SDMENU-12", "go back, live, a session with its own writes file: the file that belongs to the card that came back is bound to it",
+              L.dialogs == 0 && L.reset_same_tick && L.mounted_at_end && L.journal_file == ovfile, L.journal_file);
+    }
+    {
+        // a failing upgrade: the work reports failure -> the warning is shown, the card is back in the machine, no reset
+        reset_set();
+        Fixture f(card);
+        Live L;
+        f.win.card_op_upgrade_work_for_test = [&](std::string& err) { err = "no network"; return false; };
+        live_run(f.win.upgrade_sd_action(), f, L);
+        check("SDMENU-13", "upgrade that fails, live: the warning is shown once, the card is put back in the machine (it was ejected for the work) and nothing is reset",
+              L.dialogs == 1 && L.mounted_at_end && !L.reset_requested && L.ejected_at_work && L.seq.size() == 3 && L.seq[2] == "tick2:insert");
+    }
+    {
+        // a failing go back (a restore target nothing can be written to): refused with nothing changed, the card is back
+        reset_set();
+        put(dir + "/previous/" + sdcard::kFixedImageFileName, 1 << 16);
+        const std::string blocker = dir + "/blocker";
+        { std::ofstream(blocker) << "a file"; }
+        { std::ofstream(dir + "/previous/overlays-dummy") << "x"; }
+        fs::create_directories(dir + "/previous/overlays");
+        { std::ofstream(dir + "/previous/overlays/0-x.jsdw") << "x"; }
+        { std::ofstream(dir + "/previous/overlays/LIST") << "0-x.jsdw\t" << blocker << "/x.jsdw\n"; }
+        const auto before = fs::file_size(card);
+        Fixture f(card);
+        Live L;
+        live_run(f.win.go_back_sd_action(), f, L);
+        check("SDMENU-14", "go back that fails, live: the warning is shown once, the card in use is untouched and back in the machine, nothing is reset",
+              L.dialogs == 1 && L.mounted_at_end && !L.reset_requested && fs::exists(dir + "/previous/" + sdcard::kFixedImageFileName) &&
+                  fs::file_size(card) == before && !fs::exists(dir + "/go-back-work"));
     }
     {
         // delete: only previous/ goes; the card stays in the machine and nothing resets

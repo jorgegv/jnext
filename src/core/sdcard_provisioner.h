@@ -588,6 +588,9 @@ struct ProvisionResult {
     // A refusal of what was asked (--sdcard-upgrade yes with files that cannot be carried over): the card
     // is there and untouched, so the frontends print the reason and nothing about a missing card.
     bool            refused = false;
+    // An accepted upgrade ran to its end: the new card is in place and the old set is the backup. False for
+    // every other Ok (a failed upgrade that kept the old card, an offer declined, a held file: nothing changed).
+    bool            upgraded = false;
 };
 
 // Resolve (and if needed download+patch) the SD image path per the policy

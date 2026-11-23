@@ -1483,6 +1483,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         }
         r.status = ProvisionStatus::Ok;
         r.path   = fixed;
+        r.upgraded = true;
         return r;
     }
 

@@ -2315,7 +2315,16 @@ void MainWindow::run_card_op() {
         if (!session_file.empty()) o.overlays.push_back(session_file);
         const sdcard::ProvisionResult r = sdcard::provision_sd_card(o);
         if (r.status != sdcard::ProvisionStatus::Ok) { fail(tr("The upgrade failed: %1").arg(QString::fromStdString(r.error))); return; }
-        if (!r.warning.empty()) gui.warn(r.warning);
+        if (!r.upgraded) {
+            // Ok but nothing changed: a failed upgrade that kept the old card (its warning says why), or a file
+            // another jnext holds. No restart, no "upgraded" message: the card goes back as it was.
+            card_op_ = CardOp::None;
+            QMessageBox::warning(this, tr("SD Card"), r.warning.empty()
+                ? tr("The SD card was not upgraded and nothing was changed (another jnext may have a file open that the upgrade must move).")
+                : QString::fromStdString(r.warning));
+            handle_sd_card_path(QString::fromStdString(card));
+            return;
+        }
     } else {
         if (sdcard::backup::go_back(dir, err) != sdcard::backup::Result::Ok) {
             fail(tr("Going back failed: %1").arg(QString::fromStdString(err)));
