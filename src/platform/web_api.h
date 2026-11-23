@@ -89,6 +89,8 @@ inline constexpr Option WEB_OPTIONS[] = {
       "a function of the page", "Called when the program is in the machine and a frame has been shown" },
     { "onError", Kind::Callback, std::nullopt, std::nullopt, std::nullopt, false,
       "a function of the page", "Called with a message on every failure" },
+    { "onNotice", Kind::Callback, std::nullopt, std::nullopt, std::nullopt, false,
+      "a function of the page", "Called with (code, message) for something the visitor should know that is not a failure (card-writes-reset)" },
 };
 
 /// The spelling of `id` in cli::OPTIONS (its Doc::Documented row), or nullptr.

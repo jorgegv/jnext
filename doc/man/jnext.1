@@ -4638,7 +4638,7 @@ Not a jnext setting: the box the player fills in the page.
 Not a jnext setting: where the page serves the \f[CR].wasm\f[R] file
 from.
 .TP
-\f[CR]onProgress\f[R], \f[CR]onReady\f[R], \f[CR]onError\f[R] \f[I]function\f[R]
+\f[CR]onProgress\f[R], \f[CR]onReady\f[R], \f[CR]onError\f[R], \f[CR]onNotice\f[R] \f[I]function\f[R]
 Not a jnext setting: functions of the page, called with
 \f[CR](phase, fraction)\f[R] while the SD card is fetched
 (\f[CR]download\f[R]) or made from a file the visitor chose
@@ -4647,6 +4647,9 @@ Not a jnext setting: functions of the page, called with
 (\f[CR]warm\-start\f[R]) or restored (\f[CR]restore\f[R]), when the
 program is in the machine and a frame has been shown, and with a message
 on every failure.
+\f[CR]onNotice(code, message)\f[R] is for something that is not a
+failure: today the code \f[CR]card\-writes\-reset\f[R], when saves kept
+by \f[CR]keepWrites\f[R] on an older NextZXOS card were reset.
 .SS The player
 \f[CR]state\f[R] is \f[CR]waiting\f[R], \f[CR]starting\f[R],
 \f[CR]running\f[R], \f[CR]paused\f[R], \f[CR]exited\f[R] or

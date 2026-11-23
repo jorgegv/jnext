@@ -3449,12 +3449,15 @@ asked), with the plain picture otherwise.
 `wasmUrl` *string*
 :   Not a jnext setting: where the page serves the `.wasm` file from.
 
-`onProgress`, `onReady`, `onError` *function*
+`onProgress`, `onReady`, `onError`, `onNotice` *function*
 :   Not a jnext setting: functions of the page, called with `(phase, fraction)`
     while the SD card is fetched (`download`) or made from a file the visitor chose
     (`build`), when the page is waiting for that file (`choose`), while the first boot
     is recorded (`warm-start`) or restored (`restore`), when the program is in the
     machine and a frame has been shown, and with a message on every failure.
+    `onNotice(code, message)` is for something that is not a failure: today the code
+    `card-writes-reset`, when saves kept by `keepWrites` on an older NextZXOS card
+    were reset.
 
 ## The player
 
