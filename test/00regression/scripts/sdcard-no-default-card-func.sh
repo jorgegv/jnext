@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # which is the user's own and is absent on a clean host. No literal lint can see that (the path is
 # jnext's own default, never spelled out), so this is the guard for the CLASS: the suite that spawns
 # jnext (cli_options_native_test) is run in a scratch HOME that holds the suites' test master and
-#   A  a sentinel USER card (0444, fixed mtime), the suite run BARE as a hand run would: every row
+#   A  a sentinel USER card (mode 000, fixed mtime: ANY open of it, even a read, fails the suite's own run), the suite run BARE as a hand run would: every row
 #      passes, and the sentinel's bytes, mode, mtime and sidecars are unchanged afterwards;
 #   B  NO user card at all, the same run: every row passes (a fallback to the default card would
 #      fail 13 of 30 rows there);
@@ -31,7 +31,7 @@ if want sdcard-no-default-card-func; then
     else
         cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$TM"
         printf 'USER-CARD\n' > "$UC"; printf 'sn-emulator-24.11.zip\n' > "$UC.distro"; printf '1\n' > "$UC.recipe"
-        chmod 0444 "$UC"; touch -d '2020-01-02 03:04:05' "$UC"
+        chmod 0000 "$UC"; touch -d '2020-01-02 03:04:05' "$UC"
         sig() { stat -c '%s:%a:%Y' "$UC"; cat "$UC.distro" "$UC.recipe"; }
         before=$(sig)
 
@@ -49,7 +49,8 @@ if want sdcard-no-default-card-func; then
         }
         # A: a hand run, with a sentinel user card present
         suite_run bare-with-user-card "$SUITE"
-        [[ "$(sig)" == "$before" && "$(cat "$UC")" == USER-CARD ]] || faults+=("A: the user's card was opened for writing, changed or replaced")
+        chmod 0400 "$UC"; uc_content=$(cat "$UC"); chmod 0000 "$UC"   # the row's own look, after the run
+        [[ "$(sig)" == "$before" && "$uc_content" == USER-CARD ]] || faults+=("A: the user's card was opened, changed or replaced")
         # B: the same with no user card at all
         rm -f "$UC" "$UC.distro" "$UC.recipe"
         suite_run bare-no-user-card "$SUITE"

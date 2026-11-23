@@ -17,7 +17,7 @@
 #   - this file (its own self-test fixtures are literal instances);
 #   - test/lint-hardcoded-paths.sh: a case of ITS table, a string it classifies and never opens;
 #   - test/harness-selftest.sh: only the lines rooted at its scratch fixtures ($TSD, $PG2, $MC2: the sentinel homes of
-#     HS-195/196, and $ULC_FIX, the dirty fixture of HS-198b) and its comments;
+#     HS-195/196, and $ULC_FIX, the dirty fixture of HS-198b, a write of its own line) and its comments; a line naming a scratch card AND another card is not excepted;
 #   - test/00regression/scripts/sdcard-user-card-func.sh and sdcard-no-default-card-func.sh: only the lines rooted at
 #     their scratch home ($H/);
 #   - test/sdcard_provisioner/sdcard_provisioner_test.cpp lines that build the path under g_tmpdir:
@@ -40,12 +40,23 @@ SCOPE='^(test/|tools/sd-master-ensure\.sh$|tools/pgo-[a-z-]+\.sh$|Makefile$|\.gi
 # A fake-HOME line of the provisioner's own unit suite.
 TMPDIR_LINE='g_tmpdir[ ]*\+'
 
+# rooted_only <root regex> <text>: 0 when EVERY card path on the line is rooted at the scratch root (the
+# root, then the rest of the same word, then the card path). The rooted spellings are cut out and the
+# line must then be clean: a line that also names the HOME card is not excepted by the scratch path
+# beside it.
+rooted_only() {
+    local rest
+    rest=$(sed -E "s#($1)[^ \"';]*\.jnext/sdcard/cspect-next-1gb##g" <<<"$2")
+    [[ "$rest" != "$2" ]] && ! grep -qE "$PATTERN" <<<"$rest"
+}
+
 # is_excepted <file> <text>: 0 when the (file, line) pair is a declared exception.
 is_excepted() {
     case "$1" in
         test/lint-user-card.sh|test/lint-hardcoded-paths.sh) return 0 ;;
-        test/harness-selftest.sh) grep -qE '\$TSD|\$ULC_FIX|\$PG2|\$MC2|^[[:space:]]*#' <<<"$2" && return 0 ;;
-        test/00regression/scripts/sdcard-user-card-func.sh|test/00regression/scripts/sdcard-no-default-card-func.sh) grep -qE '\$H/' <<<"$2" && return 0 ;;
+        test/harness-selftest.sh) grep -qE '^[[:space:]]*#' <<<"$2" && return 0; rooted_only '\$(TSD|PG2|MC2)' "$2" && return 0
+            grep -qE "^printf '[^']*' > \"\\\$ULC_FIX/(clean|dirty)/row\\.sh\"\$" <<<"$2" && return 0 ;;   # HS-198's fixture writes, nothing else on the line
+        test/00regression/scripts/sdcard-user-card-func.sh|test/00regression/scripts/sdcard-no-default-card-func.sh) rooted_only '\$H/' "$2" && return 0 ;;
         test/sdcard_provisioner/sdcard_provisioner_test.cpp) grep -qE "$TMPDIR_LINE" <<<"$2" && return 0 ;;
     esac
     return 1
@@ -93,11 +104,15 @@ selftest() {
         if [[ $got == "$1" ]]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "[lint-user-card] SELFTEST FAIL: $2 (want $1, got $got): $3: $4" >&2; fi
     }
     x 1 'a harness-selftest scratch-home line'   test/harness-selftest.sh 'TSD_CARD="$TSD/home/.jnext/sdcard/cspect-next-1gb-fixed.img"'
-    x 1 'the dirty fixture of HS-198b'           test/harness-selftest.sh 'printf x > "$ULC_FIX/dirty/row.sh" # .jnext/sdcard/cspect-next-1gb'
+    x 1 'the dirty fixture of HS-198b'           test/harness-selftest.sh 'printf '"'"'x="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"\n'"'"' > "$ULC_FIX/dirty/row.sh"'
+    x 0 'a card access before the fixture write'  test/harness-selftest.sh 'cp ~/.jnext/sdcard/cspect-next-1gb-fixed.img /x; printf x > "$ULC_FIX/dirty/row.sh"'
     x 1 'a harness-selftest comment'             test/harness-selftest.sh '# the user card ~/.jnext/sdcard/cspect-next-1gb-fixed.img'
     x 0 'a harness-selftest line on the HOME card' test/harness-selftest.sh 'SD="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"'
     x 1 'a user-card-func scratch-home line'     test/00regression/scripts/sdcard-user-card-func.sh 'UC="$H/.jnext/sdcard/cspect-next-1gb-fixed.img"'
     x 0 'a user-card-func line on the HOME card' test/00regression/scripts/sdcard-user-card-func.sh 'UC="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"'
+    x 0 'a harness-selftest line mixing a scratch path and the HOME card' test/harness-selftest.sh 'cp "$TSD/.jnext/sdcard/cspect-next-1gb-fixed.img" "$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"'
+    x 0 'a user-card-func line mixing the scratch home and the HOME card' test/00regression/scripts/sdcard-user-card-func.sh 'cmp "$H/.jnext/sdcard/cspect-next-1gb-fixed.img" ~/.jnext/sdcard/cspect-next-1gb-fixed.img'
+    x 1 'two scratch-rooted card paths on one line' test/harness-selftest.sh 'cmp "$TSD/a/.jnext/sdcard/cspect-next-1gb-fixed.img" "$PG2/.jnext/sdcard/cspect-next-1gb.img"'
     x 0 'any other file'                         test/run-unit-tests.sh 'm="$TSD/.jnext/sdcard/cspect-next-1gb-fixed.img"'
     echo "[lint-user-card] selftest: pass=$pass fail=$fail"
     [[ $fail == 0 ]]

@@ -213,6 +213,11 @@ export -n JNEXT_REGRESSION_STAMP JNEXT_REGRESSION_LOCK 2>/dev/null || true
 # to its rows; one inherited from an enclosing run (the harness self-test runs this driver inside
 # harness-selftest-func) would hide an unmeasurable boot.
 unset BOOT_COMMIT_MEASURED
+# No row reaches the developer's display: a row that runs jnext without --headless (or starts a
+# window of its own) used to inherit DISPLAY / WAYLAND_DISPLAY and opened its windows, or a start-up
+# error box (GH #555), on the desktop of whoever ran the suite. A row that needs a display starts its
+# own (`xvfb-run -d`, which sets DISPLAY for its child only). Pinned by harness-selftest HS-200.
+unset DISPLAY WAYLAND_DISPLAY
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,

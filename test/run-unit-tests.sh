@@ -58,6 +58,10 @@ set -euo pipefail
 # A test's verdict is about the code, never about who ran it.
 export LC_ALL=C
 
+# No suite reaches the developer's display (GH #555: a start-up error box on the owner's desktop). A
+# suite that needs a window uses Qt's offscreen platform or the SDL dummy driver. Pinned by HS-200.
+unset DISPLAY WAYLAND_DISPLAY
+
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 

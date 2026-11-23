@@ -201,6 +201,17 @@ int main() {
               all_terminal && base_alone_windowed);
     }
 
+    {
+        // A run whose stderr is a terminal reads the error there: never windowed, so never a box
+        // (a blocking box in front of a shell or a test run). Not a terminal: unchanged.
+        auto a = argv_of({"--machine", "48k"});
+        const auto tty = classify(static_cast<int>(a.size()), a.data(), true);
+        const auto notty = classify(static_cast<int>(a.size()), a.data(), false);
+        const auto dflt = classify(static_cast<int>(a.size()), a.data());
+        check("STARTERR-09", "classify(): a run whose stderr is a terminal is not windowed (no box), one whose stderr is not a terminal keeps the plain-command-line answer, and the default is 'not a terminal'",
+              !tty.windowed && notty.windowed == dflt.windowed && !tty.unattended);
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;
 }

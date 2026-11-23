@@ -121,9 +121,9 @@ std::string text(int rc)
     return out;
 }
 
-Launch classify(int argc, const char* const argv[])
+Launch classify(int argc, const char* const argv[], bool stderr_is_tty)
 {
-    Launch l{true, false};
+    Launch l{!stderr_is_tty, false};
     for (int i = 1; i < argc; ++i) {
         const cli::Option* opt = cli::find(argv[i]);
         if (!opt) continue;

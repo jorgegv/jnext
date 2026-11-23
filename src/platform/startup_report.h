@@ -44,8 +44,12 @@ std::string text(int rc);
 /// The two facts about a command line that decide whether a box is ever shown, read without
 /// running the parse loop: a windowed run is one with no --headless that is not a terminal
 /// command (--help, --version, --sdcard-file-add); an unattended one has a --delayed-automatic-exit*.
+/// A run whose stderr is a terminal is never windowed here: whoever started it from a shell reads
+/// the error where they are, and a blocking box would only wait for a click in front of a script
+/// (or, in a test run, on a desktop nobody is looking at). The box is for a desktop launch, whose
+/// stderr goes nowhere.
 struct Launch { bool windowed; bool unattended; };
-Launch classify(int argc, const char* const argv[]);
+Launch classify(int argc, const char* const argv[], bool stderr_is_tty = false);
 
 /// Drop everything (the unit suite, between cases).
 void reset_for_test();
