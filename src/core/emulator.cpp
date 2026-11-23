@@ -228,11 +228,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     clock_.set_cpu_speed(cfg.cpu_speed);
     // GH #305 — publish the counter's unit for a HARD reset, where the
-    // counter is zeroed with the clock (the publisher is process-global, so a
-    // new machine must not inherit another's). A SOFT reset keeps the counter
+    // counter is zeroed with the clock (the divisor is this CPU's own, GH #551,
+    // so a new machine does not inherit another's). A SOFT reset keeps the counter
     // but may change the divisor (NR 0x07 back to 3.5 MHz, zxnext.vhd:5800):
     // it is rebased below, after cpu_.reset().
-    z80_set_tstate_divisor(clock_.cpu_divisor());
+    cpu_.set_tstate_divisor(clock_.cpu_divisor());
 
     // Allocate the framebuffer and fill with black (ARGB: 0xFF000000) — but
     // not on a soft reset, which does not interrupt the video output: the
@@ -814,7 +814,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // ContentionModel via CORETEST function overrides in z80_cpu.cpp,
     // and the legacy z80_build_contention_tables() / z80_set_page_contended()
     // were retired in lockstep.
-    z80_set_contention_runtime(&contention_, &mmu_, cfg.type);
+    cpu_.set_contention_runtime(&contention_, &mmu_, cfg.type);
 
     // GH #237 — seed ALL the raster/interrupt geometry from `init_tim_mode`
     // (the NR 0x03 tim_sel axis), not from the CLI MachineType.
@@ -9221,13 +9221,13 @@ void Emulator::rebase_fuse_tstates_()
 {
     // See the declaration. (clock_ - frame_cycle_) is the position in the
     // current frame; at the frame start it is the previous frame's overshoot.
-    uint32_t& live = *fuse_z80_tstates_ptr();
+    uint32_t& live = cpu_.tstates_ref();
     const uint32_t old = live;
     const uint32_t want = static_cast<uint32_t>(
         (clock_.get() - frame_cycle_) / static_cast<uint64_t>(clock_.cpu_divisor()));
     // GH #305 — this defines the counter's unit (master cycles per count), so
     // it is where the CPU write tag learns it (derive_hc_vc()).
-    z80_set_tstate_divisor(clock_.cpu_divisor());
+    cpu_.set_tstate_divisor(clock_.cpu_divisor());
     tstates_frame_base_ += live;
     tstates_frame_base_ -= want;
     live = want;
@@ -9246,7 +9246,7 @@ void Emulator::rebase_fuse_tstates_()
 void Emulator::advance_fuse_tstates_(uint64_t master_cycles)
 {
     // See the declaration. Callers advance the clock in whole T-states.
-    *fuse_z80_tstates_ptr() += static_cast<uint32_t>(
+    cpu_.tstates_ref() += static_cast<uint32_t>(
         master_cycles / static_cast<uint64_t>(clock_.cpu_divisor()));
 }
 
@@ -9266,7 +9266,7 @@ uint64_t Emulator::monotonic_tstates() const
     // Frame base (all completed frames) + live FUSE counter (advances
     // mid-instruction, including during I/O cycles — required so ZOT's
     // edge state machine progresses inside tight IN A,(0xFE) loops).
-    return tstates_frame_base_ + static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+    return tstates_frame_base_ + static_cast<uint64_t>(cpu_.tstates_ref());
 }
 
 bool Emulator::load_tzx(const std::string& path, bool fast_load)
@@ -9550,7 +9550,7 @@ bool Emulator::start_rzx_recording(const std::string& path)
     // The snapshot cannot always say which machine it is for, so the file names
     // it in its creator block: playback builds that machine.
     rzx_recorder_.set_machine(config_.type);
-    rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
+    rzx_recorder_.set_initial_tstates(cpu_.tstates_ref());
 
     // Wire up port recording hook.
     port_.rzx_in_record = [this](uint8_t val) {
@@ -9879,8 +9879,8 @@ void Emulator::apply_video_timing(MachineTimingMode mode, bool refresh_60hz)
     timing_.master_cycles_per_frame =
         timing_.master_cycles_per_line * static_cast<uint64_t>(lines_per_frame);
 
-    z80_set_frame_geometry(timing_.tstates_per_line, timing_.tstates_per_frame);
-    z80_set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
+    cpu_.set_frame_geometry(timing_.tstates_per_line, timing_.tstates_per_frame);
+    cpu_.set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
                                 video_timing_.display_origin().vc);
 
     // Task 58 — the Copper's vertical wrap follows the same constants.
@@ -12107,7 +12107,7 @@ void Emulator::finish_slot_interrupts()
     // From here on the CPU edges are those of the divisor now in force, dn:
     // a CPU-speed change committed at this boundary has already re-based the
     // counter (rebase_fuse_tstates_()).
-    const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+    const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
     auto ts_at = [&](uint64_t edge) -> int64_t {
         return now_ts + (static_cast<int64_t>(edge) - static_cast<int64_t>(now))
                         / static_cast<int64_t>(dn);
@@ -14980,7 +14980,7 @@ void Emulator::save_state(StateWriter& w) const
     // does not restore (it re-seeds it at the next frame start); an
     // open-ended window's INT64_MAX end is written as is.
     {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
         const int64_t last   = cpu_.int_window_last_ts();
         w.write_u64(static_cast<uint64_t>(cpu_.int_window_first_ts() - now_ts));
         w.write_u64(static_cast<uint64_t>(last == INT64_MAX ? last : last - now_ts));
@@ -15364,8 +15364,8 @@ bool Emulator::load_state(StateReader& r)
     tstates_frame_base_ = r.read_u64();
     // GH #265 — what the CPU block restored against the counter (the /INT
     // window, the EI stamp) moves with it.
-    cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
-    *fuse_z80_tstates_ptr() = 0;
+    cpu_.rebase_interrupt_window(static_cast<int64_t>(cpu_.tstates_ref()));
+    cpu_.tstates_ref() = 0;
 
     jnext::save::load_via_desc_method(*this, &Emulator::describe_state, r,
                                       /*machine_level=*/true);
@@ -15478,7 +15478,7 @@ bool Emulator::load_state(StateReader& r)
     // relative to the FUSE counter; put it on the counter as re-seeded
     // above, so the next frame start's rebase moves it with the counter.
     if (!r.eof()) {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
         const int64_t first  = static_cast<int64_t>(r.read_u64()) + now_ts;
         int64_t last         = static_cast<int64_t>(r.read_u64());
         if (last != INT64_MAX) last += now_ts;
