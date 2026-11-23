@@ -203,7 +203,7 @@ expr        ::= literal | IDENT | builtin | "@" IDENT { "." IDENT } | "(" expr "
               | "mem[" expr "]" | "mem16[" expr "]"
               | "phys[" expr "," expr "]"          # (8K page, offset 0..0x1FFF)
               | "nextreg[" expr "]" | "mmu[" expr "]" | "page[" expr "]" | "stack[" expr "]"
-              | "ay[" expr "," expr "]"            # AY register latch (chip 0..2, register 0..15), read-only (GH #532)
+              | "ay[" expr "," expr "]"            # AY register read-back (chip 0..2, register 0..15), read-only (GH #532)
               | IDENT "." field                    # snapshot field, see 2.5
               | "changed(" IDENT "," group ")"     # snapshot comparison
               | "depth(" IDENT ")"
@@ -286,7 +286,7 @@ destructive NextREG read handler; `NextReg::peek`, `nextreg.h:53-56`).
 | `phys[page, off]` | byte in physical 8K page | backend peek (physical) |
 | `stack[n]` | LE word at `SP + 2n` | derived from `mem16` |
 | `nextreg[r]` | NextREG value, side-effect-free | `NextReg::peek` |
-| `ay[c, r]` | the raw AY register latch of chip `c` (0..2), register `r` (0..15), as the hex table shows it; read-only, side-effect-free; out of range is a run-time error (GH #532) | `Debugger::ay_registers` |
+| `ay[c, r]` | the AY register of chip `c` (0..2), register `r` (0..15), as a CPU read returns it (`AyChip::read_register`, what the hex table shows: in AY mode R1/R3/R5/R13 are 4 bits and R6/R8/R9/R10 5 bits, `ym2149.vhd:227-239`; R14/R15 read 0xFF in input mode); read-only, side-effect-free; out of range is a run-time error (GH #532) | `Debugger::ay_registers` |
 | `mmu[s]` | NR 0x50+s as the register reads (0xFF for ROM) | `Mmu::nr_mmu_` via backend |
 | `page[s]` | effective physical 8K page in slot s | `Mmu::get_effective_page`, `mmu.h:74-77` |
 | `FRAME` | frame counter (backend-owned, REQ-dsl-16) | backend |

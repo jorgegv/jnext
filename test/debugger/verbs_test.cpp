@@ -6157,13 +6157,13 @@ static void test_bp_audio() {
         const std::string got[] = {
             txt(BpAudio::AyRegister, 1, 13, {}, 0xFF, false), txt(BpAudio::AyRegister, 0xFF, 7, 0x38, 0xFF, false),
             txt(BpAudio::AyRegister, 0, {}, 0x08, 0x0F, false), txt(BpAudio::AyChipSelect, 2, {}, {}, 0xFF, false),
-            txt(BpAudio::Dac, 1, {}, {}, 0xFF, true), txt(BpAudio::Dac, 0xFF, {}, {}, 0xFF, false),
+            txt(BpAudio::Dac, 1, {}, {}, 0xFF, false), txt(BpAudio::Dac, 0xFF, {}, {}, 0xFF, true),
             txt(BpAudio::Any, 0xFF, {}, {}, 0xFF, false), txt(BpAudio::Any, 0xFF, {}, {}, 0xFF, true)};
-        const char* want[] = {"AY1 R13 restart", "AY R7 value 0x38", "AY0 value 0x08 mask 0x0F", "AY select 2", "DAC B dropped", "DAC",
+        const char* want[] = {"AY1 R13 restart", "AY R7 value 0x38", "AY0 value 0x08 mask 0x0F", "AY select 2", "DAC B", "DAC dropped",
                               "Any audio", "Any audio dropped"};
         std::string bad;
         for (int i = 0; i < 8; ++i) if (got[i] != want[i]) bad += "[" + got[i] + " != " + want[i] + "]";
-        check("QBA-08", "the row texts: AY1 R13 restart, AY R7 value 0x38, AY0 value 0x08 mask 0x0F, AY select 2, DAC B dropped, DAC, Any audio, Any audio dropped",
+        check("QBA-08", "the row texts: AY1 R13 restart, AY R7 value 0x38, AY0 value 0x08 mask 0x0F, AY select 2, DAC B, DAC dropped, Any audio, Any audio dropped",
               bad.empty(), bad);
     }
     {   // QBA-09
@@ -6269,6 +6269,44 @@ static void test_bp_audio() {
                   rows.empty() ? std::string("(no row)") : s(rows[0].type_text));
         }
     }
+    {   // QBA-15
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "another client's {ANY, chip 1} AudioWrite subscription is not the dialog's `Any audio` (which has no chip): listed read-only, type -1";
+        if (!g.fx.ok) { check("QBA-15", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            jnext::dbg::Subscription sub;
+            sub.kind = jnext::dbg::EventKind::AudioWrite;
+            sub.filter.audio_targets = jnext::dbg::AUDIO_TARGETS_ANY;
+            sub.filter.chip = 1;
+            sub.filter.audio_flags_none = AudioFlag::Dropped;
+            other_client_sub(g.fx, g.model(), sub);
+            const auto& rows = g.model().rows();
+            check("QBA-15", desc, rows.size() == 1 && rows[0].type == -1 && !rows[0].own, rows.empty() ? std::string("(no row)") : s(rows[0].type_text));
+        }
+    }
+    {   // QBA-16
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "DAC target, channel B, then Dropped ticked: the channel combo goes to Any and is disabled, and the breakpoint made has chip 0xFF (a dropped DAC write has no channel); unticked, the channel is enabled again";
+        if (!g.fx.ok) { check("QBA-16", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            bool disabled = false, any = false, reenabled = false;
+            drive_bp_dialog([&](QDialog* d) {
+                audio_fill(BpAudio::Dac, 1, -1, QString(), QString(), true)(d);
+                auto* c = d->findChild<QComboBox*>(QStringLiteral("bp_dialog_audio_chip"));
+                disabled = c && !c->isEnabled();
+                any = c && c->currentData().toInt() == 0xFF;
+                d->findChild<QCheckBox*>(QStringLiteral("bp_dialog_audio_dropped"))->setChecked(false);
+                reenabled = c && c->isEnabled();
+                d->findChild<QCheckBox*>(QStringLiteral("bp_dialog_audio_dropped"))->setChecked(true);
+            }, [&] { g.panel()->on_add(); });
+            const auto f = own_audio_filters(g.fx, g.model());
+            check("QBA-16", desc, disabled && any && reenabled && f.size() == 1 && f[0].chip == 0xFF && f[0].audio_flags_all == AudioFlag::Dropped &&
+                                      f[0].audio_targets == T_DAC,
+                  fmt("disabled=%d any=%d reenabled=%d n=%zu", disabled, any, reenabled, f.size()));
+        }
+    }
     {   // QBA-13
         BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
         const char* desc = "Edit seeds the dialog from the row (type 8, target, chip, register, value, mask, dropped) and an unchanged OK keeps the same breakpoint";
@@ -6322,7 +6360,7 @@ static void test_bp_audio() {
             mk(BpAudio::AyRegister, 1, 13, {}, 0xFF, false);
             mk(BpAudio::AyRegister, 0xFF, 7, 0x38, 0xFF, false);
             mk(BpAudio::AyChipSelect, 2, {}, {}, 0xFF, false);
-            mk(BpAudio::Dac, 1, {}, 0x80, 0xC0, true);
+            mk(BpAudio::Dac, 0xFF, {}, 0x80, 0xC0, true);
             mk(BpAudio::Dac, 0xFF, {}, {}, 0xFF, false);
             mk(BpAudio::Any, 0xFF, {}, {}, 0xFF, false);
             mk(BpAudio::Any, 0xFF, {}, {}, 0xFF, true);

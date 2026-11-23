@@ -3566,14 +3566,24 @@ static void audio_rows() {
     }
     {
         Rig g(kPark, MachineType::ZXN_ISSUE2);
-        const bool ok = g.load("on audio_write dac chip 3 mask 0x0F value 0x08 dropped do end\n"
+        const bool ok = g.load("on audio_write dac mask 0x0F value 0x08 dropped do end\n"
                                "on audio_write do end\n"
                                "on audio_write ay_reg reg 8..10 do end\n");
         const auto r = g.eng->rules();
-        check("EVT-AUW-05", "the descriptions: `audio_write dac chip 3 mask 000F value 0008 dropped`, `audio_write`, `audio_write ay_reg reg 0008..000A`",
-              ok && r.size() == 3 && r[0].event == "audio_write dac chip 3 mask 000F value 0008 dropped" && r[1].event == "audio_write" &&
+        check("EVT-AUW-05", "the descriptions: `audio_write dac mask 000F value 0008 dropped`, `audio_write`, `audio_write ay_reg reg 0008..000A`",
+              ok && r.size() == 3 && r[0].event == "audio_write dac mask 000F value 0008 dropped" && r[1].event == "audio_write" &&
                   r[2].event == "audio_write ay_reg reg 0008..000A",
               r.size() == 3 ? r[0].event + " | " + r[1].event + " | " + r[2].event : std::string("(rules)"));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const bool bad = g.load("on audio_write dac chip 0 dropped do end\n");
+        const bool why = !g.last.errors.empty() && g.last.errors[0].message.find("write `dac dropped`") != std::string::npos;
+        const size_t none = g.subs().size();
+        const bool ok1 = g.load("on audio_write dac dropped do end\n", "b.jds");
+        const bool ok2 = g.load("on audio_write ay_reg chip 1 dropped do end\n", "c.jds");
+        check("EVT-AUW-06", "`dac chip N dropped` is a load error at the chip (a dropped DAC write has no channel) and registers nothing; `dac dropped` and `ay_reg chip 1 dropped` load",
+              !bad && why && none == 0 && ok1 && ok2 && g.subs().size() == 2, dstr(g.last.errors));
     }
     {
         Rig g({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE}, MachineType::ZXN_ISSUE2);

@@ -103,7 +103,7 @@ boundary cycle. Its `cvc` comes from the line number rather than from a cycle,
 because `cvc` steps at raw `hc == hc_ula_zero_raw_hc()` and not at raw `hc` 0.
 
 
-**`AudioWrite` (GH #532) is latched in the backend, not the core.** The audio write tap
+**`AudioWrite` is latched in the backend, not the core.** The audio write tap
 (`04-audio.md`) already hands every decoded write to `AudioLogSink::audio_record()`; its first
 statement latches an `AudioWrite` entry when a live subscription accepts the write
 (`Impl::latch_audio_write()`), BEFORE the log's own ring test, so the event does not depend on the

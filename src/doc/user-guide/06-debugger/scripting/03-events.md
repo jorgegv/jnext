@@ -380,7 +380,7 @@ on ay_write reg 8..10 do …                    ; …to a register from 8 to 10
 on ay_write mask 0x0F value 0x08 do …         ; …writing a byte whose low nibble is 8
 on ay_write chip 2 reg 7 mask 0xFF value 0x38 do …
 on audio_write do …                           ; every audio write, whatever it reached
-on audio_write dac chip 3 do …                ; a write to DAC channel D (0 to 3)
+on audio_write dac chip 3 do …                ; an applied write to DAC channel D (0 to 3)
 on audio_write ay_select do …                 ; a TurboSound chip-select command
 on audio_write ay_reg reg 7 dropped do …      ; an R7 write the machine discarded
 ```
@@ -396,7 +396,7 @@ write, what `ay_write` is), `ay_select` (a TurboSound chip-select command), `dac
 ports and the NextREG 0x2C to 0x2E mirror of them); with no word every target is watched,
 the beeper included. `chip` needs a target (the three number their chips differently: the AY
 chips 0 to 2, the DAC channels A to D as 0 to 3) and `reg` belongs to `ay_reg`. Then come
-`chip`, `reg` and `mask … value …` as for `ay_write`, and `dropped` last.
+`chip`, `reg` and `mask … value …` as for `ay_write`, and `dropped` last. A discarded DAC write reached no channel, so `dac chip N dropped` can never match and is a load error: write `dac dropped`.
 
 Both fire for **applied** writes only: a write the machine discarded (the AY ports switched off
 in NR 0x84, the chip held in reset, a DAC the DAC enable or the port decode switched off) never

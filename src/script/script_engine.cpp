@@ -548,6 +548,12 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
                     max_chip = 3;
                     break;
             }
+            if (ev.chip && ev.dropped && ev.audio == AudioWord::Dac) {
+                errors.push_back(Diagnostic{ev.chip->pos,
+                    "a dropped DAC write reached no channel, so `dac chip N dropped` can never match: "
+                    "write `dac dropped`"});
+                bad = true;
+            }
             if (ev.chip)
                 s.filter.chip = static_cast<uint8_t>(value(ev.chip, 0, max_chip,
                                                            ev.audio == AudioWord::Dac ? "DAC channel" : "AY chip"));

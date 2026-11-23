@@ -527,6 +527,7 @@ BpSpec BreakpointModel::normalised_(BpSpec s) {
     if (s.kind == BpSpec::AudioWrite) {
         BpAudio& a = s.audio;
         if (a.target == BpAudio::Any) a.chip = 0xFF;
+        if (a.target == BpAudio::Dac && a.dropped_only) a.chip = 0xFF;   // a dropped DAC write has no channel
         if (a.target != BpAudio::AyRegister) a.reg.reset();
         if (!a.value || a.mask == 0) { a.value.reset(); a.mask = 0xFF; }
     }

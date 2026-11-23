@@ -54,15 +54,15 @@ code as well as RAM page 0: check `mmu[s] != 0xFF` if you need RAM only.
 
 ## The AY chips
 
-`ay[c, r]` reads register `r` (0 to 15) of AY chip `c` (0 to 2): the raw register latch, the
-value the Audio panel's register table shows. It has no side effect. A chip or register out of
+`ay[c, r]` reads register `r` (0 to 15) of AY chip `c` (0 to 2): the value a CPU read
+of that register returns, which is what the Audio panel's register table shows. It has no side effect. A chip or register out of
 range is a run-time error. It is read-only: write a register with `out 0xFFFD` and `out 0xBFFD`.
 
 ```
 on ay_write reg 7 when ay[0, 7] == 0x3F do log "chip 0 mixer closed" end
 ```
 
-At an `ay_write` the write has already landed, so `ay[CHIP, REG] == VALUE`.
+A register reads back as the chip would answer a program, not as it was written: in AY mode (not YM) R1, R3, R5 and R13 keep only their low 4 bits and R6, R8, R9 and R10 their low 5, and R14 and R15 read 0xFF while their I/O port is an input (R7 bit 6 or 7 clear). At an `ay_write` the write has already landed, so for the other registers, and for a YM chip, `ay[CHIP, REG] == VALUE`.
 
 ## Time and the raster
 

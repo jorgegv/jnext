@@ -320,7 +320,7 @@ int32_t eval_int(const Expr& e, const EvalContext& ctx) {
             const int32_t r = eval_int(*e.b, ctx);
             if (c < 0 || c > 2) fail(e, "`ay[]` chip " + std::to_string(c) + " is outside 0..2");
             if (r < 0 || r > 15) fail(e, "`ay[]` register " + std::to_string(r) + " is outside 0..15");
-            // The raw register latch, as the register table shows it; a read has no side effect.
+            // The CPU read-back (AyChip::read_register), as the register table shows it; a read has no side effect.
             const auto regs = ctx.dbg.ay_registers(c);
             if (!regs) fail(e, "`ay[]` chip " + std::to_string(c) + " cannot be read");
             return regs.value[static_cast<size_t>(r)];

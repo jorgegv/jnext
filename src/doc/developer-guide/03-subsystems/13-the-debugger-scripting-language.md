@@ -34,13 +34,15 @@ code departs from it. This page describes the code.
 | `src/platform/host_key_latch.h`, `host_key_wiring.h` | the script host keys (Alt+1..Alt+8) in the emulator windows |
 | `src/debugger/script_panel.*`, `debugger_window.cpp` | the Qt Script tab and Script menu |
 
-**Audio events (GH #532).** `on ay_write [chip] [reg] [mask value]` and `on audio_write [ay_reg | ay_select | dac]
+**Audio events.** `on ay_write [chip] [reg] [mask value]` and `on audio_write [ay_reg | ay_select | dac]
 [chip] [reg] [mask value] [dropped]` are one `EventKind::AudioWrite` subscription: `subscriptions_for()` builds the
 target mask, the chip, the register set, the value/mask pair and the flags (`ay_write` is `audio_write ay_reg`;
 both are applied-only unless `dropped`, through `audio_flags_none`), and the parser enforces which qualifier
 needs which target. The payload is `TARGET CHIP REG VALUE PREV` (`P_TARGET`, `P_CHIP`; the other three are
-shared with `nextreg`). `ay[chip, reg]` is `ExprKind::Ay`, evaluated through `Debugger::ay_registers()`: the
-raw register latch, read-only (`parse_lvalue` refuses it), bounds-checked at run time. `ay_write`, `audio_write`,
+shared with `nextreg`). `ay[chip, reg]` is `ExprKind::Ay`, evaluated through `Debugger::ay_registers()`, which is
+`AyChip::read_register()`: the value a CPU read of the register returns (the Audio panel's table shows the same), not the
+raw latch (AY mode masks R1/R3/R5/R13 to 4 bits and R6/R8/R9/R10 to 5, and R14/R15 read 0xFF while their port is in input
+mode). It is read-only (`parse_lvalue` refuses it), bounds-checked at run time. `ay_write`, `audio_write`,
 `chip`, `reg`, `ay_reg`, `ay_select`, `dac`, `dropped` and `ay` are reserved words.
 
 ## From text to a checked script

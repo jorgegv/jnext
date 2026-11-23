@@ -40,11 +40,11 @@ The **Audio Write** type stops the machine on a write to the sound hardware. The
   change the value.
 - **Value** and **Value mask** (hex, two digits): stop only on a written byte whose bits under the
   mask equal the value. A mask needs a value, and the value cannot have bits outside the mask.
-- **Dropped writes only**: stop on the writes the machine discarded instead of the applied ones.
+- **Dropped writes only** (with the DAC target the channel is forced to *Any*: a discarded DAC write reached no channel): stop on the writes the machine discarded instead of the applied ones.
   Unticked (the default), a write the machine discarded (the AY ports switched off, the chip held in
   reset, a DAC that is off) does not stop, because it never reached the chip.
 
-The row reads, for example, `AY1 R13 restart`, `AY R7 value 0x38`, `AY select 2`, `DAC B dropped` or
+The row reads, for example, `AY1 R13 restart`, `AY R7 value 0x38`, `AY select 2`, `DAC dropped` or
 `Any audio`. The machine stops after the instruction that wrote, except for a write through the NextREG
 mirror by the CPU and a Copper write, which stop one instruction later. A breakpoint made by a script
 (`on ay_write reg 8..10`) that the dialog cannot express is listed read-only.

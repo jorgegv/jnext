@@ -401,6 +401,11 @@ BpRead bp_specs_from_script(const std::string& text, const dbg::Debugger& dbg) {
                      : ev.audio == AudioWord::AySelect ? BpAudio::AyChipSelect
                      : ev.audio == AudioWord::Dac ? BpAudio::Dac : BpAudio::Any;
             a.dropped_only = ev.dropped;
+            if (ev.chip && ev.dropped && a.target == BpAudio::Dac) {
+                fail(out, ev.chip->pos, "a dropped DAC write reached no channel, so `dac chip N dropped` can never match: "
+                                        "write `dac dropped`");
+                return out;
+            }
             if (ev.chip) {
                 const int c = lit(ev.chip, a.target == BpAudio::Dac ? 3 : 2, "the chip");
                 if (c < 0) return out;

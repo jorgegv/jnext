@@ -843,7 +843,7 @@ static void audio_rows(Fix& f) {
         const std::vector<BpSpec> in = {
             audio(BpAudio::AyChipSelect, 2),
             audio(BpAudio::AyChipSelect, 0xFF, {}, 0xFE, 0xFF),
-            audio(BpAudio::Dac, 1, {}, {}, 0xFF, true),
+            audio(BpAudio::Dac, 0xFF, {}, {}, 0xFF, true),
             audio(BpAudio::Dac, 0xFF, {}, 0x80, 0xC0),
             audio(BpAudio::Any),
             audio(BpAudio::Any, 0xFF, {}, {}, 0xFF, true),
@@ -854,7 +854,7 @@ static void audio_rows(Fix& f) {
         const std::string want = kHeader +
             "bp1: on audio_write ay_select chip 2 do stop end\n"
             "bp2: on audio_write ay_select mask 0xFF value 0xFE do stop end\n"
-            "bp3: on audio_write dac chip 1 dropped do stop end\n"
+            "bp3: on audio_write dac dropped do stop end\n"
             "bp4: on audio_write dac mask 0xC0 value 0x80 do stop end\n"
             "bp5: on audio_write do stop end\n"
             "bp6: on audio_write dropped do stop end\n"
@@ -910,11 +910,23 @@ static void audio_rows(Fix& f) {
     }
 }
 
+static void audio_dropped_dac_row(Fix& f) {
+    const Debugger& d = *f.dbg;
+    const BpRead a = bp_specs_from_script("on audio_write dac chip 2 dropped do stop end\n", d);
+    const BpRead b = bp_specs_from_script("on audio_write dac dropped do stop end\n", d);
+    const BpRead c = bp_specs_from_script("on audio_write ay_select chip 2 dropped do stop end\n", d);
+    check("BPJ-48", "loading `dac chip N dropped` is refused with the reason (a dropped DAC write has no channel), all or nothing; `dac dropped` and `ay_select chip 2 dropped` load",
+          !a.ok() && a.specs.empty() && a.errors[0].message.find("write `dac dropped`") != std::string::npos &&
+              b.ok() && b.specs.size() == 1 && b.specs[0].audio.chip == 0xFF && b.specs[0].audio.dropped_only &&
+              c.ok() && c.specs.size() == 1 && c.specs[0].audio.chip == 2,
+          dstr(a.errors) + dstr(b.errors) + dstr(c.errors));
+}
+
 // BPJ-47: the ENGINE as the foreign reader of the audio spellings.
 static void engine_audio_rows() {
     Fix g;
     const std::vector<BpSpec> in = {
-        audio(BpAudio::AyRegister, 1, 13, 0x08, 0x0F), audio(BpAudio::AyChipSelect, 2), audio(BpAudio::Dac, 3, {}, {}, 0xFF, true),
+        audio(BpAudio::AyRegister, 1, 13, 0x08, 0x0F), audio(BpAudio::AyChipSelect, 2), audio(BpAudio::Dac, 0xFF, {}, {}, 0xFF, true),
         audio(BpAudio::Any), audio(BpAudio::AyRegister, 0xFF, 7, {}, 0xFF, true)};
     const BpScript o = bp_script_text(in, *g.dbg);
     ScriptEngine eng(*g.dbg);
@@ -929,7 +941,7 @@ static void engine_audio_rows() {
         if (!(s0.audio_targets == audio_target_bit(AudioTarget::AyRegister) && s0.chip == 1 && s0.regs == EventFilter::RegSet{13} &&
               s0.value_mask == 0x0F && s0.value_match == 0x08 && s0.audio_flags_none == AudioFlag::Dropped && s0.audio_flags_all == 0)) miss += " #0";
         if (!(s1.audio_targets == audio_target_bit(AudioTarget::AyChipSelect) && s1.chip == 2 && s1.regs.empty())) miss += " #1";
-        if (!(s2.audio_targets == (audio_target_bit(AudioTarget::Dac) | audio_target_bit(AudioTarget::DacMirror)) && s2.chip == 3 &&
+        if (!(s2.audio_targets == (audio_target_bit(AudioTarget::Dac) | audio_target_bit(AudioTarget::DacMirror)) && s2.chip == 0xFF &&
               s2.audio_flags_all == AudioFlag::Dropped && s2.audio_flags_none == 0)) miss += " #2";
         if (!(s3.audio_targets == AUDIO_TARGETS_ANY && s3.chip == 0xFF && s3.audio_flags_none == AudioFlag::Dropped)) miss += " #3";
         if (!(s4.audio_targets == audio_target_bit(AudioTarget::AyRegister) && s4.regs == EventFilter::RegSet{7} &&
@@ -976,6 +988,7 @@ int main() {
         save_s3_rows(f);
         save_s3_more_rows();
         audio_rows(f);
+        audio_dropped_dac_row(f);
     }
     engine_audio_rows();
     engine_rows();

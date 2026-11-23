@@ -123,6 +123,11 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
             (f.chip >= 4 && f.chip != 0xFF) ||
             (f.value_match & ~f.value_mask) ||
             (f.audio_flags_all & f.audio_flags_none) ||
+            // A dropped DAC or mirror write reached no channel and carries chip 0xFF, so a channel
+            // number with `Dropped` required and no AY target can never match.
+            ((f.audio_flags_all & AudioFlag::Dropped) && f.chip != 0xFF &&
+             !(f.audio_targets & (audio_target_bit(AudioTarget::AyRegister) |
+                                  audio_target_bit(AudioTarget::AyChipSelect)))) ||
             // only an AY register or a NextREG mirror write carries a register
             (!f.regs.empty() &&
              !(f.audio_targets & (audio_target_bit(AudioTarget::AyRegister) |

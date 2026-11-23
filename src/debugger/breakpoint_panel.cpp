@@ -385,13 +385,18 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
         to_edit->setEnabled(t <= BreakpointModel::ReadWrite);
         mask_edit->setEnabled(t == BreakpointModel::IoRead || t == BreakpointModel::IoWrite);
         audio_target->setEnabled(audio);
-        audio_chip->setEnabled(audio && tgt != BpAudio::Any);
+        // A dropped DAC write reached no channel (chip 0xFF): with Dropped ticked on the DAC target the channel
+        // can only be Any, so the combo is forced there and turned off.
+        const bool dac_dropped = tgt == BpAudio::Dac && audio_dropped->isChecked();
+        if (dac_dropped) audio_chip->setCurrentIndex(0);
+        audio_chip->setEnabled(audio && tgt != BpAudio::Any && !dac_dropped);
         audio_reg->setEnabled(audio && tgt == BpAudio::AyRegister);
         audio_value->setEnabled(audio);
         audio_mask->setEnabled(audio);
         audio_dropped->setEnabled(audio);
     };
     connect(type_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg, sync_fields);
+    connect(audio_dropped, &QCheckBox::toggled, &dlg, [sync_fields](bool) { sync_fields(); });
     connect(audio_target, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg, [sync_chips, sync_fields] {
         sync_chips();
         sync_fields();
@@ -491,7 +496,7 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
             else if (!vt.isEmpty() && (v & ~m)) problem = tr("The value has bits outside the mask: it can never match.");
             if (problem.isEmpty()) {
                 a.target = static_cast<BpAudio::Target>(audio_target->currentData().toInt());
-                a.chip   = a.target == BpAudio::Any ? 0xFF : static_cast<uint8_t>(audio_chip->currentData().toInt());
+                a.chip   = a.target == BpAudio::Any || (a.target == BpAudio::Dac && audio_dropped->isChecked()) ? 0xFF : static_cast<uint8_t>(audio_chip->currentData().toInt());
                 if (a.target == BpAudio::AyRegister && audio_reg->currentData().toInt() >= 0)
                     a.reg = static_cast<uint8_t>(audio_reg->currentData().toInt());
                 if (!vt.isEmpty()) { a.value = static_cast<uint8_t>(v); a.mask = static_cast<uint8_t>(m); }
