@@ -1073,8 +1073,10 @@ chip\(cqs first write and aligned to the start of the recording.
 When a register is written more than once in a frame the last value is
 kept.
 R14 and R15 are not recorded.
-A reset, a rewind or a state load continues the file with the frame
-numbering moving forward.
+A reset keeps the elapsed time, a rewind keeps what was written and
+carries on after it, and a state load carries on right after the last
+frame that wrote anything (silent frames just before a state load are
+not kept).
 It works in every frontend, headless, with \f[B]\-\-silent\f[R] and in a
 browser page.
 An unwritable \f[I]FILE\f[R] is refused before the machine starts.

@@ -5404,12 +5404,14 @@ takes AY#0; AY#1 and AY#2 go to <em>FILE</em> with <code>-ay1</code> or <code>-a
 the extension (<code>tune.psg</code> gives <code>tune-ay1.psg</code>), created at that
 chip’s first write and aligned to the start of the recording. When a
 register is written more than once in a frame the last value is
-kept. R14 and R15 are not recorded. A reset, a rewind or a state
-load continues the file with the frame numbering moving forward. It
-works in every frontend, headless, with <strong>--silent</strong> and in a
-browser page. An unwritable <em>FILE</em> is refused before the machine
-starts. A write error makes the run exit non-zero. The same
-recording starts from the Chips tab of the debugger’s Audio panel.</dd>
+kept. R14 and R15 are not recorded. A reset keeps the elapsed time,
+a rewind keeps what was written and carries on after it, and a state
+load carries on right after the last frame that wrote anything
+(silent frames just before a state load are not kept). It works in
+every frontend, headless, with <strong>--silent</strong> and in a browser page.
+An unwritable <em>FILE</em> is refused before the machine starts. A write
+error makes the run exit non-zero. The same recording starts from
+the Chips tab of the debugger’s Audio panel.</dd>
 <dt><strong>--audio-gain-db</strong> <em>DB</em></dt>
 <dd>Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
 gain is applied after the emulated hardware mix; overflow saturates

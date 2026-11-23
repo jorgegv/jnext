@@ -436,7 +436,7 @@ the trimmed rest as the value (a value ZRCP's `parse_number()` reads, decimal or
 a fraction, `'A'`, `0x10`, goes as typed) and calls `write_c_value()` in frame 0. Success answers `set-register`'s own register line; every failure
 is ZEsarUX's `Error changing register`, with no reason.
 `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2652`) calls
-`Debugger::load()` (`debugger_reconstruct.cpp:466`), which calls `load_program_sidecars()` after a successful load
+`Debugger::load()` (`debugger_reconstruct.cpp:469`), which calls `load_program_sidecars()` after a successful load
 (`load_program_sidecars()`, `debugger_reconstruct.cpp:528-532`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
 `get-memory-pages` (`memory_pages()`, `zrcp_format.cpp`) names the eight slots of a Next from what each

@@ -3247,7 +3247,14 @@ entry's. At one, <code>off = max(off, seen + 1 - M)</code> with M the new frame 
 <code>seen + 1 - M</code> because a loaded frame number says nothing about time that played. So a soft reset, or any marker whose
 numbering still moves forward, keeps the numbering and a reset in the frame of the last write splits it, and anything
 that would go back continues right after the last frame seen. The frame the accumulator returns at a discontinuity is
-written with the mapping in force before it. The writes of a rewound future were played and stay in the file.</p>
+written with the mapping in force before it. The writes of a rewound future were played and stay in the file.
+A hard reset keeps elapsed time: <code>Impl::prepare_rebuild()</code> (every rebuild path: <code>reset_hard()</code>, <code>load()</code> and the guest's
+<code>on_cold_boot_begin()</code>) calls <code>PsgRecorder::note_time(frame_tag(emu))</code> before the machine is destroyed, which raises <code>seen</code> to the
+frame current at the reset, so the new frame 0 maps after it. A state load passes through <code>Emulator::load_state()</code> from several
+callers, not one <code>Debugger</code> entry point, so it cannot be told in advance: it continues at <code>seen + 1</code>, and silent frames
+just before it are not kept (the manuals say so). A chip file that cannot be created is tried once (<code>chip_failed_</code>): it flags the
+I/O error <code>stop()</code> reports and that chip's blocks are dropped. The destructor finishes the files up to <code>seen</code>, which
+<code>main()</code>'s early returns after <code>--psg-record</code> started rely on.</p>
 <p><em>Differences from Fuse</em>, both kept out of the fixture. <code>psg_write_register()</code> keeps the FIRST value written to a register
 in a frame and jnext keeps the last (the tap's value is the raw byte the guest wrote, as Fuse's is). Fuse keeps 4 bits of a
 register select (<code>set_current_register</code>: <code>value &amp; 0x0f</code>), so a select of 0x1D writes R13 there; the Next drops the data
