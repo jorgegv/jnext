@@ -248,11 +248,13 @@ go_remote() {
 # apply_thread_caps: a run admitted HERE gets nproc/NSLOTS threads (at least 1), always, whether or not the
 # other slots are busy (owner, 2026-11-23; measured on the 12-CPU host, `make unit-test` from an empty build/ with
 # a warm ccache: two concurrent runs took 617 s and 519 s at 12 threads each and 496 s and 491 s at 6 each; one
-# run alone 347 s at 12 and 343 s at 6, so the cap costs a lone run nothing). Three knobs, each one the variable
+# run alone 347 s at 12 and 343 s at 6, so the cap costs a lone run nothing; NSLOTS above 2 is an extrapolation, measured only at 1 and 2 slots: nproc/NSLOTS
+# keeps the total at nproc, and oversubscription is what cost the 12-thread pair). Three knobs, each one the variable
 # its consumer really reads:
 #   JOBS                  the Makefile assigns it with `:=`, so an ENVIRONMENT JOBS is ignored; it goes in as a
-#                         make command-line variable through MAKEFLAGS (a `JOBS=` word on the command line wins
-#                         over it, and the argv of the command stays as the caller wrote it);
+#                         make command-line variable through MAKEFLAGS, whatever the command (make behind timeout, bash -c, env: a
+#                         non-make program ignores it; a `JOBS=` word after the make word wins over it, and the
+#                         argv stays as the caller wrote it);
 #   JNEXT_UNIT_TEST_JOBS  suites running at once in test/run-unit-tests.sh (the wasm and win targets set it
 #                         from JOBS themselves);
 #   JNEXT_TEST_JOBS       lanes of test/00regression/regression.sh.
@@ -260,24 +262,32 @@ go_remote() {
 # its value is passed on to make); the log line says which. NOT capped, on purpose: JNEXT_TEST_QUIET_JOBS (the
 # quiet rows are real-time paced; more lanes is the trade CLAUDE.md rejects), UNIT_TEST_CHECK_JOBS (6, the cap
 # of light checks that was in force in the measurement above) and the remote driver's lower LTO/PGO link cap
-# (a memory cap of its 10 GB lanes: here nproc/NSLOTS already is that low, and the host kept 39 GB free).
+# (a memory cap of its 10 GB lanes: with 2+ slots nproc/NSLOTS is already that low here, and the host kept 39 GB free; with 1 slot a heavy target gets every CPU, as the lone run measured).
 # Remote runs never reach this: the driver sets its own caps on the remote host.
 apply_thread_caps() {
     local cpus=${JNEXT_SLOT_CPUS:-$(nproc 2>/dev/null || echo 12)} cap w note="" jobs mf=${MAKEFLAGS:-}
     [[ "$cpus" =~ ^[0-9]+$ ]] || cpus=12
     cap=$((cpus / NSLOTS)); [[ $cap -ge 1 ]] || cap=1
-    local mkcmd=0 cmdjobs=0 i=0
-    [[ "${CMD[0]}" != env ]] || { i=1; while [[ "${CMD[i]:-}" == *=* ]]; do i=$((i + 1)); done; }   # skip `env VAR=value ...`
-    [[ "${CMD[i]:-}" != make ]] || mkcmd=1
-    for w in "${CMD[@]}"; do [[ "$w" == JOBS=* ]] && cmdjobs=1; done
-    if [[ $mkcmd -eq 0 ]]; then jobs="n/a (not a make command)"
-    elif [[ $cmdjobs -eq 1 ]]; then jobs="caller's command line"
+    # Where is make? The first word that is make or ends in /make (so `timeout .. make`, `/usr/bin/make`, `env -u X
+    # make` count; `bash -c 'make ..'` has no such word and is treated as "no make word"). A JOBS= word AFTER it is
+    # on make's command line (it beats MAKEFLAGS); one BEFORE it, or anywhere when there is no make word, is an
+    # environment word (`env JOBS=3 make`), which the Makefile ignores, so its value is handed on like an env JOBS.
+    local mi=-1 i=0 cmdjobs=0 prejobs=""
+    for w in "${CMD[@]}"; do
+        if [[ $mi -lt 0 && ( "$w" == make || "$w" == */make ) ]]; then mi=$i
+        elif [[ "$w" == JOBS=* ]]; then
+            if [[ $mi -ge 0 ]]; then cmdjobs=1; else prejobs=${w#JOBS=}; fi
+        fi
+        i=$((i + 1))
+    done
+    if [[ $cmdjobs -eq 1 ]]; then jobs="caller's command line"
     elif [[ " $mf" == *" JOBS="* ]]; then jobs="caller's MAKEFLAGS"
+    elif [[ -n "$prejobs" ]]; then export MAKEFLAGS="$mf JOBS=$prejobs"; jobs="$prejobs (caller's env word)"
     elif [[ -n "${JOBS:-}" ]]; then export MAKEFLAGS="$mf JOBS=$JOBS"; jobs="$JOBS (caller's environment)"
     else export MAKEFLAGS="$mf JOBS=$cap"; jobs=$cap
     fi
     for w in JNEXT_UNIT_TEST_JOBS JNEXT_TEST_JOBS; do
-        if [[ -n "${!w+x}" ]]; then note+=" $w=${!w} (caller's)"
+        if [[ -n "${!w:+x}" ]]; then note+=" $w=${!w} (caller's)"
         else export "$w=$cap"; note+=" $w=$cap"
         fi
     done

@@ -658,15 +658,6 @@ measured and rejected. The suite itself now takes ~4 min on the 12-CPU dev host
 (172-175 s with nothing else running, 223-253 s with other agents active, ~410 s
 with 6 extra busy loops; it was ~13.5 min serial).
 
-**A run admitted to a local build slot (`slot.sh`, autonomous runs) gets `nproc`/NSLOTS
-threads, at least 1, always** (so 6 here with 2 slots): it sets `JOBS` (as a make
-variable through `MAKEFLAGS`), `JNEXT_UNIT_TEST_JOBS` and `JNEXT_TEST_JOBS` to that,
-unless the caller set one itself, and logs the caps at admission. Measured on the
-12-CPU host with `make unit-test` from an empty `build/` and a warm ccache: two
-concurrent runs took 617 s and 519 s at 12 threads each but 496 s and 491 s at 6
-each, and one run alone 347 s at 12 against 343 s at 6, so the cap costs a lone run
-nothing. `JNEXT_TEST_QUIET_JOBS` and the remote driver's own caps are untouched.
-
 **Those two rows are examples, not the list** (GH #245). Contention also fails
 rows that merely spawn short-lived processes — `subsystem-gain-func` failed
 under a three-agent load on 2026-08-09 and never reproduced solo — and a
@@ -678,6 +669,16 @@ real. **Always record the row name.** The harness does the bookkeeping: it
 prints the 1-minute load at the start and the end of the run, flags each FAIL
 that happened with the load at or above `nproc`, and lists every failed row by
 name after the results. It never changes a verdict.
+
+**A run admitted to a local build slot (`slot.sh`, autonomous runs) gets `nproc`/NSLOTS
+threads, at least 1, always** (so 6 here with 2 slots): it sets `JOBS` (as a make
+variable through `MAKEFLAGS`), `JNEXT_UNIT_TEST_JOBS` and `JNEXT_TEST_JOBS` to that,
+unless the caller set one itself, and logs the caps at admission. Measured on the
+12-CPU host with `make unit-test` from an empty `build/` and a warm ccache: two
+concurrent runs took 617 s and 519 s at 12 threads each but 496 s and 491 s at 6
+each, and one run alone 347 s at 12 against 343 s at 6, so the cap costs a lone run
+nothing; NSLOTS above 2 is an extrapolation (only 1 and 2 slots were measured).
+`JNEXT_TEST_QUIET_JOBS` and the remote driver's own caps are untouched.
 
 ### Headless mode
 

@@ -10,14 +10,14 @@
 # picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-56. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-60. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=56
+EXPECTED_ROWS=60
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -665,11 +665,12 @@ out=$(capslot 4 2 env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
 row SLOT-54 "$([[ $rc -eq 0 && "$(makeenv)" == "MF=[ JOBS=1] U=1 T=1" ]] && echo 1 || echo 0)" \
     "2 CPUs over 4 slots: the caps are 1, not 0"
 
-# SLOT-55: a command that is not make gets the two environment caps and no MAKEFLAGS
+# SLOT-55: a command that is not make gets the two environment caps AND the JOBS cap in MAKEFLAGS (a make it
+# starts reads it; a non-make program ignores it)
 fresh
 out=$(capslot 2 12 bash -c 'echo "got MF=[${MAKEFLAGS-}] U=$JNEXT_UNIT_TEST_JOBS T=$JNEXT_TEST_JOBS"' 2>&1); rc=$?
-row SLOT-55 "$([[ $rc -eq 0 && "$out" == *"got MF=[] U=6 T=6"* && "$out" == *"JOBS=n/a (not a make command)"* ]] && echo 1 || echo 0)" \
-    "a non-make command gets JNEXT_UNIT_TEST_JOBS and JNEXT_TEST_JOBS and no MAKEFLAGS"
+row SLOT-55 "$([[ $rc -eq 0 && "$out" == *"got MF=[ JOBS=6] U=6 T=6"* && "$out" == *"JOBS=6 JNEXT_UNIT_TEST_JOBS=6"* ]] && echo 1 || echo 0)" \
+    "a non-make command gets JNEXT_UNIT_TEST_JOBS, JNEXT_TEST_JOBS and the JOBS cap in MAKEFLAGS"
 
 # SLOT-56: the mechanism itself: a REAL make on a Makefile that assigns JOBS with := (as ours does) sees the cap,
 # and a JOBS= word on its command line still beats it
@@ -679,6 +680,36 @@ REALPATH=${PATH#"$TMP/bin:"}
 o56a=$(capslot 2 12 env PATH="$REALPATH" make -C "$RM" 2>&1); o56b=$(capslot 2 12 env PATH="$REALPATH" make -C "$RM" JOBS=3 2>&1)
 row SLOT-56 "$([[ "$o56a" == *"seen-JOBS=6"* && "$o56b" == *"seen-JOBS=3"* ]] && echo 1 || echo 0)" \
     "real make: a := JOBS in the Makefile is overridden by the cap (6); the caller's command-line JOBS=3 wins over it"
+
+# SLOT-57: `env [LANG=C] JOBS=N make`: the env word is the caller's value, handed to make (the Makefile ignores an env JOBS)
+fresh
+o57a=$(capslot 2 12 env PATH="$REALPATH" JOBS=3 make -C "$RM" 2>&1); o57b=$(capslot 2 12 env LANG=C PATH="$REALPATH" JOBS=3 make -C "$RM" 2>&1)
+row SLOT-57 "$([[ "$o57a" == *"seen-JOBS=3"* && "$o57b" == *"seen-JOBS=3"* && "$o57b" == *"JOBS=3 (caller's env word)"* ]] && echo 1 || echo 0)" \
+    "real make behind env JOBS=3 (with and without LANG=C) sees 3, not 12 or the cap, and the log says the caller's env word"
+
+# SLOT-58: make behind wrappers is capped: timeout, an absolute path, env -u, and the driver's fallback sh form (bash -c)
+fresh
+o58a=$(capslot 2 12 timeout --kill-after=5s 20s env PATH="$REALPATH" make -C "$RM" 2>&1)
+o58b=$(capslot 2 12 env PATH="$REALPATH" /usr/bin/make -C "$RM" 2>&1)
+o58c=$(capslot 2 12 env -u FOO PATH="$REALPATH" make -C "$RM" 2>&1)
+o58d=$(capslot 2 12 env LANG=C PATH="$REALPATH" bash -c "cd '$RM' && make" 2>&1)
+o58e=$(capslot 2 12 env PATH="$REALPATH" /usr/bin/make -C "$RM" JOBS=3 2>&1)
+row SLOT-58 "$([[ "$o58e" == *"seen-JOBS=3"* && "$o58e" == *"JOBS=caller's command line"* && "$o58a" == *"seen-JOBS=6"* && "$o58b" == *"seen-JOBS=6"* && "$o58c" == *"seen-JOBS=6"* && "$o58d" == *"seen-JOBS=6"* ]] && echo 1 || echo 0)" \
+    "real make behind timeout, /usr/bin/make, env -u and bash -c (the fallback sh: form) sees the cap 6; a JOBS= after /usr/bin/make is the command line's"
+
+# SLOT-59: the caller's other MAKEFLAGS survive: a real make still sees -k next to the cap
+fresh
+echo 2 > "$CLEANSLOTS/NSLOTS"
+printf 'JOBS := 12\nall:\n\t@echo seen-JOBS=$(JOBS) flags=[$(MAKEFLAGS)]\n' > "$RM/Makefile"
+o59=$(env -u JOBS -u JNEXT_UNIT_TEST_JOBS -u JNEXT_TEST_JOBS MAKEFLAGS=-k JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 PATH="$REALPATH" timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" make -C "$RM" 2>&1)
+row SLOT-59 "$([[ "$o59" == *"seen-JOBS=6"* && "$o59" == *"flags=[k "* ]] && echo 1 || echo 0)" \
+    "a caller's MAKEFLAGS=-k is kept: real make sees the k flag and JOBS=6"
+
+# SLOT-60: an exported EMPTY JNEXT_TEST_JOBS is not a caller's value: it is capped
+fresh
+out=$(env -u JOBS -u MAKEFLAGS -u JNEXT_UNIT_TEST_JOBS JNEXT_TEST_JOBS= JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" env LANG=C make -C "$WT" unit-test 2>&1)
+row SLOT-60 "$([[ "$(makeenv)" == *" T=6" && "$out" == *"JNEXT_TEST_JOBS=6"* && "$out" != *"JNEXT_TEST_JOBS= (caller"* ]] && echo 1 || echo 0)" \
+    "an exported empty JNEXT_TEST_JOBS counts as unset and gets the cap"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and
