@@ -538,6 +538,15 @@ void test_upgrade_offer() {
     check("SDD-UPG-05", "the box has exactly the three buttons, Upgrade, Keep my card (don't ask again) and Not now",
           a.buttons == "Upgrade (keep my files);Not now;Keep my card (don't ask again);", a.buttons);
     {
+        // no original image: the same box, the affirmative button is the fresh start
+        SdcardGuiProvisioner::UpgradeBox u = SdcardGuiProvisioner::upgrade_box("sn-emulator-99.99.zip", msg, false);
+        std::string labels;
+        for (QAbstractButton* b : u.box->buttons()) labels += b->text().toStdString() + ";";
+        check("SDD-UPG-07", "without a pristine base the box's buttons are 'Fresh start (keep my card as a backup)', 'Not now' and 'Keep my card (don't ask again)', and the first still answers Replace",
+              labels == "Fresh start (keep my card as a backup);Not now;Keep my card (don't ask again);" &&
+                  SdcardGuiProvisioner::upgrade_answer(u, u.replace) == sdcard::UpgradeChoice::Replace, labels);
+    }
+    {
         const std::string report = "Kept from your card (1):\n  added /MINE.TXT\n";
         auto box = SdcardGuiProvisioner::report_box(report);
         check("SDD-UPG-06", "the upgrade report box carries the whole list as its detailed text",

@@ -39,6 +39,9 @@ int main() {
           std::string(sdcard::kUpgradeLabelReplace) == "Upgrade (keep my files)" &&
           std::string(sdcard::kUpgradeLabelNever) == "Keep my card (don't ask again)" &&
           std::string(sdcard::kUpgradeLabelKeep) == "Not now");
+    check("UPGBOX-06", "with no original image to carry files over from, the affirmative button reads 'Fresh start (keep my card as a backup)'",
+          std::string(sdcard::kUpgradeLabelFresh) == "Fresh start (keep my card as a backup)" &&
+          std::string(sdcard::kUpgradeLabelFresh) != std::string(sdcard::kUpgradeLabelReplace));
     {
         std::string rep;
         for (int i = 1; i <= 25; ++i) rep += "line " + std::to_string(i) + "\n";

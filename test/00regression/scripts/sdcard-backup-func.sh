@@ -116,6 +116,17 @@ PY
             done
             rc=$(bk_run locked1 99.99 --sdcard-go-back); bk_l1=$rc
             rc=$(bk_run locked2 99.99 --sdcard-delete-backup); bk_l2=$rc
+            # 5c: the upgrade and its crash recovery run under the card's lock too: with the card held, --sdcard-upgrade
+            # yes gets the lock message and the whole set (card, raw, sidecars, previous/) stays byte-identical, and the
+            # scratch of an "interrupted" upgrade is not touched (a start that does not hold the card must not clean it)
+            mkdir -p "$bk_dir/cfg/sdcard/upgrade-work"; printf 'x' > "$bk_dir/cfg/sdcard/upgrade-work/card.new"
+            bk_snap() { ( cd "$bk_dir/cfg/sdcard" && find . -type f ! -name '*.lock' -print0 | sort -z | xargs -0 sha256sum ) ; }
+            bk_before=$(bk_snap)
+            rc=$(bk_run lockedup 99.98 --sdcard-upgrade yes)
+            bk_after=$(bk_snap)
+            [[ $rc == 1 ]] && grep -qF "is in use by another jnext" "$bk_dir/lockedup.txt" || bk_faults+=("5: --sdcard-upgrade yes on a held card exited $rc without the lock message")
+            [[ "$bk_before" == "$bk_after" ]] || bk_faults+=("5: --sdcard-upgrade yes on a held card changed the set or its scratch")
+            rm -rf "$bk_dir/cfg/sdcard/upgrade-work"
             kill "$bk_holder" 2>/dev/null || true
             wait "$bk_holder" 2>/dev/null || true
             [[ "$bk_l1" == 4 && "$bk_l2" == 4 ]] || bk_faults+=("5: with the card in use the verbs exited $bk_l1 and $bk_l2, not 4 and 4")

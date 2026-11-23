@@ -214,7 +214,7 @@ int main() {
         const std::string now_cur = fingerprint(g_dir_sd, p.ovb);                       // the old set, its overlay back at its path
         const std::string now_prev = fingerprint(g_dir_sd + "/previous", g_dir_sd + "/previous/overlays/0-cur.jsdw");
         const bool swapped = r1 == Result::Ok && now_prev.substr(0, now_prev.find(";ov:")) == p.cur_before.substr(0, p.cur_before.find(";ov:"));
-        const std::string declined = [&] { std::ifstream f(card() + sdcard::kDeclinedSuffix); std::string l; std::getline(f, l); return l; }();
+        const std::string declined = [&] { std::ifstream f(card() + sdcard::kDeclinedSuffix); std::string l; std::getline(f, l); while (!l.empty() && l.back() == '\r') l.pop_back(); return l; }();
         check("SDBAK-01A", "go back swaps the sets: the old card, original image and sidecars are the current ones, the card that was current is the backup, byte-identical",
               swapped && now_cur.substr(0, now_cur.find(";ov:")) == p.prev_before.substr(0, p.prev_before.find(";ov:")) &&
                   !fs::exists(g_dir_sd + "/go-back-work"), err);

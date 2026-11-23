@@ -11,6 +11,7 @@
 //
 //   Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d
 #include "core/fat32_image.h"
+#include "core/image_lock.h"
 #include "core/sdcard_carry.h"
 #include "core/sdcard_file_add.h"
 #include "core/sdcard_provisioner.h"
@@ -26,7 +27,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
+#include <optional>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -94,9 +97,11 @@ bool sparse_copy(const std::string& src, const std::string& dst) {
     return carry::copy_sparse_file(src, dst, err);
 }
 void put_text(const std::string& p, const std::string& t) { std::ofstream(p, std::ios::trunc | std::ios::binary) << t; }
-std::string get_text(const std::string& p) {
+std::string get_text(const std::string& p) {   // CR dropped: write_text_line writes in text mode (CRLF on Windows)
     std::ifstream f(p, std::ios::binary);
-    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::string t((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    t.erase(std::remove(t.begin(), t.end(), '\r'), t.end());
+    return t;
 }
 bool exists(const std::string& p) { std::error_code ec; return fs::exists(p, ec); }
 uint64_t digest(const std::string& p) {
@@ -241,7 +246,7 @@ const std::string kOld = "sn-emulator-24.11.zip";
 struct World {
     std::string cfg, dir, raw, fixed, raw_sha, raw_distro, fixed_distro, recipe, declined;
     std::string old_raw_t, old_card_t;     // templates
-    std::string new_zip;
+    std::string new_zip, norom_zip;
     std::string url_new = "http://127.0.0.1:1/" + kNew;
     bool ok = false;
     std::string err;
@@ -271,6 +276,15 @@ bool build_world() {
     const std::string new_raw = tmp("newraw");
     w.new_zip = tmp("new") + ".zip";
     if (!make_card(new_raw, tree_new()) || !make_zip_of(w.new_zip, "cspect-next-1gb.img", new_raw)) { w.err = "new zip"; return false; }
+    {
+        Fat32Tree t;
+        t.root.push_back(dnode("SYS", {fnode("same.sys", "x"), fnode("changed.sys", "y")}));   // no /MACHINES/NEXT/48.rom
+        const std::string r2 = tmp("norom");
+        w.norom_zip = tmp("norom") + ".zip";
+        if (!make_card(r2, t) || !make_zip_of(w.norom_zip, "cspect-next-1gb.img", r2)) { w.err = "norom zip"; return false; }
+        std::error_code rec;
+        fs::remove(r2, rec);
+    }
     std::error_code ec;
     fs::remove(new_raw, ec);
     jtp::set_env("JNEXT_SDCARD_DISTRO_URL", w.url_new.c_str());
@@ -301,6 +315,12 @@ sdcard::DownloadFn zip_dl = [](const std::string&, const std::string& dst, const
     ++g_downloads;
     std::error_code ec;
     fs::copy_file(w.new_zip, dst, fs::copy_options::overwrite_existing, ec);
+    return !ec;
+};
+sdcard::DownloadFn norom_dl = [](const std::string&, const std::string& dst, const sdcard::ProgressFn&, std::string&) {
+    ++g_downloads;
+    std::error_code ec;
+    fs::copy_file(w.norom_zip, dst, fs::copy_options::overwrite_existing, ec);
     return !ec;
 };
 sdcard::DownloadFn failing_dl = [](const std::string&, const std::string&, const sdcard::ProgressFn&, std::string& err) {
@@ -429,10 +449,10 @@ int main() {
         sdcard::ProvisionOptions o = opts_with(nullptr, sdcard::UpgradeMode::Yes);
         o.overlays.push_back(bogus);
         const auto r = sdcard::provision_sd_card(o);
-        check("SDUPG-06A", "an overlay that does not belong to the card fails the carry-over before the switch: old set in use, nothing left behind",
-              r.status == sdcard::ProvisionStatus::Ok && !r.warning.empty() && digest(w.fixed) == cb && !exists(sdcard::upgrade::work_dir(w.dir)) &&
-                  !exists(prev("")) && get_text(bogus) == "this is not a writes file",
-              r.warning + r.error);
+        check("SDUPG-06A", "an explicit writes file that is not a writes file at all makes yes refuse before the download, naming it: old set in use, nothing left behind",
+              r.status == sdcard::ProvisionStatus::Failed && r.refused && has(r.error, "not a jnext writes file") && digest(w.fixed) == cb &&
+                  !exists(sdcard::upgrade::work_dir(w.dir)) && !exists(prev("")) && get_text(bogus) == "this is not a writes file",
+              r.error + r.warning);
     }
     // ---- SDUPG-06B..G / 11: a switch interrupted at each step rolls forward at the next start ------
     for (int step = 1; step <= 6; ++step) {
@@ -506,7 +526,7 @@ int main() {
         std::string why;
         sd_write_journal::bind(w.fixed, file, b, true, why);
         auto j = sd_write_journal::for_image(w.fixed);
-        { Edit e(w.fixed, j); e.put(path, content); }
+        { Edit e(w.fixed, j); e.put(path, content + "-first"); e.put(path, content); }
         sd_write_journal::forget_image(w.fixed);
     };
     {
@@ -634,6 +654,141 @@ int main() {
         fs::copy_file(first_in(prev("overlays"), "0-backup"), back, ec);
         check("SDUPG-15", "a writes file bound to the backup card is recognised as such (the refusal then names --sdcard-go-back); one bound to nothing there is not",
               !before && sdcard::upgrade::file_belongs_to_backup(w.dir, back) && !sdcard::upgrade::file_belongs_to_backup(w.dir, tmp("none.jsdw")));
+    }
+
+    // ---- SDUPG-16: building the overlay list leaves the registry as it found it and writes to no listed file ----
+    {
+        bool clean = true;
+        std::string det;
+        for (int variant = 0; variant < 3; ++variant) {
+            install_old();
+            const std::string ov = tmp("listed.jsdw");
+            make_overlay(ov, "/L.BIN", "l");
+            sdcard::upgrade::register_overlay(w.dir, ov);
+            const uint64_t before = digest(ov);
+            Spy sp;
+            sp.answer = variant == 0 ? sdcard::UpgradeChoice::Keep : sdcard::UpgradeChoice::KeepDontAskAgain;
+            sdcard::ProvisionOptions o = opts_with(&sp);
+            if (variant == 2) { o = opts_with(nullptr, sdcard::UpgradeMode::Yes); o.download = failing_dl; }
+            const auto r = sdcard::provision_sd_card(o);
+            const bool ok = r.status == sdcard::ProvisionStatus::Ok && !sd_write_journal::for_image(w.fixed) && digest(ov) == before;
+            if (!ok) { clean = false; det += " variant" + std::to_string(variant); }
+            sd_write_journal::forget_image(w.fixed);
+        }
+        check("SDUPG-16", "after 'Not now', 'Keep my card (don't ask again)' and an accepted upgrade whose download fails, no writes file is bound to the default card and every listed file is byte-identical",
+              clean, det);
+    }
+    // ---- SDUPG-17: the offer's affirmative answer without a pristine base is a fresh start --------------------------
+    {
+        install_old();
+        fs::remove(w.raw);
+        g_downloads = 0;
+        Spy sp;
+        const auto r = sdcard::provision_sd_card(opts_with(&sp));
+        const auto nf = foreign(w.fixed);
+        check("SDUPG-17", "with no original image the offer says so (carries == false, names the real buttons and fresh), and its affirmative answer starts fresh: nothing carried, the old card in previous/",
+              sp.calls == 1 && !sp.carries && has(sp.msg, "Not now goes on") && has(sp.msg, "--sdcard-upgrade fresh") &&
+                  r.status == sdcard::ProvisionStatus::Ok && new_set_in_place() && g_downloads == 1 &&
+                  text(nf, "/GAMES/MINE.NEX") == "<absent>" && exists(prev(sdcard::kFixedImageFileName)),
+              sp.msg + r.error + r.warning);
+    }
+    // ---- SDUPG-18: the esxDOS stand-in's record of a writes file is carried by the upgrade --------------------------
+    {
+        install_old();
+        const std::string ov = tmp("kept.jsdw");
+        make_overlay(ov, "/K.BIN", "k");
+        {
+            sd_write_journal::Binding b;
+            std::error_code ec;
+            b.bytes = fs::file_size(w.fixed, ec);
+            b.mtime = static_cast<int64_t>(fs::last_write_time(w.fixed, ec).time_since_epoch().count());
+            std::string why;
+            sd_write_journal::bind(w.fixed, ov, b, false, why);
+            sd_write_journal::for_image(w.fixed)->commit_file("KEPT.BIN", bytes_of("kept-bytes"));
+            sd_write_journal::forget_image(w.fixed);
+        }
+        sdcard::ProvisionOptions o = opts_with(nullptr, sdcard::UpgradeMode::Yes);
+        o.overlays.push_back(ov);
+        const auto r = sdcard::provision_sd_card(o);
+        std::optional<sd_write_journal::KeptFile> k;
+        {
+            sd_write_journal::Binding b;
+            std::error_code ec;
+            b.bytes = fs::file_size(w.fixed, ec);
+            b.mtime = static_cast<int64_t>(fs::last_write_time(w.fixed, ec).time_since_epoch().count());
+            std::string why;
+            if (sd_write_journal::bind(w.fixed, ov, b, false, why)) k = sd_write_journal::for_image(w.fixed)->kept_file();
+            sd_write_journal::forget_image(w.fixed);
+        }
+        check("SDUPG-18", "the kept-file record of a writes file is copied to the rebuilt one",
+              r.status == sdcard::ProvisionStatus::Ok && new_set_in_place() && k && k->name == "KEPT.BIN" && k->data == bytes_of("kept-bytes"),
+              r.error + r.warning);
+    }
+    // ---- SDUPG-19: a new card without the machine ROMs fails the upgrade, the old set intact --------------------------
+    {
+        install_old();
+        const uint64_t cb = digest(w.fixed), rb = digest(w.raw);
+        sdcard::ProvisionOptions o = opts_with(nullptr, sdcard::UpgradeMode::Yes);
+        o.download = norom_dl;
+        const auto r = sdcard::provision_sd_card(o);
+        check("SDUPG-19", "a new distribution whose card has no 48K ROM after the carry-over fails the upgrade (Ok + warning), the old set intact and no work directory left",
+              r.status == sdcard::ProvisionStatus::Ok && has(r.warning, "48K ROM") && digest(w.fixed) == cb && digest(w.raw) == rb &&
+                  get_text(w.fixed_distro) == kOld + "\n" && !exists(prev("")) && !exists(sdcard::upgrade::work_dir(w.dir)),
+              r.warning + r.error);
+    }
+    // ---- SDUPG-20/21: the plan's overlay conditions are part of the decision before the download ----------------------
+    {
+        install_old();
+        const std::string ov = tmp("foreign.jsdw");
+        make_overlay(ov, "/F.BIN", "f");
+        std::error_code ec;
+        fs::last_write_time(w.fixed, fs::last_write_time(w.fixed, ec) + std::chrono::hours(5), ec);   // the card is "another" card now
+        g_downloads = 0;
+        sdcard::ProvisionOptions o = opts_with(nullptr, sdcard::UpgradeMode::Yes);
+        o.overlays.push_back(ov);
+        const auto r = sdcard::provision_sd_card(o);
+        check("SDUPG-20", "a writes file that was made for another card makes --sdcard-upgrade yes refuse before any download, naming it",
+              r.status == sdcard::ProvisionStatus::Failed && r.refused && has(r.error, "made for another card") && has(r.error, "--sdcard-upgrade fresh") && g_downloads == 0,
+              r.error);
+    }
+    {
+        install_old();
+        const std::string ov = tmp("bootsector.jsdw");
+        {
+            sd_write_journal::Binding b;
+            std::error_code ec;
+            b.bytes = fs::file_size(w.fixed, ec);
+            b.mtime = static_cast<int64_t>(fs::last_write_time(w.fixed, ec).time_since_epoch().count());
+            std::string why;
+            sd_write_journal::bind(w.fixed, ov, b, true, why);
+            uint8_t sector[sd_write_journal::kSectorBytes];
+            std::memset(sector, 0xAB, sizeof sector);
+            sd_write_journal::for_image(w.fixed)->commit(kLba, sector);   // the partition's boot sector
+            sd_write_journal::forget_image(w.fixed);
+        }
+        g_downloads = 0;
+        sdcard::ProvisionOptions o = opts_with(nullptr, sdcard::UpgradeMode::Yes);
+        o.overlays.push_back(ov);
+        const auto r = sdcard::provision_sd_card(o);
+        check("SDUPG-21", "a writes file that rewrites the partition's boot sector makes --sdcard-upgrade yes refuse before any download",
+              r.status == sdcard::ProvisionStatus::Failed && r.refused && has(r.error, "boot sector") && g_downloads == 0, r.error);
+    }
+    // ---- SDUPG-22: a listed writes file another jnext holds: no offer, no upgrade -----------------------------------
+    {
+        install_old();
+        const std::string ov = tmp("held.jsdw");
+        make_overlay(ov, "/H.BIN", "h");
+        sdcard::upgrade::register_overlay(w.dir, ov);
+        std::string why;
+        auto lk = sdcard::ImageLock::acquire(ov, sdcard::ImageLock::Kind::Writes, why);
+        const uint64_t cb = digest(w.fixed);
+        g_downloads = 0;
+        Spy sp;
+        const auto r = sdcard::provision_sd_card(opts_with(&sp));
+        lk.reset();
+        check("SDUPG-22", "a listed writes file that another jnext holds means no offer and no upgrade: nothing asked, downloaded or moved",
+              lk.has_value() == false && r.status == sdcard::ProvisionStatus::Ok && sp.calls == 0 && g_downloads == 0 && digest(w.fixed) == cb && !exists(prev("")),
+              why);
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

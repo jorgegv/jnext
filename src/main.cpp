@@ -2319,12 +2319,6 @@ static int run_main(int argc, char* argv[]) {
             }
         }
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
-        if (res.status == sdcard::ProvisionStatus::Failed && res.refused) {
-            // a refusal of what was asked, with the card there and untouched: the reason, not "no card"
-            Log::emulator()->error("SD-card image: {}", res.error);
-            startup_report::report("error: %s\n", res.error.c_str());
-            return 1;
-        }
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
             if (!res.warning.empty()) {
@@ -2343,8 +2337,9 @@ static int run_main(int argc, char* argv[]) {
             // answer and needs no report.
             if (sd_gui_dialogs && res.status == sdcard::ProvisionStatus::Failed && !res.error.empty()) {
                 Log::emulator()->error("SD-card image: {}", res.error);
-                gui_prov.warn("The SD-card image could not be installed:\n\n" + res.error +
-                              "\n\njnext cannot start without one.");
+                gui_prov.warn(res.refused ? "The SD card was not changed:\n\n" + res.error
+                                          : "The SD-card image could not be installed:\n\n" + res.error +
+                                            "\n\njnext cannot start without one.");
                 logged = true;
             }
 #endif
@@ -2352,6 +2347,10 @@ static int run_main(int argc, char* argv[]) {
             // reason to stderr and nowhere else, so a run with --log-file kept no trace of it.
             if (!logged && res.status == sdcard::ProvisionStatus::Failed && !res.error.empty())
                 Log::emulator()->error("SD-card image: {}", res.error);
+            if (res.refused) {   // a refusal of what was asked, the card is there and untouched: the reason only
+                startup_report::report("error: %s\n", res.error.c_str());
+                return 1;
+            }
             if (!res.error.empty())
                 startup_report::report("error: SD-card image: %s\n", res.error.c_str());
             startup_report::report("error: no SD-card image available.\n"
