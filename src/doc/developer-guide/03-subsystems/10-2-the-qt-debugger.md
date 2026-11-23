@@ -387,7 +387,7 @@ Which space each view prints, and the columns that were added, are described in
 ### The Audio panel
 
 `AudioPanel` (`src/debugger/audio_panel.cpp`) is a Sources strip (the five source mute boxes) above a
-`QTabWidget`: Chips, DAC & Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+`QTabWidget`: Chips, DAC & Beeper, Log, Tracker and Scopes. Only Scopes is a placeholder: it says it is
 not available yet. The panel owns no audio state: every number comes from one `Debugger::audio_state()` per
 refresh, and every note from `audio_math.h`, so the panel and a test read the same decode.
 
@@ -402,13 +402,16 @@ refresh, and every note from `audio_math.h`, so the panel and a test read the sa
   entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
   overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
   `audio_log_export()`.
+- **Tracker** is `AudioTrackerView`: it groups the log with `AudioFrameAccumulator` and mirrors it through
+  `fetch_audio_log()`, as Log does ([3.4](04-audio.md), Frame grouping and the tracker).
 - **M and S** per channel call `set_audio_channel_mute_mask()`. A solo is the mask "everything but that
   channel": `channel_solo_clicked()` saves the mask it found (`pre_solo_mask_`) and un-solo restores it, a solo
   moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
   solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.
 
 What the panel asks of the backend follows the sub-tab on show. `DebuggerManager::apply_data_needs()` requests
-the write log only while the Audio panel is on show with Log current (`AudioPanel::log_on_show()`), and drops
+the write log only while the Audio panel is on show with Log or Tracker current (`AudioPanel::log_on_show()`,
+`AudioPanel::tracker_on_show()`), and drops
 the request otherwise; the panel's `sub_tab_changed` signal makes the manager re-derive it. Chips is the one
 sub-tab with the per-frame refresh described under the running cadence above.
 

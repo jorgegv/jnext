@@ -3592,7 +3592,7 @@ Which space each view prints, and the columns that were added, are described in
 <a href="../07-source-level-debugging/07-frontends.html">7.7</a>.</p>
 <h3 id="the-audio-panel">The Audio panel<a class="headerlink" href="#the-audio-panel" title="Permanent link">&para;</a></h3>
 <p><code>AudioPanel</code> (<code>src/debugger/audio_panel.cpp</code>) is a Sources strip (the five source mute boxes) above a
-<code>QTabWidget</code>: Chips, DAC &amp; Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+<code>QTabWidget</code>: Chips, DAC &amp; Beeper, Log, Tracker and Scopes. Only Scopes is a placeholder: it says it is
 not available yet. The panel owns no audio state: every number comes from one <code>Debugger::audio_state()</code> per
 refresh, and every note from <code>audio_math.h</code>, so the panel and a test read the same decode.</p>
 <ul>
@@ -3607,13 +3607,16 @@ refresh, and every note from <code>audio_math.h</code>, so the panel and a test 
   entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
   overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
   <code>audio_log_export()</code>.</li>
+<li><strong>Tracker</strong> is <code>AudioTrackerView</code>: it groups the log with <code>AudioFrameAccumulator</code> and mirrors it through
+  <code>fetch_audio_log()</code>, as Log does (<a href="04-audio.html">3.4</a>, Frame grouping and the tracker).</li>
 <li><strong>M and S</strong> per channel call <code>set_audio_channel_mute_mask()</code>. A solo is the mask "everything but that
   channel": <code>channel_solo_clicked()</code> saves the mask it found (<code>pre_solo_mask_</code>) and un-solo restores it, a solo
   moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
   solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.</li>
 </ul>
 <p>What the panel asks of the backend follows the sub-tab on show. <code>DebuggerManager::apply_data_needs()</code> requests
-the write log only while the Audio panel is on show with Log current (<code>AudioPanel::log_on_show()</code>), and drops
+the write log only while the Audio panel is on show with Log or Tracker current (<code>AudioPanel::log_on_show()</code>,
+<code>AudioPanel::tracker_on_show()</code>), and drops
 the request otherwise; the panel's <code>sub_tab_changed</code> signal makes the manager re-derive it. Chips is the one
 sub-tab with the per-frame refresh described under the running cadence above.</p>
 <h2 id="the-key-bindings-are-data">The key bindings are data<a class="headerlink" href="#the-key-bindings-are-data" title="Permanent link">&para;</a></h2>
