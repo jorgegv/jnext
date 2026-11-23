@@ -2251,6 +2251,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scopes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stopping-on-an-audio-write" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4582,7 +4593,7 @@ which one is making a noise does not change the program's behaviour.</p>
 <p>Each channel also has its own <strong>M</strong> (mute) and <strong>S</strong> (solo) buttons, described
 under <a href="#mute-and-solo">Mute and solo</a> below.</p>
 <p>Below it are five tabs: <strong>Chips</strong>, <strong>DAC &amp; Beeper</strong>, <strong>Log</strong>, <strong>Tracker</strong> and
-<strong>Scopes</strong>. Scopes is not available yet.</p>
+<strong>Scopes</strong>.</p>
 <h2 id="chips">Chips<a class="headerlink" href="#chips" title="Permanent link">&para;</a></h2>
 <p>The header reports whether TurboSound is enabled, whether the chips are in AY
 or YM mode, whether the stereo layout is ABC or ACB, the PSG mode set in
@@ -4766,6 +4777,37 @@ follow the live mutes, so a mute set by a script shows on them.</p>
 <p>A script reads and sets the channel mutes with <code>AUDIO_CHANNEL_MUTE</code>: bit 0 to 8
 are the AY channels (bit <code>3 * chip + channel</code>, channel A = 0), bit 9 to 12 are
 DAC A to D, and a set bit is a muted channel.</p>
+<h2 id="scopes">Scopes<a class="headerlink" href="#scopes" title="Permanent link">&para;</a></h2>
+<p>One oscilloscope trace and one level meter for each of sixteen sources, in this
+order: the three channels of each AY chip (AY0 A to AY2 C), the four DAC channels
+(DAC A to D), the Beeper, and the stereo mix (Left and Right). A trace shows the
+last 20 ms.</p>
+<p>What a trace shows is what the source produces, before everything the debugger
+and the host do to it:</p>
+<ul>
+<li>an AY channel is the chip's own channel output, before the TurboSound routing
+  and the pan, so a chip that is not in the mix still shows what it is
+  generating (the Chips tab says whether it reaches the mix);</li>
+<li>a DAC channel is the byte last written, drawn around its midpoint (<code>0x80</code> is
+  silence);</li>
+<li>the Beeper is EAR and MIC, and is flat while the beeper is excluded from the mix;
+  a tape that is playing (and the Pi's audio when it is routed to EAR) reaches the mix
+  only through the MIC term, as on the hardware, so it shows here as the MIC step;</li>
+<li>Left and Right are the hardware mix, the same sum as the sound output.</li>
+</ul>
+<p>Muting a source in the Sources strip or changing a gain does not change a trace:
+the scopes show the machine, not what you hear.</p>
+<p>The trace is edge-triggered: it starts at the latest rising crossing of the middle
+of the signal's range that leaves a whole window after it, so a steady tone stands
+still. The lamp beside the title reads <code>trig</code> while an edge was found and <code>free</code>
+when there was none (a silent or constant source, or a signal that does not rise
+through its middle), and the trace then simply shows the newest samples.</p>
+<p>The bar is the largest swing of the drawn window from the source's resting level,
+as a percentage of the most it can swing; beside it, <code>pk</code> is that swing and <code>rms</code>
+the root mean square, in the source's own units (0 to 255 for an AY or DAC channel).</p>
+<p>Samples are collected only while this tab is on show, and the scopes redraw on
+every frame while the machine runs. While it is collecting, programs that sit in HALT or poll the raster run without the emulator's idle shortcuts. At 28 MHz such programs can need five to eight times the host CPU while Scopes is on show (about twice at 3.5 MHz), so a slow host may not keep real time; it ends when you leave the tab. With <code>--silent</code> the emulator does not
+synthesise audio, and the tab says so instead of drawing traces.</p>
 <h2 id="stopping-on-an-audio-write">Stopping on an audio write<a class="headerlink" href="#stopping-on-an-audio-write" title="Permanent link">&para;</a></h2>
 <p>To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an
 <strong>Audio Write</strong> breakpoint in the <a href="08-breakpoints.html#audio-write-breakpoints">Breakpoints panel</a>,
