@@ -512,7 +512,7 @@ endif()
 # ~/.jnext/sdcard/cspect-next-1gb-fixed.img, overridable via
 # JNEXT_TEST_SD_IMAGE — which run-unit-tests.sh sets to a private per-run
 # clone (GH #75). Nothing under roms/ is involved.
-add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp)
+add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp core/log_capture.cpp)
 target_link_libraries(sd_rom_extractor_test PRIVATE jnext_core)
 target_include_directories(sd_rom_extractor_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sd_rom_extractor_tests

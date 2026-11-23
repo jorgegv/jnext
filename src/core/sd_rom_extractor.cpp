@@ -178,6 +178,10 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
                std::string* why = nullptr) {
     uint8_t bpb[512];
     f.clear();
+    f.seekg(0, std::ios::end);
+    const std::streamoff img_end = f.tellg();
+    const uint64_t image_sectors = img_end > 0 ? static_cast<uint64_t>(img_end) / 512 : 0;
+    f.clear();
     f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(partition_lba) * 512),
             std::ios::beg);
     f.read(reinterpret_cast<char*>(bpb), 512);
@@ -234,6 +238,13 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
                           static_cast<uint32_t>(g.num_fats) * g.fat_size_sectors;
     g.bytes_per_cluster = static_cast<uint32_t>(g.sectors_per_cluster) *
                           g.bytes_per_sector;
+    // A chain cannot visit more clusters than the image FILE holds past the system
+    // area, whatever a hostile BPB claims (TotSec32 0xFFFFFFFF, a huge FAT).
+    auto cap_by_image = [&](uint64_t n) -> uint32_t {
+        const uint64_t room = image_sectors > g.data_start_lba
+            ? (image_sectors - g.data_start_lba) / g.sectors_per_cluster : 0;
+        return static_cast<uint32_t>(std::min<uint64_t>(n, room));
+    };
     if (fat32_layout) {
         // Chain-length bound: the volume's cluster count where the BPB gives
         // one, never more than the FAT can hold entries for.
@@ -244,7 +255,7 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
         const uint32_t sys32 = g.data_start_lba - g.partition_lba_start;
         uint64_t n = fat_entries;
         if (tot32 > sys32) n = std::min<uint64_t>(n, (tot32 - sys32) / g.sectors_per_cluster);
-        g.n_clusters = static_cast<uint32_t>(std::min<uint64_t>(n, 0x0FFFFFFFu));
+        g.n_clusters = cap_by_image(std::min<uint64_t>(n, 0x0FFFFFFFu));
         return true;
     }
 
@@ -270,7 +281,7 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
         return false;
     }
     g.fat_bits = (nclst <= 0xFF5u) ? 12 : 16;
-    g.n_clusters = nclst;
+    g.n_clusters = cap_by_image(nclst);
     return true;
 }
 

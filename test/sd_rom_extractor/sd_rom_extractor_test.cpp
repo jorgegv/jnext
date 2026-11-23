@@ -22,6 +22,7 @@
 //              any non-zero MBR type over a FAT boot record, a card with no
 //              partition table, FAT16/FAT12 chains and root directories, the
 //              cluster-count boundaries, and a 48K machine booting from one.
+//   SD-EXT-28  a hostile FAT32 BPB (TotSec32 0xFFFFFFFF): the chain walk is capped by the image file.
 //   SD-EXT-22..27  (review round 1) firmware scan before the 0x0C leniency, the
 //              jump-byte half of check_fs, FAT16 DIR_FstClusHI ignored, and a cyclic
 //              FAT16 directory bounded by the cluster count.
@@ -45,6 +46,7 @@
 #include "core/emulator_config.h"
 #include "core/fatfs_diskio.h"
 #include "core/sd_rom_extractor.h"
+#include "../core/log_capture.h"
 
 extern "C" {
 #include "third_party/fatfs/ff.h"
@@ -275,7 +277,9 @@ bool populate_fragmented(const std::vector<uint8_t>& data, const char* dir, cons
 // FAT12/16 do not use, ff.c ld_clust :1624-1636); `cycle_dir` makes /SUB a
 // directory whose chain is 2 -> 3 -> 2 with no terminator and no match;
 // `fatsz_override` makes BPB_FATSz16 that large (a FAT far bigger than the volume).
-struct HandOpts { bool hi_junk = false; bool cycle_dir = false; uint32_t fatsz_override = 0; };
+// `tail_sectors` makes the FILE longer than the volume (junk past its end), so the
+// image-size cap does not equal the BPB's cluster count.
+struct HandOpts { bool hi_junk = false; bool cycle_dir = false; uint32_t fatsz_override = 0; uint32_t tail_sectors = 0; };
 
 bool make_hand_fat(const std::string& path, uint32_t nclst, int& expect_bits,
                    std::vector<uint8_t>& expect_data, const HandOpts& o = {}) {
@@ -332,6 +336,42 @@ bool make_hand_fat(const std::string& path, uint32_t nclst, int& expect_bits,
     }
     expect_data.assign(1024, 0xA1);
     std::fill(expect_data.begin() + 512, expect_data.end(), 0xB2);
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(img.data()), static_cast<std::streamsize>(img.size()));
+    // The file is as long as the volume the BPB describes (sparse), so a chain walk's
+    // image-size cap equals the BPB's own cluster count.
+    f.seekp(static_cast<std::streamoff>(static_cast<uint64_t>(tsect + o.tail_sectors) * 512 - 1));
+    const char z = 0;
+    f.write(&z, 1);
+    return f.good();
+}
+
+// A hand-built partition-less FAT32 volume (1 sector/cluster, FATSz32 sectors of FAT,
+// root = cluster 2 -> 3 -> 2, no terminator, no match) whose BPB claims TotSec32 =
+// 0xFFFFFFFF while the FILE holds only the system area and 4 data clusters.
+bool make_hostile_fat32(const std::string& path, uint32_t fatsz) {
+    const uint32_t data_lba = 1 + fatsz;
+    std::vector<uint8_t> img(static_cast<size_t>(data_lba + 4) * 512, 0);
+    uint8_t* b = img.data();
+    b[0] = 0xEB; b[1] = 0x58; b[2] = 0x90;
+    put16(b + 11, 512);
+    b[13] = 1;
+    put16(b + 14, 1);
+    b[16] = 1;
+    put32(b + 32, 0xFFFFFFFFu);
+    put32(b + 36, fatsz);
+    put32(b + 44, 2);
+    std::memcpy(b + 0x52, "FAT32   ", 8);
+    b[510] = 0x55; b[511] = 0xAA;
+    uint8_t* fat = img.data() + 512;
+    put32(fat + 2 * 4, 3);
+    put32(fat + 3 * 4, 2);
+    for (uint32_t c = 0; c < 2; ++c)
+        for (int slot = 0; slot < 16; ++slot) {
+            uint8_t* v = img.data() + static_cast<size_t>(data_lba + c) * 512 + slot * 32;
+            v[0] = 'V'; v[11] = 0x08;   // volume-label slot: skipped, no terminator
+        }
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
     if (!f) return false;
     f.write(reinterpret_cast<const char*>(img.data()), static_cast<std::streamsize>(img.size()));
@@ -781,7 +821,8 @@ int main() {
         const std::string p = scratch_path("legacy0c");
         const int t = make_fatfs_card(p, kMbrLba, 70000, FM_FAT32, 512, 0,
                                       [&] { return populate_rom48(rom48); });
-        const bool mbr = write_mbr_entries(p, {{0x0C, kMbrLba}});
+        // Slot 0 is a 0x0C entry at LBA 0 (no volume there): pass 2 must skip it (lba != 0).
+        const bool mbr = write_mbr_entries(p, {{0x0C, 0}, {0x0C, kMbrLba}});
         const bool poked = poke_byte(p, static_cast<uint64_t>(kMbrLba) * 512, 0x00);
         check("SD-EXT-20",
               "a type-0x0C entry over a FAT32 boot sector without a jump byte still extracts (legacy 0x0B/0x0C arm kept)",
@@ -856,17 +897,30 @@ int main() {
     {
         std::vector<uint8_t> want;
         int bits = 0;
-        HandOpts o; o.cycle_dir = true; o.fatsz_override = 65535;
+        HandOpts o; o.cycle_dir = true; o.fatsz_override = 65535; o.tail_sectors = 20000;
         const std::string p = scratch_path("cycle16");
         const bool made = make_hand_fat(p, 4100, bits, want, o);
         std::vector<uint8_t> out;
-        const auto t0 = std::chrono::steady_clock::now();
-        const bool ok = extract_sd_rom(p, "/SUB/X.BIN", out);
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now() - t0).count();
+        bool ok = true;
+        const std::string log = capture_emulator_log([&] { ok = extract_sd_rom(p, "/SUB/X.BIN", out); });
+        const bool bounded = log.find("(4101 > 4100)") != std::string::npos;
         check("SD-EXT-27",
-              "a FAT16 card with a cyclic subdirectory chain and a FAT far larger than the volume is refused, and quickly: the walk is bounded by the volume's cluster count (4100), not by the FAT's capacity",
-              made && !ok && out.empty() && ms < 5000, "ms=" + std::to_string(ms));
+              "a FAT16 card with a cyclic subdirectory chain and a FAT far larger than the volume is refused, the walk stopping at the volume's cluster count: the refusal reads (4101 > 4100), not the FAT's capacity",
+              made && !ok && out.empty() && bounded, "bounded=" + std::to_string(bounded));
+    }
+
+    {
+        // A hostile FAT32 BPB (TotSec32 0xFFFFFFFF, a FAT of 3000 sectors) over a file that
+        // holds 4 data clusters: a cyclic root chain is cut at the clusters the FILE holds.
+        const std::string p = scratch_path("hostile32");
+        const bool made = make_hostile_fat32(p, 3000);
+        std::vector<uint8_t> out;
+        bool ok = true;
+        const std::string log = capture_emulator_log([&] { ok = extract_sd_rom(p, "/X.BIN", out); });
+        check("SD-EXT-28",
+              "a FAT32 cyclic root chain under an inflated TotSec32 (0xFFFFFFFF) is refused after as many steps as the image file has clusters (5 > 4), not after the BPB's claim",
+              made && !ok && out.empty() && log.find("(5 > 4)") != std::string::npos,
+              "ok=" + std::to_string(ok));
     }
 
     cleanup_scratch();
