@@ -173,6 +173,41 @@ an RZX in progress, an empty buffer, a frame outside the buffer, or one from bef
 reset or a state load). After the jump the rows from that frame on are removed and a
 `rewind` row is added; they come back as the machine runs again.
 
+### Player timing
+
+Under the table, the strip shows where in the frame the AY player writes, which is what a
+music routine's cost looks like from outside: a player that runs from the frame interrupt
+writes at about the same place every frame, and a frame that writes later than the others is
+a frame the routine ran late. The numbers are over the last **Window** frames (1 to 1000,
+50 at first; the box is a view control and is not saved):
+
+- the span line says which frames the window covers, how many of them have AY writes and how
+  many have none (a frame the player missed);
+- **First write** and **Last write** give the line and the T-state, counted from the start of
+  the frame, of the first and last AY write of each frame, as min / avg / max;
+- **Writes per frame** gives the number of AY register writes as min / avg / max, and the range
+  of addresses the CPU wrote from (writes by DMA or by the debugger have no address).
+
+Lines count from the start of the frame, so the frame interrupt itself is on line 1 with the
+Next's default timing (line 0 with 48K timing, the last line with Pentagon timing): a player
+that starts at the interrupt writes on line 1 or just after it. A steady player that waits for
+the interrupt with `HALT` can still vary by up to 3 T-states, because the CPU accepts the
+interrupt at the end of the `HALT` instruction.
+
+The line below the numbers describes the selected table row (the last row when none is
+selected): the same first and last write, the count and the PC range of that one frame, or
+`no AY write` for a run of empty frames.
+
+The plot has one dot per frame, at the line of the frame's first AY write, scaled to the
+window's own lines (the earliest at the top, a range of at least 9 lines; its two ends are
+printed under the plot). A gap is a frame with no AY write. Level dots are a steady player; a
+dot that drops is a late frame.
+
+Only AY register writes are timed, and the frame the machine is still in is not counted. A
+reset or a state load starts the window afresh; a rewind does not. The strip shows when a
+routine runs, not what it costs: for the exact cost of a routine read the T-states counter of
+the [CPU panel](01-cpu-registers.md) between two stops, or run with `--profile`.
+
 ## Mute and solo
 
 Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,

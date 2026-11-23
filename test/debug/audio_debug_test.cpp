@@ -3340,11 +3340,12 @@ int main() {
         }
         {
             const std::vector<AudioFrame> a = {tf(1, 1, 1, 1, 1, 1, 0x8100, 0x8150), tf(2, 1, 1, 1, 1, 1, 0x8000, 0x8120),
-                                               tf(3, 1, 1, 1, 1, 1, 0xFFFF, 0)};
+                                               tf(3, 1, 1, 1, 1, 1, 0xFFFF, 0),
+                                               tf(4, 1, 1, 1, 1, 1, 0x9000, 0x8FFF)};
             const std::vector<AudioFrame> b = {tf(1, 1, 1, 1, 1, 1, 0xFFFF, 0), tf(2, 1, 1, 1, 1, 1, 0xFFFF, 0), tf(3, 1, 1, 1, 1, 1, 0xFFFF, 0)};
             const AudioTimingStats sa = audio_timing_stats(ptrs(a), 50);
             const AudioTimingStats sb = audio_timing_stats(ptrs(b), 50);
-            check("AFG-22", "PC ranges 0x8100-0x8150, 0x8000-0x8120 and none: the union is 0x8000-0x8150; three frames with no CPU write leave pc_min 0xFFFF, pc_max 0",
+            check("AFG-22", "PC ranges 0x8100-0x8150, 0x8000-0x8120, none (0xFFFF-0) and an inverted pair (0x9000-0x8FFF, min > max): neither adds anything, the union is 0x8000-0x8150; three frames with no CPU write leave pc_min 0xFFFF, pc_max 0",
                   sa.pc_min == 0x8000 && sa.pc_max == 0x8150 && sb.frames == 3 && sb.pc_min == 0xFFFF && sb.pc_max == 0);
         }
         {
