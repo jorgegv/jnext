@@ -276,6 +276,22 @@ public:
     static bool probe_version(const std::string& path, uint8_t& version_bcd,
                               char version_str[5]);
 
+    /// GH #381 / #556 - what the GUI asks BEFORE it cold-boots for a file that
+    /// would route to this loader, so a file the load cannot take is refused
+    /// with the session untouched. Mirrors what load() refuses:
+    ///   NotNex - unreadable, or shorter than the 512-byte header; or, when
+    ///            `nex_extension` is false (an extension nothing owns), a file
+    ///            whose first four bytes are not "Next" (nothing on the Next
+    ///            runs NEXLOAD on such a file, so the bytes are the only
+    ///            evidence it is one). A `.nex` is NOT magic-checked: the
+    ///            NEXLOAD NextZXOS ships never reads them.
+    ///   TooNew - a readable header whose version is above kNexLoaderVersionBcd
+    ///            (load() refuses it).
+    /// `version_bcd` / `version_str` are filled for Ok and TooNew.
+    enum class PreBoot { Ok, NotNex, TooNew };
+    static PreBoot preboot_check(const std::string& path, bool nex_extension,
+                                 uint8_t& version_bcd, char version_str[5]);
+
     /// File offset at which the first 16K bank's data begins. Derived from
     /// the header-described blocks, or taken from the V1.3 `banks_offset`
     /// field when that is present and consistent (see load()).

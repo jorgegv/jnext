@@ -25,8 +25,8 @@
 #   through MAKEFLAGS), JNEXT_UNIT_TEST_JOBS and JNEXT_TEST_JOBS, unless the caller set that one itself. One
 #   line at admission names the caps. Runs sent to the remote are untouched (the driver caps them there).
 #
-# OVERFLOW TO THE REMOTE (owner, 2026-11-21: host picked by load; long heavy runs go to the remote by
-# default; never wait on it)
+# REMOTE FIRST (owner, 2026-11-23: "Remote work rule: try to fill remote workers before running builds
+# locally, unless needed"; before it only LONG runs went first and short ones went when no local slot was free)
 #   A command is ELIGIBLE when ALL of these hold (the first that fails is printed, once, and the
 #   command waits for a local slot as before):
 #     1. JNEXT_SLOT_NO_OVERFLOW and REMOTE_RUN_FALLBACK are unset (a run the driver fell back from is
@@ -38,10 +38,14 @@
 #     4. the worktree's branch is an issue branch gh<N>-<slug> (never main, epic*, gate-*, detached);
 #     5. `git status --porcelain` there is empty, untracked files included: the remote runs only
 #        committed state, so an edit-and-test cycle (mutations!) always stays local.
-#   An eligible command is sent to the remote FIRST when it is LONG (the full unit-test targets,
-#   wasm-browser-test, the full regression, regression-win/-wasm), because the remote host is as fast as
-#   this one and does not load it; a heavy but short command (regression-rows, test-affected) is sent
-#   only when no local slot is admissible right now (all held, or the load is at the limit). Sending =
+#   An eligible command (any heavy target: the full unit-test targets, wasm-browser-test, the full
+#   regression, regression-win/-wasm, regression-rows, test-affected) is sent to a remote lane FIRST, whenever
+#   one is free right now, and runs here only when every lane of every host is busy or unusable (then it
+#   waits for a local slot, as below). A command that is not eligible stays local exactly as before.
+#   "Unless needed" (the owner's words): a run that needs THIS host sets JNEXT_SLOT_NO_OVERFLOW=1: uncommitted state
+#   (mutants), bench or xvfb probes, a measurement, or material that must never leave this host (a reporter's game
+#   shared for testing, the user's own card; slot.sh cannot detect it). Never set it for a gate run.
+#   Sending =
 #   push origin/<branch> if it is not at HEAD (`git push origin <branch>`, never forced; COMMON-RULES
 #   "REMOTE RUNS" authorizes an agent to push its own issue branch), then remote-run.sh --stream.
 #   HOSTS (GH #547, owner 2026-11-22: several remote hosts): the aliases are tried in list order; a host
@@ -85,9 +89,8 @@ LOGDIR=${JNEXT_SLOT_REMOTE_LOG_DIR:-$HOME/tmp/remote-run}
 LIMIT=${JNEXT_SLOT_LOAD_LIMIT:-$(nproc 2>/dev/null || echo 12)}
 DIR=${JNEXT_SLOT_DIR:-}
 
-# Targets worth sending (the remote-run skill's D14 list, plus the full regression and test-affected).
-LONG_TARGETS=" unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm "
-SHORT_TARGETS=" regression-rows test-affected "
+# Targets worth sending (the remote-run skill's D14 list, plus the full regression, regression-rows and test-affected).
+HEAVY_TARGETS=" unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected "
 
 usage() { echo "usage: slot.sh --dir <slots dir> [--limit N] <command> [args...]" >&2; exit 2; }
 while [[ $# -gt 0 ]]; do
@@ -145,13 +148,13 @@ try_local() {
     return 1
 }
 
-# parse_overflow: sets OV_REASON ("" = eligible), OV_SHAPE (1 = the command names a heavy target), OV_LONG, OV_WT,
+# parse_overflow: sets OV_REASON ("" = eligible), OV_SHAPE (1 = the command names a heavy target), OV_WT,
 # OV_BRANCH and the array OV_TARGETS (the remote-run targets).
 parse_overflow() {
-    OV_REASON=""; OV_SHAPE=0; OV_LONG=0; OV_WT=""; OV_BRANCH=""; OV_TARGETS=()
+    OV_REASON=""; OV_SHAPE=0; OV_WT=""; OV_BRANCH=""; OV_TARGETS=()
     if [[ -n "${JNEXT_SLOT_NO_OVERFLOW:-}" || -n "${REMOTE_RUN_FALLBACK:-}" ]]; then OV_REASON=SILENT; return; fi
     local a=("${CMD[@]}") i=0 w words=() vars=() targets=() spaced=0
-    for w in "${a[@]}"; do [[ "$LONG_TARGETS$SHORT_TARGETS" != *" $w "* ]] || OV_SHAPE=1; done   # names a heavy target: the reason is worth printing
+    for w in "${a[@]}"; do [[ "$HEAVY_TARGETS" != *" $w "* ]] || OV_SHAPE=1; done   # names a heavy target: the reason is worth printing
     if [[ "${a[0]}" == env ]]; then
         i=1
         while [[ "${a[i]:-}" == *=* ]]; do
@@ -164,9 +167,8 @@ parse_overflow() {
     OV_WT=${a[i + 2]}
     words=("${a[@]:i + 3}")
     for w in "${words[@]}"; do
-        if [[ "$LONG_TARGETS$SHORT_TARGETS" == *" $w "* ]]; then
+        if [[ "$HEAVY_TARGETS" == *" $w "* ]]; then
             targets+=("$w")
-            [[ "$LONG_TARGETS" != *" $w "* ]] || OV_LONG=1
         elif [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
             vars+=("$w")
             [[ "$w" != *[[:space:]]* ]] || spaced=1
@@ -305,10 +307,8 @@ announce() {
 # remote_try [quiet]: one pass over the hosts. A run that happened ends this script with its status; 99 = no host
 # had a lane (stay eligible, probe again), 98 = remote is out for good.
 can_remote=0; [[ -z "$OV_REASON" ]] && can_remote=1
-tried=0
 remote_try() {
     local rc
-    tried=1
     go_remote "${1:-0}"; rc=$?
     case $rc in
         99) ;;
@@ -318,7 +318,7 @@ remote_try() {
 }
 
 paused
-if [[ $can_remote -eq 1 && $OV_LONG -eq 1 ]]; then remote_try; fi
+if [[ $can_remote -eq 1 ]]; then remote_try; fi   # remote first: every eligible command, long or short
 [[ $OV_SHAPE -eq 0 || $can_remote -eq 1 || "$OV_REASON" == SILENT ]] || announce
 
 # The wait for a local slot also watches the remote hosts (owner, 2026-11-22: never queue here while a remote lane
@@ -330,12 +330,8 @@ while :; do
     if try_local; then break; fi
     announce
     if [[ $can_remote -eq 1 ]]; then
-        if [[ $tried -eq 0 ]]; then
-            remote_try
-        else
-            polls=$((polls + 1))
-            if (( polls % REPROBE == 0 )); then remote_try 1; fi
-        fi
+        polls=$((polls + 1))
+        if (( polls % REPROBE == 0 )); then remote_try 1; fi
     fi
     sleep "$POLL"
 done

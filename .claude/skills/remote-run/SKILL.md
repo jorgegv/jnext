@@ -33,8 +33,10 @@ local slots.
 
 In an autonomous run `slot.sh` (`.claude/skills/autonomous-run/slot.sh`) makes this choice itself and agents just call it (see that skill); what follows is the manual form.
 
-Choose the host by load before each heavy run (owner, 2026-11-21): this host free (slots free, load
-below `nproc`) → run here, it is faster; busy → the remote, with `--fallback-local`. An agent may push
+Remote first (owner, 2026-11-23: fill the remote workers before building locally, unless needed): before each
+heavy run pick a free lane (`pick-host.sh`) and run there, with `--fallback-local`; run here only when every lane
+of every host is busy, or when the run needs this host: uncommitted worktree state (mutants), a measurement, or
+material that must not leave it (a reporter's game, the user's own card). An agent may push
 its own issue branch (never force, never `main`; owner, 2026-11-21, superseding D9's orchestrator-only
 push) and then run the driver itself. The remote clones from GitHub, so the
 branch must be on `origin`; the batch gate pushes a temporary `gate-v<version>` branch (D8).

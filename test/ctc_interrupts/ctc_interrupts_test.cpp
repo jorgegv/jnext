@@ -3697,6 +3697,8 @@ static const uint8_t kP556Stub[]  = { 0xFB,0xED,0x4D };
 static const uint8_t kP556Nop[]   = { 0x00,0xFB,0xED,0x4D };
 static const uint8_t kP556Ctc[]   = { 0xE5,0x2A,0xF2,0xC0,0x23,0x22,0xF2,0xC0,0xE1,0xFB,0xED,0x4D };
 static const uint8_t kP556Trap[]  = { 0x3E,0xEE,0x32,0xF0,0xC0,0x18,0xFE };
+static const uint8_t kP556Idle2[] = { 0xFB,0x03,0x18,0xFC };   // C070: L: EI ; INC BC ; JR L
+static const uint8_t kP556Reti[]  = { 0xED,0x4D };               // C120: bare RETI (ED is the 1st fetch)
 
 static void p556_put(Emulator& emu, uint16_t at, const uint8_t* b, size_t n) {
     for (size_t i = 0; i < n; ++i) emu.mmu().write(static_cast<uint16_t>(at + i), b[i]);
@@ -3718,6 +3720,8 @@ static void p556_setup(Emulator& emu, uint16_t line_isr, uint16_t entry,
     p556_put(emu, 0xC008, kDiSpin, sizeof(kDiSpin));
     p556_put(emu, 0xC110, kP556Ctc,  sizeof(kP556Ctc));
     p556_put(emu, 0xC1F0, kP556Trap, sizeof(kP556Trap));
+    p556_put(emu, 0xC070, kP556Idle2, sizeof(kP556Idle2));
+    p556_put(emu, 0xC120, kP556Reti,  sizeof(kP556Reti));
     for (int i = 0; i < 16; ++i) { emu.mmu().write(0xC200 + 2 * i, 0xF0); emu.mmu().write(0xC201 + 2 * i, 0xC1); }
     emu.mmu().write(0xC200, line_isr & 0xFF); emu.mmu().write(0xC201, line_isr >> 8);
     for (int v : {6, 8, 10}) { emu.mmu().write(0xC200 + v, 0x10); emu.mmu().write(0xC201 + v, 0xC1); }
@@ -3788,6 +3792,17 @@ static void test_gh556_hang(Emulator& /*shared*/) {
         const bool ctc_rises = p556_rises(emu, [&] { return (uint32_t)p556_rd16(emu, 0xC0F2); }, d);
         check("CTCI-556-03",
               "line handler `NOP ; EI ; RETI` (the ED is the 3rd fetch after the CTC handler's RETI): still serviced for 100 frames",
+              ctc_rises && emu.mmu().read(0xC0F0) == 0, d);
+    }
+    {   auto emu_p = std::make_unique<Emulator>(); Emulator& emu = *emu_p;   // CTCI-556-05
+        // A bare-RETI line handler (no EI: RETI restores IFF1 from IFF2, the main loop's own EI
+        // re-arms it): the ED is the FIRST fetch after the CTC handler's RETI, so a dropped fetch
+        // (the old per-fetch SRL states, or both collapses removed) leaves the line device in S_ISR.
+        p556_setup(emu, 0xC120, 0xC070, 0x00, 0x00);
+        std::string d;
+        const bool ctc_rises = p556_rises(emu, [&] { return (uint32_t)p556_rd16(emu, 0xC0F2); }, d);
+        check("CTCI-556-05",
+              "line handler is a bare RETI (ED 4D, the ED being the first fetch after the CTC handler's RETI): still serviced for 100 frames",
               ctc_rises && emu.mmu().read(0xC0F0) == 0, d);
     }
     {   auto emu_p = std::make_unique<Emulator>(); Emulator& emu = *emu_p;   // CTCI-556-04: VHDL semantics, already true before the fix.

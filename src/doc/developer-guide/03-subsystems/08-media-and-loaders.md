@@ -1355,11 +1355,15 @@ Power Reset, a guest NR 0x02 reset and a machine-type change.
 
 **File > Load.** `handle_load_path()` sends a `.pok` to `open_pok_file()` before
 any cold boot. The same function now also refuses, before the cold boot, a file
-that would route to the NEX loader (a `.nex`, or an extension nothing owns) but
-has no `Next` prologue (`NexLoader::probe_version()`), which `NexLoader::load()`
-would refuse anyway: before, the session was reset and then the load failed. The
-reason follows the case: a `.nex` is "not a NEX file" and nothing more, and only
-an extension nothing owns is told the list of formats and where a `.pok` goes.
+that would route to the NEX loader (a `.nex`, or an extension nothing owns) and
+that `NexLoader::load()` would refuse anyway (`NexLoader::preboot_check()`): before,
+the session was reset and then the load failed. That is a file without a complete
+512-byte header, or one whose version is above what the loader takes (V1.3). The
+first four bytes are not checked for a `.nex`, because the NEXLOAD that NextZXOS
+ships never reads them; a file with an extension nothing owns must still start
+with `Next`, since nothing on the Next would run NEXLOAD on it. The reason follows
+the case: a `.nex` is "not a NEX file" (or names its too-new version), and only an
+extension nothing owns is told the list of formats and where a `.pok` goes.
 
 The suites: `pok_trainers_test` (POK-01..25 and POK-60 the parser, the list and
 `load_pok_file`, POK-30..57 and POK-61..64 the session and the command-line

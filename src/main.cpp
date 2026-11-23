@@ -3241,14 +3241,18 @@ int main(int argc, char* argv[]) {
                 // GH #228 — NEX V1.3 is an experimental format jnext does not
                 // officially support: refuse it up front, with exit 1, unless
                 // --experimental-nex-v1.3 was given. The probe reads only the
-                // 8-byte magic+version prologue; a file it cannot read or that
+                // version prologue of a complete header; a file it cannot read or that
                 // is not NEX at all falls through, and the loader's own error
                 // reports the real problem when the pending load fires.
                 // Emulator::load_nex() enforces the same policy as a backstop.
                 if (!experimental_nex_v13) {
                     uint8_t ver_bcd = 0;
                     char    ver[5]  = {0};
-                    if (NexLoader::probe_version(load_file, ver_bcd, ver) &&
+                    // GH #556 - the same rule as the GUI's pre-boot check: only a header the
+                    // loader would take (a complete 512 bytes, a version up to V1.3) is a V1.3
+                    // file; anything else falls through to the loader's own refusal.
+                    if (NexLoader::preboot_check(load_file, true, ver_bcd, ver) ==
+                            NexLoader::PreBoot::Ok &&
                         nex_version_needs_v13_optin(ver_bcd)) {
                         fprintf(stderr,
                                 "--load: '%s' is NEX version %s - NEX V1.3 is an experimental "

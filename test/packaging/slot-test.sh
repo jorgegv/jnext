@@ -7,17 +7,18 @@
 # git call; no ssh, no network. Everything lives under one scratch directory, removed on exit.
 #
 # Oracle: the owner's rules of 2026-11-21/22 as written in slot.sh's header (4 local+remote slots, host
-# picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
+# picked by load, never wait on it) and of 2026-11-23 (remote first: every eligible heavy run goes to a free
+# remote lane, long or short, and runs here only when every lane is busy) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-62. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-65. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=62
+EXPECTED_ROWS=65
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -167,16 +168,16 @@ row SLOT-02 "$([[ $rc -eq 0 && "$rc_calls" == *"ARGS --stream --fallback-local $
     && "$rc_calls" == *"WRAP=$SLOT --dir $CLEANSLOTS"* && "$(adm)" == *" remote "* && ! -e "$STATE/make-calls" ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
     "long heavy run: the driver gets --fallback-local, branch, sha, target, NO_OVERFLOW=1 and this script as the local wrapper; nothing ran here, no push when origin is at HEAD (rc=$rc)"
 
-# SLOT-03: a short heavy command (regression-rows) with every slot held overflows; with a free slot it stays local
+# SLOT-03: a short heavy command (regression-rows) also goes to a free lane FIRST, slots free or held, with its make
+# variable (owner, 2026-11-23); with every host busy it runs here and the driver is not called
 fresh
-hold 1; hold 2
 out=$(slot make -C "$WT" regression-rows ROWS=a 2>&1); rc=$?
-r3a=$(rr_calls)
-release_all; fresh
-out=$(slot make -C "$WT" regression-rows ROWS=a 2>&1); rc2=$?
-row SLOT-03 "$([[ $rc -eq 0 && "$r3a" == *"gh900-demo $SHA regression-rows ROWS=a"* && $rc2 -eq 0 && -z "$(rr_calls)" \
+r3a=$(rr_calls); m3a=$(cat "$STATE/make-calls" 2>/dev/null)
+fresh
+out=$(STUB_BUSY_HOSTS=fakehost slot make -C "$WT" regression-rows ROWS=a 2>&1); rc2=$?
+row SLOT-03 "$([[ $rc -eq 0 && "$r3a" == *"gh900-demo $SHA regression-rows ROWS=a"* && -z "$m3a" && $rc2 -eq 0 && -z "$(rr_calls)" \
     && "$(cat "$STATE/make-calls")" == "make -C $WT regression-rows ROWS=a" ]] && echo 1 || echo 0)" \
-    "short heavy run: both slots held -> remote with its make variable; a free slot -> here, driver not called"
+    "short heavy run: a free lane takes it with a slot free, with its make variable; every host busy -> here, driver not called"
 
 # SLOT-04: a dirty tree (an untracked file) is never sent: runs here and says why
 fresh
@@ -341,27 +342,20 @@ fresh
 STUB_PAUSE=$CLEANSLOTS/PAUSED STUB_RC=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
 row SLOT-21 "$([[ $rc -eq 75 ]] && echo 1 || echo 0)" "a driver that exits 1 with PAUSED set makes slot.sh exit 75 (rc=$rc)"
 
-# SLOT-22: every LONG target goes remote with slots free; every SHORT target stays local with a slot free
-# and goes remote with every slot held
+# SLOT-22: every heavy target (the 8 long and the 2 short ones) goes remote with a free lane and a free local slot, and
+# runs here with every host busy
 fresh
 bad=""
-for t in unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm; do
+for t in unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected; do
     rm -f "$STATE/rr-calls" "$STATE/make-calls"
     slot env LANG=C make -C "$WT" "$t" >/dev/null 2>&1
-    [[ "$(rr_calls)" == *"gh900-demo $NEWSHA $t"* && ! -e "$STATE/make-calls" ]] || bad+=" long:$t"
-done
-for t in regression-rows test-affected; do
+    [[ "$(rr_calls)" == *"gh900-demo $NEWSHA $t"* && ! -e "$STATE/make-calls" ]] || bad+=" free-lane:$t"
     rm -f "$STATE/rr-calls" "$STATE/make-calls"
-    slot make -C "$WT" "$t" >/dev/null 2>&1
-    [[ -z "$(rr_calls)" && -e "$STATE/make-calls" ]] || bad+=" short-free:$t"
-    rm -f "$STATE/rr-calls" "$STATE/make-calls"
-    hold 1; hold 2
-    slot make -C "$WT" "$t" >/dev/null 2>&1
-    release_all
-    [[ "$(rr_calls)" == *"gh900-demo $NEWSHA $t"* && ! -e "$STATE/make-calls" ]] || bad+=" short-held:$t"
+    STUB_BUSY_HOSTS=fakehost slot env LANG=C make -C "$WT" "$t" >/dev/null 2>&1
+    [[ -z "$(rr_calls)" && "$(cat "$STATE/make-calls" 2>/dev/null)" == "make -C $WT $t" ]] || bad+=" busy:$t"
 done
 row SLOT-22 "$([[ -z "$bad" ]] && echo 1 || echo 0)" \
-    "all 8 long targets go remote, regression-rows and test-affected go local with a free slot and remote with none (bad:$bad)"
+    "all 10 heavy targets (long and short) go remote with a free lane and a free slot, and run here with every host busy (bad:$bad)"
 
 # SLOT-23: a gate-* branch, a modified tracked file and a staged change are never sent
 fresh
@@ -593,16 +587,48 @@ wait "$w44"
 row SLOT-44 "$([[ "$(cat "$TMP/rc44")" == 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
     "a driver refusal (exit 3) is not re-sent on later polls: one driver call, then the command runs here"
 
-# SLOT-45: a SHORT target whose local slot frees on a later poll runs here with no extra probe (the order is: try the
-# local slots, THEN re-probe every REPROBE-th failed poll)
+# SLOT-45: a SHORT target, every host busy, whose local slot frees on a later poll runs here with no extra probe (the
+# order is: probe the hosts once, try the local slots, THEN re-probe every REPROBE-th failed poll; REPROBE is set
+# high so the 0.5 s wait cannot reach a re-probe)
 fresh
 hold 1; hold 2
-( STUB_BUSY_HOSTS=fakehost JNEXT_SLOT_REPROBE=3 slot make -C "$WT" regression-rows ROWS=a >/dev/null 2>&1; echo $? > "$TMP/rc45" ) & w45=$!
-sleep 0.5
+( STUB_BUSY_HOSTS=fakehost JNEXT_SLOT_REPROBE=1000 slot make -C "$WT" regression-rows ROWS=a >/dev/null 2>&1; echo $? > "$TMP/rc45" ) & w45=$!
+# release only once slot.sh is known to be waiting: its first probe has run (bounded wait), the command was not admitted
+# (make stub never called), and a margin of several polls has passed; a command admitted before the release fails the row
+for _ in $(seq 1 300); do [[ -e "$STATE/probe-calls" ]] && break; sleep 0.1; done
+early45=0; [[ -e "$STATE/probe-calls" && ! -e "$STATE/make-calls" ]] || early45=1
+sleep 1
 release_all
 wait "$w45"
-row SLOT-45 "$([[ "$(cat "$TMP/rc45")" == 0 && "$(wc -l < "$STATE/probe-calls")" -eq 1 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT regression-rows ROWS=a" ]] && echo 1 || echo 0)" \
-    "a short target whose slot frees after two failed polls runs here with exactly one probe (the first)"
+row SLOT-45 "$([[ $early45 -eq 0 && "$(cat "$TMP/rc45")" == 0 && "$(wc -l < "$STATE/probe-calls")" -eq 1 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT regression-rows ROWS=a" ]] && echo 1 || echo 0)" \
+    "a short target, hosts busy, whose slot frees after failed polls runs here with exactly one probe (the first)"
+
+# SLOT-63: a SHORT target (test-affected) from a dirty tree stays local with the lane free: no probe, no driver call
+# (the mutation-loop case)
+fresh
+: > "$WT/scratch.txt"
+out=$(slot make -C "$WT" test-affected 2>&1); rc=$?
+rm -f "$WT/scratch.txt"
+row SLOT-63 "$([[ $rc -eq 0 && -z "$(rr_calls)" && ! -e "$STATE/probe-calls" && "$out" == *"not sent to the remote: the worktree has uncommitted"* \
+    && "$(cat "$STATE/make-calls")" == "make -C $WT test-affected" ]] && echo 1 || echo 0)" \
+    "a dirty tree keeps a short heavy run local with a free lane: no probe, no driver call, reason printed (rc=$rc)"
+
+# SLOT-64: a queued short run keeps the queue behaviour (owner, 2026-11-23): a short target with both slots held and every host busy at first leaves for the lane that frees on a later probe
+fresh
+hold 1; hold 2
+STUB_BUSY_FIRST=2 JNEXT_SLOT_REPROBE=2 slot make -C "$WT" regression-rows ROWS=a >/dev/null 2>&1; rc=$?
+release_all
+row SLOT-64 "$([[ $rc -eq 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"regression-rows ROWS=a"* && ! -e "$STATE/make-calls" \
+    && "$(wc -l < "$STATE/probe-calls")" -ge 3 ]] && echo 1 || echo 0)" \
+    "a short run queued with every host busy goes to the remote when a lane frees on a later probe (rc=$rc)"
+
+# SLOT-65: the first probe of an eligible short run is loud: with every host busy the line naming the host and the
+# missing lane is printed before the run goes local
+fresh
+out=$(STUB_BUSY_HOSTS=fakehost slot make -C "$WT" test-affected 2>&1); rc=$?
+row SLOT-65 "$([[ $rc -eq 0 && "$out" == *"[slot.sh] remote host fakehost: no free lane (or unusable)"* && -z "$(rr_calls)" \
+    && "$(cat "$STATE/make-calls")" == "make -C $WT test-affected" ]] && echo 1 || echo 0)" \
+    "an eligible short run with every host busy prints the 'no free lane' line for the host, then runs here (rc=$rc)"
 
 # ---- thread caps (owner, 2026-11-23): a locally admitted run gets nproc/NSLOTS threads ------------------------
 # Oracle: the measurement in slot.sh's apply_thread_caps comment (6 threads each beat 12 each for two concurrent
