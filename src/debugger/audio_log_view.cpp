@@ -266,11 +266,11 @@ AudioLogView::AudioLogView(jnext::dbg::Debugger* dbg, QWidget* parent)
     layout->addWidget(table_, 1);
 
     auto index_of = [](QComboBox* b) { return [b]() { return b->currentData().toInt(); }; };
-    connect(target_, &QComboBox::currentIndexChanged, this, [this, f = index_of(target_)] { proxy_->set_target(f()); });
-    connect(chip_, &QComboBox::currentIndexChanged, this, [this, f = index_of(chip_)] { proxy_->set_chip(f()); });
-    connect(reg_, &QComboBox::currentIndexChanged, this, [this, f = index_of(reg_)] { proxy_->set_reg(f()); });
-    connect(dac_, &QComboBox::currentIndexChanged, this, [this, f = index_of(dac_)] { proxy_->set_dac(f()); });
-    connect(source_, &QComboBox::currentIndexChanged, this, [this, f = index_of(source_)] { proxy_->set_source(f()); });
+    connect(target_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, f = index_of(target_)] { proxy_->set_target(f()); });
+    connect(chip_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, f = index_of(chip_)] { proxy_->set_chip(f()); });
+    connect(reg_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, f = index_of(reg_)] { proxy_->set_reg(f()); });
+    connect(dac_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, f = index_of(dac_)] { proxy_->set_dac(f()); });
+    connect(source_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, f = index_of(source_)] { proxy_->set_source(f()); });
     connect(restarts_, &QCheckBox::toggled, this, [this](bool on) { proxy_->set_restarts_only(on); });
     connect(dropped_, &QCheckBox::toggled, this, [this](bool on) { proxy_->set_dropped_only(on); });
     connect(table_, &QTableView::doubleClicked, this, &AudioLogView::row_activated);
