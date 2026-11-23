@@ -81,7 +81,7 @@ if want sdcard-rescue-func; then
 
     # importing again replaces, and says so
     run import-again 0 --sdcard "$B" --sdcard-import-changes "$DIR"
-    grep -q 'replaced  /RESC/one.bin' "$W/import-again.out" || faults+=("import-again: the report does not say replaced: $(head -c 300 "$W/import-again.out")")
+    grep -q '  replaced /RESC/one.bin' "$W/import-again.out" || faults+=("import-again: the report does not say replaced: $(head -c 300 "$W/import-again.out")")
 
     # a directory without CHANGES.txt is refused (2) and the card is byte-identical
     cp -r "$DIR" "$W/export-noct"; rm -f "$W/export-noct/CHANGES.txt"
