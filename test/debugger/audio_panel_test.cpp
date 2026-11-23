@@ -30,12 +30,16 @@
 // table's cells, its filters, the double-click, the CSV export and the mirror of the backend's ring.
 // Rows DAP-61..69 (GH #534) drive the Tracker sub-tab: the model's grid cell for cell, the live grouping
 // of real writes, the rewind double-click and why a row is greyed.
+// Rows DAP-81..87 (GH #535) drive the player timing strip under the Tracker: its objects, its statistics
+// against the core helper and against hand-grouped log stamps of a real IM2 player, the per-row details,
+// the dot plot, the window box and the reset / rewind / log-off paths.
 // Run: ./build/test/debugger_audio_panel_test
 
 #include "audio/audio_mute.h"
 #include "audio/mixer.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/audio_frames.h"
 #include "debug/debugger.h"
 #include "debug/dac_stream.h"
 #include "debugger/audio_log_view.h"
@@ -50,7 +54,9 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QLabel>
+#include <QImage>
 #include <QProgressBar>
+#include <QSpinBox>
 #include <QString>
 #include <QTabWidget>
 #include <QPushButton>
@@ -2424,6 +2430,355 @@ static void test_tracker_tab(Emulator& emu) {
     }
 }
 
+// ── GH #535: the player timing strip ────────────────────────────────────
+
+static jnext::dbg::AudioLogEntry tt(uint64_t& seq, uint32_t frame, unsigned reg, int vc, uint32_t tstate, uint16_t pc,
+                                    jnext::dbg::EventSource src = jnext::dbg::EventSource::Cpu) {
+    jnext::dbg::AudioLogEntry e = tw(seq, frame, 0, reg, 1, 0);
+    e.vc = int16_t(vc); e.hc = 0; e.tstate_in_frame = tstate; e.pc = pc; e.source = src;
+    return e;
+}
+
+// Stream T: f200 R8 (1,300,0x9300) R9 (1,340,0x9310); f201 R8 (1,302) R9 (2,460) R10 (3,700,0x9320); f202 R8
+// (15,3600) R9 (15,3640); f203 nothing; f204 R8 (1,304) by DMA; f205 R8 (1,300) left open.
+static std::vector<jnext::dbg::AudioLogEntry> stream_t() {
+    uint64_t seq = 0;
+    return {tt(seq, 200, 8, 1, 300, 0x9300), tt(seq, 200, 9, 1, 340, 0x9310),
+            tt(seq, 201, 8, 1, 302, 0x9300), tt(seq, 201, 9, 2, 460, 0x9310), tt(seq, 201, 10, 3, 700, 0x9320),
+            tt(seq, 202, 8, 15, 3600, 0x9300), tt(seq, 202, 9, 15, 3640, 0x9310),
+            tt(seq, 204, 8, 1, 304, 0x0000, jnext::dbg::EventSource::Dma),
+            tt(seq, 205, 8, 1, 300, 0x9300)};
+}
+
+static QString tlabel(AudioPanel& panel, const char* name) {
+    auto* l = panel.findChild<QLabel*>(name);
+    return l ? l->text() : QStringLiteral("<none>");
+}
+
+static bool same_range(const jnext::dbg::AudioTimingRange& a, const jnext::dbg::AudioTimingRange& b) {
+    return a.min == b.min && a.max == b.max && a.avg == b.avg;
+}
+
+static bool same_stats(const jnext::dbg::AudioTimingStats& a, const jnext::dbg::AudioTimingStats& b) {
+    return a.window_first == b.window_first && a.window_last == b.window_last && a.frames == b.frames &&
+           a.empty == b.empty && same_range(a.first_line, b.first_line) && same_range(a.first_tstate, b.first_tstate) &&
+           same_range(a.last_line, b.last_line) && same_range(a.last_tstate, b.last_tstate) &&
+           same_range(a.writes, b.writes) && a.pc_min == b.pc_min && a.pc_max == b.pc_max;
+}
+
+// A Next with an IM2 player whose interrupt routine writes AY R8 and R9 once a frame (opcodes: UM0080).
+//   main 0x8000: DI; LD A,0x90; LD I,A; IM 2; EI; loop: HALT; JR loop       (a 257-byte table of 0x92 at 0x9000)
+//   ISR 0x9292: PUSH AF; PUSH BC; LD A,(0x9400); INC A; LD (0x9400),A
+//               CP 4; JR Z,exit        the 4th interrupt writes nothing: a missed frame
+//               CP 8; JR NZ,go         the 8th interrupt is late
+//               LD B,255; dly: DJNZ dly
+//         go:   LD BC,0xFFFD; LD A,8; OUT (C),A; LD B,0xBF; OUT (C),A      data write 1 (R8) at 0x92B0
+//               LD B,0xFF; LD A,9; OUT (C),A; LD B,0xBF; OUT (C),A         data write 2 (R9) at 0x92BA
+//         exit: POP BC; POP AF; EI; RETI
+// The late path against the steady one: JR NZ not taken 7 instead of taken 12, LD B,255 7, DJNZ 254 x 13 + 8 =
+// 3310: 7 - 12 + 7 + 3310 = 3312 T. The steady prefix up to the first data OUT is PUSH 11 + 11, LD A,(nn) 13,
+// INC 4, LD (nn),A 13, CP 7, JR Z not taken 7, CP 7, JR NZ taken 12, LD BC 10, LD A,n 7, OUT 12, LD B,n 7 = 121 T.
+static bool build_player_machine(Emulator& emu) {
+    EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0;
+    if (!emu.init(cfg)) return false;
+    emu.set_audio_mute_mask(AudioMute::NONE);
+    emu.clear_audio_drops();
+    for (int i = 0; i < 257; ++i) emu.mmu().write(uint16_t(0x9000 + i), 0x92);
+    auto poke = [&](uint16_t a, std::initializer_list<uint8_t> b) { for (uint8_t v : b) emu.mmu().write(a++, v); };
+    poke(0x9292, {0xF5, 0xC5,                                  // PUSH AF; PUSH BC
+                  0x3A, 0x00, 0x94, 0x3C, 0x32, 0x00, 0x94,    // LD A,(9400); INC A; LD (9400),A
+                  0xFE, 0x04, 0x28, 0x1D,                      // CP 4; JR Z,exit (0x92BC)
+                  0xFE, 0x08, 0x20, 0x04,                      // CP 8; JR NZ,go (0x92A7)
+                  0x06, 0xFF, 0x10, 0xFE,                      // LD B,255; DJNZ $
+                  0x01, 0xFD, 0xFF, 0x3E, 0x08, 0xED, 0x79,    // go: LD BC,FFFD; LD A,8; OUT (C),A
+                  0x06, 0xBF, 0xED, 0x79,                      // LD B,BF; OUT (C),A    (0x92B0)
+                  0x06, 0xFF, 0x3E, 0x09, 0xED, 0x79,          // LD B,FF; LD A,9; OUT (C),A
+                  0x06, 0xBF, 0xED, 0x79,                      // LD B,BF; OUT (C),A    (0x92BA)
+                  0xC1, 0xF1, 0xFB, 0xED, 0x4D});              // exit: POP BC; POP AF; EI; RETI
+    poke(0x9400, {0x00});
+    poke(0x8000, {0xF3, 0x3E, 0x90, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFD});
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+    return true;
+}
+
+static void test_timing_strip(Emulator& emu) {
+    set_group("DAP-TIM");
+    using jnext::dbg::ClientInfo;
+    using jnext::dbg::ClientKind;
+    using jnext::dbg::AudioLogEntry;
+
+    {
+        if (!build_dac_machine(emu)) { check("DAP-81", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        QWidget* tab = tabs ? tabs->widget(3) : nullptr;
+        auto in_tab = [&](auto* type_tag, const char* name) {
+            using T = std::remove_pointer_t<decltype(type_tag)>;
+            return tab && tab->findChild<T*>(name) != nullptr;
+        };
+        const bool objs = in_tab((QSpinBox*)nullptr, "audio_timing_window") && in_tab((QLabel*)nullptr, "audio_timing_span") &&
+                          in_tab((QLabel*)nullptr, "audio_timing_first") && in_tab((QLabel*)nullptr, "audio_timing_last") &&
+                          in_tab((QLabel*)nullptr, "audio_timing_writes") && in_tab((QLabel*)nullptr, "audio_timing_frame") &&
+                          in_tab((AudioJitterPlot*)nullptr, "audio_timing_plot") &&
+                          in_tab((QLabel*)nullptr, "audio_timing_plot_range") && in_tab((QLabel*)nullptr, "audio_timing_note");
+        auto* spin = panel.findChild<QSpinBox*>("audio_timing_window");
+        const bool spin_ok = spin && spin->minimum() == 1 && spin->maximum() == 1000 && spin->value() == 50 &&
+                             spin->suffix() == " frames";
+        const bool note = tlabel(panel, "audio_timing_note") == "Exact routine cost: the CPU panel's T-states since the last stop, or --profile.";
+        bool no_na = tab != nullptr, no_prefix = tab != nullptr;
+        if (tab) for (QLabel* l : tab->findChildren<QLabel*>()) {
+            no_na = no_na && l->text() != "Not available yet.";
+            for (const char* pre : {"TurboSound:", "Mode:", "Stereo:", "PSG mode:"})
+                no_prefix = no_prefix && !l->text().startsWith(pre);
+        }
+        QTableView* t = trk_table(panel);
+        check("DAP-81", "tab 3 holds the timing strip objects audio_timing_window (a QSpinBox, 1-1000, value 50, suffix ' frames'), the labels span, first, last, writes, frame, plot_range and note, and the audio_timing_plot AudioJitterPlot; the note text is exact; the panel still holds one QTableWidget (the hex table), the tracker table still has 35 columns, no label of tab 3 reads 'Not available yet.' or starts with a label prefix the other rows search for",
+              objs && spin_ok && note && no_na && no_prefix && panel.findChildren<QTableWidget*>().size() == 1 &&
+              t && t->model()->columnCount() == 35);
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-82", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        view->model()->set_entries(stream_t());
+        view->update_timing();
+        const auto want = jnext::dbg::audio_timing_stats(view->model()->timing_frames(50), 50);
+        check("DAP-82", "Stream T (frames 200, 201, 202, 204 completed, 205 open; 203 empty), window 50: span 'Last 50 frames: 200 to 204, 4 with AY writes, 1 without'; first 'line 1 / 4.5 / 15, T-state 300 / 1126.5 / 3600'; last 'line 1 / 5.0 / 15, T-state 304 / 1246.0 / 3640'; writes '1 / 2.0 / 3 ...; PC 0x9300-0x9320'; and the strip's statistics equal audio_timing_stats() over the model's own frames, field by field",
+              tlabel(panel, "audio_timing_span") == "Last 50 frames: 200 to 204, 4 with AY writes, 1 without" &&
+              tlabel(panel, "audio_timing_first") == "First write: line 1 / 4.5 / 15, T-state 300 / 1126.5 / 3600 (min / avg / max)" &&
+              tlabel(panel, "audio_timing_last") == "Last write: line 1 / 5.0 / 15, T-state 304 / 1246.0 / 3640 (min / avg / max)" &&
+              tlabel(panel, "audio_timing_writes") == "Writes per frame: 1 / 2.0 / 3 (min / avg / max); PC 0x9300-0x9320" &&
+              view->timing_stats().frames == 4 && same_stats(view->timing_stats(), want),
+              tlabel(panel, "audio_timing_span").toStdString() + " | " + tlabel(panel, "audio_timing_writes").toStdString());
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-83", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        view->model()->set_entries(stream_t());
+        view->update_timing();
+        const QString none = tlabel(panel, "audio_timing_frame");
+        QTableView* t = trk_table(panel);
+        auto pick = [&](int row) { t->setCurrentIndex(t->model()->index(row, 0)); return tlabel(panel, "audio_timing_frame"); };
+        const QString f202 = pick(2), empty = pick(3), f204 = pick(4);
+        uint64_t seq = 0;
+        view->model()->set_entries({tt(seq, 10, 8, 1, 5, 0x8000), tmark(seq, 10, jnext::dbg::AudioMarker::Reset), tt(seq, 11, 8, 1, 5, 0x8000)});
+        const QString marker = pick(1);
+        seq = 0;
+        view->model()->set_entries({tt(seq, 10, 8, 1, 5, 0x8000), tt(seq, 13, 8, 1, 5, 0x8000), tt(seq, 14, 8, 1, 5, 0x8000)});
+        const QString run2 = pick(1);                    // the empty run of f11 and f12
+        check("DAP-83", "Stream T: with no current row the details are the last row's (the open frame 205); on f202's row 'Frame 202: first write line 15, T-state 3600; last write line 15, T-state 3640; writes 2; PC 0x9300-0x9310'; on the empty run 'Frame 203: no AY write'; on f204 (a DMA write) 'PC none (no CPU write)'; on a reset marker row the text is empty; on an empty run of two frames (writes in f10 and f13) 'Frames 11-12: no AY write'",
+              none == "Frame 205: first write line 1, T-state 300; last write line 1, T-state 300; writes 1; PC 0x9300" &&
+              f202 == "Frame 202: first write line 15, T-state 3600; last write line 15, T-state 3640; writes 2; PC 0x9300-0x9310" &&
+              empty == "Frame 203: no AY write" &&
+              f204 == "Frame 204: first write line 1, T-state 304; last write line 1, T-state 304; writes 1; PC none (no CPU write)" &&
+              marker.isEmpty() && run2 == "Frames 11-12: no AY write",
+              none.toStdString() + " | " + f202.toStdString() + " | " + empty.toStdString() + " | " + f204.toStdString() + " | " + marker.toStdString() + " | " + run2.toStdString());
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-84", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        auto* spin = panel.findChild<QSpinBox*>("audio_timing_window");
+        auto* plot = panel.findChild<AudioJitterPlot*>("audio_timing_plot");
+        view->model()->set_entries(stream_t());
+        spin->setValue(6);
+        plot->setFixedSize(240, 60);       // fixed: a grab() lays the parent out again
+        const auto dots = plot->dots();
+        const QImage img = plot->grab().toImage();
+        const QColor hi = plot->palette().color(QPalette::Highlight);
+        struct W { uint32_t frame; int line, x, y; };
+        const W want[] = {{200, 1, 60, 2}, {201, 1, 100, 2}, {202, 15, 140, 58}, {204, 1, 220, 2}};
+        bool exact = dots.size() == 4;
+        bool painted = img.width() == 240 && img.height() == 60;
+        for (size_t i = 0; exact && i < 4; ++i) {
+            exact = dots[i].frame == want[i].frame && dots[i].line == want[i].line &&
+                    dots[i].at == QPoint(want[i].x, want[i].y);
+            painted = painted && img.pixelColor(want[i].x, want[i].y) == hi;
+        }
+        bool gap = img.width() == 240;
+        for (int y = 0; gap && y < 60; ++y) gap = img.pixelColor(180, y) != hi;
+        const bool range6 = plot->range_lo() == 1 && plot->range_hi() == 15 &&
+                            tlabel(panel, "audio_timing_plot_range") == "Dots: first write per frame, line 1 at the top to 15 at the bottom";
+        spin->setValue(2);
+        const auto d2 = plot->dots();
+        const bool two = d2.size() == 1 && d2[0].frame == 204 && d2[0].at.y() == 3 && plot->range_lo() == 1 &&
+                         plot->range_hi() == 9 &&
+                         tlabel(panel, "audio_timing_plot_range") == "Dots: first write per frame, line 1 at the top to 9 at the bottom";
+        check("DAP-84", "Stream T, window 6, plot 240 x 60: the dots are exactly f200 line 1 at (60,2), f201 line 1 at (100,2), f202 line 15 at (140,58), f204 line 1 at (220,2) (none for the empty 203 or the open 205); range 1 to 15 and its label; the rendered image has the Highlight colour at each dot centre and no Highlight pixel in column 180 (frame 203); window 2: one dot (f204) at y 3 with the 9-line minimum span, label 'line 1 at the top to 9 at the bottom'",
+              exact && painted && gap && range6 && two,
+              "dots=" + std::to_string(dots.size()) + " exact=" + std::to_string(exact) + " painted=" + std::to_string(painted) +
+              " gap=" + std::to_string(gap) + " img=" + std::to_string(img.width()) + "x" + std::to_string(img.height()) +
+              " plot=" + std::to_string(plot->width()) + "x" + std::to_string(plot->height()) + " range6=" + std::to_string(range6) + " two=" + std::to_string(two));
+    }
+    {
+        Emulator pm;
+        if (!build_player_machine(pm)) { check("DAP-85", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(pm);
+        const auto cid = dbg.attach(ClientInfo{"dap85", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        const bool timing = dbg.machine().lines == 311 && dbg.machine().tstates_per_line == 228;   // zxula_timing.vhd:196,204
+        for (int i = 0; i < 40 && pm.mmu().read(0x9400) < 12; ++i) pm.run_frame();
+        pm.run_frame();                                  // the 12th interrupt's frame is now completed
+        panel.refresh();
+
+        // The log's own stamps, grouped by hand: counted AY entries by frame, the newest (open) frame dropped.
+        struct HF { uint32_t frame; int vc1; uint32_t t1; int vc2; uint32_t t2; unsigned n; uint16_t pcmin, pcmax; };
+        std::vector<HF> hand;
+        const auto log = dbg.audio_log_entries(0);
+        if (log) for (const AudioLogEntry& e : log.value) {
+            if (e.marker != jnext::dbg::AudioMarker::None || e.target != jnext::dbg::AudioTarget::AyRegister ||
+                (e.flags & jnext::dbg::AudioFlag::Dropped) || e.chip >= 3 || e.reg >= 16) continue;
+            if (hand.empty() || hand.back().frame != e.frame)
+                hand.push_back({e.frame, e.vc, e.tstate_in_frame, e.vc, e.tstate_in_frame, 0, 0xFFFF, 0});
+            HF& h = hand.back();
+            h.vc2 = e.vc; h.t2 = e.tstate_in_frame; ++h.n;
+            h.pcmin = std::min(h.pcmin, e.pc); h.pcmax = std::max(h.pcmax, e.pc);
+        }
+        if (!hand.empty()) hand.pop_back();              // the open frame
+        const size_t nf = hand.size();
+        bool steady_line = nf >= 10;
+        uint32_t smin = UINT32_MAX, smax = 0, late_t = 0, late_frame = 0;
+        if (nf >= 10) {
+            // The frame of the 8th interrupt is the 8th counted one after the missed 4th: ISR k is the k-th
+            // frame number of the run; the late one has the largest first T-state.
+            for (const HF& h : hand) if (h.t1 > late_t) { late_t = h.t1; late_frame = h.frame; }
+            for (const HF& h : hand) {
+                if (h.frame == late_frame) continue;
+                steady_line = steady_line && h.vc1 == 1;
+                smin = std::min(smin, h.t1); smax = std::max(smax, h.t1);
+            }
+        }
+        const bool steady_spread = steady_line && smax - smin <= 3;
+        const bool late_ok = nf >= 10 && late_t >= smin + 3309 && late_t <= smin + 3315;
+        const uint32_t span_first = nf ? hand.front().frame : 0, span_last = nf ? hand.back().frame : 0;
+        const uint32_t empties = nf ? (span_last - span_first + 1) - uint32_t(nf) : 99;
+        uint32_t gap_frame = 0;
+        for (size_t i = 1; i < nf; ++i) if (hand[i].frame != hand[i - 1].frame + 1) gap_frame = hand[i - 1].frame + 1;
+        const bool one_gap = nf == 11 && empties == 1 && gap_frame > span_first && gap_frame < span_last;
+
+        // The strip against numbers computed from those stamps.
+        auto triple = [&](auto get) {
+            double sum = 0; uint32_t lo = UINT32_MAX, hi = 0;
+            for (const HF& h : hand) { const uint32_t v = get(h); sum += v; lo = std::min(lo, v); hi = std::max(hi, v); }
+            return QString("%1 / %2 / %3").arg(lo).arg(QString::number(nf ? sum / double(nf) : 0, 'f', 1)).arg(hi);
+        };
+        const QString first = "First write: line " + triple([](const HF& h) { return uint32_t(h.vc1); }) + ", T-state " +
+                              triple([](const HF& h) { return h.t1; }) + " (min / avg / max)";
+        const QString last = "Last write: line " + triple([](const HF& h) { return uint32_t(h.vc2); }) + ", T-state " +
+                             triple([](const HF& h) { return h.t2; }) + " (min / avg / max)";
+        // Two data OUTs per interrupt: 0x92B0 and 0x92BA (the layout in the comment above).
+        const QString writes = "Writes per frame: " + triple([](const HF& h) { return h.n; }) + " (min / avg / max); PC 0x92B0-0x92BA";
+        const QString span = QString("Last 50 frames: %1 to %2, %3 with AY writes, %4 without").arg(span_first).arg(span_last).arg(nf).arg(empties);
+        const bool labels = tlabel(panel, "audio_timing_first") == first && tlabel(panel, "audio_timing_last") == last &&
+                            tlabel(panel, "audio_timing_writes") == writes && tlabel(panel, "audio_timing_span") == span;
+
+        // The plot: the late frame's dot is the lowest, every steady dot is level, none at the skipped frame.
+        auto* plot = panel.findChild<AudioJitterPlot*>("audio_timing_plot");
+        plot->setFixedSize(400, 64);
+        const auto dots = plot->dots();
+        bool level = dots.size() == nf && nf >= 10, late_lowest = false, no_gap_dot = true;
+        int steady_y = -1;
+        for (const auto& d : dots) {
+            if (d.frame == gap_frame) no_gap_dot = false;
+            if (d.frame == late_frame) continue;
+            if (steady_y < 0) steady_y = d.at.y();
+            level = level && d.at.y() == steady_y;
+        }
+        for (const auto& d : dots) if (d.frame == late_frame) late_lowest = d.at.y() > steady_y;
+        check("DAP-85", "a real IM2 player (interrupt routine writes R8 and R9 once a frame; the 4th interrupt writes nothing, the 8th is delayed by a 3312 T loop): the machine runs 311 lines of 228 T (zxula_timing.vhd:196,204); the log's stamps grouped by hand give 11 frames with writes and exactly one empty frame number inside the span; every steady frame's first write is on line 1 (c_int_v, zxula_timing.vhd:199) with first T-states within 3 T of each other; the late frame's first T-state is 3309 to 3315 above the steady minimum; the span, first, last and writes labels equal the texts built from those hand numbers (PC 0x92B0-0x92BA); the late dot is strictly the lowest, the steady dots level, and the skipped frame has none",
+              timing && bool(log) && steady_spread && late_ok && one_gap && labels && level && late_lowest && no_gap_dot,
+              "timing=" + std::to_string(timing) + " nf=" + std::to_string(nf) + " steady_line=" + std::to_string(steady_line) +
+              " spread=" + std::to_string(smax - smin) + " late_t=" + std::to_string(late_t) + " smin=" + std::to_string(smin) +
+              " gaps=" + std::to_string(empties) + " labels=" + std::to_string(labels) + " span=" + tlabel(panel, "audio_timing_span").toStdString() +
+              " first=" + tlabel(panel, "audio_timing_first").toStdString() + " dots=" + std::to_string(dots.size()) +
+              " level=" + std::to_string(level) + " late_lowest=" + std::to_string(late_lowest));
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-86", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        auto* spin = panel.findChild<QSpinBox*>("audio_timing_window");
+        view->model()->set_entries(stream_t());
+        view->update_timing();
+        spin->setValue(2);                               // no refresh() and no update_timing() from here on
+        const QString span2 = tlabel(panel, "audio_timing_span"), first2 = tlabel(panel, "audio_timing_first"),
+                      writes2 = tlabel(panel, "audio_timing_writes");
+        spin->setValue(3);                               // frames below the window; f202 sits exactly on its first number
+        const QString span3 = tlabel(panel, "audio_timing_span"), first3 = tlabel(panel, "audio_timing_first"),
+                      writes3 = tlabel(panel, "audio_timing_writes");
+        spin->setValue(1);
+        const QString span1 = tlabel(panel, "audio_timing_span");
+        check("DAP-86", "Stream T: setting the window box to 2 updates the strip at once (span 'Last 2 frames: 203 to 204, 1 with AY writes, 1 without', first and writes of f204 alone, PC none); with window 3 (f200 and f201 below it, f202 exactly on its first number) 'Last 3 frames: 202 to 204, 2 with AY writes, 1 without' and the first and writes lines include f202; to 1 it reads 'Last 1 frame: 204 to 204, 1 with AY writes, 0 without'",
+              span2 == "Last 2 frames: 203 to 204, 1 with AY writes, 1 without" &&
+              first2 == "First write: line 1 / 1.0 / 1, T-state 304 / 304.0 / 304 (min / avg / max)" &&
+              writes2 == "Writes per frame: 1 / 1.0 / 1 (min / avg / max); PC none (no CPU write)" &&
+              span3 == "Last 3 frames: 202 to 204, 2 with AY writes, 1 without" &&
+              first3 == "First write: line 1 / 8.0 / 15, T-state 304 / 1952.0 / 3600 (min / avg / max)" &&
+              writes3 == "Writes per frame: 1 / 1.5 / 2 (min / avg / max); PC 0x9300-0x9310" &&
+              span1 == "Last 1 frame: 204 to 204, 1 with AY writes, 0 without",
+              span2.toStdString() + " | " + first2.toStdString() + " | " + writes2.toStdString() + " | " + span3.toStdString() + " | " + first3.toStdString() + " | " + writes3.toStdString() + " | " + span1.toStdString());
+    }
+    {
+        if (!build_dac_machine(emu)) { check("DAP-87", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(ClientInfo{"dap87", ClientKind::Test}).value;
+        dbg.set_audio_log_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        show_tracker_tab(panel);
+        auto* view = panel.findChild<AudioTrackerView*>();
+        uint64_t seq = 0;
+        using jnext::dbg::AudioMarker;
+        view->model()->set_entries({tt(seq, 10, 8, 1, 5, 0x8000), tt(seq, 11, 8, 1, 5, 0x8000), tmark(seq, 11, AudioMarker::Reset),
+                                    tt(seq, 30, 8, 1, 5, 0x8000), tt(seq, 31, 8, 1, 5, 0x8000), tt(seq, 32, 8, 1, 5, 0x8000)});
+        view->update_timing();
+        const QString a = tlabel(panel, "audio_timing_span");
+        seq = 0;
+        view->model()->set_entries({tt(seq, 20, 8, 1, 5, 0x8000), tt(seq, 21, 8, 1, 5, 0x8000), tmark(seq, 22, AudioMarker::Rewind),
+                                    tt(seq, 22, 8, 1, 5, 0x8000), tt(seq, 23, 8, 1, 5, 0x8000)});
+        view->update_timing();
+        const QString b = tlabel(panel, "audio_timing_span");
+
+        cpu_program(emu, {0x18, 0xFE});
+        emu.run_frame();
+        ay_wr(emu, 8, 0x01);
+        emu.run_frame();
+        ay_wr(emu, 8, 0x02);
+        emu.run_frame();
+        ay_wr(emu, 8, 0x03);
+        panel.refresh();
+        const bool live = view->timing_stats().frames == 2 && tlabel(panel, "audio_timing_frame").startsWith("Frame ") &&
+                          !panel.findChild<AudioJitterPlot*>("audio_timing_plot")->dots().empty();
+        dbg.set_audio_log_enabled(cid, false);
+        view->refresh();
+        const bool off = tlabel(panel, "audio_timing_span") == "No AY writes in the last 50 frames" &&
+                         tlabel(panel, "audio_timing_first") == "First write: -" && tlabel(panel, "audio_timing_last") == "Last write: -" &&
+                         tlabel(panel, "audio_timing_writes") == "Writes per frame: -" && tlabel(panel, "audio_timing_frame").isEmpty() &&
+                         panel.findChild<AudioJitterPlot*>("audio_timing_plot")->dots().empty() &&
+                         tlabel(panel, "audio_timing_plot_range").isEmpty();
+        panel.findChild<QSpinBox*>("audio_timing_window")->setValue(1);
+        const bool off1 = tlabel(panel, "audio_timing_span") == "No AY writes in the last 1 frame";
+        check("DAP-87", "(a) f10, f11, a Reset marker, f30, f31, open f32: 'Last 50 frames: 30 to 31, 2 with AY writes, 0 without' (a reset starts afresh); (b) f20, f21, a Rewind marker, f22, open f23: 'Last 50 frames: 20 to 22, 3 with AY writes, 0 without' (a landing does not split); (c) a real log with frames of writes shows 2 frames, a details line and dots, and after the log goes off the strip reads 'No AY writes in the last 50 frames', dashes, no details, no dots, no range, and with the window set to 1 'No AY writes in the last 1 frame'",
+              a == "Last 50 frames: 30 to 31, 2 with AY writes, 0 without" &&
+              b == "Last 50 frames: 20 to 22, 3 with AY writes, 0 without" && live && off && off1,
+              a.toStdString() + " | " + b.toStdString() + " live=" + std::to_string(live) + " off=" + std::to_string(off) + " off1=" + std::to_string(off1) +
+              " span=" + tlabel(panel, "audio_timing_span").toStdString());
+    }
+}
+
 // ── DAP-SCP: the Scopes sub-tab (GH #536) ───────────────────────────────
 
 // DI; JR $ at 0x8000: frames run with the CPU parked and only the audio chain moving.
@@ -2753,6 +3108,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-STREAM     -- done\n");
     test_tracker_tab(emu);
     std::printf("  Group: DAP-TRK        -- done\n");
+    test_timing_strip(emu);
+    std::printf("  Group: DAP-TIM        -- done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

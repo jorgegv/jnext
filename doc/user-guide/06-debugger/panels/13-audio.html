@@ -2237,6 +2237,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Tracker">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#player-timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Player timing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -4769,6 +4786,36 @@ needs the rewind buffer; the tooltip of a row that cannot be reached says why: r
 an RZX in progress, an empty buffer, a frame outside the buffer, or one from before a
 reset or a state load). After the jump the rows from that frame on are removed and a
 <code>rewind</code> row is added; they come back as the machine runs again.</p>
+<h3 id="player-timing">Player timing<a class="headerlink" href="#player-timing" title="Permanent link">&para;</a></h3>
+<p>Under the table, the strip shows where in the frame the AY player writes, which is what a
+music routine's cost looks like from outside: a player that runs from the frame interrupt
+writes at about the same place every frame, and a frame that writes later than the others is
+a frame the routine ran late. The numbers are over the last <strong>Window</strong> frames (1 to 1000,
+50 at first; the box is a view control and is not saved):</p>
+<ul>
+<li>the span line says which frames the window covers, how many of them have AY writes and how
+  many have none (a frame the player missed);</li>
+<li><strong>First write</strong> and <strong>Last write</strong> give the line and the T-state, counted from the start of
+  the frame, of the first and last AY write of each frame, as min / avg / max;</li>
+<li><strong>Writes per frame</strong> gives the number of AY register writes as min / avg / max, and the range
+  of addresses the CPU wrote from (writes by DMA or by the debugger have no address).</li>
+</ul>
+<p>Lines count from the start of the frame, so the frame interrupt itself is on line 1 with the
+Next's default timing at 50 Hz (line 0 at 60 Hz, line 0 with 48K timing, the last line with Pentagon timing): a player
+that starts at the interrupt writes on line 1 or just after it. A steady player that waits for
+the interrupt with <code>HALT</code> can still vary by up to 3 T-states, because the CPU accepts the
+interrupt at the end of the <code>HALT</code> instruction.</p>
+<p>The line below the numbers describes the selected table row (the last row when none is
+selected): the same first and last write, the count and the PC range of that one frame, or
+<code>no AY write</code> for a run of empty frames.</p>
+<p>The plot has one dot per frame, at the line of the frame's first AY write, scaled to the
+window's own lines (the earliest at the top, a range of at least 9 lines; its two ends are
+printed under the plot). A gap is a frame with no AY write. Level dots are a steady player; a
+dot that drops is a late frame.</p>
+<p>Only AY register writes are timed, and the frame the machine is still in is not counted. A
+reset or a state load starts the window afresh; a rewind does not. The strip shows when a
+routine runs, not what it costs: for the exact cost of a routine read the T-states counter of
+the <a href="01-cpu-registers.html">CPU panel</a> between two stops, or run with <code>--profile</code>.</p>
 <h2 id="mute-and-solo">Mute and solo<a class="headerlink" href="#mute-and-solo" title="Permanent link">&para;</a></h2>
 <p>Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,
 and the 4 DAC channels in the DAC &amp; Beeper tab) has an <strong>M</strong> and an <strong>S</strong>

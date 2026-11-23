@@ -3448,6 +3448,9 @@ int main() {
     {
         using jnext::dbg::AudioFrame;
         using jnext::dbg::AudioFrameAccumulator;
+        using jnext::dbg::AudioFrameStamp;
+        using jnext::dbg::AudioTimingStats;
+        using jnext::dbg::audio_timing_stats;
         using jnext::dbg::AudioMarker;
         using jnext::dbg::AudioTarget;
         using jnext::dbg::AudioDropReason;
@@ -3647,6 +3650,100 @@ int main() {
             auto f = acc.flush();
             check("AFG-18", "a write, a StateLoad marker, a write, a Rewind marker (frame 8), a write at f9: each marker returns the open frame (f10, f11, one write each, markers never counted); f9 comes from flush with empty_before 0",
                   a && b && out[0].writes == 1 && out[1].writes == 1 && f && f->frame == 9 && f->empty_before == 0);
+        }
+
+        // GH #535: audio_timing_stats(). Frames are built directly; the expected numbers are worked by hand
+        // from the stamps below, not through the helper.
+        auto tf = [](uint32_t n, int vc1, uint32_t t1, int vc2, uint32_t t2, uint32_t w, uint16_t pcmin, uint16_t pcmax,
+                     uint32_t empty_before = 0) {
+            AudioFrame f;
+            f.frame = n; f.empty_before = empty_before; f.writes = w;
+            f.first = AudioFrameStamp{int16_t(vc1), 0, t1};
+            f.last = AudioFrameStamp{int16_t(vc2), 0, t2};
+            f.pc_min = pcmin; f.pc_max = pcmax;
+            return f;
+        };
+        auto ptrs = [](const std::vector<AudioFrame>& v) {
+            std::vector<const AudioFrame*> p;
+            for (const AudioFrame& f : v) p.push_back(&f);
+            return p;
+        };
+        auto near = [](double a, double b) { return a > b - 1e-9 && a < b + 1e-9; };
+        {
+            const std::vector<AudioFrame> v = {
+                tf(200, 1, 300, 1, 340, 2, 0x9300, 0x9310), tf(201, 1, 302, 3, 700, 3, 0x9300, 0x9320),
+                tf(202, 15, 3600, 15, 3640, 2, 0x9300, 0x9310), tf(204, 1, 304, 1, 304, 1, 0xFFFF, 0, 1)};
+            const AudioTimingStats s = audio_timing_stats(ptrs(v), 50);
+            check("AFG-19", "frames 200,201,202,204 (204 empty_before 1), window 50: frames 4, window 200-204, empty 1; first line 1/4.5/15, first T-state 300/1126.5/3600, last line 1/5.0/15, last T-state 304/1246.0/3640, writes 1/2.0/3, PC 0x9300-0x9320 (the frame with no CPU write adds nothing)",
+                  s.frames == 4 && s.window_first == 200 && s.window_last == 204 && s.empty == 1 &&
+                  s.first_line.min == 1 && near(s.first_line.avg, 4.5) && s.first_line.max == 15 &&
+                  s.first_tstate.min == 300 && near(s.first_tstate.avg, 1126.5) && s.first_tstate.max == 3600 &&
+                  s.last_line.min == 1 && near(s.last_line.avg, 5.0) && s.last_line.max == 15 &&
+                  s.last_tstate.min == 304 && near(s.last_tstate.avg, 1246.0) && s.last_tstate.max == 3640 &&
+                  s.writes.min == 1 && near(s.writes.avg, 2.0) && s.writes.max == 3 &&
+                  s.pc_min == 0x9300 && s.pc_max == 0x9320);
+        }
+        {
+            std::vector<AudioFrame> v;
+            for (uint32_t n = 100; n < 110; ++n) v.push_back(tf(n, int(n - 100), (n - 100) * 228 + 10, int(n - 100), (n - 100) * 228 + 10, 1, 0x8000, 0x8000));
+            const AudioTimingStats a = audio_timing_stats(ptrs(v), 3);
+            const AudioTimingStats b = audio_timing_stats(ptrs(v), 10);
+            const AudioTimingStats c = audio_timing_stats(ptrs(v), 11);
+            check("AFG-20", "ten consecutive frames 100-109, first line = f - 100: window 3 covers 107-109 (frames 3, empty 0, first line 7/8.0/9); window 10 covers 100-109 (frames 10); window 11 is clamped to the oldest frame (window_first 100, frames 10, empty 0)",
+                  a.frames == 3 && a.window_first == 107 && a.window_last == 109 && a.empty == 0 &&
+                  a.first_line.min == 7 && near(a.first_line.avg, 8.0) && a.first_line.max == 9 &&
+                  b.frames == 10 && b.window_first == 100 && b.window_last == 109 && b.empty == 0 &&
+                  c.frames == 10 && c.window_first == 100 && c.empty == 0);
+        }
+        {
+            const std::vector<AudioFrame> a = {tf(100, 1, 1, 1, 1, 1, 0, 0), tf(101, 1, 1, 1, 1, 1, 0, 0), tf(104, 1, 1, 1, 1, 1, 0, 0, 2)};
+            const std::vector<AudioFrame> b = {tf(120, 1, 1, 1, 1, 1, 0, 0, 25), tf(121, 1, 1, 1, 1, 1, 0, 0)};
+            const AudioTimingStats sa = audio_timing_stats(ptrs(a), 10);
+            const AudioTimingStats sb50 = audio_timing_stats(ptrs(b), 50);
+            const AudioTimingStats sb10 = audio_timing_stats(ptrs(b), 10);
+            check("AFG-21", "empty frame numbers: f100,f101,f104 (empty_before 2) window 10 is 100-104 with 3 frames and 2 empty; f120 (empty_before 25),f121: window 50 starts at 95 (the oldest frame minus its empty_before) with 25 empty, window 10 starts at 112 with 8 empty (not the 25 before the window)",
+                  sa.window_first == 100 && sa.window_last == 104 && sa.frames == 3 && sa.empty == 2 &&
+                  sb50.window_first == 95 && sb50.frames == 2 && sb50.empty == 25 &&
+                  sb10.window_first == 112 && sb10.window_last == 121 && sb10.frames == 2 && sb10.empty == 8);
+        }
+        {
+            const std::vector<AudioFrame> a = {tf(1, 1, 1, 1, 1, 1, 0x8100, 0x8150), tf(2, 1, 1, 1, 1, 1, 0x8000, 0x8120),
+                                               tf(3, 1, 1, 1, 1, 1, 0xFFFF, 0),
+                                               tf(4, 1, 1, 1, 1, 1, 0x9000, 0x8FFF)};
+            const std::vector<AudioFrame> b = {tf(1, 1, 1, 1, 1, 1, 0xFFFF, 0), tf(2, 1, 1, 1, 1, 1, 0xFFFF, 0), tf(3, 1, 1, 1, 1, 1, 0xFFFF, 0)};
+            const AudioTimingStats sa = audio_timing_stats(ptrs(a), 50);
+            const AudioTimingStats sb = audio_timing_stats(ptrs(b), 50);
+            check("AFG-22", "PC ranges 0x8100-0x8150, 0x8000-0x8120, none (0xFFFF-0) and an inverted pair (0x9000-0x8FFF, min > max): neither adds anything, the union is 0x8000-0x8150; three frames with no CPU write leave pc_min 0xFFFF, pc_max 0",
+                  sa.pc_min == 0x8000 && sa.pc_max == 0x8150 && sb.frames == 3 && sb.pc_min == 0xFFFF && sb.pc_max == 0);
+        }
+        {
+            const std::vector<AudioFrame> v = {tf(50, 300, 1, 300, 1, 1, 0, 0), tf(51, 300, 1, 300, 1, 1, 0, 0),
+                                               tf(10, 2, 1, 2, 1, 1, 0, 0), tf(11, 3, 1, 3, 1, 1, 0, 0)};
+            const AudioTimingStats s = audio_timing_stats(ptrs(v), 100);
+            const std::vector<AudioFrame> eq = {tf(10, 5, 1, 5, 1, 1, 0, 0), tf(10, 7, 1, 7, 1, 1, 0, 0)};
+            const AudioTimingStats e = audio_timing_stats(ptrs(eq), 50);
+            check("AFG-23", "frames 50, 51, then 10, 11 (a timeline break at 10), window 100: only 10 and 11 count (frames 2, window 10-11, first line 2/2.5/3); 50 and 51 are ignored; two frames both numbered 10 are a break too (only the second counts: frames 1, window 10-10, empty 0, first line 7)",
+                  e.frames == 1 && e.window_first == 10 && e.window_last == 10 && e.empty == 0 && e.first_line.min == 7 &&
+                  s.frames == 2 && s.window_first == 10 && s.window_last == 11 && s.empty == 0 &&
+                  s.first_line.min == 2 && near(s.first_line.avg, 2.5) && s.first_line.max == 3);
+        }
+        {
+            const AudioTimingStats e = audio_timing_stats({}, 50);
+            const std::vector<AudioFrame> v5 = {tf(5, 1, 1, 1, 1, 1, 0, 0)};
+            const AudioTimingStats z = audio_timing_stats(ptrs(v5), 0);
+            const std::vector<AudioFrame> v3 = {tf(3, 1, 1, 1, 1, 1, 0, 0)};
+            const AudioTimingStats s3 = audio_timing_stats(ptrs(v3), 50);
+            const std::vector<AudioFrame> v7 = {tf(7, 4, 9, 6, 11, 5, 0x8000, 0x8010)};
+            const AudioTimingStats s7 = audio_timing_stats(ptrs(v7), 1);
+            check("AFG-24", "edge cases: no frames, and window 0, give the default (frames 0, every field 0); f3 alone with window 50 saturates the nominal start at 0 and starts at 3 (empty 0); f7 alone with window 1 has min == avg == max on every range and window 7-7",
+                  e.frames == 0 && e.window_first == 0 && e.window_last == 0 && e.empty == 0 &&
+                  z.frames == 0 && z.window_last == 0 &&
+                  s3.frames == 1 && s3.window_first == 3 && s3.window_last == 3 && s3.empty == 0 &&
+                  s7.frames == 1 && s7.window_first == 7 && s7.window_last == 7 && s7.empty == 0 &&
+                  s7.first_line.min == 4 && s7.first_line.max == 4 && near(s7.first_line.avg, 4) &&
+                  s7.last_line.min == 6 && s7.last_line.max == 6 && near(s7.last_line.avg, 6) &&
+                  s7.first_tstate.min == 9 && near(s7.first_tstate.avg, 9) && s7.last_tstate.min == 11 &&
+                  s7.writes.min == 5 && s7.writes.max == 5 && near(s7.writes.avg, 5));
         }
     }
 
@@ -5232,6 +5329,22 @@ int main() {
         std::filesystem::remove_all(base, ec);
         check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a failed open of the last file takes back the six before it and spares a directory in the way; a missing nested DIR is created",
               silent_refused && bad_refused && half_refused && entries == 1 && nested_ok);
+    }
+    {
+        // STM-14: the stems' sync rule (SCP-04's twin). 100 cycles reach the mixer alone (EAR high, the stems were not there), then the stem
+        // recording starts and its span ends that mixer sample: the stems saw 535 of its 635 cycles, so no stem frame is pushed for it (a
+        // frame averaged over 535 cycles would not be the mixer's sample). The next whole sample is pushed, and is the all-rest one (every stem 0).
+        StemRig m;
+        m.sa = 100ull * 44100;
+        m.beeper.set_ear(true);
+        m.mixer.accumulate(m.beeper, m.ts, m.dac, 100);
+        m.beeper.set_ear(false);
+        m.span(535);
+        const bool dropped = m.sink.f.empty() && m.st.written == 0;
+        m.span(635);
+        bool rest = m.sink.f.size() == 1;
+        for (size_t i = 0; rest && i < 14; ++i) rest = m.sink.f[0][i] == 0;
+        check("STM-14", "sync rule: a sample the stems saw only 535 of 635 cycles of gets no frame; the next whole one does, all stems at rest (0)", dropped && rest);
     }
     {
         // AIZ-13: the stems are invisible to the Z80: the same machine run with a recording on and off has the same saved state and framebuffer
