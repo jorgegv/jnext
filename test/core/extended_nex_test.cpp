@@ -906,7 +906,10 @@ int main() {
         const int h = h_open(e, name);
         Z80Registers rr{};
         if (handle_out) *handle_out = h;
-        if (h < 0 || !h_map(e, h, 0x9500, 1, rr) || carry(rr)) return uint32_t{0};
+        for (uint16_t i = 0; i < 6; ++i) e.mmu().write(static_cast<uint16_t>(0x9500 + i), 0);
+        // DE=0 on exit: the one entry was written (not stale memory)
+        if (h < 0 || !h_map(e, h, 0x9500, 1, rr) || carry(rr) || rr.DE != 0)
+            return uint32_t{0};
         return m_addr(e, 0x9500);
     };
 
@@ -1061,26 +1064,28 @@ int main() {
     {   // XNEX-55
         auto e = host_emu("host1.nex");
         Z80Registers rr{};
+        const uint8_t idle = e ? spi_idle(*e) : 0xAA;
         // the kept-open NEX file (handle 2) maps at its own base and streams its own bytes
         const bool kmap = e && h_map(*e, ExtendedNexHost::kHandle, 0x9500, 1, rr) && !carry(rr);
         const uint32_t kaddr = kmap ? m_addr(*e, 0x9500) : 0;
         const bool kstream = kmap && kaddr == ExtendedNexHost::kSyntheticFirstBlock &&
                              h_start(*e, kaddr, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
                              pin(*e) == 'N' && pin(*e) == 'e' && pin(*e) == 'x' && pin(*e) == 't';
-        const bool kend = kstream && h_end(*e, rr) && !carry(rr);
-        // a host-directory file, with the extended bridge also active, streams its own bytes
+        // a host-directory file, with the extended bridge also active, maps in its own
+        // region; starting its stream ends the NEX file's (one card, one stream)
         const uint32_t haddr = e ? map_first(*e, "data/t.bin") : 0;
         const bool hstream = haddr != 0 && haddr != kaddr &&
                              h_start(*e, haddr, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
                              pin(*e) == tbyte(0) && pin(*e) == tbyte(1);
-        // and a stream of the kept-open file started after it ends the host one
+        // and starting the kept-open file's stream again ends the host one
         const bool kagain = hstream && h_start(*e, kaddr, 0x82, rr) && !carry(rr) &&
                             pin(*e) == 0xFE && pin(*e) == 'N';
-        const bool hend = kagain && h_end(*e, rr) && !carry(rr);
+        const bool kend = kagain && h_end(*e, rr) && !carry(rr);
         check("XNEX-55", "extended NEX plus host directory: DISK_FILEMAP of the kept-open handle "
               "still maps at kSyntheticFirstBlock and streams the NEX bytes; a host-directory file "
-              "maps in its own region and streams its own bytes; one stream at a time",
-              kstream && kend && hstream && kagain && hend,
+              "maps in its own region and streams its own bytes; one stream at a time, so after "
+              "the last DISK_STRMEND port $EB is the SPI path",
+              kstream && hstream && kagain && kend && spi_idle(*e) == idle,
               "kaddr=" + std::to_string(kaddr) + " haddr=" + std::to_string(haddr));
     }
     {   // XNEX-56
