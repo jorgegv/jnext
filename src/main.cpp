@@ -2003,6 +2003,9 @@ static int run_main(int argc, char* argv[]) {
             startup_report::report("%s\n", usage);
             return 1;
         }
+        // A terminal command starts no window: its SD provisioning is headless too (no dialogs, no
+        // upgrade offer), as --sdcard-file-add's is by its own count.
+        if (verbs > 0 && sdcard_file_add_count == 0) headless = true;
     }
     // Headless automation (each says so in --help): the windowed frontends
     // never read these, so there they were accepted and did nothing (#138).
@@ -2185,9 +2188,7 @@ static int run_main(int argc, char* argv[]) {
         // session, so it provisions through the CLI prompts even in a Qt
         // build: popping a modal dialog out of `jnext --sdcard-file-add ...`
         // in a script would hang it with nothing to click.
-        const bool sdcard_terminal_verb = sdcard_file_add_count > 0 || sdcard_flatten_count > 0 ||
-                                          sdcard_export_count > 0 || sdcard_import_count > 0;   // GH #555
-        const bool sd_gui_dialogs = !headless && !sdcard_terminal_verb;
+        const bool sd_gui_dialogs = !headless && sdcard_file_add_count == 0;
         if (sd_gui_dialogs) {
             opts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
             opts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
@@ -2209,7 +2210,7 @@ static int run_main(int argc, char* argv[]) {
         opts.busy     = sdcard::cli_busy;
         // The SDL window frontend asks with a message box; --headless and the terminal
         // command --sdcard-file-add never ask (they log how to upgrade).
-        if (!headless && !sdcard_terminal_verb) opts.upgrade = sdcard::sdl_offer_upgrade;
+        if (!headless && sdcard_file_add_count == 0) opts.upgrade = sdcard::sdl_offer_upgrade;
 #endif
 #endif   // __EMSCRIPTEN__
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
