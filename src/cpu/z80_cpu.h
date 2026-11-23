@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <memory>
 #include <tuple>
 
 struct Z80Registers {
@@ -141,10 +142,42 @@ void z80_set_tstate_divisor(int divisor);
 /// no other public observable.
 int z80_get_tstates_per_line();
 
+/// Test observability: the ContentionModel the core's runtime is bound to right
+/// now (null when no CPU is bound, or the bound one has none). A CPU's
+/// destructor unbinds, so this never names a destroyed machine.
+ContentionModel* z80_bound_contention_for_test();
+
+// The cross-instruction state of the FUSE core for ONE Z80Cpu: its register
+// file, T-state counter, contention runtime and raster geometry. Defined in
+// z80_cpu.cpp (it holds FUSE types, which this header must not name).
+struct Z80CoreRuntime;
+
 // Z80 CPU wrapper — backed by FUSE Z80 core (third_party/fuse-z80/)
+//
+// The FUSE core keeps its state in process globals, which the opcode macros
+// name directly. They are a CACHE OF THE BOUND CPU: each Z80Cpu owns a saved
+// copy (rt_), and the globals belong to whichever CPU last ran an entry point
+// below (bind_()). A change of machine swaps the state; one machine running
+// alone never pays more than a pointer compare per entry. The free z80_*
+// functions above, and fuse_z80_tstates_ptr(), act on the BOUND CPU's state:
+// code that drives one machine (the FUSE harness, single-machine tests) may
+// use them, anything that may run a second machine goes through the members.
 class Z80Cpu {
 public:
     Z80Cpu(MemoryInterface& mem, IoInterface& io);
+    ~Z80Cpu();
+    Z80Cpu(const Z80Cpu&) = delete;
+    Z80Cpu& operator=(const Z80Cpu&) = delete;
+
+    /// This CPU's contention runtime, geometry, ULA origins and T-state unit
+    /// (the z80_set_* functions above, bound to this CPU first).
+    void set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machine_type);
+    void set_frame_geometry(int tstates_per_line, int tstates_per_frame);
+    void set_ula_counter_origins(int hc_origin, int vc_origin);
+    void set_tstate_divisor(int divisor);
+    /// This CPU's FUSE T-state counter. The reference is valid until another
+    /// CPU's entry point runs: use it at once.
+    uint32_t& tstates_ref() const;
 
     // hard=false = t80n soft-reset semantics (t80n.vhd:429-447 + empty
     // register-file reset branch at :1493-1498): PC/AF/AF'/I/R/IFF/IM reset,
@@ -340,6 +373,9 @@ public:
 
     /// GH #452 - the first opcode byte the last execute() fetched at PC (valid when
     /// last_slot_kind() == Opcode). A HALT repeat is a slot whose opcode was 0x76.
+    /// The fetch buffer is shared by every Z80Cpu and is not swapped on a bind: this and
+    /// last_m1_byte() are valid only until the next execute() of ANY Z80Cpu, so read them
+    /// straight after this CPU's own execute().
     uint8_t last_opcode() const;
 
     /// GH #489 - the i-th M1 byte the last execute() fetched: 0 = the opcode, 1 = the byte after a
@@ -427,6 +463,13 @@ public:
     void reset_request_interrupt_count() { request_interrupt_count_ = 0; }
 
 private:
+    /// Make this CPU's state the one in the core's globals (see the class
+    /// comment). The test is the whole cost while one machine runs.
+    void bind_() const { if (s_bound_ != this) bind_slow_(); }
+    void bind_slow_() const;
+    static const Z80Cpu* s_bound_;
+    std::unique_ptr<Z80CoreRuntime> rt_;   // saved while another CPU is bound
+
     MemoryInterface& mem_;
     IoInterface&     io_;
     Z80Registers     regs_{};

@@ -211,9 +211,9 @@ are unique in each submenu; `DACC-05` pins the new popups and mnemonics). The sl
 
 `write_re_exports_at_exit()` (`re_export_at_exit.h:39`)
 is called from the three loop owners' `shutdown()`:
-`write_re_exports_at_exit()` (`headless_app.cpp:1092`),
-`write_re_exports_at_exit()` (`src/platform/sdl_app.cpp:913`) and
-`write_re_exports_at_exit()` (`qt_app.cpp:535`).
+`write_re_exports_at_exit()` (`headless_app.cpp:1134`),
+`write_re_exports_at_exit()` (`src/platform/sdl_app.cpp:951`) and
+`write_re_exports_at_exit()` (`qt_app.cpp:561`).
 A failure logs and sets the exit code to 1. `--export-skoolkit`, `--export-ghidra`, `--import-skoolkit`
 and `--import-ghidra` are in `src/core/cli_options.h`.
 

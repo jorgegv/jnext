@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2408,6 +2408,8 @@
       
         
       
+        
+      
     
     
     
@@ -2920,6 +2922,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-debugger/functions/18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -4508,7 +4538,11 @@ emulated machine's audio state.
 Complete mute remains available through
 <strong>Settings &gt; Preferences &gt; Startup &gt; Start muted</strong> or <code>--silent</code>; muting also
 skips sound synthesis entirely, which speeds up runs that do not need audio.
-Tape loading still works while muted.</p>
+Tape loading still works while muted. A tape loading in real time is heard
+through the beeper, at the level the Next gives it (a quarter of the beeper's
+own), and follows the beeper gain. As on the Next's tape input, a level that
+holds still for about a millisecond (the silence between blocks) fades back to
+the idle level instead of staying up.</p>
 <h2 id="if-the-sound-stutters-or-clicks">If the sound stutters or clicks<a class="headerlink" href="#if-the-sound-stutters-or-clicks" title="Permanent link">&para;</a></h2>
 <p>JNEXT paces itself against your sound card, so audio should stay clean
 indefinitely. Glitches almost always mean the <strong>host cannot keep up</strong>.</p>

@@ -191,6 +191,20 @@ public:
     };
     DeckState deck_state(uint64_t now) const;
 
+    /// T-states since the EAR level last changed at `now` (the monotonic
+    /// T-state clock), derived from the player's state (GH #550). Exact in the
+    /// pause phases (the pulse in progress is the 1 ms hold, or the pause's
+    /// remainder, whose lengths the player holds); in every other phase it is
+    /// 0, which is the closest rule available (the player does not keep the
+    /// length of the pulse it has just started, and a restore holds only
+    /// the position): the level is taken as freshly changed, so it stays as
+    /// the board would have it until the relaxation time, at most one such
+    /// time late for a pulse longer than that. A pause of 1 ms or less after a block
+    /// that ends high forces the level low with no visible edge, so there the age
+    /// counts from the pause, not from the last data edge (under one data pulse
+    /// off). 0 when not playing.
+    uint32_t ticks_since_edge(uint64_t now) const;
+
     /// Put the deck back where `d` says. False, with the reason in `why` and
     /// the loader untouched, when `d` is not a position this file can be in
     /// (nothing loaded, an offset or pointer outside the file, an index past
@@ -201,12 +215,30 @@ public:
     /// True if all blocks have been consumed (for fast-load mode).
     bool at_end() const { return fast_load_offset_ >= static_cast<int>(file_data_.size()); }
 
+    /// GH #548: can the tape carry machine code (see TapLoader::holds_code_block)? Also true
+    /// for any non-standard data block (0x11, 0x14, 0x15, 0x18, 0x19). Decided at load().
+    bool holds_code_block() const { return holds_code_; }
+
+    /// GH #548: the last data block has been delivered. Fast: no standard or turbo data block
+    /// ahead of the fast cursor (a trailing 0x20 / 0x30 / 0x32 block does not count, which
+    /// at_end() does not allow for). Real time: the player has parsed the last such block and is
+    /// past its pilot, sync and data (in its trailing pause or later). Non-const: it probes the
+    /// fast cursor and restores it.
+    bool data_delivered();
+
 private:
     /// Parse the next standard-speed data block for fast-load.
     /// Scans from fast_load_offset_, skipping non-data TZX blocks.
     /// Returns pointer to raw block data (flag + payload + checksum)
     /// and sets out_len to the total length.  Returns nullptr if none found.
     const uint8_t* next_data_block(int& out_len);
+
+    /// GH #548: the static scan load() makes (holds_code_, last_data_end_).
+    void scan_tape();
+    bool holds_code_ = false;
+    int  last_data_end_ = 0;      ///< file offset just past the last 0x10 / 0x11 block
+    int  scan_exotic_end_ = 0;    ///< file offset just past the last 0x14 / 0x15 block seen
+    bool scan_exotic_ = false;    ///< set by next_data_block() on a non-standard data block
 
     std::vector<uint8_t> file_data_;    // owned copy of the file
     void* player_ = nullptr;            // ZOT TZXPlayer* (opaque, defined in tzx.h)

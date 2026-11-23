@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2352,6 +2352,8 @@
       
         
       
+        
+      
     
     
     
@@ -2977,6 +2979,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -4553,6 +4583,8 @@ ZEsarUX 12.0 does.</p>
 <p>The log confirms it:</p>
 <pre><code>[13:10:21.837] [debugger] [info] zrcp: listening on 127.0.0.1:10000
 </code></pre>
+<p><code>jnext --debugger --zrcp-port 10000 game.nex</code> also starts the program paused where it
+starts, serving only ZRCP (see <a href="18-starting-from-the-command-line.html">Starting from the command line</a>).</p>
 <p><code>10000</code> is ZEsarUX's own default, and the one DeZog expects. <code>--zrcp-port 0</code>
 lets the system pick a free port and prints it. The server is off unless you
 give the option, and it works in every frontend: the Qt window, the SDL build

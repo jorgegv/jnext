@@ -1000,7 +1000,9 @@ my %NO_MATRIX_SECTION = (
     # `## SD Card` traces against the SD SPI spec.
     'nex_loader_test'         => 'NEX file-format spec (host loader), no core counterpart',
     'nex_v13_test'            => 'NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart',
+    'fatfs_glue_linux_test'   => 'FatFs glue sector cache after a failed write (host tool, Linux-only: /dev/full, RLIMIT_FSIZE); the oracle is the image file read by an independent stream, no core counterpart',
     'tap_loader_test'         => 'TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart',
+    'tap_loader_autoplay_test' => 'TAP automatic play/stop (host deck feature), the design in GH #395 as oracle, no core counterpart',
     'program_archive_test'    => 'ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart',
     'halt_batch_equiv_test'   => 'cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal)',
     'halt_batch_periph_test'  => 'cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
@@ -1112,6 +1114,7 @@ my %NO_MATRIX_SECTION = (
     # GH #381. The oracle is the World of Spectrum POKformat.txt (a host file
     # format the FPGA core never sees) and jnext's own apply/remove policy; the
     # bank-to-page rows cite zxnext.vhd:4613-4616 / :4679-4680 in their own source.
+    'startup_stop_test' => 'the --debugger / --break-at startup stop (host side): its stop points are the file formats\' own entry PCs and the Breakpoints panel\'s address rules',
     'pok_trainers_test' => 'the WoS POK trainer file format and jnext\'s apply/remove policy (host side); its bank-to-page rows cite zxnext.vhd in their own source',
     'pok_dialog_test'   => 'POK trainers dialog (GUI), no core counterpart',
     'load_error_test' => 'GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart',
@@ -1180,6 +1183,7 @@ my %NO_MATRIX_SECTION = (
     'profiler_test'                 => 'jnext profiler output format (a developer tool)',
     'app_config_test'               => 'jnext.conf schema/precedence (host settings file)',
     'config_keys_test'              => 'the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle)',
+    'cpu_runtime_binding_test'      => 'two machines in one process each run as they do alone (GH #551, jnext-internal: the oracle is the same fixture run alone); no FPGA counterpart',
     'warm_start_card_test'          => 'warm-start digest key and stepped recording against the real card (GH #464, jnext-internal); no FPGA counterpart',
     'warm_start_test'               => 'warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify',
     'preferences_apply_test'        => 'Preferences dialog wiring (host GUI)',

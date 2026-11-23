@@ -165,8 +165,32 @@ public:
     /// Current block index (0-based).
     size_t current_block() const { return current_block_; }
 
-    /// True if all blocks have been consumed.
+    /// True if all blocks have been consumed. For BOTH modes this is "the last block has
+    /// been delivered": the fast trap serves a block and advances, and the real-time player
+    /// calls next_block() when the last bit of a block completes, before its trailing pause.
     bool at_end() const { return current_block_ >= blocks_.size(); }
+
+    /// GH #548: can the tape carry machine code? True when some data block is NOT the
+    /// data of a Program or array header (types 0, 1, 2) and is not the SCREEN$ a type 3
+    /// header of start 16384 and length 6912 announces: a CODE block, a headerless block.
+    /// A tape that cannot has nothing to run from RAM after its last block.
+    bool holds_code_block() const {
+        int prev_type = -1;
+        unsigned prev_len = 0, prev_start = 0;
+        for (const TapBlock& b : blocks_) {
+            if (b.flag == 0x00 && b.data.size() == 17) {   // a header: type, name, length, params
+                prev_type  = b.data[0];
+                prev_len   = static_cast<unsigned>(b.data[11] | (b.data[12] << 8));
+                prev_start = static_cast<unsigned>(b.data[13] | (b.data[14] << 8));
+                continue;
+            }
+            const bool basic = prev_type >= 0 && prev_type <= 2;
+            const bool screen = prev_type == 3 && prev_start == 16384 && prev_len == 6912;
+            if (!basic && !screen) return true;
+            prev_type = -1;
+        }
+        return false;
+    }
 
     /// Get the next block and advance the position.
     /// Returns nullptr if at end of tape.
@@ -206,6 +230,18 @@ public:
     /// Advance the real-time playback state machine by one T-state.
     /// Returns the current EAR bit value (0 or 1).
     uint8_t tick_realtime(uint64_t tstates);
+
+    /// T-states since the EAR level last changed, derived from the deck's
+    /// position (GH #550): the length of the pulse or pause in progress minus
+    /// what is left of it. Every pulse starts at an edge, so this is exact for
+    /// each phase, and it needs nothing saved: a restored deck carries the phase,
+    /// the byte and bit and `pulse_left`. One exception: the very first pilot
+    /// pulse of a tape started from idle has no edge (the level stays at the 0
+    /// the stopped deck had), so inside it the age is "since the start", which
+    /// the continuous run does not count; it matters only on issue 2 with MIC
+    /// set, for a restore within 2168 T-states of the start. 0 when the deck
+    /// is not playing.
+    uint32_t ticks_since_edge() const;
 
     /// True if real-time playback is in progress.
     bool is_playing() const { return playing_; }

@@ -455,6 +455,9 @@ VHDL ref: `zxnext.vhd` lines 6503-6504
 | BP-11  | Issue 2 mode: MIC is XOR'd twice (cancels)       | When `nr_08_keyboard_issue2=1`: `EAR_in XOR mic XOR mic = EAR_in` |
 | BP-12  | Issue 3 mode: MIC contributes to beep            | When `nr_08_keyboard_issue2=0`: `EAR_in XOR 0 XOR mic = EAR_in XOR mic` |
 | BP-13  | Internal speaker exclusive mode                   | `beep_spkr_excl = nr_06_internal_speaker_beep AND nr_08_internal_speaker_en` |
+| MX-63  | Issue 3: the tape level is XORed with the port 0xFE MIC bit in the mix | NR 0x08 = 0x10, port 0xFE = 0x08, tape playing: tape 1 -> 0, tape 0 -> 512 (`zxnext.vhd:6503`: 1 xor 0 xor 1 = 0). Real mixer output of the full machine (GH #550) |
+| MX-64  | Issue 2: the MIC bit cancels while a tape plays   | NR 0x08 = 0x11, port 0xFE = 0x08, tape playing: tape 1 -> 512, tape 0 -> 0 (`t xor 1 xor 1 = t`) |
+| MX-65  | No tape: the MIC term is the MIC bit on both settings; after an eject it is the relaxed `issue2_mic` | issue 2 + MIC, tape level 0: 0; eject, two output samples later: 512; issue 3 no tape: MIC 1 -> 512, 0 -> 0 (`zxnext.vhd:6503, 1636`). The after-eject value is jnext's model, not the board's: on the board `ear_relax` holds the last tape level 64 x 512 master cycles before relaxing to `issue2_mic` (`symmetric_relaxation.vhd:76,89-90`), the held-back D6 class |
 
 ### 4.3 Port 0xFE Read
 
@@ -534,6 +537,55 @@ VHDL ref: `audio_mixer.vhd` lines 92-107
 | MX-21  | `exc_i=0`: EAR and MIC contribute normally        | The muxes at `audio_mixer.vhd:80-81` are COMBINATIONAL, so `exc_i` returning to `'0'` reopens them on the spot. Driven 1 → 0 on ONE Mixer, asserting EAR 512, MIC 128 and both 640 (×4 into int16). MX-01/MX-02 only see the power-on default and cannot tell a gate from a latch |
 | MX-22  | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4 | `beep_spkr_excl = nr_06_internal_speaker_beep AND nr_08_internal_speaker_en` |
 | MX-23  | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream)  | `pcm_L/R = ay_L/R + dac_L/R + i2s_L/R` only — `ear/mic = 0` regardless of `ear_i/mic_i`. skip — `mixer.cpp:28-29` sums EAR+MIC+AY+DAC+I2S unconditionally; Mixer never reads `Emulator::beep_spkr_excl()` (see G110) |
+
+### 5.4 Tape, Pi EAR and the MIC term (GH #550)
+
+`audio_mixer.vhd` has no tape input (`:35-37`): the tape (`i_AUDIO_EAR`) and the Pi's audio routed to EAR reach
+the mix only inside `mic_i = beep_mic_final` (`zxnext.vhd:6503, 6516`), at 128. Signed sample = (13-bit sum - 1536) x 4,
+so EAR alone = 2048 and the MIC term alone = 512; the beeper is mono (L == R). `i_AUDIO_EAR` is the jack through
+`ear_relax` (`zxnext_top_issue2.vhd:662-677`, `symmetric_relaxation.vhd:62,76,89-90`): a level with no edge for
+64 x 512 master cycles relaxes to `zxn_issue2_fe_mic`. jnext applies that to the Pi's EAR route and to a playing tape (the last edge of a restored
+deck is derived from its position, MX-93..100). Full-machine rows in `audio_nextreg_test`.
+
+| ID     | Test                                             | Verification                                               |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| MX-62  | The tape reaches the mix through the MIC term at 128, not as a term of its own | issue 3, port 0xFE = 0, tape 1 -> 512, tape 0 -> 0 (`audio_mixer.vhd:64,81,99`) |
+| MX-66  | EAR stays 512 and the tape adds 128 on top (4:1)  | port 0xFE = 0x10, tape 1 -> 2560, tape 0 -> 2048 |
+| MX-67  | `exc_i` silences the tape's term with EAR and MIC | NR 0x06 = 0x40, NR 0x08 = 0x10, port 0xFE = 0x18: 0 / 0 (`audio_mixer.vhd:80-81`) |
+| MX-68  | Pi audio routed to EAR reaches the MIC term; the I2S term stays at rest | `set_sample(0x3FF,0x3FF)`, NR 0xA2 = 0xC1: 512 (`zxnext.vhd:2358,2364-2373,6503`) |
+| MX-69  | While routed and unrelaxed, port 0xFE MIC and NR 0x08 issue 2 both feed the MIC term | MIC 1: 0 (`1 xor 0 xor 1`); issue 2: 512 (`1 xor 1 xor 1`) |
+| MX-70  | `ear_relax`: a Pi level held 64 x 512 master cycles relaxes to the issue-2 MIC level | +30000 cycles: 512; +34500: 0 (`symmetric_relaxation.vhd:76,89-90`) |
+| MX-71  | A state load re-derives the MIC term              | save with port 0xFE = 0x08, load into a fresh machine: 512 |
+| MX-72  | A state load re-derives the exc gate (R1)         | NR 0x06 = 0x40 and NR 0x08 = 0x10 saved: the loaded machine has `beep_spkr_excl()` and mixes 0 |
+| MX-73  | The mixer's inputs are `ear_i` and `mic_i` only (bare Mixer) | raw tape alone adds 0; `mic_final` alone adds 512; `set_mic()` sets `mic_final` |
+| MX-78  | A state load re-derives the NMI button enables (NR 0x06 bits 4:3) | restored and cleared directions (D9) |
+| MX-79  | A state load re-derives `nr_06_ps2_mode`           | the NR 0x06 read returns bit 2 as saved (D9) |
+| MX-80  | A state load re-derives the hotkey enables (NR 0x06 bits 7, 5) | F8 with bit 7 clear leaves the CPU speed alone (D9) |
+| MX-81  | A state load re-derives the exc gate in the other direction | snapshot with the gate open into a machine with it closed: mixes 2048 |
+| MX-82  | Replay mode holds the Pi's EAR term off, and the MIC term follows it | 512 / 0 / 512 |
+| MX-84  | A reset clears the mixer's MIC term with the port 0xFE MIC bit | MIC 1: 512; after a reset: 0 (`zxnext.vhd:3588-3594,6503`) |
+| MX-85  | A tape stopped at level 1 leaves the raw tape level 0 | one instruction after the eject: no stale EAR level |
+| MX-86  | A restore with no tape playing clears a saved raw tape level | one instruction after the load |
+| MX-87  | A tape edge reaches the MIC term in its own instruction | 8 edges: `mic_final` equals the raw level in the instruction that shows it (issue 3, MIC 0), not one output sample later |
+| MX-88  | An OUT 0xFE while a tape plays | tape 1: MIC 0 -> 512, MIC 1 -> 0, MIC 0 -> 512 (`zxnext.vhd:6503`) |
+| MX-89  | A restore while a tape plays re-derives the MIC term | saved 0, changed 512, restored 0 |
+| MX-90  | A state load re-derives the F3 hotkey enable (NR 0x06 bit 5) | F3 with the bit clear leaves NR 0x05 bit 2 alone (D9) |
+| MX-91  | A state load re-derives `nr_06_ps2_mode` the other way | saved 0 into a machine holding 1 (D9) |
+| MX-92  | In a HALT batch the Pi's `ear_relax` hold runs out at its time | the last samples of the frame are at rest (`pi_sample_thunk_`) |
+| MX-74  | A held tape level relaxes in the mix              | TZX pure tone: edge 512, held < hold 512, held > hold 0, raw tape level still 1 (D6) |
+| MX-75  | The relaxation reaches the port 0xFE read          | bit 6 follows the held tape until the hold, then the issue-2 MIC level (D6) |
+| MX-76  | Issue 2 + MIC: a held tape 0 relaxes to the MIC level, the next edge restarts the hold | mix 0 -> 512, then next edges 512 / 0 (D6) |
+| MX-77  | The hold restarts at an edge of tape XOR `pi_fe_ear` | a Pi edge inside the tape's hold extends it (D6) |
+| MX-83  | A tape stopped and started again restarts the hold at its first edge | the restarted tape is heard at once (512), not relaxed (D6) |
+| MX-93  | A TAP restore mid-pilot derives the tape edge     | 500 T into a 2168 T pulse: edge 500 T back |
+| MX-94  | A TAP restore mid-pause, before the relaxation    | 1000 T after the edge: age derived, mix 512 |
+| MX-95  | A TAP restore mid-pause, after the relaxation     | 8000 T after the edge: relaxed, mix 0 |
+| MX-96  | A TAP restore inside a data bit                   | a one bit (1710 T), 300 T left: age 1410 T |
+| MX-97  | A TZX restore in the pause's 1 ms hold            | derived edge equals the continuous one |
+| MX-98  | A TZX restore in the pause's remainder            | derived edge equals the continuous one |
+| MX-99  | A TZX restore in a pulse phase                    | age 0 (documented rule): never earlier than the continuous edge, at most one pulse later |
+| MX-100 | A WAV restore finds the edge by looking back      | young (1000 T): mix 512; old (9000 T, look-back capped at 8192 T): mix 0 |
+| MX-101 | A `.jns` load inside a tape's hold re-derives the tape edge at the deck reattach | TAP played 1000 T into the first pause, saved, loaded into a fresh machine: age within 800 master cycles, mix 512, deck playing |
 
 ## 6. NextREG Configuration
 

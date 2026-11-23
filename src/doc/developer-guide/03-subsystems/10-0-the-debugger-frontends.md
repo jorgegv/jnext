@@ -1,7 +1,7 @@
 # 3.10 The debugger frontends
 
 A frontend turns something outside the backend — a Qt window, a socket peer, a
-script file — into calls on `jnext::dbg::Debugger`. Six of them ship:
+script file — into calls on `jnext::dbg::Debugger`. Seven of them ship:
 
 | Frontend | Code | Started by | `ClientKind` |
 |---|---|---|---|
@@ -11,8 +11,9 @@ script file — into calls on `jnext::dbg::Debugger`. Six of them ship:
 | the ZRCP server (ZEsarUX's protocol) | `src/remote/zrcp/` | `--zrcp-port N` | `Zrcp` |
 | the script engine | `src/script/` | `--script FILE`, or the Qt Script tab | `Script` |
 | the recorder | `src/script/recorder.*` | `--record-script FILE`, or the Qt Script menu | `Script` |
+| the startup stop | `src/platform/startup_stop.*` | `--debugger`, `--break-at` | `CommandLine` |
 
-All six run in every frontend build that can host them: the three servers and
+All seven run in every frontend build that can host them: the three servers and
 the scripting language need no toolkit, so they work in the Qt GUI, the SDL
 frontend and `--headless` alike. Each is one or more clients of the same
 backend, so any combination can run at once on one machine, and each sees the
@@ -92,6 +93,21 @@ side:
 the backend's, not the server's: every client's write produces one. On `quit`
 the client detached, and because no other arming client was attached, its pause
 was released and the machine ran on until `--delayed-automatic-exit` ended it.
+
+## `--debugger` in each frontend
+
+The startup stop ([3.9.3](09-3-sessions-the-pump-and-reconstruct.md)) is one object
+whatever the frontend; what differs is who shows the pause. In the Qt GUI the
+debugger manager already opens the window for any pause it did not make itself,
+so the stop needs no Qt code. The SDL and headless loop owners have no window: with
+`--debugger` they set `StopPolicy::Pause`, log what they wait on, and serve the
+protocol ports. `main.cpp` implies DZRP on `cli::kDebuggerDefaultDzrpPort` (11000)
+through `cli::debugger_implied_dzrp_port()` only when the run has no debugger window
+and no protocol port was given; a Qt build made without the debugger counts as having
+no window. The browser build refuses both flags. `StartupStop::poll()` runs once per tick after the pump in all three
+loop owners (the verbs of a protocol client or a script are issued in the pump, so no frame runs between them and
+that poll), and the Qt loop owner polls once more at the top of `pre_frames()`, because the debugger window's Pause
+and Run are slots that run between ticks.
 
 ## The capability matrix
 
