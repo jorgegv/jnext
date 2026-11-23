@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4729,13 +4729,23 @@ end
 <td><code>SRC DST LEN DMA_MODE</code></td>
 </tr>
 <tr>
+<td><code>ay_write</code></td>
+<td><code>[chip C] [reg R[..S]] [mask M value V]</code></td>
+<td><code>CHIP REG VALUE PREV TARGET</code></td>
+</tr>
+<tr>
+<td><code>audio_write</code></td>
+<td><code>[ay_reg \| ay_select \| dac] [chip C] [reg R[..S]] [mask M value V] [dropped]</code></td>
+<td><code>CHIP REG VALUE PREV TARGET</code></td>
+</tr>
+<tr>
 <td><code>stop</code></td>
 <td>—</td>
 <td><code>REASON</code> (a string)</td>
 </tr>
 </tbody>
 </table>
-<p><code>SOURCE</code> is <code>CPU</code> (0), <code>DMA</code> (1) or <code>COPPER</code> (2).</p>
+<p><code>SOURCE</code> is <code>CPU</code> (0), <code>DMA</code> (1) or <code>COPPER</code> (2). <code>TARGET</code> is 0 AY register, 1 AY chip select, 2 DAC, 3 NextREG mirror, 4 beeper.</p>
 <h2 id="state">State<a class="headerlink" href="#state" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -4770,6 +4780,10 @@ end
 <td>MMU, NextREGs</td>
 </tr>
 <tr>
+<td><code>ay[c, r]</code></td>
+<td>AY chip <code>c</code> (0..2) register <code>r</code> (0..15), read-only</td>
+</tr>
+<tr>
 <td><code>FRAME CYCLE TFRAME</code></td>
 <td>time</td>
 </tr>
@@ -4778,8 +4792,8 @@ end
 <td>the raster</td>
 </tr>
 <tr>
-<td><code>MACHINE AUDIO_MUTE</code></td>
-<td>0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the mute mask</td>
+<td><code>MACHINE AUDIO_MUTE AUDIO_CHANNEL_MUTE</code></td>
+<td>0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the source mute mask; the channel mute mask</td>
 </tr>
 <tr>
 <td><code>@name</code></td>
@@ -4846,7 +4860,7 @@ end
 </tr>
 <tr>
 <td><code>set TARGET = EXPR</code></td>
-<td>change the machine (logged <code>MUTATE</code>); TARGET is a register, a flag, <code>IFF1</code>, <code>IFF2</code>, <code>IM</code>, <code>mem[]</code>, <code>mem16[]</code>, <code>phys[]</code>, <code>nextreg[]</code> or <code>AUDIO_MUTE</code></td>
+<td>change the machine (logged <code>MUTATE</code>); TARGET is a register, a flag, <code>IFF1</code>, <code>IFF2</code>, <code>IM</code>, <code>mem[]</code>, <code>mem16[]</code>, <code>phys[]</code>, <code>nextreg[]</code>, <code>AUDIO_MUTE</code> or <code>AUDIO_CHANNEL_MUTE</code></td>
 </tr>
 <tr>
 <td><code>out PORT VALUE</code></td>

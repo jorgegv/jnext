@@ -827,6 +827,106 @@ Result Debugger::set_audio_mute_mask(ClientId by, uint8_t mask) {
     return Result::Ok;
 }
 
+uint16_t Debugger::audio_channel_mute_mask() const {
+    return impl_->emu.audio_channel_mute_mask();
+}
+
+Result Debugger::set_audio_channel_mute_mask(ClientId by, uint16_t mask) {
+    const uint16_t old_mask = impl_->emu.audio_channel_mute_mask();
+    impl_->emu.set_audio_channel_mute_mask(mask);
+    // The logged value is the stored one, after masking.
+    impl_->log_mutate(by, "audio channel mute mask", old_mask, impl_->emu.audio_channel_mute_mask());
+    return Result::Ok;
+}
+
+Result Debugger::clear_audio_drops(ClientId by) {
+    uint64_t total = 0;
+    for (const AudioDropCounter& c : impl_->emu.audio_drops()) total += c.count;
+    impl_->emu.clear_audio_drops();
+    impl_->log_mutate(by, "audio drop counters", total, 0);
+    return Result::Ok;
+}
+
+// INS-22 -- the decoded audio chain. Every source is a const accessor or a
+// peek: nothing here runs a NextREG read handler or a port read.
+AudioState Debugger::audio_state() const {
+    Emulator& emu = impl_->emu;
+    const TurboSound& ts = emu.turbosound();
+    AudioState st;
+
+    st.psg_clock_hz = static_cast<uint32_t>(MASTER_CLOCK_HZ / PSG_CLOCK_DIVISOR);
+    st.active_chip = static_cast<uint8_t>(ts.selected_index());
+    st.turbosound = ts.enabled();
+    st.stereo = ts.stereo_mode() ? StereoMode::Acb : StereoMode::Abc;
+    st.psg_mode = emu.nextreg().peek(0x06) & 0x03;
+    st.held_in_reset = ts.reset_held();
+
+    const uint8_t ports = emu.effective_internal_port_enable(0x84);
+    st.ay_ports_enabled = (ports & 0x01) != 0;
+    st.dac.port_families = ports & 0xFE;
+    for (size_t i = 0; i < DAC_CHANNEL_COUNT; ++i)
+        st.dac.channels[i] = emu.dac().channel(static_cast<int>(i));
+    st.dac.enabled = emu.dac_enabled();
+
+    st.beeper.ear = emu.beeper().ear();
+    st.beeper.mic = emu.beeper().mic();
+    st.beeper.tape_ear = emu.beeper().tape_ear();
+    st.beeper.speaker_enabled = (emu.nr_08_stored_low() & 0x10) != 0;
+    st.beeper.beep_speaker_only = emu.nr_06_internal_speaker_beep();
+    st.beeper.excluded = emu.beep_spkr_excl();
+
+    const uint8_t a2 = emu.i2s().nr_a2_ctl();
+    st.pi.left_enabled = (a2 & 0x80) != 0;
+    st.pi.right_enabled = (a2 & 0x40) != 0;
+    st.pi.to_ear = emu.i2s().ear_routed();
+
+    const uint8_t mute = emu.audio_mute_mask();
+    const uint16_t channel_mute = emu.audio_channel_mute_mask();
+    st.host.output_gain_db = emu.mixer().output_gain_db();
+    st.host.beeper_gain_db = emu.mixer().beeper_gain_db();
+    st.host.dac_gain_db = emu.mixer().dac_gain_db();
+    for (size_t c = 0; c < AY_CHIP_COUNT; ++c)
+        st.host.ay_gain_db[c] = emu.mixer().ay_gain_db(static_cast<int>(c));
+    st.host.mute_mask = mute;
+    st.host.channel_mute_mask = channel_mute;
+    // The user setting, not audio_off_: a HALT batch raises that for one call.
+    st.host.synthesis_on = !emu.config().silent;
+    st.drops = emu.audio_drops();
+
+    for (size_t c = 0; c < AY_CHIP_COUNT; ++c) {
+        const int ci = static_cast<int>(c);
+        const AyChip& ay = ts.ay(ci);
+        AyChipState& cs = st.chips[c];
+        for (size_t r = 0; r < AY_REGISTER_COUNT; ++r)
+            cs.regs[r] = ay.read_register(static_cast<uint8_t>(r));
+        cs.address = ay.address();
+        cs.pan = ts.pan(ci);
+        cs.mono = ((ts.mono_mode() >> c) & 1) != 0;
+        cs.reaches_mix = (ts.selected_index() == ci) || ts.enabled();
+        cs.noise_period = cs.regs[6] & 0x1F;
+
+        const AyChip::DebugView dv = ay.debug_view();
+        for (size_t k = 0; k < AY_CHANNELS_PER_CHIP; ++k) {
+            AyChannelState& ch = cs.channels[k];
+            ch.tone_period = static_cast<uint16_t>(((cs.regs[2 * k + 1] & 0x0F) << 8) | cs.regs[2 * k]);
+            ch.tone_enabled = ((cs.regs[7] >> k) & 1) == 0;
+            ch.noise_enabled = ((cs.regs[7] >> (k + 3)) & 1) == 0;
+            ch.volume = cs.regs[8 + k] & 0x0F;
+            ch.uses_envelope = (cs.regs[8 + k] & 0x10) != 0;
+            ch.amplitude = dv.amplitude[k];
+            ch.muted = ((mute >> c) & 1) != 0 ||
+                       ((channel_mute >> (AY_CHANNELS_PER_CHIP * c + k)) & 1) != 0;
+        }
+        cs.envelope.period = static_cast<uint16_t>((cs.regs[12] << 8) | cs.regs[11]);
+        cs.envelope.shape = cs.regs[13] & 0x0F;
+        cs.envelope.step = dv.env_step;
+        cs.envelope.motion = dv.env_hold ? EnvelopeMotion::Holding
+                           : dv.env_inc  ? EnvelopeMotion::Rising
+                                         : EnvelopeMotion::Falling;
+    }
+    return st;
+}
+
 // ---------------------------------------------------------------------------
 // INS-11 — disassembly
 //

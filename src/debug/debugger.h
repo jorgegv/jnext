@@ -275,6 +275,7 @@ struct ReReport {
     size_t labels = 0;
     size_t comments = 0;
     std::vector<std::string> notes;
+    std::vector<std::string> paths;   // the files an export put in place, as written (GH #553: output_files)
 };
 
 /// The frontend sequences the backend cannot reach (SES-07).
@@ -312,7 +313,7 @@ struct LoopDriver {
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
 // ---------------------------------------------------------------------------
 // DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
-// `Result`" (`result.h`'s banner). These 55 read live machine state that always
+// `Result`" (`result.h`'s banner). These 58 read live machine state that always
 // exists, so they have no refusal case by construction and return their value
 // directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
 // `Expected<T>`, and moving one onto it is a claim that it cannot fail. The
@@ -326,11 +327,12 @@ struct LoopDriver {
 //                     at_frame_boundary, rewind_enabled, rewind_range
 //   registers/memory (6): registers, mmu_slots, paging_ports, rom_select,
 //                     nextreg_peek, nextreg_selected
-//   video/audio (18): raster, machine, time, time_epoch, sprites, pattern_ram,
+//   video/audio (21): raster, machine, time, time_epoch, sprites, pattern_ram,
 //                     sprite_clip, copper, framebuffer, palette,
 //                     palette_priority, active_ula_palette_bank,
 //                     ula_screen_regs, clip_window, turbosound_enabled,
-//                     ay_mode, stereo_mode, audio_mute_mask
+//                     ay_mode, stereo_mode, audio_mute_mask, audio_state,
+//                     audio_channel_mute_mask, audio_log_enabled
 //   disasm/trace (10): disassemble, instruction_length, is_call_like,
 //                     memory_reader, operand_reader, call_stack, call_stack_enabled,
 //                     trace_enabled, coverage_enabled, coverage
@@ -662,6 +664,36 @@ public:
 
     /// INS-10 / §4.2a — set it.
     Result set_audio_mute_mask(ClientId by, uint8_t mask);
+
+    /// INS-22 -- the decoded audio chain, in one call. A DIRECT VALUE: it reads
+    /// live state that always exists and runs no read handler.
+    AudioState audio_state() const;
+
+    /// INS-22 -- the host-side per-channel mute mask (`AudioChannelMute::*`: 9 AY
+    /// bits, then DAC A-D). A DIRECT VALUE. Never in a snapshot or an RZX.
+    uint16_t audio_channel_mute_mask() const;
+
+    /// INS-22 -- set it (bits above 0x1FFF are masked off). Never refused.
+    Result set_audio_channel_mute_mask(ClientId by, uint16_t mask);
+
+    /// INS-22 -- zero every dropped-write counter (GH #530). MUTATE-logged.
+    Result clear_audio_drops(ClientId by);
+
+    /// INS-23 -- the audio write log (GH #531). `by`'s own request; the log is on
+    /// while any live client asks, observers included. Host state: never in a
+    /// snapshot, and invisible to the Z80.
+    Result set_audio_log_enabled(ClientId by, bool enabled);  ///< RefusedUnavailable for an unknown client
+    bool   audio_log_enabled() const;                         ///< DIRECT VALUE: the effective state
+    /// Empty the log. `seq` carries on. Ok while off too (nothing to clear). MUTATE-logged.
+    Result audio_log_clear(ClientId by);
+    /// Keep the newest `min(count, entries)`; `entries` in 1..AUDIO_LOG_MAX_ENTRIES.
+    Result audio_log_resize(size_t entries);
+    /// The entries with `seq > since_seq`, oldest first, markers included.
+    /// RefusedUnavailable while the log is off.
+    Expected<std::vector<AudioLogEntry>> audio_log_entries(uint64_t since_seq) const;
+    /// Write the whole log as CSV (`debug/audio_log_csv.h`). RefusedUnavailable while
+    /// off, or when FILE cannot be written.
+    Result audio_log_export(const std::string& path) const;
 
     /// INS-11 — disassemble `n` instructions from `addr` over `peek(Cpu)`.
     /// `symbols` may be null; pass `&symbols()` for the backend's own table.

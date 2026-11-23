@@ -36,7 +36,7 @@ the default (`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
 `BreakpointModel` (`src/debugger/breakpoint_model.*`) for the manager's
 lifetime. The GUI's breakpoints are its subscriptions: single-address
 `Execute`, `Mem` and `Port` subscriptions (a `lo..hi` range on the first two, a port `mask`/`value`), and the
-addressless `IntAck` and `Nmi` ones (the Interrupt and NMI types), with `once = false`, and a condition when
+addressless `IntAck` and `Nmi` ones (the Interrupt and NMI types), and `AudioWrite` ones (the Audio Write type: a target, chip, register, value/mask and applied-or-dropped, as `BpAudio`), with `once = false`, and a condition when
 the dialog gave one. A
 breakpoint stops: action `Stop` and no handler. A *count-only* one is action `Continue`
 plus a handler of the model that counts. READ, WRITE and READ_WRITE are one `Mem` subscription with an
@@ -51,6 +51,15 @@ nothing.
 and the port rule (`bp_port_mask_for()`): the model has no copy of either. Another
 client's `IntAck` or `Nmi` Stop subscription is a typed but read-only row, with an empty
 Address.
+
+An Audio Write breakpoint's dialog fields map one to one onto `EventFilter` fields (`audio_filter()` in
+`breakpoint_model.cpp`: the target to `audio_targets`, the chip, the register to `regs`, value and mask to
+`value_match`/`value_mask`, *dropped only* to `audio_flags_all` and the default to `audio_flags_none`), and
+`audio_of()` is its inverse: a subscription is the dialog's own row only when it is a filter the dialog can make
+(a script's `reg 8..10` is listed read-only). The row text is `bp_audio_text()`, one function for the panel and
+the codec's messages. The codec spells an applied AY register breakpoint as `on ay_write`, and every other audio
+breakpoint (AY chip select, DAC, Any, dropped-only) as `on audio_write` with its target word, so saving never
+refuses one.
 
 **Hit counts need no backend counter** and follow the script engine's own split
 (`account_static_stops` / `run_rule`). A Stop breakpoint stays a static Stop with no
@@ -153,7 +162,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Graphics | `pattern_ram()`, `palette()`, `nextreg_peek()` (NR 0x43, 0x4B, 0x4C, 0x14, 0x6B, 0x6F), `peek(MemSpace::page())` of pages 0A/0B/0E, `active_ula_palette_bank()`, `palette_priority()` (the Palettes `Pri` column), `rgb333_to_argb()`; the decoders in `src/debug/gfx_decode.*` | — |
 | Copper | `copper()` | — |
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
-| Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
+| Audio | `audio_state()`, `ay_mode()`, `audio_log_entries()`, `audio_log_enabled()`, `audio_log_export()` | `set_audio_mute_mask()`, `set_audio_channel_mute_mask()`, `clear_audio_drops()`, `set_audio_log_enabled()` (from `DebuggerManager::apply_data_needs()`, only while the Log sub-tab is on show: `AudioPanel::log_on_show()`, re-run on `AudioPanel::sub_tab_changed()`); the panel emits `show_in_disassembly_requested` for a CPU-written dropped-write row and a CPU-written Log row |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 | Symbols | `symbols().symbols()` (the toolchain's labels and the user's), `shown_name()`, `source_page()`, `source_map().lookup()`, `state_revision()` | — |
@@ -211,12 +220,17 @@ moved; the greying of a paged label whose page is not what `source_page()` repor
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: `QSYML-*`.
 
-**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1118`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:403`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1107`; `PausedStamp`,
-`debugger_manager.h:262`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1126`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:414`: ~4 Hz). Paused, it
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1115`; `PausedStamp`,
+`debugger_manager.h:271`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
-everything, the Video tab's composited frame included, fifty times a second. The stamp is:
+everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
+exception to the running cadence: while the window is open, the Audio dock is on show (`panel_on_show()`) and its
+Chips sub-tab is the current one (`AudioPanel::chips_on_show()`), `refresh_panels()` calls
+`AudioPanel::refresh_live()` on every tick, so the decoded chips follow the music. It is a refresh of its own,
+counted by `take_audio_live_refresh_count()`, not a `refresh_window()` call, so no other panel's cadence moves.
+The stamp is:
 
 - the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and
   host actions make);
@@ -228,7 +242,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   subscription verb (`subscribe`, `subscribe_source_line`, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
   breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;
-- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:178`), installed on `qApp`
+- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:186`), installed on `qApp`
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
@@ -236,7 +250,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:575`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:1098`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:1106`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -369,6 +383,34 @@ constants in `src/debugger/`.
 `AddressStyle` (Debug > Physical Addresses) and hands it to each panel and to the `BreakpointModel`.
 Which space each view prints, and the columns that were added, are described in
 [7.7](../07-source-level-debugging/07-frontends.md).
+
+### The Audio panel
+
+`AudioPanel` (`src/debugger/audio_panel.cpp`) is a Sources strip (the five source mute boxes) above a
+`QTabWidget`: Chips, DAC & Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+not available yet. The panel owns no audio state: every number comes from one `Debugger::audio_state()` per
+refresh, and every note from `audio_math.h`, so the panel and a test read the same decode.
+
+- **Chips** draws the three chip blocks from `AudioState::chips`, the nine channel rows (period, note and
+  cents, T and N gates, volume or `Env`, a level bar from `AyChannelState::amplitude`) and the envelope line.
+  Its Hex box swaps the table for the raw `regs` of the three chips.
+- **DAC & Beeper** shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the
+  dropped-write table, one fixed row per `AudioDropReason`; a CPU-sourced row double-clicks into the
+  Disassembly, and **Clear** calls `clear_audio_drops()`. `audio_drop_reason_text()` is shared with the Log
+  tab, so the two cannot word a reason differently.
+- **Log** is `AudioLogView`, a `QAbstractTableModel` mirroring the backend ring: `refresh()` appends the
+  entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
+  overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
+  `audio_log_export()`.
+- **M and S** per channel call `set_audio_channel_mute_mask()`. A solo is the mask "everything but that
+  channel": `channel_solo_clicked()` saves the mask it found (`pre_solo_mask_`) and un-solo restores it, a solo
+  moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
+  solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.
+
+What the panel asks of the backend follows the sub-tab on show. `DebuggerManager::apply_data_needs()` requests
+the write log only while the Audio panel is on show with Log current (`AudioPanel::log_on_show()`), and drops
+the request otherwise; the panel's `sub_tab_changed` signal makes the manager re-derive it. Chips is the one
+sub-tab with the per-frame refresh described under the running cadence above.
 
 ## The key bindings are data
 

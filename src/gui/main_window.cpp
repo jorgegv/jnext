@@ -2055,20 +2055,30 @@ bool MainWindow::handle_program_path(const QString& path, const QString& shown,
     if (emulator_load_routes_to_nex(file)) {
         uint8_t ver_bcd = 0;
         char    ver[5]  = {0};
-        // GH #381 (RF-1) - a .nex, or a file with an extension nothing owns, falls
-        // to the NEX loader, which wants the "Next" prologue probe_version() looks
-        // for: a file without it cannot load (NexLoader::load refuses the same
-        // magic), so say so BEFORE the cold boot throws the session away for it.
-        // The reason follows the case: a .nex is just not a NEX file (a saved web
-        // page, say), and "its extension is not one JNEXT loads" or a hint about
+        // GH #381 (RF-1) / #556 - a .nex, or a file with an extension nothing owns,
+        // falls to the NEX loader; refuse BEFORE the cold boot throws the session
+        // away what the load would refuse (NexLoader::preboot_check): a file with no
+        // complete 512-byte header, or a version above what JNEXT loads. The first
+        // four bytes are NOT checked for a .nex (the NEXLOAD NextZXOS ships never
+        // reads them); only a file with an extension nothing owns must start with
+        // "Next". The reason follows the case: a .nex is just not a NEX file (a saved
+        // web page, say), and "its extension is not one JNEXT loads" or a hint about
         // .pok would contradict its name; only the other extensions get those.
-        if (!NexLoader::probe_version(file, ver_bcd, ver)) {
-            refuse_jns(name, snapshot_file_ext(file) == "nex"
-                ? tr("it is not a NEX file (it does not start with the \"Next\" header)")
+        const bool nex_ext = snapshot_file_ext(file) == "nex";
+        switch (NexLoader::preboot_check(file, nex_ext, ver_bcd, ver)) {
+        case NexLoader::PreBoot::NotNex:
+            refuse_jns(name, nex_ext
+                ? tr("it is not a NEX file (it has no complete \"Next\" header)")
                 : tr("it is not a NEX file and its extension is not one JNEXT loads "
                      "(.nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx, .zip); a .pok "
                      "trainer file opens from Machine > POK Trainers"));
             return false;
+        case NexLoader::PreBoot::TooNew:
+            refuse_jns(name, tr("it is NEX version %1, newer than the V1.3 JNEXT loads")
+                                 .arg(QString::fromLatin1(ver)));
+            return false;
+        case NexLoader::PreBoot::Ok:
+            break;
         }
         if (nex_version_needs_v13_optin(ver_bcd)) {
             QMessageBox box(QMessageBox::Warning, tr("Experimental NEX V1.3"),

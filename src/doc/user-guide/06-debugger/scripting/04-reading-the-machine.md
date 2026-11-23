@@ -52,6 +52,18 @@ code as well as RAM page 0: check `mmu[s] != 0xFF` if you need RAM only.
 
 `nextreg[r]` reads NextREG `r` (0 to 0xFF), without its read side effects.
 
+## The AY chips
+
+`ay[c, r]` reads register `r` (0 to 15) of AY chip `c` (0 to 2): the value a CPU read
+of that register returns, which is what the Audio panel's register table shows. It has no side effect. A chip or register out of
+range is a run-time error. It is read-only: write a register with `out 0xFFFD` and `out 0xBFFD`.
+
+```
+on ay_write reg 7 when ay[0, 7] == 0x3F do log "chip 0 mixer closed" end
+```
+
+A register reads back as the chip would answer a program, not as it was written: in AY mode (not YM) R1, R3, R5 and R13 keep only their low 4 bits and R6, R8, R9 and R10 their low 5, and in either mode R14 and R15 read 0xFF while their I/O port is an input (R7 bit 6 or 7 clear). At an `ay_write` the write has already landed, so `ay[CHIP, REG] == VALUE` for every other register.
+
 ## Time and the raster
 
 | Name | What |
@@ -80,6 +92,7 @@ filter itself is 64-bit.
 |---|---|
 | `MACHINE` | 0 = 48K, 1 = 128K, 2 = +3, 3 = Pentagon, 4 = Next |
 | `AUDIO_MUTE` | the host-side mute mask, the Audio panel's (bit 0 to 2: AY chips 0 to 2, bit 3: the DACs, bit 4: the beeper) |
+| `AUDIO_CHANNEL_MUTE` | the host-side channel mute mask, the Audio panel's M and S buttons (bit 0 to 8: AY chip 0 channel A to chip 2 channel C, three bits per chip; bit 9 to 12: DAC channels A to D) |
 
 ## An example
 

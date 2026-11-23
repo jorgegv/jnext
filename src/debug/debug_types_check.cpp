@@ -29,6 +29,7 @@
 #include "debug/result.h"
 
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
 
 // The things the published types mirror. None of these may ever be included by
@@ -100,20 +101,21 @@ static_assert(sizeof(Event) <= 128, "Event grew past its copy budget");
 // `Hit` goes into `PausedInfo::matched` for every subscription that matched.
 static_assert(std::is_trivially_copyable<Hit>::value, "");
 
-// 14 kinds, and this now catches an APPEND. `EVENT_KIND_COUNT` is derived from
+// 15 kinds, and this now catches an APPEND. `EVENT_KIND_COUNT` is derived from
 // the trailing `EventKind::Count` sentinel; deriving it from the last real
 // enumerator (`Dma + 1`) was blind to exactly the change it claimed to catch —
 // a fifteenth kind added after `Dma` left the count at 14 and every assert here
 // kept passing. `EventKindMask` is `uint32_t`, so the mask must also have room
 // for every kind.
-static_assert(EVENT_KIND_COUNT == 14, "section 4.3's table is 14 event kinds");
+static_assert(EVENT_KIND_COUNT == 15, "section 4.3's table is 15 event kinds");
 static_assert(EVENT_KIND_COUNT <= sizeof(EventKindMask) * 8,
               "EventKindMask cannot hold one bit per EventKind");
 static_assert(kind_bit(EventKind::Execute) == 0x1u, "");
 static_assert(kind_bit(EventKind::Dma) == (1u << 13), "");
+static_assert(kind_bit(EventKind::AudioWrite) == (1u << 14), "");
 // The sentinel is last, so it is not itself a usable kind and no mask bit is
 // reserved for it.
-static_assert(static_cast<size_t>(EventKind::Dma) + 1 == EVENT_KIND_COUNT,
+static_assert(static_cast<size_t>(EventKind::AudioWrite) + 1 == EVENT_KIND_COUNT,
               "EventKind::Count must sit immediately after the last real kind");
 
 // `Access` doubles as a payload value and a subscription mask, so the bit
@@ -247,6 +249,41 @@ static_assert(Keyboard::MAX_AUTO_TYPE_KEYS == 16,
 static_assert(AudioMute::AY_ALL == (AudioMute::AY0 | AudioMute::AY1 | AudioMute::AY2), "");
 static_assert(AudioMute::ALL == (AudioMute::AY_ALL | AudioMute::DAC | AudioMute::BEEPER), "");
 static_assert(AudioMute::NONE == 0, "");
+
+// The per-channel mask: 9 AY bits (3 per chip) then the four DAC channels.
+static_assert(AudioChannelMute::AY_ALL == 0x1FF, "");
+static_assert(AudioChannelMute::DAC_ALL == 0x1E00, "");
+static_assert(AudioChannelMute::ALL == (AudioChannelMute::AY_ALL | AudioChannelMute::DAC_ALL), "");
+static_assert(AudioChannelMute::DAC_A == (1 << 9) && AudioChannelMute::DAC_D == (1 << 12), "");
+static_assert(AudioChannelMute::DAC_ALL == (AudioChannelMute::DAC_A | AudioChannelMute::DAC_B |
+                                            AudioChannelMute::DAC_C | AudioChannelMute::DAC_D), "");
+static_assert(AudioChannelMute::ay_bit(0, 0) == 1 && AudioChannelMute::ay_bit(2, 2) == 0x100, "");
+static_assert(AudioChannelMute::NONE == 0, "");
+
+// INS-22: the audio view is three chips of three channels and a four-channel DAC,
+// the TurboSound stack and the Soundrive DAC the machine really has.
+static_assert(AY_CHANNELS_PER_CHIP == 3, "an AY/YM chip has three channels");
+static_assert(DAC_CHANNEL_COUNT == 4, "the Soundrive DAC has four channels");
+static_assert(std::tuple_size<decltype(AudioState::chips)>::value == AY_CHIP_COUNT, "");
+static_assert(static_cast<int>(EnvelopeMotion::Holding) == 2, "Falling, Rising, Holding");
+
+// GH #530: the dropped-write reasons are the eight of DEBUGGER-MUSIC-SOUND-PLAN.md
+// §3.5 plus the unused slot 0; the panel rows and the counters index by them.
+static_assert(AUDIO_DROP_REASON_COUNT == 9, "None + eight reasons");
+static_assert(static_cast<uint8_t>(AudioDropReason::AyPortDisabled) == 1, "");
+static_assert(static_cast<uint8_t>(AudioDropReason::DacMirrorDisabled) == 8, "");
+static_assert(std::tuple_size<decltype(AudioState::drops)>::value == AUDIO_DROP_REASON_COUNT, "");
+// GH #531 (INS-23): the write log's enums and constants.
+static_assert(static_cast<uint8_t>(AudioTarget::AyRegister) == 0 &&
+              static_cast<uint8_t>(AudioTarget::Count) == 5, "five targets, AyRegister first");
+static_assert(static_cast<uint8_t>(AudioMarker::Rewind) == 3, "None, Reset, StateLoad, Rewind");
+static_assert(AudioFlag::EnvelopeRestart == 1 && AudioFlag::Dropped == 2, "");
+static_assert(AUDIO_LOG_DEFAULT_ENTRIES == 65536, "");
+static_assert(AUDIO_LOG_MAX_ENTRIES == (size_t(1) << 22), "");
+static_assert(std::is_trivially_copyable<AudioLogEntry>::value, "the tap copies it by value");
+// GH #532: the AudioWrite event's target mask.
+static_assert(audio_target_bit(AudioTarget::Beeper) == 0x10 && sizeof(AudioTargetMask) == 1 &&
+              AUDIO_TARGETS_ANY == 0xFF, "one bit per AudioTarget in a byte");
 
 // INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons. From
 // `RegId::Count`, so an appended register fires it.

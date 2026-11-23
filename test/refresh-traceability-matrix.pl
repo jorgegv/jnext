@@ -285,7 +285,7 @@ my @SUBSYS = (
     # files, so the entry lists all three (GH #117 review). The field accepts
     # an arrayref; every other section stays a plain scalar.
     ['## Audio — `test/audio/audio_test.cpp`',
-     ['audio_test', 'audio_nextreg_test', 'audio_port_dispatch_test', 'audio_posix_test']],
+     ['audio_test', 'audio_nextreg_test', 'audio_port_dispatch_test', 'audio_posix_test', 'audio_debug_test']],
     ['## DMA — `test/dma/dma_test.cpp`',             'dma_test'],
     ['## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`', 'divmmc_test'],
     ['## Multiface — `test/multiface/multiface_test.cpp`', 'multiface_test'],
@@ -415,6 +415,7 @@ my %PLAN_DOC = (
     'audio_nextreg_test'          => 'AUDIO',
     'audio_port_dispatch_test'    => 'AUDIO',
     'audio_posix_test'            => 'AUDIO',
+    'audio_debug_test'            => 'AUDIO',
     'dma_test'                    => 'DMA',
     'divmmc_test'                 => 'DIVMMC-SPI',
     'ctc_test'                    => 'CTC-INTERRUPTS',
@@ -1093,6 +1094,7 @@ my %NO_MATRIX_SECTION = (
     'frame_sequencer_test' => 'host frame sequencer (wall-clock run/present ordering)',
     'tick_stats_test'      => 'host tick accounting for the status bar',
     'speed_report_test'    => 'host speed-percentage reporting',
+    'output_files_test'    => 'GH #553 hook that reports the files a run writes to the browser page; host feature, no VHDL oracle',
     'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
     'emulator_boot_native_test' => 'host cold-boot of a live emulated ESP-01 (threaded; split out of emulator_boot_test, GH #460; no VHDL oracle)',
     'video_recorder_posix_test' => 'GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle',
@@ -1191,6 +1193,7 @@ my %NO_MATRIX_SECTION = (
     'profiler_test'                 => 'jnext profiler output format (a developer tool)',
     'app_config_test'               => 'jnext.conf schema/precedence (host settings file)',
     'config_keys_test'              => 'the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle)',
+    'cpu_runtime_binding_test'      => 'two machines in one process each run as they do alone (GH #551, jnext-internal: the oracle is the same fixture run alone); no FPGA counterpart',
     'warm_start_card_test'          => 'warm-start digest key and stepped recording against the real card (GH #464, jnext-internal); no FPGA counterpart',
     'warm_start_test'               => 'warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify',
     'preferences_apply_test'        => 'Preferences dialog wiring (host GUI)',

@@ -14,6 +14,7 @@ const char* const RESERVED[] = {
     "execute", "read", "write", "read_write", "io_read", "io_write", "nextreg", "frame", "scanline",
     "cycle", "interrupt", "nmi", "reset", "hostkey", "stop", "copper", "move", "wait",
     "halt", "at", "dma", "start", "byte", "page", "mask", "value",
+    "ay_write", "audio_write", "chip", "reg", "ay_reg", "ay_select", "dac", "dropped",
     // actions
     "log", "indent", "assert", "exit", "dump_regs", "dump_mmu", "dump_mem", "snap",
     "unsnap", "dump_diff", "enable", "disable", "screenshot", "save_snapshot",
@@ -22,7 +23,7 @@ const char* const RESERVED[] = {
     // operators and literals
     "and", "or", "not", "true", "false",
     // accessor stems (lexed as one token with their bracket)
-    "mem", "mem16", "phys", "mmu", "stack", "changed", "depth", "cvar",
+    "mem", "mem16", "phys", "mmu", "stack", "changed", "depth", "cvar", "ay",
 };
 
 struct NameRow {
@@ -46,7 +47,8 @@ const NameRow LIVE[] = {
     {"RAW_HC", Builtin::RAW_HC}, {"RAW_VC", Builtin::RAW_VC},
     {"HC_ULA", Builtin::HC_ULA}, {"VC_ULA", Builtin::VC_ULA},
     {"CVC", Builtin::CVC},   {"PHC", Builtin::PHC},
-    {"AUDIO_MUTE", Builtin::AUDIO_MUTE}, {"MACHINE", Builtin::MACHINE},
+    {"AUDIO_MUTE", Builtin::AUDIO_MUTE}, {"AUDIO_CHANNEL_MUTE", Builtin::AUDIO_CHANNEL_MUTE},
+    {"MACHINE", Builtin::MACHINE},
 };
 
 const NameRow PAYLOAD[] = {
@@ -60,7 +62,8 @@ const NameRow PAYLOAD[] = {
     {"LEN", Builtin::P_LEN},       {"DMA_MODE", Builtin::P_DMA_MODE},
     {"IO_SRC", Builtin::P_IO_SRC}, {"IO_DST", Builtin::P_IO_DST},
     {"PC", Builtin::P_PC},         {"HC_ULA", Builtin::P_HC_ULA},
-    {"CVC", Builtin::P_CVC},
+    {"CVC", Builtin::P_CVC},       {"CHIP", Builtin::P_CHIP},
+    {"TARGET", Builtin::P_TARGET},
 };
 
 }  // namespace
@@ -109,6 +112,7 @@ bool is_assignable(Builtin b) {
         case Builtin::HF: case Builtin::NF:
         case Builtin::IFF1: case Builtin::IFF2: case Builtin::IM:
         case Builtin::AUDIO_MUTE:
+        case Builtin::AUDIO_CHANNEL_MUTE:
             return true;
         default:
             return false;

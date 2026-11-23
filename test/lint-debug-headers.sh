@@ -44,9 +44,11 @@
 #
 #   * every published header must EXIST, so a rename cannot make this vacuous;
 #   * each one's dependency list must contain itself AND `src/debug/result.h`,
-#     which every one of them reaches.
+#     which each of the four original headers reaches. `audio_math.h` (GH #529)
+#     includes standard headers only, so it is listed in STD_ONLY_HEADERS and
+#     held to the stronger rule instead: it reaches no project header at all.
 #
-# It also asserts the four headers preprocess with `-Isrc` ALONE — no SDL, Qt,
+# It also asserts the published headers preprocess with `-Isrc` ALONE -- no SDL, Qt,
 # spdlog or third-party include path. That is a property worth having in its own
 # right: it is what lets a frontend include the facade without inheriting a
 # build configuration.
@@ -81,6 +83,17 @@ HEADERS=(
     debug/events.h
     debug/inspect.h
     debug/debugger.h
+    debug/audio_math.h
+    debug/audio_log_csv.h
+    debug/audio_log_stream.h
+)
+
+# The published headers that include standard headers only (GH #529). They reach
+# no project header, `debug/result.h` included, so the control below that every
+# other published header reaches it does not apply; they are held to the stronger
+# rule instead: no project header at all.
+STD_ONLY_HEADERS=(
+    debug/audio_math.h
 )
 
 # Forbidden dependencies, as extended regexes matched against each path `-M`
@@ -172,7 +185,23 @@ for header in "${HEADERS[@]}"; do
         failed=1
         continue
     fi
-    if ! grep -q -- '/debug/result\.h$' "$deps_file"; then
+    std_only=0
+    for s in "${STD_ONLY_HEADERS[@]}"; do [[ "$s" == "$header" ]] && std_only=1; done
+    if [[ "$std_only" -eq 1 ]]; then
+        # Every dependency other than itself must be a system header: a path that
+        # exists under the include root is a project header.
+        project_hits=""
+        while IFS= read -r dep; do
+            [[ "$dep" == "/$header" ]] && continue
+            [[ -f "$SRC_DIR$dep" ]] && project_hits+="      $dep"$'\n'
+        done < "$deps_file"
+        if [[ -n "$project_hits" ]]; then
+            echo "  $header is declared standard-headers-only but reaches project headers:" >&2
+            printf '%s' "$project_hits" >&2
+            failed=1
+            continue
+        fi
+    elif ! grep -q -- '/debug/result\.h$' "$deps_file"; then
         echo "  $header: does not reach debug/result.h, which every published" >&2
         echo "      header does — either the surface changed or -M produced nothing" >&2
         failed=1
@@ -196,8 +225,9 @@ fi
 
 cat >&2 <<'EOF'
 
-A published debug header reaches something it must not. The four headers
-src/debug/{debugger,events,inspect,result}.h are epic #276's whole API surface:
+A published debug header reaches something it must not. The headers
+src/debug/{debugger,events,inspect,result}.h (and the standard-only audio_math.h)
+are epic #276's whole API surface:
 a frontend includes them and must NOT thereby acquire the emulator core, the
 platform layer, a GUI toolkit, SDL, or the debug internals design §3.1 keeps
 unpublished.

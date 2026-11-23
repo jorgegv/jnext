@@ -66,7 +66,7 @@ enum class Tok : uint8_t {
     FileLine, ///< `main.c:19` (`text` = the whole spelling; GH #346)
 
     // The bracketed accessors, one token each (see the banner).
-    MemL, Mem16L, PhysL, NextRegL, MmuL, PageL, StackL, ChangedL, DepthL,
+    MemL, Mem16L, PhysL, NextRegL, MmuL, PageL, StackL, ChangedL, DepthL, AyL,
     CVar,     ///< `cvar(PATH)`: the raw path in `text` (GH #436)
 
     LParen, RParen, LBracket, RBracket, Comma, Colon, Dot, DotDot, Assign,

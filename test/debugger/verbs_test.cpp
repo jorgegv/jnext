@@ -4886,14 +4886,14 @@ static void test_bp_interrupt() {
     using BM = BreakpointModel;
     {   // QBPX-01
         BpoFix g(/*paused=*/true);
-        const char* desc = "the Add dialog's Type combo holds the eight names in order (the first six unchanged); choosing "
+        const char* desc = "the Add dialog's Type combo holds the nine names in order (the first six unchanged, Audio Write last); choosing "
                            "Interrupt turns the address field off; OK adds one own row Interrupt with an empty Address: a "
                            "static IntAck Stop with no handler or condition";
         if (!g.fx.ok) { check("QBPX-01", desc, false, "fixture"); }
         else {
             g.fx.enable();
             const BpoDlg d = drive_bp_dialog(fill(BM::Interrupt), [&] { g.panel()->on_add(); });
-            const QStringList want = {"Execute", "Read", "Write", "Read/Write", "IO Read", "IO Write", "Interrupt", "NMI"};
+            const QStringList want = {"Execute", "Read", "Write", "Read/Write", "IO Read", "IO Write", "Interrupt", "NMI", "Audio Write"};   // GH #532: grown by the new type
             bool sub_ok = false;
             if (g.model().rows().size() == 1)
                 for (const auto& si : g.fx.backend->subscriptions(false))
@@ -5975,6 +5975,426 @@ static void test_bp_ranges() {
     }
 }
 
+// ===========================================================================
+// QBA -- GH #532: the Breakpoints panel's Audio Write type.
+//
+// Oracles: the backend's own AEV rows (audio_debug_test: an AudioWrite subscription stops at the writer's
+// boundary, with the filter each dialog field means), the machine itself (each row that says "stops" is a
+// real Next stopping, never a subscription read back), and the plan's row texts. A dialog field is read
+// back as the EventFilter field it maps to, one row per field.
+// ===========================================================================
+namespace {
+
+constexpr int kAudioWrite = 8;   // the Type combo's index
+
+/// The dialog filled for an Audio Write breakpoint: target (BpAudio::Target), chip (data: 0xFF any), register
+/// (data: -1 any), value and mask texts, dropped-only. The chip is set AFTER the target (the target rebuilds the chip list).
+std::function<void(QDialog*)> audio_fill(int target, int chip, int reg, const QString& value = QString(),
+                                         const QString& mask = QString(), bool dropped = false) {
+    return [=](QDialog* d) {
+        if (auto* c = d->findChild<QComboBox*>()) c->setCurrentIndex(kAudioWrite);
+        auto pick = [&](const char* name, int data) {
+            if (auto* c = d->findChild<QComboBox*>(QString::fromLatin1(name))) {
+                const int i = c->findData(data);
+                if (i >= 0) c->setCurrentIndex(i);
+            }
+        };
+        pick("bp_dialog_audio_target", target);
+        pick("bp_dialog_audio_chip", chip);
+        pick("bp_dialog_audio_reg", reg);
+        if (auto* e = d->findChild<QLineEdit*>(QStringLiteral("bp_dialog_audio_value"))) e->setText(value);
+        if (auto* e = d->findChild<QLineEdit*>(QStringLiteral("bp_dialog_audio_mask"))) e->setText(mask);
+        if (auto* k = d->findChild<QCheckBox*>(QStringLiteral("bp_dialog_audio_dropped"))) k->setChecked(dropped);
+    };
+}
+
+/// This GUI's own AudioWrite subscriptions' filters, in creation order.
+std::vector<jnext::dbg::EventFilter> own_audio_filters(Fixture& fx, BreakpointModel& m) {
+    std::vector<jnext::dbg::EventFilter> out;
+    for (const auto& si : fx.backend->subscriptions(false))
+        if (si.owner == m.client() && si.kind == jnext::dbg::EventKind::AudioWrite) out.push_back(si.filter);
+    return out;
+}
+
+struct QbaListener final : jnext::dbg::Listener {
+    std::vector<jnext::dbg::PausedInfo> paused;
+    void on_paused(const jnext::dbg::PausedInfo& i) override { paused.push_back(i); }
+    void on_resumed(jnext::dbg::ClientId) override {}
+    void on_reset(jnext::dbg::ResetKind) override {}
+    void on_frame_ended(uint32_t) override {}
+    void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+    void on_exit_requested(int) override {}
+    void on_log(jnext::dbg::LogLevel, const std::string&) override {}
+};
+
+/// A Next with TurboSound and the DAC on, R7 preset.
+void next_audio(Fixture& fx) {
+    fx.emu.nextreg().write(0x08, 0x0A);
+    fx.emu.nextreg().write(0x84, 0xFF);
+}
+
+}  // namespace
+
+static void test_bp_audio() {
+    set_group("QBA");
+    using BM = BreakpointModel;
+    namespace AudioFlag = jnext::dbg::AudioFlag;
+    using jnext::dbg::AudioTarget;
+    using jnext::dbg::audio_target_bit;
+    using jnext::script::BpAudio;
+    using jnext::script::BpSpec;
+    constexpr auto T_AY  = audio_target_bit(AudioTarget::AyRegister);
+    constexpr auto T_SEL = audio_target_bit(AudioTarget::AyChipSelect);
+    constexpr auto T_DAC = audio_target_bit(AudioTarget::Dac) | audio_target_bit(AudioTarget::DacMirror);
+    // LD BC,0xFFFD; LD A,7; OUT (C),A; LD B,0xBF; LD A,0x38; OUT (C),A; JR $
+    const std::initializer_list<uint8_t> kR7 = {0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE};
+    {   // QBA-01
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "the Add dialog's Type combo has `Audio Write` at index 8; choosing it enables the six audio widgets "
+                           "and turns Address, To and Mask off; choosing Execute reverses that";
+        if (!g.fx.ok) { check("QBA-01", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            bool on_ok = false, off_ok = false;
+            const BpoDlg d = drive_bp_dialog([&](QDialog* dlg) {
+                auto* type = dlg->findChild<QComboBox*>();
+                const char* audio[] = {"bp_dialog_audio_target", "bp_dialog_audio_chip", "bp_dialog_audio_reg"};
+                auto state = [&](bool want_audio) {
+                    bool ok = true;
+                    for (const char* n : audio) {
+                        auto* c = dlg->findChild<QComboBox*>(QString::fromLatin1(n));
+                        ok = ok && c && c->isEnabled() == want_audio;
+                    }
+                    for (const char* n : {"bp_dialog_audio_value", "bp_dialog_audio_mask"}) {
+                        auto* e = dlg->findChild<QLineEdit*>(QString::fromLatin1(n));
+                        ok = ok && e && e->isEnabled() == want_audio;
+                    }
+                    auto* k = dlg->findChild<QCheckBox*>(QStringLiteral("bp_dialog_audio_dropped"));
+                    ok = ok && k && k->isEnabled() == want_audio;
+                    for (const char* n : {"bp_dialog_address", "bp_dialog_to", "bp_dialog_mask"}) {
+                        auto* e = dlg->findChild<QLineEdit*>(QString::fromLatin1(n));
+                        ok = ok && e && e->isEnabled() == !want_audio && (want_audio || std::string(n) != "bp_dialog_mask");
+                    }
+                    return ok;
+                };
+                type->setCurrentIndex(kAudioWrite);
+                on_ok = state(true);
+                type->setCurrentIndex(BM::Execute);
+                // Execute: address and range on, port mask off, the audio fields off.
+                auto* addr = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_address"));
+                auto* to   = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_to"));
+                auto* mask = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_mask"));
+                auto* tgt  = dlg->findChild<QComboBox*>(QStringLiteral("bp_dialog_audio_target"));
+                off_ok = addr && to && mask && tgt && addr->isEnabled() && to->isEnabled() && !mask->isEnabled() && !tgt->isEnabled();
+            }, [&] { g.panel()->on_add(); }, /*accept=*/false);
+            check("QBA-01", desc, d.opened && d.items.size() == 9 && d.items[8] == "Audio Write" && on_ok && off_ok,
+                  fmt("opened=%d items=%d last=%s on=%d off=%d", d.opened, int(d.items.size()),
+                      d.items.isEmpty() ? "" : s(d.items.last()).c_str(), on_ok, off_ok));
+        }
+    }
+    {   // QBA-02..06, one dialog each
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        if (!g.fx.ok) {
+            for (const char* id : {"QBA-02", "QBA-03", "QBA-04", "QBA-05", "QBA-06"}) check(id, "audio dialog field", false, "fixture");
+        } else {
+            g.fx.enable();
+            auto add = [&](const std::function<void(QDialog*)>& act) {
+                drive_bp_dialog(act, [&] { g.panel()->on_add(); });
+                return own_audio_filters(g.fx, g.model());
+            };
+            auto f = add(audio_fill(BpAudio::AyRegister, 1, 7, "38", "FF"));
+            check("QBA-02", "AY register, chip 1, R7, value 38, mask FF: the subscription's filter is exactly targets bit(AyRegister), chip 1, regs {7}, "
+                            "value_mask 0xFF, value_match 0x38, flags_all 0, flags_none Dropped",
+                  f.size() == 1 && f[0].audio_targets == T_AY && f[0].chip == 1 && f[0].regs == jnext::dbg::EventFilter::RegSet{7} &&
+                      f[0].value_mask == 0xFF && f[0].value_match == 0x38 && f[0].audio_flags_all == 0 &&
+                      f[0].audio_flags_none == AudioFlag::Dropped);
+            f = add(audio_fill(BpAudio::Dac, 1, -1));
+            check("QBA-03", "target DAC, channel B: targets Dac|DacMirror, chip 1, no registers, no value",
+                  f.size() == 2 && f[1].audio_targets == T_DAC && f[1].chip == 1 && f[1].regs.empty() && f[1].value_mask == 0 &&
+                      f[1].value_match == 0);
+            f = add(audio_fill(BpAudio::AyChipSelect, 2, -1));
+            check("QBA-04", "target AY chip select, chip 2: targets bit(AyChipSelect), chip 2",
+                  f.size() == 3 && f[2].audio_targets == T_SEL && f[2].chip == 2);
+            bool chip_disabled = false;
+            f = add([&](QDialog* d) {
+                audio_fill(BpAudio::Any, 0xFF, -1)(d);
+                auto* c = d->findChild<QComboBox*>(QStringLiteral("bp_dialog_audio_chip"));
+                chip_disabled = c && !c->isEnabled();
+            });
+            check("QBA-05", "target Any: targets 0xFF and chip 0xFF, with the chip combo disabled",
+                  f.size() == 4 && f[3].audio_targets == 0xFF && f[3].chip == 0xFF && chip_disabled);
+            f = add(audio_fill(BpAudio::AyRegister, 0, 8, QString(), QString(), true));
+            check("QBA-06", "Dropped writes only: flags_all Dropped, flags_none 0 (unchecked, the default, is flags_none Dropped as in QBA-02)",
+                  f.size() == 5 && f[4].audio_flags_all == AudioFlag::Dropped && f[4].audio_flags_none == 0);
+        }
+    }
+    {   // QBA-07
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "the register item `R13 (envelope restart)` gives regs {13}, and the row reads `AY1 R13 restart`";
+        if (!g.fx.ok) { check("QBA-07", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            QString item;
+            drive_bp_dialog([&](QDialog* d) {
+                audio_fill(BpAudio::AyRegister, 1, 13)(d);
+                auto* r = d->findChild<QComboBox*>(QStringLiteral("bp_dialog_audio_reg"));
+                if (r) item = r->itemText(r->findData(13));
+            }, [&] { g.panel()->on_add(); });
+            const auto f = own_audio_filters(g.fx, g.model());
+            check("QBA-07", desc,
+                  item == "R13 (envelope restart)" && f.size() == 1 && f[0].regs == jnext::dbg::EventFilter::RegSet{13} &&
+                      g.model().rows().size() == 1 && g.model().rows()[0].addr_text == "AY1 R13 restart" &&
+                      g.model().rows()[0].type_text == "Audio Write" && g.cell(0, 2) == "AY1 R13 restart",
+                  s(item) + " | " + (g.model().rows().empty() ? std::string("(no row)") : s(g.model().rows()[0].addr_text)));
+        }
+    }
+    {   // QBA-08
+        auto txt = [](BpAudio::Target t, uint8_t chip, std::optional<uint8_t> reg, std::optional<uint8_t> v, uint8_t m, bool dr) {
+            BpAudio a;
+            a.target = t; a.chip = chip; a.reg = reg; a.value = v; a.mask = m; a.dropped_only = dr;
+            return jnext::script::bp_audio_text(a);
+        };
+        const std::string got[] = {
+            txt(BpAudio::AyRegister, 1, 13, {}, 0xFF, false), txt(BpAudio::AyRegister, 0xFF, 7, 0x38, 0xFF, false),
+            txt(BpAudio::AyRegister, 0, {}, 0x08, 0x0F, false), txt(BpAudio::AyChipSelect, 2, {}, {}, 0xFF, false),
+            txt(BpAudio::Dac, 1, {}, {}, 0xFF, false), txt(BpAudio::Dac, 0xFF, {}, {}, 0xFF, true),
+            txt(BpAudio::Any, 0xFF, {}, {}, 0xFF, false), txt(BpAudio::Any, 0xFF, {}, {}, 0xFF, true)};
+        const char* want[] = {"AY1 R13 restart", "AY R7 value 0x38", "AY0 value 0x08 mask 0x0F", "AY select 2", "DAC B", "DAC dropped",
+                              "Any audio", "Any audio dropped"};
+        std::string bad;
+        for (int i = 0; i < 8; ++i) if (got[i] != want[i]) bad += "[" + got[i] + " != " + want[i] + "]";
+        check("QBA-08", "the row texts: AY1 R13 restart, AY R7 value 0x38, AY0 value 0x08 mask 0x0F, AY select 2, DAC B, DAC dropped, Any audio, Any audio dropped",
+              bad.empty(), bad);
+    }
+    {   // QBA-09
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "the dialog refuses, with a reason and creating nothing: a value `1G`, a mask with no value, and value 10 with mask 0F";
+        if (!g.fx.ok) { check("QBA-09", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            const BpoDlg a = drive_bp_dialog(audio_fill(BpAudio::AyRegister, 0xFF, -1, "1G"), [&] { g.panel()->on_add(); });
+            const BpoDlg b = drive_bp_dialog(audio_fill(BpAudio::AyRegister, 0xFF, -1, QString(), "0F"), [&] { g.panel()->on_add(); });
+            const BpoDlg c = drive_bp_dialog(audio_fill(BpAudio::AyRegister, 0xFF, -1, "10", "0F"), [&] { g.panel()->on_add(); });
+            check("QBA-09", desc,
+                  a.error.contains("value") && a.error.contains("1G") && b.error.contains("mask needs a value") &&
+                      c.error.contains("outside the mask") && own_audio_filters(g.fx, g.model()).empty() && g.model().rows().empty(),
+                  s(a.error) + " | " + s(b.error) + " | " + s(c.error));
+        }
+    }
+    {   // QBA-10
+        BpoFix g(/*paused=*/false, MachineType::ZXN_ISSUE2);
+        const char* desc = "a GUI audio breakpoint on an AEV-02 machine stops on the data write and its row's hit count is 1; the same breakpoint count-only moves the count and never stops";
+        if (!g.fx.ok) { check("QBA-10", desc, false, "fixture"); }
+        else {
+            next_audio(g.fx);
+            g.fx.load(PROG, kR7);
+            g.fx.regs(PROG);
+            g.fx.enable();
+            BpSpec sp;
+            sp.kind = BpSpec::AudioWrite;
+            sp.audio.reg = 7;
+            sp.audio.chip = 0;
+            g.model().add(sp);
+            const bool stopped = g.tick_until_paused();
+            g.model().sync();
+            const uint64_t h = g.model().rows().size() == 1 ? g.model().hits(g.model().rows()[0]) : 99;
+            BpoFix c(/*paused=*/false, MachineType::ZXN_ISSUE2);
+            next_audio(c.fx);
+            c.fx.load(PROG, kR7);
+            c.fx.regs(PROG);
+            c.fx.enable();
+            sp.count_only = true;
+            c.model().add(sp);
+            for (int i = 0; i < 3; ++i) c.tick();
+            c.model().sync();
+            const uint64_t hc = c.model().rows().size() == 1 ? c.model().hits(c.model().rows()[0]) : 99;
+            check("QBA-10", desc, stopped && g.fx.pc() == 0x800D && h == 1 && !c.fx.paused() && hc == 1,
+                  fmt("stopped=%d pc=%04X hits=%llu | count-only paused=%d hits=%llu", stopped, g.fx.pc(), (unsigned long long)h,
+                      c.fx.paused(), (unsigned long long)hc));
+        }
+    }
+    {   // QBA-11
+        BpoFix g(/*paused=*/false, MachineType::ZXN_ISSUE2);
+        const char* desc = "a GUI breakpoint {DAC, B} and a test client's backend sub {Dac|DacMirror, chip 1} stop on the same write: both ids in one matched[]";
+        if (!g.fx.ok) { check("QBA-11", desc, false, "fixture"); }
+        else {
+            next_audio(g.fx);
+            g.fx.load(PROG, {0x3E, 0x11, 0xD3, 0x0F, 0x18, 0xFE});   // OUT (0x0F),A: channel B
+            g.fx.regs(PROG);
+            g.fx.enable();
+            BpSpec sp;
+            sp.kind = BpSpec::AudioWrite;
+            sp.audio.target = BpAudio::Dac;
+            sp.audio.chip = 1;
+            g.model().add(sp);
+            jnext::dbg::ClientInfo oi;
+            oi.name = "qba11";
+            oi.kind = jnext::dbg::ClientKind::Test;
+            const jnext::dbg::ClientId other = g.fx.backend->attach(oi).value;
+            QbaListener lis;
+            g.fx.backend->set_listener(other, &lis);
+            jnext::dbg::Subscription sub;
+            sub.kind = jnext::dbg::EventKind::AudioWrite;
+            sub.action = jnext::dbg::Action::Stop;
+            sub.filter.audio_targets = T_DAC;
+            sub.filter.chip = 1;
+            const auto oid = g.fx.backend->subscribe(other, sub).value;
+            const bool stopped = g.tick_until_paused();
+            const jnext::dbg::EventId mine = g.model().rows().empty() ? 0 : g.model().rows()[0].id;
+            size_t found = 0;
+            if (!lis.paused.empty())
+                for (const auto& h : lis.paused.back().matched) found += (h.event_id == oid || h.event_id == mine);
+            check("QBA-11", desc, stopped && mine != 0 && oid != 0 && found == 2 && lis.paused.back().matched.size() == 2,
+                  fmt("stopped=%d found=%zu", stopped, found));
+            g.fx.backend->set_listener(other, nullptr);
+            g.fx.backend->detach(other);
+        }
+    }
+    {   // QBA-12
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "another client's `reg 8..10` AudioWrite subscription (a script's) is listed read-only: type `Audio Write (client N)`, type -1, not own";
+        if (!g.fx.ok) { check("QBA-12", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            jnext::dbg::Subscription sub;
+            sub.kind = jnext::dbg::EventKind::AudioWrite;
+            sub.filter.audio_targets = T_AY;
+            sub.filter.regs = {8, 9, 10};
+            sub.filter.audio_flags_none = AudioFlag::Dropped;   // as the script's `ay_write` sets it: only the register range is foreign
+            const auto other = other_client_sub(g.fx, g.model(), sub);
+            const auto& rows = g.model().rows();
+            check("QBA-12", desc,
+                  rows.size() == 1 && rows[0].type == -1 && !rows[0].own &&
+                      rows[0].type_text == QStringLiteral("Audio Write (client %1)").arg(other),
+                  rows.empty() ? std::string("(no row)") : s(rows[0].type_text));
+        }
+    }
+    {   // QBA-15
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "another client's {ANY, chip 1} AudioWrite subscription is not the dialog's `Any audio` (which has no chip): listed read-only, type -1";
+        if (!g.fx.ok) { check("QBA-15", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            jnext::dbg::Subscription sub;
+            sub.kind = jnext::dbg::EventKind::AudioWrite;
+            sub.filter.audio_targets = jnext::dbg::AUDIO_TARGETS_ANY;
+            sub.filter.chip = 1;
+            sub.filter.audio_flags_none = AudioFlag::Dropped;
+            other_client_sub(g.fx, g.model(), sub);
+            const auto& rows = g.model().rows();
+            check("QBA-15", desc, rows.size() == 1 && rows[0].type == -1 && !rows[0].own, rows.empty() ? std::string("(no row)") : s(rows[0].type_text));
+        }
+    }
+    {   // QBA-16
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "DAC target, channel B, then Dropped ticked: the channel combo goes to Any and is disabled, and the breakpoint made has chip 0xFF (a dropped DAC write has no channel); unticked, the channel is enabled again";
+        if (!g.fx.ok) { check("QBA-16", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            bool disabled = false, any = false, reenabled = false;
+            drive_bp_dialog([&](QDialog* d) {
+                audio_fill(BpAudio::Dac, 1, -1, QString(), QString(), true)(d);
+                auto* c = d->findChild<QComboBox*>(QStringLiteral("bp_dialog_audio_chip"));
+                disabled = c && !c->isEnabled();
+                any = c && c->currentData().toInt() == 0xFF;
+                d->findChild<QCheckBox*>(QStringLiteral("bp_dialog_audio_dropped"))->setChecked(false);
+                reenabled = c && c->isEnabled();
+                d->findChild<QCheckBox*>(QStringLiteral("bp_dialog_audio_dropped"))->setChecked(true);
+            }, [&] { g.panel()->on_add(); });
+            const auto f = own_audio_filters(g.fx, g.model());
+            check("QBA-16", desc, disabled && any && reenabled && f.size() == 1 && f[0].chip == 0xFF && f[0].audio_flags_all == AudioFlag::Dropped &&
+                                      f[0].audio_targets == T_DAC,
+                  fmt("disabled=%d any=%d reenabled=%d n=%zu", disabled, any, reenabled, f.size()));
+        }
+    }
+    {   // QBA-17
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "the model makes a DAC + Dropped breakpoint given a channel with chip 0xFF (the backend would refuse a channel there): one own subscription";
+        if (!g.fx.ok) { check("QBA-17", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            BpSpec sp;
+            sp.kind = BpSpec::AudioWrite;
+            sp.audio.target = BpAudio::Dac;
+            sp.audio.chip = 1;
+            sp.audio.dropped_only = true;
+            g.model().add(sp);
+            const auto f = own_audio_filters(g.fx, g.model());
+            check("QBA-17", desc, f.size() == 1 && f[0].chip == 0xFF && f[0].audio_flags_all == AudioFlag::Dropped);
+        }
+    }
+    {   // QBA-13
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "Edit seeds the dialog from the row (type 8, target, chip, register, value, mask, dropped) and an unchanged OK keeps the same breakpoint";
+        if (!g.fx.ok) { check("QBA-13", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            BpSpec sp;
+            sp.kind = BpSpec::AudioWrite;
+            sp.audio.target = BpAudio::AyRegister;
+            sp.audio.chip = 2;
+            sp.audio.reg = 9;
+            sp.audio.value = 0x34;
+            sp.audio.mask = 0xF0 | 0x04;
+            sp.audio.dropped_only = true;
+            g.model().add(sp);
+            g.table()->selectRow(0);
+            g.table()->setCurrentCell(0, 0);
+            struct Seed { int type = -1, target = -1, chip = -1, reg = -2; QString value, mask; bool dropped = false; } seed;
+            const BpoDlg d = drive_bp_dialog([&](QDialog* dlg) {
+                auto data = [&](const char* n) { auto* c = dlg->findChild<QComboBox*>(QString::fromLatin1(n)); return c ? c->currentData().toInt() : -9; };
+                seed.type = dlg->findChild<QComboBox*>()->currentIndex();
+                seed.target = data("bp_dialog_audio_target");
+                seed.chip = data("bp_dialog_audio_chip");
+                seed.reg = data("bp_dialog_audio_reg");
+                seed.value = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_audio_value"))->text();
+                seed.mask = dlg->findChild<QLineEdit*>(QStringLiteral("bp_dialog_audio_mask"))->text();
+                seed.dropped = dlg->findChild<QCheckBox*>(QStringLiteral("bp_dialog_audio_dropped"))->isChecked();
+            }, [&] { g.panel()->on_edit(); });
+            const auto script = g.model().script_specs();
+            check("QBA-13", desc,
+                  d.opened && seed.type == kAudioWrite && seed.target == BpAudio::AyRegister && seed.chip == 2 && seed.reg == 9 &&
+                      seed.value == "34" && seed.mask == "F4" && seed.dropped && g.model().rows().size() == 1 &&
+                      script.size() == 1 && script[0] == sp,
+                  fmt("opened=%d type=%d target=%d chip=%d reg=%d value=%s mask=%s dropped=%d rows=%zu", d.opened, seed.type, seed.target,
+                      seed.chip, seed.reg, s(seed.value).c_str(), s(seed.mask).c_str(), seed.dropped, g.model().rows().size()));
+        }
+    }
+    {   // QBA-14
+        BpoFix g(/*paused=*/true, MachineType::ZXN_ISSUE2);
+        const char* desc = "every audio target saves as a script and loads back: the model's rows -> bp_script_text -> bp_specs_from_script -> a cleared model, the same eight breakpoints, none refused";
+        if (!g.fx.ok) { check("QBA-14", desc, false, "fixture"); }
+        else {
+            g.fx.enable();
+            std::vector<BpSpec> in;
+            auto mk = [&](BpAudio::Target t, uint8_t chip, std::optional<uint8_t> reg, std::optional<uint8_t> v, uint8_t m, bool dr) {
+                BpSpec x;
+                x.kind = BpSpec::AudioWrite;
+                x.audio = {t, chip, reg, v, m, dr};
+                in.push_back(x);
+            };
+            mk(BpAudio::AyRegister, 1, 13, {}, 0xFF, false);
+            mk(BpAudio::AyRegister, 0xFF, 7, 0x38, 0xFF, false);
+            mk(BpAudio::AyChipSelect, 2, {}, {}, 0xFF, false);
+            mk(BpAudio::Dac, 0xFF, {}, 0x80, 0xC0, true);
+            mk(BpAudio::Dac, 0xFF, {}, {}, 0xFF, false);
+            mk(BpAudio::Any, 0xFF, {}, {}, 0xFF, false);
+            mk(BpAudio::Any, 0xFF, {}, {}, 0xFF, true);
+            mk(BpAudio::AyRegister, 0, 8, {}, 0xFF, true);
+            g.model().add_specs(in);
+            const auto saved = g.model().script_specs();
+            const jnext::script::BpScript text = jnext::script::bp_script_text(saved, *g.fx.backend);
+            g.model().clear_all();
+            const jnext::script::BpRead back = jnext::script::bp_specs_from_script(text.text, *g.fx.backend);
+            g.model().add_specs(back.specs);
+            const auto again = g.model().script_specs();
+            bool same = saved.size() == 8 && again.size() == 8;
+            for (size_t i = 0; same && i < 8; ++i) same = again[i] == saved[i];
+            check("QBA-14", desc, same && text.refused.empty() && back.ok(), text.text + (back.ok() ? "" : back.errors[0].to_string()));
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -6014,6 +6434,7 @@ int main(int argc, char** argv) {
     test_bp_script();
     test_bp_script_more();
     test_bp_interrupt();
+    test_bp_audio();
     test_run_to_interrupt();
     test_bp_hits();
     test_bp_hits_more();

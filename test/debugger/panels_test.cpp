@@ -82,6 +82,7 @@
 #include "dock_lookup.h"
 #include <QBoxLayout>
 #include <QCheckBox>
+#include <QToolButton>
 #include <QComboBox>
 #include <QContextMenuEvent>
 #include <QDialog>
@@ -2040,6 +2041,7 @@ static void test_panel_attribution() {
         check("QATR-01", "fixture: debugger window with its NextREG panel", false);
         check("QATR-02", "fixture: debugger window with its Audio panel", false);
         check("QATR-03", "fixture: debugger window with its Memory panel", false);
+        check("QATR-04", "fixture: debugger window with its Audio panel channel buttons", false);
         return;
     }
 
@@ -2119,6 +2121,19 @@ static void test_panel_attribution() {
               me_again == want("mem cpu:0x9000", 0x5B, 0x5C, win2),
           fmt("open '%s' | shut '%s' | again '%s'", me_open.c_str(), me_shut.c_str(),
               me_again.c_str()));
+    // QATR-04 - GH #533: a per-channel mute click is the backend's
+    // set_audio_channel_mute_mask, attributed to the window's client.
+    {
+        QToolButton* cb = ap->findChild<QToolButton*>("chip1_b_mute");
+        const jnext::dbg::ClientId win3 = window_client();
+        if (cb) cb->click();
+        const std::string line = log.last();
+        if (cb) cb->click();                                   // back to NONE
+        check("QATR-04",
+              "an Audio panel channel mute click (chip 1 B) is logged as the window's client's MUTATE of the channel mask",
+              cb && win3 != jnext::dbg::CLIENT_NONE && line == want("audio channel mute mask", 0, 0x10, win3),
+              fmt("win=%u '%s'", win3, line.c_str()));
+    }
     fx.backend->set_listener(rec, nullptr);
     fx.backend->detach(rec);
 }

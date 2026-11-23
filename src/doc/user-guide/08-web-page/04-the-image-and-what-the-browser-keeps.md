@@ -74,7 +74,8 @@ A later visit to the same site needs no download and no file.
 | the saves, with `keepWrites` | IndexedDB, in a database of its own |
 
 - Nothing else is kept: no settings, nor screenshots or snapshots
-  ([8.3](03-itch-and-limits.md)).
+  ([8.3](03-itch-and-limits.md)). The page can collect the files JNEXT writes while the player
+  lives ([8.2](02-options-and-the-player.md#files-jnext-writes)).
 - The official file the card was made from is not kept.
 - A browser too old to compress and decompress data in the page keeps the card
   uncompressed, about 40 MiB, and checks it by its SHA-256 on every visit instead.

@@ -48,7 +48,7 @@ enum class Builtin : uint8_t {
     // the VHDL raster counters (raster_state.h)
     RAW_HC, RAW_VC, HC_ULA, VC_ULA, CVC, PHC,
     // host / machine
-    AUDIO_MUTE, MACHINE,
+    AUDIO_MUTE, AUDIO_CHANNEL_MUTE, MACHINE,
 
     // event payload (§2.3 second table)
     P_ADDR, P_VALUE, P_PREV, P_PAGE, P_PORT, P_REG, P_SOURCE, P_KEY, P_REASON,
@@ -56,6 +56,8 @@ enum class Builtin : uint8_t {
     P_PC,      ///< `PC` inside an event rule: the pre-execution PC of the cause
     P_HC_ULA,  ///< `HC_ULA` inside a `copper` rule: the Copper step's position
     P_CVC,     ///< `CVC` inside a `copper` rule: the Copper step's line
+    P_CHIP,    ///< `CHIP` inside an `ay_write` / `audio_write` rule: AY chip 0-2, DAC channel 0-3, 255 = none
+    P_TARGET,  ///< `TARGET` inside an `ay_write` / `audio_write` rule: the backend's `AudioTarget` (0..4)
 };
 
 // ---------------------------------------------------------------------------
@@ -81,6 +83,7 @@ enum class ExprKind : uint8_t {
     Changed,    ///< `changed(text, group)`
     Depth,      ///< `depth(text)`
     CVar,       ///< `cvar(text)`: a C variable of frame 0, as an int32 (GH #436)
+    Ay,         ///< `ay[a, b]` -- a = chip 0..2, b = register 0..15 (read-only)
 };
 
 enum class Op : uint8_t {
@@ -138,7 +141,12 @@ struct Expr {
 enum class EventType : uint8_t {
     Execute, Read, Write, ReadWrite, IoRead, IoWrite, NextReg, Frame, Scanline, Cycle,
     Interrupt, Nmi, Reset, HostKey, Stop, Copper, Dma,
+    AyWrite,     ///< `ay_write`: an applied AY register write
+    AudioWrite,  ///< `audio_write`: any audio write, by target
 };
+
+/// `audio_write`'s optional target word. `ay_write` is always `AyReg`.
+enum class AudioWord : uint8_t { Any, AyReg, AySelect, Dac };
 
 enum class CopperSub : uint8_t { Move, Wait, Halt };
 enum class DmaSub : uint8_t { Start, Byte, End };
@@ -156,6 +164,8 @@ enum class DmaSub : uint8_t { Start, Byte, End };
 ///   HostKey:                       `hostkey`
 ///   Copper:                        `copper`, and `at` `at_lo`[`..at_hi`]
 ///   Dma:                           `dma`
+///   AyWrite, AudioWrite:           `audio` (AudioWrite), `chip`, reg_spec `lo`[`..hi`],
+///                                  `mask` + `value`, `dropped` (AudioWrite)
 struct EventSpec {
     EventType type = EventType::Execute;
     SourcePos pos;
@@ -171,6 +181,10 @@ struct EventSpec {
     /// `lo`/`hi`. Empty = not a source-line rule.
     std::string file_line;
     SourcePos   file_line_pos;
+    /// AyWrite / AudioWrite.
+    AudioWord audio = AudioWord::Any;
+    ExprPtr   chip;
+    bool      dropped = false;
 };
 
 // ---------------------------------------------------------------------------

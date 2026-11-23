@@ -4,6 +4,7 @@ namespace jnext { namespace save { class StateDesc; } }
 namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifest; struct Verdict; } }
 
 #include <cstdint>
+#include <array>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -59,6 +60,8 @@ namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifes
 #include "audio/i2s.h"
 #include "audio/mixer.h"
 #include "debug/debug_state.h"
+#include "debug/events.h"
+#include "debug/audio_tap.h"
 #include "core/tap_loader.h"
 #include "core/tap_saver.h"
 #include "core/tape_recorder.h"
@@ -115,6 +118,12 @@ public:
 
     Emulator();
     ~Emulator();
+
+    /// Finish every output file the run still holds open or unwritten: a TZX / WAV tape save
+    /// (its last block, the WAV header), the compositor trace, the CPU profile. Idempotent. The
+    /// destructor runs it; a browser page, whose loop never destroys the emulator (the app is
+    /// released at the end of main), calls it from its finish. GH #553.
+    void finish_outputs();
 
     // Non-copyable, non-movable (owns large state).
     Emulator(const Emulator&)            = delete;
@@ -743,8 +752,9 @@ public:
     /// True while either saver is armed.
     bool tape_save_active() const { return tap_saver_.active() || tape_recorder_.active(); }
     /// The tape-out (MIC jack) level, zxnext.vhd:6503 `beep_mic_final` — see
-    /// the definition.
-    bool tape_out_level() const;
+    /// the definition. `*relax_due`, when given, receives the master cycle at
+    /// which a held level relaxes (UINT64_MAX when none is pending).
+    bool tape_out_level(uint64_t* relax_due = nullptr) const;
     /// When a port 0xFE write lands: a CPU OUT's bus request edge, or a DMA
     /// transfer's place in its burst (see the definition).
     uint64_t port_fe_write_time() const;
@@ -1062,6 +1072,38 @@ public:
         mixer_.set_mute_mask(audio_mute_mask_);
     }
     uint8_t audio_mute_mask() const { return audio_mute_mask_; }
+
+    /// Debugger-only per-channel mute (AudioChannelMute bits: 9 AY, 4 DAC). Same
+    /// rules as the source mute above; composes with it. The AY bits go to
+    /// TurboSound, the DAC bits to the Dac (its audible copy).
+    void set_audio_channel_mute_mask(uint16_t mask) {
+        audio_channel_mute_mask_ = mask & AudioChannelMute::ALL;
+        turbosound_.set_channel_mute_mask(audio_channel_mute_mask_ & AudioChannelMute::AY_ALL);
+        dac_.set_channel_mute(static_cast<uint8_t>(audio_channel_mute_mask_ >> 9));
+    }
+    uint16_t audio_channel_mute_mask() const { return audio_channel_mute_mask_; }
+
+    /// Discarded audio writes, one counter per reason (GH #530). Always on, host
+    /// state only: not in describe_state(), not touched by init() or load_state(),
+    /// cleared only by clear_audio_drops(), and carried over a cold boot with
+    /// restore_audio_drops() like the mute mask. Index = AudioDropReason; [0] unused.
+    const std::array<jnext::dbg::AudioDropCounter, jnext::dbg::AUDIO_DROP_REASON_COUNT>&
+        audio_drops() const { return audio_drops_; }
+    void clear_audio_drops() { audio_drops_ = {}; }
+    void restore_audio_drops(
+        const std::array<jnext::dbg::AudioDropCounter, jnext::dbg::AUDIO_DROP_REASON_COUNT>& d)
+        { audio_drops_ = d; }
+
+    /// GH #531 -- the audio write tap. The Debugger installs one sink and turns it
+    /// on while any client asks for the write log; with it off the cost is one
+    /// test of `audio_tap_active_` at each audio write site. Host state, like
+    /// the drop counters: outside describe_state(), init() and load_state(). A
+    /// hard reset rebuilds the Emulator, so the Debugger re-installs it.
+    void set_audio_tap(jnext::dbg::AudioTapSink* sink, bool active) {
+        audio_tap_ = sink;
+        audio_tap_active_ = active && sink;
+    }
+    bool audio_tap_active() const { return audio_tap_active_; }
 
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
@@ -1413,7 +1455,7 @@ public:
 
     /// True if replay_mode is active (suppresses audio/video during fast-forward).
     bool replay_mode() const { return replay_mode_; }
-    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); }
+    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); refresh_mic_final_(); }
 
     /// Task 27 C6 — frontend render hint. When the frontend knows nobody will
     /// consume the framebuffer produced by the NEXT run_frame() (the Qt GUI
@@ -1678,6 +1720,9 @@ public:
     // zxnext.vhd:5163, :5178-5182, :6436 store as standalone signals.
     // Exposed here so audio_nextreg_test can observe the post-write state
     // without reaching into private fields.
+
+    /// The master cycle of the playing tape's last edge (test readout, GH #550).
+    uint64_t tape_edge_master() const { return tape_edge_master_; }
 
     /// NR 0x06 bit 6 — `nr_06_internal_speaker_beep` (VHDL zxnext.vhd:5163).
     bool nr_06_internal_speaker_beep() const { return nr_06_internal_speaker_beep_; }
@@ -2099,6 +2144,92 @@ private:
 
     // Debugger-only source mute; NOT machine state (not reset, not serialised).
     uint8_t         audio_mute_mask_ = AudioMute::NONE;
+    uint16_t        audio_channel_mute_mask_ = AudioChannelMute::NONE;
+
+
+    // GH #530: discarded-audio-write counters. Host state, like the mask above:
+    // outside describe_state(), init() and load_state(); see audio_drops().
+    std::array<jnext::dbg::AudioDropCounter, jnext::dbg::AUDIO_DROP_REASON_COUNT>
+        audio_drops_{};
+    /// Count one discarded audio write. Cold: every caller is already on a
+    /// discarding branch. Not counted while a rewind replays frames (replay_mode_).
+    [[gnu::cold]] void note_audio_drop_(jnext::dbg::AudioDropReason r,
+                                        uint16_t port, uint8_t value);
+    /// Map a TurboSound status to its reason; one compare when Applied.
+    void note_ay_status_(AyPortStatus s, uint16_t port, uint8_t value) {
+        if (s != AyPortStatus::Applied) note_ay_status_cold_(s, port, value);
+    }
+    [[gnu::cold]] void note_ay_status_cold_(AyPortStatus s, uint16_t port, uint8_t value);
+    /// The gate of every DAC port write: the family decode first, then the DAC
+    /// enable (zxnext.vhd:2974-2980, 3091-3094). True when the write may proceed;
+    /// otherwise it has been counted under the first reason that applies.
+    bool dac_gate_(bool family_on, uint16_t port, uint8_t value) {
+        if (!family_on) {
+            note_audio_drop_(jnext::dbg::AudioDropReason::DacFamilyDisabled, port, value);
+            return false;
+        }
+        if (!dac_enabled_) {
+            note_audio_drop_(jnext::dbg::AudioDropReason::DacDisabled, port, value);
+            return false;
+        }
+        return true;
+    }
+
+    // GH #531 -- the audio write tap (see set_audio_tap()). The tap OBSERVES: the
+    // handlers read what they need before a write and record after it, and never
+    // write through the cold path, so the hot path's writes stay where they are.
+    // The cold bodies live in emulator_audio_tap.cpp.
+    jnext::dbg::AudioTapSink* audio_tap_ = nullptr;
+    bool audio_tap_active_ = false;
+    /// The source rule shared with note_audio_drop_(): a debugger write runs
+    /// outside guest execution, a guest one carries the DMA's or the Copper's bracket.
+    jnext::dbg::EventSource audio_write_source_() const {
+        return debug_state_.guest_access() ? nextreg_.write_source()
+                                           : jnext::dbg::EventSource::Debugger;
+    }
+    /// The event stamper's arithmetic, in one place (the latch stamper and the tap).
+    void stamp_at_(uint64_t cycle, uint32_t& frame, int16_t& vc, int16_t& hc) const {
+        // frame_num_ is post-incremented at begin_new_frame(): during frame K it reads K+1.
+        frame = frame_num_ > 0 ? frame_num_ - 1u : 0u;
+        const uint64_t elapsed = cycle - frame_cycle_;
+        vc = static_cast<int16_t>(elapsed / timing_.master_cycles_per_line);
+        hc = static_cast<int16_t>((elapsed % timing_.master_cycles_per_line) / 4);
+    }
+    [[gnu::cold]] [[gnu::noinline]] void tap_ay_data_(uint16_t port, uint8_t val, uint8_t prev,
+                                                      uint8_t chip, uint8_t addr);
+    [[gnu::cold]] [[gnu::noinline]] void tap_ay_select_(uint16_t port, uint8_t val, uint8_t prev_chip);
+    [[gnu::cold]] [[gnu::noinline]] void tap_dac_(int ch, uint8_t val, uint16_t port,
+                                                  jnext::dbg::AudioTarget t, uint8_t reg);
+    [[gnu::cold]] [[gnu::noinline]] void tap_beeper_(uint16_t port, uint8_t val);
+    [[gnu::cold]] [[gnu::noinline]] void tap_drop_(jnext::dbg::AudioDropReason r,
+                                                   uint16_t port, uint8_t val);
+    [[gnu::cold]] [[gnu::noinline]] void tap_marker_(jnext::dbg::AudioMarker m);
+    [[gnu::cold]] [[gnu::noinline]] void tap_rewind_landing_();
+    /// A fresh entry with the common header stamped from the live clock.
+    jnext::dbg::AudioLogEntry tap_entry_() const;
+    jnext::dbg::AudioLogEntry marker_entry_(jnext::dbg::AudioMarker m) const;
+    /// One DAC channel write, recorded first when the tap is on. A write past
+    /// dac_gate_() always applies, so recording before it is exact.
+    void dac_write_(int ch, uint8_t v, uint16_t port) {
+        if (__builtin_expect(audio_tap_active_, 0))
+            tap_dac_(ch, v, port, jnext::dbg::AudioTarget::Dac, 0);
+        dac_.write_channel(ch, v);
+    }
+    /// The AY data write of ports 0xBFFD and 0xBFF5. With the tap on it reads the
+    /// chip, address and register first, and records after the write when it applied.
+    void ay_data_write_(uint16_t port, uint8_t val) {
+        const bool tap = audio_tap_active_;
+        uint8_t chip = 0, addr = 0, prev = 0;
+        if (__builtin_expect(tap, 0)) {
+            chip = uint8_t(turbosound_.selected_index());
+            addr = turbosound_.ay(chip).address();
+            prev = addr < 16 ? turbosound_.ay(chip).read_register(addr) : 0;
+        }
+        const AyPortStatus st = turbosound_.reg_write(val);
+        note_ay_status_(st, port, val);
+        if (__builtin_expect(tap, 0) && st == AyPortStatus::Applied)
+            tap_ay_data_(port, val, prev, chip, addr);
+    }
     DebugState      debug_state_;
     TraceLog        trace_log_;
     CallStack       call_stack_;
@@ -2141,6 +2272,7 @@ private:
     /// `profiler_.active()` (an `if (!nullptr)` branch). When inactive,
     /// it's a single always-false predicted branch — zero cost.
     Profiler profiler_;
+    bool     profile_written_ = false;   // finish_outputs() wrote the profile already
 
     /// Logical frame counter — incremented each run_frame(); saved in snapshots.
     uint32_t frame_num_   = 0;
@@ -2261,21 +2393,90 @@ private:
     /// save samples it here: nothing else samples where it changes.
     template <typename F> void with_pi_ear_tracking(F&& mutate) {
         const bool before = i2s_.fe_ear();
+        const bool routed_before = i2s_.ear_routed();
         mutate();
-        if (i2s_.fe_ear() != before) {
+        const bool edge = i2s_.fe_ear() != before;
+        if (edge) {
             pi_ear_edge_master_ = clock_.get();
             if (tape_capture_live_) tape_recorder_.sample(tape_out_level(), clock_.get());
         }
+        if (edge || i2s_.ear_routed() != routed_before) refresh_mic_final_();
     }
 
-    /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read and the
-    /// MIC output: the tape jack (`tape_playing`, `tape_level`) and, while NR
-    /// 0xA2 bit 0 sends the Pi's audio there, `pi_fe_ear` XORed in through
-    /// `ear_relax` (zxnext_top_issue2.vhd:663-677). A level held for the
-    /// relaxation time with no tape playing reads as the issue-2 MIC level.
+    /// Put `beep_mic_final` (the mixer's `mic_i`, zxnext.vhd:6503, 6516) into
+    /// the beeper. `tape_out_level()` is the ONE model of that signal (the MIC
+    /// jack carries it too), so the mixer reads the value the recorder reads.
+    /// Called where an input of that model changes: a port 0xFE write while a
+    /// tape plays or the Pi is routed, a tape level change, NR 0x08 and NR
+    /// 0xA2 writes, a state load, a replay-mode change, and, while a tape
+    /// plays or the Pi is routed, at the first output-sample boundary at or
+    /// after `mic_relax_due_`, because the `ear_relax` hold is a matter of time
+    /// (it lands at most one output sample, about 635 master cycles, after the
+    /// 32768-cycle hold; inside a HALT batch the clock is at the window end, as
+    /// for the Pi edge stamps).
+    [[gnu::noinline]] void refresh_mic_final_();
+
+    /// A PLAYING tape's level, from the tape block, once per instruction: store
+    /// it, and when it CHANGED refresh the MIC term at once (the board's MIC
+    /// term follows the tape continuously; the mixer integrates it across the
+    /// sample like EAR, so the edge must land in its own instruction). One
+    /// load, compare and branch per instruction while a tape plays, and the
+    /// no-tape path of the block is untouched.
+    void tape_level_(bool lvl) {
+        if (lvl != beeper_.tape_ear()) [[unlikely]] {
+            beeper_.set_tape_ear(lvl);
+            tape_edge_master_ = clock_.get();      // the ear_relax hold counts from here
+            refresh_mic_final_();
+        }
+    }
+
+    /// After a restore: the master cycle of the playing tape's last edge,
+    /// derived from the deck's position (TapLoader / TzxLoader / WavLoader
+    /// `ticks_since_edge`), since the stamp itself is not saved. A deck that
+    /// does not play leaves it alone.
+    void derive_tape_edge_();
+
+    /// The output-sample boundary's test, for what has no event of its own: a
+    /// tape that started or stopped playing (the stop clears the raw level in
+    /// the tape block, and a start at level 0 has no edge), and the `ear_relax`
+    /// hold of the Pi's level running out. A level CHANGE of a playing tape is
+    /// refreshed by tape_level_() in its own instruction, not here.
+    bool mic_stale_() const {
+        return beeper_.tape_ear() != mic_tape_level_ || clock_.get() >= mic_relax_due_ ||
+               mic_tape_live_ !=
+                   (tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing());
+    }
+
+    /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read, the MIC
+    /// output and the mixer's MIC term: the tape jack (`tape_playing`,
+    /// `tape_level`) and, while NR 0xA2 bit 0 sends the Pi's audio there,
+    /// `pi_fe_ear` XORed in through `ear_relax` (zxnext_top_issue2.vhd:
+    /// 663-677). A level held for the relaxation time with no edge (a tape
+    /// edge, or the Pi's comparator) reads as the issue-2 MIC level.
     /// During a rewind replay or an RZX playback the Pi term is held off: it
     /// is host-timed, like the sample NR 0x2C/0x2E show.
-    bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) const;
+    /// `*due`, when given, receives the master cycle at which a held level
+    /// relaxes (UINT64_MAX when nothing is pending).
+    bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now,
+                      uint64_t* due = nullptr) const;
+
+    /// Master cycle from which `beep_mic_final` changes with no other event
+    /// (the `ear_relax` hold of a held tape or Pi level running out), else
+    /// UINT64_MAX: the output-sample boundary refreshes only when the clock
+    /// reaches it. Derived, not serialised; set by refresh_mic_final_().
+    uint64_t mic_relax_due_ = UINT64_MAX;
+
+    /// Master cycle of the playing tape's last level change (0 = none): the
+    /// `ear_relax` hold of a playing tape counts from it (GH #550, zxnext_top_
+    /// issue2.vhd:662-677). Derived: tape_level_() stamps it, derive_tape_edge_()
+    /// rebuilds it from the deck after a restore; not serialised.
+    uint64_t tape_edge_master_ = 0;
+
+    /// The raw tape level and whether a tape was playing, as of the last
+    /// refresh_mic_final_(); mic_stale_() compares them with the live ones.
+    /// Derived, not serialised.
+    bool mic_tape_level_ = false;
+    bool mic_tape_live_  = false;
 
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.

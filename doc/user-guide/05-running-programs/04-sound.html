@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4554,6 +4554,8 @@ setting up:</p>
   three of them (TurboSound) on the Next, with stereo panning.</li>
 <li><strong>DAC</strong> — 8-bit sample playback (Specdrum, Soundrive and Covox compatible).</li>
 </ul>
+<p>To see what the chips are playing, which write caused a sound, or why a channel
+is silent, use the debugger's <a href="../06-debugger/panels/13-audio.html">Audio panel</a>.</p>
 <p>Which of these a program can actually use is up to the program and the machine
 it was written for. Stereo separation and channel balance are likewise set by
 the software, not by you — they are properties of the emulated hardware.</p>
@@ -4568,7 +4570,11 @@ emulated machine's audio state.
 Complete mute remains available through
 <strong>Settings &gt; Preferences &gt; Startup &gt; Start muted</strong> or <code>--silent</code>; muting also
 skips sound synthesis entirely, which speeds up runs that do not need audio.
-Tape loading still works while muted.</p>
+Tape loading still works while muted. A tape loading in real time is heard
+through the beeper, at the level the Next gives it (a quarter of the beeper's
+own), and follows the beeper gain. As on the Next's tape input, a level that
+holds still for about a millisecond (the silence between blocks) fades back to
+the idle level instead of staying up.</p>
 <h2 id="if-the-sound-stutters-or-clicks">If the sound stutters or clicks<a class="headerlink" href="#if-the-sound-stutters-or-clicks" title="Permanent link">&para;</a></h2>
 <p>JNEXT paces itself against your sound card, so audio should stay clean
 indefinitely. Glitches almost always mean the <strong>host cannot keep up</strong>.</p>

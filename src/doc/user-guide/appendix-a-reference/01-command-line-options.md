@@ -932,6 +932,32 @@ with status 1.
 :   Record `segment,tstate,channel,value` rows for physical DAC writes.
     A cold boot starts a new segment.
 
+**--audio-log** *FILE*
+:   Record the decoded audio writes to a CSV, one row per write, with
+    the frame, line, hc and T-state it happened at. Rows cover AY
+    register writes, the TurboSound chip-select and pan commands (and
+    every discarded 0xFFFD write), DAC channel writes (one row per
+    channel written), the NextREG 0x2C-0x2E DAC mirror writes and beeper
+    EAR/MIC changes, and every write the hardware discarded with its
+    reason. Plain AY register selects, border-only writes to port 0xFE
+    and the frames a rewind replays are not recorded. The first line is
+    the header
+    `frame,line,hc,tstate,cycle,pc,source,target,chip,reg,value,prev,flags,reason,port`.
+    `frame`, `line`, `hc`, `tstate`, `cycle`, `chip`, `reg` and `flags`
+    are decimal; `pc` and `port` are `0x%04X`; `value` and `prev` are
+    `0x%02X`. `source` is `cpu`, `dma`, `copper` or `debugger` (writes
+    made by the debugger or a script carry `debugger`), `target` is
+    `ay`, `ay_select`, `dac`, `dac_mirror` or `beeper`, and `chip` is
+    empty for a discarded DAC write that reached no channel. A reset, a
+    state load or a rewind adds a row with `marker` in `source` and
+    `reset`, `load` or `rewind` in `target`. After a `rewind` row the
+    following rows may carry earlier cycles: the file is append-only and
+    the rows before the marker are kept. It works in every frontend,
+    headless, with **--silent** and in a browser page. An unwritable
+    *FILE* is refused before the machine starts. A write error, or
+    writes lost because more than 65536 arrived between two services of
+    the loop, makes the run exit non-zero.
+
 **--audio-gain-db** *DB*
 :   Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
     gain is applied after the emulated hardware mix; overflow saturates

@@ -1088,6 +1088,40 @@ Record \f[CR]segment,tstate,channel,value\f[R] rows for physical DAC
 writes.
 A cold boot starts a new segment.
 .TP
+\f[B]\-\-audio\-log\f[R] \f[I]FILE\f[R]
+Record the decoded audio writes to a CSV, one row per write, with the
+frame, line, hc and T\-state it happened at.
+Rows cover AY register writes, the TurboSound chip\-select and pan
+commands (and every discarded 0xFFFD write), DAC channel writes (one row
+per channel written), the NextREG 0x2C\-0x2E DAC mirror writes and
+beeper EAR/MIC changes, and every write the hardware discarded with its
+reason.
+Plain AY register selects, border\-only writes to port 0xFE and the
+frames a rewind replays are not recorded.
+The first line is the header
+\f[CR]frame,line,hc,tstate,cycle,pc,source,target,chip,reg,value,prev,flags,reason,port\f[R].
+\f[CR]frame\f[R], \f[CR]line\f[R], \f[CR]hc\f[R], \f[CR]tstate\f[R],
+\f[CR]cycle\f[R], \f[CR]chip\f[R], \f[CR]reg\f[R] and \f[CR]flags\f[R]
+are decimal; \f[CR]pc\f[R] and \f[CR]port\f[R] are \f[CR]0x%04X\f[R];
+\f[CR]value\f[R] and \f[CR]prev\f[R] are \f[CR]0x%02X\f[R].
+\f[CR]source\f[R] is \f[CR]cpu\f[R], \f[CR]dma\f[R], \f[CR]copper\f[R]
+or \f[CR]debugger\f[R] (writes made by the debugger or a script carry
+\f[CR]debugger\f[R]), \f[CR]target\f[R] is \f[CR]ay\f[R],
+\f[CR]ay_select\f[R], \f[CR]dac\f[R], \f[CR]dac_mirror\f[R] or
+\f[CR]beeper\f[R], and \f[CR]chip\f[R] is empty for a discarded DAC
+write that reached no channel.
+A reset, a state load or a rewind adds a row with \f[CR]marker\f[R] in
+\f[CR]source\f[R] and \f[CR]reset\f[R], \f[CR]load\f[R] or
+\f[CR]rewind\f[R] in \f[CR]target\f[R].
+After a \f[CR]rewind\f[R] row the following rows may carry earlier
+cycles: the file is append\-only and the rows before the marker are
+kept.
+It works in every frontend, headless, with \f[B]\-\-silent\f[R] and in a
+browser page.
+An unwritable \f[I]FILE\f[R] is refused before the machine starts.
+A write error, or writes lost because more than 65536 arrived between
+two services of the loop, makes the run exit non\-zero.
+.TP
 \f[B]\-\-audio\-gain\-db\f[R] \f[I]DB\f[R]
 Set master host audio gain from \-24 dB to +24 dB (default 0 dB).
 The gain is applied after the emulated hardware mix; overflow saturates
@@ -2104,6 +2138,9 @@ SD\-card image at the canonical TBBlue paths under
 the Pentagon\(cqs), \f[CR]plus3.rom\f[R], \f[CR]enNxtmmc.rom\f[R],
 \f[CR]enNextMf.rom\f[R], \f[CR]enAltZX.rom\f[R]).
 That is the whole list of files jnext reads from the card itself.
+It reads them from a FAT12, FAT16 or FAT32 card, with a partition table
+or without one, and finds the volume the way the Next firmware does
+(\f[B]\-\-sdcard\-file\-add\f[R] still needs a FAT32 card).
 .IP \(bu 2
 \f[B]NextZXOS is not one of them.\f[R] It is loaded by the firmware, not
 by jnext: the machine boots \f[CR]/TBBLUE.FW\f[R] from the card through
@@ -3027,6 +3064,10 @@ zero\-length data header even though PCM follows it.
 DAC tracing (\f[B]\-\-dac\-trace\f[R] \f[I]FILE\f[R]) records guest DAC
 writes before mixing.
 Channels are numbered 0\-3 (A\-D) and timestamps are CPU T\-states.
+.IP \(bu 2
+The audio write log (\f[B]\-\-audio\-log\f[R] \f[I]FILE\f[R]) records
+the decoded AY, DAC and beeper writes with their timestamps, the same
+rows the debugger\(cqs Audio panel shows on its Log tab.
 .IP \(bu 2
 Master and per\-subsystem host gains are available under \f[B]Settings >
 Preferences > Audio\f[R], or for one run with the
@@ -4692,6 +4733,36 @@ option, and resolves when the program is running again.
 \f[B]\-\-touch\-keyboard\f[R] says; the page\(cqs call wins, before or
 after the start, and anything but a boolean throws.
 \f[CR]keyboardVisible\f[R] tells whether it is shown.
+.PP
+\f[CR]listFiles()\f[R] returns the files JNEXT has written for an output
+option (\f[B]\-\-wav\-record\f[R], \f[B]\-\-dac\-trace\f[R],
+\f[B]\-\-tape\-save\f[R], \f[B]\-\-delayed\-screenshot\f[R],
+\f[B]\-\-compositor\-trace\f[R], \f[B]\-\-profile\-output\f[R],
+\f[B]\-\-export\-skoolkit\f[R], \f[B]\-\-export\-ghidra\f[R],
+\f[B]\-\-bug\-report\f[R], \f[B]\-\-log\-file\f[R]), in the order JNEXT
+began them, as an array of \f[CR]{path, size, complete}\f[R]:
+\f[CR]path\f[R] is absolute, \f[CR]size\f[R] the bytes now in the
+page\(cqs memory, \f[CR]complete\f[R] true once JNEXT has finished the
+file for good.
+It is empty before the click.
+\f[CR]readFile(path)\f[R] resolves to a copy of the bytes of a complete
+file listFiles() gives; it rejects (without \f[CR]onError\f[R]) a path
+that is not a string (a \f[CR]TypeError\f[R]), a path JNEXT did not
+write, a file that is not complete yet, and anything in the player\(cqs
+own locations.
+\f[CR]stop()\f[R] ends the machine and keeps the player and its files:
+it resolves to the exit status once every file is finished, and a
+stopped player cannot start again.
+The player\(cqs own locations are \f[CR]/sdcard\f[R] (the SD card),
+\f[CR]/jnext\f[R] (what the player keeps) and \f[CR]/media\f[R] (the
+programs it installs): neither member lists or returns a file there,
+whoever wrote it and however the name is spelt (\f[CR]..\f[R], a
+relative name or a link included).
+What an export the page asked for contains is the page author\(cqs
+choice, as on the desktop (a \f[B]\-\-export\-skoolkit\f[R] of ROM space
+holds the ROM the machine ran), and offering it to visitors is the
+author\(cqs responsibility.
+After \f[CR]destroy()\f[R] all three throw.
 .PP
 \f[CR]debugChannel(protocol)\f[R] returns the channel of the
 \f[CR]debug\f[R] entry for \f[CR]\(aqdzrp\(aq\f[R],

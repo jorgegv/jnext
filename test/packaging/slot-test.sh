@@ -7,17 +7,18 @@
 # git call; no ssh, no network. Everything lives under one scratch directory, removed on exit.
 #
 # Oracle: the owner's rules of 2026-11-21/22 as written in slot.sh's header (4 local+remote slots, host
-# picked by load, long heavy runs prefer the remote, never wait on it) and COMMON-RULES "REMOTE RUNS"
+# picked by load, never wait on it) and of 2026-11-23 (remote first: every eligible heavy run goes to a free
+# remote lane, long or short, and runs here only when every lane is busy) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-47. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-65. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=47
+EXPECTED_ROWS=65
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -86,6 +87,7 @@ EOF
 cat > "$TMP/bin/make" <<'EOF'
 #!/usr/bin/env bash
 echo "make $*" >> "$STATE/make-calls"
+echo "MF=[${MAKEFLAGS-}] U=${JNEXT_UNIT_TEST_JOBS-unset} T=${JNEXT_TEST_JOBS-unset}" >> "$STATE/make-env"
 exit "${MAKE_RC:-0}"
 EOF
 # driver stub: records its arguments and the two environment variables slot.sh must set, exits STUB_RC.
@@ -100,6 +102,7 @@ if [[ "${1:-}" == --probe ]]; then
     exit 0
 fi
 { echo "ARGS $*"; echo "HOST=${JNEXT_REMOTE_RUN_HOST:-unset}"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; } >> "$STATE/rr-calls"
+echo "MF=[${MAKEFLAGS-}] U=${JNEXT_UNIT_TEST_JOBS-unset} T=${JNEXT_TEST_JOBS-unset}" >> "$STATE/rr-env"
 echo "stub driver ran"
 [[ -z "${STUB_PAUSE:-}" ]] || : > "$STUB_PAUSE"
 [[ " ${STUB_RC75_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
@@ -135,7 +138,7 @@ CLEANSLOTS=$TMP/slots
 
 set_load() { echo "$1 1.00 1.00 1/100 1" > "$TMP/loadavg"; }
 fresh() {   # fresh slot dir, low load, empty records
-    rm -rf "$CLEANSLOTS" "$STATE"/rr-calls "$STATE"/make-calls "$STATE"/git-calls "$STATE"/probe-calls "$TMP/rrlogs"
+    rm -rf "$CLEANSLOTS" "$STATE"/rr-calls "$STATE"/make-calls "$STATE"/git-calls "$STATE"/probe-calls "$STATE"/make-env "$STATE"/rr-env "$TMP/rrlogs"
     mkdir -p "$CLEANSLOTS"; set_load 1.00
 }
 slot() { timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$@"; }
@@ -165,16 +168,16 @@ row SLOT-02 "$([[ $rc -eq 0 && "$rc_calls" == *"ARGS --stream --fallback-local $
     && "$rc_calls" == *"WRAP=$SLOT --dir $CLEANSLOTS"* && "$(adm)" == *" remote "* && ! -e "$STATE/make-calls" ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
     "long heavy run: the driver gets --fallback-local, branch, sha, target, NO_OVERFLOW=1 and this script as the local wrapper; nothing ran here, no push when origin is at HEAD (rc=$rc)"
 
-# SLOT-03: a short heavy command (regression-rows) with every slot held overflows; with a free slot it stays local
+# SLOT-03: a short heavy command (regression-rows) also goes to a free lane FIRST, slots free or held, with its make
+# variable (owner, 2026-11-23); with every host busy it runs here and the driver is not called
 fresh
-hold 1; hold 2
 out=$(slot make -C "$WT" regression-rows ROWS=a 2>&1); rc=$?
-r3a=$(rr_calls)
-release_all; fresh
-out=$(slot make -C "$WT" regression-rows ROWS=a 2>&1); rc2=$?
-row SLOT-03 "$([[ $rc -eq 0 && "$r3a" == *"gh900-demo $SHA regression-rows ROWS=a"* && $rc2 -eq 0 && -z "$(rr_calls)" \
+r3a=$(rr_calls); m3a=$(cat "$STATE/make-calls" 2>/dev/null)
+fresh
+out=$(STUB_BUSY_HOSTS=fakehost slot make -C "$WT" regression-rows ROWS=a 2>&1); rc2=$?
+row SLOT-03 "$([[ $rc -eq 0 && "$r3a" == *"gh900-demo $SHA regression-rows ROWS=a"* && -z "$m3a" && $rc2 -eq 0 && -z "$(rr_calls)" \
     && "$(cat "$STATE/make-calls")" == "make -C $WT regression-rows ROWS=a" ]] && echo 1 || echo 0)" \
-    "short heavy run: both slots held -> remote with its make variable; a free slot -> here, driver not called"
+    "short heavy run: a free lane takes it with a slot free, with its make variable; every host busy -> here, driver not called"
 
 # SLOT-04: a dirty tree (an untracked file) is never sent: runs here and says why
 fresh
@@ -339,27 +342,20 @@ fresh
 STUB_PAUSE=$CLEANSLOTS/PAUSED STUB_RC=1 slot env LANG=C make -C "$WT" unit-test >/dev/null 2>&1; rc=$?
 row SLOT-21 "$([[ $rc -eq 75 ]] && echo 1 || echo 0)" "a driver that exits 1 with PAUSED set makes slot.sh exit 75 (rc=$rc)"
 
-# SLOT-22: every LONG target goes remote with slots free; every SHORT target stays local with a slot free
-# and goes remote with every slot held
+# SLOT-22: every heavy target (the 8 long and the 2 short ones) goes remote with a free lane and a free local slot, and
+# runs here with every host busy
 fresh
 bad=""
-for t in unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm; do
+for t in unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected; do
     rm -f "$STATE/rr-calls" "$STATE/make-calls"
     slot env LANG=C make -C "$WT" "$t" >/dev/null 2>&1
-    [[ "$(rr_calls)" == *"gh900-demo $NEWSHA $t"* && ! -e "$STATE/make-calls" ]] || bad+=" long:$t"
-done
-for t in regression-rows test-affected; do
+    [[ "$(rr_calls)" == *"gh900-demo $NEWSHA $t"* && ! -e "$STATE/make-calls" ]] || bad+=" free-lane:$t"
     rm -f "$STATE/rr-calls" "$STATE/make-calls"
-    slot make -C "$WT" "$t" >/dev/null 2>&1
-    [[ -z "$(rr_calls)" && -e "$STATE/make-calls" ]] || bad+=" short-free:$t"
-    rm -f "$STATE/rr-calls" "$STATE/make-calls"
-    hold 1; hold 2
-    slot make -C "$WT" "$t" >/dev/null 2>&1
-    release_all
-    [[ "$(rr_calls)" == *"gh900-demo $NEWSHA $t"* && ! -e "$STATE/make-calls" ]] || bad+=" short-held:$t"
+    STUB_BUSY_HOSTS=fakehost slot env LANG=C make -C "$WT" "$t" >/dev/null 2>&1
+    [[ -z "$(rr_calls)" && "$(cat "$STATE/make-calls" 2>/dev/null)" == "make -C $WT $t" ]] || bad+=" busy:$t"
 done
 row SLOT-22 "$([[ -z "$bad" ]] && echo 1 || echo 0)" \
-    "all 8 long targets go remote, regression-rows and test-affected go local with a free slot and remote with none (bad:$bad)"
+    "all 10 heavy targets (long and short) go remote with a free lane and a free slot, and run here with every host busy (bad:$bad)"
 
 # SLOT-23: a gate-* branch, a modified tracked file and a staged change are never sent
 fresh
@@ -591,16 +587,176 @@ wait "$w44"
 row SLOT-44 "$([[ "$(cat "$TMP/rc44")" == 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
     "a driver refusal (exit 3) is not re-sent on later polls: one driver call, then the command runs here"
 
-# SLOT-45: a SHORT target whose local slot frees on a later poll runs here with no extra probe (the order is: try the
-# local slots, THEN re-probe every REPROBE-th failed poll)
+# SLOT-45: a SHORT target, every host busy, whose local slot frees on a later poll runs here with no extra probe (the
+# order is: probe the hosts once, try the local slots, THEN re-probe every REPROBE-th failed poll; REPROBE is set
+# high so the 0.5 s wait cannot reach a re-probe)
 fresh
 hold 1; hold 2
-( STUB_BUSY_HOSTS=fakehost JNEXT_SLOT_REPROBE=3 slot make -C "$WT" regression-rows ROWS=a >/dev/null 2>&1; echo $? > "$TMP/rc45" ) & w45=$!
-sleep 0.5
+( STUB_BUSY_HOSTS=fakehost JNEXT_SLOT_REPROBE=1000 slot make -C "$WT" regression-rows ROWS=a >/dev/null 2>&1; echo $? > "$TMP/rc45" ) & w45=$!
+# release only once slot.sh is known to be waiting: its first probe has run (bounded wait), the command was not admitted
+# (make stub never called), and a margin of several polls has passed; a command admitted before the release fails the row
+for _ in $(seq 1 300); do [[ -e "$STATE/probe-calls" ]] && break; sleep 0.1; done
+early45=0; [[ -e "$STATE/probe-calls" && ! -e "$STATE/make-calls" ]] || early45=1
+sleep 1
 release_all
 wait "$w45"
-row SLOT-45 "$([[ "$(cat "$TMP/rc45")" == 0 && "$(wc -l < "$STATE/probe-calls")" -eq 1 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT regression-rows ROWS=a" ]] && echo 1 || echo 0)" \
-    "a short target whose slot frees after two failed polls runs here with exactly one probe (the first)"
+row SLOT-45 "$([[ $early45 -eq 0 && "$(cat "$TMP/rc45")" == 0 && "$(wc -l < "$STATE/probe-calls")" -eq 1 && ! -e "$STATE/rr-calls" && "$(cat "$STATE/make-calls")" == "make -C $WT regression-rows ROWS=a" ]] && echo 1 || echo 0)" \
+    "a short target, hosts busy, whose slot frees after failed polls runs here with exactly one probe (the first)"
+
+# SLOT-63: a SHORT target (test-affected) from a dirty tree stays local with the lane free: no probe, no driver call
+# (the mutation-loop case)
+fresh
+: > "$WT/scratch.txt"
+out=$(slot make -C "$WT" test-affected 2>&1); rc=$?
+rm -f "$WT/scratch.txt"
+row SLOT-63 "$([[ $rc -eq 0 && -z "$(rr_calls)" && ! -e "$STATE/probe-calls" && "$out" == *"not sent to the remote: the worktree has uncommitted"* \
+    && "$(cat "$STATE/make-calls")" == "make -C $WT test-affected" ]] && echo 1 || echo 0)" \
+    "a dirty tree keeps a short heavy run local with a free lane: no probe, no driver call, reason printed (rc=$rc)"
+
+# SLOT-64: a queued short run keeps the queue behaviour (owner, 2026-11-23): a short target with both slots held and every host busy at first leaves for the lane that frees on a later probe
+fresh
+hold 1; hold 2
+STUB_BUSY_FIRST=2 JNEXT_SLOT_REPROBE=2 slot make -C "$WT" regression-rows ROWS=a >/dev/null 2>&1; rc=$?
+release_all
+row SLOT-64 "$([[ $rc -eq 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"regression-rows ROWS=a"* && ! -e "$STATE/make-calls" \
+    && "$(wc -l < "$STATE/probe-calls")" -ge 3 ]] && echo 1 || echo 0)" \
+    "a short run queued with every host busy goes to the remote when a lane frees on a later probe (rc=$rc)"
+
+# SLOT-65: the first probe of an eligible short run is loud: with every host busy the line naming the host and the
+# missing lane is printed before the run goes local
+fresh
+out=$(STUB_BUSY_HOSTS=fakehost slot make -C "$WT" test-affected 2>&1); rc=$?
+row SLOT-65 "$([[ $rc -eq 0 && "$out" == *"[slot.sh] remote host fakehost: no free lane (or unusable)"* && -z "$(rr_calls)" \
+    && "$(cat "$STATE/make-calls")" == "make -C $WT test-affected" ]] && echo 1 || echo 0)" \
+    "an eligible short run with every host busy prints the 'no free lane' line for the host, then runs here (rc=$rc)"
+
+# ---- thread caps (owner, 2026-11-23): a locally admitted run gets nproc/NSLOTS threads ------------------------
+# Oracle: the measurement in slot.sh's apply_thread_caps comment (6 threads each beat 12 each for two concurrent
+# runs). JNEXT_SLOT_CPUS stands for nproc; the make stub records MAKEFLAGS and the two JNEXT_*_JOBS variables.
+capslot() {   # <NSLOTS> <cpus> <command...>: fresh slot dir with that NSLOTS, caller's cap variables removed
+    local n=$1 c=$2; shift 2
+    echo "$n" > "$CLEANSLOTS/NSLOTS"
+    env -u JOBS -u MAKEFLAGS -u JNEXT_UNIT_TEST_JOBS -u JNEXT_TEST_JOBS JNEXT_SLOT_CPUS=$c ${CAPS_REMOTE:-JNEXT_SLOT_NO_OVERFLOW=1} \
+        timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$@"
+}
+makeenv() { cat "$STATE/make-env" 2>/dev/null; }
+
+# SLOT-48: NSLOTS 1 -> every CPU
+fresh
+out=$(capslot 1 12 env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+row SLOT-48 "$([[ $rc -eq 0 && "$(makeenv)" == "MF=[ JOBS=12] U=12 T=12" && "$out" == *"thread caps (nproc 12 / NSLOTS 1 = 12): JOBS=12 JNEXT_UNIT_TEST_JOBS=12 JNEXT_TEST_JOBS=12"* \
+    && "$(cat "$STATE/make-calls")" == "make -C $WT unit-test" ]] && echo 1 || echo 0)" \
+    "NSLOTS 1: JOBS (MAKEFLAGS), JNEXT_UNIT_TEST_JOBS and JNEXT_TEST_JOBS are 12, one log line names them, the make argv is untouched"
+
+# SLOT-49: NSLOTS 2 -> half
+fresh
+out=$(capslot 2 12 env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+row SLOT-49 "$([[ $rc -eq 0 && "$(makeenv)" == "MF=[ JOBS=6] U=6 T=6" && "$out" == *"NSLOTS 2 = 6): JOBS=6"* ]] && echo 1 || echo 0)" \
+    "NSLOTS 2: the three caps are 6, whether or not the other slot is busy (the other slot is idle here)"
+
+# SLOT-50: NSLOTS 3 -> a third, with the other slots HELD (busy or not makes no difference)
+fresh
+hold 1; hold 2
+out=$(capslot 3 12 env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+release_all
+row SLOT-50 "$([[ $rc -eq 0 && "$(makeenv)" == "MF=[ JOBS=4] U=4 T=4" && "$out" == *"admitted to slot 3"* ]] && echo 1 || echo 0)" \
+    "NSLOTS 3 with slots 1 and 2 busy: the caps are 4 (slot 3 admitted)"
+
+# SLOT-51: a value the caller set wins, per variable, and the log line says so
+fresh
+echo 2 > "$CLEANSLOTS/NSLOTS"
+out=$(env -u JOBS -u MAKEFLAGS -u JNEXT_UNIT_TEST_JOBS JNEXT_TEST_JOBS=2 JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" make -C "$WT" unit-test JOBS=3 2>&1); rc=$?
+row SLOT-51 "$([[ $rc -eq 0 && "$(makeenv)" == "MF=[] U=6 T=2" && "$out" == *"JOBS=caller's command line JNEXT_UNIT_TEST_JOBS=6 JNEXT_TEST_JOBS=2 (caller's)"* ]] && echo 1 || echo 0)" \
+    "JOBS= on the command line and an exported JNEXT_TEST_JOBS are kept (MAKEFLAGS untouched), JNEXT_UNIT_TEST_JOBS is still capped, the line says so"
+
+# SLOT-52: a caller's JOBS in MAKEFLAGS is kept; a caller's JOBS in the environment is passed to make as its value
+fresh
+echo 2 > "$CLEANSLOTS/NSLOTS"
+out=$(env -u JOBS -u JNEXT_UNIT_TEST_JOBS -u JNEXT_TEST_JOBS MAKEFLAGS="-k JOBS=7" JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" make -C "$WT" unit-test 2>&1); rc=$?
+a=$(makeenv); rm -f "$STATE/make-env"
+out2=$(env -u MAKEFLAGS -u JNEXT_UNIT_TEST_JOBS -u JNEXT_TEST_JOBS JOBS=5 JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" make -C "$WT" unit-test 2>&1); rc2=$?
+row SLOT-52 "$([[ $rc -eq 0 && $rc2 -eq 0 && "$a" == "MF=[-k JOBS=7] U=6 T=6" && "$out" == *"JOBS=caller's MAKEFLAGS"* \
+    && "$(makeenv)" == "MF=[ JOBS=5] U=6 T=6" && "$out2" == *"JOBS=5 (caller's environment)"* ]] && echo 1 || echo 0)" \
+    "a caller's JOBS in MAKEFLAGS is kept; one in the environment is handed to make (the Makefile ignores an environment JOBS), both named in the log"
+
+# SLOT-53: a run sent to the remote is untouched: the driver sees none of the caps and no line is logged
+fresh
+out=$(CAPS_REMOTE=JNEXT_SLOT_X=1 capslot 2 12 env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+row SLOT-53 "$([[ $rc -eq 0 && "$(cat "$STATE/rr-env" 2>/dev/null)" == "MF=[] U=unset T=unset" && ! -e "$STATE/make-calls" && "$out" != *"thread caps"* ]] && echo 1 || echo 0)" \
+    "a long run sent to the driver gets no MAKEFLAGS, JNEXT_UNIT_TEST_JOBS or JNEXT_TEST_JOBS and no cap line (the remote driver keeps its own rule)"
+
+# SLOT-54: the cap never drops below 1
+fresh
+out=$(capslot 4 2 env LANG=C make -C "$WT" unit-test 2>&1); rc=$?
+row SLOT-54 "$([[ $rc -eq 0 && "$(makeenv)" == "MF=[ JOBS=1] U=1 T=1" ]] && echo 1 || echo 0)" \
+    "2 CPUs over 4 slots: the caps are 1, not 0"
+
+# SLOT-55: a command that is not make gets the two environment caps AND the JOBS cap in MAKEFLAGS (a make it
+# starts reads it; a non-make program ignores it)
+fresh
+out=$(capslot 2 12 bash -c 'echo "got MF=[${MAKEFLAGS-}] U=$JNEXT_UNIT_TEST_JOBS T=$JNEXT_TEST_JOBS"' 2>&1); rc=$?
+row SLOT-55 "$([[ $rc -eq 0 && "$out" == *"got MF=[ JOBS=6] U=6 T=6"* && "$out" == *"JOBS=6 JNEXT_UNIT_TEST_JOBS=6"* ]] && echo 1 || echo 0)" \
+    "a non-make command gets JNEXT_UNIT_TEST_JOBS, JNEXT_TEST_JOBS and the JOBS cap in MAKEFLAGS"
+
+# SLOT-56: the mechanism itself: a REAL make on a Makefile that assigns JOBS with := (as ours does) sees the cap,
+# and a JOBS= word on its command line still beats it
+fresh
+RM=$TMP/realmake; mkdir -p "$RM"; printf 'JOBS := 12\nall:\n\t@echo seen-JOBS=$(JOBS)\n' > "$RM/Makefile"
+REALPATH=${PATH#"$TMP/bin:"}
+o56a=$(capslot 2 12 env PATH="$REALPATH" make -C "$RM" 2>&1); o56b=$(capslot 2 12 env PATH="$REALPATH" make -C "$RM" JOBS=3 2>&1)
+row SLOT-56 "$([[ "$o56a" == *"seen-JOBS=6"* && "$o56b" == *"seen-JOBS=3"* ]] && echo 1 || echo 0)" \
+    "real make: a := JOBS in the Makefile is overridden by the cap (6); the caller's command-line JOBS=3 wins over it"
+
+# SLOT-57: `env [LANG=C] JOBS=N make`: the env word is the caller's value, handed to make (the Makefile ignores an env JOBS)
+fresh
+o57a=$(capslot 2 12 env PATH="$REALPATH" JOBS=3 make -C "$RM" 2>&1); o57b=$(capslot 2 12 env LANG=C PATH="$REALPATH" JOBS=3 make -C "$RM" 2>&1)
+row SLOT-57 "$([[ "$o57a" == *"seen-JOBS=3"* && "$o57b" == *"seen-JOBS=3"* && "$o57b" == *"JOBS=3 (caller's env word)"* ]] && echo 1 || echo 0)" \
+    "real make behind env JOBS=3 (with and without LANG=C) sees 3, not 12 or the cap, and the log says the caller's env word"
+
+# SLOT-58: make behind wrappers is capped: timeout, an absolute path, env -u, and the driver's fallback sh form (bash -c)
+fresh
+o58a=$(capslot 2 12 timeout --kill-after=5s 20s env PATH="$REALPATH" make -C "$RM" 2>&1)
+o58b=$(capslot 2 12 env PATH="$REALPATH" /usr/bin/make -C "$RM" 2>&1)
+o58c=$(capslot 2 12 env -u FOO PATH="$REALPATH" make -C "$RM" 2>&1)
+o58d=$(capslot 2 12 env LANG=C PATH="$REALPATH" bash -c "cd '$RM' && make" 2>&1)
+o58e=$(capslot 2 12 env PATH="$REALPATH" /usr/bin/make -C "$RM" JOBS=3 2>&1)
+row SLOT-58 "$([[ "$o58e" == *"seen-JOBS=3"* && "$o58e" == *"JOBS=caller's command line"* && "$o58a" == *"seen-JOBS=6"* && "$o58b" == *"seen-JOBS=6"* && "$o58c" == *"seen-JOBS=6"* && "$o58d" == *"seen-JOBS=6"* ]] && echo 1 || echo 0)" \
+    "real make behind timeout, /usr/bin/make, env -u and bash -c (the fallback sh: form) sees the cap 6; a JOBS= after /usr/bin/make is the command line's"
+
+# SLOT-59: the caller's other MAKEFLAGS survive: a real make still sees -k next to the cap
+fresh
+echo 2 > "$CLEANSLOTS/NSLOTS"
+printf 'JOBS := 12\nall:\n\t@echo seen-JOBS=$(JOBS) flags=[$(MAKEFLAGS)]\n' > "$RM/Makefile"
+o59=$(env -u JOBS -u JNEXT_UNIT_TEST_JOBS -u JNEXT_TEST_JOBS MAKEFLAGS=-k JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 PATH="$REALPATH" timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" make -C "$RM" 2>&1)
+row SLOT-59 "$([[ "$o59" == *"seen-JOBS=6"* && "$o59" == *"flags=[k "* ]] && echo 1 || echo 0)" \
+    "a caller's MAKEFLAGS=-k is kept: real make sees the k flag and JOBS=6"
+
+# SLOT-60: an exported EMPTY JNEXT_TEST_JOBS is not a caller's value: it is capped
+fresh
+out=$(env -u JOBS -u MAKEFLAGS -u JNEXT_UNIT_TEST_JOBS JNEXT_TEST_JOBS= JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" env LANG=C make -C "$WT" unit-test 2>&1)
+row SLOT-60 "$([[ "$(makeenv)" == *" T=6" && "$out" == *"JNEXT_TEST_JOBS=6"* && "$out" != *"JNEXT_TEST_JOBS= (caller"* ]] && echo 1 || echo 0)" \
+    "an exported empty JNEXT_TEST_JOBS counts as unset and gets the cap"
+
+# SLOT-61: the caller's MAKEFLAGS=-k survives on the two other branches that write MAKEFLAGS: an env JOBS word and an
+# environment JOBS (a real make sees k and the caller's value)
+fresh
+echo 2 > "$CLEANSLOTS/NSLOTS"
+mkf() {   # <MAKEFLAGS value> <command...>: slot.sh with that caller MAKEFLAGS (and $MKF_ENV, e.g. JOBS=5), real make's PATH
+    local mf=$1; shift
+    env -u JOBS -u JNEXT_UNIT_TEST_JOBS -u JNEXT_TEST_JOBS MAKEFLAGS="$mf" JNEXT_SLOT_CPUS=12 JNEXT_SLOT_NO_OVERFLOW=1 PATH="$REALPATH" ${MKF_ENV:-X_UNUSED=1} \
+        timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$@" 2>&1
+}
+o61a=$(mkf -k env JOBS=3 make -C "$RM")
+o61b=$(MKF_ENV=JOBS=5 mkf -k make -C "$RM")
+row SLOT-61 "$([[ "$o61a" == *"seen-JOBS=3"* && "$o61a" == *"flags=[k "* && "$o61b" == *"seen-JOBS=5"* && "$o61b" == *"flags=[k "* ]] && echo 1 || echo 0)" \
+    "with MAKEFLAGS=-k, an env JOBS=3 word and an environment JOBS=5 each reach a real make together with the k flag"
+
+# SLOT-62: two caller values: MAKEFLAGS JOBS=7 beats an env word JOBS=3 (as make itself would), and the log says so
+fresh
+echo 2 > "$CLEANSLOTS/NSLOTS"
+o62=$(mkf "JOBS=7" env JOBS=3 make -C "$RM")
+row SLOT-62 "$([[ "$o62" == *"seen-JOBS=7"* && "$o62" == *"JOBS=caller's MAKEFLAGS"* ]] && echo 1 || echo 0)" \
+    "MAKEFLAGS JOBS=7 plus env JOBS=3 make: make sees 7 and the log says the caller's MAKEFLAGS"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and

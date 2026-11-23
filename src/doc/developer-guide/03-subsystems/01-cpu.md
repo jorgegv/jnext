@@ -33,11 +33,24 @@ The backend itself is the FUSE Z80 core, vendored under `third_party/fuse-z80/`
 from FUSE 1.6.0 (GPLv2-or-later, compatible with JNEXT's GPLv3).
 `fuse_z80_core.c` is a single translation unit that `#include`s the opcode
 files, while `fuse_z80_shim.h` stubs out every FUSE emulator dependency those
-files would otherwise pull in. The core is inherently single-instance — it keeps
-one global `z80` struct and one global `tstates` counter — which happens to suit
-JNEXT's one-CPU design. `Z80Cpu` re-points the file-static `s_mem` / `s_io`
-pointers on every `reset()` and `execute()`, and copies the register file in and
-out around each instruction.
+files would otherwise pull in. The core keeps its state in process globals: one
+`z80` struct, one `tstates` counter, and, in `z80_cpu.cpp`, the memory and I/O
+pointers, the contention runtime (`ContentionModel` and `Mmu`), the raster
+geometry and the ULA counter origins. The opcode macros name them directly, so
+they stay globals, and they are a **cache of the bound `Z80Cpu`**: each `Z80Cpu`
+owns a saved copy (`Z80CoreRuntime`), and every entry point that touches the
+globals (`reset()`, `execute()`, the setters, `tstates_ref()`, the batch and
+state accessors) first calls `bind_()`. That is one pointer compare while a single machine
+runs; when another machine's CPU runs, it saves the bound one's state and loads its
+own. The deliberate exceptions are `tstates_into_instruction()` and `io_clock_into_instruction()`
+(gated on `executing_`, which implies bound) and the two fetch readers `last_opcode()` and
+`last_m1_byte()`: the M1 fetch buffer is shared, valid until the next `execute()` of any `Z80Cpu`.
+A `Z80Cpu` that is destroyed while bound unbinds and clears the pointers, so a
+short-lived second machine (the warm-start recorder) leaves nothing dangling. The
+free `z80_set_*` functions and `fuse_z80_tstates_ptr()` act on whichever CPU is
+bound: only code that drives a single machine uses them. `Z80Cpu` copies the register file in and
+out around each instruction. State that is valid only inside one `execute()`
+(the M1 fetch buffer, the I/O stretch record) is not swapped.
 
 **HALT.** FUSE executes `HALT` as `halted = 1; PC--`, so the CPU stays on the opcode and
 every later `execute()` re-fetches it (the VHDL does the same, `t80n.vhd:496-503`): `PC++; R++;
@@ -244,6 +257,18 @@ four-state machine `S_0 → S_REQ → S_ACK → S_ISR` with its IEI/IEO daisy ch
 The controller additionally holds the `im2_control.vhd` decoder that recognises
 RETI/RETN and IM-mode changes out of the M1 byte stream, the legacy pulse-mode
 /INT generator, and the NR 0xCC/CD/CE DMA-delay latch.
+
+The RETI/RETN decoder follows `im2_control.vhd` exactly in one respect that is easy
+to get wrong: `S_ED4D_T4`/`S_ED45_T4` → `S_SRL_T1` → `S_SRL_T2` → `S_0` are clock-driven,
+not fetch-driven (`im2_control.vhd:181-192`; only `S_0`, `S_ED_T4`, `S_CB_T4` and
+`S_DDFD_T4` wait for an opcode fetch). Those three clocks pass inside the RETI/RETN's own
+stack-pop cycles, so the decoder is back in `S_0` before the next opcode fetch and no fetch
+is ever dropped; `o_dma_delay` (`im2_control.vhd:238`) therefore ends with the RETI itself, and
+`tick()` drops the DMA-delay hold at the end of the RETI/RETN instruction. A model that
+steps the SRL states once per fetch ignores an `ED 4D` among the next three fetches, so a
+short interrupt routine entered right after a RETI (`EI : RETI`) never clears its device:
+the line device stays in `S_ISR`, the CTCs behind it stay in `S_REQ` for ever, and the
+sprite DMA held by them (`im2_device.vhd:151`) never runs.
 
 It is ticked once per instruction, at the *end* of the instruction's slot
 (`Emulator::finish_slot_interrupts()`), after the devices and the interrupt

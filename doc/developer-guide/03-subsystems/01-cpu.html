@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3139,11 +3139,24 @@ abstract interfaces declared in that header — <code>MemoryInterface</code> and
 from FUSE 1.6.0 (GPLv2-or-later, compatible with JNEXT's GPLv3).
 <code>fuse_z80_core.c</code> is a single translation unit that <code>#include</code>s the opcode
 files, while <code>fuse_z80_shim.h</code> stubs out every FUSE emulator dependency those
-files would otherwise pull in. The core is inherently single-instance — it keeps
-one global <code>z80</code> struct and one global <code>tstates</code> counter — which happens to suit
-JNEXT's one-CPU design. <code>Z80Cpu</code> re-points the file-static <code>s_mem</code> / <code>s_io</code>
-pointers on every <code>reset()</code> and <code>execute()</code>, and copies the register file in and
-out around each instruction.</p>
+files would otherwise pull in. The core keeps its state in process globals: one
+<code>z80</code> struct, one <code>tstates</code> counter, and, in <code>z80_cpu.cpp</code>, the memory and I/O
+pointers, the contention runtime (<code>ContentionModel</code> and <code>Mmu</code>), the raster
+geometry and the ULA counter origins. The opcode macros name them directly, so
+they stay globals, and they are a <strong>cache of the bound <code>Z80Cpu</code></strong>: each <code>Z80Cpu</code>
+owns a saved copy (<code>Z80CoreRuntime</code>), and every entry point that touches the
+globals (<code>reset()</code>, <code>execute()</code>, the setters, <code>tstates_ref()</code>, the batch and
+state accessors) first calls <code>bind_()</code>. That is one pointer compare while a single machine
+runs; when another machine's CPU runs, it saves the bound one's state and loads its
+own. The deliberate exceptions are <code>tstates_into_instruction()</code> and <code>io_clock_into_instruction()</code>
+(gated on <code>executing_</code>, which implies bound) and the two fetch readers <code>last_opcode()</code> and
+<code>last_m1_byte()</code>: the M1 fetch buffer is shared, valid until the next <code>execute()</code> of any <code>Z80Cpu</code>.
+A <code>Z80Cpu</code> that is destroyed while bound unbinds and clears the pointers, so a
+short-lived second machine (the warm-start recorder) leaves nothing dangling. The
+free <code>z80_set_*</code> functions and <code>fuse_z80_tstates_ptr()</code> act on whichever CPU is
+bound: only code that drives a single machine uses them. <code>Z80Cpu</code> copies the register file in and
+out around each instruction. State that is valid only inside one <code>execute()</code>
+(the M1 fetch buffer, the I/O stretch record) is not swapped.</p>
 <p><strong>HALT.</strong> FUSE executes <code>HALT</code> as <code>halted = 1; PC--</code>, so the CPU stays on the opcode and
 every later <code>execute()</code> re-fetches it (the VHDL does the same, <code>t80n.vhd:496-503</code>): <code>PC++; R++;
 Q = 0; halted = 1; PC--</code> and the T-states of one M1. <code>Z80Cpu::repeat_halt(count, each)</code>
@@ -3325,6 +3338,17 @@ four-state machine <code>S_0 → S_REQ → S_ACK → S_ISR</code> with its IEI/I
 The controller additionally holds the <code>im2_control.vhd</code> decoder that recognises
 RETI/RETN and IM-mode changes out of the M1 byte stream, the legacy pulse-mode
 /INT generator, and the NR 0xCC/CD/CE DMA-delay latch.</p>
+<p>The RETI/RETN decoder follows <code>im2_control.vhd</code> exactly in one respect that is easy
+to get wrong: <code>S_ED4D_T4</code>/<code>S_ED45_T4</code> → <code>S_SRL_T1</code> → <code>S_SRL_T2</code> → <code>S_0</code> are clock-driven,
+not fetch-driven (<code>im2_control.vhd:181-192</code>; only <code>S_0</code>, <code>S_ED_T4</code>, <code>S_CB_T4</code> and
+<code>S_DDFD_T4</code> wait for an opcode fetch). Those three clocks pass inside the RETI/RETN's own
+stack-pop cycles, so the decoder is back in <code>S_0</code> before the next opcode fetch and no fetch
+is ever dropped; <code>o_dma_delay</code> (<code>im2_control.vhd:238</code>) therefore ends with the RETI itself, and
+<code>tick()</code> drops the DMA-delay hold at the end of the RETI/RETN instruction. A model that
+steps the SRL states once per fetch ignores an <code>ED 4D</code> among the next three fetches, so a
+short interrupt routine entered right after a RETI (<code>EI : RETI</code>) never clears its device:
+the line device stays in <code>S_ISR</code>, the CTCs behind it stay in <code>S_REQ</code> for ever, and the
+sprite DMA held by them (<code>im2_device.vhd:151</code>) never runs.</p>
 <p>It is ticked once per instruction, at the <em>end</em> of the instruction's slot
 (<code>Emulator::finish_slot_interrupts()</code>), after the devices and the interrupt
 events have raised that instruction's requests, and it runs on the CLK_28

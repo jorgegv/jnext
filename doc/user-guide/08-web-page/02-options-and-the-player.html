@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4304,6 +4304,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#files-jnext-writes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files JNEXT writes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#the-crt-effect" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4868,6 +4879,18 @@
 <td>Record the machine and collect the <code>.rzx</code> file.</td>
 </tr>
 <tr>
+<td><code>listFiles()</code></td>
+<td>The files JNEXT has written for an output option (a recording, a screenshot, a trace, an export), as an array of <code>{path, size, complete}</code>; see "Files JNEXT writes", below. Empty before the click.</td>
+</tr>
+<tr>
+<td><code>readFile(path)</code></td>
+<td>Resolves to a <code>Uint8Array</code>: a copy of the bytes of a finished file <code>listFiles()</code> gives.</td>
+</tr>
+<tr>
+<td><code>stop()</code></td>
+<td>End the machine and keep the player and its files. Resolves to the exit status once every file is finished (0 for a clean stop). A stopped player cannot start again.</td>
+</tr>
+<tr>
 <td><code>resetCard()</code></td>
 <td>Forget the saves kept by <code>keepWrites</code> and restart the program.</td>
 </tr>
@@ -4955,6 +4978,58 @@ a.click();
 </code></pre>
 <p>A recording is refused on a ZX Spectrum Next, which is the default machine: give the
 player <code>machine: '48k'</code>, <code>'128k'</code>, <code>'plus3'</code> or <code>'pentagon'</code>.</p>
+<h3 id="files-jnext-writes">Files JNEXT writes<a class="headerlink" href="#files-jnext-writes" title="Permanent link">&para;</a></h3>
+<p>Some options make JNEXT write a file: a recording (<code>--wav-record</code>, <code>--dac-trace</code>, <code>--tape-save</code>), a
+screenshot (<code>--delayed-screenshot</code>), a trace or profile (<code>--compositor-trace</code>, <code>--profile</code> with
+<code>--profile-output</code>), an export (<code>--export-skoolkit</code>, <code>--export-ghidra</code>), a bug report
+(<code>--bug-report</code>), the audio write log (<code>--audio-log</code>) or the log (<code>--log-file</code>). A page gives them in <code>args</code>. The files live in the
+page's memory, and the page collects them with <code>listFiles()</code> and <code>readFile()</code>:</p>
+<pre><code class="language-js">const player = await jnext.mount(el, { machine: '48k', args: ['--wav-record', '/tmp/game.wav'] });
+// ... the visitor plays ...
+await player.stop();
+console.log(player.listFiles());   // [{ path: '/tmp/game.wav', size: 1234567, complete: true }]
+const bytes = await player.readFile('/tmp/game.wav');
+</code></pre>
+<ul>
+<li><code>listFiles()</code> lists the files in the order JNEXT began them. <code>path</code> is the absolute path, <code>size</code> is
+  the bytes in the page's memory now, and <code>complete</code> says that JNEXT has finished the file for good.
+  Each call gives a new array. A file the page itself put in the file system is not listed, and
+  neither is one that is gone.</li>
+<li><code>readFile(path)</code> takes a path <code>listFiles()</code> gives and resolves to a new <code>Uint8Array</code> each time. It
+  refuses a file that is not complete: its contents are not a whole file yet (a WAV's header holds
+  no length until the end).</li>
+<li>When a file is complete:<ul>
+<li>a screenshot, when it has been written;</li>
+<li>a compositor trace, after its frame, or at the end of the machine if the frame never came;</li>
+<li>everything else, at the end of the machine: <code>--delayed-automatic-exit-frames</code> ends it, and
+  so does <code>stop()</code>, which resolves only when every file is finished.</li>
+</ul>
+</li>
+<li>Where to write: any directory that exists, such as <code>/tmp</code>, or a bare name (it goes in <code>/</code>). Not
+  <code>/sdcard</code>, <code>/jnext</code> or <code>/media</code>: they are the player's own (the SD card, what the player keeps and
+  the programs it installs), and <code>listFiles()</code> and <code>readFile()</code> never give anything in them, whoever
+  wrote it and however the name is spelt (<code>..</code>, a relative name or a link to it included).</li>
+<li>What the page can read is the card's opposite: the SD card image and the player's own files never come
+  out of <code>readFile()</code>. What an export holds is the page author's choice, as on the desktop: a
+  <code>--export-skoolkit</code> of ROM space holds the ROM the machine ran (a bug report, as on the desktop,
+  leaves the memory of a card session out: <a href="../05-running-programs/12-bug-reports.html">5.12</a>). NextZXOS is SpecNext's
+  copyrighted software: what you offer to your visitors, an export of the machine's memory included, is your
+  responsibility, and JNEXT does not check it against anything.</li>
+<li>A file the page offers for download is the usual four lines. This button saves the WAV above
+  (<code>player</code> is what <code>jnext.mount()</code> resolved to):</li>
+</ul>
+<pre><code class="language-html">&lt;button id=&quot;save-wav&quot;&gt;Save the recording&lt;/button&gt;
+&lt;script&gt;
+  document.getElementById('save-wav').onclick = async () =&gt; {
+    await player.stop();
+    const bytes = await player.readFile('/tmp/game.wav');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([bytes]));
+    a.download = 'game.wav';
+    a.click();
+  };
+&lt;/script&gt;
+</code></pre>
 <h3 id="the-crt-effect">The CRT effect<a class="headerlink" href="#the-crt-effect" title="Permanent link">&para;</a></h3>
 <p>The desktop window's CRT effect (<a href="../05-running-programs/03-display.html">5.3</a>) runs in
 the page too, off by default, with the same five looks and the same parameters. It needs a browser with WebGL.</p>
@@ -5025,6 +5100,24 @@ the visitor has clicked and the player has its SD card (until then it is undefin
 <li><code>stopRzxRecording()</code> rejects if none is running.</li>
 <li><code>resetCard()</code> needs <code>keepWrites</code> (it rejects without it). It resolves when the program
   is in the machine again.</li>
+<li><code>listFiles()</code> returns <code>[]</code> before the click, and never lists the player's own locations (<code>/sdcard</code>,
+  <code>/jnext</code>, <code>/media</code>).</li>
+<li><code>readFile(path)</code> rejects, with nothing sent to <code>onError</code>, when:<ul>
+<li><code>path</code> is not a string (a <code>TypeError</code>: <code>jnext: readFile() takes a path that listFiles() gives</code>);</li>
+<li>the path is in the player's own locations (<code>jnext: &lt;path&gt; is one of the player's own files (the SD
+  card and what the player keeps); readFile() never returns them</code>);</li>
+<li>JNEXT did not write the path (<code>jnext: &lt;path&gt; is not a file this player's machine wrote</code>), or it is
+  gone;</li>
+<li>the file is not complete (<code>jnext: &lt;path&gt; is still being written (listFiles() says when it is
+  complete; stop() ends the machine)</code>).</li>
+</ul>
+</li>
+<li><code>stop()</code> rejects while the machine is not running (<code>jnext: the machine is not running</code>: before the
+  click, or while it starts). It resolves with the exit status once the machine has exited, which is
+  after every file is finished; the overlay then says "Stopped", as for an automatic exit. After the
+  machine has exited, by <code>stop()</code> or by itself, <code>stop()</code> resolves with the same status again.</li>
+<li>After <code>destroy()</code> the three throw <code>jnext: this player was destroyed</code>. The files go with the
+  player: collect them first.</li>
 <li><code>showKeyboard(on)</code>: the page's call wins over <code>touchKeyboard</code>, before or after the
   start. Anything but a boolean throws a <code>TypeError</code>.</li>
 <li><code>destroy()</code>: with <code>keepWrites</code> it first waits until the saves are stored.</li>

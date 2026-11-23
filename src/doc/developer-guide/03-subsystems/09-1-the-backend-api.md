@@ -135,7 +135,7 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 | time and raster | `time()`, `time_epoch()` (changes when time moves without executing), `raster()`, `machine()` | — |
 | sprites | `sprites()`, `sprite_attr_raw(i)`, `pattern_ram()`, `sprite_palette_rgb333(bank, i)`, `sprite_clip()` | `set_sprite_attr_raw(...)`, `write_pattern_ram(...)` |
 | Copper | `copper()` | — |
-| audio | `ay_registers(chip)`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()`, `audio_mute_mask()` | `set_audio_mute_mask(by, m)` (host-side, never in a snapshot or an RZX) |
+| audio | `ay_registers(chip)`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()`, `audio_mute_mask()`, `audio_channel_mute_mask()`, `audio_state()`, `audio_log_enabled()`, `audio_log_entries(since_seq)`, `audio_log_export(path)` | `set_audio_mute_mask(by, m)`, `set_audio_channel_mute_mask(by, m)` (host-side, never in a snapshot or an RZX), `clear_audio_drops(by)` (zeroes the dropped-write counters in `audio_state().drops`; host-side too), `set_audio_log_enabled(by, on)` (a client's request; the log is on while any live client asks), `audio_log_clear(by)`, `audio_log_resize(n)` |
 | video | `framebuffer()`, `render_layer(layer, vc, dst, stride)`, `palette(id)`, `palette_priority(id)`, `active_ula_palette_bank()`, `ula_screen_regs()`, `clip_window(layer)` | `set_palette(...)`, `set_border(by, colour)` |
 | disassembly | `disassemble(addr, n, symbols)`, `instruction_length(addr)`, `is_call_like(addr)` | — |
 | call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled(by, on)` (a per-client request, [7.10](../07-source-level-debugging/10-c-frames-and-values.md)); C variables: `c_frames()`, `c_locals(frame)`, `c_globals()`, `read_c_value(frame, path)`, `c_variables_status()` (all `const`, none bumps the revision), `set_trace_enabled`, `trace_clear`, `trace_resize` |
@@ -143,7 +143,7 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 | input | `input_state()` | see input injection below |
 | the event model | `subscriptions(include_transient)`, `events_fired_since(seq)` | see [3.9.2](09-2-event-delivery-and-mutation.md) |
 
-Three of these are worth understanding before using them.
+Four of these are worth understanding before using them.
 
 **`peek(MemSpace::cpu())` is `Mmu::peek()`.** `Mmu::read()` is the guest's
 read: it captures the byte into the +3 floating-bus latch on a contended access
@@ -163,6 +163,32 @@ lands on. A rewind lands on a frame start the ring has already counted;
 
 **`raster()` and `time()` of a paused machine are snapshots taken at the
 query.** While the machine runs they report the live beam from the clock.
+
+**`audio_state()` decodes; `audio_log_entries()` records.** `audio_state()` is a direct value: one
+consistent read of the whole audio chain (`AudioState`, `src/debug/inspect.h`), decoded from the chips'
+own latches with no NextREG read handler run. Per AY chip it carries the 16 raw registers, the address
+latch, pan, mono and whether the chip reaches the mix; per channel the 12-bit tone period, the R7 gates,
+the volume or envelope flag and an `amplitude`, the level the channel plays while its gate is open
+(through the AY or YM curve, so a level bar does not follow the square wave); per chip the noise period
+and the envelope (period, shape, the 5-bit step, its motion). Beside them are the DAC values, the
+NR 0x84 port families, the beeper, Pi I2S and host lines, and the dropped-write counters (`drops`, one
+per `AudioDropReason`, host state cleared only by `clear_audio_drops()`). The pitch arithmetic is not in
+the query: `src/debug/audio_math.h` (standard headers only, so published) turns a period and a clock
+into hertz, the nearest note with its cents (A4 = 440 Hz, sharps only) and the envelope's four-character
+glyph, and takes the clock from `AudioState::psg_clock_hz` (1.75 MHz on a Next), never a literal. A
+frontend decodes with it, so a GUI, a script and a test name the same note.
+
+The write log is the other half: the ring (`AUDIO_LOG_DEFAULT_ENTRIES` = 65536, `audio_log_resize()` up
+to 2^22) exists only while some live client asks (`set_audio_log_enabled()`; observers count; the
+effective state is `audio_log_enabled()`), and its `seq` is never reused in a run, so a client that
+fetches `audio_log_entries(since_seq)` can tell what it missed. Entries come from the core's write tap
+(3.4); reset, state-load and rewind enter as marker rows, and a rewind landing removes the rows from
+its own cycle on. `audio_log_export()`, the Qt Log tab's Export and the `--audio-log` stream
+(`AudioLogStream`, an observer and a `Service` whose `pump()` hook drains the ring into the file) all
+write through `src/debug/audio_log_csv.h`, so the three formats cannot differ. A frontend must call
+`set_audio_log_enabled(false)` when it stops looking: the tap costs the machine nothing while no one asks,
+and nothing else turns it off. Log, counters and both mute masks are host state: never in a snapshot or
+an RZX, and invisible to the Z80 (`audio_debug_test`, AIZ rows).
 
 `render_layer()` (`src/debug/debugger_render.cpp`) draws one of the eight
 `Layer` views of the paused frame: composite, ULA primary and shadow, Layer 2

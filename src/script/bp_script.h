@@ -27,9 +27,26 @@
 namespace jnext {
 namespace script {
 
+/// An Audio Write breakpoint's fields (GH #532): what the Add dialog's audio widgets hold.
+struct BpAudio {
+    /// The dialog's target combo. `Dac` is the DAC channels and the NextREG mirror together.
+    enum Target : uint8_t { AyRegister = 0, AyChipSelect, Dac, Any };
+    Target  target = AyRegister;
+    /// AY chip 0-2 (the AY targets) | DAC channel 0-3 (Dac) | 0xFF = any, and always 0xFF for Any.
+    uint8_t chip = 0xFF;
+    std::optional<uint8_t> reg;        ///< AY register 0-15, AyRegister only; nullopt = any
+    std::optional<uint8_t> value;      ///< nullopt = any value
+    uint8_t mask = 0xFF;               ///< meaningful with `value`
+    bool    dropped_only = false;      ///< only discarded writes (the default is applied ones only)
+};
+bool operator==(const BpAudio& a, const BpAudio& b);
+/// The Type/Address cell text of an audio breakpoint: `AY1 R13 restart`, `AY R7 value 0x38`, `AY select 2`,
+/// `DAC B dropped`, `Any audio`. ONE function for the panel and the codec's messages.
+std::string bp_audio_text(const BpAudio& a);
+
 /// One GUI breakpoint. `Kind` is BreakpointModel::Type, value for value.
 struct BpSpec {
-    enum Kind : uint8_t { Execute = 0, Read, Write, ReadWrite, IoRead, IoWrite, Interrupt, Nmi };
+    enum Kind : uint8_t { Execute = 0, Read, Write, ReadWrite, IoRead, IoWrite, Interrupt, Nmi, AudioWrite };
     Kind            kind  = Execute;
     uint16_t        addr  = 0;                      ///< address, or port (<= 0xFF: low-byte decode); 0 for Interrupt / Nmi
     /// Execute / Read / Write / Read-Write only, and never with a space or a source line: the end of an
@@ -45,6 +62,7 @@ struct BpSpec {
     std::vector<::SourceAddress> locations;      ///< a source line's members, in resolve() order
     bool            enabled = true;
     bool            count_only = false;             ///< counts its hits and never stops (`do end`)
+    BpAudio         audio;                          ///< AudioWrite only (`addr` is then 0)
 };
 /// The payload scope a breakpoint kind's condition compiles in: the DSL checker's own table (`scope_of`),
 /// not a second one.

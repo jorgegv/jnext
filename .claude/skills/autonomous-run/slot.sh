@@ -20,8 +20,13 @@
 #     refused with exit 2. The autonomous-run skill writes 4 at the start of an unattended run (owner,
 #     2026-11-21) and 2 when the owner is at the machine.
 #
-# OVERFLOW TO THE REMOTE (owner, 2026-11-21: host picked by load; long heavy runs go to the remote by
-# default; never wait on it)
+# THREAD CAPS (owner, 2026-11-23, measured: see apply_thread_caps)
+#   A command admitted to a local slot runs with nproc/NSLOTS threads (at least 1): JOBS (as a make variable
+#   through MAKEFLAGS), JNEXT_UNIT_TEST_JOBS and JNEXT_TEST_JOBS, unless the caller set that one itself. One
+#   line at admission names the caps. Runs sent to the remote are untouched (the driver caps them there).
+#
+# REMOTE FIRST (owner, 2026-11-23: "Remote work rule: try to fill remote workers before running builds
+# locally, unless needed"; before it only LONG runs went first and short ones went when no local slot was free)
 #   A command is ELIGIBLE when ALL of these hold (the first that fails is printed, once, and the
 #   command waits for a local slot as before):
 #     1. JNEXT_SLOT_NO_OVERFLOW and REMOTE_RUN_FALLBACK are unset (a run the driver fell back from is
@@ -33,10 +38,14 @@
 #     4. the worktree's branch is an issue branch gh<N>-<slug> (never main, epic*, gate-*, detached);
 #     5. `git status --porcelain` there is empty, untracked files included: the remote runs only
 #        committed state, so an edit-and-test cycle (mutations!) always stays local.
-#   An eligible command is sent to the remote FIRST when it is LONG (the full unit-test targets,
-#   wasm-browser-test, the full regression, regression-win/-wasm), because the remote host is as fast as
-#   this one and does not load it; a heavy but short command (regression-rows, test-affected) is sent
-#   only when no local slot is admissible right now (all held, or the load is at the limit). Sending =
+#   An eligible command (any heavy target: the full unit-test targets, wasm-browser-test, the full
+#   regression, regression-win/-wasm, regression-rows, test-affected) is sent to a remote lane FIRST, whenever
+#   one is free right now, and runs here only when every lane of every host is busy or unusable (then it
+#   waits for a local slot, as below). A command that is not eligible stays local exactly as before.
+#   "Unless needed" (the owner's words): a run that needs THIS host sets JNEXT_SLOT_NO_OVERFLOW=1: uncommitted state
+#   (mutants), bench or xvfb probes, a measurement, or material that must never leave this host (a reporter's game
+#   shared for testing, the user's own card; slot.sh cannot detect it). Never set it for a gate run.
+#   Sending =
 #   push origin/<branch> if it is not at HEAD (`git push origin <branch>`, never forced; COMMON-RULES
 #   "REMOTE RUNS" authorizes an agent to push its own issue branch), then remote-run.sh --stream.
 #   HOSTS (GH #547, owner 2026-11-22: several remote hosts): the aliases are tried in list order; a host
@@ -67,7 +76,7 @@
 # Test hooks (the contract, test/packaging/slot-test.sh): JNEXT_SLOT_LOADAVG (a file in /proc/loadavg
 # format), JNEXT_SLOT_REMOTE_RUN (the driver), JNEXT_SLOT_POLL (seconds between local attempts, default 20),
 # JNEXT_SLOT_REMOTE_LOG_DIR (default ~/tmp/remote-run), JNEXT_SLOT_GIT_SEC (bound on the branch push and the
-# ls-remote check after it, default 60).
+# ls-remote check after it, default 60), JNEXT_SLOT_CPUS (the CPU count the thread caps divide, default nproc).
 set -u
 
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
@@ -80,9 +89,8 @@ LOGDIR=${JNEXT_SLOT_REMOTE_LOG_DIR:-$HOME/tmp/remote-run}
 LIMIT=${JNEXT_SLOT_LOAD_LIMIT:-$(nproc 2>/dev/null || echo 12)}
 DIR=${JNEXT_SLOT_DIR:-}
 
-# Targets worth sending (the remote-run skill's D14 list, plus the full regression and test-affected).
-LONG_TARGETS=" unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm "
-SHORT_TARGETS=" regression-rows test-affected "
+# Targets worth sending (the remote-run skill's D14 list, plus the full regression, regression-rows and test-affected).
+HEAVY_TARGETS=" unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected "
 
 usage() { echo "usage: slot.sh --dir <slots dir> [--limit N] <command> [args...]" >&2; exit 2; }
 while [[ $# -gt 0 ]]; do
@@ -140,13 +148,13 @@ try_local() {
     return 1
 }
 
-# parse_overflow: sets OV_REASON ("" = eligible), OV_SHAPE (1 = the command names a heavy target), OV_LONG, OV_WT,
+# parse_overflow: sets OV_REASON ("" = eligible), OV_SHAPE (1 = the command names a heavy target), OV_WT,
 # OV_BRANCH and the array OV_TARGETS (the remote-run targets).
 parse_overflow() {
-    OV_REASON=""; OV_SHAPE=0; OV_LONG=0; OV_WT=""; OV_BRANCH=""; OV_TARGETS=()
+    OV_REASON=""; OV_SHAPE=0; OV_WT=""; OV_BRANCH=""; OV_TARGETS=()
     if [[ -n "${JNEXT_SLOT_NO_OVERFLOW:-}" || -n "${REMOTE_RUN_FALLBACK:-}" ]]; then OV_REASON=SILENT; return; fi
     local a=("${CMD[@]}") i=0 w words=() vars=() targets=() spaced=0
-    for w in "${a[@]}"; do [[ "$LONG_TARGETS$SHORT_TARGETS" != *" $w "* ]] || OV_SHAPE=1; done   # names a heavy target: the reason is worth printing
+    for w in "${a[@]}"; do [[ "$HEAVY_TARGETS" != *" $w "* ]] || OV_SHAPE=1; done   # names a heavy target: the reason is worth printing
     if [[ "${a[0]}" == env ]]; then
         i=1
         while [[ "${a[i]:-}" == *=* ]]; do
@@ -159,9 +167,8 @@ parse_overflow() {
     OV_WT=${a[i + 2]}
     words=("${a[@]:i + 3}")
     for w in "${words[@]}"; do
-        if [[ "$LONG_TARGETS$SHORT_TARGETS" == *" $w "* ]]; then
+        if [[ "$HEAVY_TARGETS" == *" $w "* ]]; then
             targets+=("$w")
-            [[ "$LONG_TARGETS" != *" $w "* ]] || OV_LONG=1
         elif [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
             vars+=("$w")
             [[ "$w" != *[[:space:]]* ]] || spaced=1
@@ -240,6 +247,55 @@ go_remote() {
     return 99
 }
 
+# apply_thread_caps: a run admitted HERE gets nproc/NSLOTS threads (at least 1), always, whether or not the
+# other slots are busy (owner, 2026-11-23; measured on the 12-CPU host, `make unit-test` from an empty build/ with
+# a warm ccache: two concurrent runs took 617 s and 519 s at 12 threads each and 496 s and 491 s at 6 each; one
+# run alone 347 s at 12 and 343 s at 6, so the cap costs a lone run nothing; NSLOTS above 2 is an extrapolation, measured only at 1 and 2 slots: nproc/NSLOTS
+# keeps the total at nproc, and oversubscription is what cost the 12-thread pair). Three knobs, each one the variable
+# its consumer really reads:
+#   JOBS                  the Makefile assigns it with `:=`, so an ENVIRONMENT JOBS is ignored; it goes in as a
+#                         make command-line variable through MAKEFLAGS, whatever the command (make behind timeout, bash -c, env: a
+#                         non-make program ignores it; a `JOBS=` word after the make word wins over it, and the
+#                         argv stays as the caller wrote it);
+#   JNEXT_UNIT_TEST_JOBS  suites running at once in test/run-unit-tests.sh (the wasm and win targets set it
+#                         from JOBS themselves);
+#   JNEXT_TEST_JOBS       lanes of test/00regression/regression.sh.
+# A value the caller already set wins (JOBS: on the make command line, in MAKEFLAGS, or in the environment, where
+# its value is passed on to make); the log line says which. NOT capped, on purpose: JNEXT_TEST_QUIET_JOBS (the
+# quiet rows are real-time paced; more lanes is the trade CLAUDE.md rejects), UNIT_TEST_CHECK_JOBS (6, the cap
+# of light checks that was in force in the measurement above) and the remote driver's lower LTO/PGO link cap
+# (a memory cap of its 10 GB lanes: with 2+ slots nproc/NSLOTS is already that low here, and the host kept 39 GB free; with 1 slot a heavy target gets every CPU, as the lone run measured).
+# Remote runs never reach this: the driver sets its own caps on the remote host.
+apply_thread_caps() {
+    local cpus=${JNEXT_SLOT_CPUS:-$(nproc 2>/dev/null || echo 12)} cap w note="" jobs mf=${MAKEFLAGS:-}
+    [[ "$cpus" =~ ^[0-9]+$ ]] || cpus=12
+    cap=$((cpus / NSLOTS)); [[ $cap -ge 1 ]] || cap=1
+    # Where is make? The first word that is make or ends in /make (so `timeout .. make`, `/usr/bin/make`, `env -u X
+    # make` count; `bash -c 'make ..'` has no such word and is treated as "no make word"). A JOBS= word AFTER it is
+    # on make's command line (it beats MAKEFLAGS); one BEFORE it, or anywhere when there is no make word, is an
+    # environment word (`env JOBS=3 make`), which the Makefile ignores, so its value is handed on like an env JOBS.
+    local mi=-1 i=0 cmdjobs=0 prejobs=""
+    for w in "${CMD[@]}"; do
+        if [[ $mi -lt 0 && ( "$w" == make || "$w" == */make ) ]]; then mi=$i
+        elif [[ "$w" == JOBS=* ]]; then
+            if [[ $mi -ge 0 ]]; then cmdjobs=1; else prejobs=${w#JOBS=}; fi
+        fi
+        i=$((i + 1))
+    done
+    if [[ $cmdjobs -eq 1 ]]; then jobs="caller's command line"
+    elif [[ " $mf" == *" JOBS="* ]]; then jobs="caller's MAKEFLAGS"
+    elif [[ -n "$prejobs" ]]; then export MAKEFLAGS="$mf JOBS=$prejobs"; jobs="$prejobs (caller's env word)"
+    elif [[ -n "${JOBS:-}" ]]; then export MAKEFLAGS="$mf JOBS=$JOBS"; jobs="$JOBS (caller's environment)"
+    else export MAKEFLAGS="$mf JOBS=$cap"; jobs=$cap
+    fi
+    for w in JNEXT_UNIT_TEST_JOBS JNEXT_TEST_JOBS; do
+        if [[ -n "${!w:+x}" ]]; then note+=" $w=${!w} (caller's)"
+        else export "$w=$cap"; note+=" $w=$cap"
+        fi
+    done
+    echo "[slot.sh] thread caps (nproc $cpus / NSLOTS $NSLOTS = $cap): JOBS=$jobs$note" >&2
+}
+
 parse_overflow
 announced=0
 announce() {
@@ -251,10 +307,8 @@ announce() {
 # remote_try [quiet]: one pass over the hosts. A run that happened ends this script with its status; 99 = no host
 # had a lane (stay eligible, probe again), 98 = remote is out for good.
 can_remote=0; [[ -z "$OV_REASON" ]] && can_remote=1
-tried=0
 remote_try() {
     local rc
-    tried=1
     go_remote "${1:-0}"; rc=$?
     case $rc in
         99) ;;
@@ -264,7 +318,7 @@ remote_try() {
 }
 
 paused
-if [[ $can_remote -eq 1 && $OV_LONG -eq 1 ]]; then remote_try; fi
+if [[ $can_remote -eq 1 ]]; then remote_try; fi   # remote first: every eligible command, long or short
 [[ $OV_SHAPE -eq 0 || $can_remote -eq 1 || "$OV_REASON" == SILENT ]] || announce
 
 # The wait for a local slot also watches the remote hosts (owner, 2026-11-22: never queue here while a remote lane
@@ -276,18 +330,15 @@ while :; do
     if try_local; then break; fi
     announce
     if [[ $can_remote -eq 1 ]]; then
-        if [[ $tried -eq 0 ]]; then
-            remote_try
-        else
-            polls=$((polls + 1))
-            if (( polls % REPROBE == 0 )); then remote_try 1; fi
-        fi
+        polls=$((polls + 1))
+        if (( polls % REPROBE == 0 )); then remote_try 1; fi
     fi
     sleep "$POLL"
 done
 
 admit_log "slot $GOT"
 echo "[slot.sh] admitted to slot $GOT at load $(load1): ${CMD[*]}" >&2
+apply_thread_caps
 nice -n 19 "${CMD[@]}" {LOCKFD}>&- &
 pid=$!
 trap 'kill -TERM "$pid" 2>/dev/null' INT TERM

@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "core/emulator.h"
+#include "debug/audio_tap.h"
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
 #include "debug/event_table.h"
@@ -386,6 +387,14 @@ struct Debugger::Impl {
     /// WITH — a change that forgets it leaves a subscription that can never fire.
     void gates_changed();
 
+    /// GH #532 -- the audio tap is on while the log is requested OR a live
+    /// `AudioWrite` subscription exists. Computed here, never per write.
+    void publish_audio_tap() {
+        emu.set_audio_tap(&audio_sink, audio_log_derived || events.has_kind(EventKind::AudioWrite));
+    }
+    /// Latch one decoded audio write for the live `AudioWrite` subscriptions.
+    void latch_audio_write(const AudioLogEntry& e);
+
     /// The boundary drain and the pre-instruction `Execute` gate — the two
     /// things the hot loop calls, through the `std::function`s `DebugState`
     /// holds. Both return true iff a `Stop` fired.
@@ -471,6 +480,7 @@ struct Debugger::Impl {
         Listener*  listener    = nullptr;
         bool       live_raster = false;
         bool       call_stack  = false;   ///< GH #434 F-B: this client asked for call-stack tracking
+        bool       audio_log   = false;   ///< GH #531: this client asked for the audio write log
         bool       detached    = false;   ///< tombstone
         /// CAP-03 — this client's bookmarks, in save order (a re-save of a name
         /// keeps its place). HERE, on the client row, because §4.5 makes them
@@ -518,6 +528,35 @@ struct Debugger::Impl {
     /// not undone by an attach, a detach or an in-place landing that changes nothing derived.
     void sync_call_stack(bool force = false);
     bool call_stack_derived = false;
+
+    // -----------------------------------------------------------------------
+    // GH #531 -- INS-23, the audio write log.
+    //
+    // The ring exists only while some live client (observers included) asks for the
+    // log; `sync_audio_log()` is its ONE writer, in the `sync_call_stack()` shape: a
+    // function of the client list, run from `clients_changed()`, the request verb and
+    // the re-application after a machine rebuild. `audio_next_seq` is never reset in a
+    // run. The core delivers through `audio_sink`, installed on the Emulator.
+    // -----------------------------------------------------------------------
+    struct AudioLogSink final : AudioTapSink {
+        Impl& impl;
+        explicit AudioLogSink(Impl& i) : impl(i) {}
+        void audio_record(const AudioLogEntry& e) override;
+        void audio_rewind_landing(const AudioLogEntry& e) override;
+    };
+    AudioLogSink audio_sink{*this};
+    std::vector<AudioLogEntry> audio_ring;       ///< empty while the log is off
+    size_t   audio_head = 0;                     ///< index of the oldest entry
+    size_t   audio_count = 0;
+    size_t   audio_capacity = AUDIO_LOG_DEFAULT_ENTRIES;   ///< for the next allocation
+    uint64_t audio_next_seq = 1;
+    bool     audio_log_derived = false;
+    AudioLogEntry&       audio_at(size_t i);     ///< the i-th oldest
+    const AudioLogEntry& audio_at(size_t i) const;
+    void audio_push(const AudioLogEntry& e);
+    /// With `force` and the log on (a reconstruct replaced the machine) it also
+    /// appends a `Reset` marker and re-installs the sink.
+    void sync_audio_log(bool force = false);
 
     /// Drop the tombstones. Called only where no fan-out loop is walking the
     /// vector.

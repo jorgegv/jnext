@@ -532,6 +532,53 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
             finish(s);
             break;
         }
+        case EventType::AyWrite:
+        case EventType::AudioWrite: {
+            Subscription s = base;
+            s.kind = EventKind::AudioWrite;
+            using dbg::AudioTarget;
+            using dbg::audio_target_bit;
+            int max_chip = 2;
+            switch (ev.audio) {
+                case AudioWord::Any:      s.filter.audio_targets = dbg::AUDIO_TARGETS_ANY; break;
+                case AudioWord::AyReg:    s.filter.audio_targets = audio_target_bit(AudioTarget::AyRegister); break;
+                case AudioWord::AySelect: s.filter.audio_targets = audio_target_bit(AudioTarget::AyChipSelect); break;
+                case AudioWord::Dac:
+                    s.filter.audio_targets = audio_target_bit(AudioTarget::Dac) | audio_target_bit(AudioTarget::DacMirror);
+                    max_chip = 3;
+                    break;
+            }
+            if (ev.chip && ev.dropped && ev.audio == AudioWord::Dac) {
+                errors.push_back(Diagnostic{ev.chip->pos,
+                    "a dropped DAC write reached no channel, so `dac chip N dropped` can never match: "
+                    "write `dac dropped`"});
+                bad = true;
+            }
+            if (ev.chip)
+                s.filter.chip = static_cast<uint8_t>(value(ev.chip, 0, max_chip,
+                                                           ev.audio == AudioWord::Dac ? "DAC channel" : "AY chip"));
+            if (ev.lo) {
+                int32_t lo = 0, hi = 0;
+                range(ev.lo, ev.hi, 15, "AY register", lo, hi);
+                for (int32_t k = lo; k <= hi && !bad; ++k) s.filter.regs.push_back(static_cast<uint8_t>(k));
+            }
+            if (ev.mask) {
+                const int32_t m = value(ev.mask, 0, 0xFF, "mask");
+                const int32_t v = value(ev.value, 0, 0xFF, "value");
+                if (!bad && (v & ~m)) {
+                    errors.push_back(Diagnostic{ev.value->pos, "the value has bits outside the mask: it can never match"});
+                    bad = true;
+                }
+                s.filter.value_mask  = static_cast<uint8_t>(m);
+                s.filter.value_match = static_cast<uint8_t>(v);
+            }
+            // Applied writes only, unless `dropped` asks for the discarded ones (an undecoded or
+            // gated write never reached the device).
+            if (ev.dropped) s.filter.audio_flags_all = dbg::AudioFlag::Dropped;
+            else            s.filter.audio_flags_none = dbg::AudioFlag::Dropped;
+            if (!bad) finish(s);
+            break;
+        }
         case EventType::Stop:
             break;
     }
@@ -796,6 +843,11 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                     if (t.builtin == Builtin::AUDIO_MUTE) {
                         refused(a.pos, "`set AUDIO_MUTE`",
                                 d.set_audio_mute_mask(cid_, static_cast<uint8_t>(v)));
+                        break;
+                    }
+                    if (t.builtin == Builtin::AUDIO_CHANNEL_MUTE) {
+                        refused(a.pos, "`set AUDIO_CHANNEL_MUTE`",
+                                d.set_audio_channel_mute_mask(cid_, static_cast<uint16_t>(v)));
                         break;
                     }
                     const int bit = flag_bit(t.builtin);
@@ -1094,6 +1146,12 @@ static std::string describe_event(const Rule& r, const std::vector<dbg::Subscrip
         case EventType::Reset:     s = "reset"; break;
         case EventType::HostKey:   s = "hostkey " + std::to_string(e.hostkey); break;
         case EventType::Stop:      s = "stop"; break;
+        case EventType::AyWrite:   s = "ay_write"; break;
+        case EventType::AudioWrite:
+            s = "audio_write";
+            if (e.audio != AudioWord::Any)
+                s += e.audio == AudioWord::AyReg ? " ay_reg" : e.audio == AudioWord::AySelect ? " ay_select" : " dac";
+            break;
         case EventType::Copper:
             s = e.copper == CopperSub::Move ? "copper move" : e.copper == CopperSub::Wait ? "copper wait" : "copper halt";
             break;
@@ -1136,6 +1194,13 @@ static std::string describe_event(const Rule& r, const std::vector<dbg::Subscrip
             break;
         case EventType::Scanline: s += " " + std::to_string(f.scanline); break;
         case EventType::Cycle:    s += " " + std::to_string(f.cycle); break;
+        case EventType::AyWrite:
+        case EventType::AudioWrite:
+            if (f.chip != 0xFF) s += " chip " + std::to_string(f.chip);
+            if (!f.regs.empty()) s += " reg " + range(f.regs.front(), f.regs.back());
+            if (e.mask) s += " mask " + hex4(f.value_mask) + " value " + hex4(f.value_match);
+            if (e.dropped) s += " dropped";
+            break;
         case EventType::Copper:
             if (!f.regs.empty()) s += " " + range(f.regs.front(), f.regs.back());
             if (e.at_lo) s += " at " + std::to_string(f.lo) + (f.hi != f.lo ? ".." + std::to_string(f.hi) : "");

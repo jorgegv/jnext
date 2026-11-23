@@ -864,6 +864,29 @@ naming the option and the value, and exits with status 1.
 :   Record `segment,tstate,channel,value` rows for physical DAC writes. A cold
     boot starts a new segment.
 
+**\--audio-log** *FILE*
+:   Record the decoded audio writes to a CSV, one row per write, with the frame,
+    line, hc and T-state it happened at. Rows cover AY register writes, the
+    TurboSound chip-select and pan commands (and every discarded 0xFFFD write),
+    DAC channel writes (one row per channel written), the NextREG 0x2C-0x2E DAC
+    mirror writes and beeper EAR/MIC changes, and every write the hardware
+    discarded with its reason. Plain AY register selects, border-only writes to
+    port 0xFE and the frames a rewind replays are not recorded. The first line
+    is the header `frame,line,hc,tstate,cycle,pc,source,target,chip,reg,value,prev,flags,reason,port`.
+    `frame`, `line`, `hc`, `tstate`, `cycle`, `chip`, `reg` and `flags` are
+    decimal; `pc` and `port` are `0x%04X`; `value` and `prev` are `0x%02X`.
+    `source` is `cpu`, `dma`, `copper` or `debugger` (writes made by the
+    debugger or a script carry `debugger`), `target` is `ay`, `ay_select`,
+    `dac`, `dac_mirror` or `beeper`, and `chip` is empty for a discarded DAC
+    write that reached no channel. A reset, a state load or a rewind adds a row
+    with `marker` in `source` and `reset`, `load` or `rewind` in `target`. After a
+    `rewind` row the following rows may carry earlier cycles: the file is
+    append-only and the rows before the marker are kept. It works in every
+    frontend, headless, with **\--silent** and in a browser page.
+    An unwritable *FILE* is refused before the machine starts. A write error, or
+    writes lost because more than 65536 arrived between two services of the loop,
+    makes the run exit non-zero.
+
 **\--audio-gain-db** *DB*
 :   Set master host audio gain from -24 dB to +24 dB (default 0 dB). The gain is
     applied after the emulated hardware mix; overflow saturates at the 16-bit
@@ -1663,7 +1686,10 @@ hardware. Where each one comes from:
   Multiface firmware and the Alt ROM - are read from the SD-card image at the
   canonical TBBlue paths under `/MACHINES/NEXT/` (`48.rom`, `128.rom` (also the Pentagon's),
   `plus3.rom`, `enNxtmmc.rom`, `enNextMf.rom`, `enAltZX.rom`). That is the
-  whole list of files jnext reads from the card itself.
+  whole list of files jnext reads from the card itself. It reads them from a
+  FAT12, FAT16 or FAT32 card, with a partition table or without one, and finds
+  the volume the way the Next firmware does (**\--sdcard-file-add** still needs
+  a FAT32 card).
 - **NextZXOS is not one of them.** It is loaded by the firmware, not by jnext:
   the machine boots `/TBBLUE.FW` from the card through the emulated SD
   interface and that firmware streams `/MACHINES/NEXT/enNextZX.rom` into
@@ -2366,6 +2392,9 @@ Notes worth knowing:
   though PCM follows it.
 - DAC tracing (**\--dac-trace** *FILE*) records guest DAC writes before mixing.
   Channels are numbered 0-3 (A-D) and timestamps are CPU T-states.
+- The audio write log (**\--audio-log** *FILE*) records the decoded AY, DAC and
+  beeper writes with their timestamps, the same rows the debugger's Audio panel
+  shows on its Log tab.
 - Master and per-subsystem host gains are available under **Settings >
   Preferences > Audio**, or for one run with the **\--audio-gain-** family.
   Beeper, each TurboSound AY chip and the DAC family can be balanced
@@ -3479,6 +3508,20 @@ of **keepWrites** are stored). `resetCard()` discards the saves kept by
 the program is running again. `showKeyboard(on)` shows (`true`) or hides (`false`) the
 on-screen keyboard, whatever **\--touch-keyboard** says; the page's call wins, before or after the
 start, and anything but a boolean throws. `keyboardVisible` tells whether it is shown.
+
+`listFiles()` returns the files JNEXT has written for an output option (**\--wav-record**, **\--dac-trace**,
+**\--tape-save**, **\--delayed-screenshot**, **\--compositor-trace**, **\--profile-output**, **\--export-skoolkit**,
+**\--export-ghidra**, **\--bug-report**, **\--log-file**), in the order JNEXT began them, as an array of
+`{path, size, complete}`: `path` is absolute, `size` the bytes now in the page's memory, `complete` true once
+JNEXT has finished the file for good. It is empty before the click. `readFile(path)` resolves to a copy of the
+bytes of a complete file listFiles() gives; it rejects (without `onError`) a path that is not a string (a
+`TypeError`), a path JNEXT did not write, a file that is not complete yet, and anything in the player's own
+locations. `stop()` ends the machine and keeps the player and its files: it resolves to the exit status once
+every file is finished, and a stopped player cannot start again. The player's own locations are `/sdcard` (the SD
+card), `/jnext` (what the player keeps) and `/media` (the programs it installs): neither member lists or returns a
+file there, whoever wrote it and however the name is spelt (`..`, a relative name or a link included). What an export the page asked for contains is the page author's choice, as on the desktop (a **\--export-skoolkit** of ROM space holds the ROM
+the machine ran), and offering it to visitors is the author's responsibility. After
+`destroy()` all three throw.
 
 `debugChannel(protocol)` returns the channel of the `debug` entry for `'dzrp'`, `'zrcp'` or `'gdb'` whose
 `transport` is `'channel'`; it throws for a protocol the page did not ask for and for one served over

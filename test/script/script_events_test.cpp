@@ -17,6 +17,8 @@
 //                       verbs, the input and capture actions at the frame edge,
 //                       `on stop` (F6), NextREG / Copper / DMA (F1, F2)
 //   SCRIPT-EV-WORK-*    the §3 worked scripts, loaded and behaving
+//   EVT-AYW-*, EVT-AUW-*, EVT-AYR-*   `on ay_write`, `on audio_write` and `ay[c, r]` (GH #532): the payload,
+//                       each filter against writes on both sides of it, load-time refusals, descriptions
 //
 // Every row drives `ScriptEngine` directly on an `Emulator` + `Debugger`, with
 // a test client listening to the log; CLI loading is WP4.
@@ -35,6 +37,7 @@
 #include "debug/long_address.h"
 #include "platform/emulator_boot.h"
 #include "peripheral/dma.h"
+#include "port/port_dispatch.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -936,6 +939,20 @@ static void mutation_rows() {
                                    "skipped store never writes, the rest of the program runs",
               ok && g.peek(0x9000) == 0x11 && g.peek(0x9001) == 0x77 && g.pc() == 0x800A,
               "9000=" + hex(g.peek(0x9000)) + " 9001=" + hex(g.peek(0x9001)));
+    }
+    {
+        Rig g(kPark);
+        const bool ok = g.load("on execute 0x8000 once do set AUDIO_CHANNEL_MUTE = 0x1FE end\n");
+        g.frames(1);
+        const uint16_t first = g.dbg->audio_channel_mute_mask();
+        const size_t lines = g.sink.count("MUTATE audio channel mute mask 0x0 -> 0x1FE");
+        Rig h(kPark);
+        const bool ok2 = h.load("on execute 0x8000 once do set AUDIO_CHANNEL_MUTE = 0x12345 end\n");
+        h.frames(1);
+        check("SCRIPT-EV-MUT-ACM", "set AUDIO_CHANNEL_MUTE lands through the debugger with one MUTATE line; bits above 12 are masked "
+                                   "like AUDIO_MUTE's (0x12345 stores 0x0345)",
+              ok && ok2 && first == 0x1FE && lines == 1 && h.dbg->audio_channel_mute_mask() == 0x0345,
+              "mask=" + hex(first) + " lines=" + std::to_string(lines) + " masked=" + hex(h.dbg->audio_channel_mute_mask()));
     }
     {
         Rig g(kWriter);
@@ -3393,6 +3410,191 @@ static void src_rows() {
     }
 }
 
+// ── EVT-AYW / EVT-AUW / EVT-AYR: `on ay_write`, `on audio_write` and `ay[c, r]` (GH #532) ──────────────────
+// A Next with TurboSound and the DAC on; every write is a CPU `OUT` of the program, so the events carry the
+// writer's pc and are delivered at its boundary. Oracles: ym2149.vhd:188,210, turbosound.vhd:129,141,
+// zxnext.vhd:2974-2980,5413, soundrive.vhd:85-101; the payload is CHIP REG VALUE PREV (+ TARGET).
+static void audio_rows() {
+    // A Next rig: DAC and TurboSound on, every DAC port decoded, R7 of chip 0 preset to 0x3F and chip 0 selected.
+    auto next_rig = [](Rig& g, bool decode_b3 = true) {
+        g.emu.nextreg().write(0x08, 0x0A);
+        g.emu.nextreg().write(0x84, decode_b3 ? 0xFF : 0xBF);
+        g.emu.port().out(0xFFFD, 0xFF);
+        g.emu.port().out(0xFFFD, 7);
+        g.emu.port().out(0xBFFD, 0x3F);
+    };
+    // chip 0: R7 = 0x38 (prev 0x3F); chip command 0xFE; chip 1: R13 = 0x0A (prev 0)
+    const std::vector<uint8_t> kAyProg = {
+        0x01, 0xFD, 0xFF, 0x3E, 0xFF, 0xED, 0x79, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79,
+        0x06, 0xFF, 0x3E, 0xFE, 0xED, 0x79, 0x3E, 0x0D, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x0A, 0xED, 0x79, 0x18, 0xFE};
+    {
+        Rig g(kAyProg, MachineType::ZXN_ISSUE2);
+        next_rig(g);
+        const bool ok = g.load("on ay_write do log \"AY ${CHIP} ${REG} ${VALUE} ${PREV}\" end\n");
+        g.frames(1);
+        check("EVT-AYW-01", "`on ay_write do log \"${CHIP} ${REG} ${VALUE} ${PREV}\"` over chip 0 R7 = 0x38 (prev 0x3F) then chip 1 R13 = 0x0A (prev 0): exactly the lines `0 7 56 63` and `1 13 10 0`; the chip commands and plain selects log nothing",
+              ok && g.sink.count("AY ") == 2 && g.sink.count("AY 0 7 56 63") == 1 && g.sink.count("AY 1 13 10 0") == 1, g.sink.tail(4));
+    }
+    {
+        // sel 12, R12; sel 13, R13 (OUT at 0x8017, so PC is 0x8019 after it)
+        Rig g({0x01, 0xFD, 0xFF, 0x3E, 0x0C, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x01, 0xED, 0x79,
+               0x06, 0xFF, 0x3E, 0x0D, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x02, 0xED, 0x79, 0x18, 0xFE}, MachineType::ZXN_ISSUE2);
+        next_rig(g);
+        const bool ok = g.load("on ay_write reg 13 do stop end\n");
+        g.frames(2);
+        check("EVT-AYW-02", "`on ay_write reg 13 do stop end` stops after the R13 OUT (PC 0x8019), not at the R12 write before it",
+              ok && g.paused() && g.pc() == 0x8019, dstr(g.last.errors) + " pc=" + hex(g.pc()));
+    }
+    {
+        // chip 0 cmd; chip 0 R7 = 0x38; chip 0 R8 = 0x41; DAC 0x30; EAR 0x30; chip 1 cmd; chip 1 R7 = 0x38
+        const std::vector<uint8_t> prog = {
+            0x01, 0xFD, 0xFF, 0x3E, 0xFF, 0xED, 0x79, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79,
+            0x06, 0xFF, 0x3E, 0x08, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x41, 0xED, 0x79, 0x3E, 0x30, 0xD3, 0x1F,
+            0x3E, 0x30, 0xD3, 0xFE, 0x01, 0xFD, 0xFF, 0x3E, 0xFE, 0xED, 0x79, 0x3E, 0x07, 0xED, 0x79,
+            0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE};
+        Rig a(prog, MachineType::ZXN_ISSUE2);
+        next_rig(a);
+        const bool oka = a.load("on ay_write chip 1 do log \"A ${CHIP}\" end\n");
+        a.frames(1);
+        Rig b(prog, MachineType::ZXN_ISSUE2);
+        next_rig(b);
+        const bool okb = b.load("on ay_write mask 0xF0 value 0x30 do log \"B ${VALUE}\" end\n");
+        b.frames(1);
+        check("EVT-AYW-03", "`chip 1` fires once (the chip 1 write) and not for chip 0; `mask 0xF0 value 0x30` fires for the two 0x38 writes and not for 0x41; a DAC write and an EAR change of 0x30 and the chip commands fire nothing",
+              oka && okb && a.sink.count("A ") == 1 && a.sink.count("A 1") == 1 && b.sink.count("B ") == 2 && b.sink.count("B 56") == 2,
+              a.sink.tail(3) + b.sink.tail(3));
+    }
+    {
+        const char* const bad[] = {
+            "on ay_write chip 3 do end\n", "on ay_write reg 16 do end\n", "on ay_write reg 9..8 do end\n",
+            "on ay_write mask 0x100 value 0 do end\n", "on ay_write mask 0x0F value 0x10 do end\n"};
+        const char* const why[] = {"AY chip 3 is outside 0..2", "AY register 16 is outside 0..15", "range ends below its start",
+                                   "mask 256 is outside 0..255", "bits outside the mask"};
+        std::string miss;
+        for (int k = 0; k < 5; ++k) {
+            Rig g(kPark, MachineType::ZXN_ISSUE2);
+            const bool ok = g.load(bad[k]);
+            const bool found = !g.last.errors.empty() && g.last.errors[0].message.find(why[k]) != std::string::npos;
+            if (ok || !found || !g.subs().empty()) miss += std::string(bad[k]) + dstr(g.last.errors);
+        }
+        check("EVT-AYW-04", "load-time refusals at the expression, each registering nothing: chip 3, reg 16, reg 9..8, mask 0x100 value 0, mask 0x0F value 0x10",
+              miss.empty(), miss);
+    }
+    {
+        // sel 7 and a write while held in reset (dropped), NEXTREG 6,0 releases, sel 7, write 0x34
+        Rig g({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x12, 0xED, 0x79,
+               0xED, 0x91, 0x06, 0x00, 0x06, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x34, 0xED, 0x79, 0x18, 0xFE},
+              MachineType::ZXN_ISSUE2);
+        next_rig(g);
+        g.emu.nextreg().write(0x06, 0x03);
+        const bool ok = g.load("on ay_write do log \"W ${VALUE}\" end\n");
+        g.frames(1);
+        check("EVT-AYW-05", "a write held in reset (NR 0x06 = 11, AyHeldInReset) fires no `ay_write` (applied writes only); the applied write after the release fires",
+              ok && g.sink.count("W ") == 1 && g.sink.count("W 52") == 1, g.sink.tail(3));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const bool ok = g.load("on ay_write chip 1 reg 13 mask 0x0F value 0x08 do end\n");
+        const auto r = g.eng->rules();
+        check("EVT-AYW-06", "the rule's description as the Script panel lists it: `ay_write chip 1 reg 000D mask 000F value 0008`",
+              ok && r.size() == 1 && r[0].event == "ay_write chip 1 reg 000D mask 000F value 0008",
+              r.empty() ? std::string("(no rule)") : r[0].event);
+    }
+    {
+        // AY R7, chip command, DAC, NEXTREG mirror, beeper
+        const std::vector<uint8_t> prog = {
+            0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79,
+            0x06, 0xFF, 0x3E, 0xFE, 0xED, 0x79, 0x3E, 0x11, 0xD3, 0x1F, 0xED, 0x91, 0x2D, 0x66, 0x3E, 0x10, 0xD3, 0xFE, 0x18, 0xFE};
+        Rig g(prog, MachineType::ZXN_ISSUE2);
+        next_rig(g);
+        const bool ok = g.load("on audio_write do log \"AW ${TARGET} ${CHIP} ${REG} ${VALUE} ${PREV}\" end\n");
+        g.frames(1);
+        check("EVT-AUW-01", "`on audio_write` over an AY R7 write, a chip command, a DAC write, a NextREG mirror and a beeper write logs exactly `AW 0 0 7 56 63`, `AW 1 1 0 254 0`, `AW 2 0 0 17 128`, `AW 3 0 45 102 17` (channel A held the DAC write), `AW 3 3 45 102 128` and `AW 4 0 0 16 0` (TARGET CHIP REG VALUE PREV)",
+              ok && g.sink.count("AW ") == 6 && g.sink.count("AW 0 0 7 56 63") == 1 && g.sink.count("AW 1 1 0 254 0") == 1 &&
+                  g.sink.count("AW 2 0 0 17 128") == 1 && g.sink.count("AW 3 0 45 102 17") == 1 && g.sink.count("AW 3 3 45 102 128") == 1 &&
+                  g.sink.count("AW 4 0 0 16 0") == 1, g.sink.tail(7));
+        struct Case { const char* rule; size_t lines; };
+        const Case cases[] = {
+            {"on audio_write ay_select do log \"AW\" end\n", 1},
+            {"on audio_write dac do log \"AW\" end\n", 3},
+            {"on audio_write dac chip 3 do log \"AW\" end\n", 1},
+            {"on audio_write ay_reg reg 7 do log \"AW\" end\n", 1},
+            {"on audio_write ay_reg chip 1 do log \"AW\" end\n", 0},
+            {"on audio_write ay_reg mask 0xF0 value 0x30 do log \"AW\" end\n", 1},
+        };
+        std::string miss;
+        for (const Case& c : cases) {
+            Rig h(prog, MachineType::ZXN_ISSUE2);
+            next_rig(h);
+            const bool okc = h.load(c.rule);
+            h.frames(1);
+            if (!okc || h.sink.count("AW") != c.lines) miss += std::string(c.rule) + " -> " + std::to_string(h.sink.count("AW")) + " ";
+        }
+        check("EVT-AUW-02", "the target words and qualifiers filter: ay_select 1 line; dac 3 (DAC A, mirror A and D); dac chip 3 1; ay_reg reg 7 1; ay_reg chip 1 none; ay_reg mask 0xF0 value 0x30 1",
+              miss.empty(), miss);
+    }
+    {
+        // a write the 0xB3 decode drops (NR 0x84 bit 6 off), then an applied DAC write
+        const std::vector<uint8_t> prog = {0x01, 0xB3, 0x00, 0x3E, 0x55, 0xED, 0x79, 0x3E, 0x11, 0xD3, 0x1F, 0x18, 0xFE};
+        Rig a(prog, MachineType::ZXN_ISSUE2);
+        next_rig(a, false);
+        const bool oka = a.load("on audio_write dropped do log \"D ${TARGET} ${CHIP} ${VALUE}\" end\n");
+        a.frames(1);
+        Rig b(prog, MachineType::ZXN_ISSUE2);
+        next_rig(b, false);
+        const bool okb = b.load("on audio_write dac do log \"A ${VALUE}\" end\n");
+        b.frames(1);
+        check("EVT-AUW-03", "`dropped` selects the discarded writes (the 0xB3 write: `D 2 255 85`) and the default the applied ones only (`A 17`, never the dropped 0x55)",
+              oka && okb && a.sink.count("D ") == 1 && a.sink.count("D 2 255 85") == 1 && b.sink.count("A ") == 1 && b.sink.count("A 17") == 1,
+              a.sink.tail(3) + b.sink.tail(3));
+    }
+    {
+        const char* const bad[] = {
+            "on audio_write dac chip 4 do end\n", "on audio_write ay_select chip 3 do end\n", "on audio_write ay_reg reg 16 do end\n",
+            "on audio_write mask 0x100 value 0 do end\n", "on audio_write mask 0x0F value 0x10 do end\n"};
+        const char* const why[] = {"DAC channel 4 is outside 0..3", "AY chip 3 is outside 0..2", "AY register 16 is outside 0..15",
+                                   "mask 256 is outside 0..255", "bits outside the mask"};
+        std::string miss;
+        for (int k = 0; k < 5; ++k) {
+            Rig g(kPark, MachineType::ZXN_ISSUE2);
+            const bool ok = g.load(bad[k]);
+            const bool found = !g.last.errors.empty() && g.last.errors[0].message.find(why[k]) != std::string::npos;
+            if (ok || !found || !g.subs().empty()) miss += std::string(bad[k]) + dstr(g.last.errors);
+        }
+        check("EVT-AUW-04", "load-time refusals at the expression, each registering nothing: dac chip 4, ay_select chip 3, ay_reg reg 16, mask 0x100 value 0, mask 0x0F value 0x10",
+              miss.empty(), miss);
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const bool ok = g.load("on audio_write dac mask 0x0F value 0x08 dropped do end\n"
+                               "on audio_write do end\n"
+                               "on audio_write ay_reg reg 8..10 do end\n");
+        const auto r = g.eng->rules();
+        check("EVT-AUW-05", "the descriptions: `audio_write dac mask 000F value 0008 dropped`, `audio_write`, `audio_write ay_reg reg 0008..000A`",
+              ok && r.size() == 3 && r[0].event == "audio_write dac mask 000F value 0008 dropped" && r[1].event == "audio_write" &&
+                  r[2].event == "audio_write ay_reg reg 0008..000A",
+              r.size() == 3 ? r[0].event + " | " + r[1].event + " | " + r[2].event : std::string("(rules)"));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const bool bad = g.load("on audio_write dac chip 0 dropped do end\n");
+        const bool why = !g.last.errors.empty() && g.last.errors[0].message.find("write `dac dropped`") != std::string::npos;
+        const size_t none = g.subs().size();
+        const bool ok1 = g.load("on audio_write dac dropped do end\n", "b.jds");
+        const bool ok2 = g.load("on audio_write ay_reg chip 1 dropped do end\n", "c.jds");
+        check("EVT-AUW-06", "`dac chip N dropped` is a load error at the chip (a dropped DAC write has no channel) and registers nothing; `dac dropped` and `ay_reg chip 1 dropped` load",
+              !bad && why && none == 0 && ok1 && ok2 && g.subs().size() == 2, dstr(g.last.errors));
+    }
+    {
+        Rig g({0x01, 0xFD, 0xFF, 0x3E, 0x07, 0xED, 0x79, 0x06, 0xBF, 0x3E, 0x38, 0xED, 0x79, 0x18, 0xFE}, MachineType::ZXN_ISSUE2);
+        next_rig(g);
+        const bool ok = g.load("on ay_write reg 7 when ay[0, 7] == 0x38 and ay[0, 6] == 0 do log \"HIT ${ay[0, 7]}\" end\n");
+        g.frames(1);
+        check("EVT-AYR-01", "`ay[chip, reg]` in a `when` and a log: at the delivery boundary the write has landed, so `ay[0, 7] == 0x38` holds and logs `HIT 56`",
+              ok && g.sink.count("HIT 56") == 1, dstr(g.last.errors) + g.sink.tail(3));
+    }
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -3407,6 +3609,7 @@ int main() {
         }
     };
     run_group("reg", reg_rows);
+    run_group("audio", audio_rows);
     run_group("delivery", delivery_rows);
     run_group("stop", stop_rows);
     run_group("mutation", mutation_rows);

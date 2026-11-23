@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3228,6 +3228,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-ay-chips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The AY chips
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#time-and-the-raster" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4749,6 +4760,13 @@ same numbers as RAM pages 0 to 7. A <code>page 0x00</code> filter therefore matc
 code as well as RAM page 0: check <code>mmu[s] != 0xFF</code> if you need RAM only.</p>
 <h2 id="nextregs">NextREGs<a class="headerlink" href="#nextregs" title="Permanent link">&para;</a></h2>
 <p><code>nextreg[r]</code> reads NextREG <code>r</code> (0 to 0xFF), without its read side effects.</p>
+<h2 id="the-ay-chips">The AY chips<a class="headerlink" href="#the-ay-chips" title="Permanent link">&para;</a></h2>
+<p><code>ay[c, r]</code> reads register <code>r</code> (0 to 15) of AY chip <code>c</code> (0 to 2): the value a CPU read
+of that register returns, which is what the Audio panel's register table shows. It has no side effect. A chip or register out of
+range is a run-time error. It is read-only: write a register with <code>out 0xFFFD</code> and <code>out 0xBFFD</code>.</p>
+<pre><code>on ay_write reg 7 when ay[0, 7] == 0x3F do log &quot;chip 0 mixer closed&quot; end
+</code></pre>
+<p>A register reads back as the chip would answer a program, not as it was written: in AY mode (not YM) R1, R3, R5 and R13 keep only their low 4 bits and R6, R8, R9 and R10 their low 5, and in either mode R14 and R15 read 0xFF while their I/O port is an input (R7 bit 6 or 7 clear). At an <code>ay_write</code> the write has already landed, so <code>ay[CHIP, REG] == VALUE</code> for every other register.</p>
 <h2 id="time-and-the-raster">Time and the raster<a class="headerlink" href="#time-and-the-raster" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -4812,6 +4830,10 @@ filter itself is 64-bit.</p>
 <tr>
 <td><code>AUDIO_MUTE</code></td>
 <td>the host-side mute mask, the Audio panel's (bit 0 to 2: AY chips 0 to 2, bit 3: the DACs, bit 4: the beeper)</td>
+</tr>
+<tr>
+<td><code>AUDIO_CHANNEL_MUTE</code></td>
+<td>the host-side channel mute mask, the Audio panel's M and S buttons (bit 0 to 8: AY chip 0 channel A to chip 2 channel C, three bits per chip; bit 9 to 12: DAC channels A to D)</td>
 </tr>
 </tbody>
 </table>

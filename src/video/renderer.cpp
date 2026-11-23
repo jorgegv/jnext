@@ -10,6 +10,8 @@
 #include "video/sprites.h"
 #include "video/tilemap.h"
 
+#include "core/output_files.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -24,14 +26,18 @@
 // ---------------------------------------------------------------------------
 
 void Renderer::set_compositor_trace(const std::string& path, int target_frame) {
+    finish_compositor_trace();   // before the path changes: it reports the file it closes
     trace_path_         = path;
     trace_target_frame_ = target_frame;
     trace_frame_counter_ = 0;
-    if (trace_fp_) {
-        std::fclose(trace_fp_);
-        trace_fp_ = nullptr;
-    }
     trace_active_ = false;
+}
+
+void Renderer::finish_compositor_trace() {
+    if (!trace_fp_) return;
+    std::fclose(trace_fp_);
+    trace_fp_ = nullptr;
+    output_files::end(trace_path_);
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +158,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     if (!trace_path_.empty() && !trace_fp_ && trace_frame_counter_ == 0) {
         trace_fp_ = std::fopen(trace_path_.c_str(), "w");
         if (trace_fp_) {
+            output_files::begin(trace_path_);
             std::fprintf(trace_fp_,
                 "frame,row,x,ula_px,l2_px,spr_px,tm_px,"
                 "ula_transp,l2_transp,spr_transp,tm_transp,"
@@ -238,8 +245,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     // Close the trace file once the target frame is done so subsequent
     // frames don't keep appending (one-shot per --compositor-trace flag).
     if (trace_active_ && trace_fp_) {
-        std::fclose(trace_fp_);
-        trace_fp_ = nullptr;
+        finish_compositor_trace();
         trace_active_ = false;
     }
 

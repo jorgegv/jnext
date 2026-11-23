@@ -268,7 +268,8 @@ public:
     //   - retn_seen  : im2_control.vhd:236  (state_next = S_ED45_T4)
     //   - reti_decode: im2_control.vhd:233  (state    = S_ED_T4)
     //   - dma_delay  : im2_control.vhd:238  (state ∈ {S_ED_T4,S_ED4D_T4,
-    //                                        S_ED45_T4,S_SRL_T1,S_SRL_T2})
+    //                                        S_ED45_T4,S_SRL_T1,S_SRL_T2}; the
+    //                                        last two end inside the RETI itself)
     bool reti_seen_this_cycle() const { return reti_seen_pulse_; }
     bool retn_seen_this_cycle() const { return retn_seen_pulse_; }
     bool reti_decode_active()   const { return reti_decode_;    }
@@ -333,7 +334,7 @@ private:
     bool     reti_seen_pulse_ = false;   // one-cycle pulse
     bool     retn_seen_pulse_ = false;
     bool     reti_decode_     = false;   // state == S_ED_T4
-    bool     dma_delay_ctrl_  = false;   // S_ED_T4 | S_ED4D_T4 | S_ED45_T4 | S_SRL_*
+    bool     dma_delay_ctrl_  = false;   // S_ED_T4 | S_ED4D_T4 | S_ED45_T4 (SRL states are inside the RETI, GH #556)
     uint8_t  im_mode_         = 0;
     uint32_t reti_seen_count_ = 0;       // G87 — test observability counter
     uint32_t retn_seen_count_ = 0;       // G87 — test observability counter

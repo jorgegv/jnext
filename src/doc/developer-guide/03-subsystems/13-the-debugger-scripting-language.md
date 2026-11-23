@@ -19,7 +19,7 @@ code departs from it. This page describes the code.
 
 | File | What it holds |
 |---|---|
-| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead; the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`) as single tokens; `cvar(PATH)` as one `CVar` token carrying the raw C path |
+| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead; the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`, `ay[`) as single tokens; `cvar(PATH)` as one `CVar` token carrying the raw C path |
 | `parser.{h,cpp}`, `ast.h` | recursive descent over the grammar; the syntax tree (`Script`, `Rule`, `EventSpec`, `Action`, `Expr`) |
 | `names.{h,cpp}` | the one table of reserved words, built-in state names (`LIVE`) and payload names (`PAYLOAD`); which names `set` may assign |
 | `check.{h,cpp}` | the load-time checks and BINDING: each upper-case name resolved to what it reads in its scope; `payload_legal()` — the per-event payload table |
@@ -33,6 +33,17 @@ code departs from it. This page describes the code.
 | `src/platform/recording_info.h` | `recording_info_of()`: the recorder's header facts, taken from the booted machine |
 | `src/platform/host_key_latch.h`, `host_key_wiring.h` | the script host keys (Alt+1..Alt+8) in the emulator windows |
 | `src/debugger/script_panel.*`, `debugger_window.cpp` | the Qt Script tab and Script menu |
+
+**Audio events.** `on ay_write [chip] [reg] [mask value]` and `on audio_write [ay_reg | ay_select | dac]
+[chip] [reg] [mask value] [dropped]` are one `EventKind::AudioWrite` subscription: `subscriptions_for()` builds the
+target mask, the chip, the register set, the value/mask pair and the flags (`ay_write` is `audio_write ay_reg`;
+both are applied-only unless `dropped`, through `audio_flags_none`), and the parser enforces which qualifier
+needs which target. The payload is `TARGET CHIP REG VALUE PREV` (`P_TARGET`, `P_CHIP`; the other three are
+shared with `nextreg`). `ay[chip, reg]` is `ExprKind::Ay`, evaluated through `Debugger::ay_registers()`, which is
+`AyChip::read_register()`: the value a CPU read of the register returns (the Audio panel's table shows the same), not the
+raw latch (AY mode masks R1/R3/R5/R13 to 4 bits and R6/R8/R9/R10 to 5, and R14/R15 read 0xFF while their port is in input
+mode). It is read-only (`parse_lvalue` refuses it), bounds-checked at run time. `ay_write`, `audio_write`,
+`chip`, `reg`, `ay_reg`, `ay_select`, `dac`, `dropped` and `ay` are reserved words.
 
 ## From text to a checked script
 
@@ -74,7 +85,7 @@ The `-debug` records of a map (names starting `__C_LINE_`, `__ASM_LINE_` or
 
 **`cvar(PATH)`** ([7.7](../07-source-level-debugging/07-frontends.md)) is the atom that reads a C variable of frame 0, as
 an int32. Its path is not the DSL's grammar (`->`, `::`, `*`, `$1F`, a file name with a `.`), so `lex_ident()` takes `cvar` directly
-followed by `(` as one `Tok::CVar` and `lex_cvar()` (`lexer.cpp:195`) captures the raw text to the first `)` on the line, trimmed;
+followed by `(` as one `Tok::CVar` and `lex_cvar()` (`lexer.cpp:196`) captures the raw text to the first `)` on the line, trimmed;
 a `(`, a `"`, a missing `)` and an empty path are lexical errors, and `cvar` is a reserved word (`RESERVED` in `names.cpp`, as `depth` and `changed` are), so `var cvar` is refused at load. The word was
 not free before: `dump_mem` and `out` take two expressions side by side, so `dump_mem cvar(4)` with a `var cvar` was two operands; it
 now fails to load, loudly, rather than meaning something else. Inside a `${...}` interpolation a `::` is not the format separator. `parse_primary()` makes an
@@ -199,7 +210,7 @@ and `REASON`.
 | `on stop` rule bodies | `on_paused()` |
 
 Mutations (`set`, `out`) go through the debugger's write paths (`set_register`,
-`poke`, `nextreg_write`, `port_out`, `set_audio_mute_mask`). These raise no
+`poke`, `nextreg_write`, `port_out`, `set_audio_mute_mask`, `set_audio_channel_mute_mask`). These raise no
 events, and the backend logs each as a `MUTATE` line. With a rewind buffer
 active, the first mutation logs a warning.
 

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3299,7 +3299,7 @@ the guest's own driver talks to. Both are called out below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-(the <code>ext</code> chain, <code>src/main.cpp:3387-3403</code>), and again in the GUI's file dialogs and in the headless
+(the <code>ext</code> chain, <code>src/main.cpp:3390-3448</code>), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -4565,11 +4565,15 @@ it, and <code>QtApp</code> calls <code>set_emulator()</code> after every machine
 Power Reset, a guest NR 0x02 reset and a machine-type change.</p>
 <p><strong>File &gt; Load.</strong> <code>handle_load_path()</code> sends a <code>.pok</code> to <code>open_pok_file()</code> before
 any cold boot. The same function now also refuses, before the cold boot, a file
-that would route to the NEX loader (a <code>.nex</code>, or an extension nothing owns) but
-has no <code>Next</code> prologue (<code>NexLoader::probe_version()</code>), which <code>NexLoader::load()</code>
-would refuse anyway: before, the session was reset and then the load failed. The
-reason follows the case: a <code>.nex</code> is "not a NEX file" and nothing more, and only
-an extension nothing owns is told the list of formats and where a <code>.pok</code> goes.</p>
+that would route to the NEX loader (a <code>.nex</code>, or an extension nothing owns) and
+that <code>NexLoader::load()</code> would refuse anyway (<code>NexLoader::preboot_check()</code>): before,
+the session was reset and then the load failed. That is a file without a complete
+512-byte header, or one whose version is above what the loader takes (V1.3). The
+first four bytes are not checked for a <code>.nex</code>, because the NEXLOAD that NextZXOS
+ships never reads them; a file with an extension nothing owns must still start
+with <code>Next</code>, since nothing on the Next would run NEXLOAD on it. The reason follows
+the case: a <code>.nex</code> is "not a NEX file" (or names its too-new version), and only an
+extension nothing owns is told the list of formats and where a <code>.pok</code> goes.</p>
 <p>The suites: <code>pok_trainers_test</code> (POK-01..25 and POK-60 the parser, the list and
 <code>load_pok_file</code>, POK-30..57 and POK-61..64 the session and the command-line
 request, each bank-to-page row citing <code>zxnext.vhd</code> or the other emulators'
@@ -4775,14 +4779,29 @@ stay unit-testable on any host.</p>
 <p>jnext talks to the same <code>.img</code> file in two entirely different ways, at two
 different times, for two different consumers. The split looks redundant until
 you notice that the two consumers want opposite things.</p>
-<p><strong><code>src/core/sd_rom_extractor.*</code> is a host-side FAT32 reader.</strong> Before the
+<p><strong><code>src/core/sd_rom_extractor.*</code> is a host-side FAT reader.</strong> Before the
 machine can start, jnext needs the ROM images that on real hardware live as
 files on the card, and there is no guest yet to ask for them — so the emulator
 opens the <code>.img</code> <em>as a filesystem</em> and pulls them out by path:
 <code>/MACHINES/NEXT/48.rom</code>, <code>128.rom</code>, <code>plus3.rom</code>, <code>enNxtmmc.rom</code>,
-<code>enNextMf.rom</code> and <code>enAltZX.rom</code>. It is read-only,
-handles MBR + FAT32-LBA only, and does short-name lookup only, which is all
-that job needs.</p>
+<code>enNextMf.rom</code> and <code>enAltZX.rom</code>. It is read-only
+and does short-name lookup only, which is all that job needs.</p>
+<p>It finds the volume by the firmware's FatFs rules (<code>find_volume</code>/<code>check_fs</code>,
+<code>ff.c</code>): a FAT boot record in sector 0 is the volume itself (a card with no
+partition table, LBA 0); otherwise the four MBR entries are tried in order,
+skipping a type byte or LBA of 0, and the first whose sector is a FAT boot
+record wins, whatever its type byte. One leniency is kept from before: an entry
+of type <code>0x0B</code>/<code>0x0C</code> is taken without the boot-record test. FAT12, FAT16 and
+FAT32 are read: FAT32 layout when <code>BPB_FATSz16</code> is 0 (no cluster-count
+reclassification, so under-clustered images still read), else FAT12/16 with the
+sub-type by cluster count (at most 0xFF5 is FAT12, at most 0xFFF5 FAT16; more is
+refused). The FAT12/16 root directory is a fixed run of sectors bounded by
+<code>RootEntCnt</code>, not a cluster chain. The card identity of a snapshot or bug report
+reads <code>BS_VolID</code>/<code>BS_VolLab</code> at 0x27/0x2B (FAT12/16) or 0x43/0x47 (FAT32); a
+partition-less card has <code>partition_lba</code> 0. On the Next machine the firmware
+loads the DivMMC and Multiface ROMs itself and NextZXOS the Alt ROM pages, so a
+failed host read there is logged at info level only. The writers
+(<code>--sdcard-file-add</code>, the provisioner) stay FAT32-only.</p>
 <p><strong><code>src/peripheral/sd_card.cpp</code> is emulated hardware.</strong> Once the machine is
 running, the guest wants a card, not a filesystem: NextZXOS carries its own
 FAT driver and expects to do the filesystem work itself, over SPI, one 512-byte

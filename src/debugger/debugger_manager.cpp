@@ -102,6 +102,7 @@ void DebuggerManager::attach_backend() {
     // backend a request is also re-applied across a cold boot (CTL-12 rule 2).
     call_stack_requested_ = false;
     raster_requested_ = false;
+    audio_log_requested_ = false;
     set_panels_client();
 }
 
@@ -112,6 +113,9 @@ void DebuggerManager::apply_data_needs() {
     const bool want_cs = open && (w->panel_on_show(w->callstack_panel()) ||
                                   w->panel_on_show(w->variables_panel()) || source_step_in_flight_);
     const bool want_raster = open && w->panel_on_show(w->video_panel());
+    // GH #531: the audio write log is recorded only while the Audio panel's Log tab is the one on show.
+    const bool want_log = open && w->audio_panel() && w->panel_on_show(w->audio_panel()) &&
+                          w->audio_panel()->log_on_show();
     if (want_cs != call_stack_requested_) {
         call_stack_requested_ = want_cs;
         dbg_.set_call_stack_enabled(client_, want_cs);
@@ -119,6 +123,10 @@ void DebuggerManager::apply_data_needs() {
     if (want_raster != raster_requested_) {
         raster_requested_ = want_raster;
         dbg_.set_live_raster(client_, want_raster);
+    }
+    if (want_log != audio_log_requested_) {
+        audio_log_requested_ = want_log;
+        dbg_.set_audio_log_enabled(client_, want_log);
     }
 }
 
@@ -1138,6 +1146,16 @@ void DebuggerManager::refresh_panels() {
             refresh_window();
         update_actions();
     } else {
+        // The Audio panel's Chips view is live: every tick while the panel is on
+        // show (panel_on_show) with the Chips sub-tab current. It is its own
+        // refresh, not refresh_window(), so the cadence of every other panel and
+        // the paused-idle counts do not move.
+        if (AudioPanel* ap = debugger_window_->audio_panel()) {
+            if (debugger_window_->panel_on_show(ap) && ap->chips_on_show()) {
+                ap->refresh_live();
+                ++audio_live_refresh_count_;
+            }
+        }
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;
         if (refresh_counter_ >= REFRESH_INTERVAL) {

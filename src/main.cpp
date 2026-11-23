@@ -1,7 +1,9 @@
 #include "audio/audio_recorder.h"
 #include "audio/dac_trace_recorder.h"
+#include "debug/audio_log_stream.h"
 #include "core/cli_options.h"
 #include "core/log.h"
+#include "core/output_files.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
 #include "peripheral/sd_write_journal.h"
@@ -97,6 +99,12 @@
 // The card extracted from a zipped --sdcard (about 40 MiB): removed when the run
 // ends, since the process scratch directory's destructor never runs under Emscripten.
 static std::string g_extracted_sd_card;
+#endif
+
+#ifdef JNEXT_BROWSER
+// The --log-file of a page's run: the page's finish flushes it and reports it complete
+// (GH #553). A file-scope string because that finish runs after main() has returned.
+static std::string g_page_log_file;
 #endif
 
 static void crash_handler(int sig) {
@@ -340,6 +348,12 @@ static int run_main(int argc, char* argv[]) {
     signal(SIGABRT, crash_handler);
     signal(SIGFPE,  crash_handler);
 
+#ifdef JNEXT_BROWSER
+    // Tell the page which files the run writes for an output option (GH #553). Before the
+    // --log-file below, the first of them.
+    browser_frontend::install_output_sink();
+#endif
+
     // Where the log goes, and whether it is coloured (GH #235, GH #227).
     //
     // This runs BEFORE Log::init() and before the banner below, and that is the
@@ -359,6 +373,10 @@ static int run_main(int argc, char* argv[]) {
             startup_report::report("jnext: %s\n", r.error.c_str());
             return 1;
         }
+        if (policy.destination == log_sink_policy::Destination::File) output_files::begin(policy.path);
+#ifdef JNEXT_BROWSER
+        if (policy.destination == log_sink_policy::Destination::File) g_page_log_file = policy.path;
+#endif
     }
 
     // Initialize all loggers at default level (info).
@@ -513,6 +531,7 @@ static int run_main(int argc, char* argv[]) {
     std::string record_file;
     std::string wav_record_file;
     std::string dac_trace_file;
+    std::string audio_log_file;
     cli::AudioGainArgs audio_gain;
     std::string rzx_play_file;
     std::string rzx_record_file;
@@ -1312,6 +1331,9 @@ static int run_main(int argc, char* argv[]) {
                 break;
             case cli::OptId::DacTrace:
                 dac_trace_file = v[0];
+                break;
+            case cli::OptId::AudioLog:
+                audio_log_file = v[0];
                 break;
             case cli::OptId::AudioGainDb:
             case cli::OptId::AudioGainBeeperDb:
@@ -2831,11 +2853,14 @@ static int run_main(int argc, char* argv[]) {
     // references to them; a reference captured by reference binds the object.)
     static AudioRecorder audio_recorder_static;
     static DacTraceRecorder dac_trace_recorder_static;
+    static jnext::dbg::AudioLogStream audio_log_static;
     AudioRecorder& audio_recorder = audio_recorder_static;
     DacTraceRecorder& dac_trace_recorder = dac_trace_recorder_static;
+    jnext::dbg::AudioLogStream& audio_log = audio_log_static;
 #else
     AudioRecorder audio_recorder;
     DacTraceRecorder dac_trace_recorder;
+    jnext::dbg::AudioLogStream audio_log;
 #endif
 
     // Helper lambda: configure and run any app object with the common interface.
@@ -3239,6 +3264,17 @@ static int run_main(int argc, char* argv[]) {
                 dac_trace_recorder.capture(tstate, channel, value);
             };
         }
+        // GH #531: the write log's file is created BEFORE the machine starts, so an unwritable
+        // FILE is refused here, like the two recorders above.
+        if (!audio_log_file.empty()) {
+            std::string why;
+            if (!audio_log.open(audio_log_file, why)) {
+                fprintf(stderr, "--audio-log: %s\n", why.c_str());
+                audio_recorder.stop();
+                dac_trace_recorder.stop();
+                return 1;
+            }
+        }
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) {
@@ -3246,6 +3282,22 @@ static int run_main(int argc, char* argv[]) {
             dac_trace_recorder.stop();
             return 1;
         }
+        // The stream asks the backend for the log and drains it at every pump; no frame has run yet.
+        if (!audio_log_file.empty() && !audio_log.attach(app.debugger())) {
+            Log::audio()->error("--audio-log: could not attach to the debugger");
+            audio_recorder.stop();
+            dac_trace_recorder.stop();
+            return 1;
+        }
+        // Every return below leaves this scope BEFORE the caller destroys the app and its Debugger,
+        // so the stream is torn down (detached) while the Debugger is alive, on any exit path now or
+        // added later. A second finish() (the normal exit already ran one) does nothing. The browser
+        // build dismisses it just before handing finish to the page's loop, which runs after this scope.
+        struct AudioLogGuard {
+            jnext::dbg::AudioLogStream* stream = nullptr;
+            ~AudioLogGuard() { if (stream) { std::string why; stream->finish(why); } }
+        } audio_log_guard;
+        if (!audio_log_file.empty()) audio_log_guard.stream = &audio_log;
 
         // Task 66 — apply the saved GUI preferences that have no CLI
         // competitor (CPU speed, window scale, CRT filter, tape fast-load)
@@ -3398,14 +3450,18 @@ static int run_main(int argc, char* argv[]) {
                 // GH #228 — NEX V1.3 is an experimental format jnext does not
                 // officially support: refuse it up front, with exit 1, unless
                 // --experimental-nex-v1.3 was given. The probe reads only the
-                // 8-byte magic+version prologue; a file it cannot read or that
+                // version prologue of a complete header; a file it cannot read or that
                 // is not NEX at all falls through, and the loader's own error
                 // reports the real problem when the pending load fires.
                 // Emulator::load_nex() enforces the same policy as a backstop.
                 if (!experimental_nex_v13) {
                     uint8_t ver_bcd = 0;
                     char    ver[5]  = {0};
-                    if (NexLoader::probe_version(load_file, ver_bcd, ver) &&
+                    // GH #556 - the same rule as the GUI's pre-boot check: only a header the
+                    // loader would take (a complete 512 bytes, a version up to V1.3) is a V1.3
+                    // file; anything else falls through to the loader's own refusal.
+                    if (NexLoader::preboot_check(load_file, true, ver_bcd, ver) ==
+                            NexLoader::PreBoot::Ok &&
                         nex_version_needs_v13_optin(ver_bcd)) {
                         startup_report::report("--load: '%s' is NEX version %s - NEX V1.3 is an experimental "
                                 "format and is not supported in any way.\n"
@@ -3537,7 +3593,9 @@ static int run_main(int argc, char* argv[]) {
         // The run's teardown: recorders, app.shutdown() and the exit status.
         // A function of its own because the browser frontend runs it from the
         // page's loop, after main() has returned.
-        auto finish = [&, record_file]() -> int {
+        // `audio_log_wanted` by value like `record_file`: the browser frontend runs this after main()
+        // returned, when main()'s own locals (audio_log_file) are gone.
+        auto finish = [&, record_file, audio_log_wanted = !audio_log_file.empty()]() -> int {
             // Capture requests are part of the CLI contract: if one cannot start
             // or finalize, an otherwise-clean run must not report success.
             bool capture_ok = true;
@@ -3579,7 +3637,23 @@ static int run_main(int argc, char* argv[]) {
                 }
             }
 
+            if (audio_log_wanted) {
+                std::string why;
+                if (!audio_log.finish(why)) {
+                    Log::audio()->error("--audio-log: {}", why);
+                    capture_ok = false;
+                }
+            }
+
             app.shutdown();
+#ifdef JNEXT_BROWSER
+            // No destructor runs in a page and stdio is not flushed at its exit: finish the
+            // outputs the destructor would (TZX / WAV tape, compositor trace, profile) and flush
+            // the log, then tell the page they are complete (GH #553).
+            app.emulator().finish_outputs();
+            spdlog::apply_all([](std::shared_ptr<spdlog::logger> l) { l->flush(); });
+            output_files::end(g_page_log_file);
+#endif
             // shutdown() decides the status: a --delayed-screenshot that was
             // requested and never written exits non-zero, so a CI script cannot
             // mistake a missing PNG for success. A capture-finalize failure makes
@@ -3592,6 +3666,7 @@ static int run_main(int argc, char* argv[]) {
 #ifdef JNEXT_BROWSER
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, SdlApp>) {
             startup_report::mark_running();
+            audio_log_guard.stream = nullptr;   // the page's loop finalises the stream, after this scope
             browser_frontend::run(app, std::move(finish));
             return 0;
         }

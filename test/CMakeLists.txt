@@ -126,6 +126,16 @@ target_link_libraries(cpu_z80n_im2_regressions_test PRIVATE
 target_include_directories(cpu_z80n_im2_regressions_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME cpu_z80n_im2_regressions_tests COMMAND cpu_z80n_im2_regressions_test)
 
+# GH #551 - two machines in one process each run as they do alone: the CPU core's
+# globals are bound to the Z80Cpu that runs (CRB-01..11).
+add_executable(cpu_runtime_binding_test cpu/cpu_runtime_binding_test.cpp)
+target_link_libraries(cpu_runtime_binding_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(cpu_runtime_binding_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME cpu_runtime_binding_tests COMMAND cpu_runtime_binding_test)
+
 # Rewind / backwards execution tests (standalone, no GoogleTest required)
 add_executable(rewind_test rewind/rewind_test.cpp)
 target_link_libraries(rewind_test PRIVATE
@@ -521,7 +531,7 @@ endif()
 # ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img, overridable via
 # JNEXT_TEST_SD_IMAGE — which run-unit-tests.sh sets to a private per-run
 # clone (GH #75). Nothing under roms/ is involved.
-add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp)
+add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp core/log_capture.cpp)
 target_link_libraries(sd_rom_extractor_test PRIVATE jnext_core)
 target_include_directories(sd_rom_extractor_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sd_rom_extractor_tests
@@ -908,7 +918,7 @@ endif()
 # NexLoader::load() + apply() against a real Emulator, so it pins the
 # actual LoRes / HiRes / HiColour / ULA call sites in nex_loader.cpp and
 # not a helper in isolation — hence the full subsystem link line.
-add_executable(nex_loader_test core/nex_loader_test.cpp)
+add_executable(nex_loader_test core/nex_loader_test.cpp core/log_capture.cpp)
 target_link_libraries(nex_loader_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
@@ -1483,6 +1493,11 @@ add_executable(frame_sequencer_test platform/frame_sequencer_test.cpp)
 target_include_directories(frame_sequencer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME frame_sequencer_tests COMMAND frame_sequencer_test)
 
+# The files jnext writes for an output option, reported to the browser page (GH #553). Header-only hook.
+add_executable(output_files_test core/output_files_test.cpp)
+target_include_directories(output_files_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME output_files_tests COMMAND output_files_test)
+
 add_executable(tick_stats_test platform/tick_stats_test.cpp)
 target_include_directories(tick_stats_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tick_stats_tests COMMAND tick_stats_test)
@@ -1820,6 +1835,17 @@ target_compile_definitions(debugger_backend_test PRIVATE
     JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
     JNEXT_SJASMBREAK_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmbreak")
 add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
+
+# GH #529 - the debugger's audio introspection: the note helper (ANO), the
+# invisibility of the debugger's audio features to the Z80 (AIZ) and
+# Debugger::audio_state() (ADS). Drives a real machine, no ROM, no SD image.
+add_executable(audio_debug_test debug/audio_debug_test.cpp)
+target_link_libraries(audio_debug_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(audio_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME audio_debug_tests COMMAND audio_debug_test)
 
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
 # and its wiring into the hot loop and the MMU watchpoint sites. Drives a real

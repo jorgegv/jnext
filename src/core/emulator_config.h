@@ -595,6 +595,10 @@ struct EmulatorConfig {
 /// Master clock frequency (28 MHz).
 static constexpr uint64_t MASTER_CLOCK_HZ = 28'000'000ULL;
 
+/// The PSG clock enable is the master clock divided by this (turbosound.vhd
+/// clock_en_i, zxnext_top_issue2.vhd:1209,1217 builds it, zxnext.vhd:6995 wires it): 28 MHz / 16 = 1.75 MHz.
+static constexpr uint64_t PSG_CLOCK_DIVISOR = 16;
+
 /// Per-machine timing parameters derived from VHDL (zxula_timing.vhd).
 ///
 /// The VHDL defines pixel-clock (7 MHz) counters per machine type.

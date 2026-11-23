@@ -521,7 +521,7 @@ void Emulator::stage_jns_exceptions_()
 {
     jns_monotonic_tstates_ = monotonic_tstates();
     {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
         const int64_t last   = cpu_.int_window_last_ts();
         jns_int_first_ts_ = cpu_.int_window_first_ts() - now_ts;
         jns_int_last_ts_  = (last == INT64_MAX) ? last : last - now_ts;
@@ -1129,11 +1129,11 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     // moves with it, which is what `rebase_interrupt_window` is for, and only
     // THEN is the saved /INT window put on the re-seeded counter.
     tstates_frame_base_ = jns_monotonic_tstates_;
-    cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
-    *fuse_z80_tstates_ptr() = 0;
+    cpu_.rebase_interrupt_window(static_cast<int64_t>(cpu_.tstates_ref()));
+    cpu_.tstates_ref() = 0;
     cpu_.apply_after_describe();   // EI grace and iff2_read, which only live in the FUSE struct
     {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
         const int64_t first  = jns_int_first_ts_ + now_ts;
         int64_t       last   = jns_int_last_ts_;
         if (last != INT64_MAX) last += now_ts;
@@ -1177,6 +1177,10 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     // hand-kept second copy is the "two lists" failure this whole issue exists
     // to avoid — one which no gate would catch, because the copy would be
     // wrong only in the cases nobody tested.
+    //
+    // Dac's audible copy (`aud_`, the registers with the debugger's channel mute applied) is
+    // one of those re-derivations: it is in no stream, and `Dac::load_state()` rebuilds it, so a
+    // `.jns` load shows a muted DAC channel as muted only because of this round trip.
     //
     // So: serialise the just-restored machine and load it straight back. The
     // round trip is a no-op on every field (`RW-RT-03`/`RW-RT-04` pin that
@@ -1354,6 +1358,10 @@ void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
                               ? "fast" : "realtime",   // the mode it continues in
                           t.loader == "tap" ? static_cast<long>(t.tap.block)
                           : t.loader == "tzx" ? static_cast<long>(t.tzx.offset) : 0L);
+    // GH #550: the deck is back where it was, so the playing tape's last edge (for the
+    // ear_relax hold) and the MIC term follow from it.
+    derive_tape_edge_();
+    refresh_mic_final_();
     // The recording cancelled a pending switch to fast loading (rzx_suspend_tape_traps()).
     if (rzx_recorder_.is_recording() && converted.find("then fast loading") != std::string::npos)
         converted = "an RZX recording is running, so the deck stays in real time";

@@ -45,7 +45,7 @@ function that crosses a slot (`cross.c`, in the `*-cross` fixtures).
 ## The frames
 
 `Debugger::c_frames()` (`debugger_cframes.cpp:30`) returns the frames newest first. Frame 0 is where
-the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1261`) has its function (an index into
+the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1293`) has its function (an index into
 `variables()->functions()`, -1 for assembly), the `pc`, the source line and the base, with how it was found:
 
 - **Tracked.** With the tracker's frames (oldest first, `n` of them), frame `k` was entered by
@@ -73,10 +73,10 @@ any assembly routine a function calls before it allocates its locals, leaves tha
 ## Who keeps the tracker running
 
 The tracker (`CallStack`, [7.5](05-breakpoints-steps-history.md)) costs per instruction, so it is not
-always on. Its state is **derived** (`Impl::sync_call_stack()`, `debugger_session.cpp:128`), the one
+always on. Its state is **derived** (`Impl::sync_call_stack()`, `debugger_session.cpp:129`), the one
 writer, from two things:
 
-1. **A client's own request.** `Debugger::set_call_stack_enabled(by, on)` (`debugger_inspect.cpp:913`) sets
+1. **A client's own request.** `Debugger::set_call_stack_enabled(by, on)` (`debugger_inspect.cpp:1013`) sets
    the request on that client's row. The tracker is on while any live client asked. One client switching off
    no longer takes another's tracking away (the Qt debugger window closing used to empty a ZRCP session's
    extended stack), and a detach drops the request with the client. The Qt window's request is made
@@ -304,7 +304,7 @@ bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1700`, is its ra
 `SB<s>$<w>:S`, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so `CVW-10`
 uses a synthetic record.
 
-The frontends: GDB `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1215`), and ZRCP `set-register CVAR(path)=value`
+The frontends: GDB `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1216`), and ZRCP `set-register CVAR(path)=value`
 (`cmd_set_register()`, `zrcp_server.cpp:1190`). A ZRCP command table cannot gain a command (its census pins ZEsarUX's), so it is the
 `CVAR(` branch of the one assignment verb, in frame 0, with ZEsarUX's own failure text.
 

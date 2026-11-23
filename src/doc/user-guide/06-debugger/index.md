@@ -117,6 +117,7 @@ while the machine is **paused** (CPU Registers and Disassembly are also greyed o
 deliberate: reading them every frame would slow the emulation down for no
 benefit, since the values would be a blur. The rest refresh about four times a
 second while the machine is running, except the Video panel's layer views, which
-show a dark placeholder until you pause.
+show a dark placeholder until you pause, and the Audio panel's Chips tab, which
+follows the music every frame while it is the tab on show.
 
 ---
