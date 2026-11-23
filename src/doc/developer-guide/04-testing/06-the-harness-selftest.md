@@ -238,7 +238,7 @@ verdict on the real tree is trusted at all:
   the suites boot their own card under `~/.jnext/sdcard/test-suite/`. Its case
   table pins both ways (the user card, the raw image and a quoted C++ literal
   are flagged; the test master's spelling and the cache directory alone are
-  not), and its two declared exceptions are named in its header. `HS-198a`/`b`
+  not), and its declared exceptions (itself, the path lint's own case table, the fixture lines of the harness self-test and of `sdcard-user-card-func`, and the provisioner suite's fake-HOME lines) are named in its header, each narrowed to the lines rooted at its scratch fixtures. `HS-198a`/`b`
   pin that the preflight reaches it and that its verdict turns the row red.
 
 The developer-guide cite check, `test/lint-devguide-cites.pl` (see

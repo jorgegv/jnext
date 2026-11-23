@@ -331,8 +331,8 @@ if want sdcard-file-add-func; then
     grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
         && faults+=("writing the default-location image still warns that it is shared")
     # A SECOND card, at a path that is not the default one, so "explicit" and
-    # "default" are genuinely different images — pointing --sdcard at the
-    # default path is still the default image, and would still (correctly) warn.
+    # "default" are genuinely different images (the spellings of the default one,
+    # below, are the same image, and none of them warns either).
     cp --reflink=auto "$CARD" "$W/explicit.img"
     run_add 0 "explicit-quiet" --sdcard "$W/explicit.img" \
                                --sdcard-file-add "$W/long.bin" \

@@ -231,7 +231,7 @@ the same tree twice (the same non-PGO `jnext`, master A = the default, master B
    (`make regression-rows` pins that binary itself and is not refused under the
    seam.) The two variables are validated by the driver:
    `JNEXT_REGRESSION_SD_STATE_DIR` (the state directory whose `sdcard/` holds
-   the master, in place of `~/.jnext`) and `JNEXT_REGRESSION_SHOTS_DIR` (where a
+   the master, in place of `~/.jnext/sdcard/test-suite`) and `JNEXT_REGRESSION_SHOTS_DIR` (where a
    failing screenshot row leaves its actual PNG, which is otherwise deleted with
    the run directory; the driver creates it). Both must be absolute paths
    without a `..` component, outside the checkout (`//` and `/./` are

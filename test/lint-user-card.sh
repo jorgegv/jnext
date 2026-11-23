@@ -16,9 +16,9 @@
 # Declared exceptions (path:fixed text), each a reason and not a glob:
 #   - this file (its own self-test fixtures are literal instances);
 #   - test/lint-hardcoded-paths.sh: a case of ITS table, a string it classifies and never opens;
-#   - test/harness-selftest.sh and test/00regression/scripts/sdcard-user-card-func.sh: the rows that
-#     PROVE the suites leave the user's card alone place a sentinel card at that path inside a
-#     scratch HOME (and the lint's own wiring rows feed it a dirty fixture);
+#   - test/harness-selftest.sh: only the lines rooted at its scratch fixtures ($TSD, $PG2, $MC2: the sentinel homes of
+#     HS-195/196, and $ULC_FIX, the dirty fixture of HS-198b) and its comments;
+#   - test/00regression/scripts/sdcard-user-card-func.sh: only the lines rooted at its scratch home ($H/);
 #   - test/sdcard_provisioner/sdcard_provisioner_test.cpp lines that build the path under g_tmpdir:
 #     the suite exercises the provisioner's default-path rule inside a throw-away HOME.
 #
@@ -31,7 +31,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PATTERN='\.jnext/sdcard/cspect-next-1gb'
+# Two spellings of the user's card: the literal path, and the state-dir default the suites' master used
+# to be spelled with (the seam's default `${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}`): a consumer that
+# still spells it takes the user's directory for the suites'.
+PATTERN='\.jnext/sdcard/cspect-next-1gb|JNEXT_REGRESSION_SD_STATE_DIR:-[^}]*\.jnext\}'
 SCOPE='^(test/|tools/sd-master-ensure\.sh$|tools/pgo-[a-z-]+\.sh$|Makefile$|\.github/workflows/)'
 # A fake-HOME line of the provisioner's own unit suite.
 TMPDIR_LINE='g_tmpdir[ ]*\+'
@@ -40,7 +43,8 @@ TMPDIR_LINE='g_tmpdir[ ]*\+'
 is_excepted() {
     case "$1" in
         test/lint-user-card.sh|test/lint-hardcoded-paths.sh) return 0 ;;
-        test/harness-selftest.sh|test/00regression/scripts/sdcard-user-card-func.sh) return 0 ;;
+        test/harness-selftest.sh) grep -qE '\$TSD|\$ULC_FIX|\$PG2|\$MC2|^[[:space:]]*#' <<<"$2" && return 0 ;;
+        test/00regression/scripts/sdcard-user-card-func.sh) grep -qE '\$H/' <<<"$2" && return 0 ;;
         test/sdcard_provisioner/sdcard_provisioner_test.cpp) grep -qE "$TMPDIR_LINE" <<<"$2" && return 0 ;;
     esac
     return 1
@@ -68,6 +72,8 @@ selftest() {
     t 1 'a quoted C++ literal'             '"/.jnext/sdcard/cspect-next-1gb-fixed.img"'
     t 0 'the test master'                  'SD="$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"'
     t 0 'the cache directory alone'        'path: ~/.jnext/sdcard'
+    t 1 'the old state-dir default'        'dir="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}/sdcard"'
+    t 0 'the test state dir'               'dir="$(sd_test_state_dir)/sdcard"'
     t 0 'a candidate card dir'             'JNEXT_REGRESSION_SD_STATE_DIR="$W/cand"'
     local fix; fix=$(mktemp -d)
     printf 'x="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"\n' > "$fix/dirty.sh"
@@ -80,6 +86,18 @@ selftest() {
     rm -f "$fix/dirty.sh" "$fix/clean.sh"; rmdir "$fix"
     if is_excepted test/sdcard_provisioner/sdcard_provisioner_test.cpp 'x = g_tmpdir + "/.jnext/sdcard/cspect-next-1gb-fixed.img"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "[lint-user-card] SELFTEST FAIL: the fake-HOME exception does not apply" >&2; fi
     if is_excepted test/sdcard_provisioner/sdcard_provisioner_test.cpp 'x = home + "/.jnext/sdcard/cspect-next-1gb-fixed.img"'; then fail=$((fail + 1)); echo "[lint-user-card] SELFTEST FAIL: the fake-HOME exception is too wide" >&2; else pass=$((pass + 1)); fi
+    x() {   # x <want 1|0> <desc> <file> <text>: is the (file, line) pair excepted
+        local got=0
+        is_excepted "$3" "$4" && got=1
+        if [[ $got == "$1" ]]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "[lint-user-card] SELFTEST FAIL: $2 (want $1, got $got): $3: $4" >&2; fi
+    }
+    x 1 'a harness-selftest scratch-home line'   test/harness-selftest.sh 'TSD_CARD="$TSD/home/.jnext/sdcard/cspect-next-1gb-fixed.img"'
+    x 1 'the dirty fixture of HS-198b'           test/harness-selftest.sh 'printf x > "$ULC_FIX/dirty/row.sh" # .jnext/sdcard/cspect-next-1gb'
+    x 1 'a harness-selftest comment'             test/harness-selftest.sh '# the user card ~/.jnext/sdcard/cspect-next-1gb-fixed.img'
+    x 0 'a harness-selftest line on the HOME card' test/harness-selftest.sh 'SD="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"'
+    x 1 'a user-card-func scratch-home line'     test/00regression/scripts/sdcard-user-card-func.sh 'UC="$H/.jnext/sdcard/cspect-next-1gb-fixed.img"'
+    x 0 'a user-card-func line on the HOME card' test/00regression/scripts/sdcard-user-card-func.sh 'UC="$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"'
+    x 0 'any other file'                         test/run-unit-tests.sh 'm="$TSD/.jnext/sdcard/cspect-next-1gb-fixed.img"'
     echo "[lint-user-card] selftest: pass=$pass fail=$fail"
     [[ $fail == 0 ]]
 }

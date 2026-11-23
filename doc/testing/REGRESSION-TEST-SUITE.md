@@ -882,7 +882,7 @@ Load-bearing rationale that used to live as long comments inside
   invalid bash, so a looser match would only claim reach the shell has not.
   Every other word in the set was checked and takes none. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
-  its verdict still turns the row red; the `7 lint + 1 sdcard-provision + …`
+  its verdict still turns the row red; the `8 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.
 - **Why the published debug headers get an include-graph row** (GH #276 B0,
   `test/lint-debug-headers.sh`, row 5 of the preflight). Epic #276's defining

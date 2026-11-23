@@ -33,6 +33,7 @@
 #include "../row_id.h"
 #include "../test_portable.h"
 #include "../test_spawn.h"
+#include "../test_sd_image.h"
 #include "cli_options_test_common.h"
 
 using namespace cli_test;
@@ -316,8 +317,9 @@ int main() {
             // The SD image is checked before the setting is reported, so the run
             // is given one (the harness's clone, JNEXT_TEST_SD_IMAGE; a dev
             // host's own otherwise).
-            std::string sd_arg;
-            if (const char* sd = std::getenv("JNEXT_TEST_SD_IMAGE")) sd_arg = std::string(" --sdcard \"") + sd + "\"";
+            // GH #555: ALWAYS an explicit card: the harness's clone (JNEXT_TEST_SD_IMAGE) or, on a hand
+            // run, the suites' own test master. Never the default card, which is the user's.
+            const std::string sd_arg = std::string(" --sdcard \"") + test_sd_image_path() + "\"";
             auto auto_play_line = [&](const std::string& flags) {
                 run_split("--headless --machine 48k" + sd_arg + " " + flags + " --delayed-automatic-exit-frames 1");
                 const std::string all = slurp(out_path) + slurp(err_path);
@@ -1166,7 +1168,7 @@ int main() {
                 {
                     std::vector<std::string> bad2;
                     for (const char* a : {"5x f.img", "-1 f.img", "2147483648 f.img", "5 \"\""})
-                        if (run(std::string("--headless --machine 48k --delayed-sdcard2-insert-frames ") + a) == 0)
+                        if (run(std::string("--headless --machine 48k") + sd_arg + " --delayed-sdcard2-insert-frames " + a) == 0)
                             bad2.push_back(std::string("accepted: ") + a);
                     check("SDSLOT-52", "--delayed-sdcard2-insert-frames refuses a malformed or out-of-range N "
                                        "and an empty FILE", bad2.empty(), join(bad2));

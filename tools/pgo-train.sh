@@ -113,7 +113,11 @@ PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
 # JNEXT_REGRESSION_SD_STATE_DIR set, the master is that directory's sdcard/ and nothing under
 # ~/.jnext/sdcard/test-suite is read or provisioned (GH #476: a tree that defaults to another distribution
 # must not replace the card other trees train and test on).
-SD_STATE_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext/sdcard/test-suite}"
+# One definition of the suites' state dir (sd_test_state_dir, GH #555), read from the library
+# without its side effects, as tools/sd-master-ensure.sh does.
+SD_STATE_DIR=$(JNEXT_REGRESSION_LIB_NO_INIT=1 PROJECT_DIR="$PROJECT_DIR" bash -c \
+    'source "$PROJECT_DIR/test/00regression/test-functions.inc" && sd_test_state_dir') \
+    || die "cannot read the SD test state dir from test/00regression/test-functions.inc"
 SD_MASTER_DIR="$SD_STATE_DIR/sdcard"
 SD_MASTER="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
 NEX=test/00regression/nex

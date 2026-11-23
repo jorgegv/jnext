@@ -116,5 +116,19 @@ check_keys "$tmp/wf-letter" "$tmp/src-ok.cpp" >/dev/null && msg="$msg letter-key
 if [ -z "$msg" ]; then ok "CIKEY-04 a trailing letter in the distribution name parses, and the key must match it exactly"
 else bad "CIKEY-04 $msg"; fi
 
+# CIKEY-05 (GH #555): the cache holds the SD directory in its layout since the suites' master moved to
+# ~/.jnext/sdcard/test-suite/; every real key carries the `-ts-` layout marker after the recipe, or an
+# entry saved in the old layout would restore with the test master missing (and never be re-saved).
+tsbad=""
+while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    [[ "$k" == *-recipe[0-9]*-ts-* ]] || tsbad="$tsbad $k"
+done < <(keys "$WF")
+printf 'x: sdcard-image-distro-99.12-recipe7-macos\n' > "$tmp/wf-ok/old.yml"
+oldlayout=""
+while IFS= read -r k; do [[ "$k" == *-recipe[0-9]*-ts-* ]] || oldlayout="$oldlayout $k"; done < <(keys "$tmp/wf-ok")
+if [ -z "$tsbad" ] && [ -n "$oldlayout" ]; then ok "CIKEY-05 every sdcard cache key carries the -ts- layout marker (and a key without it is detected)"
+else bad "CIKEY-05 keys without -ts-:$tsbad (detector saw old-layout keys: ${oldlayout:+yes}${oldlayout:-NO})"; fi
+
 printf '\nTotal: %d  Pass: %d  Fail: %d\n' $((pass+fail)) "$pass" "$fail"
 [ "$fail" -eq 0 ]
