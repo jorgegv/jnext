@@ -41,7 +41,11 @@
 #   An eligible command (any heavy target: the full unit-test targets, wasm-browser-test, the full
 #   regression, regression-win/-wasm, regression-rows, test-affected) is sent to a remote lane FIRST, whenever
 #   one is free right now, and runs here only when every lane of every host is busy or unusable (then it
-#   waits for a local slot, as below). A command that is not eligible stays local exactly as before. Sending =
+#   waits for a local slot, as below). A command that is not eligible stays local exactly as before.
+#   "Unless needed" (the owner's words): a run that needs THIS host sets JNEXT_SLOT_NO_OVERFLOW=1: uncommitted state
+#   (mutants), bench or xvfb probes, a measurement, or material that must never leave this host (a reporter's game
+#   shared for testing, the user's own card; slot.sh cannot detect it). Never set it for a gate run.
+#   Sending =
 #   push origin/<branch> if it is not at HEAD (`git push origin <branch>`, never forced; COMMON-RULES
 #   "REMOTE RUNS" authorizes an agent to push its own issue branch), then remote-run.sh --stream.
 #   HOSTS (GH #547, owner 2026-11-22: several remote hosts): the aliases are tried in list order; a host
