@@ -40,8 +40,10 @@
 #include "debug/dac_stream.h"
 #include "debugger/audio_log_view.h"
 #include "debugger/audio_panel.h"
+#include "debugger/audio_scope_view.h"
 #include "debugger/audio_stream_view.h"
 #include "debugger/audio_tracker_view.h"
+#include "debug/audio_math.h"
 #include "platform/emulator_boot.h"
 
 #include <QApplication>
@@ -1068,15 +1070,15 @@ static void test_dac_tab(Emulator& emu) {
         QWidget* dac = tabs ? tabs->widget(1) : nullptr;
         const bool real = dac && dac->findChild<QTreeWidget*>("audio_drops") && dac->findChild<QLabel*>("dac_a_value") &&
                           !dac->findChild<QLabel*>("dac_a_value")->text().isEmpty();
-        bool placeholders = tabs != nullptr;
-        for (int i = 4; tabs && i < 5; ++i) {
+        bool all_real = tabs != nullptr;
+        for (int i = 0; tabs && i < tabs->count(); ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
-            placeholders = placeholders && found;
+            all_real = all_real && !found;
         }
-        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values (not the placeholder); Scopes still shows 'Not available yet.'",
-              real && placeholders);
+        check("DAP-38", "the DAC & Beeper sub-tab holds the dropped-writes table and the DAC values; no Audio sub-tab is a placeholder (none shows 'Not available yet.')",
+              real && all_real && tabs->count() == 5);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-39", "emulator init", false); return; }
@@ -1445,12 +1447,12 @@ static void test_log_tab(Emulator& emu) {
         AudioPanel panel(&dbg);
         auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
         const auto tables = panel.findChildren<QTableWidget*>();
-        bool placeholders = tabs != nullptr;
-        for (int i = 4; tabs && i < 5; ++i) {
+        bool all_real = tabs != nullptr;
+        for (int i = 0; tabs && i < tabs->count(); ++i) {
             bool found = false;
             for (QLabel* l : tabs->widget(i)->findChildren<QLabel*>())
                 found = found || l->text() == "Not available yet.";
-            placeholders = placeholders && found;
+            all_real = all_real && !found;
         }
         bool only_log = tabs != nullptr;
         for (int i = 0; tabs && i < tabs->count(); ++i) {
@@ -1458,9 +1460,9 @@ static void test_log_tab(Emulator& emu) {
             only_log = only_log && (panel.log_on_show() == (i == 2));
         }
         QWidget* log_tab = tabs ? tabs->widget(2) : nullptr;
-        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; Scopes still shows 'Not available yet.'; log_on_show() is true only with Log current",
+        check("DAP-48", "tab 2 holds audio_log_table, a QTableView; the hex table is still the panel's only QTableWidget; no Audio sub-tab is a placeholder; log_on_show() is true only with Log current",
               log_tab && log_tab->findChild<QTableView*>("audio_log_table") && tables.size() == 1 &&
-              tables[0]->objectName() != "audio_log_table" && placeholders && only_log);
+              tables[0]->objectName() != "audio_log_table" && all_real && only_log);
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-49", "emulator init", false); return; }
@@ -2142,12 +2144,12 @@ static void test_tracker_tab(Emulator& emu) {
             tabs->setCurrentIndex(i);
             only_tracker = only_tracker && (panel.tracker_on_show() == (i == 3));
         }
-        bool scopes = false;
-        if (tabs) for (QLabel* l : tabs->widget(4)->findChildren<QLabel*>()) scopes = scopes || l->text() == "Not available yet.";
+        bool no_placeholder = tabs != nullptr;
+        if (tabs) for (QLabel* l : tabs->widget(4)->findChildren<QLabel*>()) no_placeholder = no_placeholder && l->text() != "Not available yet.";
         QLabel* st = panel.findChild<QLabel*>("audio_tracker_status");
-        check("DAP-62", "tab 3 holds audio_tracker_table, a QTableView with the 35 headers in order (Frame, Mark, then per chip Env, Sh and A, B, C of Note, V, N); the hex table is still the panel's only QTableWidget; tracker_on_show() is true only with Tracker current; Scopes still shows 'Not available yet.'; the status label exists",
+        check("DAP-62", "tab 3 holds audio_tracker_table, a QTableView with the 35 headers in order (Frame, Mark, then per chip Env, Sh and A, B, C of Note, V, N); the hex table is still the panel's only QTableWidget; tracker_on_show() is true only with Tracker current; Scopes is no placeholder; the status label exists",
               tab && t && tab->findChild<QTableView*>("audio_tracker_table") && headers && tables.size() == 1 &&
-              tables[0]->objectName() != "audio_tracker_table" && only_tracker && scopes && st && !st->text().isEmpty());
+              tables[0]->objectName() != "audio_tracker_table" && only_tracker && no_placeholder && st && !st->text().isEmpty());
     }
     {
         if (!build_dac_machine(emu)) { check("DAP-63", "emulator init", false); return; }
@@ -2421,6 +2423,159 @@ static void test_tracker_tab(Emulator& emu) {
     }
 }
 
+// ── DAP-SCP: the Scopes sub-tab (GH #536) ───────────────────────────────
+
+// DI; JR $ at 0x8000: frames run with the CPU parked and only the audio chain moving.
+static void park_cpu(Emulator& emu) {
+    const uint8_t prog[] = {0xF3, 0x18, 0xFE};
+    for (size_t i = 0; i < sizeof(prog); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+// TurboSound and the DAC on; AY1 a square on channel A (tone period 100, volume 12) with the tone and
+// noise gates open on B and C; AY0 channel A a fixed volume 15 (R7 0x3F: the output IS the level,
+// ym2149.vhd:467-520).
+static void scope_machine(Emulator& emu) {
+    nr_write(emu, 0x08, 0x0A);
+    emu.port().out(0xFFFD, 0xFF);
+    ay_reg(emu, 7, 0x3F); ay_reg(emu, 8, 0x0F);
+    emu.port().out(0xFFFD, 0xFE);
+    ay_reg(emu, 0, 100); ay_reg(emu, 1, 0); ay_reg(emu, 7, 0x3E); ay_reg(emu, 8, 0x0C);
+    park_cpu(emu);
+}
+
+static void test_scopes(Emulator& emu) {
+    set_group("DAP-SCP");
+    static const char* const kTitle[16] = {"AY0 A", "AY0 B", "AY0 C", "AY1 A", "AY1 B", "AY1 C", "AY2 A", "AY2 B",
+                                           "AY2 C", "DAC A", "DAC B", "DAC C", "DAC D", "Beeper", "Left", "Right"};
+    {
+        if (!build_next_emulator(emu)) { check("DAP-70", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        bool ok = tabs && view && tabs->widget(4) == view && tabs->count() == 5;
+        for (int i = 0; ok && i < 16; ++i) {
+            QWidget* tr = panel.findChild<QWidget*>(QString("scope_trace_%1").arg(i));
+            QLabel* title = panel.findChild<QLabel*>(QString("scope_title_%1").arg(i));
+            ok = ok && tr && title && title->text() == kTitle[i] &&
+                 tr->property("title").toString() == kTitle[i] &&
+                 panel.findChild<QProgressBar*>(QString("scope_meter_%1").arg(i)) != nullptr;
+        }
+        const bool off_before = !panel.scopes_on_show();
+        if (tabs) tabs->setCurrentIndex(4);
+        const bool on = panel.scopes_on_show() && !panel.chips_on_show();
+        if (tabs) tabs->setCurrentIndex(0);
+        QStringList names;
+        for (int i = 0; tabs && i < tabs->count(); ++i) names << tabs->tabText(i).replace("&&", "&");
+        check("DAP-70", "Scopes is tab 4 and holds audio_scope_view with 16 titled scope_trace_<i> in AudioSource order and 16 scope_meter_<i> bars; scopes_on_show() is true only while it is current; the tab order is unchanged",
+              ok && off_before && on && !panel.scopes_on_show() &&
+              names == QStringList({"Chips", "DAC & Beeper", "Log", "Tracker", "Scopes"}));
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-71", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap71", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        tabs->setCurrentIndex(4);
+        constexpr int AY1A = 3;
+        bool ok = view != nullptr;
+        uint64_t first[2] = {0, 0};
+        for (int round = 0; ok && round < 2; ++round) {
+            for (int f = 0; f < 3; ++f) emu.run_frame();
+            panel.refresh();
+            const auto blk = dbg.audio_scope_samples(2 * AudioScopeView::WINDOW);
+            const std::vector<int16_t>& v = blk.value.samples[AY1A];
+            const ScopeTrigger t = scope_trigger(v.data(), v.size(), AudioScopeView::WINDOW);
+            const auto& st = view->trace(AY1A);
+            const auto& sh = view->shown(AY1A);
+            ok = ok && blk.status == jnext::dbg::Result::Ok && st.triggered && t.triggered && st.start == t.start &&
+                 st.start > 0 && v[st.start - 1] < t.level && v[st.start] >= t.level &&
+                 sh.size() == AudioScopeView::WINDOW && sh[0] == v[st.start];
+            for (size_t i = 0; ok && i < 15; ++i) ok = ok && sh[i] >= t.level;
+            first[round] = st.first_sample;
+        }
+        check("DAP-71", "an AY1 A square (period 100): both refreshes are triggered on the latest rising edge (the sample before it is below the level, the first 15 shown are at or above it), and the second block is new data",
+              ok && first[1] > first[0]);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-72", "emulator init", false); return; }
+        scope_machine(emu);
+        emu.port().out(0x1F, 0xC0);
+        emu.port().out(0xFE, 0x10);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap72", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        tabs->setCurrentIndex(4);
+        for (int f = 0; f < 3; ++f) emu.run_frame();
+        panel.refresh();
+        auto* dac = panel.findChild<QProgressBar*>("scope_meter_9");
+        auto* ay = panel.findChild<QProgressBar*>("scope_meter_0");
+        auto* beeper = panel.findChild<QProgressBar*>("scope_meter_13");
+        auto* dac_text = panel.findChild<QLabel*>("scope_meter_text_9");
+        // DAC A 0xC0 x 4 = 768 against rest 512: peak 256 of 512 = 50, native 64. AY0 A 255 x 4 = 1020 of 1020 = 100.
+        // Beeper EAR 512 x 4 = 2048 of (512 + 128) x 4 = 2560 (audio_mixer.vhd:80-81) = 80.
+        check("DAP-72", "DAC A = 0xC0: meter 50, text 'pk 64'; AY0 A volume 15: meter 100; EAR high: Beeper meter 80",
+              view && dac && ay && beeper && dac_text && dac->value() == 50 && ay->value() == 100 && beeper->value() == 80 &&
+              dac_text->text().startsWith("pk 64 "),
+              dac_text ? dac_text->text().toStdString() : std::string("<none>"));
+    }
+    {
+        Emulator silent;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
+        silent.init(cfg);
+        jnext::dbg::Debugger dbg(silent);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        tabs->setCurrentIndex(4);
+        panel.refresh();
+        auto* off = panel.findChild<QLabel*>("audio_scope_off");
+        check("DAP-73", "under --silent the Scopes tab shows audio_scope_off with its text and the backend tap stays off",
+              off && !off->isHidden() && off->text().contains("--silent") && !dbg.audio_scope_enabled());
+    }
+    {
+        // The refresh on a tab change: the tap is already held by another client and the machine is paused, so no tick will draw
+        // the view; switching to Scopes must draw it at once.
+        if (!build_next_emulator(emu)) { check("DAP-75", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap75", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        for (int f = 0; f < 3; ++f) emu.run_frame();
+        AudioPanel panel(&dbg);
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        const bool empty_before = view && view->shown(3).empty();
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        check("DAP-75", "switching to the Scopes sub-tab with the tap already held and the machine paused draws the view at once (no tick, no refresh call)",
+              view && empty_before && view->shown(3).size() == AudioScopeView::WINDOW && view->trace(3).triggered);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-74", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap74", jnext::dbg::ClientKind::Test}).value;
+        dbg.set_audio_scope_enabled(cid, true);
+        AudioPanel panel(&dbg);
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        for (int f = 0; f < 3; ++f) emu.run_frame();
+        panel.refresh();
+        auto* quiet = panel.findChild<QLabel*>("scope_trig_2");   // AY0 C: silent
+        auto* square = panel.findChild<QLabel*>("scope_trig_3");  // AY1 A: the square
+        check("DAP-74", "the lamp of a silent channel (AY0 C) reads 'free' and the square's (AY1 A) reads 'trig'",
+              quiet && square && quiet->text() == "free" && square->text() == "trig");
+    }
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -2448,6 +2603,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-DAC        -- done\n");
     test_log_tab(emu);
     std::printf("  Group: DAP-LOG        -- done\n");
+    test_scopes(emu);
+    std::printf("  Group: DAP-SCP        -- done\n");
     test_stream_view(emu);
     std::printf("  Group: DAP-STREAM     -- done\n");
     test_tracker_tab(emu);

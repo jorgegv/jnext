@@ -746,6 +746,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-09 | Each of the 13 channel mute bits, and ALL, for 50 frames, on versus off (14 runs) | State bytes and framebuffer hash are equal in every run (the hardware sums every channel: `turbosound.vhd:186-334`, `soundrive.vhd:112-113`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 | AIZ-11 | A CTC timer (P16, TC 109) and an auto-restarting DMA burst to port 0x00DF (prescaler 55); 20 `ctc_state()` and 20 `dma_state()` calls after each of 50 frames in one run only | State bytes and framebuffer hash are equal. Both engines were seen moving; a real AY register write between the runs makes them differ |
+| AIZ-14 | `build()` machine, the source tap requested through a client and dropped in the other run (GH #536), 50 frames | State bytes and framebuffer hash are equal: the tap and its ring are outside `describe_state()`. Run A's tap pushed more than 1000 samples |
 
 ### 8.3 `Debugger::audio_state()`
 
@@ -1071,6 +1072,40 @@ Sample stream groups of DAC & Beeper against the same machines: DAP-76 the group
 numbers, DAP-78 the DMA and Copper rows and the double-click (CPU row only), DAP-79 the data rules (no fetch
 off show, "Not recording", a reset marker, a ring overflow), DAP-80 the Gaps cell with the 1.5 x factor named;
 QLAZY-25 the log request while DAC & Beeper is on show, QLAZY-26 that Log and DAC & Beeper share the request.
+
+### 8.11 Source tap and scopes (GH #536)
+
+`Debugger::set_audio_scope_enabled()` / `audio_scope_samples()` and `Mixer::integrate_span_tapped()`. Mixer-level
+rows use a standalone Mixer, TurboSound (YM), Dac and Beeper with no I2S wired (its term is `I2S_REST_LEVEL` 512) and a
+Bresenham threshold of 44100 x 635, so one output sample is exactly 635 master cycles. A sample is the mixer's
+`rounded_average_x4` of the source's hardware level over that period. Oracles: `audio_mixer.vhd:80-100`,
+`ym2149.vhd:157-162,467-536`, `soundrive.vhd:74-77,111-112`, `turbosound.vhd:184-337`.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| SCP-01 | `audio_source_scale()` for all 16 sources | AY {0,0,1020}, DAC {0,512,1020}, Beeper {0,0,2560}, Mix {0,6144,32764} |
+| SCP-02 | Distinct DC on every source (AY volumes 1-9, DAC 0x11..0x44, EAR and MIC), one sample; then the speaker-exclusive gate | AY 4 x {2,3,4,7,10,14,19,27,37}, DAC 4 x byte, Beeper 2560, MixL 5696, MixR 6892; gated: Beeper 0, MixL 3136, MixR 4332 |
+| SCP-03 | EAR high for 100 of 635 cycles | Beeper 323 (round of 322.52, not 322), MixL 6467, AY 0, DAC 512 |
+| SCP-04 | The sync rule: 100 cycles reach the mixer alone, the tapped span ends that sample, then one whole sample | The partial one is not pushed; written 1, Beeper 0, MixL = the mixer's 2nd sample + 6144 |
+| SCP-05 | Emulator with an AY0 tone (period 100, volume 15), tap on, 2 frames | Ay0A holds 0 and 1020, all within range, at most one in-between sample per edge; the other AY sources 0, DAC 512, Beeper 0 |
+| SCP-06 | The all-sources fixture at 0 dB, no mute | Left/Right - 6144 equal the mixer's own output, sample for sample |
+| SCP-07 | The same machine with every source muted and every host gain at -6 dB | The 16 traces are identical; the audible output differs (control) |
+| SCP-08 | An IM 2 HALT loop with sound, 8 frames; untapped and tapped, batching on and off | HALT batching engages untapped and is refused while a tap is installed; the tapped run's tap and mixer output equal the batch-off run's, sample for sample |
+| SCP-09 | A raster-poll loop with sound, 8 frames, the same four runs (machines built over a fixed fill, GH #551) | The poll batch engages untapped and is refused while a tap is installed; tapped equals batch-off, sample for sample |
+| SCP-10 | Rewind on, tap on and off, `step_back(1)` | A replay mixes nothing and `written` does not move; samples again afterwards |
+| SCP-11 | Backend lifecycle | Off before a request; on after it with 16 equal vectors at 44100, first_sample 0; revision +1 per accepted set; refused after the drop; a re-request starts afresh; an unknown client is refused |
+| SCP-12 | Two clients and an observer | On while any live client asks (a second request keeps the first's tap); off after the last drops or detaches; an observer alone turns it on; a client attached later that never asks leaves it on |
+| SCP-13 | Soft reset, in-place `init()`, hard reset, state load | The same tap stays installed and its sample count keeps rising from where it was |
+| SCP-14 | `--silent` | The request is refused; the tap stays off and uninstalled |
+| SCP-15 | 12 frames (more than the ring holds) | 8192 samples; `first_sample = written - 8192`; the mix traces are the newest mixer outputs in order; a short count gives the newest; count 0 an empty Ok |
+| SCP-16 | `scope_trigger()` on a square, a flat block, a short block, a falling edge and a sample equal to the level | Latest rising edge with a whole window after it; free-run; start 0; free-run; the equal sample crosses |
+| SCP-17 | `scope_meter()` on a square, DC and a mixed block, rest 512 | Peak and RMS about the rest |
+| SCP-18 | A live Pi stream consumed, tap on and off | The audible output is bit-identical, and the Left/Right traces equal the mixer's output + 6144 for every sample |
+| SCP-19 | A HALT loop with a tap installed, then the tap dropped | Nothing batches while tapped; the HALT batch engages again afterwards |
+| SCP-20 | `beep_mic_final` high with the raw tape level high (standalone mixer); then the raw level high with `beep_mic_final` low; then EAR with `beep_mic_final`; then the speaker-exclusive gate | Beeper 512 and MixL = MixR = 6656; Beeper 0 (the raw tape level is no term); Beeper 2560; Beeper 0; the mix traces equal the mixer's output + 6144 (audio_mixer.vhd:64,80-81,99-100; zxnext.vhd:7113,7126) |
+| SCP-22 | A TAP plays in real time on a bare Next, the CPU parked, tap on: issue 3 port 0xFE 0x00, 0x10, 0x08; issue 2 0x08; the speaker-exclusive gate with 0x18; each at the tape's high and low level | Beeper 512/0, 2560/2048, 0/512, 512/0, 0/0; Left = Right = 6144 + Beeper every time (zxnext.vhd:7113: tape xor (mic and issue2) xor mic; audio_mixer.vhd:80-81) |
+| SCP-23 | Pi audio routed to EAR (NR 0xA2 = 0xC1), a full-scale sample, two output samples after the route | Beeper 512 (the MIC term, inside the ear_relax hold), Left 6144 + 512 (zxnext.vhd:7113; zxnext_top_issue2.vhd:663-677) |
+| SCP-21 | A Debugger destroyed while the tap is on | The machine's tap pointer is retired and the HALT batch engages again |
 
 ## Test Implementation Strategy
 

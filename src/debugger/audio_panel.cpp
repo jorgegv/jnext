@@ -1,5 +1,6 @@
 #include "debugger/audio_panel.h"
 #include "debugger/audio_log_view.h"
+#include "debugger/audio_scope_view.h"
 #include "debugger/audio_stream_view.h"
 #include "debugger/audio_tracker_view.h"
 #include "debug/audio_math.h"
@@ -133,27 +134,23 @@ void AudioPanel::create_ui() {
     tabs_->addTab(log_view_, tr("Log"));
     connect(log_view_, &AudioLogView::show_in_disassembly_requested,
             this, &AudioPanel::show_in_disassembly_requested);
-    connect(tabs_, &QTabWidget::currentChanged, this, [this](int) { emit sub_tab_changed(); });
     tracker_view_ = new AudioTrackerView(dbg_, tabs_);
     tabs_->addTab(tracker_view_, tr("Tracker"));
     connect(tracker_view_, &AudioTrackerView::rewind_to_frame_requested,
             this, &AudioPanel::rewind_to_frame_requested);
-    tabs_->addTab(placeholder_tab(), tr("Scopes"));
+    scope_view_ = new AudioScopeView(dbg_, tabs_);
+    tabs_->addTab(scope_view_, tr("Scopes"));
     layout->addWidget(tabs_, 1);
+    connect(tabs_, &QTabWidget::currentChanged, this, [this](int) {
+        // The window asks the backend for the tap on this signal; then a tab that has come on show draws at once, which matters
+        // when the tap is already held (another client asked) and the machine is paused, so no tick will do it.
+        emit sub_tab_changed();
+        if (scopes_on_show()) scope_view_->refresh();
+    });
 
     // The M and S buttons show the live channel mask (a panel rebuilt against a
     // muted machine must not claim the channels are audible).
     settle_channel_buttons(dbg_ ? dbg_->audio_channel_mute_mask() : static_cast<uint16_t>(AudioChannelMute::NONE));
-}
-
-QWidget* AudioPanel::placeholder_tab() {
-    auto* w = new QWidget(tabs_);
-    auto* l = new QVBoxLayout(w);
-    auto* label = new QLabel(tr("Not available yet."), w);
-    label->setAlignment(Qt::AlignCenter);
-    l->addWidget(label);
-    l->addStretch(1);
-    return w;
 }
 
 QGroupBox* AudioPanel::create_dac_channel_group() {
@@ -236,6 +233,14 @@ void AudioPanel::channel_solo_clicked(int index) {
 
 bool AudioPanel::chips_on_show() const {
     return tabs_ && tabs_->currentWidget() == chips_scroll_;
+}
+
+bool AudioPanel::scopes_on_show() const {
+    return tabs_ && scope_view_ && tabs_->currentWidget() == scope_view_;
+}
+
+void AudioPanel::refresh_scopes() {
+    if (scope_view_) scope_view_->refresh();
 }
 
 bool AudioPanel::log_on_show() const {
@@ -524,6 +529,7 @@ void AudioPanel::refresh() {
         tr("AY writes dropped: %1 (<a href=\"drops\">show</a>)").arg(ay_dropped));
 
     refresh_dac_(st);
+    if (scopes_on_show()) scope_view_->refresh();   // a paused machine's redraw (GH #536)
 
     // The Log tab reads its own verb, and only while it is the tab on show.
     if (log_on_show()) log_view_->refresh();

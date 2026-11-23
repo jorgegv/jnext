@@ -12,7 +12,7 @@ Each channel also has its own **M** (mute) and **S** (solo) buttons, described
 under [Mute and solo](#mute-and-solo) below.
 
 Below it are five tabs: **Chips**, **DAC & Beeper**, **Log**, **Tracker** and
-**Scopes**. Scopes is not available yet.
+**Scopes**.
 
 ## Chips
 
@@ -228,6 +228,43 @@ follow the live mutes, so a mute set by a script shows on them.
 A script reads and sets the channel mutes with `AUDIO_CHANNEL_MUTE`: bit 0 to 8
 are the AY channels (bit `3 * chip + channel`, channel A = 0), bit 9 to 12 are
 DAC A to D, and a set bit is a muted channel.
+
+## Scopes
+
+One oscilloscope trace and one level meter for each of sixteen sources, in this
+order: the three channels of each AY chip (AY0 A to AY2 C), the four DAC channels
+(DAC A to D), the Beeper, and the stereo mix (Left and Right). A trace shows the
+last 20 ms.
+
+What a trace shows is what the source produces, before everything the debugger
+and the host do to it:
+
+- an AY channel is the chip's own channel output, before the TurboSound routing
+  and the pan, so a chip that is not in the mix still shows what it is
+  generating (the Chips tab says whether it reaches the mix);
+- a DAC channel is the byte last written, drawn around its midpoint (`0x80` is
+  silence);
+- the Beeper is EAR and MIC, and is flat while the beeper is excluded from the mix;
+  a tape that is playing (and the Pi's audio when it is routed to EAR) reaches the mix
+  only through the MIC term, as on the hardware, so it shows here as the MIC step;
+- Left and Right are the hardware mix, the same sum as the sound output.
+
+Muting a source in the Sources strip or changing a gain does not change a trace:
+the scopes show the machine, not what you hear.
+
+The trace is edge-triggered: it starts at the latest rising crossing of the middle
+of the signal's range that leaves a whole window after it, so a steady tone stands
+still. The lamp beside the title reads `trig` while an edge was found and `free`
+when there was none (a silent or constant source, or a signal that does not rise
+through its middle), and the trace then simply shows the newest samples.
+
+The bar is the largest swing of the drawn window from the source's resting level,
+as a percentage of the most it can swing; beside it, `pk` is that swing and `rms`
+the root mean square, in the source's own units (0 to 255 for an AY or DAC channel).
+
+Samples are collected only while this tab is on show, and the scopes redraw on
+every frame while the machine runs. While it is collecting, programs that sit in HALT or poll the raster run without the emulator's idle shortcuts. At 28 MHz such programs can need five to eight times the host CPU while Scopes is on show (about twice at 3.5 MHz), so a slow host may not keep real time; it ends when you leave the tab. With `--silent` the emulator does not
+synthesise audio, and the tab says so instead of drawing traces.
 
 ## Stopping on an audio write
 

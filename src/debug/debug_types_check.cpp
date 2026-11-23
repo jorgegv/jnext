@@ -289,6 +289,12 @@ static_assert(std::is_trivially_copyable<AudioLogEntry>::value, "the tap copies 
 static_assert(audio_target_bit(AudioTarget::Beeper) == 0x10 && sizeof(AudioTargetMask) == 1 &&
               AUDIO_TARGETS_ANY == 0xFF, "one bit per AudioTarget in a byte");
 
+// GH #536 INS-24: nine AY channels, four DAC channels, the beeper and the two mix sides.
+static_assert(AUDIO_SOURCE_COUNT == 16, "9 AY + 4 DAC + beeper + MixLeft + MixRight");
+static_assert(size_t(AudioSource::DacA) == 9, "the DAC follows the 3 x 3 AY channels");
+static_assert(size_t(AudioSource::MixRight) == 15, "MixRight is the last source");
+static_assert(std::tuple_size<decltype(AudioScopeBlock::samples)>::value == AUDIO_SOURCE_COUNT, "");
+
 // INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons. From
 // `RegId::Count`, so an appended register fires it.
 static_assert(REG_ID_COUNT == 37, "INS-01: 12 pairs + 20 halves + I/R/IFF1/IFF2/IM");
