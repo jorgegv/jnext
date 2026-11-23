@@ -302,9 +302,8 @@ Without \f[B]\-\-sdcard\-file\-dest\f[R] it lands in the root of the
 card under its own name.
 Give it once per run.
 The image written is the one \f[B]\-\-sdcard\f[R] names, or the
-default\-location image when \f[B]\-\-sdcard\f[R] is omitted \(em in
-which case a loud warning says so, because that image is shared with
-every other run.
+default\-location image when \f[B]\-\-sdcard\f[R] is omitted (your own
+card).
 With \f[B]\-\-sdcard\-writes\f[R] the copy goes into that file instead
 and the image is not written.
 See \f[B]PUTTING A FILE ON THE CARD\f[R].
@@ -324,6 +323,44 @@ Let \f[B]\-\-sdcard\-file\-add\f[R] replace files that are already
 there.
 Without it an existing destination file is refused and nothing is
 written.
+.TP
+\f[B]\-\-sdcard\-writes\-flatten\f[R] \f[I]OUT\f[R]
+Write \f[I]OUT\f[R], a plain image of the card with the
+\f[B]\-\-sdcard\-writes\f[R] \f[I]FILE\f[R] laid over it (the card as
+the machine sees it), and \f[B]exit without starting emulation\f[R].
+Any FAT tool (mtools, a loop mount, 7\-Zip) can open \f[I]OUT\f[R].
+Requires \f[B]\-\-sdcard\-writes\f[R].
+An \f[I]OUT\f[R] that already exists is refused.
+See \f[B]GETTING YOUR FILES OUT\f[R].
+.TP
+\f[B]\-\-sdcard\-export\-changes\f[R] \f[I]DIR\f[R]
+Copy the files you added or changed on the card, as the machine sees it
+(the card plus the \f[B]\-\-sdcard\-writes\f[R] file, when one is
+given), into \f[I]DIR\f[R] as ordinary files, write the list
+\f[CR]CHANGES.txt\f[R] beside them, and \f[B]exit without starting
+emulation\f[R].
+\f[I]DIR\f[R] must be new or empty.
+What it compares the card against, in this order: the card as jnext made
+it (the default card, when its original image is still on disk and
+matches), the image named by \f[B]\-\-sdcard\-export\-base\f[R], the
+card itself when there is a \f[B]\-\-sdcard\-writes\f[R] file (so only
+that file\(cqs changes are exported); with none of these it refuses.
+See \f[B]GETTING YOUR FILES OUT\f[R].
+.TP
+\f[B]\-\-sdcard\-export\-base\f[R] \f[I]FILE\f[R]
+With \f[B]\-\-sdcard\-export\-changes\f[R]: the image the card was made
+from, to compare against.
+A raw distribution image is accepted as it is.
+.TP
+\f[B]\-\-sdcard\-import\-changes\f[R] \f[I]DIR\f[R]
+Put the files of a \f[B]\-\-sdcard\-export\-changes\f[R] directory
+\f[I]DIR\f[R] onto the card (or, with \f[B]\-\-sdcard\-writes\f[R], into
+that file) and \f[B]exit without starting emulation\f[R].
+\f[I]DIR\f[R] must hold the \f[CR]CHANGES.txt\f[R] the export wrote.
+A file already on the card is replaced, a read\-only one too; nothing is
+ever deleted; the attributes (read\-only, hidden, system) are restored.
+All or nothing, as \f[B]\-\-sdcard\-file\-add\f[R].
+See \f[B]GETTING YOUR FILES OUT\f[R].
 .TP
 \f[B]\-\-warm\-start\-regenerate\f[R]
 Discard the cached warm\-start recording and take a fresh one on the
@@ -2270,16 +2307,14 @@ just fit.
 .PP
 The copy goes into the image \f[B]\-\-sdcard\f[R] names.
 With no \f[B]\-\-sdcard\f[R] it goes into the default\-location image,
-which every other run also boots and which the test suite resolves from;
-jnext warns loudly when that happens.
+your own card, which every run without \f[B]\-\-sdcard\f[R] boots.
 It does not make a backup: these are gigabyte files, and
 \f[CR]cp \-\-reflink=auto\f[R] is instant on a copy\-on\-write
 filesystem.
 .PP
 With \f[B]\-\-sdcard\-writes\f[R] \f[I]FILE\f[R] the copy goes into
 \f[I]FILE\f[R] instead, and the image is opened read\-only and never
-written, so a card shared by other runs stays as it is and no warning
-about the default image is given.
+written, so a card shared by other runs stays as it is.
 The next run that is given the same image and \f[I]FILE\f[R] boots a
 card that has the file:
 .IP
@@ -2325,6 +2360,44 @@ any \f[CR].DSK\f[R] or \f[CR].P3D\f[R] found at
 \f[CR]CPM\-\f[R]\f[I]X\f[R]\f[CR].\f[R]\f[I]ext\f[R]) as drive
 \f[I]X\f[R], so copying one there is all it takes to have a +3 disk
 available at the next boot.
+.SS GETTING YOUR FILES OUT
+Three commands, like \f[B]\-\-sdcard\-file\-add\f[R] terminal commands
+that start no emulation, get your files off a card or into one:
+.IP
+.EX
+jnext \-\-sdcard card.img \-\-sdcard\-writes dev.jsdw \-\-sdcard\-writes\-flatten flat.img
+jnext \-\-sdcard card.img \-\-sdcard\-export\-base original.img \-\-sdcard\-export\-changes \(ti/my\-files
+jnext \-\-sdcard new.img \-\-sdcard\-import\-changes \(ti/my\-files
+.EE
+.PP
+\f[B]\-\-sdcard\-writes\-flatten\f[R] makes one plain image from a card
+and its writes file.
+\f[B]\-\-sdcard\-export\-changes\f[R] copies every file you added or
+changed, as the machine sees the card, into a directory, and writes
+\f[CR]CHANGES.txt\f[R] there.
+Each line of it is five TAB\-separated fields: a kind (\f[CR]A\f[R] an
+added file, \f[CR]C\f[R] a changed file, \f[CR]D\f[R] an added
+directory, \f[CR]R\f[R] a file you removed: listed, never imported), the
+attribute letters among \f[CR]R\f[R], \f[CR]H\f[R], \f[CR]S\f[R] in that
+order (or \f[CR]\-\f[R]), the size in bytes, the path on the card
+(absolute, bytes outside printable ASCII and \f[CR]%\f[R] written
+\f[CR]%XX\f[R]), and the file\(cqs path inside the directory
+(\f[CR]\-\f[R] for \f[CR]D\f[R] and \f[CR]R\f[R]).
+The first line is \f[CR]jnext\-changes 1\f[R]; lines starting with
+\f[CR]#\f[R] are comments; lines are sorted by card path.
+Delete a line to leave that file out of an import.
+.PP
+\f[B]\-\-sdcard\-import\-changes\f[R] is the inverse: it writes every
+\f[CR]A\f[R] and \f[CR]C\f[R] line\(cqs file to its card path (making
+\f[CR]D\f[R] lines\(cq directories), replaces what is there, restores
+the attributes, and reports which paths were written and which replaced.
+It never applies an \f[CR]R\f[R] line and never copies
+\f[CR]CHANGES.txt\f[R].
+A directory without a valid \f[CR]CHANGES.txt\f[R], a listed file that
+is missing or has another size, and a card path jnext cannot write are
+each refused before anything is written.
+The three commands take the exit statuses of
+\f[B]\-\-sdcard\-file\-add\f[R] (see \f[B]EXIT STATUS\f[R]).
 .SH LOADING PROGRAMS
 Use \f[B]\-\-load\f[R] \f[I]FILE\f[R], or simply a bare filename
 (\f[CR]jnext game.tap\f[R]).
@@ -4943,7 +5016,10 @@ This applies to the GUI, the SDL\-only build and \f[B]\-\-headless\f[R];
 on Windows it is unchanged.
 .PP
 \f[B]\-\-sdcard\-file\-add\f[R] is a scriptable non\-emulation mode, so
-it reports which failure happened rather than a single non\-zero status:
+it reports which failure happened rather than a single non\-zero status.
+\f[B]\-\-sdcard\-writes\-flatten\f[R],
+\f[B]\-\-sdcard\-export\-changes\f[R] and
+\f[B]\-\-sdcard\-import\-changes\f[R] use the same table:
 .TP
 0
 The file or directory was copied onto the card.
@@ -4979,7 +5055,8 @@ The SD image is missing, is not an MBR\-partitioned FAT32 image, holds a
 filesystem this build will not mount (an under\-clustered one), or could
 not be written, or, with \f[B]\-\-sdcard\-writes\f[R], the writes file
 could not be written or holds a rewritten partition table or boot
-sector.
+sector; or another jnext is using the image or the writes file (one
+card, one jnext).
 .TP
 6
 The card has no room \(em not enough free space, or a directory with no

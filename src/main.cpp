@@ -10,6 +10,7 @@
 #include "core/rzx_recorder.h"
 #include "core/image_lock.h"
 #include "core/sdcard_file_add.h"
+#include "core/sdcard_carry.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
@@ -386,6 +387,10 @@ static int run_main(int argc, char* argv[]) {
     std::string sdcard_file_add;       // host file or directory to copy onto the card
     std::string sdcard_file_dest;      // where it lands on the card ("" = root, GH #292)
     int         sdcard_file_add_count  = 0;  // occurrences, so a repeat is refused
+    std::string sdcard_writes_flatten;   // GH #555: the rescue verbs, terminal commands like file-add
+    std::string sdcard_export_dir, sdcard_export_base, sdcard_import_dir;
+    int         sdcard_flatten_count = 0, sdcard_export_count = 0, sdcard_import_count = 0,
+                sdcard_export_base_count = 0;
     int         sdcard_file_dest_count = 0;
     bool        sdcard_file_force = false;  // permit replacing an existing file
     std::string screenshot_file;
@@ -837,6 +842,22 @@ static int run_main(int argc, char* argv[]) {
             case cli::OptId::SdcardFileAdd:
                 sdcard_file_add = v[0];
                 ++sdcard_file_add_count;
+                break;
+            case cli::OptId::SdcardWritesFlatten:
+                sdcard_writes_flatten = v[0];
+                ++sdcard_flatten_count;
+                break;
+            case cli::OptId::SdcardExportChanges:
+                sdcard_export_dir = v[0];
+                ++sdcard_export_count;
+                break;
+            case cli::OptId::SdcardExportBase:
+                sdcard_export_base = v[0];
+                ++sdcard_export_base_count;
+                break;
+            case cli::OptId::SdcardImportChanges:
+                sdcard_import_dir = v[0];
+                ++sdcard_import_count;
                 break;
             case cli::OptId::SdcardFileDest:
                 sdcard_file_dest = v[0];
@@ -1953,6 +1974,36 @@ static int run_main(int argc, char* argv[]) {
             return 1;
         }
     }
+    // GH #555 - the rescue verbs (flatten, export, import) are terminal commands too: one per run,
+    // each with what it needs, none combined with "and then run this".
+    {
+        const int verbs = (sdcard_file_add_count > 0) + (sdcard_flatten_count > 0) +
+                          (sdcard_export_count > 0) + (sdcard_import_count > 0);
+        const int repeats = sdcard_flatten_count > 1 || sdcard_export_count > 1 ||
+                            sdcard_import_count > 1 || sdcard_export_base_count > 1;
+        const char* usage = nullptr;
+        std::string usage_text;
+        if (repeats) usage = "--sdcard-writes-flatten, --sdcard-export-changes, --sdcard-export-base and --sdcard-import-changes may each be given once.";
+        else if (verbs > 1) usage = "--sdcard-file-add, --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are separate commands: give one per run.";
+        else if (sdcard_export_base_count > 0 && sdcard_export_count == 0) usage = "--sdcard-export-base requires --sdcard-export-changes DIR.";
+        else if (sdcard_flatten_count > 0 && sdcard_writes_file.empty()) usage = "--sdcard-writes-flatten requires --sdcard-writes FILE.";
+        else if ((sdcard_flatten_count > 0 && sdcard_writes_flatten.empty()) ||
+                 (sdcard_export_count > 0 && sdcard_export_dir.empty()) ||
+                 (sdcard_import_count > 0 && sdcard_import_dir.empty()) ||
+                 (sdcard_export_base_count > 0 && sdcard_export_base.empty()))
+            usage = "--sdcard-writes-flatten, --sdcard-export-changes, --sdcard-export-base and --sdcard-import-changes need a non-empty value.";
+        else if (sdcard_import_count > 0 && sdcard_readonly)
+            usage = "--sdcard-import-changes cannot be combined with --sdcard-readonly: it exists to write the card.";
+        else if (verbs > 0 && sdcard_file_add_count == 0 && (!load_file.empty() || !inject_file.empty())) {
+            usage_text = std::string(sdcard_flatten_count ? "--sdcard-writes-flatten" : sdcard_export_count ? "--sdcard-export-changes" : "--sdcard-import-changes") +
+                         " cannot be combined with --load or --inject: it runs without starting emulation.";
+            usage = usage_text.c_str();
+        }
+        if (usage) {
+            startup_report::report("%s\n", usage);
+            return 1;
+        }
+    }
     // Headless automation (each says so in --help): the windowed frontends
     // never read these, so there they were accepted and did nothing (#138).
     if (!headless) {
@@ -2134,7 +2185,9 @@ static int run_main(int argc, char* argv[]) {
         // session, so it provisions through the CLI prompts even in a Qt
         // build: popping a modal dialog out of `jnext --sdcard-file-add ...`
         // in a script would hang it with nothing to click.
-        const bool sd_gui_dialogs = !headless && sdcard_file_add_count == 0;
+        const bool sdcard_terminal_verb = sdcard_file_add_count > 0 || sdcard_flatten_count > 0 ||
+                                          sdcard_export_count > 0 || sdcard_import_count > 0;   // GH #555
+        const bool sd_gui_dialogs = !headless && !sdcard_terminal_verb;
         if (sd_gui_dialogs) {
             opts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
             opts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
@@ -2156,7 +2209,7 @@ static int run_main(int argc, char* argv[]) {
         opts.busy     = sdcard::cli_busy;
         // The SDL window frontend asks with a message box; --headless and the terminal
         // command --sdcard-file-add never ask (they log how to upgrade).
-        if (!headless && sdcard_file_add_count == 0) opts.upgrade = sdcard::sdl_offer_upgrade;
+        if (!headless && !sdcard_terminal_verb) opts.upgrade = sdcard::sdl_offer_upgrade;
 #endif
 #endif   // __EMSCRIPTEN__
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
@@ -2232,7 +2285,8 @@ static int run_main(int argc, char* argv[]) {
         if (!sd_card_image.empty() &&
             !sdcard::sd_locks::hold(0, sd_card_image, sdcard_writes_file, lock_why)) {
             startup_report::report("error: %s\n", lock_why.c_str());
-            return sdcard_file_add_count > 0
+            return (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
+                    sdcard_import_count > 0)
                 ? static_cast<int>(sdcard::FileAddStatus::ImageUnusable) : 1;
         }
     }
@@ -2322,6 +2376,67 @@ static int run_main(int argc, char* argv[]) {
                          sdcard_file_add.c_str(), summary.dest.c_str(),
                          sd_card_image.c_str(), kept.c_str());
         }
+        return 0;
+    }
+
+    // ---------------------------------------------------------------------
+    // GH #555 - the rescue verbs. Like --sdcard-file-add they run on exactly the image a normal run
+    // would boot, after the image lock, and exit; they share its exit statuses.
+    // ---------------------------------------------------------------------
+    if (sdcard_flatten_count > 0) {
+        const auto journal = sd_write_journal::for_image(sd_card_image);
+        std::string ferr;
+        const sdcard::FileAddStatus st = journal
+            ? sdcard::carry::flatten(sd_card_image, *journal, sdcard_writes_flatten, ferr)
+            : sdcard::FileAddStatus::DestInvalid;
+        if (!journal) ferr = "no writes file is bound to the SD image";
+        if (st != sdcard::FileAddStatus::Ok) {
+            std::fprintf(stderr, "error: --sdcard-writes-flatten: %s\n", ferr.c_str());
+            return static_cast<int>(st);
+        }
+        std::fprintf(stdout, "Wrote '%s': '%s' with the writes of '%s' laid over it\n",
+                     sdcard_writes_flatten.c_str(), sd_card_image.c_str(), sdcard_writes_file.c_str());
+        return 0;
+    }
+    if (sdcard_export_count > 0) {
+        sdcard::carry::ExportRequest req;
+        req.image = sd_card_image;
+        req.journal = sd_write_journal::for_image(sd_card_image);
+        req.base_image = sdcard_export_base;
+        req.dir = sdcard_export_dir;
+        req.is_default_card = sdcard::same_image_file(sd_card_image, sdcard::default_sdcard_image_path());
+        sdcard::carry::ExportReport rep;
+        std::string eerr;
+        const sdcard::FileAddStatus st = sdcard::carry::export_changes(req, rep, eerr);
+        if (st != sdcard::FileAddStatus::Ok) {
+            std::fprintf(stderr, "error: --sdcard-export-changes: %s\n", eerr.c_str());
+            return static_cast<int>(st);
+        }
+        std::fprintf(stdout,
+                     "Exported %u added and %u changed file(s) and %u director%s of '%s' to '%s' "
+                     "(compared against: %s; %u removed file(s) listed, not exported)\n",
+                     rep.added, rep.changed, rep.dirs, rep.dirs == 1 ? "y" : "ies",
+                     sd_card_image.c_str(), sdcard_export_dir.c_str(), rep.base.c_str(), rep.removed);
+        for (const std::string& n : rep.escaped)
+            std::fprintf(stdout, "  written with an escaped name: %s\n", n.c_str());
+        return 0;
+    }
+    if (sdcard_import_count > 0) {
+        sdcard::carry::ImportReport rep;
+        std::string ierr;
+        const sdcard::FileAddStatus st = sdcard::carry::import_changes(sd_card_image, sdcard_import_dir, rep, ierr);
+        if (st != sdcard::FileAddStatus::Ok) {
+            std::fprintf(stderr, "error: --sdcard-import-changes: %s\n", ierr.c_str());
+            return static_cast<int>(st);
+        }
+        const std::string kept = sdcard_writes_file.empty()
+            ? std::string()
+            : ", kept in " + sdcard_writes_file + " (the image is not written)";
+        std::fprintf(stdout, "Imported %zu file(s) into %s (%zu new, %zu replaced, %u new director%s)%s\n",
+                     rep.written.size() + rep.replaced.size(), sd_card_image.c_str(), rep.written.size(),
+                     rep.replaced.size(), rep.dirs_created, rep.dirs_created == 1 ? "y" : "ies", kept.c_str());
+        for (const std::string& p : rep.written)  std::fprintf(stdout, "  written  %s\n", p.c_str());
+        for (const std::string& p : rep.replaced) std::fprintf(stdout, "  replaced %s\n", p.c_str());
         return 0;
     }
 

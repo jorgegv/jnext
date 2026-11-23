@@ -247,9 +247,8 @@ naming the option and the value, and exits with status 1.
     SD-card image and **exit without starting emulation**. Without
     **\--sdcard-file-dest** it lands in the root of the card under its own
     name. Give it once per run. The image written is the one **\--sdcard**
-    names, or the default-location image when **\--sdcard** is omitted — in
-    which case a loud warning says so, because that image is shared with every
-    other run. With **\--sdcard-writes** the copy goes into that file instead
+    names, or the default-location image when **\--sdcard** is omitted (your own
+    card). With **\--sdcard-writes** the copy goes into that file instead
     and the image is not written. See **PUTTING A FILE ON THE CARD**.
 
 **\--sdcard-file-dest** *PATH*
@@ -262,6 +261,36 @@ naming the option and the value, and exits with status 1.
 **\--sdcard-file-force**
 :   Let **\--sdcard-file-add** replace files that are already there. Without it
     an existing destination file is refused and nothing is written.
+
+**\--sdcard-writes-flatten** *OUT*
+:   Write *OUT*, a plain image of the card with the **\--sdcard-writes** *FILE*
+    laid over it (the card as the machine sees it), and **exit without starting
+    emulation**. Any FAT tool (mtools, a loop mount, 7-Zip) can open *OUT*.
+    Requires **\--sdcard-writes**. An *OUT* that already exists is refused.
+    See **GETTING YOUR FILES OUT**.
+
+**\--sdcard-export-changes** *DIR*
+:   Copy the files you added or changed on the card, as the machine sees it
+    (the card plus the **\--sdcard-writes** file, when one is given), into
+    *DIR* as ordinary files, write the list `CHANGES.txt` beside them, and
+    **exit without starting emulation**. *DIR* must be new or empty. What it
+    compares the card against, in this order: the card as jnext made it (the
+    default card, when its original image is still on disk and matches), the
+    image named by **\--sdcard-export-base**, the card itself when there is a
+    **\--sdcard-writes** file (so only that file's changes are exported); with
+    none of these it refuses. See **GETTING YOUR FILES OUT**.
+
+**\--sdcard-export-base** *FILE*
+:   With **\--sdcard-export-changes**: the image the card was made from, to
+    compare against. A raw distribution image is accepted as it is.
+
+**\--sdcard-import-changes** *DIR*
+:   Put the files of a **\--sdcard-export-changes** directory *DIR* onto the
+    card (or, with **\--sdcard-writes**, into that file) and **exit without
+    starting emulation**. *DIR* must hold the `CHANGES.txt` the export wrote.
+    A file already on the card is replaced, a read-only one too; nothing is
+    ever deleted; the attributes (read-only, hidden, system) are restored. All
+    or nothing, as **\--sdcard-file-add**. See **GETTING YOUR FILES OUT**.
 
 **\--warm-start-regenerate**
 :   Discard the cached warm-start recording and take a fresh one on the next
@@ -1784,14 +1813,14 @@ since FAT never shrinks a directory. The free-space check counts a file that
 nearly full card can be refused even though it would just fit.
 
 The copy goes into the image **\--sdcard** names. With no **\--sdcard** it goes
-into the default-location image, which every other run also boots and which the
-test suite resolves from; jnext warns loudly when that happens. It does not make
+into the default-location image, your own card, which every run without
+**\--sdcard** boots. It does not make
 a backup: these are gigabyte files, and `cp --reflink=auto` is instant on a
 copy-on-write filesystem.
 
 With **\--sdcard-writes** *FILE* the copy goes into *FILE* instead, and the
 image is opened read-only and never written, so a card shared by other runs
-stays as it is and no warning about the default image is given. The next run
+stays as it is. The next run
 that is given the same image and *FILE* boots a card that has the file:
 
     jnext --sdcard-file-add DOTEST --sdcard-file-dest /DOT/DOTEST --sdcard-writes dev.jsdw
@@ -1825,6 +1854,36 @@ The exit status says which of the things that can go wrong did; see
 `.P3D` found at `/NEXTZXOS/DRV-`*X*`.DSK` (and `CPM-`*X*`.`*ext*) as drive *X*,
 so copying one there is all it takes to have a +3 disk available at the next
 boot.
+
+## GETTING YOUR FILES OUT
+
+Three commands, like **\--sdcard-file-add** terminal commands that start no emulation, get
+your files off a card or into one:
+
+    jnext --sdcard card.img --sdcard-writes dev.jsdw --sdcard-writes-flatten flat.img
+    jnext --sdcard card.img --sdcard-export-base original.img --sdcard-export-changes ~/my-files
+    jnext --sdcard new.img --sdcard-import-changes ~/my-files
+
+**\--sdcard-writes-flatten** makes one plain image from a card and its writes
+file. **\--sdcard-export-changes** copies every file you added or changed, as the
+machine sees the card, into a directory, and writes `CHANGES.txt` there. Each
+line of it is five TAB-separated fields: a kind (`A` an added file, `C` a
+changed file, `D` an added directory, `R` a file you removed: listed, never
+imported), the attribute letters among `R`, `H`, `S` in that order (or `-`),
+the size in bytes, the path on the card (absolute, bytes outside printable
+ASCII and `%` written `%XX`), and the file's path inside the directory (`-` for
+`D` and `R`). The first line is `jnext-changes 1`; lines starting with `#` are
+comments; lines are sorted by card path. Delete a line to leave that file out of
+an import.
+
+**\--sdcard-import-changes** is the inverse: it writes every `A` and `C` line's
+file to its card path (making `D` lines' directories), replaces what is there,
+restores the attributes, and reports which paths were written and which
+replaced. It never applies an `R` line and never copies `CHANGES.txt`. A
+directory without a valid `CHANGES.txt`, a listed file that is missing or has
+another size, and a card path jnext cannot write are each refused before
+anything is written. The three commands take the exit statuses of
+**\--sdcard-file-add** (see **EXIT STATUS**).
 
 # LOADING PROGRAMS
 
@@ -3659,7 +3718,8 @@ non-interactive shell) stays ignored. This applies to the GUI, the SDL-only
 build and **\--headless**; on Windows it is unchanged.
 
 **\--sdcard-file-add** is a scriptable non-emulation mode, so it reports which
-failure happened rather than a single non-zero status:
+failure happened rather than a single non-zero status. **\--sdcard-writes-flatten**,
+**\--sdcard-export-changes** and **\--sdcard-import-changes** use the same table:
 
 0
 :   The file or directory was copied onto the card.
@@ -3668,10 +3728,15 @@ failure happened rather than a single non-zero status:
 :   Command-line usage error — **\--sdcard-file-dest** or
     **\--sdcard-file-force** without **\--sdcard-file-add**, either of the
     first two given twice or with an empty value, or combined with
-    **\--sdcard-readonly** or **\--load**.
+    **\--sdcard-readonly** or **\--load**; for the three commands above, a
+    missing companion (**\--sdcard-writes-flatten** without **\--sdcard-writes**,
+    **\--sdcard-export-base** without **\--sdcard-export-changes**), an empty
+    value, a repeat, or two of the commands in one run.
 
 2
-:   The host file is missing, unreadable, shrank while being copied, or is 4 GiB
+:   For **\--sdcard-import-changes**: the directory has no `CHANGES.txt`, it is
+    not a valid changes list, or a listed file is missing or not the size its
+    line says. Otherwise the host file is missing, unreadable, shrank while being copied, or is 4 GiB
     or larger (which FAT32 cannot store); or, inside a directory, a device,
     FIFO or socket, an unreadable directory, a dangling symbolic link, or one
     that loops back.
@@ -3691,7 +3756,8 @@ failure happened rather than a single non-zero status:
 :   The SD image is missing, is not an MBR-partitioned FAT32 image, holds a
     filesystem this build will not mount (an under-clustered one), or could not
     be written, or, with **\--sdcard-writes**, the writes file could not be
-    written or holds a rewritten partition table or boot sector.
+    written or holds a rewritten partition table or boot sector; or another
+    jnext is using the image or the writes file (one card, one jnext).
 
 6
 :   The card has no room — not enough free space, or a directory with no free

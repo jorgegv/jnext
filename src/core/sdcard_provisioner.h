@@ -503,6 +503,19 @@ bool patch_image_fat32(const std::string& image_path, std::string& err,
 // ("181e0161"). 0 when the hash is not 8 hex digits long at least.
 uint32_t volume_id_from_sha256(const std::string& raw_sha256_hex);
 
+/// Rebuild a card the way recipe `recipe` made it (GH #555: the upgrade compares the user's card
+/// with the card AS MADE, so it needs the old recipes too). `image_path` holds the raw image and
+/// is rewritten in place.
+///   recipe 1: re-cluster to 8 KB + config.ini (no zx81 doubling, serial left as f_mkfs wrote it)
+///   recipe 2: also doubles the known 16 KB zx81.rom
+///   recipe 3: also the volume serial from `raw_sha256_hex` (volume_id_from_sha256)
+/// Any other recipe (0, one newer than kFixedImageRecipe) is refused: false, `err` says so.
+/// `zx81_known_sha256` is patch_image_fat32's test seam. Recipe 3 with kFixedImageRecipe == 3
+/// is exactly what provision_sd_card does.
+bool patch_image_for_recipe(const std::string& image_path, int recipe,
+                            const std::string& raw_sha256_hex, std::string& err,
+                            const std::string& zx81_known_sha256 = kZx81Rom16kSha256);
+
 struct ProvisionOptions {
     std::string explicit_path;      // --sdcard value ("" if not given)
     bool        auto_confirm  = false; // --sdcard-download-confirm

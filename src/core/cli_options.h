@@ -55,6 +55,10 @@ enum class OptId {
     SdcardUpgrade,
     SdcardReadonly,
     SdcardFileAdd,
+    SdcardWritesFlatten,
+    SdcardExportChanges,
+    SdcardExportBase,
+    SdcardImportChanges,
     SdcardFileDest,
     SdcardFileForce,
     WarmStartRegenerate,
@@ -326,6 +330,31 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Let --sdcard-file-add replace existing files. Without\n"
       "it an existing destination is refused, untouched." },
+    // GH #555 - rescue verbs: terminal commands like --sdcard-file-add. They share its exit statuses.
+    { "--sdcard-writes-flatten", 1, Doc::Documented, OptId::SdcardWritesFlatten,
+      "OUT",
+      "Write OUT, a plain image of the card with the --sdcard-writes\n"
+      "FILE laid over it (what the machine sees), and exit without\n"
+      "starting emulation. Any FAT tool can open OUT. Needs\n"
+      "--sdcard-writes; refuses an OUT that exists." },
+    { "--sdcard-export-changes", 1, Doc::Documented, OptId::SdcardExportChanges,
+      "DIR",
+      "Copy the files you added or changed on the card (as the\n"
+      "machine sees it: the card plus any --sdcard-writes FILE) into\n"
+      "DIR, with the list CHANGES.txt, and exit without starting\n"
+      "emulation. Compared against the card as jnext made it, else\n"
+      "--sdcard-export-base, else the card itself when there is a\n"
+      "--sdcard-writes FILE. DIR must be empty or new." },
+    { "--sdcard-export-base", 1, Doc::Documented, OptId::SdcardExportBase,
+      "FILE",
+      "With --sdcard-export-changes: the image the card was made\n"
+      "from, to compare against (a raw distribution image is fine)." },
+    { "--sdcard-import-changes", 1, Doc::Documented, OptId::SdcardImportChanges,
+      "DIR",
+      "Put the files of a --sdcard-export-changes DIR onto the card\n"
+      "(or into the --sdcard-writes FILE) and exit without starting\n"
+      "emulation. Files that exist are replaced; nothing is deleted;\n"
+      "CHANGES.txt is required." },
     { "--warm-start-regenerate", 0, Doc::Documented, OptId::WarmStartRegenerate,
       "",
       "Discard the cached warm-start recording and take a fresh one\n"

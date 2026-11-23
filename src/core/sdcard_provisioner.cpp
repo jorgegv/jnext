@@ -968,6 +968,20 @@ bool patch_image_fat32(const std::string& image_path, std::string& err,
     return true;
 }
 
+bool patch_image_for_recipe(const std::string& image_path, int recipe,
+                            const std::string& raw_sha256_hex, std::string& err,
+                            const std::string& zx81_known_sha256) {
+    if (recipe < 1 || recipe > kFixedImageRecipe) {
+        err = "this jnext cannot rebuild a card made by recipe " + std::to_string(recipe) +
+              " (it knows recipes 1 to " + std::to_string(kFixedImageRecipe) + ")";
+        return false;
+    }
+    // Recipe 1 never doubled zx81.rom: a hash no file has leaves it alone.
+    const std::string zx = recipe >= 2 ? zx81_known_sha256 : std::string("none");
+    const uint32_t serial = recipe >= 3 ? volume_id_from_sha256(raw_sha256_hex) : 0;
+    return patch_image_fat32(image_path, err, zx, serial);
+}
+
 // ---------------------------------------------------------------------------
 // Top-level resolution
 // ---------------------------------------------------------------------------

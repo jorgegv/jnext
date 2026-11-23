@@ -256,10 +256,9 @@ with status 1.
     Without **--sdcard-file-dest** it lands in the root of the card
     under its own name. Give it once per run. The image written is the
     one **--sdcard** names, or the default-location image when
-    **--sdcard** is omitted — in which case a loud warning says so,
-    because that image is shared with every other run. With
-    **--sdcard-writes** the copy goes into that file instead and the
-    image is not written. See **PUTTING A FILE ON THE CARD**.
+    **--sdcard** is omitted (your own card). With **--sdcard-writes**
+    the copy goes into that file instead and the image is not written.
+    See **PUTTING A FILE ON THE CARD**.
 
 **--sdcard-file-dest** *PATH*
 :   Optional. The path on the card that **--sdcard-file-add**’s *FILE*
@@ -272,6 +271,38 @@ with status 1.
 :   Let **--sdcard-file-add** replace files that are already there.
     Without it an existing destination file is refused and nothing is
     written.
+
+**--sdcard-writes-flatten** *OUT*
+:   Write *OUT*, a plain image of the card with the **--sdcard-writes**
+    *FILE* laid over it (the card as the machine sees it), and **exit
+    without starting emulation**. Any FAT tool (mtools, a loop mount,
+    7-Zip) can open *OUT*. Requires **--sdcard-writes**. An *OUT* that
+    already exists is refused. See **GETTING YOUR FILES OUT**.
+
+**--sdcard-export-changes** *DIR*
+:   Copy the files you added or changed on the card, as the machine sees
+    it (the card plus the **--sdcard-writes** file, when one is given),
+    into *DIR* as ordinary files, write the list `CHANGES.txt` beside
+    them, and **exit without starting emulation**. *DIR* must be new or
+    empty. What it compares the card against, in this order: the card as
+    jnext made it (the default card, when its original image is still on
+    disk and matches), the image named by **--sdcard-export-base**, the
+    card itself when there is a **--sdcard-writes** file (so only that
+    file’s changes are exported); with none of these it refuses. See
+    **GETTING YOUR FILES OUT**.
+
+**--sdcard-export-base** *FILE*
+:   With **--sdcard-export-changes**: the image the card was made from,
+    to compare against. A raw distribution image is accepted as it is.
+
+**--sdcard-import-changes** *DIR*
+:   Put the files of a **--sdcard-export-changes** directory *DIR* onto
+    the card (or, with **--sdcard-writes**, into that file) and **exit
+    without starting emulation**. *DIR* must hold the `CHANGES.txt` the
+    export wrote. A file already on the card is replaced, a read-only
+    one too; nothing is ever deleted; the attributes (read-only, hidden,
+    system) are restored. All or nothing, as **--sdcard-file-add**. See
+    **GETTING YOUR FILES OUT**.
 
 **--warm-start-regenerate**
 
