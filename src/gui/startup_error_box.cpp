@@ -5,12 +5,22 @@
 
 #include <QApplication>
 #include <QMessageBox>
+#include <QtGlobal>
 #include <memory>
 
 namespace gui {
 
 void show_startup_error(const std::string& title, const std::string& text)
 {
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    // No display and no platform plugin asked for: QApplication would abort the process. The
+    // error is on stderr already, and the exit status must stay the plain failure it was.
+    if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM") && qEnvironmentVariableIsEmpty("DISPLAY") &&
+        qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY")) {
+        Log::platform()->debug("dialog not shown, no display: {}: {}", title, text);
+        return;
+    }
+#endif
     static std::unique_ptr<QApplication> temp_app;
     if (QApplication::instance() == nullptr && !temp_app) {
         static int argc = 1;

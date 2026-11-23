@@ -298,6 +298,26 @@ static bool bind_card_writes(const char* flag, const char* label, const std::str
     return true;
 }
 
+static int run_main(int argc, char* argv[]);   // GH #555: the whole program, below
+
+// GH #555: the real entry point. run_main() is the whole program; when a windowed, attended run
+// ends with a failure before its loop started, the reason (kept by startup_report) goes into the
+// frontend's own message box too, because a desktop launch has no terminal to show stderr in.
+int main(int argc, char* argv[]) {
+    const startup_report::Launch launch = startup_report::classify(argc, argv);
+    const int rc = run_main(argc, argv);
+    if (startup_report::should_show(rc, launch.windowed, launch.unattended,
+                                    startup_report::running() || startup_report::dialog_shown())) {
+        const std::string text = startup_report::text(rc);
+#ifdef ENABLE_QT_UI
+        gui::show_startup_error("jnext could not start", text);
+#else
+        startup_report::show_error_sdl("jnext could not start", text);
+#endif
+    }
+    return rc;
+}
+
 static int run_main(int argc, char* argv[]) {
 #ifdef _WIN32
     // Must run before any stdout/stderr output and before Qt/SDL init.
@@ -3436,22 +3456,4 @@ static int run_main(int argc, char* argv[]) {
     // result is non-zero; the error behind it has been logged already.
     quit_signal::reraise_if_pending();
     return result;
-}
-
-// GH #555: the real entry point. run_main() is the whole program; when a windowed, attended run
-// ends with a failure before its loop started, the reason (kept by startup_report) goes into the
-// frontend's own message box too, because a desktop launch has no terminal to show stderr in.
-int main(int argc, char* argv[]) {
-    const startup_report::Launch launch = startup_report::classify(argc, argv);
-    const int rc = run_main(argc, argv);
-    if (startup_report::should_show(rc, launch.windowed, launch.unattended,
-                                    startup_report::running() || startup_report::dialog_shown())) {
-        const std::string text = startup_report::text(rc);
-#ifdef ENABLE_QT_UI
-        gui::show_startup_error("jnext could not start", text);
-#else
-        startup_report::show_error_sdl("jnext could not start", text);
-#endif
-    }
-    return rc;
 }
