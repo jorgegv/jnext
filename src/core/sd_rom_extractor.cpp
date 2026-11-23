@@ -48,6 +48,7 @@ struct Fat32Geom {
     uint32_t fat_start_lba       = 0; // == partition_lba_start + reserved
     uint32_t data_start_lba      = 0; // end of FATs (+ fixed root for 12/16)
     uint32_t bytes_per_cluster   = 0;
+    uint32_t n_clusters          = 0; // upper bound on any chain's length
 };
 
 // FAT32 directory entry attribute bits.
@@ -92,8 +93,9 @@ bool is_fat_boot_record(const uint8_t* s) {
 // partition-less "superfloppy": LBA 0); otherwise the 4 MBR entries are tried in
 // order, an entry being skipped when its type byte or LBA is 0, and the first
 // whose sector is a FAT boot record wins, WHATEVER its type byte. One legacy
-// leniency on top (an entry of type 0x0B/0x0C is taken without the boot-record
-// test, as jnext always did): this reader accepts every card the firmware does.
+// leniency on top, tried only when that scan found nothing (the first entry of
+// type 0x0B/0x0C is taken without the boot-record test, as jnext always did):
+// this reader accepts every card the firmware does, and picks the same volume.
 // Returns true with `lba_out` set (0 is valid: superfloppy).
 // `why`, when non-null, receives the same reason the log line carries. The
 // ROM extractor only logs; `read_sd_image_identity` must be able to NAME the
@@ -119,16 +121,14 @@ bool find_fat_volume(std::ifstream& f, uint32_t& lba_out, std::string* why = nul
         lba_out = 0;
         return true;
     }
+    // Pass 1, the firmware's scan: entries in order, a type byte or LBA of 0
+    // skipped, the first whose sector is a FAT boot record wins, whatever its type.
     // Partition table: 4 entries x 16 bytes starting at offset 0x1BE.
     for (int i = 0; i < 4; ++i) {
         const uint8_t* pe   = mbr + 0x1BE + i * 16;
         const uint8_t  type = pe[4];
         const uint32_t lba  = rd_u32(pe + 8);
         if (type == 0 || lba == 0) continue;
-        if (type == 0x0B || type == 0x0C) {   // legacy: taken as is
-            lba_out = lba;
-            return true;
-        }
         uint8_t vbr[512];
         f.clear();
         f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(lba) * 512), std::ios::beg);
@@ -136,6 +136,16 @@ bool find_fat_volume(std::ifstream& f, uint32_t& lba_out, std::string* why = nul
         const bool got = f.good() && f.gcount() == 512;
         f.clear();
         if (got && is_fat_boot_record(vbr)) {
+            lba_out = lba;
+            return true;
+        }
+    }
+    // Pass 2, the legacy leniency, only when the firmware's scan found nothing:
+    // the first 0x0B/0x0C entry is taken without the boot-record test.
+    for (int i = 0; i < 4; ++i) {
+        const uint8_t* pe   = mbr + 0x1BE + i * 16;
+        const uint32_t lba  = rd_u32(pe + 8);
+        if ((pe[4] == 0x0B || pe[4] == 0x0C) && lba != 0) {
             lba_out = lba;
             return true;
         }
@@ -211,7 +221,7 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
         (!fat32_layout && g.root_entries == 0)) {
         Log::emulator()->error("sd_rom_extractor: invalid FAT BPB (num_fats={}, fat_size={}, root_cluster={}, root_entries={})",
                                g.num_fats, g.fat_size_sectors, g.root_cluster, g.root_entries);
-        if (why) *why = "invalid FAT32 BPB (num_fats=" +
+        if (why) *why = "invalid FAT BPB (num_fats=" +
                         std::to_string(g.num_fats) + " fat_size=" +
                         std::to_string(g.fat_size_sectors) + " root_cluster=" +
                         std::to_string(g.root_cluster) + " root_entries=" +
@@ -225,7 +235,16 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
     g.bytes_per_cluster = static_cast<uint32_t>(g.sectors_per_cluster) *
                           g.bytes_per_sector;
     if (fat32_layout) {
+        // Chain-length bound: the volume's cluster count where the BPB gives
+        // one, never more than the FAT can hold entries for.
+        const uint64_t fat_entries =
+            static_cast<uint64_t>(g.fat_size_sectors) * g.bytes_per_sector / 4;
         g.fat_bits = 32;
+        const uint32_t tot32 = rd_u32(bpb + 32);
+        const uint32_t sys32 = g.data_start_lba - g.partition_lba_start;
+        uint64_t n = fat_entries;
+        if (tot32 > sys32) n = std::min<uint64_t>(n, (tot32 - sys32) / g.sectors_per_cluster);
+        g.n_clusters = static_cast<uint32_t>(std::min<uint64_t>(n, 0x0FFFFFFFu));
         return true;
     }
 
@@ -251,6 +270,7 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
         return false;
     }
     g.fat_bits = (nclst <= 0xFF5u) ? 12 : 16;
+    g.n_clusters = nclst;
     return true;
 }
 
@@ -424,12 +444,10 @@ bool find_in_directory(std::ifstream& f, const Fat32Geom& g,
     }
 
     uint32_t cluster = start_cluster;
-    // Hard upper bound on chain walk: the FAT is sized to hold one entry
-    // per data cluster, so any chain longer than the total cluster count
-    // is a cycle. `fat_size_sectors` is validated > 0 in parse_bpb.
-    const uint64_t max_chain_len =
-        (static_cast<uint64_t>(g.fat_size_sectors) * g.bytes_per_sector * 8) /
-        static_cast<uint64_t>(g.fat_bits);
+    // Hard upper bound on chain walk: any chain longer than the volume's
+    // cluster count is a cycle, so a hostile image costs at most one walk of
+    // that length (the FAT's capacity can be 100x larger than the volume).
+    const uint64_t max_chain_len = g.n_clusters;
     uint64_t steps = 0;
     while (cluster >= 2 && cluster < bad_mark(g)) {
         if (++steps > max_chain_len) {

@@ -5,9 +5,9 @@
 #include <string>
 #include <vector>
 
-/// Host-side FAT32 file extractor for ZX Spectrum Next SD card images.
+/// Host-side FAT12/16/32 file extractor for ZX Spectrum Next SD card images.
 ///
-/// Wave 0.2 of the Task 8 Multiface plan introduces a HOST-SIDE FAT32
+/// Wave 0.2 of the Task 8 Multiface plan introduces a HOST-SIDE FAT
 /// reader so Emulator::init can pull named ROM files (enNxtmmc.rom,
 /// enNextMf.rom, 48.rom, ...) directly from the SD image at startup.
 ///
@@ -17,7 +17,7 @@
 /// serves the host (init-time named-file lookup), the other serves the
 /// guest (runtime block I/O).
 ///
-/// The reader implements a focused read-only FAT32-LBA parser:
+/// The reader implements a focused read-only FAT parser:
 ///   - FAT12/16/32, partitioned (any non-zero MBR type over a FAT boot
 ///     record, or type 0x0B / 0x0C) or partition-less, as the firmware mounts
 ///   - 8.3 short-name lookup (case-insensitive on input)
@@ -41,7 +41,7 @@
 /// `sd_image_path` points at a raw .img file containing a FAT volume (MBR
 /// partitioned, e.g. the standard TBBlue FAT32-LBA layout, or partition-less).
 ///
-/// `sd_path` is a forward-slash-separated path inside the FAT32 filesystem,
+/// `sd_path` is a forward-slash-separated path inside the FAT filesystem,
 /// case-insensitive. A leading '/' is optional. Examples:
 ///   "/MACHINES/NEXT/enNxtmmc.rom"
 ///   "machines/next/enNxtmmc.rom"
@@ -130,7 +130,7 @@ struct SdImageIdentity {
 };
 
 /// Read `SdImageIdentity` from an SD image. Returns false with `why` naming
-/// the defect (unreadable, no MBR signature, no FAT32-LBA partition, a BPB
+/// the defect (unreadable, no MBR signature, no FAT volume, a BPB
 /// that fails the same validation `extract_sd_rom` applies).
 ///
 /// THE NEW EXPORTED ENTRY POINT design §11.3 calls for. jnext already parsed
