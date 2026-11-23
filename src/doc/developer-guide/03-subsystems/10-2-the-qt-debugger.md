@@ -412,7 +412,9 @@ refresh, and every note from `audio_math.h`, so the panel and a test read the sa
   overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
   `audio_log_export()`.
 - **Tracker** is `AudioTrackerView`: it groups the log with `AudioFrameAccumulator` and mirrors it through
-  `fetch_audio_log()`, as Log does ([3.4](04-audio.md), Frame grouping and the tracker).
+  `fetch_audio_log()`, as Log does ([3.4](04-audio.md), Frame grouping and the tracker). Under its table a
+  player timing strip (min / avg / max over a window of frames, the selected row's details, a dot plot) is
+  computed by `update_timing()` from the model's own frames with `audio_timing_stats()`.
 - **M and S** per channel call `set_audio_channel_mute_mask()`. A solo is the mask "everything but that
   channel": `channel_solo_clicked()` saves the mask it found (`pre_solo_mask_`) and un-solo restores it, a solo
   moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the

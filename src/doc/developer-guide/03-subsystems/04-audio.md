@@ -201,6 +201,19 @@ view's own rule, one function (`fetch_audio_log()`: append the entries after the
 resync when that entry is gone) and groups only what is new, keeping at most `kMaxRows` rows. Nothing
 in the emulation path changes for it: it reads what the write tap already records.
 
+The player timing strip under the Tracker's table is the header's second consumer.
+`audio_timing_stats()` takes completed frames, oldest first, and a window of frame numbers ending at the
+newest, and returns min / avg / max of the first and last write's line and T-state and of the write
+count, the union of the CPU PC ranges, and the frame numbers with no write. It is total on any input:
+a frame number that does not go up starts a new run and only the frames after the last break count,
+and the frame numbers before the oldest frame used, minus its `empty_before`, are not counted as empty
+because the log says nothing about them (its ring, a marker, the row cap). The view feeds it
+`AudioTrackerModel::timing_frames()`, the model's own rows: the open frame's tail is left out, a reset
+or state load row ends the walk and a rewind row does not. The strip is recomputed by
+`AudioTrackerView::update_timing()` at the end of `refresh()`, so it costs nothing while another
+sub-tab is current, and again when the window box or the current row changes. The window box is a
+view control with no setting. The dot plot, `AudioJitterPlot`, scales Y to the window's own lines.
+
 **Beeper** — `src/audio/beeper.*`. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is
