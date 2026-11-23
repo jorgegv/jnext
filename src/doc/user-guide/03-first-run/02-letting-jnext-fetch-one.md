@@ -80,6 +80,17 @@ and, in the graphical version, asks what to do:
 - **Keep my card (don't ask again)** stops the question for this distribution. The
   question comes back once for the next one.
 
+### The backup of your old image
+
+After an upgrade your old image is in the `previous` folder next to the new one, together with the old contents of
+your writes files and a report of what was carried over. The File menu has three entries for it: **Upgrade SD
+Card...** (enabled while the card in use is the default one and an older distribution), **Go Back to the
+Previous SD Card** (swaps the two: the card in use becomes the backup and the machine restarts on the old one;
+the distribution you left is not offered again) and **Delete the Previous SD Card Backup (size)...**, which gives
+the disk space back. The same can be done without a window with `--sdcard-go-back` and
+`--sdcard-delete-backup`. A file whose name ends in a space or a dot cannot be written by JNEXT: an upgrade lists
+it as not carried and leaves it on the old image.
+
 Without a window (`--headless`, or `--sdcard-file-add`) JNEXT never asks. It keeps
 your image and writes one line to the log saying how to upgrade. You can answer
 without the dialog with `--sdcard-upgrade`: `yes` upgrades the image and carries your files over (refused when they cannot be

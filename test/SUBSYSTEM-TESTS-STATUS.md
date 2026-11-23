@@ -56,11 +56,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | FatFs glue cache (Linux) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD image lock (every target) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD card carry-over + rescue verbs (GH #555) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD card carry-over + rescue verbs (GH #555) |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD card upgrade flow (GH #555) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD card backup, go back, menu state (GH #555) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD image lock (GH #555) |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD live change lock wiring (GH #555) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD image lock (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card Provisioner   |      183 |      183 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card Provisioner   |      184 |      184 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SHA-256 backends (GH #459) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Minimal NextZXOS card builder (GH #458) |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -117,7 +119,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Browser frame gate and refusals |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Browser JavaScript API |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL Pointer Release (GH #365) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SDL upgrade offer box (GH #476) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SDL upgrade offer box (GH #476) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL window title (version) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -210,6 +212,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | GUI frame timer (single-shot, GH #155) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | --no-sdcard in the window (GH #540) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
+| File menu: SD card set actions (GH #555) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | File > Save Bug Report... in the window (GH #492) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Finder/desktop file open (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -230,7 +233,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Main-window title (version) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI light/dark scheme (GH #363) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI scheme: private bus dies with the suite (GH #414) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD-card/NextPi download dialog (GH #358) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD-card/NextPi download dialog (GH #358) |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -252,6 +255,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17497**| **17497**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17563**| **17563**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

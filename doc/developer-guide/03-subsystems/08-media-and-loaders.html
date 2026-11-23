@@ -3269,7 +3269,7 @@ the guest's own driver talks to. Both are called out below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-(the <code>ext</code> chain, <code>src/main.cpp:3355-3403</code>), and again in the GUI's file dialogs and in the headless
+(the <code>ext</code> chain, <code>src/main.cpp:3357-3403</code>), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -4794,13 +4794,30 @@ rebuild, and each overlay against the card) are carried onto the new card, and t
 before anything of the old set is touched. The overlays carried are the command line's <code>--sdcard-writes</code> FILEs
 plus the files listed in <code>overlays.list</code> that still bind to the card; each is rebuilt as <code>FILE.new</code>, bound to
 the new card's final size and mtime. Without a pristine base <code>--sdcard-upgrade yes</code> is refused and <code>fresh</code>
-starts a new card with nothing carried. The switch is five idempotent steps journalled by marker files
-(<code>SWITCHING</code>, <code>sN.done</code>): the old set moves into <code>previous.new/</code>, the new raw and card take its place with their
-sidecars, each <code>FILE.new</code> replaces its FILE, <code>previous.new/</code> replaces <code>previous/</code>, the report goes into
+starts a new card with nothing carried. The switch is six idempotent steps journalled by marker files
+(<code>SWITCHING</code>, <code>sN.done</code>): the old set moves into <code>previous.new/</code>, the new raw takes its place with its sidecars
+(a card is never in place without the raw it was made from), then the new card, each <code>FILE.new</code> replaces its FILE, <code>previous.new/</code> replaces <code>previous/</code>, the report goes into
 <code>previous/upgrade-report.txt</code> and <code>upgrade-work/</code> is removed. A failure before the first step removes the work
 directory and leaves the old set in use (an accepted upgrade then reports a warning); from the first step on the
 only way is forward, and the next start finishes it (<code>upgrade::recover</code>). <code>--sdcard-download-force</code>, which was
-asked to recover a card, still replaces atomically with <code>&lt;name&gt;.new</code> files and has no backup.
+asked to recover a card, still replaces atomically with <code>&lt;name&gt;.new</code> files and has no backup.</p>
+<p>The backup is managed by <code>src/core/sdcard_backup.cpp</code>. <code>card_set_status</code> reads the state of the set (the card's
+distribution against the one jnext downloads now, the pristine base and its reason, the backup's size and
+distribution) and <code>menu_state</code> turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
+and it is older), Go Back and Delete (a backup exists; Delete's label carries <code>size_label</code>). <code>go_back</code> is a swap in
+four journalled steps (<code>go-back-work/SWAPPING</code>, <code>gN.done</code>): the current set and its overlays go to a scratch
+directory, the backup's set comes into place and its overlays are copied back to their recorded paths, the
+distribution that was left is written to <code>.distro-declined</code>, the old backup directory goes, and the scratch
+directory becomes <code>previous/</code>. <code>recover</code> finishes an interrupted swap at the start of every provisioning.
+<code>--sdcard-go-back</code> and <code>--sdcard-delete-backup</code> run it under the card's image lock and exit 0, 2 (no backup),
+3 (failed, nothing changed) or 4 (the card is in use). In the Qt window the actions eject slot 0 through the
+live card change, do their work outside the frame tick, re-bind the session's writes file over the new card,
+insert the card again and hard-reset the machine.</p>
+<p>Two properties of FAT shaped the carry. A name that ends in a space or a dot cannot be addressed through FatFs
+(it drops those from a path): such an entry is listed as not carried and what is inside it is not entered
+(<code>Entry::unaddressable</code>). A name that needs a long-name entry gets a generated short name (<code>LONGNA~1</code>), and a
+file really named <code>LONGNA~1.TXT</code> written after it would be opened instead of created, so the carry writes the
+names that are their own short names first (<code>write_order</code>).
 Recipe 3 gives each distribution's card its own FAT32 volume
 serial, the first 4 bytes of the raw image's SHA-256, written into the boot sector
 and its backup copy after the format.</p>

@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:3355-3403`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:3357-3403`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -1602,6 +1602,25 @@ starts a new card with nothing carried. The switch is six idempotent steps journ
 directory and leaves the old set in use (an accepted upgrade then reports a warning); from the first step on the
 only way is forward, and the next start finishes it (`upgrade::recover`). `--sdcard-download-force`, which was
 asked to recover a card, still replaces atomically with `<name>.new` files and has no backup.
+
+The backup is managed by `src/core/sdcard_backup.cpp`. `card_set_status` reads the state of the set (the card's
+distribution against the one jnext downloads now, the pristine base and its reason, the backup's size and
+distribution) and `menu_state` turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
+and it is older), Go Back and Delete (a backup exists; Delete's label carries `size_label`). `go_back` is a swap in
+four journalled steps (`go-back-work/SWAPPING`, `gN.done`): the current set and its overlays go to a scratch
+directory, the backup's set comes into place and its overlays are copied back to their recorded paths, the
+distribution that was left is written to `.distro-declined`, the old backup directory goes, and the scratch
+directory becomes `previous/`. `recover` finishes an interrupted swap at the start of every provisioning.
+`--sdcard-go-back` and `--sdcard-delete-backup` run it under the card's image lock and exit 0, 2 (no backup),
+3 (failed, nothing changed) or 4 (the card is in use). In the Qt window the actions eject slot 0 through the
+live card change, do their work outside the frame tick, re-bind the session's writes file over the new card,
+insert the card again and hard-reset the machine.
+
+Two properties of FAT shaped the carry. A name that ends in a space or a dot cannot be addressed through FatFs
+(it drops those from a path): such an entry is listed as not carried and what is inside it is not entered
+(`Entry::unaddressable`). A name that needs a long-name entry gets a generated short name (`LONGNA~1`), and a
+file really named `LONGNA~1.TXT` written after it would be opened instead of created, so the carry writes the
+names that are their own short names first (`write_order`).
 Recipe 3 gives each distribution's card its own FAT32 volume
 serial, the first 4 bytes of the raw image's SHA-256, written into the boot sector
 and its backup copy after the format.
