@@ -2297,7 +2297,10 @@ void MainWindow::run_card_op() {
     const auto journal = sd_write_journal::for_image(card);
     const std::string session_file = journal ? journal->file() : std::string();
     std::string err;
-    if (op == CardOp::Upgrade) {
+    if (card_op_before_work_for_test) card_op_before_work_for_test();
+    if (op == CardOp::Upgrade && card_op_upgrade_work_for_test) {
+        if (!card_op_upgrade_work_for_test(err)) { fail(tr("The upgrade failed: %1").arg(QString::fromStdString(err))); return; }
+    } else if (op == CardOp::Upgrade) {
         const sdcard::backup::Status st = sdcard::backup::card_set_status(dir, current_distribution());
         SdcardGuiProvisioner gui;
         sdcard::ProvisionOptions o;

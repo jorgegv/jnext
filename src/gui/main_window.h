@@ -332,6 +332,10 @@ public:
     QAction* upgrade_sd_action()      const { return upgrade_sd_action_; }
     QAction* go_back_sd_action()      const { return go_back_sd_action_; }
     QAction* delete_backup_action()   const { return delete_backup_action_; }
+    /// Test seams of the live card-set flow (sdcard_menu_test): called just before the work (the card is out
+    /// of the machine), and standing in for provision_sd_card in an upgrade. Empty in production.
+    std::function<void()>                    card_op_before_work_for_test;
+    std::function<bool(std::string& err)>    card_op_upgrade_work_for_test;
 
     /// The frontend performed the change (`image` empty = eject; `error` empty
     /// = success): say so on the status bar, and in a dialog — posted to the
