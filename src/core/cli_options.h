@@ -59,6 +59,8 @@ enum class OptId {
     SdcardExportChanges,
     SdcardExportBase,
     SdcardImportChanges,
+    SdcardGoBack,
+    SdcardDeleteBackup,
     SdcardFileDest,
     SdcardFileForce,
     WarmStartRegenerate,
@@ -339,6 +341,21 @@ inline constexpr Option OPTIONS[] = {
       "FILE laid over it (what the machine sees), and exit without\n"
       "starting emulation. Any FAT tool can open OUT. Needs\n"
       "--sdcard-writes; refuses an OUT that exists." },
+    { "--sdcard-go-back", 0, Doc::Documented, OptId::SdcardGoBack,
+      "",
+      "Go back to the previous SD card an upgrade kept in previous/\n"
+      "next to the default card: the card now in use becomes the\n"
+      "backup (a swap, your writes files included), and the\n"
+      "distribution you left is not offered again. Exits without\n"
+      "starting emulation: 0 done, 2 there is no previous card, 3\n"
+      "failed with nothing changed, 4 the card is in use by another\n"
+      "jnext. Refused with --sdcard." },
+    { "--sdcard-delete-backup", 0, Doc::Documented, OptId::SdcardDeleteBackup,
+      "",
+      "Delete the previous SD card an upgrade kept in previous/ and\n"
+      "give its disk space back; nothing else is touched. Exits\n"
+      "without starting emulation, with the statuses of\n"
+      "--sdcard-go-back. Refused with --sdcard." },
     { "--sdcard-export-changes", 1, Doc::Documented, OptId::SdcardExportChanges,
       "DIR",
       "Copy the files you added or changed on the card (as the\n"

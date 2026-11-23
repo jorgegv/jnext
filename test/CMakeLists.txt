@@ -550,6 +550,13 @@ if(NOT EMSCRIPTEN)
     add_test(NAME sdcard_carry_tests COMMAND sdcard_carry_test)
 endif()
 # GH #555 S5: the upgrade flow (provision_sd_card carrying the user's files over; 600 MB sparse fixtures).
+# GH #555 S6: the backup an upgrade leaves, go back, delete, the menu state.
+if(NOT WIN32 AND NOT EMSCRIPTEN)
+    add_executable(sdcard_backup_test sdcard_backup/sdcard_backup_test.cpp)
+    target_link_libraries(sdcard_backup_test PRIVATE jnext_core ZLIB::ZLIB)
+    target_include_directories(sdcard_backup_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_backup_tests COMMAND sdcard_backup_test)
+endif()
 if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(sdcard_upgrade_test sdcard_upgrade/sdcard_upgrade_test.cpp)
     target_link_libraries(sdcard_upgrade_test PRIVATE jnext_core ZLIB::ZLIB)

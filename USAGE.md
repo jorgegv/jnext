@@ -363,6 +363,22 @@ without starting emulation**. Any FAT tool (mtools, a loop mount, 7-Zip)
 can open *OUT*. Requires **--sdcard-writes**. An *OUT* that already
 exists is refused. See **GETTING YOUR FILES OUT**.
 
+**--sdcard-go-back**  
+Go back to the previous SD card that an upgrade kept in `previous/` next
+to the default card, and **exit without starting emulation**. It is a
+swap: the card that was in use becomes the backup, your
+**--sdcard-writes** files go with their cards, and the distribution you
+left is not offered again. Exits 0 when done; 2 when there is no
+previous card; 3 when it failed and nothing was changed; 4 when the card
+is in use by another jnext. Refused together with **--sdcard**, another
+SD card command, **--load** or **--inject**.
+
+**--sdcard-delete-backup**  
+Delete the previous SD card an upgrade kept in `previous/`, giving its
+disk space back, and **exit without starting emulation**. Nothing else
+is touched. It exits with the statuses of **--sdcard-go-back**, and is
+refused in the same cases.
+
 **--sdcard-export-changes** *DIR*  
 Copy the files you added or changed on the card, as the machine sees it
 (the card plus the **--sdcard-writes** file, when one is given), into
@@ -4047,6 +4063,11 @@ signal, SIGINT or SIGTERM in either order, ends it immediately. A signal
 that was ignored when **jnext** started (**nohup**, a background job of
 a non-interactive shell) stays ignored. This applies to the GUI, the
 SDL-only build and **--headless**; on Windows it is unchanged.
+
+**--sdcard-go-back** and **--sdcard-delete-backup** exit 0 when done, 2
+when there is no previous SD card to act on, 3 when they failed with
+nothing changed, and 4 when the default card is in use by another jnext
+(a usage error is 1, as above).
 
 **--sdcard-file-add** is a scriptable non-emulation mode, so it reports
 which failure happened rather than a single non-zero status.

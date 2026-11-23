@@ -135,6 +135,8 @@ Launch classify(int argc, const char* const argv[])
         case cli::OptId::SdcardWritesFlatten:
         case cli::OptId::SdcardExportChanges:
         case cli::OptId::SdcardImportChanges:
+        case cli::OptId::SdcardGoBack:
+        case cli::OptId::SdcardDeleteBackup:
             l.windowed = false; break;
         case cli::OptId::DelayedAutomaticExit:
         case cli::OptId::DelayedAutomaticExitFrames:

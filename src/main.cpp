@@ -12,6 +12,7 @@
 #include "core/sdcard_file_add.h"
 #include "core/sdcard_carry.h"
 #include "core/sdcard_upgrade.h"
+#include "core/sdcard_backup.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
@@ -397,6 +398,7 @@ static int run_main(int argc, char* argv[]) {
     int         sdcard_file_add_count  = 0;  // occurrences, so a repeat is refused
     std::string sdcard_writes_flatten;   // GH #555: the rescue verbs, terminal commands like file-add
     std::string sdcard_export_dir, sdcard_export_base, sdcard_import_dir;
+    int         sdcard_go_back_count = 0, sdcard_delete_backup_count = 0;
     int         sdcard_flatten_count = 0, sdcard_export_count = 0, sdcard_import_count = 0,
                 sdcard_export_base_count = 0;
     int         sdcard_file_dest_count = 0;
@@ -867,6 +869,12 @@ static int run_main(int argc, char* argv[]) {
             case cli::OptId::SdcardImportChanges:
                 sdcard_import_dir = v[0];
                 ++sdcard_import_count;
+                break;
+            case cli::OptId::SdcardGoBack:
+                ++sdcard_go_back_count;
+                break;
+            case cli::OptId::SdcardDeleteBackup:
+                ++sdcard_delete_backup_count;
                 break;
             case cli::OptId::SdcardFileDest:
                 sdcard_file_dest = v[0];
@@ -2016,6 +2024,28 @@ static int run_main(int argc, char* argv[]) {
         // upgrade offer), as --sdcard-file-add's is by its own count.
         if (verbs > 0 && sdcard_file_add_count == 0) headless = true;
     }
+    // GH #555 S6 - --sdcard-go-back and --sdcard-delete-backup act on the default location's backup:
+    // terminal commands, one per run, never with an explicit card or another verb or a program.
+    if (sdcard_go_back_count > 0 || sdcard_delete_backup_count > 0) {
+        const char* verb = sdcard_go_back_count ? "--sdcard-go-back" : "--sdcard-delete-backup";
+        const char* usage = nullptr;
+        if (sdcard_go_back_count + sdcard_delete_backup_count > 1)
+            usage = "--sdcard-go-back and --sdcard-delete-backup are separate commands: give one, once.";
+        else if (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
+                 sdcard_import_count > 0)
+            usage = "--sdcard-go-back and --sdcard-delete-backup cannot be combined with another SD card command.";
+        else if (!load_file.empty() || !inject_file.empty())
+            usage = "--sdcard-go-back and --sdcard-delete-backup cannot be combined with --load or --inject: they run without starting emulation.";
+        if (usage) {
+            startup_report::report("%s\n", usage);
+            return 1;
+        }
+        if (sdcard_cli_given) {
+            startup_report::report("%s cannot be used with --sdcard: it acts on the default SD card's backup.\n", verb);
+            return 1;
+        }
+        headless = true;
+    }
     // Headless automation (each says so in --help): the windowed frontends
     // never read these, so there they were accepted and did nothing (#138).
     if (!headless) {
@@ -2165,6 +2195,40 @@ static int run_main(int argc, char* argv[]) {
         startup_report::report("--sdcard-upgrade cannot be used with --sdcard: an explicit SD card image is "
                         "never offered an upgrade.\n");
         return 1;
+    }
+    // GH #555 S6 - go back to the previous card / delete the backup: the default location only, under
+    // the card's lock, then exit. 0 done, 2 no backup, 3 failed (nothing changed), 4 the card is in use.
+    if (sdcard_go_back_count > 0 || sdcard_delete_backup_count > 0) {
+        const std::string sd_dir  = sdcard::default_sdcard_dir();
+        const std::string sd_card = sdcard::default_sdcard_image_path();
+        sdcard::sd_locks::set_enabled(true);
+        std::error_code lec;
+        std::string lock_why;
+        if (std::filesystem::exists(sd_card, lec) && !sdcard::sd_locks::hold(0, sd_card, "", lock_why)) {
+            Log::emulator()->error("SD card refused: {}", lock_why);
+            startup_report::report("error: %s\n", lock_why.c_str());
+            return 4;
+        }
+        std::string berr;
+        if (!sdcard::backup::recover(sd_dir, berr)) {
+            startup_report::report("error: an interrupted go-back could not be finished: %s\n", berr.c_str());
+            return 3;
+        }
+        const sdcard::backup::Result br = sdcard_go_back_count > 0 ? sdcard::backup::go_back(sd_dir, berr)
+                                                                    : sdcard::backup::delete_backup(sd_dir, berr);
+        if (br == sdcard::backup::Result::NoBackup) {
+            std::fprintf(stderr, "%s\n", berr.c_str());
+            return 2;
+        }
+        if (br == sdcard::backup::Result::Failed) {
+            std::fprintf(stderr, "error: %s\n", berr.c_str());
+            return 3;
+        }
+        if (sdcard_go_back_count > 0)
+            std::fprintf(stdout, "Went back to the previous SD card; the card that was in use is the backup now\n");
+        else
+            std::fprintf(stdout, "Deleted the previous SD card backup\n");
+        return 0;
     }
     if (!no_sdcard) {
         sdcard::ProvisionOptions opts;

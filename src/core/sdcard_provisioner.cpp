@@ -4,6 +4,7 @@
 #include "core/minimal_card.h"
 #include "core/sdcard_carry.h"
 #include "core/sdcard_upgrade.h"
+#include "core/sdcard_backup.h"
 
 #include <zlib.h>
 
@@ -1014,6 +1015,11 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // GH #555: an interrupted upgrade is finished (SWITCHING present) or its scratch removed.
     {
         std::string note, rerr;
+        if (!backup::recover(dir, rerr)) {
+            r.status = ProvisionStatus::Failed;
+            r.error  = "an interrupted go-back to the previous SD card could not be finished: " + rerr;
+            return r;
+        }
         if (!upgrade::recover(dir, note, rerr)) {
             r.status = ProvisionStatus::Failed;
             r.error  = "an interrupted SD card upgrade could not be finished: " + rerr +

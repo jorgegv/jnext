@@ -4835,6 +4835,20 @@ written.</dd>
 without starting emulation</strong>. Any FAT tool (mtools, a loop mount,
 7-Zip) can open <em>OUT</em>. Requires <strong>--sdcard-writes</strong>. An <em>OUT</em> that
 already exists is refused. See <strong>GETTING YOUR FILES OUT</strong>.</dd>
+<dt><strong>--sdcard-go-back</strong></dt>
+<dd>Go back to the previous SD card that an upgrade kept in <code>previous/</code>
+next to the default card, and <strong>exit without starting emulation</strong>.
+It is a swap: the card that was in use becomes the backup, your
+<strong>--sdcard-writes</strong> files go with their cards, and the distribution
+you left is not offered again. Exits 0 when done; 2 when there is no
+previous card; 3 when it failed and nothing was changed; 4 when the
+card is in use by another jnext. Refused together with <strong>--sdcard</strong>,
+another SD card command, <strong>--load</strong> or <strong>--inject</strong>.</dd>
+<dt><strong>--sdcard-delete-backup</strong></dt>
+<dd>Delete the previous SD card an upgrade kept in <code>previous/</code>, giving
+its disk space back, and <strong>exit without starting emulation</strong>.
+Nothing else is touched. It exits with the statuses of
+<strong>--sdcard-go-back</strong>, and is refused in the same cases.</dd>
 <dt><strong>--sdcard-export-changes</strong> <em>DIR</em></dt>
 <dd>Copy the files you added or changed on the card, as the machine sees
 it (the card plus the <strong>--sdcard-writes</strong> file, when one is given),
