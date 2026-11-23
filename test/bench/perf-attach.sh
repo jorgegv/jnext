@@ -51,6 +51,7 @@ CLONE="$HOME/tmp/jnext-perf-attach-$$.img"
 mkdir -p "$HOME/tmp"
 bench_cleanup() {
     [[ -n "${CLONE:-}" ]] && rm -f "$CLONE"
+    [[ -n "${CFG_ROOT:-}" ]] && rm -rf "$CFG_ROOT"
     return 0
 }
 # INT/TERM exit explicitly, as in bench.sh: an EXIT-only trap misses a signal
@@ -60,6 +61,13 @@ trap 'bench_cleanup' EXIT
 trap 'bench_cleanup; exit 130' INT
 trap 'bench_cleanup; exit 143' TERM
 cp --reflink=auto "$SD_MASTER" "$CLONE" || die "cannot clone $SD_MASTER"
+
+# The warm-start cache is keyed to the SD clone and shared by every binary that runs in the user's config
+# directory, so with the default one the first NEX workload of a clone (and every switch of binary) can pay a NextZXOS
+# cold boot inside its measured window: beast read 56G instructions in one variant and 13G in the next. Each variant
+# gets a private config directory, primed once with its own binary before anything is measured (as bench.sh does).
+CFG_ROOT="$HOME/tmp/jnext-perf-attach-cfg-$$"
+mkdir -p "$CFG_ROOT"
 
 declare -A VBIN VENV
 VBIN[B]="$BASE_BIN"; VENV[B]=""
@@ -75,13 +83,21 @@ one() {   # $1 variant  $2 machine  $3 frames  $4 load-or-empty
     [[ -n "$l" ]] && args+=(--load "$l")
     local out ins cyc
     # --kill-after is mandatory (test/lint-timeouts.sh).
-    out=$(env ${VENV[$v]} timeout --kill-after=5s 300s \
+    out=$(env ${VENV[$v]} JNEXT_CONFIG_DIR="$CFG_ROOT/$v" timeout --kill-after=5s 300s \
           perf stat -x, -e instructions:u,cycles:u "${VBIN[$v]}" "${args[@]}" 2>&1) || true
     ins=$(awk -F, '/instructions:u/{print $1}' <<< "$out")
     cyc=$(awk -F, '/cycles:u/{print $1}' <<< "$out")
     [[ "$ins" =~ ^[0-9]+$ ]] || die "$v on $m produced no instruction count"
     printf '%s %s %s\n' "$v" "$ins" "$cyc"
 }
+
+# One unmeasured priming run per variant: it records the warm-start cache of the variant's own directory.
+for v in B U P C S; do
+    mkdir -p "$CFG_ROOT/$v"
+    env ${VENV[$v]} JNEXT_CONFIG_DIR="$CFG_ROOT/$v" timeout --kill-after=5s 300s "${VBIN[$v]}" --headless --machine next \
+        --sdcard "$CLONE" --load "$PROJECT_DIR/test/00regression/nex/beast.nex" --delayed-automatic-exit-frames 1 \
+        >/dev/null 2>&1 || die "the warm-start priming run of $v failed"
+done
 
 median() { printf '%s\n' "$@" | sort -g | sed -n "$(( ($# + 1) / 2 ))p"; }
 
@@ -117,9 +133,11 @@ workload boot-48k      48k  600 ""
 workload boot-nextzxos next 400 ""
 workload beast         next 400 "$NEX/beast.nex"
 workload copper-demo   next 400 "$NEX/copper_demo.nex"
+workload bifrost        48k  600 "$PROJECT_DIR/test/00regression/tap/bifrost.tap"
 # GH #536: the HALT replay and the per-slot audio path, which the source tap's dispatch edits (bench.sh's
-# HALT-idle and DAC-paced workloads).
+# HALT-idle and DAC-paced workloads); with bifrost and halt-idle-28 these are bench.sh's eight workloads.
 BENCH_NEX="$PROJECT_DIR/test/bench/nex"
 workload halt-idle-35  next 400 "$BENCH_NEX/halt_idle_35.nex"
+workload halt-idle-28  next 400 "$BENCH_NEX/halt_idle_28.nex"
 workload ctc-dac-28    next 400 "$BENCH_NEX/ctc_dac_28.nex"
 echo "# load1_end=$(cut -d' ' -f1 /proc/loadavg)"
