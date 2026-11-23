@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # sn-emulator-99.99.zip in a local file: libcurl reads file://, so the row never touches
 # the network, and the "distribution" is a synthetic FAT32 image made here (a marker file,
 # no NextZXOS byte).
-#   1. headless, no option: exit 0, the card is byte-identical, and the log says the newer
+#   1. headless, no option: exit 0, the card is byte-identical (this clone has no original image, so the log says its files cannot be carried over and names --sdcard-upgrade fresh), and the log says the newer
 #      distribution is available and how to upgrade (--sdcard-upgrade yes);
 #   2. --sdcard-upgrade no: the card is untouched and nothing is recorded;
 #   3. --sdcard-upgrade never: the card is untouched, <card>.distro-declined names 99.99,
@@ -92,7 +92,7 @@ PY
             su_reset
             rc=$(su_run one)
             [[ $rc == 0 ]] || su_faults+=("1: the run exited $rc: $(tail -n 2 "$su_dir/one.txt" | tr '\n' ' ')")
-            grep -qF "$line_new. Run jnext --sdcard-upgrade yes to upgrade it (your files are kept, and the old card is kept as a backup)." "$su_dir/one.txt" \
+            grep -qF "$line_new. Your files cannot be carried over (the original image" "$su_dir/one.txt" && grep -qF "jnext --sdcard-upgrade fresh makes a new card and keeps this one as the backup." "$su_dir/one.txt" \
                 || su_faults+=("1: the log does not say how to upgrade")
             [[ "$(su_card_sha)" == "$su_old_sha" ]] || su_faults+=("1: the card changed without a yes")
             [[ ! -e "$su_card.distro-declined" ]] || su_faults+=("1: a headless run recorded a decline")
