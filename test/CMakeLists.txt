@@ -1436,6 +1436,11 @@ add_executable(frame_sequencer_test platform/frame_sequencer_test.cpp)
 target_include_directories(frame_sequencer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME frame_sequencer_tests COMMAND frame_sequencer_test)
 
+# The files jnext writes for an output option, reported to the browser page (GH #553). Header-only hook.
+add_executable(output_files_test core/output_files_test.cpp)
+target_include_directories(output_files_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME output_files_tests COMMAND output_files_test)
+
 add_executable(tick_stats_test platform/tick_stats_test.cpp)
 target_include_directories(tick_stats_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tick_stats_tests COMMAND tick_stats_test)

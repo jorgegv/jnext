@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.64</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.64</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3172,15 +3172,15 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   the same address, as in the disassembly.</li>
 <li><strong>The <code>.bin</code>.</strong> <code>build()</code> writes it beside each control file with the <code>out.files</code> push
   (<code>out.files</code> at <code>skoolkit_ctl.cpp:266</code>; <code>file_name()</code> only names it), from the bytes the export read with
-  <code>peek()</code> (<code>debugger_reinterop.cpp:200</code>) now. skoolkit reads no NEX, so a Next
+  <code>peek()</code> (<code>debugger_reinterop.cpp:201</code>) now. skoolkit reads no NEX, so a Next
   page's control file is useless without them, and <code>sna2skool.py -o 0xWWWW WWWW-TAG.bin</code> finds exactly
   that <code>.ctl</code> by default pickup, which happens only when no <code>-c</code> is given.</li>
 <li><strong>No map for what cannot be read.</strong> The identity-only memories (boot ROM, Multiface, DivMMC ROM,
   alternate ROM, Layer 2, config, floating) are refused by <code>peek()</code>, so they have no instruction
   lengths and get no code/data map; the report says so with the note
-  <code>space_tag()</code> (<code>debugger_reinterop.cpp:208</code>)
+  <code>space_tag()</code> (<code>debugger_reinterop.cpp:209</code>)
   (SRCDBG-REX-07). With coverage off the report says that too, behind
-  <code>mem_coverage_enabled()</code> (<code>debugger_reinterop.cpp:184</code>).</li>
+  <code>mem_coverage_enabled()</code> (<code>debugger_reinterop.cpp:185</code>).</li>
 <li><strong>Unpaged labels</strong> are also label-less keys of every window written that covers their address, added
   by the loop over <code>by_window</code> (<code>skoolkit_ctl.cpp:253</code>), so the same
   splits keep them from being dropped by sna2skool (SKCTL-08d).</li>
@@ -3201,17 +3201,17 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
 <h2 id="3-the-verbs-and-the-directory">3. The verbs and the directory<a class="headerlink" href="#3-the-verbs-and-the-directory" title="Permanent link">&para;</a></h2>
 <p>All in <code>debugger_reinterop.cpp</code>. <code>gather_labels()</code> (<code>debugger_reinterop.cpp:75</code>)
 takes one entry per key of <code>symbols()</code> named by <code>lookup()</code>.
-<code>Debugger::export_skoolkit</code> (<code>debugger_reinterop.cpp:176</code>)
+<code>Debugger::export_skoolkit</code> (<code>debugger_reinterop.cpp:177</code>)
 adds the stores (<code>peek()</code> and <code>mem_coverage()</code>, a note for coverage it cannot read) and
-<code>Debugger::export_ghidra</code> (<code>debugger_reinterop.cpp:225</code>) the view.</p>
+<code>Debugger::export_ghidra</code> (<code>debugger_reinterop.cpp:226</code>) the view.</p>
 <p><code>write_directory()</code> (<code>debugger_reinterop.cpp:93</code>)
 checks every file in the way before writing (<code>Unsupported</code>), writes <code>&lt;name&gt;.part</code>
 (<code>part</code> (<code>debugger_reinterop.cpp:127</code>)) and renames it with
 <code>fs::rename</code> (<code>debugger_reinterop.cpp:137</code>). Then it removes a previous
 export's files that this one did not write: a <code>*.ctl</code> whose first line is <code># jnext space</code>
-(<code>has_jnext_header()</code> (<code>debugger_reinterop.cpp:151</code>))
+(<code>has_jnext_header()</code> (<code>debugger_reinterop.cpp:152</code>))
 and the <code>.bin</code> of its <code>WWWW-TAG</code> stem (<code>is_ctl_stem()</code> (<code>debugger_reinterop.cpp:59</code>),
-applied at <code>is_ctl_stem()</code> (<code>debugger_reinterop.cpp:158</code>)), or the Ghidra names
+applied at <code>is_ctl_stem()</code> (<code>debugger_reinterop.cpp:159</code>)), or the Ghidra names
 (<code>is_ghidra_export_name()</code> (<code>debugger_reinterop.cpp:49</code>)). Anything else in
 the directory is never touched. A path that is a regular file
 (<code>refuse()</code> (<code>debugger_reinterop.cpp:98</code>)) or a directory that cannot be created
@@ -3224,8 +3224,8 @@ so a z88dk C symbol goes out under its C name. The verbs are reads: they call on
 <code>source_page()</code>, so no machine state changes and no generation moves (SRCDBG-REX-03, with REX-04 as its
 control).</p>
 <h3 id="import">Import<a class="headerlink" href="#import" title="Permanent link">&para;</a></h3>
-<p><code>Debugger::import_skoolkit</code> (<code>debugger_reinterop.cpp:254</code>) and
-<code>Debugger::import_ghidra</code> (<code>debugger_reinterop.cpp:300</code>) read ALL their
+<p><code>Debugger::import_skoolkit</code> (<code>debugger_reinterop.cpp:255</code>) and
+<code>Debugger::import_ghidra</code> (<code>debugger_reinterop.cpp:301</code>) read ALL their
 files into a scratch copy of <code>annotations()</code> and apply it with one <code>replace_annotations()</code>, so a refusal
 anywhere changes nothing and a success is one revision bump (SRCDBG-REX-12, -13). The readers are pure,
 in the writers' files:</p>
@@ -3258,13 +3258,13 @@ in the writers' files:</p>
 <li><strong>Which memory.</strong> A control file's memory is its <code># jnext space TAG</code> line (only before the first
   directive), else its name (<code>TAG.ctl</code>, <code>WWWW-TAG.ctl</code>), else none; none and <code>CPU</code> are untagged, and each
   untagged entry takes <code>source_page(addr)</code> when the file is read
-  through <code>source_page</code> (<code>debugger_reinterop.cpp:276</code>),
+  through <code>source_page</code> (<code>debugger_reinterop.cpp:277</code>),
   the identity the disassembly looks labels up with. A command-line import runs in
   <code>ScriptHost::start</code> (<code>script_host.cpp:171</code>), in
   <code>import_all()</code> (<code>script_host.cpp:218</code>), after <code>--annotations</code> and before
   <code>--load</code>, so an untagged file is placed by the mapping at start.</li>
 <li><strong>Export carries comments.</strong> <code>export_skoolkit()</code> passes <code>annotations().entries()</code> with a comment as
-  <code>Input::comments</code> from the loop over <code>annotations</code> (<code>debugger_reinterop.cpp:180</code>),
+  <code>Input::comments</code> from the loop over <code>annotations</code> (<code>debugger_reinterop.cpp:181</code>),
   and <code>symbols()</code> is the composed table, so a user label already shadows the toolchain's in both exports
   (SRCDBG-REX-14).</li>
 </ul>
@@ -3294,10 +3294,10 @@ are unique in each submenu; <code>DACC-05</code> pins the new popups and mnemoni
   with what the verb writes.</li>
 </ul>
 <h2 id="4-the-frontends">4. The frontends<a class="headerlink" href="#4-the-frontends" title="Permanent link">&para;</a></h2>
-<p><code>write_re_exports_at_exit()</code> (<code>re_export_at_exit.h:39</code>)
+<p><code>write_re_exports_at_exit()</code> (<code>re_export_at_exit.h:41</code>)
 is called from the three loop owners' <code>shutdown()</code>:
 <code>write_re_exports_at_exit()</code> (<code>headless_app.cpp:1134</code>),
-<code>write_re_exports_at_exit()</code> (<code>src/platform/sdl_app.cpp:951</code>) and
+<code>write_re_exports_at_exit()</code> (<code>src/platform/sdl_app.cpp:953</code>) and
 <code>write_re_exports_at_exit()</code> (<code>qt_app.cpp:561</code>).
 A failure logs and sets the exit code to 1. <code>--export-skoolkit</code>, <code>--export-ghidra</code>, <code>--import-skoolkit</code>
 and <code>--import-ghidra</code> are in <code>src/core/cli_options.h</code>.</p>

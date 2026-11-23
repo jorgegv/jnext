@@ -3709,6 +3709,28 @@ on-screen keyboard, whatever **--touch-keyboard** says; the page’s call
 wins, before or after the start, and anything but a boolean throws.
 `keyboardVisible` tells whether it is shown.
 
+`listFiles()` returns the files JNEXT has written for an output option
+(**--wav-record**, **--dac-trace**, **--tape-save**,
+**--delayed-screenshot**, **--compositor-trace**, **--profile-output**,
+**--export-skoolkit**, **--export-ghidra**, **--bug-report**,
+**--log-file**), in the order JNEXT began them, as an array of
+`{path, size, complete}`: `path` is absolute, `size` the bytes now in
+the page’s memory, `complete` true once JNEXT has finished the file for
+good. It is empty before the click. `readFile(path)` resolves to a copy
+of the bytes of a complete file listFiles() gives; it rejects (without
+`onError`) a path that is not a string (a `TypeError`), a path JNEXT did
+not write, a file that is not complete yet, and anything in the player’s
+own locations. `stop()` ends the machine and keeps the player and its
+files: it resolves to the exit status once every file is finished, and a
+stopped player cannot start again. The player’s own locations are
+`/sdcard` (the SD card), `/jnext` (what the player keeps) and `/media`
+(the programs it installs): neither member lists or returns a file
+there, whoever wrote it and however the name is spelt (`..`, a relative
+name or a link included). What an export the page asked for contains is
+the page author’s choice, as on the desktop (a **--export-skoolkit** of
+ROM space holds the ROM the machine ran), and offering it to visitors is
+the author’s responsibility. After `destroy()` all three throw.
+
 `debugChannel(protocol)` returns the channel of the `debug` entry for
 `'dzrp'`, `'zrcp'` or `'gdb'` whose `transport` is `'channel'`; it
 throws for a protocol the page did not ask for and for one served over

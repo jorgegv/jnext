@@ -10,6 +10,10 @@ namespace browser_frontend {
 /// True once run() installed the loop.
 bool active();
 
+/// First thing in main(): every file the run writes for an output option (core/output_files.h)
+/// is reported to the page's Module.jnextFile(path, complete), for player.listFiles().
+void install_output_sink();
+
 /// Before SDL_Init: the keyboard element follows the canvas selector.
 void prepare();
 

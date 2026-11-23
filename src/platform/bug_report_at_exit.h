@@ -8,6 +8,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include "core/output_files.h"
 #include "debug/debugger.h"
 #include "platform/bug_report.h"
 
@@ -66,6 +67,7 @@ inline bool write_bug_report_at_exit(Emulator& emu, const jnext::dbg::Debugger& 
         Log::platform()->error("--bug-report {}: {}", config.bug_report_path, o.why);
         return false;
     }
+    output_files::written(path);
     Log::platform()->info("bug report saved: {} (memory: {})", path,
                           o.memory_included ? "included" : "not included: " + o.memory_reason);
     for (const std::string& w : o.warnings) Log::platform()->warn("bug report: {}", w);

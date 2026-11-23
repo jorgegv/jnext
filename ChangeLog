@@ -2,6 +2,9 @@
 
 ## Unreleased (2026-11-22)
 
+### User Features
+- Browser player hands the page the files JNEXT writes (recordings, screenshots, traces, exports): listFiles(), readFile(), stop()
+
 ### Developer Features
 - `--debugger` and `--break-at`: a program loaded from the command line stops at its start (tape loads included) and waits for a debugger
 

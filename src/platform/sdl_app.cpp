@@ -26,6 +26,7 @@
 #include "platform/host_modifier.h"   // GH #403
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include "core/output_files.h"   // GH #553
 #include "debug/source_file.h"   // GH #344: program_loads_later
 #include <cmath>
 #include <ctime>
@@ -862,6 +863,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
             const bool ok = !screenshot_refused_ &&
                             debugger().flush_captures(jnext::dbg::CLIENT_NONE) ==
                                 jnext::dbg::Result::Ok;
+            if (ok) output_files::written(screenshot_file_);
             if (!ok) {
                 Log::platform()->error(
                     "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
