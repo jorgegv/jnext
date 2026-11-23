@@ -54,8 +54,14 @@ void Mixer::reset()
 {
     // VHDL audio_mixer.vhd scaling (all values are 13-bit unsigned, 0-8191):
     //
-    //   ear = 0x200 (512) when ear=1, else 0  (includes tape EAR input)
-    //   mic = 0x080 (128) when mic=1, else 0
+    //   ear = 0x200 (512) when ear=1, else 0  (ear_i = port_fe_ear)
+    //   mic = 0x080 (128) when mic=1, else 0  (mic_i = beep_mic_final)
+    //
+    // audio_mixer.vhd has exactly three beeper-side inputs (:35-37): exc_i,
+    // ear_i and mic_i. There is NO tape input: the tape (i_AUDIO_EAR, and the
+    // Pi's audio when NR 0xA2 routes it to EAR) reaches the mix only inside
+    // mic_i = beep_mic_final (zxnext.vhd:6503, 6516), at 128, XORed with the
+    // port 0xFE MIC bit on the issue 3 keyboard setting.
     //   ay_L = 0 & ay_L_i  (12-bit → 13-bit, range 0-2295)
     //   ay_R = 0 & ay_R_i
     //   dac_L = 00 & dac_L_i & 00  (9-bit × 4, range 0-2040)
@@ -64,17 +70,14 @@ void Mixer::reset()
     //   pcm_R = ear + mic + ay_R + dac_R
 
     uint16_t ear = beeper.ear() ? 512u : 0u;
-    uint16_t mic = beeper.mic() ? 128u : 0u;
-    uint16_t tape_ear = beeper.tape_ear() ? 512u : 0u;
+    uint16_t mic = beeper.mic_final() ? 128u : 0u;
 
     // VHDL audio_mixer.vhd:80-81 — when exc_i='1' (speaker-exclusive mode,
     // beep_spkr_excl from zxnext.vhd:6504) the ear/mic muxes are gated to
-    // (others=>'0'). The tape-EAR contribution rides the same i_AUDIO_EAR
-    // wire upstream of the mux, so it is silenced by the same gate.
+    // (others=>'0'). The tape rides inside mic_i, so the same gate silences it.
     if (exc_i_) {
         ear = 0;
         mic = 0;
-        tape_ear = 0;
     }
 
     auto scale = [](int32_t sample, float gain) {
@@ -146,7 +149,6 @@ void Mixer::reset()
             // silence — same substitution the exc_i_ gate above makes.
             ear = 0;
             mic = 0;
-            tape_ear = 0;
         }
         if (mute_mask_ & AudioMute::DAC) {
             // The DAC's silence is its MIDPOINT, not zero: an idle Soundrive
@@ -164,7 +166,7 @@ void Mixer::reset()
     // audio_mixer.vhd:99-100 13-bit sum — every term is in the 13-bit
     // domain; uint16_t is a superset of 13-bit-unsigned so no clamping
     // is needed at this point.
-    const int32_t beeper_term = scale(ear + mic + tape_ear, beeper_gain_);
+    const int32_t beeper_term = scale(ear + mic, beeper_gain_);
     pcm_L = beeper_term + ay_L + dac_L + i2s_L;
     pcm_R = beeper_term + ay_R + dac_R + i2s_R;
 }

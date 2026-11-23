@@ -138,7 +138,7 @@ public:
     void set_i2s_source(I2s* i2s) { i2s_ = i2s; }
 
     /// Drive the speaker-exclusive gate (VHDL audio_mixer.vhd:80-81). When
-    /// true, the EAR / MIC / tape-EAR contributions are forced to 0. The
+    /// true, the EAR and MIC contributions (the tape rides inside MIC) are forced to 0. The
     /// composite signal (`beep_spkr_excl` = NR 0x06 b6 AND NR 0x08 b4,
     /// VHDL zxnext.vhd:6504) is computed by Emulator and forwarded here.
     void set_exc_i(bool v) { exc_i_ = v; }

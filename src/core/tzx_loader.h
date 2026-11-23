@@ -191,6 +191,20 @@ public:
     };
     DeckState deck_state(uint64_t now) const;
 
+    /// T-states since the EAR level last changed at `now` (the monotonic
+    /// T-state clock), derived from the player's state (GH #550). Exact in the
+    /// pause phases (the pulse in progress is the 1 ms hold, or the pause's
+    /// remainder, whose lengths the player holds); in every other phase it is
+    /// 0, which is the closest rule available (the player does not keep the
+    /// length of the pulse it has just started, and a restore holds only
+    /// the position): the level is taken as freshly changed, so it stays as
+    /// the board would have it until the relaxation time, at most one such
+    /// time late for a pulse longer than that. A pause of 1 ms or less after a block
+    /// that ends high forces the level low with no visible edge, so there the age
+    /// counts from the pause, not from the last data edge (under one data pulse
+    /// off). 0 when not playing.
+    uint32_t ticks_since_edge(uint64_t now) const;
+
     /// Put the deck back where `d` says. False, with the reason in `why` and
     /// the loader untouched, when `d` is not a position this file can be in
     /// (nothing loaded, an offset or pointer outside the file, an index past

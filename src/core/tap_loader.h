@@ -231,6 +231,18 @@ public:
     /// Returns the current EAR bit value (0 or 1).
     uint8_t tick_realtime(uint64_t tstates);
 
+    /// T-states since the EAR level last changed, derived from the deck's
+    /// position (GH #550): the length of the pulse or pause in progress minus
+    /// what is left of it. Every pulse starts at an edge, so this is exact for
+    /// each phase, and it needs nothing saved: a restored deck carries the phase,
+    /// the byte and bit and `pulse_left`. One exception: the very first pilot
+    /// pulse of a tape started from idle has no edge (the level stays at the 0
+    /// the stopped deck had), so inside it the age is "since the start", which
+    /// the continuous run does not count; it matters only on issue 2 with MIC
+    /// set, for a restore within 2168 T-states of the start. 0 when the deck
+    /// is not playing.
+    uint32_t ticks_since_edge() const;
+
     /// True if real-time playback is in progress.
     bool is_playing() const { return playing_; }
 
