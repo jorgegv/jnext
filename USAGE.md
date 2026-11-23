@@ -957,14 +957,12 @@ and AY#2 go to *FILE* with `-ay1` or `-ay2` before the extension
 (`tune.psg` gives `tune-ay1.psg`), created at that chip’s first write
 and aligned to the start of the recording. When a register is written
 more than once in a frame the last value is kept. R14 and R15 are not
-recorded. A reset keeps the elapsed time, a rewind keeps what was
-written and carries on after it, and a state load carries on right after
-the last frame that wrote anything (silent frames just before a state
-load are not kept). It works in every frontend, headless, with
-**--silent** and in a browser page. An unwritable *FILE* is refused
-before the machine starts. A write error makes the run exit non-zero.
-The same recording starts from the Chips tab of the debugger’s Audio
-panel.
+recorded. A reset or a state load keeps the elapsed time, and a rewind
+keeps what was written and carries on after it. It works in every
+frontend, headless, with **--silent** and in a browser page. An
+unwritable *FILE* is refused before the machine starts. A write error
+makes the run exit non-zero. The same recording starts from the Chips
+tab of the debugger’s Audio panel.
 
 **--audio-gain-db** *DB*  
 Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
