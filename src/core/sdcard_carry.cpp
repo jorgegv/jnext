@@ -178,7 +178,9 @@ bool Volume::walk(std::string& err) {
             e.fdate   = fno.fdate;
             e.ftime   = fno.ftime;
             e.altname = fno.altname;
-            if (e.dir) stack.push_back(e.path);
+            const size_t nl = std::strlen(fno.fname);
+            e.unaddressable = nl > 0 && (fno.fname[nl - 1] == ' ' || fno.fname[nl - 1] == '.');
+            if (e.dir && !e.unaddressable) stack.push_back(e.path);
             entries_.push_back(std::move(e));
         }
         f_closedir(&dj);
@@ -302,6 +304,7 @@ std::unique_ptr<Tree> open_tree_lenient(const std::string& image, std::string& e
 
 bool same_entry(Tree& x, const Entry& ex, Tree& y, const Entry& ey, bool& same, std::string& err) {
     same = false;
+    if (ex.unaddressable || ey.unaddressable) { same = true; return true; }   // cannot be read: not compared
     if (ex.dir != ey.dir) return true;
     if ((ex.attr ^ ey.attr) & kUserAttrMask) return true;
     if (ex.dir) { same = true; return true; }
@@ -379,6 +382,7 @@ std::string Report::text() const {
     list("Replaced by the new NextZXOS (your version was not kept)", overridden);
     list("You deleted these, they are back on the new card", deleted_back);
     list("You changed these, the new NextZXOS removed them (not carried)", removed);
+    list("Not carried: jnext cannot write these names (a trailing space or dot; what is inside is not carried either)", unwritable);
     if (out.empty()) out = "Nothing of yours needed carrying over.\n";
     return out;
 }
@@ -394,6 +398,7 @@ void decide(const std::vector<Change>& user, const std::vector<Change>& dist, co
             if (n.find(key)) report.deleted_back.push_back(what + u.entry.path);
             continue;   // a deletion is never carried
         }
+        if (u.entry.unaddressable) { report.unwritable.push_back(what + u.entry.path); continue; }
         const auto d = dist_by_key.find(key);
         if (d != dist_by_key.end()) {
             (d->second == Kind::Deleted ? report.removed : report.overridden)
@@ -976,6 +981,7 @@ FileAddStatus export_changes(const ExportRequest& req, ExportReport& rep, std::s
             lines.push_back(l);
             continue;
         }
+        if (c.entry.unaddressable) { rep.skipped.push_back(c.entry.path); continue; }
         if (c.entry.dir) {
             l.kind = 'D';
             ++rep.dirs;

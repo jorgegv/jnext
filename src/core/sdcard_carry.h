@@ -31,6 +31,10 @@ struct Entry {
     uint8_t     attr  = 0;
     uint16_t    fdate = 0, ftime = 0;
     std::string altname;   ///< the 8.3 name (empty for the lenient reader)
+    /// A name FatFs cannot address (it ends in a space or a dot: FatFs drops those from a path), such as
+    /// one NextZXOS can make. The entry is listed but never compared, carried or exported, and a
+    /// directory of that name is not entered.
+    bool        unaddressable = false;
 };
 
 /// A path with ASCII letters folded: FAT names are case-insensitive.
@@ -121,6 +125,7 @@ struct Report {
     std::vector<std::string> overridden;     ///< the new NextZXOS also changed it: its version won
     std::vector<std::string> deleted_back;   ///< you deleted it, the new card has it
     std::vector<std::string> removed;        ///< you changed it, the new NextZXOS removed it
+    std::vector<std::string> unwritable;     ///< its name cannot be written by jnext (a trailing space or dot)
     /// The whole report as text, sorted, one entry per line, a heading per list.
     std::string text() const;
 };
@@ -221,6 +226,7 @@ struct ExportReport {
     unsigned added = 0, changed = 0, dirs = 0, removed = 0;
     std::string base;                                     ///< what it was compared against
     std::vector<std::string> escaped;                     ///< host names written escaped
+    std::vector<std::string> skipped;                     ///< card paths not exported: a name FatFs cannot address
 };
 /// Copy every added or changed file of the card, as the machine sees it (card + journal), to
 /// `req.dir`, plus CHANGES.txt. The base it compares against: the card as made (the default card

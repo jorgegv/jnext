@@ -722,6 +722,21 @@ int main() {
               st == FileAddStatus::Ok && f.count("/OLD/MINE.TXT") && text(&f.at("/OLD/MINE.TXT")) == "in-a-removed-dir" && verified, v13);
     }
     {
+        // SDCARRY-16: a name FatFs cannot address (a trailing space or dot, which NextZXOS can make) is listed as not
+        // carried and never reaches apply_carry; the entries around it are carried (found by the real-content upgrade row)
+        carry::Entry odd;  odd.path = "/W/sp ";  odd.dir = true;  odd.unaddressable = true;
+        carry::Entry oddf; oddf.path = "/dots.."; oddf.size = 3;  oddf.unaddressable = true;
+        carry::Entry fine; fine.path = "/FINE.TXT"; fine.size = 4;
+        std::vector<carry::Change> user = {{carry::Kind::Added, odd}, {carry::Kind::Added, oddf}, {carry::Kind::Added, fine}};
+        auto nt = mem_tree(fx.n);
+        std::vector<carry::Entry> items;
+        carry::Report r16;
+        carry::decide(user, {}, *nt, items, r16);
+        check("SDCARRY-16", "a name FatFs cannot address (a trailing space or dot) is listed as not carried, with its kind, and is not handed to apply_carry; an ordinary entry beside it is carried",
+              items.size() == 1 && items[0].path == "/FINE.TXT" && r16.unwritable.size() == 2 &&
+                  r16.text().find("cannot write these names") != std::string::npos && r16.text().find("directory /W/sp ") != std::string::npos);
+    }
+    {
         // SDCARRY-10: verify catches a planted mismatch.
         auto srcmem = mem_tree(fx.c);
         bool good = false, bad = false;

@@ -2504,6 +2504,8 @@ static int run_main(int argc, char* argv[]) {
                      sd_card_image.c_str(), sdcard_export_dir.c_str(), rep.base.c_str(), rep.removed);
         for (const std::string& n : rep.escaped)
             std::fprintf(stdout, "  written with an escaped name: %s\n", n.c_str());
+        for (const std::string& n : rep.skipped)
+            std::fprintf(stdout, "  not exported (a name jnext cannot address, a trailing space or dot): %s\n", n.c_str());
         return 0;
     }
     if (sdcard_import_count > 0) {

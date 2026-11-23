@@ -173,6 +173,7 @@ void merge_report(carry::Report& into, const carry::Report& from) {
     app(into.overridden, from.overridden);
     app(into.deleted_back, from.deleted_back);
     app(into.removed, from.removed);
+    app(into.unwritable, from.unwritable);
 }
 
 }  // namespace
