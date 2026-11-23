@@ -450,6 +450,50 @@ bool make_dirs(Volume& dst, const std::string& dir, Created& created, std::strin
 
 }  // namespace
 
+namespace {
+
+// A name that fits 8.3 in one case needs no long-name entry: FatFs stores it as its own short name.
+bool plain_short_name(const std::string& n) {
+    const size_t dot = n.rfind('.');
+    const std::string base = dot == std::string::npos ? n : n.substr(0, dot);
+    const std::string ext  = dot == std::string::npos ? std::string() : n.substr(dot + 1);
+    if (base.empty() || base.size() > 8 || ext.size() > 3 || base.find('.') != std::string::npos) return false;
+    bool lower = false, upper = false;
+    for (const std::string* part : {&base, &ext})
+        for (const char c : *part) {
+            if (std::strchr(" +,;=[]", c) || static_cast<unsigned char>(c) < 0x21 || static_cast<unsigned char>(c) > 0x7E) return false;
+            if (c >= 'a' && c <= 'z') lower = true;
+            if (c >= 'A' && c <= 'Z') upper = true;
+        }
+    return !(lower && upper);
+}
+
+// The order a carry writes in: in each directory the names that are their own short names first. A name
+// that needs a long-name entry gets a generated short name (LONGNA~1), and one written BEFORE a file whose
+// real name is LONGNA~1.TXT makes FatFs open that file instead of making it (one file silently replaces the
+// other). A parent still comes before its children (it is a prefix of their component lists).
+std::vector<Entry> write_order(const std::vector<Entry>& items) {
+    auto comps = [](const std::string& path) {
+        std::vector<std::pair<int, std::string>> v;
+        size_t s = 1;
+        while (s <= path.size()) {
+            const size_t e = path.find('/', s);
+            const std::string c = path.substr(s, e == std::string::npos ? e : e - s);
+            std::string up = c;
+            for (char& ch : up) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+            v.push_back({plain_short_name(c) ? 0 : 1, up});
+            if (e == std::string::npos) break;
+            s = e + 1;
+        }
+        return v;
+    };
+    std::vector<Entry> out = items;
+    std::stable_sort(out.begin(), out.end(), [&](const Entry& a, const Entry& b) { return comps(a.path) < comps(b.path); });
+    return out;
+}
+
+}  // namespace
+
 FileAddStatus apply_carry(Tree& src, const std::vector<Entry>& items, Volume& dst,
                           std::string& err, CarryStats* stats) {
     err.clear();
@@ -486,7 +530,8 @@ FileAddStatus apply_carry(Tree& src, const std::vector<Entry>& items, Volume& ds
         return s;
     };
     std::vector<uint8_t> buf(kChunk);
-    for (const Entry& e : items) {
+    const std::vector<Entry> ordered = write_order(items);
+    for (const Entry& e : ordered) {
         if (e.dir) {
             if (!make_dirs(dst, e.path, created, err)) return rollback(FileAddStatus::DestInvalid);
             dst.mark_dirty();

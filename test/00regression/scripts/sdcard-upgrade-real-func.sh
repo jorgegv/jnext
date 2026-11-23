@@ -100,6 +100,7 @@ PY
         if [[ ${#ur_faults[@]} -eq 0 ]]; then
             rc=$(ur_run up sn-emulator-99.99.zip --sdcard-upgrade yes --delayed-automatic-exit-frames 2)
             [[ $rc == 0 ]] || ur_faults+=("3: the upgrade run exited $rc: $(tail -n 3 "$ur_dir/up.txt" | tr '\n' ' ')")
+            [[ -z "${UR_DEBUG:-}" ]] || ur_faults+=("debug delta: $(grep -i '/al' <<<"$ur_delta" | head -n 12 | tr '\n' '|') ls: $(LANG=C mdir -i "$ur_card@@$ur_off" ::W457/al 2>&1 | head -n 12 | tr '\n' '|')")
             [[ "$(tr -d '\n' < "$ur_card.distro" 2>/dev/null)" == "sn-emulator-99.99.zip" ]] || ur_faults+=("3: .distro does not name 99.99: $(grep -iE '^warning|^error|carrying' "$ur_dir/up.txt" | tail -n 4 | cut -c1-700 | tr '\n' '|')")
             [[ "$(sha256sum < "$ur_prev" 2>/dev/null | cut -d' ' -f1)" == "$old_sha" ]] || ur_faults+=("3: the old card is not in previous/ byte-identical")
             ur_new=$(ur_ls "$ur_card")

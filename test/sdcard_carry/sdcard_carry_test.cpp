@@ -737,6 +737,37 @@ int main() {
                   r16.text().find("cannot write these names") != std::string::npos && r16.text().find("directory /W/sp ") != std::string::npos);
     }
     {
+        // SDCARRY-17: a file named like another file's generated short name (found by the real-content upgrade row:
+        // NextZXOS's write probe makes both). Written in key order the long name comes first and takes LONGNA~1, and
+        // the file really named LONGNA~1.TXT then opens that one: two files become one. The carry writes plain short
+        // names first, so both arrive with their own bytes.
+        const std::string cc = tmp("AliasC"), cn = tmp("AliasN");
+        make_card(cn, Fat32Tree{});
+        make_card(cc, Fat32Tree{});
+        {
+            Edit e(cc);
+            e.mkdir("/AL");
+            e.put("/AL/LONGNA~1.TXT", "short-name-file-125");   // the plain name first, as the guest did
+            e.put("/AL/Long Name e.txt", "long-name-file-123");
+        }
+        std::vector<carry::Entry> items;
+        {
+            auto v = vol(0, cc);
+            for (const auto& en : v->entries()) items.push_back(en);
+        }
+        FileAddStatus st = FileAddStatus::ImageUnusable;
+        std::string e17;
+        {
+            auto src = vol(1, cc);
+            auto dst = vol(0, cn, nullptr, false);
+            if (src && dst) st = carry::apply_carry(*src, items, *dst, e17);
+        }
+        const auto f = foreign(cn);
+        check("SDCARRY-17", "a file named like another file's generated short name is carried beside it with its own bytes: plain short names are written before long ones",
+              st == FileAddStatus::Ok && f.count("/AL/LONGNA~1.TXT") && text(&f.at("/AL/LONGNA~1.TXT")) == "short-name-file-125" &&
+                  f.count("/AL/LONG NAME E.TXT") && text(&f.at("/AL/LONG NAME E.TXT")) == "long-name-file-123", e17);
+    }
+    {
         // SDCARRY-10: verify catches a planted mismatch.
         auto srcmem = mem_tree(fx.c);
         bool good = false, bad = false;
