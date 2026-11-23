@@ -181,7 +181,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Source debugging (backend) |      537 |      537 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1605 |     1605 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (debugger introspection, GH #529) |      211 |      211 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (debugger introspection, GH #529) |      277 |      277 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Startup stop (--debugger, --break-at, GH #548) |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -232,11 +232,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Audio Panel  |       76 |       76 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Audio Panel  |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger HALT batch (GUI) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger data per panel (GUI) |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger data per panel (GUI) |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Sizing |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -249,6 +249,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      203 |      203 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **17831**| **17831**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **17913**| **17913**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

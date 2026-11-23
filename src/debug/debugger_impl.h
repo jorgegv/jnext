@@ -480,6 +480,7 @@ struct Debugger::Impl {
         Listener*  listener    = nullptr;
         bool       live_raster = false;
         bool       call_stack  = false;   ///< GH #434 F-B: this client asked for call-stack tracking
+        bool       audio_scope = false;   ///< GH #536: this client asked for the mixer source tap
         bool       audio_log   = false;   ///< GH #531: this client asked for the audio write log
         bool       detached    = false;   ///< tombstone
         /// CAP-03 — this client's bookmarks, in save order (a re-save of a name
@@ -529,6 +530,15 @@ struct Debugger::Impl {
     void sync_call_stack(bool force = false);
     bool call_stack_derived = false;
 
+    /// THE ONE WRITER of the mixer source tap's install (GH #536, the `sync_call_stack` shape): on while
+    /// some live client (observers included) asked for it and the machine is not `--silent`. Off to on
+    /// makes a fresh tap (`written` restarts at 0), on to off frees it; it always ends by installing the
+    /// result on the Emulator, which `force` repeats for a machine a reconstruct has just rebuilt (the
+    /// new machine holds no tap, and its first partial sample is dropped by the tap's sync rule).
+    /// Called from `clients_changed()`, `set_audio_scope_enabled()`, the reconstruct and the destructor.
+    void sync_audio_scope(bool force = false);
+    std::unique_ptr<AudioSourceTap> scope_tap;
+    bool audio_scope_derived = false;
     // -----------------------------------------------------------------------
     // GH #531 -- INS-23, the audio write log.
     //

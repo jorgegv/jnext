@@ -65,3 +65,40 @@ const char* psg_envelope_glyph(uint8_t shape)
     };
     return kGlyphs[shape & 0x0F];
 }
+
+ScopeTrigger scope_trigger(const int16_t* s, size_t n, size_t window)
+{
+    ScopeTrigger t;
+    if (n == 0) return t;
+    int lo = s[0], hi = s[0];
+    for (size_t i = 1; i < n; ++i) {
+        lo = std::min<int>(lo, s[i]);
+        hi = std::max<int>(hi, s[i]);
+    }
+    t.level = (lo + hi + 1) / 2;
+    if (n < window) return t;
+    t.start = n - window;
+    if (lo == hi) return t;
+    for (size_t i = n - window; i >= 1; --i) {
+        if (s[i - 1] < t.level && s[i] >= t.level) {
+            t.triggered = true;
+            t.start = i;
+            break;
+        }
+    }
+    return t;
+}
+
+ScopeMeter scope_meter(const int16_t* s, size_t n, int rest)
+{
+    ScopeMeter m;
+    if (n == 0) return m;
+    double sum = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        const int d = static_cast<int>(s[i]) - rest;
+        m.peak = std::max(m.peak, d < 0 ? -d : d);
+        sum += static_cast<double>(d) * d;
+    }
+    m.rms = std::sqrt(sum / static_cast<double>(n));
+    return m;
+}

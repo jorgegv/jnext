@@ -156,6 +156,35 @@ rebuilds the `Emulator`, so the backend installs the sink again in
 `reapply_after_machine_rebuild()`. The ring, the seq counter and the verbs live in the
 backend (`src/debug/debugger_audio.cpp`).
 
+**Pacing engines.** `Debugger::ctc_state()` and `Debugger::dma_state()` (INS-25) report what paces a
+sample player: the CTC's four channels and the DMA's prescaler. Both read through a `DebugView` that
+is defined inline in `CtcChannel` and `Dma` (`ctc.h`, `dma.h`): no data member, so no layout change, and
+no core translation unit calls it, so no code is emitted in a hot path; an unused debugger pays nothing.
+The CTC rate is the ZC/TO rate: `MASTER_CLOCK_HZ / (prescaler x TC)` for a running timer (TC 0 counts
+256; `ctc_chan.vhd:132-170`), the source's rate divided by TC for a running counter. A counter's
+source is the previous channel, channel 0 being fed by channel 3 (`zxnext.vhd:4598`, `Ctc::handle_zc_to`
+arms `(channel + 1) & 3`); `Debugger::ctc_state()` walks that chain back at most four hops, a stopped
+channel or a ring of counters ends it with no rate, and the division is rounded once, at the end, in
+milli-hertz. A channel is `running` only in S_RUN or S_RUN_TC, the states in which `t_count` counts. The
+DMA rate is the NOMINAL pacing rate `MASTER_CLOCK_HZ / (32 x prescaler)`, the same at every CPU speed (the
+DMA timer adds 8, 4, 2 or 1 per CPU clock at 3.5, 7, 14 and 28 MHz, one per master cycle, `dma.vhd:250-255`):
+the gate (`dma.vhd:424`) is a minimum spacing from the read, and the state machine's own cycles come
+on top, so a real stream is slower than the nominal rate.
+
+**The sample stream.** `dac_stream_stats()` (`src/debug/dac_stream.h`, a published header with no core
+dependency) turns the audio log into one row per DAC writer: the measured rate, the interval minimum,
+mean, maximum and lower median, the population standard deviation and the gaps. Its rules are small and
+each is pinned by a row. An entry counts if it is an applied DAC or mirror write after the newest marker
+of the vector (a reset restarts the player, a rewind truncated the log) inside the window `(end - window,
+end]`; a clock younger than the window has no start. The log has one entry per DAC channel, so a write to
+0xDF, 0xB3, the mono 0xFB or NextREG 0x2D is two entries at one cycle: consecutive counted entries with
+equal cycle, source, PC and port are ONE sample. A CPU writer is keyed by its PC; DMA, Copper and debugger
+entries by source alone, because their PC is the slot's, not theirs. A gap is an interval strictly above
+1.5 times the lower median: one skipped sample is two periods, one period is one, so 1.5 sits between them
+whatever the interrupt acceptance jitter does to a single interval. `nearest_pacing()` pairs a CPU writer
+with the running CTC channel whose rate is nearest and a DMA writer with the DMA. The DMA's own spacing
+is at least the prescaler's (`dma.vhd`, the timer cleared at TRANSFERING_READ_1 and the gate at WAITING_CYCLES), so its measured rate is at most the nominal one.
+
 **Frame grouping and the tracker.** `src/debug/audio_frames.h` is a pure, published helper that
 groups the log's entries, oldest first, into one `AudioFrame` per frame that holds counted AY
 writes (`AudioFrameAccumulator::feed()`). A counted write is an applied `AyRegister` entry (no
@@ -296,6 +325,36 @@ tick rebuilds both. A state saved while a chip is muted is therefore byte-identi
 The beeper bit of the mask zeroes the mixer's `ear` and `mic` terms, and because a playing tape reaches the mix
 only through `mic_i` (above), it silences the tape and the Pi's audio routed to EAR as well; the Audio panel's Tape EAR lamp still shows the raw input
 (`BeeperState::tape_ear`), so a muted tape is visibly playing.
+
+**The source tap.** The debugger's Scopes view needs the level of each source before the mixer sums
+them, which the mixer does not keep. `AudioSourceTap` (`src/audio/audio_source_tap.h`, standard headers
+only) holds sixteen accumulators and a 8192-sample ring per source; the Debugger owns it, the Emulator
+holds a raw pointer (`set_audio_scope_tap()`), and it is not machine state: not saved, not reset, never
+read by the Z80. `Mixer::integrate_span_tapped()` is `integrate_span()`'s loop, chunk for chunk, with
+`tap_accumulate_()` beside the audible `accumulate_impl_()`: the sixteen terms are the hardware ones
+(`Dac::channel()`, `AyChip::output_a/b/c()`, `TurboSound::hw_pcm_left()` and the beeper's EAR and `mic_final()` levels: the
+playing tape and the Pi's audio routed to EAR have no term of their own, they arrive inside `beep_mic_final`
+(v1.3.62), so they show in the Beeper source as its MIC 128), computed beside `mix()` and never inside it, so no mute and no host gain reaches them.
+Each pushed sample is the mixer's own `rounded_average_x4` of a term over one output period, so the
+Left and Right traces equal the mixer's output plus its resting level exactly. The sync rule: a tap
+sample is pushed only when the tap saw the mixer's whole sample (compared by cycle count), which covers a
+tap enabled mid-sample, a reset, a state load and a switch between the tapped and untapped paths.
+
+Nothing may be added to the hot audio path when no tap is installed (a debugger feature that is unused
+costs nothing). A test per instruction slice was rejected, and so was a second per-slot accumulate
+entry point (a second caller of a hot function stopped the compiler inlining it, 1 to 7 % of every
+program). Instead the device cluster's `replay_mode_` test became a test of one byte,
+`Emulator::audio_divert_` (bit 0 a replay, bit 1 a tap installed): the same load, test and branch, so
+zero costs nothing extra, and a non-zero byte goes to `audio_divert_span_()`, which is cold and out of
+line and calls `integrate_span_tapped()` (a replay mixes nothing). `refresh_audio_divert_()` runs at
+every writer of `replay_mode_` and of the tap pointer.
+
+The HALT and raster-poll batches do not feed the tap: a test in their replay loop cost one instruction
+per replayed segment (0.1 % of whole programs, measured), and a twin of the replay cost more elsewhere.
+While a tap is installed `batch_window_limit_()` refuses every window (it tests `audio_divert_`, which
+it already did for a rewind replay as `replay_mode_`), so those programs run slot by slot, the path the
+batches are held equivalent to, and the tap sees exactly the batch-off samples. Batching resumes when
+the tap is dropped.
 
 The envelope generator takes one step right after every R13 write, as the VHDL does: the write pulses
 `env_reset`, which reloads the level and also forces `env_ena` (`ym2149.vhd:340-342` and `ym2149.vhd:393-409`), so the first

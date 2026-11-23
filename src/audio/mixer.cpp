@@ -278,6 +278,75 @@ void Mixer::integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac
     }
 }
 
+// GH #536 - the source tap. Beside mix(), never inside it: the terms below are the HARDWARE ones
+// (audio_mixer.vhd:80-100), so no debugger mute (Mixer's, TurboSound's audible sum, Dac's) and no
+// host gain reaches them. Drift from mix() is caught by SCP-06 (tap mix == mixer output at 0 dB).
+inline void Mixer::tap_accumulate_(AudioSourceTap& tap, const Beeper& beeper, const TurboSound& ts,
+                                   const Dac& dac, uint32_t take) const
+{
+    int64_t* acc = tap.acc.data();
+    for (int c = 0; c < 3; ++c) {
+        const AyChip& chip = ts.ay(c);
+        acc[c * 3 + 0] += static_cast<int64_t>(chip.output_a()) * take;
+        acc[c * 3 + 1] += static_cast<int64_t>(chip.output_b()) * take;
+        acc[c * 3 + 2] += static_cast<int64_t>(chip.output_c()) * take;
+    }
+    for (int k = 0; k < 4; ++k)
+        acc[9 + k] += static_cast<int64_t>(dac.channel(k)) * take;
+
+    // audio_mixer.vhd:80-81, as mix() has it: EAR (ear_i = port_fe_ear) 512 and MIC (mic_i = beep_mic_final,
+    // zxnext.vhd:7113,7126) 128, both gated by exc_i. There is no tape term of its own: a playing tape
+    // reaches the mix only inside beep_mic_final (GH #550), so it shows here as the 128 of MIC.
+    int32_t beeper_term = 0;
+    if (!exc_i_)
+        beeper_term = (beeper.ear() ? 512 : 0) + (beeper.mic_final() ? 128 : 0);
+    acc[13] += static_cast<int64_t>(beeper_term) * take;
+
+    const int32_t i2s_L = i2s_ ? i2s_->pi_audio_L() : I2S_REST_LEVEL;
+    const int32_t i2s_R = i2s_ ? i2s_->pi_audio_R() : I2S_REST_LEVEL;
+    // audio_mixer.vhd:99-100, soundrive.vhd:111-112: L = A + B, R = C + D, each << 2.
+    const int32_t mix_L = beeper_term + ts.hw_pcm_left() + ((dac.channel(0) + dac.channel(1)) << 2) + i2s_L;
+    const int32_t mix_R = beeper_term + ts.hw_pcm_right() + ((dac.channel(2) + dac.channel(3)) << 2) + i2s_R;
+    acc[14] += static_cast<int64_t>(mix_L) * take;
+    acc[15] += static_cast<int64_t>(mix_R) * take;
+    tap.acc_cycles += take;
+}
+
+void Mixer::integrate_span_tapped(AudioSourceTap& tap, const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                                  uint64_t cycles, uint64_t& sample_accum, uint64_t threshold,
+                                  void (*on_sample)(void*), void* ctx)
+{
+    // integrate_span()'s loop with the tap fed per chunk. See the header.
+    uint64_t remaining = cycles;
+    while (remaining > 0) {
+        const uint64_t need = (threshold - sample_accum + SAMPLE_RATE - 1) / SAMPLE_RATE;
+        const uint64_t take = std::min(remaining, need);
+        accumulate_impl_(beeper, ts, dac, static_cast<uint32_t>(take));
+        tap_accumulate_(tap, beeper, ts, dac, static_cast<uint32_t>(take));
+        sample_accum += take * SAMPLE_RATE;
+        remaining -= take;
+        if (sample_accum >= threshold) {
+            sample_accum -= threshold;
+            const bool whole = tap.acc_cycles == acc_cycles_;
+            emit_sample_impl_();
+            if (whole && tap.acc_cycles != 0) {
+                // The mixer's own rounding (emit_sample_impl_): x4 before the divide, round to nearest.
+                const int64_t cyc = static_cast<int64_t>(tap.acc_cycles);
+                const size_t pos = static_cast<size_t>(tap.written % AudioSourceTap::RING);
+                for (size_t s = 0; s < AudioSourceTap::SOURCES; ++s) {
+                    const int64_t scaled = tap.acc[s] * 4;
+                    const int64_t bias = scaled >= 0 ? cyc / 2 : -(cyc / 2);
+                    tap.ring[s * AudioSourceTap::RING + pos] = static_cast<int16_t>((scaled + bias) / cyc);
+                }
+                ++tap.written;
+            }
+            tap.acc.fill(0);
+            tap.acc_cycles = 0;
+            on_sample(ctx);
+        }
+    }
+}
+
 int Mixer::available() const { return count_; }
 
 int Mixer::read_samples(int16_t* out, int count)

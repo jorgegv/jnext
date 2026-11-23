@@ -37,7 +37,7 @@ File list's cached items (`combo_files_`) and the reason `report_sidecars()` gav
 `SourcePanel::refresh_()` (`source_panel.cpp:616`) runs while the machine is paused,
 whenever the window's paused stamp changed ([3.10.2](../03-subsystems/10-2-the-qt-debugger.md):
 the stamp carries a flag for "the loaded file changed on disk",
-`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:1116`; the flag is
+`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:1128`; the flag is
 `SourcePanel::file_changed_on_disk()`, `source_panel.cpp:575`). In order:
 
 1. `update_buttons(paused)` (`source_panel.cpp:517`): the forward steps need a paused machine and a
@@ -79,7 +79,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`source_panel.cpp:581`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:2236`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:2237`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -89,13 +89,13 @@ already shown still puts the view back.
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
-`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:351`) takes the
+`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:363`) takes the
 configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3275`, fed by
 `apply_startup_config()`, `:3046`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:460`)
-adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:363`). The effective
+adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:375`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:343`) on every change and again in `ensure_window()`, since the window is
+`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:355`) on every change and again in `ensure_window()`, since the window is
 created lazily. Locate derives the directory with `source_search::root_for()`, refuses a file of
 another name, and asks whether to save it; `source_dir_save_requested` is MainWindow's, which
 appends to `[paths] source_dirs` and refuses a directory that holds the list separator, as
@@ -108,12 +108,12 @@ and MainWindow logs `Source search path: ...`.
 ### Loading a map by hand
 
 The Source tab's **Load Source Map...** button and the Debug > Source > Load Source Map... item
-are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:1004`). Its file dialog
+are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:1016`). Its file dialog
 offers `*.sld`, `*.sld.txt` and `*.map`; the backend tells the format by content
 ([7.3](03-loaders.md)), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 `load_map()`; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:1046`):
+rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:1058`):
 the log, and the main window's status bar for ten seconds.
 
 ### Colouring
@@ -163,7 +163,7 @@ the log, and the main window's status bar for ten seconds.
   viewport. `set_colour_scheme()` (`source_panel.cpp:566`) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections `refresh_()` builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:357`) and pushed by
+  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:369`) and pushed by
   `ensure_window()`, fed by `MainWindow::apply_startup_config()`.
 - **What a scheme does not reach.** The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -394,7 +394,7 @@ Which space a view prints is a rule per view (design 10.3):
   its `@NN`, which is a different thing ([7.1](01-which-memory.md)).
 
 The instruction at the PC is read as the CPU will fetch it, not as a data read.
-`Debugger::memory_reader()` (`debugger_inspect.cpp:940`) takes the bytes of that one instruction
+`Debugger::memory_reader()` (`debugger_inspect.cpp:1002`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
 other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:175`: `is_call_like()` at `:184` and `instruction_length()` at `:190`
@@ -436,7 +436,7 @@ the trimmed rest as the value (a value ZRCP's `parse_number()` reads, decimal or
 a fraction, `'A'`, `0x10`, goes as typed) and calls `write_c_value()` in frame 0. Success answers `set-register`'s own register line; every failure
 is ZEsarUX's `Error changing register`, with no reason.
 `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2652`) calls
-`Debugger::load()` (`debugger_reconstruct.cpp:466`), which calls `load_program_sidecars()` after a successful load
+`Debugger::load()` (`debugger_reconstruct.cpp:467`), which calls `load_program_sidecars()` after a successful load
 (`load_program_sidecars()`, `debugger_reconstruct.cpp:528-532`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
 `get-memory-pages` (`memory_pages()`, `zrcp_format.cpp`) names the eight slots of a Next from what each
