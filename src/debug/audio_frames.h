@@ -5,7 +5,7 @@
 // that holds counted AY register writes. A pure function of the entries fed to
 // it (no Debugger, no machine, no Qt), published like audio_math.h for its three
 // consumers: the Audio panel's Tracker, the player timing of the Audio panel
-// (A2.3) and the .psg writer (A3.1).
+// (audio_timing_stats(), GH #535) and the .psg writer (A3.1).
 //
 // The frame number is the event stamper's (`AudioLogEntry::frame`, the number a
 // rewind slot carries). The AY keeps the whole written byte in every register
@@ -17,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include "debug/inspect.h"   // AY_CHIP_COUNT; includes debug/events.h (AudioLogEntry)
 
@@ -89,5 +90,29 @@ private:
     std::optional<uint32_t> last_completed_;
     AudioFrame::Values carry_;
 };
+
+/// Min, average and max of one per-frame quantity.
+struct AudioTimingRange {
+    uint32_t min = 0, max = 0;
+    double   avg = 0;
+};
+
+/// Player timing over a window of frames: where in the frame the AY player writes.
+struct AudioTimingStats {
+    uint32_t window_first = 0, window_last = 0;   ///< frame numbers covered
+    uint32_t frames = 0;                          ///< frames in the window with counted writes; 0 = nothing else is meaningful
+    uint32_t empty  = 0;                          ///< frame numbers in [window_first, window_last] with no counted write
+    AudioTimingRange first_line, first_tstate;    ///< of AudioFrame::first (vc, tstate)
+    AudioTimingRange last_line,  last_tstate;     ///< of AudioFrame::last
+    AudioTimingRange writes;
+    uint16_t pc_min = 0xFFFF, pc_max = 0;         ///< union of the frames' CPU PC ranges; min > max = none
+};
+
+/// Statistics over the last `window` frame numbers ending at the newest of `frames` (completed
+/// frames, oldest first). Total on any input: empty input or window 0 gives a default result; a frame
+/// whose number is not above the previous one starts a new run and only the frames after the last such
+/// break count. Frame numbers before the oldest frame used, minus its `empty_before`, are unknown (the
+/// log's ring, a marker, a row cap) and are not counted as empty.
+AudioTimingStats audio_timing_stats(const std::vector<const AudioFrame*>& frames, uint32_t window);
 
 } }

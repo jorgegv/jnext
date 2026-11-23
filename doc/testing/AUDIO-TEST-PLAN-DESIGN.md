@@ -997,6 +997,28 @@ The Tracker's own rows live in `debugger_audio_panel_test` (the grid cell for ce
 real writes, the rewind double-click and why a row is greyed) and `debugger_panel_data_test` (what the
 window asks of the backend, and the landing on a frame).
 
+### 8.9 Player timing (`audio_timing_stats`, `src/debug/audio_frames.h`)
+
+The statistics behind the Audio panel's timing strip (GH #535): where in the frame the AY player writes,
+over the last N frame numbers. Pure, over hand-built `AudioFrame` values; the expected numbers are worked
+by hand from the stamps, never through the helper. Oracles: the rules of the issue (window of frame
+numbers ending at the newest completed frame; a frame with no counted write is an empty frame number;
+min / average / max of the first and last write's line and T-state and of the write count; union of the
+CPU PC ranges), and the grouping of 8.8 for what `empty_before` and a backward frame number mean.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AFG-19 | f200 first (1,300) last (1,340) 2 writes PC 0x9300-0x9310; f201 (1,302)/(3,700) 3, 0x9300-0x9320; f202 (15,3600)/(15,3640) 2; f204 (1,304)/(1,304) 1, no PC, empty_before 1; window 50 | frames 4, window 200-204, empty 1; first line 1/4.5/15, T-state 300/1126.5/3600; last line 1/5.0/15, T-state 304/1246.0/3640; writes 1/2.0/3; PC 0x9300-0x9320 |
+| AFG-20 | f100..f109, first line = f - 100; windows 3, 10, 11 | 3: frames 3, 107-109, first line 7/8.0/9; 10: frames 10, from 100; 11: clamped to the oldest frame, from 100, empty 0 |
+| AFG-21 | f100, f101, f104 (empty_before 2), window 10; f120 (empty_before 25), f121, windows 50 and 10 | 100-104, 3 frames, 2 empty; window 50: from 95, 25 empty; window 10: from 112, 8 empty |
+| AFG-22 | PC ranges 0x8100-0x8150, 0x8000-0x8120, none; then three frames with none | union 0x8000-0x8150; none: pc_min 0xFFFF, pc_max 0 |
+| AFG-23 | f50, f51, f10, f11, window 100 | The break at f10: frames 2, 10-11, first line 2/2.5/3 |
+| AFG-24 | no frames; f5 with window 0; f3 alone, window 50; f7 alone, window 1 | default (frames 0); window 0: frames 0; f3: from 3 (the nominal start saturates at 0), empty 0; f7: min == avg == max on every range, 7-7 |
+
+The strip itself (its labels, the dot plot, the window box, the per-row details and a real IM2 player
+whose steady frames write on the interrupt line and whose late and missed frames show) is DAP-81..87 in
+`debugger_audio_panel_test`.
+
 ## Test Implementation Strategy
 
 ### Phase 1: Unit Tests (Internal State)
