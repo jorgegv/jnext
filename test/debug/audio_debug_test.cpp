@@ -3041,11 +3041,18 @@ int main() {
         const DacStreamStats b = dac_stream_stats(v, 20000, 0);
         // A clock younger than the window has no start: a write at cycle 0 counts (window 5000, end 4000).
         const DacStreamStats young = dac_stream_stats(stream_of(5, 0, 1000), 4000, 5000);
-        check("DSS-09", "the window is (end - window, end]: samples at 1000..20000, end 20000, window 5000: start 15000, 5 samples (16000..20000, 15000 excluded); window 0: all 20; a clock younger than the window has no start, so samples at 0..4000 with end 4000 and window 5000 are all 5",
+        // After the end: not counted (samples at 1000..5000, end 3000: three). At end == window the window is
+        // (0, end]: a write at cycle 0 is outside it.
+        const DacStreamStats past = dac_stream_stats(stream_of(5, 1000, 1000), 3000, 0);
+        const DacStreamStats edge = dac_stream_stats(stream_of(5, 0, 1000), 5000, 5000);
+        check("DSS-09", "the window is (end - window, end]: samples at 1000..20000, end 20000, window 5000: start 15000, 5 samples (16000..20000, 15000 excluded); window 0: all 20; a clock strictly younger than the window has no start (samples at 0..4000, end 4000, window 5000: all 5); an entry after the end is not counted (end 3000: 3 of 5); at end == window the window is (0, end] (samples at 0..4000, end 5000, window 5000: 4, cycle 0 outside)",
               a.window_start == 15000 && a.window_end == 20000 && a.writers.size() == 1 &&
               a.writers[0].samples == 5 && a.writers[0].first_cycle == 16000 &&
               b.writers.size() == 1 && b.writers[0].samples == 20 &&
-              young.writers.size() == 1 && young.writers[0].samples == 5 && young.window_start == 0);
+              young.writers.size() == 1 && young.writers[0].samples == 5 && young.window_start == 0 &&
+              past.writers.size() == 1 && past.writers[0].samples == 3 && past.writers[0].last_cycle == 3000 &&
+              edge.writers.size() == 1 && edge.writers[0].samples == 4 && edge.writers[0].first_cycle == 1000 &&
+              edge.window_start == 0);
     }
     {
         // 7 intervals alternating 1790, 1794 (four of 1790, three of 1794): lower median sorted[3] = 1790.
@@ -3072,6 +3079,23 @@ int main() {
               one.writers.size() == 1 && w.samples == 1 && w.rate_millihz == 0 && w.interval_min == 0 &&
               w.interval_max == 0 && w.interval_median == 0 && w.interval_mean == 0.0 && w.jitter == 0.0 &&
               w.gaps == 0 && none.writers.empty());
+    }
+    {
+        // One cycle each: the sample key is (cycle, source, pc, port), every term.
+        std::vector<AudioLogEntry> v;
+        v.push_back(dacw(1, 5000, 0, 0x001F, EventSource::Cpu, 0x8010));
+        v.push_back(dacw(2, 5000, 1, 0x000F, EventSource::Cpu, 0x8010));     // same cycle, source, pc: another port
+        v.push_back(dacw(3, 9000, 0, 0x00DF, EventSource::Cpu, 0x8020));
+        v.push_back(dacw(4, 9000, 0, 0x00DF, EventSource::Dma, 0x8020));     // same cycle, pc, port: another source
+        const DacStreamStats st = dac_stream_stats(v, 10000, 0);
+        const DacWriterStats* p = writer_of(st, EventSource::Cpu, 0x8010);
+        const DacWriterStats* c = writer_of(st, EventSource::Cpu, 0x8020);
+        const DacWriterStats* d = writer_of(st, EventSource::Dma);
+        bool all_have_samples = true;
+        for (const DacWriterStats& w : st.writers) all_have_samples = all_have_samples && w.samples >= 1;
+        check("DSS-16", "a sample is one (cycle, source, pc, port): two ports written at one cycle by one instruction are two samples (channels A and B); a CPU and a DMA entry at one cycle, pc and port are two writers with one sample each; no writer is left without a sample",
+              st.writers.size() == 3 && p && p->samples == 2 && p->channels == 0x03 &&
+              c && c->samples == 1 && d && d->samples == 1 && all_have_samples);
     }
     {
         using jnext::dbg::PacingMatch;

@@ -165,7 +165,7 @@ void AudioStreamView::refresh() {
     for (size_t i = 0; i < cache_.size(); ++i)
         if (cache_[i].marker != AudioMarker::None) newest_marker = i;
     cache_.erase(cache_.begin(), cache_.begin() + std::ptrdiff_t(newest_marker));
-    if (end > window) {                        // (end - window, end]; a younger clock keeps everything
+    if (end >= window) {                       // (end - window, end]; a strictly younger clock keeps everything
         const uint64_t start = end - window;
         cache_.erase(std::remove_if(cache_.begin(), cache_.end(),
                                     [&](const AudioLogEntry& e) { return e.marker == AudioMarker::None && e.cycle <= start; }),

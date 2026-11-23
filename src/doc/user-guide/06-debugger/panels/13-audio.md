@@ -124,7 +124,8 @@ median interval: a sample the player skipped. *Pacing* names the engine whose co
 nearest the measured one and how far off it is, for example `CTC 0: 16055.046 Hz (+0.000%)`; a
 player paced by a CTC channel matches that channel's rate to within the interrupt acceptance
 jitter. Double-click a CPU row to show the instruction in the Disassembly. The window label
-tells how much of the second the machine has run so far.
+shows how much of the second holds samples: the time from the oldest writer's first
+sample to now, up to one second.
 
 While DAC & Beeper is on show the debugger records the audio writes, the same recording as the
 Log tab, so the rows start when you open the tab.

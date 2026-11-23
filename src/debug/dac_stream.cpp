@@ -31,8 +31,9 @@ DacStreamStats dac_stream_stats(const std::vector<AudioLogEntry>& entries, uint6
                                 uint64_t window_cycles) {
     DacStreamStats out;
     out.window_end = end_cycle;
-    // (start, end]: a clock younger than the window has no start, so a write at cycle 0 still counts.
-    const bool bounded = window_cycles != 0 && end_cycle > window_cycles;
+    // (start, end]: only a clock strictly younger than the window has no start (a write at cycle 0 counts);
+    // at end == window the window is (0, end] and cycle 0 is outside it.
+    const bool bounded = window_cycles != 0 && end_cycle >= window_cycles;
     out.window_start = bounded ? end_cycle - window_cycles : 0;
 
     size_t from = 0;
@@ -48,16 +49,19 @@ DacStreamStats dac_stream_stats(const std::vector<AudioLogEntry>& entries, uint6
         if (e.cycle > end_cycle) continue;
         if (bounded && e.cycle <= out.window_start) continue;
         const Key key{int(e.source), e.source == EventSource::Cpu ? e.pc : uint16_t(0)};
-        Acc& a = writers[key];
-        if (e.chip < 4) a.channels |= uint8_t(1u << e.chip);
         const bool same_sample = prev && prev->cycle == e.cycle && prev->source == e.source &&
                                  prev->pc == e.pc && prev->port == e.port;
+        // A writer exists only once it has a sample: a repeat of the previous entry (same source and pc,
+        // so the same key) adds its channel to a writer that already holds that sample.
+        Acc& a = writers[key];
         if (!same_sample) a.cycles.push_back(e.cycle);
+        if (e.chip < 4) a.channels |= uint8_t(1u << e.chip);
         prev = &e;
     }
 
     for (const auto& kv : writers) {
         const Acc& a = kv.second;
+        if (a.cycles.empty()) continue;   // cannot happen (a writer is made by its first sample); never read front() of nothing
         DacWriterStats w;
         w.source = EventSource(kv.first.first);
         w.pc = kv.first.second;
