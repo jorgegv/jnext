@@ -236,7 +236,8 @@ if want beam-replay-func; then
         local out="$br_dir/$1-$2"
         mkdir -p "$out"
         br_make_script "$1" "$2" "$out"
-        LANG=C timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
+        # GH #555: up to four of these run at once, and a jnext locks its card: one hard link each.
+        LANG=C JNEXT_CONFIG_DIR="$(sd_extra_cfg "br-$1-$2")" timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" --rtc 2026-07-10T08:55:00 \
             --inject "$br_halt" --inject-org 0x8000 --inject-delay "$br_delay" \
             --script "$out/run.jds" > "$out/run.log" 2>&1 || true

@@ -291,6 +291,18 @@ sd_card_sidecars() {
     done
 }
 
+# sd_extra_cfg <name>: a config dir of its own, $RUN_DIR/extra/<name>, holding a HARD LINK of this
+# row's SD clone (same inode: nothing is copied) and its sidecars; prints the path (GH #555). A jnext
+# locks the card it boots, so a row that runs two jnext at once on the card gives every instance but
+# one such a dir: JNEXT_CONFIG_DIR="$(sd_extra_cfg b)" "$JNEXT" ... Fails when the link cannot be made.
+sd_extra_cfg() {
+    local d="$RUN_DIR/extra/$1" img="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    mkdir -p "$d/sdcard" || return 1
+    ln -f "$img" "$d/sdcard/" || return 1
+    sd_card_sidecars "$img" "$d/sdcard/cspect-next-1gb-fixed.img" || return 1
+    printf '%s\n' "$d"
+}
+
 # sd_expected_distro: the zip name of the default distribution, from its one definition
 # (sdcard::kDistroUrl in src/core/sdcard_provisioner.cpp: the line after the declaration).
 # Fails, printing nothing, unless exactly one name comes out.

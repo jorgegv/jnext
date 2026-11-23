@@ -22,8 +22,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../dzrp-functions.inc"
 if want dzrp-cli-func; then
     begin_func dzrp-cli-func
     fails=()
+    # GH #555: the first jnext holds the row's card; every cli_run is a second instance, on its
+    # own hard link of it, so the port is what refuses it and not the card lock.
+    cli_cfg=$(sd_extra_cfg cli)
     cli_run() {
-        LANG=C timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
+        LANG=C JNEXT_CONFIG_DIR="$cli_cfg" timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
             "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 2 "$@" 2>&1
     }
     for bad in 65536 70000 11000x -1 ""; do
