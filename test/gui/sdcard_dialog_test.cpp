@@ -500,6 +500,7 @@ struct OfferRun {
     bool clicked = false, has_checkbox = false;
 };
 OfferRun run_offer(const char* button, bool tick, const std::string& message) {
+    (void)tick;   // the check box is gone; kept so the call sites read the same
     OfferRun r;
     SdcardGuiProvisioner gui;
     QTimer::singleShot(0, [&] {
@@ -535,7 +536,7 @@ void test_upgrade_offer() {
           has(a.text, "NextZXOS 99.99 is available") && has(a.text, "NextZXOS 24.11") && has(a.text, "kept as a backup") &&
               !has(a.text, "DELETES"), a.text);
     check("SDD-UPG-05", "the box has exactly the three buttons, Upgrade, Keep my card (don't ask again) and Not now",
-          a.buttons == "Upgrade (keep my files);Keep my card (don't ask again);Not now;", a.buttons);
+          a.buttons == "Upgrade (keep my files);Not now;Keep my card (don't ask again);", a.buttons);
     {
         const std::string report = "Kept from your card (1):\n  added /MINE.TXT\n";
         auto box = SdcardGuiProvisioner::report_box(report);
