@@ -1443,6 +1443,7 @@ with `test/zip_fixture.h`), `load_error_test` ZIPG-01..09 and ZIPG-18..19 (the w
 |---|---|---|
 | PNG or `.SCR` screenshot | `--delayed-screenshot`, File ▸ Save Screenshot, File ▸ Quick Screenshot | `src/core/screenshot.*` |
 | WAV of the mixer | `--wav-record` | `src/audio/audio_recorder.*` |
+| WAV stems, one per source | `--wav-record-stems`, the Audio panel's Scopes tab | `src/debug/stem_recorder.*`, `src/audio/audio_recorder.*` |
 | DAC activity CSV | `--dac-trace` | `src/audio/dac_trace_recorder.*` |
 | MP4 with audio | `--record`, File ▸ Record MPEG4 Video | `src/core/video_recorder.*` |
 
