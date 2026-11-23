@@ -1479,7 +1479,7 @@ printf '%s  cspect-next-1gb-fixed.img\n' "$(printf OTHER | sha256sum | cut -d' '
 chmod 0444 "$TSD_CARD"; touch -d '2020-01-02 03:04:05' "$TSD_CARD"
 tsd_sig() { stat -c '%s:%a:%Y' "$TSD_CARD"; printf '%s ' "$(cat "$TSD_CARD.distro")" "$(cat "$TSD_CARD.sha256")" "$(cat "$TSD_CARD.recipe")"; }
 TSD_SIG=$(tsd_sig)
-TSD_WANT=$(JNEXT_REGRESSION_LIB_NO_INIT=1 bash -c "source '$PROJECT_DIR/test/00regression/test-functions.inc'; echo \"\$(sd_expected_recipe) \$(sd_expected_distro)\"")
+TSD_WANT=$(JNEXT_REGRESSION_LIB_NO_INIT=1 bash -c "PROJECT_DIR='$PROJECT_DIR'; source '$PROJECT_DIR/test/00regression/test-functions.inc'; echo \"\$(sd_expected_recipe) \$(sd_expected_distro)\"")
 cat > "$TSD/bin/jnext-stub" <<STUB
 #!/usr/bin/env bash
 d="\$JNEXT_CONFIG_DIR/sdcard"; mkdir -p "\$d"
@@ -1507,8 +1507,8 @@ check "HS-196" "run-unit-tests.sh clones its per-run card from the test master, 
     "from_test_master=1" "from_user_card=0"
 
 # the C++ suites and the shell harness name the test master with one spelling
-hdr=$(sed -n 's#.*"\(/\.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed\.img\)".*#\1#p' "$PROJECT_DIR/test/test_sd_image.h")
-inc=$(sed -n 's#^sd_test_state_dir() .*:-\$HOME\(/\.jnext/sdcard/test-suite\)}".*#\1#p' "$PROJECT_DIR/test/00regression/test-functions.inc")
+hdr=$(grep -o '"/[.]jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed[.]img"' "$PROJECT_DIR/test/test_sd_image.h" | tr -d '"')
+inc=$(grep '^sd_test_state_dir()' "$PROJECT_DIR/test/00regression/test-functions.inc" | grep -o '/[.]jnext/sdcard/test-suite')
 out="header=[$hdr] shell=[$inc/sdcard/cspect-next-1gb-fixed.img] same=$([[ -n "$hdr" && "$hdr" == "$inc/sdcard/cspect-next-1gb-fixed.img" ]] && echo yes || echo NO)"
 check "HS-197" "test/test_sd_image.h and sd_test_state_dir name the same test master path (GH #555)" 0 0 "$out" "same=yes"
 
