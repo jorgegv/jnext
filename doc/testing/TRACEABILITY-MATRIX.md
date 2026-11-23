@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6301 | 6301 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6301**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5777**. Rows the 249 suites declared in `test/unit-tests.conf` run live: **17575**.
+Rows the sections above carry: **6301**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5777**. Rows the 249 suites declared in `test/unit-tests.conf` run live: **17589**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 197 suites (11882 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 197 suites (11896 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -110,11 +110,11 @@ These 197 suites (11882 live rows) have no VHDL-derived plan row to map, so they
 | `image_lock_any_test` | 5 | SD card image lock rows every target runs, WebAssembly included (GH #555); same oracle (host feature, no core counterpart) |
 | `sdcard_carry_test` | 57 | SD card comparison / carry-over engine and rescue verbs (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
 | `sdcard_upgrade_test` | 35 | SD card upgrade flow (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
-| `sdcard_backup_test` | 18 | SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
+| `sdcard_backup_test` | 23 | SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
 | `image_lock_test` | 10 | SD card image lock (GH #555): one jnext per card; the design in the issue as oracle (host feature, no core counterpart) |
 | `sdcard_swap_lock_test` | 6 | the live SD card change takes and drops the image lock (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
 | `image_lock_posix_test` | 2 | SD card image lock, symlink and hard-link rows (POSIX, GH #555); same oracle (host feature, no core counterpart) |
-| `sdcard_provisioner_test` | 184 | jnext SD-image download/patch policy (host side) |
+| `sdcard_provisioner_test` | 189 | jnext SD-image download/patch policy (host side) |
 | `sha256_test` | 15 | SHA-256 of every backend (OpenSSL, BCrypt, the portable WebAssembly one; host utility): NIST FIPS 180-2 Appendix B and the NIST CSRC SHA-2 example as oracles, coreutils sha256sum for the rest; the FPGA core has no counterpart |
 | `minimal_card_test` | 43 | the minimal NextZXOS card builder (GH #458): a synthetic MS-FAT32-spec distribution and a zlib zip built in the test, the card read back with ChaN FatFs (host SD-image tool, jnext-internal; the FPGA core has no counterpart) |
 | `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
