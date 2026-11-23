@@ -1545,7 +1545,7 @@ docs-man:
 	@printf "        the guide page changed: run 'make docs-userguide' and commit that too\n"
 
 # Fail if the implemented CLI and the documented CLI disagree (issue #43)
-cli-check: unit-test-build
+cli-check: unit-test-build sdcard-image
 	@# docs-check proves the man page and USAGE.md regenerate from jnext.1.md.
 	@# It says nothing about whether jnext.1.md describes the CLI main.cpp
 	@# actually parses — a gap that shipped five undocumented flags once and a
@@ -1567,7 +1567,10 @@ cli-check: unit-test-build
 	@# jnext, among them CLI-BIN-04, the binary's --help against the table). The
 	@# second is split out because a WebAssembly module starts no processes; both
 	@# run here, so the split leaves this gate as strong as it was.
-	@./build/test/cli_options_test && ./build/test/cli_options_native_test
+	@# GH #555: the native suite's rows boot a card. Run bare, with no JNEXT_TEST_SD_IMAGE, they used the
+	@# DEFAULT card: the user's own, and absent on a clean host (the suites provision their own master
+	@# under ~/.jnext/sdcard/test-suite). The unit harness gives them its per-run clone of that master.
+	@bash test/run-unit-tests.sh --only cli_options_test,cli_options_native_test build
 	@# The browser build's JavaScript options are the same kind of seam: web_api_test
 	@# diffs the WEB_OPTIONS table and the refusal functions against the man page's
 	@# THE BROWSER BUILD section in both directions.
