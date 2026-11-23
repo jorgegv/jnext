@@ -88,7 +88,9 @@ xd type --delay 30 "$rec"; sleep 0.5
 xd key Return; sleep 2
 [[ -e "$rec" ]] || { echo "fuse-psg-reference: Fuse did not create the log" >&2; exit 1; }
 
-# The program waits for a key (or 1500 frames); the pointer is over the Fuse window, which has the focus.
+# The program waits for a key (or 1500 frames, which would make the sequence run past the wait below):
+# a click in the Fuse window gives it the focus back from the closed chooser, then a few space presses.
+xd mousemove 160 150 click 1; sleep 0.5
 for _ in 1 2 3 4; do xd key space; sleep 0.5; done
 # 1431 frames from the key at 50 Hz is 28.6 s; leave a margin.
 sleep 36
@@ -102,8 +104,22 @@ xd key Return; sleep 2
 kill "$fuse_pid" 2>/dev/null || true
 wait "$fuse_pid" 2>/dev/null || true
 
-# One sentinel, parses.
+# One sentinel, parses; and the whole sequence is in it: the program's 1101-frame gap (FE FF FE 14 FF) and a
+# trailing run after its last write (a stop that came before the sequence ended has neither).
 python3 -I "$here/psg-normalise.py" "$rec" "$work/body.psg" || { echo "fuse-psg-reference: the recording does not normalise" >&2; exit 1; }
+python3 -I - "$rec" <<'PY' || { echo "fuse-psg-reference: the recording is cut short (the gate opened late?); run it again" >&2; exit 1; }
+import sys
+d = open(sys.argv[1], 'rb').read()
+j, tail = 16, 0
+while j < len(d):
+    if d[j] == 0xFF:
+        tail += 1; j += 1
+    elif d[j] == 0xFE:
+        tail += 4 * d[j + 1]; j += 2
+    else:
+        tail = 0; j += 2
+sys.exit(0 if b'\xfe\xff\xfe\x14\xff' in d and tail >= 20 else 1)
+PY
 cp "$rec" "$out"
 echo "wrote $out ($(stat -c %s "$out") bytes, normalised body $(stat -c %s "$work/body.psg") bytes)"
 sha256sum "$out"

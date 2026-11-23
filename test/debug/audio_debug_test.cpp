@@ -66,6 +66,7 @@
 #include "port/port_dispatch.h"
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <functional>
@@ -1305,7 +1306,7 @@ static Bytes psg_fixture_file(const char* name) {
 }
 
 // The Fuse file's normalised body length: N. Pinned here and in the psg-record-func row.
-static constexpr size_t PSG_FUSE_BODY_LEN = 0;   // replaced when the reference is recorded
+static constexpr size_t PSG_FUSE_BODY_LEN = 4728;
 
 static void psg_rows() {
     // ── PsgWriter ───────────────────────────────────────────────────────
@@ -1718,11 +1719,12 @@ static void psg_rows() {
         const bool same = invisible_dbg([&](Emulator&, Debugger& dbg, ClientId, bool on) {
             if (on) { dbg.psg_record_start(jnext::dbg::CLIENT_NONE, p); return; }
             dbg.psg_record_stop(jnext::dbg::CLIENT_NONE);
-            rec = psg_read(p);
+            rec = psg_read(PsgRecorder::chip_path(p, 1));   // build_writer's 0xFE selects AY#1
         }, 50, ran, build_writer);
         psg_rm(p);
-        check("AIZ-12", "the .psg recording is invisible to the Z80: 50 frames of a CPU looping over every write site with a recording on and off leave the saved state and the video unchanged (positive control: the recorded file holds a register block)",
-              ran && same && rec.size() > 16 + 4);
+        const uint8_t pair[2] = {0x0D, 0x0A};   // R13 = 10, the program's data write
+        check("AIZ-12", "the .psg recording is invisible to the Z80: 50 frames of a CPU looping over every write site with a recording on and off leave the saved state and the video unchanged (positive control: the AY#1 file holds a register block)",
+              ran && same && rec.size() > 16 + 4 && std::search(rec.begin() + 16, rec.end(), pair, pair + 2) != rec.end());
     }
 }
 
