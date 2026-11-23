@@ -301,6 +301,7 @@ bool HostFileStreams::region_for(const std::string& host_path,
                                  ExtendedNexHost*& region, bool& full)
 {
     full = false;
+    if (host_path.empty()) return false;
     const std::string key =
         std::filesystem::absolute(host_path).lexically_normal().string();
     for (auto& r : regions_) {

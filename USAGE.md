@@ -2203,6 +2203,12 @@ host files, not a FAT directory. `M_P3DOS`, which lets a program call
 NextZXOS ROM routines directly — including raw sector reads — is not
 answered either: a host directory cannot supply sectors.
 
+The block-streaming calls work on its files too, as streaming games use
+them: `DISK_FILEMAP` on an open file, `DISK_STRMSTART` on the address it
+returns, the data read from port `$EB`, `DISK_STRMEND`. The addresses
+are only handles for that flow (one stream at a time); a program’s own
+raw SD-card commands sent to them are not served.
+
 `F_GETCWD` answers in NextZXOS’s form, `C:/` and then each directory’s
 8.3 name followed by `/` (for example `C:/MYGAME~1/DATA/`), so a program
 that builds a path as the current directory plus a name gets one that

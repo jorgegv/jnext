@@ -766,7 +766,7 @@ precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
 
 | Call | Directly loaded NEX | `--esxdos-stub` only |
 |---|---|---|
-| `$85`-`$87` `DISK_FILEMAP` / `STRMSTART` / `STRMEND` | with the host bridge, block streaming from the NEX file; without it, the catch-all error below | falls through |
+| `$85`-`$87` `DISK_FILEMAP` / `STRMSTART` / `STRMEND` | with the host bridge, block streaming from the NEX file (`kHandle` only); a handle of the host directory, with `--esxdos-stub` or a root, streams that file (below); otherwise the catch-all error below | with a host directory: the same host-file streaming; otherwise falls through |
 | `$88` `M_DOSVERSION` | `BC`=`'NX'`; `DE`=`$0194`, or `$0202` with the host bridge | same, `$0194` |
 | `$89` `M_GETSETDRV` | get or set `C:` returns `A`=`$10`; any other drive, carry set, `A`=`$0B` | falls through |
 | `$93` `M_GETERR` | `B`=1: the message for the error code in `A` (`A`=0: the bit-7-terminated one at `IX`) copied to the 32-byte buffer at `DE`, bit 7 on its last character; carry clear, `A`=`$02`. `B`=0 gets the catch-all error | the same, only while `--esxdos-stub-root` or an implicit root is active; otherwise falls through |
@@ -878,6 +878,26 @@ handle-keyed and follows the handle rule. The one interaction
 worth knowing: with a root configured, the extended-NEX bridge's *sibling*
 lookup is skipped, so only the NEX's own filename still resolves beside the
 NEX — otherwise one name could mean two files.
+
+**Block streaming of host files.** `DISK_FILEMAP`, `DISK_STRMSTART` and
+`DISK_STRMEND` on a host-directory file reuse the extended-NEX engine
+(`ExtendedNexHost`). `HostFileStreams` keeps one `ExtendedNexHost` per mapped
+host file, keyed by its path, each opened at a region of synthetic card
+addresses (`kFirstBlock + i * kRegionBlocks`, 4 GB per file, 224 regions; a full
+table answers `esx_enfile`). A region outlives `F_CLOSE`, as a card address
+outlives a handle, and is dropped with the table by `init()` and `load_nex()`.
+The `DISK_FILEMAP` cursor is per open handle (`EsxdosHostFs::filemap_cursor`),
+so a fresh `F_OPEN` maps from the start. One stream runs at a time: starting
+one ends the other (host or extended NEX), and port `$EB` serves whichever is
+active before the SPI path. The dispatcher claims `$86` only for an address
+inside a region and `$87` only while a host stream runs; the extended-NEX case
+likewise falls through, for host handles and for foreign addresses, whenever
+the host directory is active, so NextZXOS (bare `--esxdos-stub-root`) and the
+card keep their own. There is no SD read overlay for these addresses: a
+program's own CMD17/CMD18 to them is not served. `DISK_FILEMAP` maps from the
+start of the file whatever was read; the error answers for a directory or closed
+handle (`esx_ebadf`) are unmeasured on NextZXOS. Rows: `XNEX-45..58` in
+`test/core/extended_nex_test.cpp`.
 
 **Reading the filespec.** Two readers, and the distinction is load-bearing. A
 dot command's COMMAND TAIL is "terminated by `$00`, `$0d` or `':'`"

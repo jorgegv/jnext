@@ -24,6 +24,11 @@ on the real files in that directory, including files in subdirectories. Edit a
 file on the host, re-run, and the program reads the new version — nothing to
 copy.
 
+The esxDOS block-streaming calls are served too (`DISK_FILEMAP`,
+`DISK_STRMSTART`, `DISK_STRMEND`, with the data read from port `$EB`), so
+games that stream their intro and music from the files, such as The Way of the
+Exploding Fist, run from the host directory.
+
 It is read-only unless you also pass `--esxdos-stub-writable`. With that flag
 the program can also delete (`F_UNLINK`, wildcards too), rename (`F_RENAME`),
 make and remove directories (`F_MKDIR`, `F_RMDIR`), truncate files
@@ -142,6 +147,8 @@ wrong answer is worse than a clear refusal:
   fiction
 - `M_P3DOS`, which calls NextZXOS ROM routines directly, including raw sector
   reads. A directory has no sectors to give.
+- raw SD-card commands sent by the program itself to the addresses
+  `DISK_FILEMAP` gives: stream them with `DISK_STRMSTART` instead
 - `F_CHMOD` of the hidden and system attributes and of a directory's
   attributes: a host file or directory has no such attribute for the next
   `F_STAT` or `F_READDIR` to show, so the call is refused with `esx_enosys`
