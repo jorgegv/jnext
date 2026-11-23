@@ -6,10 +6,16 @@
 // so a marker, an overflow and a rewind landing resync it the same way, and it keeps at most
 // kMaxRows rows. Double-clicking a row while paused asks the window to rewind to that frame.
 //
+// Below the table, the player timing strip (GH #535): where in the frame the AY player writes, as
+// min / avg / max over the last N frames (audio_timing_stats() over the model's own frames), the
+// details of the selected row, and a one-dot-per-frame plot of the first write's line.
+//
 // Not a QTableWidget: the hex register table is the panel's only one.
 
 #include <QAbstractTableModel>
 #include <QLabel>
+#include <QPoint>
+#include <QSpinBox>
 #include <QString>
 #include <QTableView>
 #include <QWidget>
@@ -55,6 +61,14 @@ public:
     uint32_t frame_row_frame(int row) const;
     /// The grouped frame behind a row; null for an empty-run row and a marker row.
     const jnext::dbg::AudioFrame* frame_at(int row) const;
+    /// The completed frames of the current timeline whose number is within the last `window` frame
+    /// numbers ending at the newest completed frame, oldest first. The open frame (the tail rows) is
+    /// never included; a reset or state load ends the walk, a rewind does not. The pointers are valid
+    /// until the next change of the model.
+    std::vector<const jnext::dbg::AudioFrame*> timing_frames(uint32_t window) const;
+    /// The player-timing details of one row ("Frame 5: first write line ..."); empty for a marker row
+    /// and for no row.
+    QString timing_text(int row) const;
 
 private:
     struct Row {
@@ -85,6 +99,36 @@ private:
     bool paused_ = false;
 };
 
+/// One dot per frame at the line of its first AY write, Y scaled to the window's own lines (a jitter
+/// strip must show jitter), the earliest line at the top. A frame with no write has no dot.
+class AudioJitterPlot : public QWidget {
+    Q_OBJECT
+public:
+    struct Dot { uint32_t frame; int line; QPoint at; };
+    /// The minimum number of lines the Y scale spans.
+    static constexpr int kMinSpan = 9;
+
+    explicit AudioJitterPlot(QWidget* parent = nullptr);
+
+    /// The nominal window is `window` frame numbers from `first`; `dots` holds {frame, line} of the
+    /// frames with a write.
+    void set_data(uint32_t first, uint32_t window, const std::vector<std::pair<uint32_t, int>>& dots);
+    /// The dots at the widget's current size.
+    std::vector<Dot> dots() const;
+    int range_lo() const { return lo_; }
+    int range_hi() const { return hi_; }
+
+    QSize sizeHint() const override { return {400, 64}; }
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+
+private:
+    uint32_t first_ = 0, window_ = 1;
+    std::vector<std::pair<uint32_t, int>> dots_;
+    int lo_ = 0, hi_ = 0;
+};
+
 class AudioTrackerView : public QWidget {
     Q_OBJECT
 public:
@@ -94,6 +138,10 @@ public:
     void refresh();
 
     AudioTrackerModel* model() { return model_; }
+    /// Recompute the timing strip from the model (also done by refresh(), the window box and the table's
+    /// current row).
+    void update_timing();
+    const jnext::dbg::AudioTimingStats& timing_stats() const { return timing_; }
 
 signals:
     /// A rewindable row was double-clicked: rewind to the start of that frame.
@@ -104,4 +152,10 @@ private:
     AudioTrackerModel* model_ = nullptr;
     QTableView* table_ = nullptr;
     QLabel* status_ = nullptr;
+
+    QSpinBox* window_ = nullptr;
+    QLabel *span_ = nullptr, *first_ = nullptr, *last_ = nullptr, *writes_ = nullptr, *frame_ = nullptr;
+    AudioJitterPlot* plot_ = nullptr;
+    QLabel* plot_range_ = nullptr;
+    jnext::dbg::AudioTimingStats timing_;
 };

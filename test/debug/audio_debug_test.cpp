@@ -3080,6 +3080,9 @@ int main() {
     {
         using jnext::dbg::AudioFrame;
         using jnext::dbg::AudioFrameAccumulator;
+        using jnext::dbg::AudioFrameStamp;
+        using jnext::dbg::AudioTimingStats;
+        using jnext::dbg::audio_timing_stats;
         using jnext::dbg::AudioMarker;
         using jnext::dbg::AudioTarget;
         using jnext::dbg::AudioDropReason;

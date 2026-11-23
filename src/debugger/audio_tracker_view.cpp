@@ -12,7 +12,9 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QGuiApplication>
+#include <QHBoxLayout>
 #include <QHeaderView>
+#include <QPainter>
 #include <QPalette>
 #include <QScrollBar>
 #include <QVBoxLayout>
@@ -58,6 +60,20 @@ bool noise_changed(const AudioFrame& f, size_t chip, int ch)
 
 QString hex(int v, int digits) { return QString::number(v, 16).toUpper().rightJustified(digits, '0'); }
 
+QString pc_range(uint16_t lo, uint16_t hi)
+{
+    if (lo > hi) return QStringLiteral("none (no CPU write)");
+    if (lo == hi) return "0x" + hex(lo, 4);
+    return "0x" + hex(lo, 4) + "-0x" + hex(hi, 4);
+}
+
+QString avg1(double v) { return QString::number(v, 'f', 1); }
+
+QString triple(const jnext::dbg::AudioTimingRange& r)
+{
+    return QStringLiteral("%1 / %2 / %3").arg(r.min).arg(avg1(r.avg)).arg(r.max);
+}
+
 }  // namespace
 
 // ── The model ───────────────────────────────────────────────────────────
@@ -102,6 +118,47 @@ const AudioFrame* AudioTrackerModel::frame_at(int row) const
 {
     if (row < 0 || row >= int(rows_.size()) || rows_[size_t(row)].kind != Row::FrameRow) return nullptr;
     return &rows_[size_t(row)].frame;
+}
+
+std::vector<const AudioFrame*> AudioTrackerModel::timing_frames(uint32_t window) const
+{
+    std::vector<const AudioFrame*> out;
+    if (window == 0 || tail_n_ > rows_.size()) return out;
+    bool have_newest = false;
+    uint32_t start = 0;
+    for (size_t i = rows_.size() - tail_n_; i-- > 0;) {
+        const Row& r = rows_[i];
+        if (r.timeline != timeline_) break;                          // before a reset or a state load
+        if (r.kind != Row::FrameRow) continue;                       // an empty run, or a rewind landing
+        if (!have_newest) {
+            have_newest = true;
+            start = r.frame.frame >= window - 1 ? r.frame.frame - (window - 1) : 0;
+        } else if (r.frame.frame < start) {
+            break;
+        }
+        out.push_back(&r.frame);
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+
+QString AudioTrackerModel::timing_text(int row) const
+{
+    if (row < 0 || row >= int(rows_.size())) return {};
+    const Row& r = rows_[size_t(row)];
+    switch (r.kind) {
+    case Row::MarkerRow: return {};
+    case Row::EmptyRun:
+        return r.first == r.last ? QStringLiteral("Frame %1: no AY write").arg(r.first)
+                                 : QStringLiteral("Frames %1-%2: no AY write").arg(r.first).arg(r.last);
+    case Row::FrameRow: {
+        const AudioFrame& f = r.frame;
+        return QStringLiteral("Frame %1: first write line %2, T-state %3; last write line %4, T-state %5; writes %6; PC %7")
+            .arg(f.frame).arg(f.first.vc).arg(f.first.tstate).arg(f.last.vc).arg(f.last.tstate).arg(f.writes)
+            .arg(pc_range(f.pc_min, f.pc_max));
+    }
+    }
+    return {};
 }
 
 QString AudioTrackerModel::cell_text(const Row& r, int col) const
@@ -355,6 +412,51 @@ void AudioTrackerModel::set_rewind(const jnext::dbg::RewindRange& range, std::op
                     {Qt::ForegroundRole, Qt::ToolTipRole, RewindableRole});
 }
 
+// ── The jitter plot ─────────────────────────────────────────────────────
+
+AudioJitterPlot::AudioJitterPlot(QWidget* parent) : QWidget(parent)
+{
+    setMinimumHeight(48);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+}
+
+void AudioJitterPlot::set_data(uint32_t first, uint32_t window, const std::vector<std::pair<uint32_t, int>>& dots)
+{
+    first_ = first;
+    window_ = window ? window : 1;
+    dots_ = dots;
+    lo_ = hi_ = 0;
+    if (!dots_.empty()) {
+        lo_ = hi_ = dots_[0].second;
+        for (const auto& d : dots_) { lo_ = std::min(lo_, d.second); hi_ = std::max(hi_, d.second); }
+        hi_ = std::max(hi_, lo_ + kMinSpan - 1);
+    }
+    update();
+}
+
+std::vector<AudioJitterPlot::Dot> AudioJitterPlot::dots() const
+{
+    std::vector<Dot> out;
+    const double w = width(), h = height();
+    for (const auto& d : dots_) {
+        const int x = int((double(d.first - first_) + 0.5) * w / double(window_));
+        const int y = int((double(d.second - lo_) + 0.5) * h / double(hi_ - lo_ + 1));
+        out.push_back({d.first, d.second, QPoint(x, y)});
+    }
+    return out;
+}
+
+void AudioJitterPlot::paintEvent(QPaintEvent*)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, false);
+    p.fillRect(rect(), palette().color(QPalette::Base));
+    p.setPen(palette().color(QPalette::Mid));
+    p.drawRect(0, 0, width() - 1, height() - 1);
+    const QColor dot = palette().color(QPalette::Highlight);
+    for (const Dot& d : dots()) p.fillRect(QRect(d.at.x() - 1, d.at.y() - 1, 3, 3), dot);
+}
+
 // ── The view ────────────────────────────────────────────────────────────
 
 AudioTrackerView::AudioTrackerView(Debugger* dbg, QWidget* parent) : QWidget(parent), dbg_(dbg)
@@ -391,6 +493,43 @@ AudioTrackerView::AudioTrackerView(Debugger* dbg, QWidget* parent) : QWidget(par
     }
     layout->addWidget(table_, 1);
 
+    auto* wrow = new QHBoxLayout;
+    wrow->addWidget(new QLabel(tr("Window:"), this));
+    window_ = new QSpinBox(this);
+    window_->setObjectName("audio_timing_window");
+    window_->setRange(1, 1000);
+    window_->setValue(50);
+    window_->setSuffix(tr(" frames"));
+    wrow->addWidget(window_);
+    wrow->addStretch(1);
+    layout->addLayout(wrow);
+    auto label = [&](const char* name) {
+        auto* l = new QLabel(this);
+        l->setObjectName(name);
+        l->setFont(mono);
+        l->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        layout->addWidget(l);
+        return l;
+    };
+    span_ = label("audio_timing_span");
+    first_ = label("audio_timing_first");
+    last_ = label("audio_timing_last");
+    writes_ = label("audio_timing_writes");
+    frame_ = label("audio_timing_frame");
+    plot_ = new AudioJitterPlot(this);
+    plot_->setObjectName("audio_timing_plot");
+    layout->addWidget(plot_);
+    plot_range_ = label("audio_timing_plot_range");
+    auto* note = new QLabel(tr("Exact routine cost: the CPU panel's T-states since the last stop, or --profile."), this);
+    note->setObjectName("audio_timing_note");
+    note->setWordWrap(true);
+    layout->addWidget(note);
+    update_timing();
+
+    connect(window_, qOverload<int>(&QSpinBox::valueChanged), this, [this](int) { update_timing(); });
+    connect(table_->selectionModel(), &QItemSelectionModel::currentRowChanged, this,
+            [this](const QModelIndex&, const QModelIndex&) { update_timing(); });
+
     connect(table_, &QTableView::doubleClicked, this, [this](const QModelIndex& idx) {
         if (!idx.isValid() || !idx.data(AudioTrackerModel::RewindableRole).toBool()) return;
         emit rewind_to_frame_requested(idx.data(AudioTrackerModel::RewindFrameRole).toUInt());
@@ -419,4 +558,45 @@ void AudioTrackerView::refresh()
     }
     model_->set_rewind(dbg_->rewind_range(), dbg_->rewind_blocked(), dbg_->state().paused);
     if (at_end) table_->scrollToBottom();
+    update_timing();
+}
+
+void AudioTrackerView::update_timing()
+{
+    const uint32_t n = uint32_t(window_->value());
+    const auto frames = model_->timing_frames(n);
+    timing_ = jnext::dbg::audio_timing_stats(frames, n);
+    const jnext::dbg::AudioTimingStats& s = timing_;
+
+    if (s.frames > 0) {
+        span_->setText(tr("Last %1 frames: %2 to %3, %4 with AY writes, %5 without")
+                           .arg(n).arg(s.window_first).arg(s.window_last).arg(s.frames).arg(s.empty));
+        first_->setText(QStringLiteral("First write: line %1, T-state %2 (min / avg / max)")
+                            .arg(triple(s.first_line), triple(s.first_tstate)));
+        last_->setText(QStringLiteral("Last write: line %1, T-state %2 (min / avg / max)")
+                           .arg(triple(s.last_line), triple(s.last_tstate)));
+        writes_->setText(QStringLiteral("Writes per frame: %1 (min / avg / max); PC %2")
+                             .arg(triple(s.writes), pc_range(s.pc_min, s.pc_max)));
+    } else {
+        span_->setText(tr("No AY writes in the last %1 frames").arg(n));
+        first_->setText(QStringLiteral("First write: -"));
+        last_->setText(QStringLiteral("Last write: -"));
+        writes_->setText(QStringLiteral("Writes per frame: -"));
+    }
+
+    const QModelIndex cur = table_->currentIndex();
+    frame_->setText(model_->timing_text(cur.isValid() ? cur.row() : model_->rowCount() - 1));
+
+    // The dots: the frames of the run the statistics used, within the nominal window.
+    std::vector<std::pair<uint32_t, int>> dots;
+    uint32_t first = 0;
+    if (s.frames > 0) {
+        first = s.window_last >= n - 1 ? s.window_last - (n - 1) : 0;
+        for (size_t i = frames.size() - s.frames; i < frames.size(); ++i)
+            dots.push_back({frames[i]->frame, int(frames[i]->first.vc)});
+    }
+    plot_->set_data(first, n, dots);
+    plot_range_->setText(dots.empty() ? QString()
+                                      : QStringLiteral("Dots: first write per frame, line %1 at the top to %2 at the bottom")
+                                            .arg(plot_->range_lo()).arg(plot_->range_hi()));
 }
