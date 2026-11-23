@@ -145,6 +145,7 @@ int main(int argc, char** argv)
         bool ejected_at_work = false;            // the card was out of the machine when the work ran
         bool insert_pending_at_work = false;     // the insert had already been requested when the work ran
         bool reset_requested = false;
+        bool journal_at_work = false;            // the card was still registered with a writes file when the work ran
         bool reset_same_tick = false;            // requested in the tick that serviced the insert (QtApp polls it right after)
         int  dialogs = 0;                        // boxes nobody answered (the warning of a failure)
         bool mounted_at_end = false;
@@ -180,6 +181,7 @@ int main(int argc, char** argv)
         f.win.card_op_before_work_for_test = [&] {
             L.seq.push_back("work");
             L.ejected_at_work = f.emu.sd_card().image_path().empty();
+            L.journal_at_work = sd_write_journal::for_image(sdcard::default_sdcard_image_path()) != nullptr;
             auto pending = f.emu.take_sd_card_change_request();
             L.insert_pending_at_work = pending.has_value();
             if (pending) f.emu.request_sd_card_change(*pending);
@@ -287,6 +289,21 @@ int main(int argc, char** argv)
         live_run(f.win.upgrade_sd_action(), f, L);
         check("SDMENU-13", "upgrade that fails, live: the warning is shown once, the card is put back in the machine (it was ejected for the work) and nothing is reset",
               L.dialogs == 1 && L.mounted_at_end && !L.reset_requested && L.ejected_at_work && L.seq.size() == 3 && L.seq[2] == "tick2:insert");
+    }
+    {
+        // a session with its own writes file, an upgrade that fails: the file is detached from the card while the work
+        // runs (a late commit of the stand-in must not reach a file the work moves) and bound again when the card comes back
+        reset_set();
+        make_journal(card, ovfile);
+        { sd_write_journal::Binding b; std::error_code ec; b.bytes = fs::file_size(card, ec);
+          b.mtime = static_cast<int64_t>(fs::last_write_time(card, ec).time_since_epoch().count());
+          std::string why; sd_write_journal::bind(card, ovfile, b, false, why); }
+        Fixture f(card);
+        Live L;
+        f.win.card_op_upgrade_work_for_test = [&](std::string& err) { err = "no network"; return false; };
+        live_run(f.win.upgrade_sd_action(), f, L);
+        check("SDMENU-15", "the session's writes file is detached from the card for the whole of the work and bound again when a failed action puts the card back",
+              !L.journal_at_work && L.dialogs == 1 && L.mounted_at_end && L.journal_file == ovfile, L.journal_file);
     }
     {
         // a failing go back (a restore target nothing can be written to): refused with nothing changed, the card is back

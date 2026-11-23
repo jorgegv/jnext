@@ -2285,17 +2285,37 @@ void MainWindow::run_card_op() {
     const CardOp op = card_op_;
     const std::string dir  = sdcard::default_sdcard_dir();
     const std::string card = sdcard::default_sdcard_image_path();
-    auto fail = [this](const QString& why) {
+    // Bind `file` as the write journal of the card now at the default path (size and mtime of that card).
+    auto bind_over = [&](const std::string& file) {
+        std::error_code bec;
+        if (file.empty() || !std::filesystem::exists(file, bec)) return;
+        sd_write_journal::Binding b;
+        b.bytes = std::filesystem::file_size(card, bec);
+        b.mtime = static_cast<int64_t>(std::filesystem::last_write_time(card, bec).time_since_epoch().count());
+        std::string why;
+        if (!sd_write_journal::bind(card, file, b, false, why))
+            Log::platform()->warn("SD card: cannot bind the writes file {} over the card: {}", file, why);
+    };
+    std::string session_file;   // the writes file the session had over the card (registry), if any
+    // The card goes back where it was after a failure or a no-op, with the session's own writes file again.
+    auto put_back = [&]() {
         card_op_ = CardOp::None;
+        bind_over(session_file);
+        handle_sd_card_path(QString::fromStdString(card));
+    };
+    auto fail = [&](const QString& why) {
         QMessageBox::warning(this, tr("SD Card"), why);
-        // put the card back where it was, whatever happened
-        handle_sd_card_path(QString::fromStdString(sdcard::default_sdcard_image_path()));
+        put_back();
     };
     if (!emulator_ || op == CardOp::None) { card_op_ = CardOp::None; return; }
-    // the writes file the session had over the card (registry), if any: it is carried by an upgrade
-    // and swapped by a go back
-    const auto journal = sd_write_journal::for_image(card);
-    const std::string session_file = journal ? journal->file() : std::string();
+    // The session's writes file is carried by an upgrade and swapped by a go back. It is detached from the
+    // registry now, for the whole of the work: the machine runs without the card meanwhile, and a late commit of
+    // the esxDOS stand-in's file must not append to a writes file the work is about to move or rebuild.
+    {
+        const auto journal = sd_write_journal::for_image(card);
+        session_file = journal ? journal->file() : std::string();
+        sd_write_journal::forget_image(card);
+    }
     std::string err;
     if (card_op_before_work_for_test) card_op_before_work_for_test();
     if (op == CardOp::Upgrade && card_op_upgrade_work_for_test) {
@@ -2318,11 +2338,9 @@ void MainWindow::run_card_op() {
         if (!r.upgraded) {
             // Ok but nothing changed: a failed upgrade that kept the old card (its warning says why), or a file
             // another jnext holds. No restart, no "upgraded" message: the card goes back as it was.
-            card_op_ = CardOp::None;
-            QMessageBox::warning(this, tr("SD Card"), r.warning.empty()
-                ? tr("The SD card was not upgraded and nothing was changed (another jnext may have a file open that the upgrade must move).")
-                : QString::fromStdString(r.warning));
-            handle_sd_card_path(QString::fromStdString(card));
+            fail(r.warning.empty()
+                     ? tr("The SD card was not upgraded and nothing was changed (another jnext may have a file open that the upgrade must move).")
+                     : QString::fromStdString(r.warning));
             return;
         }
     } else {
@@ -2331,9 +2349,6 @@ void MainWindow::run_card_op() {
             return;
         }
     }
-    // the card file is another card now: bind the writes file the session will use over it. An upgrade
-    // rebuilt the session's file under the same name; a go back restored the other card's files.
-    sd_write_journal::forget_image(card);
     // Only the session's own writes file is bound again: an upgrade rebuilt it under the same name; after a
     // go back it is bound only when it is the one that belongs to the card that came back (its old copy,
     // restored at the same path). Otherwise the card is mounted plain: a session never starts writing into
@@ -2341,15 +2356,7 @@ void MainWindow::run_card_op() {
     std::string file = session_file;
     if (op == CardOp::GoBack && !(file.empty() ? false : sdcard::upgrade::file_binds_to_card(card, file)))
         file.clear();
-    std::error_code bec;
-    if (!file.empty() && std::filesystem::exists(file, bec)) {
-        sd_write_journal::Binding b;
-        b.bytes = std::filesystem::file_size(card, bec);
-        b.mtime = static_cast<int64_t>(std::filesystem::last_write_time(card, bec).time_since_epoch().count());
-        std::string why;
-        if (!sd_write_journal::bind(card, file, b, false, why))
-            Log::platform()->warn("SD card: cannot bind the writes file {} over the new card: {}", file, why);
-    }
+    bind_over(file);
     card_op_inserting_ = true;
     handle_sd_card_path(QString::fromStdString(card));
 }
