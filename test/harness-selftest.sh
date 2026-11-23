@@ -4678,15 +4678,29 @@ check "HS-176" "pgo-train with JNEXT_REGRESSION_SD_STATE_DIR set looks for its c
 # in test-suite/ (it names the path it misses), never at the user's path.
 PG2="$T/pgo2"; rm -rf "$PG2"; mkdir -p "$PG2/build" "$PG2/home/.jnext/sdcard" "$PG2/prof"
 printf 'CMAKE_CXX_COMPILER:FILEPATH=%s\n' "$(command -v g++ || command -v c++)" > "$PG2/build/CMakeCache.txt"
-printf '#!/bin/sh\necho "cfg=$JNEXT_CONFIG_DIR" >> "%s/stub.log"\nexit 0\n' "$PG2" > "$PG2/build/jnext"; chmod +x "$PG2/build/jnext"
+# The stub plays the instrumented jnext: asked to derive, it makes a test master ("TESTMASTER") with this
+# tree's recipe and distribution (TSD_WANT, HS-195); run on a card, it logs that card's first bytes, so
+# the log shows WHICH card pgo-train cloned for its training runs.
+cat > "$PG2/build/jnext" <<STUB
+#!/usr/bin/env bash
+echo "cfg=\$JNEXT_CONFIG_DIR" >> "$PG2/stub.log"
+case " \$* " in *" --sdcard-download-confirm "*)
+    d="\$JNEXT_CONFIG_DIR/sdcard"; mkdir -p "\$d"
+    printf 'TESTMASTER\n' > "\$d/cspect-next-1gb-fixed.img"
+    printf '%s\n' '${TSD_WANT%% *}' > "\$d/cspect-next-1gb-fixed.img.recipe"
+    printf '%s\n' '${TSD_WANT##* }' > "\$d/cspect-next-1gb-fixed.img.distro" ;; esac
+prev=""; for a in "\$@"; do [ "\$prev" = --sdcard ] && echo "sdcontent=\$(head -c 10 "\$a")" >> "$PG2/stub.log"; prev=\$a; done
+exit 0
+STUB
+chmod +x "$PG2/build/jnext"
 printf USER > "$PG2/home/.jnext/sdcard/cspect-next-1gb-fixed.img"; chmod 0444 "$PG2/home/.jnext/sdcard/cspect-next-1gb-fixed.img"
 touch -d '2020-01-02 03:04:05' "$PG2/home/.jnext/sdcard/cspect-next-1gb-fixed.img"
 pg2_sig=$(stat -c '%s:%a:%Y' "$PG2/home/.jnext/sdcard/cspect-next-1gb-fixed.img")
 out=$(env -u JNEXT_REGRESSION_SD_STATE_DIR HOME="$PG2/home" timeout --kill-after=5s 120s bash "$PROJECT_DIR/tools/pgo-train.sh" "$PG2/build/jnext" "$PG2/prof" 2>&1); rc=$?
 out+=" $(cat "$PG2/stub.log" 2>/dev/null | tr '\n' ' ') sentinel=$([[ "$(stat -c '%s:%a:%Y' "$PG2/home/.jnext/sdcard/cspect-next-1gb-fixed.img")" == "$pg2_sig" && "$(cat "$PG2/home/.jnext/sdcard/cspect-next-1gb-fixed.img")" == USER ]] && echo intact || echo CHANGED)"
-check "HS-199a" "pgo-train with the seam UNSET asks its jnext to provision into ~/.jnext/sdcard/test-suite (never ~/.jnext) and leaves a user card untouched (GH #555)" 1 $rc "$out" \
-    "cfg=$PG2/home/.jnext/sdcard/test-suite " "sentinel=intact"
-[[ "$out" != *"cfg=$PG2/home/.jnext "* ]] || { echo "  HS-199a: pgo-train provisioned into ~/.jnext itself"; fail=$((fail + 1)); }
+check "HS-199a" "pgo-train with the seam UNSET provisions into ~/.jnext/sdcard/test-suite, trains on a clone of THAT master (never of the user card) and leaves the user card untouched (GH #555)" 1 $rc "$out" \
+    "cfg=$PG2/home/.jnext/sdcard/test-suite " "sdcontent=TESTMASTER" "sentinel=intact"
+[[ "$out" != *"cfg=$PG2/home/.jnext "* && "$out" != *"sdcontent=USER"* ]] || { echo "  HS-199a: pgo-train provisioned into, or trained on a clone of, the user's ~/.jnext card"; fail=$((fail + 1)); }
 MC2="$T/mincard"; rm -rf "$MC2"; mkdir -p "$MC2/home/.jnext/sdcard"
 printf RAW > "$MC2/home/.jnext/sdcard/cspect-next-1gb.img"
 out=$(env -u JNEXT_REGRESSION_SD_STATE_DIR HOME="$MC2/home" MAKE_MINIMAL_CARD=/bin/true timeout --kill-after=5s 60s bash "$PROJECT_DIR/test/minimal-card-test.sh" 2>&1); rc=$?
