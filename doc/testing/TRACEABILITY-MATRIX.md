@@ -107,7 +107,6 @@ These 192 suites (11748 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_file_add_linux_test` | 2 | SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `fatfs_glue_linux_test` | 2 | FatFs glue sector cache after a failed write (host tool, Linux-only: /dev/full, RLIMIT_FSIZE); the oracle is the image file read by an independent stream, no core counterpart |
 | `fat32_image_test` | 29 | FAT32 on-disk format (host image reader) |
-| `startup_report_test` | 7 | start-up error box policy (GH #555): stderr bytes kept, when a box shows, its text; the design in the issue as oracle (host UI policy, no core counterpart) |
 | `image_lock_any_test` | 5 | SD card image lock rows every target runs, WebAssembly included (GH #555); same oracle (host feature, no core counterpart) |
 | `image_lock_test` | 8 | SD card image lock (GH #555): one jnext per card; the design in the issue as oracle (host feature, no core counterpart) |
 | `image_lock_posix_test` | 2 | SD card image lock, symlink and hard-link rows (POSIX, GH #555); same oracle (host feature, no core counterpart) |
@@ -216,6 +215,7 @@ These 192 suites (11748 live rows) have no VHDL-derived plan row to map, so they
 | `source_debug_posix_test` | 11 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
 | `debugger_backend_test` | 1604 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `startup_stop_test` | 48 | the --debugger / --break-at startup stop (host side): its stop points are the file formats' own entry PCs and the Breakpoints panel's address rules |
+| `startup_report_test` | 7 | start-up error box policy (GH #555): stderr bytes kept, when a box shows, its text; the design in the issue as oracle (host UI policy, no core counterpart) |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
