@@ -4584,19 +4584,25 @@ the one it follows. NextZXOS 2.10a boots and runs on it, and the firmware shows 
 downloads a newer distribution than the one your image came from, it tells you so
 and, in the graphical version, asks what to do:</p>
 <ul>
-<li><strong>Download and replace</strong> downloads the new distribution and replaces your image
-  with it. <strong>Everything you saved on the old image is lost</strong>: your programs, your
-  files and NextZXOS's settings. Nothing is changed until the new image is
-  complete, so a download or a preparation that fails leaves your image exactly as
-  it was.</li>
-<li><strong>Keep my card</strong> (also what closing the question means) goes on with your image
-  and asks again the next time.</li>
-<li>Ticking <strong>Do not ask me again</strong> with Keep stops the question for this
-  distribution. The question comes back once for the next one.</li>
+<li><strong>Upgrade (keep my files)</strong> downloads the new distribution and builds a new image
+  from it. The files you saved on the old image (your programs, your files and
+  NextZXOS's settings) are carried over to the new one; where NextZXOS itself
+  changed a file you also changed, the new version wins, and you get a list of
+  what was carried and what was replaced. Your old image is kept untouched as a
+  backup. Nothing is changed until the new image is complete, so a download or a
+  preparation that fails leaves your image exactly as it was. If your image can no
+  longer be compared with the one it came from (the original image is gone, or the
+  image was rebuilt), the files cannot be carried over: the new image starts
+  fresh, and your old one, with everything on it, is kept.</li>
+<li><strong>Not now</strong> (also what closing the question means) goes on with your image and
+  asks again the next time.</li>
+<li><strong>Keep my card (don't ask again)</strong> stops the question for this distribution. The
+  question comes back once for the next one.</li>
 </ul>
 <p>Without a window (<code>--headless</code>, or <code>--sdcard-file-add</code>) JNEXT never asks. It keeps
 your image and writes one line to the log saying how to upgrade. You can answer
-without the dialog with <code>--sdcard-upgrade</code>: <code>yes</code> replaces the image, <code>no</code> keeps
+without the dialog with <code>--sdcard-upgrade</code>: <code>yes</code> upgrades the image and carries your files over (refused when they cannot be
+carried over), <code>fresh</code> makes a new image and carries nothing over, <code>no</code> keeps
 it for this run, <code>never</code> keeps it and records "do not ask again", and <code>ask</code>
 forgets that record and asks.</p>
 <p>An image you name yourself (<code>--sdcard FILE</code>, or an image path in Preferences) is

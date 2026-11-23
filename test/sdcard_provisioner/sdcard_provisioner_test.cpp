@@ -2293,10 +2293,10 @@ void test_upgrade_rows() {
         sdcard::ProvisionOptions o; o.download = zip_dl; o.upgrade = spy_fn(sp);
         auto r = sdcard::provision_sd_card(o);
         check("PROV-DIST-01", "a default card with no .distro (24.11) and a current distribution 99.99 gets exactly one "
-              "offer, naming both versions and the loss of what is saved on the card",
+              "offer, naming both versions, saying the old card is kept as a backup and never that anything is deleted",
               sp.calls == 1 && sp.from == sdcard::kLegacyDistribution && sp.to == kNew &&
               sp.msg.find("NextZXOS 24.11") != std::string::npos && sp.msg.find("NextZXOS 99.99") != std::string::npos &&
-              sp.msg.find("DELETES everything you saved") != std::string::npos,
+              sp.msg.find("kept as a backup") != std::string::npos && sp.msg.find("DELETES") == std::string::npos,
               "calls=" + std::to_string(sp.calls) + " from=" + sp.from + " to=" + sp.to);
         check("PROV-DIST-02", "Keep: the card is untouched, the download is not called, nothing is recorded",
               r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && read_file(fixed) == user_card &&
@@ -2430,10 +2430,18 @@ void test_upgrade_rows() {
         check("PROV-DIST-11c", "no keeps the card for this run: no UI, nothing recorded",
               sp.calls == 0 && !file_exists(declined) && read_file(fixed) == user_card);
         user_card_only(); downloads = 0;
-        o.upgrade_mode = sdcard::UpgradeMode::Yes; o.download = failing_dl; o.retries = 0;   // GH #497: one attempt
+        o.upgrade_mode = sdcard::UpgradeMode::Fresh; o.download = failing_dl; o.retries = 0;   // GH #497: one attempt
         auto r = sdcard::provision_sd_card(o);
-        check("PROV-DIST-11d", "yes replaces without asking (the UI is not called, the download is)",
+        check("PROV-DIST-11d", "fresh upgrades without asking (the UI is not called, the download is)",
               sp.calls == 0 && downloads == 1 && r.status == sdcard::ProvisionStatus::Ok && !r.warning.empty());
+        // yes carries the files over, which this card (no original image on disk) cannot: refused before any download
+        user_card_only(); downloads = 0;
+        o.upgrade_mode = sdcard::UpgradeMode::Yes;
+        auto r2 = sdcard::provision_sd_card(o);
+        check("PROV-DIST-11e", "yes on a card with no original image is refused with the reason and the fresh hint, before any download",
+              r2.status == sdcard::ProvisionStatus::Failed && downloads == 0 && read_file(fixed) == user_card &&
+              r2.error.find("cannot be carried over") != std::string::npos &&
+              r2.error.find("--sdcard-upgrade fresh") != std::string::npos, r2.error);
     }
     jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
 

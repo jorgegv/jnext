@@ -381,7 +381,6 @@ int main() {
               !reported.empty() && reported == rep_file && has(rep_file, "/GAMES/mine.nex") && has(rep_file, "/SYS/changed.sys"), rep_file);
     }
 
-    if (std::getenv("JNEXT_DEBUG_STOP")) { std::printf("dir %s\n", g_dir.string().c_str()); return 0; }
     // ---- SDUPG-03/04: decline, headless ---------------------------------------------------------
     {
         install_old();
@@ -632,6 +631,6 @@ int main() {
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     std::error_code ec;
-    if (!std::getenv("JNEXT_DEBUG_KEEP_WORK")) fs::remove_all(g_dir, ec);
+    fs::remove_all(g_dir, ec);
     return g_fail ? 1 : 0;
 }

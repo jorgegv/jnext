@@ -180,13 +180,17 @@ wins.
 What to do when the default\-location card is of an older NextZXOS
 distribution than the one jnext downloads now.
 \f[I]MODE\f[R] is \f[B]ask\f[R] (the default in the GUI: forget any
-\(lqdo not ask again\(rq and ask), \f[B]yes\f[R] (replace the card
-without asking: everything saved on it is lost), \f[B]no\f[R] (keep the
-card for this run, no question) or \f[B]never\f[R] (keep it and do not
-offer this distribution again).
-Without the option, the GUI asks (once, unless \(lqDo not ask me
-again\(rq was ticked) and \f[B]\-\-headless\f[R] keeps the card and logs
-one line.
+\(lqdo not ask again\(rq and ask), \f[B]yes\f[R] (upgrade without
+asking: your files are carried over to the new card and the old card is
+kept as a backup in \f[CR]previous/\f[R]; refused when the card has no
+original image to compare with, and then \f[B]fresh\f[R] is the way),
+\f[B]fresh\f[R] (a new card with nothing carried over; the old card is
+kept as the backup), \f[B]no\f[R] (keep the card for this run, no
+question) or \f[B]never\f[R] (keep it and do not offer this distribution
+again).
+Without the option, the GUI asks (once, unless \(lqKeep my card
+(don\(cqt ask again)\(rq was chosen) and \f[B]\-\-headless\f[R] keeps
+the card and logs one line.
 Refused together with \f[B]\-\-sdcard\f[R]: an explicit card is never
 offered an upgrade.
 See \f[B]SD CARD AND ROMS\f[R].
@@ -2111,12 +2115,19 @@ An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 When the default card is of an older NextZXOS distribution than the one
 jnext downloads now, jnext tells you a newer one is available, and in
 the GUI asks what to do.
-\f[B]Download and replace\f[R] downloads the new image and replaces the
-card: \f[B]everything you saved on the old card is lost\f[R], and the
-old card stays untouched until the new one is complete, so a failed
-download or patch changes nothing.
-\f[B]Keep my card\f[R] goes on using the old one, and asks again next
-time; ticking \f[B]Do not ask me again\f[R] stops the offer for this
+\f[B]Upgrade (keep my files)\f[R] downloads the new image, carries the
+files you saved (and the contents of any \f[B]\-\-sdcard\-writes\f[R]
+file) over to it, and keeps the old card, untouched, as a backup in
+\f[CR]previous/\f[R] next to the card; where NextZXOS itself changed a
+file you also changed, the new version wins, and a report lists what was
+carried and what was replaced.
+A card that cannot be compared with the one it came from (its original
+image is gone) cannot have its files carried over:
+\f[B]\-\-sdcard\-upgrade fresh\f[R] then starts a new card and keeps the
+old one.
+A failed download or patch changes nothing.
+\f[B]Not now\f[R] goes on using the old card and asks again next time;
+\f[B]Keep my card (don\(cqt ask again)\f[R] stops the offer for this
 distribution (a later one asks once more).
 A terminal or scripted run (\f[B]\-\-headless\f[R],
 \f[B]\-\-sdcard\-file\-add\f[R]) never asks: it keeps the card and logs
@@ -4968,10 +4979,23 @@ from.
 Without one, the image is taken to be 24.11.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\-declined\f[R]
-The distribution whose upgrade offer you turned down with \(lqDo not ask
-me again\(rq (or \f[B]\-\-sdcard\-upgrade\f[R] \f[CR]never\f[R]).
+The distribution whose upgrade offer you turned down with \(lqKeep my
+card (don\(cqt ask again)\(rq (or \f[B]\-\-sdcard\-upgrade\f[R]
+\f[CR]never\f[R]).
 Delete it, or use \f[B]\-\-sdcard\-upgrade\f[R] \f[CR]ask\f[R], to be
 asked again.
+.TP
+\f[CR]\(ti/.jnext/sdcard/previous/\f[R]
+The backup an upgrade leaves: the card, the original image and their
+sidecars as they were, the old contents of your writes files in
+\f[CR]overlays/\f[R], and \f[CR]upgrade\-report.txt\f[R], the report of
+that upgrade.
+.TP
+\f[CR]\(ti/.jnext/sdcard/overlays.list\f[R]
+The \f[B]\-\-sdcard\-writes\f[R] files you have used with the default
+card, one path per line, so that an upgrade started from the desktop
+rebuilds them too.
+Files that are gone or no longer belong to the card are dropped from it.
 .TP
 \f[CR]\(ti/.jnext/nextpi/\f[R]
 The NextPi directory: \f[CR]nextpi.img\f[R] (the release\(cqs SD\-card

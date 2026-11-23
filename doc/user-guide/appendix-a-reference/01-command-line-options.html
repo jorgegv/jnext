@@ -4720,13 +4720,17 @@ Ignored when <strong>--sdcard</strong> is given: an explicit path always wins.</
 <dd>What to do when the default-location card is of an older NextZXOS
 distribution than the one jnext downloads now. <em>MODE</em> is <strong>ask</strong>
 (the default in the GUI: forget any “do not ask again” and ask),
-<strong>yes</strong> (replace the card without asking: everything saved on it is
-lost), <strong>no</strong> (keep the card for this run, no question) or <strong>never</strong>
-(keep it and do not offer this distribution again). Without the
-option, the GUI asks (once, unless “Do not ask me again” was ticked)
-and <strong>--headless</strong> keeps the card and logs one line. Refused
-together with <strong>--sdcard</strong>: an explicit card is never offered an
-upgrade. See <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
+<strong>yes</strong> (upgrade without asking: your files are carried over to the
+new card and the old card is kept as a backup in <code>previous/</code>;
+refused when the card has no original image to compare with, and
+then <strong>fresh</strong> is the way), <strong>fresh</strong> (a new card with nothing
+carried over; the old card is kept as the backup), <strong>no</strong> (keep the
+card for this run, no question) or <strong>never</strong> (keep it and do not
+offer this distribution again). Without the option, the GUI asks
+(once, unless “Keep my card (don’t ask again)” was chosen) and
+<strong>--headless</strong> keeps the card and logs one line. Refused together
+with <strong>--sdcard</strong>: an explicit card is never offered an upgrade. See
+<a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
 image</a>.</dd>
 <dt><strong>--sdcard-readonly</strong></dt>
 <dd>Open the SD image read-only, so the host file is never modified. The

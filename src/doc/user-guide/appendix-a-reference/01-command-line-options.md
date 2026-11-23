@@ -155,13 +155,17 @@ with status 1.
 :   What to do when the default-location card is of an older NextZXOS
     distribution than the one jnext downloads now. *MODE* is **ask**
     (the default in the GUI: forget any “do not ask again” and ask),
-    **yes** (replace the card without asking: everything saved on it is
-    lost), **no** (keep the card for this run, no question) or **never**
-    (keep it and do not offer this distribution again). Without the
-    option, the GUI asks (once, unless “Do not ask me again” was ticked)
-    and **--headless** keeps the card and logs one line. Refused
-    together with **--sdcard**: an explicit card is never offered an
-    upgrade. See [Why JNEXT needs an SD-card
+    **yes** (upgrade without asking: your files are carried over to the
+    new card and the old card is kept as a backup in `previous/`;
+    refused when the card has no original image to compare with, and
+    then **fresh** is the way), **fresh** (a new card with nothing
+    carried over; the old card is kept as the backup), **no** (keep the
+    card for this run, no question) or **never** (keep it and do not
+    offer this distribution again). Without the option, the GUI asks
+    (once, unless “Keep my card (don’t ask again)” was chosen) and
+    **--headless** keeps the card and logs one line. Refused together
+    with **--sdcard**: an explicit card is never offered an upgrade. See
+    [Why JNEXT needs an SD-card
     image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md).
 
 **--sdcard-readonly**

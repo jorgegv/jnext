@@ -1214,7 +1214,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     auto fail = [&](const std::string& why) {
         if (upgrading) {
             std::error_code rec;
-            if (!std::getenv("JNEXT_DEBUG_KEEP_WORK")) std::filesystem::remove_all(work, rec);
+            std::filesystem::remove_all(work, rec);
         } else if (replacing) {
             std::remove(raw_new.c_str());
             std::remove(fixed_new.c_str());

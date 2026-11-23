@@ -244,12 +244,16 @@ a corrupted one. Also discards a half-finished download. Ignored when
 What to do when the default-location card is of an older NextZXOS
 distribution than the one jnext downloads now. *MODE* is **ask** (the
 default in the GUI: forget any “do not ask again” and ask), **yes**
-(replace the card without asking: everything saved on it is lost),
-**no** (keep the card for this run, no question) or **never** (keep it
-and do not offer this distribution again). Without the option, the GUI
-asks (once, unless “Do not ask me again” was ticked) and **--headless**
-keeps the card and logs one line. Refused together with **--sdcard**: an
-explicit card is never offered an upgrade. See **SD CARD AND ROMS**.
+(upgrade without asking: your files are carried over to the new card and
+the old card is kept as a backup in `previous/`; refused when the card
+has no original image to compare with, and then **fresh** is the way),
+**fresh** (a new card with nothing carried over; the old card is kept as
+the backup), **no** (keep the card for this run, no question) or
+**never** (keep it and do not offer this distribution again). Without
+the option, the GUI asks (once, unless “Keep my card (don’t ask again)”
+was chosen) and **--headless** keeps the card and logs one line. Refused
+together with **--sdcard**: an explicit card is never offered an
+upgrade. See **SD CARD AND ROMS**.
 
 **--sdcard-readonly**  
 Open the SD image read-only, so the host file is never modified. The
@@ -1809,17 +1813,23 @@ An explicit **--sdcard** always wins over both.
 
 When the default card is of an older NextZXOS distribution than the one
 jnext downloads now, jnext tells you a newer one is available, and in
-the GUI asks what to do. **Download and replace** downloads the new
-image and replaces the card: **everything you saved on the old card is
-lost**, and the old card stays untouched until the new one is complete,
-so a failed download or patch changes nothing. **Keep my card** goes on
-using the old one, and asks again next time; ticking **Do not ask me
-again** stops the offer for this distribution (a later one asks once
-more). A terminal or scripted run (**--headless**,
-**--sdcard-file-add**) never asks: it keeps the card and logs one line.
-The choice can be made without the GUI with **--sdcard-upgrade**. A card
-you name yourself, with **--sdcard** or in Preferences, is never offered
-an upgrade. Each distribution’s card has its own FAT32 volume serial.
+the GUI asks what to do. **Upgrade (keep my files)** downloads the new
+image, carries the files you saved (and the contents of any
+**--sdcard-writes** file) over to it, and keeps the old card, untouched,
+as a backup in `previous/` next to the card; where NextZXOS itself
+changed a file you also changed, the new version wins, and a report
+lists what was carried and what was replaced. A card that cannot be
+compared with the one it came from (its original image is gone) cannot
+have its files carried over: **--sdcard-upgrade fresh** then starts a
+new card and keeps the old one. A failed download or patch changes
+nothing. **Not now** goes on using the old card and asks again next
+time; **Keep my card (don’t ask again)** stops the offer for this
+distribution (a later one asks once more). A terminal or scripted run
+(**--headless**, **--sdcard-file-add**) never asks: it keeps the card
+and logs one line. The choice can be made without the GUI with
+**--sdcard-upgrade**. A card you name yourself, with **--sdcard** or in
+Preferences, is never offered an upgrade. Each distribution’s card has
+its own FAT32 volume serial.
 
 Note that jnext opens the image **read-write** by default, and writes
 the emulated machine makes to the SD card are persisted to the file. Two
@@ -3985,9 +3995,20 @@ of the two images came from. Without one, the image is taken to be
 24.11.
 
 `~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro-declined`  
-The distribution whose upgrade offer you turned down with “Do not ask me
-again” (or **--sdcard-upgrade** `never`). Delete it, or use
+The distribution whose upgrade offer you turned down with “Keep my card
+(don’t ask again)” (or **--sdcard-upgrade** `never`). Delete it, or use
 **--sdcard-upgrade** `ask`, to be asked again.
+
+`~/.jnext/sdcard/previous/`  
+The backup an upgrade leaves: the card, the original image and their
+sidecars as they were, the old contents of your writes files in
+`overlays/`, and `upgrade-report.txt`, the report of that upgrade.
+
+`~/.jnext/sdcard/overlays.list`  
+The **--sdcard-writes** files you have used with the default card, one
+path per line, so that an upgrade started from the desktop rebuilds them
+too. Files that are gone or no longer belong to the card are dropped
+from it.
 
 `~/.jnext/nextpi/`  
 The NextPi directory: `nextpi.img` (the release’s SD-card image, never
