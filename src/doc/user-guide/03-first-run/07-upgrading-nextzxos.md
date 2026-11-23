@@ -66,7 +66,7 @@ in `previous` next to the new card. The File menu has three entries:
 | **Go Back to the Previous SD Card** | a backup exists | `--sdcard-go-back` |
 | **Delete the Previous SD Card Backup (size)...** | a backup exists | `--sdcard-delete-backup` |
 
-Going back **swaps** the two: the card in use becomes the backup and the machine restarts on
+Going back first checks that every writes file of the old card can be put back where it was (a missing folder is made); if one cannot, nothing is changed and you are told which. The report of the upgrade stays with the backup it describes. Going back **swaps** the two: the card in use becomes the backup and the machine restarts on
 the old one. Delete gives the backup's disk space back (the entry names the size); it
 cannot be undone. The command-line forms exit 0 when done, 2 when there is no backup, 3 when
 they failed with nothing changed and 4 when another JNEXT has the card open.

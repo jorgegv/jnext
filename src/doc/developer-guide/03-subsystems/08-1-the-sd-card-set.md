@@ -82,9 +82,17 @@ its sidecars; each `FILE.new` over its `FILE` (a fresh start removes the file in
 `upgrade::recover` runs at the start of every provisioning, under the lock: with `SWITCHING` it rolls
 forward, without it it deletes the scratch. Before the first step any failure removes the scratch and
 the run goes on with the old card. `backup::go_back` is the same shape (four steps in `go-back-work/`) and
-swaps the two sets; `delete_backup` removes `previous/` only. In the Qt window the actions eject
+swaps the two sets; `delete_backup` removes `previous/` only. Before step 1 every writes file the backup
+holds is checked against the path it is to be restored to: a missing folder is made, and a path nothing can
+be written to refuses the go back with the set exactly as it was (exit 3 and the box are then true).
+After step 1 the swap must always be able to finish: a restore target that became unwritable only keeps
+the file's copy in the new `previous/overlays/` under an `unrestored-` name and logs where it is. The
+last upgrade's `upgrade-report.txt` stays with the set it describes. In the Qt window the actions eject
 slot 0 through the live card change, do their work outside the frame tick, re-bind the session's
-writes file over the new card, insert the card again and hard-reset the machine. The machine is not
+writes file over the new card, insert the card again and hard-reset the machine (requested in the tick that
+services the insert, so no frame runs on the new card first; the session's writes file is detached from the
+card while the work runs, and only the session's own file is bound again, and only when it belongs to the card
+that is mounted). A failed or no-op action puts the original card back with its writes file and says why. The machine is not
 paused: the change is serviced on the frame tick, and a paused session does not tick. The flow is
 driven by `sdcard_menu_test` (SDMENU-09 to 11).
 

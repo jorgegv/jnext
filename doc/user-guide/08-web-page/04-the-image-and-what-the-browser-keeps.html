@@ -809,6 +809,8 @@
       
         
       
+        
+      
     
     
     
@@ -1013,6 +1015,34 @@
     
   
     If something goes wrong
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-first-run/07-upgrading-nextzxos.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading NextZXOS on your card
   
 
     
@@ -4748,6 +4778,14 @@ downloaded or built before the click). It then goes one of two ways.</p>
 <li>Whatever the program writes to the card is there at the next visit, and so is the one
   file a NEX loaded with <code>file</code> saves through esxDOS (<a href="03-itch-and-limits.html">8.3</a>).</li>
 <li><code>player.resetCard()</code> clears both (<a href="02-options-and-the-player.html">8.2</a>).</li>
+<li>The saves are tied to the card they were made on. When a release of JNEXT with a newer NextZXOS
+  runs the page, the saves a visit of this page made on the earlier release's card are reset
+  before the program starts (the program starts as on a first visit), and the page's
+  <code>onNotice('card-writes-reset', message)</code> is called once with this text: "The saves on this
+  page were made on an older NextZXOS card (NextZXOS X) and were reset: this version of the
+  page uses NextZXOS Y." JNEXT cannot carry the saves over in the browser. Saves made before
+  this release existed, saves made on a card the page supplied, and another page's saves are
+  left alone.</li>
 <li>A save is stored a moment after the program makes it: a reload within moments of a save
   can lose it (the store on leaving the page is best effort).</li>
 </ul>

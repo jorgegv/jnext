@@ -791,6 +791,8 @@
       
         
       
+        
+      
     
     
     
@@ -1070,6 +1072,34 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../03-subsystems/08-1-the-sd-card-set.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8.1 The SD card set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
     
     
       
@@ -1091,10 +1121,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_10" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
         
           
-          <label class="md-nav__link" for="__nav_4_10" id="__nav_4_10_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
             
   
   
@@ -1112,8 +1142,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_10_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_10">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_11">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1304,10 +1334,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_12" >
         
           
-          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_12" id="__nav_4_12_label" tabindex="0">
             
   
   
@@ -1325,8 +1355,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_11">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_12">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3129,7 +3159,7 @@ fills a third store, <code>UserAnnotations</code>, which sits beside the toolcha
 <h2 id="1-the-producer">1. The producer<a class="headerlink" href="#1-the-producer" title="Permanent link">&para;</a></h2>
 <p>JNEXT. The Qt Map menu opens and saves it (section 10); <code>--annotations FILE</code>
 loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:1098</code> and copies
-it to the configuration at <code>src/main.cpp:2898</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
+it to the configuration at <code>src/main.cpp:2900</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
 <code>src/script/script_host.cpp:201-215</code>), after <code>--map</code> and before the scripts, so a
 script's <code>@name</code> of the file resolves). <code>replace_annotations()</code> is the
 primitive an import builds on.</p>
@@ -3293,9 +3323,9 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   <code>annotations_revision()</code> at the last Open, Save or <code>--annotations</code>; <code>annotations_unsaved()</code> compares them.
   <code>confirm_discard_annotations()</code> (<code>debugger_manager.cpp:898</code>) asks Save / Discard / Cancel when they differ, and is
   asked by <code>on_open_annotations()</code> before it opens and by <code>MainWindow::closeEvent()</code>
-  (<code>confirm_discard_annotations</code>, <code>src/gui/main_window.cpp:4144</code>) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
+  (<code>confirm_discard_annotations</code>, <code>src/gui/main_window.cpp:4164</code>) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through <code>close()</code>, which then returns false). An unattended close (<code>unattended_</code>, the delayed automatic exit and
-  SIGINT/SIGTERM, tested at <code>src/gui/main_window.cpp:4141</code>) asks nothing: it logs that the unsaved changes were
+  SIGINT/SIGTERM, tested at <code>src/gui/main_window.cpp:4161</code>) asks nothing: it logs that the unsaved changes were
   discarded and quits (<code>QG-ANN-05</code>). With nothing changed there is no dialog. <code>set_annotations_file()</code>
   (<code>debugger_manager.cpp:799</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:397</code>), makes that file
   the Save target and the starting point of "unsaved".</li>
