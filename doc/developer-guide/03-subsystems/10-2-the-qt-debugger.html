@@ -3174,10 +3174,8 @@ window looks like and how to drive it, see chapter 6 of the user guide,
 <p><strong>The window's client</strong> is attached exactly while the debugger window is open.
 Opening the window attaches it. What it then asks of the backend follows what is
 on show (<code>DebuggerManager::apply_data_needs()</code>): call tracking while the Call Stack or
-Variables panel is on show or a source Step Over or Step Out runs, the live raster
-while the Video panel is, and the mixer source tap while the Audio panel is on show with its Scopes
-sub-tab current (<code>AudioPanel::scopes_on_show()</code>; the panel's <code>sub_tab_changed</code> reaches
-<code>panels_on_show_changed</code>, and the request is not made under <code>--silent</code>). Each request is sent only when it changes, from
+Variables panel is on show or a source Step Over or Step Out runs, and the live raster
+while the Video panel is. Each request is sent only when it changes, from
 <code>DebuggerWindow::panels_on_show_changed</code>, which fires once per switch of a group's tab (the dock that became visible announces it),
 per close and reopen of a dock, and per change of floating.
 <code>DebuggerWindow::panel_on_show()</code> is the one answer: a panel is
@@ -3367,8 +3365,8 @@ restart of the CPU panel's T-state count and draws that one label.</p>
 </tr>
 <tr>
 <td>Audio</td>
-<td><code>audio_state()</code>, <code>ay_mode()</code>, <code>audio_log_entries()</code>, <code>audio_log_enabled()</code>, <code>audio_log_export()</code>; the Scopes tab (<code>AudioScopeView</code>): <code>audio_scope_samples()</code></td>
-<td><code>set_audio_mute_mask()</code>, <code>set_audio_channel_mute_mask()</code>, <code>clear_audio_drops()</code>, <code>set_audio_log_enabled()</code> (from <code>DebuggerManager::apply_data_needs()</code>, only while the Log sub-tab is on show: <code>AudioPanel::log_on_show()</code>, re-run on <code>AudioPanel::sub_tab_changed()</code>); the panel emits <code>show_in_disassembly_requested</code> for a CPU-written dropped-write row and a CPU-written Log row; the manager requests the source tap with <code>set_audio_scope_enabled()</code></td>
+<td><code>audio_state()</code>, <code>ctc_state()</code>, <code>dma_state()</code>, <code>ay_mode()</code>, <code>audio_log_entries()</code>, <code>audio_log_enabled()</code>, <code>audio_log_export()</code></td>
+<td><code>set_audio_mute_mask()</code>, <code>set_audio_channel_mute_mask()</code>, <code>clear_audio_drops()</code>, <code>set_audio_log_enabled()</code> (from <code>DebuggerManager::apply_data_needs()</code>, only while the Log, Tracker or DAC &amp; Beeper sub-tab is on show: <code>AudioPanel::log_on_show()</code>, <code>tracker_on_show()</code> or <code>dac_on_show()</code>, one request bit so the ring survives a switch between them, re-run on <code>AudioPanel::sub_tab_changed()</code>); DAC &amp; Beeper's Pacing and Sample stream groups are <code>AudioStreamView</code>, which fetches the log incrementally (it asks from the newest seq it holds and starts over when the ring no longer holds it, the rule of <code>AudioLogView</code>), keeps the markers and the DAC entries of the last second and calls <code>dac_stream_stats()</code>; the panel emits <code>show_in_disassembly_requested</code> for a CPU-written dropped-write row and a CPU-written Log row, and <code>rewind_to_frame_requested</code> for a double-click on a rewindable Tracker row, which the window connects to <code>DebuggerManager::on_rewind_to_frame()</code></td>
 </tr>
 <tr>
 <td>Script</td>
@@ -3439,21 +3437,16 @@ bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</c
 moved; the greying of a paged label whose page is not what <code>source_page()</code> reports at its address is redone on every
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: <code>QSYML-*</code>.</p>
-<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1136</code>)
-redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:424</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1125</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:279</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1129</code>)
+redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:414</code>: ~4 Hz). Paused, it
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1118</code>; <code>PausedStamp</code>,
+<code>debugger_manager.h:271</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
 exception to the running cadence: while the window is open, the Audio dock is on show (<code>panel_on_show()</code>) and its
 Chips sub-tab is the current one (<code>AudioPanel::chips_on_show()</code>), <code>refresh_panels()</code> calls
 <code>AudioPanel::refresh_live()</code> on every tick, so the decoded chips follow the music. It is a refresh of its own,
 counted by <code>take_audio_live_refresh_count()</code>, not a <code>refresh_window()</code> call, so no other panel's cadence moves.
-With the Scopes sub-tab current instead, the same place calls <code>AudioPanel::refresh_scopes()</code> (counted by
-<code>take_audio_scope_refresh_count()</code>): <code>AudioScopeView</code> fetches two 882-sample windows with
-<code>audio_scope_samples()</code>, finds the latest rising edge through the middle of the block's range
-(<code>scope_trigger()</code> in <code>src/debug/audio_math.h</code>, which free-runs when there is none and the lamp says <code>free</code>)
-and draws one window from it, with a peak and RMS meter per source (<code>scope_meter()</code>, <code>audio_source_scale()</code>).
 The stamp is:</p>
 <ul>
 <li>the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and
@@ -3466,7 +3459,7 @@ The stamp is:</p>
   subscription verb (<code>subscribe</code>, <code>subscribe_source_line</code>, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
   breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;</li>
-<li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:196</code>), installed on <code>qApp</code>
+<li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:189</code>), installed on <code>qApp</code>
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse <em>movement</em> is not counted: hover
@@ -3474,7 +3467,7 @@ The stamp is:</p>
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
   loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:575</code>), so an edit on disk still shows.</li>
 </ul>
-<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1116</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
+<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1109</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <code>take_panel_refresh_count()</code> counts the
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,
@@ -3599,7 +3592,7 @@ Which space each view prints, and the columns that were added, are described in
 <a href="../07-source-level-debugging/07-frontends.html">7.7</a>.</p>
 <h3 id="the-audio-panel">The Audio panel<a class="headerlink" href="#the-audio-panel" title="Permanent link">&para;</a></h3>
 <p><code>AudioPanel</code> (<code>src/debugger/audio_panel.cpp</code>) is a Sources strip (the five source mute boxes) above a
-<code>QTabWidget</code>: Chips, DAC &amp; Beeper, Log, Tracker and Scopes. The last two are placeholders that say they are
+<code>QTabWidget</code>: Chips, DAC &amp; Beeper, Log, Tracker and Scopes. Only Scopes is a placeholder: it says it is
 not available yet. The panel owns no audio state: every number comes from one <code>Debugger::audio_state()</code> per
 refresh, and every note from <code>audio_math.h</code>, so the panel and a test read the same decode.</p>
 <ul>
@@ -3609,18 +3602,23 @@ refresh, and every note from <code>audio_math.h</code>, so the panel and a test 
 <li><strong>DAC &amp; Beeper</strong> shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the
   dropped-write table, one fixed row per <code>AudioDropReason</code>; a CPU-sourced row double-clicks into the
   Disassembly, and <strong>Clear</strong> calls <code>clear_audio_drops()</code>. <code>audio_drop_reason_text()</code> is shared with the Log
-  tab, so the two cannot word a reason differently.</li>
+  tab, so the two cannot word a reason differently. Its Pacing group lists the CTC channels and the DMA with
+  their computed rates (<code>ctc_state()</code>, <code>dma_state()</code>), and its Sample stream group is <code>AudioStreamView</code>, which
+  fetches the log incrementally like Log and calls <code>dac_stream_stats()</code> (<a href="04-audio.html">3.4</a>, The sample stream).</li>
 <li><strong>Log</strong> is <code>AudioLogView</code>, a <code>QAbstractTableModel</code> mirroring the backend ring: <code>refresh()</code> appends the
   entries newer than the row it holds and replaces everything when that row is no longer in the ring (an
   overflow, a rewind landing, a rebuilt ring). The filters sit on a proxy model; Export calls
   <code>audio_log_export()</code>.</li>
+<li><strong>Tracker</strong> is <code>AudioTrackerView</code>: it groups the log with <code>AudioFrameAccumulator</code> and mirrors it through
+  <code>fetch_audio_log()</code>, as Log does (<a href="04-audio.html">3.4</a>, Frame grouping and the tracker).</li>
 <li><strong>M and S</strong> per channel call <code>set_audio_channel_mute_mask()</code>. A solo is the mask "everything but that
   channel": <code>channel_solo_clicked()</code> saves the mask it found (<code>pre_solo_mask_</code>) and un-solo restores it, a solo
   moved to another channel keeps the first saved mask, and any live mask that is not exactly a solo ends the
   solo (a script, another client), so restoring never undoes that change. The buttons follow the live mask.</li>
 </ul>
 <p>What the panel asks of the backend follows the sub-tab on show. <code>DebuggerManager::apply_data_needs()</code> requests
-the write log only while the Audio panel is on show with Log current (<code>AudioPanel::log_on_show()</code>), and drops
+the write log only while the Audio panel is on show with Log, Tracker or DAC &amp; Beeper current (<code>AudioPanel::log_on_show()</code>, <code>tracker_on_show()</code>,
+<code>dac_on_show()</code>: one request bit, so a switch between them keeps the ring), and drops
 the request otherwise; the panel's <code>sub_tab_changed</code> signal makes the manager re-derive it. Chips is the one
 sub-tab with the per-frame refresh described under the running cadence above.</p>
 <h2 id="the-key-bindings-are-data">The key bindings are data<a class="headerlink" href="#the-key-bindings-are-data" title="Permanent link">&para;</a></h2>

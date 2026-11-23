@@ -37,6 +37,21 @@ QString audio_drop_reason_text(jnext::dbg::AudioDropReason r);
 /// The text of a write's source ("CPU", "DMA", "Copper", "Debugger"), shared likewise.
 const char* audio_source_text(jnext::dbg::EventSource s);
 
+/// What `fetch_audio_log()` found.
+enum class AudioLogFetch {
+    Off,      ///< the log is off: nothing is on show any more
+    Append,   ///< `out` holds only the entries newer than the newest one the caller has
+    Resync    ///< `out` holds the whole ring: the caller replaces what it shows
+};
+
+/// The ONE rule by which a view mirrors the backend's ring (the Log view and the Tracker both
+/// call it): `have` is the seq of the newest entry the caller holds (0 = none). The fetch starts
+/// AT it, which must still be the first entry back; a ring that was freed and rebuilt, that
+/// overflowed past it, or that a rewind landing truncated below it is seen even when the seq
+/// numbers happen to continue, and answers Resync.
+AudioLogFetch fetch_audio_log(const jnext::dbg::Debugger& dbg, uint64_t have,
+                              std::vector<jnext::dbg::AudioLogEntry>& out);
+
 class AudioLogModel : public QAbstractTableModel {
 public:
     enum Column { Frame, Line, Hc, Tstate, Pc, Source, Target, Chip, Reg, Value, Prev, Flags, ColumnCount };

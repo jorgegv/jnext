@@ -156,6 +156,51 @@ rebuilds the `Emulator`, so the backend installs the sink again in
 `reapply_after_machine_rebuild()`. The ring, the seq counter and the verbs live in the
 backend (`src/debug/debugger_audio.cpp`).
 
+**Pacing engines.** `Debugger::ctc_state()` and `Debugger::dma_state()` (INS-25) report what paces a
+sample player: the CTC's four channels and the DMA's prescaler. Both read through a `DebugView` that
+is defined inline in `CtcChannel` and `Dma` (`ctc.h`, `dma.h`): no data member, so no layout change, and
+no core translation unit calls it, so no code is emitted in a hot path; an unused debugger pays nothing.
+The CTC rate is the ZC/TO rate: `MASTER_CLOCK_HZ / (prescaler x TC)` for a running timer (TC 0 counts
+256; `ctc_chan.vhd:132-170`), the source's rate divided by TC for a running counter. A counter's
+source is the previous channel, channel 0 being fed by channel 3 (`zxnext.vhd:4598`, `Ctc::handle_zc_to`
+arms `(channel + 1) & 3`); `Debugger::ctc_state()` walks that chain back at most four hops, a stopped
+channel or a ring of counters ends it with no rate, and the division is rounded once, at the end, in
+milli-hertz. A channel is `running` only in S_RUN or S_RUN_TC, the states in which `t_count` counts. The
+DMA rate is the NOMINAL pacing rate `MASTER_CLOCK_HZ / (32 x prescaler)`, the same at every CPU speed (the
+DMA timer adds 8, 4, 2 or 1 per CPU clock at 3.5, 7, 14 and 28 MHz, one per master cycle, `dma.vhd:250-255`):
+the gate (`dma.vhd:424`) is a minimum spacing from the read, and the state machine's own cycles come
+on top, so a real stream is slower than the nominal rate.
+
+**The sample stream.** `dac_stream_stats()` (`src/debug/dac_stream.h`, a published header with no core
+dependency) turns the audio log into one row per DAC writer: the measured rate, the interval minimum,
+mean, maximum and lower median, the population standard deviation and the gaps. Its rules are small and
+each is pinned by a row. An entry counts if it is an applied DAC or mirror write after the newest marker
+of the vector (a reset restarts the player, a rewind truncated the log) inside the window `(end - window,
+end]`; a clock younger than the window has no start. The log has one entry per DAC channel, so a write to
+0xDF, 0xB3, the mono 0xFB or NextREG 0x2D is two entries at one cycle: consecutive counted entries with
+equal cycle, source, PC and port are ONE sample. A CPU writer is keyed by its PC; DMA, Copper and debugger
+entries by source alone, because their PC is the slot's, not theirs. A gap is an interval strictly above
+1.5 times the lower median: one skipped sample is two periods, one period is one, so 1.5 sits between them
+whatever the interrupt acceptance jitter does to a single interval. `nearest_pacing()` pairs a CPU writer
+with the running CTC channel whose rate is nearest and a DMA writer with the DMA. The DMA's own spacing
+is at least the prescaler's (`dma.vhd`, the timer cleared at TRANSFERING_READ_1 and the gate at WAITING_CYCLES), so its measured rate is at most the nominal one.
+
+**Frame grouping and the tracker.** `src/debug/audio_frames.h` is a pure, published helper that
+groups the log's entries, oldest first, into one `AudioFrame` per frame that holds counted AY
+writes (`AudioFrameAccumulator::feed()`). A counted write is an applied `AyRegister` entry (no
+`Dropped` flag, chip 0-2, register 0-15); any other non-marker entry only proves the open frame
+ended. A frame keeps the last value written to each of R0-R13, the value at its start (`before`:
+the `prev` of the frame's first write to the register, which is exact because the AY stores the whole
+written byte; for a register not written in the frame, the value carried from the previous frame, or
+unknown after a marker), a mask of the registers written and of those
+written twice, the first and last raster stamps and the PC range of the CPU's writes, and the number
+of empty frames before it. A marker, or a frame number that goes backwards, completes the open frame
+and forgets the timeline. The Audio panel's Tracker (`src/debugger/audio_tracker_view.*`) is its
+consumer. The Tracker mirrors the log by the Log
+view's own rule, one function (`fetch_audio_log()`: append the entries after the newest one held, or
+resync when that entry is gone) and groups only what is new, keeping at most `kMaxRows` rows. Nothing
+in the emulation path changes for it: it reads what the write tap already records.
+
 **Beeper** — `src/audio/beeper.*`. The beeper is the 48K Spectrum's entire sound
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is

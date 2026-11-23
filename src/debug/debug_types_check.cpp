@@ -267,6 +267,10 @@ static_assert(DAC_CHANNEL_COUNT == 4, "the Soundrive DAC has four channels");
 static_assert(std::tuple_size<decltype(AudioState::chips)>::value == AY_CHIP_COUNT, "");
 static_assert(static_cast<int>(EnvelopeMotion::Holding) == 2, "Falling, Rising, Holding");
 
+// INS-25 (GH #537): the CTC has four channels (zxnext.vhd:4581 NUM_CTC => 4).
+static_assert(CTC_CHANNEL_COUNT == 4, "the CTC has four channels");
+static_assert(std::tuple_size<decltype(std::declval<const Debugger&>().ctc_state())>::value == CTC_CHANNEL_COUNT, "");
+
 // GH #530: the dropped-write reasons are the eight of DEBUGGER-MUSIC-SOUND-PLAN.md
 // §3.5 plus the unused slot 0; the panel rows and the counters index by them.
 static_assert(AUDIO_DROP_REASON_COUNT == 9, "None + eight reasons");

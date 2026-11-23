@@ -62,6 +62,22 @@ public:
     /// Returns true if ZC/TO fired.
     bool trigger();
 
+    /// GH #537 (INS-25): what the debugger's ctc_state() reads. `running` is S_RUN or S_RUN_TC, the only
+    /// states in which t_count counts and ZC/TO can fire (ctc_chan.vhd:117,158-170). Inline, const, no
+    /// data member: nothing in the core calls it.
+    struct DebugView {
+        bool    counter_mode = false;   // control bit 6 (:150)
+        bool    prescale_256 = false;   // control bit 5 (:146)
+        bool    int_enabled = false;    // control bit 7 (:263-276)
+        bool    running = false;
+        uint8_t time_constant = 0;      // the register as written; 0 = 256 (:282-285, :153)
+        uint8_t count = 0;              // t_count (:155-168)
+    };
+    DebugView debug_view() const {
+        return {control_counter_, control_prescale_, control_int_en_,
+                state_ == State::RUN || state_ == State::RUN_TC, time_constant_, counter_};
+    }
+
     /// Set interrupt enable externally (from NextREG int_en bits).
     void set_int_enable(bool en);
 
