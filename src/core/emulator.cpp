@@ -407,6 +407,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     tape_edge_master_ = 0;
     mic_relax_due_ = UINT64_MAX;
     mixer_.reset();
+    if (audio_scope_tap_) audio_scope_tap_->clear_partial();   // GH #539: the mixer dropped its partial sample
     mixer_.set_output_gain_db(cfg.audio_gain_db);
     mixer_.set_beeper_gain_db(cfg.audio_gain_beeper_db);
     for (int chip = 0; chip < 3; ++chip)
