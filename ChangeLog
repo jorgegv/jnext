@@ -6,6 +6,8 @@
 - `--debugger` and `--break-at`: a program loaded from the command line stops at its start (tape loads included) and waits for a debugger
 
 ### Bug Fixes
+- Two emulated machines in one process no longer share CPU timing state (28 MHz waits, warm-start recorder)
+- Tape loading sound plays at the hardware level, mixed through the beeper EAR/MIC term as the FPGA does
 - Browser build: --joy-uart-pty and --joy-uart-fifo are refused with a clear reason instead of failing obscurely
 - Browser: dot commands work, so the NextZXOS browser opens text files and NEX programs again
 

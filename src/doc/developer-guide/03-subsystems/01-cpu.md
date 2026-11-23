@@ -33,11 +33,24 @@ The backend itself is the FUSE Z80 core, vendored under `third_party/fuse-z80/`
 from FUSE 1.6.0 (GPLv2-or-later, compatible with JNEXT's GPLv3).
 `fuse_z80_core.c` is a single translation unit that `#include`s the opcode
 files, while `fuse_z80_shim.h` stubs out every FUSE emulator dependency those
-files would otherwise pull in. The core is inherently single-instance — it keeps
-one global `z80` struct and one global `tstates` counter — which happens to suit
-JNEXT's one-CPU design. `Z80Cpu` re-points the file-static `s_mem` / `s_io`
-pointers on every `reset()` and `execute()`, and copies the register file in and
-out around each instruction.
+files would otherwise pull in. The core keeps its state in process globals: one
+`z80` struct, one `tstates` counter, and, in `z80_cpu.cpp`, the memory and I/O
+pointers, the contention runtime (`ContentionModel` and `Mmu`), the raster
+geometry and the ULA counter origins. The opcode macros name them directly, so
+they stay globals, and they are a **cache of the bound `Z80Cpu`**: each `Z80Cpu`
+owns a saved copy (`Z80CoreRuntime`), and every entry point that touches the
+globals (`reset()`, `execute()`, the setters, `tstates_ref()`, the batch and
+state accessors) first calls `bind_()`. That is one pointer compare while a single machine
+runs; when another machine's CPU runs, it saves the bound one's state and loads its
+own. The deliberate exceptions are `tstates_into_instruction()` and `io_clock_into_instruction()`
+(gated on `executing_`, which implies bound) and the two fetch readers `last_opcode()` and
+`last_m1_byte()`: the M1 fetch buffer is shared, valid until the next `execute()` of any `Z80Cpu`.
+A `Z80Cpu` that is destroyed while bound unbinds and clears the pointers, so a
+short-lived second machine (the warm-start recorder) leaves nothing dangling. The
+free `z80_set_*` functions and `fuse_z80_tstates_ptr()` act on whichever CPU is
+bound: only code that drives a single machine uses them. `Z80Cpu` copies the register file in and
+out around each instruction. State that is valid only inside one `execute()`
+(the M1 fetch buffer, the I/O stretch record) is not swapped.
 
 **HALT.** FUSE executes `HALT` as `halted = 1; PC--`, so the CPU stays on the opcode and
 every later `execute()` re-fetches it (the VHDL does the same, `t80n.vhd:496-503`): `PC++; R++;

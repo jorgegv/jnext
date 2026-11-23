@@ -40,6 +40,11 @@ public:
     /// Returns 0 if past end of data or not playing.
     uint8_t get_ear_bit(uint64_t current_tstates) const;
 
+    /// T-states since the EAR level last changed at `now`, looking back along
+    /// the recording (GH #550); `cap` when it has not changed within `cap`.
+    /// A WAV is random access, so nothing needs saving for it.
+    uint32_t ticks_since_edge(uint64_t now, uint32_t cap) const;
+
     /// GH #548: playback has begun and the clock is past the last signal edge (the end of the
     /// tape's last bit; trailing silence is not data).
     bool past_end(uint64_t current_tstates) const;

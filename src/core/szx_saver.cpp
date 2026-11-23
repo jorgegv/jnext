@@ -70,7 +70,7 @@ SzxSaver::SaveResult SzxSaver::save(Emulator& emu)
         | (emu.beeper().mic() ? 0x08 : 0x00)
         | (emu.beeper().ear() ? 0x10 : 0x00));
 
-    uint32_t tstates = *fuse_z80_tstates_ptr();
+    uint32_t tstates = cpu.tstates_ref();
 
     // The AY of the chip a classic program sees (TurboSound's selected one),
     // symmetric with Emulator::restore_ay_registers() on load.

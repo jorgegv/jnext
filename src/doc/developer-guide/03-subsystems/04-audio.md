@@ -99,8 +99,12 @@ hardware behaviour and a routine source of confusion — a program that expects
 system: a single bit in port 0xFE that the CPU toggles, with everything from
 clicks to three-channel music produced by how fast it toggles. jnext's model is
 deliberately tiny — three booleans, being EAR and MIC from port 0xFE bits 4 and
-3 plus a tape-EAR input from real-time tape playback. There is no accumulator
-and no filtering here, because that is the mixer's job.
+3 plus a tape-EAR input from real-time tape playback, and one derived value,
+`mic_final`, the board's `beep_mic_final` (`zxnext.vhd:6503`), which is what
+the mixer's MIC term reads. `mic_final` is not in the saved state: the
+emulator refreshes it from `Emulator::tape_out_level` at the events that change
+it. There is no accumulator and no filtering here, because that is the mixer's
+job.
 
 **Pi I2S** — `src/audio/i2s.*`. A Next can take digital audio in from a
 Raspberry Pi attached to its interface, and mix it with everything else. jnext
@@ -127,6 +131,45 @@ runs.
 EAR contributes 512, MIC 128, the AY pair is zero-extended, the DAC pair is
 shifted left by two, and the I2S pair is zero-extended. `Mixer::mix` is a pure
 function of the sources, holding no state of its own.
+
+The hardware mixer has no tape input. A tape playing in real time, and the Pi's
+audio when NR 0xA2 sends it to EAR, reach the mix only inside the MIC term:
+`beep_mic_final` is the board's EAR input XOR the port 0xFE MIC bit (on the
+issue 3 keyboard setting), so a tape swings the mix by 128, a quarter of a
+beeper EAR step, and a tape XOR a set MIC bit is heard inverted. The EAR input
+itself is the jack through the board's `ear_relax`: a level held with no edge
+for 64 x 512 master cycles relaxes to the issue 2 MIC level. jnext applies that
+to both sources of the XOR: the Pi's comparator edges and the playing tape's own
+level changes (`tape_edge_master_`, stamped where the tape block sees the level
+move). A tape pause holds its last level for a second, so the relaxation is what
+a loader sees after the last pulse of a block. The stamp is not saved: after a
+restore (`load_state`, a `.jns` deck reattach) `derive_tape_edge_` rebuilds it
+from the deck's position (a `.jns` load calls it again after the deck is
+reattached, as `load_state` runs before that). `TapLoader::ticks_since_edge` is exact for every phase
+(the pulse or pause length minus `pulse_left`) except the very first pilot pulse of
+a tape started from idle, which has no edge, so a restore inside it is approximate
+(it matters only on issue 2 with MIC set); `WavLoader::ticks_since_edge`
+looks back along the recording (to twice the hold, all the relaxation needs);
+`TzxLoader::ticks_since_edge` is exact in the pause (the 1 ms hold and the pause's
+remainder, lengths the player holds) and 0 in a pulse phase, because the ZOT
+player does not keep the length of the pulse it has just started: the level is
+then taken as freshly changed, which keeps it as the board has it until the
+relaxation time, at most one pulse late for a pulse longer than that. A pause of 1 ms
+or less after a block that ends high forces the level low with no visible edge, so
+there the age counts from the pause.
+`Emulator::tape_out_level`
+is the one model of that signal (the MIC jack of a tape save reads the same
+value), and it is refreshed into the beeper at the events that change it: a port
+0xFE write, an NR 0x08 or NR 0xA2 write, a state load, a replay-mode change, and a
+level change of a playing tape, in the instruction of the tape block that shows
+it (one compare per instruction while a tape plays, nothing when none does).
+`Emulator::mic_stale_` covers what has no event of its own, at each
+output-sample boundary: a tape that started or stopped, and the Pi's relaxation
+hold running out (also inside a HALT batch). A tape edge is exact to the
+instruction, as EAR is, because the mixer integrates the term across the sample.
+A state load also re-derives the NR 0x06
+shadows (speaker-exclusive gate, NMI button enables, PS/2 mode, hotkey enables)
+from the restored register.
 
 Two things around that sum are jnext's own rather than the hardware's, and both
 arrived as bug fixes:
