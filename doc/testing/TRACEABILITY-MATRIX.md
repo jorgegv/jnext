@@ -243,7 +243,7 @@ These 197 suites (11882 live rows) have no VHDL-derived plan row to map, so they
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `no_sdcard_ui_test` | 4 | --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540) |
-| `sdcard_menu_test` | 4 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
+| `sdcard_menu_test` | 7 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
 | `bug_report_ui_test` | 6 | File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
 | `desktop_open_test` | 14 | files the desktop (macOS Finder) opens with JNext (host GUI), no core counterpart |
@@ -264,7 +264,7 @@ These 197 suites (11882 live rows) have no VHDL-derived plan row to map, so they
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `color_scheme_test` | 28 | GUI light/dark scheme from the desktop portal (host GUI, GH #363) |
 | `color_scheme_linux_test` | 2 | GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart |
-| `sdcard_dialog_test` | 19 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
+| `sdcard_dialog_test` | 20 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 12 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
 | `preferences_apply_test` | 101 | Preferences dialog wiring (host GUI) |
