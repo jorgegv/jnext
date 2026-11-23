@@ -56,7 +56,9 @@ question it cannot answer will decline and exit rather than hang.
 is a NextZXOS SD-card image and not, say, a raw ROM file. If you built the
 image yourself, note that JNEXT enforces the FAT32 specification as strictly as
 the real firmware does, and will refuse a card the real machine would also
-refuse.
+refuse. A card formatted FAT16 or FAT12, or one with no partition table at all,
+works for the 48K, 128K and +3 machines and for snapshots, as it does on the
+Next; `--sdcard-file-add` still needs a FAT32 card.
 
 Anything else: [1.4, *Getting help and reporting bugs*](../01-introduction/04-getting-help-and-reporting-bugs.md),
 and <https://github.com/jorgegv/jnext/issues>.

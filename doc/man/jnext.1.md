@@ -1639,7 +1639,10 @@ hardware. Where each one comes from:
   Multiface firmware and the Alt ROM - are read from the SD-card image at the
   canonical TBBlue paths under `/MACHINES/NEXT/` (`48.rom`, `128.rom` (also the Pentagon's),
   `plus3.rom`, `enNxtmmc.rom`, `enNextMf.rom`, `enAltZX.rom`). That is the
-  whole list of files jnext reads from the card itself.
+  whole list of files jnext reads from the card itself. It reads them from a
+  FAT12, FAT16 or FAT32 card, with a partition table or without one, and finds
+  the volume the way the Next firmware does (**\--sdcard-file-add** still needs
+  a FAT32 card).
 - **NextZXOS is not one of them.** It is loaded by the firmware, not by jnext:
   the machine boots `/TBBLUE.FW` from the card through the emulated SD
   interface and that firmware streams `/MACHINES/NEXT/enNextZX.rom` into
