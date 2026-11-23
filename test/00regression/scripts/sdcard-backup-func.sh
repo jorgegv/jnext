@@ -110,10 +110,12 @@ PY
             LANG=C JNEXT_CONFIG_DIR="$bk_dir/cfg" JNEXT_SDCARD_DISTRO_URL="file://$bk_dir/sn-emulator-99.99.zip" \
                 "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" --delayed-automatic-exit 90 </dev/null > "$bk_dir/holder.out" 2>&1 &
             bk_holder=$!
-            for bk_i in $(seq 100); do
-                [[ -s "$bk_dir/holder.out" ]] && grep -qF "SD card image mounted" "$bk_dir/holder.out" && break
+            bk_up=0
+            for bk_i in $(seq 600); do   # up to 3 minutes: the holder boots slowly on a loaded host
+                if [[ -s "$bk_dir/holder.out" ]] && grep -qF "SD card image mounted" "$bk_dir/holder.out"; then bk_up=1; break; fi
                 sleep 0.3
             done
+            [[ $bk_up == 1 ]] || bk_faults+=("5: the holding jnext never reported its card mounted")
             rc=$(bk_run locked1 99.99 --sdcard-go-back); bk_l1=$rc
             rc=$(bk_run locked2 99.99 --sdcard-delete-backup); bk_l2=$rc
             # 5c: the upgrade and its crash recovery run under the card's lock too: with the card held, --sdcard-upgrade
