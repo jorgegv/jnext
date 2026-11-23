@@ -1498,7 +1498,7 @@ check "HS-195" "the SD master gate derives the suites' card under ~/.jnext/sdcar
 # the unit harness clones the TEST master for its suites, never the user's card
 mkdir -p "$TSD/home/.jnext/sdcard/test-suite/sdcard" "$TSD/home/.jnext/runs"
 printf TESTMASTER > "$TSD/home/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
-printf '#!/usr/bin/env bash\necho "cp $*" >> "%s/cp.log"\nexec /usr/bin/env cp "$@"\n' "$TSD" > "$TSD/shim/cp"; chmod +x "$TSD/shim/cp"
+printf '#!/usr/bin/env bash\necho "cp $*" >> "%s/cp.log"\nexec "%s" "$@"\n' "$TSD" "$(command -v cp)" > "$TSD/shim/cp"; chmod +x "$TSD/shim/cp"
 : > "$TSD/cp.log"
 cache ON ON linux; stub good_test 10 0; register good_test; manifest "good_test 10"
 out=$( unset JNEXT_TEST_SD_IMAGE; export HOME="$TSD/home" PATH="$TSD/shim:$PATH"; run_harness ); rc=$?
@@ -1525,7 +1525,7 @@ check "HS-198a" "the user-card lint is reached from the regression preflight, as
     "[lint-user-card] scanned: 1 file(s), 0 offending" "no test, tool or workflow names the user's SD card" "Pass: 8"
 out=$(run_preflight_user_card dirty); rc=$?
 check "HS-198b" "a file naming the user's SD card FAILS the preflight, not just the lint (GH #555)" 1 $rc "$out" \
-    "dirty/row.sh:1" "names the user's SD card" "Fail: 1"
+    "row.sh:1:" "names the user's SD card" "Fail: 1"
 
 # ---- bench.sh: a private config dir and one priming run (HS-190a/b) ----
 # Oracle: the warm-start cache is keyed on the SD image's size and mtime (warm_start_cache.cpp), and
