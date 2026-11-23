@@ -83,8 +83,8 @@ if want audio-log-func; then
     ! grep -q 'signal 11' "$early_err" || ok=0
     # A write error makes the run exit non-zero and say so. /dev/full exists on Linux; macOS has none, and
     # Windows has no such device (under wine the host's /dev/full opens but takes the write: measured,
-    # exit 0 and no error), so the one check has nothing to fail on those, and a .exe run skips it.
-    if [[ "$JNEXT" != *.exe && -w /dev/full ]]; then
+    # exit 0 and no error), so the one check has nothing to fail on those and runs on Linux only.
+    if [[ "${JNEXT_TARGET_OS:-linux}" == linux && -w /dev/full ]]; then
         full_err="$TMP_DIR/audio_log_full.err"
         full_rc=0
         timeout --foreground --kill-after=5s 20s "$JNEXT" --headless --machine next \
