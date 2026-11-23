@@ -27,7 +27,10 @@ void PsgWriter::frame(uint32_t frame, uint16_t mask, const std::array<uint8_t, 1
     mask &= 0x3FFF;
     if (mask == 0) return;
     // At the end of frame F, Fuse's empty-frame count is F - L (1 right after a block).
-    separators(out_, static_cast<uint64_t>(static_cast<int64_t>(frame) - last_));
+    // A frame not above the last block's is a caller fault; one separator, never a wrapped count
+    // (an unsigned 2^64 would append separators until memory ran out).
+    const int64_t gap = static_cast<int64_t>(frame) - last_;
+    separators(out_, gap >= 1 ? static_cast<uint64_t>(gap) : 1);
     for (unsigned r = 0; r < 14; ++r) {
         if (mask & (1u << r)) {
             out_.push_back(static_cast<uint8_t>(r));

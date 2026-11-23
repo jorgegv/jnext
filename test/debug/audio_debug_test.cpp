@@ -1586,6 +1586,27 @@ static void psg_rows() {
               a == psg_h({0xFF, 0x08, 0x01, 0xFF, 0x08, 0x02, 0xFF}));
     }
 
+    {
+        // A caller that hands the writer a frame not above the last block's (the recorder's rebase prevents it,
+        // but a bug there must not run the process out of memory: an unsigned wrap made 2^64 separators).
+        // Each such frame costs one separator, as end() does for a stop below the last block.
+        check("PSG-31", "PsgWriter::frame with a frame equal to, then below, the last block's (f100, f100, f90): one FF each, no runaway: H FF 00 01 FF 00 02 FF 00 03 FF",
+              psg_write(100, {{100, {{0, 1}}}, {100, {{0, 2}}}, {90, {{0, 3}}}}, 90) ==
+              psg_h({0xFF, 0x00, 0x01, 0xFF, 0x00, 0x02, 0xFF, 0x00, 0x03, 0xFF}));
+    }
+    {
+        // 100000 consecutive frames with one write each: the file is exactly 16 + 3 per frame + 1 trailing FF, so
+        // nothing was held back or repeated (the recorder writes each frame as it completes).
+        std::vector<AudioLogEntry> es;
+        for (uint32_t k = 0; k < 100000; ++k) es.push_back(pe_ay(100 + k, 0, 0, int(k & 0xFF)));
+        const PsgRun r = psg_record(100, es, 100 + 99999);
+        bool shape = r.f0.size() == 16 + 3 * 100000 + 1 && r.f0.back() == 0xFF;
+        for (uint32_t k : {0u, 1u, 255u, 256u, 99999u})
+            shape = shape && r.f0[16 + 3 * k] == 0xFF && r.f0[16 + 3 * k + 1] == 0x00 && r.f0[16 + 3 * k + 2] == (k & 0xFF);
+        check("PSG-32", "100000 consecutive single-write frames fed to the recorder: the file is 16 + 3 * 100000 + 1 bytes (FF 00 v per frame, one trailing FF), spot-checked at frames 0, 1, 255, 256 and 99999",
+              r.started && r.stopped && shape);
+    }
+
     // ── PSF: against the Fuse recording ─────────────────────────────────
     const Bytes fuse = psg_fixture_file("psg_fixture.fuse.psg");
     {

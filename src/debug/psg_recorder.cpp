@@ -63,7 +63,7 @@ bool PsgRecorder::write_out(int chip)
 
 void PsgRecorder::emit(const AudioFrame& f)
 {
-    const uint32_t file_frame = static_cast<uint32_t>(static_cast<int64_t>(f.frame) + off_);
+    const uint32_t file_frame = static_cast<uint32_t>(std::max<int64_t>(static_cast<int64_t>(f.frame) + off_, 0));
     for (int c = 0; c < static_cast<int>(AY_CHIP_COUNT); ++c) {
         const uint16_t mask = f.written_mask[c] & 0x3FFF;
         if (mask == 0) continue;
