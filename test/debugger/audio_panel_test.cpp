@@ -2063,7 +2063,23 @@ static void test_tracker_tab(Emulator& emu) {
         asked.clear();
         emit t->doubleClicked(t->model()->index(2, 0));
         running = running && asked.empty();
+        // A change of the rewind snapshot repaints the rows (dataChanged over them, with the greying roles);
+        // a refresh that changes nothing emits nothing.
+        int changed_signals = 0;
+        bool covers = true, has_fg = true;
+        auto conn = QObject::connect(t->model(), &QAbstractItemModel::dataChanged,
+                                     [&](const QModelIndex& a, const QModelIndex& b, const QList<int>& roles) {
+                                         ++changed_signals;
+                                         covers = covers && a.row() == 0 && b.row() == t->model()->rowCount() - 1;
+                                         has_fg = has_fg && roles.contains(Qt::ForegroundRole);
+                                     });
         rw.debug_state().pause();
+        panel.refresh();
+        const bool emitted = changed_signals == 1 && covers && has_fg;
+        changed_signals = 0;
+        panel.refresh();
+        const bool quiet = changed_signals == 0;
+        QObject::disconnect(conn);
         rw.rzx_player().start(RzxRecording{});
         panel.refresh();
         const bool rzx = !can(2) && tip(2) == "Rewind is not available while an RZX is recording or playing";
@@ -2092,8 +2108,8 @@ static void test_tracker_tab(Emulator& emu) {
         }
         bool some_after = false;
         for (int r = reset_row + 1; r < trk_rows(panel) && reset_row > 0; ++r) some_after = some_after || can(r);
-        check("DAP-66", "why a row is not rewindable, in order: running -> 'Pause the machine to rewind to a frame' (and a double-click emits nothing); paused with an RZX playing -> the RZX text, and rewindable again once it stops; ring freed -> 'The rewind buffer is empty'; rows before a reset marker -> 'This frame is from before a reset or a state load' while rows after it follow the ring range (at least one rewindable)",
-              running && rzx && back && empty && stale && after_ok && some_after,
+        check("DAP-66", "why a row is not rewindable, in order: running -> 'Pause the machine to rewind to a frame' (and a double-click emits nothing); paused with an RZX playing -> the RZX text, and rewindable again once it stops; ring freed -> 'The rewind buffer is empty'; rows before a reset marker -> 'This frame is from before a reset or a state load' while rows after it follow the ring range (at least one rewindable); pausing repaints the rows (one dataChanged over all of them with the ForegroundRole) and a refresh that changes nothing emits none",
+              running && emitted && quiet && rzx && back && empty && stale && after_ok && some_after,
               "running=" + std::to_string(running) + " (" + trk_dump(panel) + ") rzx=" + std::to_string(rzx) + " back=" + std::to_string(back) + " empty=" + std::to_string(empty) +
               " stale=" + std::to_string(stale) + " after_ok=" + std::to_string(after_ok) + " some_after=" + std::to_string(some_after));
     }
@@ -2132,8 +2148,13 @@ static void test_tracker_tab(Emulator& emu) {
         const int while_chips = trk_rows(panel);
         show_tracker_tab(panel);
         panel.refresh();
-        check("DAP-68", "writes over 2 frames with the Chips tab current: refresh() leaves the Tracker model empty (the grouping did not run); with Tracker current the same refresh() fills it",
-              while_chips == 0 && trk_rows(panel) == 2,
+        const bool filled = trk_rows(panel) == 2;
+        dbg.set_audio_log_enabled(cid, false);           // the log goes off: the rows go with it
+        panel.refresh();
+        QLabel* st = panel.findChild<QLabel*>("audio_tracker_status");
+        const bool off = trk_rows(panel) == 0 && st && st->text() == "Not recording";
+        check("DAP-68", "writes over 2 frames with the Chips tab current: refresh() leaves the Tracker model empty (the grouping did not run); with Tracker current the same refresh() fills it; with the log then switched off a refresh() empties it again and the status reads 'Not recording'",
+              while_chips == 0 && filled && off,
               "while_chips=" + std::to_string(while_chips) + " rows=" + trk_dump(panel));
     }
     {

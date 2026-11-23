@@ -4660,7 +4660,8 @@ and <strong>Mark</strong> says <code>double</code> when a register was written t
 period changed (<code>A-4</code>, <code>A#4</code>; <code>^^^</code> above the named range; <code>???</code> or <code>??</code> when the log has
 not yet seen one of the registers), the volume when its register was written (<code>E</code> for
 envelope volume), the noise period for a channel whose noise is on (<code>--</code> when it is off),
-the envelope when R11, R12 or R13 was written. An empty cell shows dots. A cell whose
+the envelope period (Env) when R11 or R12 was written and the shape (Sh) when R13 was written. An empty cell
+shows <code>---</code> (Note), <code>.</code> (Sh, V) or dots (Env, N). A cell whose
 value changed is highlighted. A run of frames with no AY write is a single row, <code>empty</code>
 or <code>empty xN</code>; a break in the log (reset, state load, rewind) is a row of its own, as in
 the Log tab.</p>

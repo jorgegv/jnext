@@ -2683,9 +2683,14 @@ int main() {
         {
             AudioFrameAccumulator acc;
             auto out = run(acc, {ayw(20, 0, 7, 0x38, 0xFF), ayw(15, 0, 8, 1, 0)}, true);
-            check("AFG-16", "a frame number going backwards without a marker (f20 then f15): the f15 write returns f20; f15 is its own frame with empty_before 0 and an unknown before[R7]",
+            // The same with no frame open: f21's DAC entry completes f20, then f15 goes backwards.
+            AudioFrameAccumulator acc2;
+            auto out2 = run(acc2, {ayw(20, 0, 7, 0x38, 0xFF), other(21, AudioTarget::Dac), ayw(15, 0, 8, 1, 0)}, true);
+            check("AFG-16", "a frame number going backwards without a marker (f20 then f15): the f15 write returns f20; f15 is its own frame with empty_before 0 and an unknown before[R7]; the same when nothing is open (f20 write, f21 DAC entry, f15 write): f15 empty_before 0 (no underflow), before[R7] unknown",
                   out.size() == 2 && out[0].frame == 20 && out[1].frame == 15 && out[1].empty_before == 0 &&
-                  out[1].before[0][7] == -1);
+                  out[1].before[0][7] == -1 &&
+                  out2.size() == 2 && out2[0].frame == 20 && out2[1].frame == 15 && out2[1].empty_before == 0 &&
+                  out2[1].before[0][7] == -1);
         }
         {
             AudioFrameAccumulator acc;

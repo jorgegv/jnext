@@ -155,7 +155,8 @@ A cell is filled only when its register was written in that frame: the note when
 period changed (`A-4`, `A#4`; `^^^` above the named range; `???` or `??` when the log has
 not yet seen one of the registers), the volume when its register was written (`E` for
 envelope volume), the noise period for a channel whose noise is on (`--` when it is off),
-the envelope when R11, R12 or R13 was written. An empty cell shows dots. A cell whose
+the envelope period (Env) when R11 or R12 was written and the shape (Sh) when R13 was written. An empty cell
+shows `---` (Note), `.` (Sh, V) or dots (Env, N). A cell whose
 value changed is highlighted. A run of frames with no AY write is a single row, `empty`
 or `empty xN`; a break in the log (reset, state load, rewind) is a row of its own, as in
 the Log tab.

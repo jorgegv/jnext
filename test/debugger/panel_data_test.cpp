@@ -691,11 +691,21 @@ int main(int argc, char** argv) {
             if (model->frame_at(r) && model->frame_at(r)->frame >= target) no_later = false;
         const bool rewind_last = model && model->rowCount() > 0 &&
                                  model->index(model->rowCount() - 1, 1).data().toString() == "rewind";
+        // The rows before the `rewind` row are the same timeline: an in-range one stays rewindable.
+        bool earlier_ok = false;
+        for (int r = 0; model && r + 1 < model->rowCount() && !earlier_ok; ++r) {
+            const jnext::dbg::AudioFrame* f = model->frame_at(r);
+            if (!f) continue;
+            const QModelIndex ix = model->index(r, 0);
+            earlier_ok = ix.data(AudioTrackerModel::RewindableRole).toBool() &&
+                         ix.data(Qt::ToolTipRole).toString() ==
+                             QString("Double-click to rewind to the start of frame %1").arg(f->frame);
+        }
         check("QLAZY-23",
-              "Tracker current, 10 frames of an IM2 player (one R8 write per frame), paused: a double-click on the frame row three before the newest lands the machine on that frame (time().frame), paused, with R8 equal to the row's start value (what the frame before wrote); after the next refresh the last row is 'rewind' and no frame row is at or after the target",
-              fx.ok && found && at_frame && paused && r8 && no_later && rewind_last,
+              "Tracker current, 10 frames of an IM2 player (one R8 write per frame), paused: a double-click on the frame row three before the newest lands the machine on that frame (time().frame), paused, with R8 equal to the row's start value (what the frame before wrote); after the next refresh the last row is 'rewind' and no frame row is at or after the target; a frame row before the 'rewind' row is still rewindable (same timeline), with the Double-click tooltip",
+              fx.ok && found && at_frame && paused && r8 && no_later && rewind_last && earlier_ok,
               "found=" + b2s(found) + " newest=" + std::to_string(newest) + " landed=" + std::to_string(landed) + " paused=" + b2s(paused) +
-                  " r8=" + b2s(r8) + " no_later=" + b2s(no_later) + " rewind_last=" + b2s(rewind_last));
+                  " r8=" + b2s(r8) + " no_later=" + b2s(no_later) + " rewind_last=" + b2s(rewind_last) + " earlier_ok=" + b2s(earlier_ok));
     }
     {
         // GH #534: while the machine is RUNNING a double-click does nothing.

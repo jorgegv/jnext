@@ -2267,9 +2267,9 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AFG-13 | R8 written in f10 (0x05) and again in f12 with prev 0x07: f12's before is the write's prev 0x07, not the carried 0x05 | — | pass | test/debug/audio_debug_test.cpp:2663 |
 | AFG-14 | R0 rewritten with the same value: written_mask bit 0 set, not changed | — | pass | test/debug/audio_debug_test.cpp:2669 |
 | AFG-15 | two writes in f10: no frame returned, open() is f10 with writes 2; flush returns it and open() is then null | — | pass | test/debug/audio_debug_test.cpp:2680 |
-| AFG-16 | a frame number going backwards without a marker (f20 then f15): the f15 write returns f20; f15 is its own frame with empty_before 0 and an unknown before[R7] | — | pass | test/debug/audio_debug_test.cpp:2686 |
-| AFG-17 | a Debugger-source R8 write: counted (writes 1, final value set) but with no pc range (pc_min 0xFFFF, pc_max 0) | — | pass | test/debug/audio_debug_test.cpp:2693 |
-| AFG-18 | a write, a StateLoad marker, a write, a Rewind marker (frame 8), a write at f9: each marker returns the open frame (f10, f11, one write each, markers never counted); f9 comes from flush with empty_before 0 | — | pass | test/debug/audio_debug_test.cpp:2709 |
+| AFG-16 | a frame number going backwards without a marker (f20 then f15): the f15 write returns f20; f15 is its own frame with empty_before 0 and an unknown before[R7]; the same when nothing is open (f20 write, f21 DAC entry, f15 write): f15 empty_before 0 (no underflow), before[R7] unknown | — | pass | test/debug/audio_debug_test.cpp:2689 |
+| AFG-17 | a Debugger-source R8 write: counted (writes 1, final value set) but with no pc range (pc_min 0xFFFF, pc_max 0) | — | pass | test/debug/audio_debug_test.cpp:2698 |
+| AFG-18 | a write, a StateLoad marker, a write, a Rewind marker (frame 8), a write at f9: each marker returns the open frame (f10, f11, one write each, markers never counted); f9 comes from flush with empty_before 0 | — | pass | test/debug/audio_debug_test.cpp:2714 |
 | AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:711 |
 | AY-50b | tone period 1 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:715 |
 | AY-61a | noise period 0 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:811 |
