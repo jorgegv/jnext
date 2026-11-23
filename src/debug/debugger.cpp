@@ -67,6 +67,8 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     for (int s = 0; s < 8; ++s)
         impl_->ds().on_slot_remapped(s, impl_->emu.mmu().get_effective_page(s));
 
+    // GH #531/#532 -- gates_changed() also installs the audio write tap's sink, off until
+    // a client asks for the log or a live AudioWrite subscription exists.
     impl_->gates_changed();
 
     // GH #276 B4 — INS-20's coverage sink is NOT published here, and that is not
@@ -97,6 +99,8 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
 // header (cycle, frame, pc, vc, hc) was never stamped, until the next `init()`.
 // Row LIFE-06.
 Debugger::~Debugger() {
+    // GH #531 -- the sink points into `Impl`; nothing in the machine may keep it.
+    impl_->emu.set_audio_tap(nullptr, false);
     impl_->ds().set_event_table(nullptr);
     impl_->ds().set_event_hooks(nullptr, nullptr);
     impl_->ds().set_machine_replaced_hook(nullptr);

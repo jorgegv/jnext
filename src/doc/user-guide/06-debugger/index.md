@@ -21,7 +21,7 @@ instructions. It has a worked first session in C with z88dk, the build options
 that make a source map, the sjasmplus and Boriel routes, and the messages and
 limits to know. Start there if your program comes from a compiler.
 
-Open the debugger with **Alt+D**, with **Debug ▸ Debugger** or **View ▸
+Start a program already paused with `--debugger FILE` (see [Starting from the command line](functions/18-starting-from-the-command-line.md)), or open the debugger with **Alt+D**, with **Debug ▸ Debugger** or **View ▸
 Debugger** (the same entry, in both menus), or with the Debug button (a magnifier over a chip) on the
 emulator toolbar. The same actions close it. While it is closed
 the debugger costs nothing — no breakpoint checking, no call-stack tracking, no
@@ -117,6 +117,7 @@ while the machine is **paused** (CPU Registers and Disassembly are also greyed o
 deliberate: reading them every frame would slow the emulation down for no
 benefit, since the values would be a blur. The rest refresh about four times a
 second while the machine is running, except the Video panel's layer views, which
-show a dark placeholder until you pause.
+show a dark placeholder until you pause, and the Audio panel's Chips tab, which
+follows the music every frame while it is the tab on show.
 
 ---

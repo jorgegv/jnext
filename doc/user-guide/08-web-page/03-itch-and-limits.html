@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2348,6 +2348,8 @@
       
         
       
+        
+      
     
     
     
@@ -2860,6 +2862,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-debugger/functions/18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -4578,8 +4608,11 @@ arrangement, a game inside a frame of another page:</p>
   terminal are refused with a message. The list is in the man page ("Not available in the
   browser").</li>
 <li><strong>Debugger servers are not TCP listeners.</strong> A page cannot listen on a port, so <code>--dzrp-port</code>,
-  <code>--zrcp-port</code>, <code>--gdb-port</code> and <code>--debug-listen-address</code> are refused. The <code>debug</code> option serves the
+  <code>--zrcp-port</code>, <code>--gdb-port</code>, <code>--debug-listen-address</code>, <code>--debugger</code> and <code>--break-at</code> are refused. The <code>debug</code> option serves the
   same protocols to the page's own code or through a WebSocket bridge (<a href="06-debugging-from-the-page.html">8.6</a>).</li>
+<li><strong>Joystick serial cable on the host.</strong> <code>--joy-uart-pty</code> needs a terminal and <code>--joy-uart-fifo</code>
+  needs named pipes, which a page lacks, so both are refused. <code>--joy-uart-rx</code> reads a plain file
+  and works.</li>
 <li><strong>Program formats.</strong> Programs load as <code>.nex</code>, <code>.tap</code>, <code>.tzx</code> or <code>.wav</code> (a tape, in real
   time), recordings as <code>.rzx</code>, snapshots as <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code>.</li>
 <li><strong>Headless and command-line recording.</strong> <code>--headless</code> and <code>--rzx-record</code> are refused. A
@@ -4589,8 +4622,9 @@ arrangement, a game inside a frame of another page:</p>
 <li><strong>Saves.</strong> What the guest writes to the SD card is kept across reloads only when the
   page asks with <code>keepWrites</code> (<a href="04-the-image-and-what-the-browser-keeps.html">8.4</a>). Without
   it the card lives in memory for the session.</li>
-<li><strong>Files JNEXT writes</strong> (screenshots, snapshots) live in memory in either case.
-  <code>saveSnapshot()</code> hands a snapshot to the page.</li>
+<li><strong>Files JNEXT writes</strong> (recordings, screenshots, traces, the audio write log, exports) live in memory in either case.
+  <code>listFiles()</code> and <code>readFile()</code> hand them to the page (<a href="02-options-and-the-player.html#files-jnext-writes">8.2</a>),
+  and <code>saveSnapshot()</code> hands a snapshot.</li>
 <li><strong>Browser shortcuts.</strong> Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own
   keys never reach the page.</li>
 <li><strong>Touch devices.</strong> The on-screen keyboard (<a href="02-options-and-the-player.html">8.2</a>) is

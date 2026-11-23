@@ -17,6 +17,7 @@
 //   SEV-BUILTINS  every §2.3 state name read through a script
 //   SEV-WORK-*    the §3(b) and §3(c) scripts evaluated end to end
 //   SEV-STACK     the deepest accepted shapes on a 1 MB stack
+//   EVAL-AYR-*    `ay[chip, register]` (GH #532): the raw AY register latch, read-only, bounds-checked
 //   EVAL-CVAR-*   `cvar(PATH)` (GH #436, E353-06): C variables of frame 0 as int32, over the committed z88dk
 //                 fixtures on a real Next machine (the family name of script_parse_test's EVAL-* rows; the
 //                 IDs are global and distinct)
@@ -39,6 +40,7 @@
 #include "debug/c_value.h"
 #include "debug/debugger.h"
 #include "platform/emulator_boot.h"
+#include "port/port_dispatch.h"
 
 #include <pthread.h>
 
@@ -1637,6 +1639,53 @@ static void cvw_rows() {
     }
 }
 
+// ── EVAL-AYR: ay[chip, register] (GH #532) ────────────────────────────────
+// The raw register latch of an AY chip, read side-effect free. A Next with TurboSound on, the writes through
+// the real ports (select 0xFFFD, data 0xBFFD); the chip is chosen by the TurboSound command (turbosound.vhd:129-136).
+static void ay_rows() {
+    Emulator e;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    e.init(cfg);
+    e.nextreg().write(0x08, 0x0A);
+    auto write = [&](uint8_t chip_cmd, uint8_t reg, uint8_t val) {
+        e.port().out(0xFFFD, chip_cmd);
+        e.port().out(0xFFFD, reg);
+        e.port().out(0xBFFD, val);
+    };
+    write(0xFE, 2, 0x21);   // chip 1, R2
+    write(0xFD, 1, 0x12);   // chip 2, R1
+    write(0xFF, 7, 0x38);   // chip 0, R7
+    Debugger d(e);
+    {
+        const EvalResult a = eval_expr("ay[1, 2]", d);
+        const EvalResult b = eval_expr("ay[2, 1]", d);
+        const EvalResult c = eval_expr("ay[1, 1]", d);
+        check("EVAL-AYR-01", "after TurboSound writes chip 1 R2 = 0x21 and chip 2 R1 = 0x12: ay[1, 2] is 0x21, ay[2, 1] is 0x12 and ay[1, 1] is 0 (distinct, so a swap of the indices shows)",
+              a.ok && a.value == 0x21 && b.ok && b.value == 0x12 && c.ok && c.value == 0, dstr(a.errors) + dstr(b.errors));
+    }
+    {
+        const EvalResult a = eval_expr("ay[3, 0]", d);
+        const EvalResult b = eval_expr("ay[-1, 0]", d);
+        const EvalResult c = eval_expr("ay[0, 16]", d);
+        auto names = [](const EvalResult& r, const char* what) {
+            return !r.ok && r.errors.size() == 1 && r.errors[0].message.find("`ay[]`") != std::string::npos &&
+                   r.errors[0].message.find(what) != std::string::npos;
+        };
+        check("EVAL-AYR-02", "ay[3, 0], ay[-1, 0] and ay[0, 16] are run-time errors whose messages name `ay[]` and the bad index",
+              names(a, "chip 3 is outside 0..2") && names(b, "chip -1 is outside 0..2") && names(c, "register 16 is outside 0..15"), dstr(a.errors) + dstr(b.errors) + dstr(c.errors));
+    }
+    {
+        CompileOptions o;
+        const CompiledPredicate cp = compile_expr("ay[0, 7] == 0x38", PayloadScope(EventKind::AudioWrite), o);
+        DbgEvent ev;
+        ev.kind = EventKind::AudioWrite;
+        check("EVAL-AYR-03", "a breakpoint condition may use ay[]: `ay[0, 7] == 0x38` compiles in the AudioWrite scope and is true after that write",
+              static_cast<bool>(cp) && cp.predicate(ev, d));
+    }
+}
+
 int main() {
     std::printf("script_eval_test — the debugger DSL evaluator (GH #26 WP2)\n");
 
@@ -1683,6 +1732,7 @@ int main() {
     run_group("stack", stack_rows);
     run_group("cvar", cvar_rows);
     run_group("cvw", cvw_rows);
+    run_group("ay", ay_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

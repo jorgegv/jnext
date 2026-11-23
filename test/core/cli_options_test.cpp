@@ -1031,9 +1031,11 @@ int main() {
             "--esp-delayed-associate-frames", "--esp-ip-address", "--esp-ip-address-after",
             "--record",
             "--dzrp-port", "--gdb-port", "--zrcp-port", "--debug-listen-address",
+            "--debugger", "--break-at",
             "--script", "--script-key", "--record-script", "--map", "--annotations",
             "--import-skoolkit", "--import-ghidra",
             "--sdcard2", "--sdcard2-readonly", "--sdcard2-writes", "--sdcard2-writes-reset",
+            "--joy-uart-pty", "--joy-uart-fifo",
         };
         std::set<std::string> got;
         for (const cli::Option& o : cli::OPTIONS)
@@ -1041,9 +1043,10 @@ int main() {
         std::vector<std::string> extra, missing;
         for (const std::string& g : got) if (!want.count(g)) extra.push_back(g);
         for (const std::string& w : want) if (!got.count(w)) missing.push_back(w);
-        check("CLI-WEB-01", "the spellings the browser build refuses are exactly the 29 of NextPi, "
-                            "the ESP-01, --record, the debugger servers, the script host and the second SD card",
-              got.size() == 29 && extra.empty() && missing.empty(),
+        check("CLI-WEB-01", "the spellings the browser build refuses are exactly the 33 of NextPi, "
+                            "the ESP-01, --record, the debugger servers, the script host, the second SD card "
+                            "and the joystick UART's pty and FIFO",
+              got.size() == 33 && extra.empty() && missing.empty(),
               "extra: " + join(extra) + "; missing: " + join(missing));
     }
     {
@@ -1094,6 +1097,16 @@ int main() {
               good && nums && bad.empty(), bad);
     }
 
+    // --- CLI-ALOG-01: --audio-log (GH #531) ------------------------------------------------------
+    {
+        const cli::Option* o = cli::find("--audio-log");
+        check("CLI-ALOG-01", "--audio-log is Documented with one value, and neither cli::browser_refusal nor "
+                             "browser_page::option_refusal refuses it (a page runs it like the desktop build: the stream is "
+                             "finalised by the page loop's teardown)",
+              o && o->doc == cli::Doc::Documented && o->arity == 1 && o->id == cli::OptId::AudioLog &&
+                  !cli::browser_refusal(o->id) && !browser_page::option_refusal(o->id));
+    }
+
     // --- CLI-DCH-01..03: --debug-channel (GH #545), the browser page's debugger channel -----------
     {
         const cli::Option* o = cli::find("--debug-channel");
@@ -1129,6 +1142,51 @@ int main() {
             if (o.id != cli::OptId::DebugChannel && cli::page_only_refusal(o.id)) other.push_back(o.name);
         check("CLI-DCH-03", "page_only_refusal(DebugChannel) is non-empty ASCII naming --dzrp-port; every other option gives nullptr",
               why && !w.empty() && ascii && w.find("--dzrp-port") != std::string::npos && other.empty(), join(other));
+    }
+
+    // --- CLI-DBG-01..06: --debugger / --break-at (GH #548) ---------------------------------------
+    // Oracle: the owner-agreed design (2026-11-21): --debugger is an enabler, --break-at takes one
+    // value; `--debugger` waits for "a debugger", so with no window it serves DZRP on the default
+    // port (11000, DeZog's `cspect` remote) unless the user chose a protocol port, and only those.
+    {
+        const cli::Option* d = cli::find("--debugger");
+        const cli::Option* b = cli::find("--break-at");
+        check("CLI-DBG-01", "--debugger is Documented with no value and --break-at is Documented with one value",
+              d && b && d->doc == cli::Doc::Documented && d->arity == 0 &&
+                  b->doc == cli::Doc::Documented && b->arity == 1);
+    }
+    {
+        std::string bad;
+        for (const char* n : { "--debugger", "--break-at" }) {
+            const cli::Option* o = cli::find(n);
+            const char* why = o ? cli::browser_refusal(o->id) : nullptr;
+            const std::string w = why ? why : "";
+            bool ascii = true;
+            for (unsigned char c : w) if (c < 0x20 || c > 0x7E) ascii = false;
+            if (w.empty() || !ascii || w.find("browser build") == std::string::npos) bad += std::string(" ") + n;
+        }
+        check("CLI-DBG-02", "--debugger and --break-at are refused by the browser build with an ASCII reason naming it",
+              bad.empty(), bad);
+    }
+    {
+        check("CLI-DBG-03", "no window and no protocol port given: --debugger implies DZRP on 11000 (kDebuggerDefaultDzrpPort)",
+              cli::debugger_implied_dzrp_port(false, -1, -1, -1) == 11000 && cli::kDebuggerDefaultDzrpPort == 11000);
+    }
+    {
+        check("CLI-DBG-04", "no window with --gdb-port (or --zrcp-port) given: only those are served, DZRP stays off (-1)",
+              cli::debugger_implied_dzrp_port(false, -1, -1, 0) == -1 &&
+                  cli::debugger_implied_dzrp_port(false, -1, 10000, -1) == -1 &&
+                  cli::debugger_implied_dzrp_port(false, -1, 10000, 5000) == -1);
+    }
+    {
+        check("CLI-DBG-05", "with a debugger window (the Qt GUI) no port is implied, whatever the ports",
+              cli::debugger_implied_dzrp_port(true, -1, -1, -1) == -1 &&
+                  cli::debugger_implied_dzrp_port(true, -1, 10000, -1) == -1);
+    }
+    {
+        check("CLI-DBG-06", "an explicit --dzrp-port is kept as given, 0 (OS-chosen) included",
+              cli::debugger_implied_dzrp_port(false, 0, -1, -1) == 0 &&
+                  cli::debugger_implied_dzrp_port(false, 14000, -1, -1) == 14000);
     }
 
     std::printf("\n====================================\n");

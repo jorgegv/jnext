@@ -1,4 +1,5 @@
 #include "core/emulator.h"
+#include "core/output_files.h"
 #include <atomic>
 #include "debug/ram_page.h"
 #include "debug/event_table.h"
@@ -84,8 +85,9 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
 // ---------------------------------------------------------------------------
 Emulator::~Emulator()
 {
-    // GH #89 — finish a TZX / WAV save (its last block, the WAV header).
-    tape_recorder_.close(clock_.get());
+    // GH #89 — finish a TZX / WAV save (its last block, the WAV header); Task 21 — flush the CPU
+    // profile histogram. Both are finish_outputs() now (GH #553: a page calls it too).
+    finish_outputs();
 
     // G46(b) EOD-30i+29: JNEXT_TRACE_DUMP_AT_EXIT=/path/to/file
     //   If set, export the full trace-log ring buffer to a text file at
@@ -103,11 +105,24 @@ Emulator::~Emulator()
                                  " (enable with JNEXT_TRACE_FORCE_ENABLE=1)\n");
         }
     }
+}
 
-    // Task 21 — flush the CPU profile histogram if active. Path comes
-    // from EmulatorConfig::profile_output_path; defaults to "profile.dat".
-    if (profiler_.active()) {
-        profiler_.write_to_file(config_.profile_output_path);
+void Emulator::finish_outputs()
+{
+    // GH #89: a TZX / WAV save's last block and WAV header are written at close. The path is the
+    // one the trap was armed with (TapSaver::arm_for_recorder), also for a TAP save.
+    const std::string tape_path = tap_saver_.output_path();
+    tape_recorder_.close(clock_.get());
+    output_files::end(tape_path);   // a TAP save too: its blocks are all in, whole
+
+    // A compositor trace whose frame never came is closed here (GH #553).
+    renderer_.finish_compositor_trace();
+
+    // Task 21: the CPU profile. Path from EmulatorConfig::profile_output_path (default "profile.dat").
+    if (profiler_.active() && !profile_written_) {
+        profile_written_ = true;
+        if (profiler_.write_to_file(config_.profile_output_path))
+            output_files::written(config_.profile_output_path);
     }
 }
 
@@ -228,11 +243,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     clock_.set_cpu_speed(cfg.cpu_speed);
     // GH #305 — publish the counter's unit for a HARD reset, where the
-    // counter is zeroed with the clock (the publisher is process-global, so a
-    // new machine must not inherit another's). A SOFT reset keeps the counter
+    // counter is zeroed with the clock (the divisor is this CPU's own, GH #551,
+    // so a new machine does not inherit another's). A SOFT reset keeps the counter
     // but may change the divisor (NR 0x07 back to 3.5 MHz, zxnext.vhd:5800):
     // it is rebased below, after cpu_.reset().
-    z80_set_tstate_divisor(clock_.cpu_divisor());
+    cpu_.set_tstate_divisor(clock_.cpu_divisor());
 
     // Allocate the framebuffer and fill with black (ARGB: 0xFF000000) — but
     // not on a soft reset, which does not interrupt the video output: the
@@ -387,6 +402,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     i2s_.reset();
     pi_ear_edge_master_ = 0;
+    mic_tape_level_ = false;
+    mic_tape_live_ = false;
+    tape_edge_master_ = 0;
+    mic_relax_due_ = UINT64_MAX;
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
     mixer_.set_beeper_gain_db(cfg.audio_gain_beeper_db);
@@ -811,7 +830,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // ContentionModel via CORETEST function overrides in z80_cpu.cpp,
     // and the legacy z80_build_contention_tables() / z80_set_page_contended()
     // were retired in lockstep.
-    z80_set_contention_runtime(&contention_, &mmu_, cfg.type);
+    cpu_.set_contention_runtime(&contention_, &mmu_, cfg.type);
 
     // GH #237 — seed ALL the raster/interrupt geometry from `init_tim_mode`
     // (the NR 0x03 tim_sel axis), not from the CLI MachineType.
@@ -5153,10 +5172,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             result = (result & ~0x40) | (bit6 << 6);
             return result;
         },
-        [this](uint16_t, uint8_t val) {
+        [this](uint16_t port, uint8_t val) {
             renderer_.ula().set_border(val & 0x07);
+            // GH #531: records an EAR or MIC change, before the beeper takes it.
+            if (__builtin_expect(audio_tap_active_, 0)) tap_beeper_(port, val);
             beeper_.set_ear((val >> 4) & 1);
             beeper_.set_mic((val >> 3) & 1);
+            // beep_mic_final = i_AUDIO_EAR xor ... xor port_fe_mic
+            // (zxnext.vhd:6503): set_mic() set the no-tape value; with a tape
+            // playing or the Pi routed the full formula decides.
+            if (mic_tape_live_ || i2s_.ear_routed()) refresh_mic_final_();
             // GH #89 — a TZX / WAV save samples tape-out where port_fe_mic
             // changes: at the write's bus request edge, the CLK_28 edge that
             // latches port_fe_reg (zxnext.vhd:3588-3594). One flag test when
@@ -5430,7 +5455,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // port_dffd is 0 and it declines, so the write lands here (GH #325).
             // That suppressed write is not a dropped one: the AY side never sees
             // it and the paging register takes it (GH #530).
-            note_ay_status_(turbosound_.reg_addr(val), port, val);
+            // GH #531: the chip selected before the write, for the log's `prev`.
+            const bool tap = audio_tap_active_;
+            const uint8_t prev_chip = __builtin_expect(tap, 0) ? uint8_t(turbosound_.selected_index()) : 0;
+            const AyPortStatus st = turbosound_.reg_addr(val);
+            note_ay_status_(st, port, val);
+            // Applied with d7 set is exactly the chip-select/pan command: a d7=1
+            // value that is not the command returns SelectIgnored (turbosound.vhd:129,141).
+            // A plain register select is never logged.
+            if (__builtin_expect(tap, 0) && st == AyPortStatus::Applied && (val & 0x80))
+                tap_ay_select_(port, val, prev_chip);
         });
 
     // AY data write — port 0xBFFD. VHDL zxnext.vhd:2648.
@@ -5456,7 +5490,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 note_audio_drop_(jnext::dbg::AudioDropReason::AyPortDisabled, port, val);
                 return;
             }
-            note_ay_status_(turbosound_.reg_write(val), port, val);
+            ay_data_write_(port, val);
         });
 
     // AY register-query read — port 0xBFF5. VHDL zxnext.vhd:2649.
@@ -5482,7 +5516,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 note_audio_drop_(jnext::dbg::AudioDropReason::AyPortDisabled, port, val);
                 return;
             }
-            note_ay_status_(turbosound_.reg_write(val), port, val);
+            ay_data_write_(port, val);
         });
 
     // DAC ports — Soundrive Mode 1 (most common)
@@ -5500,19 +5534,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x001F, nullptr,
         [this](uint16_t port, uint8_t val) {
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x02) != 0, port, val)) return;   // SD1 b1 gate
-            dac_.write_channel(0, val);
+            dac_write_(0, val, port);
         });
     port_.register_handler(0x00FF, 0x000F, nullptr,
         [this](uint16_t port, uint8_t val) {
             // 0x0F: SD1 ch B (b1) OR Covox ch B (b4).
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x12) != 0, port, val)) return;   // b1 | b4
-            dac_.write_channel(1, val);
+            dac_write_(1, val, port);
         });
     port_.register_handler(0x00FF, 0x004F, nullptr,
         [this](uint16_t port, uint8_t val) {
             // 0x4F: SD1 ch C (b1) OR Covox ch C (b4).
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x12) != 0, port, val)) return;   // b1 | b4
-            dac_.write_channel(2, val);
+            dac_write_(2, val, port);
         });
 
     // Soundrive Mode 1 channel D (port 0x5F) + Profi Covox channel A
@@ -5539,13 +5573,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x003F, nullptr,
         [this](uint16_t port, uint8_t val) {
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x08) != 0, port, val)) return;   // Profi b3 gate
-            dac_.write_channel(0, val);
+            dac_write_(0, val, port);
         });
     port_.register_handler(0x00FF, 0x005F, nullptr,
         [this](uint16_t port, uint8_t val) {
             // 0x5F reachable via SD1 (b1) OR Profi (b3).
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x0A) != 0, port, val)) return;   // b1 | b3
-            dac_.write_channel(3, val);
+            dac_write_(3, val, port);
         });
 
     // Soundrive Mode 2: 0xF1=A, 0xF3=B, 0xF9=C, 0xFB=D (vhd:2432).
@@ -5598,12 +5632,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 note_audio_drop_(jnext::dbg::AudioDropReason::DacDisabled, port, val);
                 return;
             }
-            dac_.write_channel(0, val);
+            dac_write_(0, val, port);
         });
     port_.register_handler(0x00FF, 0x00F3, nullptr,
         [this](uint16_t port, uint8_t val) {
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x04) != 0, port, val)) return;   // SD2 b2 gate
-            dac_.write_channel(1, val);
+            dac_write_(1, val, port);
         });
     port_.register_handler(0x00FF, 0x00F9, nullptr,
         [this](uint16_t port, uint8_t val) {
@@ -5618,7 +5652,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 note_audio_drop_(jnext::dbg::AudioDropReason::DacDisabled, port, val);
                 return;
             }
-            dac_.write_channel(2, val);
+            dac_write_(2, val, port);
         });
     port_.register_handler(0x00FF, 0x00FB, nullptr,
         [this](uint16_t port, uint8_t val) {
@@ -5634,8 +5668,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // Neither decode: not a DAC port at all, so a family drop, counted
             // before the DAC-enable test like every other site.
             if (!dac_gate_(sd2_en || mono_ad, port, val)) return;
-            dac_.write_channel(3, val);
-            if (mono_ad) dac_.write_channel(0, val);
+            dac_write_(3, val, port);
+            if (mono_ad) dac_write_(0, val, port);
         });
 
     // GS Covox mono fan-out — port 0xB3 writes both channels B and C.
@@ -5652,8 +5686,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x00B3, nullptr,
         [this](uint16_t port, uint8_t val) {
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x40) != 0, port, val)) return;   // GS Covox b6
-            dac_.write_channel(1, val);
-            dac_.write_channel(2, val);
+            dac_write_(1, val, port);
+            dac_write_(2, val, port);
         });
 
     // Specdrum: port 0xDF → channels A+D. VHDL zxnext.vhd:2674 routes
@@ -5690,8 +5724,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // gate is clear the SpecDrum DAC port is not decoded and the
             // write is dropped (counted, GH #530).
             if (!dac_gate_((effective_internal_port_enable(0x84) & 0x80) != 0, port, val)) return;
-            dac_.write_channel(0, val);
-            dac_.write_channel(3, val);
+            dac_write_(0, val, port);
+            dac_write_(3, val, port);
         });
 
     // --- Audio NextREG handlers ---
@@ -6060,6 +6094,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // to beep_spkr_excl (VHDL zxnext.vhd:6504); audio_mixer.vhd:80-81
         // silences EAR/MIC when exc_i='1'.
         mixer_.set_exc_i(beep_spkr_excl());
+        // NR 0x08 b0 (keyboard issue 2) is an input of beep_mic_final
+        // (zxnext.vhd:6503) and of the relaxed EAR level (:1636).
+        refresh_mic_final_();
         return v;
     });
 
@@ -6158,16 +6195,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // registers are held at 0x80 (silence). Mirror that behaviour here.
     nextreg_.set_write_handler(0x2C, [this](uint8_t v) -> uint8_t {
         if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002C, v); return v; }
+        if (__builtin_expect(audio_tap_active_, 0)) tap_dac_(1, v, 0x002C, jnext::dbg::AudioTarget::DacMirror, 0x2C);
         dac_.write_left(v);
         return v;
     });
     nextreg_.set_write_handler(0x2D, [this](uint8_t v) -> uint8_t {
         if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002D, v); return v; }
+        if (__builtin_expect(audio_tap_active_, 0)) {
+            tap_dac_(0, v, 0x002D, jnext::dbg::AudioTarget::DacMirror, 0x2D);
+            tap_dac_(3, v, 0x002D, jnext::dbg::AudioTarget::DacMirror, 0x2D);
+        }
         dac_.write_mono(v);
         return v;
     });
     nextreg_.set_write_handler(0x2E, [this](uint8_t v) -> uint8_t {
         if (!dac_enabled_) { note_audio_drop_(jnext::dbg::AudioDropReason::DacMirrorDisabled, 0x002E, v); return v; }
+        if (__builtin_expect(audio_tap_active_, 0)) tap_dac_(2, v, 0x002E, jnext::dbg::AudioTarget::DacMirror, 0x2E);
         dac_.write_right(v);
         return v;
     });
@@ -9150,6 +9193,21 @@ void Emulator::set_magic_breakpoint(bool enabled)
     };
 }
 
+bool Emulator::tape_delivered()
+{
+    if (tape_.is_loaded()) return tape_.at_end();
+    if (tzx_tape_.is_loaded()) return tzx_tape_.data_delivered();
+    if (wav_tape_.is_loaded()) return wav_tape_.past_end(tape_sample_tstates());
+    return false;
+}
+
+bool Emulator::tape_holds_code() const
+{
+    if (tape_.is_loaded()) return tape_.holds_code_block();
+    if (tzx_tape_.is_loaded()) return tzx_tape_.holds_code_block();
+    return wav_tape_.is_loaded();
+}
+
 bool Emulator::load_tap(const std::string& path, bool fast_load)
 {
     TapLoader loader;
@@ -9212,13 +9270,13 @@ void Emulator::rebase_fuse_tstates_()
 {
     // See the declaration. (clock_ - frame_cycle_) is the position in the
     // current frame; at the frame start it is the previous frame's overshoot.
-    uint32_t& live = *fuse_z80_tstates_ptr();
+    uint32_t& live = cpu_.tstates_ref();
     const uint32_t old = live;
     const uint32_t want = static_cast<uint32_t>(
         (clock_.get() - frame_cycle_) / static_cast<uint64_t>(clock_.cpu_divisor()));
     // GH #305 — this defines the counter's unit (master cycles per count), so
     // it is where the CPU write tag learns it (derive_hc_vc()).
-    z80_set_tstate_divisor(clock_.cpu_divisor());
+    cpu_.set_tstate_divisor(clock_.cpu_divisor());
     tstates_frame_base_ += live;
     tstates_frame_base_ -= want;
     live = want;
@@ -9237,7 +9295,7 @@ void Emulator::rebase_fuse_tstates_()
 void Emulator::advance_fuse_tstates_(uint64_t master_cycles)
 {
     // See the declaration. Callers advance the clock in whole T-states.
-    *fuse_z80_tstates_ptr() += static_cast<uint32_t>(
+    cpu_.tstates_ref() += static_cast<uint32_t>(
         master_cycles / static_cast<uint64_t>(clock_.cpu_divisor()));
 }
 
@@ -9257,7 +9315,7 @@ uint64_t Emulator::monotonic_tstates() const
     // Frame base (all completed frames) + live FUSE counter (advances
     // mid-instruction, including during I/O cycles — required so ZOT's
     // edge state machine progresses inside tight IN A,(0xFE) loops).
-    return tstates_frame_base_ + static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+    return tstates_frame_base_ + static_cast<uint64_t>(cpu_.tstates_ref());
 }
 
 bool Emulator::load_tzx(const std::string& path, bool fast_load)
@@ -9541,7 +9599,7 @@ bool Emulator::start_rzx_recording(const std::string& path)
     // The snapshot cannot always say which machine it is for, so the file names
     // it in its creator block: playback builds that machine.
     rzx_recorder_.set_machine(config_.type);
-    rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
+    rzx_recorder_.set_initial_tstates(cpu_.tstates_ref());
 
     // Wire up port recording hook.
     port_.rzx_in_record = [this](uint8_t val) {
@@ -9618,14 +9676,17 @@ bool Emulator::start_tape_save(const std::string& path)
         ok = tape_recorder_.open(path, why);
         if (ok) {
             tap_saver_.arm_for_recorder(path);   // arms the trap; blocks go to the recorder
+            output_files::begin(path);
             Log::emulator()->info("Tape SAVE: recording tape-out and SAVEd blocks to '{}'", path);
         }
         else
             Log::emulator()->error("Tape SAVE: cannot save to '{}': {}", path, why);
     } else {
         ok = tap_saver_.set_output(path);
-        if (ok)
+        if (ok) {
+            output_files::begin(path);
             Log::emulator()->info("Tape SAVE: appending SAVEd blocks to '{}'", path);
+        }
         else
             Log::emulator()->error("Tape SAVE: cannot open '{}' for append - SAVE trap disabled",
                                    path);
@@ -9637,12 +9698,14 @@ bool Emulator::start_tape_save(const std::string& path)
 
 void Emulator::stop_tape_save()
 {
+    const std::string saved_path = tap_saver_.output_path();   // the TAP file, or the recorder's (arm_for_recorder)
     if (tape_recorder_.active()) {
         const std::string path = tape_recorder_.path();
         tape_recorder_.close(clock_.get());
         Log::emulator()->info("Tape SAVE: finished '{}'", path);
     }
     tap_saver_.close();
+    output_files::end(saved_path);
     config_.tape_save_file.clear();
     refresh_tape_capture_live();
 }
@@ -9664,10 +9727,40 @@ uint64_t Emulator::port_fe_write_time() const
     return io_request_edge();
 }
 
-bool Emulator::tape_out_level() const
+void Emulator::derive_tape_edge_()
+{
+    // The ear_relax hold of a playing tape counts from its last edge, which
+    // a restore does not carry: rebuild it from where the deck is (TAP exact for every
+    // phase but the first pilot pulse of a tape started from idle, which has no edge; TZX
+    // exact in the pauses and 0 elsewhere, and a pause of 1 ms or less after a block
+    // ending high counts from the pause; WAV by looking back along the recording), so a
+    // restored run relaxes when the continuous one does. A `.jns` load calls this again
+    // after the deck is reattached (load_state runs before it).
+    uint64_t age_t;
+    if (tape_.is_playing())          age_t = tape_.ticks_since_edge();
+    else if (tzx_tape_.is_playing()) age_t = tzx_tape_.ticks_since_edge(monotonic_tstates());
+    else if (wav_tape_.is_playing()) age_t = wav_tape_.ticks_since_edge(monotonic_tstates(), 8192);
+    else return;
+    const uint64_t age = age_t * static_cast<uint64_t>(clock_.cpu_divisor());
+    const uint64_t now = clock_.get();
+    tape_edge_master_ = now > age ? now - age : 0;
+}
+
+void Emulator::refresh_mic_final_()
+{
+    uint64_t due = UINT64_MAX;
+    beeper_.set_mic_final(tape_out_level(&due));
+    mic_relax_due_ = due;
+    mic_tape_level_ = beeper_.tape_ear();
+    mic_tape_live_ = tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing();
+}
+
+bool Emulator::tape_out_level(uint64_t* relax_due) const
 {
     // The MIC jack carries beep_mic_final (zxnext.vhd:1638 o_AUDIO_MIC;
-    // zxnext_top_issue2.vhd:1402-1408 mic_port_o):
+    // zxnext_top_issue2.vhd:1402-1408 mic_port_o), and so does the mixer's
+    // mic_i (zxnext.vhd:6516): Emulator::refresh_mic_final_() feeds this value
+    // to the beeper, so the recorder and the mix cannot disagree:
     //   beep_mic_final = i_AUDIO_EAR xor (port_fe_mic and nr_08_keyboard_issue2)
     //                    xor port_fe_mic                       (zxnext.vhd:6503)
     // and (m and i2) xor m = m and not i2. i_AUDIO_EAR is the same model the
@@ -9678,32 +9771,36 @@ bool Emulator::tape_out_level() const
     const bool mic    = beeper_.mic();
     const bool issue2 = (nr_08_stored_low_ & 0x01) != 0;
     const bool playing = tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing();
-    const bool ear_in = audio_ear_in(playing, beeper_.tape_ear(), clock_.get());
+    const bool ear_in = audio_ear_in(playing, beeper_.tape_ear(), clock_.get(), relax_due);
     return ear_in != (mic && !issue2);
 }
 
-bool Emulator::audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) const
+bool Emulator::audio_ear_in(bool tape_playing, bool tape_level, uint64_t now,
+                            uint64_t* due) const
 {
+    if (due) *due = UINT64_MAX;
     const bool issue2_mic = (nr_08_stored_low_ & 0x01) != 0 && beeper_.mic();
     const uint8_t a2 = i2s_.nr_a2_ctl();
     const bool pi_path = (a2 & 0xC0) != 0 && (a2 & 0x01) != 0 &&
                          !replay_mode_ && !rzx_player_.is_playing();
-    if (!pi_path) return tape_playing ? tape_level : issue2_mic;
     // ear_relax (zxnext_top_issue2.vhd:663-677): i_sig = ear_jack xor not
     // pi_fe_ear with INVERT = 1, so the output is ear_jack xor pi_fe_ear,
     // passed straight through on an edge; after COUNTER_SIZE = 6 (64) ticks
     // of CLK_28_MEMBRANE_EN with no edge it relaxes to zxn_issue2_fe_mic
-    // (symmetric_relaxation.vhd). The enable fires once per 512 master
-    // cycles (clk_28_div(8 downto 0) all ones, zxnext_top_issue2.vhd:1172-
-    // 1179), so the hold is 64 x 512 master cycles, give or take one enable
-    // with the free-running divider's phase. With no tape playing the jack
-    // is idle and the Pi's comparator is the only edge source; a playing
-    // tape keeps today's model, its own level passed through.
+    // (symmetric_relaxation.vhd:62,76,89-90). The enable fires once per 512
+    // master cycles (clk_28_div(8 downto 0) all ones, zxnext_top_issue2.vhd:
+    // 1172-1179), so the hold is 64 x 512 master cycles, give or take one
+    // enable with the free-running divider's phase. The edges are those of
+    // ear_jack xor pi_fe_ear: the Pi's (pi_ear_edge_master_) and, GH #550,
+    // the playing tape's (tape_edge_master_). A tape that does not play with
+    // no Pi leaves the jack idle: the relaxed state.
     static constexpr uint64_t kEarRelaxMaster = 64 * 512;
-    const bool sig = (tape_playing && tape_level) != i2s_.fe_ear();
-    if (!tape_playing && now >= pi_ear_edge_master_ &&
-        now - pi_ear_edge_master_ >= kEarRelaxMaster)
-        return issue2_mic;
+    if (!pi_path && !tape_playing) return issue2_mic;
+    const bool sig = pi_path ? ((tape_playing && tape_level) != i2s_.fe_ear()) : tape_level;
+    uint64_t edge = pi_path ? pi_ear_edge_master_ : 0;
+    if (tape_playing && tape_edge_master_ > edge) edge = tape_edge_master_;
+    if (now >= edge && now - edge >= kEarRelaxMaster) return issue2_mic;
+    if (due) *due = edge + kEarRelaxMaster;
     return sig;
 }
 
@@ -9836,8 +9933,8 @@ void Emulator::apply_video_timing(MachineTimingMode mode, bool refresh_60hz)
     timing_.master_cycles_per_frame =
         timing_.master_cycles_per_line * static_cast<uint64_t>(lines_per_frame);
 
-    z80_set_frame_geometry(timing_.tstates_per_line, timing_.tstates_per_frame);
-    z80_set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
+    cpu_.set_frame_geometry(timing_.tstates_per_line, timing_.tstates_per_frame);
+    cpu_.set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
                                 video_timing_.display_origin().vc);
 
     // Task 58 — the Copper's vertical wrap follows the same constants.
@@ -11962,7 +12059,7 @@ uint64_t Emulator::step_one_instruction()
                     ? tap_sync_ts_ : 0u;
             tape_.set_gap_hold(tape_gap_hold_(monotonic_tstates()));
             tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
-            beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
+            tape_level_(tape_.tick_realtime(0) != 0);
             // GH #89 — a playing tape is echoed to tape-out (zxnext.vhd:6503):
             // a TZX / WAV save samples it at the end of each instruction, and
             // only while a tape plays, so nothing is paid otherwise.
@@ -11975,11 +12072,11 @@ uint64_t Emulator::step_one_instruction()
             tzx_tape_.set_auto_policy(
                 tape_gap_hold_(monotonic_tstates()),
                 tape_auto_play_, config_.type == MachineType::ZX48K);
-            beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
+            tape_level_(tzx_tape_.update(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else if (wav_tape_.is_playing()) {
-            beeper_.set_tape_ear(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
+            tape_level_(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else {
@@ -12064,7 +12161,7 @@ void Emulator::finish_slot_interrupts()
     // From here on the CPU edges are those of the divisor now in force, dn:
     // a CPU-speed change committed at this boundary has already re-based the
     // counter (rebase_fuse_tstates_()).
-    const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+    const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
     auto ts_at = [&](uint64_t edge) -> int64_t {
         return now_ts + (static_cast<int64_t>(edge) - static_cast<int64_t>(now))
                         / static_cast<int64_t>(dn);
@@ -12560,6 +12657,7 @@ void Emulator::pi_sample_thunk_(void* self)
     // The Pi's next sample is latched at each output-sample boundary (see advance_audio()).
     Emulator* const e = static_cast<Emulator*>(self);
     if (e->config_.pi_audio) e->feed_pi_audio();
+    if (e->mic_stale_()) [[unlikely]] e->refresh_mic_final_();
 }
 
 [[gnu::noinline]] void Emulator::halt_batch_end_()
@@ -13121,6 +13219,10 @@ void Emulator::advance_audio(uint64_t master_cycles)
             // for the mixer's own 44.1 kHz. Before or after emit_sample() is
             // the same: it only averages what was already accumulated.
             if (config_.pi_audio) feed_pi_audio();
+            // The ear_relax hold is a matter of time: beep_mic_final changes
+            // without an event when a held level runs out its hold (see
+            // refresh_mic_final_).
+            if (mic_stale_()) [[unlikely]] refresh_mic_final_();
         }
     }
 }
@@ -13491,11 +13593,12 @@ void Emulator::note_audio_drop_(jnext::dbg::AudioDropReason r, uint16_t port, ui
     c.last_value = value;
     // A debugger write runs outside guest execution; a guest one carries the
     // live source bracket the DMA and the Copper set around their port writes.
-    c.last_source = debug_state_.guest_access() ? nextreg_.write_source()
-                                                : jnext::dbg::EventSource::Debugger;
+    c.last_source = audio_write_source_();
     c.last_pc    = debug_slot_pc_;
     // The event stamper's frame tag (frame_num_ is post-incremented at frame start).
     c.last_frame = frame_num_ > 0 ? frame_num_ - 1u : 0u;
+    // GH #531: the log and the counter come from this one call, so they agree.
+    if (audio_tap_active_) tap_drop_(r, port, value);
 }
 
 void Emulator::note_ay_status_cold_(AyPortStatus s, uint16_t port, uint8_t value)
@@ -14978,7 +15081,7 @@ void Emulator::save_state(StateWriter& w) const
     // does not restore (it re-seeds it at the next frame start); an
     // open-ended window's INT64_MAX end is written as is.
     {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
         const int64_t last   = cpu_.int_window_last_ts();
         w.write_u64(static_cast<uint64_t>(cpu_.int_window_first_ts() - now_ts));
         w.write_u64(static_cast<uint64_t>(last == INT64_MAX ? last : last - now_ts));
@@ -15362,8 +15465,8 @@ bool Emulator::load_state(StateReader& r)
     tstates_frame_base_ = r.read_u64();
     // GH #265 — what the CPU block restored against the counter (the /INT
     // window, the EI stamp) moves with it.
-    cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
-    *fuse_z80_tstates_ptr() = 0;
+    cpu_.rebase_interrupt_window(static_cast<int64_t>(cpu_.tstates_ref()));
+    cpu_.tstates_ref() = 0;
 
     jnext::save::load_via_desc_method(*this, &Emulator::describe_state, r,
                                       /*machine_level=*/true);
@@ -15476,7 +15579,7 @@ bool Emulator::load_state(StateReader& r)
     // relative to the FUSE counter; put it on the counter as re-seeded
     // above, so the next frame start's rebase moves it with the counter.
     if (!r.eof()) {
-        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t now_ts = static_cast<int64_t>(cpu_.tstates_ref());
         const int64_t first  = static_cast<int64_t>(r.read_u64()) + now_ts;
         int64_t last         = static_cast<int64_t>(r.read_u64());
         if (last != INT64_MAX) last += now_ts;
@@ -15594,6 +15697,23 @@ bool Emulator::load_state(StateReader& r)
     // because the edge test compares frame N with frame N-1 and a restore is a
     // jump. Idempotent when nothing moved.
     sync_esp_association(/*force=*/true);
+
+    // GH #550 - derived state a load must re-derive, because the registers it
+    // comes from are restored (NextReg, nr_08_stored_low_) and it is not in
+    // the stream: the NR 0x06 shadows init() derives (speaker-exclusive gate
+    // and Mixer::exc_i, NMI button enables, PS/2 mode, hotkey enables), and
+    // beep_mic_final (the mixer's MIC term).
+    {
+        const uint8_t nr06 = nextreg_.cached(0x06);
+        nr_06_button_m1_nmi_en_      = (nr06 & 0x08) != 0;
+        nr_06_button_drive_nmi_en_   = (nr06 & 0x10) != 0;
+        nr_06_internal_speaker_beep_ = (nr06 & 0x40) != 0;
+        nr_06_ps2_mode_              = (nr06 & 0x04) != 0;
+        emu_fnkeys_.set_nr_06_hotkey_enables((nr06 & 0x80) != 0, (nr06 & 0x20) != 0);
+        mixer_.set_exc_i(beep_spkr_excl());
+        derive_tape_edge_();
+        refresh_mic_final_();
+    }
 
     // The reconciliation is `reconcile_on_exit`'s, at the top of this function —
     // NOT a call here. It used to be one, and a successful load was the only
@@ -15736,6 +15856,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     Log::emulator()->debug("rewind_to_cycle: reached cycle {} after {} replay frames",
                             reached, frames);
     rewind_buffer_->unmark_from(reached);   // §4.2a: changes after the landing are undone
+    if (audio_tap_active_) tap_rewind_landing_();   // GH #531
     return reached;
 }
 
@@ -15854,6 +15975,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
     }
     restored_frame_start_ = true;   // GH #278: sits on a counted frame start
     rewind_buffer_->unmark_from(snap);   // §4.2a: changes after the landing are undone
+    if (audio_tap_active_) tap_rewind_landing_();   // GH #531
 
     // Re-render so the main window framebuffer reflects the restored state.
     render_framebuffer_now();
@@ -15959,22 +16081,16 @@ void Emulator::install_debug_latch_stamper_()
         // live clock". Everything below derives from that ONE value, so the
         // header cannot be internally inconsistent whichever a site chooses.
         e.cycle = at ? *at : clock_.get();
-        // F2's tag: frame_num_ is post-incremented at begin_new_frame(), so
-        // during frame K it reads K+1. Read the RAW counter and subtract, which
-        // is what frame_tag() does — never a derived value that clamps.
-        e.frame = frame_num_ > 0 ? frame_num_ - 1u : 0u;
         // The instruction the site belongs to. `cpu_.pc()` has already moved on
         // for a latch raised from inside cpu_.execute().
         e.pc = debug_slot_pc_;
-        // The RAW frame counters, the same arithmetic snapshot_raster() uses —
-        // from `e.cycle`, NOT from the live clock, or a site that supplied its own
-        // cycle would get a header half from one instant and half from another.
-        // Deliberately not paused_vc_/paused_hc_: those advance only while a
-        // debugger is attached and the per-instruction raster walk is running.
-        const uint64_t elapsed = e.cycle - frame_cycle_;
-        e.vc = static_cast<int16_t>(elapsed / timing_.master_cycles_per_line);
-        e.hc = static_cast<int16_t>(
-            (elapsed % timing_.master_cycles_per_line) / 4);
+        // F2's frame tag and the RAW raster counters, all from `e.cycle` and NOT from
+        // the live clock, or a site that supplied its own cycle would get a header half
+        // from one instant and half from another. The arithmetic is shared with the
+        // audio write tap (GH #531), so the two cannot disagree. Deliberately not
+        // paused_vc_/paused_hc_: those advance only while a debugger is attached and
+        // the per-instruction raster walk is running.
+        stamp_at_(e.cycle, e.frame, e.vc, e.hc);
     });
 }
 
@@ -16121,6 +16237,13 @@ void Emulator::debug_after_machine_transition_(bool discard_ring)
     // made. A ring restore puts its own recorded frames back after this
     // (RewindBuffer::restore_nearest()).
     call_stack_.clear();
+
+    // GH #531 -- a reset or a load is a discontinuity in the audio write log. A
+    // rewind's own ring restore lands through load_state() before the landing
+    // hook runs, and adds no marker here: the landing adds the one `Rewind` marker.
+    if (audio_tap_active_ && !debug_state_.restoring_from_rewind())
+        tap_marker_(discard_ring ? jnext::dbg::AudioMarker::StateLoad
+                                 : jnext::dbg::AudioMarker::Reset);
 
     jnext::dbg::EventTable* t = debug_state_.event_table();
     if (!t) return;

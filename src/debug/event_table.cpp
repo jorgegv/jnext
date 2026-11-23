@@ -304,6 +304,32 @@ bool EventTable::nr_would_match(uint8_t reg, EventSource src) const {
     return false;
 }
 
+// GH #532 -- the ONE predicate for an audio write: the site check and the drain
+// both call it, so the two cannot drift.
+static bool audio_accepts(const EventFilter& f, AudioTarget t, uint8_t chip, uint8_t reg,
+                          uint8_t value, uint8_t flags, EventSource src) {
+    if (!(f.audio_targets & audio_target_bit(t))) return false;
+    if (f.chip != 0xFF && f.chip != chip) return false;
+    // Only these two targets carry a register: a non-empty set never matches the rest.
+    if (!f.regs.empty() &&
+        !((t == AudioTarget::AyRegister || t == AudioTarget::DacMirror) &&
+          std::find(f.regs.begin(), f.regs.end(), reg) != f.regs.end()))
+        return false;
+    if ((value & f.value_mask) != f.value_match) return false;
+    if ((flags & f.audio_flags_all) != f.audio_flags_all) return false;
+    if (flags & f.audio_flags_none) return false;
+    return f.source == EventSource::Any || f.source == src;
+}
+
+bool EventTable::audio_would_match(const AudioLogEntry& a) const {
+    for (const auto& e : subs_) {
+        if (!e.live || e.kind != EventKind::AudioWrite) continue;
+        if (audio_accepts(e.filter, a.target, a.chip, a.reg, a.value, a.flags, a.source))
+            return true;
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // The latch ring
 // ---------------------------------------------------------------------------
@@ -458,6 +484,10 @@ bool EventTable::filter_matches(const Entry& e, const Event& ev) const {
             // every byte.
             return (ev.dma_src >= e.filter.lo && ev.dma_src <= e.filter.hi) ||
                    (ev.dma_dst >= e.filter.lo && ev.dma_dst <= e.filter.hi);
+
+        case EventKind::AudioWrite:
+            return audio_accepts(e.filter, ev.audio_target, ev.chip, ev.reg, ev.value,
+                                 ev.audio_flags, ev.source);
 
         case EventKind::Count:
             break;

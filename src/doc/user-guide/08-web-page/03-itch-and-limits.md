@@ -33,8 +33,11 @@ Because of the `iframe`:
   terminal are refused with a message. The list is in the man page ("Not available in the
   browser").
 - **Debugger servers are not TCP listeners.** A page cannot listen on a port, so `--dzrp-port`,
-  `--zrcp-port`, `--gdb-port` and `--debug-listen-address` are refused. The `debug` option serves the
+  `--zrcp-port`, `--gdb-port`, `--debug-listen-address`, `--debugger` and `--break-at` are refused. The `debug` option serves the
   same protocols to the page's own code or through a WebSocket bridge ([8.6](06-debugging-from-the-page.md)).
+- **Joystick serial cable on the host.** `--joy-uart-pty` needs a terminal and `--joy-uart-fifo`
+  needs named pipes, which a page lacks, so both are refused. `--joy-uart-rx` reads a plain file
+  and works.
 - **Program formats.** Programs load as `.nex`, `.tap`, `.tzx` or `.wav` (a tape, in real
   time), recordings as `.rzx`, snapshots as `.jns`, `.sna`, `.szx` or `.z80`.
 - **Headless and command-line recording.** `--headless` and `--rzx-record` are refused. A
@@ -44,8 +47,9 @@ Because of the `iframe`:
 - **Saves.** What the guest writes to the SD card is kept across reloads only when the
   page asks with `keepWrites` ([8.4](04-the-image-and-what-the-browser-keeps.md)). Without
   it the card lives in memory for the session.
-- **Files JNEXT writes** (screenshots, snapshots) live in memory in either case.
-  `saveSnapshot()` hands a snapshot to the page.
+- **Files JNEXT writes** (recordings, screenshots, traces, the audio write log, exports) live in memory in either case.
+  `listFiles()` and `readFile()` hand them to the page ([8.2](02-options-and-the-player.md#files-jnext-writes)),
+  and `saveSnapshot()` hands a snapshot.
 - **Browser shortcuts.** Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own
   keys never reach the page.
 - **Touch devices.** The on-screen keyboard ([8.2](02-options-and-the-player.md)) is

@@ -21,6 +21,10 @@ The log confirms it:
 [13:10:21.837] [debugger] [info] dzrp: listening on 127.0.0.1:11000
 ```
 
+`jnext --debugger mygame.nex` is the same with the machine already paused where the
+program starts, and DZRP on port 11000 unless you give another protocol port or
+`--dzrp-port` (see [Starting from the command line](18-starting-from-the-command-line.md)).
+
 `--dzrp-port 0` lets the system pick a free port and prints it in that same
 line, which is handy for scripts. The server is off unless you give the
 option, and it works in every frontend — the Qt window, the SDL build and

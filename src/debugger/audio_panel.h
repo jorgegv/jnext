@@ -22,6 +22,8 @@ class AudioScopeView;
 
 namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 
+class AudioLogView;
+
 /// Debugger panel showing the decoded AY chips and the audio source controls.
 ///
 /// The Sources strip (the five mute checkboxes) sits above a tab widget:
@@ -32,9 +34,9 @@ namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 /// their M and S buttons, the NR 0x84 port families, the beeper and Pi inputs, the
 /// host gains and mutes and the table of discarded writes. Each of the 13
 /// channels (9 AY, 4 DAC) has an M (mute) and an S (solo) button, which act on
-/// `AUDIO_CHANNEL_MUTE` only. Scopes shows an oscilloscope trace and a level
-/// meter for each of the sixteen mixer sources (AudioScopeView). Log and Tracker
-/// are placeholders until their features land.
+/// `AUDIO_CHANNEL_MUTE` only. Log lists the decoded audio writes (see AudioLogView). Scopes shows
+/// an oscilloscope trace and a level meter for each of the sixteen mixer sources (AudioScopeView).
+/// Tracker is a placeholder until its feature lands.
 class AudioPanel : public QWidget {
     Q_OBJECT
 public:
@@ -65,12 +67,17 @@ public:
     /// The Scopes view's per-frame refresh, run by the manager while the machine runs with this
     /// panel on show and the Scopes tab current (refresh() does the same on a paused redraw).
     void refresh_scopes();
+    /// True while the Log tab is the current one: the tab that asks the backend to
+    /// record the write log (DebuggerManager::apply_data_needs()), and the other one
+    /// with live data.
+    bool log_on_show() const;
 
     QSize sizeHint() const override { return QSize(400, 600); }
     QSize minimumSizeHint() const override { return QSize(350, 580); }
 
 signals:
-    /// The current sub-tab changed: what the window asks of the backend depends on it (GH #498).
+    /// The current sub-tab changed: what the window asks of the backend depends on it (Log records the
+    /// write log, Scopes holds the source tap; GH #498), so the manager re-derives what the panel asks.
     void sub_tab_changed();
 
     /// A dropped-write row of CPU source was double-clicked: show the OUT or
@@ -112,6 +119,7 @@ private:
     QScrollArea* chips_scroll_ = nullptr;
     QScrollArea* dac_scroll_ = nullptr;
     AudioScopeView* scope_view_ = nullptr;
+    AudioLogView* log_view_ = nullptr;
 
     // The decoded widgets of one chip, found again by refresh().
     struct ChannelWidgets {

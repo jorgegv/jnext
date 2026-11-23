@@ -124,6 +124,7 @@ void Debugger::Impl::clients_changed() {
     ds().set_clients_attached(live > 0);
     sync_call_stack();
     sync_audio_scope();
+    sync_audio_log();
 }
 
 void Debugger::Impl::sync_call_stack(bool force) {

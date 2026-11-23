@@ -103,6 +103,7 @@ void DebuggerManager::attach_backend() {
     call_stack_requested_ = false;
     audio_scope_requested_ = false;
     raster_requested_ = false;
+    audio_log_requested_ = false;
     set_panels_client();
 }
 
@@ -121,6 +122,9 @@ void DebuggerManager::apply_data_needs() {
         audio_scope_requested_ = want_scope;
         dbg_.set_audio_scope_enabled(client_, want_scope);
     }
+    // GH #531: the audio write log is recorded only while the Audio panel's Log tab is the one on show.
+    const bool want_log = open && w->audio_panel() && w->panel_on_show(w->audio_panel()) &&
+                          w->audio_panel()->log_on_show();
     if (want_cs != call_stack_requested_) {
         call_stack_requested_ = want_cs;
         dbg_.set_call_stack_enabled(client_, want_cs);
@@ -128,6 +132,10 @@ void DebuggerManager::apply_data_needs() {
     if (want_raster != raster_requested_) {
         raster_requested_ = want_raster;
         dbg_.set_live_raster(client_, want_raster);
+    }
+    if (want_log != audio_log_requested_) {
+        audio_log_requested_ = want_log;
+        dbg_.set_audio_log_enabled(client_, want_log);
     }
 }
 

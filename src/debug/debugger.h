@@ -82,11 +82,11 @@ namespace dbg {
 
 /// Which frontend a client is (SES-01's `ClientInfo::kind`).
 ///
-/// FIVE consumer enumerators, not six: §1.1 names six consumers, but the sixth
+/// FIVE consumer enumerators (plus `CommandLine`, GH #548), not six: §1.1 names six consumers, but the sixth
 /// — the record/replay recorder — is `#20` folded into the DSL as its WP6
 /// (§10.1's `R` row), so it attaches as `Script` rather than as a kind of its
 /// own. Plus `Test`, for `debugger_backend_test`'s fake clients: six
-/// enumerators total.
+/// enumerators total; seven with `CommandLine`.
 enum class ClientKind : uint8_t {
     /// The Qt GUI adapter. It is TWO clients (qt-frontend.md §4.1, GH #278
     /// WP4c): a lifetime OBSERVER that owns the user's breakpoints
@@ -102,6 +102,9 @@ enum class ClientKind : uint8_t {
     GdbRsp,
     /// The scripting DSL engine, and the #20 recorder it carries.
     Script,
+    /// The command line's own client (GH #548 `--debugger` / `--break-at`): it owns
+    /// the startup stop, and detaches once the machine has run again after it.
+    CommandLine,
     /// A test harness.
     Test,
 };
@@ -272,6 +275,7 @@ struct ReReport {
     size_t labels = 0;
     size_t comments = 0;
     std::vector<std::string> notes;
+    std::vector<std::string> paths;   // the files an export put in place, as written (GH #553: output_files)
 };
 
 /// The frontend sequences the backend cannot reach (SES-07).
@@ -323,12 +327,13 @@ struct LoopDriver {
 //                     at_frame_boundary, rewind_enabled, rewind_range
 //   registers/memory (6): registers, mmu_slots, paging_ports, rom_select,
 //                     nextreg_peek, nextreg_selected
-//   video/audio (21): raster, machine, time, time_epoch, sprites, pattern_ram,
+//   video/audio (22): raster, machine, time, time_epoch, sprites, pattern_ram,
 //                     sprite_clip, copper, framebuffer, palette,
 //                     palette_priority, active_ula_palette_bank,
 //                     ula_screen_regs, clip_window, turbosound_enabled,
 //                     ay_mode, stereo_mode, audio_mute_mask, audio_state,
-//                     audio_channel_mute_mask, audio_scope_enabled
+//                     audio_channel_mute_mask, audio_log_enabled,
+//                     audio_scope_enabled
 //   disasm/trace (10): disassemble, instruction_length, is_call_like,
 //                     memory_reader, operand_reader, call_stack, call_stack_enabled,
 //                     trace_enabled, coverage_enabled, coverage
@@ -395,8 +400,9 @@ public:
     Result step_out(ClientId by);
 
     /// CTL-06 — transient `Execute[addr,addr]` plus `run()`. "Run to Here", and
-    /// RSP's `i<len>` is `run_to(pc + len)`.
-    Result run_to(ClientId by, uint16_t addr);
+    /// RSP's `i<len>` is `run_to(pc + len)`. `space` (GH #548) is the memory that must
+    /// supply the fetch, as `EventFilter::space`; the default is any memory.
+    Result run_to(ClientId by, uint16_t addr, MemSpace space = MemSpace::cpu());
 
     /// CTL-06 for a source line (GH #423): a transient `Execute` group at every
     /// start of `file_line` (`subscribe_source_line`, each member tied to its
@@ -684,6 +690,21 @@ public:
     /// RefusedUnavailable while off. `count == 0` is an empty Ok block. A tap taken off and on again
     /// starts afresh (`first_sample` 0).
     Expected<AudioScopeBlock> audio_scope_samples(size_t count) const;
+    /// INS-23 -- the audio write log (GH #531). `by`'s own request; the log is on
+    /// while any live client asks, observers included. Host state: never in a
+    /// snapshot, and invisible to the Z80.
+    Result set_audio_log_enabled(ClientId by, bool enabled);  ///< RefusedUnavailable for an unknown client
+    bool   audio_log_enabled() const;                         ///< DIRECT VALUE: the effective state
+    /// Empty the log. `seq` carries on. Ok while off too (nothing to clear). MUTATE-logged.
+    Result audio_log_clear(ClientId by);
+    /// Keep the newest `min(count, entries)`; `entries` in 1..AUDIO_LOG_MAX_ENTRIES.
+    Result audio_log_resize(size_t entries);
+    /// The entries with `seq > since_seq`, oldest first, markers included.
+    /// RefusedUnavailable while the log is off.
+    Expected<std::vector<AudioLogEntry>> audio_log_entries(uint64_t since_seq) const;
+    /// Write the whole log as CSV (`debug/audio_log_csv.h`). RefusedUnavailable while
+    /// off, or when FILE cannot be written.
+    Result audio_log_export(const std::string& path) const;
 
     /// INS-11 — disassemble `n` instructions from `addr` over `peek(Cpu)`.
     /// `symbols` may be null; pass `&symbols()` for the backend's own table.

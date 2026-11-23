@@ -7,8 +7,10 @@
 // We provide the memory/IO callback functions that the FUSE opcode files call
 // via macros defined in fuse_z80_shim.h.
 // 
-// The FUSE core is inherently single-instance (global state).  This matches
-// our emulator's single-CPU architecture.
+// The FUSE core is single-instance (global state), so the globals are a CACHE
+// OF THE BOUND Z80Cpu: each Z80Cpu keeps its own copy of them (Z80CoreRuntime)
+// and a change of machine swaps it (Z80Cpu::bind_()). The opcode files and
+// the hot paths below keep reading the globals directly.
 // 
 // Z80N opcode interception
 // ────────────────────────
@@ -113,10 +115,11 @@ static int              s_tstates_per_frame = 224 * 312;
 static int      s_line_ticks   = 224 * 2;   // hc_max + 1 (= per_line * 2)
 static int      s_frame_lines  = 312;       // vc_max + 1 (= per_frame / per_line)
 // Line memo for derive_hc_vc(): frame-relative T-state at the start of
-// the memoised line, and that line's index. Pure accelerator — every
-// path falls back to the exact division, so a stale memo can only cost
-// time, never change a result (rewind/replay/geometry-switch safe; the
-// geometry setters reset it anyway).
+// the memoised line, and that line's index. Pure accelerator within ONE
+// raster geometry: every path falls back to the exact division, so a stale memo
+// only costs time (rewind/replay safe). It is NOT valid across two grids: it is
+// safe because the geometry setters reset it and each Z80Cpu keeps its own copy
+// (swapped in bind_slow_()), so a CPU never sees another machine's base.
 static uint32_t s_line_base_ts = 0;      // master cycles (GH #305)
 static uint32_t s_line_index   = 0;
 // Master cycles per unit of the FUSE tstates counter (8 at 3.5 MHz ... 1 at
@@ -130,6 +133,30 @@ static void update_frame_geometry_derived() {
     s_line_base_ts = 0;
     s_line_index   = 0;
 }
+
+// One Z80Cpu's copy of every cross-instruction global above and of the FUSE
+// core's own (`z80`, `tstates`, `event_next_event`). Defaults are the
+// file-scope defaults, which is what a fresh machine starts from. s_mem/s_io
+// are not here: they derive from the CPU (bind_slow_()). Not swapped, because
+// each is valid only inside one execute(), which never runs another machine:
+// s_fetch_* and s_io_* below, and the stackless-RETN latch inside the FUSE
+// core, which execute() re-configures before every instruction.
+struct Z80CoreRuntime {
+    processor        z80{};
+    libspectrum_dword tstates = 0;
+    libspectrum_dword event_next_event = 0;
+    ContentionModel* contention     = nullptr;
+    Mmu*             contention_mmu = nullptr;
+    int      ula_hc_origin    = 116;
+    int      ula_vc_origin    = 64;
+    int      tstates_per_line = 224;
+    int      tstates_per_frame = 224 * 312;
+    int      line_ticks  = 224 * 2;
+    int      frame_lines = 312;
+    uint32_t line_base_ts = 0;
+    uint32_t line_index   = 0;
+    int      tstate_divisor = 8;
+};
 
 namespace {
 
@@ -660,12 +687,12 @@ static void sync_fuse_from_regs(const Z80Registers& r) {
 
 static bool s_tables_initialized = false;
 
-Z80Cpu::Z80Cpu(MemoryInterface& mem, IoInterface& io)
-    : mem_(mem), io_(io)
-{
-    s_mem = &mem_;
-    s_io  = &io_;
+const Z80Cpu* Z80Cpu::s_bound_ = nullptr;
 
+Z80Cpu::Z80Cpu(MemoryInterface& mem, IoInterface& io)
+    : rt_(new Z80CoreRuntime), mem_(mem), io_(io)
+{
+    // reset() below binds this CPU; the table init in between touches no per-CPU state.
     if (!s_tables_initialized) {
         fuse_z80_init_tables();
         s_tables_initialized = true;
@@ -674,9 +701,59 @@ Z80Cpu::Z80Cpu(MemoryInterface& mem, IoInterface& io)
     reset();
 }
 
-void Z80Cpu::reset(bool hard) {
+// A CPU that dies while bound unbinds, so the globals never point into it (or
+// into the ContentionModel / Mmu of its machine, which dies with it).
+Z80Cpu::~Z80Cpu()
+{
+    if (s_bound_ == this) {
+        s_bound_ = nullptr;
+        s_mem = nullptr;
+        s_io = nullptr;
+        s_contention = nullptr;
+        s_contention_mmu = nullptr;
+    }
+}
+
+__attribute__((noinline)) void Z80Cpu::bind_slow_() const
+{
+    if (s_bound_) {
+        Z80CoreRuntime& o = *s_bound_->rt_;
+        o.z80 = z80;  o.tstates = tstates;  o.event_next_event = event_next_event;
+        o.contention = s_contention;  o.contention_mmu = s_contention_mmu;
+        o.ula_hc_origin = s_ula_hc_origin;  o.ula_vc_origin = s_ula_vc_origin;
+        o.tstates_per_line = s_tstates_per_line;  o.tstates_per_frame = s_tstates_per_frame;
+        o.line_ticks = s_line_ticks;  o.frame_lines = s_frame_lines;
+        o.line_base_ts = s_line_base_ts;  o.line_index = s_line_index;
+        o.tstate_divisor = s_tstate_divisor;
+    }
+    const Z80CoreRuntime& n = *rt_;
+    z80 = n.z80;  tstates = n.tstates;  event_next_event = n.event_next_event;
+    s_contention = n.contention;  s_contention_mmu = n.contention_mmu;
+    s_ula_hc_origin = n.ula_hc_origin;  s_ula_vc_origin = n.ula_vc_origin;
+    s_tstates_per_line = n.tstates_per_line;  s_tstates_per_frame = n.tstates_per_frame;
+    s_line_ticks = n.line_ticks;  s_frame_lines = n.frame_lines;
+    s_line_base_ts = n.line_base_ts;  s_line_index = n.line_index;
+    s_tstate_divisor = n.tstate_divisor;
     s_mem = &mem_;
     s_io  = &io_;
+    s_bound_ = this;
+}
+
+ContentionModel* z80_bound_contention_for_test() { return s_contention; }
+
+void Z80Cpu::set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType t)
+{ bind_(); z80_set_contention_runtime(cm, mmu, t); }
+void Z80Cpu::set_frame_geometry(int per_line, int per_frame)
+{ bind_(); z80_set_frame_geometry(per_line, per_frame); }
+void Z80Cpu::set_ula_counter_origins(int hc, int vc)
+{ bind_(); z80_set_ula_counter_origins(hc, vc); }
+void Z80Cpu::set_tstate_divisor(int d)
+{ bind_(); z80_set_tstate_divisor(d); }
+uint32_t& Z80Cpu::tstates_ref() const
+{ bind_(); return tstates; }
+
+void Z80Cpu::reset(bool hard) {
+    bind_();
 
     fuse_z80_reset(hard ? 1 : 0);  // NextZXOS-boot fix 2026-07-09: soft
     // reset must preserve the Z80 register file per t80n.vhd:1493-1498
@@ -751,8 +828,7 @@ uint8_t Z80Cpu::chain_byte_(uint16_t addr) {
 }
 
 int Z80Cpu::execute() {
-    s_mem = &mem_;
-    s_io  = &io_;
+    bind_();
 
     // GH #265 — mark the call in progress for tstates_into_instruction().
     // Cleared on every return path by the guard's destructor.
@@ -1448,6 +1524,7 @@ uint8_t Z80Cpu::last_m1_byte(unsigned i) const {
 }
 
 void Z80Cpu::repeat_halt(uint32_t count, uint32_t each) {
+    bind_();
     // The FUSE T-state counter and the R register (low 7 bits count; bit 7 is r7).
     tstates += count * each;
     z80.r = static_cast<libspectrum_word>(z80.r + count);   // a 16-bit counter in the FUSE state; only bits 6:0 are ever read
@@ -1458,6 +1535,7 @@ void Z80Cpu::repeat_halt(uint32_t count, uint32_t each) {
 }
 
 Z80Cpu::LoopState Z80Cpu::capture_loop_state() const {
+    bind_();
     LoopState s{};
     s.af = z80.af.w;   s.bc = z80.bc.w;   s.de = z80.de.w;   s.hl = z80.hl.w;
     s.af2 = z80.af_.w; s.bc2 = z80.bc_.w; s.de2 = z80.de_.w; s.hl2 = z80.hl_.w;
@@ -1473,6 +1551,7 @@ Z80Cpu::LoopState Z80Cpu::capture_loop_state() const {
 }
 
 void Z80Cpu::repeat_loop(uint32_t count, uint32_t each, uint32_t slots, uint32_t dr) {
+    bind_();
     tstates += count * each;
     z80.r = static_cast<libspectrum_word>(z80.r + count * dr);   // as repeat_halt(): only bits 6:0 are read
     // The serial is advanced for its contract ("incremented on every entry"), but nothing can tell if it is not
@@ -1486,7 +1565,7 @@ void Z80Cpu::repeat_loop(uint32_t count, uint32_t each, uint32_t slots, uint32_t
 }
 
 void Z80Cpu::request_interrupt(uint8_t vector) {
-    const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+    const int64_t now_ts = static_cast<int64_t>(tstates_ref());
     request_interrupt(vector, now_ts,
                       now_ts + (machine_48_or_p3_ ? 32 : 36));
 }
@@ -1502,6 +1581,7 @@ void Z80Cpu::request_interrupt(uint8_t vector, int64_t first_ts, int64_t last_ts
 }
 
 void Z80Cpu::rebase_interrupt_window(int64_t delta) {
+    bind_();
     int_first_ts_ -= delta;
     if (int_last_ts_ != INT64_MAX) int_last_ts_ -= delta;   // open-ended stays so
     // -1 is FUSE's "no EI pending" value (fuse_z80_core.c:120); an EI stamp
@@ -1581,6 +1661,7 @@ void Z80Cpu::describe_state(jnext::save::StateDesc& d)
 
 void Z80Cpu::marshal_for_describe() const
 {
+    bind_();
     // §9.5(3) — marshal the three relative values into the scratch the
     // declaration binds. Done HERE and undone in `apply_after_describe`, so the
     // conversion is visible at exactly two places rather than smeared through
@@ -1595,6 +1676,7 @@ void Z80Cpu::marshal_for_describe() const
 
 void Z80Cpu::apply_after_describe()
 {
+    bind_();
     // §9.5(3), the other direction. Push the FUSE-only fields straight into
     // the global z80 struct; sync_fuse_from_regs() does NOT touch them (they
     // have no Z80Registers mirror).

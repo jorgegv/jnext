@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:3103-3161`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:3181-3239`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -282,6 +282,37 @@ the ID), so such a block is valid when its length fields fit the file.
 and ZOT (a local patch in `third_party/zot/tzx.c`) all skip these blocks by
 them, and `$19`, which ZOT cannot play either, the same way — the blocks after
 still load. `load()` warns about each skipped block that carried content.
+
+### "The last block has loaded", for the debugger's startup stop
+
+`--debugger FILE` on a tape stops at the program the tape starts, so the deck has to say when
+its last block has been delivered. `Emulator::tape_delivered()` is that one predicate over the
+three decks, and it means the DATA of the last block, never the deck coming to rest: a real-time
+block ends with a pause of up to a second, and a loader jumps within milliseconds of the last
+byte. For a TAP it is `TapLoader::at_end()` in both modes (the trap serves a block and advances,
+and the player calls `next_block()` when the last bit completes, before its pause). For a TZX
+it is `TzxLoader::data_delivered()`: fast, no standard or turbo data block ahead of the fast
+cursor (`at_end()` is false while a trailing text block remains); real time, the ZOT player has
+parsed the last such block and is past its pilot, sync and data. For a WAV it is
+`WavLoader::past_end()`, the clock past the last signal edge (a WAV ends in silence).
+`holds_code_block()` (TAP and TZX, decided at load; a WAV always) says whether the tape can carry
+code at all: any data block that is not a Program or array header's data and not a SCREEN$ (type 3,
+start 16384, length 6912), or any non-standard TZX data block.
+
+`StartupStop::arm_tape()` uses both. A tape that cannot carry code stops at the first instruction
+after delivery. Otherwise the stop is the first instruction fetched from memory the tape loaded:
+a transient `Execute` subscription at LD-BREAK (0x056B), where every LD-BYTES entry converges in
+both modes (condition: LOAD, Z set, the 48K ROM present), whose handler adds one transient `Execute`
+subscription per 8 K slot that `[IX, IX+DE)` covers, tied to the memory that supplies the slot then and
+conditioned on delivery. Each loaded range is watched once: the capture fires on every pass of the
+ROM's edge-wait loop (about every 4 ms, with IX and DE unchanged), and a watch per pass made a
+real-time load several times slower. The ranges are kept so they are watched again after another
+client's stop removes them. A WAV always takes this rule (it has no blocks to classify), and its end is the
+last signal edge, so noise in a recording's trailing silence delays the stop. A trailing 0x14 or 0x15
+TZX block counts as data in real time (`last_data_end_` includes it) but never in fast mode, which
+does not serve it. The ROM's own RAM routines on a 128K or +3 (paging stubs at 0x5B00) are never
+tape-loaded, so they never match. The limits are documented in the user guide: a BASIC program that
+runs code from a REM stops at its last block, and a tape that loads code that never runs is not stopped.
 
 ## NEX
 
@@ -1888,6 +1919,23 @@ sector: the card the machine sees would differ from the one the copy is laid out
 failure messages name the journal file (`MountedCard::target`), not the image. A forced
 replace of a file reuses its clusters (FatFs's `f_open` reuses the cluster hole), so the next
 `bind()` compacts the superseded records and the file does not grow.
+
+**The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup
+re-reads its directory, and an uncached `disk_read` costs an `lseek` plus an 8 KiB stream-buffer
+refill. `fatfs_glue::attach()` therefore gives the drive a direct-mapped, write-through cache
+(8192 lines of 512 bytes, 4 MiB, indexed by the FatFs sector number) that lives until `detach()`.
+It holds the image FILE's raw bytes, never the journal's: `disk_read` serves a request from the
+cache only when every sector of it is there, otherwise it reads the whole request from the file
+and fills the lines, and the journal overlay is applied after either path. In image mode
+`disk_write` writes the file first and updates the lines only on success (a failed write drops
+them). The write itself goes into the stream's 8 KiB buffer, so `detach()` and `CTRL_SYNC` still
+flush that buffer exactly as before, and a write the stream cannot flush is reported by
+`CTRL_SYNC` (FatFs's `f_close` and `f_sync`, which the callers check), not by the write; only the
+cache needs no flush. Journal mode never writes the file and never touches the cache. The scope is one attach: every user of the
+glue (`fatfs_format.cpp`, `MountedCard`, `card_extract.cpp`) attaches, works and detaches inside
+one call, and nothing may write the image by another route while it is attached. The rows are
+`FGC-01..09` (`fat32_image_test`) and, for the write-failure paths that need `/dev/full` and
+`RLIMIT_FSIZE`, `FGC-L01..02` (`fatfs_glue_linux_test`).
 
 The rows are `SDW-01..28` (`sdcard_writes_test`), `SDFA-J01..J14` and `SDFA-JP01..JP02`
 (`sdcard_file_add_test` and `sdcard_file_add_posix_test`: the journal-mode add, read back from

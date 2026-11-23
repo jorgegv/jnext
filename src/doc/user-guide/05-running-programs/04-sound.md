@@ -8,6 +8,9 @@ setting up:
   three of them (TurboSound) on the Next, with stereo panning.
 - **DAC** — 8-bit sample playback (Specdrum, Soundrive and Covox compatible).
 
+To see what the chips are playing, which write caused a sound, or why a channel
+is silent, use the debugger's [Audio panel](../06-debugger/panels/13-audio.md).
+
 Which of these a program can actually use is up to the program and the machine
 it was written for. Stereo separation and channel balance are likewise set by
 the software, not by you — they are properties of the emulated hardware.
@@ -23,7 +26,11 @@ emulated machine's audio state.
 Complete mute remains available through
 **Settings > Preferences > Startup > Start muted** or `--silent`; muting also
 skips sound synthesis entirely, which speeds up runs that do not need audio.
-Tape loading still works while muted.
+Tape loading still works while muted. A tape loading in real time is heard
+through the beeper, at the level the Next gives it (a quarter of the beeper's
+own), and follows the beeper gain. As on the Next's tape input, a level that
+holds still for about a millisecond (the silence between blocks) fades back to
+the idle level instead of staying up.
 
 ## If the sound stutters or clicks
 

@@ -96,6 +96,8 @@ enum class OptId {
     EspIpAddressAfter,
     MagicBreakpoint,
     PersistentBreakpoints,
+    Debugger,
+    BreakAt,
     DzrpPort,
     GdbPort,
     ZrcpPort,
@@ -121,6 +123,7 @@ enum class OptId {
     Record,
     WavRecord,
     DacTrace,
+    AudioLog,
     AudioGainDb,
     AudioGainBeeperDb,
     AudioGainAy0Db,
@@ -696,6 +699,10 @@ inline constexpr Option OPTIONS[] = {
     { "--dac-trace", 1, Doc::Documented, OptId::DacTrace,
       "FILE",
       "Record timestamped physical DAC writes to CSV" },
+    { "--audio-log", 1, Doc::Documented, OptId::AudioLog,
+      "FILE",
+      "Record decoded audio writes (AY, DAC, NR 0x2C-0x2E mirrors, beeper)\n"
+      "to CSV" },
     { "--audio-gain-db", 1, Doc::Documented, OptId::AudioGainDb,
       "DB",
       "Host audio gain in dB (-24..+24, default 0);\n"
@@ -905,6 +912,19 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Keep breakpoints armed while the debugger window is\n"
       "closed; a hit reopens it (GUI debugger builds only)" },
+    // GH #548 - start the program under the debugger. An enabler (like --esp): the
+    // default stop point and the servers follow from it; --break-at modifies it.
+    { "--debugger", 0, Doc::Documented, OptId::Debugger,
+      "",
+      "Start paused where the program starts: the debugger\n"
+      "window in the Qt GUI; in --headless and the SDL build, a\n"
+      "wait for a remote debugger (DZRP on port 11000 unless\n"
+      "--dzrp-port, --zrcp-port or --gdb-port is given)" },
+    { "--break-at", 1, Doc::Documented, OptId::BreakAt,
+      "ADDR|SYMBOL",
+      "Implies --debugger: run to ADDR (hex: 8000, $8000 or\n"
+      "0x8000), a symbol, @symbol or file:line, stop there once\n"
+      "instead of at the default point; an unresolved one exits 1" },
     // GH #12 — the DeZog Remote Protocol server (dzrp-frontend.md §4.3). The
     // one port rule the three protocol designs agreed: absent = off, 0 = an
     // OS-chosen port that is logged, any other value = that port. No default:
@@ -1162,8 +1182,8 @@ inline const char* page_only_refusal(OptId id) {
 // `--set` derives its refusals from it through config_keys (Key::flag).
 // `--no-esp` and `--no-nextpi` are NOT refused: they ask for the only state
 // there is. The debugger-side options that jnext_debug alone serves (--wav-record,
-// --source-map, --export-*) and the joystick UART endpoints (no thread, socket
-// or process of their own) stay accepted.
+// --audio-log, --source-map, --export-*) stay accepted, and so do the joystick UART's plain-file
+// endpoints (--joy-uart-rx, --joy-uart-connector); its pty and FIFO ones are refused.
 inline const char* browser_refusal(OptId id) {
     switch (id) {
     case OptId::Nextpi: case OptId::NextpiDir: case OptId::NextpiRelease:
@@ -1178,16 +1198,37 @@ inline const char* browser_refusal(OptId id) {
     case OptId::DzrpPort: case OptId::GdbPort: case OptId::ZrcpPort:
     case OptId::DebugListenAddress:
         return "not available in the browser build (the debugger servers need to listen on TCP)";
+    case OptId::Debugger: case OptId::BreakAt:
+        return "not available in the browser build (it waits for a debugger on a TCP port, which a page cannot open; a page serves its debugger over the debug channel)";
     case OptId::Script: case OptId::ScriptKey: case OptId::RecordScript:
     case OptId::Map: case OptId::Annotations:
     case OptId::ImportSkoolkit: case OptId::ImportGhidra:
         return "not available in the browser build (the script host is not part of it)";
+    case OptId::JoyUartPty:
+        return "not available in the browser build (a pseudo-terminal needs the host's terminal devices)";
+    case OptId::JoyUartFifo:
+        return "not available in the browser build (it has no named pipes)";
     case OptId::Sdcard2: case OptId::Sdcard2Readonly:
     case OptId::Sdcard2Writes: case OptId::Sdcard2WritesReset:
         return "not available in the browser build (a page has no second SD card)";
     default:
         return nullptr;
     }
+}
+
+// GH #548: the DZRP port `--debugger` implies. `--debugger` asks for "a debugger" without
+// naming one, so a run with no debugger window and no protocol port of its own gets DeZog's
+// `cspect` remote default. ONE constant: the number is the owner's to confirm.
+constexpr int kDebuggerDefaultDzrpPort = 11000;
+
+// The `--dzrp-port` value after `--debugger` is applied. `has_window`: this run has a
+// debugger window (the Qt GUI with the debugger built in), which is the debugger. Without one,
+// 11000 is implied only when no protocol port at all was given: `--zrcp-port` / `--gdb-port`
+// are the ones the user picked, so they are the ones served, and DZRP stays off. An explicit
+// `--dzrp-port` (any value, 0 included) is kept as it is. -1 = off, as the option's rule.
+inline int debugger_implied_dzrp_port(bool has_window, int dzrp, int zrcp, int gdb) {
+    if (has_window || dzrp >= 0 || zrcp >= 0 || gdb >= 0) return dzrp;
+    return kDebuggerDefaultDzrpPort;
 }
 
 // Find the value of `id` without running the real parse loop (GH #235).

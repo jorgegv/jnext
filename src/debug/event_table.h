@@ -279,6 +279,9 @@ public:
     bool mem_would_match(uint16_t addr, uint16_t page, Access a) const;
     bool port_would_match(uint16_t port, Access a) const;
     bool nr_would_match(uint8_t reg, EventSource src) const;
+    /// GH #532 -- the tap sink's question for a decoded audio write: does any LIVE
+    /// `AudioWrite` subscription accept it? The same predicate as `filter_matches`.
+    bool audio_would_match(const AudioLogEntry& e) const;
 
     // ── the latch ring ──────────────────────────────────────────────────
 

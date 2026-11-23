@@ -32,9 +32,11 @@ end
 | `dma start` | — | `SRC DST LEN DMA_MODE IO_SRC IO_DST` |
 | `dma byte` | `[A[..B]]` (destination) | `SRC DST VALUE IO_SRC IO_DST` |
 | `dma end` | — | `SRC DST LEN DMA_MODE` |
+| `ay_write` | `[chip C] [reg R[..S]] [mask M value V]` | `CHIP REG VALUE PREV TARGET` |
+| `audio_write` | `[ay_reg \| ay_select \| dac] [chip C] [reg R[..S]] [mask M value V] [dropped]` | `CHIP REG VALUE PREV TARGET` |
 | `stop` | — | `REASON` (a string) |
 
-`SOURCE` is `CPU` (0), `DMA` (1) or `COPPER` (2).
+`SOURCE` is `CPU` (0), `DMA` (1) or `COPPER` (2). `TARGET` is 0 AY register, 1 AY chip select, 2 DAC, 3 NextREG mirror, 4 beeper.
 
 ## State
 
@@ -46,6 +48,7 @@ end
 | `cvar(PATH)` | a C variable of the frame the CPU is in, as a 32-bit integer (z88dk `-debug` map); every refusal a run-time error |
 | `set cvar(PATH) = v` | writes a C variable of frame 0: a 32-bit integer, range-checked, no floats |
 | `mmu[s] page[s] nextreg[r]` | MMU, NextREGs |
+| `ay[c, r]` | AY chip `c` (0..2) register `r` (0..15), read-only |
 | `FRAME CYCLE TFRAME` | time |
 | `RAW_HC RAW_VC HC_ULA VC_ULA CVC PHC` | the raster |
 | `MACHINE AUDIO_MUTE AUDIO_CHANNEL_MUTE` | 0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the source mute mask; the channel mute mask |

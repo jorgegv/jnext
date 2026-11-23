@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2218,6 +2218,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#mute-and-solo" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2233,6 +2244,17 @@
     <span class="md-ellipsis">
       
         Scopes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stopping-on-an-audio-write" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stopping on an audio write
       
     </span>
   </a>
@@ -2407,6 +2429,8 @@
       
         
           
+        
+      
         
       
         
@@ -2955,6 +2979,34 @@
     
   
     Disassemblies in skoolkit and Ghidra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/18-starting-from-the-command-line.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Starting from the command line
   
 
     
@@ -4530,7 +4582,7 @@ which one is making a noise does not change the program's behaviour.</p>
 <p>Each channel also has its own <strong>M</strong> (mute) and <strong>S</strong> (solo) buttons, described
 under <a href="#mute-and-solo">Mute and solo</a> below.</p>
 <p>Below it are five tabs: <strong>Chips</strong>, <strong>DAC &amp; Beeper</strong>, <strong>Log</strong>, <strong>Tracker</strong> and
-<strong>Scopes</strong>. Log and Tracker are not available yet.</p>
+<strong>Scopes</strong>. Tracker is not available yet.</p>
 <h2 id="chips">Chips<a class="headerlink" href="#chips" title="Permanent link">&para;</a></h2>
 <p>The header reports whether TurboSound is enabled, whether the chips are in AY
 or YM mode, whether the stereo layout is ABC or ACB, the PSG mode set in
@@ -4576,7 +4628,9 @@ while Soundrive 2 is lit even if bit 5 is set.</p>
 <p><strong>Beeper.</strong> Lamps for EAR and MIC (port 0xFE bits 4 and 3) and for the tape EAR
 input, then whether the internal speaker is on (NextREG 0x08 bit 4), whether the
 beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC reach
-the mix: they do not when both of those are set.</p>
+the mix: they do not when both of those are set. A tape playing in real time reaches the
+mix through the same beeper path, so the Beeper box, and that exclusion,
+silence it too, as it does the Pi's audio when that is routed to EAR (NextREG 0xA2); the Tape EAR lamp keeps showing the input.</p>
 <p><strong>Pi I2S.</strong> Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).</p>
 <p><strong>DAC channels.</strong> Under the DAC values: an <strong>M</strong> and an <strong>S</strong> button per channel (see
@@ -4607,6 +4661,38 @@ cleared only by <strong>Clear</strong>. Writes made from the debugger or a scrip
 Debugger, and stepping back or rewinding does not count the replayed writes again.
 Double-click a row written by the CPU to show the instruction in the Disassembly.</p>
 <p>The DAC &amp; Beeper tab is refreshed at about 4 Hz with the rest of the window.</p>
+<h2 id="log">Log<a class="headerlink" href="#log" title="Permanent link">&para;</a></h2>
+<p>A table of the audio writes the program made, one row per write, newest last. The
+machine records them only while this tab is the one on show in an open debugger window
+(or while something else asks for the log, such as <code>--audio-log</code>); the rows you see
+start when you open the tab, and the log holds the newest 65536 writes. The tab is
+refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.</p>
+<p>The columns are the <strong>Frame</strong>, <strong>Line</strong>, <strong>HC</strong> and <strong>T-state</strong> the write happened at,
+the <strong>PC</strong> of the instruction (only for a write the CPU made), the <strong>Source</strong> (CPU, DMA,
+Copper or Debugger), the <strong>Target</strong> (AY register, AY select, DAC, DAC mirror or Beeper),
+the <strong>Chip</strong> (the AY chip 0 to 2, or the DAC channel A to D), the <strong>Reg</strong> (<code>R7</code> for an
+AY register, <code>NR 0x2D</code> for a DAC mirror write), the <strong>Value</strong> written, the <strong>Prev</strong> value
+it replaced and the <strong>Flags</strong>.</p>
+<p>What is recorded: AY register writes; the TurboSound chip-select and pan commands
+(written to port 0xFFFD) and any discarded 0xFFFD write; DAC channel writes, one row per
+channel a write reaches (port 0xB3 gives channels B and C); writes to NextREG 0x2C to
+0x2E, which mirror into the DAC; and a change of the beeper's EAR or MIC line. A plain
+AY register select, a border-only write to port 0xFE and a repeat of the same EAR and
+MIC levels are not recorded.</p>
+<p>The <strong>Flags</strong> cell reads <code>restart</code> for a write to AY register 13, which restarts the
+envelope even when the value does not change, and <code>dropped:</code> with the reason (the same
+texts as the Dropped writes table above) for a write the hardware discarded; a dropped
+DAC write reached no channel, so its Chip is <code>-</code>.</p>
+<p>A <strong>marker</strong> row reports a break in the log: <code>reset</code> (the machine was reset), <code>state load</code>
+(a state was loaded) or <code>rewind</code> (the machine stepped back or rewound). Stepping back
+removes the rows from the point you landed on, a reset or an earlier rewind marker among them,
+so the log follows the timeline you are now on, and adds a <code>rewind</code> marker. A reset you make
+right after a rewind has its own <code>reset</code> row. Markers are shown under every filter.</p>
+<p>The filters narrow the rows: the Target, the AY chip, the AY register, the DAC channel
+and the Source; <strong>Envelope restarts only</strong>; and <strong>Dropped only</strong>. Double-click a row
+written by the CPU to show the instruction in the Disassembly. <strong>Export CSV...</strong> writes
+the whole log in the same format as the <code>--audio-log</code> option, described in the manual
+page.</p>
 <h2 id="mute-and-solo">Mute and solo<a class="headerlink" href="#mute-and-solo" title="Permanent link">&para;</a></h2>
 <p>Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,
 and the 4 DAC channels in the DAC &amp; Beeper tab) has an <strong>M</strong> and an <strong>S</strong>
@@ -4645,8 +4731,9 @@ and the host do to it:</p>
   generating (the Chips tab says whether it reaches the mix);</li>
 <li>a DAC channel is the byte last written, drawn around its midpoint (<code>0x80</code> is
   silence);</li>
-<li>the Beeper is EAR, MIC and the tape EAR input, and is flat while the beeper is
-  excluded from the mix;</li>
+<li>the Beeper is EAR and MIC, and is flat while the beeper is excluded from the mix;
+  a tape that is playing (and the Pi's audio when it is routed to EAR) reaches the mix
+  only through the MIC term, as on the hardware, so it shows here as the MIC step;</li>
 <li>Left and Right are the hardware mix, the same sum as the sound output.</li>
 </ul>
 <p>Muting a source in the Sources strip or changing a gain does not change a trace:
@@ -4662,6 +4749,10 @@ the root mean square, in the source's own units (0 to 255 for an AY or DAC chann
 <p>Samples are collected only while this tab is on show, and the scopes redraw on
 every frame while the machine runs. While it is collecting, programs that sit in HALT or poll the raster run without the emulator's idle shortcuts. At 28 MHz such programs can need five to eight times the host CPU while Scopes is on show (about twice at 3.5 MHz), so a slow host may not keep real time; it ends when you leave the tab. With <code>--silent</code> the emulator does not
 synthesise audio, and the tab says so instead of drawing traces.</p>
+<h2 id="stopping-on-an-audio-write">Stopping on an audio write<a class="headerlink" href="#stopping-on-an-audio-write" title="Permanent link">&para;</a></h2>
+<p>To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an
+<strong>Audio Write</strong> breakpoint in the <a href="08-breakpoints.html#audio-write-breakpoints">Breakpoints panel</a>,
+or write a rule with <a href="../scripting/03-events.html#audio-ay_write-audio_write"><code>on ay_write</code> or <code>on audio_write</code></a>.</p>
 <hr />
 
 

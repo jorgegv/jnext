@@ -36,6 +36,9 @@ The log confirms it:
 [13:10:21.837] [debugger] [info] gdb: listening on 127.0.0.1:3333
 ```
 
+`jnext --headless --debugger --gdb-port 3333 mygame.nex` starts the program paused where it
+starts and serves only GDB (see [Starting from the command line](18-starting-from-the-command-line.md)).
+
 `--gdb-port 0` lets the system pick a free port and prints it in that line.
 The server is off unless you give the option, and it works in every frontend —
 the Qt window, the SDL build and `--headless`. It can run together with the

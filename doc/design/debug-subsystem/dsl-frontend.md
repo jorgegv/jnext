@@ -148,6 +148,13 @@ event       ::= "execute"  addr_spec
                                                    #   `end` here is a sub-kind, not the block terminator —
                                                    #   the parser special-cases the token after `dma`
                                                    #   (script_parse_test row PARSE-DMA-END)
+              | "ay_write"    audio_spec           # an APPLIED AY register write (GH #532)
+              | "audio_write" [ "ay_reg" | "ay_select" | "dac" ] audio_spec [ "dropped" ]
+                                                   #   any audio write by target: `ay_reg` a register write,
+                                                   #   `ay_select` a chip-select command, `dac` the DAC ports and
+                                                   #   the NextREG mirror, no word = every target (beeper
+                                                   #   included); `dropped` selects the DISCARDED writes (the
+                                                   #   default is the applied ones only)
 
 addr_spec   ::= expr [ ".." expr ] [ "page" expr ]   # inclusive 16-bit logical range, optionally
               | "page" expr [ ".." expr ]          #   qualified by / replaced with a PHYSICAL 8K page
@@ -161,6 +168,11 @@ port_spec   ::= expr [ ".." expr ]                 # GH #222 semantics: 0x00xx =
                                                    #   in 0x00..0xFF or wholly above it: a range across
                                                    #   0xFF is a load error (Appendix I.2)
 reg_spec    ::= expr [ ".." expr ]                 # NextREG number(s)
+audio_spec  ::= [ "chip" expr ] [ "reg" expr [ ".." expr ] ] [ "mask" expr "value" expr ]
+                                                   # the qualifiers take this fixed order, each optional.
+                                                   #   `chip`: AY 0..2, DAC channel 0..3 (`dac`); needs a target.
+                                                   #   `reg`: AY register 0..15; `ay_reg` / `ay_write` only.
+                                                   #   `mask`/`value`: (written byte & mask) == value, 0..0xFF
 
 action      ::= "log" [ "indent" expr ] string
               | "stop" [ string ]
@@ -191,6 +203,7 @@ expr        ::= literal | IDENT | builtin | "@" IDENT { "." IDENT } | "(" expr "
               | "mem[" expr "]" | "mem16[" expr "]"
               | "phys[" expr "," expr "]"          # (8K page, offset 0..0x1FFF)
               | "nextreg[" expr "]" | "mmu[" expr "]" | "page[" expr "]" | "stack[" expr "]"
+              | "ay[" expr "," expr "]"            # AY register read-back (chip 0..2, register 0..15), read-only (GH #532)
               | IDENT "." field                    # snapshot field, see 2.5
               | "changed(" IDENT "," group ")"     # snapshot comparison
               | "depth(" IDENT ")"
@@ -273,6 +286,7 @@ destructive NextREG read handler; `NextReg::peek`, `nextreg.h:53-56`).
 | `phys[page, off]` | byte in physical 8K page | backend peek (physical) |
 | `stack[n]` | LE word at `SP + 2n` | derived from `mem16` |
 | `nextreg[r]` | NextREG value, side-effect-free | `NextReg::peek` |
+| `ay[c, r]` | the AY register of chip `c` (0..2), register `r` (0..15), as a CPU read returns it (`AyChip::read_register`, what the hex table shows: in AY mode R1/R3/R5/R13 are 4 bits and R6/R8/R9/R10 5 bits, `ym2149.vhd:227-239`; R14/R15 read 0xFF in input mode); read-only, side-effect-free; out of range is a run-time error (GH #532) | `Debugger::ay_registers` |
 | `mmu[s]` | NR 0x50+s as the register reads (0xFF for ROM) | `Mmu::nr_mmu_` via backend |
 | `page[s]` | effective physical 8K page in slot s | `Mmu::get_effective_page`, `mmu.h:74-77` |
 | `FRAME` | frame counter (backend-owned, REQ-dsl-16) | backend |
@@ -301,6 +315,7 @@ Event payload, valid only inside the matching rule body:
 | `PREV` | write | the byte before the write (`Mem{Write}.prev`, REQ-dsl-25 ACCEPTED) |
 | `SRC`, `DST`, `LEN`, `DMA_MODE`, `IO_SRC`, `IO_DST` | dma start/byte/end | transfer parameters; on `byte`: `SRC`/`DST` are the addresses of that byte, `VALUE` the byte, `IO_SRC`/`IO_DST` whether each side is a port; on `end`: `LEN` = bytes moved |
 | `REASON` | stop | why the machine paused (string) |
+| `CHIP`, `TARGET` | ay_write / audio_write | the AY chip 0..2 (the DAC channel 0..3; 255 for a dropped DAC or mirror write that reached no channel) and the write's target: 0 AY register, 1 AY chip select, 2 DAC, 3 NextREG mirror (0x2C-0x2E), 4 beeper. `REG`, `VALUE`, `PREV` carry the target's meaning (AY: register and byte, `PREV` the register before; select: the command byte and the chip before; DAC: the byte and the channel before; mirror: the NR number). `TARGET` is always 0 in `ay_write` (GH #532) |
 
 ### 2.4 Time and raster semantics — which counter is which
 

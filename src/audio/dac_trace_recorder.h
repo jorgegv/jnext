@@ -27,6 +27,7 @@ private:
     std::FILE* file_ = nullptr;
     uint64_t last_tstate_ = 0;
     unsigned segment_ = 0;
+    std::string path_;           // the file now open (reported to output_files)
     bool have_tstate_ = false;
     bool failed_ = false;
     std::string last_error_;

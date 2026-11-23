@@ -230,6 +230,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     `clients_changed()` re-derives from the list.
     sync_call_stack(/*force=*/true);   // GH #434 F-B: the clients' requests and the source map, not a stored bool
     sync_audio_scope(/*force=*/true);  // GH #536: the new machine holds no tap; the clients' requests say whether it gets one
+    sync_audio_log(/*force=*/true);    // GH #531: the new Emulator holds no sink; the clients' requests re-install it
     if (want_trace)      emu.trace_log().set_enabled(*want_trace);
     if (want_persistent) ds().set_persistent_breakpoints(*want_persistent);
     //     GH #276 B4 — INS-20, the fourth enable rule 2 names. Not a `want_*`:

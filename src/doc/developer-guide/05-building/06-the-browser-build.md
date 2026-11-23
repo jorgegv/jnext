@@ -11,7 +11,7 @@ The browser build is the SDL-only configuration (no Qt, no debugger GUI) compile
 by a pinned Emscripten SDK. One tree, `build/wasm-core`, links two modules:
 
 - `jnext` (`jnext.js` and `jnext.wasm`): the node build. `test/wasm-core-check.sh`
-  (WCORE-01 to WCORE-10) and `make regression-wasm` run it under node. The unit suites
+  (WCORE-01 to WCORE-12) and `make regression-wasm` run it under node. The unit suites
   are separate modules, built in `build/wasm-unit-test`.
 - `jnext_web` (`jnext-<version>.js` and `.wasm`): the build a page loads, with the
   example pages (`plain.html`, `itch-host.html`, `itch-game.html`, `widget.html`) and
@@ -238,14 +238,64 @@ hidden tab move it exactly as far as the machine runs, never in wall time. It ne
 (`fastload_active()` excludes it) and the core runs it per instruction (batch gate G4), like a
 real-time `.tap` or `.tzx`.
 
+*The files a page can collect.* `player.listFiles()`, `readFile()` and `stop()` (`web/jnext_api.js.in`)
+hand the page the files the core wrote for an output option. The list is built by the writers, not by
+watching the file system: Emscripten's FS tracking delegate exists only in `FS_DEBUG` builds. `core/output_files.h` is
+a header-only hook (`begin(path)` when a writer opens its file, `end(path)` when it has finished it for good,
+`written(path)` for a file written at once); natively its sink is null, so every call is a test of one
+pointer and nothing else (`output_files_test`, OUTF-03). `main()` installs the page's sink first
+(`browser_frontend::install_output_sink`): it calls `Module.jnextFile(path, complete)`, which the player
+sets (`jnext_web_file`, an `EM_JS` like `jnextEvent`), and the player keeps the list in JavaScript, because a call into
+the module after `emscripten_force_exit` is not safe to rely on. The call sites are one place per option, at the
+real start and finish of the file:
+
+| option | begin | end |
+|---|---|---|
+| `--wav-record`, `--dac-trace` | `AudioRecorder::start`, `DacTraceRecorder::start` | their `stop()` |
+| `--tape-save` | `Emulator::start_tape_save` (TAP and TZX/WAV arms) | `stop_tape_save`, `finish_outputs` |
+| `--compositor-trace` | the `fopen` in `Renderer::render_frame` | `Renderer::finish_compositor_trace` (after its frame, or at the end) |
+| `--profile-output` | none | `finish_outputs`, after `write_to_file` |
+| `--delayed-screenshot` | none | `SdlApp::tick`, when the capture is written |
+| `--export-skoolkit`, `--export-ghidra` | none | `run_export`, once for each path in `ReReport::paths` |
+| `--bug-report` | none | `write_bug_report_at_exit`, after the write |
+| `--audio-log` | `AudioLogStream::open`, after the `fopen` | `AudioLogStream::finish`, after the flush and close (also when it reports an error: what is on disk is final) |
+| `--log-file` | `main()`, where the sink is built | the page's finish, after flushing every logger |
+
+Not listed, by design: the SD-writes journal, the warm-start recording, quick snapshots, the API's own
+`/tmp/jnext-page-*` scratch files, the extracted zip members, the esxDOS stand-in's writes and what a debugger
+protocol command saves; none is an output option.
+
+*Two layers keep the card in.* The list is the allow-list: only a file a writer reported can be returned. On top of it the player never lists
+or returns anything under its own locations, `/sdcard` (the SD card: copyrighted NextZXOS), `/jnext` (the
+configuration directory: the warm-start recording, the card-writes records) and `/media` (the programs
+and the copies off the card). The test is on the canonical path, which the page's own file system gives
+(`FS.lookupPath`, symlinks followed, so `..`, `.`, a relative name and a link all land on the real path), and it is
+made again at each call; the `r + '/'` boundary keeps `/sdcard.dat` ordinary. Both layers are needed:
+`--tape-save` to a name that is not `.tzx` or `.wav` appends TAP blocks to an existing file, so `--tape-save
+/sdcard/image.img` makes the card a file "jnext wrote", which the allow-list alone would return; a deny-list alone would
+return the output of every future writer that keeps firmware-derived state. A new writer left off the list is
+then a missing file, which its option's row finds, and never a leak (BOUT-17).
+The guard keeps the card image and the player's own files in. It does not filter what an export the page asked for
+contains: a `--export-skoolkit` of ROM space writes the ROM the machine ran, exactly as on the desktop (owner decision), and
+BOUT-08 compares it with the native run.
+
+*`finish_outputs`.* No destructor runs in a page: the app is released at the end of `main()` and the module
+links with `-sEXIT_RUNTIME=0`, and `emscripten_force_exit` does not flush stdio. `Emulator::~Emulator` used to
+be the only place a TZX/WAV tape save was closed (its last block, the WAV header) and the CPU profile was
+written, so a page lost both, and an unfinished compositor trace and the `--log-file` stayed in stdio's buffers.
+`Emulator::finish_outputs()` (idempotent) does those and the destructor calls it; the page's finish
+(`main.cpp`) calls it after `app.shutdown()`, flushes the loggers and tells the player the log is complete.
+`stop()` uses the same `jnext_web_quit` as `destroy()` and resolves with the exit status once `onExit` has fired,
+which is after `finish_outputs`.
+
 *Refused and absent.* The build's own flag and `--set` key refusals apply, and
 the page also refuses `--headless` (it would block the tab for ever), `--rzx-record` (a
 page records with the player's methods), and any program that is not a `.nex`, `.tap`, `.tzx`, `.jns`, `.sna`, `.szx`, `.z80`, `.wav` or `.rzx` (`browser_page.h`),
 each with a message that says "browser page". The browser reserves Ctrl+W, T and
 N (and Ctrl+Q in some browsers), so Symbol Shift plus those letters cannot be
 typed with Ctrl; the operating system keeps Alt+Tab and Alt+F4. Files the
-emulator writes (screenshots, WAV, quick snapshots, RZX recordings, which `stopRzxRecording()` hands to the page) live in the in-memory file
-system for the session. On the desktop `--rzx-play` is started by a pre-step at the top of
+emulator writes (screenshots, WAV, the audio write log, quick snapshots, RZX recordings, which `stopRzxRecording()` hands to the page) live in the in-memory file
+system for the session; the page collects those of the output options with `listFiles()` and `readFile()` (above). On the desktop `--rzx-play` is started by a pre-step at the top of
 `SdlApp::run()`, which the page does not call. In a page an RZX playback (`file`, `--load x.rzx`,
 `--rzx-play`) is the page's pending load (`main.cpp`) instead: so it fires `ready`, is what
 `reset('program')` restarts, and a file that fails rejects `ready`. Two things
@@ -386,7 +436,7 @@ the recording was made on is not the one it now boots from.
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..16 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-09, WEBAPI-01 to WEBAPI-34 (WEBAPI-30 and 31 load a WAV, made at run time from `demo/beeper_demo`'s TAP by `tap2wav.py` beside `tap2tzx.py`, and compare the page with a native run and with `tap-demo-reference.png`; WEBAPI-32 to 34 load a zipped NEX and its data file, made at run time with CPython's `zipfile` around the esxDOS probe NEX, and refuse a zipped TAP), WIDGET-01 to WIDGET-17, BDBG-01 to BDBG-25 (the debugger protocols served by a page, `debug.mjs`: the unchanged native peers `dzrp-peer.py`, `zrcp-peer.py` and `gdb-peer.py` against the page over the JS channel, through a `TcpRelay` that stands in for a webview host, and over a WebSocket to the bridge run as a child process; the bridge's origin check, framing against node's own WebSocket client and the RFC 6455 handshake vector, backpressure and the end of a session after a reply larger than the kernel buffers), BCARD-01 to BCARD-44 (the card flow, the poster, the stored form of the card and `card.dirs`, `card.mjs`: a synthetic distribution through the localhost seam, and BCARD-13 and BCARD-41 on real data; BCARD-22 to 25 and 44, `card-errors.mjs`: the wording of the pick path's refusals, driven with a stub module under node, no browser and no seam), TKB-01 to TKB-17 (the on-screen keyboard, `touch.mjs`: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's `keymaps.vhd`, `membrane.vhd` and `zxnext.vhd`, with `demo/key_matrix_demo`, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run `kmx.log` as oracle), WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BRZ-01 to BRZ-12 (RZX in a page, `rzx.mjs`: `keys48.rzx` and `s128.rzx` are recorded at run time by the native jnext from our own inputs; a page's replay equals the native replay, and `stopRzxRecording()`'s file replays natively), BSN-01 to BSN-11 (snapshots, `snapshots.mjs`: a `.sna`, `.z80`, `.szx` and `.jns` loaded in the page equal the native run of the same file, and `saveSnapshot()` is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01 to WEBPKG-BR-07, which boot `plain.html` from the extracted `make package-web` zip, check that its four example pages lay out at the device width on a phone (02 to 05), and that `plain.html` and `itch-host.html` fit their player in a phone-wide page (06 and 07) (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-35, WBI-PW-01 to WBI-PW-09, BOUT-01 to BOUT-20 (the files JNEXT writes, `files.mjs`: each output option's file, listed and fetched by the page, byte-equal to a native run of the same arguments (`chain_outputs` in `browser-smoke.sh`) except the PNG, compared by pixels, and the three members of the bug-report zip that carry the time, the paths, the card name and the host (`manifest.json`, `settings.json`, `log.txt`; every `state/` member, the screens and `debugger.json` are byte-equal); every row of a run that depends on the stop frame (the WAV, the profile, the RAM dumps) runs at `--speed 99`, one frame in each tick, in the page and natively; the files still being written, `stop()`, and the card guard that refuses the SD card even when `--tape-save` was aimed at it), WEBAPI-01 to WEBAPI-34 (WEBAPI-30 and 31 load a WAV, made at run time from `demo/beeper_demo`'s TAP by `tap2wav.py` beside `tap2tzx.py`, and compare the page with a native run and with `tap-demo-reference.png`; WEBAPI-32 to 34 load a zipped NEX and its data file, made at run time with CPython's `zipfile` around the esxDOS probe NEX, and refuse a zipped TAP), WIDGET-01 to WIDGET-17, BDBG-01 to BDBG-25 (the debugger protocols served by a page, `debug.mjs`: the unchanged native peers `dzrp-peer.py`, `zrcp-peer.py` and `gdb-peer.py` against the page over the JS channel, through a `TcpRelay` that stands in for a webview host, and over a WebSocket to the bridge run as a child process; the bridge's origin check, framing against node's own WebSocket client and the RFC 6455 handshake vector, backpressure and the end of a session after a reply larger than the kernel buffers), BCARD-01 to BCARD-44 (the card flow, the poster, the stored form of the card and `card.dirs`, `card.mjs`: a synthetic distribution through the localhost seam, and BCARD-13 and BCARD-41 on real data; BCARD-22 to 25 and 44, `card-errors.mjs`: the wording of the pick path's refusals, driven with a stub module under node, no browser and no seam), TKB-01 to TKB-17 (the on-screen keyboard, `touch.mjs`: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's `keymaps.vhd`, `membrane.vhd` and `zxnext.vhd`, with `demo/key_matrix_demo`, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run `kmx.log` as oracle), WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BRZ-01 to BRZ-12 (RZX in a page, `rzx.mjs`: `keys48.rzx` and `s128.rzx` are recorded at run time by the native jnext from our own inputs; a page's replay equals the native replay, and `stopRzxRecording()`'s file replays natively), BSN-01 to BSN-11 (snapshots, `snapshots.mjs`: a `.sna`, `.z80`, `.szx` and `.jns` loaded in the page equal the native run of the same file, and `saveSnapshot()` is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01 to WEBPKG-BR-07, which boot `plain.html` from the extracted `make package-web` zip, check that its four example pages lay out at the device width on a phone (02 to 05), and that `plain.html` and `itch-host.html` fit their player in a phone-wide page (06 and 07) (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.

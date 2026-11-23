@@ -1724,7 +1724,9 @@ void DebuggerWindow::create_panels() {
 
     // GH #530 - a dropped CPU write in the Audio tab names the OUT that was discarded.
     connect(audio_panel_, &AudioPanel::show_in_disassembly_requested, disasm_panel_, &DisasmPanel::show_address);
-    // GH #536 - the Scopes sub-tab comes on or off show: what the window asks of the backend changes.
+    // GH #536 - the Scopes sub-tab, and GH #531 - the Log sub-tab, come on or off show: Scopes asks the
+    // backend for the source tap and Log for the audio write log only while shown, so a sub-tab change
+    // re-derives what the Audio panel asks for (GH #498).
     connect(audio_panel_, &AudioPanel::sub_tab_changed, this, &DebuggerWindow::panels_on_show_changed);
 
     // GH #366 - the Symbols tab asks for a place to be shown.

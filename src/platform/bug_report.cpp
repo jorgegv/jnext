@@ -78,8 +78,10 @@ const char* event_kind_name(dbg::EventKind k)
 {
     static const char* const names[] = {
         "execute", "mem", "port", "nextreg-write", "frame", "scanline", "cycle",
-        "reset", "int-ack", "nmi", "magic", "host", "copper", "dma",
+        "reset", "int-ack", "nmi", "magic", "host", "copper", "dma", "audio-write",
     };
+    static_assert(sizeof(names) / sizeof(names[0]) == dbg::EVENT_KIND_COUNT,
+                  "event_kind_name needs a name for every EventKind");
     const size_t i = static_cast<size_t>(k);
     return i < sizeof(names) / sizeof(names[0]) ? names[i] : "unknown";
 }

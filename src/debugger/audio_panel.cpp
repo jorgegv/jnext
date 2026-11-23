@@ -1,4 +1,5 @@
 #include "debugger/audio_panel.h"
+#include "debugger/audio_log_view.h"
 #include "debugger/audio_scope_view.h"
 #include "debug/audio_math.h"
 #include "debug/debugger.h"   // also AudioMute::* (via inspect.h)
@@ -127,7 +128,10 @@ void AudioPanel::create_ui() {
     dac_scroll_->setFrameShape(QFrame::NoFrame);
     dac_scroll_->setWidget(create_dac_tab());
     tabs_->addTab(dac_scroll_, tr("DAC && Beeper"));
-    tabs_->addTab(placeholder_tab(), tr("Log"));
+    log_view_ = new AudioLogView(dbg_, tabs_);
+    tabs_->addTab(log_view_, tr("Log"));
+    connect(log_view_, &AudioLogView::show_in_disassembly_requested,
+            this, &AudioPanel::show_in_disassembly_requested);
     tabs_->addTab(placeholder_tab(), tr("Tracker"));
     scope_view_ = new AudioScopeView(dbg_, tabs_);
     tabs_->addTab(scope_view_, tr("Scopes"));
@@ -242,6 +246,10 @@ bool AudioPanel::scopes_on_show() const {
 
 void AudioPanel::refresh_scopes() {
     if (scope_view_) scope_view_->refresh();
+}
+
+bool AudioPanel::log_on_show() const {
+    return tabs_ && log_view_ && tabs_->currentWidget() == log_view_;
 }
 
 QWidget* AudioPanel::create_chips_tab() {
@@ -519,32 +527,12 @@ void AudioPanel::refresh() {
 
     refresh_dac_(st);
     if (scopes_on_show()) scope_view_->refresh();   // a paused machine's redraw (GH #536)
+
+    // The Log tab reads its own verb, and only while it is the tab on show.
+    if (log_on_show()) log_view_->refresh();
 }
 
 namespace {
-
-// The eight reasons, in AudioDropReason order from AyPortDisabled.
-const char* const kDropText[8] = {
-    "AY ports off (NR 0x84 bit 0)",
-    "AY held in reset (NR 0x06 = 11)",
-    "Chip select, TurboSound off",
-    "Ignored 0xFFFD value",
-    "Register address 16-31",
-    "DAC port family off (NR 0x84)",
-    "DAC off (NR 0x08 bit 3)",
-    "DAC mirror, DAC off (NR 0x08 bit 3)",
-};
-
-const char* source_text(jnext::dbg::EventSource s) {
-    switch (s) {
-        case jnext::dbg::EventSource::Cpu:      return "CPU";
-        case jnext::dbg::EventSource::Dma:      return "DMA";
-        case jnext::dbg::EventSource::Copper:   return "Copper";
-        case jnext::dbg::EventSource::Debugger: return "Debugger";
-        case jnext::dbg::EventSource::Any:      break;
-    }
-    return "-";
-}
 
 QLabel* plain_label(const QString& object_name, const QString& text, QWidget* parent) {
     auto* l = new QLabel(text, parent);
@@ -667,7 +655,7 @@ QWidget* AudioPanel::create_dac_tab() {
     drops_tree_->setFont(mono);
     for (int i = 0; i < 8; ++i) {
         auto* item = new QTreeWidgetItem(drops_tree_);
-        item->setText(0, tr(kDropText[i]));
+        item->setText(0, audio_drop_reason_text(static_cast<jnext::dbg::AudioDropReason>(i + 1)));
         item->setText(1, "0");
         for (int col = 2; col < 7; ++col) item->setText(col, "-");
         item->setData(0, Qt::UserRole, -1);
@@ -757,7 +745,7 @@ void AudioPanel::refresh_dac_(const jnext::dbg::AudioState& st) {
         // debugger write is not made by that instruction).
         item->setText(4, cpu ? QString::asprintf("0x%04X", d.last_pc) : QStringLiteral("-"));
         item->setText(5, QString::number(d.last_frame));
-        item->setText(6, tr(source_text(d.last_source)));
+        item->setText(6, tr(audio_source_text(d.last_source)));
         item->setData(0, Qt::UserRole, cpu ? static_cast<int>(d.last_pc) : -1);
     }
 }

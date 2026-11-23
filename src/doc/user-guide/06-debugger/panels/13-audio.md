@@ -12,7 +12,7 @@ Each channel also has its own **M** (mute) and **S** (solo) buttons, described
 under [Mute and solo](#mute-and-solo) below.
 
 Below it are five tabs: **Chips**, **DAC & Beeper**, **Log**, **Tracker** and
-**Scopes**. Log and Tracker are not available yet.
+**Scopes**. Tracker is not available yet.
 
 ## Chips
 
@@ -67,7 +67,9 @@ while Soundrive 2 is lit even if bit 5 is set.
 **Beeper.** Lamps for EAR and MIC (port 0xFE bits 4 and 3) and for the tape EAR
 input, then whether the internal speaker is on (NextREG 0x08 bit 4), whether the
 beeper goes to the speaker only (NextREG 0x06 bit 6), and whether EAR and MIC reach
-the mix: they do not when both of those are set.
+the mix: they do not when both of those are set. A tape playing in real time reaches the
+mix through the same beeper path, so the Beeper box, and that exclusion,
+silence it too, as it does the Pi's audio when that is routed to EAR (NextREG 0xA2); the Tape EAR lamp keeps showing the input.
 
 **Pi I2S.** Lamps for the left and right inputs and whether the Pi's audio goes to
 EAR (NextREG 0xA2).
@@ -103,6 +105,45 @@ Debugger, and stepping back or rewinding does not count the replayed writes agai
 Double-click a row written by the CPU to show the instruction in the Disassembly.
 
 The DAC & Beeper tab is refreshed at about 4 Hz with the rest of the window.
+
+## Log
+
+A table of the audio writes the program made, one row per write, newest last. The
+machine records them only while this tab is the one on show in an open debugger window
+(or while something else asks for the log, such as `--audio-log`); the rows you see
+start when you open the tab, and the log holds the newest 65536 writes. The tab is
+refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.
+
+The columns are the **Frame**, **Line**, **HC** and **T-state** the write happened at,
+the **PC** of the instruction (only for a write the CPU made), the **Source** (CPU, DMA,
+Copper or Debugger), the **Target** (AY register, AY select, DAC, DAC mirror or Beeper),
+the **Chip** (the AY chip 0 to 2, or the DAC channel A to D), the **Reg** (`R7` for an
+AY register, `NR 0x2D` for a DAC mirror write), the **Value** written, the **Prev** value
+it replaced and the **Flags**.
+
+What is recorded: AY register writes; the TurboSound chip-select and pan commands
+(written to port 0xFFFD) and any discarded 0xFFFD write; DAC channel writes, one row per
+channel a write reaches (port 0xB3 gives channels B and C); writes to NextREG 0x2C to
+0x2E, which mirror into the DAC; and a change of the beeper's EAR or MIC line. A plain
+AY register select, a border-only write to port 0xFE and a repeat of the same EAR and
+MIC levels are not recorded.
+
+The **Flags** cell reads `restart` for a write to AY register 13, which restarts the
+envelope even when the value does not change, and `dropped: ` with the reason (the same
+texts as the Dropped writes table above) for a write the hardware discarded; a dropped
+DAC write reached no channel, so its Chip is `-`.
+
+A **marker** row reports a break in the log: `reset` (the machine was reset), `state load`
+(a state was loaded) or `rewind` (the machine stepped back or rewound). Stepping back
+removes the rows from the point you landed on, a reset or an earlier rewind marker among them,
+so the log follows the timeline you are now on, and adds a `rewind` marker. A reset you make
+right after a rewind has its own `reset` row. Markers are shown under every filter.
+
+The filters narrow the rows: the Target, the AY chip, the AY register, the DAC channel
+and the Source; **Envelope restarts only**; and **Dropped only**. Double-click a row
+written by the CPU to show the instruction in the Disassembly. **Export CSV...** writes
+the whole log in the same format as the `--audio-log` option, described in the manual
+page.
 
 ## Mute and solo
 
@@ -147,8 +188,9 @@ and the host do to it:
   generating (the Chips tab says whether it reaches the mix);
 - a DAC channel is the byte last written, drawn around its midpoint (`0x80` is
   silence);
-- the Beeper is EAR, MIC and the tape EAR input, and is flat while the beeper is
-  excluded from the mix;
+- the Beeper is EAR and MIC, and is flat while the beeper is excluded from the mix;
+  a tape that is playing (and the Pi's audio when it is routed to EAR) reaches the mix
+  only through the MIC term, as on the hardware, so it shows here as the MIC step;
 - Left and Right are the hardware mix, the same sum as the sound output.
 
 Muting a source in the Sources strip or changing a gain does not change a trace:
@@ -167,5 +209,11 @@ the root mean square, in the source's own units (0 to 255 for an AY or DAC chann
 Samples are collected only while this tab is on show, and the scopes redraw on
 every frame while the machine runs. While it is collecting, programs that sit in HALT or poll the raster run without the emulator's idle shortcuts. At 28 MHz such programs can need five to eight times the host CPU while Scopes is on show (about twice at 3.5 MHz), so a slow host may not keep real time; it ends when you leave the tab. With `--silent` the emulator does not
 synthesise audio, and the tab says so instead of drawing traces.
+
+## Stopping on an audio write
+
+To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an
+**Audio Write** breakpoint in the [Breakpoints panel](08-breakpoints.md#audio-write-breakpoints),
+or write a rule with [`on ay_write` or `on audio_write`](../scripting/03-events.md#audio-ay_write-audio_write).
 
 ---

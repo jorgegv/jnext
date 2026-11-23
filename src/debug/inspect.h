@@ -560,7 +560,9 @@ constexpr size_t AUDIO_SOURCE_COUNT = size_t(AudioSource::Count);
 ///   AY     the ym2149 channel output, 0-255 (`ym2149.vhd:526-536`), before
 ///          TurboSound routing and pan, so a chip outside the mix still shows;
 ///   DAC    the Soundrive channel byte, 0x80 at rest (`soundrive.vhd:74-77`);
-///   Beeper EAR 512 + MIC 128 + tape EAR 512, all 0 while the speaker-exclusive gate holds;
+///   Beeper EAR 512 (`ear_i` = port 0xFE bit 4) + MIC 128 (`mic_i` = `beep_mic_final`, which carries the
+///          playing tape and the Pi's audio routed to EAR: `zxnext.vhd:7113,7126`), all 0 while the
+///          speaker-exclusive gate holds;
 ///   Mix    the 13-bit sum of `audio_mixer.vhd:99-100`: the beeper, the AY sum,
 ///          the DAC pair << 2 and the I2S term (`MixLeft`/`MixRight`).
 /// So at 0 dB with no mute the mix traces equal the mixer's output plus
@@ -575,13 +577,13 @@ struct AudioScopeBlock {
 struct AudioSourceScale { int16_t lo; int16_t rest; int16_t hi; };
 
 /// The one source of a scope view's axes and meters. AY: 0-255 x 4 (`ym2149.vhd:157-162`);
-/// DAC: 0x80 x 4 at rest (`soundrive.vhd:74-77`); Beeper: (512 + 128 + 512) x 4
+/// DAC: 0x80 x 4 at rest (`soundrive.vhd:74-77`); Beeper: (512 + 128) x 4
 /// (`audio_mixer.vhd:80-81`); Mix: the resting 1536 x 4 (`Mixer::MIX_REST_LEVEL`) and 8191 x 4
 /// (`audio_mixer.vhd:99-100`).
 constexpr AudioSourceScale audio_source_scale(AudioSource s) {
     if (s <= AudioSource::Ay2C) return {0, 0, 1020};
     if (s <= AudioSource::DacD) return {0, 512, 1020};
-    if (s == AudioSource::Beeper) return {0, 0, 4608};
+    if (s == AudioSource::Beeper) return {0, 0, 2560};
     return {0, 6144, 32764};
 }
 
