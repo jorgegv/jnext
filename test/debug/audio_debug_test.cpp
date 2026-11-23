@@ -5013,8 +5013,8 @@ int main() {
         auto drive = [](bool latch, uint16_t mute, Obs& o) {
             MixRig m;
             m.ts.set_enabled(true);
-            m.ts.set_channel_mute_mask(mute);
             m.ts.set_hw_chip_latch(latch);
+            m.ts.set_channel_mute_mask(mute);   // after the latch: each setter must refresh the divert byte itself
             static const uint8_t pan_bits[4] = {3, 2, 1, 0};
             for (int i = 0; i < 160; ++i) {
                 const int c = i % 3;
@@ -5126,9 +5126,11 @@ int main() {
         dbg.pause(cid);
         for (int i = 0; i < 3000; ++i) emu.execute_single_instruction();
         { Out o; drain(emu, o); mixed += o.l.size(); }
-        const uint64_t w0 = emu.audio_scope_tap()->stems->written;
+        const AudioSourceTap* t0 = emu.audio_scope_tap();
+        const uint64_t w0 = t0 && t0->stems ? t0->stems->written : 0;
         const Result sb = dbg.step_back(cid, 1);
-        const bool replay_quiet = sb == Result::Ok && emu.mixer().available() == 0 && emu.audio_scope_tap()->stems->written == w0;
+        const bool replay_quiet = sb == Result::Ok && emu.mixer().available() == 0 &&
+                                  emu.audio_scope_tap() && emu.audio_scope_tap()->stems && emu.audio_scope_tap()->stems->written == w0;
         dbg.run(cid);
         frames(3);
         ok = ok && replay_quiet && dbg.stems_record_stop(cid) == Result::Ok;
