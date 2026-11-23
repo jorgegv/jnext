@@ -76,7 +76,7 @@ if want sdcard-lock-func; then
     try insert 1 --headless --machine 48k --rewind-buffer-size 0 --sdcard "$BASE/q.img" \
         --delayed-sdcard-insert-frames 5 "$BASE/a.img" --delayed-automatic-exit-frames 40
     grep -qF "SD card change refused: $(msg_image "$BASE/a.img")" "$W/insert.log" \
-        || faults+=("insert: the live insert of a held card was not refused with the lock message: $(grep -h 'refused\|in use' "$W/insert.log" | head -c 300)")
+        || faults+=("insert: the live insert of a held card was not refused with the lock message: $({ grep -h 'refused\|in use' "$W/insert.log" || true; } | head -c 300)")
     stop_holder "$h1"
 
     # 3. the overlay FILE is locked on its own: another card, the same writes file
