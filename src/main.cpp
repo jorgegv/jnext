@@ -8,6 +8,7 @@
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
+#include "core/image_lock.h"
 #include "core/sdcard_file_add.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
@@ -2231,6 +2232,19 @@ int main(int argc, char* argv[]) {
 #endif
     }
 
+    // GH #555 - one jnext per card image: the image (and its --sdcard-writes FILE) is locked for
+    // the life of the process, before anything reads or writes it. --sdcard-file-add writes the
+    // image, so a locked one is its "image unusable" (exit 5).
+    {
+        std::string lock_why;
+        if (!sd_card_image.empty() &&
+            !sdcard::sd_locks::hold(0, sd_card_image, sdcard_writes_file, lock_why)) {
+            std::fprintf(stderr, "error: %s\n", lock_why.c_str());
+            return sdcard_file_add_count > 0
+                ? static_cast<int>(sdcard::FileAddStatus::ImageUnusable) : 1;
+        }
+    }
+
     // --sdcard-writes: the guest's writes go to FILE and the image is never
     // written. Bound here, after resolution and after a browser zip has been
     // extracted, so it is the card that will be mounted; FILE records that
@@ -2264,6 +2278,13 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "--sdcard2 %s: is the first SD card's image; the two slots "
                             "need two different images\n", sd_card2_image.c_str());
             return 1;
+        }
+        if (!sd_card2_image.empty()) {
+            std::string lock_why;
+            if (!sdcard::sd_locks::hold(1, sd_card2_image, sdcard2_writes_file, lock_why)) {
+                std::fprintf(stderr, "error: %s\n", lock_why.c_str());
+                return 1;
+            }
         }
         if (!sd_card2_image.empty() &&
             !bind_card_writes("--sdcard2-writes", "second SD card", sd_card2_image,

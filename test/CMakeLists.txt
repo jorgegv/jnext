@@ -486,6 +486,25 @@ add_executable(sdcard_writes_test sdcard/sdcard_writes_test.cpp)
 target_link_libraries(sdcard_writes_test PRIVATE jnext_peripheral)
 target_include_directories(sdcard_writes_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_writes_tests COMMAND sdcard_writes_test)
+# One jnext per SD card image (GH #555): the ImageLock. image_lock_any_test runs on every
+# target (the WebAssembly lock is a no-op); image_lock_test needs real file locks (native);
+# the symlink and hard-link rows need POSIX file-system objects.
+add_executable(image_lock_any_test image_lock/image_lock_any_test.cpp)
+target_link_libraries(image_lock_any_test PRIVATE jnext_core)
+target_include_directories(image_lock_any_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME image_lock_any_tests COMMAND image_lock_any_test)
+if(NOT EMSCRIPTEN)
+    add_executable(image_lock_test image_lock/image_lock_test.cpp)
+    target_link_libraries(image_lock_test PRIVATE jnext_core)
+    target_include_directories(image_lock_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME image_lock_tests COMMAND image_lock_test)
+endif()
+if(NOT WIN32 AND NOT EMSCRIPTEN)
+    add_executable(image_lock_posix_test image_lock/image_lock_posix_test.cpp)
+    target_link_libraries(image_lock_posix_test PRIVATE jnext_core)
+    target_include_directories(image_lock_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME image_lock_posix_tests COMMAND image_lock_posix_test)
+endif()
 # Host write errors (GH #455): RLIMIT_FSIZE has no Windows equivalent, so the rows
 # live in a `# os: posix` suite.
 if(NOT WIN32 AND NOT EMSCRIPTEN)

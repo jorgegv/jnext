@@ -13,6 +13,7 @@
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
 #include "core/sdcard_file_add.h"
+#include "core/image_lock.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
 #include "core/sha256.h"
@@ -8980,6 +8981,18 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
         return why;
     }
 
+    // GH #555 - one jnext per card image: the new image is locked before the switch (the slot's
+    // old locks are dropped by hold() once it succeeds; a card change has no SD-writes file, so
+    // the slot's writes lock goes with the old card). A card held by another jnext is refused
+    // with the current card untouched. An eject releases the slot.
+    if (change.image.empty()) {
+        sdcard::sd_locks::release(change.slot);
+    } else if (!sdcard::sd_locks::holds(change.slot, change.image) &&   // the same card again keeps its locks
+               !sdcard::sd_locks::hold(change.slot, change.image, {}, why)) {
+        Log::emulator()->error("SD card change refused: {}", why);
+        return why;
+    }
+
     if (change.slot == 1) {
         // The second card (GH #505). Unlike card 0 its configured path follows an
         // EJECT too: it has no power-on role (the ROMs come from card 0), so a hard
@@ -8997,6 +9010,7 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
             config_.sd_card2_image.clear();
             why = "could not mount '" + change.image + "'; the slot is empty";
             Log::emulator()->error("Second SD card change: {}", why);
+            sdcard::sd_locks::release(1);
         }
     } else if (change.image.empty()) {
         sd_card_.unmount();
@@ -9013,6 +9027,7 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
         // mount() unmounted the old card first; the slot is now empty.
         why = "could not mount '" + change.image + "'; the slot is empty";
         Log::emulator()->error("SD card change: {}", why);
+        sdcard::sd_locks::release(0);
     }
 
     // Whatever happened to the slot, it is not the card these were taken with.

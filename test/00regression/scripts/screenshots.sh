@@ -102,6 +102,19 @@ while IFS= read -r line; do
         done
     fi
 
+    # GH #555 - one jnext per card image: the rows run in parallel, and a card path is locked by
+    # the jnext that boots it, so rows may not share the run's one clone path. A row without its
+    # own clone boots a HARD LINK of the run's clone under $RUN_DIR/shots/<row>/ (the same
+    # inode, so nothing is copied and the card's size and mtime, which the warm start keys on,
+    # are the run's), named with --sdcard. The config dir stays the run's.
+    if [[ ${#row_env[@]} -eq 0 && -f "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ]]; then
+        shot_sd_dir="$RUN_DIR/shots/$test_name"
+        mkdir -p "$shot_sd_dir"
+        ln -f "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$shot_sd_dir/cspect-next-1gb-fixed.img" \
+            || harness_fault "could not link the run's SD clone into screenshot row ${BOLD}$test_name${RESET}'s $shot_sd_dir"
+        cmd+=("--sdcard" "$shot_sd_dir/cspect-next-1gb-fixed.img")
+    fi
+
     # Launch in background
     "${row_env[@]}" "${cmd[@]}" &>/dev/null &
 
