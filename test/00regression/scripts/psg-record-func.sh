@@ -19,9 +19,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   arm 4  a write error exits 1 and says so (/dev/full, Linux only: macOS has none).
 if want psg-record-func; then
     begin_func psg-record-func
-    fixture="$SCRIPT_DIR/../../audio/fixtures/psg_fixture.bin"
-    fuse_ref="$SCRIPT_DIR/../../audio/fixtures/psg_fixture.fuse.psg"
-    norm="$SCRIPT_DIR/../../../tools/psg-normalise.py"
+    fixture="$SCRIPT_DIR/../audio/fixtures/psg_fixture.bin"
+    fuse_ref="$SCRIPT_DIR/../audio/fixtures/psg_fixture.fuse.psg"
+    norm="$SCRIPT_DIR/../../tools/psg-normalise.py"
     mine="$TMP_DIR/fx.psg"
     mine_silent="$TMP_DIR/fx-silent.psg"
     rm -f "$mine" "$mine_silent" "$TMP_DIR/fx-ay1.psg" "$TMP_DIR/fx-ay2.psg"
