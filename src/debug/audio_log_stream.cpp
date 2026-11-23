@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstring>
 
+#include "core/output_files.h"
 #include "debug/audio_log_csv.h"
 
 namespace jnext {
@@ -22,11 +23,13 @@ bool AudioLogStream::open(const std::string& path, std::string& why)
         return false;
     }
     path_ = path;
+    output_files::begin(path_);   // GH #553: a page lists the file, incomplete, until finish()
     const std::string h = audio_log_csv_header();
     if (std::fwrite(h.data(), 1, h.size(), file_) != h.size()) {
         why = "cannot write '" + path + "': " + std::strerror(errno);
         std::fclose(file_);
         file_ = nullptr;
+        output_files::end(path_);   // what is on disk is final: never left listed as incomplete
         return false;
     }
     return true;
@@ -81,6 +84,7 @@ bool AudioLogStream::finish(std::string& why)
     if (file_) {
         if (std::fclose(file_) != 0) io_error_ = true;
         file_ = nullptr;
+        output_files::end(path_);   // flushed and closed, whatever the verdict below
     }
     if (io_error_) {
         why = "write error on '" + path_ + "'";
