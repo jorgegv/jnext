@@ -5100,6 +5100,13 @@ that already exists as a directory (for a file) or as a file (for a
 directory).
 For a directory this includes a host name inside it that FAT cannot
 hold, and two names that differ only in case.
+For \f[B]\-\-sdcard\-writes\-flatten\f[R] and
+\f[B]\-\-sdcard\-export\-changes\f[R] it also covers: nothing to compare
+against (the card was not made by jnext in a way that can be rebuilt and
+no \f[B]\-\-sdcard\-export\-base\f[R] or \f[B]\-\-sdcard\-writes\f[R]
+was given), a \f[I]DIR\f[R] that is not empty or an \f[I]OUT\f[R] that
+already exists, a writes file made for another image, an unreadable or
+unmountable base, and a copy that failed.
 .TP
 4
 A destination file already exists and \f[B]\-\-sdcard\-file\-force\f[R]
@@ -5113,6 +5120,8 @@ not be written, or, with \f[B]\-\-sdcard\-writes\f[R], the writes file
 could not be written or holds a rewritten partition table or boot
 sector; or another jnext is using the image or the writes file (one
 card, one jnext).
+For \f[B]\-\-sdcard\-export\-changes\f[R] also: the card, seen through
+its writes file, could not be opened for reading.
 .TP
 6
 The card has no room \(em not enough free space, or a directory with no

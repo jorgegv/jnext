@@ -3782,6 +3782,12 @@ failure happened rather than a single non-zero status. **\--sdcard-writes-flatte
     already exists as a directory (for a file) or as a file (for a directory).
     For a directory this includes a host name inside it that FAT cannot hold,
     and two names that differ only in case.
+    For **\--sdcard-writes-flatten** and **\--sdcard-export-changes** it also
+    covers: nothing to compare against (the card was not made by jnext in a way
+    that can be rebuilt and no **\--sdcard-export-base** or **\--sdcard-writes**
+    was given), a *DIR* that is not empty or an *OUT* that already exists, a
+    writes file made for another image, an unreadable or unmountable base, and
+    a copy that failed.
 
 4
 :   A destination file already exists and **\--sdcard-file-force** was not
@@ -3792,7 +3798,9 @@ failure happened rather than a single non-zero status. **\--sdcard-writes-flatte
     filesystem this build will not mount (an under-clustered one), or could not
     be written, or, with **\--sdcard-writes**, the writes file could not be
     written or holds a rewritten partition table or boot sector; or another
-    jnext is using the image or the writes file (one card, one jnext).
+    jnext is using the image or the writes file (one card, one jnext). For
+    **\--sdcard-export-changes** also: the card, seen through its writes file, could not be
+    opened for reading.
 
 6
 :   The card has no room — not enough free space, or a directory with no free
