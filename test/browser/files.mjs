@@ -516,10 +516,15 @@ row('BOUT-20', 'a hard reset re-opens the finished compositor trace: listed comp
   const zc = byFile(before, '/tmp/z.csv');
   must(zc && zc.complete === true, 'before the reset ' + JSON.stringify(before));
   // ~Emulator finishes the files and init() opens them again: ~Emulator + placement new in a hard reset
+  const oldSize = await fsSize(page, '/tmp/z.csv');
   await page.evaluate(() => window.player0.reset('hard'));
+  // reset() resolves as soon as the frame counter moves, and the tick that cold-boots renders no frame: the trace is
+  // opened again (truncated) in the first render_frame after it. Until the file is smaller than it was, the old,
+  // finished trace is what is listed, correctly complete. Wait for the reopen before asserting.
+  await waitFor(page, ([old]) => window.player0._module.FS.stat('/tmp/z.csv').size < old, [oldSize], 60000);
   const after = await list(page);
   const za = byFile(after, '/tmp/z.csv');
-  must(za && za.complete === false, 'after the reset ' + JSON.stringify(after));
+  must(za && za.complete === false, 'after the reopen (size ' + (za && za.size) + ' below ' + oldSize + ') ' + JSON.stringify(after));
   const rd = await readF(page, '/tmp/z.csv');
   must(typeof rd === 'string' && REFUSED.busy.test(rd), 'read after the reset: ' + (typeof rd === 'string' ? rd : 'resolved with ' + rd.length + ' bytes'));
   const f0 = await page.evaluate(() => window.player0._module._jnext_web_frame());
