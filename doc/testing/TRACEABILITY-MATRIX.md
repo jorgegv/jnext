@@ -114,7 +114,7 @@ These 201 suites (12137 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_backup_test` | 23 | SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
 | `image_lock_test` | 10 | SD card image lock (GH #555): one jnext per card; the design in the issue as oracle (host feature, no core counterpart) |
 | `sdcard_swap_lock_test` | 6 | the live SD card change takes and drops the image lock (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
-| `sdcard_file_extract_test` | 33 | FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #557): host copy OUT of an SD card image, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces |
+| `sdcard_file_extract_test` | 37 | FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #557): host copy OUT of an SD card image, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces |
 | `image_lock_posix_test` | 2 | SD card image lock, symlink and hard-link rows (POSIX, GH #555); same oracle (host feature, no core counterpart) |
 | `sdcard_file_extract_posix_test` | 1 | SDFX-P01 moved out of sdcard_file_extract_test (a symbolic link needs POSIX, GH #557); same oracle |
 | `sdcard_provisioner_test` | 189 | jnext SD-image download/patch policy (host side) |
