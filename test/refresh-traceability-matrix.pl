@@ -1042,6 +1042,7 @@ my %NO_MATRIX_SECTION = (
     'sdcard_carry_test'      => 'SD card comparison / carry-over engine and rescue verbs (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart)',
     'sdcard_file_extract_test' => 'FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #557): host copy OUT of an SD card image, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces',
     'sdcard_file_extract_posix_test' => 'SDFX-P01 moved out of sdcard_file_extract_test (a symbolic link needs POSIX, GH #557); same oracle',
+    'sdcard_card_ops_test' => 'FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #558): host-side file operations on an SD card image for the SD card file manager, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces',
     'sdcard_swap_lock_test'  => 'the live SD card change takes and drops the image lock (GH #555): the design in the issue as oracle (host feature, no core counterpart)',
     'sdcard_upgrade_test'    => 'SD card upgrade flow (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart)',
     'sdcard_backup_test'     => 'SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart)',
