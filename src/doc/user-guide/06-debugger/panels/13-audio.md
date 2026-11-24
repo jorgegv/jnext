@@ -67,9 +67,8 @@ like any other capture.
   step if you play them together.
 - **Last write wins.** When a program writes the same register more than once in a
   frame, the file keeps the last value, the one the chip ended the frame with. Fuse
-  keeps the first, so for a program that writes a register twice in a frame the two
-  emulators' files differ at that register; for every other program they are
-  byte for byte the same.
+  keeps the first. That is one difference in what the two emulators record for the same
+  writes; where the files start, and the frame a write falls in, can differ too.
 - **Resets, rewinds and state loads** never take the file back in time. A reset or a load
   keeps the time that passed: the silent frames before it stay in the file, and a soft
   or hard reset splits the frame it happens in. A rewind keeps what was already written
@@ -80,14 +79,14 @@ like any other capture.
 
 **What is inside.** The file is the 16-byte header (`PSG`, `0x1A`, twelve zero bytes) and
 then a stream of bytes. A byte from `0x00` to `0x0D` is a register number and the next
-byte its value. `0xFF` stands for one frame in which nothing was written, and `0xFE n` for
-`4 * n` such frames. Every frame that holds a write is the register and value pairs in
-register order, after the separators for the frames that passed since the previous one.
-When the recording stops, the frames up to that moment are added as separators, so a
-file that ends in silence plays the silence.
+byte its value. `0xFF` ends one frame (a player waits one frame) and `0xFE n` ends `4 * n` frames. Every
+frame that holds a write is the register and value pairs in register order, after the
+separators for the frames that passed since the previous one: two frames in a row that
+both write are one `0xFF` apart, and `k` silent frames between them show as `k + 1`
+frames of separators. When the recording stops, the frames up to that moment are added
+as separators, so a file that ends in silence plays the silence.
 
-**Playing it.** Open the file in an AY player that reads the PSG format (AY_Emul and
-ZXTune are two that list it) and play it as you would any tune. A few things follow from
+**Playing it.** Open the file in an AY player that reads the PSG format and play it as you would any tune. A few things follow from
 what the file is:
 
 - It holds register values and frame counts, not a time base or a chip clock. A frame is

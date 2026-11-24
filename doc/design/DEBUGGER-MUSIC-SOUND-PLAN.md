@@ -1582,13 +1582,13 @@ scopes, CTC/DMA and sample stream, `.psg`, stems). Load 4.2 at start, 2.7 at the
 | boot-nextzxos | 26778088649 | 26760238068 | -0.067 % |
 | beast | 12999147811 | 12997233388 | -0.015 % |
 | copper-demo | 9989310741 | 9989060614 | -0.003 % |
-| bifrost | 13123402850 | 13119140262 | -0.033 % |
+| bifrost | 13123402850 | 13119140262 | -0.032 % |
 | halt-idle-35 | 7458546532 | 7458702152 | +0.002 % |
 | halt-idle-28 | 8863383205 | 8863544543 | +0.002 % |
 | ctc-dac-28 | 11941864393 | 11940088582 | -0.015 % |
 
-Worst case +0.002 %; six are cheaper than B. The per-sub-issue gates (reports of #531, #535, #536, #537,
-#538, #539, each against its own base) all stayed inside 0.1 % too. The floor of a control build was not
+Worst case +0.002 %; six are cheaper than B. The per-sub-issue gates of Phases 2 and 3 (reports of #534, #535,
+#536, #537, #538, #539, each against its own base) all stayed inside 0.1 % too; Phase 1's A1.7 (#531) is in 14.2. The floor of a control build was not
 needed: nothing was above it.
 
 ### 14.2 Per-task records
@@ -1598,8 +1598,8 @@ needed: nothing was above it.
   frames), ctc_dac_28 +15.6 % (13911280406 against 12034512878 instructions) with 260204 rows in 400 frames
   (650 writes per frame), about 7200 instructions per logged row (entry fill, virtual call, ring store, and the
   CSV formatting and `fwrite` of `--audio-log`).
-- **A2.4 (source tap), A2.5 (scopes)**, report of #536, round 3, B = `e8c1e43ff`, U = branch tip, C = a client
-  attached, S = the source tap on. Off (U against B): boot-48k -0.034 %, boot-nextzxos -0.067 %, beast -0.007 %,
+- **A2.4 (source tap), A2.5 (scopes)**, report of #536, section "Phase 1 merge + #550 adaptation", Bench,
+  B = `e8c1e43ff`, U = branch tip. Off (U against B): boot-48k -0.035 %, boot-nextzxos -0.067 %, beast -0.015 %,
   copper-demo -0.004 %, bifrost -0.034 %, halt-idle-35 +0.001 %, halt-idle-28 +0.001 %, ctc-dac-28 -0.016 %.
   The first design (a test in the HALT batch's replay loop) cost +0.13 % on the NEX demos and was replaced by
   refusing the batches while a tap is installed (bisect: one extra instruction per replayed segment); the
@@ -1615,10 +1615,17 @@ needed: nothing was above it.
 - **`.psg` (A3.1, A3.3)**, report of #538: unused-feature cost within 0.1 % on all eight workloads (a constant
   of about +110000 instructions, start-up code, not per frame). The cost with a recording running was not measured
   separately: the recorder is a consumer of the same write tap (14.2, A1.7).
-- **A2.5, the Scopes view itself (host work per frame with the window open)**, measured on 2026-11-24 with a
-  scratch driver (not committed) over `debugger_audio_panel_test`'s fixture (a Next with an AY1 square, the CPU
-  parked, 3.5 MHz, offscreen Qt, `build/` RelWithDebInfo, so an indication, not a Release figure; the widgets are
-  not shown, so painting is not included): instructions per frame from two runs of 300 and 1300 frames. No tap:
-  26 961 635. Source tap on, no view: 28 254 477 (+4.8 %, the unbatched path). Tap on and
-  `AudioPanel::refresh_scopes()` every frame: 28 755 510, so the view's own refresh (trigger search, meters,
-  window copy) is about 501 000 instructions per frame (+1.9 % of the frame), roughly 25 million per second at 50 Hz.
+- **A2.5, the Scopes view itself (host work per frame with the window open)**, measured on 2026-11-24 on the
+  tree of `54103c61e` (the branch tip's code), `build/` RelWithDebInfo, counter `perf stat -e instructions:u`
+  (user mode only), with a scratch driver that was not committed; its text is the record. In `main()` of
+  `test/debugger/audio_panel_test.cpp`, before the rows, when `JNEXT_SCOPE_BENCH=<mode>` and `JNEXT_SCOPE_FRAMES=<n>`
+  are set (QPA offscreen, widgets never shown, so painting is not included): `build_next_emulator(emu)`;
+  `scope_machine(emu)` (NR 0x08 = 0x0A, AY1 selected, tone A period 100 and volume 12 on R0/R1/R7/R8, CPU parked by
+  `park_cpu`, 3.5 MHz); a `Debugger` with one attached Test client; mode >= 1: `set_audio_scope_enabled(client, true)`;
+  an `AudioPanel` with its tab widget set to index 4 (Scopes); then n times `emu.run_frame()`, and in mode 2 also
+  `panel.refresh_scopes()` after each. Per variant the program is run with n = 300 and n = 1300 and the figure is
+  (I(1300) - I(300)) / 1000, which removes the start-up cost. Modes 0 (no tap), 1 (tap on, no view), 2 (tap on and view).
+  Results, two independent sessions that agreed within 0.01 %: mode 0 26 963 345 instructions per frame; mode 1
+  28 254 256 (+4.8 %, the unbatched path); mode 2 28 757 244. The view's own refresh (trigger search, meters, window
+  copy) is therefore 502 988 instructions per frame (+1.9 % of a frame), about 25 million per second at 50 Hz. An
+  indication, not a Release figure.
