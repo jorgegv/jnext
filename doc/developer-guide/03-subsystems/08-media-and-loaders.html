@@ -5307,15 +5307,16 @@ partition <code>read_partition_geometry()</code> finds, which is the volume <cod
 (FAT12/16, no partition table, a second partition) is listed and shown read-only, and every write on it
 is refused with <code>DestInvalid</code> before the card is opened for writing. With a writes file bound a change
 goes into it and the image stays byte-identical, as for file-add. A path is '/'-separated <code>open_name</code>s: the
-spelling FatFs can open THAT entry by: the long name, or the 8.3 alias when the long name is unsafe. FatFs
-refuses a name holding a control byte or one of <code>*:&lt;&gt;?|"</code>, strips a trailing dot or space, reads a backslash
-as a separator, and takes the first entry in directory order whose long name or 8.3 name matches, comparing in
-Unicode, and a long name with a character outside the code page lists under its alias while still matching as
-the long name. So <code>read_dir()</code> asks FatFs itself: <code>f_stat</code> of the candidate must return this entry's size,
-attributes, date and time (and, for the long name, the same stored names), and an earlier entry that is
-indistinguishable by those fields makes the candidate ambiguous. <code>open_name</code> is empty, so the entry is
-refused, when neither spelling passes (a guest or a damaged card can write such a directory; FatFs never does).
-Every caller builds paths from <code>open_name</code>, never from the displayed or typed long name.
+spelling FatFs resolves to THAT entry: the long name, or the 8.3 alias. A name does not identify an entry.
+FatFs takes the first entry in directory order whose long name or 8.3 name matches, comparing in Unicode; it
+returns the typed spelling for a match by long name; a long name with a character outside the code page lists
+under its alias while still matching as the long name; a trailing dot or space is stripped and a backslash is a
+separator. So <code>read_dir()</code> identifies entries by their directory slot: the vendored <code>ff.c</code> carries a local
+addition, the <code>dir_sect</code> and <code>dir_ofs</code> fields of <code>FILINFO</code>, set by <code>f_readdir()</code> and <code>f_stat()</code> alike, and a
+candidate is accepted only when <code>f_stat</code> of it returns the slot the listing gave the entry. <code>open_name</code> is
+empty, so the entry is refused, when neither spelling resolves there (a guest or a damaged card can write such a
+directory; FatFs never does). Every caller builds paths from <code>open_name</code>, never from the displayed or typed
+long name.
 <code>remove()</code> walks the tree first and refuses, naming the entry and removing nothing, when it
 holds a read-only entry (the attribute is never cleared), when a subdirectory is reached twice or is not
 owned by its parent (its <code>..</code> entry must name the directory it was found in, which catches a cross-link
@@ -5323,7 +5324,7 @@ to a directory outside the tree); <code>rename()</code> and <code>make_dir()</co
 under <code>normalize_dest_path()</code>'s name rules and never overwrite (an existing name is <code>DestExists</code>).
 <code>FileAddStatus</code> is the status of all of them. No <code>ImageLock</code> is taken: the manager works on images a slot of
 this process has mounted, so the process already holds the lock, and a second <code>flock</code> on the same file from
-the same process would be refused. Rows: <code>SDOPS-01..22</code> and <code>SDOPS-24..50</code> (<code>sdcard_card_ops_test</code>),
+the same process would be refused. Rows: <code>SDOPS-01..22</code> and <code>SDOPS-24..54</code> (<code>sdcard_card_ops_test</code>),
 <code>SDWP-01</code> for <code>SdCardDevice::write_protected()</code> (<code>sdcard_test</code>).</p>
 <p><strong>The glue caches sectors.</strong> FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached <code>disk_read</code> costs an <code>lseek</code> plus an 8 KiB stream-buffer

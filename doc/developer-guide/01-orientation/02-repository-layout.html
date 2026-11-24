@@ -3100,7 +3100,7 @@ that knowing the rule is usually faster than grepping.</p>
 </tr>
 <tr>
 <td><code>third_party/</code></td>
-<td>Vendored dependencies: <code>fuse-z80/</code> (the Z80 core, GPLv2-or-later), <code>spdlog/</code> (logging, submodule), <code>zot/</code> (TZX playback, MIT), <code>crtemu/</code> (CRT-emulation shader, MIT / Unlicense; patched, every patch marked <code>JNEXT PATCH</code> and listed in its <code>README.jnext.md</code>), <code>fatfs/</code> (FAT filesystem, used for SD-image work; carries one local addition, <code>f_syncvol()</code>, marked in <code>ff.c</code>, which flushes the volume before jnext unmounts one it has modified).</td>
+<td>Vendored dependencies: <code>fuse-z80/</code> (the Z80 core, GPLv2-or-later), <code>spdlog/</code> (logging, submodule), <code>zot/</code> (TZX playback, MIT), <code>crtemu/</code> (CRT-emulation shader, MIT / Unlicense; patched, every patch marked <code>JNEXT PATCH</code> and listed in its <code>README.jnext.md</code>), <code>fatfs/</code> (FAT filesystem, used for SD-image work; carries two local additions, marked in <code>ff.c</code>: <code>f_syncvol()</code>, which flushes the volume before jnext unmounts one it has modified, and the <code>dir_sect</code> / <code>dir_ofs</code> fields <code>FILINFO</code> carries, the slot of the directory entry <code>f_readdir()</code> and <code>f_stat()</code> returned).</td>
 </tr>
 <tr>
 <td><code>tools/</code></td>
