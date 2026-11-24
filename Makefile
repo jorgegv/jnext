@@ -234,7 +234,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
-       docs-schema schema-check snapshot-zip-check traceability-check-run \
+       docs-schema schema-check snapshot-zip-check traceability-check-run traceability-check-subset \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
@@ -931,6 +931,13 @@ traceability-check: $(UNIT_TEST_BUILD_DEP) sdcard-image
 	 fi; \
 	 [ $$rc -eq 0 ] && printf "$(BADGE_PASS) OK $(RESET) traceability matrix is up to date\n"; \
 	 rm -rf $$tmp; exit $$rc
+
+# Fail when the committed traceability matrix is stale vs one generated with every suite taken as passing (test-affected)
+traceability-check-subset:
+	@# GH #564. A branch round runs a subset, which keeps no logs, so the matrix is generated with
+	@# --no-fails: every structural cell (rows, descriptions, citations, summary counts) is checked,
+	@# a suite's FAIL set is the suite run's verdict. Same recipe as traceability-check.
+	@$(MAKE) --no-print-directory traceability-check UNIT_TEST_BUILD_DEP= TRACE_GEN_ARGS=--no-fails
 
 # Fail when the committed traceability matrix is stale vs one generated from the last unit run's own suite logs
 traceability-check-run:

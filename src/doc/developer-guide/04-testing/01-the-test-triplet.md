@@ -173,6 +173,22 @@ file is never skipped silently. A changed submodule pointer is FULL too. `make t
 part of `make unit-test`, fails while a tracked file is neither in a depfile nor classified, so the
 conf grows in the change that adds the file.
 
+The two files a branch touches to add or count tests are read by what changed in them, from the
+branch's diff against its base, and not classified wholesale. In `test/unit-tests.conf` the suites
+whose lines were added, removed, re-pinned or re-marked (`?`) are planned; a changed `# gate:`,
+`# os:` or `# expect:` line plans no suite of its own, because every `--only` run makes the
+manifest checks (registry both ways, gate, OS, the total) on the whole manifest and they refuse
+a wrong directive or total; a line of no known shape, or no git diff to read, is FULL. In
+`test/CMakeLists.txt` the file is parsed into statements, each identified by its enclosing
+`if()`/`foreach()` chain and its text, and the statements added, removed or moved into another
+context select the declared suites they name (a target, `target_link_libraries`, the
+`add_test(... COMMAND <suite>)`); a changed statement that names no declared suite (an include
+path, a shared variable) is FULL. A change to either file, to `test/refresh-traceability-matrix.pl`
+or to the matrix also plans `make traceability-check-subset` and `make traceability-selftest`:
+the first generates the matrix with `--no-fails` (every suite taken as passing, since a subset
+run keeps no logs) and fails if the committed copy differs, so a wrong or missing row, summary
+count or stale citation still fails on the branch.
+
 The plan also prints which of `unit-test-sdl`, `unit-test-win` and `unit-test-wasm` the change
 needs, from the changed files' paths and content, lines the change removed included (`ENABLE_QT_UI`,
 `_WIN32`, `std::filesystem`, sockets, `__EMSCRIPTEN__`, CMake and harness files, the sources only the
@@ -187,12 +203,14 @@ with `main` (`origin/main` when there is no local `main`; the remote-run host's 
 `TEST-AFFECTED MISS`, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-`TAF-01..10` and `TAF-12..31` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
+`TAF-01..10` and `TAF-12..46` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
 part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..j` in the harness
 self-test.
 
-What `make test-affected` does not do: it does not run the traceability check, so a new `check()`
-row leaves the committed matrix stale until the full `make unit-test`, and it does not run the
+What `make test-affected` does not do: it runs the traceability check only when the manifest, the test
+CMake file, the generator or the matrix changed, so a new `check()` row alone leaves the committed
+matrix stale until the full `make unit-test`, which also takes each suite's real FAIL set from its
+log; and it does not run the
 platform suites or the regression rows other than the boot smoke row and the rows the diff names.
 
 ## What the triplet does not prove

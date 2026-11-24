@@ -369,6 +369,50 @@ sub grep_refs {   # suites and rows whose sources/args/row scripts name path $p 
     return (\%ss, \%rr);
 }
 
+sub slurp { my $f = shift; open(my $fh, '<', "$root/$f") or return ''; local $/; my $t = <$fh>; close $fh; $t }
+
+# The statements of a CMake file as a multiset: identity = the enclosing if()/foreach() chain plus
+# the statement text, so a block wrapped in a new condition shows as changed. Comments stripped;
+# quotes and nested parentheses respected.
+sub cmake_statements {
+    my $t = shift;
+    my (%h, @stack);
+    my $i = 0; my $n = length $t;
+    while ($i < $n) {
+        my $c = substr($t, $i, 1);
+        if ($c eq '#') { $i++ while $i < $n && substr($t, $i, 1) ne "\n"; next }
+        if ($c !~ /[A-Za-z_]/) { $i++; next }
+        my $s = $i;
+        $i++ while $i < $n && substr($t, $i, 1) =~ /[A-Za-z0-9_]/;
+        my $cmd = lc substr($t, $s, $i - $s);
+        my $j = $i; $j++ while $j < $n && substr($t, $j, 1) =~ /[ \t]/;
+        next unless $j < $n && substr($t, $j, 1) eq '(';
+        my ($depth, $q) = (0, 0);
+        my $k = $j;
+        for (; $k < $n; $k++) {
+            my $ch = substr($t, $k, 1);
+            if ($q) { $k++ if $ch eq '\\'; $q = 0 if $ch eq '"'; next }
+            if    ($ch eq '"') { $q = 1 }
+            elsif ($ch eq '#') { $k++ while $k < $n && substr($t, $k, 1) ne "\n" }
+            elsif ($ch eq '(') { $depth++ }
+            elsif ($ch eq ')') { last if --$depth == 0 }
+        }
+        my $body = substr($t, $j, $k - $j + 1);
+        $body =~ s/#[^\n]*//g;
+        $body =~ s/\s+/ /g;
+        my $st = "$cmd$body";
+        $i = $k + 1;
+        if    ($cmd eq 'if' || $cmd eq 'foreach' || $cmd eq 'while' || $cmd eq 'function' || $cmd eq 'macro' || $cmd eq 'block') { push @stack, [$st] }
+        elsif ($cmd eq 'elseif' || $cmd eq 'else') { push @{ $stack[-1] }, $st if @stack }
+        elsif ($cmd =~ /^end(if|foreach|while|function|macro|block)$/) { pop @stack }
+        else {
+            my $ctx = join(' >> ', map { join(' | ', @$_) } @stack);
+            $h{"$ctx\x01$st"}++;
+        }
+    }
+    return \%h;
+}
+
 my $have_git = -e "$root/.git";
 for my $f (@changed) {
     my $edges = edge_suites($f, ($file_suites{$f} || $any_mapped{$f}) ? 1 : 0);
@@ -413,6 +457,50 @@ for my $f (@changed) {
         }
         if (!$n) { $full = 1; $full_why{"$f (could not read which rows changed)"} = 1 }
     }
+    elsif ($act eq 'suite-conf') {
+        # test/unit-tests.conf (GH #564): the suites whose lines the change added, removed or
+        # re-pinned. A directive (# gate:, # os:) or the # expect: total is proven by the whole
+        # manifest checks every --only run still makes (registry, gate, os, total); a line this
+        # cannot read makes the plan FULL.
+        my @d = ($have_git && !$o{files}) ? git('diff', '-U0', '--no-renames', $base, '--', $f) : ();
+        my $n = 0;
+        for my $l (@d) {
+            next unless $l =~ /^[+-]/ && $l !~ /^(\+\+\+|---)/;
+            (my $b = $l) =~ s/^.//;
+            next if $b =~ /^\s*$/;
+            if ($b =~ /^\s*#/) {
+                $notes{"$f: a directive or the # expect: total changed; run-unit-tests.sh checks the whole manifest on every --only run"} = 1 if $b =~ /^\s*#\s*(gate|os|expect):/;
+                next;
+            }
+            if ($b =~ /^\s*\??(\S+)\s+\d+(\s|$)/) { $suites{$1} = 1; $n++; next }
+            $n = -1_000_000;   # a line of no known shape
+        }
+        if ($n < 0 || !@d) { $full = 1; $full_why{"$f (could not read which suites changed)"} = 1 }
+    }
+    elsif ($act eq 'cmake-suites') {
+        # test/CMakeLists.txt (GH #564): the suites whose statements the change added, removed or
+        # moved into another if()/foreach() context. A changed statement that names no declared
+        # suite (a shared setting, a library, a variable) makes the plan FULL.
+        my ($old) = ($have_git && !$o{files}) ? join("\n", git('show', "$base:$f")) : '';
+        my %names = %is_declared;
+        for my $l ($have_git && !$o{files} ? git('show', "$base:test/unit-tests.conf") : ()) {
+            $names{$1} = 1 if $l =~ /^\s*\??(\S+)\s+\d+/ && $l !~ /^\s*#/;
+        }
+        if (!length $old) { $full = 1; $full_why{"$f (could not read the base version)"} = 1; next }
+        my $new = slurp($f);
+        my ($oh, $nh) = (cmake_statements($old), cmake_statements($new));
+        my %seen_k;
+        for my $k (grep { !$seen_k{$_}++ } keys %$oh, keys %$nh) {
+            next if ($oh->{$k} // 0) == ($nh->{$k} // 0);
+            (my $st = $k) =~ s/^.*\x01//s;
+            my @hit = grep { $names{$_} } $st =~ /([A-Za-z_][A-Za-z0-9_]*)/g;
+            if (@hit) { $suites{$_} = 1 for @hit }
+            else {
+                $st =~ s/\s+/ /g; $st = substr($st, 0, 60) . '...' if length $st > 63;
+                $full = 1; $full_why{"$f (a changed statement names no declared suite: $st)"} = 1;
+            }
+        }
+    }
     elsif ($act eq 'fixture') {
         my ($ss, $rr) = grep_refs($f);
         if (!%$ss && !%$rr && !%$edges) { $full = 1; $full_why{"$f (no suite source or row script names it)"} = 1 }
@@ -429,7 +517,6 @@ for my $s (keys %suites) { delete $suites{$s} unless $is_declared{$s} }
 
 # ---------------------------------------------------------------- platform check
 my (%plat);
-sub slurp { my $f = shift; open(my $fh, '<', "$root/$f") or return ''; local $/; my $t = <$fh>; close $fh; $t }
 my $harness_re = qr{^test/(run-unit-tests\.sh|unit-tests\.conf|row_id\.h)$};
 for my $f (@changed) {
     my $t = ($f =~ m{\.(cpp|h|hpp|c|cc|mm|cmake|sh|txt|mjs|js|in)$} || $f =~ /CMakeLists\.txt$|^Makefile$/) ? slurp($f) : '';

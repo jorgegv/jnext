@@ -3238,6 +3238,21 @@ no glob is UNMAPPED, and an unmapped file makes the plan FULL (<code>make unit-t
 file is never skipped silently. A changed submodule pointer is FULL too. <code>make test-affected-check</code>,
 part of <code>make unit-test</code>, fails while a tracked file is neither in a depfile nor classified, so the
 conf grows in the change that adds the file.</p>
+<p>The two files a branch touches to add or count tests are read by what changed in them, from the
+branch's diff against its base, and not classified wholesale. In <code>test/unit-tests.conf</code> the suites
+whose lines were added, removed, re-pinned or re-marked (<code>?</code>) are planned; a changed <code># gate:</code>,
+<code># os:</code> or <code># expect:</code> line plans no suite of its own, because every <code>--only</code> run makes the
+manifest checks (registry both ways, gate, OS, the total) on the whole manifest and they refuse
+a wrong directive or total; a line of no known shape, or no git diff to read, is FULL. In
+<code>test/CMakeLists.txt</code> the file is parsed into statements, each identified by its enclosing
+<code>if()</code>/<code>foreach()</code> chain and its text, and the statements added, removed or moved into another
+context select the declared suites they name (a target, <code>target_link_libraries</code>, the
+<code>add_test(... COMMAND &lt;suite&gt;)</code>); a changed statement that names no declared suite (an include
+path, a shared variable) is FULL. A change to either file, to <code>test/refresh-traceability-matrix.pl</code>
+or to the matrix also plans <code>make traceability-check-subset</code> and <code>make traceability-selftest</code>:
+the first generates the matrix with <code>--no-fails</code> (every suite taken as passing, since a subset
+run keeps no logs) and fails if the committed copy differs, so a wrong or missing row, summary
+count or stale citation still fails on the branch.</p>
 <p>The plan also prints which of <code>unit-test-sdl</code>, <code>unit-test-win</code> and <code>unit-test-wasm</code> the change
 needs, from the changed files' paths and content, lines the change removed included (<code>ENABLE_QT_UI</code>,
 <code>_WIN32</code>, <code>std::filesystem</code>, sockets, <code>__EMSCRIPTEN__</code>, CMake and harness files, the sources only the
@@ -3251,11 +3266,13 @@ with <code>main</code> (<code>origin/main</code> when there is no local <code>ma
 <code>TEST-AFFECTED MISS</code>, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-<code>TAF-01..10</code> and <code>TAF-12..31</code> in <code>test/test-affected-selftest.sh</code> (<code>make test-affected-selftest</code>,
+<code>TAF-01..10</code> and <code>TAF-12..46</code> in <code>test/test-affected-selftest.sh</code> (<code>make test-affected-selftest</code>,
 part of <code>make unit-test</code>), on a hand-written fixture build tree, and <code>HS-194a..j</code> in the harness
 self-test.</p>
-<p>What <code>make test-affected</code> does not do: it does not run the traceability check, so a new <code>check()</code>
-row leaves the committed matrix stale until the full <code>make unit-test</code>, and it does not run the
+<p>What <code>make test-affected</code> does not do: it runs the traceability check only when the manifest, the test
+CMake file, the generator or the matrix changed, so a new <code>check()</code> row alone leaves the committed
+matrix stale until the full <code>make unit-test</code>, which also takes each suite's real FAIL set from its
+log; and it does not run the
 platform suites or the regression rows other than the boot smoke row and the rows the diff names.</p>
 <h2 id="what-the-triplet-does-not-prove">What the triplet does not prove<a class="headerlink" href="#what-the-triplet-does-not-prove" title="Permanent link">&para;</a></h2>
 <p>It does not prove that the emulator matches real hardware anywhere no test row

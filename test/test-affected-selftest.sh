@@ -29,6 +29,10 @@
 #           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS, also for a docs-only plan)
 #   TAF-32  test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL
 #   TAF-31  Qt's QT_TESTCASE_* test-data define counts only for a suite that calls QFINDTESTDATA
+#   TAF-33..46 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
+#           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
+#           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
+#           naming no suite = FULL); the matrix and its generator plan the traceability check
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
 #           when nothing names it
 # (The MISS line of run-unit-tests.sh is TAF-11's subject; its rows are HS-194d/e in
@@ -293,7 +297,119 @@ run test/ci-gate.sh test/regression-package.sh
 row TAF-32 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_get makes)" == package-contract-test ]] && echo 1 || echo 0) \
     "test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL (makes: $(plan_get makes), mode $(plan_get mode))"
 
+# ---- GH #564: test/unit-tests.conf and test/CMakeLists.txt are planned by what changed (git mode)
+G reset -q --hard HEAD
+defs s8_test "QT_TESTCASE_SOURCEDIR=$R/weird"   # a Qt suite whose data root is test/ would be selected by every file there
+mkdir -p "$R/test"
+cp "$W/unit-tests.conf" "$R/test/unit-tests.conf"
+cat >"$R/test/CMakeLists.txt" <<'EOF'
+# fixture
+if(NOT EMSCRIPTEN)
+    add_executable(s1_test s1_test.cpp)
+    target_link_libraries(s1_test PRIVATE liba)
+    add_test(NAME s1_tests COMMAND s1_test)
+endif()
+add_executable(s2_test s2_test.cpp)
+add_executable(s3_test s3_test.cpp) # trailing comment
+add_test(NAME s3_tests COMMAND s3_test)
+set(SHARED "a;b")
+EOF
+G add -A; G commit -q -m "conf fixtures"
+TOK=(--smoke smoke_test --plan "$W/plan" --root "$R" --build "$B" --conf "$CONF" --manifest "$R/test/unit-tests.conf")
+trun() { OUT=$(perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?; }   # the planner in git mode, manifest = the fixture's own
+reset_fx() { G checkout -q -- test/unit-tests.conf test/CMakeLists.txt; }
+both_makes() { [[ "$(plan_get makes)" == *traceability-check-subset* && "$(plan_get makes)" == *traceability-selftest* ]] && echo 1 || echo 0; }
+
+sed -i 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+trun
+row TAF-33 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" && $(both_makes) == 1 ]] && echo 1 || echo 0) \
+    "a changed row-count pin in unit-tests.conf plans that suite, the smoke set and the traceability checks, not FULL (got $(plan_get mode) $(plan_suites) / $(plan_get makes))"
+reset_fx
+
+sed -i 's/^# expect: 5$/# expect: 6/; s/^s9_test 1$/s9_test 1\ns10_test 1/' "$R/test/unit-tests.conf"
+trun
+row TAF-34 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s10_test,smoke_test" && "$OUT" == *"# expect: total changed"* ]] && echo 1 || echo 0) \
+    "a new suite line (and the bumped # expect: total) plans the new suite only and says the total is proven by the manifest checks (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sed -i '/^s9_test 1$/d' "$R/test/unit-tests.conf"
+trun
+row TAF-35 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test ]] && echo 1 || echo 0) \
+    "a removed suite line is not FULL (the manifest checks prove the registry both ways) (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sed -i 's/^s3_test 1$/?s3_test 1/' "$R/test/unit-tests.conf"
+sed -i '1a # gate: qt\n# os: native' "$R/test/unit-tests.conf"
+trun
+row TAF-36 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s3_test,smoke_test" && "$OUT" == *"directive"* && "$OUT" == *"unit-test-wasm NEEDED"* ]] && echo 1 || echo 0) \
+    "a changed ? marker plans its suite, a changed # gate:/# os: directive adds no suite, says so, and still names the platform runs (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sed -i 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+echo '// s1 changed' >>"$R/test/s1_test.cpp"
+trun
+row TAF-37 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,s2_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a pin change of one suite and a source change of another are both planned, the union (got $(plan_get mode) $(plan_suites))"
+reset_fx; G checkout -q -- test/s1_test.cpp
+
+echo 'bogus line without a count' >>"$R/test/unit-tests.conf"
+trun
+row TAF-38 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not read which suites changed"* ]] && echo 1 || echo 0) \
+    "a changed manifest line of no known shape is FULL, saying so (got $(plan_get mode))"
+reset_fx
+
+cat >>"$R/test/CMakeLists.txt" <<'EOF'
+if(NOT EMSCRIPTEN)
+    add_executable(s10_test s10_test.cpp)
+    add_test(NAME s10_tests COMMAND s10_test)
+endif()
+EOF
+echo 's10_test 1' >>"$R/test/unit-tests.conf"
+trun
+row TAF-39 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s10_test,smoke_test" && $(both_makes) == 1 ]] && echo 1 || echo 0) \
+    "a new add_executable/add_test block (and its manifest line) plans the new suite, not FULL (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sed -i 's/target_link_libraries(s1_test PRIVATE liba)/target_link_libraries(s1_test PRIVATE liba libb)/' "$R/test/CMakeLists.txt"
+trun
+row TAF-40 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a changed target_link_libraries of one suite plans that suite only (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+echo 'include_directories(/x)' >>"$R/test/CMakeLists.txt"
+trun
+row TAF-41 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: include_directories(/x)"* ]] && echo 1 || echo 0) \
+    "a changed CMake statement that names no suite is FULL and is quoted (got $(plan_get mode))"
+reset_fx
+sed -i 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$R/test/CMakeLists.txt"
+trun
+row TAF-42 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: set(SHARED"* ]] && echo 1 || echo 0) \
+    "a changed shared variable is FULL (got $(plan_get mode))"
+reset_fx
+
+sed -i 's/^if(NOT EMSCRIPTEN)$/if(NOT WIN32)/' "$R/test/CMakeLists.txt"
+trun
+row TAF-43 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a changed if() condition plans the suites inside that block (their context changed), not FULL (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sed -i 's/^add_executable(s2_test s2_test.cpp)$/if(WIN32)\nadd_executable(s2_test s2_test.cpp)\nendif()/' "$R/test/CMakeLists.txt"
+trun
+row TAF-44 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" ]] && echo 1 || echo 0) \
+    "wrapping an existing suite in a new if() plans that suite (context is part of the statement's identity) (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+printf '%s\n' 'doc/testing/TRACEABILITY-MATRIX.md' 'test/refresh-traceability-matrix.pl' >"$W/files"
+OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --plan "$W/plan" 2>&1); RC=$?
+row TAF-45 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test && $(both_makes) == 1 ]] && echo 1 || echo 0) \
+    "the traceability matrix and its generator plan the traceability check and its self-test, not FULL (got $(plan_get mode) $(plan_suites) / $(plan_get makes))"
+
+printf 'test/unit-tests.conf\n' >"$W/files"
+OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --plan "$W/plan" 2>&1); RC=$?
+row TAF-46 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not read which suites changed"* ]] && echo 1 || echo 0) \
+    "with no git diff to read (--files) a manifest change stays FULL (got $(plan_get mode))"
+
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 31 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 31"; exit 1; }
+[[ "$total" -eq 45 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 45"; exit 1; }
 [[ "$failed" -eq 0 ]]
