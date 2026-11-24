@@ -152,6 +152,10 @@ private:
 /// item that IS one of these or a folder HOLDING one (TransferRequest::held_files, delete_items).
 std::vector<std::string> held_host_files(Emulator& emu);
 
+/// Is `host_path` one of `held` (a held_host_files() list), or a folder holding one? By file identity (see
+/// TransferRequest::held_files). The window uses it to refuse a rename of a held file.
+bool is_held(const std::string& host_path, const std::vector<std::string>& held);
+
 // ---- transfers ------------------------------------------------------------
 
 enum class Side { Card, Host };

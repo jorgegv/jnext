@@ -2106,11 +2106,11 @@ SD-writes file (reopened by path on every commit, so a trashed one comes back wi
 lost), the image lock files (a trashed one lets a second jnext lock the same card), `--wav-record`, `--dac-trace`,
 `--log-file`, a tape save, the compositor trace, an RZX recording, a video recording with its two raw temp files, the
 joystick-UART FIFOs and NextPi's overlay. A new holder that records nothing in the registry is the only way to be missed:
-anything that opens a host file and keeps it open, or appends to it again by path, must register it. On top of the registry
+anything that opens a host file and keeps it open, or appends to it again by path, must register it. The one exception is the esxDOS host-filesystem handles: a file the guest has open INSIDE the esxDOS root does not register (the root itself, and any folder above it, is protected, so the whole tree is, but a single guest-open file inside it can still be trashed), and neither do the extended-NEX sibling readers. On top of the registry
 the manager adds what only the configuration knows: each slot's configured image (an ejected card 0 keeps its path), the NEX
 a read overlay serves, the loaded TAP, TZX and WAV and the esxDOS root. Each of them, and any folder holding one, is refused as
 a copy or move source, as a Replace target and as a delete target, by file identity, whichever slot the pane shows. The host side of a delete or a Replace goes to the trash through a
-hook; there is no permanent fallback. Rows: `SDMS-01..12`, `SDMT-01..34`, `SDMR-01..05` (`sdcard_manager_test`).
+hook; there is no permanent fallback. Rows: `SDMS-01..12`, `SDMT-01..35`, `SDMR-01..05` (`sdcard_manager_test`).
 
 `resolve_remembered()` is what the window opens on, and the emulator wins over the remembered state: the remembered
 card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,

@@ -12,6 +12,7 @@
 
 #include "core/video_recorder.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 
@@ -126,6 +127,25 @@ int main()
         check("SF-13", "a failed encode's partial non-empty output is kept, and still latches",
               started && !stopped && rec.output_failed(sf_path("partial.mp4")) &&
                   !sz_ec && sz > 0);
+    }
+    {
+        // GH #558: the recorder HOLDS (held_files) its output and its two raw temp files from start() to the end of
+        // stop(): the SD card file manager must not trash one under it. Oracle: the registry's own snapshot.
+        auto held = [](const std::string& p) {
+            const auto v = held_files::snapshot();
+            return std::find(v.begin(), v.end(), p) != v.end();
+        };
+        VideoRecorder rec;
+        sf_mode("success");
+        const std::string out = sf_path("held.mp4"), vtmp = sf_path("jnext_rec_video.raw"),
+                          atmp = sf_path("jnext_rec_audio.raw");
+        const bool before = held(out) || held(vtmp) || held(atmp);
+        const bool started = sf_ready && sf_start_with_frame(rec, "held.mp4");
+        const bool during = held(out) && held(vtmp) && held(atmp);
+        const bool stopped = started && rec.stop();
+        const bool after = held(out) || held(vtmp) || held(atmp);
+        check("SF-14", "while recording the output and both raw temp files are held (held_files), and none of them after stop()",
+              sf_ready && !before && started && during && stopped && !after);
     }
     if (sf_ready) {
         std::error_code ec;

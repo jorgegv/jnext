@@ -27,6 +27,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/held_files.h"
 #include "core/nextpi_provisioner.h"
 #include "audio/pi_audio.h"
 #include "core/pi_qemu.h"
@@ -3118,6 +3119,51 @@ int main(int argc, char** argv) {
               socket_ok && warm_ok && fifo_ok,
               fmt("started=%d (%s) socket_ok=%d warm_ok=%d fifo_ok=%d (%s)", started ? 1 : 0, error.c_str(),
                   socket_ok ? 1 : 0, warm_ok ? 1 : 0, fifo_ok ? 1 : 0, fifo_error.c_str()));
+    }
+
+    // ── PIT-67 (GH #558) — while QEMU runs, the overlay (all of NextPi's writes go there) is HELD (held_files), and so
+    // is the folder of the FIFOs on POSIX's FIFO transport; stop() releases them. The SD card file manager must
+    // not trash either one under the child. Oracle: the registry's own snapshot, with the stand-in QEMU.
+    {
+        auto held = [](const std::string& p) {
+            const auto v = held_files::snapshot();
+            return std::find(v.begin(), v.end(), p) != v.end();
+        };
+        Fixture fx("held");
+        PiQemu::Spec spec;
+        spec.dir         = fx.dir();
+        spec.qemu_binary = fx.bin("qemu-system-arm");
+        spec.audio       = "none";
+        spec.transport   = PiQemu::Transport::Socket;
+        const std::string overlay = (std::filesystem::path(spec.dir) / "overlay.qcow2").string();
+        PiQemu q;
+        std::string error;
+        const bool before = held(overlay);
+        const bool started = fx.ok() && q.start(spec, error);
+        const bool during = held(overlay);
+        q.stop();
+        const bool after = held(overlay);
+        bool fifo_ok = true;
+#ifndef _WIN32
+        Fixture fx2("held-fifo");
+        PiQemu::Spec fspec = spec;
+        fspec.dir         = fx2.dir();
+        fspec.qemu_binary = fx2.bin("qemu-system-arm");
+        fspec.transport   = PiQemu::Transport::Fifo;
+        PiQemu f;
+        std::string ferr;
+        const bool fstarted = fx2.ok() && f.start(fspec, ferr);
+        const std::string rt = std::filesystem::path(f.rx_path()).parent_path().string();
+        const bool fduring = fstarted && !rt.empty() && held(rt) && held((std::filesystem::path(fspec.dir) / "overlay.qcow2").string());
+        f.stop();
+        fifo_ok = fduring && !held(rt);
+#endif
+        check("PIT-67",
+              "NextPi's overlay is held while QEMU runs (and the FIFO folder on the FIFO transport) and released by stop() (GH #558: the "
+              "SD card file manager must not trash what the child writes)",
+              !before && started && during && !after && fifo_ok,
+              fmt("before=%d started=%d (%s) during=%d after=%d fifo=%d", before ? 1 : 0, started ? 1 : 0, error.c_str(),
+                  during ? 1 : 0, after ? 1 : 0, fifo_ok ? 1 : 0));
     }
 
     // ── PIT-08 — THE FEATURE, end to end with the stand-in over the socket

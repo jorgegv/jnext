@@ -417,7 +417,7 @@ FileAddStatus ensure_card_dir(MountedCard& card,
 // It is refused even when another entry also carries the exact name: FatFs takes the first in directory
 // order, and which one a write would hit is not knowable here. Names are printable ASCII
 // (normalize_dest_path), so an ASCII fold is the FAT comparison.
-bool alias_clash(const std::string& fat_path, std::string& stored) {
+bool alias_clash(const std::string& fat_path, std::string& stored, bool& stored_is_dir) {
     auto fold = [](std::string v) {
         for (char& c : v)
             if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
@@ -436,6 +436,7 @@ bool alias_clash(const std::string& fat_path, std::string& stored) {
         if (f_readdir(&dj, &e) != FR_OK || e.fname[0] == 0) break;
         if (fold(e.fname) != leaf && e.altname[0] && fold(e.altname) == leaf) {
             stored = e.fname;
+            stored_is_dir = (e.fattrib & AM_DIR) != 0;
             found = true;
             break;
         }
@@ -444,9 +445,9 @@ bool alias_clash(const std::string& fat_path, std::string& stored) {
     return found;
 }
 
-std::string alias_clash_message(const std::string& stored, const std::string& path) {
-    return "'" + path + "' is the 8.3 name of '" + stored +
-           "' on the card; copying under it would overwrite that file";
+std::string alias_clash_message(const std::string& stored, bool stored_is_dir, const std::string& path) {
+    return "'" + path + "' is the 8.3 name of the " + (stored_is_dir ? "folder" : "file") + " '" + stored +
+           "' on the card; copying under it would " + (stored_is_dir ? "merge into that folder" : "overwrite that file");
 }
 
 // Write `src_size` bytes of `src` to the card file `fat_path`, whose parent
@@ -472,8 +473,10 @@ FileAddStatus write_card_file(MountedCard& card,
         FILINFO fno{};
         FRESULT st = f_stat(fat_path.c_str(), &fno);
         if (st == FR_OK) {
-            if (std::string stored; alias_clash(fat_path, stored)) {
-                err = alias_clash_message(stored, dest_path);
+            std::string alias_stored;
+            bool alias_dir = false;
+            if (alias_clash(fat_path, alias_stored, alias_dir)) {
+                err = alias_clash_message(alias_stored, alias_dir, dest_path);
                 return FileAddStatus::DestInvalid;
             }
             if (fno.fattrib & AM_DIR) {
@@ -787,8 +790,10 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
                   fr_str(fr) + ")";
             return FileAddStatus::DestInvalid;
         }
-        if (std::string stored; alias_clash(fat_path, stored)) {
-            err = alias_clash_message(stored, card_path);
+        std::string alias_stored;
+        bool alias_dir = false;
+        if (alias_clash(fat_path, alias_stored, alias_dir)) {
+            err = alias_clash_message(alias_stored, alias_dir, card_path);
             return FileAddStatus::DestInvalid;
         }
         const bool card_is_dir = (fno.fattrib & AM_DIR) != 0;

@@ -1402,6 +1402,23 @@ int main() {
               cards && nex_free && has(overlaid, emu.config().load_file) && !emu.config().sd_card_image.empty(),
               "cards=" + std::to_string(cards) + " nex_free=" + std::to_string(nex_free));
     }
+    // SDMT-35
+    {
+        // output_files::begin twice for one path is ONE hold: a single end() releases it (the header's contract)
+        const std::string p = (g_dir / "twice.out").string();
+        auto held = [&] {
+            const auto v = held_files::snapshot();
+            return static_cast<int>(std::count(v.begin(), v.end(), p));
+        };
+        output_files::begin(p);
+        output_files::begin(p);
+        const int twice = held();
+        output_files::end(p);
+        const int after_end = held();
+        output_files::end(p);   // an end() with nothing begun is harmless
+        check("SDMT-35", "output_files::begin twice then end once leaves nothing held (one hold per path, however many begins), and a stray end is harmless",
+              twice == 1 && after_end == 0 && held() == 0, std::to_string(twice) + std::to_string(after_end));
+    }
     // SDMT-34
     {
         // an RZX recording, a tape recorder (TZX save), a loaded TZX and a loaded WAV (and a TAP save target) are held
@@ -1437,9 +1454,12 @@ int main() {
         emu2.stop_tape_save();
         const std::vector<std::string> done = sm::held_host_files(emu2);
         auto in = [&](const std::vector<std::string>& v, const std::string& p) { return std::find(v.begin(), v.end(), p) != v.end(); };
-        check("SDMT-34", "an RZX recording, a tape recorder's file, a loaded TZX and a loaded WAV are held and refused as delete targets; a tape save target is held while saving and released at the end",
+        // the RZX recording ends: its file is no longer held (it is rewritten by path only while recording)
+        emu.stop_rzx_recording();
+        const bool rzx_released = !in(sm::held_host_files(emu), rzx);
+        check("SDMT-34", "an RZX recording, a tape recorder's file, a loaded TZX and a loaded WAV are held and refused as delete targets; a tape save target is held while saving and released at the end, and the RZX file once the recording has stopped",
               rzx_ok && tzx_ok && wav_ok && rec_ok && has(rzx) && has(rec) && has((d / "t.tzx").string()) && has((d / "t.wav").string()) &&
-                  all_refused && tap_ok && in(later, tapsave) && !in(done, tapsave) && !in(done, rec),
+                  all_refused && tap_ok && in(later, tapsave) && !in(done, tapsave) && !in(done, rec) && rzx_released,
               "rzx=" + std::to_string(rzx_ok) + " tzx=" + std::to_string(tzx_ok) + " wav=" + std::to_string(wav_ok) + " rec=" + std::to_string(rec_ok));
     }
 

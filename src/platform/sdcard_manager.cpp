@@ -602,6 +602,10 @@ ItemOutcome card_to_host(Ctx& c, const TransferItem& it, const std::string& labe
 
 }  // namespace
 
+bool is_held(const std::string& host_path, const std::vector<std::string>& held) {
+    return host_holds_any(host_path, held);
+}
+
 TransferReport run_transfer(const TransferRequest& r, TransferHooks& h) {
     std::vector<std::string> labels, sources;
     for (const TransferItem& it : r.items) {
