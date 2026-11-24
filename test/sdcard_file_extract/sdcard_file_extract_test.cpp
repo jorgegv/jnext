@@ -375,7 +375,7 @@ int main() {
     {
         const Run r = run(G, "/caf\xC3\xA9");
         check("SDFX-16", "a byte outside printable ASCII (UTF-8 argument) is status 2 and the message points at the 8.3 name",
-              is(r, FileAddStatus::SourceUnreadable) && r.err.find("8.3") != std::string::npos && empty_dest(r), info(r));
+              is(r, FileAddStatus::SourceUnreadable) && r.err.find("use the 8.3 name") != std::string::npos && empty_dest(r), info(r));
     }
 
     // SDFX-17, SDFX-18: the destination
