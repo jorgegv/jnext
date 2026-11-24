@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..24: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..26: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -632,6 +632,38 @@ row('WIDGET-22', 'under a page CSP with img-src self the credit still has its ic
   await page.context().close();
   must(r.svg && Math.abs(r.w - 18) < 0.5 && Math.abs(r.h - 18) < 0.5 && r.shapes > 3 && r.img === 0, 'icon ' + JSON.stringify(r));
   must(page.msgs.length === 0, 'console/page errors: ' + page.msgs.join('; '));
+});
+
+row('WIDGET-25', 'under a page that requires Trusted Types for script, mount() resolves, the credit has its inline SVG icon and nothing reaches the console', async () => {
+  pages['tt.html'] = `<!doctype html><body><div id="p"></div><script src="jnext-${VERSION}.js"></script><script>window.pl = null; window.thrown = null; try { jnext.mount(document.getElementById('p'), { width: 640, height: 512 }).then((p) => { window.pl = p; }); } catch (e) { window.thrown = String(e); }</script></body>`;
+  pageHeaders['tt.html'] = { 'Content-Security-Policy': "require-trusted-types-for 'script'" };
+  const page = await ctxPage(`${AURL}/tt.html`);
+  await waitFor(page, () => window.thrown || (window.pl && document.querySelector('.jnext-credit')), null, 120000);
+  const r = await page.evaluate(() => {
+    const c = document.querySelector('.jnext-credit'), svg = c && c.querySelector('a svg'), b = svg && svg.getBoundingClientRect();
+    return { thrown: window.thrown, svg: !!svg, w: b && b.width, shapes: svg ? svg.querySelectorAll('path,polygon,rect').length : 0 };
+  });
+  await page.context().close();
+  must(!r.thrown && r.svg && Math.abs(r.w - 18) < 0.5 && r.shapes > 3, 'trusted types: ' + JSON.stringify(r));
+  must(page.msgs.length === 0, 'console/page errors: ' + page.msgs.join('; '));
+});
+
+row('WIDGET-26', 'a flex-row player whose container clips (overflow hidden, rounded): the credit is visible and hittable under the box, and a focused credit link keeps its focus across a window resize', async () => {
+  layoutPage('clip.html', '<div style="display:flex"><div id="p" style="overflow:hidden;border-radius:8px"></div><aside style="width:200px">sidebar</aside></div>');
+  const page = await ctxPage(`${AURL}/clip.html`);
+  await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+  const r = await probeCredit(page);
+  const kept = await page.evaluate(async () => {
+    const a = document.querySelector('.jnext-credit a'); a.focus();
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((res) => setTimeout(res, 100));
+    return document.activeElement === a;
+  });
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'credit-clip.png') });
+  await page.context().close();
+  must(!r.overlap && r.midInPlayer && r.linkHit && r.vis === 'visible', 'clip: ' + JSON.stringify(r));
+  must(Math.abs(r.right - r.boxRight) <= 2, 'clip alignment: ' + JSON.stringify(r));
+  must(kept, 'the focused credit link lost its focus on a window resize');
 });
 
 row('WIDGET-23', 'lifecycle: destroy() removes the credit, a failed mount leaves none, and two players have one credit each', async () => {

@@ -117,6 +117,24 @@
     return o;
   }
 
+  // The packaging SVG (a string of elements with attributes only, made by CMake) as SVG DOM, built with
+  // createElementNS: no DOMParser, no innerHTML, no data: URI, so neither Trusted Types nor a page's
+  // img-src policy has anything to refuse.
+  function svgFromString(src) {
+    var NS = 'http://www.w3.org/2000/svg', root = null, stack = [];
+    var re = /<(\/?)([A-Za-z][\w:-]*)((?:\s+[\w:-]+='[^']*')*)\s*(\/?)>/g, m;
+    while ((m = re.exec(src)) !== null) {
+      if (m[1]) { stack.pop(); continue; }
+      var el = document.createElementNS(NS, m[2]), at = /([\w:-]+)='([^']*)'/g, x;
+      while ((x = at.exec(m[3])) !== null) {
+        if (x[1] !== 'xmlns') el.setAttribute(x[1], x[2]);
+      }
+      if (stack.length) stack[stack.length - 1].appendChild(el); else root = el;
+      if (!m[4]) stack.push(el);
+    }
+    return root;
+  }
+
   function mount(container, options) {
     if (!(container instanceof Element)) {
       return Promise.reject(new TypeError('jnext.mount: the first argument must be a DOM element'));
@@ -203,8 +221,7 @@
     creditLink.rel = 'noopener';
     creditLink.title = 'JNext, a ZX Spectrum Next emulator';
     creditLink.style.cssText = 'color:inherit;text-decoration:none;cursor:pointer';
-    var creditIcon = new DOMParser().parseFromString("@JNEXT_ICON_SVG@", 'image/svg+xml').documentElement;
-    creditIcon = document.importNode(creditIcon, true);
+    var creditIcon = svgFromString("@JNEXT_ICON_SVG@");
     // The asset's clip id is renamed per mount, so it cannot collide with an id of the host page.
     var clipEl = creditIcon.querySelector('clipPath');
     if (clipEl) {
@@ -222,23 +239,23 @@
     creditLink.appendChild(creditIcon);
     creditLink.appendChild(document.createTextNode('JNext'));
     credit.appendChild(creditLink);
-    var creditAlive = !!container.parentNode, creditInside = false;
-    var containerMargin = container.style.marginBottom, containerPos = container.style.position;
+    var creditAlive = !!container.parentNode, creditReserved = false;
+    var containerMargin = container.style.marginBottom;
     if (creditAlive) container.parentNode.insertBefore(credit, container.nextSibling);
-    function creditOutside() {
-      if (creditInside) {
-        container.style.marginBottom = containerMargin;
-        container.style.position = containerPos;
-        creditInside = false;
-      }
-      if (credit.parentNode !== container.parentNode || credit.previousSibling !== container) {
-        container.parentNode.insertBefore(credit, container.nextSibling);
-      }
-      credit.style.cssText = CREDIT_BASE;
+    function unreserve() {
+      if (creditReserved) { container.style.marginBottom = containerMargin; creditReserved = false; }
     }
     function placeCredit() {
       if (!creditAlive || !container.parentNode) return;
-      creditOutside();
+      // The credit is always the container's next sibling (never moved while it keeps its place, so a
+      // focused link stays focused), in the flow or, when the flow would not put it below the player,
+      // absolutely positioned under the box: never inside the container, so the container's own
+      // overflow cannot clip it.
+      if (credit.previousSibling !== container || credit.parentNode !== container.parentNode) {
+        container.parentNode.insertBefore(credit, container.nextSibling);
+      }
+      unreserve();
+      credit.style.cssText = CREDIT_BASE;
       // Aligned to the player box (it may be narrower than a stretched container).
       var cc = container.getBoundingClientRect(), c = box.getBoundingClientRect(), r = credit.getBoundingClientRect();
       var under = Math.max(cc.bottom, c.bottom);   // the box may overflow a smaller container
@@ -247,13 +264,12 @@
         credit.style.marginLeft = (c.left - r.left) + 'px';
         return;
       }
-      // Not laid out below the container: hang it under the container's right edge.
-      var cs = getComputedStyle(container);
-      if (cs.position === 'static') container.style.position = 'relative';
-      container.style.marginBottom = ((parseFloat(cs.marginBottom) || 0) + 26) + 'px';
-      container.appendChild(credit);
-      credit.style.cssText = CREDIT_BASE + 'position:absolute;margin:0;width:auto;top:' + (under - cc.top) + 'px;right:' + (cc.right - c.right) + 'px';
-      creditInside = true;
+      credit.style.cssText = CREDIT_BASE + 'position:absolute;margin:0;width:auto;top:0;right:0';
+      var o = credit.getBoundingClientRect();   // where top:0 right:0 puts it: the containing block's corner
+      credit.style.top = (under - o.top) + 'px';
+      credit.style.right = (o.right - c.right) + 'px';
+      container.style.marginBottom = ((parseFloat(getComputedStyle(container).marginBottom) || 0) + 26) + 'px';
+      creditReserved = true;
     }
     var creditObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(placeCredit) : null;
     if (creditObserver) { creditObserver.observe(container); creditObserver.observe(box); }
@@ -263,11 +279,7 @@
       creditAlive = false;
       if (creditObserver) creditObserver.disconnect();
       window.removeEventListener('resize', placeCredit);
-      if (creditInside) {
-        container.style.marginBottom = containerMargin;
-        container.style.position = containerPos;
-        creditInside = false;
-      }
+      unreserve();
       if (credit.parentNode) credit.parentNode.removeChild(credit);
     }
     var kb = JnextTouchKeyboard.create(box, canvas);   // builds nothing until the keyboard is shown
