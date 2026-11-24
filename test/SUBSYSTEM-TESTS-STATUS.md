@@ -190,7 +190,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Backend (GH #276) |     1605 |     1605 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (debugger introspection, GH #529) |      187 |      187 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Startup stop (--debugger, --break-at, GH #548) |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Start-up error box (GH #555) |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Start-up error box (GH #555) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -258,6 +258,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      203 |      203 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **18030**| **18030**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **18031**| **18031**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
