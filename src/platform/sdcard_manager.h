@@ -6,7 +6,7 @@
 // The Qt window (src/gui/sdcard_manager_dialog.*) draws two panes and asks the questions; everything
 // it DECIDES lives here, so it is testable without a window:
 //
-//   * slots()               what each card slot holds, and whether and why it is shown read-only;
+//   * card_slots()               what each card slot holds, and whether and why it is shown read-only;
 //   * SdManagerSession      the pause, resume and hard-reset contract with the hosted debugger backend,
 //                           and the warn-before-the-first-change gate;
 //   * run_transfer()        copy or move a multi-selection between the card and the host, both ways;
@@ -57,7 +57,7 @@ struct SlotInfo {
 /// back to read-only: SdCardDevice::write_protected); and jnext can write the volume
 /// (cardops::probe: the first FAT32 partition). The card ops themselves would write a write-protected
 /// slot, so this is the only place that enforces the first three.
-std::array<SlotInfo, 2> slots(Emulator& emu);
+std::array<SlotInfo, 2> card_slots(Emulator& emu);
 
 // ---- the session ----------------------------------------------------------
 
@@ -181,7 +181,7 @@ struct TransferRequest {
     /// always held too. Refused as a copy or move source, as a Replace target and (delete_items) as a
     /// delete target, together with any folder holding one of them.
     std::vector<std::string> held_files;
-    /// Why the card must not be changed (slots(): empty = writable). Any run that would write the card
+    /// Why the card must not be changed (card_slots(): empty = writable). Any run that would write the card
     /// (a copy onto it, or a move off it) is refused up front, before a hook runs, when this is set; the
     /// card is probed again here as well.
     std::string card_read_only_reason;

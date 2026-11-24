@@ -6143,6 +6143,19 @@ files, separated by <code>:</code> (<code>;</code> on Windows); <strong>--source
 one. Empty means none. Given on the command line, the list REPLACES
 the saved one for that run. A relative directory is taken from the
 working directory. The Qt window with the debugger.</dd>
+<dt><code>sdcard_manager.card</code> <em>FILE</em></dt>
+<dd>The SD card image the SD card file manager last showed. On opening,
+the window shows that card if it is in a slot, and otherwise the
+first card that is. The Qt window.</dd>
+<dt><code>sdcard_manager.card_dir</code> <em>PATH</em></dt>
+<dd>The folder of that card the manager last showed, with every byte
+outside printable ASCII and every <code>%</code> written as <code>%XX</code>. The window
+opens in it only on the remembered card and only if it exists on the
+card now; otherwise it opens at the card’s root. The Qt window.</dd>
+<dt><code>sdcard_manager.host_dir</code> <em>PATH</em></dt>
+<dd>The host folder the manager’s right-hand pane last showed. If it no
+longer exists, the nearest existing parent is used, then the Load
+directory, then the home directory. The Qt window.</dd>
 <dt><code>screenshot.quick_dir</code> <em>PATH</em></dt>
 <dd>The Quick Screenshot directory; empty means <code>~/.jnext/screenshots</code>.
 The Qt window.</dd>

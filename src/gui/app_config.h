@@ -117,6 +117,11 @@ struct AppConfigData {
     QString sd_card_path;     // default --sdcard when the CLI gives none
     QString sd_card2_path;    // image in the second SD card slot ("" = empty slot; GH #505)
     QString screenshot_dir;   // seeds "Save Screenshot..."
+    // GH #558 - what the SD card file manager opens on (remembered state, no Preferences control; settable with
+    // --set like last_load_dir). card_dir is the STORED form (sdmanager::encode_card_dir).
+    QString sdmanager_card;
+    QString sdmanager_card_dir;
+    QString sdmanager_host_dir;
     // GH #420 - the debugger's Source tab also looks for source files in these
     // directories. Saved as ONE string joined with source_search::kListSeparator
     // (the spelling `--set paths.source_dirs` takes). Carried through untouched by

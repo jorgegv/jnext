@@ -134,6 +134,9 @@ void merge_cli_assignments(AppConfigData& d, const std::vector<config_keys::Assi
         case KeyId::StartupCrtShaderStyle:  d.crt_shader_style = crt_shader::style_from_int(text.toInt()); break;
         case KeyId::PathsLastLoadDir:       d.last_load_dir = text; break;
         case KeyId::PathsScreenshotDir:     d.screenshot_dir = text; break;
+        case KeyId::SdManagerCard:          d.sdmanager_card = text; break;
+        case KeyId::SdManagerCardDir:       d.sdmanager_card_dir = text; break;
+        case KeyId::SdManagerHostDir:       d.sdmanager_host_dir = text; break;
         case KeyId::ScreenshotQuickDir:     d.quick_screenshot_dir = text; break;
         case KeyId::PathsSourceDirs:        d.source_dirs = source_dirs_from_text(text); break;
         case KeyId::ScreenshotQuickFormat: {
@@ -317,6 +320,14 @@ void AppConfig::load() {
     }
     settings_.endGroup();
 
+    // GH #558: what the SD card file manager opens on. Read as text and checked when the window opens
+    // (sdmanager::resolve_remembered), never trusted here.
+    settings_.beginGroup(S(KeyId::SdManagerCard));
+    data_.sdmanager_card     = ini_text(settings_.value(N(KeyId::SdManagerCard), data_.sdmanager_card));
+    data_.sdmanager_card_dir = ini_text(settings_.value(N(KeyId::SdManagerCardDir), data_.sdmanager_card_dir));
+    data_.sdmanager_host_dir = ini_text(settings_.value(N(KeyId::SdManagerHostDir), data_.sdmanager_host_dir));
+    settings_.endGroup();
+
     // GH #406. Its own group; cleaned of blanks and cut to the cap, so a
     // hand-edited file cannot grow the menu.
     settings_.beginGroup(S(KeyId::RecentFiles));
@@ -484,6 +495,12 @@ void AppConfig::save() const {
 
     settings_.beginGroup(S(KeyId::SourceColourScheme));   // GH #422 stage 2
     settings_.setValue(N(KeyId::SourceColourScheme), source_scheme_to_key(data_.source_scheme));
+    settings_.endGroup();
+
+    settings_.beginGroup(S(KeyId::SdManagerCard));
+    settings_.setValue(N(KeyId::SdManagerCard), data_.sdmanager_card);
+    settings_.setValue(N(KeyId::SdManagerCardDir), data_.sdmanager_card_dir);
+    settings_.setValue(N(KeyId::SdManagerHostDir), data_.sdmanager_host_dir);
     settings_.endGroup();
 
     settings_.beginGroup(S(KeyId::RecentFiles));

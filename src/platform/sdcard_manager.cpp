@@ -259,10 +259,10 @@ bool gate(TransferHooks& h, TransferReport& rep) {
 }  // namespace
 
 // ===========================================================================
-// slots()
+// card_slots()
 // ===========================================================================
 
-std::array<SlotInfo, 2> slots(Emulator& emu) {
+std::array<SlotInfo, 2> card_slots(Emulator& emu) {
     std::array<SlotInfo, 2> out;
     for (int s = 0; s < 2; ++s) {
         SdCardDevice& dev = s == 0 ? emu.sd_card() : emu.sd_card2();

@@ -2013,6 +2013,25 @@ Given on the command line, the list REPLACES the saved one for that run.
 A relative directory is taken from the working directory.
 The Qt window with the debugger.
 .TP
+\f[CR]sdcard_manager.card\f[R] \f[I]FILE\f[R]
+The SD card image the SD card file manager last showed.
+On opening, the window shows that card if it is in a slot, and otherwise
+the first card that is.
+The Qt window.
+.TP
+\f[CR]sdcard_manager.card_dir\f[R] \f[I]PATH\f[R]
+The folder of that card the manager last showed, with every byte outside
+printable ASCII and every \f[CR]%\f[R] written as \f[CR]%XX\f[R].
+The window opens in it only on the remembered card and only if it exists
+on the card now; otherwise it opens at the card\(cqs root.
+The Qt window.
+.TP
+\f[CR]sdcard_manager.host_dir\f[R] \f[I]PATH\f[R]
+The host folder the manager\(cqs right\-hand pane last showed.
+If it no longer exists, the nearest existing parent is used, then the
+Load directory, then the home directory.
+The Qt window.
+.TP
 \f[CR]screenshot.quick_dir\f[R] \f[I]PATH\f[R]
 The Quick Screenshot directory; empty means
 \f[CR]\(ti/.jnext/screenshots\f[R].

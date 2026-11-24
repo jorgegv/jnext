@@ -2061,11 +2061,11 @@ the same process would be refused. Rows: `SDOPS-01..22` and `SDOPS-24..56` (`sdc
 
 **The SD card file manager's logic.** `src/platform/sdcard_manager.{h,cpp}` (namespace `sdmanager`,
 toolkit-free, like `StartupStop`) holds everything the manager's window decides; the window only draws and
-asks. `slots()` says what each of the two card slots holds and whether the manager may change it. A card is
+asks. `card_slots()` says what each of the two card slots holds and whether the manager may change it. A card is
 shown read-only, with one sentence of reason, when the slot is empty, when `Emulator::sd_card_change_refusal()`
 names a state that forbids a card change (`--no-sdcard`, an RZX recording or playback, the loaded NEX's read
 overlay), when `SdCardDevice::write_protected()` (`--sdcard-readonly`), or when `cardops::probe()` finds a card
-jnext cannot write. The card operations themselves would write a write-protected slot, so `slots()` is the only
+jnext cannot write. The card operations themselves would write a write-protected slot, so `card_slots()` is the only
 place that enforces the first three.
 
 `SdManagerSession` is the contract with the machine. `open()` attaches its own OBSERVER client to the hosted

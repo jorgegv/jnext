@@ -1768,6 +1768,51 @@ static void test_sd_card2(QTemporaryDir& dir) {
               raw.value("sd_card2_path").toString() == QStringLiteral("/home/user/sd/second, card.img"));
 }
 
+// ── AC-104..106: GH #558 - the SD card file manager's three remembered values ──────────────────────────────
+// Oracle: the issue's remembering requirement (card, card folder, host folder survive a restart) and the man page's
+// "Settings for --set" entries for sdcard_manager.card / card_dir / host_dir.
+static void test_sdmanager_keys(QTemporaryDir& dir) {
+    set_group("AC-SDMANAGER");
+    using config_keys::KeyId;
+    const AppConfigData kDefaults{};
+    const QString none = fresh_ini_path(dir, "sdm-none");
+    AppConfig empty(none);
+    empty.load();
+    check("AC-104", "the three SD card file manager values are empty by default (a fresh struct, and a load with no file)",
+          kDefaults.sdmanager_card.isEmpty() && kDefaults.sdmanager_card_dir.isEmpty() && kDefaults.sdmanager_host_dir.isEmpty() &&
+              empty.data().sdmanager_card.isEmpty() && empty.data().sdmanager_card_dir.isEmpty() && empty.data().sdmanager_host_dir.isEmpty());
+
+    const QString p = fresh_ini_path(dir, "sdm-save");
+    const QString card = QStringLiteral("/home/u/sd/my, card.img"), card_dir = QStringLiteral("/D%C3%A9j%C3%A0 %2541"),
+                  host = QStringLiteral("/home/u/Mis juegos, ROMs");
+    { AppConfig w(p); w.load(); w.data().sdmanager_card = card; w.data().sdmanager_card_dir = card_dir; w.data().sdmanager_host_dir = host; w.save(); }
+    AppConfig r(p);
+    r.load();
+    QSettings raw(p, QSettings::IniFormat);
+    raw.beginGroup("sdcard_manager");
+    check("AC-105", "the three values round-trip through save/load (commas, spaces and %XX included) and the file spells them [sdcard_manager] card=, card_dir=, host_dir=",
+          r.data().sdmanager_card == card && r.data().sdmanager_card_dir == card_dir && r.data().sdmanager_host_dir == host &&
+              raw.value("card").toString() == card && raw.value("card_dir").toString() == card_dir && raw.value("host_dir").toString() == host);
+
+    AppConfigData merged;
+    merged.sdmanager_card = QStringLiteral("/saved/card.img");
+    merged.sdmanager_host_dir = QStringLiteral("/saved/host");
+    merge_cli_assignments(merged, {
+        { KeyId::SdManagerCard, {}, "/cli/card.img" },
+        { KeyId::SdManagerCardDir, {}, "/GAMES" },
+        { KeyId::SdManagerHostDir, {}, "/cli/host" },
+    });
+    config_keys::Assignment a1, a2;
+    std::string why1, why2;
+    const bool parsed = config_keys::parse_assignment("sdcard_manager.host_dir=/x/y z", a1, why1) && a1.id == KeyId::SdManagerHostDir &&
+                        a1.text == "/x/y z" && config_keys::parse_assignment("sdcard_manager.card_dir=/A%20B", a2, why2) &&
+                        a2.id == KeyId::SdManagerCardDir && a2.text == "/A%20B";
+    check("AC-106", "--set sdcard_manager.card / card_dir / host_dir parse through config_keys and land in the merged data (a later GUI action overrides them when the window closes)",
+          parsed && merged.sdmanager_card == QStringLiteral("/cli/card.img") && merged.sdmanager_card_dir == QStringLiteral("/GAMES") &&
+              merged.sdmanager_host_dir == QStringLiteral("/cli/host"),
+          why1 + why2);
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -1801,6 +1846,7 @@ int main() {
     test_source_scheme(dir);
     test_fast_boot_hide(dir);
     test_sd_card2(dir);
+    test_sdmanager_keys(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

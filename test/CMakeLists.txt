@@ -2226,6 +2226,14 @@ if(ENABLE_QT_UI)
     target_include_directories(sdcard_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME sdcard_menu_tests COMMAND sdcard_menu_test)
 
+    # GH #558 S3 - the SD card file manager window (src/gui/sdcard_manager_dialog.*): offscreen, a real Emulator,
+    # Debugger and session, fixture cards built at run time with FatFs.
+    add_executable(sdcard_manager_window_test gui/sdcard_manager_window_test.cpp)
+    set_target_properties(sdcard_manager_window_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(sdcard_manager_window_test PRIVATE jnext_gui)
+    target_include_directories(sdcard_manager_window_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_manager_window_tests COMMAND sdcard_manager_window_test)
+
     # GH #492 stage 2 - File > Save Bug Report...: the menu entry, the real file dialog, the report the Qt
     # frontend writes (settings file included).
     add_executable(bug_report_ui_test gui/bug_report_ui_test.cpp)

@@ -539,17 +539,17 @@ int main() {
         emu.init(cfg);
         emu.sd_card().mount(w.p, false);
         emu.sd_card2().mount(f.p, false);
-        auto s = sm::slots(emu);
+        auto s = sm::card_slots(emu);
         const bool s0 = s[0].mounted && s[0].writable && s[0].image == w.p && s[0].read_only_reason.empty();
         const bool s1 = s[1].mounted && !s[1].writable && s[1].read_only_reason.find("first FAT32 partition") != std::string::npos;
         // write-protected device
         emu.sd_card().unmount();
         emu.sd_card().mount(w.p, true);
-        s = sm::slots(emu);
+        s = sm::card_slots(emu);
         const bool wp = s[0].mounted && !s[0].writable && s[0].read_only_reason.find("--sdcard-readonly") != std::string::npos;
         // an empty slot
         emu.sd_card2().unmount();
-        s = sm::slots(emu);
+        s = sm::card_slots(emu);
         const bool empty = !s[1].mounted && !s[1].writable && s[1].image.empty() && !s[1].read_only_reason.empty();
         // the machine forbids a card change (--no-sdcard)
         Emulator emu2;
@@ -558,7 +558,7 @@ int main() {
         cfg2.no_sdcard = true;
         emu2.init(cfg2);
         emu2.sd_card().mount(w.p, false);   // the file is open read-write here too; nothing is written
-        const auto s2 = sm::slots(emu2);
+        const auto s2 = sm::card_slots(emu2);
         const bool refusal = s2[0].mounted && !s2[0].writable && s2[0].read_only_reason.find("--no-sdcard") != std::string::npos;
         emu.sd_card().unmount();
         emu2.sd_card().unmount();
@@ -574,7 +574,7 @@ int main() {
         sm::TransferRequest rq3 = card_req(w.p, "/", {"/FILE.BIN"}, true);
         rq3.card_read_only_reason = "read-only";
         const sm::TransferReport mv = sm::run_transfer(rq3, h);
-        check("SDMT-11", "slots() marks a FAT16 card, a write-protected device, an empty slot and a --no-sdcard session read-only with the reason; a write onto such a card (or a move off it) is refused before any hook runs",
+        check("SDMT-11", "card_slots() marks a FAT16 card, a write-protected device, an empty slot and a --no-sdcard session read-only with the reason; a write onto such a card (or a move off it) is refused before any hook runs",
               s0 && s1 && wp && empty && refusal && hk.log.empty() && !own.error.empty() && own.done.empty() &&
                   sha_file(f.p) == before && !given.error.empty() && given.done.empty() && !mv.error.empty() &&
                   sha_file(w.p) == sha_g,

@@ -5328,11 +5328,11 @@ the same process would be refused. Rows: <code>SDOPS-01..22</code> and <code>SDO
 <code>SDWP-01</code> for <code>SdCardDevice::write_protected()</code> (<code>sdcard_test</code>).</p>
 <p><strong>The SD card file manager's logic.</strong> <code>src/platform/sdcard_manager.{h,cpp}</code> (namespace <code>sdmanager</code>,
 toolkit-free, like <code>StartupStop</code>) holds everything the manager's window decides; the window only draws and
-asks. <code>slots()</code> says what each of the two card slots holds and whether the manager may change it. A card is
+asks. <code>card_slots()</code> says what each of the two card slots holds and whether the manager may change it. A card is
 shown read-only, with one sentence of reason, when the slot is empty, when <code>Emulator::sd_card_change_refusal()</code>
 names a state that forbids a card change (<code>--no-sdcard</code>, an RZX recording or playback, the loaded NEX's read
 overlay), when <code>SdCardDevice::write_protected()</code> (<code>--sdcard-readonly</code>), or when <code>cardops::probe()</code> finds a card
-jnext cannot write. The card operations themselves would write a write-protected slot, so <code>slots()</code> is the only
+jnext cannot write. The card operations themselves would write a write-protected slot, so <code>card_slots()</code> is the only
 place that enforces the first three.</p>
 <p><code>SdManagerSession</code> is the contract with the machine. <code>open()</code> attaches its own OBSERVER client to the hosted
 <code>Debugger</code> (it arms nothing, so the window costs no per-instruction tracking) and pauses the machine unless
@@ -5371,11 +5371,11 @@ SD-writes file (reopened by path on every commit, so a trashed one comes back wi
 lost), the image lock files (a trashed one lets a second jnext lock the same card), <code>--wav-record</code>, <code>--dac-trace</code>,
 <code>--log-file</code>, a tape save, the compositor trace, an RZX recording, a video recording with its two raw temp files, the
 joystick-UART FIFOs and NextPi's overlay. A new holder that records nothing in the registry is the only way to be missed:
-anything that opens a host file and keeps it open, or appends to it again by path, must register it. On top of the registry
+anything that opens a host file and keeps it open, or appends to it again by path, must register it. The one exception is the esxDOS host-filesystem handles: a file the guest has open INSIDE the esxDOS root does not register (the root itself, and any folder above it, is protected, so the whole tree is, but a single guest-open file inside it can still be trashed), and neither do the extended-NEX sibling readers. On top of the registry
 the manager adds what only the configuration knows: each slot's configured image (an ejected card 0 keeps its path), the NEX
 a read overlay serves, the loaded TAP, TZX and WAV and the esxDOS root. Each of them, and any folder holding one, is refused as
 a copy or move source, as a Replace target and as a delete target, by file identity, whichever slot the pane shows. The host side of a delete or a Replace goes to the trash through a
-hook; there is no permanent fallback. Rows: <code>SDMS-01..12</code>, <code>SDMT-01..34</code>, <code>SDMR-01..05</code> (<code>sdcard_manager_test</code>).</p>
+hook; there is no permanent fallback. Rows: <code>SDMS-01..12</code>, <code>SDMT-01..35</code>, <code>SDMR-01..05</code> (<code>sdcard_manager_test</code>).</p>
 <p><code>resolve_remembered()</code> is what the window opens on, and the emulator wins over the remembered state: the remembered
 card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,
 and only if every component is a directory that exists on the card now (matched by <code>open_name</code>), otherwise the root, never a
