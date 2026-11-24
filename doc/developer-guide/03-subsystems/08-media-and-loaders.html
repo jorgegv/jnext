@@ -5348,7 +5348,10 @@ and a cold boot drops both. <code>Emulator::request_hard_reset()</code> is used 
 (no <code>LoopDriver</code>, or an unacknowledged corruption); it is performed by the loop owner at its next tick whether or
 not frames run, and the machine is left paused, because a request followed by a resume would let a tick of frames
 run on the old machine first. A remote client can still resume the machine while the window is open; the re-pause
-before each write bounds the frames that run over an unchanged card, and the reset on close happens anyway.</p>
+before each write bounds the frames that run over an unchanged card, and the reset on close happens anyway. A
+changed <code>close()</code> pauses the machine again first, so the reset really runs on a paused machine, and the result reports
+what the machine is doing afterwards (a pause whose owner detached, or a resume by another client, is not reported as
+the other state).</p>
 <p><code>run_transfer()</code>, <code>delete_items()</code> and <code>make_folder()</code> are the operations, with hooks for the questions, the trash
 and the gate. Each item is all-or-nothing (the engines roll back), a run stops at the first failure or Cancel and
 reports what was done, skipped, failed and not attempted, and an item repeated or contained in another selected one
@@ -5356,10 +5359,16 @@ is skipped. A card path is never trusted: it is walked from the root through rea
 the <code>open_name</code> of a listed entry, so a typed long name FatFs would resolve to another entry, a <code>..</code> or a backslash finds
 nothing, and the engines are called with the path spelt from the listing. The host name a copy off the card creates is
 the one <code>extract_from_image()</code> creates (<code>carry::escape_name</code> of the stored name, looked up on the card, not taken from the
-caller), so Replace trashes exactly the host entry the copy would collide with. A copy onto the card names its card entry
-from the host path's own file name under the file-add name rules, refuses a destination folder that is gone (the engine
-would create it), and a type clash is refused without asking. The mounted image, and any folder holding it, is refused as a
-copy source and as a delete target, by file identity. The host side of a delete or a Replace goes to the trash through a
+caller), so Replace trashes exactly the host entry the copy would collide with; if the copy then fails the report says the
+old entry is in the trash. A copy onto the card names its card entry from the host path's own file name under the
+file-add name rules, refuses a destination folder that is gone (the engine would create it), and a type clash is refused
+without asking. Whether the destination exists is read from the LISTING of the destination folder by stored name: FatFs
+resolves a typed name that equals another entry's 8.3 alias to that entry and would overwrite it, so such a name is refused,
+naming the entry. <code>held_host_files()</code> lists every host file or folder the running emulator holds: both slots' images
+(mounted and configured), each one's SD-writes file (reopened by path on every commit, so a trashed one comes back without
+its header and the guest's writes are lost), the tape-save target and a running tape, RZX or video recording, the loaded
+TAP, TZX and WAV, the NEX a read overlay serves and the esxDOS root. Each of them, and any folder holding one, is refused as
+a copy or move source, as a Replace target and as a delete target, by file identity, whichever slot the pane shows. The host side of a delete or a Replace goes to the trash through a
 hook; there is no permanent fallback. Rows: <code>SDMS-01..10</code>, <code>SDMT-01..20</code>, <code>SDMR-01..04</code> (<code>sdcard_manager_test</code>).</p>
 <p><code>resolve_remembered()</code> is what the window opens on, and the emulator wins over the remembered state: the remembered
 card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,
