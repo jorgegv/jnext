@@ -27,6 +27,7 @@
 // the image is handed in by the caller, and the digest of the journal's
 // content is computed by the warm-start code from for_each_sorted().
 
+#include "core/held_files.h"
 #include <array>
 #include <cstdint>
 #include <map>
@@ -64,7 +65,7 @@ struct Binding {
 
 class Journal {
 public:
-    Journal(std::string file, const Binding& b) : file_(std::move(file)), binding_(b) {}
+    Journal(std::string file, const Binding& b) : file_(std::move(file)), binding_(b), hold_(file_) {}
 
     /// The 512 bytes the guest last wrote to `sector`, when it did.
     bool lookup(uint32_t sector, uint8_t out[kSectorBytes]) const;
@@ -103,6 +104,7 @@ private:
     mutable std::mutex mu_;
     std::string        file_;
     Binding            binding_;
+    held_files::Hold   hold_;   // the writes file is reopened BY PATH on every commit: it is held while bound
     uint64_t           file_len_ = 0;   // length of the whole records on disk (0 = no file yet)
     std::optional<KeptFile> kept_;
     std::map<uint32_t, std::array<uint8_t, kSectorBytes>> map_;

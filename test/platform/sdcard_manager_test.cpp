@@ -36,6 +36,12 @@
 #include "core/sdcard_file_extract.h"
 #include "core/sha256.h"
 #include "debug/debugger.h"
+#include "audio/audio_recorder.h"
+#include "audio/dac_trace_recorder.h"
+#include "core/held_files.h"
+#include "core/image_lock.h"
+#include "core/output_files.h"
+#include "peripheral/joy_uart_link.h"
 #include "peripheral/sd_card.h"
 #include "peripheral/sd_write_journal.h"
 #include "platform/emulator_boot.h"
@@ -109,6 +115,7 @@ const Bytes kQ = payload(90, 12), kOk = payload(95, 13);
 // a host name every host file system takes and the card name rules refuse (printable ASCII only)
 const char* const kNonAscii = "caf\xC3\xA9.bin";
 const Bytes kLongF = payload(310, 51);
+const Bytes kReadme = payload(77, 52);
 const Bytes kOne = payload(300, 41), kTwo = payload(310, 42), kX = payload(120, 43);
 
 // The card every row copies: /GAMES/WOTEF.NEX, /GAMES/SUB/DEEP, /MYDIR/{A.BIN,B.BIN}, /FILE.BIN, /EMPTYD, /RO
@@ -123,12 +130,17 @@ bool populate(FATFS& fsv, Pokes& pokes) {
               fat_write("0:/RO/OK.BIN", kOk);
     ok = ok && f_mkdir("0:/DATA") == FR_OK && f_mkdir("0:/ODD") == FR_OK && f_mkdir("0:/ESC") == FR_OK &&
          fat_write("0:/DATA/D1.BIN", kD1) && fat_write("0:/DATA/D2.BIN", kD2) &&
-         fat_write("0:/DATA/Long File Name.txt", kLongF);
+         fat_write("0:/DATA/Long File Name.txt", kLongF) && fat_write("0:/DATA/Readme.txt", kReadme) && f_mkdir("0:/SHD") == FR_OK;
     if (!ok) return false;
     const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
     hand_dir(fsv, dir_cluster("0:/ODD"), 2,
              {{u"", "NAME       ", 0x20, c1, static_cast<uint32_t>(kD1.size())},
               {u"NAME.", "NAME~1     ", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
+             pokes);
+    // /SHD: an earlier long entry "foo" (alias FOO~1) and a later 8.3-only "FOO": two entries of one name
+    hand_dir(fsv, dir_cluster("0:/SHD"), 2,
+             {{u"foo", "FOO~1      ", 0x20, c1, static_cast<uint32_t>(kD1.size())},
+              {u"", "FOO        ", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
              pokes);
     hand_dir(fsv, dir_cluster("0:/ESC"), 2,
              {{u"\u001b[2Jevil", "EVIL~1     ", 0x20, c1, static_cast<uint32_t>(kD1.size())}}, pokes);
@@ -153,6 +165,22 @@ Bytes tap_pair() {
     a.insert(a.end(), d.begin(), d.end());
     return a;
 }
+
+// A minimal WAV (8-bit mono 44100 Hz, silence) and a minimal TZX (one pause block): loadable tape files.
+Bytes tiny_wav() {
+    Bytes w;
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) w.push_back(static_cast<uint8_t>(v >> (8 * i))); };
+    auto u16 = [&](uint16_t v) { w.push_back(static_cast<uint8_t>(v)); w.push_back(static_cast<uint8_t>(v >> 8)); };
+    for (char c : std::string("RIFF")) w.push_back(static_cast<uint8_t>(c));
+    u32(36 + 400);
+    for (char c : std::string("WAVEfmt ")) w.push_back(static_cast<uint8_t>(c));
+    u32(16); u16(1); u16(1); u32(44100); u32(44100); u16(1); u16(8);
+    for (char c : std::string("data")) w.push_back(static_cast<uint8_t>(c));
+    u32(400);
+    for (int i = 0; i < 400; ++i) w.push_back(0x80);
+    return w;
+}
+Bytes tiny_tzx() { return Bytes{'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 1, 20, 0x20, 0xE8, 0x03}; }
 
 // A private copy of a master card, removed when the block ends.
 struct Img {
@@ -1234,6 +1262,182 @@ int main() {
               !fat16.error.empty() && fat16.done.empty() && !given.error.empty() && given.done.empty() && !root.failed.empty() &&
                   !rootw.failed.empty() && hk.log.empty() && sha_file(F16) == s16 && sha_file(c.p) == sha_g,
               rep_str(fat16) + " | " + rep_str(given) + " | " + rep_str(root));
+    }
+
+    // SDMT-29
+    {
+        // G2: the same alias inside a folder MERGE: the engine refuses it too, so Replace All overwrites nothing
+        Img c(G);
+        const fs::path hd = fresh_dir("g2");
+        fs::create_directories(hd / "DATA");
+        write_host_file(hd / "DATA" / "LONGFI~1.TXT", kOne);
+        write_host_file(hd / "DATA" / "FRESH.BIN", kX);
+        Hk hk;
+        hk.answers = {sm::OverwriteAnswer::ReplaceAll};
+        sm::TransferHooks h = hk.hooks();
+        const sm::TransferReport r = sm::run_transfer(host_req(c.p, "/", {hd / "DATA"}), h);
+        check("SDMT-29", "a folder merge holding a file named like another card entry's 8.3 alias fails even with Replace All, naming that entry: the card file keeps its bytes and nothing of the folder is copied",
+              !r.failed.empty() && r.error.find("Long File Name.txt") != std::string::npos && r.card_write_attempted &&
+                  extracted(c.p, "/DATA/Long File Name.txt") == Tree{{"Long File Name.txt", kLongF}} && !on_card(c.p, "/DATA/FRESH.BIN"),
+              rep_str(r));
+    }
+    // SDMT-30
+    {
+        // two card entries of one name (a shadowed 8.3-only FOO behind a long foo): which a copy would replace is unknown: refused, nothing asked
+        Img c(G);
+        write_host_file(host / "foo", kOne);
+        Hk hk;
+        hk.answers = {sm::OverwriteAnswer::Replace};
+        sm::TransferHooks h = hk.hooks();
+        const sm::TransferReport r = sm::run_transfer(host_req(c.p, "/SHD", {host / "foo"}), h);
+        check("SDMT-30", "a host name that two card entries carry is refused (naming the clash), nothing asked, nothing written",
+              !r.failed.empty() && r.error.find("two entries") != std::string::npos && hk.count("ask") == 0 && hk.count("gate") == 0 &&
+                  sha_file(c.p) == sha_g,
+              rep_str(r));
+    }
+    // SDMT-31
+    {
+        // a mixed-case name that fits 8.3 (stored Readme.txt, alias README.TXT): the typed alias spelling is the same NAME, a Replace
+        Img c(G);
+        write_host_file(host / "README.TXT", kOne);
+        Hk hk;
+        hk.answers = {sm::OverwriteAnswer::Replace};
+        sm::TransferHooks h = hk.hooks();
+        const sm::TransferReport r = sm::run_transfer(host_req(c.p, "/DATA", {host / "README.TXT"}), h);
+        check("SDMT-31", "a host name equal (case-folded) to a stored mixed-case name is a Replace asked with the stored name's path, not an alias refusal",
+              r.done.size() == 1 && hk.count("ask:/DATA/Readme.txt:file") == 1 && extracted(c.p, "/DATA/Readme.txt") == Tree{{"Readme.txt", kOne}},
+              rep_str(r));
+    }
+    // SDMT-32
+    {
+        // the registry's writers, driven for real: --wav-record, --dac-trace, a log file (output_files), an image lock file, a FIFO pair
+        const fs::path d = fresh_dir("reg");
+        Img a(G);
+        AudioRecorder wav;
+        const std::string wavp = (d / "rec.wav").string();
+        const bool wav_ok = wav.start(wavp);
+        DacTraceRecorder dac;
+        const std::string dacp = (d / "dac.trace").string();
+        const bool dac_ok = dac.start(dacp);
+        const std::string logp = (d / "run.log").string();
+        output_files::begin(logp);
+        const fs::path lockdir = d / "locks";
+        std::string lwhy;
+        auto lock = sdcard::ImageLock::acquire(a.p, sdcard::ImageLock::Kind::Image, lwhy, lockdir.string());
+        const bool lock_ok = lock.has_value();
+        bool fifo_ok = true;
+        std::string fifo_rx, fifo_tx;
+#ifndef _WIN32
+        std::unique_ptr<JoyUartEndpoint> ep;
+        {
+            std::string ferr;
+            ep = JoyUartEndpoint::open_fifo((d / "joy").string(), ferr);
+            fifo_ok = ep != nullptr;
+            fifo_rx = (d / "joy.rx").string();
+            fifo_tx = (d / "joy.tx").string();
+        }
+#endif
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        emu.init(cfg);
+        const std::vector<std::string> held = sm::held_host_files(emu);
+        auto has = [&](const std::string& p) { return std::find(held.begin(), held.end(), p) != held.end(); };
+        std::string lock_file;
+        for (const std::string& p : held) if (p.rfind(lockdir.string(), 0) == 0) lock_file = p;
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        std::vector<std::string> targets = {wavp, dacp, logp, lock_file, lockdir.string(), d.string()};
+        if (!fifo_rx.empty()) { targets.push_back(fifo_rx); targets.push_back(fifo_tx); }
+        bool all_refused = true;
+        for (const std::string& t : targets) {
+            if (t.empty()) { all_refused = false; continue; }
+            const sm::TransferReport r = sm::delete_items(sm::Side::Host, a.p, {t}, held, h);
+            if (r.failed.empty() || !r.done.empty()) all_refused = false;
+        }
+        const bool listed = has(wavp) && has(dacp) && has(logp) && !lock_file.empty() && (fifo_rx.empty() || (has(fifo_rx) && has(fifo_tx)));
+        // released when the holder lets go
+        wav.stop();
+        dac.stop();
+        output_files::end(logp);
+        lock.reset();
+#ifndef _WIN32
+        ep.reset();
+#endif
+        const std::vector<std::string> after = sm::held_host_files(emu);
+        auto still = [&](const std::string& p) { return std::find(after.begin(), after.end(), p) != after.end(); };
+        const bool released = !still(wavp) && !still(dacp) && !still(logp) && !still(lock_file) &&
+                              (fifo_rx.empty() || (!still(fifo_rx) && !still(fifo_tx)));
+        check("SDMT-32", "what registers itself is held while it is held and released after: --wav-record, --dac-trace, a log file, an image lock file (and the folder holding it), a FIFO pair; each is refused as a delete target, none is after the holder let go. (The video recorder's raw temp files and NextPi's overlay register the same way but need ffmpeg and QEMU: not driven here)",
+              wav_ok && dac_ok && lock_ok && listed && all_refused && released && fifo_ok && hk.count("trash") == 0,
+              "listed=" + std::to_string(listed) + " refused=" + std::to_string(all_refused) + " released=" + std::to_string(released));
+    }
+    // SDMT-33
+    {
+        // the configuration-only members: both slots' CONFIGURED images (and writes files) after an eject, and the NEX a read overlay serves
+        const fs::path d = fresh_dir("cfg");
+        const std::string ia = (d / "a.img").string(), ib = (d / "b.img").string(), nex = (d / "prog.nex").string();
+        fs::copy_file(G, ia, fs::copy_options::overwrite_existing);
+        fs::copy_file(F16, ib, fs::copy_options::overwrite_existing);
+        write_host_file(nex, kX);
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.sd_card_image = ia;
+        cfg.sd_card2_image = ib;
+        cfg.load_file = nex;
+        emu.init(cfg);
+        emu.sd_card().unmount();
+        emu.sd_card2().unmount();
+        const std::vector<std::string> ejected = sm::held_host_files(emu);
+        auto has = [&](const std::vector<std::string>& v, const std::string& p) { return std::find(v.begin(), v.end(), p) != v.end(); };
+        const bool cards = has(ejected, emu.config().sd_card_image) && has(ejected, emu.config().sd_card2_image);
+        const bool nex_free = !has(ejected, emu.config().load_file);
+        emu.sd_card().set_read_overlay(100, 4, [](uint32_t, uint8_t*) { return false; });
+        const std::vector<std::string> overlaid = sm::held_host_files(emu);
+        check("SDMT-33", "an ejected slot's configured image is still held (slot 0 and slot 1); the NEX named by load_file is held only while a read overlay serves it",
+              cards && nex_free && has(overlaid, emu.config().load_file) && !emu.config().sd_card_image.empty(),
+              "cards=" + std::to_string(cards) + " nex_free=" + std::to_string(nex_free));
+    }
+    // SDMT-34
+    {
+        // an RZX recording, a tape recorder (TZX save), a loaded TZX and a loaded WAV (and a TAP save target) are held
+        const fs::path d = fresh_dir("tapes");
+        Img a(G);
+        write_host_file(d / "t.tzx", tiny_tzx());
+        write_host_file(d / "t.wav", tiny_wav());
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        emu.init(cfg);
+        const std::string rzx = (d / "rec.rzx").string(), rec = (d / "save.tzx").string(), tapsave = (d / "save.tap").string();
+        const bool rzx_ok = emu.start_rzx_recording(rzx);
+        const bool tzx_ok = emu.tzx_tape().load((d / "t.tzx").string());
+        const bool wav_ok = emu.wav_tape().load((d / "t.wav").string());
+        // a tape save cannot start while an RZX records: the recorder and the TAP save run on a second machine
+        Emulator emu2;
+        emu2.init(cfg);
+        const bool rec_ok = emu2.start_tape_save(rec);
+        std::vector<std::string> held = sm::held_host_files(emu);
+        for (const std::string& p : sm::held_host_files(emu2)) held.push_back(p);
+        auto has = [&](const std::string& p) { return std::find(held.begin(), held.end(), p) != held.end(); };
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        bool all_refused = true;
+        for (const std::string& t : {rzx, rec, (d / "t.tzx").string(), (d / "t.wav").string()}) {
+            const sm::TransferReport r = sm::delete_items(sm::Side::Host, a.p, {t}, held, h);
+            if (r.failed.empty() || !r.done.empty()) all_refused = false;
+        }
+        emu2.stop_tape_save();
+        const bool tap_ok = emu2.start_tape_save(tapsave);
+        const std::vector<std::string> later = sm::held_host_files(emu2);
+        emu2.stop_tape_save();
+        const std::vector<std::string> done = sm::held_host_files(emu2);
+        auto in = [&](const std::vector<std::string>& v, const std::string& p) { return std::find(v.begin(), v.end(), p) != v.end(); };
+        check("SDMT-34", "an RZX recording, a tape recorder's file, a loaded TZX and a loaded WAV are held and refused as delete targets; a tape save target is held while saving and released at the end",
+              rzx_ok && tzx_ok && wav_ok && rec_ok && has(rzx) && has(rec) && has((d / "t.tzx").string()) && has((d / "t.wav").string()) &&
+                  all_refused && tap_ok && in(later, tapsave) && !in(done, tapsave) && !in(done, rec),
+              "rzx=" + std::to_string(rzx_ok) + " tzx=" + std::to_string(tzx_ok) + " wav=" + std::to_string(wav_ok) + " rec=" + std::to_string(rec_ok));
     }
 
     // ======================= what the window opens on =======================

@@ -76,7 +76,7 @@ std::string holder_pid(const std::string& lock_file)
 }  // namespace
 
 ImageLock::ImageLock(ImageLock&& o) noexcept
-    : key_(std::move(o.key_)), held_(o.held_)
+    : key_(std::move(o.key_)), held_(o.held_), hold_(std::move(o.hold_))
 #ifdef _WIN32
     , handle_(o.handle_)
 #else
@@ -97,6 +97,7 @@ ImageLock& ImageLock::operator=(ImageLock&& o) noexcept
         release();
         key_  = std::move(o.key_);
         held_ = o.held_;
+        hold_ = std::move(o.hold_);
 #ifdef _WIN32
         handle_ = o.handle_; o.handle_ = nullptr;
 #else
@@ -111,6 +112,7 @@ ImageLock::~ImageLock() { release(); }
 
 void ImageLock::release()
 {
+    hold_.reset();
 #ifdef __EMSCRIPTEN__
     held_ = false;
 #elif defined(_WIN32)
@@ -181,6 +183,7 @@ std::optional<ImageLock> ImageLock::acquire(const std::string& path, Kind kind,
     lk.fd_ = fd;
 #endif
     lk.held_ = true;
+    lk.hold_ = held_files::Hold(file);
     return lk;
 #endif
 }

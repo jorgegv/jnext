@@ -250,6 +250,8 @@ std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_fifo_paths(const std::str
     std::unique_ptr<JoyUartEndpoint> ep(new JoyUartEndpoint());
     ep->rx_fd_       = rx_fd;
     ep->tx_path_     = tx_path;
+    ep->hold_rx_     = held_files::Hold(rx_path);
+    ep->hold_tx_     = held_files::Hold(tx_path);
     ep->description_ = "FIFO pair " + rx_path + " (host->Next) / " + tx_path + " (Next->host)";
     return ep;
 }

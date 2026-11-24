@@ -14,6 +14,7 @@
 //
 // POSIX: flock(LOCK_EX|LOCK_NB). Windows: LockFileEx on a byte past the content, so the holder's
 // pid stays readable. Emscripten: a no-op that always succeeds (one page, one in-memory file system).
+#include "core/held_files.h"
 #include <optional>
 #include <string>
 
@@ -45,6 +46,7 @@ private:
     void release();
     std::string key_;
     bool        held_ = false;
+    held_files::Hold hold_;   // the lock file under <state dir>/locks: trashing it defeats the second-jnext refusal
 #ifdef _WIN32
     void*       handle_ = nullptr;
 #else

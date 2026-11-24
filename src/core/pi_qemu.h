@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/held_files.h"
 #include "audio/pi_audio.h"
 #include <atomic>
 #include <cstdint>
@@ -260,6 +261,7 @@ private:
                                                             const std::string& audio_base);
 
     int               pid_ = -1;
+    std::vector<held_files::Hold> holds_;   // the overlay and the FIFO folder, while QEMU runs (held_files)
     std::uint16_t     tcp_port_ = 0;
     // Windows only (pi_qemu_win.cpp): HANDLEs, spelled void* so no header here
     // needs <windows.h>.

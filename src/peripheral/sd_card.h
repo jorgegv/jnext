@@ -1,4 +1,5 @@
 #pragma once
+#include "core/held_files.h"
 #include <atomic>
 #include <memory>
 #include <cstddef>
@@ -351,6 +352,7 @@ private:
     // The image has a write journal (--sdcard-writes): the file is opened
     // read-only, reads see the journal over it and CMD24 appends to it.
     std::shared_ptr<sd_write_journal::Journal> journal_;
+    held_files::Hold hold_image_;   // the image file, while mounted (the SD-writes file is the Journal's hold)
     std::string path_;            // mounted image, for the stream reopen
     std::uint64_t stream_write_attempts_ = 0;
 

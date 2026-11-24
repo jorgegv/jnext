@@ -138,12 +138,16 @@ private:
 
 // ---- the host files the running emulator holds -----------------------------
 
-/// Every host file (or directory) the running emulator holds open, writes to, or serves, which the
-/// manager must never delete, trash, replace or copy onto the card: both slots' images (mounted and
-/// configured, card 0 keeps its path across an eject), each one's SD-writes file (Journal::file(); it is
-/// reopened by path on every commit, so a trashed one comes back headerless and the guest's writes are
-/// lost), the tape-save target, a running tape recorder, an RZX recording and a video recording, the
-/// loaded TAP, TZX and WAV tapes, the NEX a read overlay serves, and the esxDOS host-filesystem root.
+/// Every host file (or directory) the running process holds open, writes to again, or serves, which the
+/// manager must never delete, trash, replace or copy onto the card. The CLASS is enumerated at its source:
+/// every holder records the path it holds while it holds it (core/held_files.h: mounted images, SD-writes
+/// files, image lock files, the output writers through output_files::begin/end (--wav-record, --log-file,
+/// --dac-trace, a tape save, the compositor trace, the audio log), RZX and video recordings with the video's
+/// raw temp files, the joystick-UART FIFOs, NextPi's overlay), and this reads that registry. On top of it
+/// this adds what is held only by CONFIGURATION: both slots' configured images and their writes files (card
+/// 0 keeps its path across an eject), the NEX a read overlay serves, the loaded TAP, TZX and WAV tapes, and
+/// the esxDOS host-filesystem root. A writes file is reopened by path on every commit, so a trashed one
+/// comes back headerless and the guest's writes are lost.
 /// A path may not exist yet (a writes file before its first commit). A transfer or delete refuses an
 /// item that IS one of these or a folder HOLDING one (TransferRequest::held_files, delete_items).
 std::vector<std::string> held_host_files(Emulator& emu);

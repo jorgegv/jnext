@@ -30,6 +30,7 @@ bool RzxRecorder::start(const std::string& output_path) {
         return false;
     }
     output_path_ = output_path;
+    hold_ = held_files::Hold(output_path);
     rec_ = RzxRecording{};
     rec_.creator = "JNEXT";
     rec_.creator_major = 1;
@@ -45,6 +46,7 @@ bool RzxRecorder::stop() {
     if (!recording_) return false;
     recording_ = false;
     frame_started_ = false;
+    struct Release { held_files::Hold& h; ~Release() { h.reset(); } } release{hold_};
 
     bool ok = rzx::write(output_path_, rec_);
     if (ok) {

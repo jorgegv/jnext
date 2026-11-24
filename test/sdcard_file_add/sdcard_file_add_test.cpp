@@ -260,6 +260,48 @@ void test_writes() {
     check("SDFA-W21", "both FAT copies still agree after all of them",
           fats_agree(img, fat_detail) && free_counts_agree(img), fat_detail);
 
+    // ---- a name that is another entry's 8.3 alias (GH #558) -------------------
+    // FatFs resolves `ALONGD~1.NEX` to `A Long Demo Name.nex`: "replacing" it would overwrite a file the
+    // caller never named. Oracle: the card as FatFs listed it (the alias is read back, not assumed), and
+    // the image digest, which must not move on a refusal.
+    {
+        std::string alias;
+        {
+            std::vector<sdcard::cardops::CardEntry> ents;
+            std::string lerr;
+            sdcard::cardops::list_dir(img.string(), "/", ents, lerr);
+            for (const auto& e : ents)
+                if (e.name == "A Long Demo Name.nex") alias = e.altname;
+        }
+        const uint64_t before = file_digest(img);
+        write_host_file(src, small);
+        std::string aerr;
+        const FileAddStatus ast =
+            sdcard::add_file_to_image(img.string(), src.string(), "/" + alias, true, aerr);
+        check("SDFA-W73", "a single file whose name is another entry's 8.3 alias is refused even with overwrite, naming that entry, the image untouched",
+              !alias.empty() && ast == FileAddStatus::DestInvalid && aerr.find("A Long Demo Name.nex") != std::string::npos &&
+                  file_digest(img) == before && tree_has(img, "", "A Long Demo Name.nex", lfn_data.size()),
+              alias + " | " + aerr);
+        // the same name inside a folder merge, with overwrite: all or nothing
+        const fs::path hd = g_scratch / "aliasdir";
+        std::error_code mec;
+        fs::remove_all(hd, mec);
+        fs::create_directories(hd);
+        write_host_file(hd / "FRESH.BIN", small);
+        write_host_file(hd / alias, small);
+        const FileAddStatus mst = sdcard::add_to_image(img.string(), hd.string(), "/", true, aerr);
+        check("SDFA-W74", "a folder merge holding a file named like another entry's 8.3 alias is refused with overwrite, naming that entry, the image untouched (nothing of the folder is copied)",
+              mst == FileAddStatus::DestInvalid && aerr.find("A Long Demo Name.nex") != std::string::npos &&
+                  file_digest(img) == before && !card_has(img, "/FRESH.BIN"),
+              aerr);
+        // a case variant of the stored name is still a plain replace
+        write_host_file(src, small);
+        const FileAddStatus cst =
+            sdcard::add_file_to_image(img.string(), src.string(), "/a long demo name.NEX", true, aerr);
+        check("SDFA-W75", "a case variant of the stored long name is a normal replace, not an alias refusal",
+              cst == FileAddStatus::Ok && tree_has(img, "", "A Long Demo Name.nex", small.size()), aerr);
+    }
+
     // ---- destination conflicts ---------------------------------------------
     write_host_file(src, small);
     st = sdcard::add_file_to_image(img.string(), src.string(), "/NEXTZXOS", false, err);

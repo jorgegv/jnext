@@ -6,6 +6,7 @@
 #include <filesystem>
 
 #include "core/emulator.h"
+#include "core/held_files.h"
 #include "core/log.h"
 #include "core/sdcard_carry.h"
 #include "core/sdcard_file_add.h"
@@ -299,7 +300,10 @@ std::array<SlotInfo, 2> slots(Emulator& emu) {
 }
 
 std::vector<std::string> held_host_files(Emulator& emu) {
-    std::vector<std::string> v;
+    // The registry first: every holder records the path it holds while it holds it (core/held_files.h).
+    // (Recordings, tape saves, locks, FIFOs, the NextPi overlay and the writers of the output options are all in
+    // it: they register themselves.)
+    std::vector<std::string> v = held_files::snapshot();
     auto add = [&](const std::string& p) {
         if (!p.empty()) v.push_back(p);
     };
@@ -314,10 +318,6 @@ std::vector<std::string> held_host_files(Emulator& emu) {
     add_card(emu.config().sd_card_image);    // card 0 keeps its path across an eject
     add_card(emu.config().sd_card2_image);
     if (emu.sd_card().has_read_overlay()) add(emu.config().load_file);   // the NEX the overlay serves
-    add(emu.config().tape_save_file);
-    if (emu.tape_recorder().active()) add(emu.tape_recorder().path());
-    if (emu.rzx_recorder().is_recording()) add(emu.rzx_recorder().output_path());
-    if (emu.video_recorder().is_recording()) add(emu.video_recorder().output_path());
     add(emu.tape().path());
     add(emu.tzx_tape().path());
     add(emu.wav_tape().path());
@@ -489,7 +489,16 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
     const std::string want = folded(name);
     const ops::CardEntry* same = nullptr;
     for (const ops::CardEntry& e : list) {
-        if (folded(e.name) == want) { if (!same) same = &e; }
+        if (folded(e.name) == want) {
+            if (same) {
+                // two entries of one name (a guest or a damaged card wrote them): FatFs takes the first in
+                // DIRECTORY order, which the sorted listing does not show, so which one a copy would replace
+                // is not known here
+                fail(c, label, "the card holds two entries named '" + ops::display_name(e) + "'; it is not replaced");
+                return ItemOutcome::Failed;
+            }
+            same = &e;
+        }
         else if (!e.altname.empty() && folded(e.altname) == want) {
             fail(c, label, "'" + name + "' is the 8.3 name of '" + ops::display_name(e) +
                                "' on the card; copying under it would overwrite that file");

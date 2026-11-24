@@ -286,6 +286,11 @@ bool VideoRecorder::start(const std::string& output_path)
         return false;
     }
 
+    holds_.clear();
+    holds_.emplace_back(output_path_);
+    holds_.emplace_back(video_tmp_);
+    holds_.emplace_back(audio_tmp_);
+
     frame_width_ = 0;
     frame_height_ = 0;
     recording_ = true;
@@ -299,6 +304,7 @@ bool VideoRecorder::stop()
     if (!recording_) return false;
 
     recording_ = false;
+    struct ReleaseHolds { std::vector<held_files::Hold>& h; ~ReleaseHolds() { h.clear(); } } release_holds{holds_};
 
     // Close temp files.
     if (video_file_) { fclose(video_file_); video_file_ = nullptr; }

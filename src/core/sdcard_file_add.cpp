@@ -410,6 +410,45 @@ FileAddStatus ensure_card_dir(MountedCard& card,
     return FileAddStatus::DestInvalid;
 }
 
+// Does `fat_path` name another entry's 8.3 ALIAS? FatFs resolves a typed `LONGFI~1.TXT` to the entry
+// `Long File Name.txt`, so a write "replacing" it would overwrite a file the caller never named. f_stat
+// cannot tell (it answers the typed spelling either way), so the parent directory is READ: an entry whose
+// stored name differs from the leaf but whose 8.3 alias equals it is the clash, reported by stored name.
+// It is refused even when another entry also carries the exact name: FatFs takes the first in directory
+// order, and which one a write would hit is not knowable here. Names are printable ASCII
+// (normalize_dest_path), so an ASCII fold is the FAT comparison.
+bool alias_clash(const std::string& fat_path, std::string& stored) {
+    auto fold = [](std::string v) {
+        for (char& c : v)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        return v;
+    };
+    const std::size_t slash = fat_path.rfind('/');
+    if (slash == std::string::npos) return false;
+    std::string parent = fat_path.substr(0, slash);
+    if (parent.size() <= 2) parent = "0:/";   // "0:" is the volume's current directory; the root is "0:/"
+    const std::string leaf = fold(fat_path.substr(slash + 1));
+    DIR dj{};
+    if (f_opendir(&dj, parent.c_str()) != FR_OK) return false;
+    bool found = false;
+    for (;;) {
+        FILINFO e{};
+        if (f_readdir(&dj, &e) != FR_OK || e.fname[0] == 0) break;
+        if (fold(e.fname) != leaf && e.altname[0] && fold(e.altname) == leaf) {
+            stored = e.fname;
+            found = true;
+            break;
+        }
+    }
+    f_closedir(&dj);
+    return found;
+}
+
+std::string alias_clash_message(const std::string& stored, const std::string& path) {
+    return "'" + path + "' is the 8.3 name of '" + stored +
+           "' on the card; copying under it would overwrite that file";
+}
+
 // Write `src_size` bytes of `src` to the card file `fat_path`, whose parent
 // directory exists. `replaced` (passed in false) is set when a file was
 // already there.
@@ -433,6 +472,10 @@ FileAddStatus write_card_file(MountedCard& card,
         FILINFO fno{};
         FRESULT st = f_stat(fat_path.c_str(), &fno);
         if (st == FR_OK) {
+            if (std::string stored; alias_clash(fat_path, stored)) {
+                err = alias_clash_message(stored, dest_path);
+                return FileAddStatus::DestInvalid;
+            }
             if (fno.fattrib & AM_DIR) {
                 err = "'" + dest_path +
                       "' already exists on the card as a directory";
@@ -742,6 +785,10 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
         if (fr != FR_OK) {
             err = "cannot inspect '" + card_path + "' on the card (" +
                   fr_str(fr) + ")";
+            return FileAddStatus::DestInvalid;
+        }
+        if (std::string stored; alias_clash(fat_path, stored)) {
+            err = alias_clash_message(stored, card_path);
             return FileAddStatus::DestInvalid;
         }
         const bool card_is_dir = (fno.fattrib & AM_DIR) != 0;
